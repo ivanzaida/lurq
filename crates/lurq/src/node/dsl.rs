@@ -3,7 +3,6 @@ use crate::{
   layout::{
     Alignment, StackAlignment,
     layout_kind::{FrameConstraints, ScrollDirection, ScrollState},
-    text_style::TextStyle,
   },
   node::{
     color::Color,
@@ -12,38 +11,6 @@ use crate::{
     padding::Padding,
   },
 };
-
-pub fn row() -> Node {
-  Node::row(0.0, Alignment::Start, vec![])
-}
-
-pub fn column() -> Node {
-  Node::column(0.0, Alignment::Start, vec![])
-}
-
-pub fn stack() -> Node {
-  Node::stack(StackAlignment::TopStart, vec![])
-}
-
-pub fn text(content: &str) -> Node {
-  Node::text(content)
-}
-
-pub fn styled_text(content: &str, style: TextStyle) -> Node {
-  Node::text_styled(content, style)
-}
-
-pub fn rect(width: f32, height: f32) -> Node {
-  Node::new().frame(FrameConstraints {
-    width: Some(width),
-    height: Some(height),
-    ..Default::default()
-  })
-}
-
-pub fn spacer() -> Node {
-  Node::new()
-}
 
 fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
   Node {
@@ -183,20 +150,3 @@ impl Node {
     self.padding(Padding::new().bottom(Dimension::Px(val)))
   }
 }
-
-macro_rules! child_method {
-  ($ty:ident, $child:ident) => {
-    ::paste::paste! {
-      impl $ty {
-        pub fn [<child_ $child>](self) -> Self {
-          self.child($child())
-        }
-      }
-    }
-  };
-}
-
-child_method!(Node, column);
-child_method!(Node, row);
-child_method!(Node, spacer);
-child_method!(Node, stack);

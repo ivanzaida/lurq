@@ -36,16 +36,6 @@ impl LayoutCache {
     *self.inner.borrow_mut() = None;
   }
 
-  pub fn patch_scroll_offset(&self, x: f32, y: f32) {
-    let mut borrow = self.inner.borrow_mut();
-    if let Some(cached) = borrow.as_mut() {
-      if let Some(child) = cached.result.children.first_mut() {
-        child.offset.x = x;
-        child.offset.y = y;
-      }
-    }
-  }
-
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     let borrow = self.inner.borrow();
     let cached_bytes = borrow
