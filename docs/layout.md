@@ -2,144 +2,161 @@
 
 ## Core Idea
 
-Layout is compositional. A `Node` has no layout properties by default. Layout behavior is added by wrapping a node in modifier nodes. Each modifier does one thing.
+Layout is constraints-based and compositional. Public UI code builds `Element` values. Internally, each `Element` wraps a crate-private node tree made of containers, leaves, and modifier nodes.
 
-## Node
-
-A `Node` is the base unit. It can hold:
-- Optional text content
-- Optional children
-- Optional visual properties (color, border, etc.)
-
-A node with no modifiers has no size, no padding, no alignment. It gets those through wrapping.
+A plain empty element has no intrinsic size. Size, padding, alignment, offsets, visuals, and scroll behavior are added by wrapping the element in modifiers.
 
 ## Modifiers
 
-Modifiers wrap a node in a new invisible layout node. They are chainable.
+Modifiers are chainable and wrap the current element.
 
+```rust
+Element::rect(80.0, 40.0)
+  .pad(12.0)
+  .fill("#3b82f6")
+  .rounded(8.0)
 ```
-Node::new()
-  .padding(Padding::all(Px(16.0)))
-  .frame(width: Px(200.0), height: Px(100.0))
-  .background(Color::from_hex("#ff0000"))
-```
 
-Each `.modifier()` call wraps the current node as the child of a new modifier node.
-
-### Available Modifiers
+Common modifiers:
 
 | Modifier | Purpose |
 |----------|---------|
-| `.padding(Padding)` | Adds insets around the child |
-| `.frame(...)` | Sets width, height, min/max constraints |
-| `.background(Color)` | Fills the area behind the child |
-| `.border(width, color)` | Draws a border around the child |
-| `.offset(x, y)` | Shifts the child without affecting layout |
-| `.align(Alignment)` | Overrides alignment within parent container |
+| `.size(width, height)` | Force width and height |
+| `.width(width)` | Force width |
+| `.height(height)` | Force height |
+| `.pad(...)` / `.pad_xy(...)` | Add insets around the child |
+| `.fill(color)` | Fill the element background |
+| `.rounded(radius)` | Set border radius |
+| `.border_inside(width, color)` | Draw an inside border |
+| `.offset(x, y)` | Shift visually without changing parent layout |
+| `.relative(x, y)` | Alias for `.offset(x, y)` |
+| `.absolute(x, y, width, height)` | Absolute stack positioning with forced size |
+| `.absolute_position(x, y)` | Absolute stack positioning with measured size |
+| `.align(Alignment)` | Override alignment within parent container |
+| `.flex(factor)` | Participate in row/column flex distribution |
 
-## Containers
+## Constraints Model
 
-Containers are nodes that arrange children along an axis or in layers. They are just `Node` constructors.
+Layout follows the same high-level model as Flutter:
 
-### Column
+1. Parent passes `Constraints` down to each child.
+2. Child picks a concrete `Size` within those constraints.
+3. Parent positions each child with an offset.
 
-Arranges children vertically (top to bottom).
-
-```
-Node::column(spacing: Px(8.0), align: Center, children)
-```
-
-### Row
-
-Arranges children horizontally (left to right).
-
-```
-Node::row(spacing: Px(8.0), align: Center, children)
-```
-
-### Stack
-
-Layers children on top of each other (z-axis). Last child is on top. Alignment controls how children are positioned within the stack bounds.
-
-```
-Node::stack(align: TopLeft, children)
-```
-
-This replaces absolute positioning. To place something at a specific spot within a stack, use `.align()` on the child.
-
-## Sizing Model (Flutter-style Constraints)
-
-Layout uses a **constraints-based** model:
-
-1. Parent passes `Constraints` (min_width, max_width, min_height, max_height) down to child
-2. Child picks a concrete `Size` (width, height) within those constraints
-3. Parent receives the child's chosen size and positions it
-
-### Constraints
-
-```
-struct Constraints {
-  min_width: f32,
-  max_width: f32,
-  min_height: f32,
-  max_height: f32,
+```rust
+pub struct Constraints {
+  pub min_width: f32,
+  pub max_width: f32,
+  pub min_height: f32,
+  pub max_height: f32,
 }
 ```
 
-- A "tight" constraint has min == max (forces exact size)
-- A "loose" constraint has min == 0 (child can be anything up to max)
-- An "unbounded" constraint has max == f32::INFINITY (e.g. inside a scroll)
+Constraint kinds:
 
-### Layout Protocol
+- Tight: `min == max`; forces an exact size.
+- Loose: `min == 0`; child can choose any size up to max.
+- Unbounded: `max == f32::INFINITY`; used by scroll containers on the scroll axis.
 
-Every node implements layout in two steps:
+Application code normally does not call layout directly. Runtime computes layout when rendering, dispatching input, or looking up elements.
 
+## Containers
+
+### Column
+
+`Element::column()` arranges children top-to-bottom.
+
+```rust
+Element::column()
+  .spacing(8.0)
+  .align_items(Alignment::Center)
+  .child(Element::text("A"))
+  .child(Element::text("B"))
 ```
-fn layout(&self, constraints: Constraints) -> Size
-fn position(&self, children_sizes: &[Size]) -> Vec<Offset>
+
+Column layout:
+
+1. Lays out non-flex children with loosened vertical constraints.
+2. Sums child heights plus spacing.
+3. Uses the max child width.
+4. Positions children vertically and applies cross-axis alignment.
+5. Distributes remaining height to flex children when present.
+
+### Row
+
+`Element::row()` arranges children left-to-right.
+
+```rust
+Element::row()
+  .spacing(8.0)
+  .align_items(Alignment::Center)
+  .child(Element::text("A"))
+  .child(Element::text("B"))
 ```
 
-- `layout` resolves size given constraints
-- `position` determines where each child goes
+Row layout is the horizontal equivalent of column layout.
 
-### How Containers Layout
+### Stack
 
-**Column:**
-1. Receives constraints from parent
-2. Passes each child a loosened version (unconstrained on the stacking axis)
-3. Children report sizes
-4. Column sums heights + spacing, uses max child width
-5. Positions children top-to-bottom, applying alignment on the cross axis
+`Element::stack()` overlays children. Later children paint on top of earlier children.
 
-**Row:** Same but horizontal.
+```rust
+Element::stack()
+  .stack_align(StackAlignment::Center)
+  .child(Element::rect(200.0, 120.0))
+  .child(Element::rect(40.0, 40.0).fill("#ef4444"))
+```
 
-**Stack:**
-1. Passes each child the same constraints
-2. Takes the max width and max height across all children
-3. Positions each child according to stack alignment + per-child `.align()` override
+Stack layout:
+
+1. Lays out all children with the same constraints.
+2. Sizes itself to the max width/height of non-absolute children.
+3. Positions normal children using stack alignment or per-child `.align(...)`.
+4. Positions absolute children at their explicit `(x, y)` offset.
+
+Absolute children do not contribute to stack size.
+
+## Relative Positioning
+
+```rust
+Element::rect(50.0, 50.0).relative(10.0, 20.0)
+```
+
+Relative positioning is an offset. It moves the child visually but the parent still reserves space as if the offset were zero. Siblings are not moved by the offset.
+
+## Absolute Positioning
+
+Absolute positioning is intentionally scoped to `Stack`.
+
+```rust
+Element::stack()
+  .child(Element::rect(300.0, 120.0).fill("#f8fafc"))
+  .child(
+    Element::rect(80.0, 32.0)
+      .fill("#f97316")
+      .absolute(190.0, 24.0, 80.0, 32.0),
+  )
+```
+
+Use:
+
+- `.absolute(x, y, width, height)` when the positioned child should have a forced size.
+- `.absolute_position(x, y)` when the positioned child should keep its measured size.
+
+There is no z-index. Rendering order is structural: later stack children paint above earlier children.
 
 ## Alignment
 
-### Container-level
+### Row And Column Alignment
 
-Set on the container, applies to all children as default.
-
-```
-Node::column(spacing: Px(8.0), align: AlignItems::Center, children)
-```
-
-### Per-child override
-
-A child can override its alignment within the parent.
-
-```
-child.align(Alignment::End)
+```rust
+Element::column()
+  .align_items(Alignment::Center)
+  .child(Element::text("centered"))
 ```
 
-### Alignment Values
-
-```
-enum Alignment {
+```rust
+pub enum Alignment {
   Start,
   Center,
   End,
@@ -147,10 +164,25 @@ enum Alignment {
 }
 ```
 
-For `Stack`, alignment is 2D:
+### Per-Child Override
 
+```rust
+Element::column()
+  .align_items(Alignment::Start)
+  .child(Element::text("left"))
+  .child(Element::text("right").align(Alignment::End))
 ```
-enum StackAlignment {
+
+### Stack Alignment
+
+```rust
+Element::stack()
+  .stack_align(StackAlignment::BottomEnd)
+  .child(Element::rect(40.0, 40.0))
+```
+
+```rust
+pub enum StackAlignment {
   TopStart,
   TopCenter,
   TopEnd,
@@ -165,25 +197,42 @@ enum StackAlignment {
 
 ## Flex
 
-Children inside a `Row` or `Column` can have a flex factor to distribute remaining space.
+Children inside `Row` or `Column` can consume remaining space with `.flex(factor)`.
 
-```
-child.flex(1.0)
+```rust
+Element::row()
+  .child(Element::rect(100.0, 50.0))
+  .child(Element::spacer().flex(1.0))
+  .child(Element::rect(100.0, 50.0))
 ```
 
-Layout:
-1. Lay out non-flex children first, sum their sizes
-2. Remaining space = container size - sum - total spacing
-3. Distribute remaining space proportionally by flex factor
+Flex layout:
+
+1. Lay out non-flex children first.
+2. Subtract fixed child sizes and spacing from available space.
+3. Divide remaining space by flex factor.
+4. Lay out flex children with tight constraints for their assigned size.
+
+## Scroll
+
+```rust
+Element::scroll_vertical(
+  Element::column()
+    .spacing(4.0)
+    .with_children(items),
+)
+.size(300.0, 180.0)
+```
+
+Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during layout/rendering.
 
 ## Text
 
-Text is a leaf node. It measures its own size based on content and constraints.
+Text is measured by the glyph engine and wraps within its width constraint.
 
+```rust
+Element::styled_text("hello", TextStyle {
+  font_size: 18.0,
+  ..TextStyle::default()
+})
 ```
-Node::text("hello")
-  .padding(Padding::all(Px(8.0)))
-```
-
-Text wraps within the width constraint it receives. Its height grows to fit content.
-

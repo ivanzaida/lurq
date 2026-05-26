@@ -2,14 +2,17 @@
 
 ## Overview
 
-Components are structs that implement the `Component` trait. They hold persistent state and produce a `Node` tree on each render cycle.
+Components are structs that implement `Component`. They hold persistent state and return an `Element` tree from `render`.
+
+See [`ctx.md`](ctx.md) for the full `Ctx` API used inside `create` and `render`.
 
 ```rust
-use lurq::app::component::Component;
-use lurq::app::ctx::Ctx;
-use lurq::core::Signal;
-use lurq::node::Node;
-use lurq::node::dsl::*;
+use lurq::{
+  app::{component::Component, ctx::Ctx},
+  core::Signal,
+  layout::{Alignment, text_style::{FontWeight, TextStyle}},
+  node::{Element, color::Color},
+};
 
 struct Counter {
   count: Signal<i32>,
@@ -22,15 +25,34 @@ impl Component for Counter {
     Self { count: ctx.signal(0) }
   }
 
-  fn render(&self, ctx: &mut Ctx) -> Node {
-    let count = self.count.clone();
-    column()
-      .spacing(8.0)
-      .child(text(&format!("Count: {}", self.count.get())))
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    let dec = self.count.clone();
+    let inc = self.count.clone();
+    let value = self.count.get();
+
+    Element::row()
+      .spacing(12.0)
+      .align_items(Alignment::Center)
       .child(
-        rect(120.0, 40.0)
-          .fill("#3b82f6")
-          .on_click(move |_| count.update(|n| *n += 1))
+        Element::rect(36.0, 36.0)
+          .fill("#ef4444")
+          .rounded(6.0)
+          .on_click(move |_| dec.update(|n| *n -= 1)),
+      )
+      .child(Element::styled_text(
+        &format!("{value}"),
+        TextStyle {
+          font_size: 24.0,
+          weight: FontWeight::Bold,
+          color: Color::from_hex("#1e293b"),
+          ..TextStyle::default()
+        },
+      ))
+      .child(
+        Element::rect(36.0, 36.0)
+          .fill("#22c55e")
+          .rounded(6.0)
+          .on_click(move |_| inc.update(|n| *n += 1)),
       )
   }
 }
@@ -41,8 +63,10 @@ impl Component for Counter {
 ```rust
 pub trait Component: Send + Sync + 'static {
   type Props: Send + 'static;
+
   fn create(ctx: &mut Ctx, props: Self::Props) -> Self;
-  fn render(&self, ctx: &mut Ctx) -> Node;
+  fn render(&self, ctx: &mut Ctx) -> Element;
+
   fn on_mounted(&self) {}
   fn on_unmounted(&self) {}
 }
@@ -50,14 +74,14 @@ pub trait Component: Send + Sync + 'static {
 
 | Method | Called | Purpose |
 |--------|--------|---------|
-| `create` | Once, on first mount | Initialize state, create signals |
-| `render` | Every dirty cycle | Build the node tree |
-| `on_mounted` | After first render | Setup (timers, subscriptions) |
-| `on_unmounted` | When component is dropped | Cleanup |
+| `create` | Once, when the component is mounted | Initialize persistent state |
+| `render` | On mount and when the component is dirty | Return the current element tree |
+| `on_mounted` | After first render | Setup hooks that need a mounted component |
+| `on_unmounted` | Before the component is removed | Cleanup |
 
 ## Props
 
-Components receive props through the `Props` associated type. Props are passed when mounting.
+Components receive props through the `Props` associated type.
 
 ```rust
 struct Greeting {
@@ -75,8 +99,8 @@ impl Component for Greeting {
     Self { name: props.name }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Node {
-    text(&format!("Hello, {}!", self.name))
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::text(&format!("Hello, {}!", self.name))
   }
 }
 ```
@@ -85,11 +109,11 @@ Use `()` for components with no props.
 
 ## Mounting Children
 
-Mount child components inside `render` using `Ctx`:
+Mount child components inside `render` with `Ctx`.
 
 ```rust
-fn render(&self, ctx: &mut Ctx) -> Node {
-  column()
+fn render(&self, ctx: &mut Ctx) -> Element {
+  Element::column()
     .spacing(16.0)
     .child(ctx.mount::<Header>(HeaderProps { title: "App" }))
     .child(ctx.mount::<Counter>(()))
@@ -97,43 +121,49 @@ fn render(&self, ctx: &mut Ctx) -> Node {
 }
 ```
 
-### Unkeyed — `ctx.mount::<C>(props)`
+### Unkeyed Mounts
 
-Children are matched by position and type. If the same component type appears at the same position on re-render, the existing instance is reused (no `create`, just `render`).
+`ctx.mount::<C>(props)` matches children by position and component type. If the same component type stays at the same slot, its instance is reused.
 
-### Keyed — `ctx.mount_keyed::<C>(key, props)`
+### Keyed Mounts
 
-Children are matched by key and type. Use for lists where items can reorder.
+`ctx.mount_keyed::<C>(key, props)` matches children by key and type. Use keyed mounts for lists that can reorder.
 
 ```rust
-for item in &self.items.get() {
-  ctx.mount_keyed::<TodoItem>(&item.id, item.clone());
-}
+Element::column().with_children(
+  self.items.get().iter().map(|item| {
+    ctx.mount_keyed::<TodoItem>(&item.id, item.clone())
+  })
+)
 ```
 
-### Lifecycle on Mount/Unmount
+### Slot Children
 
-- New child at a position → `create` + `render` + `on_mounted`
-- Same child at same position → `render` only
-- Child removed (position no longer rendered) → `on_unmounted` + drop
+Use `mount_with` or `mount_keyed_with` when a component needs children supplied by its parent.
+
+```rust
+ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
+  Element::text("content"),
+])
+```
 
 ## State
 
-### Signal — Reactive Value
+### Signal
 
 ```rust
 let count = ctx.signal(0);
 
-count.get()                    // read (tracked)
-count.get_untracked()          // read (not tracked)
-count.set(42)                  // replace
-count.update(|n| *n += 1)     // mutate
-count.with(|n| format!("{n}")) // read by reference (tracked)
+count.get();                    // tracked read
+count.get_untracked();          // untracked read
+count.set(42);                  // replace
+count.update(|n| *n += 1);      // mutate in place
+count.with(|n| format!("{n}")); // tracked borrow
 ```
 
-Writing to a signal marks the owning component dirty. On the next frame, `render` is called again.
+Writing to a signal marks the owning component dirty. Runtime rebuilds dirty component output before layout, rendering, event dispatch, and element lookup.
 
-### Memo — Derived Value
+### Memo
 
 ```rust
 let count = ctx.signal(0);
@@ -142,79 +172,91 @@ let doubled = ctx.memo({
   move || count.get() * 2
 });
 
-doubled.get() // auto-recomputes when count changes
+let value = doubled.get();
 ```
 
-Memo tracks which signals are read during computation. It only propagates to dependents when its value actually changes.
+A memo tracks signals read during computation and updates dependents only when its value changes.
 
-### Ref — Non-Reactive Persistent Value
+### Ref
 
 ```rust
-let timer_handle = ctx.create_ref::<Option<u64>>(None);
+let handle = ctx.create_ref::<Option<u64>>(None);
 
-timer_handle.set(Some(123));
-timer_handle.get()             // does NOT trigger re-render
+handle.set(Some(123));
+let current = handle.get();
 ```
 
-Use for values that need to persist across renders but shouldn't cause re-renders.
+Refs persist across renders but are not reactive.
 
-## Effects
+### Store
 
-### Auto-Tracked Effect
+Use stores and lenses for structured reactive state.
+
+```rust
+let user = ctx.store(User { name: "Ada".into(), age: 36 });
+let name = user.lens(
+  |u| u.name.clone(),
+  |u, name| u.name = name,
+);
+name.set("Grace".into());
+```
+
+## Effects And Watchers
 
 ```rust
 let count = ctx.signal(0);
-let name = ctx.signal("world".to_string());
 
 ctx.on_effect({
   let count = count.clone();
-  let name = name.clone();
-  move || {
-    println!("{}: {}", name.get(), count.get());
-  }
+  move || println!("count = {}", count.get())
 });
 ```
 
-Runs immediately. Re-runs whenever any signal read inside it changes.
-
-### Explicit Watcher
+Effects run immediately and rerun when any tracked signal read inside the effect changes.
 
 ```rust
-ctx.watch(&count, |val| {
-  println!("count changed to {val}");
+ctx.watch(&count, |value| {
+  println!("count changed to {value}");
 });
 ```
 
-Fires the callback whenever the watched signal changes.
+Watchers run when the watched signal changes.
 
 ## Dirty Tracking
 
-Each component has a dirty flag (`Arc<AtomicBool>`). The cycle:
+The high-level cycle is:
 
-1. Signal write → dirty flag set
-2. Runtime checks `any_dirty()` on the tree
-3. Dirty components get `render` called
-4. Dirty flag cleared after render
+1. Component reads reactive state during `render`.
+2. A signal/store/memo update marks the component dirty.
+3. Runtime detects dirty components before work that needs a fresh tree.
+4. Dirty component subtrees are rendered again.
+5. Layout/render/event lookup use the updated internal tree.
 
-Only dirty subtrees re-render. Parent re-render does not force child re-render unless the child's own signals changed.
+Parent components do not force child components to recreate if the child slot still matches.
 
 ## Lifecycle
 
 ```rust
 impl Component for MyComponent {
-  // ...
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::text("mounted")
+  }
 
   fn on_mounted(&self) {
-    println!("component mounted");
+    println!("mounted");
   }
 
   fn on_unmounted(&self) {
-    println!("component unmounted — cleanup here");
+    println!("unmounted");
   }
 }
 ```
-
-Both are default trait methods — override only when needed.
 
 ## Batch Updates
 
@@ -225,72 +267,7 @@ batch(|| {
   signal_a.set(1);
   signal_b.set(2);
   signal_c.set(3);
-  // watchers fire once after the block, not three times
 });
 ```
 
-## Full Example
-
-```rust
-use lurq::app::component::Component;
-use lurq::app::ctx::Ctx;
-use lurq::core::Signal;
-use lurq::layout::Alignment;
-use lurq::node::Node;
-use lurq::node::color::Color;
-use lurq::node::dsl::*;
-
-struct App {
-  items: Signal<Vec<String>>,
-  input: Signal<String>,
-}
-
-impl Component for App {
-  type Props = ();
-
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
-    Self {
-      items: ctx.signal(vec!["First item".into()]),
-      input: ctx.signal(String::new()),
-    }
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> Node {
-    let items = self.items.clone();
-    let input = self.input.clone();
-
-    let add = {
-      let items = items.clone();
-      let input = input.clone();
-      move |_| {
-        let val = input.get();
-        if !val.is_empty() {
-          items.update(|list| list.push(val.clone()));
-          input.set(String::new());
-        }
-      }
-    };
-
-    column()
-      .spacing(12.0)
-      .align_items(Alignment::Start)
-      .child(
-        row().spacing(8.0)
-          .child(rect(200.0, 36.0).fill("#f1f5f9"))
-          .child(
-            rect(80.0, 36.0)
-              .fill("#3b82f6")
-              .on_click(add)
-          )
-      )
-      .child(
-        column().spacing(4.0).with_children(
-          self.items.get().iter().map(|item| {
-            text(item)
-          }).collect::<Vec<_>>()
-        )
-      )
-      .pad(24.0)
-  }
-}
-```
+Batching coalesces dirty propagation and watcher notifications until the batch ends.

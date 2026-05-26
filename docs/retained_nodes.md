@@ -1,81 +1,110 @@
-# Retained Node Tree
+# Runtime And Retained Tree
 
 ## Overview
 
-The node tree is persistent. Once built, it stays alive. Properties on nodes use `Guard<T>` — reads are free, writes set a dirty flag. The layout/render system checks dirty flags and only recomputes what changed.
+The public API works with `Element`. Internally, the runtime stores a crate-private retained node tree for layout, rendering, hit testing, and component reconciliation.
 
-## Guard<T>
+The internal tree is rebuilt only where needed:
+
+- `set_root(element)` installs a static element tree.
+- `mount_root::<Component>(props)` installs a root component.
+- Reactive state writes mark owning components dirty.
+- Before layout/render/event lookup, runtime rebuilds dirty component subtrees.
+
+## Runtime Setup
 
 ```rust
-let mut color = Guard::new(Color::from_hex("#3b82f6"));
+use lurq::{
+  app::{Runtime, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
+};
 
-// Read — no overhead
-let c: &Color = &*color;
+let mut runtime = Runtime::new();
+runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
+runtime.mount_root::<App>(());
 
-// Write — marks dirty
-*color = Color::from_hex("#ef4444");
+WinitWindow::new(runtime)
+  .with_title("lurq demo")
+  .run();
 ```
 
-## Node Properties
+## Window Tick Callback
 
-Node properties that can change at runtime are wrapped in `Guard<T>`:
-- `color: Guard<Option<Color>>`
-- `border_radius: Guard<Option<BorderRadius>>`
-- `border: Guard<Option<Border>>`
-- `scrollbar_style: Guard<Option<ScrollBarStyle>>`
-
-Text content uses `Guard<String>` so text updates don't rebuild the node.
-
-## Component Model
-
-Components build the node tree once in `create`. The tree persists.
+`WinitWindow::on_tick` runs a callback with mutable runtime access while the window event loop is active.
 
 ```rust
-struct Counter {
-  count: Signal<i32>,
-  label: Guard<String>,
-}
-
-impl Component for Counter {
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
-    Self {
-      count: ctx.signal(0),
-      label: Guard::new("0".into()),
-    }
-  }
-
-  fn setup(&mut self, ctx: &mut Ctx) -> Node {
-    // Build tree once
-    let count = self.count.clone();
-    column()
-      .child(text_guard(&mut self.label))
-      .child(rect(36.0, 36.0).fill("#22c55e").on_click(move |_| {
-        count.update(|n| *n += 1);
-      }))
-  }
-}
+WinitWindow::new(runtime)
+  .with_title("lurq demo")
+  .on_tick(|rt: &mut Runtime| {
+    // Update runtime-managed state here.
+  })
+  .run();
 ```
 
-When `count` signal fires, the component updates its guards:
+When a tick callback is installed, the winit event loop uses polling so ticks continue without input events. After each tick, the window checks `Runtime::needs_redraw()` and requests redraw when needed.
+
+## Element Lookup
+
+Use `find_element` to search the current tree and get the element plus its computed rect.
+
 ```rust
-// Effect or watcher updates the guard
-ctx.watch(&self.count, |val| {
-  self.label.set(format!("{}", val));
+let found = runtime.find_element(|el| {
+  el.color() == Some(Color::from_hex("#22c55e"))
 });
+
+if let Some(found) = found {
+  println!("x={}, y={}", found.rect.x, found.rect.y);
+}
 ```
 
-The runtime sees `label.is_changed()` and only re-measures that text node.
+`ElementRect` contains both absolute and parent-relative coordinates.
 
-## Layout Dirty Tracking
+```rust
+pub struct ElementRect {
+  pub x: f32,
+  pub y: f32,
+  pub relative_x: f32,
+  pub relative_y: f32,
+  pub width: f32,
+  pub height: f32,
+}
+```
 
-Each `pass()`:
-1. Walk the node tree
-2. Check `Guard::is_changed()` on each node's properties
-3. Only re-layout subtrees with dirty nodes
-4. Clear all dirty flags after layout
+- `x` and `y` are absolute window-space coordinates.
+- `relative_x` and `relative_y` are relative to the parent layout origin.
+- `width` and `height` are the computed layout size.
+- `center()` returns the center point of the rect.
 
-## No Rebuild
+`find_element` updates dirty component output and layout before returning.
 
-- `pass()` never calls `render()` again
-- The node tree from `create` persists
-- Signal changes → guard writes → dirty flags → incremental layout
+## Mutable Element Rects
+
+Use `find_element_mut` when runtime code needs to change an element's layout rect.
+
+```rust
+{
+  let mut found = runtime
+    .find_element_mut(|el| el.color() == Some(Color::from_hex("#22c55e")))
+    .unwrap();
+
+  found.rect.relative_x = 15.0;
+  found.rect.relative_y = 20.0;
+  found.rect.width = 30.0;
+  found.rect.height = 40.0;
+} // mutation is applied when `found` is dropped
+```
+
+The mutable handle writes back on drop. If the rect changed, runtime stores a runtime rect override, invalidates layout, clears cached layout, and marks the runtime for redraw.
+
+Use `relative_x` and `relative_y` for mutation. Absolute `x` and `y` are derived from parent position plus the relative offset.
+
+## Redraw Flow
+
+The runtime sets `needs_redraw` when input, reactive updates, scroll updates, or runtime rect mutations change what should be drawn. The winit shell calls `request_redraw()` when needed.
+
+During redraw, `runtime.pass(window)` performs the render pass through the configured render engine.
+
+## Internal Dirty Tracking
+
+Internal nodes cache layout results. Visual and layout-affecting changes invalidate the relevant caches. Runtime rect mutation invalidates the tree because a child override can affect parent positioning and hit testing.
+
+Components are still the source of truth for reactive UI. Runtime rect mutation is an imperative escape hatch for direct runtime manipulation, animation, or tooling.
