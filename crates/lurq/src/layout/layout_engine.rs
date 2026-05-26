@@ -1,13 +1,13 @@
 use crate::{
   app::glyph_engine::GlyphEngine,
   layout::{
+    Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
       FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, ScrollDirection, ScrollState,
     },
     layout_result::{ChildLayout, LayoutResult},
     quad::{ClipRect, Quad, QuadContent},
     text_style::TextStyle,
-    Alignment, Constraints, Offset, Size, StackAlignment,
   },
   node::{node::Node, padding::Padding},
 };
@@ -230,7 +230,7 @@ impl LayoutEngine {
       return cached;
     }
 
-    let result = match node.kind() {
+    let mut result = match node.kind() {
       LayoutKind::Leaf => self.layout_leaf(node, constraints),
       LayoutKind::Text { style } => {
         let content = node.text_content().unwrap_or("");
@@ -261,6 +261,9 @@ impl LayoutEngine {
       LayoutKind::PaddingModifier(padding) => self.layout_padding(glyph_engine, node, constraints, padding),
       LayoutKind::FrameModifier(frame) => self.layout_frame(glyph_engine, node, constraints, frame),
       LayoutKind::OffsetModifier { x, y } => self.layout_offset(glyph_engine, node, constraints, *x, *y),
+      LayoutKind::AbsoluteModifier { width, height, .. } => {
+        self.layout_absolute(glyph_engine, node, constraints, *width, *height)
+      }
       LayoutKind::AlignModifier(_) => self.layout_passthrough(glyph_engine, node, constraints),
       LayoutKind::FlexModifier(_) => self.layout_passthrough(glyph_engine, node, constraints),
       LayoutKind::ScrollModifier { state, direction } => {
@@ -268,8 +271,23 @@ impl LayoutEngine {
       }
     };
 
+    Self::apply_runtime_rect(node, &mut result);
     node.layout_cache.store(constraints, result.clone());
     result
+  }
+
+  fn apply_runtime_rect(node: &Node, result: &mut LayoutResult) {
+    if let Some(rect) = node.runtime_rect() {
+      result.size.width = rect.width;
+      result.size.height = rect.height;
+    }
+
+    for (child_layout, child_node) in result.children.iter_mut().zip(node.children()) {
+      if let Some(rect) = child_node.runtime_rect() {
+        child_layout.offset.x = rect.x;
+        child_layout.offset.y = rect.y;
+      }
+    }
   }
 
   fn layout_leaf(&self, node: &Node, constraints: Constraints) -> LayoutResult {
@@ -760,19 +778,31 @@ impl LayoutEngine {
       .map(|child| self.layout_node(glyph_engine, child, constraints))
       .collect();
 
-    let max_width = results.iter().map(|r| r.size.width).fold(0.0_f32, f32::max);
-    let max_height = results.iter().map(|r| r.size.height).fold(0.0_f32, f32::max);
+    let normal_results: Vec<&LayoutResult> = children
+      .iter()
+      .zip(results.iter())
+      .filter(|(child, _)| !matches!(child.kind(), LayoutKind::AbsoluteModifier { .. }))
+      .map(|(_, result)| result)
+      .collect();
+
+    let max_width = normal_results.iter().map(|r| r.size.width).fold(0.0_f32, f32::max);
+    let max_height = normal_results.iter().map(|r| r.size.height).fold(0.0_f32, f32::max);
     let size = constraints.constrain(Size::new(max_width, max_height));
 
     let child_layouts: Vec<ChildLayout> = results
       .into_iter()
       .zip(children.iter())
       .map(|(result, child)| {
-        let child_align = match child.kind() {
-          LayoutKind::AlignModifier(a) => a.to_stack_alignment(),
-          _ => align,
+        let offset = match child.kind() {
+          LayoutKind::AbsoluteModifier { x, y, .. } => Offset::new(*x, *y),
+          _ => {
+            let child_align = match child.kind() {
+              LayoutKind::AlignModifier(a) => a.to_stack_alignment(),
+              _ => align,
+            };
+            child_align.resolve_offset(size, result.size)
+          }
         };
-        let offset = child_align.resolve_offset(size, result.size);
         ChildLayout { offset, result }
       })
       .collect();
@@ -860,6 +890,36 @@ impl LayoutEngine {
     let child = &node.children()[0];
     let child_result = self.layout_node(glyph_engine, child, c);
     let size = c.constrain(child_result.size);
+
+    LayoutResult {
+      size,
+      children: vec![ChildLayout {
+        offset: Offset::default(),
+        result: child_result,
+      }],
+    }
+  }
+
+  fn layout_absolute(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    width: Option<f32>,
+    height: Option<f32>,
+  ) -> LayoutResult {
+    let child = &node.children()[0];
+    let child_constraints = Constraints {
+      min_width: width.unwrap_or(0.0),
+      max_width: width.unwrap_or(constraints.max_width),
+      min_height: height.unwrap_or(0.0),
+      max_height: height.unwrap_or(constraints.max_height),
+    };
+    let child_result = self.layout_node(glyph_engine, child, child_constraints);
+    let size = constraints.constrain(Size::new(
+      width.unwrap_or(child_result.size.width),
+      height.unwrap_or(child_result.size.height),
+    ));
 
     LayoutResult {
       size,

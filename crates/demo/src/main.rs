@@ -1,12 +1,12 @@
 use lurq::{
-  app::{component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
   core::Signal,
   layout::{
+    Alignment,
     scrollbar::ScrollBarStyle,
     text_style::{FontStyle, FontWeight, TextStyle},
-    Alignment,
   },
-  node::{color::Color, Element},
+  node::{Element, color::Color},
 };
 
 // --- Counter component ---
@@ -160,5 +160,8 @@ fn main() {
   let mut runtime = Runtime::new();
   runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
   runtime.mount_root::<DemoApp>(());
-  WinitWindow::new(runtime).with_title("lurq demo").run();
+  WinitWindow::new(runtime)
+    .with_title("lurq demo")
+    .on_tick(|_rt: &mut Runtime| {})
+    .run();
 }

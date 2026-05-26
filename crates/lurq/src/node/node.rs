@@ -4,10 +4,10 @@ use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
   core::{Guard, IdGenerator, NodeId, NodeRef},
   layout::{
+    Alignment, Size, StackAlignment,
     layout_kind::{FrameConstraints, LayoutKind, Overflow},
     scrollbar::ScrollBarStyle,
     text_style::TextStyle,
-    Alignment, Size, StackAlignment,
   },
   node::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
@@ -51,8 +51,17 @@ pub(crate) struct Node {
   pub(crate) node_ref: Option<NodeRef>,
   pub(crate) interaction: Option<InteractionState>,
   pub(crate) layout_cache: crate::node::layout_cache::LayoutCache,
+  pub(crate) runtime_rect: Option<RuntimeRect>,
   pub(crate) children: Vec<Node>,
   pub(crate) events: EventHandlers,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RuntimeRect {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
 }
 
 impl Default for Node {
@@ -76,6 +85,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![],
       events: EventHandlers::default(),
     }
@@ -97,6 +107,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![],
       events: EventHandlers::default(),
     }
@@ -116,6 +127,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![],
       events: EventHandlers::default(),
     }
@@ -140,6 +152,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children,
       events: EventHandlers::default(),
     }
@@ -164,6 +177,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children,
       events: EventHandlers::default(),
     }
@@ -183,6 +197,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children,
       events: EventHandlers::default(),
     }
@@ -202,6 +217,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -221,6 +237,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -240,6 +257,27 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
+      children: vec![self],
+      events: EventHandlers::default(),
+    }
+  }
+
+  pub(crate) fn absolute_modifier(self, x: f32, y: f32, width: Option<f32>, height: Option<f32>) -> Self {
+    Self {
+      kind: LayoutKind::AbsoluteModifier { x, y, width, height },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
+      color: Guard::new(None),
+      border_radius: Guard::new(None),
+      border: Guard::new(None),
+      scrollbar_style: Guard::new(None),
+      node_ref: None,
+      interaction: None,
+      layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -259,6 +297,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -278,6 +317,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -301,6 +341,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -320,6 +361,7 @@ impl Node {
       node_ref: None,
       interaction: None,
       layout_cache: Default::default(),
+      runtime_rect: None,
       children: vec![self],
       events: EventHandlers::default(),
     }
@@ -527,6 +569,22 @@ impl Node {
 
   pub fn children(&self) -> &[Node] {
     &self.children
+  }
+
+  pub(crate) fn runtime_rect(&self) -> Option<RuntimeRect> {
+    self.runtime_rect
+  }
+
+  pub(crate) fn set_runtime_rect(&mut self, rect: RuntimeRect) {
+    self.runtime_rect = Some(rect);
+    self.layout_cache.invalidate();
+  }
+
+  pub(crate) fn invalidate_layout_recursive(&self) {
+    self.layout_cache.invalidate();
+    for child in &self.children {
+      child.invalidate_layout_recursive();
+    }
   }
 
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {

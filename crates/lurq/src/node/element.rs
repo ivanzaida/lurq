@@ -2,10 +2,10 @@ use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
   core::NodeRef,
   layout::{
+    Alignment, StackAlignment,
     layout_kind::{FrameConstraints, Justify, ScrollState},
     scrollbar::ScrollBarStyle,
     text_style::TextStyle,
-    Alignment, StackAlignment,
   },
   node::{
     border::{Border, BorderRadius},
@@ -218,6 +218,21 @@ impl Element {
 
   pub fn offset(mut self, x: f32, y: f32) -> Self {
     self.node = self.node.offset(x, y);
+    self
+  }
+
+  pub fn relative(mut self, x: f32, y: f32) -> Self {
+    self.node = self.node.relative(x, y);
+    self
+  }
+
+  pub fn absolute(mut self, x: f32, y: f32, width: f32, height: f32) -> Self {
+    self.node = self.node.absolute(x, y, width, height);
+    self
+  }
+
+  pub fn absolute_position(mut self, x: f32, y: f32) -> Self {
+    self.node = self.node.absolute_position(x, y);
     self
   }
 

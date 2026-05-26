@@ -31,6 +31,12 @@ pub enum LayoutKind {
     x: f32,
     y: f32,
   },
+  AbsoluteModifier {
+    x: f32,
+    y: f32,
+    width: Option<f32>,
+    height: Option<f32>,
+  },
   AlignModifier(Alignment),
   FlexModifier(FlexParams),
   ScrollModifier {

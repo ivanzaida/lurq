@@ -14,14 +14,14 @@ use crate::{
   },
   core::{IdGenerator, NodeId},
   layout::{
+    Constraints, Size,
     layout_engine::LayoutEngine,
     layout_kind::{LayoutKind, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
-    Constraints, Size,
   },
-  node::{border::BorderPlacement, color::Color, Element, ElementRef, Node},
+  node::{Element, ElementRef, Node, border::BorderPlacement, color::Color},
 };
 
 trait AnyRootComponent: Send + Sync {
@@ -71,6 +71,8 @@ pub struct Runtime {
 pub struct ElementRect {
   pub x: f32,
   pub y: f32,
+  pub relative_x: f32,
+  pub relative_y: f32,
   pub width: f32,
   pub height: f32,
 }
@@ -85,6 +87,13 @@ impl ElementRect {
 pub struct FoundElement<'a> {
   pub element: ElementRef<'a>,
   pub rect: ElementRect,
+}
+
+pub struct FoundElementMut<'a> {
+  pub rect: ElementRect,
+  original_rect: ElementRect,
+  runtime: &'a mut Runtime,
+  path: Vec<usize>,
 }
 
 impl Default for Runtime {
@@ -254,7 +263,25 @@ impl Runtime {
 
     let root = self.root.as_ref()?;
     let layout = self.last_layout.as_ref()?;
-    find_element_recursive(root, layout, 0.0, 0.0, &predicate)
+    find_element_recursive(root, layout, 0.0, 0.0, 0.0, 0.0, &predicate)
+  }
+
+  pub fn find_element_mut(
+    &mut self,
+    predicate: impl for<'a> Fn(ElementRef<'a>) -> bool,
+  ) -> Option<FoundElementMut<'_>> {
+    self.update_layout();
+
+    let root = self.root.as_ref()?;
+    let layout = self.last_layout.as_ref()?;
+    let found = find_element_path_recursive(root, layout, 0.0, 0.0, 0.0, 0.0, Vec::new(), &predicate)?;
+
+    Some(FoundElementMut {
+      rect: found.rect,
+      original_rect: found.rect,
+      runtime: self,
+      path: found.path,
+    })
   }
 
   pub fn id_gen(&self) -> &IdGenerator {
@@ -737,6 +764,14 @@ impl Runtime {
       self.last_layout = Some(self.layout_engine.compute(&mut self.glyph_engine, root, constraints));
     }
   }
+
+  fn node_mut_at_path(&mut self, path: &[usize]) -> Option<&mut Node> {
+    let mut node = self.root.as_mut()?;
+    for &index in path {
+      node = node.children.get_mut(index)?;
+    }
+    Some(node)
+  }
 }
 
 impl Drop for Runtime {
@@ -747,17 +782,45 @@ impl Drop for Runtime {
   }
 }
 
+impl Drop for FoundElementMut<'_> {
+  fn drop(&mut self) {
+    if self.rect == self.original_rect {
+      return;
+    }
+
+    let rect = crate::node::node::RuntimeRect {
+      x: self.rect.relative_x,
+      y: self.rect.relative_y,
+      width: self.rect.width,
+      height: self.rect.height,
+    };
+
+    if let Some(node) = self.runtime.node_mut_at_path(&self.path) {
+      node.set_runtime_rect(rect);
+    }
+    if let Some(root) = self.runtime.root.as_ref() {
+      root.invalidate_layout_recursive();
+    }
+    self.runtime.last_layout = None;
+    self.runtime.needs_redraw = true;
+  }
+}
+
 fn find_element_recursive<'a>(
   node: &'a Node,
   layout: &'a LayoutResult,
   abs_x: f32,
   abs_y: f32,
+  parent_x: f32,
+  parent_y: f32,
   predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
 ) -> Option<FoundElement<'a>> {
   let element = ElementRef::new(node);
   let rect = ElementRect {
     x: abs_x,
     y: abs_y,
+    relative_x: abs_x - parent_x,
+    relative_y: abs_y - parent_y,
     width: layout.size.width,
     height: layout.size.height,
   };
@@ -772,6 +835,57 @@ fn find_element_recursive<'a>(
       &child_layout.result,
       abs_x + child_layout.offset.x,
       abs_y + child_layout.offset.y,
+      abs_x,
+      abs_y,
+      predicate,
+    ) {
+      return Some(found);
+    }
+  }
+
+  None
+}
+
+struct FoundElementPath {
+  path: Vec<usize>,
+  rect: ElementRect,
+}
+
+fn find_element_path_recursive(
+  node: &Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  parent_x: f32,
+  parent_y: f32,
+  path: Vec<usize>,
+  predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
+) -> Option<FoundElementPath> {
+  let element = ElementRef::new(node);
+  let rect = ElementRect {
+    x: abs_x,
+    y: abs_y,
+    relative_x: abs_x - parent_x,
+    relative_y: abs_y - parent_y,
+    width: layout.size.width,
+    height: layout.size.height,
+  };
+
+  if predicate(element) {
+    return Some(FoundElementPath { path, rect });
+  }
+
+  for (index, (child_layout, child_node)) in layout.children.iter().zip(node.children()).enumerate() {
+    let mut child_path = path.clone();
+    child_path.push(index);
+    if let Some(found) = find_element_path_recursive(
+      child_node,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      abs_x,
+      abs_y,
+      child_path,
       predicate,
     ) {
       return Some(found);

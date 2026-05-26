@@ -1,7 +1,7 @@
 use winit::{
   application::ApplicationHandler,
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
-  event_loop::{ActiveEventLoop, EventLoop},
+  event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
   window::{Window, WindowAttributes, WindowId},
 };
 
@@ -13,6 +13,7 @@ use crate::app::{
 pub struct WinitWindow {
   runtime: Runtime,
   attrs: WindowAttributes,
+  on_tick: Option<Box<dyn FnMut(&mut Runtime)>>,
 }
 
 impl WinitWindow {
@@ -20,6 +21,7 @@ impl WinitWindow {
     Self {
       runtime,
       attrs: WindowAttributes::default(),
+      on_tick: None,
     }
   }
 
@@ -62,13 +64,25 @@ impl WinitWindow {
     self
   }
 
+  pub fn on_tick<F>(mut self, tick: F) -> Self
+  where
+    F: FnMut(&mut Runtime) + 'static,
+  {
+    self.on_tick = Some(Box::new(tick));
+    self
+  }
+
   pub fn run(self) {
     let event_loop = EventLoop::new().unwrap();
+    if self.on_tick.is_some() {
+      event_loop.set_control_flow(ControlFlow::Poll);
+    }
     let mut handler = WinitHandler {
       runtime: self.runtime,
       window: None,
       cursor_pos: (0.0, 0.0),
       attrs: Some(self.attrs),
+      on_tick: self.on_tick,
     };
     event_loop.run_app(&mut handler).unwrap();
   }
@@ -79,6 +93,7 @@ struct WinitHandler {
   window: Option<Window>,
   cursor_pos: (f64, f64),
   attrs: Option<WindowAttributes>,
+  on_tick: Option<Box<dyn FnMut(&mut Runtime)>>,
 }
 
 impl WinitHandler {
@@ -93,6 +108,13 @@ impl WinitHandler {
 }
 
 impl ApplicationHandler for WinitHandler {
+  fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    if let Some(tick) = &mut self.on_tick {
+      tick(&mut self.runtime);
+      self.check_redraw();
+    }
+  }
+
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     if self.window.is_none() {
       let attrs = self.attrs.take().unwrap_or_default();

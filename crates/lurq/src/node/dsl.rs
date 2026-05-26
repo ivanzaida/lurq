@@ -29,6 +29,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     node_ref: None,
     interaction: None,
     layout_cache: Default::default(),
+    runtime_rect: None,
     children: vec![child],
     events: EventHandlers::default(),
   }
@@ -124,6 +125,18 @@ impl Node {
       height: Some(height),
       ..Default::default()
     })
+  }
+
+  pub fn relative(self, x: f32, y: f32) -> Self {
+    self.offset(x, y)
+  }
+
+  pub fn absolute(self, x: f32, y: f32, width: f32, height: f32) -> Self {
+    self.absolute_modifier(x, y, Some(width), Some(height))
+  }
+
+  pub fn absolute_position(self, x: f32, y: f32) -> Self {
+    self.absolute_modifier(x, y, None, None)
   }
 
   pub fn pad(self, all: f32) -> Self {
