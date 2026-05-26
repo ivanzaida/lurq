@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
-  node::node::Node,
+  node::Element,
 };
 
 fn rt() -> Runtime {
@@ -11,7 +11,7 @@ fn rt() -> Runtime {
 #[test]
 fn empty_column() {
   let mut rt = rt();
-  let node = Node::column(0.0, Alignment::Start, vec![]);
+  let node = Element::column_with(0.0, Alignment::Start, vec![]);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
@@ -21,16 +21,16 @@ fn empty_column() {
 #[test]
 fn column_with_fixed_children() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(50.0),
         ..Default::default()
       }),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(80.0),
         height: Some(40.0),
         ..Default::default()
@@ -48,21 +48,21 @@ fn column_with_fixed_children() {
 #[test]
 fn column_with_spacing() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     8.0,
     Alignment::Start,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(30.0),
         ..Default::default()
       }),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(30.0),
         ..Default::default()
       }),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(30.0),
         ..Default::default()
@@ -80,16 +80,16 @@ fn column_with_spacing() {
 #[test]
 fn column_align_center() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::Center,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(40.0),
         height: Some(30.0),
         ..Default::default()
       }),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(30.0),
         ..Default::default()
@@ -106,16 +106,16 @@ fn column_align_center() {
 #[test]
 fn column_align_end() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::End,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(40.0),
         height: Some(30.0),
         ..Default::default()
       }),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(30.0),
         ..Default::default()

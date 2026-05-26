@@ -9,14 +9,14 @@ use std::{
 use super::{component::Component, theme::Theme};
 use crate::{
   core::{ContextMap, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal},
-  node::node::Node,
+  node::Element,
 };
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   theme: Option<Theme>,
   context_map: ContextMap,
-  slot_children: Option<Vec<Node>>,
+  slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
@@ -31,7 +31,7 @@ struct ChildSlot {
 }
 
 trait AnyComponent: Send + Sync + 'static {
-  fn render(&self, ctx: &mut Ctx) -> Node;
+  fn render(&self, ctx: &mut Ctx) -> Element;
   fn on_mounted(&self);
   fn on_unmounted(&self);
   fn type_name(&self) -> &'static str;
@@ -42,7 +42,7 @@ struct ComponentWrapper<C: Component> {
 }
 
 impl<C: Component> AnyComponent for ComponentWrapper<C> {
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     self.component.render(ctx)
   }
 
@@ -176,7 +176,7 @@ impl Ctx {
 
   // --- Slot Children ---
 
-  pub fn children(&self) -> &[Node] {
+  pub fn children(&self) -> &[Element] {
     self.slot_children.as_deref().unwrap_or(&[])
   }
 
@@ -196,19 +196,19 @@ impl Ctx {
 
   // --- Component mounting ---
 
-  pub fn mount<C: Component>(&mut self, props: C::Props) -> Node {
+  pub fn mount<C: Component>(&mut self, props: C::Props) -> Element {
     self.mount_inner::<C>(None, props, None)
   }
 
-  pub fn mount_keyed<C: Component>(&mut self, key: &str, props: C::Props) -> Node {
+  pub fn mount_keyed<C: Component>(&mut self, key: &str, props: C::Props) -> Element {
     self.mount_inner::<C>(Some(key), props, None)
   }
 
-  pub fn mount_with<C: Component>(&mut self, props: C::Props, slot_children: Vec<Node>) -> Node {
+  pub fn mount_with<C: Component>(&mut self, props: C::Props, slot_children: Vec<Element>) -> Element {
     self.mount_inner::<C>(None, props, Some(slot_children))
   }
 
-  pub fn mount_keyed_with<C: Component>(&mut self, key: &str, props: C::Props, slot_children: Vec<Node>) -> Node {
+  pub fn mount_keyed_with<C: Component>(&mut self, key: &str, props: C::Props, slot_children: Vec<Element>) -> Element {
     self.mount_inner::<C>(Some(key), props, Some(slot_children))
   }
 
@@ -216,8 +216,8 @@ impl Ctx {
     &mut self,
     key: Option<&str>,
     props: C::Props,
-    slot_children: Option<Vec<Node>>,
-  ) -> Node {
+    slot_children: Option<Vec<Element>>,
+  ) -> Element {
     let cursor = self.child_cursor;
     self.child_cursor += 1;
 
@@ -244,7 +244,7 @@ impl Ctx {
     let component = C::create(&mut child_ctx, props);
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();
-    let node = wrapper.render(&mut child_ctx);
+    let element = wrapper.render(&mut child_ctx);
 
     let slot = ChildSlot {
       key: key.map(str::to_owned),
@@ -258,7 +258,7 @@ impl Ctx {
       self.children.push(slot);
     }
 
-    node
+    element
   }
 
   // --- Keyed list rendering ---
@@ -268,11 +268,11 @@ impl Ctx {
     items: impl IntoIterator<Item = T>,
     key_fn: KF,
     component_fn: CF,
-  ) -> Vec<Node>
+  ) -> Vec<Element>
   where
     K: std::fmt::Display,
     KF: Fn(&T) -> K,
-    CF: Fn(&mut Ctx, T) -> Node,
+    CF: Fn(&mut Ctx, T) -> Element,
   {
     items
       .into_iter()
@@ -296,7 +296,7 @@ impl Ctx {
         child_ctx.theme = self.theme.clone();
         child_ctx.context_map = self.context_map.clone();
         child_ctx.begin_render();
-        let node = component_fn(&mut child_ctx, item);
+        let element = component_fn(&mut child_ctx, item);
 
         let slot = ChildSlot {
           key: Some(key),
@@ -310,7 +310,7 @@ impl Ctx {
           self.children.push(slot);
         }
 
-        node
+        element
       })
       .collect()
   }
@@ -319,9 +319,9 @@ impl Ctx {
 
   pub fn error_boundary(
     &mut self,
-    component_fn: impl FnOnce(&mut Ctx) -> Node,
-    fallback_fn: impl FnOnce() -> Node,
-  ) -> Node {
+    component_fn: impl FnOnce(&mut Ctx) -> Element,
+    fallback_fn: impl FnOnce() -> Element,
+  ) -> Element {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component_fn(self)));
     match result {
       Ok(node) => node,
@@ -369,8 +369,8 @@ impl Ctx {
 struct ForEachSlot;
 
 impl AnyComponent for ForEachSlot {
-  fn render(&self, _ctx: &mut Ctx) -> Node {
-    Node::new()
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::new()
   }
   fn on_mounted(&self) {}
   fn on_unmounted(&self) {}

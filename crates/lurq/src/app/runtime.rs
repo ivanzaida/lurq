@@ -21,11 +21,11 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
   },
-  node::{border::BorderPlacement, color::Color, node::Node},
+  node::{Element, ElementRef, Node, border::BorderPlacement, color::Color},
 };
 
 trait AnyRootComponent: Send + Sync {
-  fn render(&self, ctx: &mut Ctx) -> Node;
+  fn render(&self, ctx: &mut Ctx) -> Element;
 }
 
 struct RootComponentWrapper<C: Component> {
@@ -33,7 +33,7 @@ struct RootComponentWrapper<C: Component> {
 }
 
 impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     self.component.render(ctx)
   }
 }
@@ -170,7 +170,7 @@ impl Runtime {
     let component = C::create(&mut ctx, props);
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();
-    let mut node = wrapper.render(&mut ctx);
+    let mut node = wrapper.render(&mut ctx).node;
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = Some(Box::new(wrapper));
@@ -185,7 +185,7 @@ impl Runtime {
         old.free_ids(&self.id_gen);
       }
       ctx.begin_render();
-      let mut node = component.render(ctx);
+      let mut node = component.render(ctx).node;
       node.assign_ids(&self.id_gen);
       self.root = Some(node);
       self.last_layout = None;
@@ -193,10 +193,11 @@ impl Runtime {
     }
   }
 
-  pub fn set_root(&mut self, mut node: Node) {
+  pub fn set_root(&mut self, element: Element) {
     if let Some(old) = &mut self.root {
       old.free_ids(&self.id_gen);
     }
+    let mut node = element.node;
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = None;
@@ -205,8 +206,8 @@ impl Runtime {
     self.hover_path.clear();
   }
 
-  pub fn root(&self) -> Option<&Node> {
-    self.root.as_ref()
+  pub fn root(&self) -> Option<ElementRef<'_>> {
+    self.root.as_ref().map(ElementRef::new)
   }
 
   pub fn id_gen(&self) -> &IdGenerator {

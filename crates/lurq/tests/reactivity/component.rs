@@ -1,7 +1,7 @@
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx},
   core::Signal,
-  node::{dsl, node::Node},
+  node::Element,
 };
 
 // --- Test components ---
@@ -17,8 +17,8 @@ impl Component for Counter {
       count: ctx.signal(initial),
     }
   }
-  fn render(&self, _ctx: &mut Ctx) -> Node {
-    dsl::text(&format!("{}", self.count.get()))
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::text(&format!("{}", self.count.get()))
   }
 }
 
@@ -29,8 +29,8 @@ impl Component for Parent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
-    dsl::column()
+  fn render(&self, ctx: &mut Ctx) -> Element {
+    Element::column()
       .child(ctx.mount::<Counter>(0))
       .child(ctx.mount::<Counter>(10))
   }
@@ -44,7 +44,7 @@ impl Component for ContextProvider {
     ctx.provide(42_i32);
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     ctx.mount::<ContextConsumer>(())
   }
 }
@@ -56,9 +56,9 @@ impl Component for ContextConsumer {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     let val = ctx.use_context::<i32>().unwrap_or(0);
-    dsl::text(&format!("{}", val))
+    Element::text(&format!("{}", val))
   }
 }
 
@@ -69,9 +69,9 @@ impl Component for SlotWrapper {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     let count = ctx.children().len();
-    dsl::column().with_children((0..count).map(|_| Node::new()))
+    Element::column().with_children((0..count).map(|_| Element::new()))
   }
 }
 
@@ -82,10 +82,10 @@ impl Component for ForEachParent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     let items = vec![1, 2, 3, 4, 5];
-    let nodes = ctx.for_each(items, |i| *i, |_ctx, i| dsl::text(&format!("item-{}", i)));
-    dsl::column().with_children(nodes)
+    let nodes = ctx.for_each(items, |i| *i, |_ctx, i| Element::text(&format!("item-{}", i)));
+    Element::column().with_children(nodes)
   }
 }
 
@@ -96,12 +96,12 @@ impl Component for ErrorComponent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     ctx.error_boundary(
       |_ctx| {
         panic!("intentional panic");
       },
-      || dsl::text("fallback"),
+      || Element::text("fallback"),
     )
   }
 }
@@ -113,8 +113,8 @@ impl Component for EmptyComponent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, _ctx: &mut Ctx) -> Node {
-    Node::new()
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::new()
   }
 }
 
@@ -125,7 +125,7 @@ impl Component for DeeplyNested {
   fn create(_ctx: &mut Ctx, _: u32) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Node {
+  fn render(&self, ctx: &mut Ctx) -> Element {
     ctx.mount::<EmptyComponent>(())
   }
 }
@@ -159,7 +159,7 @@ fn context_propagates_to_descendant() {
 #[test]
 fn slot_children_passed_through() {
   let mut ctx = Ctx::new_root();
-  let node = ctx.mount_with::<SlotWrapper>((), vec![Node::new(), Node::new(), Node::new()]);
+  let node = ctx.mount_with::<SlotWrapper>((), vec![Element::new(), Element::new(), Element::new()]);
   let mut rt = Runtime::new();
   rt.set_root(node);
   let root = rt.root().unwrap();

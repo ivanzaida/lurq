@@ -3,63 +3,55 @@ use std::collections::HashSet;
 use lurq::{
   app::Runtime,
   core::NodeId,
-  layout::Alignment,
-  node::{dsl, node::Node},
+  node::{Element, ElementRef},
 };
 
 fn rt() -> Runtime {
   Runtime::new()
 }
 
-fn count_nodes(node: &Node) -> usize {
+fn count_nodes(node: ElementRef<'_>) -> usize {
   1 + node.children().iter().map(count_nodes).sum::<usize>()
 }
 
-fn all_ids_assigned(node: &Node) -> bool {
+fn all_ids_assigned(node: ElementRef<'_>) -> bool {
   if !node.node_id().is_assigned() {
     return false;
   }
   node.children().iter().all(all_ids_assigned)
 }
 
-fn all_ids_unassigned(node: &Node) -> bool {
-  if node.node_id().is_assigned() {
-    return false;
-  }
-  node.children().iter().all(all_ids_unassigned)
-}
-
-fn collect_ids(node: &Node, out: &mut Vec<NodeId>) {
+fn collect_ids(node: ElementRef<'_>, out: &mut Vec<NodeId>) {
   out.push(node.node_id());
   for child in node.children() {
     collect_ids(child, out);
   }
 }
 
-fn all_unique(node: &Node) -> bool {
+fn all_unique(node: ElementRef<'_>) -> bool {
   let mut ids = Vec::new();
   collect_ids(node, &mut ids);
   let set: HashSet<u64> = ids.iter().map(|id| id.value()).collect();
   set.len() == ids.len()
 }
 
-fn make_chain(depth: usize) -> Node {
-  let mut node = Node::new();
+fn make_chain(depth: usize) -> Element {
+  let mut node = Element::new();
   for _ in 0..depth {
-    node = dsl::column().child(node);
+    node = Element::column().child(node);
   }
   node
 }
 
-fn make_wide(width: usize) -> Node {
-  dsl::row().with_children((0..width).map(|_| Node::new()))
+fn make_wide(width: usize) -> Element {
+  Element::row().with_children((0..width).map(|_| Element::new()))
 }
 
-fn make_tree(depth: usize, branching: usize) -> Node {
+fn make_tree(depth: usize, branching: usize) -> Element {
   if depth == 0 {
-    return Node::new();
+    return Element::new();
   }
-  dsl::row().with_children((0..branching).map(|_| make_tree(depth - 1, branching)))
+  Element::row().with_children((0..branching).map(|_| make_tree(depth - 1, branching)))
 }
 
 // ============================================================================
@@ -68,22 +60,24 @@ fn make_tree(depth: usize, branching: usize) -> Node {
 
 #[test]
 fn new_node_has_unassigned_id() {
-  let node = Node::new();
+  let node = Element::new();
   assert!(!node.node_id().is_assigned());
 }
 
 #[test]
 fn text_node_has_unassigned_id() {
-  let node = Node::text("hello");
+  let node = Element::text("hello");
   assert!(!node.node_id().is_assigned());
 }
 
 #[test]
-fn tree_nodes_start_unassigned() {
-  let node = dsl::column()
-    .child(dsl::row().child(Node::new()).child(Node::new()))
-    .child(Node::new());
-  assert!(all_ids_unassigned(&node));
+fn tree_root_assigns_ids() {
+  let node = Element::column()
+    .child(Element::row().child(Element::new()).child(Element::new()))
+    .child(Element::new());
+  let mut rt = rt();
+  rt.set_root(node);
+  assert!(all_ids_assigned(rt.root().unwrap()));
 }
 
 // ============================================================================
@@ -93,7 +87,7 @@ fn tree_nodes_start_unassigned() {
 #[test]
 fn set_root_assigns_single_node() {
   let mut rt = rt();
-  rt.set_root(Node::new());
+  rt.set_root(Element::new());
   let root = rt.root().unwrap();
   assert!(root.node_id().is_assigned());
 }
@@ -101,9 +95,9 @@ fn set_root_assigns_single_node() {
 #[test]
 fn set_root_assigns_all_children() {
   let mut rt = rt();
-  let node = dsl::column()
-    .child(Node::new())
-    .child(dsl::row().child(Node::new()).child(Node::new()));
+  let node = Element::column()
+    .child(Element::new())
+    .child(Element::row().child(Element::new()).child(Element::new()));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -113,7 +107,7 @@ fn set_root_assigns_all_children() {
 #[test]
 fn set_root_assigns_unique_ids() {
   let mut rt = rt();
-  let node = dsl::row().with_children((0..10).map(|_| Node::new()));
+  let node = Element::row().with_children((0..10).map(|_| Element::new()));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_unique(root));
@@ -126,12 +120,12 @@ fn set_root_assigns_unique_ids() {
 #[test]
 fn replacing_root_reuses_freed_ids() {
   let mut rt = rt();
-  rt.set_root(dsl::row().with_children((0..5).map(|_| Node::new())));
+  rt.set_root(Element::row().with_children((0..5).map(|_| Element::new())));
   let mut first_ids = Vec::new();
   collect_ids(rt.root().unwrap(), &mut first_ids);
   assert_eq!(first_ids.len(), 6);
 
-  rt.set_root(dsl::row().with_children((0..5).map(|_| Node::new())));
+  rt.set_root(Element::row().with_children((0..5).map(|_| Element::new())));
   let mut second_ids = Vec::new();
   collect_ids(rt.root().unwrap(), &mut second_ids);
 
@@ -146,8 +140,8 @@ fn replacing_root_reuses_freed_ids() {
 #[test]
 fn replacing_root_new_tree_fully_assigned() {
   let mut rt = rt();
-  rt.set_root(Node::new());
-  rt.set_root(dsl::column().child(Node::new()).child(Node::new()));
+  rt.set_root(Element::new());
+  rt.set_root(Element::column().child(Element::new()).child(Element::new()));
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
@@ -160,7 +154,7 @@ fn replacing_root_new_tree_fully_assigned() {
 #[test]
 fn depth_1() {
   let mut rt = rt();
-  rt.set_root(Node::new());
+  rt.set_root(Element::new());
   assert!(all_ids_assigned(rt.root().unwrap()));
   assert_eq!(count_nodes(rt.root().unwrap()), 1);
 }
@@ -172,7 +166,7 @@ fn depth_1() {
 #[test]
 fn depth_2_single_child() {
   let mut rt = rt();
-  rt.set_root(dsl::column().child(Node::new()));
+  rt.set_root(Element::column().child(Element::new()));
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
@@ -255,7 +249,7 @@ fn depth_255_chain_with_wide_leaf() {
   let leaf = make_wide(20);
   let mut node = leaf;
   for _ in 0..254 {
-    node = dsl::column().child(node);
+    node = Element::column().child(node);
   }
   rt.set_root(node);
   let root = rt.root().unwrap();
@@ -332,7 +326,7 @@ fn ids_recycled_varying_tree_sizes() {
 #[test]
 fn modifier_wrappers_get_ids() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .size(100.0, 100.0)   // FrameModifier wrapper
     .pad(10.0)             // PaddingModifier wrapper
     .offset(5.0, 5.0)     // OffsetModifier wrapper
@@ -347,7 +341,7 @@ fn modifier_wrappers_get_ids() {
 #[test]
 fn scroll_container_gets_ids() {
   let mut rt = rt();
-  let node = dsl::scroll_vertical(dsl::column().with_children((0..10).map(|_| Node::new())));
+  let node = Element::scroll_vertical(Element::column().with_children((0..10).map(|_| Element::new())));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -362,7 +356,7 @@ fn scroll_container_gets_ids() {
 #[test]
 fn stack_children_get_ids() {
   let mut rt = rt();
-  let node = dsl::stack().with_children(vec![Node::new().size(100.0, 100.0), Node::new().size(50.0, 50.0)]);
+  let node = Element::stack().with_children(vec![Element::new().size(100.0, 100.0), Element::new().size(50.0, 50.0)]);
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -377,12 +371,12 @@ fn stack_children_get_ids() {
 #[test]
 fn depth_255_with_modifiers() {
   let mut rt = rt();
-  let mut node = Node::new();
+  let mut node = Element::new();
   for i in 0..255 {
     node = if i % 3 == 0 {
-      dsl::column().child(node)
+      Element::column().child(node)
     } else if i % 3 == 1 {
-      dsl::row().child(node)
+      Element::row().child(node)
     } else {
       node.pad(1.0)
     };
@@ -404,7 +398,7 @@ fn replace_deep_with_shallow() {
   rt.set_root(make_chain(255));
   assert_eq!(count_nodes(rt.root().unwrap()), 256);
 
-  rt.set_root(Node::new());
+  rt.set_root(Element::new());
   let root = rt.root().unwrap();
   assert!(root.node_id().is_assigned());
   assert_eq!(count_nodes(root), 1);
@@ -413,7 +407,7 @@ fn replace_deep_with_shallow() {
 #[test]
 fn replace_shallow_with_deep() {
   let mut rt = rt();
-  rt.set_root(Node::new());
+  rt.set_root(Element::new());
   rt.set_root(make_chain(255));
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));

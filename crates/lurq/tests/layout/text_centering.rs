@@ -5,7 +5,7 @@ use lurq::{
     layout_kind::FrameConstraints,
     text_style::{FontWeight, TextStyle},
   },
-  node::{color::Color, dsl, node::Node},
+  node::{Element, color::Color},
 };
 
 fn rt() -> Runtime {
@@ -19,7 +19,7 @@ fn text_height_equals_line_height() {
     font_size: 24.0,
     ..TextStyle::default()
   };
-  let node = Node::text_styled("0", style.clone());
+  let node = Element::styled_text("0", style.clone());
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let expected_height = style.font_size * style.line_height;
@@ -34,11 +34,11 @@ fn text_height_equals_line_height() {
 #[test]
 fn text_vertically_centered_in_row_with_rects() {
   let mut rt = rt();
-  let node = dsl::row()
+  let node = Element::row()
     .spacing(12.0)
     .align_items(Alignment::Center)
-    .child(dsl::rect(36.0, 36.0))
-    .child(Node::text_styled(
+    .child(Element::rect(36.0, 36.0))
+    .child(Element::styled_text(
       "0",
       TextStyle {
         font_size: 24.0,
@@ -47,7 +47,7 @@ fn text_vertically_centered_in_row_with_rects() {
         ..TextStyle::default()
       },
     ))
-    .child(dsl::rect(36.0, 36.0));
+    .child(Element::rect(36.0, 36.0));
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
 

@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
-  node::node::Node,
+  node::Element,
 };
 
 fn rt() -> Runtime {
@@ -11,17 +11,17 @@ fn rt() -> Runtime {
 #[test]
 fn row_flex_equal_split() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
         })
         .flex(1.0),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
@@ -40,17 +40,17 @@ fn row_flex_equal_split() {
 #[test]
 fn row_flex_weighted_split() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
         })
         .flex(1.0),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
@@ -67,16 +67,16 @@ fn row_flex_weighted_split() {
 #[test]
 fn row_flex_with_fixed_sibling() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(50.0),
         ..Default::default()
       }),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
@@ -94,17 +94,17 @@ fn row_flex_with_fixed_sibling() {
 #[test]
 fn row_flex_with_spacing() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     20.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
         })
         .flex(1.0),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           height: Some(50.0),
           ..Default::default()
@@ -122,17 +122,17 @@ fn row_flex_with_spacing() {
 #[test]
 fn column_flex_equal_split() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(100.0),
           ..Default::default()
         })
         .flex(1.0),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(100.0),
           ..Default::default()
@@ -150,16 +150,16 @@ fn column_flex_equal_split() {
 #[test]
 fn column_flex_with_fixed_sibling() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(60.0),
         ..Default::default()
       }),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(100.0),
           ..Default::default()
@@ -176,10 +176,14 @@ fn column_flex_with_fixed_sibling() {
 #[test]
 fn three_way_flex_split() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
-    vec![Node::new().flex(1.0), Node::new().flex(2.0), Node::new().flex(3.0)],
+    vec![
+      Element::new().flex(1.0),
+      Element::new().flex(2.0),
+      Element::new().flex(3.0),
+    ],
   );
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(600.0, 100.0))).unwrap();

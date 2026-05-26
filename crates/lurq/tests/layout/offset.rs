@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Constraints, Size, layout_kind::FrameConstraints},
-  node::node::Node,
+  node::Element,
 };
 
 fn rt() -> Runtime {
@@ -11,7 +11,7 @@ fn rt() -> Runtime {
 #[test]
 fn offset_does_not_affect_size() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
@@ -27,7 +27,7 @@ fn offset_does_not_affect_size() {
 #[test]
 fn offset_shifts_child() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
@@ -43,7 +43,7 @@ fn offset_shifts_child() {
 #[test]
 fn offset_negative() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
@@ -59,7 +59,7 @@ fn offset_negative() {
 #[test]
 fn offset_zero_is_noop() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),

@@ -21,7 +21,24 @@ pub struct Element {
   pub(crate) node: Node,
 }
 
+#[derive(Clone, Copy)]
+pub struct ElementRef<'a> {
+  pub(crate) node: &'a Node,
+}
+
+pub struct ElementChildren<'a> {
+  nodes: &'a [Node],
+}
+
+pub struct ElementIter<'a> {
+  inner: std::slice::Iter<'a, Node>,
+}
+
 impl Element {
+  pub(crate) fn from_node(node: Node) -> Self {
+    Self { node }
+  }
+
   pub fn new() -> Self {
     Self { node: Node::new() }
   }
@@ -32,15 +49,33 @@ impl Element {
     }
   }
 
+  pub fn row_with(spacing: f32, align: Alignment, children: Vec<Element>) -> Self {
+    Self {
+      node: Node::row(spacing, align, children.into_iter().map(|child| child.node).collect()),
+    }
+  }
+
   pub fn column() -> Self {
     Self {
       node: Node::column(0.0, Alignment::Start, vec![]),
     }
   }
 
+  pub fn column_with(spacing: f32, align: Alignment, children: Vec<Element>) -> Self {
+    Self {
+      node: Node::column(spacing, align, children.into_iter().map(|child| child.node).collect()),
+    }
+  }
+
   pub fn stack() -> Self {
     Self {
       node: Node::stack(StackAlignment::TopStart, vec![]),
+    }
+  }
+
+  pub fn stack_with(align: StackAlignment, children: Vec<Element>) -> Self {
+    Self {
+      node: Node::stack(align, children.into_iter().map(|child| child.node).collect()),
     }
   }
 
@@ -69,15 +104,15 @@ impl Element {
   }
 
   pub fn scroll_vertical(child: impl Into<Element>) -> Self {
-    crate::node::dsl::scroll_vertical(child.into().node).into()
+    Self::from_node(crate::node::dsl::scroll_vertical(child.into().node))
   }
 
   pub fn scroll_horizontal(child: impl Into<Element>) -> Self {
-    crate::node::dsl::scroll_horizontal(child.into().node).into()
+    Self::from_node(crate::node::dsl::scroll_horizontal(child.into().node))
   }
 
   pub fn scroll_both(child: impl Into<Element>) -> Self {
-    crate::node::dsl::scroll_both(child.into().node).into()
+    Self::from_node(crate::node::dsl::scroll_both(child.into().node))
   }
 
   pub fn child(mut self, child: impl Into<Element>) -> Self {
@@ -90,6 +125,10 @@ impl Element {
       .node
       .with_children(children.into_iter().map(|child| child.into().node));
     self
+  }
+
+  pub fn node_id(&self) -> crate::core::NodeId {
+    self.node.node_id()
   }
 
   pub fn spacing(mut self, spacing: f32) -> Self {
@@ -353,11 +392,66 @@ impl Default for Element {
   }
 }
 
-impl From<Node> for Element {
-  fn from(node: Node) -> Self {
+impl<'a> ElementRef<'a> {
+  pub(crate) fn new(node: &'a Node) -> Self {
     Self { node }
   }
+
+  pub fn node_id(&self) -> crate::core::NodeId {
+    self.node.node_id()
+  }
+
+  pub fn text_content(&self) -> Option<&'a str> {
+    self.node.text_content()
+  }
+
+  pub fn children(&self) -> ElementChildren<'a> {
+    ElementChildren {
+      nodes: self.node.children(),
+    }
+  }
 }
+
+impl<'a> ElementChildren<'a> {
+  pub fn len(&self) -> usize {
+    self.nodes.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.nodes.is_empty()
+  }
+
+  pub fn iter(&self) -> ElementIter<'a> {
+    ElementIter {
+      inner: self.nodes.iter(),
+    }
+  }
+}
+
+impl<'a> IntoIterator for ElementChildren<'a> {
+  type Item = ElementRef<'a>;
+  type IntoIter = ElementIter<'a>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    ElementIter {
+      inner: self.nodes.iter(),
+    }
+  }
+}
+
+impl<'a> Iterator for ElementIter<'a> {
+  type Item = ElementRef<'a>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    self.inner.next().map(ElementRef::new)
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    self.inner.size_hint()
+  }
+}
+
+impl ExactSizeIterator for ElementIter<'_> {}
 
 #[cfg(test)]
 mod tests {

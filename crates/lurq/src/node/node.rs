@@ -38,7 +38,7 @@ pub struct EventHandlers {
   pub on_scroll_end: Option<Callback<ScrollEvent>>,
 }
 
-pub struct Node {
+pub(crate) struct Node {
   pub(crate) node_id: NodeId,
   pub(crate) kind: LayoutKind,
   pub(crate) text_content: Guard<Option<String>>,

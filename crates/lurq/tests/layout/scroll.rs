@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
-  node::{dsl::*, node::Node},
+  node::Element,
 };
 
 fn rt() -> Runtime {
@@ -11,8 +11,8 @@ fn rt() -> Runtime {
 #[test]
 fn scroll_vertical_child_grows_unbounded() {
   let mut rt = rt();
-  let node = scroll_vertical(column().spacing(0.0).with_children((0..10).map(|_| {
-    Node::new().frame(FrameConstraints {
+  let node = Element::scroll_vertical(Element::column().spacing(0.0).with_children((0..10).map(|_| {
+    Element::new().frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
       ..Default::default()
@@ -34,7 +34,7 @@ fn scroll_vertical_child_grows_unbounded() {
 #[test]
 fn scroll_vertical_offset_applied() {
   let mut rt = rt();
-  let node = scroll_vertical(Node::new().frame(FrameConstraints {
+  let node = Element::scroll_vertical(Element::new().frame(FrameConstraints {
     width: Some(100.0),
     height: Some(500.0),
     ..Default::default()
@@ -51,8 +51,8 @@ fn scroll_vertical_offset_applied() {
 #[test]
 fn scroll_horizontal_child_grows_unbounded() {
   let mut rt = rt();
-  let node = scroll_horizontal(row().spacing(0.0).with_children((0..10).map(|_| {
-    Node::new().frame(FrameConstraints {
+  let node = Element::scroll_horizontal(Element::row().spacing(0.0).with_children((0..10).map(|_| {
+    Element::new().frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
       ..Default::default()
@@ -72,7 +72,7 @@ fn scroll_horizontal_child_grows_unbounded() {
 #[test]
 fn scroll_both_unbounded() {
   let mut rt = rt();
-  let node = scroll_both(Node::new().frame(FrameConstraints {
+  let node = Element::scroll_both(Element::new().frame(FrameConstraints {
     width: Some(800.0),
     height: Some(600.0),
     ..Default::default()
@@ -91,8 +91,8 @@ fn scroll_both_unbounded() {
 #[test]
 fn scroll_container_without_frame_uses_parent_constraints() {
   let mut rt = rt();
-  let node = scroll_vertical(column().spacing(0.0).with_children((0..5).map(|_| {
-    Node::new().frame(FrameConstraints {
+  let node = Element::scroll_vertical(Element::column().spacing(0.0).with_children((0..5).map(|_| {
+    Element::new().frame(FrameConstraints {
       width: Some(100.0),
       height: Some(40.0),
       ..Default::default()
@@ -111,7 +111,7 @@ fn scroll_container_without_frame_uses_parent_constraints() {
 #[test]
 fn scroll_empty_child() {
   let mut rt = rt();
-  let node = scroll_vertical(Node::new()).size(100.0, 100.0);
+  let node = Element::scroll_vertical(Element::new()).size(100.0, 100.0);
 
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();

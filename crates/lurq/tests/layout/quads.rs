@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints, quad::QuadContent},
-  node::{color::Color, dimension::Dimension, node::Node, padding::Padding},
+  node::{Element, color::Color, dimension::Dimension, padding::Padding},
 };
 
 fn rt() -> Runtime {
@@ -11,7 +11,7 @@ fn rt() -> Runtime {
 #[test]
 fn no_quads_for_invisible_nodes() {
   let mut rt = rt();
-  let node = Node::new().frame(FrameConstraints {
+  let node = Element::new().frame(FrameConstraints {
     width: Some(100.0),
     height: Some(50.0),
     ..Default::default()
@@ -25,7 +25,7 @@ fn no_quads_for_invisible_nodes() {
 #[test]
 fn background_produces_rect_quad() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
@@ -46,7 +46,7 @@ fn background_produces_rect_quad() {
 #[test]
 fn text_produces_text_quad() {
   let mut rt = rt();
-  let node = Node::text("hello");
+  let node = Element::text("hello");
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -61,18 +61,18 @@ fn text_produces_text_quad() {
 #[test]
 fn quads_absolute_positions_in_row() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     10.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(50.0),
           height: Some(30.0),
           ..Default::default()
         })
         .background(Color::new(255, 0, 0, 255)),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(50.0),
           height: Some(30.0),
@@ -92,18 +92,18 @@ fn quads_absolute_positions_in_row() {
 #[test]
 fn quads_absolute_positions_in_column() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     5.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(100.0),
           height: Some(40.0),
           ..Default::default()
         })
         .background(Color::new(255, 0, 0, 255)),
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(100.0),
           height: Some(40.0),
@@ -123,25 +123,25 @@ fn quads_absolute_positions_in_column() {
 #[test]
 fn quads_nested_absolute_positions() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(50.0),
         ..Default::default()
       }),
-      Node::row(
+      Element::row_with(
         0.0,
         Alignment::Start,
         vec![
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(40.0),
             height: Some(30.0),
             ..Default::default()
           }),
-          Node::new()
+          Element::new()
             .frame(FrameConstraints {
               width: Some(40.0),
               height: Some(30.0),
@@ -163,7 +163,7 @@ fn quads_nested_absolute_positions() {
 #[test]
 fn quads_with_padding_offset() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(60.0),
       height: Some(40.0),

@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints},
-  node::{dimension::Dimension, node::Node, padding::Padding},
+  node::{Element, dimension::Dimension, padding::Padding},
 };
 
 fn rt() -> Runtime {
@@ -11,36 +11,36 @@ fn rt() -> Runtime {
 #[test]
 fn column_of_rows() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     10.0,
     Alignment::Start,
     vec![
-      Node::row(
+      Element::row_with(
         5.0,
         Alignment::Start,
         vec![
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(50.0),
             height: Some(30.0),
             ..Default::default()
           }),
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(50.0),
             height: Some(30.0),
             ..Default::default()
           }),
         ],
       ),
-      Node::row(
+      Element::row_with(
         5.0,
         Alignment::Start,
         vec![
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(60.0),
             height: Some(40.0),
             ..Default::default()
           }),
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(60.0),
             height: Some(40.0),
             ..Default::default()
@@ -60,36 +60,36 @@ fn column_of_rows() {
 #[test]
 fn row_of_columns() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     10.0,
     Alignment::Start,
     vec![
-      Node::column(
+      Element::column_with(
         5.0,
         Alignment::Start,
         vec![
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(50.0),
             height: Some(30.0),
             ..Default::default()
           }),
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(50.0),
             height: Some(30.0),
             ..Default::default()
           }),
         ],
       ),
-      Node::column(
+      Element::column_with(
         5.0,
         Alignment::Start,
         vec![
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(60.0),
             height: Some(20.0),
             ..Default::default()
           }),
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(60.0),
             height: Some(20.0),
             ..Default::default()
@@ -107,18 +107,18 @@ fn row_of_columns() {
 #[test]
 fn padding_inside_row() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(80.0),
           height: Some(40.0),
           ..Default::default()
         })
         .padding(Padding::all(Dimension::Px(10.0))),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(80.0),
         height: Some(40.0),
         ..Default::default()
@@ -135,7 +135,7 @@ fn padding_inside_row() {
 #[test]
 fn frame_inside_padding() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(100.0),
       height: Some(50.0),
@@ -153,26 +153,26 @@ fn frame_inside_padding() {
 #[test]
 fn stack_inside_column() {
   let mut rt = rt();
-  let node = Node::column(
+  let node = Element::column_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::stack(
+      Element::stack_with(
         StackAlignment::Center,
         vec![
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(200.0),
             height: Some(100.0),
             ..Default::default()
           }),
-          Node::new().frame(FrameConstraints {
+          Element::new().frame(FrameConstraints {
             width: Some(50.0),
             height: Some(50.0),
             ..Default::default()
           }),
         ],
       ),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(30.0),
         ..Default::default()
@@ -188,19 +188,19 @@ fn stack_inside_column() {
 #[test]
 fn flex_children_in_nested_row() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(100.0),
         height: Some(50.0),
         ..Default::default()
       }),
-      Node::row(
+      Element::row_with(
         0.0,
         Alignment::Start,
-        vec![Node::new().flex(1.0), Node::new().flex(1.0)],
+        vec![Element::new().flex(1.0), Element::new().flex(1.0)],
       )
       .flex(1.0),
     ],
@@ -214,7 +214,7 @@ fn flex_children_in_nested_row() {
 #[test]
 fn deeply_nested_padding() {
   let mut rt = rt();
-  let node = Node::new()
+  let node = Element::new()
     .frame(FrameConstraints {
       width: Some(50.0),
       height: Some(50.0),
@@ -232,18 +232,18 @@ fn deeply_nested_padding() {
 #[test]
 fn offset_inside_row_does_not_affect_siblings() {
   let mut rt = rt();
-  let node = Node::row(
+  let node = Element::row_with(
     0.0,
     Alignment::Start,
     vec![
-      Node::new()
+      Element::new()
         .frame(FrameConstraints {
           width: Some(50.0),
           height: Some(50.0),
           ..Default::default()
         })
         .offset(100.0, 100.0),
-      Node::new().frame(FrameConstraints {
+      Element::new().frame(FrameConstraints {
         width: Some(50.0),
         height: Some(50.0),
         ..Default::default()

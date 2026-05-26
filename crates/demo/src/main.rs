@@ -6,7 +6,7 @@ use lurq::{
     scrollbar::ScrollBarStyle,
     text_style::{FontStyle, FontWeight, TextStyle},
   },
-  node::{Node, color::Color, dsl::*},
+  node::{Element, color::Color},
 };
 
 // --- Counter component ---
@@ -22,21 +22,21 @@ impl Component for Counter {
     Self { count: ctx.signal(0) }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Node {
+  fn render(&self, _ctx: &mut Ctx) -> Element {
     let c = self.count.clone();
     let c2 = self.count.clone();
     let val = self.count.get();
 
-    row()
+    Element::row()
       .spacing(12.0)
       .align_items(Alignment::Center)
       .child(
-        rect(36.0, 36.0)
+        Element::rect(36.0, 36.0)
           .fill("#ef4444")
           .rounded(6.0)
           .on_click(move |_| c.update(|n| *n -= 1)),
       )
-      .child(styled_text(
+      .child(Element::styled_text(
         &format!("{}", val),
         TextStyle {
           font_size: 24.0,
@@ -46,7 +46,7 @@ impl Component for Counter {
         },
       ))
       .child(
-        rect(36.0, 36.0)
+        Element::rect(36.0, 36.0)
           .fill("#22c55e")
           .rounded(6.0)
           .on_click(move |_| c2.update(|n| *n += 1)),
@@ -69,13 +69,13 @@ impl Component for ScrollList {
     }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Node {
-    scroll_vertical(
-      column()
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::scroll_vertical(
+      Element::column()
         .spacing(4.0)
         .align_items(Alignment::Center)
         .with_children((0..20).map(|i| {
-          rect(270.0, 32.0)
+          Element::rect(270.0, 32.0)
             .fill(if i % 2 == 0 { "#93c5fd" } else { "#fca5a5" })
             .rounded(4.0)
             .on_click(move |_| println!("Item {} clicked", i))
@@ -108,11 +108,11 @@ impl Component for DemoApp {
     Self
   }
 
-  fn render(&self, ctx: &mut Ctx) -> Node {
-    column()
+  fn render(&self, ctx: &mut Ctx) -> Element {
+    Element::column()
       .spacing(16.0)
       .align_items(Alignment::Center)
-      .child(styled_text(
+      .child(Element::styled_text(
         "lurq demo",
         TextStyle {
           font_size: 32.0,
@@ -123,17 +123,17 @@ impl Component for DemoApp {
       .child(ctx.mount::<Counter>(()))
       .child(ctx.mount::<ScrollList>(20))
       .child(
-        rect(300.0, 40.0)
+        Element::rect(300.0, 40.0)
           .fill("#3b82f6")
           .rounded(20.0)
           .border_inside(2.0, Color::from_hex("#1d4ed8"))
           .on_click(|_| println!("Blue button clicked!")),
       )
       .child(
-        row()
+        Element::row()
           .spacing(8.0)
           .align_items(Alignment::Center)
-          .child(styled_text(
+          .child(Element::styled_text(
             "Bold",
             TextStyle {
               weight: FontWeight::Bold,
@@ -141,8 +141,8 @@ impl Component for DemoApp {
               ..TextStyle::default()
             },
           ))
-          .child(text("and"))
-          .child(styled_text(
+          .child(Element::text("and"))
+          .child(Element::styled_text(
             "italic",
             TextStyle {
               style: FontStyle::Italic,
@@ -150,7 +150,7 @@ impl Component for DemoApp {
               ..TextStyle::default()
             },
           ))
-          .child(text("text.")),
+          .child(Element::text("text.")),
       )
       .pad(32.0)
   }
