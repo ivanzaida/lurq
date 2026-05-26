@@ -1,5 +1,7 @@
-use lurq::app::theme::{Theme, ThemeColors, ThemeFonts, ThemeValue};
-use lurq::node::color::Color;
+use lurq::{
+  app::theme::{Theme, ThemeColors, ThemeValue},
+  node::color::Color,
+};
 
 #[test]
 fn default_theme_has_colors() {
@@ -99,8 +101,8 @@ fn theme_value_from_u32() {
 
 #[test]
 fn theme_value_from_f32() {
-  let v: ThemeValue = 3.14_f32.into();
-  assert_eq!(v.as_f32(), Some(3.14));
+  let v: ThemeValue = 33.14_f32.into();
+  assert_eq!(v.as_f32(), Some(33.14));
 }
 
 #[test]

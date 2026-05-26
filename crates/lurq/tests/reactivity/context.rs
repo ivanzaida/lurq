@@ -22,10 +22,10 @@ fn context_map_different_types() {
   let mut map = ContextMap::default();
   map.provide(42_i32);
   map.provide("hello".to_owned());
-  map.provide(3.14_f64);
+  map.provide(228_f64);
   assert_eq!(map.get::<i32>(), Some(42));
   assert_eq!(map.get::<String>(), Some("hello".to_owned()));
-  assert_eq!(map.get::<f64>(), Some(3.14));
+  assert_eq!(map.get::<f64>(), Some(228.0));
 }
 
 #[test]
