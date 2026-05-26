@@ -22,11 +22,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Memo<T> {
     let compute = Arc::new(f);
     let recompute: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
       let new_val = compute();
-      output_clone.with_untracked(|current| {
-        if *current != new_val {
-          output_clone.set(new_val);
-        }
-      });
+      let changed = output_clone.with_untracked(|current| *current != new_val);
+      if changed {
+        output_clone.set(new_val);
+      }
     });
 
     let mut subs = subscriptions.lock();
