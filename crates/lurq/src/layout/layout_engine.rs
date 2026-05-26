@@ -1,13 +1,13 @@
 use crate::{
   app::glyph_engine::GlyphEngine,
   layout::{
-    Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
       FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, ScrollDirection, ScrollState,
     },
     layout_result::{ChildLayout, LayoutResult},
     quad::{ClipRect, Quad, QuadContent},
     text_style::TextStyle,
+    Alignment, Constraints, Offset, Size, StackAlignment,
   },
   node::{node::Node, padding::Padding},
 };
@@ -43,10 +43,6 @@ impl LayoutEngine {
       node.layout_cache.invalidate();
     }
     child_dirty
-  }
-
-  pub(crate) fn needs_visual_update(node: &Node) -> bool {
-    node.any_visual_dirty()
   }
 
   pub(crate) fn resolve_quads(&self, node: &Node, result: &LayoutResult) -> Vec<Quad> {

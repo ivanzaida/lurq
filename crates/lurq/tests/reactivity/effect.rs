@@ -1,6 +1,6 @@
 use std::sync::{
-  Arc,
   atomic::{AtomicI32, Ordering},
+  Arc,
 };
 
 use lurq::core::{Effect, Signal};

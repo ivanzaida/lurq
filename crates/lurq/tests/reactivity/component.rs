@@ -1,6 +1,12 @@
+use std::sync::{
+  atomic::{AtomicUsize, Ordering},
+  Arc, Mutex,
+};
+
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{component::Component, ctx::Ctx, Runtime},
   core::Signal,
+  layout::{Constraints, Size},
   node::Element,
 };
 
@@ -130,6 +136,108 @@ impl Component for DeeplyNested {
   }
 }
 
+struct SignalRoot {
+  count: Signal<i32>,
+}
+
+impl Component for SignalRoot {
+  type Props = Arc<Mutex<Option<Signal<i32>>>>;
+
+  fn create(ctx: &mut Ctx, signal_out: Self::Props) -> Self {
+    let count = ctx.signal(1);
+    *signal_out.lock().unwrap() = Some(count.clone());
+    Self { count }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::text(&format!("{}", self.count.get()))
+  }
+}
+
+struct LifecycleChild {
+  mounted: Arc<AtomicUsize>,
+  unmounted: Arc<AtomicUsize>,
+}
+
+impl Component for LifecycleChild {
+  type Props = (Arc<AtomicUsize>, Arc<AtomicUsize>);
+
+  fn create(_ctx: &mut Ctx, props: Self::Props) -> Self {
+    Self {
+      mounted: props.0,
+      unmounted: props.1,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::new()
+  }
+
+  fn on_mounted(&self) {
+    self.mounted.fetch_add(1, Ordering::Relaxed);
+  }
+
+  fn on_unmounted(&self) {
+    self.unmounted.fetch_add(1, Ordering::Relaxed);
+  }
+}
+
+struct ConditionalLifecycleParent {
+  show_child: Signal<bool>,
+  mounted: Arc<AtomicUsize>,
+  unmounted: Arc<AtomicUsize>,
+}
+
+impl Component for ConditionalLifecycleParent {
+  type Props = (Arc<Mutex<Option<Signal<bool>>>>, Arc<AtomicUsize>, Arc<AtomicUsize>);
+
+  fn create(ctx: &mut Ctx, props: Self::Props) -> Self {
+    let show_child = ctx.signal(true);
+    *props.0.lock().unwrap() = Some(show_child.clone());
+    Self {
+      show_child,
+      mounted: props.1,
+      unmounted: props.2,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> Element {
+    if self.show_child.get() {
+      ctx.mount::<LifecycleChild>((self.mounted.clone(), self.unmounted.clone()))
+    } else {
+      Element::new()
+    }
+  }
+}
+
+struct RootLifecycle {
+  mounted: Arc<AtomicUsize>,
+  unmounted: Arc<AtomicUsize>,
+}
+
+impl Component for RootLifecycle {
+  type Props = (Arc<AtomicUsize>, Arc<AtomicUsize>);
+
+  fn create(_ctx: &mut Ctx, props: Self::Props) -> Self {
+    Self {
+      mounted: props.0,
+      unmounted: props.1,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> Element {
+    Element::new()
+  }
+
+  fn on_mounted(&self) {
+    self.mounted.fetch_add(1, Ordering::Relaxed);
+  }
+
+  fn on_unmounted(&self) {
+    self.unmounted.fetch_add(1, Ordering::Relaxed);
+  }
+}
+
 // --- Tests ---
 
 #[test]
@@ -237,6 +345,63 @@ fn deeply_nested_mount() {
   let mut rt = Runtime::new();
   rt.mount_root::<DeeplyNested>(0);
   assert!(rt.root().is_some());
+}
+
+#[test]
+fn dirty_signal_rebuilds_before_layout() {
+  let signal_out = Arc::new(Mutex::new(None));
+  let mut rt = Runtime::new();
+  rt.mount_root::<SignalRoot>(signal_out.clone());
+
+  assert_eq!(rt.root().unwrap().text_content(), Some("1"));
+
+  signal_out.lock().unwrap().as_ref().unwrap().set(7);
+  rt.compute_layout(Constraints::loose(Size::new(100.0, 100.0))).unwrap();
+
+  assert_eq!(rt.root().unwrap().text_content(), Some("7"));
+}
+
+#[test]
+fn child_lifecycle_tracks_insertions_and_removals() {
+  let show_child = Arc::new(Mutex::new(None));
+  let mounted = Arc::new(AtomicUsize::new(0));
+  let unmounted = Arc::new(AtomicUsize::new(0));
+
+  let mut rt = Runtime::new();
+  rt.mount_root::<ConditionalLifecycleParent>((show_child.clone(), mounted.clone(), unmounted.clone()));
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 1);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 0);
+
+  show_child.lock().unwrap().as_ref().unwrap().set(false);
+  rt.compute_layout(Constraints::loose(Size::new(100.0, 100.0))).unwrap();
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 1);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 1);
+
+  show_child.lock().unwrap().as_ref().unwrap().set(true);
+  rt.compute_layout(Constraints::loose(Size::new(100.0, 100.0))).unwrap();
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 2);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn root_lifecycle_runs_once_and_unmounts() {
+  let mounted = Arc::new(AtomicUsize::new(0));
+  let unmounted = Arc::new(AtomicUsize::new(0));
+  let mut rt = Runtime::new();
+
+  rt.mount_root::<RootLifecycle>((mounted.clone(), unmounted.clone()));
+  rt.rebuild();
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 1);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 0);
+
+  rt.set_root(Element::new());
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 1);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 1);
 }
 
 #[test]

@@ -1,11 +1,10 @@
 use lurq::{
   app::Runtime,
   layout::{
-    Alignment, Constraints, Size,
-    layout_kind::FrameConstraints,
     text_style::{FontWeight, TextStyle},
+    Alignment, Constraints, Size,
   },
-  node::{Element, color::Color},
+  node::{color::Color, Element},
 };
 
 fn rt() -> Runtime {

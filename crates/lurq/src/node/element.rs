@@ -2,10 +2,10 @@ use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
   core::NodeRef,
   layout::{
-    Alignment, StackAlignment,
     layout_kind::{FrameConstraints, Justify, ScrollState},
     scrollbar::ScrollBarStyle,
     text_style::TextStyle,
+    Alignment, StackAlignment,
   },
   node::{
     border::{Border, BorderRadius},
@@ -403,6 +403,10 @@ impl<'a> ElementRef<'a> {
 
   pub fn text_content(&self) -> Option<&'a str> {
     self.node.text_content()
+  }
+
+  pub fn color(&self) -> Option<Color> {
+    self.node.color()
   }
 
   pub fn children(&self) -> ElementChildren<'a> {

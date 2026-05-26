@@ -1,14 +1,14 @@
 use std::{
   any::Any,
   sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
   },
 };
 
 use super::{component::Component, theme::Theme};
 use crate::{
-  core::{ContextMap, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal},
+  core::{cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal, ContextMap, ReactiveContext, Store},
   node::Element,
 };
 
@@ -21,13 +21,13 @@ pub struct Ctx {
   child_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
-  mounted: bool,
 }
 
 struct ChildSlot {
   key: Option<String>,
   component: Box<dyn AnyComponent>,
   ctx: Ctx,
+  mounted: bool,
 }
 
 trait AnyComponent: Send + Sync + 'static {
@@ -74,7 +74,6 @@ impl Ctx {
       child_cursor: 0,
       watch_handles: Vec::new(),
       effects: Vec::new(),
-      mounted: false,
     }
   }
 
@@ -89,10 +88,6 @@ impl Ctx {
 
   pub(crate) fn clear_dirty(&self) {
     self.dirty.store(false, Ordering::Relaxed);
-  }
-
-  pub(crate) fn mark_dirty(&self) {
-    self.dirty.store(true, Ordering::Relaxed);
   }
 
   // --- Reactive primitives ---
@@ -234,7 +229,9 @@ impl Ctx {
       let slot = &mut self.children[cursor];
       slot.ctx.slot_children = slot_children;
       slot.ctx.begin_render();
-      return slot.component.render(&mut slot.ctx);
+      let element = slot.component.render(&mut slot.ctx);
+      slot.ctx.end_render();
+      return element;
     }
 
     let mut child_ctx = Ctx::new();
@@ -245,18 +242,16 @@ impl Ctx {
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();
     let element = wrapper.render(&mut child_ctx);
+    child_ctx.end_render();
 
     let slot = ChildSlot {
       key: key.map(str::to_owned),
       component: Box::new(wrapper),
       ctx: child_ctx,
+      mounted: false,
     };
 
-    if cursor < self.children.len() {
-      self.children[cursor] = slot;
-    } else {
-      self.children.push(slot);
-    }
+    self.set_child_slot(cursor, slot);
 
     element
   }
@@ -289,7 +284,9 @@ impl Ctx {
         if can_reuse {
           let slot = &mut self.children[cursor];
           slot.ctx.begin_render();
-          return component_fn(&mut slot.ctx, item);
+          let element = component_fn(&mut slot.ctx, item);
+          slot.ctx.end_render();
+          return element;
         }
 
         let mut child_ctx = Ctx::new();
@@ -297,18 +294,16 @@ impl Ctx {
         child_ctx.context_map = self.context_map.clone();
         child_ctx.begin_render();
         let element = component_fn(&mut child_ctx, item);
+        child_ctx.end_render();
 
         let slot = ChildSlot {
           key: Some(key),
           component: Box::new(ForEachSlot),
           ctx: child_ctx,
+          mounted: false,
         };
 
-        if cursor < self.children.len() {
-          self.children[cursor] = slot;
-        } else {
-          self.children.push(slot);
-        }
+        self.set_child_slot(cursor, slot);
 
         element
       })
@@ -335,15 +330,29 @@ impl Ctx {
     self.child_cursor = 0;
   }
 
+  fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
+    if cursor < self.children.len() {
+      self.children[cursor].component.on_unmounted();
+      self.children[cursor] = slot;
+    } else {
+      self.children.push(slot);
+    }
+  }
+
   pub(crate) fn end_render(&mut self) {
+    for slot in &self.children[self.child_cursor..] {
+      slot.component.on_unmounted();
+    }
     self.children.truncate(self.child_cursor);
 
-    if !self.mounted {
-      self.mounted = true;
-      for slot in &self.children {
+    for slot in &mut self.children {
+      if !slot.mounted {
         slot.component.on_mounted();
+        slot.mounted = true;
       }
     }
+
+    self.clear_dirty();
   }
 
   pub(crate) fn any_dirty(&self) -> bool {

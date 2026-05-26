@@ -14,18 +14,20 @@ use crate::{
   },
   core::{IdGenerator, NodeId},
   layout::{
-    Constraints, Size,
     layout_engine::LayoutEngine,
     layout_kind::{LayoutKind, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
+    Constraints, Size,
   },
-  node::{Element, ElementRef, Node, border::BorderPlacement, color::Color},
+  node::{border::BorderPlacement, color::Color, Element, ElementRef, Node},
 };
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
+  fn on_mounted(&self);
+  fn on_unmounted(&self);
 }
 
 struct RootComponentWrapper<C: Component> {
@@ -35,6 +37,14 @@ struct RootComponentWrapper<C: Component> {
 impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
     self.component.render(ctx)
+  }
+
+  fn on_mounted(&self) {
+    self.component.on_mounted();
+  }
+
+  fn on_unmounted(&self) {
+    self.component.on_unmounted();
   }
 }
 
@@ -55,6 +65,26 @@ pub struct Runtime {
   dragging_scroll: Option<ScrollState>,
   needs_redraw: bool,
   last_profile: FrameProfile,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElementRect {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+}
+
+impl ElementRect {
+  pub fn center(&self) -> (f32, f32) {
+    (self.x + self.width / 2.0, self.y + self.height / 2.0)
+  }
+}
+
+#[derive(Clone, Copy)]
+pub struct FoundElement<'a> {
+  pub element: ElementRef<'a>,
+  pub rect: ElementRect,
 }
 
 impl Default for Runtime {
@@ -163,6 +193,9 @@ impl Runtime {
   }
 
   pub fn mount_root<C: Component>(&mut self, props: C::Props) {
+    if let Some(component) = self.root_component.take() {
+      component.on_unmounted();
+    }
     if let Some(old) = &mut self.root {
       old.free_ids(&self.id_gen);
     }
@@ -171,7 +204,9 @@ impl Runtime {
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();
     let mut node = wrapper.render(&mut ctx).node;
+    ctx.end_render();
     node.assign_ids(&self.id_gen);
+    wrapper.on_mounted();
     self.root = Some(node);
     self.root_component = Some(Box::new(wrapper));
     self.root_ctx = Some(ctx);
@@ -186,6 +221,7 @@ impl Runtime {
       }
       ctx.begin_render();
       let mut node = component.render(ctx).node;
+      ctx.end_render();
       node.assign_ids(&self.id_gen);
       self.root = Some(node);
       self.last_layout = None;
@@ -194,6 +230,9 @@ impl Runtime {
   }
 
   pub fn set_root(&mut self, element: Element) {
+    if let Some(component) = self.root_component.take() {
+      component.on_unmounted();
+    }
     if let Some(old) = &mut self.root {
       old.free_ids(&self.id_gen);
     }
@@ -208,6 +247,14 @@ impl Runtime {
 
   pub fn root(&self) -> Option<ElementRef<'_>> {
     self.root.as_ref().map(ElementRef::new)
+  }
+
+  pub fn find_element(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<FoundElement<'_>> {
+    self.update_layout();
+
+    let root = self.root.as_ref()?;
+    let layout = self.last_layout.as_ref()?;
+    find_element_recursive(root, layout, 0.0, 0.0, &predicate)
   }
 
   pub fn id_gen(&self) -> &IdGenerator {
@@ -227,7 +274,7 @@ impl Runtime {
 
   pub fn pass(&mut self, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
     let scale = self.scale_factor();
-    let logical = self.viewport_logical();
+    self.update_layout();
 
     let root = match &self.root {
       Some(r) => r,
@@ -244,9 +291,11 @@ impl Runtime {
 
     self.glyph_engine.reset_stats();
 
-    let constraints = Constraints::tight(logical);
     let layout_start = ProfileScope::start();
-    let result = self.layout_engine.compute(&mut self.glyph_engine, root, constraints);
+    let result = match &self.last_layout {
+      Some(result) => result.clone(),
+      None => return,
+    };
     let layout_dur = layout_start.elapsed();
 
     let quad_start = ProfileScope::start();
@@ -378,26 +427,32 @@ impl Runtime {
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
     self.dispatch_mouse(x, y, MouseButton::Left, MouseEventKind::Move);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn mouse_down(&mut self, x: f32, y: f32, button: MouseButton) {
     self.dispatch_mouse(x, y, button, MouseEventKind::Down);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn mouse_up(&mut self, x: f32, y: f32, button: MouseButton) {
     self.dispatch_mouse(x, y, button, MouseEventKind::Up);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn click(&mut self, x: f32, y: f32, button: MouseButton) {
     self.dispatch_mouse(x, y, button, MouseEventKind::Click);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn dblclick(&mut self, x: f32, y: f32, button: MouseButton) {
     self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
     self.dispatch_scroll(x, y, delta_x, delta_y, phase);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
@@ -414,6 +469,7 @@ impl Runtime {
       None => return,
     };
     fire_keyboard_recursive(root, &mut evt);
+    self.apply_reactive_updates_after_event();
   }
 
   pub fn needs_redraw(&self) -> bool {
@@ -647,6 +703,8 @@ impl Runtime {
   }
 
   pub fn compute_layout(&mut self, constraints: Constraints) -> Option<LayoutResult> {
+    self.rebuild_if_dirty();
+
     let root = self.root.as_ref()?;
     Some(self.layout_engine.compute(&mut self.glyph_engine, root, constraints))
   }
@@ -657,6 +715,70 @@ impl Runtime {
       None => vec![],
     }
   }
+
+  fn rebuild_if_dirty(&mut self) {
+    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      self.rebuild();
+    }
+  }
+
+  fn apply_reactive_updates_after_event(&mut self) {
+    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      self.needs_redraw = true;
+      self.rebuild();
+    }
+  }
+
+  fn update_layout(&mut self) {
+    self.rebuild_if_dirty();
+
+    if let Some(root) = self.root.as_ref() {
+      let constraints = Constraints::tight(self.viewport_logical());
+      self.last_layout = Some(self.layout_engine.compute(&mut self.glyph_engine, root, constraints));
+    }
+  }
+}
+
+impl Drop for Runtime {
+  fn drop(&mut self) {
+    if let Some(component) = self.root_component.take() {
+      component.on_unmounted();
+    }
+  }
+}
+
+fn find_element_recursive<'a>(
+  node: &'a Node,
+  layout: &'a LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
+) -> Option<FoundElement<'a>> {
+  let element = ElementRef::new(node);
+  let rect = ElementRect {
+    x: abs_x,
+    y: abs_y,
+    width: layout.size.width,
+    height: layout.size.height,
+  };
+
+  if predicate(element) {
+    return Some(FoundElement { element, rect });
+  }
+
+  for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
+    if let Some(found) = find_element_recursive(
+      child_node,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      predicate,
+    ) {
+      return Some(found);
+    }
+  }
+
+  None
 }
 
 fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {

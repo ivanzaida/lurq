@@ -4,10 +4,7 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 
-use crate::{
-  app::render_engine::RenderEngine,
-  layout::render_list::{GlyphCmd, RectCmd, RenderList},
-};
+use crate::{app::render_engine::RenderEngine, layout::render_list::RenderList};
 
 pub struct WgpuRenderEngine {
   instance: wgpu::Instance,
@@ -22,6 +19,12 @@ pub struct WgpuRenderEngine {
   glyph_bgl: Option<wgpu::BindGroupLayout>,
   vertex_buffer: Option<wgpu::Buffer>,
   index_buffer: Option<wgpu::Buffer>,
+}
+
+impl Default for WgpuRenderEngine {
+  fn default() -> Self {
+    WgpuRenderEngine::new()
+  }
 }
 
 impl WgpuRenderEngine {
