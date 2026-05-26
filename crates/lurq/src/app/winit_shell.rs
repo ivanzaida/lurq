@@ -6,14 +6,16 @@ use winit::{
 };
 
 use crate::app::{
-  Runtime,
   events::{MouseButton, ScrollPhase},
+  Runtime,
 };
+
+type TickFn = Box<dyn FnMut(&mut Runtime)>;
 
 pub struct WinitWindow {
   runtime: Runtime,
   attrs: WindowAttributes,
-  on_tick: Option<Box<dyn FnMut(&mut Runtime)>>,
+  on_tick: Option<TickFn>,
 }
 
 impl WinitWindow {
@@ -93,7 +95,7 @@ struct WinitHandler {
   window: Option<Window>,
   cursor_pos: (f64, f64),
   attrs: Option<WindowAttributes>,
-  on_tick: Option<Box<dyn FnMut(&mut Runtime)>>,
+  on_tick: Option<TickFn>,
 }
 
 impl WinitHandler {
@@ -108,13 +110,6 @@ impl WinitHandler {
 }
 
 impl ApplicationHandler for WinitHandler {
-  fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    if let Some(tick) = &mut self.on_tick {
-      tick(&mut self.runtime);
-      self.check_redraw();
-    }
-  }
-
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     if self.window.is_none() {
       let attrs = self.attrs.take().unwrap_or_default();
@@ -187,6 +182,13 @@ impl ApplicationHandler for WinitHandler {
         }
       }
       _ => {}
+    }
+  }
+
+  fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    if let Some(tick) = &mut self.on_tick {
+      tick(&mut self.runtime);
+      self.check_redraw();
     }
   }
 }

@@ -123,6 +123,34 @@ impl Component for DemoApp {
       .child(ctx.mount::<Counter>(()))
       .child(ctx.mount::<ScrollList>(20))
       .child(
+        Element::stack()
+          .child(
+            Element::rect(300.0, 120.0)
+              .fill("#f8fafc")
+              .rounded(14.0)
+              .border_inside(1.0, Color::from_hex("#cbd5e1")),
+          )
+          .child(
+            Element::rect(86.0, 34.0)
+              .fill("#f97316")
+              .rounded(9.0)
+              .absolute(190.0, 24.0, 86.0, 34.0)
+              .on_click(|_| println!("Absolute item clicked!")),
+          )
+          .child(
+            Element::styled_text(
+              "absolute",
+              TextStyle {
+                font_size: 14.0,
+                weight: FontWeight::Bold,
+                color: Color::from_hex("#ffffff"),
+                ..TextStyle::default()
+              },
+            )
+            .absolute_position(201.0, 31.0),
+          ),
+      )
+      .child(
         Element::rect(300.0, 40.0)
           .fill("#3b82f6")
           .rounded(20.0)
