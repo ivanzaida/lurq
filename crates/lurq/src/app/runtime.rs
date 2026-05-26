@@ -12,15 +12,15 @@ use crate::{
     profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
     render_engine::RenderEngine,
   },
+  core::{IdGenerator, NodeId},
   layout::{
-    Constraints, Size,
-    layout_engine::LayoutEngine,
-    layout_kind::{LayoutKind, ScrollState},
+    layout_engine::LayoutEngine, layout_kind::{LayoutKind, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
+    Constraints,
+    Size,
   },
-  core::{IdGenerator, NodeId},
   node::{border::BorderPlacement, color::Color, node::Node},
 };
 
@@ -40,6 +40,7 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
 
 pub struct Runtime {
   id_gen: IdGenerator,
+  theme: crate::app::theme::Theme,
   glyph_engine: GlyphEngine,
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
@@ -56,10 +57,17 @@ pub struct Runtime {
   last_profile: FrameProfile,
 }
 
+impl Default for Runtime {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Runtime {
   pub fn new() -> Self {
     Self {
       id_gen: IdGenerator::new(),
+      theme: crate::app::theme::Theme::new(),
       glyph_engine: GlyphEngine::new(),
       layout_engine: LayoutEngine::new(),
       render_engine: None,
@@ -158,7 +166,7 @@ impl Runtime {
     if let Some(old) = &mut self.root {
       old.free_ids(&self.id_gen);
     }
-    let mut ctx = Ctx::new_root();
+    let mut ctx = Ctx::new_root().with_theme(self.theme.clone());
     let component = C::create(&mut ctx, props);
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();
@@ -203,6 +211,10 @@ impl Runtime {
 
   pub fn id_gen(&self) -> &IdGenerator {
     &self.id_gen
+  }
+
+  pub fn theme(&self) -> &crate::app::theme::Theme {
+    &self.theme
   }
 
   pub fn resize(&mut self, width: u32, height: u32) {
@@ -388,7 +400,14 @@ impl Runtime {
   }
 
   pub fn key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
-    let mut evt = KeyboardEvent { key, code, shift, ctrl, alt, target_id: NodeId::UNASSIGNED };
+    let mut evt = KeyboardEvent {
+      key,
+      code,
+      shift,
+      ctrl,
+      alt,
+      target_id: NodeId::UNASSIGNED,
+    };
     let root = match &self.root {
       Some(r) => r,
       None => return,
@@ -405,7 +424,13 @@ impl Runtime {
   }
 
   fn dispatch_mouse(&mut self, x: f32, y: f32, button: MouseButton, kind: MouseEventKind) {
-    let mut evt = MouseEvent { x, y, button, kind, target_id: NodeId::UNASSIGNED };
+    let mut evt = MouseEvent {
+      x,
+      y,
+      button,
+      kind,
+      target_id: NodeId::UNASSIGNED,
+    };
     let scale = self.scale_factor();
     let lx = evt.x / scale;
     let ly = evt.y / scale;
@@ -544,7 +569,14 @@ impl Runtime {
   }
 
   fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
-    let mut evt = ScrollEvent { x, y, delta_x, delta_y, phase, target_id: NodeId::UNASSIGNED };
+    let mut evt = ScrollEvent {
+      x,
+      y,
+      delta_x,
+      delta_y,
+      phase,
+      target_id: NodeId::UNASSIGNED,
+    };
     let root = match &self.root {
       Some(r) => r,
       None => return,

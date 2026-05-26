@@ -6,7 +6,7 @@ use std::{
   },
 };
 
-use super::component::Component;
+use super::{component::Component, theme::Theme};
 use crate::{
   core::{cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal},
   node::node::Node,
@@ -14,6 +14,7 @@ use crate::{
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
+  theme: Option<Theme>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
@@ -64,12 +65,18 @@ impl Ctx {
   pub(crate) fn new() -> Self {
     Self {
       dirty: Arc::new(AtomicBool::new(true)),
+      theme: None,
       children: Vec::new(),
       child_cursor: 0,
       watch_handles: Vec::new(),
       effects: Vec::new(),
       mounted: false,
     }
+  }
+
+  pub(crate) fn with_theme(mut self, theme: Theme) -> Self {
+    self.theme = Some(theme);
+    self
   }
 
   pub fn is_dirty(&self) -> bool {
@@ -109,6 +116,10 @@ impl Ctx {
     crate::core::NodeRef::new()
   }
 
+  pub fn theme(&self) -> &Theme {
+    self.theme.as_ref().expect("theme not set")
+  }
+
   pub fn interaction(&self) -> crate::node::interaction_state::InteractionState {
     crate::node::interaction_state::InteractionState::new()
   }
@@ -139,6 +150,9 @@ impl Ctx {
     }
 
     let mut child_ctx = Ctx::new();
+    if let Some(ref t) = self.theme {
+      child_ctx.theme = Some(t.clone());
+    }
     let component = C::create(&mut child_ctx, props);
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();
@@ -176,6 +190,9 @@ impl Ctx {
     }
 
     let mut child_ctx = Ctx::new();
+    if let Some(ref t) = self.theme {
+      child_ctx.theme = Some(t.clone());
+    }
     let component = C::create(&mut child_ctx, props);
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();

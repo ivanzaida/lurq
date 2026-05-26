@@ -1,6 +1,7 @@
 pub mod component;
 pub mod ctx;
 pub mod events;
+pub mod theme;
 pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;
 pub mod profiler;
