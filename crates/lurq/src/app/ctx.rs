@@ -217,6 +217,26 @@ impl Ctx {
     }
     self.children.iter().any(|slot| slot.ctx.any_dirty())
   }
+
+  pub(crate) fn estimated_memory_bytes(&self) -> usize {
+    std::mem::size_of::<Self>()
+      + self.children.capacity() * std::mem::size_of::<ChildSlot>()
+      + self.watch_handles.capacity() * std::mem::size_of::<Box<dyn Any + Send + Sync>>()
+      + self.effects.capacity() * std::mem::size_of::<Effect>()
+      + self
+        .children
+        .iter()
+        .map(ChildSlot::estimated_memory_bytes)
+        .sum::<usize>()
+  }
+}
+
+impl ChildSlot {
+  fn estimated_memory_bytes(&self) -> usize {
+    self.key.as_ref().map(|key| key.capacity()).unwrap_or(0)
+      + std::mem::size_of::<Box<dyn AnyComponent>>()
+      + self.ctx.estimated_memory_bytes()
+  }
 }
 
 impl Drop for Ctx {

@@ -6,10 +6,10 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{KeyboardEvent, MouseEvent, MouseEventKind, ScrollEvent, ScrollPhase},
+    events::{KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent, ScrollPhase},
     glyph_engine::{AtlasPacker, GlyphEngine},
     hit_test::hit_test_tree,
-    profiler::{FrameProfile, ProfileScope},
+    profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
     render_engine::RenderEngine,
   },
   layout::{
@@ -20,6 +20,7 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
   },
+  core::{IdGenerator, NodeId},
   node::{border::BorderPlacement, color::Color, node::Node},
 };
 
@@ -38,6 +39,7 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
 }
 
 pub struct Runtime {
+  id_gen: IdGenerator,
   glyph_engine: GlyphEngine,
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
@@ -57,6 +59,7 @@ pub struct Runtime {
 impl Runtime {
   pub fn new() -> Self {
     Self {
+      id_gen: IdGenerator::new(),
       glyph_engine: GlyphEngine::new(),
       layout_engine: LayoutEngine::new(),
       render_engine: None,
@@ -92,6 +95,56 @@ impl Runtime {
     &self.last_profile
   }
 
+  pub fn memory_profile(&self) -> RuntimeMemoryProfile {
+    let runtime_struct_bytes = std::mem::size_of::<Self>();
+    let root_tree_bytes = self.root.as_ref().map(Node::estimated_memory_bytes).unwrap_or(0);
+    let root_context_bytes = self.root_ctx.as_ref().map(Ctx::estimated_memory_bytes).unwrap_or(0);
+    let root_component_bytes = self
+      .root_component
+      .as_ref()
+      .map(|_| std::mem::size_of::<Box<dyn AnyRootComponent>>())
+      .unwrap_or(0);
+    let last_layout_bytes = self
+      .last_layout
+      .as_ref()
+      .map(LayoutResult::estimated_memory_bytes)
+      .unwrap_or(0);
+    let glyph_engine_bytes = self.glyph_engine.estimated_memory_bytes();
+    let render_engine_bytes = self
+      .render_engine
+      .as_ref()
+      .map(|_| std::mem::size_of::<Box<dyn RenderEngine>>())
+      .unwrap_or(0);
+    let hover_path_bytes = self.hover_path.capacity() * std::mem::size_of::<usize>();
+    let dragging_scroll_bytes = self
+      .dragging_scroll
+      .as_ref()
+      .map(|_| std::mem::size_of::<ScrollState>())
+      .unwrap_or(0);
+    let total_bytes = runtime_struct_bytes
+      + root_tree_bytes
+      + root_context_bytes
+      + root_component_bytes
+      + last_layout_bytes
+      + glyph_engine_bytes
+      + render_engine_bytes
+      + hover_path_bytes
+      + dragging_scroll_bytes;
+
+    RuntimeMemoryProfile {
+      total_bytes,
+      runtime_struct_bytes,
+      root_tree_bytes,
+      root_context_bytes,
+      root_component_bytes,
+      last_layout_bytes,
+      glyph_engine_bytes,
+      render_engine_bytes,
+      hover_path_bytes,
+      dragging_scroll_bytes,
+    }
+  }
+
   fn viewport_logical(&self) -> Size {
     let s = self.scale_factor();
     Size::new(self.viewport_physical.width / s, self.viewport_physical.height / s)
@@ -102,11 +155,15 @@ impl Runtime {
   }
 
   pub fn mount_root<C: Component>(&mut self, props: C::Props) {
+    if let Some(old) = &mut self.root {
+      old.free_ids(&self.id_gen);
+    }
     let mut ctx = Ctx::new_root();
     let component = C::create(&mut ctx, props);
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();
-    let node = wrapper.render(&mut ctx);
+    let mut node = wrapper.render(&mut ctx);
+    node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = Some(Box::new(wrapper));
     self.root_ctx = Some(ctx);
@@ -116,20 +173,36 @@ impl Runtime {
 
   pub fn rebuild(&mut self) {
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
+      if let Some(old) = &mut self.root {
+        old.free_ids(&self.id_gen);
+      }
       ctx.begin_render();
-      let node = component.render(ctx);
+      let mut node = component.render(ctx);
+      node.assign_ids(&self.id_gen);
       self.root = Some(node);
       self.last_layout = None;
       self.hover_path.clear();
     }
   }
 
-  pub fn set_root(&mut self, node: Node) {
+  pub fn set_root(&mut self, mut node: Node) {
+    if let Some(old) = &mut self.root {
+      old.free_ids(&self.id_gen);
+    }
+    node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = None;
     self.root_ctx = None;
     self.last_layout = None;
     self.hover_path.clear();
+  }
+
+  pub fn root(&self) -> Option<&Node> {
+    self.root.as_ref()
+  }
+
+  pub fn id_gen(&self) -> &IdGenerator {
+    &self.id_gen
   }
 
   pub fn resize(&mut self, width: u32, height: u32) {
@@ -286,15 +359,41 @@ impl Runtime {
       glyph_cache_misses: self.glyph_engine.glyph_misses,
       text_measure_cache_hits: self.glyph_engine.measure_hits,
       text_measure_cache_misses: self.glyph_engine.measure_misses,
+      memory: self.memory_profile(),
     };
   }
 
-  pub fn propagate_event(&mut self, event: crate::app::events::Event) {
-    match event {
-      crate::app::events::Event::Mouse(e) => self.propagate_mouse_event(e),
-      crate::app::events::Event::Keyboard(e) => self.propagate_keyboard_event(e),
-      crate::app::events::Event::Scroll(e) => self.propagate_scroll_event(e),
-    }
+  pub fn mouse_move(&mut self, x: f32, y: f32) {
+    self.dispatch_mouse(x, y, MouseButton::Left, MouseEventKind::Move);
+  }
+
+  pub fn mouse_down(&mut self, x: f32, y: f32, button: MouseButton) {
+    self.dispatch_mouse(x, y, button, MouseEventKind::Down);
+  }
+
+  pub fn mouse_up(&mut self, x: f32, y: f32, button: MouseButton) {
+    self.dispatch_mouse(x, y, button, MouseEventKind::Up);
+  }
+
+  pub fn click(&mut self, x: f32, y: f32, button: MouseButton) {
+    self.dispatch_mouse(x, y, button, MouseEventKind::Click);
+  }
+
+  pub fn dblclick(&mut self, x: f32, y: f32, button: MouseButton) {
+    self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
+  }
+
+  pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    self.dispatch_scroll(x, y, delta_x, delta_y, phase);
+  }
+
+  pub fn key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
+    let mut evt = KeyboardEvent { key, code, shift, ctrl, alt, target_id: NodeId::UNASSIGNED };
+    let root = match &self.root {
+      Some(r) => r,
+      None => return,
+    };
+    fire_keyboard_recursive(root, &mut evt);
   }
 
   pub fn needs_redraw(&self) -> bool {
@@ -305,7 +404,8 @@ impl Runtime {
     self.needs_redraw = false;
   }
 
-  pub fn propagate_mouse_event(&mut self, evt: MouseEvent) {
+  fn dispatch_mouse(&mut self, x: f32, y: f32, button: MouseButton, kind: MouseEventKind) {
+    let mut evt = MouseEvent { x, y, button, kind, target_id: NodeId::UNASSIGNED };
     let scale = self.scale_factor();
     let lx = evt.x / scale;
     let ly = evt.y / scale;
@@ -363,6 +463,7 @@ impl Runtime {
 
     // Normal event dispatch
     for (node, _rect) in &hits {
+      evt.target_id = node.node_id();
       match evt.kind {
         MouseEventKind::Click => {
           if let Some(ref handler) = node.events.on_click {
@@ -442,16 +543,8 @@ impl Runtime {
     self.hover_path = current_ptrs;
   }
 
-  pub fn propagate_keyboard_event(&mut self, evt: KeyboardEvent) {
-    let root = match &self.root {
-      Some(r) => r,
-      None => return,
-    };
-
-    fire_keyboard_recursive(root, &evt);
-  }
-
-  pub fn propagate_scroll_event(&mut self, evt: ScrollEvent) {
+  fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    let mut evt = ScrollEvent { x, y, delta_x, delta_y, phase, target_id: NodeId::UNASSIGNED };
     let root = match &self.root {
       Some(r) => r,
       None => return,
@@ -481,6 +574,7 @@ impl Runtime {
 
     // Fire user handlers
     for (node, _) in &hits {
+      evt.target_id = node.node_id();
       match evt.phase {
         ScrollPhase::Start => {
           if let Some(ref handler) = node.events.on_scroll_start {
@@ -532,7 +626,8 @@ impl Runtime {
   }
 }
 
-fn fire_keyboard_recursive(node: &Node, evt: &KeyboardEvent) {
+fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
+  evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_down {
     handler(evt);
   }

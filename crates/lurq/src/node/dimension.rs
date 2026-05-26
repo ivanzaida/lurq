@@ -13,4 +13,12 @@ impl Dimension {
       _ => 0.0,
     }
   }
+
+  pub fn resolve(&self, parent_size: f32) -> f32 {
+    match self {
+      Dimension::Px(v) => *v,
+      Dimension::Pct(pct) => parent_size * pct / 100.0,
+      Dimension::Auto => 0.0,
+    }
+  }
 }

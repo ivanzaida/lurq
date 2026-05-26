@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
-  core::{Guard, NodeRef},
+  core::{Guard, IdGenerator, NodeId, NodeRef},
   layout::{
-    layout_kind::{FrameConstraints, LayoutKind}, scrollbar::ScrollBarStyle,
+    Alignment, Size, StackAlignment,
+    layout_kind::{FrameConstraints, LayoutKind, Overflow},
+    scrollbar::ScrollBarStyle,
     text_style::TextStyle,
-    Alignment,
-    StackAlignment,
   },
   node::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
@@ -39,7 +39,11 @@ pub struct EventHandlers {
 }
 
 pub struct Node {
+  pub(crate) node_id: NodeId,
   pub(crate) kind: LayoutKind,
+  pub(crate) text_content: Guard<Option<String>>,
+  pub(crate) overflow: Overflow,
+  pub(crate) intrinsic_size: Option<Size>,
   pub(crate) color: Guard<Option<Color>>,
   pub(crate) border_radius: Guard<Option<BorderRadius>>,
   pub(crate) border: Guard<Option<Border>>,
@@ -55,6 +59,10 @@ impl Node {
   pub fn new() -> Self {
     Self {
       kind: LayoutKind::Leaf,
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -70,9 +78,12 @@ impl Node {
   pub fn text(content: &str) -> Self {
     Self {
       kind: LayoutKind::Text {
-        content: content.to_owned(),
         style: TextStyle::default(),
       },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(Some(content.to_owned())),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -87,10 +98,11 @@ impl Node {
 
   pub fn text_styled(content: &str, style: TextStyle) -> Self {
     Self {
-      kind: LayoutKind::Text {
-        content: content.to_owned(),
-        style,
-      },
+      kind: LayoutKind::Text { style },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(Some(content.to_owned())),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -105,7 +117,16 @@ impl Node {
 
   pub fn row(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
     Self {
-      kind: LayoutKind::Row { spacing, align },
+      kind: LayoutKind::Row {
+        spacing,
+        align,
+        justify: crate::layout::layout_kind::Justify::Start,
+        wrap: crate::layout::layout_kind::FlexWrap::NoWrap,
+      },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -120,7 +141,16 @@ impl Node {
 
   pub fn column(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
     Self {
-      kind: LayoutKind::Column { spacing, align },
+      kind: LayoutKind::Column {
+        spacing,
+        align,
+        justify: crate::layout::layout_kind::Justify::Start,
+        wrap: crate::layout::layout_kind::FlexWrap::NoWrap,
+      },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -136,6 +166,10 @@ impl Node {
   pub fn stack(align: StackAlignment, children: Vec<Node>) -> Self {
     Self {
       kind: LayoutKind::Stack { align },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -151,6 +185,10 @@ impl Node {
   pub fn padding(self, padding: Padding) -> Self {
     Self {
       kind: LayoutKind::PaddingModifier(padding),
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -166,6 +204,10 @@ impl Node {
   pub fn frame(self, frame: FrameConstraints) -> Self {
     Self {
       kind: LayoutKind::FrameModifier(frame),
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -181,6 +223,10 @@ impl Node {
   pub fn offset(self, x: f32, y: f32) -> Self {
     Self {
       kind: LayoutKind::OffsetModifier { x, y },
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -196,6 +242,10 @@ impl Node {
   pub fn align(self, alignment: Alignment) -> Self {
     Self {
       kind: LayoutKind::AlignModifier(alignment),
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -210,7 +260,53 @@ impl Node {
 
   pub fn flex(self, factor: f32) -> Self {
     Self {
-      kind: LayoutKind::FlexModifier(factor),
+      kind: LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams::grow(factor)),
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
+      color: Guard::new(None),
+      border_radius: Guard::new(None),
+      border: Guard::new(None),
+      scrollbar_style: Guard::new(None),
+      node_ref: None,
+      interaction: None,
+      layout_cache: Default::default(),
+      children: vec![self],
+      events: EventHandlers::default(),
+    }
+  }
+
+  pub fn flex_shrink(self, factor: f32) -> Self {
+    Self {
+      kind: LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams {
+        grow: 0.0,
+        shrink: factor,
+        basis: None,
+      }),
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
+      color: Guard::new(None),
+      border_radius: Guard::new(None),
+      border: Guard::new(None),
+      scrollbar_style: Guard::new(None),
+      node_ref: None,
+      interaction: None,
+      layout_cache: Default::default(),
+      children: vec![self],
+      events: EventHandlers::default(),
+    }
+  }
+
+  pub fn flex_full(self, grow: f32, shrink: f32, basis: Option<f32>) -> Self {
+    Self {
+      kind: LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams { grow, shrink, basis }),
+      node_id: NodeId::UNASSIGNED,
+      text_content: Guard::new(None),
+      overflow: Overflow::Visible,
+      intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
@@ -357,7 +453,48 @@ impl Node {
     self
   }
 
+  pub fn set_text(&mut self, content: &str) {
+    self.text_content.set(Some(content.to_owned()));
+  }
+
+  pub fn text_content(&self) -> Option<&str> {
+    self.text_content.as_deref()
+  }
+
+  pub fn clip(mut self) -> Self {
+    self.overflow = Overflow::Hidden;
+    self
+  }
+
+  pub fn intrinsic(mut self, width: f32, height: f32) -> Self {
+    self.intrinsic_size = Some(Size::new(width, height));
+    self
+  }
+
+  pub fn assign_ids(&mut self, id_gen: &IdGenerator) {
+    if !self.node_id.is_assigned() {
+      self.node_id = id_gen.next();
+    }
+    for child in &mut self.children {
+      child.assign_ids(id_gen);
+    }
+  }
+
+  pub fn free_ids(&mut self, id_gen: &IdGenerator) {
+    if self.node_id.is_assigned() {
+      id_gen.free(self.node_id);
+      self.node_id = NodeId::UNASSIGNED;
+    }
+    for child in &mut self.children {
+      child.free_ids(id_gen);
+    }
+  }
+
   // --- Accessors ---
+
+  pub fn node_id(&self) -> NodeId {
+    self.node_id
+  }
 
   pub fn kind(&self) -> &LayoutKind {
     &self.kind
@@ -395,5 +532,62 @@ impl Node {
 
   pub fn children(&self) -> &[Node] {
     &self.children
+  }
+
+  pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
+    match &self.kind {
+      LayoutKind::FlexModifier(_) | LayoutKind::PaddingModifier(_) | LayoutKind::AlignModifier(_) => {
+        self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0)
+      }
+      LayoutKind::FrameModifier(frame) => {
+        if vertical {
+          frame.min_height.unwrap_or(0.0)
+        } else {
+          frame.min_width.unwrap_or(0.0)
+        }
+      }
+      _ => 0.0,
+    }
+  }
+
+  pub(crate) fn clear_guards(&self) {
+    self.text_content.clear_changed();
+    self.color.clear_changed();
+    self.border_radius.clear_changed();
+    self.border.clear_changed();
+    self.scrollbar_style.clear_changed();
+    for child in &self.children {
+      child.clear_guards();
+    }
+  }
+
+  pub(crate) fn any_visual_dirty(&self) -> bool {
+    if self.color.is_changed() || self.border_radius.is_changed() || self.border.is_changed() || self.scrollbar_style.is_changed() {
+      return true;
+    }
+    self.children.iter().any(|c| c.any_visual_dirty())
+  }
+
+  pub(crate) fn estimated_memory_bytes(&self) -> usize {
+    std::mem::size_of::<Self>()
+      + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
+      + self.children.capacity() * std::mem::size_of::<Node>()
+      + self.layout_cache.estimated_memory_bytes()
+      + self
+        .children
+        .iter()
+        .map(Node::estimated_child_heap_bytes)
+        .sum::<usize>()
+  }
+
+  fn estimated_child_heap_bytes(&self) -> usize {
+    self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
+      + self.children.capacity() * std::mem::size_of::<Node>()
+      + self.layout_cache.estimated_memory_bytes()
+      + self
+        .children
+        .iter()
+        .map(Node::estimated_child_heap_bytes)
+        .sum::<usize>()
   }
 }

@@ -13,7 +13,9 @@ struct CachedLayout {
 
 impl LayoutCache {
   pub fn new() -> Self {
-    Self { inner: RefCell::new(None) }
+    Self {
+      inner: RefCell::new(None),
+    }
   }
 
   pub fn get(&self, constraints: Constraints) -> Option<LayoutResult> {
@@ -42,6 +44,15 @@ impl LayoutCache {
         child.offset.y = y;
       }
     }
+  }
+
+  pub(crate) fn estimated_memory_bytes(&self) -> usize {
+    let borrow = self.inner.borrow();
+    let cached_bytes = borrow
+      .as_ref()
+      .map(|cached| std::mem::size_of::<CachedLayout>() + cached.result.estimated_memory_bytes())
+      .unwrap_or(0);
+    std::mem::size_of::<Self>() + cached_bytes
   }
 }
 

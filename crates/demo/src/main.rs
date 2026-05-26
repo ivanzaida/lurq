@@ -1,11 +1,5 @@
 use lurq::{
-  app::{
-    component::Component,
-    ctx::Ctx,
-    events::{MouseButton, MouseEvent, MouseEventKind, ScrollEvent, ScrollPhase},
-    wgpu_render::WgpuRenderEngine,
-    Runtime,
-  },
+  app::{component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow, Runtime},
   core::Signal,
   layout::{
     scrollbar::ScrollBarStyle,
@@ -13,12 +7,6 @@ use lurq::{
     Alignment,
   },
   node::{color::Color, dsl::*, Node},
-};
-use winit::{
-  application::ApplicationHandler,
-  event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
-  event_loop::{ActiveEventLoop, EventLoop},
-  window::{Window, WindowId},
 };
 
 // --- Counter component ---
@@ -168,135 +156,9 @@ impl Component for DemoApp {
   }
 }
 
-// --- Winit app ---
-
-struct WinitApp {
-  runtime: Runtime,
-  window: Option<Window>,
-  cursor_pos: (f64, f64),
-}
-
-impl WinitApp {
-  fn new() -> Self {
-    let mut runtime = Runtime::new();
-    runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
-    runtime.mount_root::<DemoApp>(());
-    Self {
-      runtime,
-      window: None,
-      cursor_pos: (0.0, 0.0),
-    }
-  }
-
-  fn check_redraw(&mut self) {
-    if self.runtime.needs_redraw() {
-      self.runtime.clear_needs_redraw();
-      if let Some(w) = &self.window {
-        w.request_redraw();
-      }
-    }
-  }
-}
-
-impl ApplicationHandler for WinitApp {
-  fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    if self.window.is_none() {
-      let attrs = Window::default_attributes().with_title("lurq demo");
-      let window = event_loop.create_window(attrs).unwrap();
-      let size = window.inner_size();
-      self.runtime.set_scale_factor(window.scale_factor() as f32);
-      self.runtime.resize(size.width, size.height);
-      window.request_redraw();
-      self.window = Some(window);
-    }
-  }
-
-  fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-    match event {
-      WindowEvent::CloseRequested => event_loop.exit(),
-      WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-        self.runtime.set_scale_factor(scale_factor as f32);
-        if let Some(w) = &self.window {
-          let size = w.inner_size();
-          self.runtime.resize(size.width, size.height);
-          w.request_redraw();
-        }
-      }
-      WindowEvent::Resized(size) => {
-        self.runtime.resize(size.width, size.height);
-        if let Some(w) = &self.window {
-          w.request_redraw();
-        }
-      }
-      WindowEvent::CursorMoved { position, .. } => {
-        self.cursor_pos = (position.x, position.y);
-        self.runtime.propagate_mouse_event(MouseEvent {
-          x: position.x as f32,
-          y: position.y as f32,
-          button: MouseButton::Left,
-          kind: MouseEventKind::Move,
-        });
-        self.check_redraw();
-      }
-      WindowEvent::MouseInput { state, button, .. } => {
-        let btn = match button {
-          winit::event::MouseButton::Left => MouseButton::Left,
-          winit::event::MouseButton::Right => MouseButton::Right,
-          winit::event::MouseButton::Middle => MouseButton::Middle,
-          _ => MouseButton::Left,
-        };
-        let kind = match state {
-          ElementState::Pressed => MouseEventKind::Down,
-          ElementState::Released => MouseEventKind::Up,
-        };
-        self.runtime.propagate_mouse_event(MouseEvent {
-          x: self.cursor_pos.0 as f32,
-          y: self.cursor_pos.1 as f32,
-          button: btn,
-          kind,
-        });
-        if state == ElementState::Released {
-          self.runtime.propagate_mouse_event(MouseEvent {
-            x: self.cursor_pos.0 as f32,
-            y: self.cursor_pos.1 as f32,
-            button: btn,
-            kind: MouseEventKind::Click,
-          });
-        }
-        self.check_redraw();
-      }
-      WindowEvent::MouseWheel { delta, phase, .. } => {
-        let (dx, dy) = match delta {
-          MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
-          MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
-        };
-        let scroll_phase = match phase {
-          TouchPhase::Started => ScrollPhase::Start,
-          TouchPhase::Moved => ScrollPhase::Scroll,
-          TouchPhase::Ended | TouchPhase::Cancelled => ScrollPhase::End,
-        };
-        self.runtime.propagate_scroll_event(ScrollEvent {
-          x: self.cursor_pos.0 as f32,
-          y: self.cursor_pos.1 as f32,
-          delta_x: dx,
-          delta_y: dy,
-          phase: scroll_phase,
-        });
-        self.check_redraw();
-      }
-      WindowEvent::RedrawRequested => {
-        if let Some(w) = &self.window {
-          self.runtime.pass(w);
-          eprintln!("{}", self.runtime.last_profile());
-        }
-      }
-      _ => {}
-    }
-  }
-}
-
 fn main() {
-  let event_loop = EventLoop::new().unwrap();
-  let mut app = WinitApp::new();
-  event_loop.run_app(&mut app).unwrap();
+  let mut runtime = Runtime::new();
+  runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
+  runtime.mount_root::<DemoApp>(());
+  WinitWindow::new(runtime).with_title("lurq demo").run();
 }

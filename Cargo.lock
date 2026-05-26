@@ -359,7 +359,6 @@ name = "demo"
 version = "0.1.0"
 dependencies = [
  "lurq",
- "winit",
 ]
 
 [[package]]
@@ -838,6 +837,7 @@ dependencies = [
  "pollster",
  "raw-window-handle",
  "wgpu",
+ "winit",
 ]
 
 [[package]]

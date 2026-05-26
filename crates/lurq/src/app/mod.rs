@@ -8,5 +8,7 @@ pub mod render_engine;
 pub mod runtime;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
+#[cfg(feature = "winit")]
+pub mod winit_shell;
 
 pub use runtime::*;

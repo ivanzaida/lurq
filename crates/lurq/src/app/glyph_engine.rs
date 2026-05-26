@@ -220,11 +220,22 @@ impl GlyphEngine {
     buffer.shape_until_scroll(&mut self.font_system, false);
 
     let mut width = 0.0_f32;
-    let mut height = 0.0_f32;
+    let mut first_line_y = 0.0_f32;
+    let mut last_line_y = 0.0_f32;
+    let mut has_runs = false;
     for run in buffer.layout_runs() {
       width = width.max(run.line_w);
-      height = run.line_y + metrics.line_height;
+      if !has_runs {
+        first_line_y = run.line_y;
+        has_runs = true;
+      }
+      last_line_y = run.line_y;
     }
+    let height = if has_runs {
+      last_line_y - first_line_y + metrics.line_height
+    } else {
+      0.0
+    };
 
     self.buffer_pool.push(buffer);
     Size::new(width, height)
@@ -247,6 +258,26 @@ impl GlyphEngine {
       .get(&style.font_family)
       .cloned()
       .unwrap_or_else(|| style.font_family.clone())
+  }
+
+  pub(crate) fn estimated_memory_bytes(&self) -> usize {
+    let alias_heap = self
+      .font_aliases
+      .iter()
+      .map(|(name, family)| name.capacity() + family.capacity())
+      .sum::<usize>();
+    let measure_key_heap = self
+      .measure_cache
+      .keys()
+      .map(|key| key.text.capacity() + key.font_family.capacity())
+      .sum::<usize>();
+
+    std::mem::size_of::<Self>()
+      + self.font_aliases.capacity() * std::mem::size_of::<(String, String)>()
+      + alias_heap
+      + self.measure_cache.capacity() * std::mem::size_of::<(CacheKey, Size)>()
+      + measure_key_heap
+      + self.buffer_pool.capacity() * std::mem::size_of::<Buffer>()
   }
 }
 

@@ -7,12 +7,15 @@ pub enum MouseButton {
   Other(u8),
 }
 
+use crate::core::NodeId;
+
 #[derive(Debug)]
 pub struct MouseEvent {
   pub x: f32,
   pub y: f32,
   pub button: MouseButton,
   pub kind: MouseEventKind,
+  pub target_id: NodeId,
 }
 
 #[derive(Debug, Clone, Copy, Default)]

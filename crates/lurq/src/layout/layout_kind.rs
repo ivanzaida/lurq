@@ -8,16 +8,19 @@ use crate::{
 pub enum LayoutKind {
   Leaf,
   Text {
-    content: String,
     style: TextStyle,
   },
   Row {
     spacing: f32,
     align: Alignment,
+    justify: Justify,
+    wrap: FlexWrap,
   },
   Column {
     spacing: f32,
     align: Alignment,
+    justify: Justify,
+    wrap: FlexWrap,
   },
   Stack {
     align: StackAlignment,
@@ -29,7 +32,7 @@ pub enum LayoutKind {
     y: f32,
   },
   AlignModifier(Alignment),
-  FlexModifier(f32),
+  FlexModifier(FlexParams),
   ScrollModifier {
     state: ScrollState,
     direction: ScrollDirection,
@@ -57,6 +60,7 @@ struct ScrollStateInner {
   drag_start_y: f32,
   drag_start_scroll_y: f32,
   scrollbar_style: ScrollBarStyle,
+  scroll_dirty: bool,
 }
 
 impl ScrollState {
@@ -78,6 +82,7 @@ impl ScrollState {
         drag_start_y: 0.0,
         drag_start_scroll_y: 0.0,
         scrollbar_style: ScrollBarStyle::default(),
+        scroll_dirty: false,
       })),
     }
   }
@@ -94,12 +99,14 @@ impl ScrollState {
     let mut inner = self.inner.lock().unwrap();
     inner.scroll_x = x.clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = y.clamp(0.0, inner.max_scroll_y);
+    inner.scroll_dirty = true;
   }
 
   pub fn scroll_by(&self, dx: f32, dy: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.scroll_x = (inner.scroll_x + dx).clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = (inner.scroll_y + dy).clamp(0.0, inner.max_scroll_y);
+    inner.scroll_dirty = true;
   }
 
   pub fn content_width(&self) -> f32 {
@@ -166,6 +173,7 @@ impl ScrollState {
     let delta_px = mouse_y - inner.drag_start_y;
     let scroll_delta = delta_px / scrollable_track * inner.max_scroll_y;
     inner.scroll_y = (inner.drag_start_scroll_y + scroll_delta).clamp(0.0, inner.max_scroll_y);
+    inner.scroll_dirty = true;
   }
 
   pub fn thumb_rect(&self, style: &crate::layout::scrollbar::ScrollBarStyle) -> (f32, f32, f32, f32) {
@@ -186,6 +194,13 @@ impl ScrollState {
     (track_x, thumb_y, style.width, thumb_height)
   }
 
+  pub(crate) fn take_scroll_dirty(&self) -> bool {
+    let mut inner = self.inner.lock().unwrap();
+    let dirty = inner.scroll_dirty;
+    inner.scroll_dirty = false;
+    dirty
+  }
+
   pub(crate) fn update_layout(&self, content_w: f32, content_h: f32, viewport_w: f32, viewport_h: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.content_width = content_w;
@@ -203,6 +218,58 @@ impl ScrollState {
     inner.viewport_abs_x = x;
     inner.viewport_abs_y = y;
   }
+}
+
+#[derive(Clone, Copy)]
+pub struct FlexParams {
+  pub grow: f32,
+  pub shrink: f32,
+  pub basis: Option<f32>,
+}
+
+impl FlexParams {
+  pub fn grow(factor: f32) -> Self {
+    Self {
+      grow: factor,
+      shrink: 0.0,
+      basis: None,
+    }
+  }
+}
+
+impl Default for FlexParams {
+  fn default() -> Self {
+    Self {
+      grow: 1.0,
+      shrink: 0.0,
+      basis: None,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum FlexWrap {
+  #[default]
+  NoWrap,
+  Wrap,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Justify {
+  #[default]
+  Start,
+  End,
+  Center,
+  SpaceBetween,
+  SpaceAround,
+  SpaceEvenly,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Overflow {
+  #[default]
+  Visible,
+  Hidden,
 }
 
 #[derive(Clone, Copy, Default)]

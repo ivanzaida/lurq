@@ -47,10 +47,14 @@ pub fn spacer() -> Node {
 
 fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
   Node {
+    node_id: crate::core::NodeId::UNASSIGNED,
     kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,
     },
+    text_content: Guard::new(None),
+    overflow: crate::layout::layout_kind::Overflow::Visible,
+    intrinsic_size: None,
     color: Guard::new(None),
     border_radius: Guard::new(None),
     border: Guard::new(None),
@@ -99,6 +103,24 @@ impl Node {
     match &mut self.kind {
       crate::layout::layout_kind::LayoutKind::Row { align: a, .. } => *a = align,
       crate::layout::layout_kind::LayoutKind::Column { align: a, .. } => *a = align,
+      _ => {}
+    }
+    self
+  }
+
+  pub fn justify(mut self, justify: crate::layout::layout_kind::Justify) -> Self {
+    match &mut self.kind {
+      crate::layout::layout_kind::LayoutKind::Row { justify: j, .. } => *j = justify,
+      crate::layout::layout_kind::LayoutKind::Column { justify: j, .. } => *j = justify,
+      _ => {}
+    }
+    self
+  }
+
+  pub fn wrap(mut self) -> Self {
+    match &mut self.kind {
+      crate::layout::layout_kind::LayoutKind::Row { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
+      crate::layout::layout_kind::LayoutKind::Column { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
       _ => {}
     }
     self
