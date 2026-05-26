@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["crates/lurq", "crates/demo"]
+
+[workspace.dependencies]
+parking_lot = "0.12.5"

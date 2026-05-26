@@ -1,0 +1,8 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lurq = { path = "../lurq", features = ["wgpu"] }
+winit = "0.30"

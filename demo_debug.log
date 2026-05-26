@@ -1,0 +1,52 @@
+warning: unused imports: `GlyphCmd` and `RectCmd`
+ --> crates\lurq\src\app\wgpu_render\mod.rs:7:34
+  |
+7 | use crate::layout::render_list::{GlyphCmd, RectCmd, RenderList};
+  |                                  ^^^^^^^^  ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `mounted` is never read
+  --> crates\lurq\src\app\ctx.rs:19:3
+   |
+13 | pub struct Ctx {
+   |            --- field in this struct
+...
+19 |   mounted: bool,
+   |   ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `on_mounted` is never used
+  --> crates\lurq\src\app\ctx.rs:30:6
+   |
+28 | trait AnyComponent: Send + Sync + 'static {
+   |       ------------ method in this trait
+29 |   fn render(&self, ctx: &mut Ctx) -> Node;
+30 |   fn on_mounted(&self);
+   |      ^^^^^^^^^^
+
+warning: methods `clear_dirty`, `mark_dirty`, `end_render`, and `any_dirty` are never used
+   --> crates\lurq\src\app\ctx.rs:73:17
+    |
+ 57 | impl Ctx {
+    | -------- methods in this implementation
+...
+ 73 |   pub(crate) fn clear_dirty(&self) {
+    |                 ^^^^^^^^^^^
+...
+ 77 |   pub(crate) fn mark_dirty(&self) {
+    |                 ^^^^^^^^^^
+...
+191 |   pub(crate) fn end_render(&mut self) {
+    |                 ^^^^^^^^^^
+...
+202 |   pub(crate) fn any_dirty(&self) -> bool {
+    |                 ^^^^^^^^^
+
+warning: `lurq` (lib) generated 4 warnings (run `cargo fix --lib -p lurq` to apply 1 suggestion)
+   Compiling demo v0.1.0 (F:\gavno\lurq\crates\demo)
+error: failed to remove file `F:\gavno\lurq\target\debug\demo.exe`
+
+Caused by:
+  Access is denied. (os error 5)
