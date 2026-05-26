@@ -52,7 +52,11 @@ fn text_vertically_centered_in_row_with_rects() {
   let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
 
   let row_height = r.size.height;
-  assert!((row_height - 36.0).abs() < 1.0, "row height should be 36 (max child), got {}", row_height);
+  assert!(
+    (row_height - 36.0).abs() < 1.0,
+    "row height should be 36 (max child), got {}",
+    row_height
+  );
 
   let text_child = &r.children[1];
   let text_height = text_child.result.size.height;

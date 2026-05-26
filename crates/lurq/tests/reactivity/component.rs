@@ -1,5 +1,5 @@
 use lurq::{
-  app::{component::Component, ctx::Ctx, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx},
   core::Signal,
   node::{dsl, node::Node},
 };
@@ -13,7 +13,9 @@ struct Counter {
 impl Component for Counter {
   type Props = i32;
   fn create(ctx: &mut Ctx, initial: i32) -> Self {
-    Self { count: ctx.signal(initial) }
+    Self {
+      count: ctx.signal(initial),
+    }
   }
   fn render(&self, _ctx: &mut Ctx) -> Node {
     dsl::text(&format!("{}", self.count.get()))
@@ -24,7 +26,9 @@ struct Parent;
 
 impl Component for Parent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self { Self }
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
   fn render(&self, ctx: &mut Ctx) -> Node {
     dsl::column()
       .child(ctx.mount::<Counter>(0))
@@ -49,7 +53,9 @@ struct ContextConsumer;
 
 impl Component for ContextConsumer {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self { Self }
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
   fn render(&self, ctx: &mut Ctx) -> Node {
     let val = ctx.use_context::<i32>().unwrap_or(0);
     dsl::text(&format!("{}", val))
@@ -60,7 +66,9 @@ struct SlotWrapper;
 
 impl Component for SlotWrapper {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self { Self }
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
   fn render(&self, ctx: &mut Ctx) -> Node {
     let count = ctx.children().len();
     dsl::column().with_children((0..count).map(|_| Node::new()))
@@ -71,12 +79,12 @@ struct ForEachParent;
 
 impl Component for ForEachParent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self { Self }
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
   fn render(&self, ctx: &mut Ctx) -> Node {
     let items = vec![1, 2, 3, 4, 5];
-    let nodes = ctx.for_each(items, |i| *i, |_ctx, i| {
-      dsl::text(&format!("item-{}", i))
-    });
+    let nodes = ctx.for_each(items, |i| *i, |_ctx, i| dsl::text(&format!("item-{}", i)));
     dsl::column().with_children(nodes)
   }
 }
@@ -85,7 +93,9 @@ struct ErrorComponent;
 
 impl Component for ErrorComponent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self { Self }
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
   fn render(&self, ctx: &mut Ctx) -> Node {
     ctx.error_boundary(
       |_ctx| {
@@ -100,15 +110,21 @@ struct EmptyComponent;
 
 impl Component for EmptyComponent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self { Self }
-  fn render(&self, _ctx: &mut Ctx) -> Node { Node::new() }
+  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+    Self
+  }
+  fn render(&self, _ctx: &mut Ctx) -> Node {
+    Node::new()
+  }
 }
 
 struct DeeplyNested;
 
 impl Component for DeeplyNested {
   type Props = u32;
-  fn create(_ctx: &mut Ctx, _: u32) -> Self { Self }
+  fn create(_ctx: &mut Ctx, _: u32) -> Self {
+    Self
+  }
   fn render(&self, ctx: &mut Ctx) -> Node {
     ctx.mount::<EmptyComponent>(())
   }

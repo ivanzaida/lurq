@@ -149,10 +149,7 @@ impl Ctx {
     self.context_map.get::<T>()
   }
 
-  pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(
-    &mut self,
-    value: T,
-  ) -> ReactiveContext<T> {
+  pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
     let ctx = ReactiveContext::new(value);
     self.context_map.provide(ctx.clone());
     let dirty = self.dirty.clone();
@@ -215,7 +212,12 @@ impl Ctx {
     self.mount_inner::<C>(Some(key), props, Some(slot_children))
   }
 
-  fn mount_inner<C: Component>(&mut self, key: Option<&str>, props: C::Props, slot_children: Option<Vec<Node>>) -> Node {
+  fn mount_inner<C: Component>(
+    &mut self,
+    key: Option<&str>,
+    props: C::Props,
+    slot_children: Option<Vec<Node>>,
+  ) -> Node {
     let cursor = self.child_cursor;
     self.child_cursor += 1;
 

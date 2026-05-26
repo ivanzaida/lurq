@@ -8,7 +8,9 @@ pub struct Store<T: Send + Sync + 'static> {
 
 impl<T: Clone + Send + Sync + 'static> Store<T> {
   pub fn new(value: T) -> Self {
-    Self { signal: Signal::new(value) }
+    Self {
+      signal: Signal::new(value),
+    }
   }
 
   pub fn get(&self) -> T {
@@ -46,7 +48,9 @@ impl<T: Clone + Send + Sync + 'static> Store<T> {
 
 impl<T: Clone + Send + Sync + 'static> Clone for Store<T> {
   fn clone(&self) -> Self {
-    Self { signal: self.signal.clone() }
+    Self {
+      signal: self.signal.clone(),
+    }
   }
 }
 

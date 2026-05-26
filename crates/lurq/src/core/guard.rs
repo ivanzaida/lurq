@@ -1,5 +1,7 @@
-use std::cell::Cell;
-use std::ops::{Deref, DerefMut};
+use std::{
+  cell::Cell,
+  ops::{Deref, DerefMut},
+};
 
 pub struct Guard<T> {
   value: T,
@@ -8,7 +10,10 @@ pub struct Guard<T> {
 
 impl<T> Guard<T> {
   pub fn new(value: T) -> Self {
-    Self { value, changed: Cell::new(true) }
+    Self {
+      value,
+      changed: Cell::new(true),
+    }
   }
 
   pub fn is_changed(&self) -> bool {

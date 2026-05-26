@@ -113,8 +113,7 @@ fn set_root_assigns_all_children() {
 #[test]
 fn set_root_assigns_unique_ids() {
   let mut rt = rt();
-  let node = dsl::row()
-    .with_children((0..10).map(|_| Node::new()));
+  let node = dsl::row().with_children((0..10).map(|_| Node::new()));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_unique(root));
@@ -337,7 +336,7 @@ fn modifier_wrappers_get_ids() {
     .size(100.0, 100.0)   // FrameModifier wrapper
     .pad(10.0)             // PaddingModifier wrapper
     .offset(5.0, 5.0)     // OffsetModifier wrapper
-    .flex(1.0);            // FlexModifier wrapper
+    .flex(1.0); // FlexModifier wrapper
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -348,9 +347,7 @@ fn modifier_wrappers_get_ids() {
 #[test]
 fn scroll_container_gets_ids() {
   let mut rt = rt();
-  let node = dsl::scroll_vertical(
-    dsl::column().with_children((0..10).map(|_| Node::new())),
-  );
+  let node = dsl::scroll_vertical(dsl::column().with_children((0..10).map(|_| Node::new())));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -365,10 +362,7 @@ fn scroll_container_gets_ids() {
 #[test]
 fn stack_children_get_ids() {
   let mut rt = rt();
-  let node = dsl::stack().with_children(vec![
-    Node::new().size(100.0, 100.0),
-    Node::new().size(50.0, 50.0),
-  ]);
+  let node = dsl::stack().with_children(vec![Node::new().size(100.0, 100.0), Node::new().size(50.0, 50.0)]);
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));

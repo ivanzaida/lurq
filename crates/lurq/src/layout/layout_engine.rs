@@ -325,7 +325,11 @@ impl LayoutEngine {
     }
 
     let total_spacing = spacing * (children.len() as f32 - 1.0).max(0.0);
-    let max_main = if vertical { constraints.max_height } else { constraints.max_width };
+    let max_main = if vertical {
+      constraints.max_height
+    } else {
+      constraints.max_width
+    };
 
     let mut grow_total = 0.0_f32;
     let mut shrink_total = 0.0_f32;
@@ -358,7 +362,11 @@ impl LayoutEngine {
           non_flex_results.push(None);
         }
       } else {
-        flex_params_list.push(FlexParams { grow: 0.0, shrink: 0.0, basis: None });
+        flex_params_list.push(FlexParams {
+          grow: 0.0,
+          shrink: 0.0,
+          basis: None,
+        });
         let child_constraints = if vertical {
           Constraints {
             min_width: constraints.min_width,
@@ -431,10 +439,18 @@ impl LayoutEngine {
         loop {
           let mut any_clamped = false;
           for i in 0..children.len() {
-            if frozen[i] { continue; }
+            if frozen[i] {
+              continue;
+            }
             let params = &flex_params_list[i];
-            if params.shrink <= 0.0 { continue; }
-            let child_main = if vertical { results[i].size.height } else { results[i].size.width };
+            if params.shrink <= 0.0 {
+              continue;
+            }
+            let child_main = if vertical {
+              results[i].size.height
+            } else {
+              results[i].size.width
+            };
             let shrink_amount = remaining_overflow * (params.shrink / remaining_shrink);
             let min_main = children[i].min_main_size(vertical);
             let new_main = (child_main - shrink_amount).max(min_main);
@@ -451,15 +467,27 @@ impl LayoutEngine {
               }
             }
           }
-          if !any_clamped { break; }
-          if remaining_shrink <= 0.0 { break; }
+          if !any_clamped {
+            break;
+          }
+          if remaining_shrink <= 0.0 {
+            break;
+          }
         }
 
         for i in 0..children.len() {
-          if frozen[i] { continue; }
+          if frozen[i] {
+            continue;
+          }
           let params = &flex_params_list[i];
-          if params.shrink <= 0.0 { continue; }
-          let child_main = if vertical { results[i].size.height } else { results[i].size.width };
+          if params.shrink <= 0.0 {
+            continue;
+          }
+          let child_main = if vertical {
+            results[i].size.height
+          } else {
+            results[i].size.width
+          };
           let shrink_amount = remaining_overflow * (params.shrink / remaining_shrink);
           let new_main = (child_main - shrink_amount).max(0.0);
           if vertical {
@@ -532,8 +560,16 @@ impl LayoutEngine {
     justify: Justify,
     vertical: bool,
   ) -> Vec<ChildLayout> {
-    let container_main = if vertical { container_size.height } else { container_size.width };
-    let container_cross = if vertical { container_size.width } else { container_size.height };
+    let container_main = if vertical {
+      container_size.height
+    } else {
+      container_size.width
+    };
+    let container_cross = if vertical {
+      container_size.width
+    } else {
+      container_size.height
+    };
     let children_main: f32 = results
       .iter()
       .map(|r| if vertical { r.size.height } else { r.size.width })
@@ -566,8 +602,16 @@ impl LayoutEngine {
     let mut main_cursor = leading;
 
     for (i, result) in results.iter().enumerate() {
-      let child_main = if vertical { result.size.height } else { result.size.width };
-      let child_cross = if vertical { result.size.width } else { result.size.height };
+      let child_main = if vertical {
+        result.size.height
+      } else {
+        result.size.width
+      };
+      let child_cross = if vertical {
+        result.size.width
+      } else {
+        result.size.height
+      };
       let cross_offset = align.cross_offset(container_cross, child_cross);
 
       let offset = if vertical {
@@ -577,7 +621,10 @@ impl LayoutEngine {
       };
 
       main_cursor += child_main + if i < (n as usize - 1) { gap } else { 0.0 };
-      child_layouts.push(ChildLayout { offset, result: result.clone() });
+      child_layouts.push(ChildLayout {
+        offset,
+        result: result.clone(),
+      });
     }
 
     child_layouts
@@ -594,7 +641,11 @@ impl LayoutEngine {
     vertical: bool,
   ) -> LayoutResult {
     let children = node.children();
-    let max_main = if vertical { constraints.max_height } else { constraints.max_width };
+    let max_main = if vertical {
+      constraints.max_height
+    } else {
+      constraints.max_width
+    };
 
     let child_results: Vec<LayoutResult> = children
       .iter()
@@ -641,7 +692,10 @@ impl LayoutEngine {
     let mut all_layouts = vec![
       ChildLayout {
         offset: Offset::default(),
-        result: LayoutResult { size: Size::default(), children: vec![] },
+        result: LayoutResult {
+          size: Size::default(),
+          children: vec![]
+        },
       };
       children.len()
     ];

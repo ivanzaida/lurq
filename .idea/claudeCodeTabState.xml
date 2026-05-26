@@ -9,7 +9,7 @@
               <option name="provider" value="codex" />
               <option name="sessionId" value="019e6485-b953-7b72-960d-9bc4ae008f2f" />
               <option name="cwd" value="$PROJECT_DIR$" />
-              <option name="model" value="gpt-5.3-codex" />
+              <option name="model" value="gpt-5.5" />
               <option name="permissionMode" value="default" />
               <option name="reasoningEffort" value="high" />
             </TabSessionState>

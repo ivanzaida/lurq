@@ -1,9 +1,9 @@
-mod signal;
-mod memo;
-mod effect;
-mod cell_ref;
-mod store;
-mod context;
 mod batch;
+mod cell_ref;
 mod component;
+mod context;
+mod effect;
+mod memo;
+mod signal;
+mod store;
 mod theme;

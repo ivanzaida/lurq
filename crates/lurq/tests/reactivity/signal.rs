@@ -81,9 +81,15 @@ fn with_untracked_reads() {
 #[test]
 fn update_complex_struct() {
   #[derive(Clone, Debug, PartialEq)]
-  struct State { x: i32, y: String }
+  struct State {
+    x: i32,
+    y: String,
+  }
   let s = Signal::new(State { x: 0, y: "a".into() });
-  s.update(|s| { s.x = 10; s.y = "b".into(); });
+  s.update(|s| {
+    s.x = 10;
+    s.y = "b".into();
+  });
   let val = s.get();
   assert_eq!(val.x, 10);
   assert_eq!(val.y, "b");

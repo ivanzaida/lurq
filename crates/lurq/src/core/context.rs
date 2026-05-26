@@ -17,7 +17,8 @@ impl ContextMap {
   }
 
   pub fn get<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
-    self.values
+    self
+      .values
       .get(&TypeId::of::<T>())
       .and_then(|v| v.downcast_ref::<T>())
       .cloned()

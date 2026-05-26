@@ -6,8 +6,8 @@ use winit::{
 };
 
 use crate::app::{
-  events::{MouseButton, ScrollPhase},
   Runtime,
+  events::{MouseButton, ScrollPhase},
 };
 
 pub struct WinitWindow {
@@ -34,12 +34,16 @@ impl WinitWindow {
   }
 
   pub fn with_min_size(mut self, width: u32, height: u32) -> Self {
-    self.attrs = self.attrs.with_min_inner_size(winit::dpi::LogicalSize::new(width, height));
+    self.attrs = self
+      .attrs
+      .with_min_inner_size(winit::dpi::LogicalSize::new(width, height));
     self
   }
 
   pub fn with_max_size(mut self, width: u32, height: u32) -> Self {
-    self.attrs = self.attrs.with_max_inner_size(winit::dpi::LogicalSize::new(width, height));
+    self.attrs = self
+      .attrs
+      .with_max_inner_size(winit::dpi::LogicalSize::new(width, height));
     self
   }
 
@@ -150,13 +154,9 @@ impl ApplicationHandler for WinitHandler {
           TouchPhase::Moved => ScrollPhase::Scroll,
           TouchPhase::Ended | TouchPhase::Cancelled => ScrollPhase::End,
         };
-        self.runtime.scroll(
-          self.cursor_pos.0 as f32,
-          self.cursor_pos.1 as f32,
-          dx,
-          dy,
-          scroll_phase,
-        );
+        self
+          .runtime
+          .scroll(self.cursor_pos.0 as f32, self.cursor_pos.1 as f32, dx, dy, scroll_phase);
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {

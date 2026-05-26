@@ -40,7 +40,9 @@ fn tall(h: f32) -> Node {
 #[test]
 fn flex_row_distributes_children_horizontally() {
   let mut rt = rt();
-  let node = dsl::row().spacing(0.0).with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
+  let node = dsl::row()
+    .spacing(0.0)
+    .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert!(r.children[1].offset.x > r.children[0].offset.x);
@@ -68,10 +70,9 @@ fn flex_column_stacks_children_vertically() {
 #[test]
 fn flex_grow_distributes_free_space() {
   let mut rt = rt();
-  let node = dsl::row().spacing(0.0).with_children(vec![
-    Node::new().flex(1.0),
-    Node::new().flex(2.0),
-  ]);
+  let node = dsl::row()
+    .spacing(0.0)
+    .with_children(vec![Node::new().flex(1.0), Node::new().flex(2.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let ratio = r.children[1].result.size.width / r.children[0].result.size.width;
@@ -98,14 +99,15 @@ fn flex_justify_content_center() {
 #[test]
 fn flex_justify_content_end() {
   let mut rt = rt();
-  let node = dsl::row()
-    .spacing(0.0)
-    .justify(Justify::End)
-    .child(rect(50.0, 50.0));
+  let node = dsl::row().spacing(0.0).justify(Justify::End).child(rect(50.0, 50.0));
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let child_end = r.children[0].offset.x + r.children[0].result.size.width;
-  assert!((child_end - 300.0).abs() < 1.0, "flex-end: child at right edge, end={}", child_end);
+  assert!(
+    (child_end - 300.0).abs() < 1.0,
+    "flex-end: child at right edge, end={}",
+    child_end
+  );
 }
 
 #[test]
@@ -169,7 +171,11 @@ fn flex_justify_center_column() {
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
   let offset = r.children[0].offset.y;
-  assert!((offset - 125.0).abs() < 1.0, "should be centered vertically (offset={})", offset);
+  assert!(
+    (offset - 125.0).abs() < 1.0,
+    "should be centered vertically (offset={})",
+    offset
+  );
 }
 
 // ============================================================================
@@ -296,8 +302,17 @@ fn flex_shrink_weighted() {
   let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   let big = r.children[0].result.size.width;
   let small = r.children[1].result.size.width;
-  assert!(big > small, "bigger item should still be wider (big={}, small={})", big, small);
-  assert!((big + small - 200.0).abs() < 1.0, "total should be 200, got {}", big + small);
+  assert!(
+    big > small,
+    "bigger item should still be wider (big={}, small={})",
+    big,
+    small
+  );
+  assert!(
+    (big + small - 200.0).abs() < 1.0,
+    "total should be 200, got {}",
+    big + small
+  );
 }
 
 #[test]
@@ -410,10 +425,11 @@ fn flex_wrap_column() {
 #[test]
 fn flex_wrap_with_spacing() {
   let mut rt = rt();
-  let node = dsl::row()
-    .spacing(10.0)
-    .wrap()
-    .with_children(vec![rect(100.0, 30.0), rect(100.0, 30.0), rect(100.0, 30.0)]);
+  let node =
+    dsl::row()
+      .spacing(10.0)
+      .wrap()
+      .with_children(vec![rect(100.0, 30.0), rect(100.0, 30.0), rect(100.0, 30.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(220.0, 200.0))).unwrap();
   // 100 + 10 + 100 = 210 ≤ 220 → first two fit; third wraps
@@ -492,9 +508,7 @@ fn flex_nested_row_in_row() {
     .spacing(0.0)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)])
     .flex(1.0);
-  let node = dsl::row()
-    .spacing(0.0)
-    .with_children(vec![inner, rect(100.0, 30.0)]);
+  let node = dsl::row().spacing(0.0).with_children(vec![inner, rect(100.0, 30.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(r.children.len(), 2);
@@ -518,16 +532,17 @@ fn flex_nested_column_in_row() {
     .align_items(Alignment::Center)
     .with_children(vec![rect(30.0, 20.0), rect(30.0, 20.0), rect(30.0, 20.0)])
     .flex(2.0);
-  let node = dsl::row()
-    .spacing(8.0)
-    .with_children(vec![inner_col, inner_row]);
+  let node = dsl::row().spacing(8.0).with_children(vec![inner_col, inner_row]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(800.0, 120.0))).unwrap();
 
   let col = &r.children[0];
   let row = &r.children[1];
   assert!(col.result.size.height > 100.0, "inner col should stretch to ~120px");
-  assert!(row.result.size.width > col.result.size.width, "inner row (flex:2) wider than col (flex:1)");
+  assert!(
+    row.result.size.width > col.result.size.width,
+    "inner row (flex:2) wider than col (flex:1)"
+  );
 }
 
 #[test]
@@ -622,8 +637,16 @@ fn percentage_padding_resolves_against_parent() {
   let inner_h = frame_result.children[0].result.size.height;
   assert_eq!(inner_w, 100.0, "inner width");
   assert_eq!(inner_h, 100.0, "inner height");
-  assert!((pad_result.size.width - 180.0).abs() < 1.0, "outer w={}", pad_result.size.width);
-  assert!((pad_result.size.height - 160.0).abs() < 1.0, "outer h={}", pad_result.size.height);
+  assert!(
+    (pad_result.size.width - 180.0).abs() < 1.0,
+    "outer w={}",
+    pad_result.size.width
+  );
+  assert!(
+    (pad_result.size.height - 160.0).abs() < 1.0,
+    "outer h={}",
+    pad_result.size.height
+  );
 }
 
 // ============================================================================
@@ -714,10 +737,11 @@ fn column_flex_basis() {
 #[test]
 fn column_flex_wrap() {
   let mut rt = rt();
-  let node = dsl::column()
-    .spacing(0.0)
-    .wrap()
-    .with_children(vec![rect(50.0, 120.0), rect(50.0, 120.0), rect(50.0, 120.0)]);
+  let node =
+    dsl::column()
+      .spacing(0.0)
+      .wrap()
+      .with_children(vec![rect(50.0, 120.0), rect(50.0, 120.0), rect(50.0, 120.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   // First item: 120 ≤ 200 → fits. Second: 120+120=240 > 200 → wraps

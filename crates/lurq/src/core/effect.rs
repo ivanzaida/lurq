@@ -20,8 +20,7 @@ impl Effect {
     let subs_clone = subscriptions.clone();
     let alive_clone = alive.clone();
 
-    let self_ref: Arc<Mutex<Weak<dyn Fn() + Send + Sync>>> =
-      Arc::new(Mutex::new(Weak::<fn()>::new()));
+    let self_ref: Arc<Mutex<Weak<dyn Fn() + Send + Sync>>> = Arc::new(Mutex::new(Weak::<fn()>::new()));
 
     let self_ref_clone = self_ref.clone();
     let rerun: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {

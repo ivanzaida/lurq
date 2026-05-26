@@ -1,12 +1,12 @@
 use lurq::{
-  app::{component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
   core::Signal,
   layout::{
+    Alignment,
     scrollbar::ScrollBarStyle,
     text_style::{FontStyle, FontWeight, TextStyle},
-    Alignment,
   },
-  node::{color::Color, dsl::*, Node},
+  node::{Node, color::Color, dsl::*},
 };
 
 // --- Counter component ---

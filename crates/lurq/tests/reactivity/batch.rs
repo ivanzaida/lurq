@@ -1,5 +1,7 @@
-use lurq::core::{Signal, batch};
-use lurq::app::ctx::Ctx;
+use lurq::{
+  app::ctx::Ctx,
+  core::{Signal, batch},
+};
 
 #[test]
 fn batch_coalesces_dirty_marking() {

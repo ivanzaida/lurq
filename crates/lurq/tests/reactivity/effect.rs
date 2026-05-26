@@ -1,4 +1,8 @@
-use std::sync::{Arc, atomic::{AtomicI32, Ordering}};
+use std::sync::{
+  Arc,
+  atomic::{AtomicI32, Ordering},
+};
+
 use lurq::core::{Effect, Signal};
 
 #[test]

@@ -8,7 +8,11 @@ struct AppState {
 }
 
 fn default_state() -> AppState {
-  AppState { count: 0, name: "test".to_owned(), items: vec![1, 2, 3] }
+  AppState {
+    count: 0,
+    name: "test".to_owned(),
+    items: vec![1, 2, 3],
+  }
 }
 
 #[test]
@@ -21,7 +25,11 @@ fn store_get_returns_initial() {
 #[test]
 fn store_set_replaces() {
   let store = Store::new(default_state());
-  store.set(AppState { count: 42, name: "new".to_owned(), items: vec![] });
+  store.set(AppState {
+    count: 42,
+    name: "new".to_owned(),
+    items: vec![],
+  });
   assert_eq!(store.get().count, 42);
   assert_eq!(store.get().name, "new");
 }

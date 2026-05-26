@@ -55,6 +55,12 @@ pub struct Node {
   pub(crate) events: EventHandlers,
 }
 
+impl Default for Node {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Node {
   pub fn new() -> Self {
     Self {
@@ -562,7 +568,11 @@ impl Node {
   }
 
   pub(crate) fn any_visual_dirty(&self) -> bool {
-    if self.color.is_changed() || self.border_radius.is_changed() || self.border.is_changed() || self.scrollbar_style.is_changed() {
+    if self.color.is_changed()
+      || self.border_radius.is_changed()
+      || self.border.is_changed()
+      || self.scrollbar_style.is_changed()
+    {
       return true;
     }
     self.children.iter().any(|c| c.any_visual_dirty())
