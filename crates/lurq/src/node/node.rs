@@ -4,10 +4,10 @@ use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
   core::{Guard, IdGenerator, NodeId, NodeRef},
   layout::{
-    Alignment, Size, StackAlignment,
-    layout_kind::{FrameConstraints, LayoutKind, Overflow},
-    scrollbar::ScrollBarStyle,
-    text_style::TextStyle,
+    layout_kind::{FrameConstraints, LayoutKind, Overflow}, scrollbar::ScrollBarStyle, text_style::TextStyle,
+    Alignment,
+    Size,
+    StackAlignment,
   },
   node::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
@@ -459,6 +459,7 @@ impl Node {
     self
   }
 
+  #[allow(dead_code)]
   pub fn set_text(&mut self, content: &str) {
     self.text_content.set(Some(content.to_owned()));
   }
@@ -506,6 +507,7 @@ impl Node {
     &self.kind
   }
 
+  #[allow(dead_code)]
   pub fn scroll_state(&self) -> Option<crate::layout::layout_kind::ScrollState> {
     match &self.kind {
       LayoutKind::ScrollModifier { state, .. } => Some(state.clone()),
@@ -567,6 +569,7 @@ impl Node {
     }
   }
 
+  #[allow(dead_code)]
   pub(crate) fn any_visual_dirty(&self) -> bool {
     if self.color.is_changed()
       || self.border_radius.is_changed()
