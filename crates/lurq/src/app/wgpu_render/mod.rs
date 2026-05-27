@@ -35,6 +35,18 @@ pub struct WgpuRenderEngine {
   image_sampler: Option<wgpu::Sampler>,
   #[cfg(feature = "image")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
+  globals_buffer: Option<wgpu::Buffer>,
+  gradient_buffer: Option<wgpu::Buffer>,
+  atlas_texture: Option<wgpu::Texture>,
+  atlas_view: Option<wgpu::TextureView>,
+  atlas_sampler: Option<wgpu::Sampler>,
+  atlas_size: (u32, u32),
+  quad_bind_group: Option<wgpu::BindGroup>,
+  glyph_bind_group: Option<wgpu::BindGroup>,
+  quad_instance_buffer: Option<wgpu::Buffer>,
+  quad_instance_capacity: usize,
+  glyph_instance_buffer: Option<wgpu::Buffer>,
+  glyph_instance_capacity: usize,
   vertex_buffer: Option<wgpu::Buffer>,
   index_buffer: Option<wgpu::Buffer>,
 }
@@ -73,6 +85,18 @@ impl WgpuRenderEngine {
       image_sampler: None,
       #[cfg(feature = "image")]
       image_texture_cache: std::collections::HashMap::new(),
+      globals_buffer: None,
+      gradient_buffer: None,
+      atlas_texture: None,
+      atlas_view: None,
+      atlas_sampler: None,
+      atlas_size: (0, 0),
+      quad_bind_group: None,
+      glyph_bind_group: None,
+      quad_instance_buffer: None,
+      quad_instance_capacity: 0,
+      glyph_instance_buffer: None,
+      glyph_instance_capacity: 0,
       vertex_buffer: None,
       index_buffer: None,
     }
@@ -403,6 +427,48 @@ impl WgpuRenderEngine {
       (svg_pipeline, svg_bgl)
     };
 
+    // --- Persistent uniform/storage buffers ---
+    let globals_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("lurq_globals"),
+      contents: bytemuck::bytes_of(&Globals {
+        viewport: [800.0, 600.0, 0.0, 0.0],
+        clip_rect: [0.0, 0.0, 800.0, 600.0],
+        clip_radii_h: [0.0; 4],
+        clip_radii_v: [0.0; 4],
+        clip_active: [0.0; 4],
+      }),
+      usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    let gradient_data: [f32; 4] = [0.0; 4];
+    let gradient_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("lurq_gradients"),
+      contents: bytemuck::cast_slice(&gradient_data),
+      usage: wgpu::BufferUsages::STORAGE,
+    });
+
+    let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+      label: Some("lurq_atlas_sampler"),
+      mag_filter: wgpu::FilterMode::Linear,
+      min_filter: wgpu::FilterMode::Linear,
+      ..Default::default()
+    });
+
+    let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: Some("lurq_quad_bg"),
+      layout: &quad_bgl,
+      entries: &[
+        wgpu::BindGroupEntry {
+          binding: 0,
+          resource: globals_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+          binding: 1,
+          resource: gradient_buffer.as_entire_binding(),
+        },
+      ],
+    });
+
     // --- Shared vertex/index buffers ---
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("lurq_quad_verts"),
@@ -442,6 +508,10 @@ impl WgpuRenderEngine {
     {
       self.image_sampler = Some(image_sampler);
     }
+    self.globals_buffer = Some(globals_buffer);
+    self.gradient_buffer = Some(gradient_buffer);
+    self.atlas_sampler = Some(atlas_sampler);
+    self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
     self.index_buffer = Some(index_buffer);
   }
@@ -474,6 +544,7 @@ impl RenderEngine for WgpuRenderEngine {
 
     let vw = config.width as f32;
     let vh = config.height as f32;
+    let globals_buffer = self.globals_buffer.as_ref().unwrap();
 
     let globals = Globals {
       viewport: [vw, vh, 0.0, 0.0],
@@ -482,11 +553,7 @@ impl RenderEngine for WgpuRenderEngine {
       clip_radii_v: [0.0; 4],
       clip_active: [0.0; 4],
     };
-    let globals_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("lurq_globals"),
-      contents: bytemuck::bytes_of(&globals),
-      usage: wgpu::BufferUsages::UNIFORM,
-    });
+    queue.write_buffer(globals_buffer, 0, bytemuck::bytes_of(&globals));
 
     // --- Build quad batches grouped by clip ---
     struct QuadBatch {
@@ -565,32 +632,50 @@ impl RenderEngine for WgpuRenderEngine {
       });
     }
 
-    let gradient_data: [f32; 4] = [0.0; 4];
-    let gradient_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("lurq_gradients"),
-      contents: bytemuck::cast_slice(&gradient_data),
-      usage: wgpu::BufferUsages::STORAGE,
-    });
-
-    // Atlas setup
+    // Atlas — recreate texture only if size changed
     let atlas = &list.atlas;
-    let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
-      label: Some("lurq_atlas"),
-      size: wgpu::Extent3d {
-        width: atlas.width,
-        height: atlas.height,
-        depth_or_array_layers: 1,
-      },
-      mip_level_count: 1,
-      sample_count: 1,
-      dimension: wgpu::TextureDimension::D2,
-      format: wgpu::TextureFormat::R8Unorm,
-      usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-      view_formats: &[],
-    });
+    if self.atlas_size != (atlas.width, atlas.height) {
+      let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lurq_atlas"),
+        size: wgpu::Extent3d {
+          width: atlas.width,
+          height: atlas.height,
+          depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+      });
+      let view = texture.create_view(&Default::default());
+      let glyph_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("lurq_glyph_bg"),
+        layout: self.glyph_bgl.as_ref().unwrap(),
+        entries: &[
+          wgpu::BindGroupEntry {
+            binding: 0,
+            resource: globals_buffer.as_entire_binding(),
+          },
+          wgpu::BindGroupEntry {
+            binding: 1,
+            resource: wgpu::BindingResource::TextureView(&view),
+          },
+          wgpu::BindGroupEntry {
+            binding: 2,
+            resource: wgpu::BindingResource::Sampler(self.atlas_sampler.as_ref().unwrap()),
+          },
+        ],
+      });
+      self.atlas_texture = Some(texture);
+      self.atlas_view = Some(view);
+      self.glyph_bind_group = Some(glyph_bind_group);
+      self.atlas_size = (atlas.width, atlas.height);
+    }
     queue.write_texture(
       wgpu::TexelCopyTextureInfo {
-        texture: &atlas_texture,
+        texture: self.atlas_texture.as_ref().unwrap(),
         mip_level: 0,
         origin: wgpu::Origin3d::ZERO,
         aspect: wgpu::TextureAspect::All,
@@ -607,12 +692,6 @@ impl RenderEngine for WgpuRenderEngine {
         depth_or_array_layers: 1,
       },
     );
-    let atlas_view = atlas_texture.create_view(&Default::default());
-    let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-      mag_filter: wgpu::FilterMode::Linear,
-      min_filter: wgpu::FilterMode::Linear,
-      ..Default::default()
-    });
 
     let mut encoder = device.create_command_encoder(&Default::default());
 
@@ -632,117 +711,120 @@ impl RenderEngine for WgpuRenderEngine {
       });
 
       // Quad batches
-      let quad_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("lurq_quad_bg"),
-        layout: self.quad_bgl.as_ref().unwrap(),
-        entries: &[
-          wgpu::BindGroupEntry {
-            binding: 0,
-            resource: globals_buffer.as_entire_binding(),
-          },
-          wgpu::BindGroupEntry {
-            binding: 1,
-            resource: gradient_buffer.as_entire_binding(),
-          },
-        ],
-      });
-
       pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
-      pass.set_bind_group(0, &quad_bg, &[]);
+      pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
       pass.set_vertex_buffer(0, vtx_buf.slice(..));
       pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
 
-      for batch in &quad_batches {
-        if batch.instances.is_empty() {
-          continue;
+      let total_quad_instances: usize = quad_batches.iter().map(|b| b.instances.len()).sum();
+      if total_quad_instances > 0 {
+        let byte_size = total_quad_instances * std::mem::size_of::<QuadInstance>();
+        if total_quad_instances > self.quad_instance_capacity {
+          self.quad_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lurq_qi"),
+            size: byte_size as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+          }));
+          self.quad_instance_capacity = total_quad_instances;
+        }
+        let qi_buf = self.quad_instance_buffer.as_ref().unwrap();
+        let mut offset: u64 = 0;
+        for batch in &quad_batches {
+          if !batch.instances.is_empty() {
+            let data = bytemuck::cast_slice(&batch.instances);
+            queue.write_buffer(qi_buf, offset, data);
+          }
+          offset += (batch.instances.len() * std::mem::size_of::<QuadInstance>()) as u64;
         }
 
-        if batch.clip.active {
-          let viewport_w = vw.max(1.0) as u32;
-          let viewport_h = vh.max(1.0) as u32;
-          let cx = batch.clip.x.max(0.0) as u32;
-          let cy = batch.clip.y.max(0.0) as u32;
-
-          if cx >= viewport_w || cy >= viewport_h {
+        pass.set_vertex_buffer(1, qi_buf.slice(..));
+        let mut instance_offset: u32 = 0;
+        for batch in &quad_batches {
+          let count = batch.instances.len() as u32;
+          if count == 0 {
             continue;
           }
-
-          let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-          let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-          if cw == 0 || ch == 0 {
-            continue;
+          if batch.clip.active {
+            let viewport_w = vw.max(1.0) as u32;
+            let viewport_h = vh.max(1.0) as u32;
+            let cx = batch.clip.x.max(0.0) as u32;
+            let cy = batch.clip.y.max(0.0) as u32;
+            if cx >= viewport_w || cy >= viewport_h {
+              instance_offset += count;
+              continue;
+            }
+            let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
+            let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
+            if cw == 0 || ch == 0 {
+              instance_offset += count;
+              continue;
+            }
+            pass.set_scissor_rect(cx, cy, cw, ch);
+          } else {
+            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
           }
-          pass.set_scissor_rect(cx, cy, cw, ch);
-        } else {
-          pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+          pass.draw_indexed(0..6, 0, instance_offset..instance_offset + count);
+          instance_offset += count;
         }
-
-        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-          label: Some("lurq_qi"),
-          contents: bytemuck::cast_slice(&batch.instances),
-          usage: wgpu::BufferUsages::VERTEX,
-        });
-        pass.set_vertex_buffer(1, buf.slice(..));
-        pass.draw_indexed(0..6, 0, 0..batch.instances.len() as u32);
       }
 
       // Glyph batches
-      let glyph_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("lurq_glyph_bg"),
-        layout: self.glyph_bgl.as_ref().unwrap(),
-        entries: &[
-          wgpu::BindGroupEntry {
-            binding: 0,
-            resource: globals_buffer.as_entire_binding(),
-          },
-          wgpu::BindGroupEntry {
-            binding: 1,
-            resource: wgpu::BindingResource::TextureView(&atlas_view),
-          },
-          wgpu::BindGroupEntry {
-            binding: 2,
-            resource: wgpu::BindingResource::Sampler(&atlas_sampler),
-          },
-        ],
-      });
-
       pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
-      pass.set_bind_group(0, &glyph_bg, &[]);
+      pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
       pass.set_vertex_buffer(0, vtx_buf.slice(..));
       pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
 
-      for batch in &glyph_batches {
-        if batch.instances.is_empty() {
-          continue;
+      let total_glyph_instances: usize = glyph_batches.iter().map(|b| b.instances.len()).sum();
+      if total_glyph_instances > 0 {
+        let byte_size = total_glyph_instances * std::mem::size_of::<GlyphInstance>();
+        if total_glyph_instances > self.glyph_instance_capacity {
+          self.glyph_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lurq_gi"),
+            size: byte_size as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+          }));
+          self.glyph_instance_capacity = total_glyph_instances;
+        }
+        let gi_buf = self.glyph_instance_buffer.as_ref().unwrap();
+        let mut offset: u64 = 0;
+        for batch in &glyph_batches {
+          if !batch.instances.is_empty() {
+            queue.write_buffer(gi_buf, offset, bytemuck::cast_slice(&batch.instances));
+          }
+          offset += (batch.instances.len() * std::mem::size_of::<GlyphInstance>()) as u64;
         }
 
-        if batch.clip.active {
-          let viewport_w = vw.max(1.0) as u32;
-          let viewport_h = vh.max(1.0) as u32;
-          let cx = batch.clip.x.max(0.0) as u32;
-          let cy = batch.clip.y.max(0.0) as u32;
-
-          if cx >= viewport_w || cy >= viewport_h {
+        pass.set_vertex_buffer(1, gi_buf.slice(..));
+        let mut instance_offset: u32 = 0;
+        for batch in &glyph_batches {
+          let count = batch.instances.len() as u32;
+          if count == 0 {
             continue;
           }
-
-          let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-          let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-          if cw == 0 || ch == 0 {
-            continue;
+          if batch.clip.active {
+            let viewport_w = vw.max(1.0) as u32;
+            let viewport_h = vh.max(1.0) as u32;
+            let cx = batch.clip.x.max(0.0) as u32;
+            let cy = batch.clip.y.max(0.0) as u32;
+            if cx >= viewport_w || cy >= viewport_h {
+              instance_offset += count;
+              continue;
+            }
+            let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
+            let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
+            if cw == 0 || ch == 0 {
+              instance_offset += count;
+              continue;
+            }
+            pass.set_scissor_rect(cx, cy, cw, ch);
+          } else {
+            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
           }
-          pass.set_scissor_rect(cx, cy, cw, ch);
-        } else {
-          pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+          pass.draw_indexed(0..6, 0, instance_offset..instance_offset + count);
+          instance_offset += count;
         }
-
-        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-          label: Some("lurq_gi"),
-          contents: bytemuck::cast_slice(&batch.instances),
-          usage: wgpu::BufferUsages::VERTEX,
-        });
-        pass.set_vertex_buffer(1, buf.slice(..));
-        pass.draw_indexed(0..6, 0, 0..batch.instances.len() as u32);
       }
 
       // Image draws

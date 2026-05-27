@@ -1038,6 +1038,8 @@ impl Runtime {
   fn update_layout(&mut self) {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
+    #[cfg(all(feature = "image", feature = "resources"))]
+    self.resolve_resource_images();
 
     if let Some(root) = self.root.as_ref() {
       let constraints = self
@@ -1050,6 +1052,32 @@ impl Runtime {
   fn sync_dynamic_content(&mut self) {
     if let Some(root) = &mut self.root {
       root.sync_dynamic_content_recursive();
+    }
+  }
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  fn resolve_resource_images(&mut self) {
+    if let Some(root) = &mut self.root {
+      Self::resolve_resource_images_recursive(root, &self.resource_loader);
+    }
+  }
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  fn resolve_resource_images_recursive(
+    node: &mut Node,
+    loader: &crate::resources::ResourceLoader,
+  ) {
+    if let NodeKind::ResourceImage { path } = node.node_kind() {
+      let key: std::sync::Arc<str> = path.clone();
+      if let crate::resources::LoadResourceResult::Loaded(bytes) = loader.load_resource(&key, None) {
+        if let Ok(img) = crate::images::ImageData::from_bytes(&bytes) {
+          node.intrinsic_size = Some(Size::new(img.width() as f32, img.height() as f32));
+          node.node_kind = NodeKind::Image { data: img };
+        }
+      }
+    }
+    for child in &mut node.children {
+      Self::resolve_resource_images_recursive(child, loader);
     }
   }
 

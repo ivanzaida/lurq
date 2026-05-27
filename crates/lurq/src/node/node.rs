@@ -171,6 +171,11 @@ impl Node {
     node
   }
 
+  #[cfg(feature = "image")]
+  pub fn resource_image(path: &str) -> Self {
+    Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceImage { path: path.into() }, vec![])
+  }
+
   #[cfg(feature = "svg")]
   pub fn svg(data: crate::svg::SvgData) -> Self {
     let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Svg { data: data.clone() }, vec![]);

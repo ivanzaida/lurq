@@ -130,6 +130,8 @@ impl LayoutEngine {
       },
       #[cfg(feature = "image")]
       NodeKind::Image { data } => QuadContent::Image { data: data.clone() },
+      #[cfg(feature = "image")]
+      NodeKind::ResourceImage { .. } => QuadContent::None,
       #[cfg(feature = "svg")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
       NodeKind::Slider { .. } if node.color().is_none() => QuadContent::Rect {
@@ -480,6 +482,14 @@ impl LayoutEngine {
         let preferred = node
           .intrinsic_size
           .unwrap_or(Size::new(data.width() as f32, data.height() as f32));
+        return LayoutResult {
+          size: constraints.constrain(preferred),
+          children: vec![],
+        };
+      }
+      #[cfg(feature = "image")]
+      NodeKind::ResourceImage { .. } => {
+        let preferred = node.intrinsic_size.unwrap_or(Size::new(0.0, 0.0));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],

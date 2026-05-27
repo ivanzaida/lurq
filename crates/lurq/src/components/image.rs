@@ -6,4 +6,8 @@ impl Image {
   pub fn new(data: ImageData) -> Self {
     Self::from_node(crate::node::Node::image(data))
   }
+
+  pub fn from_resource(path: &str) -> Self {
+    Self::from_node(crate::node::Node::resource_image(path))
+  }
 }

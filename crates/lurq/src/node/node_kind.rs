@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{core::Signal, layout::text_style::TextStyle};
+use crate::core::Signal;
+use crate::layout::text_style::TextStyle;
 
 #[derive(Clone)]
 pub(crate) enum NodeKind {
@@ -21,6 +22,10 @@ pub(crate) enum NodeKind {
   #[cfg(feature = "image")]
   Image {
     data: crate::images::ImageData,
+  },
+  #[cfg(feature = "image")]
+  ResourceImage {
+    path: Arc<str>,
   },
   #[cfg(feature = "svg")]
   Svg {
