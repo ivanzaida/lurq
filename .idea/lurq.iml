@@ -6,7 +6,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/demo/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/lurq/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/accessor_macro/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/accessors_macro/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/lurq/benches" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/crates/lurq/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />

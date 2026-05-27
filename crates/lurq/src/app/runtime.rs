@@ -79,6 +79,8 @@ pub struct Runtime {
   cursor: CursorIcon,
   needs_redraw: bool,
   last_profile: FrameProfile,
+  #[cfg(feature = "resources")]
+  resource_loader: crate::resources::ResourceLoader,
 }
 
 impl Default for Runtime {
@@ -114,6 +116,8 @@ impl Runtime {
       cursor: CursorIcon::Default,
       needs_redraw: false,
       last_profile: FrameProfile::default(),
+      #[cfg(feature = "resources")]
+      resource_loader: crate::resources::ResourceLoader::new(),
     }
   }
 
@@ -947,6 +951,16 @@ impl Runtime {
     }
 
     let _ = handled;
+  }
+
+  #[cfg(feature = "resources")]
+  pub fn resource_loader(&self) -> &crate::resources::ResourceLoader {
+    &self.resource_loader
+  }
+
+  #[cfg(feature = "resources")]
+  pub fn resource_loader_mut(&mut self) -> &mut crate::resources::ResourceLoader {
+    &mut self.resource_loader
   }
 
   pub fn load_font(&mut self, data: Vec<u8>) {

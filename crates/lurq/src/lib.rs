@@ -7,3 +7,6 @@ pub mod layout;
 pub mod node;
 #[cfg(feature = "svg")]
 pub mod svg;
+
+#[cfg(feature = "resources")]
+pub mod resources;

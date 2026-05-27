@@ -29,6 +29,8 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     border_radius: Guard::new(None),
     border: Guard::new(None),
     cursor: None,
+    #[cfg(feature = "image")]
+    background_image: Guard::new(None),
     scrollbar_style: Guard::new(None),
     scrollbar_hovered_style: None,
     element_ref: None,

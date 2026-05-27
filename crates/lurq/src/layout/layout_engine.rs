@@ -157,6 +157,20 @@ impl LayoutEngine {
       }
     }
 
+    #[cfg(feature = "image")]
+    if let Some(ref bg_image) = *node.background_image {
+      quads.push(Quad {
+        x: abs_x,
+        y: abs_y,
+        width: result.size.width,
+        height: result.size.height,
+        content: QuadContent::Image { data: bg_image.clone() },
+        border_radius: node.get_border_radius(),
+        border: None,
+        clip,
+      });
+    }
+
     match node.node_kind() {
       NodeKind::TextInput { state, .. } if state.is_focused() => {
         quads.push(Quad {

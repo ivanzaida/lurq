@@ -9,6 +9,7 @@ image = ["dep:image"]
 svg = ["dep:usvg", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 winit = ["dep:winit"]
+resources = ["dep:ureq"]
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"], optional = true }
@@ -22,7 +23,8 @@ winit = { version = "0.30", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"], optional = true }
 usvg = { version = "0.45", optional = true }
 lyon = { version = "1", optional = true }
-accessors_macro = { path = "../accessor_macro" }
+ureq = { version = "3.3.0", optional = true }
+accessors_macro = { path = "../accessors_macro" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

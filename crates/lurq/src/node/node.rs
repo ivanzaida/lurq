@@ -55,6 +55,8 @@ pub(crate) struct Node {
   pub(crate) border_radius: Guard<Option<BorderRadius>>,
   pub(crate) border: Guard<Option<Border>>,
   pub(crate) cursor: Option<CursorIcon>,
+  #[cfg(feature = "image")]
+  pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
   pub(crate) scrollbar_style: Guard<Option<ScrollBarStyle>>,
   pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
@@ -86,6 +88,8 @@ impl Node {
       border_radius: Guard::new(None),
       border: Guard::new(None),
       cursor: None,
+      #[cfg(feature = "image")]
+      background_image: Guard::new(None),
       scrollbar_style: Guard::new(None),
       scrollbar_hovered_style: None,
       element_ref: None,
@@ -305,6 +309,12 @@ impl Node {
 
   pub fn cursor(mut self, cursor: CursorIcon) -> Self {
     self.cursor = Some(cursor);
+    self
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_image(mut self, data: crate::images::ImageData) -> Self {
+    self.background_image.set(Some(data));
     self
   }
 
@@ -648,6 +658,8 @@ impl Node {
     self.color.clear_changed();
     self.border_radius.clear_changed();
     self.border.clear_changed();
+    #[cfg(feature = "image")]
+    self.background_image.clear_changed();
     self.scrollbar_style.clear_changed();
     for child in &self.children {
       child.clear_guards();
@@ -704,6 +716,8 @@ impl Node {
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
       cursor: self.cursor,
+      #[cfg(feature = "image")]
+      background_image: self.background_image.clone(),
       scrollbar_style: self.scrollbar_style.clone(),
       scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
       element_ref: self.element_ref.clone(),

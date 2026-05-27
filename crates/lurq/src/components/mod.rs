@@ -187,6 +187,12 @@ macro_rules! impl_into_node {
         self
       }
 
+      #[cfg(feature = "image")]
+      pub fn background_image(mut self, data: $crate::images::ImageData) -> Self {
+        self.node = self.node.background_image(data);
+        self
+      }
+
       pub fn cursor(mut self, cursor: $crate::node::CursorIcon) -> Self {
         self.node = self.node.cursor(cursor);
         self
