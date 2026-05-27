@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
-  core::{Guard, IdGenerator, NodeId, NodeRef},
+  core::{Guard, IdGenerator, NodeId, NodeRef, Signal},
   layout::{
     Alignment, Size, StackAlignment,
     layout_kind::{FrameConstraints, LayoutKind, Overflow},
@@ -13,6 +13,7 @@ use crate::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
     color::Color,
     interaction_state::InteractionState,
+    node_kind::{CheckboxState, NodeKind, SliderState, TextInputState},
     padding::Padding,
   },
 };
@@ -40,7 +41,8 @@ pub struct EventHandlers {
 
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
-  pub(crate) kind: LayoutKind,
+  pub(crate) layout_kind: LayoutKind,
+  pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
   pub(crate) overflow: Overflow,
   pub(crate) intrinsic_size: Option<Size>,
@@ -71,9 +73,10 @@ impl Default for Node {
 }
 
 impl Node {
-  pub fn new() -> Self {
+  fn from_parts(layout_kind: LayoutKind, node_kind: NodeKind, children: Vec<Node>) -> Self {
     Self {
-      kind: LayoutKind::Leaf,
+      layout_kind,
+      node_kind,
       node_id: NodeId::UNASSIGNED,
       text_content: Guard::new(None),
       overflow: Overflow::Visible,
@@ -86,285 +89,153 @@ impl Node {
       interaction: None,
       layout_cache: Default::default(),
       runtime_rect: None,
-      children: vec![],
+      children,
       events: EventHandlers::default(),
     }
+  }
+
+  fn with_text_content(mut self, content: &str) -> Self {
+    self.text_content.set(Some(content.to_owned()));
+    self
+  }
+
+  pub fn new() -> Self {
+    Self::from_parts(LayoutKind::Leaf, NodeKind::Empty, vec![])
   }
 
   pub fn text(content: &str) -> Self {
-    Self {
-      kind: LayoutKind::Text {
+    let node = Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Text {
         style: TextStyle::default(),
       },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(Some(content.to_owned())),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![],
-      events: EventHandlers::default(),
-    }
+      vec![],
+    );
+    node.with_text_content(content)
   }
 
   pub fn text_styled(content: &str, style: TextStyle) -> Self {
-    Self {
-      kind: LayoutKind::Text { style },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(Some(content.to_owned())),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![],
-      events: EventHandlers::default(),
+    let node = Self::from_parts(LayoutKind::Leaf, NodeKind::Text { style }, vec![]);
+    node.with_text_content(content)
+  }
+
+  pub fn text_input(value: Signal<String>) -> Self {
+    let rendered = value.get_untracked();
+    let node = Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::TextInput {
+        state: TextInputState::new(value),
+        style: TextStyle::default(),
+      },
+      vec![],
+    );
+    if rendered.is_empty() {
+      node
+    } else {
+      node.with_text_content(&rendered)
     }
+  }
+
+  pub fn checkbox(value: Signal<bool>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Checkbox {
+        state: CheckboxState::new(value),
+      },
+      vec![],
+    )
+  }
+
+  pub fn slider(value: Signal<f32>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Slider {
+        state: SliderState::new(value),
+      },
+      vec![],
+    )
   }
 
   pub fn row(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
-    Self {
-      kind: LayoutKind::Row {
+    Self::from_parts(
+      LayoutKind::Row {
         spacing,
         align,
         justify: crate::layout::layout_kind::Justify::Start,
         wrap: crate::layout::layout_kind::FlexWrap::NoWrap,
       },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
+      NodeKind::Empty,
       children,
-      events: EventHandlers::default(),
-    }
+    )
   }
 
   pub fn column(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
-    Self {
-      kind: LayoutKind::Column {
+    Self::from_parts(
+      LayoutKind::Column {
         spacing,
         align,
         justify: crate::layout::layout_kind::Justify::Start,
         wrap: crate::layout::layout_kind::FlexWrap::NoWrap,
       },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
+      NodeKind::Empty,
       children,
-      events: EventHandlers::default(),
-    }
+    )
   }
 
   pub fn stack(align: StackAlignment, children: Vec<Node>) -> Self {
-    Self {
-      kind: LayoutKind::Stack { align },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children,
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(LayoutKind::Stack { align }, NodeKind::Empty, children)
   }
 
   pub fn padding(self, padding: Padding) -> Self {
-    Self {
-      kind: LayoutKind::PaddingModifier(padding),
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(LayoutKind::PaddingModifier(padding), NodeKind::Empty, vec![self])
   }
 
   pub fn frame(self, frame: FrameConstraints) -> Self {
-    Self {
-      kind: LayoutKind::FrameModifier(frame),
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(LayoutKind::FrameModifier(frame), NodeKind::Empty, vec![self])
   }
 
   pub fn offset(self, x: f32, y: f32) -> Self {
-    Self {
-      kind: LayoutKind::OffsetModifier { x, y },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(LayoutKind::OffsetModifier { x, y }, NodeKind::Empty, vec![self])
   }
 
   pub(crate) fn absolute_modifier(self, x: f32, y: f32, width: Option<f32>, height: Option<f32>) -> Self {
-    Self {
-      kind: LayoutKind::AbsoluteModifier { x, y, width, height },
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(
+      LayoutKind::AbsoluteModifier { x, y, width, height },
+      NodeKind::Empty,
+      vec![self],
+    )
   }
 
   pub fn align(self, alignment: Alignment) -> Self {
-    Self {
-      kind: LayoutKind::AlignModifier(alignment),
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(LayoutKind::AlignModifier(alignment), NodeKind::Empty, vec![self])
   }
 
   pub fn flex(self, factor: f32) -> Self {
-    Self {
-      kind: LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams::grow(factor)),
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(
+      LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams::grow(factor)),
+      NodeKind::Empty,
+      vec![self],
+    )
   }
 
   pub fn flex_shrink(self, factor: f32) -> Self {
-    Self {
-      kind: LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams {
+    Self::from_parts(
+      LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams {
         grow: 0.0,
         shrink: factor,
         basis: None,
       }),
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+      NodeKind::Empty,
+      vec![self],
+    )
   }
 
   pub fn flex_full(self, grow: f32, shrink: f32, basis: Option<f32>) -> Self {
-    Self {
-      kind: LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams { grow, shrink, basis }),
-      node_id: NodeId::UNASSIGNED,
-      text_content: Guard::new(None),
-      overflow: Overflow::Visible,
-      intrinsic_size: None,
-      color: Guard::new(None),
-      border_radius: Guard::new(None),
-      border: Guard::new(None),
-      scrollbar_style: Guard::new(None),
-      node_ref: None,
-      interaction: None,
-      layout_cache: Default::default(),
-      runtime_rect: None,
-      children: vec![self],
-      events: EventHandlers::default(),
-    }
+    Self::from_parts(
+      LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams { grow, shrink, basis }),
+      NodeKind::Empty,
+      vec![self],
+    )
   }
 
   pub fn background(mut self, color: Color) -> Self {
@@ -505,6 +376,23 @@ impl Node {
     self.text_content.as_deref()
   }
 
+  pub fn placeholder(mut self, placeholder: &str) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_placeholder(placeholder);
+      if state.value().is_empty() {
+        self.text_content.set(Some(placeholder.to_owned()));
+      }
+    }
+    self
+  }
+
+  pub fn range(self, min: f32, max: f32) -> Self {
+    if let NodeKind::Slider { state } = &self.node_kind {
+      state.set_range(min, max);
+    }
+    self
+  }
+
   pub fn clip(mut self) -> Self {
     self.overflow = Overflow::Hidden;
     self
@@ -540,12 +428,16 @@ impl Node {
     self.node_id
   }
 
-  pub fn kind(&self) -> &LayoutKind {
-    &self.kind
+  pub(crate) fn layout_kind(&self) -> &LayoutKind {
+    &self.layout_kind
+  }
+
+  pub(crate) fn node_kind(&self) -> &NodeKind {
+    &self.node_kind
   }
 
   pub fn with_scroll_state(mut self, existing: crate::layout::layout_kind::ScrollState) -> Self {
-    if let LayoutKind::ScrollModifier { state, .. } = &mut self.kind {
+    if let LayoutKind::ScrollModifier { state, .. } = &mut self.layout_kind {
       *state = existing;
     }
     self
@@ -588,7 +480,7 @@ impl Node {
   }
 
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
-    match &self.kind {
+    match &self.layout_kind {
       LayoutKind::FlexModifier(_) | LayoutKind::PaddingModifier(_) | LayoutKind::AlignModifier(_) => {
         self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0)
       }
@@ -611,6 +503,30 @@ impl Node {
     self.scrollbar_style.clear_changed();
     for child in &self.children {
       child.clear_guards();
+    }
+  }
+
+  pub(crate) fn sync_dynamic_content_recursive(&mut self) {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      let rendered = state.rendered_text();
+      if self.text_content.as_ref() != rendered.as_ref() {
+        self.text_content.set(rendered);
+      }
+    }
+    for child in &mut self.children {
+      child.sync_dynamic_content_recursive();
+    }
+  }
+
+  pub(crate) fn preserve_runtime_state_from(&mut self, old: &Node) {
+    if let (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) =
+      (&self.node_kind, &old.node_kind)
+    {
+      state.copy_runtime_state_from(old_state);
+    }
+
+    for (child, old_child) in self.children.iter_mut().zip(old.children.iter()) {
+      child.preserve_runtime_state_from(old_child);
     }
   }
 

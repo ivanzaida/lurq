@@ -1,15 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-  layout::{Alignment, StackAlignment, scrollbar::ScrollBarStyle, text_style::TextStyle},
+  layout::{Alignment, StackAlignment, scrollbar::ScrollBarStyle},
   node::padding::Padding,
 };
 
 pub enum LayoutKind {
   Leaf,
-  Text {
-    style: TextStyle,
-  },
   Row {
     spacing: f32,
     align: Alignment,

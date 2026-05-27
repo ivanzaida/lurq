@@ -1,10 +1,10 @@
 use std::sync::{
-  atomic::{AtomicUsize, Ordering},
   Arc, Mutex,
+  atomic::{AtomicUsize, Ordering},
 };
 
 use lurq::{
-  app::{component::Component, ctx::Ctx, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx},
   core::Signal,
   layout::{Constraints, Size},
   node::Element,

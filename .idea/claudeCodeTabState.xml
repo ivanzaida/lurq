@@ -7,7 +7,7 @@
           <value>
             <TabSessionState>
               <option name="provider" value="codex" />
-              <option name="sessionId" value="019e6485-b953-7b72-960d-9bc4ae008f2f" />
+              <option name="sessionId" value="019e68ad-219f-7a22-8314-56c2e8a111d9" />
               <option name="cwd" value="$PROJECT_DIR$" />
               <option name="model" value="gpt-5.5" />
               <option name="permissionMode" value="default" />
@@ -19,7 +19,7 @@
           <value>
             <TabSessionState>
               <option name="provider" value="claude" />
-              <option name="sessionId" value="1c400d08-b7f9-401d-8443-b272520991af" />
+              <option name="sessionId" value="1d8848fa-cecc-4468-9f4e-8750b2da7754" />
               <option name="cwd" value="$PROJECT_DIR$" />
               <option name="model" value="claude-opus-4-6[1m]" />
               <option name="permissionMode" value="acceptEdits" />

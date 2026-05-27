@@ -4,7 +4,7 @@ use std::{
   path::Path,
 };
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage};
 
 use crate::layout::{
   Size,
@@ -83,8 +83,11 @@ pub(crate) struct GlyphEngine {
 
 impl GlyphEngine {
   pub(crate) fn new() -> Self {
+    let mut font_system = FontSystem::new();
+    load_platform_fonts(&mut font_system);
+
     Self {
-      font_system: FontSystem::new(),
+      font_system,
       swash_cache: SwashCache::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
@@ -175,7 +178,8 @@ impl GlyphEngine {
 
         let gw = image.placement.width;
         let gh = image.placement.height;
-        let (u0, v0, u1, v1) = atlas_packer.pack(&image.data, gw, gh);
+        let mask = glyph_coverage_mask(&image);
+        let (u0, v0, u1, v1) = atlas_packer.pack(&mask, gw, gh);
 
         let gx = origin_x + physical.x as f32 + image.placement.left as f32;
         let gy = origin_y + run.line_y + physical.y as f32 - image.placement.top as f32;
@@ -185,7 +189,7 @@ impl GlyphEngine {
           y: gy,
           width: gw as f32,
           height: gh as f32,
-          color: style.color.to_f32_array(),
+          color: style.color.to_linear_f32_array(),
           uv_min: [u0, v0],
           uv_max: [u1, v1],
           clip: crate::layout::quad::ClipRect::default(),
@@ -281,6 +285,35 @@ impl GlyphEngine {
   }
 }
 
+fn glyph_coverage_mask(image: &SwashImage) -> Vec<u8> {
+  match image.content {
+    SwashContent::Mask => image.data.clone(),
+    SwashContent::Color => image.data.chunks_exact(4).map(|rgba| rgba[3]).collect::<Vec<_>>(),
+    SwashContent::SubpixelMask => image
+      .data
+      .chunks_exact(4)
+      .map(|rgba| {
+        let coverage = rgba[0] as u16 + rgba[1] as u16 + rgba[2] as u16;
+        (coverage / 3) as u8
+      })
+      .collect::<Vec<_>>(),
+  }
+}
+
+fn load_platform_fonts(font_system: &mut FontSystem) {
+  #[cfg(target_os = "windows")]
+  {
+    for file in [
+      "C:\\Windows\\Fonts\\segoeui.ttf",
+      "C:\\Windows\\Fonts\\segoeuib.ttf",
+      "C:\\Windows\\Fonts\\arial.ttf",
+      "C:\\Windows\\Fonts\\arialbd.ttf",
+    ] {
+      let _ = font_system.db_mut().load_font_file(file);
+    }
+  }
+}
+
 pub(crate) struct AtlasPacker {
   pub data: Vec<u8>,
   pub width: u32,
@@ -305,20 +338,24 @@ impl AtlasPacker {
   }
 
   pub(crate) fn pack(&mut self, glyph_data: &[u8], gw: u32, gh: u32) -> (f32, f32, f32, f32) {
-    if self.cursor_x + gw > self.width {
+    let padding = 1;
+    let reserved_width = gw + padding * 2;
+    let reserved_height = gh + padding * 2;
+
+    if self.cursor_x + reserved_width > self.width {
       self.cursor_x = 0;
       self.cursor_y += self.row_height;
       self.row_height = 0;
     }
 
-    if self.cursor_y + gh > self.height {
+    if self.cursor_y + reserved_height > self.height {
       let new_height = self.height * 2;
       self.data.resize((self.width * new_height) as usize, 0);
       self.height = new_height;
     }
 
-    let x0 = self.cursor_x;
-    let y0 = self.cursor_y;
+    let x0 = self.cursor_x + padding;
+    let y0 = self.cursor_y + padding;
 
     for row in 0..gh {
       let src_start = (row * gw) as usize;
@@ -329,8 +366,8 @@ impl AtlasPacker {
       }
     }
 
-    self.cursor_x += gw;
-    self.row_height = self.row_height.max(gh);
+    self.cursor_x += reserved_width;
+    self.row_height = self.row_height.max(reserved_height);
 
     let u0 = x0 as f32 / self.width as f32;
     let v0 = y0 as f32 / self.height as f32;
@@ -345,5 +382,57 @@ impl AtlasPacker {
       width: self.width,
       height: self.height,
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use cosmic_text::{Attrs, Family, Shaping};
+
+  use super::{AtlasPacker, GlyphEngine};
+
+  #[test]
+  fn atlas_packer_leaves_padding_between_glyph_regions() {
+    let mut packer = AtlasPacker::new();
+    let (_, _, first_u1, _) = packer.pack(&[255; 4], 2, 2);
+    let (second_u0, ..) = packer.pack(&[255; 4], 2, 2);
+
+    let first_x1 = (first_u1 * packer.width as f32).round() as u32;
+    let second_x0 = (second_u0 * packer.width as f32).round() as u32;
+
+    assert!(second_x0 > first_x1);
+  }
+
+  #[test]
+  #[cfg(target_os = "windows")]
+  fn medium_weight_text_does_not_fallback_to_symbol_font() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 14.0,
+      weight: crate::layout::text_style::FontWeight::Medium,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let mut buffer = engine.acquire_buffer(&style, 72.0);
+    let resolved = engine.resolve_family(&style);
+    let attrs = Attrs::new()
+      .family(Family::Name(&resolved))
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    buffer.set_text(&mut engine.font_system, "Name", attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut engine.font_system, false);
+
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs {
+        let family = engine
+          .font_system
+          .db()
+          .face(glyph.font_id)
+          .and_then(|face| face.families.first())
+          .map(|family| family.0.as_str())
+          .unwrap_or("<unknown>");
+        assert_ne!(family, "Marlett");
+      }
+    }
+    engine.buffer_pool.push(buffer);
   }
 }

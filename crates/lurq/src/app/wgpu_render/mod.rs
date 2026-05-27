@@ -74,7 +74,12 @@ impl WgpuRenderEngine {
     .expect("failed to create device");
 
     let caps = surface.get_capabilities(&adapter);
-    let format = caps.formats[0];
+    let format = caps
+      .formats
+      .iter()
+      .copied()
+      .find(wgpu::TextureFormat::is_srgb)
+      .unwrap_or(caps.formats[0]);
 
     let config = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -325,7 +330,7 @@ impl RenderEngine for WgpuRenderEngine {
       batch.instances.push(QuadInstance {
         pos: [r.x, r.y],
         size: [r.width, r.height],
-        color: r.color.to_f32_array(),
+        color: r.color.to_linear_f32_array(),
         radii_h: r.radii,
         radii_v: r.radii,
         stroke: [0.0; 4],
@@ -341,7 +346,7 @@ impl RenderEngine for WgpuRenderEngine {
         batch.instances.push(QuadInstance {
           pos: [r.x, r.y],
           size: [r.width, r.height],
-          color: r.stroke_color.to_f32_array(),
+          color: r.stroke_color.to_linear_f32_array(),
           radii_h: r.radii,
           radii_v: r.radii,
           stroke: r.stroke,
@@ -484,10 +489,17 @@ impl RenderEngine for WgpuRenderEngine {
         }
 
         if batch.clip.active {
+          let viewport_w = vw.max(1.0) as u32;
+          let viewport_h = vh.max(1.0) as u32;
           let cx = batch.clip.x.max(0.0) as u32;
           let cy = batch.clip.y.max(0.0) as u32;
-          let cw = (batch.clip.width as u32).min(vw as u32 - cx);
-          let ch = (batch.clip.height as u32).min(vh as u32 - cy);
+
+          if cx >= viewport_w || cy >= viewport_h {
+            continue;
+          }
+
+          let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
+          let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
           pass.set_scissor_rect(cx, cy, cw.max(1), ch.max(1));
         } else {
           pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
@@ -533,10 +545,17 @@ impl RenderEngine for WgpuRenderEngine {
         }
 
         if batch.clip.active {
+          let viewport_w = vw.max(1.0) as u32;
+          let viewport_h = vh.max(1.0) as u32;
           let cx = batch.clip.x.max(0.0) as u32;
           let cy = batch.clip.y.max(0.0) as u32;
-          let cw = (batch.clip.width as u32).min(vw as u32 - cx);
-          let ch = (batch.clip.height as u32).min(vh as u32 - cy);
+
+          if cx >= viewport_w || cy >= viewport_h {
+            continue;
+          }
+
+          let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
+          let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
           pass.set_scissor_rect(cx, cy, cw.max(1), ch.max(1));
         } else {
           pass.set_scissor_rect(0, 0, vw as u32, vh as u32);

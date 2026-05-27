@@ -8,6 +8,7 @@ use crate::{
     color::Color,
     dimension::Dimension,
     node::{EventHandlers, Node},
+    node_kind::NodeKind,
     padding::Padding,
   },
 };
@@ -15,10 +16,11 @@ use crate::{
 fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
   Node {
     node_id: crate::core::NodeId::UNASSIGNED,
-    kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
+    layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,
     },
+    node_kind: NodeKind::Empty,
     text_content: Guard::new(None),
     overflow: crate::layout::layout_kind::Overflow::Visible,
     intrinsic_size: None,
@@ -59,7 +61,7 @@ impl Node {
   }
 
   pub fn spacing(mut self, spacing: f32) -> Self {
-    match &mut self.kind {
+    match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { spacing: s, .. } => *s = spacing,
       crate::layout::layout_kind::LayoutKind::Column { spacing: s, .. } => *s = spacing,
       _ => {}
@@ -68,7 +70,7 @@ impl Node {
   }
 
   pub fn align_items(mut self, align: Alignment) -> Self {
-    match &mut self.kind {
+    match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { align: a, .. } => *a = align,
       crate::layout::layout_kind::LayoutKind::Column { align: a, .. } => *a = align,
       _ => {}
@@ -77,7 +79,7 @@ impl Node {
   }
 
   pub fn justify(mut self, justify: crate::layout::layout_kind::Justify) -> Self {
-    match &mut self.kind {
+    match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { justify: j, .. } => *j = justify,
       crate::layout::layout_kind::LayoutKind::Column { justify: j, .. } => *j = justify,
       _ => {}
@@ -86,7 +88,7 @@ impl Node {
   }
 
   pub fn wrap(mut self) -> Self {
-    match &mut self.kind {
+    match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
       crate::layout::layout_kind::LayoutKind::Column { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
       _ => {}
@@ -95,7 +97,7 @@ impl Node {
   }
 
   pub fn stack_align(mut self, align: StackAlignment) -> Self {
-    if let crate::layout::layout_kind::LayoutKind::Stack { align: a } = &mut self.kind {
+    if let crate::layout::layout_kind::LayoutKind::Stack { align: a } = &mut self.layout_kind {
       *a = align;
     }
     self

@@ -1,14 +1,14 @@
 use std::{
   any::Any,
   sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
   },
 };
 
 use super::{component::Component, theme::Theme};
 use crate::{
-  core::{cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal, ContextMap, ReactiveContext, Store},
+  core::{ContextMap, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal},
   node::Element,
 };
 

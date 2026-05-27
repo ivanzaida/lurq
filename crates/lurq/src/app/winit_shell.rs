@@ -2,12 +2,13 @@ use winit::{
   application::ApplicationHandler,
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+  keyboard::{Key, ModifiersState, NamedKey, PhysicalKey},
   window::{Window, WindowAttributes, WindowId},
 };
 
 use crate::app::{
-  events::{MouseButton, ScrollPhase},
   Runtime,
+  events::{MouseButton, ScrollPhase},
 };
 
 type TickFn = Box<dyn FnMut(&mut Runtime)>;
@@ -83,6 +84,7 @@ impl WinitWindow {
       runtime: self.runtime,
       window: None,
       cursor_pos: (0.0, 0.0),
+      modifiers: ModifiersState::empty(),
       attrs: Some(self.attrs),
       on_tick: self.on_tick,
     };
@@ -94,6 +96,7 @@ struct WinitHandler {
   runtime: Runtime,
   window: Option<Window>,
   cursor_pos: (f64, f64),
+  modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   on_tick: Option<TickFn>,
 }
@@ -161,6 +164,21 @@ impl ApplicationHandler for WinitHandler {
         }
         self.check_redraw();
       }
+      WindowEvent::ModifiersChanged(modifiers) => {
+        self.modifiers = modifiers.state();
+      }
+      WindowEvent::KeyboardInput { event, .. } => {
+        if matches!(event.state, ElementState::Pressed) {
+          self.runtime.key_down(
+            key_to_string(&event),
+            physical_key_to_string(&event.physical_key),
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          );
+          self.check_redraw();
+        }
+      }
       WindowEvent::MouseWheel { delta, phase, .. } => {
         let (dx, dy) = match delta {
           MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
@@ -190,5 +208,42 @@ impl ApplicationHandler for WinitHandler {
       tick(&mut self.runtime);
       self.check_redraw();
     }
+  }
+}
+
+fn key_to_string(event: &winit::event::KeyEvent) -> String {
+  match &event.logical_key {
+    Key::Character(text) => event
+      .text
+      .as_ref()
+      .map(ToString::to_string)
+      .unwrap_or_else(|| text.to_string()),
+    Key::Named(named) => named_key_to_string(*named).to_owned(),
+    Key::Dead(Some(ch)) => ch.to_string(),
+    Key::Dead(None) => String::new(),
+    Key::Unidentified(_) => event.text.as_ref().map(ToString::to_string).unwrap_or_default(),
+  }
+}
+
+fn named_key_to_string(key: NamedKey) -> &'static str {
+  match key {
+    NamedKey::Backspace => "Backspace",
+    NamedKey::Delete => "Delete",
+    NamedKey::ArrowLeft => "ArrowLeft",
+    NamedKey::ArrowRight => "ArrowRight",
+    NamedKey::ArrowUp => "ArrowUp",
+    NamedKey::ArrowDown => "ArrowDown",
+    NamedKey::Home => "Home",
+    NamedKey::End => "End",
+    NamedKey::Enter => "Enter",
+    NamedKey::Space => " ",
+    _ => "",
+  }
+}
+
+fn physical_key_to_string(key: &PhysicalKey) -> String {
+  match key {
+    PhysicalKey::Code(code) => format!("{code:?}"),
+    PhysicalKey::Unidentified(_) => String::new(),
   }
 }

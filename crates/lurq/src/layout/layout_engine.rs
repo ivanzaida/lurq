@@ -9,7 +9,7 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
     text_style::TextStyle,
   },
-  node::{node::Node, padding::Padding},
+  node::{node::Node, node_kind::NodeKind, padding::Padding},
 };
 
 pub(crate) struct LayoutEngine;
@@ -33,7 +33,7 @@ impl LayoutEngine {
         child_dirty = true;
       }
     }
-    if let LayoutKind::ScrollModifier { state, .. } = node.kind() {
+    if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
       if state.take_scroll_dirty() {
         node.layout_cache.invalidate();
         return true;
@@ -60,17 +60,30 @@ impl LayoutEngine {
     clip: ClipRect,
     quads: &mut Vec<Quad>,
   ) {
-    let is_scroll = matches!(node.kind(), LayoutKind::ScrollModifier { .. });
+    let is_scroll = matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. });
 
     if let Some(ref node_ref) = node.node_ref {
       node_ref.update(abs_x, abs_y, result.size.width, result.size.height);
     }
 
     let has_visual = node.color().is_some() || node.get_border().is_some();
-    let content = match node.kind() {
-      LayoutKind::Text { style } => QuadContent::Text {
-        text: node.text_content().unwrap_or("").to_owned(),
+    let content = match node.node_kind() {
+      NodeKind::Text { style } | NodeKind::TextInput { style, .. } => QuadContent::Text {
+        text: match node.node_kind() {
+          NodeKind::TextInput { state, .. } => state.rendered_text().unwrap_or_default(),
+          _ => node.text_content().unwrap_or_default().to_owned(),
+        },
         style: style.clone(),
+      },
+      NodeKind::Checkbox { state } => QuadContent::Rect {
+        color: if state.is_checked() {
+          crate::node::color::Color::from_hex("#22c55e")
+        } else {
+          node.color().unwrap_or(crate::node::color::Color::from_hex("#ffffff"))
+        },
+      },
+      NodeKind::Slider { .. } if node.color().is_none() => QuadContent::Rect {
+        color: crate::node::color::Color::from_hex("#cbd5e1"),
       },
       _ if has_visual => QuadContent::Rect {
         color: node.color().unwrap_or(crate::node::color::Color::new(0, 0, 0, 0)),
@@ -92,6 +105,40 @@ impl LayoutEngine {
           clip,
         });
       }
+    }
+
+    match node.node_kind() {
+      NodeKind::TextInput { state, .. } if state.is_focused() => {
+        quads.push(Quad {
+          x: abs_x + state.caret_x(),
+          y: abs_y + 3.0,
+          width: 1.0,
+          height: (result.size.height - 6.0).max(1.0),
+          content: QuadContent::Rect {
+            color: crate::node::color::Color::from_hex("#0f172a"),
+          },
+          border_radius: None,
+          border: None,
+          clip,
+        });
+      }
+      NodeKind::Slider { state } => {
+        let thumb_size = result.size.height.max(12.0);
+        let thumb_x = abs_x + (result.size.width - thumb_size).max(0.0) * state.ratio();
+        quads.push(Quad {
+          x: thumb_x,
+          y: abs_y + (result.size.height - thumb_size) / 2.0,
+          width: thumb_size,
+          height: thumb_size,
+          content: QuadContent::Rect {
+            color: crate::node::color::Color::from_hex("#475569"),
+          },
+          border_radius: Some(crate::node::border::BorderRadius::all(thumb_size / 2.0)),
+          border: None,
+          clip,
+        });
+      }
+      _ => {}
     }
 
     let child_clip = if is_scroll || node.overflow == Overflow::Hidden {
@@ -117,7 +164,7 @@ impl LayoutEngine {
       );
     }
 
-    if let LayoutKind::ScrollModifier { state, direction } = node.kind() {
+    if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
       state.set_viewport_position(abs_x, abs_y);
       let sb_style = node.scrollbar_style();
       state.set_style(sb_style.clone());
@@ -209,13 +256,13 @@ impl LayoutEngine {
   }
 
   fn layout_node(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
-    if node.text_content.is_changed() {
+    if node.text_content.is_changed() || matches!(node.node_kind(), NodeKind::TextInput { .. }) {
       node.layout_cache.invalidate();
     }
 
     // Check cache — skip layout if constraints unchanged and no structural changes
     if let Some(mut cached) = node.layout_cache.get(constraints) {
-      if let LayoutKind::ScrollModifier { state, .. } = node.kind() {
+      if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
         if let Some(child) = cached.children.first_mut() {
           child.offset.x = -state.scroll_x();
           child.offset.y = -state.scroll_y();
@@ -230,12 +277,8 @@ impl LayoutEngine {
       return cached;
     }
 
-    let mut result = match node.kind() {
-      LayoutKind::Leaf => self.layout_leaf(node, constraints),
-      LayoutKind::Text { style } => {
-        let content = node.text_content().unwrap_or("");
-        self.layout_text(glyph_engine, content, style, constraints)
-      }
+    let mut result = match node.layout_kind() {
+      LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints),
       LayoutKind::Row {
         spacing,
         align,
@@ -290,7 +333,33 @@ impl LayoutEngine {
     }
   }
 
-  fn layout_leaf(&self, node: &Node, constraints: Constraints) -> LayoutResult {
+  fn layout_leaf(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+    match node.node_kind() {
+      NodeKind::Text { style } => {
+        let content = node.text_content().unwrap_or_default();
+        return self.layout_text(glyph_engine, content, style, constraints);
+      }
+      NodeKind::TextInput { state, style } => {
+        let content = state.rendered_text().unwrap_or_default();
+        return self.layout_text_input(glyph_engine, state, &content, style, constraints);
+      }
+      NodeKind::Checkbox { .. } => {
+        let preferred = node.intrinsic_size.unwrap_or(Size::new(18.0, 18.0));
+        return LayoutResult {
+          size: constraints.constrain(preferred),
+          children: vec![],
+        };
+      }
+      NodeKind::Slider { .. } => {
+        let preferred = node.intrinsic_size.unwrap_or(Size::new(120.0, 20.0));
+        return LayoutResult {
+          size: constraints.constrain(preferred),
+          children: vec![],
+        };
+      }
+      NodeKind::Empty => {}
+    }
+
     let preferred = node.intrinsic_size.unwrap_or_default();
     LayoutResult {
       size: constraints.constrain(preferred),
@@ -313,6 +382,35 @@ impl LayoutEngine {
     let measured = glyph_engine.measure_text(text, style, max_width);
     let size = constraints.constrain(measured);
     LayoutResult { size, children: vec![] }
+  }
+
+  fn layout_text_input(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    state: &crate::node::node_kind::TextInputState,
+    text: &str,
+    style: &TextStyle,
+    constraints: Constraints,
+  ) -> LayoutResult {
+    let caret_prefix = state.caret_prefix();
+    let caret_x = glyph_engine.measure_text(&caret_prefix, style, f32::MAX).width;
+    state.set_caret_x(caret_x);
+
+    let text_result = self.layout_text(
+      glyph_engine,
+      text,
+      style,
+      Constraints {
+        min_width: 0.0,
+        min_height: 0.0,
+        ..constraints
+      },
+    );
+    let preferred = Size::new(text_result.size.width.max(120.0), text_result.size.height.max(28.0));
+    LayoutResult {
+      size: constraints.constrain(preferred),
+      children: vec![],
+    }
   }
 
   fn layout_flex(
@@ -351,14 +449,14 @@ impl LayoutEngine {
     let mut flex_params_list: Vec<FlexParams> = Vec::with_capacity(children.len());
 
     for child in children {
-      if let LayoutKind::FlexModifier(params) = child.kind() {
+      if let LayoutKind::FlexModifier(params) = child.layout_kind() {
         grow_total += params.grow;
         shrink_total += params.shrink;
         flex_params_list.push(*params);
         if params.grow == 0.0 && params.basis.is_none() {
           let child_constraints = if vertical {
             Constraints {
-              min_width: constraints.min_width,
+              min_width: 0.0,
               max_width: constraints.max_width,
               min_height: 0.0,
               max_height: f32::INFINITY,
@@ -367,7 +465,7 @@ impl LayoutEngine {
             Constraints {
               min_width: 0.0,
               max_width: f32::INFINITY,
-              min_height: constraints.min_height,
+              min_height: 0.0,
               max_height: constraints.max_height,
             }
           };
@@ -383,7 +481,7 @@ impl LayoutEngine {
         });
         let child_constraints = if vertical {
           Constraints {
-            min_width: constraints.min_width,
+            min_width: 0.0,
             max_width: constraints.max_width,
             min_height: 0.0,
             max_height: f32::INFINITY,
@@ -392,7 +490,7 @@ impl LayoutEngine {
           Constraints {
             min_width: 0.0,
             max_width: f32::INFINITY,
-            min_height: constraints.min_height,
+            min_height: 0.0,
             max_height: constraints.max_height,
           }
         };
@@ -422,7 +520,7 @@ impl LayoutEngine {
         };
         let child_constraints = if vertical {
           Constraints {
-            min_width: constraints.min_width,
+            min_width: 0.0,
             max_width: constraints.max_width,
             min_height: flex_size,
             max_height: flex_size,
@@ -431,7 +529,7 @@ impl LayoutEngine {
           Constraints {
             min_width: flex_size,
             max_width: flex_size,
-            min_height: constraints.min_height,
+            min_height: 0.0,
             max_height: constraints.max_height,
           }
         };
@@ -781,7 +879,7 @@ impl LayoutEngine {
     let normal_results: Vec<&LayoutResult> = children
       .iter()
       .zip(results.iter())
-      .filter(|(child, _)| !matches!(child.kind(), LayoutKind::AbsoluteModifier { .. }))
+      .filter(|(child, _)| !matches!(child.layout_kind(), LayoutKind::AbsoluteModifier { .. }))
       .map(|(_, result)| result)
       .collect();
 
@@ -793,10 +891,10 @@ impl LayoutEngine {
       .into_iter()
       .zip(children.iter())
       .map(|(result, child)| {
-        let offset = match child.kind() {
+        let offset = match child.layout_kind() {
           LayoutKind::AbsoluteModifier { x, y, .. } => Offset::new(*x, *y),
           _ => {
-            let child_align = match child.kind() {
+            let child_align = match child.layout_kind() {
               LayoutKind::AlignModifier(a) => a.to_stack_alignment(),
               _ => align,
             };

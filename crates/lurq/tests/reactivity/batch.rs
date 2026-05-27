@@ -1,6 +1,6 @@
 use lurq::{
   app::ctx::Ctx,
-  core::{batch, Signal},
+  core::{Signal, batch},
 };
 
 #[test]

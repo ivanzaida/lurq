@@ -7,7 +7,7 @@ pub struct Color {
 }
 
 impl Color {
-  pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+  pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
     Self { r, g, b, a }
   }
 
@@ -29,6 +29,15 @@ impl Color {
       self.r as f32 / 255.0,
       self.g as f32 / 255.0,
       self.b as f32 / 255.0,
+      self.a as f32 / 255.0,
+    ]
+  }
+
+  pub fn to_linear_f32_array(&self) -> [f32; 4] {
+    [
+      srgb_to_linear(self.r),
+      srgb_to_linear(self.g),
+      srgb_to_linear(self.b),
       self.a as f32 / 255.0,
     ]
   }
@@ -141,6 +150,15 @@ impl Color {
         self.a as f64 / 255.0
       )
     }
+  }
+}
+
+fn srgb_to_linear(channel: u8) -> f32 {
+  let c = channel as f32 / 255.0;
+  if c <= 0.04045 {
+    c / 12.92
+  } else {
+    ((c + 0.055) / 1.055).powf(2.4)
   }
 }
 

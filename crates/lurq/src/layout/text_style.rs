@@ -13,13 +13,24 @@ pub struct TextStyle {
 impl Default for TextStyle {
   fn default() -> Self {
     Self {
-      font_family: String::new(),
+      font_family: default_font_family(),
       font_size: 16.0,
       line_height: 1.2,
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
       color: Color::new(0, 0, 0, 255),
     }
+  }
+}
+
+fn default_font_family() -> String {
+  #[cfg(target_os = "windows")]
+  {
+    "Segoe UI".to_owned()
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    String::new()
   }
 }
 
@@ -40,7 +51,7 @@ impl FontWeight {
       Self::Thin => cosmic_text::Weight(100),
       Self::Light => cosmic_text::Weight(300),
       Self::Normal => cosmic_text::Weight(400),
-      Self::Medium => cosmic_text::Weight(500),
+      Self::Medium => cosmic_text::Weight(400),
       Self::Bold => cosmic_text::Weight(700),
       Self::Black => cosmic_text::Weight(900),
     }

@@ -32,11 +32,7 @@ fn memo_does_not_propagate_unchanged_value() {
   let sc = s.clone();
   let m = Memo::new(move || {
     let v = sc.get();
-    if v > 10 {
-      "big"
-    } else {
-      "small"
-    }
+    if v > 10 { "big" } else { "small" }
   });
   assert_eq!(m.get(), "small");
   s.set(3);
@@ -49,11 +45,7 @@ fn memo_propagates_on_actual_change() {
   let sc = s.clone();
   let m = Memo::new(move || {
     let v = sc.get();
-    if v > 10 {
-      "big"
-    } else {
-      "small"
-    }
+    if v > 10 { "big" } else { "small" }
   });
   assert_eq!(m.get(), "small");
   s.set(20);

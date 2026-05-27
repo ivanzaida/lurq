@@ -6,6 +6,7 @@ pub mod element;
 pub mod interaction_state;
 pub(crate) mod layout_cache;
 pub(crate) mod node;
+pub(crate) mod node_kind;
 pub mod padding;
 
 pub use element::{Element, ElementChildren, ElementRef};

@@ -1,11 +1,11 @@
 use lurq::{
-  app::{component::Component, ctx::Ctx, events::MouseButton, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx, events::MouseButton},
   core::Signal,
   layout::{
-    text_style::{FontWeight, TextStyle},
     Alignment,
+    text_style::{FontWeight, TextStyle},
   },
-  node::{color::Color, Element},
+  node::{Element, color::Color},
 };
 
 struct Counter {

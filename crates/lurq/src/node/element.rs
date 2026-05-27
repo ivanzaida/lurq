@@ -1,6 +1,6 @@
 use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
-  core::NodeRef,
+  core::{NodeRef, Signal},
   layout::{
     Alignment, StackAlignment,
     layout_kind::{FrameConstraints, Justify, ScrollState},
@@ -88,6 +88,24 @@ impl Element {
   pub fn styled_text(content: &str, style: TextStyle) -> Self {
     Self {
       node: Node::text_styled(content, style),
+    }
+  }
+
+  pub fn text_input(value: Signal<String>) -> Self {
+    Self {
+      node: Node::text_input(value),
+    }
+  }
+
+  pub fn checkbox(value: Signal<bool>) -> Self {
+    Self {
+      node: Node::checkbox(value),
+    }
+  }
+
+  pub fn slider(value: Signal<f32>) -> Self {
+    Self {
+      node: Node::slider(value),
     }
   }
 
@@ -233,6 +251,16 @@ impl Element {
 
   pub fn absolute_position(mut self, x: f32, y: f32) -> Self {
     self.node = self.node.absolute_position(x, y);
+    self
+  }
+
+  pub fn placeholder(mut self, placeholder: &str) -> Self {
+    self.node = self.node.placeholder(placeholder);
+    self
+  }
+
+  pub fn range(mut self, min: f32, max: f32) -> Self {
+    self.node = self.node.range(min, max);
     self
   }
 

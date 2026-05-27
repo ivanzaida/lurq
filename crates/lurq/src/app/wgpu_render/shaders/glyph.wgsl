@@ -87,20 +87,6 @@ fn vs_main(in: VsIn) -> VsOut {
     return out;
 }
 
-// Per-channel sRGB encode: linear → display-space byte value. Used
-// below so the foreground colour lives in the same gamma space as the
-// surface bytes the glyph pass blends against.
-fn srgb_encode_one(c: f32) -> f32 {
-    if (c <= 0.0031308) {
-        return c * 12.92;
-    }
-    return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
-}
-
-fn srgb_encode(c: vec3<f32>) -> vec3<f32> {
-    return vec3<f32>(srgb_encode_one(c.x), srgb_encode_one(c.y), srgb_encode_one(c.z));
-}
-
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Rounded-clip discard. See quad.wgsl for the matching logic.
@@ -117,16 +103,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
 
-    // The glyph pass renders through a non-sRGB view of the surface,
-    // so the GPU's blend step doesn't decode `dst` from sRGB and
-    // doesn't sRGB-encode the result on write — both sides see the
-    // raw byte values, i.e. the *display-space* representation. To
-    // composite text correctly we therefore write the foreground
-    // colour in display space too: encode `in.color.rgb` (which
-    // arrives as linear from `resolve_color`) into sRGB before the
-    // blend. Coverage from the rasteriser is already perceptually
-    // weighted in 0..1 and feeds straight into alpha — no curve hack.
+    // Instance colors arrive in linear space and are written to an sRGB
+    // surface, matching the quad pipeline.
     let coverage = textureSample(atlas, atlas_sampler, in.uv).r;
-    let rgb_srgb = srgb_encode(in.color.rgb);
-    return vec4<f32>(rgb_srgb, in.color.a * coverage);
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
 }
