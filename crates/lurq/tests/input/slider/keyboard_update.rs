@@ -10,7 +10,7 @@ fn arrow_keys_update_focused_slider_within_range() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::slider(value.clone()).range(0.0, 10.0).width(100.0));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

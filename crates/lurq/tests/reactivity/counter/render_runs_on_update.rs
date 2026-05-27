@@ -73,7 +73,7 @@ fn rerenders_after_click_updates_signal_value() {
   let increment = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
     .unwrap()
-    .rect;
+    .bounds();
   assert_eq!(renders.load(Ordering::Relaxed), 1);
 
   let (x, y) = increment.center();

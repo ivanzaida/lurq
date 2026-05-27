@@ -12,25 +12,15 @@ fn rt() -> Runtime {
 }
 
 fn rect(w: f32, h: f32) -> Element {
-  Element::new().frame(FrameConstraints {
-    width: Some(w),
-    height: Some(h),
-    ..Default::default()
-  })
+  Element::new().size(w, h)
 }
 
 fn wide(w: f32) -> Element {
-  Element::new().frame(FrameConstraints {
-    width: Some(w),
-    ..Default::default()
-  })
+  Element::new().width(w)
 }
 
 fn tall(h: f32) -> Element {
-  Element::new().frame(FrameConstraints {
-    height: Some(h),
-    ..Default::default()
-  })
+  Element::new().height(h)
 }
 
 // ============================================================================
@@ -464,7 +454,7 @@ fn flex_max_width_prevents_growing() {
   let node = Element::row().spacing(0.0).with_children(vec![
     Element::new()
       .frame(FrameConstraints {
-        max_width: Some(100.0),
+        max_width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         ..Default::default()
       })
       .flex(1.0),
@@ -485,8 +475,8 @@ fn flex_min_height_prevents_shrinking_column() {
   let node = Element::column().spacing(0.0).with_children(vec![
     Element::new()
       .frame(FrameConstraints {
-        width: Some(100.0),
-        min_height: Some(120.0),
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        min_height: Some(lurq::node::dimension::Dimension::Px(120.0)),
         ..Default::default()
       })
       .flex_full(0.0, 1.0, None),

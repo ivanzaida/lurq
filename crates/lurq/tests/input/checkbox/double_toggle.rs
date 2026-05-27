@@ -13,7 +13,7 @@ fn double_click_returns_checkbox_signal_to_initial_state() {
   let rect = runtime
     .find_element(|_| true)
     .expect("checkbox should be layoutable")
-    .rect;
+    .bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

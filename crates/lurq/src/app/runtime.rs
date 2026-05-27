@@ -12,7 +12,7 @@ use crate::{
     profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
     render_engine::RenderEngine,
   },
-  core::{IdGenerator, NodeId},
+  core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
     Constraints, Size,
     layout_engine::LayoutEngine,
@@ -76,35 +76,6 @@ pub struct Runtime {
   focused_event_path: Option<Vec<usize>>,
   needs_redraw: bool,
   last_profile: FrameProfile,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ElementRect {
-  pub x: f32,
-  pub y: f32,
-  pub relative_x: f32,
-  pub relative_y: f32,
-  pub width: f32,
-  pub height: f32,
-}
-
-impl ElementRect {
-  pub fn center(&self) -> (f32, f32) {
-    (self.x + self.width / 2.0, self.y + self.height / 2.0)
-  }
-}
-
-#[derive(Clone, Copy)]
-pub struct FoundElement<'a> {
-  pub element: ElementRef<'a>,
-  pub rect: ElementRect,
-}
-
-pub struct FoundElementMut<'a> {
-  pub rect: ElementRect,
-  original_rect: ElementRect,
-  runtime: &'a mut Runtime,
-  path: Vec<usize>,
 }
 
 impl Default for Runtime {
@@ -226,7 +197,7 @@ impl Runtime {
       component.on_unmounted();
     }
     if let Some(old) = &mut self.root {
-      reset_node_ref_flags_recursive(old);
+      reset_element_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
     let mut ctx = Ctx::new_root().with_theme(self.theme.clone());
@@ -249,7 +220,7 @@ impl Runtime {
   pub fn rebuild(&mut self) {
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
       let old_root = self.root.take().map(|mut old| {
-        reset_node_ref_flags_recursive(&old);
+        reset_element_ref_flags_recursive(&old);
         old.free_ids(&self.id_gen);
         old
       });
@@ -273,7 +244,7 @@ impl Runtime {
       component.on_unmounted();
     }
     if let Some(old) = &mut self.root {
-      reset_node_ref_flags_recursive(old);
+      reset_element_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
     let mut node = element.node;
@@ -291,30 +262,16 @@ impl Runtime {
     self.root.as_ref().map(ElementRef::new)
   }
 
-  pub fn find_element(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<FoundElement<'_>> {
+  pub fn find_element(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<OwnedElementRef> {
     self.update_layout();
 
-    let root = self.root.as_ref()?;
+    let root = self.root.as_mut()?;
     let layout = self.last_layout.as_ref()?;
     find_element_recursive(root, layout, 0.0, 0.0, 0.0, 0.0, &predicate)
   }
 
-  pub fn find_element_mut(
-    &mut self,
-    predicate: impl for<'a> Fn(ElementRef<'a>) -> bool,
-  ) -> Option<FoundElementMut<'_>> {
-    self.update_layout();
-
-    let root = self.root.as_ref()?;
-    let layout = self.last_layout.as_ref()?;
-    let found = find_element_path_recursive(root, layout, 0.0, 0.0, 0.0, 0.0, Vec::new(), &predicate)?;
-
-    Some(FoundElementMut {
-      rect: found.rect,
-      original_rect: found.rect,
-      runtime: self,
-      path: found.path,
-    })
+  pub fn find_element_mut(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<OwnedElementRefMut> {
+    self.find_element(predicate).map(|element_ref| element_ref.mutable())
   }
 
   pub fn id_gen(&self) -> &IdGenerator {
@@ -538,7 +495,7 @@ impl Runtime {
   }
 
   pub fn needs_redraw(&self) -> bool {
-    self.needs_redraw
+    self.needs_redraw || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
   pub fn clear_needs_redraw(&mut self) {
@@ -711,10 +668,10 @@ impl Runtime {
 
     for old_ptr in &self.hover_path {
       if !current_ptrs.contains(old_ptr) {
-        let node_ref = unsafe { &*(*old_ptr as *const Node) };
-        set_node_hovered(node_ref, false);
+        let node = unsafe { &*(*old_ptr as *const Node) };
+        set_node_hovered(node, false);
         self.needs_redraw = true;
-        if let Some(ref handler) = node_ref.events.on_mouse_leave {
+        if let Some(ref handler) = node.events.on_mouse_leave {
           handler();
         }
       }
@@ -993,14 +950,6 @@ impl Runtime {
     }
   }
 
-  fn node_mut_at_path(&mut self, path: &[usize]) -> Option<&mut Node> {
-    let mut node = self.root.as_mut()?;
-    for &index in path {
-      node = node.children.get_mut(index)?;
-    }
-    Some(node)
-  }
-
   fn sync_dynamic_content(&mut self) {
     if let Some(root) = &mut self.root {
       root.sync_dynamic_content_recursive();
@@ -1104,39 +1053,15 @@ impl Drop for Runtime {
   }
 }
 
-impl Drop for FoundElementMut<'_> {
-  fn drop(&mut self) {
-    if self.rect == self.original_rect {
-      return;
-    }
-
-    let rect = crate::node::node::RuntimeRect {
-      x: self.rect.relative_x,
-      y: self.rect.relative_y,
-      width: self.rect.width,
-      height: self.rect.height,
-    };
-
-    if let Some(node) = self.runtime.node_mut_at_path(&self.path) {
-      node.set_runtime_rect(rect);
-    }
-    if let Some(root) = self.runtime.root.as_ref() {
-      root.invalidate_layout_recursive();
-    }
-    self.runtime.last_layout = None;
-    self.runtime.needs_redraw = true;
-  }
-}
-
-fn find_element_recursive<'a>(
-  node: &'a Node,
-  layout: &'a LayoutResult,
+fn find_element_recursive(
+  node: &mut Node,
+  layout: &LayoutResult,
   abs_x: f32,
   abs_y: f32,
   parent_x: f32,
   parent_y: f32,
   predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
-) -> Option<FoundElement<'a>> {
+) -> Option<OwnedElementRef> {
   let element = ElementRef::new(node);
   let rect = ElementRect {
     x: abs_x,
@@ -1148,10 +1073,19 @@ fn find_element_recursive<'a>(
   };
 
   if predicate(element) {
-    return Some(FoundElement { element, rect });
+    let element_ref = node.element_ref_handle();
+    element_ref.update(
+      rect.x,
+      rect.y,
+      rect.relative_x,
+      rect.relative_y,
+      rect.width,
+      rect.height,
+    );
+    return Some(element_ref);
   }
 
-  for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
+  for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
     if let Some(found) = find_element_recursive(
       child_node,
       &child_layout.result,
@@ -1159,55 +1093,6 @@ fn find_element_recursive<'a>(
       abs_y + child_layout.offset.y,
       abs_x,
       abs_y,
-      predicate,
-    ) {
-      return Some(found);
-    }
-  }
-
-  None
-}
-
-struct FoundElementPath {
-  path: Vec<usize>,
-  rect: ElementRect,
-}
-
-fn find_element_path_recursive(
-  node: &Node,
-  layout: &LayoutResult,
-  abs_x: f32,
-  abs_y: f32,
-  parent_x: f32,
-  parent_y: f32,
-  path: Vec<usize>,
-  predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
-) -> Option<FoundElementPath> {
-  let element = ElementRef::new(node);
-  let rect = ElementRect {
-    x: abs_x,
-    y: abs_y,
-    relative_x: abs_x - parent_x,
-    relative_y: abs_y - parent_y,
-    width: layout.size.width,
-    height: layout.size.height,
-  };
-
-  if predicate(element) {
-    return Some(FoundElementPath { path, rect });
-  }
-
-  for (index, (child_layout, child_node)) in layout.children.iter().zip(node.children()).enumerate() {
-    let mut child_path = path.clone();
-    child_path.push(index);
-    if let Some(found) = find_element_path_recursive(
-      child_node,
-      &child_layout.result,
-      abs_x + child_layout.offset.x,
-      abs_y + child_layout.offset.y,
-      abs_x,
-      abs_y,
-      child_path,
       predicate,
     ) {
       return Some(found);
@@ -1267,41 +1152,55 @@ struct FocusTarget {
 }
 
 fn set_node_hovered(node: &Node, hovered: bool) {
+  node.set_style_hovered(hovered);
   if let Some(ref state) = node.interaction {
     state.set_hovered(hovered);
   }
-  if let Some(ref node_ref) = node.node_ref {
-    node_ref.set_hovered(hovered);
+  if let Some(ref element_ref) = node.element_ref {
+    element_ref.set_hovered(hovered);
   }
 }
 
 fn set_node_active(node: &Node, active: bool) {
+  node.set_style_active(active);
   if let Some(ref state) = node.interaction {
     state.set_active(active);
   }
-  if let Some(ref node_ref) = node.node_ref {
-    node_ref.set_active(active);
+  if let Some(ref element_ref) = node.element_ref {
+    element_ref.set_active(active);
   }
 }
 
 fn set_node_focused(node: &Node, focused: bool) {
+  node.set_style_focused(focused);
   if let Some(ref state) = node.interaction {
     state.set_focused(focused);
   }
-  if let Some(ref node_ref) = node.node_ref {
-    node_ref.set_focused(focused);
+  if let Some(ref element_ref) = node.element_ref {
+    element_ref.set_focused(focused);
   }
 }
 
-fn reset_node_ref_flags_recursive(node: &Node) {
-  if let Some(ref node_ref) = node.node_ref {
-    node_ref.set_hovered(false);
-    node_ref.set_active(false);
-    node_ref.set_focused(false);
+fn reset_element_ref_flags_recursive(node: &Node) {
+  node.set_style_hovered(false);
+  node.set_style_active(false);
+  node.set_style_focused(false);
+  if let Some(ref element_ref) = node.element_ref {
+    element_ref.set_hovered(false);
+    element_ref.set_active(false);
+    element_ref.set_focused(false);
   }
   for child in node.children() {
-    reset_node_ref_flags_recursive(child);
+    reset_element_ref_flags_recursive(child);
   }
+}
+
+fn has_dirty_element_ref_recursive(node: &Node) -> bool {
+  node
+    .element_ref
+    .as_ref()
+    .is_some_and(|element_ref| element_ref.has_layout_dirty())
+    || node.children().iter().any(has_dirty_element_ref_recursive)
 }
 
 fn dispatch_builtin_pointer(

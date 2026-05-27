@@ -44,7 +44,7 @@ When a tick callback is installed, the winit event loop uses polling so ticks co
 
 ## Element Lookup
 
-Use `find_element` to search the current tree and get the element plus its computed rect.
+Use `find_element` to search the current tree and get an element ref with its computed rect.
 
 ```rust
 let found = runtime.find_element(|el| {
@@ -52,7 +52,8 @@ let found = runtime.find_element(|el| {
 });
 
 if let Some(found) = found {
-  println!("x={}, y={}", found.rect.x, found.rect.y);
+  let rect = found.bounds();
+  println!("x={}, y={}", rect.x, rect.y);
 }
 ```
 
@@ -78,22 +79,17 @@ pub struct ElementRect {
 
 ## Mutable Element Rects
 
-Use `find_element_mut` when runtime code needs to change an element's layout rect.
+Use `find_element_mut` when runtime code needs to change an element's layout rect. It returns the same mutable ref type as `Ctx::element_ref_mut`.
 
 ```rust
-{
-  let mut found = runtime
-    .find_element_mut(|el| el.color() == Some(Color::from_hex("#22c55e")))
-    .unwrap();
+let found = runtime
+  .find_element_mut(|el| el.color() == Some(Color::from_hex("#22c55e")))
+  .unwrap();
 
-  found.rect.relative_x = 15.0;
-  found.rect.relative_y = 20.0;
-  found.rect.width = 30.0;
-  found.rect.height = 40.0;
-} // mutation is applied when `found` is dropped
+found.set_relative_bounds(15.0, 20.0, 30.0, 40.0);
 ```
 
-The mutable handle writes back on drop. If the rect changed, runtime stores a runtime rect override, invalidates layout, clears cached layout, and marks the runtime for redraw.
+The mutable handle stores a rect override through shared ref state. Runtime invalidates cached layout on the next layout pass and `Runtime::needs_redraw()` reports true while a ref has pending layout changes.
 
 Use `relative_x` and `relative_y` for mutation. Absolute `x` and `y` are derived from parent position plus the relative offset.
 

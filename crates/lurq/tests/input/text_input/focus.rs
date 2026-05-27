@@ -52,11 +52,11 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
   let first = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
     .unwrap()
-    .rect;
+    .bounds();
   let second = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
     .unwrap()
-    .rect;
+    .bounds();
 
   runtime.click(first.x + 10.0, first.y + first.height / 2.0, MouseButton::Left);
   runtime.click(second.x + 10.0, second.y + second.height / 2.0, MouseButton::Left);

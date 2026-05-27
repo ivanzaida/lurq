@@ -8,7 +8,10 @@ use std::{
 
 use super::{component::Component, theme::Theme};
 use crate::{
-  core::{ContextMap, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo, signal::Signal},
+  core::{
+    ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo,
+    signal::Signal,
+  },
   node::Element,
 };
 
@@ -19,8 +22,11 @@ pub struct Ctx {
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
+  element_ref_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
+  element_refs: Vec<ElementRefMut>,
+  rendering: bool,
 }
 
 struct ChildSlot {
@@ -72,8 +78,11 @@ impl Ctx {
       slot_children: None,
       children: Vec::new(),
       child_cursor: 0,
+      element_ref_cursor: 0,
       watch_handles: Vec::new(),
       effects: Vec::new(),
+      element_refs: Vec::new(),
+      rendering: false,
     }
   }
 
@@ -181,8 +190,23 @@ impl Ctx {
 
   // --- Helpers ---
 
-  pub fn node_ref(&self) -> crate::core::NodeRef {
-    crate::core::NodeRef::new()
+  pub fn element_ref(&mut self) -> ElementRef {
+    self.element_ref_mut().as_ref()
+  }
+
+  pub fn element_ref_mut(&mut self) -> ElementRefMut {
+    if !self.rendering {
+      return ElementRefMut::new();
+    }
+
+    let cursor = self.element_ref_cursor;
+    self.element_ref_cursor += 1;
+
+    if cursor == self.element_refs.len() {
+      self.element_refs.push(ElementRefMut::new());
+    }
+
+    self.element_refs[cursor].clone()
   }
 
   pub fn interaction(&self) -> crate::node::interaction_state::InteractionState {
@@ -328,6 +352,8 @@ impl Ctx {
 
   pub fn begin_render(&mut self) {
     self.child_cursor = 0;
+    self.element_ref_cursor = 0;
+    self.rendering = true;
   }
 
   fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
@@ -352,6 +378,8 @@ impl Ctx {
       }
     }
 
+    self.element_refs.truncate(self.element_ref_cursor);
+    self.rendering = false;
     self.clear_dirty();
   }
 
@@ -367,6 +395,7 @@ impl Ctx {
       + self.children.capacity() * std::mem::size_of::<ChildSlot>()
       + self.watch_handles.capacity() * std::mem::size_of::<Box<dyn Any + Send + Sync>>()
       + self.effects.capacity() * std::mem::size_of::<Effect>()
+      + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self
         .children
         .iter()

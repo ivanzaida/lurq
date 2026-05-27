@@ -13,8 +13,8 @@ fn offset_does_not_affect_size() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .offset(20.0, 30.0);
@@ -29,8 +29,8 @@ fn offset_shifts_child() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .offset(20.0, 30.0);
@@ -45,8 +45,8 @@ fn offset_negative() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .offset(-10.0, -5.0);
@@ -61,8 +61,8 @@ fn offset_zero_is_noop() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .offset(0.0, 0.0);

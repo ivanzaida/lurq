@@ -12,8 +12,8 @@ fn rt() -> Runtime {
 fn no_quads_for_invisible_nodes() {
   let mut rt = rt();
   let node = Element::new().frame(FrameConstraints {
-    width: Some(100.0),
-    height: Some(50.0),
+    width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+    height: Some(lurq::node::dimension::Dimension::Px(50.0)),
     ..Default::default()
   });
   rt.set_root(node);
@@ -27,8 +27,8 @@ fn background_produces_rect_quad() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .background(Color::new(255, 0, 0, 255));
@@ -67,15 +67,15 @@ fn quads_absolute_positions_in_row() {
     vec![
       Element::new()
         .frame(FrameConstraints {
-          width: Some(50.0),
-          height: Some(30.0),
+          width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+          height: Some(lurq::node::dimension::Dimension::Px(30.0)),
           ..Default::default()
         })
         .background(Color::new(255, 0, 0, 255)),
       Element::new()
         .frame(FrameConstraints {
-          width: Some(50.0),
-          height: Some(30.0),
+          width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+          height: Some(lurq::node::dimension::Dimension::Px(30.0)),
           ..Default::default()
         })
         .background(Color::new(0, 255, 0, 255)),
@@ -98,15 +98,15 @@ fn quads_absolute_positions_in_column() {
     vec![
       Element::new()
         .frame(FrameConstraints {
-          width: Some(100.0),
-          height: Some(40.0),
+          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+          height: Some(lurq::node::dimension::Dimension::Px(40.0)),
           ..Default::default()
         })
         .background(Color::new(255, 0, 0, 255)),
       Element::new()
         .frame(FrameConstraints {
-          width: Some(100.0),
-          height: Some(40.0),
+          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+          height: Some(lurq::node::dimension::Dimension::Px(40.0)),
           ..Default::default()
         })
         .background(Color::new(0, 255, 0, 255)),
@@ -128,8 +128,8 @@ fn quads_nested_absolute_positions() {
     Alignment::Start,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(100.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
       Element::row_with(
@@ -137,14 +137,14 @@ fn quads_nested_absolute_positions() {
         Alignment::Start,
         vec![
           Element::new().frame(FrameConstraints {
-            width: Some(40.0),
-            height: Some(30.0),
+            width: Some(lurq::node::dimension::Dimension::Px(40.0)),
+            height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
           Element::new()
             .frame(FrameConstraints {
-              width: Some(40.0),
-              height: Some(30.0),
+              width: Some(lurq::node::dimension::Dimension::Px(40.0)),
+              height: Some(lurq::node::dimension::Dimension::Px(30.0)),
               ..Default::default()
             })
             .background(Color::new(0, 0, 255, 255)),
@@ -165,8 +165,8 @@ fn quads_with_padding_offset() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(60.0),
-      height: Some(40.0),
+      width: Some(lurq::node::dimension::Dimension::Px(60.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(40.0)),
       ..Default::default()
     })
     .background(Color::new(255, 0, 0, 255))

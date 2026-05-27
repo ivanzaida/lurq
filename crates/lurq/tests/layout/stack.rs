@@ -15,13 +15,13 @@ fn stack_sizes_to_largest_child() {
     StackAlignment::Center,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(100.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(100.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
     ],
@@ -39,13 +39,13 @@ fn stack_center_alignment() {
     StackAlignment::Center,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(200.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
     ],
@@ -63,13 +63,13 @@ fn stack_top_start() {
     StackAlignment::TopStart,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(200.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
     ],
@@ -104,13 +104,13 @@ fn stack_bottom_end() {
     StackAlignment::BottomEnd,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(200.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
     ],
@@ -128,13 +128,13 @@ fn stack_top_center() {
     StackAlignment::TopCenter,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(200.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
     ],
@@ -152,13 +152,13 @@ fn stack_bottom_start() {
     StackAlignment::BottomStart,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(200.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
     ],
@@ -176,14 +176,14 @@ fn stack_per_child_align_override() {
     StackAlignment::TopStart,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(200.0),
-        height: Some(200.0),
+        width: Some(lurq::node::dimension::Dimension::Px(200.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
       Element::new()
         .frame(FrameConstraints {
-          width: Some(50.0),
-          height: Some(50.0),
+          width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .align(Alignment::End),

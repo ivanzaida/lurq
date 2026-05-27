@@ -65,6 +65,15 @@ Element::spacer().height(100.0)
 Element::rect(80.0, 80.0)
 ```
 
+Plain `f32` values are pixel shorthand. Use `Dimension` directly for non-pixel sizing:
+
+```rust
+use lurq::node::dimension::Dimension;
+
+Element::spacer().width(Dimension::Pct(50.0))
+Element::spacer().height(Dimension::Auto)
+```
+
 ## Visuals
 
 ```rust

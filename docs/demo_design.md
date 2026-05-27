@@ -799,9 +799,9 @@ Long text:    ┌──────────────── 400px (max) �
 
 ---
 
-## Tab 11: Node Refs & Debug
+## Tab 11: Element Refs & Debug
 
-### Section 11.1 — Node Refs
+### Section 11.1 — Element Refs
 
 ```
   ┌─ Node Ref Demo ──────────────────────────────┐

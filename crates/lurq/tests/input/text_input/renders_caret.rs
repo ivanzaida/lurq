@@ -11,7 +11,7 @@ fn renders_caret_after_text_input_is_focused() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::text_input(value));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

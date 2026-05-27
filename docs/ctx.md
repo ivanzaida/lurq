@@ -10,7 +10,7 @@ Use it to:
 - mount child components
 - pass context values down the tree
 - read slot children supplied by a parent
-- create node refs and interaction state
+- create element refs and interaction state
 - register effects, watchers, keyed list slots, and error boundaries
 
 ```rust
@@ -228,26 +228,37 @@ ctx.children();
 
 `children()` returns an empty slice when no slot children were provided.
 
-## Node Refs
+## Element Refs
 
 ```rust
-let node_ref = ctx.node_ref();
+let element_ref = ctx.element_ref();
 
 Element::rect(100.0, 40.0)
-  .ref_node(node_ref.clone())
+  .ref_element(element_ref.clone())
 ```
 
 After layout, the ref exposes the element rect:
 
 ```rust
-let (x, y, width, height) = node_ref.rect();
-let attached = node_ref.is_attached();
-let hovered = node_ref.hovered();
-let active = node_ref.active();
-let focused = node_ref.focused();
+let (x, y, width, height) = element_ref.rect();
+let attached = element_ref.is_attached();
+let hovered = element_ref.hovered();
+let active = element_ref.active();
+let focused = element_ref.focused();
 ```
 
-Use node refs when code outside normal layout traversal needs an element's measured rect or current interaction flags.
+Use element refs when code outside normal layout traversal needs an element's measured rect or current interaction flags.
+
+Mutable element refs use the same handle type as `Runtime::find_element_mut`:
+
+```rust
+let element_ref = ctx.element_ref_mut();
+
+Element::rect(100.0, 40.0)
+  .ref_element(element_ref.clone())
+
+element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
+```
 
 ## Interaction State
 

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
   layout::{Alignment, StackAlignment, scrollbar::ScrollBarStyle},
-  node::padding::Padding,
+  node::{dimension::Dimension, padding::Padding},
 };
 
 pub enum LayoutKind {
@@ -31,8 +31,8 @@ pub enum LayoutKind {
   AbsoluteModifier {
     x: f32,
     y: f32,
-    width: Option<f32>,
-    height: Option<f32>,
+    width: Option<Dimension>,
+    height: Option<Dimension>,
   },
   AlignModifier(Alignment),
   FlexModifier(FlexParams),
@@ -283,12 +283,12 @@ pub enum ScrollDirection {
   Both,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FrameConstraints {
-  pub width: Option<f32>,
-  pub height: Option<f32>,
-  pub min_width: Option<f32>,
-  pub max_width: Option<f32>,
-  pub min_height: Option<f32>,
-  pub max_height: Option<f32>,
+  pub width: Option<Dimension>,
+  pub height: Option<Dimension>,
+  pub min_width: Option<Dimension>,
+  pub max_width: Option<Dimension>,
+  pub min_height: Option<Dimension>,
+  pub max_height: Option<Dimension>,
 }

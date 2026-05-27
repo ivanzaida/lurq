@@ -13,7 +13,7 @@ fn clicks_outside_slider_track_clamp_to_min_and_max() {
   let rect = runtime
     .find_element(|_| true)
     .expect("slider should be layoutable")
-    .rect;
+    .bounds();
 
   runtime.click(rect.x - 20.0, rect.y + rect.height / 2.0, MouseButton::Left);
   assert_eq!(value.get(), 0.0);

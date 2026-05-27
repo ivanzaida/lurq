@@ -10,7 +10,7 @@ fn typing_into_focused_text_input_appends_to_existing_value() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::text_input(value.clone()));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
@@ -25,7 +25,7 @@ fn backspace_removes_character_before_caret() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::text_input(value.clone()));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
@@ -40,7 +40,7 @@ fn arrow_left_moves_caret_before_inserted_text() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::text_input(value.clone()));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
@@ -56,7 +56,7 @@ fn backspace_removes_previous_unicode_character() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::text_input(value.clone()));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

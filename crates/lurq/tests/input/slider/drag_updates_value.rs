@@ -10,7 +10,7 @@ fn dragging_slider_updates_signal_from_pointer_position() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::slider(value.clone()).range(0.0, 10.0).width(100.0));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let y = rect.y + rect.height / 2.0;
 
   runtime.mouse_down(rect.x, y, MouseButton::Left);

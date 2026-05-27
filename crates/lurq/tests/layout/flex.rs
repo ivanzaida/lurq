@@ -17,13 +17,13 @@ fn row_flex_equal_split() {
     vec![
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
@@ -46,13 +46,13 @@ fn row_flex_weighted_split() {
     vec![
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(3.0),
@@ -72,13 +72,13 @@ fn row_flex_with_fixed_sibling() {
     Alignment::Start,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(100.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
@@ -100,13 +100,13 @@ fn row_flex_with_spacing() {
     vec![
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
       Element::new()
         .frame(FrameConstraints {
-          height: Some(50.0),
+          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
@@ -128,13 +128,13 @@ fn column_flex_equal_split() {
     vec![
       Element::new()
         .frame(FrameConstraints {
-          width: Some(100.0),
+          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           ..Default::default()
         })
         .flex(1.0),
       Element::new()
         .frame(FrameConstraints {
-          width: Some(100.0),
+          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           ..Default::default()
         })
         .flex(1.0),
@@ -155,13 +155,13 @@ fn column_flex_with_fixed_sibling() {
     Alignment::Start,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(100.0),
-        height: Some(60.0),
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(60.0)),
         ..Default::default()
       }),
       Element::new()
         .frame(FrameConstraints {
-          width: Some(100.0),
+          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           ..Default::default()
         })
         .flex(1.0),

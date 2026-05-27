@@ -9,7 +9,7 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
     text_style::TextStyle,
   },
-  node::{node::Node, node_kind::NodeKind, padding::Padding},
+  node::{dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding},
 };
 
 pub(crate) struct LayoutEngine;
@@ -21,6 +21,8 @@ impl LayoutEngine {
 
   pub(crate) fn compute(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
     Self::invalidate_scroll_ancestors(node);
+    Self::invalidate_element_ref_ancestors(node);
+    Self::invalidate_state_style_ancestors(node);
     let result = self.layout_node(glyph_engine, node, constraints);
     node.clear_guards();
     result
@@ -45,9 +47,44 @@ impl LayoutEngine {
     child_dirty
   }
 
+  fn invalidate_element_ref_ancestors(node: &Node) -> bool {
+    let mut dirty = node
+      .element_ref
+      .as_ref()
+      .is_some_and(|element_ref| element_ref.take_layout_dirty());
+
+    for child in node.children() {
+      if Self::invalidate_element_ref_ancestors(child) {
+        dirty = true;
+      }
+    }
+
+    if dirty {
+      node.layout_cache.invalidate();
+    }
+
+    dirty
+  }
+
+  fn invalidate_state_style_ancestors(node: &Node) -> bool {
+    let mut dirty = node.state_styles_affect_layout();
+
+    for child in node.children() {
+      if Self::invalidate_state_style_ancestors(child) {
+        dirty = true;
+      }
+    }
+
+    if dirty {
+      node.layout_cache.invalidate();
+    }
+
+    dirty
+  }
+
   pub(crate) fn resolve_quads(&self, node: &Node, result: &LayoutResult) -> Vec<Quad> {
     let mut quads = Vec::new();
-    self.collect_quads(node, result, 0.0, 0.0, ClipRect::default(), &mut quads);
+    self.collect_quads(node, result, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), &mut quads);
     quads
   }
 
@@ -57,13 +94,22 @@ impl LayoutEngine {
     result: &LayoutResult,
     abs_x: f32,
     abs_y: f32,
+    parent_x: f32,
+    parent_y: f32,
     clip: ClipRect,
     quads: &mut Vec<Quad>,
   ) {
     let is_scroll = matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. });
 
-    if let Some(ref node_ref) = node.node_ref {
-      node_ref.update(abs_x, abs_y, result.size.width, result.size.height);
+    if let Some(ref element_ref) = node.element_ref {
+      element_ref.update(
+        abs_x,
+        abs_y,
+        abs_x - parent_x,
+        abs_y - parent_y,
+        result.size.width,
+        result.size.height,
+      );
     }
 
     let has_visual = node.color().is_some() || node.get_border().is_some();
@@ -101,7 +147,7 @@ impl LayoutEngine {
           height: result.size.height,
           content,
           border_radius: node.get_border_radius(),
-          border: node.get_border().cloned(),
+          border: node.get_border(),
           clip,
         });
       }
@@ -159,6 +205,8 @@ impl LayoutEngine {
         &child_layout.result,
         abs_x + child_layout.offset.x,
         abs_y + child_layout.offset.y,
+        abs_x,
+        abs_y,
         child_clip,
         quads,
       );
@@ -168,11 +216,7 @@ impl LayoutEngine {
       state.set_viewport_position(abs_x, abs_y);
       let sb_style = node.scrollbar_style();
       state.set_style(sb_style.clone());
-      let thumb_color = if state.is_dragging() || state.is_thumb_hovered() {
-        sb_style.thumb_hover_color
-      } else {
-        sb_style.thumb_color
-      };
+      let thumb_color = sb_style.thumb_color;
 
       match direction {
         ScrollDirection::Vertical | ScrollDirection::Both => {
@@ -277,6 +321,7 @@ impl LayoutEngine {
       return cached;
     }
 
+    let frame_handled_by_layout_kind = matches!(node.layout_kind(), LayoutKind::FrameModifier(_));
     let mut result = match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints),
       LayoutKind::Row {
@@ -301,8 +346,14 @@ impl LayoutEngine {
         wrap,
       } => self.layout_flex(glyph_engine, node, constraints, *spacing, *align, *justify, *wrap, true),
       LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align),
-      LayoutKind::PaddingModifier(padding) => self.layout_padding(glyph_engine, node, constraints, padding),
-      LayoutKind::FrameModifier(frame) => self.layout_frame(glyph_engine, node, constraints, frame),
+      LayoutKind::PaddingModifier(padding) => {
+        let padding = node.effective_padding(padding);
+        self.layout_padding(glyph_engine, node, constraints, &padding)
+      }
+      LayoutKind::FrameModifier(frame) => {
+        let frame = node.effective_frame(*frame);
+        self.layout_frame(glyph_engine, node, constraints, &frame)
+      }
       LayoutKind::OffsetModifier { x, y } => self.layout_offset(glyph_engine, node, constraints, *x, *y),
       LayoutKind::AbsoluteModifier { width, height, .. } => {
         self.layout_absolute(glyph_engine, node, constraints, *width, *height)
@@ -314,21 +365,67 @@ impl LayoutEngine {
       }
     };
 
+    if !frame_handled_by_layout_kind {
+      Self::apply_state_frame(node, &mut result, constraints);
+    }
     Self::apply_runtime_rect(node, &mut result);
     node.layout_cache.store(constraints, result.clone());
     result
   }
 
+  fn apply_state_frame(node: &Node, result: &mut LayoutResult, constraints: Constraints) {
+    let Some(frame) = node.state_frame() else {
+      return;
+    };
+
+    if let Some(width) = frame
+      .width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    {
+      result.size.width = width;
+    }
+    if let Some(height) = frame
+      .height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    {
+      result.size.height = height;
+    }
+    if let Some(min_width) = frame
+      .min_width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    {
+      result.size.width = result.size.width.max(min_width);
+    }
+    if let Some(max_width) = frame
+      .max_width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    {
+      result.size.width = result.size.width.min(max_width);
+    }
+    if let Some(min_height) = frame
+      .min_height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    {
+      result.size.height = result.size.height.max(min_height);
+    }
+    if let Some(max_height) = frame
+      .max_height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    {
+      result.size.height = result.size.height.min(max_height);
+    }
+  }
+
   fn apply_runtime_rect(node: &Node, result: &mut LayoutResult) {
-    if let Some(rect) = node.runtime_rect() {
+    if let Some(rect) = node.element_override_rect() {
       result.size.width = rect.width;
       result.size.height = rect.height;
     }
 
     for (child_layout, child_node) in result.children.iter_mut().zip(node.children()) {
-      if let Some(rect) = child_node.runtime_rect() {
-        child_layout.offset.x = rect.x;
-        child_layout.offset.y = rect.y;
+      if let Some(rect) = child_node.element_override_rect() {
+        child_layout.offset.x = rect.relative_x;
+        child_layout.offset.y = rect.relative_y;
       }
     }
   }
@@ -449,10 +546,15 @@ impl LayoutEngine {
     let mut flex_params_list: Vec<FlexParams> = Vec::with_capacity(children.len());
 
     for child in children {
-      if let LayoutKind::FlexModifier(params) = child.layout_kind() {
+      let flex_params = match child.layout_kind() {
+        LayoutKind::FlexModifier(params) => Some(child.effective_flex(*params)),
+        _ => child.state_flex(),
+      };
+
+      if let Some(params) = flex_params {
         grow_total += params.grow;
         shrink_total += params.shrink;
-        flex_params_list.push(*params);
+        flex_params_list.push(params);
         if params.grow == 0.0 && params.basis.is_none() {
           let child_constraints = if vertical {
             Constraints {
@@ -961,24 +1063,42 @@ impl LayoutEngine {
     frame: &FrameConstraints,
   ) -> LayoutResult {
     let mut c = constraints;
-    if let Some(w) = frame.width {
+    if let Some(w) = frame
+      .width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    {
       c.min_width = w;
       c.max_width = w;
     }
-    if let Some(h) = frame.height {
+    if let Some(h) = frame
+      .height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    {
       c.min_height = h;
       c.max_height = h;
     }
-    if let Some(v) = frame.min_width {
+    if let Some(v) = frame
+      .min_width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    {
       c.min_width = c.min_width.max(v);
     }
-    if let Some(v) = frame.max_width {
+    if let Some(v) = frame
+      .max_width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    {
       c.max_width = c.max_width.min(v);
     }
-    if let Some(v) = frame.min_height {
+    if let Some(v) = frame
+      .min_height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    {
       c.min_height = c.min_height.max(v);
     }
-    if let Some(v) = frame.max_height {
+    if let Some(v) = frame
+      .max_height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    {
       c.max_height = c.max_height.min(v);
     }
 
@@ -998,25 +1118,36 @@ impl LayoutEngine {
     }
   }
 
+  fn resolve_dimension(dimension: Dimension, parent_size: f32) -> Option<f32> {
+    match dimension {
+      Dimension::Auto => None,
+      Dimension::Px(value) => Some(value),
+      Dimension::Pct(percent) if parent_size.is_finite() => Some(parent_size * percent / 100.0),
+      Dimension::Pct(_) => None,
+    }
+  }
+
   fn layout_absolute(
     &self,
     glyph_engine: &mut GlyphEngine,
     node: &Node,
     constraints: Constraints,
-    width: Option<f32>,
-    height: Option<f32>,
+    width: Option<Dimension>,
+    height: Option<Dimension>,
   ) -> LayoutResult {
     let child = &node.children()[0];
+    let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+    let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
     let child_constraints = Constraints {
-      min_width: width.unwrap_or(0.0),
-      max_width: width.unwrap_or(constraints.max_width),
-      min_height: height.unwrap_or(0.0),
-      max_height: height.unwrap_or(constraints.max_height),
+      min_width: resolved_width.unwrap_or(0.0),
+      max_width: resolved_width.unwrap_or(constraints.max_width),
+      min_height: resolved_height.unwrap_or(0.0),
+      max_height: resolved_height.unwrap_or(constraints.max_height),
     };
     let child_result = self.layout_node(glyph_engine, child, child_constraints);
     let size = constraints.constrain(Size::new(
-      width.unwrap_or(child_result.size.width),
-      height.unwrap_or(child_result.size.height),
+      resolved_width.unwrap_or(child_result.size.width),
+      resolved_height.unwrap_or(child_result.size.height),
     ));
 
     LayoutResult {

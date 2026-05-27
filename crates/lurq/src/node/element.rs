@@ -1,6 +1,6 @@
 use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
-  core::{NodeRef, Signal},
+  core::{ElementRef as CoreElementRef, Signal},
   layout::{
     Alignment, StackAlignment,
     layout_kind::{FrameConstraints, Justify, ScrollState},
@@ -14,6 +14,7 @@ use crate::{
     interaction_state::InteractionState,
     node::Node,
     padding::Padding,
+    style::Style,
   },
 };
 
@@ -109,10 +110,10 @@ impl Element {
     }
   }
 
-  pub fn rect(width: f32, height: f32) -> Self {
+  pub fn rect(width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
     Self::new().frame(FrameConstraints {
-      width: Some(width),
-      height: Some(height),
+      width: Some(width.into()),
+      height: Some(height.into()),
       ..Default::default()
     })
   }
@@ -179,17 +180,17 @@ impl Element {
     self
   }
 
-  pub fn size(mut self, width: f32, height: f32) -> Self {
+  pub fn size(mut self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
     self.node = self.node.size(width, height);
     self
   }
 
-  pub fn width(mut self, width: f32) -> Self {
+  pub fn width(mut self, width: impl Into<Dimension>) -> Self {
     self.node = self.node.width(width);
     self
   }
 
-  pub fn height(mut self, height: f32) -> Self {
+  pub fn height(mut self, height: impl Into<Dimension>) -> Self {
     self.node = self.node.height(height);
     self
   }
@@ -244,7 +245,7 @@ impl Element {
     self
   }
 
-  pub fn absolute(mut self, x: f32, y: f32, width: f32, height: f32) -> Self {
+  pub fn absolute(mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
     self.node = self.node.absolute(x, y, width, height);
     self
   }
@@ -316,6 +317,36 @@ impl Element {
 
   pub fn border_custom(mut self, border: Border) -> Self {
     self.node = self.node.border_custom(border);
+    self
+  }
+
+  pub fn hovered_style(mut self, style: Style) -> Self {
+    self.node = self.node.hovered_style(style);
+    self
+  }
+
+  pub fn active_style(mut self, style: Style) -> Self {
+    self.node = self.node.active_style(style);
+    self
+  }
+
+  pub fn focused_style(mut self, style: Style) -> Self {
+    self.node = self.node.focused_style(style);
+    self
+  }
+
+  pub fn hovered(mut self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.node = self.node.hovered(f);
+    self
+  }
+
+  pub fn active(mut self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.node = self.node.active(f);
+    self
+  }
+
+  pub fn focused(mut self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.node = self.node.focused(f);
     self
   }
 
@@ -394,8 +425,13 @@ impl Element {
     self
   }
 
-  pub fn ref_node(mut self, node_ref: NodeRef) -> Self {
-    self.node = self.node.ref_node(node_ref);
+  pub fn scrollbar_hovered(mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) -> Self {
+    self.node = self.node.scrollbar_hovered(f);
+    self
+  }
+
+  pub fn ref_element(mut self, element_ref: impl Into<CoreElementRef>) -> Self {
+    self.node = self.node.ref_element(element_ref);
     self
   }
 

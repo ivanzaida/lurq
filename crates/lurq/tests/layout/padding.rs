@@ -13,8 +13,8 @@ fn padding_all_sides() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .padding(Padding::all(Dimension::Px(10.0)));
@@ -31,8 +31,8 @@ fn padding_asymmetric() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .padding(
@@ -55,8 +55,8 @@ fn padding_horizontal_only() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .padding(Padding::horizontal(Dimension::Px(20.0)));
@@ -71,8 +71,8 @@ fn padding_vertical_only() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .padding(Padding::vertical(Dimension::Px(15.0)));
@@ -87,8 +87,8 @@ fn padding_symmetric() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .padding(Padding::symmetric(Dimension::Px(10.0), Dimension::Px(20.0)));
@@ -114,8 +114,8 @@ fn padding_zero() {
   let mut rt = rt();
   let node = Element::new()
     .frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
     .padding(Padding::all(Dimension::Px(0.0)));

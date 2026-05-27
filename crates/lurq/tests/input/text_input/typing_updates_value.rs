@@ -13,7 +13,7 @@ fn focused_text_input_appends_key_down_text_to_signal() {
   let rect = runtime
     .find_element(|_| true)
     .expect("text input should be layoutable")
-    .rect;
+    .bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
@@ -28,7 +28,7 @@ fn displayed_text_updates_after_typing() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::text_input(value.clone()).placeholder("Name"));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

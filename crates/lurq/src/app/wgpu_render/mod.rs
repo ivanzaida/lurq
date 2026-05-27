@@ -309,23 +309,14 @@ impl RenderEngine for WgpuRenderEngine {
     let mut quad_batches: Vec<QuadBatch> = Vec::new();
 
     for r in &list.rects {
-      let batch = quad_batches.iter_mut().find(|b| {
-        b.clip.active == r.clip.active
-          && b.clip.x == r.clip.x
-          && b.clip.y == r.clip.y
-          && b.clip.width == r.clip.width
-          && b.clip.height == r.clip.height
-      });
-      let batch = match batch {
-        Some(b) => b,
-        None => {
-          quad_batches.push(QuadBatch {
-            instances: Vec::new(),
-            clip: r.clip,
-          });
-          quad_batches.last_mut().unwrap()
-        }
-      };
+      let needs_new_batch = quad_batches.last().is_none_or(|batch| !same_clip(batch.clip, r.clip));
+      if needs_new_batch {
+        quad_batches.push(QuadBatch {
+          instances: Vec::new(),
+          clip: r.clip,
+        });
+      }
+      let batch = quad_batches.last_mut().unwrap();
 
       batch.instances.push(QuadInstance {
         pos: [r.x, r.y],
@@ -367,23 +358,14 @@ impl RenderEngine for WgpuRenderEngine {
     let mut glyph_batches: Vec<GlyphBatch> = Vec::new();
 
     for g in &list.glyphs {
-      let batch = glyph_batches.iter_mut().find(|b| {
-        b.clip.active == g.clip.active
-          && b.clip.x == g.clip.x
-          && b.clip.y == g.clip.y
-          && b.clip.width == g.clip.width
-          && b.clip.height == g.clip.height
-      });
-      let batch = match batch {
-        Some(b) => b,
-        None => {
-          glyph_batches.push(GlyphBatch {
-            instances: Vec::new(),
-            clip: g.clip,
-          });
-          glyph_batches.last_mut().unwrap()
-        }
-      };
+      let needs_new_batch = glyph_batches.last().is_none_or(|batch| !same_clip(batch.clip, g.clip));
+      if needs_new_batch {
+        glyph_batches.push(GlyphBatch {
+          instances: Vec::new(),
+          clip: g.clip,
+        });
+      }
+      let batch = glyph_batches.last_mut().unwrap();
 
       batch.instances.push(GlyphInstance {
         pos: [g.x, g.y],
@@ -574,6 +556,10 @@ impl RenderEngine for WgpuRenderEngine {
     queue.submit(std::iter::once(encoder.finish()));
     output.present();
   }
+}
+
+fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect) -> bool {
+  a.active == b.active && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
 }
 
 struct WindowDisplayPair<'a> {

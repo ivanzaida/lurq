@@ -13,7 +13,7 @@ fn click_updates_slider_signal_from_track_position() {
   let rect = runtime
     .find_element(|_| true)
     .expect("slider should be layoutable")
-    .rect;
+    .bounds();
 
   runtime.click(rect.x + rect.width, rect.y + rect.height / 2.0, MouseButton::Left);
 

@@ -26,13 +26,13 @@ fn row_with_fixed_children() {
     Alignment::Start,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(100.0),
-        height: Some(50.0),
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(80.0),
-        height: Some(40.0),
+        width: Some(lurq::node::dimension::Dimension::Px(80.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(40.0)),
         ..Default::default()
       }),
     ],
@@ -53,18 +53,18 @@ fn row_with_spacing() {
     Alignment::Start,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(30.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(30.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(30.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(30.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(30.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(30.0)),
         ..Default::default()
       }),
     ],
@@ -85,13 +85,13 @@ fn row_align_center() {
     Alignment::Center,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(20.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(20.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(60.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(60.0)),
         ..Default::default()
       }),
     ],
@@ -111,13 +111,13 @@ fn row_align_end() {
     Alignment::End,
     vec![
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(20.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(20.0)),
         ..Default::default()
       }),
       Element::new().frame(FrameConstraints {
-        width: Some(50.0),
-        height: Some(60.0),
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(60.0)),
         ..Default::default()
       }),
     ],
@@ -135,8 +135,8 @@ fn row_single_child() {
     10.0,
     Alignment::Start,
     vec![Element::new().frame(FrameConstraints {
-      width: Some(100.0),
-      height: Some(50.0),
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })],
   );

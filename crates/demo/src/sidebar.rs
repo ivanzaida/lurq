@@ -34,7 +34,6 @@ pub(crate) fn sidebar() -> Element {
       .map(|(label, selected)| sidebar_item(label, selected)),
     )
     .width(200.0)
-    .height(1702.0)
     .fill(SURFACE_DARK)
 }
 

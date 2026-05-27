@@ -35,6 +35,16 @@ Common modifiers:
 | `.align(Alignment)` | Override alignment within parent container |
 | `.flex(factor)` | Participate in row/column flex distribution |
 
+Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`.
+
+```rust
+use lurq::node::dimension::Dimension;
+
+Element::spacer().width(120.0)
+Element::spacer().width(Dimension::Pct(50.0))
+Element::spacer().width(Dimension::Auto)
+```
+
 ## Constraints Model
 
 Layout follows the same high-level model as Flutter:

@@ -27,7 +27,7 @@ fn preserves_focus_and_caret_after_signal_driven_render() {
   let mut runtime = Runtime::new();
   runtime.mount_root::<EditableText>(());
 
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

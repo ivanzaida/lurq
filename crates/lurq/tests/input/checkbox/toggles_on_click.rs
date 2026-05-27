@@ -13,7 +13,7 @@ fn click_toggles_checkbox_signal() {
   let rect = runtime
     .find_element(|_| true)
     .expect("checkbox should be layoutable")
-    .rect;
+    .bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

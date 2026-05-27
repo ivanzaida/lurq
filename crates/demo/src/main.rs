@@ -4,9 +4,9 @@ mod style;
 
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
+  core::Signal,
   layout::{
     Alignment,
-    layout_kind::ScrollState,
     scrollbar::{ScrollBarStyle, ScrollBarVisibility},
   },
   node::{Element, color::Color},
@@ -21,50 +21,48 @@ use crate::{
 const SIDEBAR_WIDTH: f32 = 200.0;
 
 struct DemoApp {
-  sidebar_scroll: ScrollState,
-  content_scroll: ScrollState,
+  signal: Signal<u32>,
 }
 
 impl Component for DemoApp {
   type Props = ();
 
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
-    Self {
-      sidebar_scroll: ScrollState::new(),
-      content_scroll: ScrollState::new(),
-    }
+  fn create(ctx: &mut Ctx, _: ()) -> Self {
+    Self { signal: ctx.signal(0) }
   }
 
   fn render(&self, _ctx: &mut Ctx) -> Element {
-    let nref = _ctx.node_ref();
     Element::row()
-      .align_items(Alignment::Start)
-      .ref_node(nref)
+      .align_items(Alignment::Stretch)
+      .on_click({
+        let c = self.signal.clone();
+        move |_| {
+          c.update(|c| *c += 1);
+        }
+      })
       .child(
         Element::scroll_vertical(sidebar())
-          .with_scroll_state(self.sidebar_scroll.clone())
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 6.0,
             thumb_color: Color::from_hex(PRIMARY),
-            thumb_hover_color: Color::from_hex(ACCENT),
             thumb_radius: 4.0,
             ..ScrollBarStyle::default()
           })
+          .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex(ACCENT)))
           .width(SIDEBAR_WIDTH)
           .fill(SURFACE_DARK),
       )
       .child(
         Element::scroll_vertical(layout_content())
-          .with_scroll_state(self.content_scroll.clone())
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 7.0,
             thumb_color: Color::from_hex(PRIMARY),
-            thumb_hover_color: Color::from_hex(ACCENT),
             thumb_radius: 4.0,
             ..ScrollBarStyle::default()
           })
+          .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex(ACCENT)))
           .fill(BG)
           .flex(1.0),
       )

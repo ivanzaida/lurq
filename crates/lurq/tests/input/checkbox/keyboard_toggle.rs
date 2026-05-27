@@ -10,7 +10,7 @@ fn space_toggles_focused_checkbox() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(Element::checkbox(checked.clone()));
-  let rect = runtime.find_element(|_| true).unwrap().rect;
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);

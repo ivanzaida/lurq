@@ -60,7 +60,7 @@ fn updates_displayed_value_after_increment_and_decrement_clicks() {
   let increment = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
     .unwrap()
-    .rect;
+    .bounds();
   let (x, y) = increment.center();
   runtime.click(x, y, MouseButton::Left);
   assert_counter_value(&runtime, "1");
@@ -68,7 +68,7 @@ fn updates_displayed_value_after_increment_and_decrement_clicks() {
   let decrement = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
     .unwrap()
-    .rect;
+    .bounds();
   let (x, y) = decrement.center();
   runtime.click(x, y, MouseButton::Left);
   assert_counter_value(&runtime, "0");

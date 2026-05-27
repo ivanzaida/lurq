@@ -28,10 +28,12 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     border_radius: Guard::new(None),
     border: Guard::new(None),
     scrollbar_style: Guard::new(None),
-    node_ref: None,
+    scrollbar_hovered_style: None,
+    element_ref: None,
     interaction: None,
+    style_state: crate::node::interaction_state::InteractionState::new(),
+    state_styles: crate::node::style::StateStyles::default(),
     layout_cache: Default::default(),
-    runtime_rect: None,
     children: vec![child],
     events: EventHandlers::default(),
   }
@@ -107,24 +109,24 @@ impl Node {
     self.background(Color::from_hex(hex))
   }
 
-  pub fn size(self, width: f32, height: f32) -> Self {
+  pub fn size(self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
-      width: Some(width),
-      height: Some(height),
+      width: Some(width.into()),
+      height: Some(height.into()),
       ..Default::default()
     })
   }
 
-  pub fn width(self, width: f32) -> Self {
+  pub fn width(self, width: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
-      width: Some(width),
+      width: Some(width.into()),
       ..Default::default()
     })
   }
 
-  pub fn height(self, height: f32) -> Self {
+  pub fn height(self, height: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
-      height: Some(height),
+      height: Some(height.into()),
       ..Default::default()
     })
   }
@@ -133,8 +135,8 @@ impl Node {
     self.offset(x, y)
   }
 
-  pub fn absolute(self, x: f32, y: f32, width: f32, height: f32) -> Self {
-    self.absolute_modifier(x, y, Some(width), Some(height))
+  pub fn absolute(self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
+    self.absolute_modifier(x, y, Some(width.into()), Some(height.into()))
   }
 
   pub fn absolute_position(self, x: f32, y: f32) -> Self {

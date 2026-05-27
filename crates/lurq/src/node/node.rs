@@ -2,24 +2,27 @@ use std::sync::Arc;
 
 use crate::{
   app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
-  core::{Guard, IdGenerator, NodeId, NodeRef, Signal},
+  core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
     Alignment, Size, StackAlignment,
-    layout_kind::{FrameConstraints, LayoutKind, Overflow},
+    layout_kind::{FlexParams, FrameConstraints, LayoutKind, Overflow},
     scrollbar::ScrollBarStyle,
     text_style::TextStyle,
   },
   node::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
     color::Color,
+    dimension::Dimension,
     interaction_state::InteractionState,
     node_kind::{CheckboxState, NodeKind, SliderState, TextInputState},
     padding::Padding,
+    style::{StateStyles, Style},
   },
 };
 
 type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
+type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
 
 #[derive(Default)]
 pub struct EventHandlers {
@@ -50,20 +53,14 @@ pub(crate) struct Node {
   pub(crate) border_radius: Guard<Option<BorderRadius>>,
   pub(crate) border: Guard<Option<Border>>,
   pub(crate) scrollbar_style: Guard<Option<ScrollBarStyle>>,
-  pub(crate) node_ref: Option<NodeRef>,
+  pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
+  pub(crate) element_ref: Option<CoreElementRef>,
   pub(crate) interaction: Option<InteractionState>,
+  pub(crate) style_state: InteractionState,
+  pub(crate) state_styles: StateStyles,
   pub(crate) layout_cache: crate::node::layout_cache::LayoutCache,
-  pub(crate) runtime_rect: Option<RuntimeRect>,
   pub(crate) children: Vec<Node>,
   pub(crate) events: EventHandlers,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RuntimeRect {
-  pub x: f32,
-  pub y: f32,
-  pub width: f32,
-  pub height: f32,
 }
 
 impl Default for Node {
@@ -85,10 +82,12 @@ impl Node {
       border_radius: Guard::new(None),
       border: Guard::new(None),
       scrollbar_style: Guard::new(None),
-      node_ref: None,
+      scrollbar_hovered_style: None,
+      element_ref: None,
       interaction: None,
+      style_state: InteractionState::new(),
+      state_styles: StateStyles::default(),
       layout_cache: Default::default(),
-      runtime_rect: None,
       children,
       events: EventHandlers::default(),
     }
@@ -198,7 +197,7 @@ impl Node {
     Self::from_parts(LayoutKind::OffsetModifier { x, y }, NodeKind::Empty, vec![self])
   }
 
-  pub(crate) fn absolute_modifier(self, x: f32, y: f32, width: Option<f32>, height: Option<f32>) -> Self {
+  pub(crate) fn absolute_modifier(self, x: f32, y: f32, width: Option<Dimension>, height: Option<Dimension>) -> Self {
     Self::from_parts(
       LayoutKind::AbsoluteModifier { x, y, width, height },
       NodeKind::Empty,
@@ -285,6 +284,33 @@ impl Node {
     self
   }
 
+  pub fn hovered_style(mut self, style: Style) -> Self {
+    self.state_styles.hovered = Some(style);
+    self
+  }
+
+  pub fn active_style(mut self, style: Style) -> Self {
+    self.state_styles.active = Some(style);
+    self
+  }
+
+  pub fn focused_style(mut self, style: Style) -> Self {
+    self.state_styles.focused = Some(style);
+    self
+  }
+
+  pub fn hovered(self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.hovered_style(f(Style::new()))
+  }
+
+  pub fn active(self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.active_style(f(Style::new()))
+  }
+
+  pub fn focused(self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.focused_style(f(Style::new()))
+  }
+
   // --- Event handlers ---
 
   pub fn on_click(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
@@ -362,9 +388,18 @@ impl Node {
     self
   }
 
-  pub fn ref_node(mut self, node_ref: NodeRef) -> Self {
-    self.node_ref = Some(node_ref);
+  pub fn scrollbar_hovered(mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) -> Self {
+    self.scrollbar_hovered_style = Some(Arc::new(f));
     self
+  }
+
+  pub fn ref_element(mut self, element_ref: impl Into<CoreElementRef>) -> Self {
+    self.element_ref = Some(element_ref.into());
+    self
+  }
+
+  pub(crate) fn element_ref_handle(&mut self) -> CoreElementRef {
+    self.element_ref.get_or_insert_with(CoreElementRef::new).clone()
   }
 
   pub fn interactive(mut self, state: InteractionState) -> Self {
@@ -444,51 +479,107 @@ impl Node {
   }
 
   pub fn scrollbar_style(&self) -> ScrollBarStyle {
-    (*self.scrollbar_style).clone().unwrap_or_default()
+    let mut style = (*self.scrollbar_style).clone().unwrap_or_default();
+    if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind {
+      if state.is_thumb_hovered() {
+        if let Some(ref hovered) = self.scrollbar_hovered_style {
+          style = hovered(style);
+        }
+      }
+    }
+    style
   }
 
   pub fn color(&self) -> Option<Color> {
-    *self.color
+    self.state_style().color.or(*self.color)
   }
 
   pub fn get_border_radius(&self) -> Option<BorderRadius> {
-    *self.border_radius
+    self.state_style().border_radius.or(*self.border_radius)
   }
 
-  pub fn get_border(&self) -> Option<&Border> {
-    self.border.as_ref()
+  pub fn get_border(&self) -> Option<Border> {
+    self.state_style().border.or(*self.border)
   }
 
   pub fn children(&self) -> &[Node] {
     &self.children
   }
 
-  pub(crate) fn runtime_rect(&self) -> Option<RuntimeRect> {
-    self.runtime_rect
+  pub(crate) fn element_override_rect(&self) -> Option<crate::core::ElementRect> {
+    self.element_ref.as_ref().and_then(CoreElementRef::override_rect)
   }
 
-  pub(crate) fn set_runtime_rect(&mut self, rect: RuntimeRect) {
-    self.runtime_rect = Some(rect);
-    self.layout_cache.invalidate();
+  pub(crate) fn state_styles_affect_layout(&self) -> bool {
+    self.state_styles.affects_layout()
   }
 
-  pub(crate) fn invalidate_layout_recursive(&self) {
-    self.layout_cache.invalidate();
-    for child in &self.children {
-      child.invalidate_layout_recursive();
+  pub(crate) fn set_style_hovered(&self, hovered: bool) -> bool {
+    let changed = self.style_state.is_hovered() != hovered;
+    if changed {
+      self.style_state.set_hovered(hovered);
     }
+    changed && self.state_styles_affect_layout()
+  }
+
+  pub(crate) fn set_style_active(&self, active: bool) -> bool {
+    let changed = self.style_state.is_active() != active;
+    if changed {
+      self.style_state.set_active(active);
+    }
+    changed && self.state_styles_affect_layout()
+  }
+
+  pub(crate) fn set_style_focused(&self, focused: bool) -> bool {
+    let changed = self.style_state.is_focused() != focused;
+    if changed {
+      self.style_state.set_focused(focused);
+    }
+    changed && self.state_styles_affect_layout()
+  }
+
+  pub(crate) fn effective_frame(&self, base: FrameConstraints) -> FrameConstraints {
+    self.state_style().frame.map_or(base, |frame| merge_frame(base, frame))
+  }
+
+  pub(crate) fn state_frame(&self) -> Option<FrameConstraints> {
+    self.state_style().frame
+  }
+
+  pub(crate) fn effective_padding(&self, base: &Padding) -> Padding {
+    self.state_style().padding.unwrap_or_else(|| base.clone())
+  }
+
+  pub(crate) fn effective_flex(&self, base: FlexParams) -> FlexParams {
+    self.state_style().flex.unwrap_or(base)
+  }
+
+  pub(crate) fn state_flex(&self) -> Option<FlexParams> {
+    self.state_style().flex
   }
 
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
+    if let Some(frame) = self.state_frame() {
+      let size = if vertical {
+        frame.height.or(frame.min_height)
+      } else {
+        frame.width.or(frame.min_width)
+      };
+      if let Some(size) = size {
+        return size.to_px();
+      }
+    }
+
     match &self.layout_kind {
       LayoutKind::FlexModifier(_) | LayoutKind::PaddingModifier(_) | LayoutKind::AlignModifier(_) => {
         self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0)
       }
       LayoutKind::FrameModifier(frame) => {
+        let frame = self.effective_frame(*frame);
         if vertical {
-          frame.min_height.unwrap_or(0.0)
+          frame.min_height.map_or(0.0, |size| size.to_px())
         } else {
-          frame.min_width.unwrap_or(0.0)
+          frame.min_width.map_or(0.0, |size| size.to_px())
         }
       }
       _ => 0.0,
@@ -552,4 +643,46 @@ impl Node {
         .map(Node::estimated_child_heap_bytes)
         .sum::<usize>()
   }
+
+  fn state_style(&self) -> Style {
+    let mut style = Style::new();
+    if self.style_state.is_focused() {
+      if let Some(focused) = &self.state_styles.focused {
+        style.merge_from(focused);
+      }
+    }
+    if self.style_state.is_hovered() {
+      if let Some(hovered) = &self.state_styles.hovered {
+        style.merge_from(hovered);
+      }
+    }
+    if self.style_state.is_active() {
+      if let Some(active) = &self.state_styles.active {
+        style.merge_from(active);
+      }
+    }
+    style
+  }
+}
+
+fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints) -> FrameConstraints {
+  if overlay.width.is_some() {
+    base.width = overlay.width;
+  }
+  if overlay.height.is_some() {
+    base.height = overlay.height;
+  }
+  if overlay.min_width.is_some() {
+    base.min_width = overlay.min_width;
+  }
+  if overlay.max_width.is_some() {
+    base.max_width = overlay.max_width;
+  }
+  if overlay.min_height.is_some() {
+    base.min_height = overlay.min_height;
+  }
+  if overlay.max_height.is_some() {
+    base.max_height = overlay.max_height;
+  }
+  base
 }

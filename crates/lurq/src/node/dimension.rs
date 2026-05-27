@@ -1,4 +1,4 @@
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Dimension {
   #[default]
   Auto,
@@ -20,5 +20,11 @@ impl Dimension {
       Dimension::Pct(pct) => parent_size * pct / 100.0,
       Dimension::Auto => 0.0,
     }
+  }
+}
+
+impl From<f32> for Dimension {
+  fn from(value: f32) -> Self {
+    Self::Px(value)
   }
 }

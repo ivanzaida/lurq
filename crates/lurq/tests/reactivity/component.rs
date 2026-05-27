@@ -435,9 +435,15 @@ fn create_ref_via_ctx() {
 }
 
 #[test]
-fn node_ref_via_ctx() {
-  let ctx = Ctx::new_root();
-  let _nr = ctx.node_ref();
+fn element_ref_via_ctx() {
+  let mut ctx = Ctx::new_root();
+  let _nr = ctx.element_ref();
+}
+
+#[test]
+fn element_ref_mut_via_ctx() {
+  let mut ctx = Ctx::new_root();
+  let _nr = ctx.element_ref_mut();
 }
 
 #[test]

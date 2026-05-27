@@ -8,6 +8,8 @@ pub(crate) mod layout_cache;
 pub(crate) mod node;
 pub(crate) mod node_kind;
 pub mod padding;
+pub mod style;
 
 pub use element::{Element, ElementChildren, ElementRef};
 pub(crate) use node::Node;
+pub use style::Style;
