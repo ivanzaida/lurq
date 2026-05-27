@@ -67,6 +67,7 @@ pub struct Runtime {
   scale_factor: f32,
   scale_override: Option<f32>,
   hover_path: Vec<usize>,
+  active_path: Vec<usize>,
   dragging_scroll: Option<ScrollState>,
   dragging_slider: Option<SliderDrag>,
   focused_node: Option<NodeId>,
@@ -128,6 +129,7 @@ impl Runtime {
       scale_factor: 1.0,
       scale_override: None,
       hover_path: Vec::new(),
+      active_path: Vec::new(),
       dragging_scroll: None,
       dragging_slider: None,
       focused_node: None,
@@ -178,6 +180,7 @@ impl Runtime {
       .map(|_| std::mem::size_of::<Box<dyn RenderEngine>>())
       .unwrap_or(0);
     let hover_path_bytes = self.hover_path.capacity() * std::mem::size_of::<usize>();
+    let active_path_bytes = self.active_path.capacity() * std::mem::size_of::<usize>();
     let dragging_scroll_bytes = self
       .dragging_scroll
       .as_ref()
@@ -191,6 +194,7 @@ impl Runtime {
       + glyph_engine_bytes
       + render_engine_bytes
       + hover_path_bytes
+      + active_path_bytes
       + dragging_scroll_bytes;
 
     RuntimeMemoryProfile {
@@ -203,6 +207,7 @@ impl Runtime {
       glyph_engine_bytes,
       render_engine_bytes,
       hover_path_bytes,
+      active_path_bytes,
       dragging_scroll_bytes,
     }
   }
@@ -221,6 +226,7 @@ impl Runtime {
       component.on_unmounted();
     }
     if let Some(old) = &mut self.root {
+      reset_node_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
     let mut ctx = Ctx::new_root().with_theme(self.theme.clone());
@@ -236,12 +242,14 @@ impl Runtime {
     self.root_ctx = Some(ctx);
     self.last_layout = None;
     self.hover_path.clear();
+    self.active_path.clear();
     self.clear_focus();
   }
 
   pub fn rebuild(&mut self) {
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
       let old_root = self.root.take().map(|mut old| {
+        reset_node_ref_flags_recursive(&old);
         old.free_ids(&self.id_gen);
         old
       });
@@ -255,6 +263,7 @@ impl Runtime {
       self.root = Some(node);
       self.last_layout = None;
       self.hover_path.clear();
+      self.active_path.clear();
       self.refresh_focus_ids();
     }
   }
@@ -264,6 +273,7 @@ impl Runtime {
       component.on_unmounted();
     }
     if let Some(old) = &mut self.root {
+      reset_node_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
     let mut node = element.node;
@@ -273,6 +283,7 @@ impl Runtime {
     self.root_ctx = None;
     self.last_layout = None;
     self.hover_path.clear();
+    self.active_path.clear();
     self.clear_focus();
   }
 
@@ -557,6 +568,7 @@ impl Runtime {
         MouseEventKind::Up => {
           drag_state.end_drag();
           self.dragging_scroll = None;
+          self.clear_active_path();
           self.needs_redraw = true;
           return;
         }
@@ -574,6 +586,7 @@ impl Runtime {
         MouseEventKind::Up => {
           drag.update(lx);
           self.dragging_slider = None;
+          self.clear_active_path();
           self.needs_redraw = true;
           return;
         }
@@ -699,10 +712,8 @@ impl Runtime {
     for old_ptr in &self.hover_path {
       if !current_ptrs.contains(old_ptr) {
         let node_ref = unsafe { &*(*old_ptr as *const Node) };
-        if let Some(ref state) = node_ref.interaction {
-          state.set_hovered(false);
-          self.needs_redraw = true;
-        }
+        set_node_hovered(node_ref, false);
+        self.needs_redraw = true;
         if let Some(ref handler) = node_ref.events.on_mouse_leave {
           handler();
         }
@@ -712,40 +723,41 @@ impl Runtime {
     for (node, _) in &hits {
       let ptr = *node as *const Node as usize;
       if !self.hover_path.contains(&ptr) {
-        if let Some(ref state) = node.interaction {
-          state.set_hovered(true);
-          self.needs_redraw = true;
-        }
+        set_node_hovered(node, true);
+        self.needs_redraw = true;
         if let Some(ref handler) = node.events.on_mouse_enter {
           handler();
         }
       }
     }
 
-    // Update active state
+    let clear_active_after_dispatch = matches!(evt.kind, MouseEventKind::Up | MouseEventKind::Click);
+
     for (node, _) in &hits {
-      if let Some(ref state) = node.interaction {
-        match evt.kind {
-          MouseEventKind::Down => {
-            state.set_active(true);
-            self.needs_redraw = true;
-          }
-          MouseEventKind::Up | MouseEventKind::Click => {
-            if state.is_active() {
-              state.set_active(false);
-              self.needs_redraw = true;
-            }
-          }
-          _ => {}
+      match evt.kind {
+        MouseEventKind::Down => {
+          set_node_active(node, true);
+          self.needs_redraw = true;
         }
+        MouseEventKind::Up | MouseEventKind::Click => {
+          set_node_active(node, false);
+          self.needs_redraw = true;
+        }
+        _ => {}
       }
     }
 
     self.hover_path = current_ptrs;
+    if matches!(evt.kind, MouseEventKind::Down) {
+      self.active_path = self.hover_path.clone();
+    }
     if builtin_needs_redraw {
       self.needs_redraw = true;
     }
     drop(hits);
+    if clear_active_after_dispatch {
+      self.clear_active_path();
+    }
     if let Some(drag) = pending_slider_drag {
       self.dragging_slider = Some(drag);
     }
@@ -831,14 +843,26 @@ impl Runtime {
       .as_deref()
       .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
     {
+      set_node_focused(node, false);
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(false);
       }
     }
+    if let Some(node) = self
+      .focused_event_path
+      .as_deref()
+      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+    {
+      set_node_focused(node, false);
+    }
     if let Some(node) = self.root.as_ref().and_then(|root| find_node_by_path(root, &input_path)) {
+      set_node_focused(node, true);
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(true);
       }
+    }
+    if let Some(node) = self.root.as_ref().and_then(|root| find_node_by_path(root, &event_path)) {
+      set_node_focused(node, true);
     }
 
     if let Some(handler) = blur {
@@ -983,15 +1007,31 @@ impl Runtime {
     }
   }
 
+  fn clear_active_path(&mut self) {
+    for old_ptr in self.active_path.drain(..) {
+      let node = unsafe { &*(old_ptr as *const Node) };
+      set_node_active(node, false);
+      self.needs_redraw = true;
+    }
+  }
+
   fn clear_focus(&mut self) {
     if let Some(node) = self
       .focused_path
       .as_deref()
       .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
     {
+      set_node_focused(node, false);
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(false);
       }
+    }
+    if let Some(node) = self
+      .focused_event_path
+      .as_deref()
+      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+    {
+      set_node_focused(node, false);
     }
     self.focused_node = None;
     self.focused_event_node = None;
@@ -1018,6 +1058,22 @@ impl Runtime {
 
     if self.focused_node.is_none() {
       self.clear_focus();
+      return;
+    }
+
+    if let Some(node) = self
+      .focused_path
+      .as_deref()
+      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+    {
+      set_node_focused(node, true);
+    }
+    if let Some(node) = self
+      .focused_event_path
+      .as_deref()
+      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+    {
+      set_node_focused(node, true);
     }
   }
 }
@@ -1208,6 +1264,44 @@ fn find_path_by_id(node: &Node, id: NodeId) -> Option<Vec<usize>> {
 struct FocusTarget {
   input_id: NodeId,
   event_id: NodeId,
+}
+
+fn set_node_hovered(node: &Node, hovered: bool) {
+  if let Some(ref state) = node.interaction {
+    state.set_hovered(hovered);
+  }
+  if let Some(ref node_ref) = node.node_ref {
+    node_ref.set_hovered(hovered);
+  }
+}
+
+fn set_node_active(node: &Node, active: bool) {
+  if let Some(ref state) = node.interaction {
+    state.set_active(active);
+  }
+  if let Some(ref node_ref) = node.node_ref {
+    node_ref.set_active(active);
+  }
+}
+
+fn set_node_focused(node: &Node, focused: bool) {
+  if let Some(ref state) = node.interaction {
+    state.set_focused(focused);
+  }
+  if let Some(ref node_ref) = node.node_ref {
+    node_ref.set_focused(focused);
+  }
+}
+
+fn reset_node_ref_flags_recursive(node: &Node) {
+  if let Some(ref node_ref) = node.node_ref {
+    node_ref.set_hovered(false);
+    node_ref.set_active(false);
+    node_ref.set_focused(false);
+  }
+  for child in node.children() {
+    reset_node_ref_flags_recursive(child);
+  }
 }
 
 fn dispatch_builtin_pointer(

@@ -68,6 +68,7 @@ pub struct RuntimeMemoryProfile {
   pub glyph_engine_bytes: usize,
   pub render_engine_bytes: usize,
   pub hover_path_bytes: usize,
+  pub active_path_bytes: usize,
   pub dragging_scroll_bytes: usize,
 }
 

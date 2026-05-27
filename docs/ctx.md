@@ -242,9 +242,12 @@ After layout, the ref exposes the element rect:
 ```rust
 let (x, y, width, height) = node_ref.rect();
 let attached = node_ref.is_attached();
+let hovered = node_ref.hovered();
+let active = node_ref.active();
+let focused = node_ref.focused();
 ```
 
-Use node refs when code outside normal layout traversal needs an element's measured rect.
+Use node refs when code outside normal layout traversal needs an element's measured rect or current interaction flags.
 
 ## Interaction State
 
@@ -264,7 +267,7 @@ state.is_active();
 state.is_focused();
 ```
 
-Hover and active are updated by runtime input dispatch. Focus state exists on the type but is not currently updated by the runtime.
+Hover, active, and focus are updated by runtime input dispatch.
 
 ## Mounting Child Components
 

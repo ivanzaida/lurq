@@ -36,4 +36,8 @@ impl InteractionState {
   pub(crate) fn set_active(&self, val: bool) {
     self.inner.lock().unwrap().active = val;
   }
+
+  pub(crate) fn set_focused(&self, val: bool) {
+    self.inner.lock().unwrap().focused = val;
+  }
 }

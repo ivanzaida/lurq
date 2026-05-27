@@ -12,6 +12,9 @@ struct NodeRefInner {
   width: f32,
   height: f32,
   attached: bool,
+  hovered: bool,
+  active: bool,
+  focused: bool,
 }
 
 impl NodeRef {
@@ -44,6 +47,18 @@ impl NodeRef {
     self.inner.lock().unwrap().attached
   }
 
+  pub fn hovered(&self) -> bool {
+    self.inner.lock().unwrap().hovered
+  }
+
+  pub fn active(&self) -> bool {
+    self.inner.lock().unwrap().active
+  }
+
+  pub fn focused(&self) -> bool {
+    self.inner.lock().unwrap().focused
+  }
+
   pub(crate) fn update(&self, x: f32, y: f32, width: f32, height: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.x = x;
@@ -51,5 +66,17 @@ impl NodeRef {
     inner.width = width;
     inner.height = height;
     inner.attached = true;
+  }
+
+  pub(crate) fn set_hovered(&self, hovered: bool) {
+    self.inner.lock().unwrap().hovered = hovered;
+  }
+
+  pub(crate) fn set_active(&self, active: bool) {
+    self.inner.lock().unwrap().active = active;
+  }
+
+  pub(crate) fn set_focused(&self, focused: bool) {
+    self.inner.lock().unwrap().focused = focused;
   }
 }
