@@ -12,6 +12,7 @@ use crate::{
   node::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
     color::Color,
+    cursor::CursorIcon,
     dimension::Dimension,
     interaction_state::InteractionState,
     node_kind::{CheckboxState, NodeKind, SliderState, TextInputState},
@@ -52,6 +53,7 @@ pub(crate) struct Node {
   pub(crate) color: Guard<Option<Color>>,
   pub(crate) border_radius: Guard<Option<BorderRadius>>,
   pub(crate) border: Guard<Option<Border>>,
+  pub(crate) cursor: Option<CursorIcon>,
   pub(crate) scrollbar_style: Guard<Option<ScrollBarStyle>>,
   pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
@@ -76,11 +78,12 @@ impl Node {
       node_kind,
       node_id: NodeId::UNASSIGNED,
       text_content: Guard::new(None),
-      overflow: Overflow::Visible,
+      overflow: Overflow::Hidden,
       intrinsic_size: None,
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
+      cursor: None,
       scrollbar_style: Guard::new(None),
       scrollbar_hovered_style: None,
       element_ref: None,
@@ -284,6 +287,15 @@ impl Node {
     self
   }
 
+  pub fn cursor(mut self, cursor: CursorIcon) -> Self {
+    self.cursor = Some(cursor);
+    self
+  }
+
+  pub fn cursor_icon(&self) -> Option<CursorIcon> {
+    self.state_style().cursor.or(self.cursor)
+  }
+
   pub fn hovered_style(mut self, style: Style) -> Self {
     self.state_styles.hovered = Some(style);
     self
@@ -429,8 +441,29 @@ impl Node {
   }
 
   pub fn clip(mut self) -> Self {
-    self.overflow = Overflow::Hidden;
+    self.set_overflow_through_modifiers(Overflow::Hidden);
     self
+  }
+
+  pub fn overflow_visible(mut self) -> Self {
+    self.set_overflow_through_modifiers(Overflow::Visible);
+    self
+  }
+
+  fn set_overflow_through_modifiers(&mut self, overflow: Overflow) {
+    self.overflow = overflow;
+    if matches!(
+      &self.layout_kind,
+      LayoutKind::PaddingModifier(_)
+        | LayoutKind::FrameModifier(_)
+        | LayoutKind::OffsetModifier { .. }
+        | LayoutKind::AbsoluteModifier { .. }
+        | LayoutKind::AlignModifier(_)
+        | LayoutKind::FlexModifier(_)
+    ) && self.children.len() == 1
+    {
+      self.children[0].set_overflow_through_modifiers(overflow);
+    }
   }
 
   pub fn intrinsic(mut self, width: f32, height: f32) -> Self {

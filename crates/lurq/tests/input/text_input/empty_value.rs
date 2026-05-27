@@ -1,11 +1,11 @@
-use lurq::{app::Runtime, core::Signal, node::Element};
+use lurq::{app::Runtime, core::Signal};
 
 #[test]
 fn empty_value_without_placeholder_is_still_layoutable() {
   let value = Signal::new(String::new());
   let mut runtime = Runtime::new();
 
-  runtime.set_root(Element::text_input(value));
+  runtime.set_root(lurq::components::TextInput::new(value));
 
   let root = runtime
     .find_element(|_| true)

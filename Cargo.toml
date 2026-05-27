@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lurq", "crates/demo"]
+members = ["crates/lurq", "crates/demo", "crates/accessor_macro"]
 
 [workspace.dependencies]
 parking_lot = "0.12.5"

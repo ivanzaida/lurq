@@ -16,13 +16,15 @@ fn rt() -> Runtime {
 #[test]
 fn scroll_vertical_child_grows_unbounded() {
   let mut rt = rt();
-  let node = Element::scroll_vertical(Element::column().spacing(0.0).with_children((0..10).map(|_| {
-    Element::new().frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-  })))
+  let node = lurq::components::ScrollVertical::new(lurq::components::Column::new().spacing(0.0).with_children(
+    (0..10).map(|_| {
+      lurq::components::Spacer::new().frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        ..Default::default()
+      })
+    }),
+  ))
   .size(100.0, 200.0);
 
   rt.set_root(node);
@@ -39,7 +41,7 @@ fn scroll_vertical_child_grows_unbounded() {
 #[test]
 fn scroll_vertical_offset_applied() {
   let mut rt = rt();
-  let node = Element::scroll_vertical(Element::new().frame(FrameConstraints {
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().frame(FrameConstraints {
     width: Some(lurq::node::dimension::Dimension::Px(100.0)),
     height: Some(lurq::node::dimension::Dimension::Px(500.0)),
     ..Default::default()
@@ -56,13 +58,15 @@ fn scroll_vertical_offset_applied() {
 #[test]
 fn scroll_horizontal_child_grows_unbounded() {
   let mut rt = rt();
-  let node = Element::scroll_horizontal(Element::row().spacing(0.0).with_children((0..10).map(|_| {
-    Element::new().frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-  })))
+  let node = lurq::components::ScrollHorizontal::new(lurq::components::Row::new().spacing(0.0).with_children(
+    (0..10).map(|_| {
+      lurq::components::Spacer::new().frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        ..Default::default()
+      })
+    }),
+  ))
   .size(200.0, 50.0);
 
   rt.set_root(node);
@@ -77,7 +81,7 @@ fn scroll_horizontal_child_grows_unbounded() {
 #[test]
 fn scroll_both_unbounded() {
   let mut rt = rt();
-  let node = Element::scroll_both(Element::new().frame(FrameConstraints {
+  let node = lurq::components::ScrollBoth::new(lurq::components::Spacer::new().frame(FrameConstraints {
     width: Some(lurq::node::dimension::Dimension::Px(800.0)),
     height: Some(lurq::node::dimension::Dimension::Px(600.0)),
     ..Default::default()
@@ -96,13 +100,15 @@ fn scroll_both_unbounded() {
 #[test]
 fn scroll_container_without_frame_uses_parent_constraints() {
   let mut rt = rt();
-  let node = Element::scroll_vertical(Element::column().spacing(0.0).with_children((0..5).map(|_| {
-    Element::new().frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(40.0)),
-      ..Default::default()
-    })
-  })));
+  let node = lurq::components::ScrollVertical::new(lurq::components::Column::new().spacing(0.0).with_children(
+    (0..5).map(|_| {
+      lurq::components::Spacer::new().frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(40.0)),
+        ..Default::default()
+      })
+    }),
+  ));
 
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
@@ -116,7 +122,7 @@ fn scroll_container_without_frame_uses_parent_constraints() {
 #[test]
 fn scroll_empty_child() {
   let mut rt = rt();
-  let node = Element::scroll_vertical(Element::new()).size(100.0, 100.0);
+  let node = lurq::components::ScrollVertical::new(Element::new()).size(100.0, 100.0);
 
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
@@ -129,7 +135,7 @@ fn scrollbar_hovered_overrides_scrollbar_style() {
   let mut rt = rt();
   let thumb_color = Color::from_hex("#ef4444");
 
-  let node = Element::scroll_vertical(Element::new().height(300.0))
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0))
     .scrollbar(ScrollBarStyle {
       visible: ScrollBarVisibility::Always,
       ..Default::default()
@@ -155,7 +161,7 @@ fn scrollbar_auto_does_not_render_when_content_fits() {
   let mut rt = rt();
   let thumb_color = Color::from_hex("#3b82f6");
 
-  let node = Element::scroll_vertical(Element::new().height(80.0))
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(80.0))
     .scrollbar(ScrollBarStyle {
       visible: ScrollBarVisibility::Auto,
       thumb_color,
@@ -178,7 +184,7 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
   let mut rt = rt();
   let thumb_color = Color::from_hex("#3b82f6");
 
-  let node = Element::scroll_vertical(Element::new().height(300.0).fill("#162032"))
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0).fill("#162032"))
     .scrollbar(ScrollBarStyle {
       visible: ScrollBarVisibility::Always,
       width: 6.0,

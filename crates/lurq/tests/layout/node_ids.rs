@@ -38,20 +38,24 @@ fn all_unique(node: ElementRef<'_>) -> bool {
 fn make_chain(depth: usize) -> Element {
   let mut node = Element::new();
   for _ in 0..depth {
-    node = Element::column().child(node);
+    node = lurq::components::Column::new().child(node).into();
   }
   node
 }
 
 fn make_wide(width: usize) -> Element {
-  Element::row().with_children((0..width).map(|_| Element::new()))
+  lurq::components::Row::new()
+    .with_children((0..width).map(|_| Element::new()))
+    .into()
 }
 
 fn make_tree(depth: usize, branching: usize) -> Element {
   if depth == 0 {
     return Element::new();
   }
-  Element::row().with_children((0..branching).map(|_| make_tree(depth - 1, branching)))
+  lurq::components::Row::new()
+    .with_children((0..branching).map(|_| make_tree(depth - 1, branching)))
+    .into()
 }
 
 // ============================================================================
@@ -66,14 +70,14 @@ fn new_node_has_unassigned_id() {
 
 #[test]
 fn text_node_has_unassigned_id() {
-  let node = Element::text("hello");
+  let node = lurq::components::Text::new("hello");
   assert!(!node.node_id().is_assigned());
 }
 
 #[test]
 fn tree_root_assigns_ids() {
-  let node = Element::column()
-    .child(Element::row().child(Element::new()).child(Element::new()))
+  let node = lurq::components::Column::new()
+    .child(lurq::components::Row::new().child(Element::new()).child(Element::new()))
     .child(Element::new());
   let mut rt = rt();
   rt.set_root(node);
@@ -95,9 +99,9 @@ fn set_root_assigns_single_node() {
 #[test]
 fn set_root_assigns_all_children() {
   let mut rt = rt();
-  let node = Element::column()
+  let node = lurq::components::Column::new()
     .child(Element::new())
-    .child(Element::row().child(Element::new()).child(Element::new()));
+    .child(lurq::components::Row::new().child(Element::new()).child(Element::new()));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -107,7 +111,7 @@ fn set_root_assigns_all_children() {
 #[test]
 fn set_root_assigns_unique_ids() {
   let mut rt = rt();
-  let node = Element::row().with_children((0..10).map(|_| Element::new()));
+  let node = lurq::components::Row::new().with_children((0..10).map(|_| Element::new()));
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_unique(root));
@@ -120,12 +124,12 @@ fn set_root_assigns_unique_ids() {
 #[test]
 fn replacing_root_reuses_freed_ids() {
   let mut rt = rt();
-  rt.set_root(Element::row().with_children((0..5).map(|_| Element::new())));
+  rt.set_root(lurq::components::Row::new().with_children((0..5).map(|_| Element::new())));
   let mut first_ids = Vec::new();
   collect_ids(rt.root().unwrap(), &mut first_ids);
   assert_eq!(first_ids.len(), 6);
 
-  rt.set_root(Element::row().with_children((0..5).map(|_| Element::new())));
+  rt.set_root(lurq::components::Row::new().with_children((0..5).map(|_| Element::new())));
   let mut second_ids = Vec::new();
   collect_ids(rt.root().unwrap(), &mut second_ids);
 
@@ -141,7 +145,11 @@ fn replacing_root_reuses_freed_ids() {
 fn replacing_root_new_tree_fully_assigned() {
   let mut rt = rt();
   rt.set_root(Element::new());
-  rt.set_root(Element::column().child(Element::new()).child(Element::new()));
+  rt.set_root(
+    lurq::components::Column::new()
+      .child(Element::new())
+      .child(Element::new()),
+  );
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
@@ -166,7 +174,7 @@ fn depth_1() {
 #[test]
 fn depth_2_single_child() {
   let mut rt = rt();
-  rt.set_root(Element::column().child(Element::new()));
+  rt.set_root(lurq::components::Column::new().child(Element::new()));
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
@@ -249,7 +257,7 @@ fn depth_255_chain_with_wide_leaf() {
   let leaf = make_wide(20);
   let mut node = leaf;
   for _ in 0..254 {
-    node = Element::column().child(node);
+    node = lurq::components::Column::new().child(node).into();
   }
   rt.set_root(node);
   let root = rt.root().unwrap();
@@ -326,7 +334,7 @@ fn ids_recycled_varying_tree_sizes() {
 #[test]
 fn modifier_wrappers_get_ids() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .size(100.0, 100.0)   // FrameModifier wrapper
     .pad(10.0)             // PaddingModifier wrapper
     .offset(5.0, 5.0)     // OffsetModifier wrapper
@@ -341,7 +349,9 @@ fn modifier_wrappers_get_ids() {
 #[test]
 fn scroll_container_gets_ids() {
   let mut rt = rt();
-  let node = Element::scroll_vertical(Element::column().with_children((0..10).map(|_| Element::new())));
+  let node = lurq::components::ScrollVertical::new(
+    lurq::components::Column::new().with_children((0..10).map(|_| Element::new())),
+  );
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -356,7 +366,10 @@ fn scroll_container_gets_ids() {
 #[test]
 fn stack_children_get_ids() {
   let mut rt = rt();
-  let node = Element::stack().with_children(vec![Element::new().size(100.0, 100.0), Element::new().size(50.0, 50.0)]);
+  let node = lurq::components::Stack::new().with_children(vec![
+    lurq::components::Spacer::new().size(100.0, 100.0),
+    lurq::components::Spacer::new().size(50.0, 50.0),
+  ]);
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
@@ -374,18 +387,18 @@ fn depth_255_with_modifiers() {
   let mut node = Element::new();
   for i in 0..255 {
     node = if i % 3 == 0 {
-      Element::column().child(node)
+      lurq::components::Column::new().child(node).into()
     } else if i % 3 == 1 {
-      Element::row().child(node)
+      lurq::components::Row::new().child(node).into()
     } else {
-      node.pad(1.0)
+      lurq::components::Stack::new().child(node).pad(1.0).into()
     };
   }
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
-  assert_eq!(count_nodes(root), 256);
+  assert_eq!(count_nodes(root), 341);
 }
 
 // ============================================================================

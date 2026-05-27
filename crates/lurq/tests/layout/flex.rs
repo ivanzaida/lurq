@@ -1,7 +1,6 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
-  node::Element,
 };
 
 fn rt() -> Runtime {
@@ -11,17 +10,17 @@ fn rt() -> Runtime {
 #[test]
 fn row_flex_equal_split() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
@@ -40,17 +39,17 @@ fn row_flex_equal_split() {
 #[test]
 fn row_flex_weighted_split() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
@@ -67,16 +66,16 @@ fn row_flex_weighted_split() {
 #[test]
 fn row_flex_with_fixed_sibling() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
@@ -94,17 +93,17 @@ fn row_flex_with_fixed_sibling() {
 #[test]
 fn row_flex_with_spacing() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     20.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .flex(1.0),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
@@ -122,17 +121,17 @@ fn row_flex_with_spacing() {
 #[test]
 fn column_flex_equal_split() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           ..Default::default()
         })
         .flex(1.0),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           ..Default::default()
@@ -150,16 +149,16 @@ fn column_flex_equal_split() {
 #[test]
 fn column_flex_with_fixed_sibling() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(60.0)),
         ..Default::default()
       }),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           ..Default::default()
@@ -176,13 +175,13 @@ fn column_flex_with_fixed_sibling() {
 #[test]
 fn three_way_flex_split() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().flex(1.0),
-      Element::new().flex(2.0),
-      Element::new().flex(3.0),
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(2.0),
+      lurq::components::Spacer::new().flex(3.0),
     ],
   );
   rt.set_root(node);

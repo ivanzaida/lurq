@@ -21,11 +21,11 @@ impl Component for RefLoggingComponent {
     }
   }
 
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let element_ref = ctx.element_ref_mut();
     self.seen_bounds.lock().unwrap().push(element_ref.bounds());
 
-    Element::rect(100.0, 40.0)
+    lurq::components::Rect::new(100.0, 40.0)
       .ref_element(element_ref)
       .fill("#22c55e")
       .on_click({
@@ -40,7 +40,7 @@ fn element_ref_tracks_hover_and_active_state() {
   let element_ref = ElementRef::new();
   let mut runtime = Runtime::new();
 
-  runtime.set_root(Element::rect(100.0, 40.0).ref_element(element_ref.clone()));
+  runtime.set_root(lurq::components::Rect::new(100.0, 40.0).ref_element(element_ref.clone()));
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -67,16 +67,16 @@ fn element_ref_tracks_focus_state() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(
-    Element::row()
+    lurq::components::Row::new()
       .spacing(8.0)
       .child(
-        Element::text_input(Signal::new(String::new()))
+        lurq::components::TextInput::new(Signal::new(String::new()))
           .ref_element(first_ref.clone())
           .fill("#ef4444")
           .width(100.0),
       )
       .child(
-        Element::text_input(Signal::new(String::new()))
+        lurq::components::TextInput::new(Signal::new(String::new()))
           .ref_element(second_ref.clone())
           .fill("#22c55e")
           .width(100.0),
@@ -109,9 +109,9 @@ fn element_ref_mut_can_override_layout_bounds() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(
-    Element::column()
+    lurq::components::Column::new()
       .child(
-        Element::rect(10.0, 20.0)
+        lurq::components::Rect::new(10.0, 20.0)
           .ref_element(element_ref.clone())
           .fill("#22c55e"),
       )
@@ -150,7 +150,7 @@ fn hovered_style_overrides_visuals_and_layout() {
   let mut runtime = Runtime::new();
 
   runtime.set_root(
-    Element::rect(100.0, 40.0)
+    lurq::components::Rect::new(100.0, 40.0)
       .fill("#334155")
       .hovered(|el| el.fill("#475569").width(120.0).height(50.0)),
   );

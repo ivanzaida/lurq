@@ -11,7 +11,7 @@ fn rt() -> Runtime {
 #[test]
 fn no_quads_for_invisible_nodes() {
   let mut rt = rt();
-  let node = Element::new().frame(FrameConstraints {
+  let node = lurq::components::Spacer::new().frame(FrameConstraints {
     width: Some(lurq::node::dimension::Dimension::Px(100.0)),
     height: Some(lurq::node::dimension::Dimension::Px(50.0)),
     ..Default::default()
@@ -25,7 +25,7 @@ fn no_quads_for_invisible_nodes() {
 #[test]
 fn background_produces_rect_quad() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -46,7 +46,7 @@ fn background_produces_rect_quad() {
 #[test]
 fn text_produces_text_quad() {
   let mut rt = rt();
-  let node = Element::text("hello");
+  let node = lurq::components::Text::new("hello");
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -61,18 +61,18 @@ fn text_produces_text_quad() {
 #[test]
 fn quads_absolute_positions_in_row() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     10.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(50.0)),
           height: Some(lurq::node::dimension::Dimension::Px(30.0)),
           ..Default::default()
         })
         .background(Color::new(255, 0, 0, 255)),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(50.0)),
           height: Some(lurq::node::dimension::Dimension::Px(30.0)),
@@ -92,18 +92,18 @@ fn quads_absolute_positions_in_row() {
 #[test]
 fn quads_absolute_positions_in_column() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     5.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           height: Some(lurq::node::dimension::Dimension::Px(40.0)),
           ..Default::default()
         })
         .background(Color::new(255, 0, 0, 255)),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(100.0)),
           height: Some(lurq::node::dimension::Dimension::Px(40.0)),
@@ -121,27 +121,83 @@ fn quads_absolute_positions_in_column() {
 }
 
 #[test]
+fn default_overflow_clips_children() {
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .child(lurq::components::Rect::new(200.0, 50.0).fill("#ff0000"))
+    .width(100.0)
+    .height(50.0)
+    .fill("#000000");
+  rt.set_root(node);
+  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  assert!(quads[1].clip.active);
+  assert_eq!(quads[1].clip.width, 100.0);
+  assert_eq!(quads[1].clip.height, 50.0);
+}
+
+#[test]
+fn overflow_visible_allows_children_to_escape() {
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .child(lurq::components::Rect::new(200.0, 50.0).fill("#ff0000"))
+    .width(100.0)
+    .height(50.0)
+    .fill("#000000")
+    .overflow_visible();
+  rt.set_root(node);
+  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  assert!(!quads[1].clip.active);
+}
+
+#[test]
+fn nested_default_overflow_intersects_text_clip() {
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .child(lurq::components::Rect::new(100.0, 40.0).fill("#0000ff"))
+    .child(
+      lurq::components::Row::new()
+        .child(lurq::components::Text::new("B"))
+        .size(50.0, 40.0)
+        .fill("#ff0000"),
+    )
+    .width(100.0)
+    .height(40.0)
+    .fill("#000000");
+  rt.set_root(node);
+  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 40.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let text_quad = quads
+    .iter()
+    .find(|quad| matches!(quad.content, QuadContent::Text { .. }))
+    .expect("expected text quad");
+  assert!(text_quad.clip.active);
+  assert_eq!(text_quad.clip.width, 0.0);
+}
+
+#[test]
 fn quads_nested_absolute_positions() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
-      }),
-      Element::row_with(
+      })),
+      Element::from(lurq::components::Row::with(
         0.0,
         Alignment::Start,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(40.0)),
             height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
-          Element::new()
+          lurq::components::Spacer::new()
             .frame(FrameConstraints {
               width: Some(lurq::node::dimension::Dimension::Px(40.0)),
               height: Some(lurq::node::dimension::Dimension::Px(30.0)),
@@ -149,7 +205,7 @@ fn quads_nested_absolute_positions() {
             })
             .background(Color::new(0, 0, 255, 255)),
         ],
-      ),
+      )),
     ],
   );
   rt.set_root(node);
@@ -163,7 +219,7 @@ fn quads_nested_absolute_positions() {
 #[test]
 fn quads_with_padding_offset() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(60.0)),
       height: Some(lurq::node::dimension::Dimension::Px(40.0)),

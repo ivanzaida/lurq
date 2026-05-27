@@ -188,13 +188,16 @@ impl LayoutEngine {
     }
 
     let child_clip = if is_scroll || node.overflow == Overflow::Hidden {
-      ClipRect {
-        x: abs_x,
-        y: abs_y,
-        width: result.size.width,
-        height: result.size.height,
-        active: true,
-      }
+      intersect_clip(
+        clip,
+        ClipRect {
+          x: abs_x,
+          y: abs_y,
+          width: result.size.width,
+          height: result.size.height,
+          active: true,
+        },
+      )
     } else {
       clip
     };
@@ -1245,5 +1248,27 @@ impl LayoutEngine {
         result: child_result,
       }],
     }
+  }
+}
+
+fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
+  if !parent.active {
+    return child;
+  }
+  if !child.active {
+    return parent;
+  }
+
+  let x1 = parent.x.max(child.x);
+  let y1 = parent.y.max(child.y);
+  let x2 = (parent.x + parent.width).min(child.x + child.width);
+  let y2 = (parent.y + parent.height).min(child.y + child.height);
+
+  ClipRect {
+    x: x1,
+    y: y1,
+    width: (x2 - x1).max(0.0),
+    height: (y2 - y1).max(0.0),
+    active: true,
   }
 }

@@ -482,7 +482,10 @@ impl RenderEngine for WgpuRenderEngine {
 
           let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
           let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-          pass.set_scissor_rect(cx, cy, cw.max(1), ch.max(1));
+          if cw == 0 || ch == 0 {
+            continue;
+          }
+          pass.set_scissor_rect(cx, cy, cw, ch);
         } else {
           pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
         }
@@ -538,7 +541,10 @@ impl RenderEngine for WgpuRenderEngine {
 
           let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
           let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-          pass.set_scissor_rect(cx, cy, cw.max(1), ch.max(1));
+          if cw == 0 || ch == 0 {
+            continue;
+          }
+          pass.set_scissor_rect(cx, cy, cw, ch);
         } else {
           pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
         }

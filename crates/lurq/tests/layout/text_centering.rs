@@ -4,7 +4,7 @@ use lurq::{
     Alignment, Constraints, Size,
     text_style::{FontWeight, TextStyle},
   },
-  node::{Element, color::Color},
+  node::color::Color,
 };
 
 fn rt() -> Runtime {
@@ -18,7 +18,7 @@ fn text_height_equals_line_height() {
     font_size: 24.0,
     ..TextStyle::default()
   };
-  let node = Element::styled_text("0", style.clone());
+  let node = lurq::components::Text::styled("0", style.clone());
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let expected_height = style.font_size * style.line_height;
@@ -33,11 +33,11 @@ fn text_height_equals_line_height() {
 #[test]
 fn text_vertically_centered_in_row_with_rects() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(12.0)
     .align_items(Alignment::Center)
-    .child(Element::rect(36.0, 36.0))
-    .child(Element::styled_text(
+    .child(lurq::components::Rect::new(36.0, 36.0))
+    .child(lurq::components::Text::styled(
       "0",
       TextStyle {
         font_size: 24.0,
@@ -46,7 +46,7 @@ fn text_vertically_centered_in_row_with_rects() {
         ..TextStyle::default()
       },
     ))
-    .child(Element::rect(36.0, 36.0));
+    .child(lurq::components::Rect::new(36.0, 36.0));
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
 
@@ -75,9 +75,9 @@ fn text_vertically_centered_in_row_with_rects() {
 #[test]
 fn text_vertically_centered_in_fixed_height_row() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .align_items(Alignment::Center)
-    .child(Element::styled_text(
+    .child(lurq::components::Text::styled(
       "Layout",
       TextStyle {
         font_size: 11.0,

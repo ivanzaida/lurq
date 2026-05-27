@@ -6,7 +6,7 @@ use std::sync::{
 use lurq::{
   app::{Runtime, events::MouseButton},
   core::Signal,
-  node::{Element, color::Color},
+  node::color::Color,
 };
 
 #[test]
@@ -17,10 +17,10 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
 
   let mut runtime = Runtime::new();
   runtime.set_root(
-    Element::row()
+    lurq::components::Row::new()
       .spacing(8.0)
       .child(
-        Element::text_input(Signal::new(String::new()))
+        lurq::components::TextInput::new(Signal::new(String::new()))
           .width(100.0)
           .fill("#ef4444")
           .on_focus({
@@ -37,7 +37,7 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
           }),
       )
       .child(
-        Element::text_input(Signal::new(String::new()))
+        lurq::components::TextInput::new(Signal::new(String::new()))
           .width(100.0)
           .fill("#22c55e")
           .on_focus({

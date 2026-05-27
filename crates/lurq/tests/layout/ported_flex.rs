@@ -11,16 +11,16 @@ fn rt() -> Runtime {
   Runtime::new()
 }
 
-fn rect(w: f32, h: f32) -> Element {
-  Element::new().size(w, h)
+fn rect(w: f32, h: f32) -> lurq::components::Spacer {
+  lurq::components::Spacer::new().size(w, h)
 }
 
-fn wide(w: f32) -> Element {
-  Element::new().width(w)
+fn wide(w: f32) -> lurq::components::Spacer {
+  lurq::components::Spacer::new().width(w)
 }
 
-fn tall(h: f32) -> Element {
-  Element::new().height(h)
+fn tall(h: f32) -> lurq::components::Spacer {
+  lurq::components::Spacer::new().height(h)
 }
 
 // ============================================================================
@@ -30,7 +30,7 @@ fn tall(h: f32) -> Element {
 #[test]
 fn flex_row_distributes_children_horizontally() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
@@ -45,7 +45,7 @@ fn flex_row_distributes_children_horizontally() {
 #[test]
 fn flex_column_stacks_children_vertically() {
   let mut rt = rt();
-  let node = Element::column()
+  let node = lurq::components::Column::new()
     .spacing(0.0)
     .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
@@ -60,9 +60,10 @@ fn flex_column_stacks_children_vertically() {
 #[test]
 fn flex_grow_distributes_free_space() {
   let mut rt = rt();
-  let node = Element::row()
-    .spacing(0.0)
-    .with_children(vec![Element::new().flex(1.0), Element::new().flex(2.0)]);
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
+    lurq::components::Spacer::new().flex(1.0),
+    lurq::components::Spacer::new().flex(2.0),
+  ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let ratio = r.children[1].result.size.width / r.children[0].result.size.width;
@@ -76,7 +77,7 @@ fn flex_grow_distributes_free_space() {
 #[test]
 fn flex_justify_content_center() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::Center)
     .child(rect(100.0, 50.0));
@@ -89,7 +90,7 @@ fn flex_justify_content_center() {
 #[test]
 fn flex_justify_content_end() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::End)
     .child(rect(50.0, 50.0));
@@ -106,7 +107,7 @@ fn flex_justify_content_end() {
 #[test]
 fn flex_justify_content_space_between() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::SpaceBetween)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0), rect(50.0, 30.0)]);
@@ -121,7 +122,7 @@ fn flex_justify_content_space_between() {
 #[test]
 fn flex_justify_content_space_around() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::SpaceAround)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)]);
@@ -139,7 +140,7 @@ fn flex_justify_content_space_around() {
 #[test]
 fn flex_justify_content_space_evenly() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::SpaceEvenly)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)]);
@@ -157,7 +158,7 @@ fn flex_justify_content_space_evenly() {
 #[test]
 fn flex_justify_center_column() {
   let mut rt = rt();
-  let node = Element::column()
+  let node = lurq::components::Column::new()
     .spacing(0.0)
     .justify(Justify::Center)
     .child(rect(100.0, 50.0));
@@ -178,7 +179,7 @@ fn flex_justify_center_column() {
 #[test]
 fn flex_gap_adds_spacing() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(20.0)
     .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
@@ -192,9 +193,11 @@ fn flex_gap_adds_spacing() {
 #[test]
 fn flex_gap_three_items() {
   let mut rt = rt();
-  let node = Element::row()
-    .spacing(16.0)
-    .with_children(vec![rect(120.0, 40.0), rect(120.0, 40.0), rect(120.0, 40.0)]);
+  let node = lurq::components::Row::new().spacing(16.0).with_children(vec![
+    rect(120.0, 40.0),
+    rect(120.0, 40.0),
+    rect(120.0, 40.0),
+  ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(500.0, 100.0))).unwrap();
   let gap_01 = r.children[1].offset.x - (r.children[0].offset.x + r.children[0].result.size.width);
@@ -210,7 +213,7 @@ fn flex_gap_three_items() {
 #[test]
 fn flex_align_items_start() {
   let mut rt = rt();
-  let node = Element::row_with(0.0, Alignment::Start, vec![rect(50.0, 50.0)]);
+  let node = lurq::components::Row::with(0.0, Alignment::Start, vec![rect(50.0, 50.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   let offset = r.children[0].offset.y;
@@ -220,7 +223,7 @@ fn flex_align_items_start() {
 #[test]
 fn flex_align_items_center() {
   let mut rt = rt();
-  let node = Element::row_with(0.0, Alignment::Center, vec![rect(50.0, 50.0)]);
+  let node = lurq::components::Row::with(0.0, Alignment::Center, vec![rect(50.0, 50.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   let child_cy = r.children[0].offset.y + r.children[0].result.size.height / 2.0;
@@ -231,7 +234,7 @@ fn flex_align_items_center() {
 #[test]
 fn flex_align_items_end() {
   let mut rt = rt();
-  let node = Element::row_with(0.0, Alignment::End, vec![rect(50.0, 50.0)]);
+  let node = lurq::components::Row::with(0.0, Alignment::End, vec![rect(50.0, 50.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   let child_bottom = r.children[0].offset.y + r.children[0].result.size.height;
@@ -241,7 +244,7 @@ fn flex_align_items_end() {
 #[test]
 fn flex_align_items_stretch() {
   let mut rt = rt();
-  let node = Element::row_with(0.0, Alignment::Stretch, vec![wide(50.0)]);
+  let node = lurq::components::Row::with(0.0, Alignment::Stretch, vec![wide(50.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   assert!(
@@ -254,7 +257,7 @@ fn flex_align_items_stretch() {
 #[test]
 fn flex_align_items_stretch_column() {
   let mut rt = rt();
-  let node = Element::column_with(0.0, Alignment::Stretch, vec![tall(50.0)]);
+  let node = lurq::components::Column::with(0.0, Alignment::Stretch, vec![tall(50.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   assert!(
@@ -271,7 +274,7 @@ fn flex_align_items_stretch_column() {
 #[test]
 fn flex_shrink_reduces_overflowing_items() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0).with_children(vec![
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
     rect(150.0, 50.0).flex_full(0.0, 1.0, None),
     rect(150.0, 50.0).flex_full(0.0, 1.0, None),
   ]);
@@ -287,7 +290,7 @@ fn flex_shrink_reduces_overflowing_items() {
 #[test]
 fn flex_shrink_weighted() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0).with_children(vec![
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
     rect(200.0, 50.0).flex_full(0.0, 1.0, None),
     rect(100.0, 50.0).flex_full(0.0, 1.0, None),
   ]);
@@ -311,7 +314,7 @@ fn flex_shrink_weighted() {
 #[test]
 fn flex_shrink_zero_does_not_shrink() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0).with_children(vec![
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
     rect(150.0, 50.0).flex_full(0.0, 0.0, None),
     rect(150.0, 50.0).flex_full(0.0, 1.0, None),
   ]);
@@ -331,9 +334,9 @@ fn flex_shrink_zero_does_not_shrink() {
 #[test]
 fn flex_basis_sets_initial_size() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0).with_children(vec![
-    Element::new().flex_full(0.0, 0.0, Some(100.0)),
-    Element::new().flex_full(0.0, 0.0, Some(200.0)),
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
+    lurq::components::Spacer::new().flex_full(0.0, 0.0, Some(100.0)),
+    lurq::components::Spacer::new().flex_full(0.0, 0.0, Some(200.0)),
   ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
@@ -352,9 +355,9 @@ fn flex_basis_sets_initial_size() {
 #[test]
 fn flex_basis_zero_with_grow() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0).with_children(vec![
-    Element::new().flex_full(1.0, 0.0, Some(0.0)),
-    Element::new().flex_full(1.0, 0.0, Some(0.0)),
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
+    lurq::components::Spacer::new().flex_full(1.0, 0.0, Some(0.0)),
+    lurq::components::Spacer::new().flex_full(1.0, 0.0, Some(0.0)),
   ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
@@ -372,7 +375,7 @@ fn flex_basis_zero_with_grow() {
 #[test]
 fn flex_wrap_wraps_items() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .wrap()
     .with_children(vec![rect(120.0, 30.0), rect(120.0, 30.0)]);
@@ -389,11 +392,11 @@ fn flex_wrap_wraps_items() {
 #[test]
 fn flex_wrap_three_items_two_lines() {
   let mut rt = rt();
-  let node =
-    Element::row()
-      .spacing(0.0)
-      .wrap()
-      .with_children(vec![rect(80.0, 30.0), rect(80.0, 30.0), rect(80.0, 30.0)]);
+  let node = lurq::components::Row::new().spacing(0.0).wrap().with_children(vec![
+    rect(80.0, 30.0),
+    rect(80.0, 30.0),
+    rect(80.0, 30.0),
+  ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   // First two fit on line 1 (80+80=160 ≤ 200), third wraps
@@ -404,7 +407,7 @@ fn flex_wrap_three_items_two_lines() {
 #[test]
 fn flex_wrap_column() {
   let mut rt = rt();
-  let node = Element::column()
+  let node = lurq::components::Column::new()
     .spacing(0.0)
     .wrap()
     .with_children(vec![rect(50.0, 120.0), rect(50.0, 120.0)]);
@@ -419,11 +422,11 @@ fn flex_wrap_column() {
 #[test]
 fn flex_wrap_with_spacing() {
   let mut rt = rt();
-  let node =
-    Element::row()
-      .spacing(10.0)
-      .wrap()
-      .with_children(vec![rect(100.0, 30.0), rect(100.0, 30.0), rect(100.0, 30.0)]);
+  let node = lurq::components::Row::new().spacing(10.0).wrap().with_children(vec![
+    rect(100.0, 30.0),
+    rect(100.0, 30.0),
+    rect(100.0, 30.0),
+  ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(220.0, 200.0))).unwrap();
   // 100 + 10 + 100 = 210 ≤ 220 → first two fit; third wraps
@@ -438,7 +441,7 @@ fn flex_wrap_with_spacing() {
 #[test]
 fn flex_no_children_does_not_panic() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0);
+  let node = lurq::components::Row::new().spacing(0.0);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert_eq!(r.children.len(), 0);
@@ -451,14 +454,14 @@ fn flex_no_children_does_not_panic() {
 #[test]
 fn flex_max_width_prevents_growing() {
   let mut rt = rt();
-  let node = Element::row().spacing(0.0).with_children(vec![
-    Element::new()
+  let node = lurq::components::Row::new().spacing(0.0).with_children(vec![
+    lurq::components::Spacer::new()
       .frame(FrameConstraints {
         max_width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         ..Default::default()
       })
       .flex(1.0),
-    Element::new().flex(1.0),
+    lurq::components::Spacer::new().flex(1.0),
   ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
@@ -472,8 +475,8 @@ fn flex_max_width_prevents_growing() {
 #[test]
 fn flex_min_height_prevents_shrinking_column() {
   let mut rt = rt();
-  let node = Element::column().spacing(0.0).with_children(vec![
-    Element::new()
+  let node = lurq::components::Column::new().spacing(0.0).with_children(vec![
+    lurq::components::Spacer::new()
       .frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         min_height: Some(lurq::node::dimension::Dimension::Px(120.0)),
@@ -498,13 +501,13 @@ fn flex_min_height_prevents_shrinking_column() {
 #[test]
 fn flex_nested_row_in_row() {
   let mut rt = rt();
-  let inner = Element::row()
+  let inner = lurq::components::Row::new()
     .spacing(0.0)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)])
     .flex(1.0);
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
-    .with_children(vec![inner, rect(100.0, 30.0)]);
+    .with_children(vec![Element::from(inner), Element::from(rect(100.0, 30.0))]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(r.children.len(), 2);
@@ -515,20 +518,22 @@ fn flex_nested_row_in_row() {
 #[test]
 fn flex_nested_column_in_row() {
   let mut rt = rt();
-  let inner_col = Element::column()
+  let inner_col = lurq::components::Column::new()
     .spacing(4.0)
     .with_children(vec![
-      Element::new().flex(1.0),
-      Element::new().flex(1.0),
-      Element::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
     ])
     .flex(1.0);
-  let inner_row = Element::row()
+  let inner_row = lurq::components::Row::new()
     .spacing(4.0)
     .align_items(Alignment::Center)
     .with_children(vec![rect(30.0, 20.0), rect(30.0, 20.0), rect(30.0, 20.0)])
     .flex(2.0);
-  let node = Element::row().spacing(8.0).with_children(vec![inner_col, inner_row]);
+  let node = lurq::components::Row::new()
+    .spacing(8.0)
+    .with_children(vec![Element::from(inner_col), Element::from(inner_row)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(800.0, 120.0))).unwrap();
 
@@ -545,9 +550,9 @@ fn flex_nested_column_in_row() {
 fn flex_deeply_nested_three_levels() {
   let mut rt = rt();
   let leaf = rect(20.0, 20.0);
-  let inner = Element::row().spacing(0.0).child(leaf).flex(1.0);
-  let mid = Element::column().spacing(0.0).child(inner).flex(1.0);
-  let root = Element::row().spacing(0.0).child(mid);
+  let inner = lurq::components::Row::new().spacing(0.0).child(leaf).flex(1.0);
+  let mid = lurq::components::Column::new().spacing(0.0).child(inner).flex(1.0);
+  let root = lurq::components::Row::new().spacing(0.0).child(mid);
   rt.set_root(root);
   let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   assert!(r.size.width > 0.0);
@@ -560,9 +565,12 @@ fn flex_deeply_nested_three_levels() {
 #[test]
 fn flex_padding_reduces_available_space() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
-    .with_children(vec![Element::new().flex(1.0), Element::new().flex(1.0)])
+    .with_children(vec![
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
+    ])
     .pad(20.0);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
@@ -585,7 +593,7 @@ fn flex_padding_reduces_available_space() {
 #[test]
 fn overflow_hidden_clips_children() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .clip()
     .with_children(vec![rect(200.0, 50.0), rect(200.0, 50.0)]);
@@ -604,8 +612,10 @@ fn overflow_hidden_clips_children() {
 #[test]
 fn flex_intrinsic_leaf_contributes_size() {
   let mut rt = rt();
-  let leaf = Element::new().intrinsic(80.0, 40.0);
-  let node = Element::row().spacing(10.0).with_children(vec![leaf, rect(50.0, 30.0)]);
+  let leaf = lurq::components::Spacer::new().intrinsic(80.0, 40.0);
+  let node = lurq::components::Row::new()
+    .spacing(10.0)
+    .with_children(vec![leaf, rect(50.0, 30.0)]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(r.children[0].result.size.width, 80.0);
@@ -653,7 +663,7 @@ fn percentage_padding_resolves_against_parent() {
 fn justify_space_between_with_explicit_spacing() {
   let mut rt = rt();
   // SpaceBetween ignores explicit spacing, distributes free space between items
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::SpaceBetween)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)]);
@@ -666,7 +676,7 @@ fn justify_space_between_with_explicit_spacing() {
 #[test]
 fn justify_space_evenly_single_child() {
   let mut rt = rt();
-  let node = Element::row()
+  let node = lurq::components::Row::new()
     .spacing(0.0)
     .justify(Justify::SpaceEvenly)
     .child(rect(100.0, 50.0));
@@ -684,7 +694,7 @@ fn justify_space_evenly_single_child() {
 #[test]
 fn column_justify_space_between() {
   let mut rt = rt();
-  let node = Element::column()
+  let node = lurq::components::Column::new()
     .spacing(0.0)
     .justify(Justify::SpaceBetween)
     .with_children(vec![rect(100.0, 40.0), rect(100.0, 40.0)]);
@@ -699,7 +709,7 @@ fn column_justify_space_between() {
 #[test]
 fn column_flex_shrink() {
   let mut rt = rt();
-  let node = Element::column().spacing(0.0).with_children(vec![
+  let node = lurq::components::Column::new().spacing(0.0).with_children(vec![
     rect(100.0, 150.0).flex_full(0.0, 1.0, None),
     rect(100.0, 150.0).flex_full(0.0, 1.0, None),
   ]);
@@ -712,9 +722,9 @@ fn column_flex_shrink() {
 #[test]
 fn column_flex_basis() {
   let mut rt = rt();
-  let node = Element::column().spacing(0.0).with_children(vec![
-    Element::new().flex_full(0.0, 0.0, Some(80.0)),
-    Element::new().flex_full(0.0, 0.0, Some(120.0)),
+  let node = lurq::components::Column::new().spacing(0.0).with_children(vec![
+    lurq::components::Spacer::new().flex_full(0.0, 0.0, Some(80.0)),
+    lurq::components::Spacer::new().flex_full(0.0, 0.0, Some(120.0)),
   ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
@@ -733,11 +743,11 @@ fn column_flex_basis() {
 #[test]
 fn column_flex_wrap() {
   let mut rt = rt();
-  let node =
-    Element::column()
-      .spacing(0.0)
-      .wrap()
-      .with_children(vec![rect(50.0, 120.0), rect(50.0, 120.0), rect(50.0, 120.0)]);
+  let node = lurq::components::Column::new().spacing(0.0).wrap().with_children(vec![
+    rect(50.0, 120.0),
+    rect(50.0, 120.0),
+    rect(50.0, 120.0),
+  ]);
   rt.set_root(node);
   let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   // First item: 120 ≤ 200 → fits. Second: 120+120=240 > 200 → wraps

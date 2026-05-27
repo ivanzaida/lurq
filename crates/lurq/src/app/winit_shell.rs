@@ -3,12 +3,15 @@ use winit::{
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
   keyboard::{Key, ModifiersState, NamedKey, PhysicalKey},
-  window::{Window, WindowAttributes, WindowId},
+  window::{CursorIcon as WinitCursorIcon, Window, WindowAttributes, WindowId},
 };
 
-use crate::app::{
-  Runtime,
-  events::{MouseButton, ScrollPhase},
+use crate::{
+  app::{
+    Runtime,
+    events::{MouseButton, ScrollPhase},
+  },
+  node::CursorIcon,
 };
 
 type TickFn = Box<dyn FnMut(&mut Runtime)>;
@@ -84,6 +87,7 @@ impl WinitWindow {
       runtime: self.runtime,
       window: None,
       cursor_pos: (0.0, 0.0),
+      cursor: CursorIcon::Default,
       modifiers: ModifiersState::empty(),
       attrs: Some(self.attrs),
       on_tick: self.on_tick,
@@ -96,6 +100,7 @@ struct WinitHandler {
   runtime: Runtime,
   window: Option<Window>,
   cursor_pos: (f64, f64),
+  cursor: CursorIcon,
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   on_tick: Option<TickFn>,
@@ -109,6 +114,18 @@ impl WinitHandler {
         w.request_redraw();
       }
     }
+  }
+
+  fn apply_cursor(&mut self) {
+    let cursor = self.runtime.cursor();
+    if cursor == self.cursor {
+      return;
+    }
+
+    if let Some(window) = &self.window {
+      window.set_cursor(to_winit_cursor(cursor));
+    }
+    self.cursor = cursor;
   }
 }
 
@@ -145,6 +162,7 @@ impl ApplicationHandler for WinitHandler {
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
         self.runtime.mouse_move(position.x as f32, position.y as f32);
+        self.apply_cursor();
         self.check_redraw();
       }
       WindowEvent::MouseInput { state, button, .. } => {
@@ -162,6 +180,7 @@ impl ApplicationHandler for WinitHandler {
             self.runtime.click(x, y, btn);
           }
         }
+        self.apply_cursor();
         self.check_redraw();
       }
       WindowEvent::ModifiersChanged(modifiers) => {
@@ -176,6 +195,7 @@ impl ApplicationHandler for WinitHandler {
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
           );
+          self.apply_cursor();
           self.check_redraw();
         }
       }
@@ -192,6 +212,7 @@ impl ApplicationHandler for WinitHandler {
         self
           .runtime
           .scroll(self.cursor_pos.0 as f32, self.cursor_pos.1 as f32, dx, dy, scroll_phase);
+        self.apply_cursor();
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {
@@ -245,5 +266,46 @@ fn physical_key_to_string(key: &PhysicalKey) -> String {
   match key {
     PhysicalKey::Code(code) => format!("{code:?}"),
     PhysicalKey::Unidentified(_) => String::new(),
+  }
+}
+
+fn to_winit_cursor(cursor: CursorIcon) -> WinitCursorIcon {
+  match cursor {
+    CursorIcon::Default => WinitCursorIcon::Default,
+    CursorIcon::ContextMenu => WinitCursorIcon::ContextMenu,
+    CursorIcon::Help => WinitCursorIcon::Help,
+    CursorIcon::Pointer => WinitCursorIcon::Pointer,
+    CursorIcon::Progress => WinitCursorIcon::Progress,
+    CursorIcon::Wait => WinitCursorIcon::Wait,
+    CursorIcon::Cell => WinitCursorIcon::Cell,
+    CursorIcon::Crosshair => WinitCursorIcon::Crosshair,
+    CursorIcon::Text => WinitCursorIcon::Text,
+    CursorIcon::VerticalText => WinitCursorIcon::VerticalText,
+    CursorIcon::Alias => WinitCursorIcon::Alias,
+    CursorIcon::Copy => WinitCursorIcon::Copy,
+    CursorIcon::Move => WinitCursorIcon::Move,
+    CursorIcon::NoDrop => WinitCursorIcon::NoDrop,
+    CursorIcon::NotAllowed => WinitCursorIcon::NotAllowed,
+    CursorIcon::Grab => WinitCursorIcon::Grab,
+    CursorIcon::Grabbing => WinitCursorIcon::Grabbing,
+    CursorIcon::EResize => WinitCursorIcon::EResize,
+    CursorIcon::NResize => WinitCursorIcon::NResize,
+    CursorIcon::NeResize => WinitCursorIcon::NeResize,
+    CursorIcon::NwResize => WinitCursorIcon::NwResize,
+    CursorIcon::SResize => WinitCursorIcon::SResize,
+    CursorIcon::SeResize => WinitCursorIcon::SeResize,
+    CursorIcon::SwResize => WinitCursorIcon::SwResize,
+    CursorIcon::WResize => WinitCursorIcon::WResize,
+    CursorIcon::EwResize => WinitCursorIcon::EwResize,
+    CursorIcon::NsResize => WinitCursorIcon::NsResize,
+    CursorIcon::NeswResize => WinitCursorIcon::NeswResize,
+    CursorIcon::NwseResize => WinitCursorIcon::NwseResize,
+    CursorIcon::ColResize => WinitCursorIcon::ColResize,
+    CursorIcon::RowResize => WinitCursorIcon::RowResize,
+    CursorIcon::AllScroll => WinitCursorIcon::AllScroll,
+    CursorIcon::ZoomIn => WinitCursorIcon::ZoomIn,
+    CursorIcon::ZoomOut => WinitCursorIcon::ZoomOut,
+    CursorIcon::DndAsk => WinitCursorIcon::DndAsk,
+    CursorIcon::AllResize => WinitCursorIcon::AllResize,
   }
 }

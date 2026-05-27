@@ -2,7 +2,6 @@ use lurq::{
   app::{Runtime, events::MouseButton},
   core::Signal,
   layout::{Constraints, Size, quad::QuadContent},
-  node::Element,
 };
 
 #[test]
@@ -10,7 +9,7 @@ fn renders_caret_after_text_input_is_focused() {
   let value = Signal::new("A".to_owned());
   let mut runtime = Runtime::new();
 
-  runtime.set_root(Element::text_input(value));
+  runtime.set_root(lurq::components::TextInput::new(value));
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 

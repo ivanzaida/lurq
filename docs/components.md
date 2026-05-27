@@ -25,21 +25,21 @@ impl Component for Counter {
     Self { count: ctx.signal(0) }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     let dec = self.count.clone();
     let inc = self.count.clone();
     let value = self.count.get();
 
-    Element::row()
+    lurq::components::Row::new()
       .spacing(12.0)
       .align_items(Alignment::Center)
       .child(
-        Element::rect(36.0, 36.0)
+        lurq::components::Rect::new(36.0, 36.0)
           .fill("#ef4444")
           .rounded(6.0)
           .on_click(move |_| dec.update(|n| *n -= 1)),
       )
-      .child(Element::styled_text(
+      .child(lurq::components::Text::styled(
         &format!("{value}"),
         TextStyle {
           font_size: 24.0,
@@ -49,7 +49,7 @@ impl Component for Counter {
         },
       ))
       .child(
-        Element::rect(36.0, 36.0)
+        lurq::components::Rect::new(36.0, 36.0)
           .fill("#22c55e")
           .rounded(6.0)
           .on_click(move |_| inc.update(|n| *n += 1)),
@@ -65,7 +65,7 @@ pub trait Component: Send + Sync + 'static {
   type Props: Send + 'static;
 
   fn create(ctx: &mut Ctx, props: Self::Props) -> Self;
-  fn render(&self, ctx: &mut Ctx) -> Element;
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element>;
 
   fn on_mounted(&self) {}
   fn on_unmounted(&self) {}
@@ -99,8 +99,8 @@ impl Component for Greeting {
     Self { name: props.name }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::text(&format!("Hello, {}!", self.name))
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Text::new(&format!("Hello, {}!", self.name))
   }
 }
 ```
@@ -112,8 +112,8 @@ Use `()` for components with no props.
 Mount child components inside `render` with `Ctx`.
 
 ```rust
-fn render(&self, ctx: &mut Ctx) -> Element {
-  Element::column()
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  lurq::components::Column::new()
     .spacing(16.0)
     .child(ctx.mount::<Header>(HeaderProps { title: "App" }))
     .child(ctx.mount::<Counter>(()))
@@ -130,7 +130,7 @@ fn render(&self, ctx: &mut Ctx) -> Element {
 `ctx.mount_keyed::<C>(key, props)` matches children by key and type. Use keyed mounts for lists that can reorder.
 
 ```rust
-Element::column().with_children(
+lurq::components::Column::new().with_children(
   self.items.get().iter().map(|item| {
     ctx.mount_keyed::<TodoItem>(&item.id, item.clone())
   })
@@ -143,7 +143,7 @@ Use `mount_with` or `mount_keyed_with` when a component needs children supplied 
 
 ```rust
 ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
-  Element::text("content"),
+  lurq::components::Text::new("content"),
 ])
 ```
 
@@ -244,8 +244,8 @@ impl Component for MyComponent {
     Self
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::text("mounted")
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Text::new("mounted")
   }
 
   fn on_mounted(&self) {

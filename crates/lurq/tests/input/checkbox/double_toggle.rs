@@ -1,7 +1,6 @@
 use lurq::{
   app::{Runtime, events::MouseButton},
   core::Signal,
-  node::Element,
 };
 
 #[test]
@@ -9,7 +8,7 @@ fn double_click_returns_checkbox_signal_to_initial_state() {
   let checked = Signal::new(false);
   let mut runtime = Runtime::new();
 
-  runtime.set_root(Element::checkbox(checked.clone()));
+  runtime.set_root(lurq::components::Checkbox::new(checked.clone()));
   let rect = runtime
     .find_element(|_| true)
     .expect("checkbox should be layoutable")

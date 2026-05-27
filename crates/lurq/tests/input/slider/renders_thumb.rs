@@ -2,7 +2,7 @@ use lurq::{
   app::Runtime,
   core::Signal,
   layout::{Constraints, Size, quad::QuadContent},
-  node::{Element, color::Color},
+  node::color::Color,
 };
 
 #[test]
@@ -10,7 +10,7 @@ fn slider_renders_track_and_thumb() {
   let value = Signal::new(5.0);
   let mut runtime = Runtime::new();
 
-  runtime.set_root(Element::slider(value).range(0.0, 10.0).width(100.0));
+  runtime.set_root(lurq::components::Slider::new(value).range(0.0, 10.0).width(100.0));
   let layout = runtime
     .compute_layout(Constraints::tight(Size::new(200.0, 80.0)))
     .unwrap();

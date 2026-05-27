@@ -270,8 +270,8 @@ pub enum Justify {
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Overflow {
-  #[default]
   Visible,
+  #[default]
   Hidden,
 }
 
@@ -291,4 +291,31 @@ pub struct FrameConstraints {
   pub max_width: Option<Dimension>,
   pub min_height: Option<Dimension>,
   pub max_height: Option<Dimension>,
+}
+
+impl FrameConstraints {
+  pub fn with_width(mut self, value: Option<Dimension>) -> Self {
+    self.width = value;
+    self
+  }
+  pub fn with_height(mut self, value: Option<Dimension>) -> Self {
+    self.height = value;
+    self
+  }
+  pub fn with_min_width(mut self, value: Option<Dimension>) -> Self {
+    self.min_width = value;
+    self
+  }
+  pub fn with_max_width(mut self, value: Option<Dimension>) -> Self {
+    self.max_width = value;
+    self
+  }
+  pub fn with_min_height(mut self, value: Option<Dimension>) -> Self {
+    self.min_height = value;
+    self
+  }
+  pub fn with_max_height(mut self, value: Option<Dimension>) -> Self {
+    self.max_height = value;
+    self
+  }
 }

@@ -31,9 +31,9 @@ impl Component for Counter {
     Self { count: ctx.signal(0) }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     let count = self.count.clone();
-    Element::text(&format!("Count: {}", self.count.get()))
+    lurq::components::Text::new(&format!("Count: {}", self.count.get()))
       .on_click(move |_| count.update(|n| *n += 1))
   }
 }
@@ -205,19 +205,19 @@ Parents pass slot children with `mount_with` or `mount_keyed_with`:
 
 ```rust
 ctx.mount_with::<Panel>(PanelProps { title: "Info" }, vec![
-  Element::text("Panel body"),
+  lurq::components::Text::new("Panel body"),
 ])
 ```
 
 The child component reads them through its own context:
 
 ```rust
-fn render(&self, ctx: &mut Ctx) -> Element {
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
   let child_count = ctx.children().len();
 
-  Element::column()
-    .child(Element::text(&self.title))
-    .child(Element::text(&format!("{child_count} slot children")))
+  lurq::components::Column::new()
+    .child(lurq::components::Text::new(&self.title))
+    .child(lurq::components::Text::new(&format!("{child_count} slot children")))
 }
 ```
 
@@ -233,7 +233,7 @@ ctx.children();
 ```rust
 let element_ref = ctx.element_ref();
 
-Element::rect(100.0, 40.0)
+lurq::components::Rect::new(100.0, 40.0)
   .ref_element(element_ref.clone())
 ```
 
@@ -254,7 +254,7 @@ Mutable element refs use the same handle type as `Runtime::find_element_mut`:
 ```rust
 let element_ref = ctx.element_ref_mut();
 
-Element::rect(100.0, 40.0)
+lurq::components::Rect::new(100.0, 40.0)
   .ref_element(element_ref.clone())
 
 element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
@@ -265,7 +265,7 @@ element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
 ```rust
 let state = ctx.interaction();
 
-Element::rect(100.0, 40.0)
+lurq::components::Rect::new(100.0, 40.0)
   .interactive(state.clone())
   .on_mouse_enter(|| println!("hover"))
 ```
@@ -297,8 +297,8 @@ Use keyed mounts for dynamic lists where identity matters.
 ## Mounting With Slot Children
 
 ```rust
-ctx.mount_with::<Panel>(props, vec![Element::text("body")]);
-ctx.mount_keyed_with::<Panel>("settings", props, vec![Element::text("body")]);
+ctx.mount_with::<Panel>(props, vec![lurq::components::Text::new("body")]);
+ctx.mount_keyed_with::<Panel>("settings", props, vec![lurq::components::Text::new("body")]);
 ```
 
 These work like `mount` and `mount_keyed`, but pass slot children into the child context.
@@ -310,12 +310,12 @@ let elements = ctx.for_each(
   self.items.get(),
   |item| item.id,
   |_ctx, item| {
-    Element::row()
-      .child(Element::text(&item.title))
+    lurq::components::Row::new()
+      .child(lurq::components::Text::new(&item.title))
   },
 );
 
-Element::column().with_children(elements)
+lurq::components::Column::new().with_children(elements)
 ```
 
 `for_each` creates keyed child contexts for arbitrary render closures, not just `Component` implementations. It is useful when each list item needs its own local context for child mounts, effects, or refs.
@@ -325,7 +325,7 @@ Element::column().with_children(elements)
 ```rust
 ctx.error_boundary(
   |ctx| risky_component(ctx),
-  || Element::text("Something went wrong"),
+  || lurq::components::Text::new("Something went wrong"),
 )
 ```
 

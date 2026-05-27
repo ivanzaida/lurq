@@ -1,7 +1,7 @@
 use lurq::{
   app::Runtime,
   layout::{Constraints, Size, layout_kind::FrameConstraints},
-  node::{Element, dimension::Dimension, padding::Padding},
+  node::{dimension::Dimension, padding::Padding},
 };
 
 fn rt() -> Runtime {
@@ -11,7 +11,7 @@ fn rt() -> Runtime {
 #[test]
 fn padding_all_sides() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -29,7 +29,7 @@ fn padding_all_sides() {
 #[test]
 fn padding_asymmetric() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -53,7 +53,7 @@ fn padding_asymmetric() {
 #[test]
 fn padding_horizontal_only() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -69,7 +69,7 @@ fn padding_horizontal_only() {
 #[test]
 fn padding_vertical_only() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -85,7 +85,7 @@ fn padding_vertical_only() {
 #[test]
 fn padding_symmetric() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -102,7 +102,9 @@ fn padding_symmetric() {
 fn padding_reduces_child_constraints() {
   let mut rt = rt();
   // Parent tight at 200x100, padding 20 all around -> child gets 160x60
-  let node = Element::new().flex(1.0).padding(Padding::all(Dimension::Px(20.0)));
+  let node = lurq::components::Spacer::new()
+    .flex(1.0)
+    .padding(Padding::all(Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   assert_eq!(result.size.width, 200.0);
@@ -112,7 +114,7 @@ fn padding_reduces_child_constraints() {
 #[test]
 fn padding_zero() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),

@@ -1,7 +1,6 @@
 use lurq::{
   app::Runtime,
   layout::{Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints},
-  node::Element,
 };
 
 fn rt() -> Runtime {
@@ -11,15 +10,15 @@ fn rt() -> Runtime {
 #[test]
 fn stack_sizes_to_largest_child() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::Center,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(100.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -35,15 +34,15 @@ fn stack_sizes_to_largest_child() {
 #[test]
 fn stack_center_alignment() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::Center,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -59,15 +58,15 @@ fn stack_center_alignment() {
 #[test]
 fn stack_top_start() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::TopStart,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -83,9 +82,9 @@ fn stack_top_start() {
 #[test]
 fn absolute_child_does_not_affect_stack_size() {
   let mut rt = rt();
-  let node = Element::stack()
-    .child(Element::rect(10.0, 20.0))
-    .child(Element::rect(100.0, 120.0).absolute(30.0, 40.0, 100.0, 120.0));
+  let node = lurq::components::Stack::new()
+    .child(lurq::components::Rect::new(10.0, 20.0))
+    .child(lurq::components::Rect::new(100.0, 120.0).absolute(30.0, 40.0, 100.0, 120.0));
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(500.0, 500.0))).unwrap();
 
@@ -100,15 +99,15 @@ fn absolute_child_does_not_affect_stack_size() {
 #[test]
 fn stack_bottom_end() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::BottomEnd,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -124,15 +123,15 @@ fn stack_bottom_end() {
 #[test]
 fn stack_top_center() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::TopCenter,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -148,15 +147,15 @@ fn stack_top_center() {
 #[test]
 fn stack_bottom_start() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::BottomStart,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -172,15 +171,15 @@ fn stack_bottom_start() {
 #[test]
 fn stack_per_child_align_override() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::TopStart,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(200.0)),
         ..Default::default()
       }),
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(50.0)),
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -201,7 +200,7 @@ fn stack_per_child_align_override() {
 #[test]
 fn stack_empty() {
   let mut rt = rt();
-  let node = Element::stack_with(StackAlignment::Center, vec![]);
+  let node = lurq::components::Stack::new().stack_align(StackAlignment::Center);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 0.0);

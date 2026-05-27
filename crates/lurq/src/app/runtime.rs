@@ -25,6 +25,7 @@ use crate::{
     Element, ElementRef, Node,
     border::BorderPlacement,
     color::Color,
+    cursor::CursorIcon,
     node_kind::{NodeKind, SliderState},
   },
 };
@@ -41,7 +42,7 @@ struct RootComponentWrapper<C: Component> {
 
 impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx)
+    self.component.render(ctx).into()
   }
 
   fn on_mounted(&self) {
@@ -74,6 +75,7 @@ pub struct Runtime {
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
   focused_event_path: Option<Vec<usize>>,
+  cursor: CursorIcon,
   needs_redraw: bool,
   last_profile: FrameProfile,
 }
@@ -107,6 +109,7 @@ impl Runtime {
       focused_event_node: None,
       focused_path: None,
       focused_event_path: None,
+      cursor: CursorIcon::Default,
       needs_redraw: false,
       last_profile: FrameProfile::default(),
     }
@@ -239,7 +242,7 @@ impl Runtime {
     }
   }
 
-  pub fn set_root(&mut self, element: Element) {
+  pub fn set_root(&mut self, element: impl Into<Element>) {
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
     }
@@ -247,7 +250,7 @@ impl Runtime {
       reset_element_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
-    let mut node = element.node;
+    let mut node = element.into().node;
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = None;
@@ -498,6 +501,10 @@ impl Runtime {
     self.needs_redraw || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
+  pub fn cursor(&self) -> CursorIcon {
+    self.cursor
+  }
+
   pub fn clear_needs_redraw(&mut self) {
     self.needs_redraw = false;
   }
@@ -513,6 +520,8 @@ impl Runtime {
     let scale = self.scale_factor();
     let lx = evt.x / scale;
     let ly = evt.y / scale;
+
+    self.update_layout();
 
     // Handle active scrollbar drag
     if let Some(ref drag_state) = self.dragging_scroll.clone() {
@@ -705,6 +714,10 @@ impl Runtime {
     }
 
     self.hover_path = current_ptrs;
+    self.cursor = hits
+      .iter()
+      .find_map(|(node, _)| node.cursor_icon())
+      .unwrap_or(CursorIcon::Default);
     if matches!(evt.kind, MouseEventKind::Down) {
       self.active_path = self.hover_path.clone();
     }

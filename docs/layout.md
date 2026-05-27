@@ -2,16 +2,16 @@
 
 ## Core Idea
 
-Layout is constraints-based and compositional. Public UI code builds `Element` values. Internally, each `Element` wraps a crate-private node tree made of containers, leaves, and modifier nodes.
+Layout is constraints-based and compositional. Public UI code builds typed components such as `Row`, `Column`, `Text`, and `Rect`, then converts them into the erased `Element` type at runtime/component boundaries. Internally, each `Element` wraps a crate-private node tree made of containers, leaves, and modifier nodes.
 
-A plain empty element has no intrinsic size. Size, padding, alignment, offsets, visuals, and scroll behavior are added by wrapping the element in modifiers.
+A plain empty component has no intrinsic size. Size, padding, alignment, offsets, visuals, and scroll behavior are added by wrapping the component in modifiers.
 
 ## Modifiers
 
 Modifiers are chainable and wrap the current element.
 
 ```rust
-Element::rect(80.0, 40.0)
+lurq::components::Rect::new(80.0, 40.0)
   .pad(12.0)
   .fill("#3b82f6")
   .rounded(8.0)
@@ -40,9 +40,9 @@ Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand f
 ```rust
 use lurq::node::dimension::Dimension;
 
-Element::spacer().width(120.0)
-Element::spacer().width(Dimension::Pct(50.0))
-Element::spacer().width(Dimension::Auto)
+lurq::components::Spacer::new().width(120.0)
+lurq::components::Spacer::new().width(Dimension::Pct(50.0))
+lurq::components::Spacer::new().width(Dimension::Auto)
 ```
 
 ## Constraints Model
@@ -74,14 +74,14 @@ Application code normally does not call layout directly. Runtime computes layout
 
 ### Column
 
-`Element::column()` arranges children top-to-bottom.
+`lurq::components::Column::new()` arranges children top-to-bottom.
 
 ```rust
-Element::column()
+lurq::components::Column::new()
   .spacing(8.0)
   .align_items(Alignment::Center)
-  .child(Element::text("A"))
-  .child(Element::text("B"))
+  .child(lurq::components::Text::new("A"))
+  .child(lurq::components::Text::new("B"))
 ```
 
 Column layout:
@@ -94,27 +94,27 @@ Column layout:
 
 ### Row
 
-`Element::row()` arranges children left-to-right.
+`lurq::components::Row::new()` arranges children left-to-right.
 
 ```rust
-Element::row()
+lurq::components::Row::new()
   .spacing(8.0)
   .align_items(Alignment::Center)
-  .child(Element::text("A"))
-  .child(Element::text("B"))
+  .child(lurq::components::Text::new("A"))
+  .child(lurq::components::Text::new("B"))
 ```
 
 Row layout is the horizontal equivalent of column layout.
 
 ### Stack
 
-`Element::stack()` overlays children. Later children paint on top of earlier children.
+`lurq::components::Stack::new()` overlays children. Later children paint on top of earlier children.
 
 ```rust
-Element::stack()
+lurq::components::Stack::new()
   .stack_align(StackAlignment::Center)
-  .child(Element::rect(200.0, 120.0))
-  .child(Element::rect(40.0, 40.0).fill("#ef4444"))
+  .child(lurq::components::Rect::new(200.0, 120.0))
+  .child(lurq::components::Rect::new(40.0, 40.0).fill("#ef4444"))
 ```
 
 Stack layout:
@@ -129,7 +129,7 @@ Absolute children do not contribute to stack size.
 ## Relative Positioning
 
 ```rust
-Element::rect(50.0, 50.0).relative(10.0, 20.0)
+lurq::components::Rect::new(50.0, 50.0).relative(10.0, 20.0)
 ```
 
 Relative positioning is an offset. It moves the child visually but the parent still reserves space as if the offset were zero. Siblings are not moved by the offset.
@@ -139,10 +139,10 @@ Relative positioning is an offset. It moves the child visually but the parent st
 Absolute positioning is intentionally scoped to `Stack`.
 
 ```rust
-Element::stack()
-  .child(Element::rect(300.0, 120.0).fill("#f8fafc"))
+lurq::components::Stack::new()
+  .child(lurq::components::Rect::new(300.0, 120.0).fill("#f8fafc"))
   .child(
-    Element::rect(80.0, 32.0)
+    lurq::components::Rect::new(80.0, 32.0)
       .fill("#f97316")
       .absolute(190.0, 24.0, 80.0, 32.0),
   )
@@ -160,9 +160,9 @@ There is no z-index. Rendering order is structural: later stack children paint a
 ### Row And Column Alignment
 
 ```rust
-Element::column()
+lurq::components::Column::new()
   .align_items(Alignment::Center)
-  .child(Element::text("centered"))
+  .child(lurq::components::Text::new("centered"))
 ```
 
 ```rust
@@ -177,18 +177,18 @@ pub enum Alignment {
 ### Per-Child Override
 
 ```rust
-Element::column()
+lurq::components::Column::new()
   .align_items(Alignment::Start)
-  .child(Element::text("left"))
-  .child(Element::text("right").align(Alignment::End))
+  .child(lurq::components::Text::new("left"))
+  .child(lurq::components::Text::new("right").align(Alignment::End))
 ```
 
 ### Stack Alignment
 
 ```rust
-Element::stack()
+lurq::components::Stack::new()
   .stack_align(StackAlignment::BottomEnd)
-  .child(Element::rect(40.0, 40.0))
+  .child(lurq::components::Rect::new(40.0, 40.0))
 ```
 
 ```rust
@@ -210,10 +210,10 @@ pub enum StackAlignment {
 Children inside `Row` or `Column` can consume remaining space with `.flex(factor)`.
 
 ```rust
-Element::row()
-  .child(Element::rect(100.0, 50.0))
-  .child(Element::spacer().flex(1.0))
-  .child(Element::rect(100.0, 50.0))
+lurq::components::Row::new()
+  .child(lurq::components::Rect::new(100.0, 50.0))
+  .child(lurq::components::Spacer::new().flex(1.0))
+  .child(lurq::components::Rect::new(100.0, 50.0))
 ```
 
 Flex layout:
@@ -226,8 +226,8 @@ Flex layout:
 ## Scroll
 
 ```rust
-Element::scroll_vertical(
-  Element::column()
+lurq::components::ScrollVertical::new(
+  lurq::components::Column::new()
     .spacing(4.0)
     .with_children(items),
 )
@@ -241,7 +241,7 @@ Scroll containers give their child unbounded constraints on the scroll axis and 
 Text is measured by the glyph engine and wraps within its width constraint.
 
 ```rust
-Element::styled_text("hello", TextStyle {
+lurq::components::Text::styled("hello", TextStyle {
   font_size: 18.0,
   ..TextStyle::default()
 })

@@ -11,42 +11,42 @@ fn rt() -> Runtime {
 #[test]
 fn column_of_rows() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     10.0,
     Alignment::Start,
     vec![
-      Element::row_with(
+      Element::from(lurq::components::Row::with(
         5.0,
         Alignment::Start,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(50.0)),
             height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(50.0)),
             height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
         ],
-      ),
-      Element::row_with(
+      )),
+      Element::from(lurq::components::Row::with(
         5.0,
         Alignment::Start,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(60.0)),
             height: Some(lurq::node::dimension::Dimension::Px(40.0)),
             ..Default::default()
           }),
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(60.0)),
             height: Some(lurq::node::dimension::Dimension::Px(40.0)),
             ..Default::default()
           }),
         ],
-      ),
+      )),
     ],
   );
   rt.set_root(node);
@@ -60,42 +60,42 @@ fn column_of_rows() {
 #[test]
 fn row_of_columns() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     10.0,
     Alignment::Start,
     vec![
-      Element::column_with(
+      Element::from(lurq::components::Column::with(
         5.0,
         Alignment::Start,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(50.0)),
             height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(50.0)),
             height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
         ],
-      ),
-      Element::column_with(
+      )),
+      Element::from(lurq::components::Column::with(
         5.0,
         Alignment::Start,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(60.0)),
             height: Some(lurq::node::dimension::Dimension::Px(20.0)),
             ..Default::default()
           }),
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(60.0)),
             height: Some(lurq::node::dimension::Dimension::Px(20.0)),
             ..Default::default()
           }),
         ],
-      ),
+      )),
     ],
   );
   rt.set_root(node);
@@ -107,18 +107,18 @@ fn row_of_columns() {
 #[test]
 fn padding_inside_row() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(80.0)),
           height: Some(lurq::node::dimension::Dimension::Px(40.0)),
           ..Default::default()
         })
         .padding(Padding::all(Dimension::Px(10.0))),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(80.0)),
         height: Some(lurq::node::dimension::Dimension::Px(40.0)),
         ..Default::default()
@@ -135,7 +135,7 @@ fn padding_inside_row() {
 #[test]
 fn frame_inside_padding() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -153,30 +153,30 @@ fn frame_inside_padding() {
 #[test]
 fn stack_inside_column() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::stack_with(
+      Element::from(lurq::components::Stack::with(
         StackAlignment::Center,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(200.0)),
             height: Some(lurq::node::dimension::Dimension::Px(100.0)),
             ..Default::default()
           }),
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(50.0)),
             height: Some(lurq::node::dimension::Dimension::Px(50.0)),
             ..Default::default()
           }),
         ],
-      ),
-      Element::new().frame(FrameConstraints {
+      )),
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(30.0)),
         ..Default::default()
-      }),
+      })),
     ],
   );
   rt.set_root(node);
@@ -188,21 +188,26 @@ fn stack_inside_column() {
 #[test]
 fn flex_children_in_nested_row() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
-      }),
-      Element::row_with(
-        0.0,
-        Alignment::Start,
-        vec![Element::new().flex(1.0), Element::new().flex(1.0)],
-      )
-      .flex(1.0),
+      })),
+      Element::from(
+        lurq::components::Row::with(
+          0.0,
+          Alignment::Start,
+          vec![
+            lurq::components::Spacer::new().flex(1.0),
+            lurq::components::Spacer::new().flex(1.0),
+          ],
+        )
+        .flex(1.0),
+      ),
     ],
   );
   rt.set_root(node);
@@ -214,7 +219,7 @@ fn flex_children_in_nested_row() {
 #[test]
 fn deeply_nested_padding() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(50.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -232,18 +237,18 @@ fn deeply_nested_padding() {
 #[test]
 fn offset_inside_row_does_not_affect_siblings() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(50.0)),
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .offset(100.0, 100.0),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()

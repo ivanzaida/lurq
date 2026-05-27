@@ -1,14 +1,11 @@
-use lurq::{
-  app::Runtime,
-  node::{Element, color::Color},
-};
+use lurq::{app::Runtime, node::color::Color};
 
 #[test]
 fn updates_layout_after_mutating_found_element_rect() {
   let mut runtime = Runtime::new();
   runtime.set_root(
-    Element::column()
-      .child(Element::rect(10.0, 20.0).fill("#22c55e"))
+    lurq::components::Column::new()
+      .child(lurq::components::Rect::new(10.0, 20.0).fill("#22c55e"))
       .pad(10.0),
   );
 

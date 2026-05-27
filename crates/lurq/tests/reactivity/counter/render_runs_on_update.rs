@@ -28,23 +28,23 @@ impl Component for Counter {
     }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     self.renders.fetch_add(1, Ordering::Relaxed);
 
     let c = self.count.clone();
     let c2 = self.count.clone();
     let val = self.count.get();
 
-    Element::row()
+    lurq::components::Row::new()
       .spacing(12.0)
       .align_items(Alignment::Center)
       .child(
-        Element::rect(36.0, 36.0)
+        lurq::components::Rect::new(36.0, 36.0)
           .fill("#ef4444")
           .rounded(6.0)
           .on_click(move |_| c.update(|n| *n -= 1)),
       )
-      .child(Element::styled_text(
+      .child(lurq::components::Text::styled(
         &format!("{}", val),
         TextStyle {
           font_size: 24.0,
@@ -54,7 +54,7 @@ impl Component for Counter {
         },
       ))
       .child(
-        Element::rect(36.0, 36.0)
+        lurq::components::Rect::new(36.0, 36.0)
           .fill("#22c55e")
           .rounded(6.0)
           .on_click(move |_| c2.update(|n| *n += 1)),

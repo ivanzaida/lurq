@@ -17,8 +17,8 @@ impl Component for EditableText {
     }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::text_input(self.value.clone())
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::TextInput::new(self.value.clone())
   }
 }
 

@@ -1,6 +1,6 @@
 use lurq::{
   layout::text_style::{FontWeight, TextStyle},
-  node::{Element, color::Color},
+  node::color::Color,
 };
 
 pub(crate) const BG: &str = "#0f172a";
@@ -17,8 +17,8 @@ pub(crate) const WARNING: &str = "#f59e0b";
 pub(crate) const ACCENT: &str = "#06b6d4";
 pub(crate) const SECONDARY: &str = "#8b5cf6";
 
-pub(crate) fn text(content: &str, font_size: f32, weight: FontWeight, color: &str) -> Element {
-  Element::styled_text(
+pub(crate) fn text(content: &str, font_size: f32, weight: FontWeight, color: &str) -> lurq::components::Text {
+  lurq::components::Text::styled(
     content,
     TextStyle {
       font_size,

@@ -49,7 +49,7 @@ struct ComponentWrapper<C: Component> {
 
 impl<C: Component> AnyComponent for ComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx)
+    self.component.render(ctx).into()
   }
 
   fn on_mounted(&self) {

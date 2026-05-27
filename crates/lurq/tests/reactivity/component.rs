@@ -23,8 +23,8 @@ impl Component for Counter {
       count: ctx.signal(initial),
     }
   }
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::text(&format!("{}", self.count.get()))
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Text::new(&format!("{}", self.count.get()))
   }
 }
 
@@ -35,8 +35,8 @@ impl Component for Parent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
-    Element::column()
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Column::new()
       .child(ctx.mount::<Counter>(0))
       .child(ctx.mount::<Counter>(10))
   }
@@ -50,7 +50,7 @@ impl Component for ContextProvider {
     ctx.provide(42_i32);
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     ctx.mount::<ContextConsumer>(())
   }
 }
@@ -62,9 +62,9 @@ impl Component for ContextConsumer {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let val = ctx.use_context::<i32>().unwrap_or(0);
-    Element::text(&format!("{}", val))
+    lurq::components::Text::new(&format!("{}", val))
   }
 }
 
@@ -75,9 +75,9 @@ impl Component for SlotWrapper {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let count = ctx.children().len();
-    Element::column().with_children((0..count).map(|_| Element::new()))
+    lurq::components::Column::new().with_children((0..count).map(|_| Element::new()))
   }
 }
 
@@ -88,10 +88,14 @@ impl Component for ForEachParent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let items = vec![1, 2, 3, 4, 5];
-    let nodes = ctx.for_each(items, |i| *i, |_ctx, i| Element::text(&format!("item-{}", i)));
-    Element::column().with_children(nodes)
+    let nodes = ctx.for_each(
+      items,
+      |i| *i,
+      |_ctx, i| lurq::components::Text::new(&format!("item-{}", i)).into(),
+    );
+    lurq::components::Column::new().with_children(nodes)
   }
 }
 
@@ -102,12 +106,12 @@ impl Component for ErrorComponent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     ctx.error_boundary(
       |_ctx| {
         panic!("intentional panic");
       },
-      || Element::text("fallback"),
+      || lurq::components::Text::new("fallback").into(),
     )
   }
 }
@@ -119,7 +123,7 @@ impl Component for EmptyComponent {
   fn create(_ctx: &mut Ctx, _: ()) -> Self {
     Self
   }
-  fn render(&self, _ctx: &mut Ctx) -> Element {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     Element::new()
   }
 }
@@ -131,7 +135,7 @@ impl Component for DeeplyNested {
   fn create(_ctx: &mut Ctx, _: u32) -> Self {
     Self
   }
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     ctx.mount::<EmptyComponent>(())
   }
 }
@@ -149,8 +153,8 @@ impl Component for SignalRoot {
     Self { count }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::text(&format!("{}", self.count.get()))
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Text::new(&format!("{}", self.count.get()))
   }
 }
 
@@ -169,7 +173,7 @@ impl Component for LifecycleChild {
     }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     Element::new()
   }
 
@@ -201,7 +205,7 @@ impl Component for ConditionalLifecycleParent {
     }
   }
 
-  fn render(&self, ctx: &mut Ctx) -> Element {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     if self.show_child.get() {
       ctx.mount::<LifecycleChild>((self.mounted.clone(), self.unmounted.clone()))
     } else {
@@ -225,7 +229,7 @@ impl Component for RootLifecycle {
     }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     Element::new()
   }
 

@@ -3,6 +3,7 @@ use crate::{
   node::{
     border::{Border, BorderPlacement, BorderRadius, BorderWidth},
     color::Color,
+    cursor::CursorIcon,
     dimension::Dimension,
     padding::Padding,
   },
@@ -13,6 +14,7 @@ pub struct Style {
   pub(crate) color: Option<Color>,
   pub(crate) border_radius: Option<BorderRadius>,
   pub(crate) border: Option<Border>,
+  pub(crate) cursor: Option<CursorIcon>,
   pub(crate) frame: Option<FrameConstraints>,
   pub(crate) padding: Option<Padding>,
   pub(crate) flex: Option<FlexParams>,
@@ -158,6 +160,11 @@ impl Style {
     self
   }
 
+  pub fn cursor(mut self, cursor: CursorIcon) -> Self {
+    self.cursor = Some(cursor);
+    self
+  }
+
   pub(crate) fn merge_from(&mut self, other: &Style) {
     if other.color.is_some() {
       self.color = other.color;
@@ -167,6 +174,9 @@ impl Style {
     }
     if other.border.is_some() {
       self.border = other.border;
+    }
+    if other.cursor.is_some() {
+      self.cursor = other.cursor;
     }
     if other.frame.is_some() {
       self.frame = other.frame;

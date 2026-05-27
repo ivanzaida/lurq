@@ -1,6 +1,6 @@
 use crate::node::color::Color;
 
-#[derive(Clone)]
+#[derive(Clone, accessors_macro::Accessors)]
 pub struct ScrollBarStyle {
   pub width: f32,
   pub min_thumb_length: f32,
@@ -63,110 +63,6 @@ impl ScrollBarStyle {
       visible: ScrollBarVisibility::Never,
       ..Self::default()
     }
-  }
-
-  pub fn width(&self) -> f32 {
-    self.width
-  }
-
-  pub fn set_width(&mut self, value: f32) {
-    self.width = value;
-  }
-
-  pub fn with_width(mut self, value: f32) -> Self {
-    self.width = value;
-    self
-  }
-
-  pub fn min_thumb_length(&self) -> f32 {
-    self.min_thumb_length
-  }
-
-  pub fn set_min_thumb_length(&mut self, value: f32) {
-    self.min_thumb_length = value;
-  }
-
-  pub fn with_min_thumb_length(mut self, value: f32) -> Self {
-    self.min_thumb_length = value;
-    self
-  }
-
-  pub fn track_color(&self) -> Color {
-    self.track_color
-  }
-
-  pub fn set_track_color(&mut self, value: Color) {
-    self.track_color = value;
-  }
-
-  pub fn with_track_color(mut self, value: Color) -> Self {
-    self.track_color = value;
-    self
-  }
-
-  pub fn thumb_color(&self) -> Color {
-    self.thumb_color
-  }
-
-  pub fn set_thumb_color(&mut self, value: Color) {
-    self.thumb_color = value;
-  }
-
-  pub fn with_thumb_color(mut self, value: Color) -> Self {
-    self.thumb_color = value;
-    self
-  }
-
-  pub fn thumb_radius(&self) -> f32 {
-    self.thumb_radius
-  }
-
-  pub fn set_thumb_radius(&mut self, value: f32) {
-    self.thumb_radius = value;
-  }
-
-  pub fn with_thumb_radius(mut self, value: f32) -> Self {
-    self.thumb_radius = value;
-    self
-  }
-
-  pub fn track_radius(&self) -> f32 {
-    self.track_radius
-  }
-
-  pub fn set_track_radius(&mut self, value: f32) {
-    self.track_radius = value;
-  }
-
-  pub fn with_track_radius(mut self, value: f32) -> Self {
-    self.track_radius = value;
-    self
-  }
-
-  pub fn padding(&self) -> f32 {
-    self.padding
-  }
-
-  pub fn set_padding(&mut self, value: f32) {
-    self.padding = value;
-  }
-
-  pub fn with_padding(mut self, value: f32) -> Self {
-    self.padding = value;
-    self
-  }
-
-  pub fn visible(&self) -> ScrollBarVisibility {
-    self.visible
-  }
-
-  pub fn set_visible(&mut self, value: ScrollBarVisibility) {
-    self.visible = value;
-  }
-
-  pub fn with_visible(mut self, value: ScrollBarVisibility) -> Self {
-    self.visible = value;
-    self
   }
 }
 

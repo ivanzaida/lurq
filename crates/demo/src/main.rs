@@ -4,6 +4,7 @@ mod style;
 
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
+  components::Row,
   core::Signal,
   layout::{
     Alignment,
@@ -31,8 +32,8 @@ impl Component for DemoApp {
     Self { signal: ctx.signal(0) }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::row()
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Row::new()
       .align_items(Alignment::Stretch)
       .on_click({
         let c = self.signal.clone();
@@ -41,7 +42,7 @@ impl Component for DemoApp {
         }
       })
       .child(
-        Element::scroll_vertical(sidebar())
+        lurq::components::ScrollVertical::new(sidebar())
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 6.0,
@@ -54,7 +55,7 @@ impl Component for DemoApp {
           .fill(SURFACE_DARK),
       )
       .child(
-        Element::scroll_vertical(layout_content())
+        lurq::components::ScrollVertical::new(layout_content())
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 7.0,

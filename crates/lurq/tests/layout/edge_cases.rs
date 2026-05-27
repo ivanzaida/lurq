@@ -33,7 +33,7 @@ fn leaf_with_tight_zero_constraints() {
 #[test]
 fn row_of_zero_size_children() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     10.0,
     Alignment::Start,
     vec![Element::new(), Element::new(), Element::new()],
@@ -47,7 +47,7 @@ fn row_of_zero_size_children() {
 #[test]
 fn column_of_zero_size_children() {
   let mut rt = rt();
-  let node = Element::column_with(5.0, Alignment::Start, vec![Element::new(), Element::new()]);
+  let node = lurq::components::Column::with(5.0, Alignment::Start, vec![Element::new(), Element::new()]);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
@@ -60,7 +60,7 @@ fn column_of_zero_size_children() {
 fn frame_overrides_outer_constraints() {
   let mut rt = rt();
   // Frame sets its own tight constraints, overriding the outer ones
-  let node = Element::new().frame(FrameConstraints {
+  let node = lurq::components::Spacer::new().frame(FrameConstraints {
     width: Some(lurq::node::dimension::Dimension::Px(500.0)),
     height: Some(lurq::node::dimension::Dimension::Px(500.0)),
     ..Default::default()
@@ -75,7 +75,7 @@ fn frame_overrides_outer_constraints() {
 fn max_frame_constrains_inner_frame() {
   let mut rt = rt();
   // Outer frame with max_width limits the inner frame
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(500.0)),
       height: Some(lurq::node::dimension::Dimension::Px(500.0)),
@@ -115,13 +115,13 @@ fn min_constraints_expand_leaf() {
 #[test]
 fn flex_all_children_are_flex() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().flex(1.0),
-      Element::new().flex(1.0),
-      Element::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
     ],
   );
   rt.set_root(node);
@@ -134,7 +134,7 @@ fn flex_all_children_are_flex() {
 #[test]
 fn flex_single_child_takes_all_space() {
   let mut rt = rt();
-  let node = Element::row_with(0.0, Alignment::Start, vec![Element::new().flex(1.0)]);
+  let node = lurq::components::Row::with(0.0, Alignment::Start, vec![lurq::components::Spacer::new().flex(1.0)]);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 400.0);
@@ -143,16 +143,16 @@ fn flex_single_child_takes_all_space() {
 #[test]
 fn flex_zero_remaining_space() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(400.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
-      Element::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
     ],
   );
   rt.set_root(node);
@@ -163,10 +163,13 @@ fn flex_zero_remaining_space() {
 #[test]
 fn flex_with_large_spacing_eats_space() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     100.0,
     Alignment::Start,
-    vec![Element::new().flex(1.0), Element::new().flex(1.0)],
+    vec![
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().flex(1.0),
+    ],
   );
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
@@ -178,10 +181,13 @@ fn flex_with_large_spacing_eats_space() {
 #[test]
 fn flex_factor_very_small() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
-    vec![Element::new().flex(0.001), Element::new().flex(999.999)],
+    vec![
+      lurq::components::Spacer::new().flex(0.001),
+      lurq::components::Spacer::new().flex(999.999),
+    ],
   );
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(1000.0, 100.0))).unwrap();
@@ -194,7 +200,7 @@ fn flex_factor_very_small() {
 #[test]
 fn multiple_modifiers_chain() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(50.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -215,18 +221,18 @@ fn multiple_modifiers_chain() {
 #[test]
 fn align_modifier_is_passthrough_in_flex() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
+      lurq::components::Spacer::new()
         .frame(FrameConstraints {
           width: Some(lurq::node::dimension::Dimension::Px(50.0)),
           height: Some(lurq::node::dimension::Dimension::Px(50.0)),
           ..Default::default()
         })
         .align(Alignment::Center),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -245,9 +251,9 @@ fn align_modifier_is_passthrough_in_flex() {
 #[test]
 fn stack_single_child() {
   let mut rt = rt();
-  let node = Element::stack_with(
+  let node = lurq::components::Stack::with(
     StackAlignment::BottomEnd,
-    vec![Element::new().frame(FrameConstraints {
+    vec![lurq::components::Spacer::new().frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(80.0)),
       ..Default::default()
@@ -265,13 +271,13 @@ fn stack_single_child() {
 fn stack_all_same_size_children() {
   let mut rt = rt();
   let f = || {
-    Element::new().frame(FrameConstraints {
+    lurq::components::Spacer::new().frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(100.0)),
       ..Default::default()
     })
   };
-  let node = Element::stack_with(StackAlignment::Center, vec![f(), f(), f()]);
+  let node = lurq::components::Stack::with(StackAlignment::Center, vec![f(), f(), f()]);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
@@ -287,7 +293,7 @@ fn stack_all_same_size_children() {
 #[test]
 fn padding_larger_than_constraints() {
   let mut rt = rt();
-  let node = Element::new().padding(Padding::all(Dimension::Px(100.0)));
+  let node = lurq::components::Spacer::new().padding(Padding::all(Dimension::Px(100.0)));
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::tight(Size::new(50.0, 50.0))).unwrap();
   // Padding subtracts from constraints, clamped to 0
@@ -298,7 +304,7 @@ fn padding_larger_than_constraints() {
 #[test]
 fn nested_padding_accumulates() {
   let mut rt = rt();
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(10.0)),
       height: Some(lurq::node::dimension::Dimension::Px(10.0)),
@@ -318,7 +324,7 @@ fn nested_padding_accumulates() {
 fn quads_skip_modifier_wrapper_nodes() {
   let mut rt = rt();
   // padding modifier itself has no color, so no quad for it
-  let node = Element::new()
+  let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
@@ -338,25 +344,29 @@ fn quads_skip_modifier_wrapper_nodes() {
 #[test]
 fn quads_multiple_visible_children() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new()
-        .frame(FrameConstraints {
-          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-          ..Default::default()
-        })
-        .background(Color::new(255, 0, 0, 255)),
-      Element::text("middle"),
-      Element::new()
-        .frame(FrameConstraints {
-          width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-          height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-          ..Default::default()
-        })
-        .background(Color::new(0, 0, 255, 255)),
+      Element::from(
+        lurq::components::Spacer::new()
+          .frame(FrameConstraints {
+            width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+            height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+            ..Default::default()
+          })
+          .background(Color::new(255, 0, 0, 255)),
+      ),
+      Element::from(lurq::components::Text::new("middle")),
+      Element::from(
+        lurq::components::Spacer::new()
+          .frame(FrameConstraints {
+            width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+            height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+            ..Default::default()
+          })
+          .background(Color::new(0, 0, 255, 255)),
+      ),
     ],
   );
   rt.set_root(node);
@@ -371,25 +381,25 @@ fn quads_multiple_visible_children() {
 #[test]
 fn quads_offset_accumulates_through_nesting() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(100.0)),
         ..Default::default()
-      }),
-      Element::row_with(
+      })),
+      Element::from(lurq::components::Row::with(
         0.0,
         Alignment::Start,
         vec![
-          Element::new().frame(FrameConstraints {
+          lurq::components::Spacer::new().frame(FrameConstraints {
             width: Some(lurq::node::dimension::Dimension::Px(30.0)),
             height: Some(lurq::node::dimension::Dimension::Px(30.0)),
             ..Default::default()
           }),
-          Element::new()
+          lurq::components::Spacer::new()
             .frame(FrameConstraints {
               width: Some(lurq::node::dimension::Dimension::Px(30.0)),
               height: Some(lurq::node::dimension::Dimension::Px(30.0)),
@@ -398,7 +408,7 @@ fn quads_offset_accumulates_through_nesting() {
             .background(Color::new(0, 255, 0, 255))
             .padding(Padding::all(Dimension::Px(5.0))),
         ],
-      ),
+      )),
     ],
   );
   rt.set_root(node);
@@ -415,16 +425,16 @@ fn quads_offset_accumulates_through_nesting() {
 #[test]
 fn row_with_unbounded_constraints() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     10.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(200.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -440,16 +450,16 @@ fn row_with_unbounded_constraints() {
 #[test]
 fn column_with_unbounded_constraints() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     10.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(80.0)),
         ..Default::default()
@@ -469,14 +479,14 @@ fn many_children_in_row() {
   let mut rt = rt();
   let children: Vec<Element> = (0..100)
     .map(|_| {
-      Element::new().frame(FrameConstraints {
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(10.0)),
         height: Some(lurq::node::dimension::Dimension::Px(10.0)),
         ..Default::default()
-      })
+      }))
     })
     .collect();
-  let node = Element::row_with(1.0, Alignment::Start, children);
+  let node = lurq::components::Row::with(1.0, Alignment::Start, children);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::unbounded()).unwrap();
   assert_eq!(result.size.width, 1099.0); // 100*10 + 99*1
@@ -489,14 +499,14 @@ fn many_children_in_column() {
   let mut rt = rt();
   let children: Vec<Element> = (0..100)
     .map(|_| {
-      Element::new().frame(FrameConstraints {
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(10.0)),
         height: Some(lurq::node::dimension::Dimension::Px(10.0)),
         ..Default::default()
-      })
+      }))
     })
     .collect();
-  let node = Element::column_with(2.0, Alignment::Start, children);
+  let node = lurq::components::Column::with(2.0, Alignment::Start, children);
   rt.set_root(node);
   let result = rt.compute_layout(Constraints::unbounded()).unwrap();
   assert_eq!(result.size.width, 10.0);
@@ -508,17 +518,17 @@ fn many_children_in_column() {
 #[test]
 fn flex_between_two_fixed() {
   let mut rt = rt();
-  let node = Element::row_with(
+  let node = lurq::components::Row::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
       }),
-      Element::new().flex(1.0),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(50.0)),
         height: Some(lurq::node::dimension::Dimension::Px(50.0)),
         ..Default::default()
@@ -537,17 +547,17 @@ fn flex_between_two_fixed() {
 #[test]
 fn two_fixed_one_flex_column() {
   let mut rt = rt();
-  let node = Element::column_with(
+  let node = lurq::components::Column::with(
     0.0,
     Alignment::Start,
     vec![
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(40.0)),
         ..Default::default()
       }),
-      Element::new().flex(1.0),
-      Element::new().frame(FrameConstraints {
+      lurq::components::Spacer::new().flex(1.0),
+      lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(100.0)),
         height: Some(lurq::node::dimension::Dimension::Px(40.0)),
         ..Default::default()
