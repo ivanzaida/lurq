@@ -3,6 +3,8 @@ use crate::{layout::quad::ClipRect, node::color::Color};
 pub struct RenderList {
   pub rects: Vec<RectCmd>,
   pub glyphs: Vec<GlyphCmd>,
+  #[cfg(feature = "image")]
+  pub images: Vec<crate::images::ImageCmd>,
   pub atlas: GlyphAtlas,
 }
 

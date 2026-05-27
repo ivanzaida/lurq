@@ -27,7 +27,16 @@ pub struct Quad {
 }
 
 pub enum QuadContent {
-  Rect { color: Color },
-  Text { text: String, style: TextStyle },
+  Rect {
+    color: Color,
+  },
+  Text {
+    text: String,
+    style: TextStyle,
+  },
+  #[cfg(feature = "image")]
+  Image {
+    data: crate::images::ImageData,
+  },
   None,
 }
