@@ -5,3 +5,5 @@ pub mod core;
 pub mod images;
 pub mod layout;
 pub mod node;
+#[cfg(feature = "svg")]
+pub mod svg;

@@ -22,6 +22,10 @@ pub(crate) enum NodeKind {
   Image {
     data: crate::images::ImageData,
   },
+  #[cfg(feature = "svg")]
+  Svg {
+    data: crate::svg::SvgData,
+  },
 }
 
 #[derive(Clone)]

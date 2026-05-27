@@ -215,6 +215,36 @@ impl ImageInstance {
   }
 }
 
+#[cfg(feature = "svg")]
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SvgVertexGpu {
+  pub position: [f32; 2],
+  pub color: [f32; 4],
+}
+
+#[cfg(feature = "svg")]
+impl SvgVertexGpu {
+  pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+      array_stride: std::mem::size_of::<SvgVertexGpu>() as wgpu::BufferAddress,
+      step_mode: wgpu::VertexStepMode::Vertex,
+      attributes: &[
+        wgpu::VertexAttribute {
+          offset: 0,
+          shader_location: 0,
+          format: wgpu::VertexFormat::Float32x2,
+        },
+        wgpu::VertexAttribute {
+          offset: 8,
+          shader_location: 1,
+          format: wgpu::VertexFormat::Float32x4,
+        },
+      ],
+    }
+  }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Globals {

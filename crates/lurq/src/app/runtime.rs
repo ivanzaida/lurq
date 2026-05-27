@@ -334,6 +334,8 @@ impl Runtime {
     let mut glyphs = Vec::new();
     #[cfg(feature = "image")]
     let mut images = Vec::new();
+    #[cfg(feature = "svg")]
+    let mut svgs = Vec::new();
 
     for quad in &quads {
       let scaled_clip = if quad.clip.active {
@@ -429,6 +431,21 @@ impl Runtime {
             clip: scaled_clip,
           });
         }
+        #[cfg(feature = "svg")]
+        QuadContent::Svg { data } => {
+          let w = quad.width * scale;
+          let h = quad.height * scale;
+          let mesh = crate::svg::tessellate::tessellate(&data, w, h);
+          svgs.push(crate::svg::SvgCmd {
+            x: quad.x * scale,
+            y: quad.y * scale,
+            width: w,
+            height: h,
+            svg_id: data.id(),
+            mesh: std::sync::Arc::new(mesh),
+            clip: scaled_clip,
+          });
+        }
         QuadContent::None => {}
       }
     }
@@ -442,6 +459,8 @@ impl Runtime {
       glyphs,
       #[cfg(feature = "image")]
       images,
+      #[cfg(feature = "svg")]
+      svgs,
       atlas: atlas_packer.to_atlas(),
     };
 

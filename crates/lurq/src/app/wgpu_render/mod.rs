@@ -21,6 +21,10 @@ pub struct WgpuRenderEngine {
   glyph_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "image")]
   image_pipeline: Option<wgpu::RenderPipeline>,
+  #[cfg(feature = "svg")]
+  svg_pipeline: Option<wgpu::RenderPipeline>,
+  #[cfg(feature = "svg")]
+  svg_bgl: Option<wgpu::BindGroupLayout>,
   surface: Option<wgpu::Surface<'static>>,
   surface_config: Option<wgpu::SurfaceConfiguration>,
   quad_bgl: Option<wgpu::BindGroupLayout>,
@@ -55,6 +59,10 @@ impl WgpuRenderEngine {
       glyph_pipeline: None,
       #[cfg(feature = "image")]
       image_pipeline: None,
+      #[cfg(feature = "svg")]
+      svg_pipeline: None,
+      #[cfg(feature = "svg")]
+      svg_bgl: None,
       surface: None,
       surface_config: None,
       quad_bgl: None,
@@ -338,6 +346,63 @@ impl WgpuRenderEngine {
       (image_pipeline, image_bgl, image_sampler)
     };
 
+    // --- SVG pipeline ---
+    #[cfg(feature = "svg")]
+    let (svg_pipeline, svg_bgl) = {
+      use vertex::SvgVertexGpu;
+      let svg_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lurq_svg_bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+          binding: 0,
+          visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+          ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+          },
+          count: None,
+        }],
+      });
+      let svg_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lurq_svg_shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/svg.wgsl").into()),
+      });
+      let svg_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lurq_svg_pl"),
+        bind_group_layouts: &[&svg_bgl],
+        push_constant_ranges: &[],
+      });
+      let svg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lurq_svg_pipeline"),
+        layout: Some(&svg_pipeline_layout),
+        vertex: wgpu::VertexState {
+          module: &svg_shader,
+          entry_point: Some("vs_main"),
+          buffers: &[SvgVertexGpu::desc()],
+          compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+          module: &svg_shader,
+          entry_point: Some("fs_main"),
+          targets: &[Some(wgpu::ColorTargetState {
+            format,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::ALL,
+          })],
+          compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+          topology: wgpu::PrimitiveTopology::TriangleList,
+          ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+      });
+      (svg_pipeline, svg_bgl)
+    };
+
     // --- Shared vertex/index buffers ---
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("lurq_quad_verts"),
@@ -359,6 +424,11 @@ impl WgpuRenderEngine {
     #[cfg(feature = "image")]
     {
       self.image_pipeline = Some(image_pipeline);
+    }
+    #[cfg(feature = "svg")]
+    {
+      self.svg_pipeline = Some(svg_pipeline);
+      self.svg_bgl = Some(svg_bgl);
     }
     self.surface = Some(surface);
     self.surface_config = Some(config);
@@ -775,6 +845,89 @@ impl RenderEngine for WgpuRenderEngine {
           });
           pass.set_vertex_buffer(1, instance_buf.slice(..));
           pass.draw_indexed(0..6, 0, 0..1);
+        }
+      }
+
+      // SVG draws
+      #[cfg(feature = "svg")]
+      if !list.svgs.is_empty() {
+        use vertex::SvgVertexGpu;
+        pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
+
+        for svg_cmd in &list.svgs {
+          if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
+            continue;
+          }
+
+          let svg_globals = Globals {
+            viewport: [vw, vh, 0.0, 0.0],
+            clip_rect: if svg_cmd.clip.active {
+              [svg_cmd.clip.x, svg_cmd.clip.y, svg_cmd.clip.width, svg_cmd.clip.height]
+            } else {
+              [0.0, 0.0, vw, vh]
+            },
+            clip_radii_h: [0.0; 4],
+            clip_radii_v: [0.0; 4],
+            clip_active: if svg_cmd.clip.active { [1.0, 0.0, 0.0, 0.0] } else { [0.0; 4] },
+          };
+          let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("lurq_svg_globals"),
+            contents: bytemuck::bytes_of(&svg_globals),
+            usage: wgpu::BufferUsages::UNIFORM,
+          });
+
+          let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lurq_svg_bg"),
+            layout: self.svg_bgl.as_ref().unwrap(),
+            entries: &[wgpu::BindGroupEntry {
+              binding: 0,
+              resource: svg_globals_buf.as_entire_binding(),
+            }],
+          });
+          pass.set_bind_group(0, &svg_bg, &[]);
+
+          if svg_cmd.clip.active {
+            let viewport_w = vw.max(1.0) as u32;
+            let viewport_h = vh.max(1.0) as u32;
+            let cx = svg_cmd.clip.x.max(0.0) as u32;
+            let cy = svg_cmd.clip.y.max(0.0) as u32;
+            if cx >= viewport_w || cy >= viewport_h {
+              continue;
+            }
+            let cw = (svg_cmd.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
+            let ch = (svg_cmd.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
+            if cw == 0 || ch == 0 {
+              continue;
+            }
+            pass.set_scissor_rect(cx, cy, cw, ch);
+          } else {
+            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+          }
+
+          let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
+            .mesh
+            .vertices
+            .iter()
+            .map(|v| SvgVertexGpu {
+              position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
+              color: v.color,
+            })
+            .collect();
+
+          let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("lurq_svg_vb"),
+            contents: bytemuck::cast_slice(&gpu_verts),
+            usage: wgpu::BufferUsages::VERTEX,
+          });
+          let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("lurq_svg_ib"),
+            contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
+            usage: wgpu::BufferUsages::INDEX,
+          });
+
+          pass.set_vertex_buffer(0, vb.slice(..));
+          pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+          pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
         }
       }
     }

@@ -5,6 +5,8 @@ pub struct RenderList {
   pub glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "image")]
   pub images: Vec<crate::images::ImageCmd>,
+  #[cfg(feature = "svg")]
+  pub svgs: Vec<crate::svg::SvgCmd>,
   pub atlas: GlyphAtlas,
 }
 

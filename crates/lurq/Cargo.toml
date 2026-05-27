@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = []
 image = ["dep:image"]
+svg = ["dep:usvg", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 winit = ["dep:winit"]
 
@@ -19,4 +20,21 @@ raw-window-handle = "0.6"
 wgpu = { version = "24", optional = true }
 winit = { version = "0.30", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"], optional = true }
+usvg = { version = "0.45", optional = true }
+lyon = { version = "1", optional = true }
 accessors_macro = { path = "../accessor_macro" }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "layout"
+harness = false
+
+[[bench]]
+name = "tree_build"
+harness = false
+
+[[bench]]
+name = "render_list"
+harness = false

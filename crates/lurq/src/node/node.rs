@@ -167,6 +167,13 @@ impl Node {
     node
   }
 
+  #[cfg(feature = "svg")]
+  pub fn svg(data: crate::svg::SvgData) -> Self {
+    let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Svg { data: data.clone() }, vec![]);
+    node.intrinsic_size = Some(Size::new(data.viewbox_width(), data.viewbox_height()));
+    node
+  }
+
   pub fn row(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
     Self::from_parts(
       LayoutKind::Row {

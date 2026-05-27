@@ -38,5 +38,9 @@ pub enum QuadContent {
   Image {
     data: crate::images::ImageData,
   },
+  #[cfg(feature = "svg")]
+  Svg {
+    data: crate::svg::SvgData,
+  },
   None,
 }
