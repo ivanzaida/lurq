@@ -11,7 +11,7 @@ struct EditableText {
 impl Component for EditableText {
   type Props = ();
 
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self {
       value: ctx.signal("AB".to_owned()),
     }

@@ -27,7 +27,7 @@ struct Counter {
 impl Component for Counter {
   type Props = ();
 
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self { count: ctx.signal(0) }
   }
 
@@ -48,6 +48,14 @@ ctx.is_dirty();
 `is_dirty` reports whether this component context is marked dirty. Runtime uses this internally to decide whether a component subtree needs to render again.
 
 Application code usually does not need to call it.
+
+## Props
+
+```rust
+let props = ctx.props::<Self::Props>();
+```
+
+`props` returns the current props for the component that owns this context. Component props must implement `PartialEq`; reused child components rerender when the incoming props differ from the props stored on their context.
 
 ## Manual Root Contexts
 

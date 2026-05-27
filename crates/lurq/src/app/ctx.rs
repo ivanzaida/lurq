@@ -2,7 +2,7 @@ use std::{
   any::Any,
   sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
   },
 };
 
@@ -10,13 +10,20 @@ use super::{component::Component, theme::Theme};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo,
-    signal::Signal,
+    signal::Signal, tracking,
   },
-  node::Element,
+  node::{Element, Node},
 };
+
+static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_component_slot_id() -> u64 {
+  NEXT_COMPONENT_SLOT_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
+  props: Option<Box<dyn Any + Send>>,
   theme: Option<Theme>,
   context_map: ContextMap,
   slot_children: Option<Vec<Element>>,
@@ -24,15 +31,18 @@ pub struct Ctx {
   child_cursor: usize,
   element_ref_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
+  render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
   element_refs: Vec<ElementRefMut>,
   rendering: bool,
 }
 
 struct ChildSlot {
+  id: u64,
   key: Option<String>,
   component: Box<dyn AnyComponent>,
   ctx: Ctx,
+  rendered: Option<Node>,
   mounted: bool,
 }
 
@@ -73,6 +83,7 @@ impl Ctx {
   pub(crate) fn new() -> Self {
     Self {
       dirty: Arc::new(AtomicBool::new(true)),
+      props: None,
       theme: None,
       context_map: ContextMap::default(),
       slot_children: None,
@@ -80,6 +91,7 @@ impl Ctx {
       child_cursor: 0,
       element_ref_cursor: 0,
       watch_handles: Vec::new(),
+      render_watch_handles: Vec::new(),
       effects: Vec::new(),
       element_refs: Vec::new(),
       rendering: false,
@@ -97,6 +109,26 @@ impl Ctx {
 
   pub(crate) fn clear_dirty(&self) {
     self.dirty.store(false, Ordering::Relaxed);
+  }
+
+  pub fn props<T: Send + PartialEq + 'static>(&self) -> &T {
+    self
+      .props
+      .as_ref()
+      .and_then(|props| props.downcast_ref::<T>())
+      .expect("component props are not available for this type")
+  }
+
+  fn set_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
+    self.props = Some(Box::new(props));
+  }
+
+  pub(crate) fn set_root_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
+    self.set_props(props);
+  }
+
+  fn props_changed<T: Send + PartialEq + 'static>(&self, props: &T) -> bool {
+    self.props.as_ref().and_then(|existing| existing.downcast_ref::<T>()) != Some(props)
   }
 
   // --- Reactive primitives ---
@@ -251,27 +283,42 @@ impl Ctx {
 
     if can_reuse {
       let slot = &mut self.children[cursor];
+      let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
+      let props_changed = slot.ctx.props_changed(&props);
       slot.ctx.slot_children = slot_children;
-      slot.ctx.begin_render();
-      let element = slot.component.render(&mut slot.ctx);
-      slot.ctx.end_render();
-      return element;
+      if props_changed {
+        slot.ctx.set_props(props);
+      }
+      if has_slot_children || props_changed || slot.ctx.any_dirty() || slot.rendered.is_none() {
+        slot.ctx.begin_render();
+        let mut element = slot.component.render(&mut slot.ctx);
+        slot.ctx.end_render();
+        element.node.set_component_slot_id(slot.id);
+        slot.rendered = Some(element.node.clone_for_reuse());
+        return element;
+      }
+      return Element::from_node(slot.rendered.as_ref().unwrap().clone_for_reuse());
     }
 
     let mut child_ctx = Ctx::new();
     child_ctx.theme = self.theme.clone();
     child_ctx.context_map = self.context_map.clone();
     child_ctx.slot_children = slot_children;
-    let component = C::create(&mut child_ctx, props);
+    child_ctx.set_props(props);
+    let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();
-    let element = wrapper.render(&mut child_ctx);
+    let mut element = wrapper.render(&mut child_ctx);
     child_ctx.end_render();
+    let slot_id = next_component_slot_id();
+    element.node.set_component_slot_id(slot_id);
 
     let slot = ChildSlot {
+      id: slot_id,
       key: key.map(str::to_owned),
       component: Box::new(wrapper),
       ctx: child_ctx,
+      rendered: Some(element.node.clone_for_reuse()),
       mounted: false,
     };
 
@@ -308,8 +355,10 @@ impl Ctx {
         if can_reuse {
           let slot = &mut self.children[cursor];
           slot.ctx.begin_render();
-          let element = component_fn(&mut slot.ctx, item);
+          let mut element = component_fn(&mut slot.ctx, item);
           slot.ctx.end_render();
+          element.node.set_component_slot_id(slot.id);
+          slot.rendered = Some(element.node.clone_for_reuse());
           return element;
         }
 
@@ -317,13 +366,17 @@ impl Ctx {
         child_ctx.theme = self.theme.clone();
         child_ctx.context_map = self.context_map.clone();
         child_ctx.begin_render();
-        let element = component_fn(&mut child_ctx, item);
+        let mut element = component_fn(&mut child_ctx, item);
         child_ctx.end_render();
+        let slot_id = next_component_slot_id();
+        element.node.set_component_slot_id(slot_id);
 
         let slot = ChildSlot {
+          id: slot_id,
           key: Some(key),
           component: Box::new(ForEachSlot),
           ctx: child_ctx,
+          rendered: Some(element.node.clone_for_reuse()),
           mounted: false,
         };
 
@@ -353,6 +406,8 @@ impl Ctx {
   pub fn begin_render(&mut self) {
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
+    self.render_watch_handles.clear();
+    tracking::start_tracking();
     self.rendering = true;
   }
 
@@ -380,6 +435,18 @@ impl Ctx {
 
     self.element_refs.truncate(self.element_ref_cursor);
     self.rendering = false;
+    let deps = tracking::stop_tracking();
+    let dirty = self.dirty.clone();
+    self.render_watch_handles = deps
+      .into_iter()
+      .map(|dep| {
+        let dirty = dirty.clone();
+        let handle = (dep.subscribe_fn)(Arc::new(move || {
+          dirty.store(true, Ordering::Relaxed);
+        }));
+        Box::new(handle) as Box<dyn Any + Send + Sync>
+      })
+      .collect();
     self.clear_dirty();
   }
 
@@ -390,10 +457,51 @@ impl Ctx {
     self.children.iter().any(|slot| slot.ctx.any_dirty())
   }
 
+  pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Node)> {
+    let mut replacements = Vec::new();
+
+    for slot in &mut self.children {
+      if !slot.ctx.any_dirty() {
+        continue;
+      }
+
+      if slot.ctx.is_dirty() {
+        let old_rendered = slot.rendered.take();
+        slot.ctx.begin_render();
+        let mut element = slot.component.render(&mut slot.ctx);
+        slot.ctx.end_render();
+        element.node.set_component_slot_id(slot.id);
+        if let Some(old) = old_rendered.as_ref() {
+          element.node.preserve_runtime_state_from(old);
+        }
+        slot.rendered = Some(element.node.clone_for_reuse());
+      } else {
+        let nested_replacements = slot.ctx.refresh_dirty_subtrees();
+        if let Some(rendered) = &mut slot.rendered {
+          for (slot_id, replacement) in nested_replacements {
+            rendered.replace_component_slot(slot_id, replacement);
+          }
+        }
+      }
+
+      if let Some(rendered) = &slot.rendered {
+        replacements.push((slot.id, rendered.clone_for_reuse()));
+      }
+    }
+
+    replacements
+  }
+
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
+      + self
+        .props
+        .as_ref()
+        .map(|_| std::mem::size_of::<Box<dyn Any + Send>>())
+        .unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<ChildSlot>()
       + self.watch_handles.capacity() * std::mem::size_of::<Box<dyn Any + Send + Sync>>()
+      + self.render_watch_handles.capacity() * std::mem::size_of::<Box<dyn Any + Send + Sync>>()
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self

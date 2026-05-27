@@ -21,7 +21,7 @@ struct Counter {
 impl Component for Counter {
   type Props = ();
 
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self { count: ctx.signal(0) }
   }
 
@@ -62,9 +62,9 @@ impl Component for Counter {
 
 ```rust
 pub trait Component: Send + Sync + 'static {
-  type Props: Send + 'static;
+  type Props: Send + PartialEq + 'static;
 
-  fn create(ctx: &mut Ctx, props: Self::Props) -> Self;
+  fn create(ctx: &mut Ctx) -> Self;
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element>;
 
   fn on_mounted(&self) {}
@@ -81,13 +81,14 @@ pub trait Component: Send + Sync + 'static {
 
 ## Props
 
-Components receive props through the `Props` associated type.
+Components receive props through the `Props` associated type. The current props are stored on the component context and can be read with `ctx.props::<Self::Props>()`.
 
 ```rust
 struct Greeting {
   name: String,
 }
 
+#[derive(Clone, PartialEq)]
 struct GreetingProps {
   name: String,
 }
@@ -95,8 +96,9 @@ struct GreetingProps {
 impl Component for Greeting {
   type Props = GreetingProps;
 
-  fn create(_ctx: &mut Ctx, props: GreetingProps) -> Self {
-    Self { name: props.name }
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>();
+    Self { name: props.name.clone() }
   }
 
   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
@@ -105,7 +107,7 @@ impl Component for Greeting {
 }
 ```
 
-Use `()` for components with no props.
+Use `()` for components with no props. Reused components rerender when their props compare unequal, so custom props must implement `PartialEq`.
 
 ## Mounting Children
 
@@ -123,7 +125,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 ### Unkeyed Mounts
 
-`ctx.mount::<C>(props)` matches children by position and component type. If the same component type stays at the same slot, its instance is reused.
+`ctx.mount::<C>(props)` matches children by position and component type. If the same component type stays at the same slot, its instance is reused. The child rerenders when its props change or its own context is dirty.
 
 ### Keyed Mounts
 
@@ -240,7 +242,7 @@ Parent components do not force child components to recreate if the child slot st
 impl Component for MyComponent {
   type Props = ();
 
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
 

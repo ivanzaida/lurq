@@ -4,6 +4,8 @@ use lurq::{
   node::{Element, color::Color, dimension::Dimension, padding::Padding},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -17,7 +19,7 @@ fn no_quads_for_invisible_nodes() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert!(quads.is_empty());
 }
@@ -33,7 +35,7 @@ fn background_produces_rect_quad() {
     })
     .background(Color::new(255, 0, 0, 255));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
   assert_eq!(quads[0].x, 0.0);
@@ -48,7 +50,7 @@ fn text_produces_text_quad() {
   let mut rt = rt();
   let node = lurq::components::Text::new("hello");
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
   if let QuadContent::Text { ref text, .. } = quads[0].content {
@@ -82,7 +84,7 @@ fn quads_absolute_positions_in_row() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 2);
   assert_eq!(quads[0].x, 0.0);
@@ -113,7 +115,7 @@ fn quads_absolute_positions_in_column() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 2);
   assert_eq!(quads[0].y, 0.0);
@@ -129,7 +131,7 @@ fn default_overflow_clips_children() {
     .height(50.0)
     .fill("#000000");
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert!(quads[1].clip.active);
   assert_eq!(quads[1].clip.width, 100.0);
@@ -146,7 +148,7 @@ fn overflow_visible_allows_children_to_escape() {
     .fill("#000000")
     .overflow_visible();
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert!(!quads[1].clip.active);
 }
@@ -166,7 +168,7 @@ fn nested_default_overflow_intersects_text_clip() {
     .height(40.0)
     .fill("#000000");
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 40.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 40.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   let text_quad = quads
     .iter()
@@ -209,7 +211,7 @@ fn quads_nested_absolute_positions() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
   assert_eq!(quads[0].x, 40.0);
@@ -228,7 +230,7 @@ fn quads_with_padding_offset() {
     .background(Color::new(255, 0, 0, 255))
     .padding(Padding::all(Dimension::Px(20.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
   assert_eq!(quads[0].x, 20.0);

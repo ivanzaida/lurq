@@ -7,6 +7,8 @@ use lurq::{
   node::color::Color,
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -20,7 +22,7 @@ fn text_height_equals_line_height() {
   };
   let node = lurq::components::Text::styled("0", style.clone());
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let expected_height = style.font_size * style.line_height;
   assert!(
     (r.size.height - expected_height).abs() < 1.0,
@@ -48,7 +50,7 @@ fn text_vertically_centered_in_row_with_rects() {
     ))
     .child(lurq::components::Rect::new(36.0, 36.0));
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
 
   let row_height = r.size.height;
   assert!(
@@ -89,7 +91,7 @@ fn text_vertically_centered_in_fixed_height_row() {
     .width(200.0)
     .height(38.0);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
 
   let row = &r.children[0].result.children[0].result;
   let text_child = &row.children[0];

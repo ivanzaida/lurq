@@ -3,6 +3,8 @@ use lurq::{
   layout::{Constraints, Size, layout_kind::FrameConstraints},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -18,7 +20,7 @@ fn offset_does_not_affect_size() {
     })
     .offset(20.0, 30.0);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
 }
@@ -34,7 +36,7 @@ fn offset_shifts_child() {
     })
     .offset(20.0, 30.0);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.children[0].offset.x, 20.0);
   assert_eq!(result.children[0].offset.y, 30.0);
 }
@@ -50,7 +52,7 @@ fn offset_negative() {
     })
     .offset(-10.0, -5.0);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.children[0].offset.x, -10.0);
   assert_eq!(result.children[0].offset.y, -5.0);
 }
@@ -66,7 +68,7 @@ fn offset_zero_is_noop() {
     })
     .offset(0.0, 0.0);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.children[0].offset.x, 0.0);
   assert_eq!(result.children[0].offset.y, 0.0);
   assert_eq!(result.size.width, 100.0);

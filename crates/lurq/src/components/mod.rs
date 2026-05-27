@@ -1,9 +1,12 @@
 mod checkbox;
 mod column;
+#[cfg(feature = "image")]
+mod image;
 mod rect;
 mod row;
 mod scroll;
 mod slider;
+mod slot;
 mod spacer;
 mod stack;
 mod text;
@@ -11,10 +14,13 @@ mod text_input;
 
 pub use checkbox::Checkbox;
 pub use column::Column;
+#[cfg(feature = "image")]
+pub use image::Image;
 pub use rect::Rect;
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
 pub use slider::Slider;
+pub use slot::Slot;
 pub use spacer::Spacer;
 pub use stack::Stack;
 pub use text::Text;
@@ -343,27 +349,4 @@ macro_rules! impl_into_node {
       }
     }
   };
-}
-
-#[cfg(test)]
-mod tests {
-  use crate::{
-    app::Runtime,
-    components::{Column, Rect, Text},
-    layout::{Constraints, Size},
-  };
-
-  #[test]
-  fn typed_components_convert_to_elements() {
-    let mut rt = Runtime::new();
-    rt.set_root(
-      Column::new()
-        .spacing(4.0)
-        .child(Text::new("hello"))
-        .child(Rect::new(10.0, 20.0).rounded(2.0)),
-    );
-
-    let result = rt.compute_layout(Constraints::loose(Size::new(200.0, 200.0))).unwrap();
-    assert_eq!(result.children.len(), 2);
-  }
 }

@@ -4,6 +4,8 @@ use lurq::{
   node::dimension::Dimension,
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -17,7 +19,7 @@ fn frame_fixed_size() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 150.0);
   assert_eq!(result.size.height, 80.0);
 }
@@ -30,7 +32,7 @@ fn frame_width_only() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 150.0);
 }
 
@@ -43,7 +45,7 @@ fn frame_percentage_size_resolves_against_parent_constraints() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 200.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 200.0))).unwrap();
   assert_eq!(result.size.width, 200.0);
   assert_eq!(result.size.height, 50.0);
 }
@@ -56,7 +58,7 @@ fn frame_min_width() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert!(result.size.width >= 200.0);
 }
 
@@ -73,7 +75,7 @@ fn frame_max_width_limits() {
       ..Default::default()
     });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert!(result.size.width <= 200.0);
 }
 
@@ -85,7 +87,7 @@ fn frame_min_height() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert!(result.size.height >= 100.0);
 }
 
@@ -102,7 +104,7 @@ fn frame_max_height_limits() {
       ..Default::default()
     });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert!(result.size.height <= 150.0);
 }
 
@@ -111,7 +113,7 @@ fn frame_no_constraints_leaf_is_zero() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new().frame(FrameConstraints::default());
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 0.0);
 }

@@ -13,18 +13,27 @@ use lurq::{
   node::{Element, color::Color},
 };
 
+#[derive(Clone)]
+struct Shared<T>(Arc<T>);
+
+impl<T> PartialEq for Shared<T> {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
 struct Counter {
   count: Signal<i32>,
   renders: Arc<AtomicUsize>,
 }
 
 impl Component for Counter {
-  type Props = Arc<AtomicUsize>;
+  type Props = Shared<AtomicUsize>;
 
-  fn create(ctx: &mut Ctx, renders: Self::Props) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self {
       count: ctx.signal(0),
-      renders,
+      renders: ctx.props::<Self::Props>().0.clone(),
     }
   }
 
@@ -66,7 +75,7 @@ impl Component for Counter {
 fn rerenders_after_click_updates_signal_value() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Runtime::new();
-  runtime.mount_root::<Counter>(renders.clone());
+  runtime.mount_root::<Counter>(Shared(renders.clone()));
 
   assert_eq!(renders.load(Ordering::Relaxed), 1);
 

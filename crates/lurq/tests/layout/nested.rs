@@ -4,6 +4,8 @@ use lurq::{
   node::{Element, dimension::Dimension, padding::Padding},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -50,7 +52,7 @@ fn column_of_rows() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 125.0); // max(50+5+50, 60+5+60) = 125
   assert_eq!(result.size.height, 80.0); // 30 + 10 + 40
   assert_eq!(result.children[0].offset.y, 0.0);
@@ -99,7 +101,7 @@ fn row_of_columns() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 120.0); // 50 + 10 + 60
   assert_eq!(result.size.height, 65.0); // max(30+5+30, 20+5+20) = 65
 }
@@ -126,7 +128,7 @@ fn padding_inside_row() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 180.0); // (80+20) + 80
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].offset.x, 100.0);
@@ -143,7 +145,7 @@ fn frame_inside_padding() {
     })
     .padding(Padding::all(Dimension::Px(20.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 140.0);
   assert_eq!(result.size.height, 90.0);
   assert_eq!(result.children[0].offset.x, 20.0);
@@ -180,7 +182,7 @@ fn stack_inside_column() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.height, 130.0); // 100 + 30
   assert_eq!(result.children[1].offset.y, 100.0);
 }
@@ -211,7 +213,7 @@ fn flex_children_in_nested_row() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 300.0);
 }
@@ -229,7 +231,7 @@ fn deeply_nested_padding() {
     .padding(Padding::all(Dimension::Px(10.0)))
     .padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 110.0); // 50 + 10*2*3
   assert_eq!(result.size.height, 110.0);
 }
@@ -256,7 +258,7 @@ fn offset_inside_row_does_not_affect_siblings() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   // offset doesn't change the size of the first child in the row
   assert_eq!(result.children[1].offset.x, 50.0);
 }

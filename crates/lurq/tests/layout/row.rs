@@ -3,6 +3,8 @@ use lurq::{
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -12,7 +14,7 @@ fn empty_row() {
   let mut rt = rt();
   let node = lurq::components::Row::new().spacing(0.0).align_items(Alignment::Start);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 0.0);
 }
@@ -37,7 +39,7 @@ fn row_with_fixed_children() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 180.0);
   assert_eq!(result.size.height, 50.0);
   assert_eq!(result.children[0].offset.x, 0.0);
@@ -69,7 +71,7 @@ fn row_with_spacing() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 170.0); // 50*3 + 10*2
   assert_eq!(result.children[0].offset.x, 0.0);
   assert_eq!(result.children[1].offset.x, 60.0);
@@ -96,7 +98,7 @@ fn row_align_center() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.height, 60.0);
   assert_eq!(result.children[0].offset.y, 20.0); // (60-20)/2
   assert_eq!(result.children[1].offset.y, 0.0);
@@ -122,7 +124,7 @@ fn row_align_end() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.children[0].offset.y, 40.0); // 60-20
   assert_eq!(result.children[1].offset.y, 0.0);
 }
@@ -140,7 +142,7 @@ fn row_single_child() {
     })],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
   assert_eq!(result.children[0].offset.x, 0.0);

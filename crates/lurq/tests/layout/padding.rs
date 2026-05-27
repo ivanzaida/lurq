@@ -4,6 +4,8 @@ use lurq::{
   node::{dimension::Dimension, padding::Padding},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -19,7 +21,7 @@ fn padding_all_sides() {
     })
     .padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 120.0);
   assert_eq!(result.size.height, 70.0);
   assert_eq!(result.children[0].offset.x, 10.0);
@@ -43,7 +45,7 @@ fn padding_asymmetric() {
         .bottom(Dimension::Px(20.0)),
     );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 120.0); // 100 + 5 + 15
   assert_eq!(result.size.height, 80.0); // 50 + 10 + 20
   assert_eq!(result.children[0].offset.x, 5.0);
@@ -61,7 +63,7 @@ fn padding_horizontal_only() {
     })
     .padding(Padding::horizontal(Dimension::Px(20.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 140.0);
   assert_eq!(result.size.height, 50.0);
 }
@@ -77,7 +79,7 @@ fn padding_vertical_only() {
     })
     .padding(Padding::vertical(Dimension::Px(15.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 80.0);
 }
@@ -93,7 +95,7 @@ fn padding_symmetric() {
     })
     .padding(Padding::symmetric(Dimension::Px(10.0), Dimension::Px(20.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 120.0); // 100 + 10*2
   assert_eq!(result.size.height, 90.0); // 50 + 20*2
 }
@@ -106,7 +108,7 @@ fn padding_reduces_child_constraints() {
     .flex(1.0)
     .padding(Padding::all(Dimension::Px(20.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   assert_eq!(result.size.width, 200.0);
   assert_eq!(result.size.height, 100.0);
 }
@@ -122,7 +124,7 @@ fn padding_zero() {
     })
     .padding(Padding::all(Dimension::Px(0.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
 }

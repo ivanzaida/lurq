@@ -4,6 +4,8 @@ use lurq::{
   node::{Element, color::Color, dimension::Dimension, padding::Padding},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -15,7 +17,7 @@ fn leaf_with_no_constraints_is_zero() {
   let mut rt = rt();
   let node = Element::new();
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 0.0);
 }
@@ -25,7 +27,7 @@ fn leaf_with_tight_zero_constraints() {
   let mut rt = rt();
   let node = Element::new();
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(0.0, 0.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(0.0, 0.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 0.0);
 }
@@ -39,7 +41,7 @@ fn row_of_zero_size_children() {
     vec![Element::new(), Element::new(), Element::new()],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 20.0); // spacing only: 10*2
   assert_eq!(result.size.height, 0.0);
 }
@@ -49,7 +51,7 @@ fn column_of_zero_size_children() {
   let mut rt = rt();
   let node = lurq::components::Column::with(5.0, Alignment::Start, vec![Element::new(), Element::new()]);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 5.0);
 }
@@ -66,7 +68,7 @@ fn frame_overrides_outer_constraints() {
     ..Default::default()
   });
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 80.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 80.0))).unwrap();
   assert_eq!(result.size.width, 500.0);
   assert_eq!(result.size.height, 500.0);
 }
@@ -87,9 +89,7 @@ fn max_frame_constrains_inner_frame() {
       ..Default::default()
     });
   rt.set_root(node);
-  let result = rt
-    .compute_layout(Constraints::loose(Size::new(1000.0, 1000.0)))
-    .unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(1000.0, 1000.0))).unwrap();
   assert!(result.size.width <= 100.0);
   assert!(result.size.height <= 80.0);
 }
@@ -105,7 +105,7 @@ fn min_constraints_expand_leaf() {
     max_height: 200.0,
   };
   rt.set_root(node);
-  let result = rt.compute_layout(c).unwrap();
+  let result = rt.pass_layout(c).unwrap();
   assert_eq!(result.size.width, 50.0);
   assert_eq!(result.size.height, 30.0);
 }
@@ -125,7 +125,7 @@ fn flex_all_children_are_flex() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   for child in &result.children {
     assert!((child.result.size.width - 100.0).abs() < 0.01);
   }
@@ -136,7 +136,7 @@ fn flex_single_child_takes_all_space() {
   let mut rt = rt();
   let node = lurq::components::Row::with(0.0, Alignment::Start, vec![lurq::components::Spacer::new().flex(1.0)]);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 400.0);
 }
 
@@ -156,7 +156,7 @@ fn flex_zero_remaining_space() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(result.children[1].result.size.width, 0.0);
 }
 
@@ -172,7 +172,7 @@ fn flex_with_large_spacing_eats_space() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   // 200 - 100 spacing = 100 available, split 50/50
   assert_eq!(result.children[0].result.size.width, 50.0);
   assert_eq!(result.children[1].result.size.width, 50.0);
@@ -190,7 +190,7 @@ fn flex_factor_very_small() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(1000.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(1000.0, 100.0))).unwrap();
   assert!(result.children[0].result.size.width < 2.0);
   assert!(result.children[1].result.size.width > 998.0);
 }
@@ -210,7 +210,7 @@ fn multiple_modifiers_chain() {
     .padding(Padding::all(Dimension::Px(10.0)))
     .offset(5.0, 5.0);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   // offset wraps padding wraps background wraps frame
   assert_eq!(result.size.width, 70.0); // 50 + 10*2
   assert_eq!(result.size.height, 70.0);
@@ -240,7 +240,7 @@ fn align_modifier_is_passthrough_in_flex() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   // align doesn't affect sizing, just passes through
   assert_eq!(result.children[0].result.size.width, 50.0);
   assert_eq!(result.children[1].offset.x, 50.0);
@@ -260,7 +260,7 @@ fn stack_single_child() {
     })],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 80.0);
   assert_eq!(result.children[0].offset.x, 0.0);
@@ -279,7 +279,7 @@ fn stack_all_same_size_children() {
   };
   let node = lurq::components::Stack::with(StackAlignment::Center, vec![f(), f(), f()]);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 100.0);
   for child in &result.children {
@@ -295,7 +295,7 @@ fn padding_larger_than_constraints() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new().padding(Padding::all(Dimension::Px(100.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(50.0, 50.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(50.0, 50.0))).unwrap();
   // Padding subtracts from constraints, clamped to 0
   assert_eq!(result.size.width, 50.0);
   assert_eq!(result.size.height, 50.0);
@@ -313,7 +313,7 @@ fn nested_padding_accumulates() {
     .padding(Padding::all(Dimension::Px(5.0)))
     .padding(Padding::all(Dimension::Px(5.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 30.0); // 10 + 5*2 + 5*2
   assert_eq!(result.size.height, 30.0);
 }
@@ -333,7 +333,7 @@ fn quads_skip_modifier_wrapper_nodes() {
     .background(Color::new(255, 0, 0, 255))
     .padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   // Only the background node produces a quad, not the padding wrapper
   assert_eq!(quads.len(), 1);
@@ -370,7 +370,7 @@ fn quads_multiple_visible_children() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 3);
   assert!(matches!(quads[0].content, QuadContent::Rect { .. }));
@@ -412,7 +412,7 @@ fn quads_offset_accumulates_through_nesting() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
   // column offset y=100, row offset x=30, padding offset x=5 y=5
@@ -442,7 +442,7 @@ fn row_with_unbounded_constraints() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::unbounded()).unwrap();
+  let result = rt.pass_layout(Constraints::unbounded()).unwrap();
   assert_eq!(result.size.width, 310.0);
   assert_eq!(result.size.height, 50.0);
 }
@@ -467,7 +467,7 @@ fn column_with_unbounded_constraints() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::unbounded()).unwrap();
+  let result = rt.pass_layout(Constraints::unbounded()).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 140.0);
 }
@@ -488,7 +488,7 @@ fn many_children_in_row() {
     .collect();
   let node = lurq::components::Row::with(1.0, Alignment::Start, children);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::unbounded()).unwrap();
+  let result = rt.pass_layout(Constraints::unbounded()).unwrap();
   assert_eq!(result.size.width, 1099.0); // 100*10 + 99*1
   assert_eq!(result.size.height, 10.0);
   assert_eq!(result.children.len(), 100);
@@ -508,7 +508,7 @@ fn many_children_in_column() {
     .collect();
   let node = lurq::components::Column::with(2.0, Alignment::Start, children);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::unbounded()).unwrap();
+  let result = rt.pass_layout(Constraints::unbounded()).unwrap();
   assert_eq!(result.size.width, 10.0);
   assert_eq!(result.size.height, 1198.0); // 100*10 + 99*2
 }
@@ -536,7 +536,7 @@ fn flex_between_two_fixed() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 50.0);
   assert_eq!(result.children[1].result.size.width, 200.0);
   assert_eq!(result.children[2].result.size.width, 50.0);
@@ -565,7 +565,7 @@ fn two_fixed_one_flex_column() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(100.0, 200.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 200.0))).unwrap();
   assert_eq!(result.children[0].result.size.height, 40.0);
   assert_eq!(result.children[1].result.size.height, 120.0);
   assert_eq!(result.children[2].result.size.height, 40.0);

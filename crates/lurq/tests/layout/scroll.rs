@@ -9,6 +9,8 @@ use lurq::{
   node::{Element, color::Color},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -28,7 +30,7 @@ fn scroll_vertical_child_grows_unbounded() {
   .size(100.0, 200.0);
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   // Scroll container itself is 200 tall
   assert_eq!(result.size.height, 200.0);
   assert_eq!(result.size.width, 100.0);
@@ -49,7 +51,7 @@ fn scroll_vertical_offset_applied() {
   .size(100.0, 200.0);
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   // Default scroll offset is 0
   let scroll_child = &result.children[0].result;
   assert_eq!(scroll_child.children[0].offset.y, 0.0);
@@ -70,7 +72,7 @@ fn scroll_horizontal_child_grows_unbounded() {
   .size(200.0, 50.0);
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 200.0);
   assert_eq!(result.size.height, 50.0);
   let scroll_child = &result.children[0].result;
@@ -89,7 +91,7 @@ fn scroll_both_unbounded() {
   .size(200.0, 150.0);
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 200.0);
   assert_eq!(result.size.height, 150.0);
   let scroll_child = &result.children[0].result;
@@ -111,7 +113,7 @@ fn scroll_container_without_frame_uses_parent_constraints() {
   ));
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Container takes parent's tight constraint
   assert_eq!(result.size.width, 300.0);
   assert_eq!(result.size.height, 100.0);
@@ -125,7 +127,7 @@ fn scroll_empty_child() {
   let node = lurq::components::ScrollVertical::new(Element::new()).size(100.0, 100.0);
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 100.0);
 }
@@ -147,7 +149,7 @@ fn scrollbar_hovered_overrides_scrollbar_style() {
   let rect = rt.find_element(|_| true).unwrap().bounds();
   rt.mouse_move(rect.x + rect.width - 4.0, rect.y + 10.0);
 
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
 
   assert!(quads.iter().any(|quad| match &quad.content {
@@ -170,7 +172,7 @@ fn scrollbar_auto_does_not_render_when_content_fits() {
     .size(100.0, 100.0);
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
 
   assert!(!quads.iter().any(|quad| match &quad.content {
@@ -197,7 +199,7 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
     .fill("#162032");
 
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   let quads = rt.resolve_quads(&result);
 
   assert!(quads.iter().any(|quad| match &quad.content {

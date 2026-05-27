@@ -3,6 +3,8 @@ use lurq::{
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -14,7 +16,7 @@ fn empty_column() {
     .spacing(0.0)
     .align_items(Alignment::Start);
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 0.0);
 }
@@ -39,7 +41,7 @@ fn column_with_fixed_children() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 90.0);
   assert_eq!(result.children[0].offset.y, 0.0);
@@ -71,7 +73,7 @@ fn column_with_spacing() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.height, 106.0); // 30*3 + 8*2
   assert_eq!(result.children[0].offset.y, 0.0);
   assert_eq!(result.children[1].offset.y, 38.0);
@@ -98,7 +100,7 @@ fn column_align_center() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.children[0].offset.x, 30.0); // (100-40)/2
   assert_eq!(result.children[1].offset.x, 0.0);
@@ -124,7 +126,7 @@ fn column_align_end() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(result.children[0].offset.x, 60.0); // 100-40
   assert_eq!(result.children[1].offset.x, 0.0);
 }

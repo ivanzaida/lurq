@@ -128,6 +128,8 @@ impl LayoutEngine {
           node.color().unwrap_or(crate::node::color::Color::from_hex("#ffffff"))
         },
       },
+      #[cfg(feature = "image")]
+      NodeKind::Image { data } => QuadContent::Image { data: data.clone() },
       NodeKind::Slider { .. } if node.color().is_none() => QuadContent::Rect {
         color: crate::node::color::Color::from_hex("#cbd5e1"),
       },
@@ -452,6 +454,16 @@ impl LayoutEngine {
       }
       NodeKind::Slider { .. } => {
         let preferred = node.intrinsic_size.unwrap_or(Size::new(120.0, 20.0));
+        return LayoutResult {
+          size: constraints.constrain(preferred),
+          children: vec![],
+        };
+      }
+      #[cfg(feature = "image")]
+      NodeKind::Image { data } => {
+        let preferred = node
+          .intrinsic_size
+          .unwrap_or(Size::new(data.width() as f32, data.height() as f32));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],

@@ -16,6 +16,7 @@ use crate::{
 fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
   Node {
     node_id: crate::core::NodeId::UNASSIGNED,
+    component_slot_id: None,
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,

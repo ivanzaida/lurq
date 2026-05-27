@@ -5,6 +5,7 @@ use crate::{
   node::{dimension::Dimension, padding::Padding},
 };
 
+#[derive(Clone)]
 pub enum LayoutKind {
   Leaf,
   Row {
@@ -275,7 +276,7 @@ pub enum Overflow {
   Hidden,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum ScrollDirection {
   Horizontal,
   #[default]

@@ -2,12 +2,26 @@ use std::sync::{Arc, Mutex};
 
 use crate::{core::Signal, layout::text_style::TextStyle};
 
+#[derive(Clone)]
 pub(crate) enum NodeKind {
   Empty,
-  Text { style: TextStyle },
-  TextInput { state: TextInputState, style: TextStyle },
-  Checkbox { state: CheckboxState },
-  Slider { state: SliderState },
+  Text {
+    style: TextStyle,
+  },
+  TextInput {
+    state: TextInputState,
+    style: TextStyle,
+  },
+  Checkbox {
+    state: CheckboxState,
+  },
+  Slider {
+    state: SliderState,
+  },
+  #[cfg(feature = "image")]
+  Image {
+    data: crate::images::ImageData,
+  },
 }
 
 #[derive(Clone)]

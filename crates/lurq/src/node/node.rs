@@ -25,7 +25,7 @@ type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct EventHandlers {
   pub on_click: Option<Callback<MouseEvent>>,
   pub on_dblclick: Option<Callback<MouseEvent>>,
@@ -45,6 +45,7 @@ pub struct EventHandlers {
 
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
+  pub(crate) component_slot_id: Option<u64>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
@@ -77,6 +78,7 @@ impl Node {
       layout_kind,
       node_kind,
       node_id: NodeId::UNASSIGNED,
+      component_slot_id: None,
       text_content: Guard::new(None),
       overflow: Overflow::Hidden,
       intrinsic_size: None,
@@ -156,6 +158,13 @@ impl Node {
       },
       vec![],
     )
+  }
+
+  #[cfg(feature = "image")]
+  pub fn image(data: crate::images::ImageData) -> Self {
+    let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Image { data: data.clone() }, vec![]);
+    node.intrinsic_size = Some(Size::new(data.width() as f32, data.height() as f32));
+    node
   }
 
   pub fn row(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
@@ -500,6 +509,14 @@ impl Node {
     &self.layout_kind
   }
 
+  pub(crate) fn component_slot_id(&self) -> Option<u64> {
+    self.component_slot_id
+  }
+
+  pub(crate) fn set_component_slot_id(&mut self, id: u64) {
+    self.component_slot_id = Some(id);
+  }
+
   pub(crate) fn node_kind(&self) -> &NodeKind {
     &self.node_kind
   }
@@ -649,9 +666,62 @@ impl Node {
       state.copy_runtime_state_from(old_state);
     }
 
+    if let (
+      LayoutKind::ScrollModifier { state, direction },
+      LayoutKind::ScrollModifier {
+        state: old_state,
+        direction: old_direction,
+      },
+    ) = (&mut self.layout_kind, &old.layout_kind)
+    {
+      if direction == old_direction {
+        *state = old_state.clone();
+      }
+    }
+
     for (child, old_child) in self.children.iter_mut().zip(old.children.iter()) {
       child.preserve_runtime_state_from(old_child);
     }
+  }
+
+  pub(crate) fn clone_for_reuse(&self) -> Self {
+    Self {
+      node_id: NodeId::UNASSIGNED,
+      component_slot_id: self.component_slot_id,
+      layout_kind: self.layout_kind.clone(),
+      node_kind: self.node_kind.clone(),
+      text_content: self.text_content.clone(),
+      overflow: self.overflow,
+      intrinsic_size: self.intrinsic_size,
+      color: self.color.clone(),
+      border_radius: self.border_radius.clone(),
+      border: self.border.clone(),
+      cursor: self.cursor,
+      scrollbar_style: self.scrollbar_style.clone(),
+      scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
+      element_ref: self.element_ref.clone(),
+      interaction: self.interaction.clone(),
+      style_state: self.style_state.clone(),
+      state_styles: self.state_styles.clone(),
+      layout_cache: Default::default(),
+      children: self.children.iter().map(Node::clone_for_reuse).collect(),
+      events: self.events.clone(),
+    }
+  }
+
+  pub(crate) fn replace_component_slot(&mut self, slot_id: u64, replacement: Node) -> bool {
+    if self.component_slot_id == Some(slot_id) {
+      *self = replacement;
+      return true;
+    }
+
+    for child in &mut self.children {
+      if child.replace_component_slot(slot_id, replacement.clone_for_reuse()) {
+        return true;
+      }
+    }
+
+    false
   }
 
   pub(crate) fn estimated_memory_bytes(&self) -> usize {

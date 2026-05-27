@@ -6,18 +6,27 @@ use lurq::{
   node::{Element, color::Color},
 };
 
+#[derive(Clone)]
+struct Shared<T>(Arc<T>);
+
+impl<T> PartialEq for Shared<T> {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
 struct RefLoggingComponent {
   count: Signal<u32>,
   seen_bounds: Arc<Mutex<Vec<ElementRect>>>,
 }
 
 impl Component for RefLoggingComponent {
-  type Props = Arc<Mutex<Vec<ElementRect>>>;
+  type Props = Shared<Mutex<Vec<ElementRect>>>;
 
-  fn create(ctx: &mut Ctx, seen_bounds: Self::Props) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self {
       count: ctx.signal(0),
-      seen_bounds,
+      seen_bounds: ctx.props::<Self::Props>().0.clone(),
     }
   }
 
@@ -176,7 +185,7 @@ fn hovered_style_overrides_visuals_and_layout() {
 fn ctx_element_ref_is_stable_across_rerenders() {
   let seen_bounds = Arc::new(Mutex::new(Vec::new()));
   let mut runtime = Runtime::new();
-  runtime.mount_root::<RefLoggingComponent>(seen_bounds.clone());
+  runtime.mount_root::<RefLoggingComponent>(Shared(seen_bounds.clone()));
 
   assert_eq!(seen_bounds.lock().unwrap()[0], ElementRect::default());
 

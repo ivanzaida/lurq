@@ -15,7 +15,7 @@ struct Counter {
 impl Component for Counter {
   type Props = ();
 
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self { count: ctx.signal(0) }
   }
 

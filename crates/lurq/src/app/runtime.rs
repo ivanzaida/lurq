@@ -64,6 +64,7 @@ pub struct Runtime {
   root_component: Option<Box<dyn AnyRootComponent>>,
   root_ctx: Option<Ctx>,
   last_layout: Option<LayoutResult>,
+  layout_constraints_override: Option<Constraints>,
   viewport_physical: Size,
   scale_factor: f32,
   scale_override: Option<f32>,
@@ -98,6 +99,7 @@ impl Runtime {
       root_component: None,
       root_ctx: None,
       last_layout: None,
+      layout_constraints_override: None,
       viewport_physical: Size::new(800.0, 600.0),
       scale_factor: 1.0,
       scale_override: None,
@@ -204,7 +206,8 @@ impl Runtime {
       old.free_ids(&self.id_gen);
     }
     let mut ctx = Ctx::new_root().with_theme(self.theme.clone());
-    let component = C::create(&mut ctx, props);
+    ctx.set_root_props(props);
+    let component = C::create(&mut ctx);
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();
     let mut node = wrapper.render(&mut ctx).node;
@@ -329,6 +332,8 @@ impl Runtime {
     let mut rects = Vec::new();
     let mut atlas_packer = AtlasPacker::new();
     let mut glyphs = Vec::new();
+    #[cfg(feature = "image")]
+    let mut images = Vec::new();
 
     for quad in &quads {
       let scaled_clip = if quad.clip.active {
@@ -410,6 +415,20 @@ impl Runtime {
           }
           glyphs.extend(glyph_cmds);
         }
+        #[cfg(feature = "image")]
+        QuadContent::Image { data } => {
+          images.push(crate::images::ImageCmd {
+            x: quad.x * scale,
+            y: quad.y * scale,
+            width: quad.width * scale,
+            height: quad.height * scale,
+            image_id: data.id(),
+            data: data.data_arc(),
+            image_width: data.width(),
+            image_height: data.height(),
+            clip: scaled_clip,
+          });
+        }
         QuadContent::None => {}
       }
     }
@@ -421,6 +440,8 @@ impl Runtime {
     let list = RenderList {
       rects,
       glyphs,
+      #[cfg(feature = "image")]
+      images,
       atlas: atlas_packer.to_atlas(),
     };
 
@@ -925,14 +946,6 @@ impl Runtime {
     self.glyph_engine.register_font(name, family);
   }
 
-  pub fn compute_layout(&mut self, constraints: Constraints) -> Option<LayoutResult> {
-    self.rebuild_if_dirty();
-    self.sync_dynamic_content();
-
-    let root = self.root.as_ref()?;
-    Some(self.layout_engine.compute(&mut self.glyph_engine, root, constraints))
-  }
-
   pub fn resolve_quads(&self, result: &LayoutResult) -> Vec<Quad> {
     match &self.root {
       Some(root) => self.layout_engine.resolve_quads(root, result),
@@ -940,17 +953,53 @@ impl Runtime {
     }
   }
 
+  #[doc(hidden)]
+  pub fn set_layout_constraints_override(&mut self, constraints: Option<Constraints>) {
+    self.layout_constraints_override = constraints;
+    self.last_layout = None;
+  }
+
+  #[doc(hidden)]
+  pub fn last_layout(&self) -> Option<&LayoutResult> {
+    self.last_layout.as_ref()
+  }
+
   fn rebuild_if_dirty(&mut self) {
-    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+    if self.root_ctx.as_ref().is_some_and(Ctx::is_dirty) {
       self.rebuild();
+    } else if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      self.refresh_dirty_subtrees();
     }
   }
 
   fn apply_reactive_updates_after_event(&mut self) {
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       self.needs_redraw = true;
-      self.rebuild();
+      self.rebuild_if_dirty();
     }
+  }
+
+  fn refresh_dirty_subtrees(&mut self) {
+    let replacements = match &mut self.root_ctx {
+      Some(ctx) => ctx.refresh_dirty_subtrees(),
+      None => return,
+    };
+
+    if replacements.is_empty() {
+      return;
+    }
+
+    if let Some(root) = &mut self.root {
+      for (slot_id, replacement) in replacements {
+        replace_live_component_slot(root, slot_id, replacement, &self.id_gen);
+      }
+    }
+
+    self.last_layout = None;
+    self.hover_path.clear();
+    self.active_path.clear();
+    self.cursor = CursorIcon::Default;
+    self.refresh_focus_ids();
   }
 
   fn update_layout(&mut self) {
@@ -958,7 +1007,9 @@ impl Runtime {
     self.sync_dynamic_content();
 
     if let Some(root) = self.root.as_ref() {
-      let constraints = Constraints::tight(self.viewport_logical());
+      let constraints = self
+        .layout_constraints_override
+        .unwrap_or_else(|| Constraints::tight(self.viewport_logical()));
       self.last_layout = Some(self.layout_engine.compute(&mut self.glyph_engine, root, constraints));
     }
   }
@@ -1206,6 +1257,25 @@ fn reset_element_ref_flags_recursive(node: &Node) {
   for child in node.children() {
     reset_element_ref_flags_recursive(child);
   }
+}
+
+fn replace_live_component_slot(node: &mut Node, slot_id: u64, mut replacement: Node, id_gen: &IdGenerator) -> bool {
+  if node.component_slot_id() == Some(slot_id) {
+    reset_element_ref_flags_recursive(node);
+    replacement.preserve_runtime_state_from(node);
+    node.free_ids(id_gen);
+    replacement.assign_ids(id_gen);
+    *node = replacement;
+    return true;
+  }
+
+  for child in &mut node.children {
+    if replace_live_component_slot(child, slot_id, replacement.clone_for_reuse(), id_gen) {
+      return true;
+    }
+  }
+
+  false
 }
 
 fn has_dirty_element_ref_recursive(node: &Node) -> bool {

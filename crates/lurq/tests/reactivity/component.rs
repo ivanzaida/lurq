@@ -6,11 +6,26 @@ use std::sync::{
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx},
   core::Signal,
-  layout::{Constraints, Size},
   node::Element,
 };
 
+use crate::support::run_pass;
+
 // --- Test components ---
+
+struct Shared<T>(Arc<T>);
+
+impl<T> Clone for Shared<T> {
+  fn clone(&self) -> Self {
+    Self(self.0.clone())
+  }
+}
+
+impl<T> PartialEq for Shared<T> {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0, &other.0)
+  }
+}
 
 struct Counter {
   count: Signal<i32>,
@@ -18,9 +33,9 @@ struct Counter {
 
 impl Component for Counter {
   type Props = i32;
-  fn create(ctx: &mut Ctx, initial: i32) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self {
-      count: ctx.signal(initial),
+      count: ctx.signal(*ctx.props::<Self::Props>()),
     }
   }
   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
@@ -32,7 +47,7 @@ struct Parent;
 
 impl Component for Parent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -46,7 +61,7 @@ struct ContextProvider;
 
 impl Component for ContextProvider {
   type Props = ();
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     ctx.provide(42_i32);
     Self
   }
@@ -59,7 +74,7 @@ struct ContextConsumer;
 
 impl Component for ContextConsumer {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -72,7 +87,7 @@ struct SlotWrapper;
 
 impl Component for SlotWrapper {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -85,7 +100,7 @@ struct ForEachParent;
 
 impl Component for ForEachParent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -103,7 +118,7 @@ struct ErrorComponent;
 
 impl Component for ErrorComponent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -120,7 +135,7 @@ struct EmptyComponent;
 
 impl Component for EmptyComponent {
   type Props = ();
-  fn create(_ctx: &mut Ctx, _: ()) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
@@ -132,7 +147,7 @@ struct DeeplyNested;
 
 impl Component for DeeplyNested {
   type Props = u32;
-  fn create(_ctx: &mut Ctx, _: u32) -> Self {
+  fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -145,9 +160,10 @@ struct SignalRoot {
 }
 
 impl Component for SignalRoot {
-  type Props = Arc<Mutex<Option<Signal<i32>>>>;
+  type Props = Shared<Mutex<Option<Signal<i32>>>>;
 
-  fn create(ctx: &mut Ctx, signal_out: Self::Props) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let signal_out = ctx.props::<Self::Props>().0.clone();
     let count = ctx.signal(1);
     *signal_out.lock().unwrap() = Some(count.clone());
     Self { count }
@@ -164,12 +180,13 @@ struct LifecycleChild {
 }
 
 impl Component for LifecycleChild {
-  type Props = (Arc<AtomicUsize>, Arc<AtomicUsize>);
+  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>);
 
-  fn create(_ctx: &mut Ctx, props: Self::Props) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
     Self {
-      mounted: props.0,
-      unmounted: props.1,
+      mounted: props.0.0,
+      unmounted: props.1.0,
     }
   }
 
@@ -193,21 +210,26 @@ struct ConditionalLifecycleParent {
 }
 
 impl Component for ConditionalLifecycleParent {
-  type Props = (Arc<Mutex<Option<Signal<bool>>>>, Arc<AtomicUsize>, Arc<AtomicUsize>);
+  type Props = (
+    Shared<Mutex<Option<Signal<bool>>>>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+  );
 
-  fn create(ctx: &mut Ctx, props: Self::Props) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
     let show_child = ctx.signal(true);
-    *props.0.lock().unwrap() = Some(show_child.clone());
+    *props.0.0.lock().unwrap() = Some(show_child.clone());
     Self {
       show_child,
-      mounted: props.1,
-      unmounted: props.2,
+      mounted: props.1.0,
+      unmounted: props.2.0,
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     if self.show_child.get() {
-      ctx.mount::<LifecycleChild>((self.mounted.clone(), self.unmounted.clone()))
+      ctx.mount::<LifecycleChild>((Shared(self.mounted.clone()), Shared(self.unmounted.clone())))
     } else {
       Element::new()
     }
@@ -220,12 +242,13 @@ struct RootLifecycle {
 }
 
 impl Component for RootLifecycle {
-  type Props = (Arc<AtomicUsize>, Arc<AtomicUsize>);
+  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>);
 
-  fn create(_ctx: &mut Ctx, props: Self::Props) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
     Self {
-      mounted: props.0,
-      unmounted: props.1,
+      mounted: props.0.0,
+      unmounted: props.1.0,
     }
   }
 
@@ -355,12 +378,12 @@ fn deeply_nested_mount() {
 fn dirty_signal_rebuilds_before_layout() {
   let signal_out = Arc::new(Mutex::new(None));
   let mut rt = Runtime::new();
-  rt.mount_root::<SignalRoot>(signal_out.clone());
+  rt.mount_root::<SignalRoot>(Shared(signal_out.clone()));
 
   assert_eq!(rt.root().unwrap().text_content(), Some("1"));
 
   signal_out.lock().unwrap().as_ref().unwrap().set(7);
-  rt.compute_layout(Constraints::loose(Size::new(100.0, 100.0))).unwrap();
+  run_pass(&mut rt);
 
   assert_eq!(rt.root().unwrap().text_content(), Some("7"));
 }
@@ -372,19 +395,23 @@ fn child_lifecycle_tracks_insertions_and_removals() {
   let unmounted = Arc::new(AtomicUsize::new(0));
 
   let mut rt = Runtime::new();
-  rt.mount_root::<ConditionalLifecycleParent>((show_child.clone(), mounted.clone(), unmounted.clone()));
+  rt.mount_root::<ConditionalLifecycleParent>((
+    Shared(show_child.clone()),
+    Shared(mounted.clone()),
+    Shared(unmounted.clone()),
+  ));
 
   assert_eq!(mounted.load(Ordering::Relaxed), 1);
   assert_eq!(unmounted.load(Ordering::Relaxed), 0);
 
   show_child.lock().unwrap().as_ref().unwrap().set(false);
-  rt.compute_layout(Constraints::loose(Size::new(100.0, 100.0))).unwrap();
+  run_pass(&mut rt);
 
   assert_eq!(mounted.load(Ordering::Relaxed), 1);
   assert_eq!(unmounted.load(Ordering::Relaxed), 1);
 
   show_child.lock().unwrap().as_ref().unwrap().set(true);
-  rt.compute_layout(Constraints::loose(Size::new(100.0, 100.0))).unwrap();
+  run_pass(&mut rt);
 
   assert_eq!(mounted.load(Ordering::Relaxed), 2);
   assert_eq!(unmounted.load(Ordering::Relaxed), 1);
@@ -396,7 +423,7 @@ fn root_lifecycle_runs_once_and_unmounts() {
   let unmounted = Arc::new(AtomicUsize::new(0));
   let mut rt = Runtime::new();
 
-  rt.mount_root::<RootLifecycle>((mounted.clone(), unmounted.clone()));
+  rt.mount_root::<RootLifecycle>((Shared(mounted.clone()), Shared(unmounted.clone())));
   rt.rebuild();
 
   assert_eq!(mounted.load(Ordering::Relaxed), 1);

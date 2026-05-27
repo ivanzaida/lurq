@@ -7,6 +7,8 @@ use lurq::{
   node::Element,
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -34,7 +36,7 @@ fn flex_row_distributes_children_horizontally() {
     .spacing(0.0)
     .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert!(r.children[1].offset.x > r.children[0].offset.x);
 }
 
@@ -49,7 +51,7 @@ fn flex_column_stacks_children_vertically() {
     .spacing(0.0)
     .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   assert!(r.children[1].offset.y > r.children[0].offset.y);
 }
 
@@ -65,7 +67,7 @@ fn flex_grow_distributes_free_space() {
     lurq::components::Spacer::new().flex(2.0),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let ratio = r.children[1].result.size.width / r.children[0].result.size.width;
   assert!((ratio - 2.0).abs() < 0.1, "ratio should be ~2.0, got {}", ratio);
 }
@@ -82,7 +84,7 @@ fn flex_justify_content_center() {
     .justify(Justify::Center)
     .child(rect(100.0, 50.0));
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let offset = r.children[0].offset.x;
   assert!((offset - 100.0).abs() < 1.0, "should be centered (offset={})", offset);
 }
@@ -95,7 +97,7 @@ fn flex_justify_content_end() {
     .justify(Justify::End)
     .child(rect(50.0, 50.0));
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let child_end = r.children[0].offset.x + r.children[0].result.size.width;
   assert!(
     (child_end - 300.0).abs() < 1.0,
@@ -112,7 +114,7 @@ fn flex_justify_content_space_between() {
     .justify(Justify::SpaceBetween)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0), rect(50.0, 30.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let first_x = r.children[0].offset.x;
   let last_end = r.children[2].offset.x + r.children[2].result.size.width;
   assert!(first_x.abs() < 1.0, "first at start");
@@ -127,7 +129,7 @@ fn flex_justify_content_space_around() {
     .justify(Justify::SpaceAround)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Free space = 200, 2 items → each gets 100px, half on each side = 50px
   let a_start = r.children[0].offset.x;
   assert!(
@@ -145,7 +147,7 @@ fn flex_justify_content_space_evenly() {
     .justify(Justify::SpaceEvenly)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Free space = 200, 3 slots → ~66.7px each
   let a_start = r.children[0].offset.x;
   assert!(
@@ -163,7 +165,7 @@ fn flex_justify_center_column() {
     .justify(Justify::Center)
     .child(rect(100.0, 50.0));
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
   let offset = r.children[0].offset.y;
   assert!(
     (offset - 125.0).abs() < 1.0,
@@ -183,7 +185,7 @@ fn flex_gap_adds_spacing() {
     .spacing(20.0)
     .with_children(vec![rect(100.0, 50.0), rect(100.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   let a_end = r.children[0].offset.x + r.children[0].result.size.width;
   let b_start = r.children[1].offset.x;
   let gap = b_start - a_end;
@@ -199,7 +201,7 @@ fn flex_gap_three_items() {
     rect(120.0, 40.0),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(500.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(500.0, 100.0))).unwrap();
   let gap_01 = r.children[1].offset.x - (r.children[0].offset.x + r.children[0].result.size.width);
   let gap_12 = r.children[2].offset.x - (r.children[1].offset.x + r.children[1].result.size.width);
   assert!((gap_01 - 16.0).abs() < 1.0, "gap 0→1 should be ~16px, got {}", gap_01);
@@ -215,7 +217,7 @@ fn flex_align_items_start() {
   let mut rt = rt();
   let node = lurq::components::Row::with(0.0, Alignment::Start, vec![rect(50.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   let offset = r.children[0].offset.y;
   assert!(offset.abs() < 1.0, "flex-start: child at top, offset={}", offset);
 }
@@ -225,7 +227,7 @@ fn flex_align_items_center() {
   let mut rt = rt();
   let node = lurq::components::Row::with(0.0, Alignment::Center, vec![rect(50.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   let child_cy = r.children[0].offset.y + r.children[0].result.size.height / 2.0;
   let container_cy = r.size.height / 2.0;
   assert!((child_cy - container_cy).abs() < 1.0, "should be centered");
@@ -236,7 +238,7 @@ fn flex_align_items_end() {
   let mut rt = rt();
   let node = lurq::components::Row::with(0.0, Alignment::End, vec![rect(50.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   let child_bottom = r.children[0].offset.y + r.children[0].result.size.height;
   assert!((child_bottom - 200.0).abs() < 1.0, "flex-end: child at bottom");
 }
@@ -246,7 +248,7 @@ fn flex_align_items_stretch() {
   let mut rt = rt();
   let node = lurq::components::Row::with(0.0, Alignment::Stretch, vec![wide(50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   assert!(
     (r.children[0].result.size.height - 200.0).abs() < 1.0,
     "stretch: child should fill cross axis, got {}",
@@ -259,7 +261,7 @@ fn flex_align_items_stretch_column() {
   let mut rt = rt();
   let node = lurq::components::Column::with(0.0, Alignment::Stretch, vec![tall(50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   assert!(
     (r.children[0].result.size.width - 300.0).abs() < 1.0,
     "stretch: child should fill cross axis width, got {}",
@@ -279,7 +281,7 @@ fn flex_shrink_reduces_overflowing_items() {
     rect(150.0, 50.0).flex_full(0.0, 1.0, None),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   let a_w = r.children[0].result.size.width;
   let b_w = r.children[1].result.size.width;
   assert!(a_w < 150.0, "should shrink, got {}", a_w);
@@ -295,7 +297,7 @@ fn flex_shrink_weighted() {
     rect(100.0, 50.0).flex_full(0.0, 1.0, None),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   let big = r.children[0].result.size.width;
   let small = r.children[1].result.size.width;
   assert!(
@@ -319,7 +321,7 @@ fn flex_shrink_zero_does_not_shrink() {
     rect(150.0, 50.0).flex_full(0.0, 1.0, None),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   assert!(
     (r.children[0].result.size.width - 150.0).abs() < 1.0,
     "shrink:0 should not shrink, got {}",
@@ -339,7 +341,7 @@ fn flex_basis_sets_initial_size() {
     lurq::components::Spacer::new().flex_full(0.0, 0.0, Some(200.0)),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert!(
     (r.children[0].result.size.width - 100.0).abs() < 1.0,
     "flex-basis:100px, got {}",
@@ -360,7 +362,7 @@ fn flex_basis_zero_with_grow() {
     lurq::components::Spacer::new().flex_full(1.0, 0.0, Some(0.0)),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert!(
     (r.children[0].result.size.width - 150.0).abs() < 1.0,
     "flex-basis:0 + grow:1 → 150, got {}",
@@ -380,7 +382,7 @@ fn flex_wrap_wraps_items() {
     .wrap()
     .with_children(vec![rect(120.0, 30.0), rect(120.0, 30.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   assert!(
     r.children[1].offset.y > r.children[0].offset.y,
     "should wrap: y0={}, y1={}",
@@ -398,7 +400,7 @@ fn flex_wrap_three_items_two_lines() {
     rect(80.0, 30.0),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   // First two fit on line 1 (80+80=160 ≤ 200), third wraps
   assert_eq!(r.children[0].offset.y, r.children[1].offset.y, "A and B on same line");
   assert!(r.children[2].offset.y > r.children[0].offset.y, "C wraps to next line");
@@ -412,7 +414,7 @@ fn flex_wrap_column() {
     .wrap()
     .with_children(vec![rect(50.0, 120.0), rect(50.0, 120.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   assert!(
     r.children[1].offset.x > r.children[0].offset.x,
     "column wrap: should wrap to next column"
@@ -428,7 +430,7 @@ fn flex_wrap_with_spacing() {
     rect(100.0, 30.0),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(220.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(220.0, 200.0))).unwrap();
   // 100 + 10 + 100 = 210 ≤ 220 → first two fit; third wraps
   assert_eq!(r.children[0].offset.y, r.children[1].offset.y, "A and B on same line");
   assert!(r.children[2].offset.y > r.children[0].offset.y, "C wraps");
@@ -443,7 +445,7 @@ fn flex_no_children_does_not_panic() {
   let mut rt = rt();
   let node = lurq::components::Row::new().spacing(0.0);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert_eq!(r.children.len(), 0);
 }
 
@@ -464,7 +466,7 @@ fn flex_max_width_prevents_growing() {
     lurq::components::Spacer::new().flex(1.0),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert!(
     r.children[0].result.size.width <= 101.0,
     "max-width:100 should cap growth, got {}",
@@ -486,7 +488,7 @@ fn flex_min_height_prevents_shrinking_column() {
     rect(100.0, 150.0).flex_full(0.0, 1.0, None),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   assert!(
     r.children[0].result.size.height >= 119.0,
     "min-height:120 should prevent shrinking below 120, got {}",
@@ -509,7 +511,7 @@ fn flex_nested_row_in_row() {
     .spacing(0.0)
     .with_children(vec![Element::from(inner), Element::from(rect(100.0, 30.0))]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(r.children.len(), 2);
   let inner_w = r.children[0].result.size.width;
   assert!(inner_w > 200.0, "inner flex should grow, got {}", inner_w);
@@ -535,7 +537,7 @@ fn flex_nested_column_in_row() {
     .spacing(8.0)
     .with_children(vec![Element::from(inner_col), Element::from(inner_row)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(800.0, 120.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(800.0, 120.0))).unwrap();
 
   let col = &r.children[0];
   let row = &r.children[1];
@@ -554,7 +556,7 @@ fn flex_deeply_nested_three_levels() {
   let mid = lurq::components::Column::new().spacing(0.0).child(inner).flex(1.0);
   let root = lurq::components::Row::new().spacing(0.0).child(mid);
   rt.set_root(root);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   assert!(r.size.width > 0.0);
 }
 
@@ -573,7 +575,7 @@ fn flex_padding_reduces_available_space() {
     ])
     .pad(20.0);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Padding 20 on each side → 260 available for flex children → 130 each
   let inner = &r.children[0].result;
   let a_w = inner.children[0].result.size.width;
@@ -598,7 +600,7 @@ fn overflow_hidden_clips_children() {
     .clip()
     .with_children(vec![rect(200.0, 50.0), rect(200.0, 50.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Children total 400px but container is 300px; layout still places them
   assert_eq!(r.children[0].offset.x, 0.0);
   assert_eq!(r.children[1].offset.x, 200.0);
@@ -617,7 +619,7 @@ fn flex_intrinsic_leaf_contributes_size() {
     .spacing(10.0)
     .with_children(vec![leaf, rect(50.0, 30.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   assert_eq!(r.children[0].result.size.width, 80.0);
   assert_eq!(r.children[0].result.size.height, 40.0);
   assert_eq!(r.size.width, 140.0); // 80 + 10 + 50
@@ -633,7 +635,7 @@ fn percentage_padding_resolves_against_parent() {
   let mut rt = rt();
   let node = rect(100.0, 100.0).padding(Padding::all(Dimension::Pct(10.0)));
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   // 10% of 400 = 40 horizontal padding on each side, 10% of 300 = 30 vertical
   // Inner rect is 100x100, so outer = 100+80=180 x 100+60=160
   // The padding is the outermost wrapper applied first on the node
@@ -668,7 +670,7 @@ fn justify_space_between_with_explicit_spacing() {
     .justify(Justify::SpaceBetween)
     .with_children(vec![rect(50.0, 30.0), rect(50.0, 30.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   let gap = r.children[1].offset.x - (r.children[0].offset.x + r.children[0].result.size.width);
   assert!((gap - 100.0).abs() < 1.0, "gap should be 100px, got {}", gap);
 }
@@ -681,7 +683,7 @@ fn justify_space_evenly_single_child() {
     .justify(Justify::SpaceEvenly)
     .child(rect(100.0, 50.0));
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Free=200, 2 slots → 100 each
   let offset = r.children[0].offset.x;
   assert!((offset - 100.0).abs() < 1.0, "should be centered, got {}", offset);
@@ -699,7 +701,7 @@ fn column_justify_space_between() {
     .justify(Justify::SpaceBetween)
     .with_children(vec![rect(100.0, 40.0), rect(100.0, 40.0)]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
   let first_y = r.children[0].offset.y;
   let last_bottom = r.children[1].offset.y + r.children[1].result.size.height;
   assert!(first_y.abs() < 1.0, "first at top");
@@ -714,7 +716,7 @@ fn column_flex_shrink() {
     rect(100.0, 150.0).flex_full(0.0, 1.0, None),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
   let total = r.children[0].result.size.height + r.children[1].result.size.height;
   assert!((total - 200.0).abs() < 1.0, "total should be 200, got {}", total);
 }
@@ -727,7 +729,7 @@ fn column_flex_basis() {
     lurq::components::Spacer::new().flex_full(0.0, 0.0, Some(120.0)),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
   assert!(
     (r.children[0].result.size.height - 80.0).abs() < 1.0,
     "basis:80, got {}",
@@ -749,7 +751,7 @@ fn column_flex_wrap() {
     rect(50.0, 120.0),
   ]);
   rt.set_root(node);
-  let r = rt.compute_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
+  let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();
   // First item: 120 ≤ 200 → fits. Second: 120+120=240 > 200 → wraps
   assert_eq!(r.children[0].offset.x, r.children[0].offset.x); // sanity
   assert!(

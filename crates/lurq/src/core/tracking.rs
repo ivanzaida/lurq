@@ -8,27 +8,27 @@ pub struct TrackingEntry {
 }
 
 thread_local! {
-  static TRACKING: RefCell<Option<Vec<TrackingEntry>>> = const { RefCell::new(None) };
+  static TRACKING: RefCell<Vec<Vec<TrackingEntry>>> = const { RefCell::new(Vec::new()) };
 }
 
 pub fn start_tracking() {
   TRACKING.with(|t| {
-    *t.borrow_mut() = Some(Vec::new());
+    t.borrow_mut().push(Vec::new());
   });
 }
 
 pub fn stop_tracking() -> Vec<TrackingEntry> {
-  TRACKING.with(|t| t.borrow_mut().take().unwrap_or_default())
+  TRACKING.with(|t| t.borrow_mut().pop().unwrap_or_default())
 }
 
 pub fn is_tracking() -> bool {
-  TRACKING.with(|t| t.borrow().is_some())
+  TRACKING.with(|t| !t.borrow().is_empty())
 }
 
 pub fn track(signal_id: usize, subscribe_fn: SubscribeFn) {
   TRACKING.with(|t| {
     let mut borrow = t.borrow_mut();
-    if let Some(ref mut entries) = *borrow {
+    if let Some(entries) = borrow.last_mut() {
       if !entries.iter().any(|e| e.signal_id == signal_id) {
         entries.push(TrackingEntry {
           signal_id,

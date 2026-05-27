@@ -4,7 +4,7 @@ mod style;
 
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::Row,
+  components::{Rect, Row},
   core::Signal,
   layout::{
     Alignment,
@@ -21,6 +21,21 @@ use crate::{
 
 const SIDEBAR_WIDTH: f32 = 200.0;
 
+struct Child;
+
+impl Component for Child {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    println!("child rerender!");
+    Rect::new(0.0, 0.0)
+  }
+}
+
 struct DemoApp {
   signal: Signal<u32>,
 }
@@ -28,7 +43,7 @@ struct DemoApp {
 impl Component for DemoApp {
   type Props = ();
 
-  fn create(ctx: &mut Ctx, _: ()) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
     Self { signal: ctx.signal(0) }
   }
 
@@ -67,6 +82,7 @@ impl Component for DemoApp {
           .fill(BG)
           .flex(1.0),
       )
+      .child(_ctx.mount::<Child>(()))
       .fill(BG)
   }
 }

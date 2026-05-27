@@ -3,6 +3,8 @@ use lurq::{
   layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
 };
 
+use super::PassLayoutExt;
+
 fn rt() -> Runtime {
   Runtime::new()
 }
@@ -29,7 +31,7 @@ fn row_flex_equal_split() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 100.0);
   assert_eq!(result.children[0].offset.x, 0.0);
@@ -58,7 +60,7 @@ fn row_flex_weighted_split() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 300.0);
 }
@@ -84,7 +86,7 @@ fn row_flex_with_fixed_sibling() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 200.0);
   assert_eq!(result.children[1].offset.x, 100.0);
@@ -112,7 +114,7 @@ fn row_flex_with_spacing() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(220.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(220.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 100.0);
   assert_eq!(result.children[1].offset.x, 120.0); // 100 + 20 spacing
@@ -140,7 +142,7 @@ fn column_flex_equal_split() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
   assert_eq!(result.children[0].result.size.height, 150.0);
   assert_eq!(result.children[1].result.size.height, 150.0);
   assert_eq!(result.children[1].offset.y, 150.0);
@@ -167,7 +169,7 @@ fn column_flex_with_fixed_sibling() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 300.0))).unwrap();
   assert_eq!(result.children[0].result.size.height, 60.0);
   assert_eq!(result.children[1].result.size.height, 240.0);
 }
@@ -185,7 +187,7 @@ fn three_way_flex_split() {
     ],
   );
   rt.set_root(node);
-  let result = rt.compute_layout(Constraints::tight(Size::new(600.0, 100.0))).unwrap();
+  let result = rt.pass_layout(Constraints::tight(Size::new(600.0, 100.0))).unwrap();
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 200.0);
   assert_eq!(result.children[2].result.size.width, 300.0);

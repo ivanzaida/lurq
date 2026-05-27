@@ -1,8 +1,9 @@
 use lurq::{
   app::{Runtime, events::MouseButton},
   core::Signal,
-  layout::{Constraints, Size, quad::QuadContent},
 };
+
+use crate::support::render_pass;
 
 #[test]
 fn renders_caret_after_text_input_is_focused() {
@@ -14,14 +15,7 @@ fn renders_caret_after_text_input_is_focused() {
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
-  let layout = runtime
-    .compute_layout(Constraints::tight(Size::new(200.0, 80.0)))
-    .unwrap();
-  let quads = runtime.resolve_quads(&layout);
+  let snapshot = render_pass(&mut runtime);
 
-  assert!(
-    quads
-      .iter()
-      .any(|quad| { matches!(quad.content, QuadContent::Rect { .. }) && quad.width == 1.0 && quad.height > 0.0 })
-  );
+  assert!(snapshot.rects.iter().any(|rect| rect.width == 1.0 && rect.height > 0.0));
 }
