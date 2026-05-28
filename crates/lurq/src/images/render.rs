@@ -9,8 +9,12 @@ pub struct ImageCmd {
   pub width: f32,
   pub height: f32,
   pub image_id: u64,
+  pub frame_index: usize,
   pub data: Arc<Vec<u8>>,
   pub image_width: u32,
   pub image_height: u32,
+  pub uv_min: [f32; 2],
+  pub uv_max: [f32; 2],
+  pub radii: [f32; 4],
   pub clip: ClipRect,
 }

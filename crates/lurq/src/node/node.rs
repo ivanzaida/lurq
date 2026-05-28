@@ -27,6 +27,19 @@ type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundSize {
+  Stretch,
+  Cover,
+  Contain,
+}
+
+impl Default for BackgroundSize {
+  fn default() -> Self {
+    Self::Stretch
+  }
+}
+
 #[derive(Default, Clone)]
 pub struct EventHandlers {
   pub on_click: Option<Callback<MouseEvent>>,
@@ -65,6 +78,10 @@ pub(crate) struct Node {
   pub(crate) cursor: Option<CursorIcon>,
   #[cfg(feature = "image")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
+  #[cfg(feature = "image")]
+  pub(crate) background_size: BackgroundSize,
+  #[cfg(all(feature = "image", feature = "resources"))]
+  pub(crate) background_resource_image: Option<Arc<str>>,
   pub(crate) scrollbar_style: Guard<Option<ScrollBarStyle>>,
   pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
@@ -105,6 +122,10 @@ impl Node {
       cursor: None,
       #[cfg(feature = "image")]
       background_image: Guard::new(None),
+      #[cfg(feature = "image")]
+      background_size: BackgroundSize::default(),
+      #[cfg(all(feature = "image", feature = "resources"))]
+      background_resource_image: None,
       scrollbar_style: Guard::new(None),
       scrollbar_hovered_style: None,
       element_ref: None,
@@ -370,6 +391,28 @@ impl Node {
   #[cfg(feature = "image")]
   pub fn background_image(mut self, data: crate::images::ImageData) -> Self {
     self.background_image.set(Some(data));
+    self
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_size(mut self, size: BackgroundSize) -> Self {
+    self.background_size = size;
+    self
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_cover(self) -> Self {
+    self.background_size(BackgroundSize::Cover)
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_contain(self) -> Self {
+    self.background_size(BackgroundSize::Contain)
+  }
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  pub fn background_image_resource(mut self, path: &str) -> Self {
+    self.background_resource_image = Some(path.into());
     self
   }
 
@@ -939,6 +982,10 @@ impl Node {
       cursor: self.cursor,
       #[cfg(feature = "image")]
       background_image: self.background_image.clone(),
+      #[cfg(feature = "image")]
+      background_size: self.background_size,
+      #[cfg(all(feature = "image", feature = "resources"))]
+      background_resource_image: self.background_resource_image.clone(),
       scrollbar_style: self.scrollbar_style.clone(),
       scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
       element_ref: self.element_ref.clone(),

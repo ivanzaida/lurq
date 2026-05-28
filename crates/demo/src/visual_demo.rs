@@ -1,3 +1,5 @@
+#[cfg(all(feature = "image", feature = "resources"))]
+use lurq::components::Image;
 use lurq::{
   layout::{Alignment, text_style::FontWeight},
   node::{Element, color::Color, dimension::Dimension},
@@ -9,8 +11,16 @@ const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 
+#[cfg(all(feature = "image", feature = "resources"))]
+const IMAGE_ASSETS: &[(&str, &str)] = &[
+  ("JPG", "skebob.jpg"),
+  ("PNG alpha", "transparent.png"),
+  ("GIF", "six-seven.gif"),
+  ("WebP", "animated-webp-supported.webp"),
+];
+
 pub(crate) fn visual_content() -> Element {
-  lurq::components::Column::new()
+  let content = lurq::components::Column::new()
     .spacing(24.0)
     .child(text("Visual Styling", 28.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
     .child(section_title("Color Palette"))
@@ -18,11 +28,20 @@ pub(crate) fn visual_content() -> Element {
     .child(section_title("Border Radius"))
     .child(radius_showcase())
     .child(section_title("Clipping (Overflow)"))
-    .child(clip_showcase())
-    .pad(CONTENT_PAD)
-    .width(FILL_WIDTH)
-    .fill(BG)
-    .into()
+    .child(clip_showcase());
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  let content = content
+    .child(section_title("Plain Images"))
+    .child(plain_images_showcase())
+    .child(section_title("Sized Images"))
+    .child(sized_images_showcase())
+    .child(section_title("Intrinsic Images"))
+    .child(intrinsic_images_showcase())
+    .child(section_title("Background Images"))
+    .child(background_images_showcase());
+
+  content.pad(CONTENT_PAD).width(FILL_WIDTH).fill(BG).into()
 }
 
 fn section_title(label: &str) -> Element {
@@ -162,4 +181,184 @@ fn clip_example(label: &str, clip: bool) -> Element {
     col = col.overflow_visible();
   }
   col.into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn plain_images_showcase() -> Element {
+  lurq::components::Row::new()
+    .spacing(16.0)
+    .align_items(Alignment::Stretch)
+    .with_children(
+      IMAGE_ASSETS
+        .iter()
+        .map(|(label, path)| image_resource_card(label, path)),
+    )
+    .pad(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn sized_images_showcase() -> Element {
+  lurq::components::Row::new()
+    .spacing(24.0)
+    .align_items(Alignment::Start)
+    .with_children(IMAGE_ASSETS.iter().map(|(label, path)| sized_image_card(label, path)))
+    .pad(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn intrinsic_images_showcase() -> Element {
+  lurq::components::Column::new()
+    .spacing(24.0)
+    .child(
+      lurq::components::Row::new()
+        .spacing(24.0)
+        .align_items(Alignment::Start)
+        .child(intrinsic_image_card(IMAGE_ASSETS[0].0, IMAGE_ASSETS[0].1))
+        .child(intrinsic_image_card(IMAGE_ASSETS[2].0, IMAGE_ASSETS[2].1))
+        .width(FILL_WIDTH),
+    )
+    .child(
+      lurq::components::Row::new()
+        .spacing(24.0)
+        .align_items(Alignment::Start)
+        .child(intrinsic_image_card(IMAGE_ASSETS[1].0, IMAGE_ASSETS[1].1))
+        .child(intrinsic_image_card(IMAGE_ASSETS[3].0, IMAGE_ASSETS[3].1))
+        .width(FILL_WIDTH),
+    )
+    .pad(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn background_images_showcase() -> Element {
+  lurq::components::Column::new()
+    .spacing(16.0)
+    .child(text("background-size: cover", 13.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
+    .child(
+      lurq::components::Row::new()
+        .spacing(16.0)
+        .align_items(Alignment::Stretch)
+        .with_children(
+          IMAGE_ASSETS
+            .iter()
+            .map(|(label, path)| background_resource_card(label, path, true)),
+        )
+        .width(FILL_WIDTH),
+    )
+    .child(text("background-size: contain", 13.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
+    .child(
+      lurq::components::Row::new()
+        .spacing(16.0)
+        .align_items(Alignment::Stretch)
+        .with_children(
+          IMAGE_ASSETS
+            .iter()
+            .map(|(label, path)| background_resource_card(label, path, false)),
+        )
+        .width(FILL_WIDTH),
+    )
+    .pad(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn sized_image_card(label: &str, path: &str) -> Element {
+  lurq::components::Column::new()
+    .spacing(8.0)
+    .align_items(Alignment::Center)
+    .child(
+      Image::from_resource(path)
+        .width(120.0)
+        .rounded(6.0)
+        .clip()
+        .border_inside(1.0, Color::from_hex(BORDER)),
+    )
+    .child(text(&format!("width=120 {label}"), 12.0, FontWeight::Bold, TEXT))
+    .child(text(path, 10.0, FontWeight::Normal, TEXT_MUTED))
+    .flex(1.0)
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn intrinsic_image_card(label: &str, path: &str) -> Element {
+  lurq::components::Column::new()
+    .spacing(8.0)
+    .child(
+      Image::from_resource(path)
+        .rounded(6.0)
+        .clip()
+        .border_inside(1.0, Color::from_hex(BORDER)),
+    )
+    .child(text(&format!("Intrinsic {label}"), 12.0, FontWeight::Bold, TEXT))
+    .child(text(path, 10.0, FontWeight::Normal, TEXT_MUTED))
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn image_resource_card(label: &str, path: &str) -> Element {
+  lurq::components::Column::new()
+    .spacing(8.0)
+    .child(
+      Image::from_resource(path)
+        .size(Dimension::Pct(100.0), 132.0)
+        .rounded(6.0)
+        .clip()
+        .border_inside(1.0, Color::from_hex(BORDER)),
+    )
+    .child(text(&format!("Image {label}"), 12.0, FontWeight::Bold, TEXT))
+    .child(text(path, 10.0, FontWeight::Normal, TEXT_MUTED))
+    .flex(1.0)
+    .into()
+}
+
+#[cfg(all(feature = "image", feature = "resources"))]
+fn background_resource_card(label: &str, path: &str, cover: bool) -> Element {
+  let mut background = lurq::components::Stack::new()
+    .size(Dimension::Pct(100.0), 132.0)
+    .fill("#0B1220")
+    .background_image_resource(path)
+    .child(
+      lurq::components::Column::new()
+        .spacing(2.0)
+        .child(text(label, 11.0, FontWeight::Bold, TEXT))
+        .child(text("child", 9.0, FontWeight::Normal, TEXT_MUTED))
+        .pad_xy(8.0, 6.0)
+        .fill("#111827")
+        .rounded(4.0)
+        .absolute_position(10.0, 10.0),
+    )
+    .rounded(6.0)
+    .clip()
+    .border_inside(1.0, Color::from_hex(BORDER));
+  if cover {
+    background = background.background_cover();
+  } else {
+    background = background.background_contain();
+  }
+
+  lurq::components::Column::new()
+    .spacing(8.0)
+    .child(background)
+    .child(text(&format!("Background {label}"), 12.0, FontWeight::Bold, TEXT))
+    .child(text(path, 10.0, FontWeight::Normal, TEXT_MUTED))
+    .flex(1.0)
+    .into()
 }

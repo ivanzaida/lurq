@@ -45,6 +45,75 @@ fn background_produces_rect_quad() {
   assert!(matches!(quads[0].content, QuadContent::Rect { .. }));
 }
 
+#[cfg(feature = "image")]
+#[test]
+fn image_width_preserves_intrinsic_aspect_ratio() {
+  let mut rt = rt();
+  let img = lurq::images::ImageData::from_rgba(vec![255; 200 * 100 * 4], 200, 100);
+  rt.set_root(lurq::components::Image::new(img).width(100.0));
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+}
+
+#[cfg(feature = "image")]
+#[test]
+fn image_height_preserves_intrinsic_aspect_ratio() {
+  let mut rt = rt();
+  let img = lurq::images::ImageData::from_rgba(vec![255; 200 * 100 * 4], 200, 100);
+  rt.set_root(lurq::components::Image::new(img).height(25.0));
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  assert_eq!(result.size.width, 50.0);
+  assert_eq!(result.size.height, 25.0);
+}
+
+#[cfg(feature = "image")]
+#[test]
+fn background_cover_crops_with_uvs() {
+  let mut rt = rt();
+  let img = lurq::images::ImageData::from_rgba(vec![255; 200 * 100 * 4], 200, 100);
+  rt.set_root(
+    lurq::components::Spacer::new()
+      .size(100.0, 100.0)
+      .background_image(img)
+      .background_cover(),
+  );
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  assert_eq!(quads.len(), 1);
+  match quads[0].content {
+    QuadContent::Image { uv_min, uv_max, .. } => {
+      assert_eq!(uv_min, [0.25, 0.0]);
+      assert_eq!(uv_max, [0.75, 1.0]);
+    }
+    _ => panic!("expected image quad"),
+  }
+}
+
+#[cfg(feature = "image")]
+#[test]
+fn background_contain_fits_inside_box() {
+  let mut rt = rt();
+  let img = lurq::images::ImageData::from_rgba(vec![255; 200 * 100 * 4], 200, 100);
+  rt.set_root(
+    lurq::components::Spacer::new()
+      .size(100.0, 100.0)
+      .background_image(img)
+      .background_contain(),
+  );
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  assert_eq!(quads.len(), 1);
+  assert_eq!(quads[0].x, 0.0);
+  assert_eq!(quads[0].y, 25.0);
+  assert_eq!(quads[0].width, 100.0);
+  assert_eq!(quads[0].height, 50.0);
+}
+
 #[test]
 fn text_produces_text_quad() {
   let mut rt = rt();
@@ -156,14 +225,12 @@ fn overflow_visible_allows_children_to_escape() {
 #[test]
 fn offset_visuals_move_with_the_offset_and_clip_by_default() {
   let mut rt = rt();
-  let node = lurq::components::Stack::new()
-    .size(100.0, 100.0)
-    .child(
-      lurq::components::Rect::new(80.0, 40.0)
-        .fill("#ff0000")
-        .offset(20.0, 10.0)
-        .absolute_position(0.0, 0.0),
-    );
+  let node = lurq::components::Stack::new().size(100.0, 100.0).child(
+    lurq::components::Rect::new(80.0, 40.0)
+      .fill("#ff0000")
+      .offset(20.0, 10.0)
+      .absolute_position(0.0, 0.0),
+  );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
   let quads = rt.resolve_quads(&result);

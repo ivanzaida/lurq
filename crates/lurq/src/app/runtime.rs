@@ -94,6 +94,8 @@ pub struct Runtime {
   animation_engine: AnimationEngine,
   #[cfg(feature = "resources")]
   resource_loader: crate::resources::ResourceLoader,
+  #[cfg(all(feature = "image", feature = "resources"))]
+  image_resource_cache: std::collections::HashMap<Arc<str>, crate::images::ImageData>,
   profiling_enabled: bool,
 }
 
@@ -136,6 +138,8 @@ impl Runtime {
       animation_engine: AnimationEngine::new(),
       #[cfg(feature = "resources")]
       resource_loader: crate::resources::ResourceLoader::new(),
+      #[cfg(all(feature = "image", feature = "resources"))]
+      image_resource_cache: std::collections::HashMap::new(),
       profiling_enabled: false,
     }
   }
@@ -394,6 +398,8 @@ impl Runtime {
     let mut glyphs = Vec::with_capacity(quad_count * 4);
     #[cfg(feature = "image")]
     let mut images = Vec::new();
+    #[cfg(feature = "image")]
+    let image_frame_time = std::time::Instant::now();
     #[cfg(feature = "svg")]
     let mut svgs = Vec::new();
 
@@ -505,7 +511,23 @@ impl Runtime {
           glyphs.extend(glyph_cmds);
         }
         #[cfg(feature = "image")]
-        QuadContent::Image { data } => {
+        QuadContent::Image { data, uv_min, uv_max } => {
+          let frame = data.frame_at(image_frame_time);
+          if data.is_animated() {
+            self.needs_redraw = true;
+          }
+          let max_r = scaled_width.min(scaled_height) * 0.5;
+          let radii = quad
+            .border_radius
+            .map(|r| {
+              [
+                (r.top_left * scale).min(max_r),
+                (r.top_right * scale).min(max_r),
+                (r.bottom_right * scale).min(max_r),
+                (r.bottom_left * scale).min(max_r),
+              ]
+            })
+            .unwrap_or([0.0; 4]);
           images.push(crate::images::ImageCmd {
             order,
             x: quad.x * scale,
@@ -513,9 +535,13 @@ impl Runtime {
             width: quad.width * scale,
             height: quad.height * scale,
             image_id: data.id(),
-            data: data.data_arc(),
-            image_width: data.width(),
-            image_height: data.height(),
+            frame_index: frame.frame_index,
+            data: frame.data,
+            image_width: frame.width,
+            image_height: frame.height,
+            uv_min: *uv_min,
+            uv_max: *uv_max,
+            radii,
             clip: scaled_clip,
           });
         }
@@ -1319,24 +1345,66 @@ impl Runtime {
   #[cfg(all(feature = "image", feature = "resources"))]
   fn resolve_resource_images(&mut self) {
     if let Some(root) = &mut self.root {
-      Self::resolve_resource_images_recursive(root, &self.resource_loader);
+      Self::resolve_resource_images_recursive(root, &self.resource_loader, &mut self.image_resource_cache);
     }
   }
 
   #[cfg(all(feature = "image", feature = "resources"))]
-  fn resolve_resource_images_recursive(node: &mut Node, loader: &crate::resources::ResourceLoader) {
+  fn resolve_resource_images_recursive(
+    node: &mut Node,
+    loader: &crate::resources::ResourceLoader,
+    image_cache: &mut std::collections::HashMap<Arc<str>, crate::images::ImageData>,
+  ) -> bool {
+    let mut layout_dirty = false;
+
     if let NodeKind::ResourceImage { path } = node.node_kind() {
       let key: std::sync::Arc<str> = path.clone();
-      if let crate::resources::LoadResourceResult::Loaded(bytes) = loader.load_resource(&key, None) {
-        if let Ok(img) = crate::images::ImageData::from_bytes(&bytes) {
-          node.intrinsic_size = Some(Size::new(img.width() as f32, img.height() as f32));
-          node.node_kind = NodeKind::Image { data: img };
+      if let Some(img) = Self::resolve_image_resource(&key, loader, image_cache) {
+        node.intrinsic_size = Some(Size::new(img.width() as f32, img.height() as f32));
+        node.node_kind = NodeKind::Image { data: img };
+        layout_dirty = true;
+      }
+    }
+
+    if let Some(key) = node.background_resource_image.clone() {
+      if let Some(img) = Self::resolve_image_resource(&key, loader, image_cache) {
+        let current_id = node.background_image.as_ref().map(crate::images::ImageData::id);
+        if current_id != Some(img.id()) {
+          node.background_image.set(Some(img));
         }
       }
     }
+
     for child in &mut node.children {
-      Self::resolve_resource_images_recursive(child, loader);
+      if Self::resolve_resource_images_recursive(child, loader, image_cache) {
+        layout_dirty = true;
+      }
     }
+
+    if layout_dirty {
+      node.layout_cache.invalidate();
+    }
+
+    layout_dirty
+  }
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  fn resolve_image_resource(
+    key: &Arc<str>,
+    loader: &crate::resources::ResourceLoader,
+    image_cache: &mut std::collections::HashMap<Arc<str>, crate::images::ImageData>,
+  ) -> Option<crate::images::ImageData> {
+    if let Some(img) = image_cache.get(key) {
+      return Some(img.clone());
+    }
+
+    let crate::resources::LoadResourceResult::Loaded(bytes) = loader.load_resource(key, None) else {
+      return None;
+    };
+
+    let img = crate::images::ImageData::from_bytes(&bytes).ok()?;
+    image_cache.insert(key.clone(), img.clone());
+    Some(img)
   }
 
   fn clear_active_path(&mut self) {

@@ -162,6 +162,21 @@ impl ImageInstance {
           shader_location: 5,
           format: wgpu::VertexFormat::Float32x2,
         },
+        wgpu::VertexAttribute {
+          offset: 56,
+          shader_location: 6,
+          format: wgpu::VertexFormat::Float32x2,
+        },
+        wgpu::VertexAttribute {
+          offset: 64,
+          shader_location: 7,
+          format: wgpu::VertexFormat::Float32x2,
+        },
+        wgpu::VertexAttribute {
+          offset: 72,
+          shader_location: 8,
+          format: wgpu::VertexFormat::Float32x4,
+        },
       ],
     }
   }

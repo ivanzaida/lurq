@@ -15,8 +15,8 @@ use crate::{
 #[cfg(feature = "image")]
 struct CachedImageTexture {
   texture: wgpu::Texture,
-  view: wgpu::TextureView,
   bind_group: wgpu::BindGroup,
+  frame_index: usize,
 }
 
 pub struct WgpuRenderEngine {
@@ -847,10 +847,33 @@ impl RenderEngine for WgpuRenderEngine {
               });
               CachedImageTexture {
                 texture,
-                view,
                 bind_group,
+                frame_index: img.frame_index,
               }
             });
+
+            if cached.frame_index != img.frame_index {
+              queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                  texture: &cached.texture,
+                  mip_level: 0,
+                  origin: wgpu::Origin3d::ZERO,
+                  aspect: wgpu::TextureAspect::All,
+                },
+                &img.data,
+                wgpu::TexelCopyBufferLayout {
+                  offset: 0,
+                  bytes_per_row: Some(img.image_width * 4),
+                  rows_per_image: Some(img.image_height),
+                },
+                wgpu::Extent3d {
+                  width: img.image_width,
+                  height: img.image_height,
+                  depth_or_array_layers: 1,
+                },
+              );
+              cached.frame_index = img.frame_index;
+            }
 
             if !set_scissor(&mut pass, img.clip, vw, vh) {
               continue;
@@ -862,6 +885,9 @@ impl RenderEngine for WgpuRenderEngine {
               opacity: [1.0, 0.0, 0.0, 0.0],
               transform: [1.0, 0.0, 0.0, 1.0],
               xf_origin: [0.0, 0.0],
+              uv_min: img.uv_min,
+              uv_max: img.uv_max,
+              radii: img.radii,
             };
             let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
               label: Some("lurq_ii"),

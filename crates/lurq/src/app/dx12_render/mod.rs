@@ -32,29 +32,30 @@ use windows::{
         D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
         D3D12_INPUT_ELEMENT_DESC, D3D12_INPUT_LAYOUT_DESC, D3D12_LOGIC_OP_NOOP, D3D12_MEMORY_POOL_UNKNOWN,
         D3D12_PIPELINE_STATE_FLAG_NONE, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-        D3D12_RANGE, D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC, D3D12_RESOURCE_BARRIER,
-        D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
+        D3D12_RANGE, D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC, D3D12_RENDER_TARGET_VIEW_DESC,
+        D3D12_RENDER_TARGET_VIEW_DESC_0, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0,
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
         D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER,
         D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST,
         D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PRESENT,
         D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATES, D3D12_RESOURCE_TRANSITION_BARRIER,
-        D3D12_RENDER_TARGET_VIEW_DESC, D3D12_RENDER_TARGET_VIEW_DESC_0, D3D12_RTV_DIMENSION_TEXTURE2D,
         D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
         D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, D3D12_ROOT_SIGNATURE_DESC,
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE,
-        D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0, D3D12_SHADER_VISIBILITY_ALL,
-        D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
-        D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-        D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN,
-        D3D12_TEX2D_RTV, D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT, D3D12CreateDevice, D3D12SerializeRootSignature,
-        ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue, ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence,
-        ID3D12GraphicsCommandList, ID3D12PipelineState, ID3D12Resource, ID3D12RootSignature,
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_RTV_DIMENSION_TEXTURE2D,
+        D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
+        D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_RTV,
+        D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+        D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+        D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT,
+        D3D12CreateDevice, D3D12SerializeRootSignature, ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue,
+        ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList, ID3D12PipelineState,
+        ID3D12Resource, ID3D12RootSignature,
       },
       Dxgi::{
         Common::{
-          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
-          DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
-          DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
+          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+          DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT,
+          DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
         DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
@@ -200,6 +201,7 @@ struct Dx12State {
   fence: ID3D12Fence,
   fence_event: HANDLE,
   fence_values: [u64; FRAME_COUNT],
+  next_fence_value: u64,
   frame_index: usize,
   width: u32,
   height: u32,
@@ -246,6 +248,7 @@ struct GlyphAtlasTexture {
 struct CachedImageTexture {
   _texture: ID3D12Resource,
   descriptor_index: usize,
+  frame_index: usize,
 }
 
 struct CpuDescriptorHeap {
@@ -378,7 +381,6 @@ impl UploadBuffer {
       _resource: resource,
     })
   }
-
 }
 
 impl UploadSlice {
@@ -1149,7 +1151,7 @@ fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 8] {
 }
 
 #[cfg(feature = "image")]
-fn image_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 6] {
+fn image_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
   [
     input_element(
       0,
@@ -1196,6 +1198,30 @@ fn image_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 6] {
       DXGI_FORMAT_R32G32_FLOAT,
       1,
       48,
+      D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+      1,
+    ),
+    input_element(
+      6,
+      DXGI_FORMAT_R32G32_FLOAT,
+      1,
+      56,
+      D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+      1,
+    ),
+    input_element(
+      7,
+      DXGI_FORMAT_R32G32_FLOAT,
+      1,
+      64,
+      D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+      1,
+    ),
+    input_element(
+      8,
+      DXGI_FORMAT_R32G32B32A32_FLOAT,
+      1,
+      72,
       D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
       1,
     ),
@@ -1518,6 +1544,7 @@ impl Dx12State {
       fence,
       fence_event,
       fence_values: [0, 0],
+      next_fence_value: 1,
       frame_index: 0,
       width: width.max(1),
       height: height.max(1),
@@ -1539,13 +1566,9 @@ impl Dx12State {
     for uploads in &mut self.frame_uploads {
       uploads.clear();
     }
-    self.swapchain.ResizeBuffers(
-      FRAME_COUNT as u32,
-      width,
-      height,
-      SWAPCHAIN_FORMAT,
-      Default::default(),
-    )?;
+    self
+      .swapchain
+      .ResizeBuffers(FRAME_COUNT as u32, width, height, SWAPCHAIN_FORMAT, Default::default())?;
     self.width = width;
     self.height = height;
     self.create_render_targets()?;
@@ -1557,6 +1580,7 @@ impl Dx12State {
     let total_start = ProfileScope::maybe_start(profiling_enabled);
     let acquire_start = ProfileScope::maybe_start(profiling_enabled);
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
+    self.wait_for_frame(self.frame_index)?;
     self.frame_uploads[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
     let allocator = &self.command_allocators[self.frame_index];
@@ -1594,11 +1618,12 @@ impl Dx12State {
     let submit_start = ProfileScope::maybe_start(profiling_enabled);
     let command_list: ID3D12CommandList = self.command_list.cast()?;
     self.command_queue.ExecuteCommandLists(&[Some(command_list)]);
+    self.signal_current_frame()?;
     let submit_dur = ProfileScope::elapsed_or_default(&submit_start);
 
     let present_start = ProfileScope::maybe_start(profiling_enabled);
     self.swapchain.Present(1, Default::default()).ok()?;
-    self.move_to_next_frame()?;
+    self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     let present_dur = ProfileScope::elapsed_or_default(&present_start);
 
     Ok(RenderProfile {
@@ -1621,6 +1646,7 @@ impl Dx12State {
     let upload = UploadBuffer::from_bytes_padded(&self.device, data, padded_size)?;
     let slice = UploadSlice {
       gpu_address: upload.gpu_address,
+
       size_in_bytes: upload.size_in_bytes,
     };
     self.frame_uploads[self.frame_index].push(upload);
@@ -1807,6 +1833,9 @@ impl Dx12State {
       opacity: [1.0, 0.0, 0.0, 0.0],
       transform: [1.0, 0.0, 0.0, 1.0],
       xf_origin: [0.0, 0.0],
+      uv_min: image.uv_min,
+      uv_max: image.uv_max,
+      radii: image.radii,
     };
     let instance_upload = self.upload_frame_pod_slice(&[instance], 16)?;
     let instance_view = instance_upload.vertex_view::<ImageInstance>();
@@ -1988,7 +2017,16 @@ impl Dx12State {
   #[cfg(feature = "image")]
   unsafe fn ensure_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
     if let Some(cached) = self.image_textures.get(&image.image_id) {
-      return Ok(cached.descriptor_index);
+      let descriptor_index = cached.descriptor_index;
+      let frame_index = cached.frame_index;
+      let texture = cached._texture.clone();
+      if frame_index != image.frame_index {
+        self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)?;
+        if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
+          cached.frame_index = image.frame_index;
+        }
+      }
+      return Ok(descriptor_index);
     }
     if self.next_srv_index >= SRV_DESCRIPTOR_COUNT as usize {
       return Err(Error::from_win32());
@@ -2014,6 +2052,30 @@ impl Dx12State {
       .device
       .CreateShaderResourceView(&texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
 
+    self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST)?;
+
+    self.image_textures.insert(
+      image.image_id,
+      CachedImageTexture {
+        _texture: texture,
+        descriptor_index,
+        frame_index: image.frame_index,
+      },
+    );
+    Ok(descriptor_index)
+  }
+
+  #[cfg(feature = "image")]
+  unsafe fn upload_image_texture(
+    &mut self,
+    texture: &ID3D12Resource,
+    image: &crate::images::ImageCmd,
+    before_state: D3D12_RESOURCE_STATES,
+  ) -> Result<()> {
+    if before_state != D3D12_RESOURCE_STATE_COPY_DEST {
+      self.transition_resource(texture, before_state, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+
     let row_bytes = image.image_width as usize * 4;
     let row_pitch = align_up(row_bytes, 256);
     let upload_size = row_pitch * image.image_height as usize;
@@ -2030,7 +2092,7 @@ impl Dx12State {
 
     let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
     let mut dst = D3D12_TEXTURE_COPY_LOCATION {
-      pResource: ManuallyDrop::new(Some(texture.clone())),
+      pResource: ManuallyDrop::new(Some(texture.to_owned())),
       Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
       Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
     };
@@ -2054,20 +2116,12 @@ impl Dx12State {
     ManuallyDrop::drop(&mut dst.pResource);
     ManuallyDrop::drop(&mut src.pResource);
     self.transition_resource(
-      &texture,
+      texture,
       D3D12_RESOURCE_STATE_COPY_DEST,
       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
     );
     self.frame_uploads[self.frame_index].push(upload);
-
-    self.image_textures.insert(
-      image.image_id,
-      CachedImageTexture {
-        _texture: texture,
-        descriptor_index,
-      },
-    );
-    Ok(descriptor_index)
+    Ok(())
   }
 
   unsafe fn create_render_targets(&mut self) -> Result<()> {
@@ -2114,31 +2168,32 @@ impl Dx12State {
     self.rtv_heap.cpu_handle(self.frame_index)
   }
 
-  unsafe fn move_to_next_frame(&mut self) -> Result<()> {
-    let current_fence_value = self.fence_values[self.frame_index] + 1;
-    self.command_queue.Signal(&self.fence, current_fence_value)?;
-    self.fence_values[self.frame_index] = current_fence_value;
+  unsafe fn signal_current_frame(&mut self) -> Result<()> {
+    let fence_value = self.next_fence_value;
+    self.next_fence_value += 1;
+    self.command_queue.Signal(&self.fence, fence_value)?;
+    self.fence_values[self.frame_index] = fence_value;
+    Ok(())
+  }
 
-    self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
-    if self.fence.GetCompletedValue() < self.fence_values[self.frame_index] {
-      self
-        .fence
-        .SetEventOnCompletion(self.fence_values[self.frame_index], self.fence_event)?;
+  unsafe fn wait_for_frame(&self, frame_index: usize) -> Result<()> {
+    let fence_value = self.fence_values[frame_index];
+    if fence_value != 0 && self.fence.GetCompletedValue() < fence_value {
+      self.fence.SetEventOnCompletion(fence_value, self.fence_event)?;
       let wait = WaitForSingleObject(self.fence_event, INFINITE);
       debug_assert_eq!(wait, WAIT_OBJECT_0);
     }
-
-    self.fence_values[self.frame_index] = current_fence_value;
     Ok(())
   }
 
   unsafe fn wait_for_gpu(&mut self) -> Result<()> {
-    let fence_value = self.fence_values[self.frame_index] + 1;
+    let fence_value = self.next_fence_value;
+    self.next_fence_value += 1;
     self.command_queue.Signal(&self.fence, fence_value)?;
-    self.fence_values[self.frame_index] = fence_value;
     self.fence.SetEventOnCompletion(fence_value, self.fence_event)?;
     let wait = WaitForSingleObject(self.fence_event, INFINITE);
     debug_assert_eq!(wait, WAIT_OBJECT_0);
+    self.fence_values = [0; FRAME_COUNT];
     Ok(())
   }
 }

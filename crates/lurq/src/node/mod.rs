@@ -14,5 +14,6 @@ pub mod transform;
 
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
+pub use node::BackgroundSize;
 pub(crate) use node::Node;
 pub use style::Style;

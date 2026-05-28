@@ -15,6 +15,73 @@ use crate::{
 
 pub(crate) struct LayoutEngine;
 
+#[cfg(feature = "image")]
+struct BackgroundImagePlacement {
+  x: f32,
+  y: f32,
+  width: f32,
+  height: f32,
+  uv_min: [f32; 2],
+  uv_max: [f32; 2],
+}
+
+#[cfg(feature = "image")]
+fn background_image_placement(
+  size_mode: crate::node::BackgroundSize,
+  box_width: f32,
+  box_height: f32,
+  image_width: f32,
+  image_height: f32,
+) -> BackgroundImagePlacement {
+  let full = BackgroundImagePlacement {
+    x: 0.0,
+    y: 0.0,
+    width: box_width,
+    height: box_height,
+    uv_min: [0.0, 0.0],
+    uv_max: [1.0, 1.0],
+  };
+
+  if box_width <= 0.0 || box_height <= 0.0 || image_width <= 0.0 || image_height <= 0.0 {
+    return full;
+  }
+
+  match size_mode {
+    crate::node::BackgroundSize::Stretch => full,
+    crate::node::BackgroundSize::Contain => {
+      let scale = (box_width / image_width).min(box_height / image_height);
+      let width = image_width * scale;
+      let height = image_height * scale;
+      BackgroundImagePlacement {
+        x: (box_width - width) * 0.5,
+        y: (box_height - height) * 0.5,
+        width,
+        height,
+        uv_min: [0.0, 0.0],
+        uv_max: [1.0, 1.0],
+      }
+    }
+    crate::node::BackgroundSize::Cover => {
+      let box_aspect = box_width / box_height;
+      let image_aspect = image_width / image_height;
+      let mut uv_min = [0.0, 0.0];
+      let mut uv_max = [1.0, 1.0];
+
+      if image_aspect > box_aspect {
+        let visible_u = box_aspect / image_aspect;
+        uv_min[0] = (1.0 - visible_u) * 0.5;
+        uv_max[0] = 1.0 - uv_min[0];
+      } else if image_aspect < box_aspect {
+        let visible_v = image_aspect / box_aspect;
+        uv_min[1] = (1.0 - visible_v) * 0.5;
+        uv_max[1] = 1.0 - uv_min[1];
+      }
+
+      BackgroundImagePlacement { uv_min, uv_max, ..full }
+    }
+  }
+}
+
 impl LayoutEngine {
   pub(crate) fn new() -> Self {
     Self
@@ -159,7 +226,11 @@ impl LayoutEngine {
         },
       },
       #[cfg(feature = "image")]
-      NodeKind::Image { data } => QuadContent::Image { data: data.clone() },
+      NodeKind::Image { data } => QuadContent::Image {
+        data: data.clone(),
+        uv_min: [0.0, 0.0],
+        uv_max: [1.0, 1.0],
+      },
       #[cfg(feature = "image")]
       NodeKind::ResourceImage { .. } => QuadContent::None,
       #[cfg(feature = "svg")]
@@ -203,14 +274,25 @@ impl LayoutEngine {
 
     #[cfg(feature = "image")]
     if let Some(ref bg_image) = *node.background_image {
+      let placement = background_image_placement(
+        node.background_size,
+        result.size.width,
+        result.size.height,
+        bg_image.width() as f32,
+        bg_image.height() as f32,
+      );
       quads.push(Quad {
-        x: abs_x,
-        y: abs_y,
-        width: result.size.width,
-        height: result.size.height,
+        x: abs_x + placement.x,
+        y: abs_y + placement.y,
+        width: placement.width,
+        height: placement.height,
         opacity,
         transform,
-        content: QuadContent::Image { data: bg_image.clone() },
+        content: QuadContent::Image {
+          data: bg_image.clone(),
+          uv_min: placement.uv_min,
+          uv_max: placement.uv_max,
+        },
         border_radius: node.get_border_radius(),
         border: None,
         clip,
@@ -1210,21 +1292,44 @@ impl LayoutEngine {
     constraints: Constraints,
     frame: &FrameConstraints,
   ) -> LayoutResult {
-    let mut c = constraints;
-    if let Some(w) = frame
+    let child = &node.children()[0];
+    let resolved_width = frame
       .width
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
-    {
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+    let resolved_height = frame
+      .height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height));
+
+    let mut c = constraints;
+    if let Some(w) = resolved_width {
       c.min_width = w;
       c.max_width = w;
     }
-    if let Some(h) = frame
-      .height
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
-    {
+    if let Some(h) = resolved_height {
       c.min_height = h;
       c.max_height = h;
     }
+
+    #[cfg(feature = "image")]
+    if matches!(
+      child.node_kind(),
+      NodeKind::Image { .. } | NodeKind::ResourceImage { .. }
+    ) {
+      if let Some(intrinsic) = child.intrinsic_size {
+        if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
+          if let (Some(w), None) = (resolved_width, resolved_height) {
+            let h = w * intrinsic.height / intrinsic.width;
+            c.min_height = h;
+            c.max_height = h;
+          } else if let (None, Some(h)) = (resolved_width, resolved_height) {
+            let w = h * intrinsic.width / intrinsic.height;
+            c.min_width = w;
+            c.max_width = w;
+          }
+        }
+      }
+    }
+
     if let Some(v) = frame
       .min_width
       .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
@@ -1253,7 +1358,6 @@ impl LayoutEngine {
     c.min_width = c.min_width.min(c.max_width);
     c.min_height = c.min_height.min(c.max_height);
 
-    let child = &node.children()[0];
     let child_result = self.layout_node(glyph_engine, child, c);
     let size = c.constrain(child_result.size);
 

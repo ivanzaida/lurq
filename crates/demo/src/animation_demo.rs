@@ -1,15 +1,15 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, Transition},
-  layout::{layout_kind::Justify, text_style::FontWeight, Alignment},
+  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{
-    color::Color, dimension::Dimension,
+    CursorIcon, Element,
+    color::Color,
+    dimension::Dimension,
     transform::{Decomposed, Transform2D},
-    CursorIcon,
-    Element,
   },
 };
 
-use crate::style::{text, ACCENT, BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_MUTED};
+use crate::style::{ACCENT, BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_MUTED, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;

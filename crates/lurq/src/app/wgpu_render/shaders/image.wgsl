@@ -47,12 +47,18 @@ struct VsIn {
     @location(3) opacity: vec4<f32>,
     @location(4) transform: vec4<f32>,  // 2x2 matrix: a, b, c, d
     @location(5) xf_origin: vec2<f32>,  // transform origin relative to rect top-left
+    @location(6) uv_min: vec2<f32>,
+    @location(7) uv_max: vec2<f32>,
+    @location(8) radii: vec4<f32>,
 }
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) opacity: f32,
+    @location(2) local_px: vec2<f32>,
+    @location(3) size: vec2<f32>,
+    @location(4) radii: vec4<f32>,
 }
 
 @vertex
@@ -70,8 +76,11 @@ fn vs_main(in: VsIn) -> VsOut {
 
     var out: VsOut;
     out.clip = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.uv = in.corner;
+    out.uv = in.uv_min + in.corner * (in.uv_max - in.uv_min);
     out.opacity = in.opacity.x;
+    out.local_px = local_px;
+    out.size = in.size;
+    out.radii = in.radii;
     return out;
 }
 
@@ -85,6 +94,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let centre = vec2<f32>(cr.x + half.x, cr.y + half.y);
         let local_clip = frag_pos - centre;
         let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
+        let d = sd_rounded_box(local_clip, half, r);
+        if (d > 0.5) {
+            discard;
+        }
+    }
+
+    if (max(max(in.radii.x, in.radii.y), max(in.radii.z, in.radii.w)) > 0.0) {
+        let half = in.size * 0.5;
+        let local_clip = in.local_px - half;
+        let r = pick_radius(local_clip, in.radii, in.radii);
         let d = sd_rounded_box(local_clip, half, r);
         if (d > 0.5) {
             discard;

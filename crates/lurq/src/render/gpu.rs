@@ -54,6 +54,9 @@ pub struct ImageInstance {
   pub opacity: [f32; 4],
   pub transform: [f32; 4],
   pub xf_origin: [f32; 2],
+  pub uv_min: [f32; 2],
+  pub uv_max: [f32; 2],
+  pub radii: [f32; 4],
 }
 
 #[cfg(feature = "svg")]

@@ -374,6 +374,10 @@ fn set_dx12_render_engine(_runtime: &mut Runtime) {
 
 fn main() {
   let mut runtime = Runtime::new();
+  #[cfg(feature = "resources")]
+  runtime
+    .resource_loader_mut()
+    .set_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
   runtime.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut runtime);
   animation_demo::register_keyframes(&mut runtime);
