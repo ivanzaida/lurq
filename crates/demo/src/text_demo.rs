@@ -1,9 +1,9 @@
 use lurq::{
-  layout::{text_style::FontWeight, Alignment},
-  node::{color::Color, dimension::Dimension, Element},
+  layout::{Alignment, text_style::FontWeight},
+  node::{Element, color::Color, dimension::Dimension},
 };
 
-use crate::style::{text, BG, BORDER, SURFACE, TEXT, TEXT_MUTED};
+use crate::style::{BG, BORDER, SURFACE, TEXT, TEXT_MUTED, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;

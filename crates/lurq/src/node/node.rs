@@ -901,6 +901,23 @@ impl Node {
     }
   }
 
+  pub(crate) fn preserve_ids_from(&mut self, old: &mut Node) {
+    if self.can_reuse_id_from(old) && old.node_id.is_assigned() {
+      self.node_id = old.node_id;
+      old.node_id = NodeId::UNASSIGNED;
+    }
+
+    for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
+      child.preserve_ids_from(old_child);
+    }
+  }
+
+  fn can_reuse_id_from(&self, old: &Node) -> bool {
+    self.component_slot_id == old.component_slot_id
+      && std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
+      && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
+  }
+
   pub(crate) fn clone_for_reuse(&self) -> Self {
     Self {
       node_id: NodeId::UNASSIGNED,

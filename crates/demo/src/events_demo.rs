@@ -5,11 +5,11 @@ use lurq::{
     events::{MouseButton, MouseEvent},
   },
   core::Signal,
-  layout::{layout_kind::Justify, text_style::FontWeight, Alignment},
-  node::{color::Color, dimension::Dimension, CursorIcon, Element},
+  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
-use crate::style::{text, BG, BORDER, PRIMARY, SECONDARY, SUCCESS, SURFACE, TEXT, TEXT_MUTED};
+use crate::style::{BG, BORDER, PRIMARY, SECONDARY, SUCCESS, SURFACE, TEXT, TEXT_MUTED, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
@@ -251,7 +251,6 @@ fn track_area(pointer: Signal<PointerState>, state: PointerState) -> Element {
     .cursor(CursorIcon::Crosshair)
     .on_mouse_move({
       let pointer = pointer.clone();
-      let p = pointer.get_untracked();
       move |event| {
         pointer.set(PointerState {
           x: event.x,

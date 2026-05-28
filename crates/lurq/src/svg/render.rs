@@ -4,6 +4,7 @@ use super::tessellate::TessellatedSvg;
 use crate::layout::quad::ClipRect;
 
 pub struct SvgCmd {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,

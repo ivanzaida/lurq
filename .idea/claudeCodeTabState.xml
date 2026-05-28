@@ -6,18 +6,6 @@
         <entry key="0">
           <value>
             <TabSessionState>
-              <option name="provider" value="claude" />
-              <option name="sessionId" value="28e00a04-47ec-4ef9-a0a8-18e3a9a8b1d4" />
-              <option name="cwd" value="$PROJECT_DIR$" />
-              <option name="model" value="claude-opus-4-6[1m]" />
-              <option name="permissionMode" value="acceptEdits" />
-              <option name="reasoningEffort" value="high" />
-            </TabSessionState>
-          </value>
-        </entry>
-        <entry key="1">
-          <value>
-            <TabSessionState>
               <option name="provider" value="codex" />
               <option name="sessionId" value="019e6f12-3c5a-7b33-bf35-340bdae9cbd7" />
               <option name="cwd" value="$PROJECT_DIR$" />
@@ -27,11 +15,11 @@
             </TabSessionState>
           </value>
         </entry>
-        <entry key="2">
+        <entry key="1">
           <value>
             <TabSessionState>
               <option name="provider" value="codex" />
-              <option name="sessionId" value="019e6f12-3c5a-7b33-bf35-340bdae9cbd7" />
+              <option name="sessionId" value="019e6f85-3b01-7f81-82c8-d4c74c0f35fc" />
               <option name="cwd" value="$PROJECT_DIR$" />
               <option name="model" value="gpt-5.5" />
               <option name="permissionMode" value="default" />
@@ -41,6 +29,6 @@
         </entry>
       </map>
     </option>
-    <option name="tabCount" value="3" />
+    <option name="tabCount" value="2" />
   </component>
 </project>

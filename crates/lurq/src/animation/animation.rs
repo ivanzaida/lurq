@@ -143,6 +143,11 @@ impl AnimationEngine {
     self.keyframe_store.insert(keyframes.name, keyframes.frames);
   }
 
+  pub(crate) fn clear_state(&mut self) {
+    self.active.clear();
+    self.has_active = false;
+  }
+
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) {
     self.has_active = false;
     self.tick_recursive(root, now);

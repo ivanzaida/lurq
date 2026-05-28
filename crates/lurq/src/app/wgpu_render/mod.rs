@@ -665,7 +665,14 @@ impl RenderEngine for WgpuRenderEngine {
 
       enum OrderedDraw {
         Rect(usize),
-        Glyph { start: usize, count: usize },
+        Glyph {
+          start: usize,
+          count: usize,
+        },
+        #[cfg(feature = "image")]
+        Image(usize),
+        #[cfg(feature = "svg")]
+        Svg(usize),
       }
 
       let mut ordered_draws: Vec<(usize, OrderedDraw)> = Vec::new();
@@ -691,6 +698,14 @@ impl RenderEngine for WgpuRenderEngine {
           },
         ));
         glyph_start = glyph_end;
+      }
+      #[cfg(feature = "image")]
+      for (index, image) in list.images.iter().enumerate() {
+        ordered_draws.push((image.order, OrderedDraw::Image(index)));
+      }
+      #[cfg(feature = "svg")]
+      for (index, svg) in list.svgs.iter().enumerate() {
+        ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
       }
       ordered_draws.sort_by_key(|(order, _)| *order);
 
@@ -772,199 +787,164 @@ impl RenderEngine for WgpuRenderEngine {
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..6, 0, 0..instances.len() as u32);
           }
-        }
-      }
+          #[cfg(feature = "image")]
+          OrderedDraw::Image(index) => {
+            use vertex::ImageInstance;
 
-      // Image draws
-      #[cfg(feature = "image")]
-      if !list.images.is_empty() {
-        use vertex::ImageInstance;
-        pass.set_pipeline(self.image_pipeline.as_ref().unwrap());
-        pass.set_vertex_buffer(0, vtx_buf.slice(..));
-        pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
-
-        for img in &list.images {
-          let cached = self.image_texture_cache.entry(img.image_id).or_insert_with(|| {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-              label: Some("lurq_img"),
-              size: wgpu::Extent3d {
-                width: img.image_width,
-                height: img.image_height,
-                depth_or_array_layers: 1,
-              },
-              mip_level_count: 1,
-              sample_count: 1,
-              dimension: wgpu::TextureDimension::D2,
-              format: wgpu::TextureFormat::Rgba8UnormSrgb,
-              usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-              view_formats: &[],
+            let img = &list.images[index];
+            let cached = self.image_texture_cache.entry(img.image_id).or_insert_with(|| {
+              let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("lurq_img"),
+                size: wgpu::Extent3d {
+                  width: img.image_width,
+                  height: img.image_height,
+                  depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+              });
+              queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                  texture: &texture,
+                  mip_level: 0,
+                  origin: wgpu::Origin3d::ZERO,
+                  aspect: wgpu::TextureAspect::All,
+                },
+                &img.data,
+                wgpu::TexelCopyBufferLayout {
+                  offset: 0,
+                  bytes_per_row: Some(img.image_width * 4),
+                  rows_per_image: Some(img.image_height),
+                },
+                wgpu::Extent3d {
+                  width: img.image_width,
+                  height: img.image_height,
+                  depth_or_array_layers: 1,
+                },
+              );
+              let view = texture.create_view(&Default::default());
+              let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_img_bg"),
+                layout: self.image_bgl.as_ref().unwrap(),
+                entries: &[
+                  wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: globals_buffer.as_entire_binding(),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(self.image_sampler.as_ref().unwrap()),
+                  },
+                ],
+              });
+              CachedImageTexture {
+                texture,
+                view,
+                bind_group,
+              }
             });
-            queue.write_texture(
-              wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-              },
-              &img.data,
-              wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(img.image_width * 4),
-                rows_per_image: Some(img.image_height),
-              },
-              wgpu::Extent3d {
-                width: img.image_width,
-                height: img.image_height,
-                depth_or_array_layers: 1,
-              },
-            );
-            let view = texture.create_view(&Default::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-              label: Some("lurq_img_bg"),
-              layout: self.image_bgl.as_ref().unwrap(),
-              entries: &[
-                wgpu::BindGroupEntry {
-                  binding: 0,
-                  resource: globals_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                  binding: 1,
-                  resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                  binding: 2,
-                  resource: wgpu::BindingResource::Sampler(self.image_sampler.as_ref().unwrap()),
-                },
-              ],
+
+            if !set_scissor(&mut pass, img.clip, vw, vh) {
+              continue;
+            }
+
+            let instance = ImageInstance {
+              pos: [img.x, img.y],
+              size: [img.width, img.height],
+              opacity: [1.0, 0.0, 0.0, 0.0],
+              transform: [1.0, 0.0, 0.0, 1.0],
+              xf_origin: [0.0, 0.0],
+            };
+            let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+              label: Some("lurq_ii"),
+              contents: bytemuck::cast_slice(&[instance]),
+              usage: wgpu::BufferUsages::VERTEX,
             });
-            CachedImageTexture {
-              texture,
-              view,
-              bind_group,
-            }
-          });
-
-          pass.set_bind_group(0, &cached.bind_group, &[]);
-
-          if img.clip.active {
-            let viewport_w = vw.max(1.0) as u32;
-            let viewport_h = vh.max(1.0) as u32;
-            let cx = img.clip.x.max(0.0) as u32;
-            let cy = img.clip.y.max(0.0) as u32;
-            if cx >= viewport_w || cy >= viewport_h {
-              continue;
-            }
-            let cw = (img.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-            let ch = (img.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-            if cw == 0 || ch == 0 {
-              continue;
-            }
-            pass.set_scissor_rect(cx, cy, cw, ch);
-          } else {
-            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+            pass.set_pipeline(self.image_pipeline.as_ref().unwrap());
+            pass.set_bind_group(0, &cached.bind_group, &[]);
+            pass.set_vertex_buffer(0, vtx_buf.slice(..));
+            pass.set_vertex_buffer(1, instance_buf.slice(..));
+            pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..1);
           }
+          #[cfg(feature = "svg")]
+          OrderedDraw::Svg(index) => {
+            use vertex::SvgVertexGpu;
 
-          let instance = ImageInstance {
-            pos: [img.x, img.y],
-            size: [img.width, img.height],
-            opacity: [1.0, 0.0, 0.0, 0.0],
-            transform: [1.0, 0.0, 0.0, 1.0],
-            xf_origin: [0.0, 0.0],
-          };
-          let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("lurq_ii"),
-            contents: bytemuck::cast_slice(&[instance]),
-            usage: wgpu::BufferUsages::VERTEX,
-          });
-          pass.set_vertex_buffer(1, instance_buf.slice(..));
-          pass.draw_indexed(0..6, 0, 0..1);
-        }
-      }
-
-      // SVG draws
-      #[cfg(feature = "svg")]
-      if !list.svgs.is_empty() {
-        use vertex::SvgVertexGpu;
-        pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
-
-        for svg_cmd in &list.svgs {
-          if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
-            continue;
-          }
-
-          let svg_globals = Globals {
-            viewport: [vw, vh, 0.0, 0.0],
-            clip_rect: if svg_cmd.clip.active {
-              [svg_cmd.clip.x, svg_cmd.clip.y, svg_cmd.clip.width, svg_cmd.clip.height]
-            } else {
-              [0.0, 0.0, vw, vh]
-            },
-            clip_radii_h: [0.0; 4],
-            clip_radii_v: [0.0; 4],
-            clip_active: if svg_cmd.clip.active {
-              [1.0, 0.0, 0.0, 0.0]
-            } else {
-              [0.0; 4]
-            },
-          };
-          let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("lurq_svg_globals"),
-            contents: bytemuck::bytes_of(&svg_globals),
-            usage: wgpu::BufferUsages::UNIFORM,
-          });
-
-          let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("lurq_svg_bg"),
-            layout: self.svg_bgl.as_ref().unwrap(),
-            entries: &[wgpu::BindGroupEntry {
-              binding: 0,
-              resource: svg_globals_buf.as_entire_binding(),
-            }],
-          });
-          pass.set_bind_group(0, &svg_bg, &[]);
-
-          if svg_cmd.clip.active {
-            let viewport_w = vw.max(1.0) as u32;
-            let viewport_h = vh.max(1.0) as u32;
-            let cx = svg_cmd.clip.x.max(0.0) as u32;
-            let cy = svg_cmd.clip.y.max(0.0) as u32;
-            if cx >= viewport_w || cy >= viewport_h {
+            let svg_cmd = &list.svgs[index];
+            if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
               continue;
             }
-            let cw = (svg_cmd.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-            let ch = (svg_cmd.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-            if cw == 0 || ch == 0 {
+
+            let svg_globals = Globals {
+              viewport: [vw, vh, 0.0, 0.0],
+              clip_rect: if svg_cmd.clip.active {
+                [svg_cmd.clip.x, svg_cmd.clip.y, svg_cmd.clip.width, svg_cmd.clip.height]
+              } else {
+                [0.0, 0.0, vw, vh]
+              },
+              clip_radii_h: [0.0; 4],
+              clip_radii_v: [0.0; 4],
+              clip_active: if svg_cmd.clip.active {
+                [1.0, 0.0, 0.0, 0.0]
+              } else {
+                [0.0; 4]
+              },
+            };
+            let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+              label: Some("lurq_svg_globals"),
+              contents: bytemuck::bytes_of(&svg_globals),
+              usage: wgpu::BufferUsages::UNIFORM,
+            });
+
+            let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+              label: Some("lurq_svg_bg"),
+              layout: self.svg_bgl.as_ref().unwrap(),
+              entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: svg_globals_buf.as_entire_binding(),
+              }],
+            });
+
+            if !set_scissor(&mut pass, svg_cmd.clip, vw, vh) {
               continue;
             }
-            pass.set_scissor_rect(cx, cy, cw, ch);
-          } else {
-            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+
+            let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
+              .mesh
+              .vertices
+              .iter()
+              .map(|v| SvgVertexGpu {
+                position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
+                color: v.color,
+              })
+              .collect();
+
+            let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+              label: Some("lurq_svg_vb"),
+              contents: bytemuck::cast_slice(&gpu_verts),
+              usage: wgpu::BufferUsages::VERTEX,
+            });
+            let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+              label: Some("lurq_svg_ib"),
+              contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
+              usage: wgpu::BufferUsages::INDEX,
+            });
+
+            pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
+            pass.set_bind_group(0, &svg_bg, &[]);
+            pass.set_vertex_buffer(0, vb.slice(..));
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
           }
-
-          let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
-            .mesh
-            .vertices
-            .iter()
-            .map(|v| SvgVertexGpu {
-              position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
-              color: v.color,
-            })
-            .collect();
-
-          let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("lurq_svg_vb"),
-            contents: bytemuck::cast_slice(&gpu_verts),
-            usage: wgpu::BufferUsages::VERTEX,
-          });
-          let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("lurq_svg_ib"),
-            contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
-            usage: wgpu::BufferUsages::INDEX,
-          });
-
-          pass.set_vertex_buffer(0, vb.slice(..));
-          pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-          pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
         }
       }
     }

@@ -15,16 +15,16 @@ mod visual_demo;
 use std::time::{Duration, Instant};
 
 use lurq::{
-  app::{component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
   components::Row,
   core::Signal,
   layout::{
+    Alignment,
     layout_kind::Justify,
     scrollbar::{ScrollBarStyle, ScrollBarVisibility},
     text_style::FontWeight,
-    Alignment,
   },
-  node::{color::Color, dimension::Dimension, Element},
+  node::{Element, color::Color, dimension::Dimension},
 };
 
 use crate::{
@@ -33,9 +33,9 @@ use crate::{
   layout_demo::layout_content,
   positioning_demo::PositioningDemo,
   scroll_demo::scroll_content,
-  sidebar::{sidebar, DemoTab},
+  sidebar::{DemoTab, sidebar},
   sizing_demo::sizing_content,
-  style::{text, ACCENT, BG, BORDER, PRIMARY, SURFACE_DARK, TEXT},
+  style::{ACCENT, BG, BORDER, PRIMARY, SURFACE_DARK, TEXT, text},
 };
 
 const SIDEBAR_WIDTH: f32 = 200.0;
@@ -83,20 +83,20 @@ impl Component for DemoApp {
     }
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let selected_tab = self.selected_tab.get();
     let content = match selected_tab {
       DemoTab::Layout => layout_content(),
       DemoTab::Sizing => sizing_content(),
-      DemoTab::Position => _ctx.mount::<PositioningDemo>(()),
-      DemoTab::Dnd => _ctx.mount::<DndDemo>(()),
+      DemoTab::Position => ctx.mount::<PositioningDemo>(()),
+      DemoTab::Dnd => ctx.mount::<DndDemo>(()),
       DemoTab::Animation => animation_content(),
       DemoTab::Transform => transform_demo::transform_content(),
       DemoTab::Scroll => scroll_content(),
       DemoTab::Visual => visual_demo::visual_content(),
       DemoTab::Text => text_demo::text_content(),
-      DemoTab::Events => _ctx.mount::<events_demo::EventsDemo>(()),
-      DemoTab::Reactivity => _ctx.mount::<reactivity_demo::ReactivityDemo>(()),
+      DemoTab::Events => ctx.mount::<events_demo::EventsDemo>(()),
+      DemoTab::Reactivity => ctx.mount::<reactivity_demo::ReactivityDemo>(()),
     };
 
     let content = Row::new()
@@ -131,8 +131,39 @@ impl Component for DemoApp {
 
     lurq::components::Stack::new()
       .child(content)
-      .child(perf_overlay(self.perf.get()))
+      .child(ctx.mount::<PerfOverlay>(PerfOverlayProps {
+        perf: self.perf.clone(),
+      }))
       .fill(BG)
+  }
+}
+
+#[derive(Clone)]
+struct PerfOverlayProps {
+  perf: Signal<PerfStats>,
+}
+
+impl PartialEq for PerfOverlayProps {
+  fn eq(&self, _other: &Self) -> bool {
+    true
+  }
+}
+
+struct PerfOverlay {
+  perf: Signal<PerfStats>,
+}
+
+impl Component for PerfOverlay {
+  type Props = PerfOverlayProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      perf: ctx.props::<PerfOverlayProps>().perf.clone(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    perf_overlay(self.perf.get())
   }
 }
 
@@ -214,22 +245,46 @@ fn perf_widget(stats: PerfStats) -> lurq::components::Column {
   lurq::components::Column::new()
     .spacing(2.0)
     .child(perf_row("FPS", stats.fps.to_string(), FontWeight::Bold))
-    .child(perf_row("total", format!("{:.2} ms", stats.total_ms), FontWeight::Normal))
-    .child(perf_row("layout", format!("{:.2} ms", stats.layout_ms), FontWeight::Normal))
+    .child(perf_row(
+      "total",
+      format!("{:.2} ms", stats.total_ms),
+      FontWeight::Normal,
+    ))
+    .child(perf_row(
+      "layout",
+      format!("{:.2} ms", stats.layout_ms),
+      FontWeight::Normal,
+    ))
     .child(perf_row(
       "resolve",
       format!("{:.2} ms", stats.quad_resolve_ms),
       FontWeight::Normal,
     ))
-    .child(perf_row("glyph", format!("{:.2} ms", stats.glyph_ms), FontWeight::Normal))
+    .child(perf_row(
+      "glyph",
+      format!("{:.2} ms", stats.glyph_ms),
+      FontWeight::Normal,
+    ))
     .child(perf_row(
       "acquire",
       format!("{:.2} ms", stats.render_acquire_ms),
       FontWeight::Normal,
     ))
-    .child(perf_row("upload", format!("{:.2} ms", stats.render_upload_ms), FontWeight::Normal))
-    .child(perf_row("encode", format!("{:.2} ms", stats.render_encode_ms), FontWeight::Normal))
-    .child(perf_row("submit", format!("{:.2} ms", stats.render_submit_ms), FontWeight::Normal))
+    .child(perf_row(
+      "upload",
+      format!("{:.2} ms", stats.render_upload_ms),
+      FontWeight::Normal,
+    ))
+    .child(perf_row(
+      "encode",
+      format!("{:.2} ms", stats.render_encode_ms),
+      FontWeight::Normal,
+    ))
+    .child(perf_row(
+      "submit",
+      format!("{:.2} ms", stats.render_submit_ms),
+      FontWeight::Normal,
+    ))
     .child(perf_row(
       "present",
       format!("{:.2} ms", stats.render_present_ms),

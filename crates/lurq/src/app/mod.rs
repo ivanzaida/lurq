@@ -1,5 +1,7 @@
 pub mod component;
 pub mod ctx;
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+pub mod dx12_render;
 pub mod events;
 pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;

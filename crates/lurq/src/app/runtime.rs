@@ -6,7 +6,7 @@ use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
     component::Component,
-    ctx::{component_tag_name, Ctx},
+    ctx::{Ctx, component_tag_name},
     events::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
@@ -18,19 +18,19 @@ use crate::{
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
-    layout_engine::LayoutEngine, layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
+    Constraints, Size,
+    layout_engine::LayoutEngine,
+    layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
-    Constraints,
-    Size,
   },
   node::{
-    border::BorderPlacement, color::Color, cursor::CursorIcon,
+    Element, ElementRef, Node,
+    border::BorderPlacement,
+    color::Color,
+    cursor::CursorIcon,
     node_kind::{NodeKind, SliderState},
-    Element,
-    ElementRef,
-    Node,
   },
 };
 
@@ -77,8 +77,8 @@ pub struct Runtime {
   viewport_physical: Size,
   scale_factor: f32,
   scale_override: Option<f32>,
-  hover_path: Vec<usize>,
-  active_path: Vec<usize>,
+  hover_path: Vec<NodeId>,
+  active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
   dragging_slider: Option<SliderDrag>,
   active_drag: Option<ActiveDrag>,
@@ -193,8 +193,8 @@ impl Runtime {
       .as_ref()
       .map(|_| std::mem::size_of::<Box<dyn RenderEngine>>())
       .unwrap_or(0);
-    let hover_path_bytes = self.hover_path.capacity() * std::mem::size_of::<usize>();
-    let active_path_bytes = self.active_path.capacity() * std::mem::size_of::<usize>();
+    let hover_path_bytes = self.hover_path.capacity() * std::mem::size_of::<NodeId>();
+    let active_path_bytes = self.active_path.capacity() * std::mem::size_of::<NodeId>();
     let dragging_scroll_bytes = self
       .dragging_scroll
       .as_ref()
@@ -237,7 +237,13 @@ impl Runtime {
     self.render_engine = Some(engine);
   }
 
+  fn clear_animation_runtime_state(&mut self) {
+    self.transition_engine.clear_state();
+    self.animation_engine.clear_state();
+  }
+
   pub fn mount_root<C: Component>(&mut self, props: C::Props) {
+    self.clear_hover_path();
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
     }
@@ -245,6 +251,7 @@ impl Runtime {
       reset_element_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
+    self.clear_animation_runtime_state();
     let mut ctx = Ctx::new_root().with_theme(self.theme.clone());
     ctx.set_root_props(props);
     let component = C::create(&mut ctx);
@@ -259,49 +266,57 @@ impl Runtime {
     self.root_component = Some(Box::new(wrapper));
     self.root_ctx = Some(ctx);
     self.last_layout = None;
-    self.hover_path.clear();
     self.active_path.clear();
     self.clear_focus();
   }
 
   pub fn rebuild(&mut self) {
+    if self.root_component.is_none() || self.root_ctx.is_none() {
+      return;
+    }
+
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
-      let old_root = self.root.take().map(|mut old| {
+      let mut old_root = self.root.take().map(|old| {
         reset_element_ref_flags_recursive(&old);
-        old.free_ids(&self.id_gen);
         old
       });
       ctx.begin_render();
       let mut node = component.render(ctx).node;
       ctx.end_render();
       node.set_tag_name(component.tag_name());
-      if let Some(old) = &old_root {
+      if let Some(old) = old_root.as_mut() {
         node.preserve_runtime_state_from(old);
+        node.preserve_ids_from(old);
+        old.free_ids(&self.id_gen);
       }
       node.assign_ids(&self.id_gen);
       self.root = Some(node);
       self.last_layout = None;
-      self.hover_path.clear();
-      self.active_path.clear();
-      self.refresh_focus_ids();
+      self.refresh_interaction_state();
     }
   }
 
   pub fn set_root(&mut self, element: impl Into<Element>) {
+    self.clear_hover_path();
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
     }
-    if let Some(old) = &mut self.root {
+    let mut old_root = self.root.take();
+    if let Some(old) = &mut old_root {
       reset_element_ref_flags_recursive(old);
+    }
+    self.clear_animation_runtime_state();
+    let mut node = element.into().node;
+    if let Some(old) = old_root.as_mut() {
+      node.preserve_runtime_state_from(old);
+      node.preserve_ids_from(old);
       old.free_ids(&self.id_gen);
     }
-    let mut node = element.into().node;
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = None;
     self.root_ctx = None;
     self.last_layout = None;
-    self.hover_path.clear();
     self.active_path.clear();
     self.active_drag = None;
     self.clear_focus();
@@ -492,6 +507,7 @@ impl Runtime {
         #[cfg(feature = "image")]
         QuadContent::Image { data } => {
           images.push(crate::images::ImageCmd {
+            order,
             x: quad.x * scale,
             y: quad.y * scale,
             width: quad.width * scale,
@@ -509,6 +525,7 @@ impl Runtime {
           let h = quad.height * scale;
           let mesh = crate::svg::tessellate::tessellate(&data, w, h);
           svgs.push(crate::svg::SvgCmd {
+            order,
             x: quad.x * scale,
             y: quad.y * scale,
             width: w,
@@ -564,6 +581,11 @@ impl Runtime {
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
     self.dispatch_mouse(x, y, MouseButton::Left, MouseEventKind::Move);
+    self.apply_reactive_updates_after_event();
+  }
+
+  pub fn mouse_leave_window(&mut self) {
+    self.clear_hover_path();
     self.apply_reactive_updates_after_event();
   }
 
@@ -895,11 +917,13 @@ impl Runtime {
       }
     }
 
-    let current_ptrs: Vec<usize> = hits.iter().map(|(n, _)| *n as *const Node as usize).collect();
+    let current_ids: Vec<NodeId> = hits.iter().map(|(n, _)| n.node_id()).collect();
 
-    for old_ptr in &self.hover_path {
-      if !current_ptrs.contains(old_ptr) {
-        let node = unsafe { &*(*old_ptr as *const Node) };
+    for old_id in &self.hover_path {
+      if !current_ids.contains(old_id) {
+        let Some(node) = find_node_by_id(root, *old_id) else {
+          continue;
+        };
         set_node_hovered(node, false);
         self.needs_redraw = true;
         if let Some(ref handler) = node.events.on_mouse_leave {
@@ -909,8 +933,8 @@ impl Runtime {
     }
 
     for (node, _) in &hits {
-      let ptr = *node as *const Node as usize;
-      if !self.hover_path.contains(&ptr) {
+      let id = node.node_id();
+      if !self.hover_path.contains(&id) {
         set_node_hovered(node, true);
         self.needs_redraw = true;
         if let Some(ref handler) = node.events.on_mouse_enter {
@@ -935,7 +959,7 @@ impl Runtime {
       }
     }
 
-    self.hover_path = current_ptrs;
+    self.hover_path = current_ids;
     self.cursor = hits
       .iter()
       .find_map(|(node, _)| node.cursor_icon())
@@ -1252,10 +1276,7 @@ impl Runtime {
     }
 
     self.last_layout = None;
-    self.hover_path.clear();
-    self.active_path.clear();
-    self.cursor = CursorIcon::Default;
-    self.refresh_focus_ids();
+    self.refresh_interaction_state();
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
@@ -1319,11 +1340,75 @@ impl Runtime {
   }
 
   fn clear_active_path(&mut self) {
-    for old_ptr in self.active_path.drain(..) {
-      let node = unsafe { &*(old_ptr as *const Node) };
-      set_node_active(node, false);
-      self.needs_redraw = true;
+    let active_path = std::mem::take(&mut self.active_path);
+    if let Some(root) = self.root.as_ref() {
+      for node_id in active_path {
+        if let Some(node) = find_node_by_id(root, node_id) {
+          set_node_active(node, false);
+          self.needs_redraw = true;
+        }
+      }
     }
+  }
+
+  fn clear_hover_path(&mut self) {
+    let hover_path = std::mem::take(&mut self.hover_path);
+    if hover_path.is_empty() {
+      self.cursor = CursorIcon::Default;
+      return;
+    }
+
+    if let Some(root) = self.root.as_ref() {
+      for node_id in hover_path {
+        if let Some(node) = find_node_by_id(root, node_id) {
+          set_node_hovered(node, false);
+          if let Some(ref handler) = node.events.on_mouse_leave {
+            handler();
+          }
+        }
+      }
+    }
+
+    self.cursor = CursorIcon::Default;
+    self.needs_redraw = true;
+  }
+
+  fn refresh_interaction_state(&mut self) {
+    let Some(root) = self.root.as_ref() else {
+      self.hover_path.clear();
+      self.active_path.clear();
+      self.cursor = CursorIcon::Default;
+      self.clear_focus();
+      return;
+    };
+
+    reset_element_ref_flags_recursive(root);
+
+    let mut hover_path = Vec::new();
+    for node_id in &self.hover_path {
+      if let Some(node) = find_node_by_id(root, *node_id) {
+        set_node_hovered(node, true);
+        hover_path.push(*node_id);
+      }
+    }
+    self.hover_path = hover_path;
+
+    let mut active_path = Vec::new();
+    for node_id in &self.active_path {
+      if let Some(node) = find_node_by_id(root, *node_id) {
+        set_node_active(node, true);
+        active_path.push(*node_id);
+      }
+    }
+    self.active_path = active_path;
+
+    self.cursor = self
+      .hover_path
+      .iter()
+      .filter_map(|node_id| find_node_by_id(root, *node_id))
+      .find_map(Node::cursor_icon)
+      .unwrap_or(CursorIcon::Default);
+    self.refresh_focus_ids();
   }
 
   fn clear_focus(&mut self) {
@@ -1356,34 +1441,27 @@ impl Runtime {
       return;
     };
 
-    self.focused_node = self
-      .focused_path
-      .as_deref()
-      .and_then(|path| find_node_by_path(root, path))
-      .map(Node::node_id);
-    self.focused_event_node = self
-      .focused_event_path
-      .as_deref()
-      .and_then(|path| find_node_by_path(root, path))
-      .map(Node::node_id);
-
-    if self.focused_node.is_none() {
+    let Some(focused_node) = self.focused_node else {
       self.clear_focus();
       return;
-    }
+    };
+    let Some(input_path) = find_path_by_id(root, focused_node) else {
+      self.clear_focus();
+      return;
+    };
+    let event_id = self.focused_event_node.unwrap_or(focused_node);
+    let event_path = find_path_by_id(root, event_id).unwrap_or_else(|| input_path.clone());
 
-    if let Some(node) = self
-      .focused_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-    {
+    self.focused_path = Some(input_path.clone());
+    self.focused_event_path = Some(event_path.clone());
+
+    if let Some(node) = find_node_by_path(root, &input_path) {
       set_node_focused(node, true);
+      if let NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_focused(true);
+      }
     }
-    if let Some(node) = self
-      .focused_event_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-    {
+    if let Some(node) = find_node_by_path(root, &event_path) {
       set_node_focused(node, true);
     }
   }
@@ -1616,6 +1694,7 @@ fn replace_live_component_slot(node: &mut Node, slot_id: u64, mut replacement: N
   if node.component_slot_id() == Some(slot_id) {
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
+    replacement.preserve_ids_from(node);
     node.free_ids(id_gen);
     replacement.assign_ids(id_gen);
     *node = replacement;

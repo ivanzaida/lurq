@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 
 use lurq::{
-  app::Runtime,
-  core::NodeId,
+  app::{Runtime, component::Component, ctx::Ctx},
+  core::{NodeId, Signal},
   node::{Element, ElementRef},
 };
+
+use crate::support::run_pass;
 
 fn rt() -> Runtime {
   Runtime::new()
@@ -56,6 +58,71 @@ fn make_tree(depth: usize, branching: usize) -> Element {
   lurq::components::Row::new()
     .with_children((0..branching).map(|_| make_tree(depth - 1, branching)))
     .into()
+}
+
+struct StableRoot;
+
+impl Component for StableRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Row::new()
+      .child(lurq::components::Rect::new(20.0, 20.0))
+      .child(lurq::components::Text::new("stable"))
+  }
+}
+
+#[derive(Clone)]
+struct SignalProp(Signal<i32>);
+
+impl PartialEq for SignalProp {
+  fn eq(&self, _other: &Self) -> bool {
+    true
+  }
+}
+
+struct SignalChild {
+  signal: Signal<i32>,
+}
+
+impl Component for SignalChild {
+  type Props = SignalProp;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      signal: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Row::new()
+      .child(lurq::components::Text::new(&format!("{}", self.signal.get())))
+      .child(lurq::components::Rect::new(20.0, 20.0))
+  }
+}
+
+struct SignalParent {
+  signal: Signal<i32>,
+}
+
+impl Component for SignalParent {
+  type Props = SignalProp;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      signal: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Column::new()
+      .child(lurq::components::Rect::new(20.0, 20.0))
+      .child(ctx.mount::<SignalChild>(SignalProp(self.signal.clone())))
+  }
 }
 
 // ============================================================================
@@ -153,6 +220,36 @@ fn replacing_root_new_tree_fully_assigned() {
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
+}
+
+#[test]
+fn rebuild_preserves_matching_node_ids() {
+  let mut rt = rt();
+  rt.mount_root::<StableRoot>(());
+  let mut before = Vec::new();
+  collect_ids(rt.root().unwrap(), &mut before);
+
+  rt.rebuild();
+
+  let mut after = Vec::new();
+  collect_ids(rt.root().unwrap(), &mut after);
+  assert_eq!(after, before);
+}
+
+#[test]
+fn dirty_subtree_refresh_preserves_matching_node_ids() {
+  let signal = Signal::new(0);
+  let mut rt = rt();
+  rt.mount_root::<SignalParent>(SignalProp(signal.clone()));
+  let mut before = Vec::new();
+  collect_ids(rt.root().unwrap(), &mut before);
+
+  signal.set(1);
+  run_pass(&mut rt);
+
+  let mut after = Vec::new();
+  collect_ids(rt.root().unwrap(), &mut after);
+  assert_eq!(after, before);
 }
 
 // ============================================================================

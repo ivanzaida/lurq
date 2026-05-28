@@ -1,15 +1,17 @@
+use std::sync::Arc;
+
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, Transition},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{layout_kind::Justify, text_style::FontWeight, Alignment},
   node::{
-    CursorIcon, Element,
-    color::Color,
-    dimension::Dimension,
+    color::Color, dimension::Dimension,
     transform::{Decomposed, Transform2D},
+    CursorIcon,
+    Element,
   },
 };
 
-use crate::style::{ACCENT, BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_MUTED, text};
+use crate::style::{text, ACCENT, BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_MUTED};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
@@ -345,6 +347,7 @@ fn easing_comparison() -> Element {
 }
 
 fn easing_row(label: &str, easing: Easing) -> Element {
+  let label_arc = Arc::new(label.to_string());
   lurq::components::Row::new()
     .spacing(16.0)
     .align_items(Alignment::Center)
@@ -356,7 +359,19 @@ fn easing_row(label: &str, easing: Easing) -> Element {
         .transition(Transition::background_color().duration_ms(800).easing(easing))
         .transition(Transition::all().duration_ms(800).easing(easing))
         .hovered(|s| s.fill("#22c55e").size(240.0, 32.0))
-        .cursor(CursorIcon::Pointer),
+        .cursor(CursorIcon::Pointer)
+        .on_mouse_enter({
+          let label = label_arc.clone();
+          move || {
+            println!("entered {}", label);
+          }
+        })
+        .on_mouse_leave({
+          let label = label_arc.clone();
+          move || {
+            println!("left {}", label);
+          }
+        }),
     )
     .width(FILL_WIDTH)
     .height(40.0)

@@ -36,6 +36,10 @@ pub fn run_pass(runtime: &mut Runtime) {
 #[derive(Clone, Debug)]
 pub struct RenderSnapshot {
   pub rects: Vec<RectSnapshot>,
+  #[cfg(feature = "image")]
+  pub image_orders: Vec<usize>,
+  #[cfg(feature = "svg")]
+  pub svg_orders: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,11 +55,7 @@ pub fn render_pass(runtime: &mut Runtime) -> RenderSnapshot {
     capture: capture.clone(),
   }));
   runtime.pass(&TestSurface);
-  capture
-    .lock()
-    .unwrap()
-    .clone()
-    .unwrap_or(RenderSnapshot { rects: vec![] })
+  capture.lock().unwrap().clone().unwrap_or_else(empty_snapshot)
 }
 
 struct CapturingRenderEngine {
@@ -67,7 +67,23 @@ impl RenderEngine for CapturingRenderEngine {
 
   fn render(&mut self, list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
     let rects = list.rects.iter().map(rect_snapshot).collect();
-    *self.capture.lock().unwrap() = Some(RenderSnapshot { rects });
+    *self.capture.lock().unwrap() = Some(RenderSnapshot {
+      rects,
+      #[cfg(feature = "image")]
+      image_orders: list.images.iter().map(|image| image.order).collect(),
+      #[cfg(feature = "svg")]
+      svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
+    });
+  }
+}
+
+fn empty_snapshot() -> RenderSnapshot {
+  RenderSnapshot {
+    rects: vec![],
+    #[cfg(feature = "image")]
+    image_orders: vec![],
+    #[cfg(feature = "svg")]
+    svg_orders: vec![],
   }
 }
 

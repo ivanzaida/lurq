@@ -187,6 +187,11 @@ impl ApplicationHandler for WinitHandler {
         self.apply_cursor();
         self.check_redraw();
       }
+      WindowEvent::CursorLeft { .. } => {
+        self.runtime.mouse_leave_window();
+        self.apply_cursor();
+        self.check_redraw();
+      }
       WindowEvent::MouseInput { state, button, .. } => {
         let btn = match button {
           winit::event::MouseButton::Left => MouseButton::Left,

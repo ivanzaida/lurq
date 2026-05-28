@@ -137,6 +137,12 @@ impl TransitionEngine {
     }
   }
 
+  pub(crate) fn clear_state(&mut self) {
+    self.active.clear();
+    self.prev_values.clear();
+    self.has_active = false;
+  }
+
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) {
     clear_overrides(root);
     self.has_active = false;

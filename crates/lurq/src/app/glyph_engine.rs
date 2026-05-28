@@ -5,8 +5,7 @@ use std::{
 };
 
 use cosmic_text::{
-  Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent,
-  SwashImage,
+  Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage,
 };
 
 use crate::layout::{

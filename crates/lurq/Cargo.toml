@@ -8,6 +8,7 @@ default = []
 image = ["dep:image"]
 svg = ["dep:usvg", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+dx12 = ["dep:windows", "dep:bytemuck"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
 
@@ -19,6 +20,15 @@ paste = "1"
 pollster = { version = "0.4", optional = true }
 raw-window-handle = "0.6"
 wgpu = { version = "24", optional = true }
+windows = { version = "0.58", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D12",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Security",
+  "Win32_System_Threading",
+] }
 winit = { version = "0.30", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"], optional = true }
 usvg = { version = "0.45", optional = true }

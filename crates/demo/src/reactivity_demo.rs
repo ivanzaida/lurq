@@ -75,7 +75,9 @@ impl Component for ReactivityDemo {
       .child(section_title("Memo (Derived Values)"))
       .child(memo_card(memo_count, doubled, is_even, render_count))
       .child(section_title("Batch Updates"))
-      .child(batch_card(a, b, c, unbatched, batched, ba, bb, bc, ur, ba2, bb2, bc2, br))
+      .child(batch_card(
+        a, b, c, unbatched, batched, ba, bb, bc, ur, ba2, bb2, bc2, br,
+      ))
       .pad(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(BG)
@@ -94,11 +96,21 @@ fn card_frame() -> lurq::components::Column {
     .border_inside(1.0, Color::from_hex(BORDER))
 }
 
-fn btn(label: &str, color: &str, width: f32, handler: impl Fn(&lurq::app::events::MouseEvent) + Send + Sync + 'static) -> Element {
+fn btn(
+  label: &str,
+  color: &str,
+  width: f32,
+  handler: impl Fn(&lurq::app::events::MouseEvent) + Send + Sync + 'static,
+) -> Element {
   lurq::components::Row::new()
     .align_items(Alignment::Center)
     .justify(Justify::Center)
-    .child(text(label, if width > 60.0 { 12.0 } else { 20.0 }, FontWeight::Bold, "#ffffff"))
+    .child(text(
+      label,
+      if width > 60.0 { 12.0 } else { 20.0 },
+      FontWeight::Bold,
+      "#ffffff",
+    ))
     .size(width, if width > 60.0 { 32.0 } else { 48.0 })
     .fill(color)
     .rounded(if width > 60.0 { 6.0 } else { 8.0 })
@@ -107,13 +119,7 @@ fn btn(label: &str, color: &str, width: f32, handler: impl Fn(&lurq::app::events
     .into()
 }
 
-fn signals_card(
-  count: i32,
-  minus: Signal<i32>,
-  plus: Signal<i32>,
-  reset: Signal<i32>,
-  plus10: Signal<i32>,
-) -> Element {
+fn signals_card(count: i32, minus: Signal<i32>, plus: Signal<i32>, reset: Signal<i32>, plus10: Signal<i32>) -> Element {
   card_frame()
     .spacing(16.0)
     .align_items(Alignment::Center)
@@ -161,9 +167,24 @@ fn memo_card(count: i32, doubled: i32, is_even: bool, render_count: i32) -> Elem
   card_frame()
     .spacing(6.0)
     .child(text(&format!("count: {count}"), 15.0, FontWeight::Normal, TEXT))
-    .child(text(&format!("doubled (memo):  {doubled}"), 15.0, FontWeight::Normal, TEXT))
-    .child(text(&format!("is_even (memo):  {is_even}"), 15.0, FontWeight::Normal, TEXT))
-    .child(text(&format!("label (memo):    \"{count} items\""), 15.0, FontWeight::Normal, TEXT))
+    .child(text(
+      &format!("doubled (memo):  {doubled}"),
+      15.0,
+      FontWeight::Normal,
+      TEXT,
+    ))
+    .child(text(
+      &format!("is_even (memo):  {is_even}"),
+      15.0,
+      FontWeight::Normal,
+      TEXT,
+    ))
+    .child(text(
+      &format!("label (memo):    \"{count} items\""),
+      15.0,
+      FontWeight::Normal,
+      TEXT,
+    ))
     .child(text(
       &format!("Render count: {render_count}  (memos skip when equal)"),
       12.0,
@@ -175,14 +196,28 @@ fn memo_card(count: i32, doubled: i32, is_even: bool, render_count: i32) -> Elem
 }
 
 fn batch_card(
-  a: i32, b: i32, c: i32,
-  unbatched: i32, batched: i32,
-  ba: Signal<i32>, bb: Signal<i32>, bc: Signal<i32>, ur: Signal<i32>,
-  ba2: Signal<i32>, bb2: Signal<i32>, bc2: Signal<i32>, br: Signal<i32>,
+  a: i32,
+  b: i32,
+  c: i32,
+  unbatched: i32,
+  batched: i32,
+  ba: Signal<i32>,
+  bb: Signal<i32>,
+  bc: Signal<i32>,
+  ur: Signal<i32>,
+  ba2: Signal<i32>,
+  bb2: Signal<i32>,
+  bc2: Signal<i32>,
+  br: Signal<i32>,
 ) -> Element {
   card_frame()
     .spacing(8.0)
-    .child(text(&format!("a: {a}    b: {b}    c: {c}"), 15.0, FontWeight::Normal, TEXT))
+    .child(text(
+      &format!("a: {a}    b: {b}    c: {c}"),
+      15.0,
+      FontWeight::Normal,
+      TEXT,
+    ))
     .child(
       lurq::components::Row::new()
         .spacing(16.0)
@@ -193,14 +228,24 @@ fn batch_card(
           bc.set(bc.get() + 1);
           ur.set(ur.get() + 3);
         }))
-        .child(text(&format!("renders: {unbatched}"), 12.0, FontWeight::Normal, TEXT_MUTED))
+        .child(text(
+          &format!("renders: {unbatched}"),
+          12.0,
+          FontWeight::Normal,
+          TEXT_MUTED,
+        ))
         .child(btn("Update All (batched)", PRIMARY, 200.0, move |_| {
           ba2.set(ba2.get() + 1);
           bb2.set(bb2.get() + 1);
           bc2.set(bc2.get() + 1);
           br.set(br.get() + 1);
         }))
-        .child(text(&format!("renders: {batched}"), 12.0, FontWeight::Normal, TEXT_MUTED))
+        .child(text(
+          &format!("renders: {batched}"),
+          12.0,
+          FontWeight::Normal,
+          TEXT_MUTED,
+        ))
         .width(FILL_WIDTH),
     )
     .pad(24.0)
