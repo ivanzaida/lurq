@@ -154,6 +154,35 @@ fn overflow_visible_allows_children_to_escape() {
 }
 
 #[test]
+fn offset_visuals_move_with_the_offset_and_clip_by_default() {
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .size(100.0, 100.0)
+    .child(
+      lurq::components::Rect::new(80.0, 40.0)
+        .fill("#ff0000")
+        .offset(20.0, 10.0)
+        .absolute_position(0.0, 0.0),
+    );
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let rect = quads
+    .iter()
+    .find(|quad| match &quad.content {
+      QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+      _ => false,
+    })
+    .expect("expected shifted child rect");
+
+  assert_eq!(rect.x, 20.0);
+  assert_eq!(rect.y, 10.0);
+  assert!(rect.clip.active);
+  assert_eq!(rect.clip.width, 80.0);
+  assert_eq!(rect.clip.height, 40.0);
+}
+
+#[test]
 fn container_children_can_be_added_after_frame_modifiers() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()

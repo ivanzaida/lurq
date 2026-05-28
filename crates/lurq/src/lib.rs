@@ -6,6 +6,8 @@ pub mod core;
 pub mod images;
 pub mod layout;
 pub mod node;
+#[cfg(feature = "render")]
+pub(crate) mod render;
 #[cfg(feature = "svg")]
 pub mod svg;
 

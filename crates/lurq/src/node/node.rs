@@ -135,17 +135,21 @@ impl Node {
 
   fn from_modifier(layout_kind: LayoutKind, mut child: Node) -> Self {
     let tag_name = child.tag_name.clone();
-    let color = (*child.color).clone();
-    let border = (*child.border).clone();
-    let border_radius = (*child.border_radius).clone();
-    if color.is_some() {
-      child.color.set(None);
-    }
-    if border.is_some() {
-      child.border.set(None);
-    }
-    if border_radius.is_some() {
-      child.border_radius.set(None);
+    let hoist_visuals = !matches!(layout_kind, LayoutKind::OffsetModifier { .. })
+      && !matches!(child.layout_kind, LayoutKind::OffsetModifier { .. });
+    let color = hoist_visuals.then(|| (*child.color).clone()).flatten();
+    let border = hoist_visuals.then(|| (*child.border).clone()).flatten();
+    let border_radius = hoist_visuals.then(|| (*child.border_radius).clone()).flatten();
+    if hoist_visuals {
+      if color.is_some() {
+        child.color.set(None);
+      }
+      if border.is_some() {
+        child.border.set(None);
+      }
+      if border_radius.is_some() {
+        child.border_radius.set(None);
+      }
     }
     let mut wrapper = Self::from_parts(layout_kind, NodeKind::Empty, vec![child]).with_tag_name(tag_name);
     if let Some(c) = color {

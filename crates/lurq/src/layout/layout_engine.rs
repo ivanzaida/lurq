@@ -21,12 +21,29 @@ impl LayoutEngine {
   }
 
   pub(crate) fn compute(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+    Self::invalidate_text_content_ancestors(node);
     Self::invalidate_scroll_ancestors(node);
     Self::invalidate_element_ref_ancestors(node);
     Self::invalidate_state_style_ancestors(node);
     let result = self.layout_node(glyph_engine, node, constraints);
     node.clear_guards();
     result
+  }
+
+  fn invalidate_text_content_ancestors(node: &Node) -> bool {
+    let mut dirty = node.text_content.is_changed();
+
+    for child in node.children() {
+      if Self::invalidate_text_content_ancestors(child) {
+        dirty = true;
+      }
+    }
+
+    if dirty {
+      node.layout_cache.invalidate();
+    }
+
+    dirty
   }
 
   fn invalidate_scroll_ancestors(node: &Node) -> bool {

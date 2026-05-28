@@ -14,8 +14,15 @@ mod visual_demo;
 
 use std::time::{Duration, Instant};
 
+#[cfg(not(any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))))]
+compile_error!("demo requires feature `wgpu` or feature `dx12` on Windows");
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+use lurq::app::dx12_render::Dx12RenderEngine;
+#[cfg(feature = "wgpu")]
+use lurq::app::wgpu_render::WgpuRenderEngine;
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
+  app::{Runtime, component::Component, ctx::Ctx, winit_shell::WinitWindow},
   components::Row,
   core::Signal,
   layout::{
@@ -40,6 +47,11 @@ use crate::{
 
 const SIDEBAR_WIDTH: f32 = 200.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+
+#[cfg(feature = "wgpu")]
+const DEFAULT_RENDERER: &str = "wgpu";
+#[cfg(all(not(feature = "wgpu"), feature = "dx12", target_os = "windows"))]
+const DEFAULT_RENDERER: &str = "dx12";
 
 #[derive(Clone, Copy, Default, PartialEq)]
 struct PerfStats {
@@ -308,16 +320,69 @@ fn perf_row(label: &str, value: String, value_weight: FontWeight) -> lurq::compo
     .width(Dimension::Pct(100.0))
 }
 
+fn set_selected_render_engine(runtime: &mut Runtime) -> &'static str {
+  match selected_renderer_arg().as_str() {
+    "wgpu" => {
+      set_wgpu_render_engine(runtime);
+      "wgpu"
+    }
+    "dx12" | "d3d12" => {
+      set_dx12_render_engine(runtime);
+      "dx12"
+    }
+    other => panic!("unknown renderer `{other}`; expected `wgpu` or `dx12`"),
+  }
+}
+
+fn selected_renderer_arg() -> String {
+  let mut args = std::env::args().skip(1);
+  while let Some(arg) = args.next() {
+    if arg == "--renderer" {
+      return args
+        .next()
+        .unwrap_or_else(|| panic!("--renderer requires `wgpu` or `dx12`"))
+        .to_ascii_lowercase();
+    }
+
+    if let Some(renderer) = arg.strip_prefix("--renderer=") {
+      return renderer.to_ascii_lowercase();
+    }
+  }
+
+  DEFAULT_RENDERER.to_owned()
+}
+
+#[cfg(feature = "wgpu")]
+fn set_wgpu_render_engine(runtime: &mut Runtime) {
+  runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
+}
+
+#[cfg(not(feature = "wgpu"))]
+fn set_wgpu_render_engine(_runtime: &mut Runtime) {
+  panic!("--renderer wgpu requires the demo `wgpu` feature");
+}
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+fn set_dx12_render_engine(runtime: &mut Runtime) {
+  runtime.set_render_engine(Box::new(Dx12RenderEngine::new()));
+}
+
+#[cfg(not(all(feature = "dx12", target_os = "windows")))]
+fn set_dx12_render_engine(_runtime: &mut Runtime) {
+  panic!("--renderer dx12 requires the demo `dx12` feature on Windows");
+}
+
 fn main() {
   let mut runtime = Runtime::new();
   runtime.set_profiling_enabled(true);
-  runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
+  let renderer = set_selected_render_engine(&mut runtime);
   animation_demo::register_keyframes(&mut runtime);
   let perf = Signal::new(PerfStats::default());
   let mut perf_meter = PerfMeter::new(perf.clone());
   runtime.mount_root::<DemoApp>(DemoProps { perf });
+  let title = format!("lurq demo ({renderer})");
   WinitWindow::new(runtime)
-    .with_title("lurq demo")
+    .with_title(&title)
     .on_tick(move |rt: &mut Runtime| perf_meter.tick(rt))
     .run();
 }

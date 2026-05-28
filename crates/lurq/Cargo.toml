@@ -7,8 +7,9 @@ edition = "2024"
 default = []
 image = ["dep:image"]
 svg = ["dep:usvg", "dep:lyon"]
-wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
-dx12 = ["dep:windows", "dep:bytemuck"]
+render = ["dep:bytemuck"]
+wgpu = ["render", "dep:wgpu", "dep:pollster"]
+dx12 = ["render", "dep:windows"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
 
@@ -23,6 +24,7 @@ wgpu = { version = "24", optional = true }
 windows = { version = "0.58", optional = true, features = [
   "Win32_Foundation",
   "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D_Fxc",
   "Win32_Graphics_Direct3D12",
   "Win32_Graphics_Dxgi",
   "Win32_Graphics_Dxgi_Common",
