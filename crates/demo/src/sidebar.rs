@@ -1,45 +1,61 @@
 use lurq::{
+  core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element},
 };
 
 use crate::style::{NAV_SELECTED, PRIMARY, SURFACE_DARK, TEXT, TEXT_MUTED, text};
 
-pub(crate) fn sidebar() -> Element {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DemoTab {
+  Layout,
+  Sizing,
+}
+
+impl DemoTab {
+  pub(crate) fn label(self) -> &'static str {
+    match self {
+      Self::Layout => "Layout",
+      Self::Sizing => "Sizing",
+    }
+  }
+}
+
+pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>) -> Element {
   lurq::components::Column::new()
     .child(
       lurq::components::Column::new()
         .spacing(2.0)
         .child(text("lurq engine demo", 12.0, FontWeight::Bold, TEXT))
-        .child(text("Layout", 10.0, FontWeight::Medium, TEXT_MUTED))
+        .child(text(selected.label(), 10.0, FontWeight::Medium, TEXT_MUTED))
         .pad_xy(16.0, 10.0)
         .width(200.0)
         .height(56.0),
     )
     .with_children(
       [
-        ("Layout", true),
-        ("Sizing", false),
-        ("Position", false),
-        ("Scroll", false),
-        ("Visual", false),
-        ("Text", false),
-        ("Events", false),
-        ("React.", false),
-        ("Comps.", false),
-        ("Context", false),
-        ("Debug", false),
+        ("Layout", Some(DemoTab::Layout)),
+        ("Sizing", Some(DemoTab::Sizing)),
+        ("Position", None),
+        ("Scroll", None),
+        ("Visual", None),
+        ("Text", None),
+        ("Events", None),
+        ("React.", None),
+        ("Comps.", None),
+        ("Context", None),
+        ("Debug", None),
       ]
       .into_iter()
-      .map(|(label, selected)| sidebar_item(label, selected)),
+      .map(move |(label, tab)| sidebar_item(label, tab == Some(selected), tab, selected_tab.clone())),
     )
     .width(200.0)
     .fill(SURFACE_DARK)
     .into()
 }
 
-fn sidebar_item(label: &str, selected: bool) -> Element {
-  lurq::components::Row::new()
+fn sidebar_item(label: &str, selected: bool, tab: Option<DemoTab>, selected_tab: Signal<DemoTab>) -> Element {
+  let mut item = lurq::components::Row::new()
     .align_items(Alignment::Center)
     .child(lurq::components::Rect::new(3.0, 38.0).fill(if selected { PRIMARY } else { "#00000000" }))
     .child(lurq::components::Spacer::new().width(13.0))
@@ -52,6 +68,11 @@ fn sidebar_item(label: &str, selected: bool) -> Element {
     .width(200.0)
     .height(38.0)
     .cursor(CursorIcon::Pointer)
-    .fill(if selected { NAV_SELECTED } else { "#00000000" })
-    .into()
+    .fill(if selected { NAV_SELECTED } else { "#00000000" });
+
+  if let Some(tab) = tab {
+    item = item.on_click(move |_| selected_tab.set(tab));
+  }
+
+  item.into()
 }

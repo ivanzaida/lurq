@@ -10,6 +10,7 @@ use crate::{app::render_engine::RenderEngine, layout::render_list::RenderList};
 struct CachedImageTexture {
   texture: wgpu::Texture,
   view: wgpu::TextureView,
+  bind_group: wgpu::BindGroup,
 }
 
 pub struct WgpuRenderEngine {
@@ -871,29 +872,28 @@ impl RenderEngine for WgpuRenderEngine {
               },
             );
             let view = texture.create_view(&Default::default());
-            CachedImageTexture { texture, view }
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+              label: Some("lurq_img_bg"),
+              layout: self.image_bgl.as_ref().unwrap(),
+              entries: &[
+                wgpu::BindGroupEntry {
+                  binding: 0,
+                  resource: globals_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                  binding: 1,
+                  resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                  binding: 2,
+                  resource: wgpu::BindingResource::Sampler(self.image_sampler.as_ref().unwrap()),
+                },
+              ],
+            });
+            CachedImageTexture { texture, view, bind_group }
           });
 
-          let img_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("lurq_img_bg"),
-            layout: self.image_bgl.as_ref().unwrap(),
-            entries: &[
-              wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals_buffer.as_entire_binding(),
-              },
-              wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&cached.view),
-              },
-              wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(self.image_sampler.as_ref().unwrap()),
-              },
-            ],
-          });
-
-          pass.set_bind_group(0, &img_bg, &[]);
+          pass.set_bind_group(0, &cached.bind_group, &[]);
 
           if img.clip.active {
             let viewport_w = vw.max(1.0) as u32;

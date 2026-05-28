@@ -812,7 +812,7 @@ impl LayoutEngine {
 
     LayoutResult {
       size,
-      children: child_layouts,
+      children: child_layouts.into(),
     }
   }
 
@@ -912,7 +912,7 @@ impl LayoutEngine {
       constraints.max_width
     };
 
-    let child_results: Vec<LayoutResult> = children
+    let mut child_results: Vec<Option<LayoutResult>> = children
       .iter()
       .map(|child| {
         let c = if vertical {
@@ -930,7 +930,7 @@ impl LayoutEngine {
             max_height: constraints.max_height,
           }
         };
-        self.layout_node(glyph_engine, child, c)
+        Some(self.layout_node(glyph_engine, child, c))
       })
       .collect();
 
@@ -938,6 +938,7 @@ impl LayoutEngine {
     let mut line_main = 0.0_f32;
 
     for (i, r) in child_results.iter().enumerate() {
+      let r = r.as_ref().unwrap();
       let child_main = if vertical { r.size.height } else { r.size.width };
       let needed = if lines.last().unwrap().is_empty() {
         child_main
@@ -954,50 +955,62 @@ impl LayoutEngine {
       }
     }
 
-    let mut all_layouts = vec![
-      ChildLayout {
-        offset: Offset::default(),
-        result: LayoutResult {
-          size: Size::default(),
-          children: vec![]
-        },
-      };
-      children.len()
-    ];
+    let mut all_layouts = Vec::with_capacity(children.len());
+    all_layouts.resize_with(children.len(), || ChildLayout {
+      offset: Offset::default(),
+      result: LayoutResult { size: Size::default(), children: vec![] },
+    });
     let mut cross_cursor = 0.0_f32;
     let mut max_main_used = 0.0_f32;
 
     for line_indices in &lines {
-      let line_results: Vec<LayoutResult> = line_indices.iter().map(|&i| child_results[i].clone()).collect();
-      let line_cross: f32 = line_results
+      let line_cross: f32 = line_indices
         .iter()
-        .map(|r| if vertical { r.size.width } else { r.size.height })
+        .map(|&i| {
+          let r = child_results[i].as_ref().unwrap();
+          if vertical { r.size.width } else { r.size.height }
+        })
         .fold(0.0_f32, f32::max);
 
-      let line_main_total: f32 = line_results
+      let children_main: f32 = line_indices
         .iter()
-        .map(|r| if vertical { r.size.height } else { r.size.width })
-        .sum::<f32>()
-        + spacing * (line_results.len() as f32 - 1.0).max(0.0);
-
+        .map(|&i| {
+          let r = child_results[i].as_ref().unwrap();
+          if vertical { r.size.height } else { r.size.width }
+        })
+        .sum::<f32>();
+      let line_main_total = children_main + spacing * (line_indices.len() as f32 - 1.0).max(0.0);
       max_main_used = max_main_used.max(line_main_total);
 
-      let line_size = if vertical {
-        Size::new(line_cross, max_main.min(constraints.max_height))
+      let container_main = if vertical {
+        max_main.min(constraints.max_height)
       } else {
-        Size::new(max_main.min(constraints.max_width), line_cross)
+        max_main.min(constraints.max_width)
+      };
+      let free_space = (container_main - children_main).max(0.0);
+      let n = line_indices.len() as f32;
+      let (leading, gap) = match justify {
+        Justify::Start => (0.0, spacing),
+        Justify::End => (free_space - spacing * (n - 1.0), spacing),
+        Justify::Center => ((free_space - spacing * (n - 1.0)) / 2.0, spacing),
+        Justify::SpaceBetween => if n > 1.0 { (0.0, free_space / (n - 1.0)) } else { (0.0, 0.0) },
+        Justify::SpaceAround => { let g = free_space / n; (g / 2.0, g) },
+        Justify::SpaceEvenly => { let g = free_space / (n + 1.0); (g, g) },
       };
 
-      let positioned = self.position_flex_line(&line_results, &line_size, spacing, align, justify, vertical);
-
+      let mut main_cursor = leading;
       for (j, &idx) in line_indices.iter().enumerate() {
-        let mut layout = positioned[j].clone();
-        if vertical {
-          layout.offset.x += cross_cursor;
+        let result = child_results[idx].take().unwrap();
+        let child_main = if vertical { result.size.height } else { result.size.width };
+        let child_cross = if vertical { result.size.width } else { result.size.height };
+        let cross_offset = align.cross_offset(line_cross, child_cross) + cross_cursor;
+        let offset = if vertical {
+          Offset::new(cross_offset, main_cursor)
         } else {
-          layout.offset.y += cross_cursor;
-        }
-        all_layouts[idx] = layout;
+          Offset::new(main_cursor, cross_offset)
+        };
+        main_cursor += child_main + if j < (n as usize - 1) { gap } else { 0.0 };
+        all_layouts[idx] = ChildLayout { offset, result };
       }
 
       cross_cursor += line_cross + spacing;
@@ -1060,7 +1073,7 @@ impl LayoutEngine {
 
     LayoutResult {
       size,
-      children: child_layouts,
+      children: child_layouts.into(),
     }
   }
 

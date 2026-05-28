@@ -1,4 +1,7 @@
-use crate::{layout::layout_result::LayoutResult, node::node::Node};
+use crate::{
+  layout::{layout_kind::Overflow, layout_result::LayoutResult},
+  node::node::Node,
+};
 
 pub struct HitRect {
   pub x: f32,
@@ -29,19 +32,24 @@ pub(crate) fn hit_test_tree<'a>(
     height: result.size.height,
   };
 
-  for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
-    hit_test_tree(
-      child_node,
-      &child_layout.result,
-      abs_x + child_layout.offset.x,
-      abs_y + child_layout.offset.y,
-      px,
-      py,
-      hits,
-    );
+  let inside = rect.contains(px, py);
+  let can_have_visible_children = inside || node.overflow == Overflow::Visible;
+
+  if can_have_visible_children {
+    for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
+      hit_test_tree(
+        child_node,
+        &child_layout.result,
+        abs_x + child_layout.offset.x,
+        abs_y + child_layout.offset.y,
+        px,
+        py,
+        hits,
+      );
+    }
   }
 
-  if rect.contains(px, py) {
+  if inside {
     hits.push((node, rect));
   }
 }

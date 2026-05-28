@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use crate::node::color::Color;
 
 #[derive(Clone)]
 pub struct TextStyle {
-  pub font_family: String,
+  pub font_family: Arc<str>,
   pub font_size: f32,
   pub line_height: f32,
   pub weight: FontWeight,
@@ -23,14 +25,14 @@ impl Default for TextStyle {
   }
 }
 
-fn default_font_family() -> String {
+fn default_font_family() -> Arc<str> {
   #[cfg(target_os = "windows")]
   {
-    "Segoe UI".to_owned()
+    Arc::from("Segoe UI")
   }
   #[cfg(not(target_os = "windows"))]
   {
-    String::new()
+    Arc::from("")
   }
 }
 

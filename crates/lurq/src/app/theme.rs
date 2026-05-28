@@ -116,7 +116,7 @@ impl Default for ThemeFonts {
         ..TextStyle::default()
       },
       mono: TextStyle {
-        font_family: "monospace".to_owned(),
+        font_family: std::sync::Arc::from("monospace"),
         ..TextStyle::default()
       },
     }

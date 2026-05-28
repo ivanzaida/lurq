@@ -15,7 +15,7 @@ use crate::layout::{
 #[derive(Clone, PartialEq)]
 struct CacheKey {
   text: String,
-  font_family: String,
+  font_family: std::sync::Arc<str>,
   font_size_bits: u32,
   line_height_bits: u32,
   max_width_bits: u32,
@@ -256,11 +256,11 @@ impl GlyphEngine {
     buffer
   }
 
-  fn resolve_family(&self, style: &TextStyle) -> String {
+  fn resolve_family(&self, style: &TextStyle) -> std::sync::Arc<str> {
     self
       .font_aliases
-      .get(&style.font_family)
-      .cloned()
+      .get(&*style.font_family)
+      .map(|s| std::sync::Arc::from(s.as_str()))
       .unwrap_or_else(|| style.font_family.clone())
   }
 
@@ -273,7 +273,7 @@ impl GlyphEngine {
     let measure_key_heap = self
       .measure_cache
       .keys()
-      .map(|key| key.text.capacity() + key.font_family.capacity())
+      .map(|key| key.text.capacity() + key.font_family.len())
       .sum::<usize>();
 
     std::mem::size_of::<Self>()

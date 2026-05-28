@@ -165,22 +165,22 @@ impl<T> Signal<T> {
 
   fn notify(&self) {
     {
-      let subscribers = self.inner.subscribers.lock().clone();
+      let subs = self.inner.subscribers.lock();
       let value = self.inner.value.read();
-      for (_, sub) in subscribers {
+      for (_, sub) in subs.iter() {
         sub(&value);
       }
     }
-    let watchers = self.inner.watchers.lock().clone();
+    let watchers = self.inner.watchers.lock();
     BATCH_QUEUE.with(|q| {
       let mut borrow = q.borrow_mut();
       if let Some(ref mut queue) = *borrow {
-        for (_, watcher) in watchers {
-          queue.push(watcher);
+        for (_, watcher) in watchers.iter() {
+          queue.push(Arc::clone(watcher));
         }
       } else {
         drop(borrow);
-        for (_, watcher) in watchers {
+        for (_, watcher) in watchers.iter() {
           watcher();
         }
       }

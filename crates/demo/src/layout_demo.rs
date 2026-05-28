@@ -7,7 +7,7 @@ use crate::style::{
   ACCENT, BG, BORDER, ERROR, PRIMARY, SECONDARY, SUCCESS, SURFACE, SURFACE_DARK, TEXT, TEXT_MUTED, WARNING, text,
 };
 
-const CONTENT_PAD: f32 = 24.0;
+const CONTENT_PAD: f32 = 32.0;
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const SECTION_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
@@ -20,8 +20,8 @@ const ACCENT_30: &str = "#06b6d44d";
 
 pub(crate) fn layout_content() -> Element {
   lurq::components::Column::new()
-    .spacing(22.0)
-    .child(text("Layout", 26.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
+    .spacing(24.0)
+    .child(text("Layout", 28.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
     .child(section_title("Row vs Column"))
     .child(row_vs_column())
     .child(section_title("Justify Modes"))
@@ -34,7 +34,7 @@ pub(crate) fn layout_content() -> Element {
     .child(stack_overlay())
     .child(section_title("Flex Wrap"))
     .child(flex_wrap_demo())
-    .pad_xy(CONTENT_PAD, CONTENT_PAD)
+    .pad(CONTENT_PAD)
     .width(FILL_WIDTH)
     .height(1752.0)
     .fill(BG)

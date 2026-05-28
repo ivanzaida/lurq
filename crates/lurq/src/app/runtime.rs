@@ -319,8 +319,8 @@ impl Runtime {
     self.glyph_engine.reset_stats();
 
     let layout_start = ProfileScope::start();
-    let result = match &self.last_layout {
-      Some(result) => result.clone(),
+    let result = match self.last_layout.take() {
+      Some(result) => result,
       None => return,
     };
     let layout_dur = layout_start.elapsed();
@@ -333,9 +333,9 @@ impl Runtime {
     self.last_layout = Some(result);
 
     let glyph_start = ProfileScope::start();
-    let mut rects = Vec::new();
+    let mut rects = Vec::with_capacity(quad_count);
     let mut atlas_packer = AtlasPacker::new();
-    let mut glyphs = Vec::new();
+    let mut glyphs = Vec::with_capacity(quad_count * 4);
     #[cfg(feature = "image")]
     let mut images = Vec::new();
     #[cfg(feature = "svg")]

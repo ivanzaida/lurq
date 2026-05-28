@@ -1,5 +1,6 @@
 mod layout_demo;
 mod sidebar;
+mod sizing_demo;
 mod style;
 
 use lurq::{
@@ -15,7 +16,8 @@ use lurq::{
 
 use crate::{
   layout_demo::layout_content,
-  sidebar::sidebar,
+  sidebar::{DemoTab, sidebar},
+  sizing_demo::sizing_content,
   style::{ACCENT, BG, PRIMARY, SURFACE_DARK},
 };
 
@@ -38,16 +40,26 @@ impl Component for Child {
 
 struct DemoApp {
   signal: Signal<u32>,
+  selected_tab: Signal<DemoTab>,
 }
 
 impl Component for DemoApp {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
-    Self { signal: ctx.signal(0) }
+    Self {
+      signal: ctx.signal(0),
+      selected_tab: ctx.signal(DemoTab::Layout),
+    }
   }
 
   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let selected_tab = self.selected_tab.get();
+    let content = match selected_tab {
+      DemoTab::Layout => layout_content(),
+      DemoTab::Sizing => sizing_content(),
+    };
+
     Row::new()
       .align_items(Alignment::Stretch)
       .on_click({
@@ -57,7 +69,7 @@ impl Component for DemoApp {
         }
       })
       .child(
-        lurq::components::ScrollVertical::new(sidebar())
+        lurq::components::ScrollVertical::new(sidebar(selected_tab, self.selected_tab.clone()))
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 6.0,
@@ -70,7 +82,7 @@ impl Component for DemoApp {
           .fill(SURFACE_DARK),
       )
       .child(
-        lurq::components::ScrollVertical::new(layout_content())
+        lurq::components::ScrollVertical::new(content)
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 7.0,
