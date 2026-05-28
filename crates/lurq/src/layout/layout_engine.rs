@@ -84,7 +84,17 @@ impl LayoutEngine {
 
   pub(crate) fn resolve_quads(&self, node: &Node, result: &LayoutResult) -> Vec<Quad> {
     let mut quads = Vec::new();
-    self.collect_quads(node, result, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), &mut quads);
+    self.collect_quads(
+      node,
+      result,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      Transform2D::IDENTITY,
+      ClipRect::default(),
+      &mut quads,
+    );
     quads
   }
 
@@ -96,6 +106,7 @@ impl LayoutEngine {
     abs_y: f32,
     parent_x: f32,
     parent_y: f32,
+    inherited_transform: Transform2D,
     clip: ClipRect,
     quads: &mut Vec<Quad>,
   ) {
@@ -144,7 +155,14 @@ impl LayoutEngine {
     };
 
     let opacity = node.opacity;
-    let transform = node.effective_transform();
+    let local_transform = node.effective_transform();
+    let transform = if inherited_transform.is_identity() {
+      local_transform
+    } else if local_transform.is_identity() {
+      inherited_transform
+    } else {
+      inherited_transform.then(&local_transform)
+    };
 
     match &content {
       QuadContent::None => {}
@@ -241,6 +259,7 @@ impl LayoutEngine {
         abs_y + child_layout.offset.y,
         abs_x,
         abs_y,
+        transform,
         child_clip,
         quads,
       );

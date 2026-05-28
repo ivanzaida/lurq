@@ -1,5 +1,4 @@
-use lurq::animation::AnimatableValue;
-use lurq::node::color::Color;
+use lurq::{animation::AnimatableValue, node::color::Color};
 
 #[test]
 fn mismatched_types_below_half_returns_from() {

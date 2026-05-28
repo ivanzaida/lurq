@@ -21,7 +21,11 @@ impl Transform2D {
   };
 
   pub fn translate(tx: f32, ty: f32) -> Self {
-    Self { tx, ty, ..Self::IDENTITY }
+    Self {
+      tx,
+      ty,
+      ..Self::IDENTITY
+    }
   }
 
   pub fn scale(sx: f32, sy: f32) -> Self {
@@ -89,8 +93,8 @@ impl Default for Transform2D {
   }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Decomposed {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Decomposed {
   pub translate_x: f32,
   pub translate_y: f32,
   pub scale_x: f32,
@@ -99,7 +103,67 @@ pub(crate) struct Decomposed {
   pub skew_x: f32,
 }
 
-pub(crate) fn decompose(t: &Transform2D) -> Option<Decomposed> {
+impl Decomposed {
+  pub const IDENTITY: Self = Self {
+    translate_x: 0.0,
+    translate_y: 0.0,
+    scale_x: 1.0,
+    scale_y: 1.0,
+    rotate: 0.0,
+    skew_x: 0.0,
+  };
+
+  pub fn with_rotate(mut self, radians: f32) -> Self {
+    self.rotate = radians;
+    self
+  }
+
+  pub fn with_rotate_deg(mut self, degrees: f32) -> Self {
+    self.rotate = degrees * PI / 180.0;
+    self
+  }
+
+  pub fn with_scale(mut self, sx: f32, sy: f32) -> Self {
+    self.scale_x = sx;
+    self.scale_y = sy;
+    self
+  }
+
+  pub fn with_translate(mut self, tx: f32, ty: f32) -> Self {
+    self.translate_x = tx;
+    self.translate_y = ty;
+    self
+  }
+
+  pub fn with_skew(mut self, radians: f32) -> Self {
+    self.skew_x = radians;
+    self
+  }
+
+  pub fn to_matrix(&self) -> Transform2D {
+    recompose(self)
+  }
+
+  pub fn lerp(&self, to: &Decomposed, t: f32) -> Decomposed {
+    let l = |a: f32, b: f32| a + (b - a) * t;
+    Decomposed {
+      translate_x: l(self.translate_x, to.translate_x),
+      translate_y: l(self.translate_y, to.translate_y),
+      scale_x: l(self.scale_x, to.scale_x),
+      scale_y: l(self.scale_y, to.scale_y),
+      rotate: l(self.rotate, to.rotate),
+      skew_x: l(self.skew_x, to.skew_x),
+    }
+  }
+}
+
+impl Default for Decomposed {
+  fn default() -> Self {
+    Self::IDENTITY
+  }
+}
+
+pub fn decompose(t: &Transform2D) -> Option<Decomposed> {
   let mut a = t.a;
   let mut b = t.b;
   let mut c = t.c;
@@ -144,7 +208,7 @@ pub(crate) fn decompose(t: &Transform2D) -> Option<Decomposed> {
   })
 }
 
-pub(crate) fn recompose(d: &Decomposed) -> Transform2D {
+pub fn recompose(d: &Decomposed) -> Transform2D {
   let (sin, cos) = d.rotate.sin_cos();
   let tan_skew = d.skew_x.tan();
 
@@ -156,30 +220,6 @@ pub(crate) fn recompose(d: &Decomposed) -> Transform2D {
     tx: d.translate_x,
     ty: d.translate_y,
   }
-}
-
-pub(crate) fn lerp_transform(from: &Transform2D, to: &Transform2D, t: f32) -> Option<Transform2D> {
-  let da = decompose(from)?;
-  let db = decompose(to)?;
-
-  let mut rot_diff = db.rotate - da.rotate;
-  if rot_diff > PI {
-    rot_diff -= 2.0 * PI;
-  }
-  if rot_diff < -PI {
-    rot_diff += 2.0 * PI;
-  }
-
-  let lerp = |a: f32, b: f32| a + (b - a) * t;
-
-  Some(recompose(&Decomposed {
-    translate_x: lerp(da.translate_x, db.translate_x),
-    translate_y: lerp(da.translate_y, db.translate_y),
-    scale_x: lerp(da.scale_x, db.scale_x),
-    scale_y: lerp(da.scale_y, db.scale_y),
-    rotate: da.rotate + rot_diff * t,
-    skew_x: lerp(da.skew_x, db.skew_x),
-  }))
 }
 
 #[cfg(test)]
@@ -208,12 +248,15 @@ mod tests {
   }
 
   #[test]
-  fn lerp_identity_to_rotation() {
-    let from = Transform2D::IDENTITY;
-    let to = Transform2D::rotate(PI / 2.0);
-    let mid = lerp_transform(&from, &to, 0.5).unwrap();
-    let d = decompose(&mid).unwrap();
-    assert!((d.rotate - PI / 4.0).abs() < 0.01);
+  fn decomposed_lerp_preserves_full_rotation() {
+    let from = decompose(&Transform2D::rotate(0.0)).unwrap();
+    let mut to = from;
+    to.rotate = std::f32::consts::TAU;
+    let mid = from.lerp(&to, 0.25);
+    let expected = Transform2D::rotate(std::f32::consts::TAU * 0.25);
+    let got = mid.to_matrix();
+    assert!((got.a - expected.a).abs() < 0.05);
+    assert!((got.b - expected.b).abs() < 0.05);
   }
 
   #[test]

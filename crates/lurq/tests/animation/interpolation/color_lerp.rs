@@ -1,5 +1,4 @@
-use lurq::animation::AnimatableValue;
-use lurq::node::color::Color;
+use lurq::{animation::AnimatableValue, node::color::Color};
 
 fn color(r: u8, g: u8, b: u8, a: u8) -> AnimatableValue {
   AnimatableValue::Color(Color::new(r, g, b, a))

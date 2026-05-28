@@ -1,7 +1,5 @@
 use lurq::{
-  animation::{
-    AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, AnimationIterationCount, Keyframes,
-  },
+  animation::{AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, AnimationIterationCount, Keyframes},
   app::Runtime,
   layout::{Constraints, Size},
 };
@@ -73,7 +71,10 @@ fn infinite_iteration_keeps_animating() {
   std::thread::sleep(std::time::Duration::from_millis(50));
   run_pass(&mut rt);
 
-  assert!(rt.needs_redraw(), "infinite animation should still request redraw after many iterations");
+  assert!(
+    rt.needs_redraw(),
+    "infinite animation should still request redraw after many iterations"
+  );
 }
 
 #[test]

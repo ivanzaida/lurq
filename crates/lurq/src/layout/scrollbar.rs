@@ -10,6 +10,7 @@ pub struct ScrollBarStyle {
   pub track_radius: f32,
   pub padding: f32,
   pub visible: ScrollBarVisibility,
+  pub placement: ScrollBarPlacement,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -18,6 +19,13 @@ pub enum ScrollBarVisibility {
   Auto,
   Always,
   Never,
+}
+
+#[derive(Clone, Copy, Default)]
+pub enum ScrollBarPlacement {
+  #[default]
+  Overlay,
+  Reserved,
 }
 
 impl Default for ScrollBarStyle {
@@ -31,6 +39,7 @@ impl Default for ScrollBarStyle {
       track_radius: 4.0,
       padding: 2.0,
       visible: ScrollBarVisibility::Auto,
+      placement: ScrollBarPlacement::Overlay,
     }
   }
 }

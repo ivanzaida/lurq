@@ -13,6 +13,8 @@ pub(crate) enum DemoTab {
   Position,
   Dnd,
   Animation,
+  Transform,
+  Scroll,
 }
 
 impl DemoTab {
@@ -23,6 +25,8 @@ impl DemoTab {
       Self::Position => "Position",
       Self::Dnd => "DnD",
       Self::Animation => "Animation",
+      Self::Transform => "Transform",
+      Self::Scroll => "Scroll",
     }
   }
 }
@@ -45,7 +49,8 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>) -> Eleme
         ("Position", Some(DemoTab::Position)),
         ("DnD", Some(DemoTab::Dnd)),
         ("Animation", Some(DemoTab::Animation)),
-        ("Scroll", None),
+        ("Transform", Some(DemoTab::Transform)),
+        ("Scroll", Some(DemoTab::Scroll)),
         ("Visual", None),
         ("Text", None),
         ("Events", None),

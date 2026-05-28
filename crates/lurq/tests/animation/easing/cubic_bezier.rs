@@ -40,7 +40,10 @@ fn ease_out_is_faster_than_linear_at_start() {
 fn ease_in_out_is_symmetric_around_midpoint() {
   let a = Easing::EASE_IN_OUT.evaluate(0.25);
   let b = Easing::EASE_IN_OUT.evaluate(0.75);
-  assert!((a + b - 1.0).abs() < 0.01, "ease-in-out should be symmetric: f(0.25)={a} + f(0.75)={b}");
+  assert!(
+    (a + b - 1.0).abs() < 0.01,
+    "ease-in-out should be symmetric: f(0.25)={a} + f(0.75)={b}"
+  );
 }
 
 #[test]

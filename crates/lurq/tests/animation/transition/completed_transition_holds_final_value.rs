@@ -34,5 +34,9 @@ fn completed_transition_holds_target_value() {
     QuadContent::Rect { color } => *color,
     _ => panic!("expected rect"),
   };
-  assert_eq!(color, Color::from_hex("#0000ff"), "color should hold at target after transition completes");
+  assert_eq!(
+    color,
+    Color::from_hex("#0000ff"),
+    "color should hold at target after transition completes"
+  );
 }

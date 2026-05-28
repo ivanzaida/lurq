@@ -1,7 +1,5 @@
 use lurq::{
-  animation::{
-    AnimatableProperty, AnimatableValue, Animation, AnimationDirection, AnimationIterationCount, Keyframes,
-  },
+  animation::{AnimatableProperty, AnimatableValue, Animation, AnimationDirection, AnimationIterationCount, Keyframes},
   app::Runtime,
   layout::{Constraints, Size},
 };

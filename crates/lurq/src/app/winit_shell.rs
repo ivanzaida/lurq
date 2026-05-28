@@ -200,10 +200,14 @@ impl ApplicationHandler for WinitHandler {
         }
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
-        let (dx, dy) = match delta {
+        let (mut dx, mut dy) = match delta {
           MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
           MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
         };
+        if self.modifiers.shift_key() && dx == 0.0 {
+          dx = dy;
+          dy = 0.0;
+        }
         let scroll_phase = match phase {
           TouchPhase::Started => ScrollPhase::Start,
           TouchPhase::Moved => ScrollPhase::Scroll,

@@ -61,7 +61,9 @@ struct ScrollStateInner {
   viewport_abs_y: f32,
   thumb_hovered: bool,
   dragging: bool,
+  drag_start_x: f32,
   drag_start_y: f32,
+  drag_start_scroll_x: f32,
   drag_start_scroll_y: f32,
   scrollbar_style: ScrollBarStyle,
   scroll_dirty: bool,
@@ -83,7 +85,9 @@ impl ScrollState {
         viewport_abs_y: 0.0,
         thumb_hovered: false,
         dragging: false,
+        drag_start_x: 0.0,
         drag_start_y: 0.0,
+        drag_start_scroll_x: 0.0,
         drag_start_scroll_y: 0.0,
         scrollbar_style: ScrollBarStyle::default(),
         scroll_dirty: false,
@@ -107,10 +111,23 @@ impl ScrollState {
   }
 
   pub fn scroll_by(&self, dx: f32, dy: f32) {
+    self.scroll_by_with_overflow(dx, dy);
+  }
+
+  pub fn scroll_by_with_overflow(&self, dx: f32, dy: f32) -> (f32, f32) {
     let mut inner = self.inner.lock().unwrap();
+    let old_x = inner.scroll_x;
+    let old_y = inner.scroll_y;
     inner.scroll_x = (inner.scroll_x + dx).clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = (inner.scroll_y + dy).clamp(0.0, inner.max_scroll_y);
-    inner.scroll_dirty = true;
+
+    let consumed_x = inner.scroll_x - old_x;
+    let consumed_y = inner.scroll_y - old_y;
+    if consumed_x != 0.0 || consumed_y != 0.0 {
+      inner.scroll_dirty = true;
+    }
+
+    (dx - consumed_x, dy - consumed_y)
   }
 
   pub fn content_width(&self) -> f32 {
@@ -150,9 +167,15 @@ impl ScrollState {
   }
 
   pub fn begin_drag(&self, mouse_y: f32) {
+    self.begin_drag_axis(ScrollAxis::Vertical, 0.0, mouse_y);
+  }
+
+  pub fn begin_drag_axis(&self, _axis: ScrollAxis, mouse_x: f32, mouse_y: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.dragging = true;
+    inner.drag_start_x = mouse_x;
     inner.drag_start_y = mouse_y;
+    inner.drag_start_scroll_x = inner.scroll_x;
     inner.drag_start_scroll_y = inner.scroll_y;
   }
 
@@ -161,22 +184,55 @@ impl ScrollState {
   }
 
   pub fn drag_to(&self, mouse_y: f32, style: &crate::layout::scrollbar::ScrollBarStyle) {
+    self.drag_to_axis(ScrollAxis::Vertical, 0.0, mouse_y, style);
+  }
+
+  pub fn drag_to_axis(
+    &self,
+    axis: ScrollAxis,
+    mouse_x: f32,
+    mouse_y: f32,
+    style: &crate::layout::scrollbar::ScrollBarStyle,
+  ) {
     let mut inner = self.inner.lock().unwrap();
     if !inner.dragging {
       return;
     }
 
-    let track_height = inner.viewport_height - style.padding * 2.0;
-    let ratio = inner.viewport_height / inner.content_height.max(1.0);
-    let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
-    let scrollable_track = track_height - thumb_height;
-    if scrollable_track <= 0.0 {
-      return;
-    }
+    match axis {
+      ScrollAxis::Horizontal => {
+        let track_width = inner.viewport_width - style.padding * 2.0;
+        if track_width <= 0.0 {
+          return;
+        }
+        let ratio = inner.viewport_width / inner.content_width.max(1.0);
+        let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
+        let scrollable_track = track_width - thumb_width;
+        if scrollable_track <= 0.0 {
+          return;
+        }
 
-    let delta_px = mouse_y - inner.drag_start_y;
-    let scroll_delta = delta_px / scrollable_track * inner.max_scroll_y;
-    inner.scroll_y = (inner.drag_start_scroll_y + scroll_delta).clamp(0.0, inner.max_scroll_y);
+        let delta_px = mouse_x - inner.drag_start_x;
+        let scroll_delta = delta_px / scrollable_track * inner.max_scroll_x;
+        inner.scroll_x = (inner.drag_start_scroll_x + scroll_delta).clamp(0.0, inner.max_scroll_x);
+      }
+      ScrollAxis::Vertical => {
+        let track_height = inner.viewport_height - style.padding * 2.0;
+        if track_height <= 0.0 {
+          return;
+        }
+        let ratio = inner.viewport_height / inner.content_height.max(1.0);
+        let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+        let scrollable_track = track_height - thumb_height;
+        if scrollable_track <= 0.0 {
+          return;
+        }
+
+        let delta_px = mouse_y - inner.drag_start_y;
+        let scroll_delta = delta_px / scrollable_track * inner.max_scroll_y;
+        inner.scroll_y = (inner.drag_start_scroll_y + scroll_delta).clamp(0.0, inner.max_scroll_y);
+      }
+    }
     inner.scroll_dirty = true;
   }
 
@@ -196,6 +252,36 @@ impl ScrollState {
     let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
 
     (track_x, thumb_y, style.width, thumb_height)
+  }
+
+  pub fn thumb_rect_for_axis(
+    &self,
+    axis: ScrollAxis,
+    style: &crate::layout::scrollbar::ScrollBarStyle,
+  ) -> Option<(f32, f32, f32, f32)> {
+    let inner = self.inner.lock().unwrap();
+    let geo = match axis {
+      ScrollAxis::Horizontal => crate::layout::scrollbar::compute_horizontal_scrollbar(
+        style,
+        inner.viewport_abs_x,
+        inner.viewport_abs_y,
+        inner.viewport_width,
+        inner.viewport_height,
+        inner.content_width,
+        inner.scroll_x,
+      ),
+      ScrollAxis::Vertical => crate::layout::scrollbar::compute_vertical_scrollbar(
+        style,
+        inner.viewport_abs_x,
+        inner.viewport_abs_y,
+        inner.viewport_width,
+        inner.viewport_height,
+        inner.content_height,
+        inner.scroll_y,
+      ),
+    }?;
+
+    Some((geo.thumb_x, geo.thumb_y, geo.thumb_width, geo.thumb_height))
   }
 
   pub(crate) fn take_scroll_dirty(&self) -> bool {
@@ -282,6 +368,12 @@ pub enum ScrollDirection {
   #[default]
   Vertical,
   Both,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ScrollAxis {
+  Horizontal,
+  Vertical,
 }
 
 #[derive(Clone, Copy, Default)]

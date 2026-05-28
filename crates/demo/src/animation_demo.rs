@@ -1,7 +1,12 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, Transition},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, color::Color, dimension::Dimension, transform::Transform2D},
+  node::{
+    CursorIcon, Element,
+    color::Color,
+    dimension::Dimension,
+    transform::{Decomposed, Transform2D},
+  },
 };
 
 use crate::style::{ACCENT, BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_MUTED, text};
@@ -70,15 +75,12 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
   runtime.register_keyframes(
     Keyframes::new("spin")
       .frame(0.0, |f| {
-        f.set(
-          AnimatableProperty::Transform,
-          AnimatableValue::Transform(Transform2D::rotate(0.0)),
-        );
+        f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
       })
       .frame(1.0, |f| {
         f.set(
           AnimatableProperty::Transform,
-          AnimatableValue::Transform(Transform2D::rotate(std::f32::consts::TAU)),
+          Decomposed::IDENTITY.with_rotate(std::f32::consts::TAU),
         );
       }),
   );
@@ -88,20 +90,49 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       .frame(0.0, |f| {
         f.set(
           AnimatableProperty::Transform,
-          AnimatableValue::Transform(Transform2D::rotate_deg(-15.0)),
+          Decomposed::IDENTITY.with_rotate_deg(-15.0),
         );
       })
       .frame(0.5, |f| {
         f.set(
           AnimatableProperty::Transform,
-          AnimatableValue::Transform(Transform2D::rotate_deg(15.0)),
+          Decomposed::IDENTITY.with_rotate_deg(15.0),
         );
       })
       .frame(1.0, |f| {
         f.set(
           AnimatableProperty::Transform,
-          AnimatableValue::Transform(Transform2D::rotate_deg(-15.0)),
+          Decomposed::IDENTITY.with_rotate_deg(-15.0),
         );
+      }),
+  );
+
+  runtime.register_keyframes(
+    Keyframes::new("spin-color")
+      .frame(0.0, |f| {
+        f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
+        f.set(AnimatableProperty::BackgroundColor, Color::from_hex("#3b82f6"));
+      })
+      .frame(0.33, |f| {
+        f.set(
+          AnimatableProperty::Transform,
+          Decomposed::IDENTITY.with_rotate(std::f32::consts::TAU / 3.0),
+        );
+        f.set(AnimatableProperty::BackgroundColor, Color::from_hex("#8b5cf6"));
+      })
+      .frame(0.66, |f| {
+        f.set(
+          AnimatableProperty::Transform,
+          Decomposed::IDENTITY.with_rotate(std::f32::consts::TAU * 2.0 / 3.0),
+        );
+        f.set(AnimatableProperty::BackgroundColor, Color::from_hex("#06b6d4"));
+      })
+      .frame(1.0, |f| {
+        f.set(
+          AnimatableProperty::Transform,
+          Decomposed::IDENTITY.with_rotate(std::f32::consts::TAU),
+        );
+        f.set(AnimatableProperty::BackgroundColor, Color::from_hex("#3b82f6"));
       }),
   );
 
@@ -166,6 +197,14 @@ pub(crate) fn animation_content() -> Element {
       TEXT_MUTED,
     ))
     .child(combined_demo())
+    .child(section_title("Transforms"))
+    .child(text(
+      "GPU-accelerated 2D transforms: rotate, scale, skew. Paint-only — no layout impact.",
+      12.0,
+      FontWeight::Normal,
+      TEXT_MUTED,
+    ))
+    .child(transform_demos())
     .pad(CONTENT_PAD)
     .width(FILL_WIDTH)
     .fill(BG)
@@ -475,5 +514,69 @@ fn combined_demo() -> Element {
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
+    .into()
+}
+
+// --- Transforms ---
+
+fn transform_demos() -> Element {
+  lurq::components::Row::new()
+    .spacing(24.0)
+    .align_items(Alignment::Start)
+    .child(transform_card(
+      "Static Rotate",
+      lurq::components::Rect::new(60.0, 60.0)
+        .fill(PRIMARY)
+        .rounded(8.0)
+        .transform(Transform2D::rotate_deg(45.0)),
+    ))
+    .child(transform_card(
+      "Static Scale",
+      lurq::components::Rect::new(60.0, 60.0)
+        .fill(SECONDARY)
+        .rounded(8.0)
+        .transform(Transform2D::scale(1.4, 0.7)),
+    ))
+    .child(transform_card(
+      "Spin",
+      lurq::components::Rect::new(50.0, 50.0)
+        .fill(ACCENT)
+        .rounded(6.0)
+        .animation(Animation::new("spin").duration_ms(2000).linear().infinite()),
+    ))
+    .child(transform_card(
+      "Rock",
+      lurq::components::Rect::new(50.0, 50.0)
+        .fill("#f59e0b")
+        .rounded(6.0)
+        .animation(Animation::new("rock").duration_ms(1000).linear().infinite()),
+    ))
+    .child(transform_card(
+      "Spin + Cycle",
+      lurq::components::Rect::new(50.0, 50.0)
+        .fill(PRIMARY)
+        .rounded(25.0)
+        .animation(Animation::new("spin-color").duration_ms(3000).linear().infinite()),
+    ))
+    .pad(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+fn transform_card(label: &str, content: impl Into<Element>) -> Element {
+  lurq::components::Column::new()
+    .spacing(12.0)
+    .align_items(Alignment::Center)
+    .child(
+      lurq::components::Row::new()
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .child(content)
+        .size(120.0, 100.0),
+    )
+    .child(text(label, 11.0, FontWeight::Medium, TEXT_MUTED))
     .into()
 }

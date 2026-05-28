@@ -33,5 +33,6 @@ mod ported_flex;
 mod quads;
 mod row;
 mod scroll;
+mod scrollbar_placement;
 mod stack;
 mod text_centering;

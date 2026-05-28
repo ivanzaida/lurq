@@ -3,12 +3,13 @@ use std::{
   time::{Duration, Instant},
 };
 
-use crate::core::NodeId;
-
 use super::{
   easing::Easing,
-  interpolate::{AnimatableProperty, AnimatableValue, clear_overrides, property_accessors, read_target, write_property},
+  interpolate::{
+    AnimatableProperty, AnimatableValue, clear_overrides, property_accessors, read_target, write_property,
+  },
 };
+use crate::core::NodeId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TransitionProperty {
@@ -175,9 +176,7 @@ impl TransitionEngine {
           TransitionProperty::All => ALL_PROPERTIES,
           TransitionProperty::Single(ref p) => std::slice::from_ref(p),
         };
-        props
-          .iter()
-          .map(move |p| (*p, spec.duration, spec.delay, spec.easing))
+        props.iter().map(move |p| (*p, spec.duration, spec.delay, spec.easing))
       })
       .collect();
 

@@ -1,4 +1,7 @@
-use crate::node::{color::Color, transform::Transform2D};
+use crate::node::{
+  color::Color,
+  transform::{Decomposed, Transform2D, decompose},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AnimatableProperty {
@@ -38,7 +41,7 @@ pub(crate) use property_accessors;
 pub enum AnimatableValue {
   Color(Color),
   Float(f32),
-  Transform(Transform2D),
+  Transform(Decomposed),
 }
 
 impl AnimatableValue {
@@ -46,11 +49,7 @@ impl AnimatableValue {
     match (self, to) {
       (AnimatableValue::Color(a), AnimatableValue::Color(b)) => AnimatableValue::Color(lerp_color(*a, *b, t)),
       (AnimatableValue::Float(a), AnimatableValue::Float(b)) => AnimatableValue::Float(a + (b - a) * t),
-      (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => {
-        crate::node::transform::lerp_transform(a, b, t)
-          .map(AnimatableValue::Transform)
-          .unwrap_or(*self)
-      }
+      (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => AnimatableValue::Transform(a.lerp(b, t)),
       _ => {
         if t >= 0.5 {
           *to
@@ -76,7 +75,20 @@ impl From<f32> for AnimatableValue {
 
 impl From<Transform2D> for AnimatableValue {
   fn from(t: Transform2D) -> Self {
-    Self::Transform(t)
+    Self::Transform(decompose(&t).unwrap_or(Decomposed {
+      translate_x: 0.0,
+      translate_y: 0.0,
+      scale_x: 1.0,
+      scale_y: 1.0,
+      rotate: 0.0,
+      skew_x: 0.0,
+    }))
+  }
+}
+
+impl From<Decomposed> for AnimatableValue {
+  fn from(d: Decomposed) -> Self {
+    Self::Transform(d)
   }
 }
 
@@ -102,59 +114,51 @@ pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) ->
   match prop {
     AnimatableProperty::BackgroundColor => style.color.or(*node.color).map(AnimatableValue::Color),
     AnimatableProperty::BorderColor => style.border.or(*node.border).map(|b| AnimatableValue::Color(b.color)),
-    AnimatableProperty::BorderWidthTop => style.border.or(*node.border).map(|b| AnimatableValue::Float(b.width.top)),
-    AnimatableProperty::BorderWidthRight => {
-      style.border.or(*node.border).map(|b| AnimatableValue::Float(b.width.right))
-    }
-    AnimatableProperty::BorderWidthBottom => {
-      style
-        .border
-        .or(*node.border)
-        .map(|b| AnimatableValue::Float(b.width.bottom))
-    }
-    AnimatableProperty::BorderWidthLeft => {
-      style.border.or(*node.border).map(|b| AnimatableValue::Float(b.width.left))
-    }
-    AnimatableProperty::BorderRadiusTopLeft => {
-      style
-        .border_radius
-        .or(*node.border_radius)
-        .map(|r| AnimatableValue::Float(r.top_left))
-    }
-    AnimatableProperty::BorderRadiusTopRight => {
-      style
-        .border_radius
-        .or(*node.border_radius)
-        .map(|r| AnimatableValue::Float(r.top_right))
-    }
-    AnimatableProperty::BorderRadiusBottomRight => {
-      style
-        .border_radius
-        .or(*node.border_radius)
-        .map(|r| AnimatableValue::Float(r.bottom_right))
-    }
-    AnimatableProperty::BorderRadiusBottomLeft => {
-      style
-        .border_radius
-        .or(*node.border_radius)
-        .map(|r| AnimatableValue::Float(r.bottom_left))
-    }
+    AnimatableProperty::BorderWidthTop => style
+      .border
+      .or(*node.border)
+      .map(|b| AnimatableValue::Float(b.width.top)),
+    AnimatableProperty::BorderWidthRight => style
+      .border
+      .or(*node.border)
+      .map(|b| AnimatableValue::Float(b.width.right)),
+    AnimatableProperty::BorderWidthBottom => style
+      .border
+      .or(*node.border)
+      .map(|b| AnimatableValue::Float(b.width.bottom)),
+    AnimatableProperty::BorderWidthLeft => style
+      .border
+      .or(*node.border)
+      .map(|b| AnimatableValue::Float(b.width.left)),
+    AnimatableProperty::BorderRadiusTopLeft => style
+      .border_radius
+      .or(*node.border_radius)
+      .map(|r| AnimatableValue::Float(r.top_left)),
+    AnimatableProperty::BorderRadiusTopRight => style
+      .border_radius
+      .or(*node.border_radius)
+      .map(|r| AnimatableValue::Float(r.top_right)),
+    AnimatableProperty::BorderRadiusBottomRight => style
+      .border_radius
+      .or(*node.border_radius)
+      .map(|r| AnimatableValue::Float(r.bottom_right)),
+    AnimatableProperty::BorderRadiusBottomLeft => style
+      .border_radius
+      .or(*node.border_radius)
+      .map(|r| AnimatableValue::Float(r.bottom_left)),
     AnimatableProperty::OffsetX => read_offset_x(node).map(AnimatableValue::Float),
     AnimatableProperty::OffsetY => read_offset_y(node).map(AnimatableValue::Float),
     AnimatableProperty::Width => read_target_frame_dim(node, &style, true).map(AnimatableValue::Float),
     AnimatableProperty::Height => read_target_frame_dim(node, &style, false).map(AnimatableValue::Float),
     AnimatableProperty::Opacity => Some(AnimatableValue::Float(node.opacity)),
-    AnimatableProperty::Transform => Some(AnimatableValue::Transform(node.transform)),
+    AnimatableProperty::Transform => decompose(&node.transform).map(AnimatableValue::Transform),
   }
 }
 
 pub(crate) fn write_property(node: &mut crate::node::Node, prop: AnimatableProperty, value: &AnimatableValue) -> bool {
   let affects_layout = matches!(
     prop,
-    AnimatableProperty::OffsetX
-      | AnimatableProperty::OffsetY
-      | AnimatableProperty::Width
-      | AnimatableProperty::Height
+    AnimatableProperty::OffsetX | AnimatableProperty::OffsetY | AnimatableProperty::Width | AnimatableProperty::Height
   );
   match prop {
     AnimatableProperty::OffsetX | AnimatableProperty::OffsetY => {
@@ -203,11 +207,7 @@ fn read_offset_y(node: &crate::node::Node) -> Option<f32> {
   }
 }
 
-fn read_target_frame_dim(
-  node: &crate::node::Node,
-  style: &crate::node::style::Style,
-  is_width: bool,
-) -> Option<f32> {
+fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::Style, is_width: bool) -> Option<f32> {
   let base = match node.layout_kind() {
     crate::layout::layout_kind::LayoutKind::FrameModifier(f) => *f,
     _ => return None,
@@ -234,7 +234,6 @@ fn write_offset_y(node: &mut crate::node::Node, v: f32) {
     *y = v;
   }
 }
-
 
 #[cfg(test)]
 mod tests {

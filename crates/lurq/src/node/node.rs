@@ -703,17 +703,24 @@ impl Node {
       .animation_overrides
       .iter()
       .find_map(|(prop, val)| match (prop, val) {
-        (crate::animation::AnimatableProperty::Transform, crate::animation::AnimatableValue::Transform(t)) => Some(*t),
+        (crate::animation::AnimatableProperty::Transform, crate::animation::AnimatableValue::Transform(d)) => {
+          Some(d.to_matrix())
+        }
         _ => None,
       })
       .unwrap_or(self.transform)
   }
 
   fn animation_override_color(&self) -> Option<Color> {
-    self.animation_overrides.iter().find_map(|(prop, val)| match (prop, val) {
-      (crate::animation::AnimatableProperty::BackgroundColor, crate::animation::AnimatableValue::Color(c)) => Some(*c),
-      _ => None,
-    })
+    self
+      .animation_overrides
+      .iter()
+      .find_map(|(prop, val)| match (prop, val) {
+        (crate::animation::AnimatableProperty::BackgroundColor, crate::animation::AnimatableValue::Color(c)) => {
+          Some(*c)
+        }
+        _ => None,
+      })
   }
 
   pub fn children(&self) -> &[Node] {

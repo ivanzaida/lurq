@@ -2,9 +2,11 @@ mod animation_demo;
 mod dnd_demo;
 mod layout_demo;
 mod positioning_demo;
+mod scroll_demo;
 mod sidebar;
 mod sizing_demo;
 mod style;
+mod transform_demo;
 
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
@@ -22,6 +24,7 @@ use crate::{
   dnd_demo::DndDemo,
   layout_demo::layout_content,
   positioning_demo::PositioningDemo,
+  scroll_demo::scroll_content,
   sidebar::{DemoTab, sidebar},
   sizing_demo::sizing_content,
   style::{ACCENT, BG, PRIMARY, SURFACE_DARK},
@@ -50,6 +53,8 @@ impl Component for DemoApp {
       DemoTab::Position => _ctx.mount::<PositioningDemo>(()),
       DemoTab::Dnd => _ctx.mount::<DndDemo>(()),
       DemoTab::Animation => animation_content(),
+      DemoTab::Transform => transform_demo::transform_content(),
+      DemoTab::Scroll => scroll_content(),
     };
 
     Row::new()

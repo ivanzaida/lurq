@@ -20,7 +20,7 @@ use crate::{
   layout::{
     Constraints, Size,
     layout_engine::LayoutEngine,
-    layout_kind::{LayoutKind, ScrollState},
+    layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
@@ -79,7 +79,7 @@ pub struct Runtime {
   scale_override: Option<f32>,
   hover_path: Vec<usize>,
   active_path: Vec<usize>,
-  dragging_scroll: Option<ScrollState>,
+  dragging_scroll: Option<ScrollDrag>,
   dragging_slider: Option<SliderDrag>,
   active_drag: Option<ActiveDrag>,
   focused_node: Option<NodeId>,
@@ -179,7 +179,7 @@ impl Runtime {
     let dragging_scroll_bytes = self
       .dragging_scroll
       .as_ref()
-      .map(|_| std::mem::size_of::<ScrollState>())
+      .map(|_| std::mem::size_of::<ScrollDrag>())
       .unwrap_or(0);
     let total_bytes = runtime_struct_bytes
       + root_tree_bytes
@@ -598,15 +598,15 @@ impl Runtime {
     self.update_layout();
 
     // Handle active scrollbar drag
-    if let Some(ref drag_state) = self.dragging_scroll.clone() {
+    if let Some(ref drag) = self.dragging_scroll.clone() {
       match evt.kind {
         MouseEventKind::Move => {
-          drag_state.drag_to(ly, &drag_state.style());
+          drag.state.drag_to_axis(drag.axis, lx, ly, &drag.state.style());
           self.needs_redraw = true;
           return;
         }
         MouseEventKind::Up => {
-          drag_state.end_drag();
+          drag.state.end_drag();
           self.dragging_scroll = None;
           self.clear_active_path();
           self.needs_redraw = true;
@@ -748,19 +748,33 @@ impl Runtime {
 
     // Check scrollbar thumb hover/press
     for (node, _) in &hits {
-      if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+      if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
         let sb_style = node.scrollbar_style();
-        let (tx, ty, tw, th) = state.thumb_rect(&sb_style);
-        let on_thumb = lx >= tx && lx <= tx + tw && ly >= ty && ly <= ty + th;
+        let mut on_thumb = false;
+        let mut pressed_axis = None;
+
+        for &axis in scroll_axes(*direction) {
+          let Some((tx, ty, tw, th)) = state.thumb_rect_for_axis(axis, &sb_style) else {
+            continue;
+          };
+          let on_axis_thumb = lx >= tx && lx <= tx + tw && ly >= ty && ly <= ty + th;
+          on_thumb |= on_axis_thumb;
+          if on_axis_thumb && matches!(evt.kind, MouseEventKind::Down) && pressed_axis.is_none() {
+            pressed_axis = Some(axis);
+          }
+        }
 
         if on_thumb != state.is_thumb_hovered() {
           state.set_thumb_hovered(on_thumb);
           self.needs_redraw = true;
         }
 
-        if on_thumb && matches!(evt.kind, MouseEventKind::Down) {
-          state.begin_drag(ly);
-          self.dragging_scroll = Some(state.clone());
+        if let Some(axis) = pressed_axis {
+          state.begin_drag_axis(axis, lx, ly);
+          self.dragging_scroll = Some(ScrollDrag {
+            state: state.clone(),
+            axis,
+          });
           self.needs_redraw = true;
           return;
         }
@@ -1055,14 +1069,42 @@ impl Runtime {
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
 
-    // Auto-scroll the first scroll container hit
+    // Auto-scroll from the innermost scroll container outward, preserving
+    // any delta an edge-clamped child could not consume.
     let mut handled = false;
+    let mut remaining_dx = -evt.delta_x;
+    let mut remaining_dy = -evt.delta_y;
     for (node, _) in &hits {
-      if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-        state.scroll_by(-evt.delta_x, -evt.delta_y);
-        self.needs_redraw = true;
-        handled = true;
-        break;
+      if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
+        let dx = if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
+          remaining_dx
+        } else {
+          0.0
+        };
+        let dy = if scroll_direction_has_axis(*direction, ScrollAxis::Vertical) {
+          remaining_dy
+        } else {
+          0.0
+        };
+
+        if dx == 0.0 && dy == 0.0 {
+          continue;
+        }
+
+        let (overflow_dx, overflow_dy) = state.scroll_by_with_overflow(dx, dy);
+        if overflow_dx != dx || overflow_dy != dy {
+          self.needs_redraw = true;
+          handled = true;
+        }
+        if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
+          remaining_dx = overflow_dx;
+        }
+        if scroll_direction_has_axis(*direction, ScrollAxis::Vertical) {
+          remaining_dy = overflow_dy;
+        }
+        if remaining_dx == 0.0 && remaining_dy == 0.0 {
+          break;
+        }
       }
     }
 
@@ -1302,6 +1344,29 @@ impl Runtime {
       set_node_focused(node, true);
     }
   }
+}
+
+fn scroll_axes(direction: ScrollDirection) -> &'static [ScrollAxis] {
+  match direction {
+    ScrollDirection::Horizontal => &[ScrollAxis::Horizontal],
+    ScrollDirection::Vertical => &[ScrollAxis::Vertical],
+    ScrollDirection::Both => &[ScrollAxis::Vertical, ScrollAxis::Horizontal],
+  }
+}
+
+fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bool {
+  matches!(
+    (direction, axis),
+    (ScrollDirection::Horizontal, ScrollAxis::Horizontal)
+      | (ScrollDirection::Vertical, ScrollAxis::Vertical)
+      | (ScrollDirection::Both, _)
+  )
+}
+
+#[derive(Clone)]
+struct ScrollDrag {
+  state: ScrollState,
+  axis: ScrollAxis,
 }
 
 #[derive(Clone)]

@@ -159,6 +159,32 @@ fn scrollbar_hovered_overrides_scrollbar_style() {
 }
 
 #[test]
+fn horizontal_scrollbar_hovered_overrides_scrollbar_style() {
+  let mut rt = rt();
+  let thumb_color = Color::from_hex("#ef4444");
+
+  let node = lurq::components::ScrollHorizontal::new(lurq::components::Spacer::new().width(300.0))
+    .scrollbar(ScrollBarStyle {
+      visible: ScrollBarVisibility::Always,
+      ..Default::default()
+    })
+    .scrollbar_hovered(move |style| style.with_thumb_color(thumb_color))
+    .size(100.0, 100.0);
+
+  rt.set_root(node);
+  let rect = rt.find_element(|_| true).unwrap().bounds();
+  rt.mouse_move(rect.x + 10.0, rect.y + rect.height - 4.0);
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert!(quads.iter().any(|quad| match &quad.content {
+    QuadContent::Rect { color } => *color == thumb_color,
+    _ => false,
+  }));
+}
+
+#[test]
 fn scrollbar_auto_does_not_render_when_content_fits() {
   let mut rt = rt();
   let thumb_color = Color::from_hex("#3b82f6");

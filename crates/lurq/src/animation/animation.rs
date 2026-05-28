@@ -3,13 +3,12 @@ use std::{
   time::{Duration, Instant},
 };
 
-use crate::core::NodeId;
-
 use super::{
   easing::Easing,
   interpolate::write_property,
   keyframes::{KeyframeEntry, Keyframes},
 };
+use crate::core::NodeId;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnimationDirection {
