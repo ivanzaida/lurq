@@ -1,7 +1,4 @@
-use lurq::{
-  app::ctx::Ctx,
-  core::{Signal, batch},
-};
+use lurq::app::ctx::Ctx;
 
 #[test]
 fn batch_coalesces_dirty_marking() {
@@ -9,7 +6,7 @@ fn batch_coalesces_dirty_marking() {
   let sig = ctx.signal(0_i32);
   assert!(ctx.is_dirty());
 
-  batch(|| {
+  ctx.batch(|| {
     sig.set(1);
     sig.set(2);
     sig.set(3);
@@ -22,7 +19,7 @@ fn batch_with_multiple_signals() {
   let mut ctx = Ctx::new_root();
   let a = ctx.signal(0_i32);
   let b = ctx.signal(0_i32);
-  batch(|| {
+  ctx.batch(|| {
     a.set(10);
     b.set(20);
   });
@@ -32,13 +29,15 @@ fn batch_with_multiple_signals() {
 
 #[test]
 fn empty_batch_is_noop() {
-  batch(|| {});
+  let ctx = Ctx::new_root();
+  ctx.batch(|| {});
 }
 
 #[test]
 fn batch_returns_nothing_and_completes() {
-  let s = Signal::new(0);
-  batch(|| {
+  let mut ctx = Ctx::new_root();
+  let s = ctx.signal(0);
+  ctx.batch(|| {
     s.set(42);
   });
   assert_eq!(s.get(), 42);

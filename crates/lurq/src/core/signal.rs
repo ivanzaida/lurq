@@ -1,35 +1,13 @@
-use std::{
-  cell::RefCell,
-  sync::{
-    Arc, Weak,
-    atomic::{AtomicUsize, Ordering},
-  },
+use std::sync::{
+  Arc, Weak,
+  atomic::{AtomicUsize, Ordering},
 };
 
 use parking_lot::{Mutex, RwLock};
 
 use crate::core::tracking;
 
-thread_local! {
-  static BATCH_QUEUE: RefCell<Option<Vec<Arc<dyn Fn() + Send + Sync>>>> = const { RefCell::new(None) };
-}
-
 static NEXT_SIGNAL_ID: AtomicUsize = AtomicUsize::new(0);
-
-pub fn batch(f: impl FnOnce()) {
-  BATCH_QUEUE.with(|q| {
-    *q.borrow_mut() = Some(Vec::new());
-  });
-  f();
-  let watchers = BATCH_QUEUE.with(|q| q.borrow_mut().take().unwrap_or_default());
-  let mut seen = std::collections::HashSet::new();
-  for watcher in &watchers {
-    let ptr = Arc::as_ptr(watcher) as *const () as usize;
-    if seen.insert(ptr) {
-      watcher();
-    }
-  }
-}
 
 pub type SignalSubscriber<T> = dyn Fn(&T) + Send + Sync + 'static;
 
@@ -171,20 +149,16 @@ impl<T> Signal<T> {
         sub(&value);
       }
     }
-    let watchers = self.inner.watchers.lock();
-    BATCH_QUEUE.with(|q| {
-      let mut borrow = q.borrow_mut();
-      if let Some(ref mut queue) = *borrow {
-        for (_, watcher) in watchers.iter() {
-          queue.push(Arc::clone(watcher));
-        }
-      } else {
-        drop(borrow);
-        for (_, watcher) in watchers.iter() {
-          watcher();
-        }
-      }
-    });
+    let watchers = self
+      .inner
+      .watchers
+      .lock()
+      .iter()
+      .map(|(_, watcher)| Arc::clone(watcher))
+      .collect::<Vec<_>>();
+    for watcher in watchers {
+      watcher();
+    }
   }
 }
 

@@ -1,13 +1,12 @@
 use lurq::{
   app::{Runtime, events::ScrollPhase},
   layout::{
-    Constraints, Size,
     layout_kind::ScrollState,
     scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
   },
 };
 
-use super::super::PassLayoutExt;
+use crate::support::run_pass;
 
 #[test]
 fn reserved_horizontal_scrollbar_height_contributes_to_vertical_overflow() {
@@ -32,13 +31,9 @@ fn reserved_horizontal_scrollbar_height_contributes_to_vertical_overflow() {
     .size(100.0, 150.0),
   );
 
-  runtime
-    .pass_layout(Constraints::tight(Size::new(100.0, 150.0)))
-    .unwrap();
+  run_pass(&mut runtime);
   runtime.scroll(10.0, 10.0, 0.0, -10.0, ScrollPhase::Scroll);
-  runtime
-    .pass_layout(Constraints::tight(Size::new(100.0, 150.0)))
-    .unwrap();
+  run_pass(&mut runtime);
 
   assert_eq!(scroll_state.scroll_y(), 4.0);
 }

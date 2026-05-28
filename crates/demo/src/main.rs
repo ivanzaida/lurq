@@ -7,6 +7,7 @@ mod sidebar;
 mod sizing_demo;
 mod style;
 mod transform_demo;
+mod visual_demo;
 
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
@@ -55,6 +56,7 @@ impl Component for DemoApp {
       DemoTab::Animation => animation_content(),
       DemoTab::Transform => transform_demo::transform_content(),
       DemoTab::Scroll => scroll_content(),
+      DemoTab::Visual => visual_demo::visual_content(),
     };
 
     Row::new()

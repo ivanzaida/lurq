@@ -81,6 +81,17 @@ count.update(|n| *n += 1);
 
 Use `Signal` for state that should trigger a render when it changes.
 
+## Batch Updates
+
+```rust
+ctx.batch(|| {
+  count.set(1);
+  count.set(2);
+});
+```
+
+`batch` defers dirty marking for contexts in the same component tree until the closure completes.
+
 ## Stores And Lenses
 
 ```rust

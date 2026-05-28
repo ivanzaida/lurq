@@ -3,10 +3,11 @@ use crate::{
   layout::{
     Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
-      FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, ScrollDirection, ScrollState,
+      FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, ScrollAxis, ScrollDirection, ScrollState,
     },
     layout_result::{ChildLayout, LayoutResult},
     quad::{ClipRect, Quad, QuadContent},
+    scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
     text_style::TextStyle,
   },
   node::{dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding, transform::Transform2D},
@@ -110,8 +111,6 @@ impl LayoutEngine {
     clip: ClipRect,
     quads: &mut Vec<Quad>,
   ) {
-    let is_scroll = matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. });
-
     if let Some(ref element_ref) = node.element_ref {
       element_ref.update(
         abs_x,
@@ -236,7 +235,18 @@ impl LayoutEngine {
       _ => {}
     }
 
-    let child_clip = if is_scroll || node.overflow == Overflow::Hidden {
+    let child_clip = if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+      intersect_clip(
+        clip,
+        ClipRect {
+          x: abs_x,
+          y: abs_y,
+          width: state.viewport_width(),
+          height: state.viewport_height(),
+          active: true,
+        },
+      )
+    } else if node.overflow == Overflow::Hidden {
       intersect_clip(
         clip,
         ClipRect {
@@ -273,15 +283,7 @@ impl LayoutEngine {
 
       match direction {
         ScrollDirection::Vertical | ScrollDirection::Both => {
-          if let Some(geo) = crate::layout::scrollbar::compute_vertical_scrollbar(
-            &sb_style,
-            abs_x,
-            abs_y,
-            result.size.width,
-            result.size.height,
-            state.content_height(),
-            state.scroll_y(),
-          ) {
+          if let Some(geo) = state.scrollbar_geometry_for_axis(ScrollAxis::Vertical, &sb_style) {
             if sb_style.track_color.a() > 0 {
               quads.push(Quad {
                 x: geo.track_x,
@@ -316,15 +318,7 @@ impl LayoutEngine {
       }
       match direction {
         ScrollDirection::Horizontal | ScrollDirection::Both => {
-          if let Some(geo) = crate::layout::scrollbar::compute_horizontal_scrollbar(
-            &sb_style,
-            abs_x,
-            abs_y,
-            result.size.width,
-            result.size.height,
-            state.content_width(),
-            state.scroll_x(),
-          ) {
+          if let Some(geo) = state.scrollbar_geometry_for_axis(ScrollAxis::Horizontal, &sb_style) {
             if sb_style.track_color.a() > 0 {
               quads.push(Quad {
                 x: geo.track_x,
@@ -1314,37 +1308,56 @@ impl LayoutEngine {
     direction: ScrollDirection,
   ) -> LayoutResult {
     let child = &node.children()[0];
+    let style = node.scrollbar_style();
 
-    let child_constraints = match direction {
-      ScrollDirection::Vertical => Constraints {
-        min_width: constraints.min_width,
-        max_width: constraints.max_width,
-        min_height: 0.0,
-        max_height: f32::INFINITY,
-      },
-      ScrollDirection::Horizontal => Constraints {
-        min_width: 0.0,
-        max_width: f32::INFINITY,
-        min_height: constraints.min_height,
-        max_height: constraints.max_height,
-      },
-      ScrollDirection::Both => Constraints {
-        min_width: 0.0,
-        max_width: f32::INFINITY,
-        min_height: 0.0,
-        max_height: f32::INFINITY,
-      },
-    };
+    let mut reserve_vertical = false;
+    let mut reserve_horizontal = false;
+    let mut child_result = self.layout_node(
+      glyph_engine,
+      child,
+      scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height),
+    );
+    let mut size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
 
-    let child_result = self.layout_node(glyph_engine, child, child_constraints);
-    let size = constraints.constrain(Size::new(
-      child_result.size.width.max(constraints.min_width),
-      child_result.size.height.max(constraints.min_height),
-    ));
+    for _ in 0..3 {
+      let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
+      child_result = self.layout_node(
+        glyph_engine,
+        child,
+        scroll_child_constraints(direction, constraints, viewport.width, viewport.height),
+      );
+      size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
+      let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
+      let next_reserve_vertical = should_reserve_scrollbar(
+        &style,
+        direction,
+        ScrollAxis::Vertical,
+        child_result.size.height,
+        viewport.height,
+      );
+      let next_reserve_horizontal = should_reserve_scrollbar(
+        &style,
+        direction,
+        ScrollAxis::Horizontal,
+        child_result.size.width,
+        viewport.width,
+      );
 
-    state.update_layout(
+      if next_reserve_vertical == reserve_vertical && next_reserve_horizontal == reserve_horizontal {
+        break;
+      }
+
+      reserve_vertical = next_reserve_vertical;
+      reserve_horizontal = next_reserve_horizontal;
+    }
+
+    let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
+
+    state.update_layout_with_container(
       child_result.size.width,
       child_result.size.height,
+      viewport.width,
+      viewport.height,
       size.width,
       size.height,
     );
@@ -1371,6 +1384,112 @@ impl LayoutEngine {
       }],
     }
   }
+}
+
+fn scroll_child_constraints(
+  direction: ScrollDirection,
+  constraints: Constraints,
+  viewport_width: f32,
+  viewport_height: f32,
+) -> Constraints {
+  match direction {
+    ScrollDirection::Vertical => Constraints {
+      min_width: constraints.min_width.min(viewport_width),
+      max_width: viewport_width,
+      min_height: 0.0,
+      max_height: f32::INFINITY,
+    },
+    ScrollDirection::Horizontal => Constraints {
+      min_width: 0.0,
+      max_width: f32::INFINITY,
+      min_height: constraints.min_height.min(viewport_height),
+      max_height: viewport_height,
+    },
+    ScrollDirection::Both => Constraints {
+      min_width: 0.0,
+      max_width: f32::INFINITY,
+      min_height: 0.0,
+      max_height: f32::INFINITY,
+    },
+  }
+}
+
+fn scroll_container_size(
+  constraints: Constraints,
+  child_result: &LayoutResult,
+  style: &ScrollBarStyle,
+  reserve_vertical: bool,
+  reserve_horizontal: bool,
+) -> Size {
+  let reserved_width = if reserve_vertical {
+    reserved_scrollbar_size(style)
+  } else {
+    0.0
+  };
+  let reserved_height = if reserve_horizontal {
+    reserved_scrollbar_size(style)
+  } else {
+    0.0
+  };
+  constraints.constrain(Size::new(
+    child_result.size.width.max(constraints.min_width) + reserved_width,
+    child_result.size.height.max(constraints.min_height) + reserved_height,
+  ))
+}
+
+fn reserved_viewport(
+  container_size: Size,
+  style: &ScrollBarStyle,
+  reserve_vertical: bool,
+  reserve_horizontal: bool,
+) -> Size {
+  Size::new(
+    (container_size.width
+      - if reserve_vertical {
+        reserved_scrollbar_size(style)
+      } else {
+        0.0
+      })
+    .max(0.0),
+    (container_size.height
+      - if reserve_horizontal {
+        reserved_scrollbar_size(style)
+      } else {
+        0.0
+      })
+    .max(0.0),
+  )
+}
+
+fn should_reserve_scrollbar(
+  style: &ScrollBarStyle,
+  direction: ScrollDirection,
+  axis: ScrollAxis,
+  content_size: f32,
+  viewport_size: f32,
+) -> bool {
+  if style.placement != ScrollBarPlacement::Reserved || !scroll_direction_has_axis(direction, axis) {
+    return false;
+  }
+
+  match style.visible {
+    ScrollBarVisibility::Never => false,
+    ScrollBarVisibility::Always => true,
+    ScrollBarVisibility::Auto => content_size > viewport_size,
+  }
+}
+
+fn reserved_scrollbar_size(style: &ScrollBarStyle) -> f32 {
+  style.width + style.padding * 2.0
+}
+
+fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bool {
+  matches!(
+    (direction, axis),
+    (ScrollDirection::Horizontal, ScrollAxis::Horizontal)
+      | (ScrollDirection::Vertical, ScrollAxis::Vertical)
+      | (ScrollDirection::Both, _)
+  )
 }
 
 fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {

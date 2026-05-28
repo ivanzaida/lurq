@@ -13,7 +13,7 @@ pub struct ScrollBarStyle {
   pub placement: ScrollBarPlacement,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum ScrollBarVisibility {
   #[default]
   Auto,
@@ -21,7 +21,7 @@ pub enum ScrollBarVisibility {
   Never,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum ScrollBarPlacement {
   #[default]
   Overlay,

@@ -1,10 +1,13 @@
 use std::{
   any::Any,
+  collections::HashSet,
   sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
 };
+
+use parking_lot::Mutex;
 
 use super::{component::Component, theme::Theme};
 use crate::{
@@ -29,6 +32,7 @@ pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
+  batch: Arc<BatchState>,
   props: Option<Box<dyn Any + Send>>,
   theme: Option<Theme>,
   context_map: ContextMap,
@@ -41,6 +45,67 @@ pub struct Ctx {
   effects: Vec<Effect>,
   element_refs: Vec<ElementRefMut>,
   rendering: bool,
+}
+
+#[derive(Default)]
+struct BatchState {
+  inner: Mutex<BatchStateInner>,
+}
+
+#[derive(Default)]
+struct BatchStateInner {
+  depth: usize,
+  pending_dirty: Vec<Arc<AtomicBool>>,
+}
+
+struct BatchGuard<'a> {
+  state: &'a BatchState,
+}
+
+impl BatchState {
+  fn batch<R>(&self, f: impl FnOnce() -> R) -> R {
+    self.inner.lock().depth += 1;
+    let guard = BatchGuard { state: self };
+    let result = f();
+    drop(guard);
+    result
+  }
+
+  fn mark_dirty(&self, dirty: &Arc<AtomicBool>) {
+    let mut inner = self.inner.lock();
+    if inner.depth == 0 {
+      drop(inner);
+      dirty.store(true, Ordering::Relaxed);
+      return;
+    }
+
+    inner.pending_dirty.push(dirty.clone());
+  }
+
+  fn end_batch(&self) {
+    let pending = {
+      let mut inner = self.inner.lock();
+      debug_assert!(inner.depth > 0);
+      inner.depth = inner.depth.saturating_sub(1);
+      if inner.depth > 0 {
+        return;
+      }
+      std::mem::take(&mut inner.pending_dirty)
+    };
+    let mut seen = HashSet::new();
+    for dirty in pending {
+      let ptr = Arc::as_ptr(&dirty) as usize;
+      if seen.insert(ptr) {
+        dirty.store(true, Ordering::Relaxed);
+      }
+    }
+  }
+}
+
+impl Drop for BatchGuard<'_> {
+  fn drop(&mut self) {
+    self.state.end_batch();
+  }
 }
 
 struct ChildSlot {
@@ -94,6 +159,7 @@ impl Ctx {
   pub(crate) fn new() -> Self {
     Self {
       dirty: Arc::new(AtomicBool::new(true)),
+      batch: Arc::new(BatchState::default()),
       props: None,
       theme: None,
       context_map: ContextMap::default(),
@@ -122,6 +188,10 @@ impl Ctx {
     self.dirty.store(false, Ordering::Relaxed);
   }
 
+  pub fn batch<R>(&self, f: impl FnOnce() -> R) -> R {
+    self.batch.batch(f)
+  }
+
   pub fn props<T: Send + PartialEq + 'static>(&self) -> &T {
     self
       .props
@@ -147,8 +217,9 @@ impl Ctx {
   pub fn signal<T: Send + Sync + 'static>(&mut self, initial: T) -> Signal<T> {
     let sig = Signal::new(initial);
     let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
     let handle = sig.watch(move || {
-      dirty.store(true, Ordering::Relaxed);
+      batch.mark_dirty(&dirty);
     });
     self.watch_handles.push(Box::new(handle));
     sig
@@ -179,8 +250,9 @@ impl Ctx {
   pub fn store<T: Clone + Send + Sync + 'static>(&mut self, initial: T) -> Store<T> {
     let store = Store::new(initial);
     let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
     let handle = store.signal().watch(move || {
-      dirty.store(true, Ordering::Relaxed);
+      batch.mark_dirty(&dirty);
     });
     self.watch_handles.push(Box::new(handle));
     store
@@ -200,8 +272,9 @@ impl Ctx {
     let ctx = ReactiveContext::new(value);
     self.context_map.provide(ctx.clone());
     let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
     ctx.subscribe(move || {
-      dirty.store(true, Ordering::Relaxed);
+      batch.mark_dirty(&dirty);
     });
     ctx
   }
@@ -209,8 +282,9 @@ impl Ctx {
   pub fn consume_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self) -> Option<ReactiveContext<T>> {
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
     ctx.subscribe(move || {
-      dirty.store(true, Ordering::Relaxed);
+      batch.mark_dirty(&dirty);
     });
     Some(ctx)
   }
@@ -313,6 +387,7 @@ impl Ctx {
     }
 
     let mut child_ctx = Ctx::new();
+    child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.context_map = self.context_map.clone();
     child_ctx.slot_children = slot_children;
@@ -376,6 +451,7 @@ impl Ctx {
         }
 
         let mut child_ctx = Ctx::new();
+        child_ctx.batch = self.batch.clone();
         child_ctx.theme = self.theme.clone();
         child_ctx.context_map = self.context_map.clone();
         child_ctx.begin_render();
@@ -450,12 +526,14 @@ impl Ctx {
     self.rendering = false;
     let deps = tracking::stop_tracking();
     let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
     self.render_watch_handles = deps
       .into_iter()
       .map(|dep| {
         let dirty = dirty.clone();
+        let batch = batch.clone();
         let handle = (dep.subscribe_fn)(Arc::new(move || {
-          dirty.store(true, Ordering::Relaxed);
+          batch.mark_dirty(&dirty);
         }));
         Box::new(handle) as Box<dyn Any + Send + Sync>
       })
@@ -555,5 +633,24 @@ impl Drop for Ctx {
     for slot in &self.children {
       slot.component.on_unmounted();
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::Ctx;
+
+  #[test]
+  fn batch_defers_dirty_marking_until_end() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0);
+    ctx.clear_dirty();
+
+    ctx.batch(|| {
+      signal.set(1);
+      assert!(!ctx.is_dirty());
+    });
+
+    assert!(ctx.is_dirty());
   }
 }

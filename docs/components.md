@@ -317,13 +317,11 @@ impl Component for MyComponent {
 ## Batch Updates
 
 ```rust
-use lurq::core::batch;
-
-batch(|| {
+ctx.batch(|| {
   signal_a.set(1);
   signal_b.set(2);
   signal_c.set(3);
 });
 ```
 
-Batching coalesces dirty propagation and watcher notifications until the batch ends.
+Batching coalesces context dirty propagation until the batch ends.

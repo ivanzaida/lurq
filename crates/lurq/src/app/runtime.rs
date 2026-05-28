@@ -374,18 +374,6 @@ impl Runtime {
 
       match &quad.content {
         QuadContent::Rect { color } => {
-          let radii = quad
-            .border_radius
-            .map(|r| {
-              [
-                r.top_left * scale,
-                r.top_right * scale,
-                r.bottom_right * scale,
-                r.bottom_left * scale,
-              ]
-            })
-            .unwrap_or([0.0; 4]);
-
           let (mut x, mut y, mut w, mut h) = (quad.x * scale, quad.y * scale, quad.width * scale, quad.height * scale);
           let (stroke, stroke_color) = if let Some(ref b) = quad.border {
             let bw = b.width;
@@ -409,6 +397,19 @@ impl Runtime {
           } else {
             ([0.0; 4], Color::new(0, 0, 0, 0))
           };
+
+          let max_r = w.min(h) * 0.5;
+          let radii = quad
+            .border_radius
+            .map(|r| {
+              [
+                (r.top_left * scale).min(max_r),
+                (r.top_right * scale).min(max_r),
+                (r.bottom_right * scale).min(max_r),
+                (r.bottom_left * scale).min(max_r),
+              ]
+            })
+            .unwrap_or([0.0; 4]);
 
           let final_color = apply_opacity(*color, quad.opacity);
           let final_stroke = apply_opacity(stroke_color, quad.opacity);

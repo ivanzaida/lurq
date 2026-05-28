@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-  layout::{Alignment, StackAlignment, scrollbar::ScrollBarStyle},
+  layout::{
+    Alignment, StackAlignment,
+    scrollbar::{ScrollBarGeometry, ScrollBarStyle, ScrollBarVisibility},
+  },
   node::{dimension::Dimension, padding::Padding},
 };
 
@@ -55,6 +58,8 @@ struct ScrollStateInner {
   max_scroll_y: f32,
   content_width: f32,
   content_height: f32,
+  container_width: f32,
+  container_height: f32,
   viewport_width: f32,
   viewport_height: f32,
   viewport_abs_x: f32,
@@ -79,6 +84,8 @@ impl ScrollState {
         max_scroll_y: 0.0,
         content_width: 0.0,
         content_height: 0.0,
+        container_width: 0.0,
+        container_height: 0.0,
         viewport_width: 0.0,
         viewport_height: 0.0,
         viewport_abs_x: 0.0,
@@ -259,29 +266,89 @@ impl ScrollState {
     axis: ScrollAxis,
     style: &crate::layout::scrollbar::ScrollBarStyle,
   ) -> Option<(f32, f32, f32, f32)> {
-    let inner = self.inner.lock().unwrap();
-    let geo = match axis {
-      ScrollAxis::Horizontal => crate::layout::scrollbar::compute_horizontal_scrollbar(
-        style,
-        inner.viewport_abs_x,
-        inner.viewport_abs_y,
-        inner.viewport_width,
-        inner.viewport_height,
-        inner.content_width,
-        inner.scroll_x,
-      ),
-      ScrollAxis::Vertical => crate::layout::scrollbar::compute_vertical_scrollbar(
-        style,
-        inner.viewport_abs_x,
-        inner.viewport_abs_y,
-        inner.viewport_width,
-        inner.viewport_height,
-        inner.content_height,
-        inner.scroll_y,
-      ),
-    }?;
-
+    let geo = self.scrollbar_geometry_for_axis(axis, style)?;
     Some((geo.thumb_x, geo.thumb_y, geo.thumb_width, geo.thumb_height))
+  }
+
+  pub fn scrollbar_geometry_for_axis(
+    &self,
+    axis: ScrollAxis,
+    style: &crate::layout::scrollbar::ScrollBarStyle,
+  ) -> Option<ScrollBarGeometry> {
+    let inner = self.inner.lock().unwrap();
+    match (style.visible, axis) {
+      (ScrollBarVisibility::Never, _) => return None,
+      (ScrollBarVisibility::Auto, ScrollAxis::Horizontal) if inner.content_width <= inner.viewport_width => {
+        return None;
+      }
+      (ScrollBarVisibility::Auto, ScrollAxis::Vertical) if inner.content_height <= inner.viewport_height => {
+        return None;
+      }
+      _ => {}
+    }
+
+    match axis {
+      ScrollAxis::Horizontal => {
+        let track_x = inner.viewport_abs_x + style.padding;
+        let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.padding;
+        let track_width = inner.viewport_width - style.padding * 2.0;
+        let track_height = style.width;
+        if track_width <= 0.0 || track_height <= 0.0 {
+          return None;
+        }
+
+        let ratio = inner.viewport_width / inner.content_width.max(1.0);
+        let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
+        let max_scroll = (inner.content_width - inner.viewport_width).max(0.0);
+        let scroll_ratio = if max_scroll > 0.0 {
+          inner.scroll_x / max_scroll
+        } else {
+          0.0
+        };
+        let thumb_x = track_x + (track_width - thumb_width) * scroll_ratio;
+
+        Some(ScrollBarGeometry {
+          track_x,
+          track_y,
+          track_width,
+          track_height,
+          thumb_x,
+          thumb_y: track_y,
+          thumb_width,
+          thumb_height: track_height,
+        })
+      }
+      ScrollAxis::Vertical => {
+        let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.padding;
+        let track_y = inner.viewport_abs_y + style.padding;
+        let track_width = style.width;
+        let track_height = inner.viewport_height - style.padding * 2.0;
+        if track_width <= 0.0 || track_height <= 0.0 {
+          return None;
+        }
+
+        let ratio = inner.viewport_height / inner.content_height.max(1.0);
+        let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+        let max_scroll = (inner.content_height - inner.viewport_height).max(0.0);
+        let scroll_ratio = if max_scroll > 0.0 {
+          inner.scroll_y / max_scroll
+        } else {
+          0.0
+        };
+        let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
+
+        Some(ScrollBarGeometry {
+          track_x,
+          track_y,
+          track_width,
+          track_height,
+          thumb_x: track_x,
+          thumb_y,
+          thumb_width: track_width,
+          thumb_height,
+        })
+      }
+    }
   }
 
   pub(crate) fn take_scroll_dirty(&self) -> bool {
@@ -292,13 +359,27 @@ impl ScrollState {
   }
 
   pub(crate) fn update_layout(&self, content_w: f32, content_h: f32, viewport_w: f32, viewport_h: f32) {
+    self.update_layout_with_container(content_w, content_h, viewport_w, viewport_h, viewport_w, viewport_h);
+  }
+
+  pub(crate) fn update_layout_with_container(
+    &self,
+    content_w: f32,
+    content_h: f32,
+    viewport_w: f32,
+    viewport_h: f32,
+    container_w: f32,
+    container_h: f32,
+  ) {
     let mut inner = self.inner.lock().unwrap();
     inner.content_width = content_w;
     inner.content_height = content_h;
-    inner.viewport_width = viewport_w;
-    inner.viewport_height = viewport_h;
-    inner.max_scroll_x = (content_w - viewport_w).max(0.0);
-    inner.max_scroll_y = (content_h - viewport_h).max(0.0);
+    inner.container_width = container_w;
+    inner.container_height = container_h;
+    inner.viewport_width = viewport_w.max(0.0);
+    inner.viewport_height = viewport_h.max(0.0);
+    inner.max_scroll_x = (content_w - inner.viewport_width).max(0.0);
+    inner.max_scroll_y = (content_h - inner.viewport_height).max(0.0);
     inner.scroll_x = inner.scroll_x.clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = inner.scroll_y.clamp(0.0, inner.max_scroll_y);
   }
