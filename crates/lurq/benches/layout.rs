@@ -7,7 +7,12 @@ use lurq::{
 };
 
 fn build_flat_rects(count: usize) -> Element {
-  Column::with(0.0, Alignment::Start, (0..count).map(|_| Rect::new(100.0, 20.0).fill("#334155"))).into()
+  Column::with(
+    0.0,
+    Alignment::Start,
+    (0..count).map(|_| Rect::new(100.0, 20.0).fill("#334155")),
+  )
+  .into()
 }
 
 fn build_nested_rows(depth: usize, items_per_level: usize) -> Element {
@@ -81,14 +86,18 @@ fn bench_layout_compute(c: &mut Criterion) {
 
   for (depth, items) in [(3, 3), (4, 3), (5, 2), (3, 5)] {
     let label = format!("d{depth}_i{items}");
-    group.bench_with_input(BenchmarkId::new("nested_rows", &label), &(depth, items), |b, &(d, i)| {
-      let mut rt = Runtime::new();
-      rt.resize(1200, 800);
-      b.iter(|| {
-        rt.set_root(build_nested_rows(d, i));
-        rt.rebuild();
-      });
-    });
+    group.bench_with_input(
+      BenchmarkId::new("nested_rows", &label),
+      &(depth, items),
+      |b, &(d, i)| {
+        let mut rt = Runtime::new();
+        rt.resize(1200, 800);
+        b.iter(|| {
+          rt.set_root(build_nested_rows(d, i));
+          rt.rebuild();
+        });
+      },
+    );
   }
 
   group.bench_function("mixed_dashboard", |b| {

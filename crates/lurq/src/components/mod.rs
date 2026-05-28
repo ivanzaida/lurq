@@ -1,5 +1,8 @@
 mod checkbox;
 mod column;
+mod drag_container;
+mod draggable;
+mod drop_zone;
 #[cfg(feature = "image")]
 mod image;
 mod rect;
@@ -14,6 +17,9 @@ mod text_input;
 
 pub use checkbox::Checkbox;
 pub use column::Column;
+pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
+pub use draggable::{Draggable, DraggableProps, DropMissBehavior};
+pub use drop_zone::{DropZone, DropZoneProps};
 #[cfg(feature = "image")]
 pub use image::Image;
 pub use rect::Rect;
@@ -35,7 +41,13 @@ macro_rules! impl_into_node {
 
     impl $struct_name {
       pub(crate) fn from_node(node: $crate::node::Node) -> Self {
-        Self { node }
+        Self {
+          node: node.with_tag_name(Self::tag_name()),
+        }
+      }
+
+      pub(crate) fn tag_name() -> std::sync::Arc<str> {
+        std::sync::Arc::from(stringify!($struct_name))
       }
 
       pub fn node_id(&self) -> $crate::core::NodeId {
@@ -253,6 +265,26 @@ macro_rules! impl_into_node {
         self
       }
 
+      pub fn on_drag_start(mut self, f: impl Fn(&$crate::app::events::DragEvent) + Send + Sync + 'static) -> Self {
+        self.node = self.node.on_drag_start(f);
+        self
+      }
+
+      pub fn on_drag_move(mut self, f: impl Fn(&$crate::app::events::DragEvent) + Send + Sync + 'static) -> Self {
+        self.node = self.node.on_drag_move(f);
+        self
+      }
+
+      pub fn on_drag_end(mut self, f: impl Fn(&$crate::app::events::DragEvent) + Send + Sync + 'static) -> Self {
+        self.node = self.node.on_drag_end(f);
+        self
+      }
+
+      pub fn on_drop(mut self, f: impl Fn(&$crate::app::events::DropEvent) + Send + Sync + 'static) -> Self {
+        self.node = self.node.on_drop(f);
+        self
+      }
+
       pub fn on_mouse_enter(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
         self.node = self.node.on_mouse_enter(f);
         self
@@ -346,6 +378,26 @@ macro_rules! impl_into_node {
 
       pub fn pad_dimension_all(self, all: $crate::node::dimension::Dimension) -> Self {
         self.padding($crate::node::padding::Padding::all(all))
+      }
+
+      pub fn opacity(mut self, value: f32) -> Self {
+        self.node = self.node.opacity(value);
+        self
+      }
+
+      pub fn transition(mut self, spec: $crate::animation::Transition) -> Self {
+        self.node = self.node.transition(spec);
+        self
+      }
+
+      pub fn animation(mut self, spec: $crate::animation::Animation) -> Self {
+        self.node = self.node.animation(spec);
+        self
+      }
+
+      pub fn transform(mut self, t: $crate::node::transform::Transform2D) -> Self {
+        self.node = self.node.transform(t);
+        self
       }
     }
 

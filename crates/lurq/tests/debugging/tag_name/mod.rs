@@ -1,0 +1,3 @@
+mod built_in_components;
+mod user_defined_child_component;
+mod user_defined_root_component;

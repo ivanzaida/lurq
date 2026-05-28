@@ -4,7 +4,10 @@
 
 ```rust
 use lurq::{
-  components::{Column, Rect, Row, Spacer, Stack, Text},
+  components::{
+    Column, DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row, Spacer,
+    Stack, Text,
+  },
   layout::{Alignment, StackAlignment},
   node::{Element, color::Color},
 };
@@ -26,6 +29,9 @@ Typed components are the public UI builders. `Element` is the erased return/tran
 | `ScrollVertical::new(child)` | Vertical scroll container |
 | `ScrollHorizontal::new(child)` | Horizontal scroll container |
 | `ScrollBoth::new(child)` | Two-axis scroll container |
+| `DragContainer::mount(ctx, DragContainerProps::new(), child)` | Drag surface that bounds descendant draggables by default |
+| `Draggable::mount(ctx, DraggableProps::new(), child)` | Blank component wrapper that makes its child draggable |
+| `DropZone::mount(ctx, DropZoneProps::new(), child)` | Blank component wrapper that makes its child a drop target |
 
 ## Children
 
@@ -165,9 +171,49 @@ lurq::components::Column::new()
 lurq::components::Rect::new(100.0, 40.0)
   .fill("#3b82f6")
   .on_click(|e| println!("clicked at {}, {}", e.x, e.y))
+  .on_drag_start(|e| println!("drag started at {}, {}", e.x, e.y))
+  .on_drag_move(|e| println!("drag delta: {}, {}", e.delta_x, e.delta_y))
+  .on_drag_end(|e| println!("drag ended at {}, {}", e.x, e.y))
   .on_mouse_enter(|| println!("hover in"))
   .on_mouse_leave(|| println!("hover out"))
   .on_key_down(|e| println!("key: {}", e.key))
+```
+
+## Drag And Drop
+
+`DragContainer`, `Draggable`, and `DropZone` are components with explicit one-child `mount` helpers. Each requires exactly one child. `Draggable` and `DropZone` are blank wrappers. `DragContainer` uses its child as the drag surface and applies container policy; `DragContainerProps::new()` bounds descendant draggables to that surface.
+
+```rust
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  let drop_zone = lurq::components::DropZone::mount(
+    ctx,
+    lurq::components::DropZoneProps::new().on_drop(|event| {
+      println!("dropped on {:?}", event.target_id);
+    }),
+    lurq::components::Rect::new(120.0, 80.0)
+      .fill("#22c55e33")
+      .absolute_position(200.0, 110.0),
+  );
+
+  let card = lurq::components::Draggable::mount(
+    ctx,
+    lurq::components::DraggableProps::new().on_drag_move(|event| {
+      println!("move by {}, {}", event.delta_x, event.delta_y);
+    }),
+    lurq::components::Rect::new(64.0, 64.0)
+      .fill("#3b82f6")
+      .absolute_position(24.0, 24.0),
+  );
+
+  lurq::components::DragContainer::mount(
+    ctx,
+    lurq::components::DragContainerProps::new(),
+    lurq::components::Stack::new()
+      .size(360.0, 220.0)
+      .child(drop_zone)
+      .child(card),
+  )
+}
 ```
 
 ## Text Styling

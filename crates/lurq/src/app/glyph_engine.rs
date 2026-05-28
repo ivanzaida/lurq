@@ -185,6 +185,7 @@ impl GlyphEngine {
         let gy = origin_y + run.line_y + physical.y as f32 - image.placement.top as f32;
 
         cmds.push(GlyphCmd {
+          order: 0,
           x: gx,
           y: gy,
           width: gw as f32,
@@ -192,6 +193,8 @@ impl GlyphEngine {
           color: style.color.to_linear_f32_array(),
           uv_min: [u0, v0],
           uv_max: [u1, v1],
+          transform: [1.0, 0.0, 0.0, 1.0],
+          transform_origin: [0.0, 0.0],
           clip: crate::layout::quad::ClipRect::default(),
         });
       }

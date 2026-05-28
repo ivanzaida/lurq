@@ -10,6 +10,7 @@ pub(crate) mod node;
 pub(crate) mod node_kind;
 pub mod padding;
 pub mod style;
+pub mod transform;
 
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};

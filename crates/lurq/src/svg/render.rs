@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::layout::quad::ClipRect;
 use super::tessellate::TessellatedSvg;
+use crate::layout::quad::ClipRect;
 
 pub struct SvgCmd {
   pub x: f32,

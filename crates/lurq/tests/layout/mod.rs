@@ -5,7 +5,7 @@ use lurq::{
 
 use crate::support::run_pass;
 
-trait PassLayoutExt {
+pub(super) trait PassLayoutExt {
   fn pass_layout(&mut self, constraints: Constraints) -> Option<LayoutResult>;
 }
 
@@ -19,6 +19,7 @@ impl PassLayoutExt for Runtime {
   }
 }
 
+mod absolute_position;
 mod column;
 mod constraints;
 mod edge_cases;

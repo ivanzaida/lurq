@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-  app::events::{KeyboardEvent, MouseEvent, ScrollEvent},
+  animation::{Animation, Transition},
+  app::events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
     Alignment, Size, StackAlignment,
@@ -18,6 +19,7 @@ use crate::{
     node_kind::{CheckboxState, NodeKind, SliderState, TextInputState},
     padding::Padding,
     style::{StateStyles, Style},
+    transform::Transform2D,
   },
 };
 
@@ -32,6 +34,10 @@ pub struct EventHandlers {
   pub on_mouse_down: Option<Callback<MouseEvent>>,
   pub on_mouse_up: Option<Callback<MouseEvent>>,
   pub on_mouse_move: Option<Callback<MouseEvent>>,
+  pub on_drag_start: Option<Callback<DragEvent>>,
+  pub on_drag_move: Option<Callback<DragEvent>>,
+  pub on_drag_end: Option<Callback<DragEvent>>,
+  pub on_drop: Option<Callback<DropEvent>>,
   pub on_mouse_enter: Option<VoidCallback>,
   pub on_mouse_leave: Option<VoidCallback>,
   pub on_key_down: Option<Callback<KeyboardEvent>>,
@@ -45,6 +51,7 @@ pub struct EventHandlers {
 
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
+  pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) node_kind: NodeKind,
@@ -63,6 +70,11 @@ pub(crate) struct Node {
   pub(crate) interaction: Option<InteractionState>,
   pub(crate) style_state: InteractionState,
   pub(crate) state_styles: StateStyles,
+  pub(crate) opacity: f32,
+  pub(crate) transform: Transform2D,
+  pub(crate) animation_overrides: Vec<(crate::animation::AnimatableProperty, crate::animation::AnimatableValue)>,
+  pub(crate) transitions: Vec<Transition>,
+  pub(crate) animation: Option<Animation>,
   pub(crate) layout_cache: crate::node::layout_cache::LayoutCache,
   pub(crate) children: Vec<Node>,
   pub(crate) events: EventHandlers,
@@ -80,6 +92,7 @@ impl Node {
       layout_kind,
       node_kind,
       node_id: NodeId::UNASSIGNED,
+      tag_name: Arc::from("Node"),
       component_slot_id: None,
       text_content: Guard::new(None),
       overflow: Overflow::Hidden,
@@ -96,6 +109,11 @@ impl Node {
       interaction: None,
       style_state: InteractionState::new(),
       state_styles: StateStyles::default(),
+      opacity: 1.0,
+      transform: Transform2D::IDENTITY,
+      animation_overrides: Vec::new(),
+      transitions: Vec::new(),
+      animation: None,
       layout_cache: Default::default(),
       children,
       events: EventHandlers::default(),
@@ -105,6 +123,11 @@ impl Node {
   fn with_text_content(mut self, content: &str) -> Self {
     self.text_content.set(Some(content.to_owned()));
     self
+  }
+
+  fn from_modifier(layout_kind: LayoutKind, child: Node) -> Self {
+    let tag_name = child.tag_name.clone();
+    Self::from_parts(layout_kind, NodeKind::Empty, vec![child]).with_tag_name(tag_name)
   }
 
   pub fn new() -> Self {
@@ -214,54 +237,47 @@ impl Node {
   }
 
   pub fn padding(self, padding: Padding) -> Self {
-    Self::from_parts(LayoutKind::PaddingModifier(padding), NodeKind::Empty, vec![self])
+    Self::from_modifier(LayoutKind::PaddingModifier(padding), self)
   }
 
   pub fn frame(self, frame: FrameConstraints) -> Self {
-    Self::from_parts(LayoutKind::FrameModifier(frame), NodeKind::Empty, vec![self])
+    Self::from_modifier(LayoutKind::FrameModifier(frame), self)
   }
 
   pub fn offset(self, x: f32, y: f32) -> Self {
-    Self::from_parts(LayoutKind::OffsetModifier { x, y }, NodeKind::Empty, vec![self])
+    Self::from_modifier(LayoutKind::OffsetModifier { x, y }, self)
   }
 
   pub(crate) fn absolute_modifier(self, x: f32, y: f32, width: Option<Dimension>, height: Option<Dimension>) -> Self {
-    Self::from_parts(
-      LayoutKind::AbsoluteModifier { x, y, width, height },
-      NodeKind::Empty,
-      vec![self],
-    )
+    Self::from_modifier(LayoutKind::AbsoluteModifier { x, y, width, height }, self)
   }
 
   pub fn align(self, alignment: Alignment) -> Self {
-    Self::from_parts(LayoutKind::AlignModifier(alignment), NodeKind::Empty, vec![self])
+    Self::from_modifier(LayoutKind::AlignModifier(alignment), self)
   }
 
   pub fn flex(self, factor: f32) -> Self {
-    Self::from_parts(
+    Self::from_modifier(
       LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams::grow(factor)),
-      NodeKind::Empty,
-      vec![self],
+      self,
     )
   }
 
   pub fn flex_shrink(self, factor: f32) -> Self {
-    Self::from_parts(
+    Self::from_modifier(
       LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams {
         grow: 0.0,
         shrink: factor,
         basis: None,
       }),
-      NodeKind::Empty,
-      vec![self],
+      self,
     )
   }
 
   pub fn flex_full(self, grow: f32, shrink: f32, basis: Option<f32>) -> Self {
-    Self::from_parts(
+    Self::from_modifier(
       LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams { grow, shrink, basis }),
-      NodeKind::Empty,
-      vec![self],
+      self,
     )
   }
 
@@ -381,6 +397,26 @@ impl Node {
     self
   }
 
+  pub fn on_drag_start(mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) -> Self {
+    self.events.on_drag_start = Some(Arc::new(f));
+    self
+  }
+
+  pub fn on_drag_move(mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) -> Self {
+    self.events.on_drag_move = Some(Arc::new(f));
+    self
+  }
+
+  pub fn on_drag_end(mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) -> Self {
+    self.events.on_drag_end = Some(Arc::new(f));
+    self
+  }
+
+  pub fn on_drop(mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static) -> Self {
+    self.events.on_drop = Some(Arc::new(f));
+    self
+  }
+
   pub fn on_mouse_enter(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
     self.events.on_mouse_enter = Some(Arc::new(f));
     self
@@ -424,6 +460,38 @@ impl Node {
   pub fn on_scroll_end(mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) -> Self {
     self.events.on_scroll_end = Some(Arc::new(f));
     self
+  }
+
+  pub fn opacity(mut self, value: f32) -> Self {
+    self.set_opacity(value);
+    self
+  }
+
+  fn set_opacity(&mut self, value: f32) {
+    self.opacity = value;
+  }
+
+  pub fn transform(mut self, t: Transform2D) -> Self {
+    self.transform = t;
+    self
+  }
+
+  pub fn transition(mut self, spec: Transition) -> Self {
+    self.push_transition(spec);
+    self
+  }
+
+  fn push_transition(&mut self, spec: Transition) {
+    self.transitions.push(spec);
+  }
+
+  pub fn animation(mut self, spec: Animation) -> Self {
+    self.set_animation(spec);
+    self
+  }
+
+  fn set_animation(&mut self, spec: Animation) {
+    self.animation = Some(spec);
   }
 
   pub fn scrollbar(mut self, style: ScrollBarStyle) -> Self {
@@ -527,6 +595,19 @@ impl Node {
     self.node_id
   }
 
+  pub fn tag_name(&self) -> &str {
+    &self.tag_name
+  }
+
+  pub(crate) fn with_tag_name(mut self, tag_name: impl Into<Arc<str>>) -> Self {
+    self.tag_name = tag_name.into();
+    self
+  }
+
+  pub(crate) fn set_tag_name(&mut self, tag_name: impl Into<Arc<str>>) {
+    self.tag_name = tag_name.into();
+  }
+
   pub(crate) fn layout_kind(&self) -> &LayoutKind {
     &self.layout_kind
   }
@@ -563,15 +644,76 @@ impl Node {
   }
 
   pub fn color(&self) -> Option<Color> {
+    if let Some(c) = self.animation_override_color() {
+      return Some(c);
+    }
     self.state_style().color.or(*self.color)
   }
 
   pub fn get_border_radius(&self) -> Option<BorderRadius> {
-    self.state_style().border_radius.or(*self.border_radius)
+    let mut r = self.state_style().border_radius.or(*self.border_radius);
+    if let Some(mut br) = r {
+      let overrides = &self.animation_overrides;
+      for (prop, val) in overrides {
+        if let crate::animation::AnimatableValue::Float(v) = val {
+          match prop {
+            crate::animation::AnimatableProperty::BorderRadiusTopLeft => br.top_left = *v,
+            crate::animation::AnimatableProperty::BorderRadiusTopRight => br.top_right = *v,
+            crate::animation::AnimatableProperty::BorderRadiusBottomRight => br.bottom_right = *v,
+            crate::animation::AnimatableProperty::BorderRadiusBottomLeft => br.bottom_left = *v,
+            _ => {}
+          }
+        }
+      }
+      r = Some(br);
+    }
+    r
   }
 
   pub fn get_border(&self) -> Option<Border> {
-    self.state_style().border.or(*self.border)
+    let mut b = self.state_style().border.or(*self.border);
+    let overrides = &self.animation_overrides;
+    if let Some(ref mut border) = b {
+      for (prop, val) in overrides {
+        match (prop, val) {
+          (crate::animation::AnimatableProperty::BorderColor, crate::animation::AnimatableValue::Color(c)) => {
+            border.color = *c;
+          }
+          (crate::animation::AnimatableProperty::BorderWidthTop, crate::animation::AnimatableValue::Float(v)) => {
+            border.width.top = *v;
+          }
+          (crate::animation::AnimatableProperty::BorderWidthRight, crate::animation::AnimatableValue::Float(v)) => {
+            border.width.right = *v;
+          }
+          (crate::animation::AnimatableProperty::BorderWidthBottom, crate::animation::AnimatableValue::Float(v)) => {
+            border.width.bottom = *v;
+          }
+          (crate::animation::AnimatableProperty::BorderWidthLeft, crate::animation::AnimatableValue::Float(v)) => {
+            border.width.left = *v;
+          }
+          _ => {}
+        }
+      }
+    }
+    b
+  }
+
+  pub(crate) fn effective_transform(&self) -> Transform2D {
+    self
+      .animation_overrides
+      .iter()
+      .find_map(|(prop, val)| match (prop, val) {
+        (crate::animation::AnimatableProperty::Transform, crate::animation::AnimatableValue::Transform(t)) => Some(*t),
+        _ => None,
+      })
+      .unwrap_or(self.transform)
+  }
+
+  fn animation_override_color(&self) -> Option<Color> {
+    self.animation_overrides.iter().find_map(|(prop, val)| match (prop, val) {
+      (crate::animation::AnimatableProperty::BackgroundColor, crate::animation::AnimatableValue::Color(c)) => Some(*c),
+      _ => None,
+    })
   }
 
   pub fn children(&self) -> &[Node] {
@@ -611,7 +753,21 @@ impl Node {
   }
 
   pub(crate) fn effective_frame(&self, base: FrameConstraints) -> FrameConstraints {
-    self.state_style().frame.map_or(base, |frame| merge_frame(base, frame))
+    let mut result = self.state_style().frame.map_or(base, |frame| merge_frame(base, frame));
+    for (prop, val) in &self.animation_overrides {
+      if let crate::animation::AnimatableValue::Float(v) = val {
+        match prop {
+          crate::animation::AnimatableProperty::Width => {
+            result.width = Some(Dimension::Px(*v));
+          }
+          crate::animation::AnimatableProperty::Height => {
+            result.height = Some(Dimension::Px(*v));
+          }
+          _ => {}
+        }
+      }
+    }
+    result
   }
 
   pub(crate) fn state_frame(&self) -> Option<FrameConstraints> {
@@ -711,6 +867,7 @@ impl Node {
   pub(crate) fn clone_for_reuse(&self) -> Self {
     Self {
       node_id: NodeId::UNASSIGNED,
+      tag_name: self.tag_name.clone(),
       component_slot_id: self.component_slot_id,
       layout_kind: self.layout_kind.clone(),
       node_kind: self.node_kind.clone(),
@@ -729,6 +886,11 @@ impl Node {
       interaction: self.interaction.clone(),
       style_state: self.style_state.clone(),
       state_styles: self.state_styles.clone(),
+      opacity: self.opacity,
+      transform: self.transform,
+      animation_overrides: Vec::new(),
+      transitions: self.transitions.clone(),
+      animation: self.animation.clone(),
       layout_cache: Default::default(),
       children: self.children.iter().map(Node::clone_for_reuse).collect(),
       events: self.events.clone(),
@@ -752,6 +914,7 @@ impl Node {
 
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
+      + self.tag_name.len()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
       + self.layout_cache.estimated_memory_bytes()
@@ -763,7 +926,8 @@ impl Node {
   }
 
   fn estimated_child_heap_bytes(&self) -> usize {
-    self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
+    self.tag_name.len()
+      + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
       + self.layout_cache.estimated_memory_bytes()
       + self
@@ -771,6 +935,10 @@ impl Node {
         .iter()
         .map(Node::estimated_child_heap_bytes)
         .sum::<usize>()
+  }
+
+  pub(crate) fn target_style(&self) -> Style {
+    self.state_style()
   }
 
   fn state_style(&self) -> Style {
@@ -794,7 +962,7 @@ impl Node {
   }
 }
 
-fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints) -> FrameConstraints {
+pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints) -> FrameConstraints {
   if overlay.width.is_some() {
     base.width = overlay.width;
   }

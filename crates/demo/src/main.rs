@@ -1,11 +1,14 @@
+mod animation_demo;
+mod dnd_demo;
 mod layout_demo;
+mod positioning_demo;
 mod sidebar;
 mod sizing_demo;
 mod style;
 
 use lurq::{
   app::{Runtime, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::{Rect, Row},
+  components::Row,
   core::Signal,
   layout::{
     Alignment,
@@ -15,7 +18,10 @@ use lurq::{
 };
 
 use crate::{
+  animation_demo::animation_content,
+  dnd_demo::DndDemo,
   layout_demo::layout_content,
+  positioning_demo::PositioningDemo,
   sidebar::{DemoTab, sidebar},
   sizing_demo::sizing_content,
   style::{ACCENT, BG, PRIMARY, SURFACE_DARK},
@@ -23,23 +29,7 @@ use crate::{
 
 const SIDEBAR_WIDTH: f32 = 200.0;
 
-struct Child;
-
-impl Component for Child {
-  type Props = ();
-
-  fn create(_ctx: &mut Ctx) -> Self {
-    Self
-  }
-
-  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
-    println!("child rerender!");
-    Rect::new(0.0, 0.0)
-  }
-}
-
 struct DemoApp {
-  signal: Signal<u32>,
   selected_tab: Signal<DemoTab>,
 }
 
@@ -48,7 +38,6 @@ impl Component for DemoApp {
 
   fn create(ctx: &mut Ctx) -> Self {
     Self {
-      signal: ctx.signal(0),
       selected_tab: ctx.signal(DemoTab::Layout),
     }
   }
@@ -58,16 +47,13 @@ impl Component for DemoApp {
     let content = match selected_tab {
       DemoTab::Layout => layout_content(),
       DemoTab::Sizing => sizing_content(),
+      DemoTab::Position => _ctx.mount::<PositioningDemo>(()),
+      DemoTab::Dnd => _ctx.mount::<DndDemo>(()),
+      DemoTab::Animation => animation_content(),
     };
 
     Row::new()
       .align_items(Alignment::Stretch)
-      .on_click({
-        let c = self.signal.clone();
-        move |_| {
-          c.update(|c| *c += 1);
-        }
-      })
       .child(
         lurq::components::ScrollVertical::new(sidebar(selected_tab, self.selected_tab.clone()))
           .scrollbar(ScrollBarStyle {
@@ -94,7 +80,6 @@ impl Component for DemoApp {
           .fill(BG)
           .flex(1.0),
       )
-      .child(_ctx.mount::<Child>(()))
       .fill(BG)
   }
 }
@@ -102,6 +87,7 @@ impl Component for DemoApp {
 fn main() {
   let mut runtime = Runtime::new();
   runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
+  animation_demo::register_keyframes(&mut runtime);
   runtime.mount_root::<DemoApp>(());
   WinitWindow::new(runtime)
     .with_title("lurq demo")

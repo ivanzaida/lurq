@@ -1,0 +1,8 @@
+mod activates_on_property_change;
+mod all_property;
+mod completed_transition_holds_final_value;
+mod delay;
+mod multiple_properties;
+mod no_transition_without_spec;
+mod node_without_transition_is_unaffected;
+mod respects_easing;

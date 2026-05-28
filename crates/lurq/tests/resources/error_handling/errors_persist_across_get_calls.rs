@@ -18,11 +18,17 @@ fn errors_persist_across_multiple_get_calls() {
 
   let second = loader.get(&key);
   assert!(second.is_some());
-  assert!(matches!(second.unwrap(), LoadResourceResult::Error(ResourceError::NotFound)));
+  assert!(matches!(
+    second.unwrap(),
+    LoadResourceResult::Error(ResourceError::NotFound)
+  ));
 
   let third = loader.get(&key);
   assert!(third.is_some());
-  assert!(matches!(third.unwrap(), LoadResourceResult::Error(ResourceError::NotFound)));
+  assert!(matches!(
+    third.unwrap(),
+    LoadResourceResult::Error(ResourceError::NotFound)
+  ));
 
   drop(loader);
   std::fs::remove_dir_all(&dir).ok();

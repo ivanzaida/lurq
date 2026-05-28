@@ -1,12 +1,16 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
+  animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
     component::Component,
-    ctx::Ctx,
-    events::{KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent, ScrollPhase},
+    ctx::{Ctx, component_tag_name},
+    events::{
+      DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
+      ScrollPhase,
+    },
     glyph_engine::{AtlasPacker, GlyphEngine},
     hit_test::hit_test_tree,
     profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
@@ -34,6 +38,7 @@ trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
   fn on_mounted(&self);
   fn on_unmounted(&self);
+  fn tag_name(&self) -> Arc<str>;
 }
 
 struct RootComponentWrapper<C: Component> {
@@ -51,6 +56,10 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
 
   fn on_unmounted(&self) {
     self.component.on_unmounted();
+  }
+
+  fn tag_name(&self) -> Arc<str> {
+    component_tag_name::<C>()
   }
 }
 
@@ -72,6 +81,7 @@ pub struct Runtime {
   active_path: Vec<usize>,
   dragging_scroll: Option<ScrollState>,
   dragging_slider: Option<SliderDrag>,
+  active_drag: Option<ActiveDrag>,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
@@ -79,6 +89,8 @@ pub struct Runtime {
   cursor: CursorIcon,
   needs_redraw: bool,
   last_profile: FrameProfile,
+  transition_engine: TransitionEngine,
+  animation_engine: AnimationEngine,
   #[cfg(feature = "resources")]
   resource_loader: crate::resources::ResourceLoader,
 }
@@ -109,6 +121,7 @@ impl Runtime {
       active_path: Vec::new(),
       dragging_scroll: None,
       dragging_slider: None,
+      active_drag: None,
       focused_node: None,
       focused_event_node: None,
       focused_path: None,
@@ -116,6 +129,8 @@ impl Runtime {
       cursor: CursorIcon::Default,
       needs_redraw: false,
       last_profile: FrameProfile::default(),
+      transition_engine: TransitionEngine::new(),
+      animation_engine: AnimationEngine::new(),
       #[cfg(feature = "resources")]
       resource_loader: crate::resources::ResourceLoader::new(),
     }
@@ -216,6 +231,7 @@ impl Runtime {
     ctx.begin_render();
     let mut node = wrapper.render(&mut ctx).node;
     ctx.end_render();
+    node.set_tag_name(wrapper.tag_name());
     node.assign_ids(&self.id_gen);
     wrapper.on_mounted();
     self.root = Some(node);
@@ -237,6 +253,7 @@ impl Runtime {
       ctx.begin_render();
       let mut node = component.render(ctx).node;
       ctx.end_render();
+      node.set_tag_name(component.tag_name());
       if let Some(old) = &old_root {
         node.preserve_runtime_state_from(old);
       }
@@ -265,6 +282,7 @@ impl Runtime {
     self.last_layout = None;
     self.hover_path.clear();
     self.active_path.clear();
+    self.active_drag = None;
     self.clear_focus();
   }
 
@@ -341,7 +359,7 @@ impl Runtime {
     #[cfg(feature = "svg")]
     let mut svgs = Vec::new();
 
-    for quad in &quads {
+    for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
         ClipRect {
           x: quad.clip.x * scale,
@@ -392,15 +410,23 @@ impl Runtime {
             ([0.0; 4], Color::new(0, 0, 0, 0))
           };
 
+          let final_color = apply_opacity(*color, quad.opacity);
+          let final_stroke = apply_opacity(stroke_color, quad.opacity);
+          let xf = quad.transform.matrix_2x2();
+          let xf_origin = [w * 0.5, h * 0.5];
+
           rects.push(RectCmd {
+            order,
             x,
             y,
             width: w,
             height: h,
-            color: *color,
+            color: final_color,
             radii,
             stroke,
-            stroke_color,
+            stroke_color: final_stroke,
+            transform: xf,
+            transform_origin: xf_origin,
             clip: scaled_clip,
           });
         }
@@ -416,8 +442,12 @@ impl Runtime {
             quad.y * scale,
             &mut atlas_packer,
           );
+          let glyph_xf = quad.transform.matrix_2x2();
           for g in &mut glyph_cmds {
+            g.order = order;
             g.clip = scaled_clip;
+            g.transform = glyph_xf;
+            g.transform_origin = [g.width * 0.5, g.height * 0.5];
           }
           glyphs.extend(glyph_cmds);
         }
@@ -604,6 +634,58 @@ impl Runtime {
       }
     }
 
+    if self.active_drag.is_some() {
+      match evt.kind {
+        MouseEventKind::Move => {
+          let (event, handler) = {
+            let drag = self.active_drag.as_mut().unwrap();
+            let event = drag.event(lx, ly, None);
+            drag.last_x = lx;
+            drag.last_y = ly;
+            (event, drag.on_move.clone())
+          };
+          if let Some(handler) = handler {
+            handler(&event);
+          }
+          self.needs_redraw = true;
+          return;
+        }
+        MouseEventKind::Up => {
+          let drag = self.active_drag.take().unwrap();
+          if drag.button != button {
+            self.active_drag = Some(drag);
+            return;
+          }
+          let drop_target = self.drop_target_at(lx, ly);
+          let drop_result = drop_target
+            .as_ref()
+            .map(|(target_id, _)| DropResult::Accepted { target_id: *target_id })
+            .unwrap_or(DropResult::Missed);
+          let drag_event = drag.event(lx, ly, Some(drop_result));
+          if let Some((target_id, handler)) = drop_target {
+            handler(&DropEvent {
+              x: lx,
+              y: ly,
+              start_x: drag.start_x,
+              start_y: drag.start_y,
+              total_delta_x: lx - drag.start_x,
+              total_delta_y: ly - drag.start_y,
+              button,
+              source_id: drag.target_id,
+              target_id,
+            });
+          }
+          if let Some(handler) = drag.on_end {
+            handler(&drag_event);
+          }
+          self.clear_active_path();
+          self.needs_redraw = true;
+          return;
+        }
+        _ => {}
+      }
+    }
+
     let root = match &self.root {
       Some(r) => r,
       None => return,
@@ -684,6 +766,45 @@ impl Runtime {
         }
       }
     }
+
+    let pending_drag = if matches!(evt.kind, MouseEventKind::Down) && pending_slider_drag.is_none() {
+      hits
+        .iter()
+        .find(|(node, _)| {
+          node.events.on_drag_start.is_some() || node.events.on_drag_move.is_some() || node.events.on_drag_end.is_some()
+        })
+        .map(|(node, _)| {
+          let event = DragEvent {
+            x: lx,
+            y: ly,
+            start_x: lx,
+            start_y: ly,
+            delta_x: 0.0,
+            delta_y: 0.0,
+            total_delta_x: 0.0,
+            total_delta_y: 0.0,
+            button,
+            target_id: node.node_id(),
+            drop_result: None,
+          };
+          (
+            event,
+            node.events.on_drag_start.clone(),
+            ActiveDrag {
+              target_id: node.node_id(),
+              start_x: lx,
+              start_y: ly,
+              last_x: lx,
+              last_y: ly,
+              button,
+              on_move: node.events.on_drag_move.clone(),
+              on_end: node.events.on_drag_end.clone(),
+            },
+          )
+        })
+    } else {
+      None
+    };
 
     // Normal event dispatch
     for (node, _rect) in &hits {
@@ -775,6 +896,13 @@ impl Runtime {
     if let Some(drag) = pending_slider_drag {
       self.dragging_slider = Some(drag);
     }
+    if let Some((event, handler, drag)) = pending_drag {
+      if let Some(handler) = handler {
+        handler(&event);
+      }
+      self.active_drag = Some(drag);
+      self.needs_redraw = true;
+    }
     if let Some(target) = pending_focus {
       self.focus_node(target);
     }
@@ -826,6 +954,16 @@ impl Runtime {
     }
 
     true
+  }
+
+  fn drop_target_at(&self, x: f32, y: f32) -> Option<(NodeId, DropCallback)> {
+    let root = self.root.as_ref()?;
+    let result = self.last_layout.as_ref()?;
+    let mut hits = Vec::new();
+    hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
+    hits
+      .into_iter()
+      .find_map(|(node, _)| node.events.on_drop.clone().map(|handler| (node.node_id(), handler)))
   }
 
   fn focus_node(&mut self, target: FocusTarget) {
@@ -1035,17 +1173,34 @@ impl Runtime {
     self.refresh_focus_ids();
   }
 
+  pub fn register_keyframes(&mut self, keyframes: Keyframes) {
+    self.animation_engine.register_keyframes(keyframes);
+  }
+
   fn update_layout(&mut self) {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
     self.resolve_resource_images();
 
+    if let Some(root) = self.root.as_mut() {
+      let now = std::time::Instant::now();
+      self.transition_engine.tick(root, now);
+      self.animation_engine.tick(root, now);
+      if self.transition_engine.has_active || self.animation_engine.has_active {
+        self.needs_redraw = true;
+      }
+    }
+
     if let Some(root) = self.root.as_ref() {
       let constraints = self
         .layout_constraints_override
         .unwrap_or_else(|| Constraints::tight(self.viewport_logical()));
-      self.last_layout = Some(self.layout_engine.compute(&mut self.glyph_engine, root, constraints));
+      let layout = self.layout_engine.compute(&mut self.glyph_engine, root, constraints);
+      if let Some(root) = self.root.as_mut() {
+        update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
+      }
+      self.last_layout = Some(layout);
     }
   }
 
@@ -1063,10 +1218,7 @@ impl Runtime {
   }
 
   #[cfg(all(feature = "image", feature = "resources"))]
-  fn resolve_resource_images_recursive(
-    node: &mut Node,
-    loader: &crate::resources::ResourceLoader,
-  ) {
+  fn resolve_resource_images_recursive(node: &mut Node, loader: &crate::resources::ResourceLoader) {
     if let NodeKind::ResourceImage { path } = node.node_kind() {
       let key: std::sync::Arc<str> = path.clone();
       if let crate::resources::LoadResourceResult::Loaded(bytes) = loader.load_resource(&key, None) {
@@ -1167,6 +1319,38 @@ impl SliderDrag {
       0.0
     };
     self.state.set_from_ratio(ratio);
+  }
+}
+
+type DragCallback = Arc<dyn Fn(&DragEvent) + Send + Sync>;
+type DropCallback = Arc<dyn Fn(&DropEvent) + Send + Sync>;
+
+struct ActiveDrag {
+  target_id: NodeId,
+  start_x: f32,
+  start_y: f32,
+  last_x: f32,
+  last_y: f32,
+  button: MouseButton,
+  on_move: Option<DragCallback>,
+  on_end: Option<DragCallback>,
+}
+
+impl ActiveDrag {
+  fn event(&self, x: f32, y: f32, drop_result: Option<DropResult>) -> DragEvent {
+    DragEvent {
+      x,
+      y,
+      start_x: self.start_x,
+      start_y: self.start_y,
+      delta_x: x - self.last_x,
+      delta_y: y - self.last_y,
+      total_delta_x: x - self.start_x,
+      total_delta_y: y - self.start_y,
+      button: self.button,
+      target_id: self.target_id,
+      drop_result,
+    }
   }
 }
 
@@ -1347,6 +1531,37 @@ fn has_dirty_element_ref_recursive(node: &Node) -> bool {
     || node.children().iter().any(has_dirty_element_ref_recursive)
 }
 
+fn update_element_refs_recursive(
+  node: &mut Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  parent_x: f32,
+  parent_y: f32,
+) {
+  if let Some(element_ref) = &node.element_ref {
+    element_ref.update(
+      abs_x,
+      abs_y,
+      abs_x - parent_x,
+      abs_y - parent_y,
+      layout.size.width,
+      layout.size.height,
+    );
+  }
+
+  for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
+    update_element_refs_recursive(
+      child_node,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      abs_x,
+      abs_y,
+    );
+  }
+}
+
 fn dispatch_builtin_pointer(
   hits: &[(&Node, crate::app::hit_test::HitRect)],
   x: f32,
@@ -1438,4 +1653,12 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
   for child in node.children() {
     fire_keyboard_recursive(child, evt);
   }
+}
+
+fn apply_opacity(color: Color, opacity: f32) -> Color {
+  if opacity >= 1.0 {
+    return color;
+  }
+  let a = (color.a() as f32 * opacity.clamp(0.0, 1.0)).round() as u8;
+  Color::new(color.r(), color.g(), color.b(), a)
 }

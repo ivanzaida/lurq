@@ -44,10 +44,6 @@ pub struct WgpuRenderEngine {
   atlas_size: (u32, u32),
   quad_bind_group: Option<wgpu::BindGroup>,
   glyph_bind_group: Option<wgpu::BindGroup>,
-  quad_instance_buffer: Option<wgpu::Buffer>,
-  quad_instance_capacity: usize,
-  glyph_instance_buffer: Option<wgpu::Buffer>,
-  glyph_instance_capacity: usize,
   vertex_buffer: Option<wgpu::Buffer>,
   index_buffer: Option<wgpu::Buffer>,
 }
@@ -94,10 +90,6 @@ impl WgpuRenderEngine {
       atlas_size: (0, 0),
       quad_bind_group: None,
       glyph_bind_group: None,
-      quad_instance_buffer: None,
-      quad_instance_capacity: 0,
-      glyph_instance_buffer: None,
-      glyph_instance_capacity: 0,
       vertex_buffer: None,
       index_buffer: None,
     }
@@ -581,8 +573,8 @@ impl RenderEngine for WgpuRenderEngine {
         radii_v: r.radii,
         stroke: [0.0; 4],
         pattern: [0.0; 4],
-        transform: [1.0, 0.0, 0.0, 1.0],
-        xf_origin: [0.0, 0.0],
+        transform: r.transform,
+        xf_origin: r.transform_origin,
         shadow_sigma: 0.0,
         gradient_offset: -1.0,
       });
@@ -597,8 +589,8 @@ impl RenderEngine for WgpuRenderEngine {
           radii_v: r.radii,
           stroke: r.stroke,
           pattern: [0.0; 4],
-          transform: [1.0, 0.0, 0.0, 1.0],
-          xf_origin: [0.0, 0.0],
+          transform: r.transform,
+          xf_origin: r.transform_origin,
           shadow_sigma: 0.0,
           gradient_offset: -1.0,
         });
@@ -628,8 +620,8 @@ impl RenderEngine for WgpuRenderEngine {
         color: g.color,
         uv_min: g.uv_min,
         uv_max: g.uv_max,
-        transform: [1.0, 0.0, 0.0, 1.0],
-        xf_origin: [0.0, 0.0],
+        transform: g.transform,
+        xf_origin: g.transform_origin,
       });
     }
 
@@ -711,120 +703,115 @@ impl RenderEngine for WgpuRenderEngine {
         ..Default::default()
       });
 
-      // Quad batches
-      pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
-      pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
-      pass.set_vertex_buffer(0, vtx_buf.slice(..));
-      pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
-
-      let total_quad_instances: usize = quad_batches.iter().map(|b| b.instances.len()).sum();
-      if total_quad_instances > 0 {
-        let byte_size = total_quad_instances * std::mem::size_of::<QuadInstance>();
-        if total_quad_instances > self.quad_instance_capacity {
-          self.quad_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("lurq_qi"),
-            size: byte_size as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-          }));
-          self.quad_instance_capacity = total_quad_instances;
-        }
-        let qi_buf = self.quad_instance_buffer.as_ref().unwrap();
-        let mut offset: u64 = 0;
-        for batch in &quad_batches {
-          if !batch.instances.is_empty() {
-            let data = bytemuck::cast_slice(&batch.instances);
-            queue.write_buffer(qi_buf, offset, data);
-          }
-          offset += (batch.instances.len() * std::mem::size_of::<QuadInstance>()) as u64;
-        }
-
-        pass.set_vertex_buffer(1, qi_buf.slice(..));
-        let mut instance_offset: u32 = 0;
-        for batch in &quad_batches {
-          let count = batch.instances.len() as u32;
-          if count == 0 {
-            continue;
-          }
-          if batch.clip.active {
-            let viewport_w = vw.max(1.0) as u32;
-            let viewport_h = vh.max(1.0) as u32;
-            let cx = batch.clip.x.max(0.0) as u32;
-            let cy = batch.clip.y.max(0.0) as u32;
-            if cx >= viewport_w || cy >= viewport_h {
-              instance_offset += count;
-              continue;
-            }
-            let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-            let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-            if cw == 0 || ch == 0 {
-              instance_offset += count;
-              continue;
-            }
-            pass.set_scissor_rect(cx, cy, cw, ch);
-          } else {
-            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
-          }
-          pass.draw_indexed(0..6, 0, instance_offset..instance_offset + count);
-          instance_offset += count;
-        }
+      enum OrderedDraw {
+        Rect(usize),
+        Glyph { start: usize, count: usize },
       }
 
-      // Glyph batches
-      pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
-      pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
-      pass.set_vertex_buffer(0, vtx_buf.slice(..));
-      pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
-
-      let total_glyph_instances: usize = glyph_batches.iter().map(|b| b.instances.len()).sum();
-      if total_glyph_instances > 0 {
-        let byte_size = total_glyph_instances * std::mem::size_of::<GlyphInstance>();
-        if total_glyph_instances > self.glyph_instance_capacity {
-          self.glyph_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("lurq_gi"),
-            size: byte_size as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-          }));
-          self.glyph_instance_capacity = total_glyph_instances;
+      let mut ordered_draws: Vec<(usize, OrderedDraw)> = Vec::new();
+      for (index, rect) in list.rects.iter().enumerate() {
+        ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
+      }
+      let mut glyph_start = 0;
+      while glyph_start < list.glyphs.len() {
+        let order = list.glyphs[glyph_start].order;
+        let clip = list.glyphs[glyph_start].clip;
+        let mut glyph_end = glyph_start + 1;
+        while glyph_end < list.glyphs.len()
+          && list.glyphs[glyph_end].order == order
+          && same_clip(list.glyphs[glyph_end].clip, clip)
+        {
+          glyph_end += 1;
         }
-        let gi_buf = self.glyph_instance_buffer.as_ref().unwrap();
-        let mut offset: u64 = 0;
-        for batch in &glyph_batches {
-          if !batch.instances.is_empty() {
-            queue.write_buffer(gi_buf, offset, bytemuck::cast_slice(&batch.instances));
-          }
-          offset += (batch.instances.len() * std::mem::size_of::<GlyphInstance>()) as u64;
-        }
+        ordered_draws.push((
+          order,
+          OrderedDraw::Glyph {
+            start: glyph_start,
+            count: glyph_end - glyph_start,
+          },
+        ));
+        glyph_start = glyph_end;
+      }
+      ordered_draws.sort_by_key(|(order, _)| *order);
 
-        pass.set_vertex_buffer(1, gi_buf.slice(..));
-        let mut instance_offset: u32 = 0;
-        for batch in &glyph_batches {
-          let count = batch.instances.len() as u32;
-          if count == 0 {
-            continue;
-          }
-          if batch.clip.active {
-            let viewport_w = vw.max(1.0) as u32;
-            let viewport_h = vh.max(1.0) as u32;
-            let cx = batch.clip.x.max(0.0) as u32;
-            let cy = batch.clip.y.max(0.0) as u32;
-            if cx >= viewport_w || cy >= viewport_h {
-              instance_offset += count;
+      for (_, draw) in ordered_draws {
+        match draw {
+          OrderedDraw::Rect(index) => {
+            let r = &list.rects[index];
+            let mut instances = Vec::with_capacity(2);
+            instances.push(QuadInstance {
+              pos: [r.x, r.y],
+              size: [r.width, r.height],
+              color: r.color.to_linear_f32_array(),
+              radii_h: r.radii,
+              radii_v: r.radii,
+              stroke: [0.0; 4],
+              pattern: [0.0; 4],
+              transform: [1.0, 0.0, 0.0, 1.0],
+              xf_origin: [0.0, 0.0],
+              shadow_sigma: 0.0,
+              gradient_offset: -1.0,
+            });
+            if r.stroke.iter().any(|s| *s > 0.0) {
+              instances.push(QuadInstance {
+                pos: [r.x, r.y],
+                size: [r.width, r.height],
+                color: r.stroke_color.to_linear_f32_array(),
+                radii_h: r.radii,
+                radii_v: r.radii,
+                stroke: r.stroke,
+                pattern: [0.0; 4],
+                transform: [1.0, 0.0, 0.0, 1.0],
+                xf_origin: [0.0, 0.0],
+                shadow_sigma: 0.0,
+                gradient_offset: -1.0,
+              });
+            }
+
+            if !set_scissor(&mut pass, r.clip, vw, vh) {
               continue;
             }
-            let cw = (batch.clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-            let ch = (batch.clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-            if cw == 0 || ch == 0 {
-              instance_offset += count;
+            let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+              label: Some("lurq_ordered_qi"),
+              contents: bytemuck::cast_slice(&instances),
+              usage: wgpu::BufferUsages::VERTEX,
+            });
+            pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
+            pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
+            pass.set_vertex_buffer(0, vtx_buf.slice(..));
+            pass.set_vertex_buffer(1, instance_buf.slice(..));
+            pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..instances.len() as u32);
+          }
+          OrderedDraw::Glyph { start, count } => {
+            let glyph_slice = &list.glyphs[start..start + count];
+            if glyph_slice.is_empty() || !set_scissor(&mut pass, glyph_slice[0].clip, vw, vh) {
               continue;
             }
-            pass.set_scissor_rect(cx, cy, cw, ch);
-          } else {
-            pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+            let instances: Vec<GlyphInstance> = glyph_slice
+              .iter()
+              .map(|g| GlyphInstance {
+                pos: [g.x, g.y],
+                size: [g.width, g.height],
+                color: g.color,
+                uv_min: g.uv_min,
+                uv_max: g.uv_max,
+                transform: [1.0, 0.0, 0.0, 1.0],
+                xf_origin: [0.0, 0.0],
+              })
+              .collect();
+            let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+              label: Some("lurq_ordered_gi"),
+              contents: bytemuck::cast_slice(&instances),
+              usage: wgpu::BufferUsages::VERTEX,
+            });
+            pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
+            pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
+            pass.set_vertex_buffer(0, vtx_buf.slice(..));
+            pass.set_vertex_buffer(1, instance_buf.slice(..));
+            pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..instances.len() as u32);
           }
-          pass.draw_indexed(0..6, 0, instance_offset..instance_offset + count);
-          instance_offset += count;
         }
       }
 
@@ -890,7 +877,11 @@ impl RenderEngine for WgpuRenderEngine {
                 },
               ],
             });
-            CachedImageTexture { texture, view, bind_group }
+            CachedImageTexture {
+              texture,
+              view,
+              bind_group,
+            }
           });
 
           pass.set_bind_group(0, &cached.bind_group, &[]);
@@ -950,7 +941,11 @@ impl RenderEngine for WgpuRenderEngine {
             },
             clip_radii_h: [0.0; 4],
             clip_radii_v: [0.0; 4],
-            clip_active: if svg_cmd.clip.active { [1.0, 0.0, 0.0, 0.0] } else { [0.0; 4] },
+            clip_active: if svg_cmd.clip.active {
+              [1.0, 0.0, 0.0, 0.0]
+            } else {
+              [0.0; 4]
+            },
           };
           let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("lurq_svg_globals"),
@@ -1021,6 +1016,27 @@ impl RenderEngine for WgpuRenderEngine {
 
 fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect) -> bool {
   a.active == b.active && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+}
+
+fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> bool {
+  if clip.active {
+    let viewport_w = vw.max(1.0) as u32;
+    let viewport_h = vh.max(1.0) as u32;
+    let cx = clip.x.max(0.0) as u32;
+    let cy = clip.y.max(0.0) as u32;
+    if cx >= viewport_w || cy >= viewport_h {
+      return false;
+    }
+    let cw = (clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
+    let ch = (clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
+    if cw == 0 || ch == 0 {
+      return false;
+    }
+    pass.set_scissor_rect(cx, cy, cw, ch);
+  } else {
+    pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+  }
+  true
 }
 
 struct WindowDisplayPair<'a> {

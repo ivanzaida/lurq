@@ -4,6 +4,12 @@ pub struct Element {
   pub(crate) node: Node,
 }
 
+impl Clone for Element {
+  fn clone(&self) -> Self {
+    Self::from_node(self.node.clone_for_reuse())
+  }
+}
+
 #[derive(Clone, Copy)]
 pub struct ElementRef<'a> {
   pub(crate) node: &'a Node,
@@ -44,6 +50,10 @@ impl<'a> ElementRef<'a> {
 
   pub fn node_id(&self) -> crate::core::NodeId {
     self.node.node_id()
+  }
+
+  pub fn tag_name(&self) -> &'a str {
+    self.node.tag_name()
   }
 
   pub fn text_content(&self) -> Option<&'a str> {

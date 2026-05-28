@@ -1,6 +1,6 @@
 use crate::layout::{Offset, Size};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum StackAlignment {
   TopStart,
   TopCenter,

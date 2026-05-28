@@ -3,6 +3,7 @@ use crate::{
   node::{
     border::{Border, BorderRadius},
     color::Color,
+    transform::Transform2D,
   },
 };
 
@@ -20,6 +21,8 @@ pub struct Quad {
   pub y: f32,
   pub width: f32,
   pub height: f32,
+  pub opacity: f32,
+  pub transform: Transform2D,
   pub content: QuadContent,
   pub border_radius: Option<BorderRadius>,
   pub border: Option<Border>,

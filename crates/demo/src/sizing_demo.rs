@@ -24,7 +24,6 @@ pub(crate) fn sizing_content() -> Element {
     .child(spacer_showcase())
     .pad(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .height(800.0)
     .fill(BG)
     .into()
 }

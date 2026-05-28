@@ -1,0 +1,267 @@
+use crate::node::{color::Color, transform::Transform2D};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AnimatableProperty {
+  BackgroundColor,
+  BorderColor,
+  BorderWidthTop,
+  BorderWidthRight,
+  BorderWidthBottom,
+  BorderWidthLeft,
+  BorderRadiusTopLeft,
+  BorderRadiusTopRight,
+  BorderRadiusBottomRight,
+  BorderRadiusBottomLeft,
+  OffsetX,
+  OffsetY,
+  Width,
+  Height,
+  Opacity,
+  Transform,
+}
+
+macro_rules! property_accessors {
+  ($target:ident { $($variant:ident => $method:ident),* $(,)? }) => {
+    impl $target {
+      $(
+        pub fn $method() -> Self {
+          Self::single(AnimatableProperty::$variant)
+        }
+      )*
+    }
+  };
+}
+
+pub(crate) use property_accessors;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AnimatableValue {
+  Color(Color),
+  Float(f32),
+  Transform(Transform2D),
+}
+
+impl AnimatableValue {
+  pub fn lerp(&self, to: &AnimatableValue, t: f32) -> AnimatableValue {
+    match (self, to) {
+      (AnimatableValue::Color(a), AnimatableValue::Color(b)) => AnimatableValue::Color(lerp_color(*a, *b, t)),
+      (AnimatableValue::Float(a), AnimatableValue::Float(b)) => AnimatableValue::Float(a + (b - a) * t),
+      (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => {
+        crate::node::transform::lerp_transform(a, b, t)
+          .map(AnimatableValue::Transform)
+          .unwrap_or(*self)
+      }
+      _ => {
+        if t >= 0.5 {
+          *to
+        } else {
+          *self
+        }
+      }
+    }
+  }
+}
+
+impl From<Color> for AnimatableValue {
+  fn from(c: Color) -> Self {
+    Self::Color(c)
+  }
+}
+
+impl From<f32> for AnimatableValue {
+  fn from(v: f32) -> Self {
+    Self::Float(v)
+  }
+}
+
+impl From<Transform2D> for AnimatableValue {
+  fn from(t: Transform2D) -> Self {
+    Self::Transform(t)
+  }
+}
+
+fn lerp_color(a: Color, b: Color, t: f32) -> Color {
+  let ar = a.r() as f32;
+  let ag = a.g() as f32;
+  let ab = a.b() as f32;
+  let aa = a.a() as f32;
+  let br = b.r() as f32;
+  let bg = b.g() as f32;
+  let bb = b.b() as f32;
+  let ba = b.a() as f32;
+  Color::new(
+    (ar + (br - ar) * t).round() as u8,
+    (ag + (bg - ag) * t).round() as u8,
+    (ab + (bb - ab) * t).round() as u8,
+    (aa + (ba - aa) * t).round() as u8,
+  )
+}
+
+pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) -> Option<AnimatableValue> {
+  let style = node.target_style();
+  match prop {
+    AnimatableProperty::BackgroundColor => style.color.or(*node.color).map(AnimatableValue::Color),
+    AnimatableProperty::BorderColor => style.border.or(*node.border).map(|b| AnimatableValue::Color(b.color)),
+    AnimatableProperty::BorderWidthTop => style.border.or(*node.border).map(|b| AnimatableValue::Float(b.width.top)),
+    AnimatableProperty::BorderWidthRight => {
+      style.border.or(*node.border).map(|b| AnimatableValue::Float(b.width.right))
+    }
+    AnimatableProperty::BorderWidthBottom => {
+      style
+        .border
+        .or(*node.border)
+        .map(|b| AnimatableValue::Float(b.width.bottom))
+    }
+    AnimatableProperty::BorderWidthLeft => {
+      style.border.or(*node.border).map(|b| AnimatableValue::Float(b.width.left))
+    }
+    AnimatableProperty::BorderRadiusTopLeft => {
+      style
+        .border_radius
+        .or(*node.border_radius)
+        .map(|r| AnimatableValue::Float(r.top_left))
+    }
+    AnimatableProperty::BorderRadiusTopRight => {
+      style
+        .border_radius
+        .or(*node.border_radius)
+        .map(|r| AnimatableValue::Float(r.top_right))
+    }
+    AnimatableProperty::BorderRadiusBottomRight => {
+      style
+        .border_radius
+        .or(*node.border_radius)
+        .map(|r| AnimatableValue::Float(r.bottom_right))
+    }
+    AnimatableProperty::BorderRadiusBottomLeft => {
+      style
+        .border_radius
+        .or(*node.border_radius)
+        .map(|r| AnimatableValue::Float(r.bottom_left))
+    }
+    AnimatableProperty::OffsetX => read_offset_x(node).map(AnimatableValue::Float),
+    AnimatableProperty::OffsetY => read_offset_y(node).map(AnimatableValue::Float),
+    AnimatableProperty::Width => read_target_frame_dim(node, &style, true).map(AnimatableValue::Float),
+    AnimatableProperty::Height => read_target_frame_dim(node, &style, false).map(AnimatableValue::Float),
+    AnimatableProperty::Opacity => Some(AnimatableValue::Float(node.opacity)),
+    AnimatableProperty::Transform => Some(AnimatableValue::Transform(node.transform)),
+  }
+}
+
+pub(crate) fn write_property(node: &mut crate::node::Node, prop: AnimatableProperty, value: &AnimatableValue) -> bool {
+  let affects_layout = matches!(
+    prop,
+    AnimatableProperty::OffsetX
+      | AnimatableProperty::OffsetY
+      | AnimatableProperty::Width
+      | AnimatableProperty::Height
+  );
+  match prop {
+    AnimatableProperty::OffsetX | AnimatableProperty::OffsetY => {
+      if let AnimatableValue::Float(v) = value {
+        match prop {
+          AnimatableProperty::OffsetX => write_offset_x(node, *v),
+          AnimatableProperty::OffsetY => write_offset_y(node, *v),
+          _ => unreachable!(),
+        }
+      }
+    }
+    AnimatableProperty::Opacity => {
+      if let AnimatableValue::Float(v) = value {
+        node.opacity = *v;
+      }
+    }
+    _ => {
+      if let Some(pos) = node.animation_overrides.iter().position(|(p, _)| *p == prop) {
+        node.animation_overrides[pos].1 = *value;
+      } else {
+        node.animation_overrides.push((prop, *value));
+      }
+    }
+  }
+  affects_layout
+}
+
+pub(crate) fn clear_overrides(node: &mut crate::node::Node) {
+  node.animation_overrides.clear();
+  for child in &mut node.children {
+    clear_overrides(child);
+  }
+}
+
+fn read_offset_x(node: &crate::node::Node) -> Option<f32> {
+  match node.layout_kind() {
+    crate::layout::layout_kind::LayoutKind::OffsetModifier { x, .. } => Some(*x),
+    _ => None,
+  }
+}
+
+fn read_offset_y(node: &crate::node::Node) -> Option<f32> {
+  match node.layout_kind() {
+    crate::layout::layout_kind::LayoutKind::OffsetModifier { y, .. } => Some(*y),
+    _ => None,
+  }
+}
+
+fn read_target_frame_dim(
+  node: &crate::node::Node,
+  style: &crate::node::style::Style,
+  is_width: bool,
+) -> Option<f32> {
+  let base = match node.layout_kind() {
+    crate::layout::layout_kind::LayoutKind::FrameModifier(f) => *f,
+    _ => return None,
+  };
+  let effective = match style.frame {
+    Some(overlay) => crate::node::node::merge_frame(base, overlay),
+    None => base,
+  };
+  if is_width {
+    effective.width.map(|d| d.to_px())
+  } else {
+    effective.height.map(|d| d.to_px())
+  }
+}
+
+fn write_offset_x(node: &mut crate::node::Node, v: f32) {
+  if let crate::layout::layout_kind::LayoutKind::OffsetModifier { x, .. } = &mut node.layout_kind {
+    *x = v;
+  }
+}
+
+fn write_offset_y(node: &mut crate::node::Node, v: f32) {
+  if let crate::layout::layout_kind::LayoutKind::OffsetModifier { y, .. } = &mut node.layout_kind {
+    *y = v;
+  }
+}
+
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn lerp_color_midpoint() {
+    let a = Color::new(0, 0, 0, 255);
+    let b = Color::new(255, 255, 255, 255);
+    let mid = lerp_color(a, b, 0.5);
+    assert_eq!(mid.r(), 128);
+    assert_eq!(mid.g(), 128);
+    assert_eq!(mid.b(), 128);
+  }
+
+  #[test]
+  fn lerp_float() {
+    let a = AnimatableValue::Float(0.0);
+    let b = AnimatableValue::Float(100.0);
+    assert_eq!(a.lerp(&b, 0.75), AnimatableValue::Float(75.0));
+  }
+
+  #[test]
+  fn lerp_mismatched_types_discrete() {
+    let a = AnimatableValue::Float(10.0);
+    let b = AnimatableValue::Color(Color::new(255, 0, 0, 255));
+    assert_eq!(a.lerp(&b, 0.3), a);
+    assert_eq!(a.lerp(&b, 0.7), b);
+  }
+}

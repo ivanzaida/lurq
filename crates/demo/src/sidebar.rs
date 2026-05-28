@@ -10,6 +10,9 @@ use crate::style::{NAV_SELECTED, PRIMARY, SURFACE_DARK, TEXT, TEXT_MUTED, text};
 pub(crate) enum DemoTab {
   Layout,
   Sizing,
+  Position,
+  Dnd,
+  Animation,
 }
 
 impl DemoTab {
@@ -17,6 +20,9 @@ impl DemoTab {
     match self {
       Self::Layout => "Layout",
       Self::Sizing => "Sizing",
+      Self::Position => "Position",
+      Self::Dnd => "DnD",
+      Self::Animation => "Animation",
     }
   }
 }
@@ -36,7 +42,9 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>) -> Eleme
       [
         ("Layout", Some(DemoTab::Layout)),
         ("Sizing", Some(DemoTab::Sizing)),
-        ("Position", None),
+        ("Position", Some(DemoTab::Position)),
+        ("DnD", Some(DemoTab::Dnd)),
+        ("Animation", Some(DemoTab::Animation)),
         ("Scroll", None),
         ("Visual", None),
         ("Text", None),

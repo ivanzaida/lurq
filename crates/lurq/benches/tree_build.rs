@@ -6,7 +6,12 @@ use lurq::{
 };
 
 fn build_flat(count: usize) -> Element {
-  Column::with(0.0, Alignment::Start, (0..count).map(|_| Rect::new(100.0, 20.0).fill("#334155"))).into()
+  Column::with(
+    0.0,
+    Alignment::Start,
+    (0..count).map(|_| Rect::new(100.0, 20.0).fill("#334155")),
+  )
+  .into()
 }
 
 fn build_deep(depth: usize) -> Element {

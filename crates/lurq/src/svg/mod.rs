@@ -1,6 +1,6 @@
-mod svg_data;
 mod render;
+mod svg_data;
 pub(crate) mod tessellate;
 
-pub use svg_data::SvgData;
 pub(crate) use render::SvgCmd;
+pub use svg_data::SvgData;

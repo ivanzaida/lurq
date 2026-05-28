@@ -1,10 +1,10 @@
-use lyon::lyon_tessellation::{
-  BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers,
+use lyon::{
+  lyon_tessellation::{BuffersBuilder, FillOptions, FillTessellator, StrokeOptions, StrokeTessellator, VertexBuffers},
+  path::Path,
 };
-use lyon::path::Path;
 
-use crate::node::color::Color;
 use super::SvgData;
+use crate::node::color::Color;
 
 #[derive(Clone)]
 pub struct TessellatedSvg {
@@ -110,9 +110,7 @@ fn tessellate_path(
     let mut tessellator = StrokeTessellator::new();
     let result = tessellator.tessellate_path(
       &lyon_path,
-      &StrokeOptions::default()
-        .with_line_width(line_width)
-        .with_tolerance(0.5),
+      &StrokeOptions::default().with_line_width(line_width).with_tolerance(0.5),
       &mut BuffersBuilder::new(&mut geometry, |vertex: lyon::tessellation::StrokeVertex| SvgVertex {
         position: [vertex.position().x * sx, vertex.position().y * sy],
         color,

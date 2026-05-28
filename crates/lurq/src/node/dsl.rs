@@ -14,8 +14,10 @@ use crate::{
 };
 
 fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
+  let tag_name = child.tag_name.clone();
   Node {
     node_id: crate::core::NodeId::UNASSIGNED,
+    tag_name,
     component_slot_id: None,
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
@@ -37,6 +39,11 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     interaction: None,
     style_state: crate::node::interaction_state::InteractionState::new(),
     state_styles: crate::node::style::StateStyles::default(),
+    opacity: 1.0,
+    transform: crate::node::transform::Transform2D::IDENTITY,
+    animation_overrides: Vec::new(),
+    transitions: Vec::new(),
+    animation: None,
     layout_cache: Default::default(),
     children: vec![child],
     events: EventHandlers::default(),
@@ -57,56 +64,128 @@ pub fn scroll_both(child: Node) -> Node {
 
 impl Node {
   pub fn child(mut self, child: Node) -> Self {
-    self.children.push(child);
+    self.push_child(child);
     self
   }
 
   pub fn with_children(mut self, children: impl IntoIterator<Item = Node>) -> Self {
-    self.children.extend(children);
+    for child in children {
+      self.push_child(child);
+    }
     self
   }
 
   pub fn spacing(mut self, spacing: f32) -> Self {
+    self.set_spacing(spacing);
+    self
+  }
+
+  fn set_spacing(&mut self, spacing: f32) {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { spacing: s, .. } => *s = spacing,
       crate::layout::layout_kind::LayoutKind::Column { spacing: s, .. } => *s = spacing,
-      _ => {}
+      _ => {
+        if let Some(child) = self.modifier_child_mut() {
+          child.set_spacing(spacing);
+        }
+      }
     }
-    self
   }
 
   pub fn align_items(mut self, align: Alignment) -> Self {
+    self.set_align_items(align);
+    self
+  }
+
+  fn set_align_items(&mut self, align: Alignment) {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { align: a, .. } => *a = align,
       crate::layout::layout_kind::LayoutKind::Column { align: a, .. } => *a = align,
-      _ => {}
+      _ => {
+        if let Some(child) = self.modifier_child_mut() {
+          child.set_align_items(align);
+        }
+      }
     }
-    self
   }
 
   pub fn justify(mut self, justify: crate::layout::layout_kind::Justify) -> Self {
+    self.set_justify(justify);
+    self
+  }
+
+  fn set_justify(&mut self, justify: crate::layout::layout_kind::Justify) {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { justify: j, .. } => *j = justify,
       crate::layout::layout_kind::LayoutKind::Column { justify: j, .. } => *j = justify,
-      _ => {}
+      _ => {
+        if let Some(child) = self.modifier_child_mut() {
+          child.set_justify(justify);
+        }
+      }
     }
-    self
   }
 
   pub fn wrap(mut self) -> Self {
-    match &mut self.layout_kind {
-      crate::layout::layout_kind::LayoutKind::Row { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
-      crate::layout::layout_kind::LayoutKind::Column { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
-      _ => {}
-    }
+    self.set_wrap();
     self
   }
 
+  fn set_wrap(&mut self) {
+    match &mut self.layout_kind {
+      crate::layout::layout_kind::LayoutKind::Row { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
+      crate::layout::layout_kind::LayoutKind::Column { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
+      _ => {
+        if let Some(child) = self.modifier_child_mut() {
+          child.set_wrap();
+        }
+      }
+    }
+  }
+
   pub fn stack_align(mut self, align: StackAlignment) -> Self {
+    self.set_stack_align(align);
+    self
+  }
+
+  fn set_stack_align(&mut self, align: StackAlignment) {
     if let crate::layout::layout_kind::LayoutKind::Stack { align: a } = &mut self.layout_kind {
       *a = align;
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_stack_align(align);
     }
-    self
+  }
+
+  fn push_child(&mut self, child: Node) {
+    match self.layout_kind {
+      crate::layout::layout_kind::LayoutKind::Row { .. }
+      | crate::layout::layout_kind::LayoutKind::Column { .. }
+      | crate::layout::layout_kind::LayoutKind::Stack { .. } => self.children.push(child),
+      _ => {
+        if let Some(inner) = self.modifier_child_mut() {
+          inner.push_child(child);
+        } else {
+          self.children.push(child);
+        }
+      }
+    }
+  }
+
+  fn modifier_child_mut(&mut self) -> Option<&mut Node> {
+    if matches!(
+      self.layout_kind,
+      crate::layout::layout_kind::LayoutKind::PaddingModifier(_)
+        | crate::layout::layout_kind::LayoutKind::FrameModifier(_)
+        | crate::layout::layout_kind::LayoutKind::OffsetModifier { .. }
+        | crate::layout::layout_kind::LayoutKind::AbsoluteModifier { .. }
+        | crate::layout::layout_kind::LayoutKind::AlignModifier(_)
+        | crate::layout::layout_kind::LayoutKind::FlexModifier(_)
+    ) && self.children.len() == 1
+    {
+      Some(&mut self.children[0])
+    } else {
+      None
+    }
   }
 
   pub fn fill(self, hex: &str) -> Self {

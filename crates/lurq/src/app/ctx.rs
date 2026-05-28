@@ -21,6 +21,12 @@ fn next_component_slot_id() -> u64 {
   NEXT_COMPONENT_SLOT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
+  let type_name = std::any::type_name::<C>();
+  let base = type_name.split('<').next().unwrap_or(type_name);
+  Arc::from(base.rsplit("::").next().unwrap_or(base))
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   props: Option<Box<dyn Any + Send>>,
@@ -51,6 +57,7 @@ trait AnyComponent: Send + Sync + 'static {
   fn on_mounted(&self);
   fn on_unmounted(&self);
   fn type_name(&self) -> &'static str;
+  fn tag_name(&self) -> Arc<str>;
 }
 
 struct ComponentWrapper<C: Component> {
@@ -72,6 +79,10 @@ impl<C: Component> AnyComponent for ComponentWrapper<C> {
 
   fn type_name(&self) -> &'static str {
     std::any::type_name::<C>()
+  }
+
+  fn tag_name(&self) -> Arc<str> {
+    component_tag_name::<C>()
   }
 }
 
@@ -293,6 +304,7 @@ impl Ctx {
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
+        element.node.set_tag_name(slot.component.tag_name());
         element.node.set_component_slot_id(slot.id);
         slot.rendered = Some(element.node.clone_for_reuse());
         return element;
@@ -311,6 +323,7 @@ impl Ctx {
     let mut element = wrapper.render(&mut child_ctx);
     child_ctx.end_render();
     let slot_id = next_component_slot_id();
+    element.node.set_tag_name(wrapper.tag_name());
     element.node.set_component_slot_id(slot_id);
 
     let slot = ChildSlot {
@@ -470,6 +483,7 @@ impl Ctx {
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
+        element.node.set_tag_name(slot.component.tag_name());
         element.node.set_component_slot_id(slot.id);
         if let Some(old) = old_rendered.as_ref() {
           element.node.preserve_runtime_state_from(old);
@@ -522,6 +536,9 @@ impl AnyComponent for ForEachSlot {
   fn on_unmounted(&self) {}
   fn type_name(&self) -> &'static str {
     "ForEachSlot"
+  }
+  fn tag_name(&self) -> Arc<str> {
+    Arc::from("ForEachSlot")
   }
 }
 

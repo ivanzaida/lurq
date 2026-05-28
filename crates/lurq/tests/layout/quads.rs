@@ -1,6 +1,6 @@
 use lurq::{
   app::Runtime,
-  layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints, quad::QuadContent},
+  layout::{Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints, quad::QuadContent},
   node::{Element, color::Color, dimension::Dimension, padding::Padding},
 };
 
@@ -151,6 +151,43 @@ fn overflow_visible_allows_children_to_escape() {
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert!(!quads[1].clip.active);
+}
+
+#[test]
+fn container_children_can_be_added_after_frame_modifiers() {
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .size(100.0, 100.0)
+    .fill("#000000")
+    .child(lurq::components::Rect::new(20.0, 20.0).fill("#ff0000"));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  assert!(quads.iter().any(|quad| match &quad.content {
+    QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+    _ => false,
+  }));
+}
+
+#[test]
+fn container_props_can_be_set_after_frame_modifiers() {
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .size(100.0, 100.0)
+    .stack_align(StackAlignment::BottomEnd)
+    .child(lurq::components::Rect::new(20.0, 20.0).fill("#ff0000"));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let child = quads
+    .iter()
+    .find(|quad| match &quad.content {
+      QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+      _ => false,
+    })
+    .unwrap();
+  assert_eq!(child.x, 80.0);
+  assert_eq!(child.y, 80.0);
 }
 
 #[test]

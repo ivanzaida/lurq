@@ -1,14 +1,20 @@
 use std::{collections::HashMap, io::ErrorKind, path::PathBuf, sync::Arc};
 
 use parking_lot::RwLock;
+use ureq::{RequestBuilder, typestate::WithoutBody};
 
 use crate::resources::{
-  core::LoadResourceResult, resource_cache::ResourceCache, thread_pool::ThreadPool, ResourceConfig, ResourceError,
+  ResourceConfig, ResourceError, core::LoadResourceResult, resource_cache::ResourceCache, thread_pool::ThreadPool,
 };
 
 type PendingMap = Arc<RwLock<HashMap<Arc<str>, ResourceConfig>>>;
 type ResolvedMap = Arc<RwLock<HashMap<Arc<str>, Arc<Vec<u8>>>>>;
 type ErrorMap = Arc<RwLock<HashMap<Arc<str>, ResourceError>>>;
+
+#[derive(Default)]
+pub struct LoaderConfig {
+  pub headers: Vec<(String, String)>,
+}
 
 pub struct ResourceLoader {
   asset_root: Option<PathBuf>,
@@ -17,6 +23,7 @@ pub struct ResourceLoader {
   pending: PendingMap,
   resolved: ResolvedMap,
   errors: ErrorMap,
+  config: Arc<LoaderConfig>,
 }
 
 impl Default for ResourceLoader {
@@ -34,6 +41,7 @@ impl ResourceLoader {
       pending: Arc::new(RwLock::new(HashMap::default())),
       resolved: Arc::new(RwLock::new(HashMap::default())),
       errors: Arc::new(RwLock::new(HashMap::default())),
+      config: Arc::new(LoaderConfig::default()),
     }
   }
 
@@ -91,6 +99,10 @@ impl ResourceLoader {
     w.remove(path).map(|data| LoadResourceResult::Loaded(data))
   }
 
+  pub fn set_config(&mut self, config: LoaderConfig) {
+    self.config = Arc::new(config);
+  }
+
   fn resolve_pending(
     pending: PendingMap,
     resolved: ResolvedMap,
@@ -129,6 +141,15 @@ impl ResourceLoader {
     let cache = self.cache.clone();
     let resolved = self.resolved.clone();
     let errors = self.errors.clone();
+    let config = self.config.clone();
+
+    fn build_req(path: &Arc<str>, config: Arc<LoaderConfig>) -> RequestBuilder<WithoutBody> {
+      let mut c = ureq::get(path.as_ref());
+      for x in &config.headers {
+        c = c.header(x.0.clone(), x.1.clone());
+      }
+      c
+    }
 
     self.pool.execute(move || {
       let retries = {
@@ -138,7 +159,7 @@ impl ResourceLoader {
 
       let mut last_err = None;
       for _ in 0..=retries {
-        match ureq::get(path.as_ref()).call() {
+        match build_req(&path, config.clone()).call() {
           Ok(resp) => match resp.into_body().read_to_vec() {
             Ok(bytes) => {
               let result = LoadResourceResult::Loaded(Arc::new(bytes));

@@ -9,7 +9,7 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
     text_style::TextStyle,
   },
-  node::{dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding},
+  node::{dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding, transform::Transform2D},
 };
 
 pub(crate) struct LayoutEngine;
@@ -143,6 +143,9 @@ impl LayoutEngine {
       _ => QuadContent::None,
     };
 
+    let opacity = node.opacity;
+    let transform = node.effective_transform();
+
     match &content {
       QuadContent::None => {}
       _ => {
@@ -151,6 +154,8 @@ impl LayoutEngine {
           y: abs_y,
           width: result.size.width,
           height: result.size.height,
+          opacity,
+          transform,
           content,
           border_radius: node.get_border_radius(),
           border: node.get_border(),
@@ -166,6 +171,8 @@ impl LayoutEngine {
         y: abs_y,
         width: result.size.width,
         height: result.size.height,
+        opacity,
+        transform,
         content: QuadContent::Image { data: bg_image.clone() },
         border_radius: node.get_border_radius(),
         border: None,
@@ -180,6 +187,8 @@ impl LayoutEngine {
           y: abs_y + 3.0,
           width: 1.0,
           height: (result.size.height - 6.0).max(1.0),
+          opacity,
+          transform,
           content: QuadContent::Rect {
             color: crate::node::color::Color::from_hex("#0f172a"),
           },
@@ -196,6 +205,8 @@ impl LayoutEngine {
           y: abs_y + (result.size.height - thumb_size) / 2.0,
           width: thumb_size,
           height: thumb_size,
+          opacity,
+          transform,
           content: QuadContent::Rect {
             color: crate::node::color::Color::from_hex("#475569"),
           },
@@ -258,6 +269,8 @@ impl LayoutEngine {
                 y: geo.track_y,
                 width: geo.track_width,
                 height: geo.track_height,
+                opacity: 1.0,
+                transform: Transform2D::IDENTITY,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
                 },
@@ -271,6 +284,8 @@ impl LayoutEngine {
               y: geo.thumb_y,
               width: geo.thumb_width,
               height: geo.thumb_height,
+              opacity: 1.0,
+              transform: Transform2D::IDENTITY,
               content: QuadContent::Rect { color: thumb_color },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
               border: None,
@@ -297,6 +312,8 @@ impl LayoutEngine {
                 y: geo.track_y,
                 width: geo.track_width,
                 height: geo.track_height,
+                opacity: 1.0,
+                transform: Transform2D::IDENTITY,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
                 },
@@ -310,6 +327,8 @@ impl LayoutEngine {
               y: geo.thumb_y,
               width: geo.thumb_width,
               height: geo.thumb_height,
+              opacity: 1.0,
+              transform: Transform2D::IDENTITY,
               content: QuadContent::Rect { color: thumb_color },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
               border: None,
@@ -958,7 +977,10 @@ impl LayoutEngine {
     let mut all_layouts = Vec::with_capacity(children.len());
     all_layouts.resize_with(children.len(), || ChildLayout {
       offset: Offset::default(),
-      result: LayoutResult { size: Size::default(), children: vec![] },
+      result: LayoutResult {
+        size: Size::default(),
+        children: vec![],
+      },
     });
     let mut cross_cursor = 0.0_f32;
     let mut max_main_used = 0.0_f32;
@@ -993,16 +1015,36 @@ impl LayoutEngine {
         Justify::Start => (0.0, spacing),
         Justify::End => (free_space - spacing * (n - 1.0), spacing),
         Justify::Center => ((free_space - spacing * (n - 1.0)) / 2.0, spacing),
-        Justify::SpaceBetween => if n > 1.0 { (0.0, free_space / (n - 1.0)) } else { (0.0, 0.0) },
-        Justify::SpaceAround => { let g = free_space / n; (g / 2.0, g) },
-        Justify::SpaceEvenly => { let g = free_space / (n + 1.0); (g, g) },
+        Justify::SpaceBetween => {
+          if n > 1.0 {
+            (0.0, free_space / (n - 1.0))
+          } else {
+            (0.0, 0.0)
+          }
+        }
+        Justify::SpaceAround => {
+          let g = free_space / n;
+          (g / 2.0, g)
+        }
+        Justify::SpaceEvenly => {
+          let g = free_space / (n + 1.0);
+          (g, g)
+        }
       };
 
       let mut main_cursor = leading;
       for (j, &idx) in line_indices.iter().enumerate() {
         let result = child_results[idx].take().unwrap();
-        let child_main = if vertical { result.size.height } else { result.size.width };
-        let child_cross = if vertical { result.size.width } else { result.size.height };
+        let child_main = if vertical {
+          result.size.height
+        } else {
+          result.size.width
+        };
+        let child_cross = if vertical {
+          result.size.width
+        } else {
+          result.size.height
+        };
         let cross_offset = align.cross_offset(line_cross, child_cross) + cross_cursor;
         let offset = if vertical {
           Offset::new(cross_offset, main_cursor)
@@ -1209,10 +1251,10 @@ impl LayoutEngine {
       max_height: resolved_height.unwrap_or(constraints.max_height),
     };
     let child_result = self.layout_node(glyph_engine, child, child_constraints);
-    let size = constraints.constrain(Size::new(
+    let size = Size::new(
       resolved_width.unwrap_or(child_result.size.width),
       resolved_height.unwrap_or(child_result.size.height),
-    ));
+    );
 
     LayoutResult {
       size,

@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 lurq = { path = "../lurq", features = ["wgpu", "winit"] }
+log = "0.4.30"

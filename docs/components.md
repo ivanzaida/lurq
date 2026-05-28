@@ -149,6 +149,60 @@ ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
 ])
 ```
 
+## Built-In DnD Components
+
+`DragContainer`, `Draggable`, and `DropZone` are real components. Use their `mount` helpers for the explicit one-child API.
+
+`Draggable` and `DropZone` are blank behavior wrappers. Each requires exactly one slot child and leaves layout, sizing, and initial positioning to that child.
+
+`DragContainer` requires exactly one slot child as the drag surface. By default, `DragContainerProps::new()` bounds descendant draggables to that surface.
+
+```rust
+use lurq::components::{DragContainer, DragContainerProps, Draggable, DraggableProps, Rect, Stack};
+
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  let card = Draggable::mount(
+    ctx,
+    DraggableProps::new().on_drag_move(|event| {
+      println!("drag delta: {}, {}", event.delta_x, event.delta_y);
+    }),
+    Rect::new(64.0, 64.0)
+      .fill("#3b82f6")
+      .absolute_position(24.0, 24.0),
+  );
+
+  DragContainer::mount(
+    ctx,
+    DragContainerProps::new(),
+    Stack::new()
+      .size(360.0, 220.0)
+      .child(card),
+  )
+}
+```
+
+Use `DragContainerProps::new().bounds(DragBounds::None)` for an unbounded drag surface.
+
+`DropZone` marks its single child as a drop target. Visual styling is supplied by that child.
+
+```rust
+use lurq::components::{DropZone, DropZoneProps, Rect};
+
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  DropZone::mount(
+    ctx,
+    DropZoneProps::new().on_drop(|event| {
+      println!("dropped from {:?} onto {:?}", event.source_id, event.target_id);
+    }),
+    Rect::new(140.0, 80.0)
+      .fill("#22c55e33")
+      .border_inside(1.0, lurq::node::color::Color::from_hex("#22c55e")),
+  )
+}
+```
+
+Use `DraggableProps::on_drag_start`, `on_drag_move`, and `on_drag_end` for high-level draggable callbacks. Low-level node handlers with the same names remain available for custom behavior. The runtime keeps the active drag captured across rerenders and dispatches `on_drop` to the hit `DropZone` on release.
+
 ## State
 
 ### Signal

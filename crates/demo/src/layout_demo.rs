@@ -36,7 +36,6 @@ pub(crate) fn layout_content() -> Element {
     .child(flex_wrap_demo())
     .pad(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .height(1752.0)
     .fill(BG)
     .into()
 }

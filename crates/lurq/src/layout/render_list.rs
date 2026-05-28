@@ -11,6 +11,7 @@ pub struct RenderList {
 }
 
 pub struct RectCmd {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,
@@ -19,10 +20,13 @@ pub struct RectCmd {
   pub radii: [f32; 4],
   pub stroke: [f32; 4],
   pub stroke_color: Color,
+  pub transform: [f32; 4],
+  pub transform_origin: [f32; 2],
   pub clip: ClipRect,
 }
 
 pub struct GlyphCmd {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,
@@ -30,6 +34,8 @@ pub struct GlyphCmd {
   pub color: [f32; 4],
   pub uv_min: [f32; 2],
   pub uv_max: [f32; 2],
+  pub transform: [f32; 4],
+  pub transform_origin: [f32; 2],
   pub clip: ClipRect,
 }
 
