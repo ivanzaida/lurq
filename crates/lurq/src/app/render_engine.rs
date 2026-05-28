@@ -1,8 +1,14 @@
 use raw_window_handle::{DisplayHandle, WindowHandle};
 
-use crate::layout::render_list::RenderList;
+use crate::{app::profiler::RenderProfile, layout::render_list::RenderList};
 
 pub trait RenderEngine {
   fn resize(&mut self, width: u32, height: u32);
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>);
+
+  fn set_profiling_enabled(&mut self, _enabled: bool) {}
+
+  fn last_profile(&self) -> Option<RenderProfile> {
+    None
+  }
 }

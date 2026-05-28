@@ -4,13 +4,18 @@ use std::{
   path::Path,
 };
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage};
+use cosmic_text::{
+  Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent,
+  SwashImage,
+};
 
 use crate::layout::{
   Size,
   render_list::{GlyphAtlas, GlyphCmd},
   text_style::{FontStyle, FontWeight, TextStyle},
 };
+
+const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
 
 #[derive(Clone, PartialEq)]
 struct CacheKey {
@@ -74,6 +79,9 @@ pub(crate) struct GlyphEngine {
   swash_cache: SwashCache,
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<CacheKey, Size>,
+  glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
+  atlas_packer: AtlasPacker,
+  atlas_entries: HashMap<GlyphCacheKey, PackedGlyph>,
   buffer_pool: Vec<Buffer>,
   pub(crate) measure_hits: usize,
   pub(crate) measure_misses: usize,
@@ -91,6 +99,9 @@ impl GlyphEngine {
       swash_cache: SwashCache::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
+      glyph_layout_cache: HashMap::new(),
+      atlas_packer: AtlasPacker::new(),
+      atlas_entries: HashMap::new(),
       buffer_pool: Vec::new(),
       measure_hits: 0,
       measure_misses: 0,
@@ -101,26 +112,40 @@ impl GlyphEngine {
 
   pub(crate) fn load_font(&mut self, data: Vec<u8>) {
     self.font_system.db_mut().load_font_data(data);
-    self.measure_cache.clear();
+    self.clear_text_caches();
+    self.clear_atlas();
   }
 
   pub(crate) fn load_font_file(&mut self, path: &Path) {
     self.font_system.db_mut().load_font_file(path).ok();
-    self.measure_cache.clear();
+    self.clear_text_caches();
+    self.clear_atlas();
   }
 
   pub(crate) fn load_fonts_dir(&mut self, path: &Path) {
     self.font_system.db_mut().load_fonts_dir(path);
-    self.measure_cache.clear();
+    self.clear_text_caches();
+    self.clear_atlas();
   }
 
   pub(crate) fn register_font(&mut self, name: &str, family: &str) {
     self.font_aliases.insert(name.to_owned(), family.to_owned());
-    self.measure_cache.clear();
+    self.clear_text_caches();
+    self.clear_atlas();
   }
 
   pub(crate) fn clear_cache(&mut self) {
+    self.clear_text_caches();
+  }
+
+  fn clear_text_caches(&mut self) {
     self.measure_cache.clear();
+    self.glyph_layout_cache.clear();
+  }
+
+  fn clear_atlas(&mut self) {
+    self.atlas_packer = AtlasPacker::new();
+    self.atlas_entries.clear();
   }
 
   pub(crate) fn reset_stats(&mut self) {
@@ -149,8 +174,15 @@ impl GlyphEngine {
     max_width: f32,
     origin_x: f32,
     origin_y: f32,
-    atlas_packer: &mut AtlasPacker,
   ) -> Vec<GlyphCmd> {
+    let key = CacheKey::new(text, style, max_width);
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    if let Some(cached) = self.glyph_layout_cache.get(&key) {
+      self.glyph_hits += cached.len();
+      return glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h);
+    }
+
     let mut buffer = self.acquire_buffer(style, max_width);
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
@@ -165,43 +197,71 @@ impl GlyphEngine {
     buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
-    let mut cmds = Vec::new();
+    let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
         let physical = glyph.physical((0.0, 0.0), 1.0);
-        let Some(image) = self.swash_cache.get_image(&mut self.font_system, physical.cache_key) else {
+        let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
           continue;
         };
-        if image.placement.width == 0 || image.placement.height == 0 {
-          continue;
-        }
 
-        let gw = image.placement.width;
-        let gh = image.placement.height;
-        let mask = glyph_coverage_mask(&image);
-        let (u0, v0, u1, v1) = atlas_packer.pack(&mask, gw, gh);
+        let gx = origin_x + physical.x as f32 + packed.left as f32;
+        let gy = origin_y + run.line_y + physical.y as f32 - packed.top as f32;
 
-        let gx = origin_x + physical.x as f32 + image.placement.left as f32;
-        let gy = origin_y + run.line_y + physical.y as f32 - image.placement.top as f32;
-
-        cmds.push(GlyphCmd {
-          order: 0,
-          x: gx,
-          y: gy,
-          width: gw as f32,
-          height: gh as f32,
-          color: style.color.to_linear_f32_array(),
-          uv_min: [u0, v0],
-          uv_max: [u1, v1],
-          transform: [1.0, 0.0, 0.0, 1.0],
-          transform_origin: [0.0, 0.0],
-          clip: crate::layout::quad::ClipRect::default(),
+        cached.push(CachedGlyph {
+          x: gx - origin_x,
+          y: gy - origin_y,
+          atlas_x: packed.x,
+          atlas_y: packed.y,
+          width: packed.width,
+          height: packed.height,
         });
       }
     }
 
     self.buffer_pool.push(buffer);
-    cmds
+    if self.glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.glyph_layout_cache.clear();
+    }
+    self.glyph_layout_cache.insert(key, cached.clone());
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h)
+  }
+
+  pub(crate) fn atlas(&self) -> GlyphAtlas {
+    self.atlas_packer.to_atlas()
+  }
+
+  fn get_or_pack_glyph(&mut self, cache_key: GlyphCacheKey) -> Option<PackedGlyph> {
+    if let Some(&packed) = self.atlas_entries.get(&cache_key) {
+      self.glyph_hits += 1;
+      return Some(packed);
+    }
+
+    let Some(image) = self.swash_cache.get_image(&mut self.font_system, cache_key) else {
+      self.glyph_misses += 1;
+      return None;
+    };
+    if image.placement.width == 0 || image.placement.height == 0 {
+      return None;
+    }
+
+    let width = image.placement.width;
+    let height = image.placement.height;
+    let mask = glyph_coverage_mask(&image);
+    let (x, y, width, height) = self.atlas_packer.pack_pixels(&mask, width, height);
+    let packed = PackedGlyph {
+      x,
+      y,
+      width,
+      height,
+      left: image.placement.left,
+      top: image.placement.top,
+    };
+    self.atlas_entries.insert(cache_key, packed);
+    self.glyph_misses += 1;
+    Some(packed)
   }
 
   fn shape_and_measure(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
@@ -278,14 +338,71 @@ impl GlyphEngine {
       .keys()
       .map(|key| key.text.capacity() + key.font_family.len())
       .sum::<usize>();
+    let glyph_layout_cache_bytes = self
+      .glyph_layout_cache
+      .values()
+      .map(|glyphs| glyphs.capacity() * std::mem::size_of::<CachedGlyph>())
+      .sum::<usize>();
 
     std::mem::size_of::<Self>()
       + self.font_aliases.capacity() * std::mem::size_of::<(String, String)>()
       + alias_heap
       + self.measure_cache.capacity() * std::mem::size_of::<(CacheKey, Size)>()
       + measure_key_heap
+      + self.glyph_layout_cache.capacity() * std::mem::size_of::<(CacheKey, Vec<CachedGlyph>)>()
+      + glyph_layout_cache_bytes
       + self.buffer_pool.capacity() * std::mem::size_of::<Buffer>()
   }
+}
+
+#[derive(Clone, Copy)]
+struct PackedGlyph {
+  x: u32,
+  y: u32,
+  width: u32,
+  height: u32,
+  left: i32,
+  top: i32,
+}
+
+#[derive(Clone, Copy)]
+struct CachedGlyph {
+  x: f32,
+  y: f32,
+  atlas_x: u32,
+  atlas_y: u32,
+  width: u32,
+  height: u32,
+}
+
+fn glyph_cmds_from_cached(
+  cached: &[CachedGlyph],
+  origin_x: f32,
+  origin_y: f32,
+  style: &TextStyle,
+  atlas_w: f32,
+  atlas_h: f32,
+) -> Vec<GlyphCmd> {
+  let color = style.color.to_linear_f32_array();
+  cached
+    .iter()
+    .map(|glyph| GlyphCmd {
+      order: 0,
+      x: origin_x + glyph.x,
+      y: origin_y + glyph.y,
+      width: glyph.width as f32,
+      height: glyph.height as f32,
+      color,
+      uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
+      uv_max: [
+        (glyph.atlas_x + glyph.width) as f32 / atlas_w,
+        (glyph.atlas_y + glyph.height) as f32 / atlas_h,
+      ],
+      transform: [1.0, 0.0, 0.0, 1.0],
+      transform_origin: [0.0, 0.0],
+      clip: crate::layout::quad::ClipRect::default(),
+    })
+    .collect()
 }
 
 fn glyph_coverage_mask(image: &SwashImage) -> Vec<u8> {
@@ -324,6 +441,7 @@ pub(crate) struct AtlasPacker {
   cursor_x: u32,
   cursor_y: u32,
   row_height: u32,
+  version: u64,
 }
 
 impl AtlasPacker {
@@ -337,10 +455,21 @@ impl AtlasPacker {
       cursor_x: 0,
       cursor_y: 0,
       row_height: 0,
+      version: 0,
     }
   }
 
+  #[cfg(test)]
   pub(crate) fn pack(&mut self, glyph_data: &[u8], gw: u32, gh: u32) -> (f32, f32, f32, f32) {
+    let (x0, y0, gw, gh) = self.pack_pixels(glyph_data, gw, gh);
+    let u0 = x0 as f32 / self.width as f32;
+    let v0 = y0 as f32 / self.height as f32;
+    let u1 = (x0 + gw) as f32 / self.width as f32;
+    let v1 = (y0 + gh) as f32 / self.height as f32;
+    (u0, v0, u1, v1)
+  }
+
+  fn pack_pixels(&mut self, glyph_data: &[u8], gw: u32, gh: u32) -> (u32, u32, u32, u32) {
     let padding = 1;
     let reserved_width = gw + padding * 2;
     let reserved_height = gh + padding * 2;
@@ -371,12 +500,9 @@ impl AtlasPacker {
 
     self.cursor_x += reserved_width;
     self.row_height = self.row_height.max(reserved_height);
+    self.version += 1;
 
-    let u0 = x0 as f32 / self.width as f32;
-    let v0 = y0 as f32 / self.height as f32;
-    let u1 = (x0 + gw) as f32 / self.width as f32;
-    let v1 = (y0 + gh) as f32 / self.height as f32;
-    (u0, v0, u1, v1)
+    (x0, y0, gw, gh)
   }
 
   pub(crate) fn to_atlas(&self) -> GlyphAtlas {
@@ -384,6 +510,7 @@ impl AtlasPacker {
       data: self.data.clone(),
       width: self.width,
       height: self.height,
+      version: self.version,
     }
   }
 }

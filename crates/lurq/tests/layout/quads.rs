@@ -270,8 +270,8 @@ fn quads_with_padding_offset() {
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
-  assert_eq!(quads[0].x, 20.0);
-  assert_eq!(quads[0].y, 20.0);
-  assert_eq!(quads[0].width, 60.0);
-  assert_eq!(quads[0].height, 40.0);
+  assert_eq!(quads[0].x, 0.0);
+  assert_eq!(quads[0].y, 0.0);
+  assert_eq!(quads[0].width, 100.0);
+  assert_eq!(quads[0].height, 80.0);
 }

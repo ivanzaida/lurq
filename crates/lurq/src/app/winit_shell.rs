@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use winit::{
   application::ApplicationHandler,
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
@@ -15,6 +17,7 @@ use crate::{
 };
 
 type TickFn = Box<dyn FnMut(&mut Runtime)>;
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 pub struct WinitWindow {
   runtime: Runtime,
@@ -91,6 +94,8 @@ impl WinitWindow {
       modifiers: ModifiersState::empty(),
       attrs: Some(self.attrs),
       on_tick: self.on_tick,
+      redraw_pending: false,
+      last_present: Instant::now() - FRAME_INTERVAL,
     };
     event_loop.run_app(&mut handler).unwrap();
   }
@@ -104,15 +109,32 @@ struct WinitHandler {
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   on_tick: Option<TickFn>,
+  redraw_pending: bool,
+  last_present: Instant,
 }
 
 impl WinitHandler {
   fn check_redraw(&mut self) {
-    if self.runtime.needs_redraw() {
-      self.runtime.clear_needs_redraw();
+    if !self.runtime.needs_redraw() {
+      return;
+    }
+
+    if self.last_present.elapsed() >= FRAME_INTERVAL {
+      self.present_now();
+    } else if !self.redraw_pending {
       if let Some(w) = &self.window {
+        self.redraw_pending = true;
         w.request_redraw();
       }
+    }
+  }
+
+  fn present_now(&mut self) {
+    if let Some(w) = &self.window {
+      self.redraw_pending = false;
+      self.runtime.clear_needs_redraw();
+      self.runtime.pass(w);
+      self.last_present = Instant::now();
     }
   }
 
@@ -220,9 +242,8 @@ impl ApplicationHandler for WinitHandler {
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {
-        if let Some(w) = &self.window {
-          self.runtime.pass(w);
-        }
+        self.present_now();
+        self.check_redraw();
       }
       _ => {}
     }

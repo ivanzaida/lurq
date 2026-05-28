@@ -36,6 +36,7 @@ pub enum QuadContent {
   Text {
     text: String,
     style: TextStyle,
+    wrap: bool,
   },
   #[cfg(feature = "image")]
   Image {

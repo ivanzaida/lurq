@@ -54,8 +54,8 @@ macro_rules! impl_into_node {
         self.node.node_id()
       }
 
-      pub fn fill(mut self, hex: &str) -> Self {
-        self.node = self.node.fill(hex);
+      pub fn fill(mut self, col: impl Into<$crate::node::color::Color>) -> Self {
+        self.node = self.node.fill(col);
         self
       }
 

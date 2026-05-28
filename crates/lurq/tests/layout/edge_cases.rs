@@ -335,10 +335,10 @@ fn quads_skip_modifier_wrapper_nodes() {
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
-  // Only the background node produces a quad, not the padding wrapper
+  // Visual properties hoist to outermost modifier — padding wrapper has the color
   assert_eq!(quads.len(), 1);
-  assert_eq!(quads[0].x, 10.0);
-  assert_eq!(quads[0].y, 10.0);
+  assert_eq!(quads[0].x, 0.0);
+  assert_eq!(quads[0].y, 0.0);
 }
 
 #[test]
@@ -415,9 +415,9 @@ fn quads_offset_accumulates_through_nesting() {
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert_eq!(quads.len(), 1);
-  // column offset y=100, row offset x=30, padding offset x=5 y=5
-  assert_eq!(quads[0].x, 30.0 + 5.0);
-  assert_eq!(quads[0].y, 100.0 + 5.0);
+  // column offset y=100, row offset x=30; color hoisted to padding wrapper
+  assert_eq!(quads[0].x, 30.0);
+  assert_eq!(quads[0].y, 100.0);
 }
 
 // --- Unbounded constraints ---

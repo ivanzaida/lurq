@@ -43,4 +43,5 @@ pub struct GlyphAtlas {
   pub data: Vec<u8>,
   pub width: u32,
   pub height: u32,
+  pub version: u64,
 }

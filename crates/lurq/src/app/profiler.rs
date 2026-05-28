@@ -6,6 +6,7 @@ pub struct FrameProfile {
   pub quad_resolve: Duration,
   pub glyph_rasterize: Duration,
   pub gpu_submit: Duration,
+  pub render: RenderProfile,
   pub total: Duration,
   pub quad_count: usize,
   pub rect_count: usize,
@@ -15,6 +16,18 @@ pub struct FrameProfile {
   pub text_measure_cache_hits: usize,
   pub text_measure_cache_misses: usize,
   pub memory: RuntimeMemoryProfile,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct RenderProfile {
+  pub init: Duration,
+  pub acquire: Duration,
+  pub globals_upload: Duration,
+  pub atlas_upload: Duration,
+  pub encode: Duration,
+  pub submit: Duration,
+  pub present: Duration,
+  pub total: Duration,
 }
 
 impl FrameProfile {
@@ -41,12 +54,14 @@ impl std::fmt::Display for FrameProfile {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms gpu={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
+      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render={:.2}ms encode={:.2}ms present={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
       self.total.as_secs_f64() * 1000.0,
       self.layout.as_secs_f64() * 1000.0,
       self.quad_resolve.as_secs_f64() * 1000.0,
       self.glyph_rasterize.as_secs_f64() * 1000.0,
       self.gpu_submit.as_secs_f64() * 1000.0,
+      self.render.encode.as_secs_f64() * 1000.0,
+      self.render.present.as_secs_f64() * 1000.0,
       self.rect_count,
       self.glyph_count,
       self.quad_count,
@@ -101,7 +116,15 @@ impl ProfileScope {
     Self { start: Instant::now() }
   }
 
+  pub(crate) fn maybe_start(enabled: bool) -> Option<Self> {
+    enabled.then(Self::start)
+  }
+
   pub(crate) fn elapsed(&self) -> Duration {
     self.start.elapsed()
+  }
+
+  pub(crate) fn elapsed_or_default(scope: &Option<Self>) -> Duration {
+    scope.as_ref().map(Self::elapsed).unwrap_or_default()
   }
 }

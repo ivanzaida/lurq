@@ -124,12 +124,15 @@ impl LayoutEngine {
 
     let has_visual = node.color().is_some() || node.get_border().is_some();
     let content = match node.node_kind() {
-      NodeKind::Text { style } | NodeKind::TextInput { style, .. } => QuadContent::Text {
-        text: match node.node_kind() {
-          NodeKind::TextInput { state, .. } => state.rendered_text().unwrap_or_default(),
-          _ => node.text_content().unwrap_or_default().to_owned(),
-        },
+      NodeKind::Text { style } => QuadContent::Text {
+        text: node.text_content().unwrap_or_default().to_owned(),
         style: style.clone(),
+        wrap: node.text_wrap,
+      },
+      NodeKind::TextInput { state, style } => QuadContent::Text {
+        text: state.rendered_text().unwrap_or_default(),
+        style: style.clone(),
+        wrap: true,
       },
       NodeKind::Checkbox { state } => QuadContent::Rect {
         color: if state.is_checked() {
@@ -489,7 +492,7 @@ impl LayoutEngine {
     match node.node_kind() {
       NodeKind::Text { style } => {
         let content = node.text_content().unwrap_or_default();
-        return self.layout_text(glyph_engine, content, style, constraints);
+        return self.layout_text(glyph_engine, content, style, constraints, node.text_wrap);
       }
       NodeKind::TextInput { state, style } => {
         let content = state.rendered_text().unwrap_or_default();
@@ -553,14 +556,22 @@ impl LayoutEngine {
     text: &str,
     style: &TextStyle,
     constraints: Constraints,
+    wrap: bool,
   ) -> LayoutResult {
-    let max_width = if constraints.max_width.is_finite() {
+    let max_width = if wrap && constraints.max_width.is_finite() {
       constraints.max_width
     } else {
       f32::MAX
     };
     let measured = glyph_engine.measure_text(text, style, max_width);
-    let size = constraints.constrain(measured);
+    let size = if wrap {
+      constraints.constrain(measured)
+    } else {
+      Size::new(
+        measured.width.max(constraints.min_width),
+        measured.height.max(constraints.min_height),
+      )
+    };
     LayoutResult { size, children: vec![] }
   }
 
@@ -585,6 +596,7 @@ impl LayoutEngine {
         min_height: 0.0,
         ..constraints
       },
+      true,
     );
     let preferred = Size::new(text_result.size.width.max(120.0), text_result.size.height.max(28.0));
     LayoutResult {

@@ -4,7 +4,13 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 
-use crate::{app::render_engine::RenderEngine, layout::render_list::RenderList};
+use crate::{
+  app::{
+    profiler::{ProfileScope, RenderProfile},
+    render_engine::RenderEngine,
+  },
+  layout::render_list::RenderList,
+};
 
 #[cfg(feature = "image")]
 struct CachedImageTexture {
@@ -42,6 +48,9 @@ pub struct WgpuRenderEngine {
   atlas_view: Option<wgpu::TextureView>,
   atlas_sampler: Option<wgpu::Sampler>,
   atlas_size: (u32, u32),
+  atlas_version: u64,
+  last_profile: RenderProfile,
+  profiling_enabled: bool,
   quad_bind_group: Option<wgpu::BindGroup>,
   glyph_bind_group: Option<wgpu::BindGroup>,
   vertex_buffer: Option<wgpu::Buffer>,
@@ -88,6 +97,9 @@ impl WgpuRenderEngine {
       atlas_view: None,
       atlas_sampler: None,
       atlas_size: (0, 0),
+      atlas_version: 0,
+      last_profile: RenderProfile::default(),
+      profiling_enabled: false,
       quad_bind_group: None,
       glyph_bind_group: None,
       vertex_buffer: None,
@@ -520,7 +532,11 @@ impl RenderEngine for WgpuRenderEngine {
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
+    let profiling_enabled = self.profiling_enabled;
+    let total_start = ProfileScope::maybe_start(profiling_enabled);
+    let init_start = ProfileScope::maybe_start(profiling_enabled);
     self.ensure_initialized(window, display);
+    let init_dur = ProfileScope::elapsed_or_default(&init_start);
 
     let device = self.device.as_ref().unwrap();
     let queue = self.queue.as_ref().unwrap();
@@ -529,11 +545,23 @@ impl RenderEngine for WgpuRenderEngine {
     let vtx_buf = self.vertex_buffer.as_ref().unwrap();
     let idx_buf = self.index_buffer.as_ref().unwrap();
 
+    let acquire_start = ProfileScope::maybe_start(profiling_enabled);
     let output = match surface.get_current_texture() {
       Ok(t) => t,
-      Err(_) => return,
+      Err(_) => {
+        if profiling_enabled {
+          self.last_profile = RenderProfile {
+            init: init_dur,
+            acquire: ProfileScope::elapsed_or_default(&acquire_start),
+            total: ProfileScope::elapsed_or_default(&total_start),
+            ..RenderProfile::default()
+          };
+        }
+        return;
+      }
     };
     let view = output.texture.create_view(&Default::default());
+    let acquire_dur = ProfileScope::elapsed_or_default(&acquire_start);
 
     let vw = config.width as f32;
     let vh = config.height as f32;
@@ -546,88 +574,15 @@ impl RenderEngine for WgpuRenderEngine {
       clip_radii_v: [0.0; 4],
       clip_active: [0.0; 4],
     };
+    let globals_start = ProfileScope::maybe_start(profiling_enabled);
     queue.write_buffer(globals_buffer, 0, bytemuck::bytes_of(&globals));
-
-    // --- Build quad batches grouped by clip ---
-    struct QuadBatch {
-      instances: Vec<QuadInstance>,
-      clip: crate::layout::quad::ClipRect,
-    }
-    let mut quad_batches: Vec<QuadBatch> = Vec::new();
-
-    for r in &list.rects {
-      let needs_new_batch = quad_batches.last().is_none_or(|batch| !same_clip(batch.clip, r.clip));
-      if needs_new_batch {
-        quad_batches.push(QuadBatch {
-          instances: Vec::new(),
-          clip: r.clip,
-        });
-      }
-      let batch = quad_batches.last_mut().unwrap();
-
-      batch.instances.push(QuadInstance {
-        pos: [r.x, r.y],
-        size: [r.width, r.height],
-        color: r.color.to_linear_f32_array(),
-        radii_h: r.radii,
-        radii_v: r.radii,
-        stroke: [0.0; 4],
-        pattern: [0.0; 4],
-        transform: r.transform,
-        xf_origin: r.transform_origin,
-        shadow_sigma: 0.0,
-        gradient_offset: -1.0,
-      });
-
-      let has_stroke = r.stroke.iter().any(|s| *s > 0.0);
-      if has_stroke {
-        batch.instances.push(QuadInstance {
-          pos: [r.x, r.y],
-          size: [r.width, r.height],
-          color: r.stroke_color.to_linear_f32_array(),
-          radii_h: r.radii,
-          radii_v: r.radii,
-          stroke: r.stroke,
-          pattern: [0.0; 4],
-          transform: r.transform,
-          xf_origin: r.transform_origin,
-          shadow_sigma: 0.0,
-          gradient_offset: -1.0,
-        });
-      }
-    }
-
-    // --- Build glyph batches grouped by clip ---
-    struct GlyphBatch {
-      instances: Vec<GlyphInstance>,
-      clip: crate::layout::quad::ClipRect,
-    }
-    let mut glyph_batches: Vec<GlyphBatch> = Vec::new();
-
-    for g in &list.glyphs {
-      let needs_new_batch = glyph_batches.last().is_none_or(|batch| !same_clip(batch.clip, g.clip));
-      if needs_new_batch {
-        glyph_batches.push(GlyphBatch {
-          instances: Vec::new(),
-          clip: g.clip,
-        });
-      }
-      let batch = glyph_batches.last_mut().unwrap();
-
-      batch.instances.push(GlyphInstance {
-        pos: [g.x, g.y],
-        size: [g.width, g.height],
-        color: g.color,
-        uv_min: g.uv_min,
-        uv_max: g.uv_max,
-        transform: g.transform,
-        xf_origin: g.transform_origin,
-      });
-    }
+    let globals_dur = ProfileScope::elapsed_or_default(&globals_start);
 
     // Atlas — recreate texture only if size changed
+    let atlas_start = ProfileScope::maybe_start(profiling_enabled);
     let atlas = &list.atlas;
-    if self.atlas_size != (atlas.width, atlas.height) {
+    let atlas_recreated = self.atlas_size != (atlas.width, atlas.height);
+    if atlas_recreated {
       let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("lurq_atlas"),
         size: wgpu::Extent3d {
@@ -666,26 +621,31 @@ impl RenderEngine for WgpuRenderEngine {
       self.glyph_bind_group = Some(glyph_bind_group);
       self.atlas_size = (atlas.width, atlas.height);
     }
-    queue.write_texture(
-      wgpu::TexelCopyTextureInfo {
-        texture: self.atlas_texture.as_ref().unwrap(),
-        mip_level: 0,
-        origin: wgpu::Origin3d::ZERO,
-        aspect: wgpu::TextureAspect::All,
-      },
-      &atlas.data,
-      wgpu::TexelCopyBufferLayout {
-        offset: 0,
-        bytes_per_row: Some(atlas.width),
-        rows_per_image: Some(atlas.height),
-      },
-      wgpu::Extent3d {
-        width: atlas.width,
-        height: atlas.height,
-        depth_or_array_layers: 1,
-      },
-    );
+    if atlas_recreated || self.atlas_version != atlas.version {
+      queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+          texture: self.atlas_texture.as_ref().unwrap(),
+          mip_level: 0,
+          origin: wgpu::Origin3d::ZERO,
+          aspect: wgpu::TextureAspect::All,
+        },
+        &atlas.data,
+        wgpu::TexelCopyBufferLayout {
+          offset: 0,
+          bytes_per_row: Some(atlas.width),
+          rows_per_image: Some(atlas.height),
+        },
+        wgpu::Extent3d {
+          width: atlas.width,
+          height: atlas.height,
+          depth_or_array_layers: 1,
+        },
+      );
+      self.atlas_version = atlas.version;
+    }
+    let atlas_dur = ProfileScope::elapsed_or_default(&atlas_start);
 
+    let encode_start = ProfileScope::maybe_start(profiling_enabled);
     let mut encoder = device.create_command_encoder(&Default::default());
 
     // --- Single render pass with scissor-based clipping ---
@@ -1008,9 +968,36 @@ impl RenderEngine for WgpuRenderEngine {
         }
       }
     }
+    let encode_dur = ProfileScope::elapsed_or_default(&encode_start);
 
+    let submit_start = ProfileScope::maybe_start(profiling_enabled);
     queue.submit(std::iter::once(encoder.finish()));
+    let submit_dur = ProfileScope::elapsed_or_default(&submit_start);
+
+    let present_start = ProfileScope::maybe_start(profiling_enabled);
     output.present();
+    let present_dur = ProfileScope::elapsed_or_default(&present_start);
+
+    if profiling_enabled {
+      self.last_profile = RenderProfile {
+        init: init_dur,
+        acquire: acquire_dur,
+        globals_upload: globals_dur,
+        atlas_upload: atlas_dur,
+        encode: encode_dur,
+        submit: submit_dur,
+        present: present_dur,
+        total: ProfileScope::elapsed_or_default(&total_start),
+      };
+    }
+  }
+
+  fn set_profiling_enabled(&mut self, enabled: bool) {
+    self.profiling_enabled = enabled;
+  }
+
+  fn last_profile(&self) -> Option<RenderProfile> {
+    Some(self.last_profile)
   }
 }
 

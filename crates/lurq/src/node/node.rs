@@ -56,6 +56,7 @@ pub(crate) struct Node {
   pub(crate) layout_kind: LayoutKind,
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
+  pub(crate) text_wrap: bool,
   pub(crate) overflow: Overflow,
   pub(crate) intrinsic_size: Option<Size>,
   pub(crate) color: Guard<Option<Color>>,
@@ -95,6 +96,7 @@ impl Node {
       tag_name: Arc::from("Node"),
       component_slot_id: None,
       text_content: Guard::new(None),
+      text_wrap: true,
       overflow: Overflow::Hidden,
       intrinsic_size: None,
       color: Guard::new(None),
@@ -125,9 +127,37 @@ impl Node {
     self
   }
 
-  fn from_modifier(layout_kind: LayoutKind, child: Node) -> Self {
+  pub fn text_wrap(mut self, wrap: bool) -> Self {
+    self.text_wrap = wrap;
+    self.layout_cache.invalidate();
+    self
+  }
+
+  fn from_modifier(layout_kind: LayoutKind, mut child: Node) -> Self {
     let tag_name = child.tag_name.clone();
-    Self::from_parts(layout_kind, NodeKind::Empty, vec![child]).with_tag_name(tag_name)
+    let color = (*child.color).clone();
+    let border = (*child.border).clone();
+    let border_radius = (*child.border_radius).clone();
+    if color.is_some() {
+      child.color.set(None);
+    }
+    if border.is_some() {
+      child.border.set(None);
+    }
+    if border_radius.is_some() {
+      child.border_radius.set(None);
+    }
+    let mut wrapper = Self::from_parts(layout_kind, NodeKind::Empty, vec![child]).with_tag_name(tag_name);
+    if let Some(c) = color {
+      wrapper.color.set(Some(c));
+    }
+    if let Some(b) = border {
+      wrapper.border.set(Some(b));
+    }
+    if let Some(r) = border_radius {
+      wrapper.border_radius.set(Some(r));
+    }
+    wrapper
   }
 
   pub fn new() -> Self {
@@ -879,6 +909,7 @@ impl Node {
       layout_kind: self.layout_kind.clone(),
       node_kind: self.node_kind.clone(),
       text_content: self.text_content.clone(),
+      text_wrap: self.text_wrap,
       overflow: self.overflow,
       intrinsic_size: self.intrinsic_size,
       color: self.color.clone(),

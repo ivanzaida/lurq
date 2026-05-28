@@ -2,6 +2,7 @@ use lurq::{
   app::Runtime,
   layout::{
     Alignment, Constraints, Size,
+    quad::QuadContent,
     text_style::{FontWeight, TextStyle},
   },
   node::color::Color,
@@ -30,6 +31,29 @@ fn text_height_equals_line_height() {
     expected_height,
     r.size.height
   );
+}
+
+#[test]
+fn nowrap_text_keeps_intrinsic_single_line_width() {
+  let mut rt = rt();
+  let style = TextStyle {
+    font_size: 14.0,
+    ..TextStyle::default()
+  };
+  rt.set_root(lurq::components::Text::styled("x: 1279  y: 450  |  entered: true", style).nowrap());
+  let r = rt.pass_layout(Constraints::loose(Size::new(120.0, 80.0))).unwrap();
+
+  assert!(
+    r.size.width > 120.0,
+    "nowrap text should keep its intrinsic width instead of wrapping to the parent constraint"
+  );
+
+  let quads = rt.resolve_quads(&r);
+  let text_quad = quads
+    .iter()
+    .find(|quad| matches!(quad.content, QuadContent::Text { .. }))
+    .expect("nowrap text should emit a text quad");
+  assert_eq!(text_quad.width, r.size.width);
 }
 
 #[test]

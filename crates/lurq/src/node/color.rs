@@ -24,6 +24,57 @@ impl Color {
     self.a
   }
 
+  pub fn from_rgb_str(value: &str) -> Self {
+    let mut parts = value.split(',').map(str::trim);
+
+    let r = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid red channel");
+
+    let g = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid green channel");
+
+    let b = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid blue channel");
+
+    assert!(parts.next().is_none(), "rgb string must have exactly 3 channels");
+
+    Self { r, g, b, a: 255 }
+  }
+
+  pub fn from_rgba_str(value: &str) -> Self {
+    let mut parts = value.split(',').map(str::trim);
+
+    let r = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid red channel");
+
+    let g = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid green channel");
+
+    let b = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid blue channel");
+
+    let a = parts
+      .next()
+      .and_then(|v| v.parse::<u8>().ok())
+      .expect("invalid alpha channel");
+
+    assert!(parts.next().is_none(), "rgba string must have exactly 4 channels");
+
+    Self { r, g, b, a }
+  }
+
   pub fn to_f32_array(&self) -> [f32; 4] {
     [
       self.r as f32 / 255.0,
@@ -149,6 +200,22 @@ impl Color {
         (l * 100.0).round(),
         self.a as f64 / 255.0
       )
+    }
+  }
+}
+
+impl From<&str> for Color {
+  fn from(s: &str) -> Self {
+    if s.trim().starts_with("hsl") {
+      Self::from_hsl(s)
+    } else if s.trim().starts_with('#') {
+      Self::from_hex(s)
+    } else if s.trim().starts_with("rgba") {
+      Self::from_rgba_str(s)
+    } else if s.trim().starts_with("rgb") {
+      Self::from_rgb_str(s)
+    } else {
+      panic!("unsupported color format: {s}");
     }
   }
 }

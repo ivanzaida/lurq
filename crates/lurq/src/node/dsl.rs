@@ -1,8 +1,8 @@
 use crate::{
   core::Guard,
   layout::{
-    Alignment, StackAlignment,
-    layout_kind::{FrameConstraints, ScrollDirection, ScrollState},
+    layout_kind::{FrameConstraints, ScrollDirection, ScrollState}, Alignment,
+    StackAlignment,
   },
   node::{
     color::Color,
@@ -25,6 +25,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     },
     node_kind: NodeKind::Empty,
     text_content: Guard::new(None),
+    text_wrap: true,
     overflow: crate::layout::layout_kind::Overflow::Hidden,
     intrinsic_size: None,
     color: Guard::new(None),
@@ -188,8 +189,8 @@ impl Node {
     }
   }
 
-  pub fn fill(self, hex: &str) -> Self {
-    self.background(Color::from_hex(hex))
+  pub fn fill(self, col: impl Into<Color>) -> Self {
+    self.background(col.into())
   }
 
   pub fn size(self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {

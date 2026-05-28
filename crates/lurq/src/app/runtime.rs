@@ -6,31 +6,31 @@ use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
     component::Component,
-    ctx::{Ctx, component_tag_name},
+    ctx::{component_tag_name, Ctx},
     events::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
     },
-    glyph_engine::{AtlasPacker, GlyphEngine},
+    glyph_engine::GlyphEngine,
     hit_test::hit_test_tree,
     profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
     render_engine::RenderEngine,
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
-    Constraints, Size,
-    layout_engine::LayoutEngine,
-    layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
+    layout_engine::LayoutEngine, layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
+    Constraints,
+    Size,
   },
   node::{
-    Element, ElementRef, Node,
-    border::BorderPlacement,
-    color::Color,
-    cursor::CursorIcon,
+    border::BorderPlacement, color::Color, cursor::CursorIcon,
     node_kind::{NodeKind, SliderState},
+    Element,
+    ElementRef,
+    Node,
   },
 };
 
@@ -88,11 +88,13 @@ pub struct Runtime {
   focused_event_path: Option<Vec<usize>>,
   cursor: CursorIcon,
   needs_redraw: bool,
+  frame_count: u64,
   last_profile: FrameProfile,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
   #[cfg(feature = "resources")]
   resource_loader: crate::resources::ResourceLoader,
+  profiling_enabled: bool,
 }
 
 impl Default for Runtime {
@@ -128,11 +130,24 @@ impl Runtime {
       focused_event_path: None,
       cursor: CursorIcon::Default,
       needs_redraw: false,
+      frame_count: 0,
       last_profile: FrameProfile::default(),
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       #[cfg(feature = "resources")]
       resource_loader: crate::resources::ResourceLoader::new(),
+      profiling_enabled: false,
+    }
+  }
+
+  pub fn profiling_enabled(&self) -> bool {
+    self.profiling_enabled
+  }
+
+  pub fn set_profiling_enabled(&mut self, enabled: bool) {
+    self.profiling_enabled = enabled;
+    if let Some(engine) = &mut self.render_engine {
+      engine.set_profiling_enabled(enabled);
     }
   }
 
@@ -152,6 +167,10 @@ impl Runtime {
 
   pub fn last_profile(&self) -> &FrameProfile {
     &self.last_profile
+  }
+
+  pub fn frame_count(&self) -> u64 {
+    self.frame_count
   }
 
   pub fn memory_profile(&self) -> RuntimeMemoryProfile {
@@ -213,6 +232,8 @@ impl Runtime {
   }
 
   pub fn set_render_engine(&mut self, engine: Box<dyn RenderEngine>) {
+    let mut engine = engine;
+    engine.set_profiling_enabled(self.profiling_enabled);
     self.render_engine = Some(engine);
   }
 
@@ -318,8 +339,16 @@ impl Runtime {
   }
 
   pub fn pass(&mut self, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
+    let profiling_enabled = self.profiling_enabled;
+    let frame_start = ProfileScope::maybe_start(profiling_enabled);
     let scale = self.scale_factor();
+    if profiling_enabled {
+      self.glyph_engine.reset_stats();
+    }
+
+    let layout_start = ProfileScope::maybe_start(profiling_enabled);
     self.update_layout();
+    let layout_dur = ProfileScope::elapsed_or_default(&layout_start);
 
     let root = match &self.root {
       Some(r) => r,
@@ -332,27 +361,21 @@ impl Runtime {
 
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
-    let frame_start = ProfileScope::start();
 
-    self.glyph_engine.reset_stats();
-
-    let layout_start = ProfileScope::start();
     let result = match self.last_layout.take() {
       Some(result) => result,
       None => return,
     };
-    let layout_dur = layout_start.elapsed();
 
-    let quad_start = ProfileScope::start();
+    let quad_start = ProfileScope::maybe_start(profiling_enabled);
     let quads = self.layout_engine.resolve_quads(root, &result);
-    let quad_dur = quad_start.elapsed();
+    let quad_dur = ProfileScope::elapsed_or_default(&quad_start);
     let quad_count = quads.len();
 
     self.last_layout = Some(result);
 
-    let glyph_start = ProfileScope::start();
+    let glyph_start = ProfileScope::maybe_start(profiling_enabled);
     let mut rects = Vec::with_capacity(quad_count);
-    let mut atlas_packer = AtlasPacker::new();
     let mut glyphs = Vec::with_capacity(quad_count * 4);
     #[cfg(feature = "image")]
     let mut images = Vec::new();
@@ -371,6 +394,18 @@ impl Runtime {
       } else {
         ClipRect::default()
       };
+
+      let scaled_x = quad.x * scale;
+      let scaled_y = quad.y * scale;
+      let scaled_width = quad.width * scale;
+      let scaled_height = quad.height * scale;
+      if matches!(&quad.content, QuadContent::Text { .. })
+        && quad.transform.is_identity()
+        && scaled_clip.active
+        && !rect_intersects_clip(scaled_x, scaled_y, scaled_width, scaled_height, scaled_clip)
+      {
+        continue;
+      }
 
       match &quad.content {
         QuadContent::Rect { color } => {
@@ -431,18 +466,18 @@ impl Runtime {
             clip: scaled_clip,
           });
         }
-        QuadContent::Text { text, style } => {
+        QuadContent::Text { text, style, wrap } => {
           let mut scaled_style = style.clone();
           scaled_style.font_size *= scale;
-          let max_width = if quad.width > 0.0 { quad.width * scale } else { f32::MAX };
-          let mut glyph_cmds = self.glyph_engine.rasterize_text(
-            text,
-            &scaled_style,
-            max_width,
-            quad.x * scale,
-            quad.y * scale,
-            &mut atlas_packer,
-          );
+          let max_width = if *wrap && quad.width > 0.0 {
+            quad.width * scale
+          } else {
+            f32::MAX
+          };
+          let mut glyph_cmds =
+            self
+              .glyph_engine
+              .rasterize_text(text, &scaled_style, max_width, quad.x * scale, quad.y * scale);
           let glyph_xf = quad.transform.matrix_2x2();
           let quad_cx = quad.x * scale + quad.width * scale * 0.5;
           let quad_cy = quad.y * scale + quad.height * scale * 0.5;
@@ -487,7 +522,7 @@ impl Runtime {
       }
     }
 
-    let glyph_dur = glyph_start.elapsed();
+    let glyph_dur = ProfileScope::elapsed_or_default(&glyph_start);
     let rect_count = rects.len();
     let glyph_count = glyphs.len();
 
@@ -498,28 +533,33 @@ impl Runtime {
       images,
       #[cfg(feature = "svg")]
       svgs,
-      atlas: atlas_packer.to_atlas(),
+      atlas: self.glyph_engine.atlas(),
     };
 
-    let gpu_start = ProfileScope::start();
+    let gpu_start = ProfileScope::maybe_start(profiling_enabled);
     render_engine.render(&list, window, display);
-    let gpu_dur = gpu_start.elapsed();
+    let gpu_dur = ProfileScope::elapsed_or_default(&gpu_start);
 
-    self.last_profile = FrameProfile {
-      layout: layout_dur,
-      quad_resolve: quad_dur,
-      glyph_rasterize: glyph_dur,
-      gpu_submit: gpu_dur,
-      total: frame_start.elapsed(),
-      quad_count,
-      rect_count,
-      glyph_count,
-      glyph_cache_hits: self.glyph_engine.glyph_hits,
-      glyph_cache_misses: self.glyph_engine.glyph_misses,
-      text_measure_cache_hits: self.glyph_engine.measure_hits,
-      text_measure_cache_misses: self.glyph_engine.measure_misses,
-      memory: self.memory_profile(),
-    };
+    if profiling_enabled {
+      let render_profile = render_engine.last_profile().unwrap_or_default();
+      self.last_profile = FrameProfile {
+        layout: layout_dur,
+        quad_resolve: quad_dur,
+        glyph_rasterize: glyph_dur,
+        gpu_submit: gpu_dur,
+        render: render_profile,
+        total: ProfileScope::elapsed_or_default(&frame_start),
+        quad_count,
+        rect_count,
+        glyph_count,
+        glyph_cache_hits: self.glyph_engine.glyph_hits,
+        glyph_cache_misses: self.glyph_engine.glyph_misses,
+        text_measure_cache_hits: self.glyph_engine.measure_hits,
+        text_measure_cache_misses: self.glyph_engine.measure_misses,
+        memory: self.memory_profile(),
+      };
+    }
+    self.frame_count += 1;
   }
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
@@ -1729,4 +1769,8 @@ fn apply_opacity(color: Color, opacity: f32) -> Color {
   }
   let a = (color.a() as f32 * opacity.clamp(0.0, 1.0)).round() as u8;
   Color::new(color.r(), color.g(), color.b(), a)
+}
+
+fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {
+  x < clip.x + clip.width && x + width > clip.x && y < clip.y + clip.height && y + height > clip.y
 }
