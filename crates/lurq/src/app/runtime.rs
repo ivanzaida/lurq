@@ -443,11 +443,13 @@ impl Runtime {
             &mut atlas_packer,
           );
           let glyph_xf = quad.transform.matrix_2x2();
+          let quad_cx = quad.x * scale + quad.width * scale * 0.5;
+          let quad_cy = quad.y * scale + quad.height * scale * 0.5;
           for g in &mut glyph_cmds {
             g.order = order;
             g.clip = scaled_clip;
             g.transform = glyph_xf;
-            g.transform_origin = [g.width * 0.5, g.height * 0.5];
+            g.transform_origin = [quad_cx - g.x, quad_cy - g.y];
           }
           glyphs.extend(glyph_cmds);
         }

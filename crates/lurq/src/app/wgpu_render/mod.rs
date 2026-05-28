@@ -747,8 +747,8 @@ impl RenderEngine for WgpuRenderEngine {
               radii_v: r.radii,
               stroke: [0.0; 4],
               pattern: [0.0; 4],
-              transform: [1.0, 0.0, 0.0, 1.0],
-              xf_origin: [0.0, 0.0],
+              transform: r.transform,
+              xf_origin: r.transform_origin,
               shadow_sigma: 0.0,
               gradient_offset: -1.0,
             });
@@ -761,8 +761,8 @@ impl RenderEngine for WgpuRenderEngine {
                 radii_v: r.radii,
                 stroke: r.stroke,
                 pattern: [0.0; 4],
-                transform: [1.0, 0.0, 0.0, 1.0],
-                xf_origin: [0.0, 0.0],
+                transform: r.transform,
+                xf_origin: r.transform_origin,
                 shadow_sigma: 0.0,
                 gradient_offset: -1.0,
               });
@@ -796,8 +796,8 @@ impl RenderEngine for WgpuRenderEngine {
                 color: g.color,
                 uv_min: g.uv_min,
                 uv_max: g.uv_max,
-                transform: [1.0, 0.0, 0.0, 1.0],
-                xf_origin: [0.0, 0.0],
+                transform: g.transform,
+                xf_origin: g.transform_origin,
               })
               .collect();
             let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
