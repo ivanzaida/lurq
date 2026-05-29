@@ -1,4 +1,8 @@
-use std::{path::Path, sync::Arc};
+use std::{
+  path::Path,
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
@@ -33,6 +37,9 @@ use crate::{
     node_kind::{NodeKind, SliderState},
   },
 };
+
+const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
@@ -87,6 +94,7 @@ pub struct Runtime {
   focused_path: Option<Vec<usize>>,
   focused_event_path: Option<Vec<usize>>,
   cursor: CursorIcon,
+  click_tracker: ClickTracker,
   needs_redraw: bool,
   frame_count: u64,
   last_profile: FrameProfile,
@@ -133,6 +141,7 @@ impl Runtime {
       focused_path: None,
       focused_event_path: None,
       cursor: CursorIcon::Default,
+      click_tracker: ClickTracker::default(),
       needs_redraw: false,
       frame_count: 0,
       last_profile: FrameProfile::default(),
@@ -632,6 +641,11 @@ impl Runtime {
 
   pub fn click(&mut self, x: f32, y: f32, button: MouseButton) {
     self.dispatch_mouse(x, y, button, MouseEventKind::Click);
+    let is_double_click = self.click_tracker.record_click(Instant::now(), (x, y), button);
+    if is_double_click {
+      self.apply_reactive_updates_after_event();
+      self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
+    }
     self.apply_reactive_updates_after_event();
   }
 
@@ -1669,6 +1683,46 @@ impl ActiveDrag {
       drop_result,
     }
   }
+}
+
+#[derive(Default)]
+struct ClickTracker {
+  last_click: Option<LastClick>,
+}
+
+impl ClickTracker {
+  fn record_click(&mut self, now: Instant, position: (f32, f32), button: MouseButton) -> bool {
+    let is_double_click = self.last_click.is_some_and(|last| {
+      last.button == button
+        && now.duration_since(last.time) <= DOUBLE_CLICK_INTERVAL
+        && distance_squared(last.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+    });
+
+    if is_double_click {
+      self.last_click = None;
+    } else {
+      self.last_click = Some(LastClick {
+        time: now,
+        position,
+        button,
+      });
+    }
+
+    is_double_click
+  }
+}
+
+#[derive(Clone, Copy)]
+struct LastClick {
+  time: Instant,
+  position: (f32, f32),
+  button: MouseButton,
+}
+
+fn distance_squared(a: (f32, f32), b: (f32, f32)) -> f32 {
+  let dx = a.0 - b.0;
+  let dy = a.1 - b.1;
+  dx * dx + dy * dy
 }
 
 impl Drop for Runtime {
