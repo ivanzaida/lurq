@@ -1,4 +1,5 @@
 mod cursor;
+mod double_click;
 mod drag;
 mod element_lookup {
   mod mutates_rect;

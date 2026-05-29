@@ -18,6 +18,8 @@ use crate::{
 
 type TickFn = Box<dyn FnMut(&mut Runtime)>;
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+const DOUBLE_CLICK_DISTANCE: f64 = 4.0;
 
 pub struct WinitWindow {
   runtime: Runtime,
@@ -96,6 +98,7 @@ impl WinitWindow {
       on_tick: self.on_tick,
       redraw_pending: false,
       last_present: Instant::now() - FRAME_INTERVAL,
+      click_tracker: ClickTracker::default(),
     };
     event_loop.run_app(&mut handler).unwrap();
   }
@@ -111,6 +114,7 @@ struct WinitHandler {
   on_tick: Option<TickFn>,
   redraw_pending: bool,
   last_present: Instant,
+  click_tracker: ClickTracker,
 }
 
 impl WinitHandler {
@@ -205,6 +209,9 @@ impl ApplicationHandler for WinitHandler {
           ElementState::Released => {
             self.runtime.mouse_up(x, y, btn);
             self.runtime.click(x, y, btn);
+            if self.click_tracker.record_click(Instant::now(), self.cursor_pos, btn) {
+              self.runtime.dblclick(x, y, btn);
+            }
           }
         }
         self.apply_cursor();
@@ -260,6 +267,46 @@ impl ApplicationHandler for WinitHandler {
       self.check_redraw();
     }
   }
+}
+
+#[derive(Default)]
+struct ClickTracker {
+  last_click: Option<LastClick>,
+}
+
+impl ClickTracker {
+  fn record_click(&mut self, now: Instant, position: (f64, f64), button: MouseButton) -> bool {
+    let is_double_click = self.last_click.is_some_and(|last| {
+      last.button == button
+        && now.duration_since(last.time) <= DOUBLE_CLICK_INTERVAL
+        && distance_squared(last.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+    });
+
+    if is_double_click {
+      self.last_click = None;
+    } else {
+      self.last_click = Some(LastClick {
+        time: now,
+        position,
+        button,
+      });
+    }
+
+    is_double_click
+  }
+}
+
+#[derive(Clone, Copy)]
+struct LastClick {
+  time: Instant,
+  position: (f64, f64),
+  button: MouseButton,
+}
+
+fn distance_squared(a: (f64, f64), b: (f64, f64)) -> f64 {
+  let dx = a.0 - b.0;
+  let dy = a.1 - b.1;
+  dx * dx + dy * dy
 }
 
 fn key_to_string(event: &winit::event::KeyEvent) -> String {
@@ -337,5 +384,42 @@ fn to_winit_cursor(cursor: CursorIcon) -> WinitCursorIcon {
     CursorIcon::ZoomOut => WinitCursorIcon::ZoomOut,
     CursorIcon::DndAsk => WinitCursorIcon::DndAsk,
     CursorIcon::AllResize => WinitCursorIcon::AllResize,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn click_tracker_detects_second_nearby_click_within_interval() {
+    let mut tracker = ClickTracker::default();
+    let now = Instant::now();
+
+    assert!(!tracker.record_click(now, (20.0, 30.0), MouseButton::Left));
+    assert!(tracker.record_click(now + Duration::from_millis(250), (22.0, 31.0), MouseButton::Left));
+  }
+
+  #[test]
+  fn click_tracker_rejects_slow_or_distant_or_different_button_clicks() {
+    let mut tracker = ClickTracker::default();
+    let now = Instant::now();
+
+    assert!(!tracker.record_click(now, (20.0, 30.0), MouseButton::Left));
+    assert!(!tracker.record_click(
+      now + DOUBLE_CLICK_INTERVAL + Duration::from_millis(1),
+      (20.0, 30.0),
+      MouseButton::Left
+    ));
+    assert!(!tracker.record_click(
+      now + DOUBLE_CLICK_INTERVAL + Duration::from_millis(2),
+      (20.0, 30.0),
+      MouseButton::Right
+    ));
+    assert!(!tracker.record_click(
+      now + DOUBLE_CLICK_INTERVAL + Duration::from_millis(3),
+      (20.0 + DOUBLE_CLICK_DISTANCE + 1.0, 30.0),
+      MouseButton::Right
+    ));
   }
 }
