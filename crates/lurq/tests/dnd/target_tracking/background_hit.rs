@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, Rect, Stack},
   node::{Element, color::Color},
 };
@@ -55,8 +55,8 @@ impl Component for AbsoluteDraggableInContainer {
 #[test]
 fn background_click_inside_drag_container_does_not_start_absolute_draggable_drag() {
   let starts = Arc::new(Mutex::new(0));
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<AbsoluteDraggableInContainer>(Shared(starts.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<AbsoluteDraggableInContainer>(Theme::default(), Shared(starts.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(150.0, 50.0, MouseButton::Left);

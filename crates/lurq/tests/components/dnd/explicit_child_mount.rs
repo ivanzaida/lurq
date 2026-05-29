@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Stack},
   node::{Element, color::Color},
 };
@@ -60,8 +60,8 @@ impl Component for ExplicitDragContainerChild {
 
 #[test]
 fn draggable_mount_accepts_one_explicit_child() {
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<ExplicitDraggableChild>(());
+  let mut runtime = Tree::new();
+  runtime.mount_root::<ExplicitDraggableChild>(Theme::default(), ());
 
   let child = runtime.find_element(|element| element.color() == Some(CHILD_COLOR));
 
@@ -70,8 +70,8 @@ fn draggable_mount_accepts_one_explicit_child() {
 
 #[test]
 fn drop_zone_mount_accepts_one_explicit_child() {
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<ExplicitDropZoneChild>(());
+  let mut runtime = Tree::new();
+  runtime.mount_root::<ExplicitDropZoneChild>(Theme::default(), ());
 
   let child = runtime.find_element(|element| element.color() == Some(CHILD_COLOR));
 
@@ -80,8 +80,8 @@ fn drop_zone_mount_accepts_one_explicit_child() {
 
 #[test]
 fn drag_container_mount_accepts_one_explicit_child() {
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<ExplicitDragContainerChild>(());
+  let mut runtime = Tree::new();
+  runtime.mount_root::<ExplicitDragContainerChild>(Theme::default(), ());
 
   let child = runtime.find_element(|element| element.color() == Some(CHILD_COLOR));
 

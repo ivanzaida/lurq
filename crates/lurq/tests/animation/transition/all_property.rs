@@ -1,6 +1,6 @@
 use lurq::{
   animation::Transition,
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
 };
@@ -9,7 +9,7 @@ use crate::support::{render_pass, run_pass};
 
 #[test]
 fn transition_all_applies_to_background_color() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
     .fill("#ff0000")
@@ -38,7 +38,7 @@ fn transition_all_applies_to_background_color() {
 
 #[test]
 fn transition_all_width_stays_at_hover_target_after_completion() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(120.0, 32.0)
     .fill("#3b82f6")
@@ -65,7 +65,7 @@ fn transition_all_width_stays_at_hover_target_after_completion() {
 
 #[test]
 fn transition_all_width_reverses_to_base_after_hover_leave() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(120.0, 32.0)
     .fill("#3b82f6")
@@ -99,7 +99,7 @@ fn transition_all_width_reverses_to_base_after_hover_leave() {
 
 #[test]
 fn overlapping_transition_specs_do_not_restart_width_after_reverse() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(120.0, 32.0)
     .fill("#3b82f6")
@@ -127,7 +127,7 @@ fn overlapping_transition_specs_do_not_restart_width_after_reverse() {
 
 #[test]
 fn transition_state_is_cleared_when_root_is_replaced() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
 
   let first = lurq::components::Rect::new(120.0, 32.0)

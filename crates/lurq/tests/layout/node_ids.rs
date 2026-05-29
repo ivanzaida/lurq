@@ -1,15 +1,15 @@
 use std::collections::HashSet;
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
   core::{NodeId, Signal},
   node::{Element, ElementRef},
 };
 
 use crate::support::run_pass;
 
-fn rt() -> Runtime {
-  Runtime::new()
+fn rt() -> Tree {
+  Tree::new()
 }
 
 fn count_nodes(node: ElementRef<'_>) -> usize {
@@ -225,7 +225,7 @@ fn replacing_root_new_tree_fully_assigned() {
 #[test]
 fn rebuild_preserves_matching_node_ids() {
   let mut rt = rt();
-  rt.mount_root::<StableRoot>(());
+  rt.mount_root::<StableRoot>(Theme::default(), ());
   let mut before = Vec::new();
   collect_ids(rt.root().unwrap(), &mut before);
 
@@ -240,7 +240,7 @@ fn rebuild_preserves_matching_node_ids() {
 fn dirty_subtree_refresh_preserves_matching_node_ids() {
   let signal = Signal::new(0);
   let mut rt = rt();
-  rt.mount_root::<SignalParent>(SignalProp(signal.clone()));
+  rt.mount_root::<SignalParent>(Theme::default(), SignalProp(signal.clone()));
   let mut before = Vec::new();
   collect_ids(rt.root().unwrap(), &mut before);
 

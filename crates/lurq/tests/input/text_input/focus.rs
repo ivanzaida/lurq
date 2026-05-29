@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
   node::color::Color,
 };
@@ -15,7 +15,7 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
   let first_blur = Arc::new(AtomicUsize::new(0));
   let second_focus = Arc::new(AtomicUsize::new(0));
 
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(
     lurq::components::Row::new()
       .spacing(8.0)

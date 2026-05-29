@@ -1,9 +1,10 @@
 use lurq::{
   app::{
-    Runtime,
+    Tree,
     component::Component,
     ctx::Ctx,
     events::{MouseButton, ScrollPhase},
+    theme::Theme,
   },
   components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
   core::Signal,
@@ -38,8 +39,8 @@ impl Component for ScrollRerender {
 
 #[test]
 fn scroll_state_survives_signal_driven_rerender() {
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<ScrollRerender>(());
+  let mut runtime = Tree::new();
+  runtime.mount_root::<ScrollRerender>(Theme::default(), ());
 
   run_pass(&mut runtime);
   runtime.scroll(10.0, 10.0, 0.0, -60.0, ScrollPhase::Scroll);
@@ -61,7 +62,7 @@ fn scroll_state_survives_signal_driven_rerender() {
 
 #[test]
 fn horizontal_scroll_responds_to_wheel_delta_x() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(ScrollHorizontal::new(Rect::new(400.0, 100.0).background(CONTENT_COLOR)).size(100.0, 100.0));
 
   run_pass(&mut runtime);
@@ -76,7 +77,7 @@ fn horizontal_scroll_responds_to_wheel_delta_x() {
 
 #[test]
 fn horizontal_scrollbar_thumb_drags_content() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(ScrollHorizontal::new(Rect::new(400.0, 100.0).background(CONTENT_COLOR)).size(100.0, 100.0));
 
   run_pass(&mut runtime);
@@ -93,7 +94,7 @@ fn horizontal_scrollbar_thumb_drags_content() {
 
 #[test]
 fn vertical_scroll_bubbles_to_parent_when_child_is_at_edge() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   let parent_state = ScrollState::new();
   let child_state = ScrollState::new();
 
@@ -121,7 +122,7 @@ fn vertical_scroll_bubbles_to_parent_when_child_is_at_edge() {
 
 #[test]
 fn horizontal_scroll_bubbles_to_parent_when_child_is_at_edge() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   let parent_state = ScrollState::new();
   let child_state = ScrollState::new();
 

@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row},
   core::Signal,
   node::{Element, color::Color},
@@ -16,7 +16,7 @@ fn drag_move_continues_after_pointer_leaves_source_bounds() {
   let moves = Arc::new(Mutex::new(Vec::new()));
   let captured = moves.clone();
 
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(Rect::new(100.0, 100.0).on_drag_move(move |event| {
     captured
       .lock()
@@ -36,7 +36,7 @@ fn drag_end_fires_even_when_pointer_is_released_outside_source_bounds() {
   let ends = Arc::new(Mutex::new(Vec::new()));
   let captured = ends.clone();
 
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(Rect::new(100.0, 100.0).on_drag_end(move |event| {
     captured
       .lock()
@@ -56,7 +56,7 @@ fn drag_reports_incremental_and_total_deltas() {
   let moves = Arc::new(Mutex::new(Vec::new()));
   let captured = moves.clone();
 
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(Rect::new(100.0, 100.0).on_drag_move(move |event| {
     captured
       .lock()
@@ -79,8 +79,8 @@ fn drag_reports_incremental_and_total_deltas() {
 fn drop_dispatches_to_hit_drop_target_on_release() {
   let drops = Arc::new(Mutex::new(Vec::new()));
 
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<DropDispatch>(Shared(drops.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<DropDispatch>(Theme::default(), Shared(drops.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
@@ -180,8 +180,8 @@ impl Component for DragRerender {
 #[test]
 fn signal_driven_rerender_does_not_cancel_active_drag() {
   let moves = Arc::new(Mutex::new(Vec::new()));
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<DragRerender>(Shared(moves.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<DragRerender>(Theme::default(), Shared(moves.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
@@ -222,8 +222,8 @@ impl Component for BoundedDrag {
 
 #[test]
 fn drag_container_clamps_draggable_to_container_bounds() {
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<BoundedDrag>(());
+  let mut runtime = Tree::new();
+  runtime.mount_root::<BoundedDrag>(Theme::default(), ());
 
   run_pass(&mut runtime);
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
@@ -275,8 +275,8 @@ impl Component for DemoBoundedDrag {
 
 #[test]
 fn drag_container_clamp_survives_drag_start_rerender() {
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<DemoBoundedDrag>(());
+  let mut runtime = Tree::new();
+  runtime.mount_root::<DemoBoundedDrag>(Theme::default(), ());
 
   run_pass(&mut runtime);
   runtime.mouse_down(30.0, 50.0, MouseButton::Left);

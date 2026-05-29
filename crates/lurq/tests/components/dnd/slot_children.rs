@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect},
   node::Element,
 };
@@ -91,35 +91,35 @@ impl Component for DragContainerWithSlotChild {
 #[test]
 #[should_panic(expected = "Draggable requires an explicit child")]
 fn draggable_rejects_missing_explicit_child() {
-  Runtime::new().mount_root::<DraggableWithoutExplicitChild>(());
+  Tree::new().mount_root::<DraggableWithoutExplicitChild>(Theme::default(), ());
 }
 
 #[test]
 #[should_panic(expected = "Draggable does not accept slot children")]
 fn draggable_rejects_slot_children() {
-  Runtime::new().mount_root::<DraggableWithSlotChild>(());
+  Tree::new().mount_root::<DraggableWithSlotChild>(Theme::default(), ());
 }
 
 #[test]
 #[should_panic(expected = "DropZone requires an explicit child")]
 fn drop_zone_rejects_missing_explicit_child() {
-  Runtime::new().mount_root::<DropZoneWithoutExplicitChild>(());
+  Tree::new().mount_root::<DropZoneWithoutExplicitChild>(Theme::default(), ());
 }
 
 #[test]
 #[should_panic(expected = "DropZone does not accept slot children")]
 fn drop_zone_rejects_slot_children() {
-  Runtime::new().mount_root::<DropZoneWithSlotChild>(());
+  Tree::new().mount_root::<DropZoneWithSlotChild>(Theme::default(), ());
 }
 
 #[test]
 #[should_panic(expected = "DragContainer requires an explicit child")]
 fn drag_container_rejects_missing_explicit_child() {
-  Runtime::new().mount_root::<DragContainerWithoutExplicitChild>(());
+  Tree::new().mount_root::<DragContainerWithoutExplicitChild>(Theme::default(), ());
 }
 
 #[test]
 #[should_panic(expected = "DragContainer does not accept slot children")]
 fn drag_container_rejects_slot_children() {
-  Runtime::new().mount_root::<DragContainerWithSlotChild>(());
+  Tree::new().mount_root::<DragContainerWithSlotChild>(Theme::default(), ());
 }

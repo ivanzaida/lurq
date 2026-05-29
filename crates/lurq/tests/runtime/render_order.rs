@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   components::{Image, Rect, Stack},
   images::ImageData,
 };
@@ -9,7 +9,7 @@ use crate::support::render_pass;
 #[test]
 fn image_command_carries_structural_order() {
   let image = ImageData::from_rgba(vec![255, 255, 255, 255], 1, 1);
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(
     Stack::new()
       .child(Rect::new(10.0, 10.0).fill("#ef4444"))

@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   components::{
     Checkbox, Column, Rect, Row, ScrollBoth, ScrollHorizontal, ScrollVertical, Slider, Spacer, Stack, Text, TextInput,
   },
@@ -8,7 +8,7 @@ use lurq::{
 };
 
 fn root_tag_name(element: impl Into<Element>) -> String {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(element);
   runtime.root().unwrap().tag_name().to_owned()
 }

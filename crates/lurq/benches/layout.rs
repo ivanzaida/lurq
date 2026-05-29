@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use lurq::{
-  app::runtime::Runtime,
+  app::runtime::Tree,
   components::{Column, Rect, Row, Text},
   layout::Alignment,
   node::Element,
@@ -64,7 +64,7 @@ fn bench_layout_compute(c: &mut Criterion) {
 
   for count in [10, 50, 100, 500, 1000] {
     group.bench_with_input(BenchmarkId::new("flat_rects", count), &count, |b, &count| {
-      let mut rt = Runtime::new();
+      let mut rt = Tree::new();
       rt.resize(1200, 800);
       b.iter(|| {
         rt.set_root(build_flat_rects(count));
@@ -75,7 +75,7 @@ fn bench_layout_compute(c: &mut Criterion) {
 
   for count in [10, 50, 100, 500] {
     group.bench_with_input(BenchmarkId::new("text_heavy", count), &count, |b, &count| {
-      let mut rt = Runtime::new();
+      let mut rt = Tree::new();
       rt.resize(1200, 800);
       b.iter(|| {
         rt.set_root(build_text_heavy(count));
@@ -90,7 +90,7 @@ fn bench_layout_compute(c: &mut Criterion) {
       BenchmarkId::new("nested_rows", &label),
       &(depth, items),
       |b, &(d, i)| {
-        let mut rt = Runtime::new();
+        let mut rt = Tree::new();
         rt.resize(1200, 800);
         b.iter(|| {
           rt.set_root(build_nested_rows(d, i));
@@ -101,7 +101,7 @@ fn bench_layout_compute(c: &mut Criterion) {
   }
 
   group.bench_function("mixed_dashboard", |b| {
-    let mut rt = Runtime::new();
+    let mut rt = Tree::new();
     rt.resize(1200, 800);
     b.iter(|| {
       rt.set_root(build_mixed_dashboard());
@@ -117,7 +117,7 @@ fn bench_layout_cached(c: &mut Criterion) {
 
   for count in [100, 500, 1000] {
     group.bench_with_input(BenchmarkId::new("flat_rects_rebuild", count), &count, |b, &count| {
-      let mut rt = Runtime::new();
+      let mut rt = Tree::new();
       rt.resize(1200, 800);
       rt.set_root(build_flat_rects(count));
       rt.rebuild();

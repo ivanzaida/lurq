@@ -1,9 +1,9 @@
-use lurq::{app::Runtime, core::Signal};
+use lurq::{app::Tree, core::Signal};
 
 #[test]
 fn renders_current_value_and_can_be_found_by_rendered_text() {
   let value = Signal::new("Ada".to_owned());
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value).placeholder("Name"));
 
@@ -14,7 +14,7 @@ fn renders_current_value_and_can_be_found_by_rendered_text() {
 #[test]
 fn renders_placeholder_when_value_is_empty() {
   let value = Signal::new(String::new());
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value).placeholder("Name"));
 

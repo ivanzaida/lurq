@@ -1,12 +1,12 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
 };
 
 #[test]
 fn focused_text_input_appends_key_down_text_to_signal() {
   let value = Signal::new(String::new());
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()).placeholder("Name"));
   let rect = runtime
@@ -24,7 +24,7 @@ fn focused_text_input_appends_key_down_text_to_signal() {
 #[test]
 fn displayed_text_updates_after_typing() {
   let value = Signal::new(String::new());
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()).placeholder("Name"));
   let rect = runtime.find_element(|_| true).unwrap().bounds();

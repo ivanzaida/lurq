@@ -1,6 +1,6 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, AnimationDirection, AnimationIterationCount, Keyframes},
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -8,7 +8,7 @@ use crate::support::run_pass;
 
 #[test]
 fn reverse_direction_starts_from_end() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("opacity-up")
@@ -42,7 +42,7 @@ fn reverse_direction_starts_from_end() {
 
 #[test]
 fn alternate_direction_reverses_on_second_iteration() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("opacity-up")

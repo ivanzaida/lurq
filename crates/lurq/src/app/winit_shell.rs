@@ -135,6 +135,9 @@ impl WinitHandler {
 
   fn present_now(&mut self) {
     if let Some(w) = &self.window {
+      let size = w.inner_size();
+      self.tree.set_scale_factor(w.scale_factor() as f32);
+      self.tree.resize(size.width, size.height);
       self.redraw_pending = false;
       self.tree.clear_needs_redraw();
       self.tree.pass(&mut self.app, w);
@@ -264,7 +267,6 @@ impl ApplicationHandler for WinitHandler {
       self.check_redraw();
     }
   }
-
 }
 
 fn key_to_string(event: &winit::event::KeyEvent) -> String {

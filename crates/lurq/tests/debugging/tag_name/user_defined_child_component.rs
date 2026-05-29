@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
   components::{Column, Text},
   node::Element,
 };
@@ -34,9 +34,9 @@ impl Component for ChildLabel {
 
 #[test]
 fn mounted_child_component_emits_component_tag_name() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
-  runtime.mount_root::<ParentPanel>(());
+  runtime.mount_root::<ParentPanel>(Theme::default(), ());
   let root = runtime.root().unwrap();
   let child = root.children().iter().next().unwrap();
 

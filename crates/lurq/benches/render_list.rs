@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use lurq::{
-  app::runtime::Runtime,
+  app::runtime::Tree,
   components::{Column, Rect, Row, Text},
   layout::Alignment,
   node::Element,
@@ -55,7 +55,7 @@ fn bench_full_pass(c: &mut Criterion) {
 
   for count in [10, 50, 100, 200] {
     group.bench_with_input(BenchmarkId::new("sidebar_content", count), &count, |b, &count| {
-      let mut rt = Runtime::new();
+      let mut rt = Tree::new();
       rt.resize(1200, 800);
       rt.set_root(sidebar_with_content(count));
       rt.rebuild();
@@ -74,7 +74,7 @@ fn bench_rebuild_no_change(c: &mut Criterion) {
 
   for count in [10, 50, 100] {
     group.bench_with_input(BenchmarkId::new("sidebar_content", count), &count, |b, &count| {
-      let mut rt = Runtime::new();
+      let mut rt = Tree::new();
       rt.resize(1200, 800);
       rt.set_root(sidebar_with_content(count));
       rt.rebuild();

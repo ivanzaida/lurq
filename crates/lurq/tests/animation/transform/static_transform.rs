@@ -1,13 +1,13 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
   node::{color::Color, transform::Transform2D},
 };
 
 use crate::support::run_pass;
 
-fn rt() -> Runtime {
-  Runtime::new()
+fn rt() -> Tree {
+  Tree::new()
 }
 
 #[test]

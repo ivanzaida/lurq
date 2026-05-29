@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
   core::Signal,
   node::Element,
 };
@@ -324,24 +324,24 @@ impl Component for RootLifecycle {
 
 #[test]
 fn mount_root_renders() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<Counter>(5);
+  let mut rt = Tree::new();
+  rt.mount_root::<Counter>(Theme::default(), 5);
   let root = rt.root().unwrap();
   assert!(root.text_content().is_some());
 }
 
 #[test]
 fn parent_mounts_children() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<Parent>(());
+  let mut rt = Tree::new();
+  rt.mount_root::<Parent>(Theme::default(), ());
   let root = rt.root().unwrap();
   assert_eq!(root.children().len(), 2);
 }
 
 #[test]
 fn context_propagates_to_descendant() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<ContextProvider>(());
+  let mut rt = Tree::new();
+  rt.mount_root::<ContextProvider>(Theme::default(), ());
   let root = rt.root().unwrap();
   assert!(root.text_content().is_some() || !root.children().is_empty());
 }
@@ -349,8 +349,8 @@ fn context_propagates_to_descendant() {
 #[test]
 fn updated_context_propagates_to_reused_child_context() {
   let value = Arc::new(Mutex::new(None));
-  let mut rt = Runtime::new();
-  rt.mount_root::<DynamicContextProvider>(Shared(value.clone()));
+  let mut rt = Tree::new();
+  rt.mount_root::<DynamicContextProvider>(Theme::default(), Shared(value.clone()));
 
   assert_eq!(rt.root().unwrap().text_content(), Some("1"));
 
@@ -364,7 +364,7 @@ fn updated_context_propagates_to_reused_child_context() {
 fn slot_children_passed_through() {
   let mut ctx = Ctx::new_root();
   let node = ctx.mount_with::<SlotWrapper>((), vec![Element::new(), Element::new(), Element::new()]);
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert_eq!(root.children().len(), 3);
@@ -372,16 +372,16 @@ fn slot_children_passed_through() {
 
 #[test]
 fn for_each_renders_all_items() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<ForEachParent>(());
+  let mut rt = Tree::new();
+  rt.mount_root::<ForEachParent>(Theme::default(), ());
   let root = rt.root().unwrap();
   assert_eq!(root.children().len(), 5);
 }
 
 #[test]
 fn error_boundary_catches_panic() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<ErrorComponent>(());
+  let mut rt = Tree::new();
+  rt.mount_root::<ErrorComponent>(Theme::default(), ());
   let root = rt.root().unwrap();
   assert_eq!(root.text_content(), Some("fallback"));
 }
@@ -431,23 +431,23 @@ fn use_context_missing_returns_none() {
 
 #[test]
 fn empty_component_renders_leaf() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<EmptyComponent>(());
+  let mut rt = Tree::new();
+  rt.mount_root::<EmptyComponent>(Theme::default(), ());
   assert!(rt.root().is_some());
 }
 
 #[test]
 fn deeply_nested_mount() {
-  let mut rt = Runtime::new();
-  rt.mount_root::<DeeplyNested>(0);
+  let mut rt = Tree::new();
+  rt.mount_root::<DeeplyNested>(Theme::default(), 0);
   assert!(rt.root().is_some());
 }
 
 #[test]
 fn dirty_signal_rebuilds_before_layout() {
   let signal_out = Arc::new(Mutex::new(None));
-  let mut rt = Runtime::new();
-  rt.mount_root::<SignalRoot>(Shared(signal_out.clone()));
+  let mut rt = Tree::new();
+  rt.mount_root::<SignalRoot>(Theme::default(), Shared(signal_out.clone()));
 
   assert_eq!(rt.root().unwrap().text_content(), Some("1"));
 
@@ -463,7 +463,7 @@ fn child_lifecycle_tracks_insertions_and_removals() {
   let mounted = Arc::new(AtomicUsize::new(0));
   let unmounted = Arc::new(AtomicUsize::new(0));
 
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   rt.mount_root::<ConditionalLifecycleParent>((
     Shared(show_child.clone()),
     Shared(mounted.clone()),
@@ -492,7 +492,7 @@ fn for_each_preserves_keyed_child_components_across_reorder() {
   let mounted = Arc::new(AtomicUsize::new(0));
   let unmounted = Arc::new(AtomicUsize::new(0));
 
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   rt.mount_root::<KeyedForEachLifecycleParent>((
     Shared(items.clone()),
     Shared(mounted.clone()),
@@ -515,9 +515,9 @@ fn for_each_preserves_keyed_child_components_across_reorder() {
 fn root_lifecycle_runs_once_and_unmounts() {
   let mounted = Arc::new(AtomicUsize::new(0));
   let unmounted = Arc::new(AtomicUsize::new(0));
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
-  rt.mount_root::<RootLifecycle>((Shared(mounted.clone()), Shared(unmounted.clone())));
+  rt.mount_root::<RootLifecycle>(Theme::default(), (Shared(mounted.clone()), Shared(unmounted.clone())));
   rt.rebuild();
 
   assert_eq!(mounted.load(Ordering::Relaxed), 1);

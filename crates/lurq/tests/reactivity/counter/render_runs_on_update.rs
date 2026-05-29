@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
   core::Signal,
   layout::{
     Alignment,
@@ -74,8 +74,8 @@ impl Component for Counter {
 #[test]
 fn rerenders_after_click_updates_signal_value() {
   let renders = Arc::new(AtomicUsize::new(0));
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<Counter>(Shared(renders.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<Counter>(Theme::default(), Shared(renders.clone()));
 
   assert_eq!(renders.load(Ordering::Relaxed), 1);
 
@@ -98,7 +98,7 @@ fn rerenders_after_click_updates_signal_value() {
   assert_eq!(renders.load(Ordering::Relaxed), 2);
 }
 
-fn assert_counter_value(runtime: &Runtime, expected: &str) {
+fn assert_counter_value(runtime: &Tree, expected: &str) {
   let value = runtime.root().unwrap().children().iter().nth(1).unwrap().text_content();
 
   assert_eq!(value, Some(expected));

@@ -10,6 +10,10 @@ use lurq::{
   layout::render_list::{RectCmd, RenderList},
   node::color::Color,
 };
+
+pub fn default_app() -> App {
+  App::new()
+}
 use raw_window_handle::{
   DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
 };
@@ -29,8 +33,9 @@ impl HasDisplayHandle for TestSurface {
   }
 }
 
-pub fn run_pass(app: &mut App, tree: &mut Tree) {
-  tree.pass(app, &TestSurface);
+pub fn run_pass(tree: &mut Tree) {
+  let mut app = App::new();
+  tree.pass(&mut app, &TestSurface);
 }
 
 #[derive(Clone, Debug)]
@@ -49,12 +54,13 @@ pub struct RectSnapshot {
   pub color: Color,
 }
 
-pub fn render_pass(app: &mut App, tree: &mut Tree) -> RenderSnapshot {
+pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
   let capture = Arc::new(Mutex::new(None));
   tree.set_render_engine(Box::new(CapturingRenderEngine {
     capture: capture.clone(),
   }));
-  tree.pass(app, &TestSurface);
+  let mut app = App::new();
+  tree.pass(&mut app, &TestSurface);
   capture.lock().unwrap().clone().unwrap_or_else(empty_snapshot)
 }
 

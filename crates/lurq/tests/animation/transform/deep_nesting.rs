@@ -1,13 +1,13 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Alignment, Constraints, Size, quad::QuadContent},
   node::{color::Color, transform::Transform2D},
 };
 
 use crate::support::run_pass;
 
-fn rt() -> Runtime {
-  Runtime::new()
+fn rt() -> Tree {
+  Tree::new()
 }
 
 /// El1 rotated 90°, El2 rotated 90° (accumulated 180°), El3 rotated 45° (accumulated 225°)

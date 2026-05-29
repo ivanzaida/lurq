@@ -58,7 +58,7 @@ use windows::{
           DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
-        DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
         DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIOutput, IDXGISwapChain3,
       },
     },
@@ -131,13 +131,6 @@ impl RenderEngine for Dx12RenderEngine {
   fn resize(&mut self, width: u32, height: u32) {
     self.width = width.max(1);
     self.height = height.max(1);
-    if let Some(state) = &mut self.state {
-      unsafe {
-        state
-          .resize(self.width, self.height)
-          .expect("failed to resize native dx12 swapchain");
-      }
-    }
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
@@ -150,6 +143,13 @@ impl RenderEngine for Dx12RenderEngine {
     let init_dur = ProfileScope::elapsed_or_default(&init_start);
 
     let state = self.state.as_mut().unwrap();
+    if state.width != self.width || state.height != self.height {
+      unsafe {
+        state
+          .resize(self.width, self.height)
+          .expect("failed to resize native dx12 swapchain");
+      }
+    }
     let render_profile = unsafe {
       state
         .render(list, profiling_enabled)
@@ -1463,7 +1463,7 @@ impl Dx12State {
       SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
       BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
       BufferCount: FRAME_COUNT as u32,
-      Scaling: DXGI_SCALING_STRETCH,
+      Scaling: DXGI_SCALING_NONE,
       SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
       AlphaMode: DXGI_ALPHA_MODE_IGNORE,
       Flags: 0,

@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, layout_result::LayoutResult},
 };
 
@@ -9,7 +9,7 @@ pub(super) trait PassLayoutExt {
   fn pass_layout(&mut self, constraints: Constraints) -> Option<LayoutResult>;
 }
 
-impl PassLayoutExt for Runtime {
+impl PassLayoutExt for Tree {
   fn pass_layout(&mut self, constraints: Constraints) -> Option<LayoutResult> {
     self.set_layout_constraints_override(Some(constraints));
     run_pass(self);

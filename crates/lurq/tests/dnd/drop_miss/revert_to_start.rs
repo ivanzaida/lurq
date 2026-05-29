@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
   components::{
     DragContainer, DragContainerProps, Draggable, DraggableProps, DropMissBehavior, DropZone, DropZoneProps, Rect,
     Stack,
@@ -63,7 +63,7 @@ impl Component for RevertOnMiss {
   }
 }
 
-fn dragged_bounds(runtime: &mut Runtime) -> lurq::core::ElementRect {
+fn dragged_bounds(runtime: &mut Tree) -> lurq::core::ElementRect {
   runtime
     .find_element(|element| element.color() == Some(DRAG_COLOR))
     .unwrap()
@@ -73,8 +73,8 @@ fn dragged_bounds(runtime: &mut Runtime) -> lurq::core::ElementRect {
 #[test]
 fn draggable_reverts_to_start_when_released_outside_drop_target() {
   let drops = Arc::new(Mutex::new(Vec::new()));
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<RevertOnMiss>(SharedDrops(drops.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<RevertOnMiss>(Theme::default(), SharedDrops(drops.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(30.0, 30.0, MouseButton::Left);
@@ -91,8 +91,8 @@ fn draggable_reverts_to_start_when_released_outside_drop_target() {
 #[test]
 fn draggable_keeps_position_when_released_on_drop_target() {
   let drops = Arc::new(Mutex::new(Vec::new()));
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<RevertOnMiss>(SharedDrops(drops.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<RevertOnMiss>(Theme::default(), SharedDrops(drops.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(30.0, 30.0, MouseButton::Left);

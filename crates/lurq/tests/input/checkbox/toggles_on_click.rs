@@ -1,12 +1,12 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
 };
 
 #[test]
 fn click_toggles_checkbox_signal() {
   let checked = Signal::new(false);
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::Checkbox::new(checked.clone()));
   let rect = runtime

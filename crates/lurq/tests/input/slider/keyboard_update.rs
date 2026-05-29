@@ -1,12 +1,12 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
 };
 
 #[test]
 fn arrow_keys_update_focused_slider_within_range() {
   let value = Signal::new(5.0_f32);
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Slider::new(value.clone())

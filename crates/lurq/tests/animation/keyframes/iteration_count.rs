@@ -1,6 +1,6 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, AnimationIterationCount, Keyframes},
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -8,7 +8,7 @@ use crate::support::run_pass;
 
 #[test]
 fn single_iteration_finishes_after_duration() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("blink")
@@ -46,7 +46,7 @@ fn single_iteration_finishes_after_duration() {
 
 #[test]
 fn infinite_iteration_keeps_animating() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("pulse")
@@ -79,7 +79,7 @@ fn infinite_iteration_keeps_animating() {
 
 #[test]
 fn two_iterations_run_twice_the_duration() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("grow")

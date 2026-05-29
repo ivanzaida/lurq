@@ -1,13 +1,13 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints},
   node::{Element, dimension::Dimension, padding::Padding},
 };
 
 use super::PassLayoutExt;
 
-fn rt() -> Runtime {
-  Runtime::new()
+fn rt() -> Tree {
+  Tree::new()
 }
 
 #[test]

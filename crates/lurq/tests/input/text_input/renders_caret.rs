@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
 };
 
@@ -8,7 +8,7 @@ use crate::support::render_pass;
 #[test]
 fn renders_caret_after_text_input_is_focused() {
   let value = Signal::new("A".to_owned());
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value));
   let rect = runtime.find_element(|_| true).unwrap().bounds();

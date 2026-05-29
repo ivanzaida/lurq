@@ -1,6 +1,6 @@
 use lurq::{
   animation::{Easing, Transition},
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
 };
 
@@ -8,7 +8,7 @@ use crate::support::run_pass;
 
 #[test]
 fn linear_easing_produces_proportional_interpolation() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
     .fill("#000000")

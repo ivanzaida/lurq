@@ -1,6 +1,6 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, Keyframes},
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -8,7 +8,7 @@ use crate::support::run_pass;
 
 #[test]
 fn fill_forwards_holds_final_value_after_completion() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("fade-out")
@@ -46,7 +46,7 @@ fn fill_forwards_holds_final_value_after_completion() {
 
 #[test]
 fn fill_none_does_not_hold_final_value() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("fade-out")
@@ -80,7 +80,7 @@ fn fill_none_does_not_hold_final_value() {
 
 #[test]
 fn fill_backwards_applies_first_frame_during_delay() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("start-dim")

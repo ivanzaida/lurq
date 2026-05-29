@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   components::Rect,
   core::Signal,
 };
@@ -8,9 +8,9 @@ use crate::support::run_pass;
 
 const DOUBLE_CLICK_SETTLE_MS: u64 = 550;
 
-fn runtime_with_click_log() -> (Runtime, Signal<Vec<&'static str>>) {
+fn runtime_with_click_log() -> (Tree, Signal<Vec<&'static str>>) {
   let events = Signal::new(Vec::new());
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     Rect::new(100.0, 40.0)

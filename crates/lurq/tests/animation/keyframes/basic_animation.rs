@@ -1,6 +1,6 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, Keyframes},
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
 };
@@ -9,7 +9,7 @@ use crate::support::run_pass;
 
 #[test]
 fn keyframe_animation_applies_values_to_node() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("fade-in")
@@ -37,7 +37,7 @@ fn keyframe_animation_applies_values_to_node() {
 
 #[test]
 fn animation_with_color_keyframes() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("color-shift")
@@ -78,7 +78,7 @@ fn animation_with_color_keyframes() {
 
 #[test]
 fn animation_with_unregistered_keyframes_does_nothing() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
     .fill("#ff0000")
@@ -99,7 +99,7 @@ fn animation_with_unregistered_keyframes_does_nothing() {
 
 #[test]
 fn three_keyframe_animation_interpolates_middle() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("three-step")

@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
   core::{ElementRect, ElementRef, Signal},
   node::{Element, color::Color},
 };
@@ -47,7 +47,7 @@ impl Component for RefLoggingComponent {
 #[test]
 fn element_ref_tracks_hover_and_active_state() {
   let element_ref = ElementRef::new();
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::Rect::new(100.0, 40.0).ref_element(element_ref.clone()));
   let rect = runtime.find_element(|_| true).unwrap().bounds();
@@ -73,7 +73,7 @@ fn element_ref_tracks_hover_and_active_state() {
 fn element_ref_tracks_focus_state() {
   let first_ref = ElementRef::new();
   let second_ref = ElementRef::new();
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Row::new()
@@ -115,7 +115,7 @@ fn element_ref_tracks_focus_state() {
 #[test]
 fn element_ref_mut_can_override_layout_bounds() {
   let element_ref = ElementRef::new().mutable();
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Column::new()
@@ -156,7 +156,7 @@ fn element_ref_mut_can_override_layout_bounds() {
 
 #[test]
 fn hovered_style_overrides_visuals_and_layout() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Rect::new(100.0, 40.0)
@@ -184,8 +184,8 @@ fn hovered_style_overrides_visuals_and_layout() {
 #[test]
 fn ctx_element_ref_is_stable_across_rerenders() {
   let seen_bounds = Arc::new(Mutex::new(Vec::new()));
-  let mut runtime = Runtime::new();
-  runtime.mount_root::<RefLoggingComponent>(Shared(seen_bounds.clone()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<RefLoggingComponent>(Theme::default(), Shared(seen_bounds.clone()));
 
   assert_eq!(seen_bounds.lock().unwrap()[0], ElementRect::default());
 

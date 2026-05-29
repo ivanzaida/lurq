@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -7,7 +7,7 @@ use super::super::PassLayoutExt;
 
 #[test]
 fn absolute_position_wrapper_keeps_child_size_under_tight_parent_constraints() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   runtime.set_root(
     lurq::components::Stack::new()
       .size(200.0, 100.0)

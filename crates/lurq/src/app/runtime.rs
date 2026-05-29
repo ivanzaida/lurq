@@ -315,7 +315,12 @@ impl Tree {
   }
 
   pub fn resize(&mut self, width: u32, height: u32) {
-    self.viewport_physical = Size::new(width as f32, height as f32);
+    let size = Size::new(width as f32, height as f32);
+    if self.viewport_physical == size {
+      return;
+    }
+
+    self.viewport_physical = size;
     if let Some(engine) = &mut self.render_engine {
       engine.resize(width, height);
     }

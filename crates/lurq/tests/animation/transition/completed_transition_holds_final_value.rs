@@ -1,6 +1,6 @@
 use lurq::{
   animation::Transition,
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
 };
@@ -9,7 +9,7 @@ use crate::support::run_pass;
 
 #[test]
 fn completed_transition_holds_target_value() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
     .fill("#ff0000")

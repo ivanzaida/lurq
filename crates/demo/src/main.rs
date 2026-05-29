@@ -3,6 +3,7 @@ mod components_demo;
 mod context_demo;
 mod dnd_demo;
 mod events_demo;
+mod inputs_demo;
 mod layout_demo;
 mod positioning_demo;
 mod reactivity_demo;
@@ -113,6 +114,7 @@ impl Component for DemoApp {
       DemoTab::Scroll => scroll_content(),
       DemoTab::Visual => visual_demo::visual_content(),
       DemoTab::Text => text_demo::text_content(),
+      DemoTab::Inputs => ctx.mount::<inputs_demo::InputsDemo>(theme),
       DemoTab::Events => ctx.mount::<events_demo::EventsDemo>(()),
       DemoTab::Reactivity => ctx.mount::<reactivity_demo::ReactivityDemo>(()),
       DemoTab::Components => ctx.mount::<components_demo::ComponentsDemo>(()),

@@ -1,12 +1,12 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
 };
 
 #[test]
 fn clicks_outside_slider_track_clamp_to_min_and_max() {
   let value = Signal::new(5.0_f32);
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Slider::new(value.clone())

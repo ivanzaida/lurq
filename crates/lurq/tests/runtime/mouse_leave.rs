@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   animation::{Easing, Transition},
-  app::{Runtime, component::Component, ctx::Ctx},
+  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color},
 };
@@ -42,7 +42,7 @@ impl Component for LeaveRoot {
 #[test]
 fn mouse_leave_window_fires_on_mouse_leave() {
   let leaves = Arc::new(Mutex::new(0));
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Rect::new(100.0, 40.0)
@@ -69,7 +69,7 @@ fn mouse_leave_window_fires_on_mouse_leave() {
 fn node_mouse_leave_fires_when_pointer_exits_node() {
   let enters = Arc::new(Mutex::new(0));
   let leaves = Arc::new(Mutex::new(0));
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Rect::new(120.0, 32.0)
@@ -100,7 +100,7 @@ fn node_mouse_leave_fires_when_pointer_exits_node() {
 fn hovering_stable_left_edge_does_not_emit_repeated_leave() {
   let enters = Arc::new(Mutex::new(0));
   let leaves = Arc::new(Mutex::new(0));
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Row::new()
@@ -157,9 +157,9 @@ fn hovering_stable_left_edge_does_not_emit_repeated_leave() {
 #[test]
 fn rebuild_preserves_hover_without_dispatching_mouse_leave() {
   let leaves = Arc::new(Mutex::new(0));
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
-  runtime.mount_root::<LeaveRoot>(Shared(leaves.clone()));
+  runtime.mount_root::<LeaveRoot>(Theme::default(), Shared(leaves.clone()));
   runtime.mouse_move(10.0, 10.0);
 
   runtime.rebuild();
@@ -170,7 +170,7 @@ fn rebuild_preserves_hover_without_dispatching_mouse_leave() {
 #[test]
 fn set_root_dispatches_mouse_leave_before_replacing_root() {
   let leaves = Arc::new(Mutex::new(0));
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::Rect::new(100.0, 40.0).on_mouse_leave({
     let leaves = leaves.clone();

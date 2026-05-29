@@ -1,12 +1,12 @@
 use lurq::{
-  app::{Runtime, events::MouseButton},
+  app::{Tree, events::MouseButton},
   core::Signal,
 };
 
 #[test]
 fn dragging_slider_updates_signal_from_pointer_position() {
   let value = Signal::new(0.0);
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
 
   runtime.set_root(
     lurq::components::Slider::new(value.clone())

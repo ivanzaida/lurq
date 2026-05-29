@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -7,7 +7,7 @@ use crate::support::run_pass;
 
 #[test]
 fn explicit_opacity_propagates_to_quad() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").opacity(0.5);
   rt.set_root(node);
 
@@ -21,7 +21,7 @@ fn explicit_opacity_propagates_to_quad() {
 
 #[test]
 fn zero_opacity_propagates_to_quad() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").opacity(0.0);
   rt.set_root(node);
 
@@ -35,7 +35,7 @@ fn zero_opacity_propagates_to_quad() {
 
 #[test]
 fn opacity_does_not_affect_layout_size() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").opacity(0.1);
   rt.set_root(node);
 

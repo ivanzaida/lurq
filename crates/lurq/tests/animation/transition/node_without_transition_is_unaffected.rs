@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
 };
@@ -8,7 +8,7 @@ use crate::support::run_pass;
 
 #[test]
 fn transition_engine_does_not_affect_nodes_without_transition_spec() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   let node = lurq::components::Column::new()
     .child(lurq::components::Rect::new(100.0, 50.0).fill("#ff0000"))

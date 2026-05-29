@@ -1,6 +1,6 @@
 use lurq::{
   animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes},
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -8,7 +8,7 @@ use crate::support::run_pass;
 
 #[test]
 fn per_keyframe_easing_overrides_animation_easing() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("custom-ease")
@@ -39,7 +39,7 @@ fn per_keyframe_easing_overrides_animation_easing() {
 
 #[test]
 fn keyframes_without_per_frame_easing_use_animation_easing() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
 
   rt.register_keyframes(
     Keyframes::new("no-per-frame")

@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
 };
 
@@ -7,7 +7,7 @@ use crate::support::run_pass;
 
 #[test]
 fn default_opacity_is_one() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000");
   rt.set_root(node);
 

@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{Constraints, Size},
   node::color::Color,
 };
@@ -8,7 +8,7 @@ use crate::support::render_pass;
 
 #[test]
 fn half_opacity_halves_alpha_in_rendered_rect() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0)
     .background(Color::new(255, 0, 0, 200))
     .opacity(0.5);
@@ -24,7 +24,7 @@ fn half_opacity_halves_alpha_in_rendered_rect() {
 
 #[test]
 fn full_opacity_preserves_alpha() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0)
     .background(Color::new(255, 0, 0, 200))
     .opacity(1.0);
@@ -38,7 +38,7 @@ fn full_opacity_preserves_alpha() {
 
 #[test]
 fn zero_opacity_zeros_alpha() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0)
     .background(Color::new(255, 0, 0, 200))
     .opacity(0.0);
@@ -52,7 +52,7 @@ fn zero_opacity_zeros_alpha() {
 
 #[test]
 fn opacity_does_not_change_rgb_channels() {
-  let mut rt = Runtime::new();
+  let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0)
     .background(Color::new(100, 150, 200, 255))
     .opacity(0.5);

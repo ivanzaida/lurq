@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Runtime, events::ScrollPhase},
+  app::{Tree, events::ScrollPhase},
   layout::{
     layout_kind::ScrollState,
     scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
@@ -10,7 +10,7 @@ use crate::support::run_pass;
 
 #[test]
 fn reserved_horizontal_scrollbar_height_contributes_to_vertical_overflow() {
-  let mut runtime = Runtime::new();
+  let mut runtime = Tree::new();
   let scroll_state = ScrollState::new();
 
   runtime.set_root(

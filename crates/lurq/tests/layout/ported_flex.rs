@@ -1,5 +1,5 @@
 use lurq::{
-  app::Runtime,
+  app::Tree,
   layout::{
     Alignment, Constraints, Size,
     layout_kind::{FrameConstraints, Justify},
@@ -9,8 +9,8 @@ use lurq::{
 
 use super::PassLayoutExt;
 
-fn rt() -> Runtime {
-  Runtime::new()
+fn rt() -> Tree {
+  Tree::new()
 }
 
 fn rect(w: f32, h: f32) -> lurq::components::Spacer {
