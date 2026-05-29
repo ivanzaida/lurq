@@ -506,9 +506,10 @@ impl Runtime {
           let glyph_xf = quad.transform.matrix_2x2();
           let quad_cx = quad.x * scale + quad.width * scale * 0.5;
           let quad_cy = quad.y * scale + quad.height * scale * 0.5;
+          let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           for g in &mut glyph_cmds {
             g.order = order;
-            g.clip = scaled_clip;
+            g.clip = glyph_clip;
             g.transform = glyph_xf;
             g.transform_origin = [quad_cx - g.x, quad_cy - g.y];
           }
@@ -1982,4 +1983,52 @@ fn apply_opacity(color: Color, opacity: f32) -> Color {
 
 fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {
   x < clip.x + clip.width && x + width > clip.x && y < clip.y + clip.height && y + height > clip.y
+}
+
+fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
+  if !clip.active {
+    return clip;
+  }
+
+  const RASTERIZATION_SLOP_PX: f32 = 1.0;
+  ClipRect {
+    x: clip.x - RASTERIZATION_SLOP_PX,
+    y: clip.y - RASTERIZATION_SLOP_PX,
+    width: clip.width + RASTERIZATION_SLOP_PX * 2.0,
+    height: clip.height + RASTERIZATION_SLOP_PX * 2.0,
+    active: true,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::{app::runtime::expand_text_clip_for_rasterization, layout::quad::ClipRect};
+
+  #[test]
+  fn text_clip_expands_by_one_physical_pixel_for_glyph_rasterization() {
+    let clip = ClipRect {
+      x: 10.0,
+      y: 20.0,
+      width: 30.0,
+      height: 40.0,
+      active: true,
+    };
+
+    let expanded = expand_text_clip_for_rasterization(clip);
+
+    assert_eq!(expanded.x, 9.0);
+    assert_eq!(expanded.y, 19.0);
+    assert_eq!(expanded.width, 32.0);
+    assert_eq!(expanded.height, 42.0);
+    assert!(expanded.active);
+  }
+
+  #[test]
+  fn inactive_text_clip_stays_inactive() {
+    let clip = ClipRect::default();
+
+    let expanded = expand_text_clip_for_rasterization(clip);
+
+    assert!(!expanded.active);
+  }
 }

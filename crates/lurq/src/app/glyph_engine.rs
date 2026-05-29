@@ -199,13 +199,13 @@ impl GlyphEngine {
     let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
-        let physical = glyph.physical((0.0, 0.0), 1.0);
+        let physical = glyph.physical((0.0, run.line_y), 1.0);
         let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
           continue;
         };
 
-        let gx = origin_x + physical.x as f32 + packed.left as f32;
-        let gy = origin_y + run.line_y + physical.y as f32 - packed.top as f32;
+        let gx = origin_x + (physical.x + packed.left) as f32;
+        let gy = origin_y + (physical.y - packed.top) as f32;
 
         cached.push(CachedGlyph {
           x: gx - origin_x,
@@ -563,5 +563,84 @@ mod tests {
       }
     }
     engine.buffer_pool.push(buffer);
+  }
+
+  #[test]
+  fn wrapped_glyph_y_positions_are_pixel_snapped() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 13.0,
+      line_height: 1.17,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+
+    let glyphs = engine.rasterize_text("alpha beta gamma delta", &style, 48.0, 0.0, 0.0);
+
+    assert!(
+      glyphs.iter().any(|glyph| glyph.y > style.font_size * style.line_height),
+      "test text should wrap to at least two lines"
+    );
+    for glyph in glyphs {
+      assert!(
+        glyph.y.fract().abs() < f32::EPSILON,
+        "glyph y should be pixel-snapped after baseline offset is applied: {}",
+        glyph.y
+      );
+    }
+  }
+
+  #[test]
+  fn wrapped_text_measurement_contains_painted_glyph_bounds() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 16.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let text = "Wrapping keeps long typography inside its assigned layout width.";
+    let max_width = 260.0;
+    let measured = engine.measure_text(text, &style, max_width);
+    let glyphs = engine.rasterize_text(text, &style, max_width, 0.0, 0.0);
+    let glyph_bottom = glyphs
+      .iter()
+      .map(|glyph| glyph.y + glyph.height)
+      .fold(0.0_f32, f32::max);
+
+    assert!(
+      glyph_bottom <= measured.height.ceil(),
+      "painted glyph bottom should fit measured height: bottom={}, measured={}",
+      glyph_bottom,
+      measured.height
+    );
+  }
+
+  #[test]
+  fn wrapped_text_measurement_contains_scaled_painted_glyph_bounds() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 16.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let text = "Wrapping keeps long typography inside its assigned layout width.";
+    let max_width = 260.0;
+    let measured = engine.measure_text(text, &style, max_width);
+    for scale in [1.1, 1.25, 1.5, 1.75, 2.0] {
+      let mut scaled_style = style.clone();
+      scaled_style.font_size *= scale;
+      let glyphs = engine.rasterize_text(text, &scaled_style, max_width * scale, 0.0, 0.0);
+      let glyph_bottom = glyphs
+        .iter()
+        .map(|glyph| glyph.y + glyph.height)
+        .fold(0.0_f32, f32::max);
+
+      let clip_bottom = (measured.height * scale).ceil();
+      assert!(
+        glyph_bottom <= clip_bottom + 1.0,
+        "painted scaled glyph bottom should fit scaled measured height plus rasterization slop: bottom={}, clip={}, measured={}, scale={}",
+        glyph_bottom,
+        clip_bottom,
+        measured.height,
+        scale
+      );
+    }
   }
 }
