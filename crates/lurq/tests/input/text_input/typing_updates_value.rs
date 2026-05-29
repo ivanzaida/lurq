@@ -3,12 +3,15 @@ use lurq::{
   core::Signal,
 };
 
+use crate::support::run_pass;
+
 #[test]
 fn focused_text_input_appends_key_down_text_to_signal() {
   let value = Signal::new(String::new());
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()).placeholder("Name"));
+  run_pass(&mut runtime);
   let rect = runtime
     .find_element(|_| true)
     .expect("text input should be layoutable")
@@ -27,11 +30,13 @@ fn displayed_text_updates_after_typing() {
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()).placeholder("Name"));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
   runtime.key_down("A".to_owned(), "KeyA".to_owned(), false, false, false);
+  run_pass(&mut runtime);
 
   assert!(runtime.find_element(|el| el.text_content() == Some("A")).is_some());
 }

@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
+  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
   core::Signal,
   node::Element,
 };
@@ -464,11 +464,14 @@ fn child_lifecycle_tracks_insertions_and_removals() {
   let unmounted = Arc::new(AtomicUsize::new(0));
 
   let mut rt = Tree::new();
-  rt.mount_root::<ConditionalLifecycleParent>((
-    Shared(show_child.clone()),
-    Shared(mounted.clone()),
-    Shared(unmounted.clone()),
-  ));
+  rt.mount_root::<ConditionalLifecycleParent>(
+    Theme::default(),
+    (
+      Shared(show_child.clone()),
+      Shared(mounted.clone()),
+      Shared(unmounted.clone()),
+    ),
+  );
 
   assert_eq!(mounted.load(Ordering::Relaxed), 1);
   assert_eq!(unmounted.load(Ordering::Relaxed), 0);
@@ -493,11 +496,14 @@ fn for_each_preserves_keyed_child_components_across_reorder() {
   let unmounted = Arc::new(AtomicUsize::new(0));
 
   let mut rt = Tree::new();
-  rt.mount_root::<KeyedForEachLifecycleParent>((
-    Shared(items.clone()),
-    Shared(mounted.clone()),
-    Shared(unmounted.clone()),
-  ));
+  rt.mount_root::<KeyedForEachLifecycleParent>(
+    Theme::default(),
+    (
+      Shared(items.clone()),
+      Shared(mounted.clone()),
+      Shared(unmounted.clone()),
+    ),
+  );
 
   assert_eq!(mounted.load(Ordering::Relaxed), 3);
   assert_eq!(unmounted.load(Ordering::Relaxed), 0);

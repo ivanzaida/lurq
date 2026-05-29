@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::render_pass;
+use crate::support::{render_pass, run_pass};
 
 #[test]
 fn renders_caret_after_text_input_is_focused() {
@@ -11,6 +11,7 @@ fn renders_caret_after_text_input_is_focused() {
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 

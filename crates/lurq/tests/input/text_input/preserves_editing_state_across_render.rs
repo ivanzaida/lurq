@@ -1,8 +1,10 @@
 use lurq::{
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
   core::Signal,
   node::Element,
 };
+
+use crate::support::run_pass;
 
 struct EditableText {
   value: Signal<String>,
@@ -26,6 +28,7 @@ impl Component for EditableText {
 fn preserves_focus_and_caret_after_signal_driven_render() {
   let mut runtime = Tree::new();
   runtime.mount_root::<EditableText>(Theme::default(), ());
+  run_pass(&mut runtime);
 
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();

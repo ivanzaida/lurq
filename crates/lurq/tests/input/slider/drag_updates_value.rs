@@ -3,6 +3,8 @@ use lurq::{
   core::Signal,
 };
 
+use crate::support::run_pass;
+
 #[test]
 fn dragging_slider_updates_signal_from_pointer_position() {
   let value = Signal::new(0.0);
@@ -13,6 +15,7 @@ fn dragging_slider_updates_signal_from_pointer_position() {
       .range(0.0, 10.0)
       .width(100.0),
   );
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let y = rect.y + rect.height / 2.0;
 

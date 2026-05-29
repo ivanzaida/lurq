@@ -3,12 +3,15 @@ use lurq::{
   core::Signal,
 };
 
+use crate::support::run_pass;
+
 #[test]
 fn typing_into_focused_text_input_appends_to_existing_value() {
   let value = Signal::new("A".to_owned());
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -24,6 +27,7 @@ fn backspace_removes_character_before_caret() {
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -39,6 +43,7 @@ fn arrow_left_moves_caret_before_inserted_text() {
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -55,6 +60,7 @@ fn backspace_removes_previous_unicode_character() {
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 

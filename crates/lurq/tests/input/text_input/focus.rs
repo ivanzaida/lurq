@@ -9,6 +9,8 @@ use lurq::{
   node::color::Color,
 };
 
+use crate::support::run_pass;
+
 #[test]
 fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
   let first_focus = Arc::new(AtomicUsize::new(0));
@@ -48,6 +50,7 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
           }),
       ),
   );
+  run_pass(&mut runtime);
 
   let first = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))

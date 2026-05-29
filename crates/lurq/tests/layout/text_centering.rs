@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
+  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
   core::Signal,
   layout::{
     Alignment, Constraints, Size,

@@ -3,6 +3,8 @@ use lurq::{
   core::Signal,
 };
 
+use crate::support::run_pass;
+
 #[test]
 fn arrow_keys_update_focused_slider_within_range() {
   let value = Signal::new(5.0_f32);
@@ -13,6 +15,7 @@ fn arrow_keys_update_focused_slider_within_range() {
       .range(0.0, 10.0)
       .width(100.0),
   );
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 

@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx},
+  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
   core::Signal,
   node::Element,
 };
@@ -83,11 +83,14 @@ fn child_signal_update_refreshes_child_without_rerendering_parent() {
   let child_renders = Arc::new(AtomicUsize::new(0));
   let parent_renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
-  runtime.mount_root::<Parent>((
-    Shared(child_signal.clone()),
-    Shared(child_renders.clone()),
-    Shared(parent_renders.clone()),
-  ));
+  runtime.mount_root::<Parent>(
+    Theme::default(),
+    (
+      Shared(child_signal.clone()),
+      Shared(child_renders.clone()),
+      Shared(parent_renders.clone()),
+    ),
+  );
 
   assert_eq!(parent_renders.load(Ordering::Relaxed), 1);
   assert_eq!(child_renders.load(Ordering::Relaxed), 1);

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use lurq::{
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
+  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
   core::{NodeId, Signal},
   node::{Element, ElementRef},
 };

@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx, events::MouseButton},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
   core::Signal,
   layout::{
     Alignment,

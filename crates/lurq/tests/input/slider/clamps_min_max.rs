@@ -3,6 +3,8 @@ use lurq::{
   core::Signal,
 };
 
+use crate::support::run_pass;
+
 #[test]
 fn clicks_outside_slider_track_clamp_to_min_and_max() {
   let value = Signal::new(5.0_f32);
@@ -13,6 +15,7 @@ fn clicks_outside_slider_track_clamp_to_min_and_max() {
       .range(0.0, 10.0)
       .width(100.0),
   );
+  run_pass(&mut runtime);
   let rect = runtime
     .find_element(|_| true)
     .expect("slider should be layoutable")

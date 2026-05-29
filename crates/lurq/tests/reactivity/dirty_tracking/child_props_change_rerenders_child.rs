@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
+  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
   core::Signal,
   node::Element,
 };
@@ -86,7 +86,10 @@ fn changed_child_props_rerender_child() {
   let signal_out = Arc::new(Mutex::new(None));
   let child_renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
-  runtime.mount_root::<Parent>(Theme::default(), (Shared(signal_out.clone()), Shared(child_renders.clone())));
+  runtime.mount_root::<Parent>(
+    Theme::default(),
+    (Shared(signal_out.clone()), Shared(child_renders.clone())),
+  );
 
   assert_eq!(child_renders.load(Ordering::Relaxed), 1);
 

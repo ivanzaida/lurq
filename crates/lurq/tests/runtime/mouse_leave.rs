@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   animation::{Easing, Transition},
-  app::{Tree, theme::Theme, component::Component, ctx::Ctx},
+  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color},
 };
