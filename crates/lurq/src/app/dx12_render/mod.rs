@@ -1400,16 +1400,24 @@ fn same_clip(a: ClipRect, b: ClipRect) -> bool {
 }
 
 fn scissor_rect(clip: ClipRect, vw: f32, vh: f32) -> Option<RECT> {
-  let viewport_w = vw.max(1.0) as i32;
-  let viewport_h = vh.max(1.0) as i32;
+  let viewport_w = vw.ceil().max(1.0) as i32;
+  let viewport_h = vh.ceil().max(1.0) as i32;
   if clip.active {
-    let left = clip.x.max(0.0) as i32;
-    let top = clip.y.max(0.0) as i32;
+    let left_f = clip.x.floor().max(0.0);
+    let top_f = clip.y.floor().max(0.0);
+    let right_f = (clip.x + clip.width).ceil().clamp(0.0, viewport_w as f32);
+    let bottom_f = (clip.y + clip.height).ceil().clamp(0.0, viewport_h as f32);
+    if right_f <= left_f || bottom_f <= top_f {
+      return None;
+    }
+
+    let left = left_f as i32;
+    let top = top_f as i32;
     if left >= viewport_w || top >= viewport_h {
       return None;
     }
-    let width = (clip.width.max(0.0) as i32).min(viewport_w.saturating_sub(left));
-    let height = (clip.height.max(0.0) as i32).min(viewport_h.saturating_sub(top));
+    let width = ((right_f - left_f).ceil() as i32).min(viewport_w.saturating_sub(left));
+    let height = ((bottom_f - top_f).ceil() as i32).min(viewport_h.saturating_sub(top));
     if width <= 0 || height <= 0 {
       return None;
     }
@@ -2281,6 +2289,27 @@ fn offset_gpu_handle(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {
+    let rect = scissor_rect(
+      ClipRect {
+        x: 10.6,
+        y: 20.2,
+        width: 30.1,
+        height: 40.6,
+        active: true,
+      },
+      100.0,
+      100.0,
+    )
+    .unwrap();
+
+    assert_eq!(rect.left, 10);
+    assert_eq!(rect.top, 20);
+    assert_eq!(rect.right, 41);
+    assert_eq!(rect.bottom, 61);
+  }
 
   #[test]
   fn dx12_hlsl_shaders_compile() {

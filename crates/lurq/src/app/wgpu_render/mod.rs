@@ -1012,24 +1012,63 @@ fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect)
 }
 
 fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> bool {
-  if clip.active {
-    let viewport_w = vw.max(1.0) as u32;
-    let viewport_h = vh.max(1.0) as u32;
-    let cx = clip.x.max(0.0) as u32;
-    let cy = clip.y.max(0.0) as u32;
-    if cx >= viewport_w || cy >= viewport_h {
-      return false;
-    }
-    let cw = (clip.width.max(0.0) as u32).min(viewport_w.saturating_sub(cx));
-    let ch = (clip.height.max(0.0) as u32).min(viewport_h.saturating_sub(cy));
-    if cw == 0 || ch == 0 {
-      return false;
-    }
-    pass.set_scissor_rect(cx, cy, cw, ch);
-  } else {
-    pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
-  }
+  let Some((x, y, width, height)) = scissor_rect(clip, vw, vh) else {
+    return false;
+  };
+  pass.set_scissor_rect(x, y, width, height);
   true
+}
+
+fn scissor_rect(clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> Option<(u32, u32, u32, u32)> {
+  let viewport_w = vw.ceil().max(1.0) as u32;
+  let viewport_h = vh.ceil().max(1.0) as u32;
+
+  if clip.active {
+    let left = clip.x.floor().max(0.0);
+    let top = clip.y.floor().max(0.0);
+    let right = (clip.x + clip.width).ceil().clamp(0.0, viewport_w as f32);
+    let bottom = (clip.y + clip.height).ceil().clamp(0.0, viewport_h as f32);
+    if right <= left || bottom <= top {
+      return None;
+    }
+
+    let cx = left as u32;
+    let cy = top as u32;
+    if cx >= viewport_w || cy >= viewport_h {
+      return None;
+    }
+    let cw = ((right - left).ceil() as u32).min(viewport_w.saturating_sub(cx));
+    let ch = ((bottom - top).ceil() as u32).min(viewport_h.saturating_sub(cy));
+    if cw == 0 || ch == 0 {
+      return None;
+    }
+    Some((cx, cy, cw, ch))
+  } else {
+    Some((0, 0, viewport_w, viewport_h))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::layout::quad::ClipRect;
+
+  #[test]
+  fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {
+    assert_eq!(
+      super::scissor_rect(
+        ClipRect {
+          x: 10.6,
+          y: 20.2,
+          width: 30.1,
+          height: 40.6,
+          active: true,
+        },
+        100.0,
+        100.0,
+      ),
+      Some((10, 20, 31, 41))
+    );
+  }
 }
 
 struct WindowDisplayPair<'a> {
