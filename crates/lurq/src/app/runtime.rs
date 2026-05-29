@@ -649,11 +649,6 @@ impl Runtime {
     self.apply_reactive_updates_after_event();
   }
 
-  pub fn dblclick(&mut self, x: f32, y: f32, button: MouseButton) {
-    self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
-    self.apply_reactive_updates_after_event();
-  }
-
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
     self.dispatch_scroll(x, y, delta_x, delta_y, phase);
     self.apply_reactive_updates_after_event();

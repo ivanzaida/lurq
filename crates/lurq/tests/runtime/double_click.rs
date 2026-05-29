@@ -24,15 +24,14 @@ fn runtime_with_click_log() -> (Runtime, Signal<Vec<&'static str>>) {
 }
 
 #[test]
-fn dblclick_dispatches_dblclick_handler() {
+fn single_click_does_not_dispatch_dblclick_handler() {
   let (mut runtime, events) = runtime_with_click_log();
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   runtime.click(x, y, MouseButton::Left);
-  runtime.dblclick(x, y, MouseButton::Left);
 
-  assert_eq!(events.get(), vec!["click", "dblclick"]);
+  assert_eq!(events.get(), vec!["click"]);
 }
 
 #[test]
