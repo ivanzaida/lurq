@@ -12,6 +12,8 @@ mod slider;
 mod slot;
 mod spacer;
 mod stack;
+#[cfg(feature = "svg")]
+mod svg;
 mod text;
 mod text_input;
 
@@ -29,6 +31,8 @@ pub use slider::Slider;
 pub use slot::Slot;
 pub use spacer::Spacer;
 pub use stack::Stack;
+#[cfg(feature = "svg")]
+pub use svg::Svg;
 pub use text::Text;
 pub use text_input::TextInput;
 

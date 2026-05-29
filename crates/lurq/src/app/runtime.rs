@@ -96,6 +96,8 @@ pub struct Runtime {
   resource_loader: crate::resources::ResourceLoader,
   #[cfg(all(feature = "image", feature = "resources"))]
   image_resource_cache: std::collections::HashMap<Arc<str>, crate::images::ImageData>,
+  #[cfg(all(feature = "svg", feature = "resources"))]
+  svg_resource_cache: std::collections::HashMap<Arc<str>, crate::svg::SvgData>,
   profiling_enabled: bool,
 }
 
@@ -140,6 +142,8 @@ impl Runtime {
       resource_loader: crate::resources::ResourceLoader::new(),
       #[cfg(all(feature = "image", feature = "resources"))]
       image_resource_cache: std::collections::HashMap::new(),
+      #[cfg(all(feature = "svg", feature = "resources"))]
+      svg_resource_cache: std::collections::HashMap::new(),
       profiling_enabled: false,
     }
   }
@@ -1314,6 +1318,8 @@ impl Runtime {
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
     self.resolve_resource_images();
+    #[cfg(all(feature = "svg", feature = "resources"))]
+    self.resolve_resource_svgs();
 
     if let Some(root) = self.root.as_mut() {
       let now = std::time::Instant::now();
@@ -1405,6 +1411,62 @@ impl Runtime {
     let img = crate::images::ImageData::from_bytes(&bytes).ok()?;
     image_cache.insert(key.clone(), img.clone());
     Some(img)
+  }
+
+  #[cfg(all(feature = "svg", feature = "resources"))]
+  fn resolve_resource_svgs(&mut self) {
+    if let Some(root) = &mut self.root {
+      Self::resolve_resource_svgs_recursive(root, &self.resource_loader, &mut self.svg_resource_cache);
+    }
+  }
+
+  #[cfg(all(feature = "svg", feature = "resources"))]
+  fn resolve_resource_svgs_recursive(
+    node: &mut Node,
+    loader: &crate::resources::ResourceLoader,
+    svg_cache: &mut std::collections::HashMap<Arc<str>, crate::svg::SvgData>,
+  ) -> bool {
+    let mut layout_dirty = false;
+
+    if let NodeKind::ResourceSvg { path } = node.node_kind() {
+      let key: Arc<str> = path.clone();
+      if let Some(svg) = Self::resolve_svg_resource(&key, loader, svg_cache) {
+        node.intrinsic_size = Some(Size::new(svg.viewbox_width(), svg.viewbox_height()));
+        node.node_kind = NodeKind::Svg { data: svg };
+        layout_dirty = true;
+      }
+    }
+
+    for child in &mut node.children {
+      if Self::resolve_resource_svgs_recursive(child, loader, svg_cache) {
+        layout_dirty = true;
+      }
+    }
+
+    if layout_dirty {
+      node.layout_cache.invalidate();
+    }
+
+    layout_dirty
+  }
+
+  #[cfg(all(feature = "svg", feature = "resources"))]
+  fn resolve_svg_resource(
+    key: &Arc<str>,
+    loader: &crate::resources::ResourceLoader,
+    svg_cache: &mut std::collections::HashMap<Arc<str>, crate::svg::SvgData>,
+  ) -> Option<crate::svg::SvgData> {
+    if let Some(svg) = svg_cache.get(key) {
+      return Some(svg.clone());
+    }
+
+    let crate::resources::LoadResourceResult::Loaded(bytes) = loader.load_resource(key, None) else {
+      return None;
+    };
+
+    let svg = crate::svg::SvgData::from_bytes(&bytes);
+    svg_cache.insert(key.clone(), svg.clone());
+    Some(svg)
   }
 
   fn clear_active_path(&mut self) {

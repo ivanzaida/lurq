@@ -71,6 +71,7 @@ fn tessellate_path(
   indices: &mut Vec<u32>,
 ) {
   let lyon_path = usvg_path_to_lyon(path);
+  let transform_scale = path_transform_scale(path.abs_transform());
 
   if let Some(ref fill) = path.fill() {
     let color = if let Some(override_color) = data.fill_override() {
@@ -104,7 +105,7 @@ fn tessellate_path(
       paint_to_color(&stroke.paint(), opacity * stroke.opacity().get() as f32)
     };
 
-    let line_width = stroke.width().get() as f32 * ((sx + sy) * 0.5);
+    let line_width = stroke.width().get() as f32 * transform_scale * ((sx + sy) * 0.5);
 
     let mut geometry: VertexBuffers<SvgVertex, u32> = VertexBuffers::new();
     let mut tessellator = StrokeTessellator::new();
@@ -127,30 +128,51 @@ fn tessellate_path(
 
 fn usvg_path_to_lyon(path: &usvg::Path) -> Path {
   let mut builder = Path::builder();
+  let mut open = false;
+  let transform = path.abs_transform();
   for seg in path.data().segments() {
     match seg {
       usvg::tiny_skia_path::PathSegment::MoveTo(pt) => {
-        builder.begin(lyon::geom::point(pt.x, pt.y));
+        if open {
+          builder.end(false);
+        }
+        builder.begin(transform_point(transform, pt));
+        open = true;
       }
       usvg::tiny_skia_path::PathSegment::LineTo(pt) => {
-        builder.line_to(lyon::geom::point(pt.x, pt.y));
+        builder.line_to(transform_point(transform, pt));
       }
       usvg::tiny_skia_path::PathSegment::QuadTo(p1, pt) => {
-        builder.quadratic_bezier_to(lyon::geom::point(p1.x, p1.y), lyon::geom::point(pt.x, pt.y));
+        builder.quadratic_bezier_to(transform_point(transform, p1), transform_point(transform, pt));
       }
       usvg::tiny_skia_path::PathSegment::CubicTo(p1, p2, pt) => {
         builder.cubic_bezier_to(
-          lyon::geom::point(p1.x, p1.y),
-          lyon::geom::point(p2.x, p2.y),
-          lyon::geom::point(pt.x, pt.y),
+          transform_point(transform, p1),
+          transform_point(transform, p2),
+          transform_point(transform, pt),
         );
       }
       usvg::tiny_skia_path::PathSegment::Close => {
         builder.close();
+        open = false;
       }
     }
   }
+  if open {
+    builder.end(false);
+  }
   builder.build()
+}
+
+fn transform_point(transform: usvg::Transform, mut point: usvg::tiny_skia_path::Point) -> lyon::math::Point {
+  transform.map_point(&mut point);
+  lyon::geom::point(point.x, point.y)
+}
+
+fn path_transform_scale(transform: usvg::Transform) -> f32 {
+  let x_scale = (transform.sx * transform.sx + transform.ky * transform.ky).sqrt();
+  let y_scale = (transform.kx * transform.kx + transform.sy * transform.sy).sqrt();
+  ((x_scale + y_scale) * 0.5).max(0.0)
 }
 
 fn srgb_to_linear(c: f32) -> f32 {
@@ -179,5 +201,43 @@ fn paint_to_color(paint: &usvg::Paint, opacity: f32) -> [f32; 4] {
       opacity,
     ],
     _ => [0.0, 0.0, 0.0, opacity],
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn tessellates_open_stroked_paths() {
+    let svg = SvgData::from_str(
+      r##"
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 80">
+        <path fill="none" stroke="#22C55E" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M18 58L42 42L62 49L86 24L112 18"/>
+      </svg>
+      "##,
+    );
+
+    let mesh = tessellate(&svg, 128.0, 80.0);
+    assert!(!mesh.vertices.is_empty());
+    assert!(!mesh.indices.is_empty());
+  }
+
+  #[test]
+  fn applies_svg_viewbox_transform() {
+    let svg = SvgData::from_str(
+      r##"
+      <svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 1600 1600">
+        <path fill="#202020" d="M0 0H1600V1600H0Z"/>
+      </svg>
+      "##,
+    );
+
+    let mesh = tessellate(&svg, 80.0, 80.0);
+    let max_x = mesh.vertices.iter().map(|v| v.position[0]).fold(0.0, f32::max);
+    let max_y = mesh.vertices.iter().map(|v| v.position[1]).fold(0.0, f32::max);
+
+    assert!(max_x <= 80.0, "max x should be scaled into target width, got {max_x}");
+    assert!(max_y <= 80.0, "max y should be scaled into target height, got {max_y}");
   }
 }

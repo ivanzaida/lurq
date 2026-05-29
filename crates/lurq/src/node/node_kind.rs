@@ -30,6 +30,10 @@ pub(crate) enum NodeKind {
   Svg {
     data: crate::svg::SvgData,
   },
+  #[cfg(all(feature = "svg", feature = "resources"))]
+  ResourceSvg {
+    path: Arc<str>,
+  },
 }
 
 #[derive(Clone)]

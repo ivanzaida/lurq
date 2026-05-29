@@ -235,6 +235,8 @@ impl LayoutEngine {
       NodeKind::ResourceImage { .. } => QuadContent::None,
       #[cfg(feature = "svg")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
+      #[cfg(all(feature = "svg", feature = "resources"))]
+      NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } if node.color().is_none() => QuadContent::Rect {
         color: crate::node::color::Color::from_hex("#cbd5e1"),
       },
@@ -634,6 +636,14 @@ impl LayoutEngine {
         let preferred = node
           .intrinsic_size
           .unwrap_or(Size::new(data.viewbox_width(), data.viewbox_height()));
+        return LayoutResult {
+          size: constraints.constrain(preferred),
+          children: vec![],
+        };
+      }
+      #[cfg(all(feature = "svg", feature = "resources"))]
+      NodeKind::ResourceSvg { .. } => {
+        let preferred = node.intrinsic_size.unwrap_or(Size::new(0.0, 0.0));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
@@ -1315,6 +1325,27 @@ impl LayoutEngine {
       child.node_kind(),
       NodeKind::Image { .. } | NodeKind::ResourceImage { .. }
     ) {
+      if let Some(intrinsic) = child.intrinsic_size {
+        if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
+          if let (Some(w), None) = (resolved_width, resolved_height) {
+            let h = w * intrinsic.height / intrinsic.width;
+            c.min_height = h;
+            c.max_height = h;
+          } else if let (None, Some(h)) = (resolved_width, resolved_height) {
+            let w = h * intrinsic.width / intrinsic.height;
+            c.min_width = w;
+            c.max_width = w;
+          }
+        }
+      }
+    }
+    #[cfg(all(feature = "svg", feature = "resources"))]
+    let is_svg_media = matches!(child.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
+    #[cfg(all(feature = "svg", not(feature = "resources")))]
+    let is_svg_media = matches!(child.node_kind(), NodeKind::Svg { .. });
+
+    #[cfg(feature = "svg")]
+    if is_svg_media {
       if let Some(intrinsic) = child.intrinsic_size {
         if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
           if let (Some(w), None) = (resolved_width, resolved_height) {

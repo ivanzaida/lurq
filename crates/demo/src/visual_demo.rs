@@ -1,15 +1,28 @@
 #[cfg(all(feature = "image", feature = "resources"))]
 use lurq::components::Image;
+#[cfg(feature = "svg")]
+use lurq::components::Svg;
+#[cfg(feature = "svg")]
+use lurq::layout::StackAlignment;
+#[cfg(feature = "svg")]
+use lurq::svg::SvgData;
 use lurq::{
   layout::{Alignment, text_style::FontWeight},
   node::{Element, color::Color, dimension::Dimension},
 };
 
+#[cfg(feature = "svg")]
+use crate::style::SECONDARY;
 use crate::style::{BG, BORDER, PRIMARY, SURFACE, TEXT, TEXT_MUTED, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
+
+#[cfg(feature = "svg")]
+const LINE_CHART_SVG: &str = include_str!("../assets/line-chart-parallel-svgrepo-com.svg");
+#[cfg(feature = "svg")]
+const LINE_CHART_SVG_BYTES: &[u8] = include_bytes!("../assets/line-chart-parallel-svgrepo-com.svg");
 
 #[cfg(all(feature = "image", feature = "resources"))]
 const IMAGE_ASSETS: &[(&str, &str)] = &[
@@ -29,6 +42,9 @@ pub(crate) fn visual_content() -> Element {
     .child(radius_showcase())
     .child(section_title("Clipping (Overflow)"))
     .child(clip_showcase());
+
+  #[cfg(feature = "svg")]
+  let content = content.child(section_title("SVG")).child(svg_showcase());
 
   #[cfg(all(feature = "image", feature = "resources"))]
   let content = content
@@ -181,6 +197,152 @@ fn clip_example(label: &str, clip: bool) -> Element {
     col = col.overflow_visible();
   }
   col.into()
+}
+
+#[cfg(feature = "svg")]
+fn svg_showcase() -> Element {
+  let content = lurq::components::Column::new().spacing(16.0).child(svg_case_box(
+    "SVG from string / bytes",
+    "Svg::from_str and Svg::from_bytes",
+    vec![
+      svg_preview(
+        "from_str",
+        Svg::from_str(LINE_CHART_SVG)
+          .size(Dimension::Pct(100.0), 120.0)
+          .rounded(6.0)
+          .clip(),
+        false,
+      ),
+      svg_preview(
+        "from_bytes",
+        Svg::from_bytes(LINE_CHART_SVG_BYTES)
+          .size(Dimension::Pct(100.0), 120.0)
+          .rounded(6.0)
+          .clip(),
+        false,
+      ),
+    ],
+  ));
+
+  #[cfg(feature = "resources")]
+  let content = content.child(svg_case_box(
+    "SVG from resource",
+    "line-chart-parallel-svgrepo-com.svg",
+    vec![svg_preview(
+      "resource",
+      Svg::from_resource("line-chart-parallel-svgrepo-com.svg")
+        .size(Dimension::Pct(100.0), 120.0)
+        .rounded(6.0)
+        .clip(),
+      false,
+    )],
+  ));
+
+  content
+    .child(svg_case_box(
+      "SVG intrinsic",
+      "uses viewBox size",
+      vec![svg_preview(
+        "intrinsic",
+        Svg::from_str(LINE_CHART_SVG)
+          .rounded(6.0)
+          .clip()
+          .border_inside(1.0, Color::from_hex(BORDER)),
+        true,
+      )],
+    ))
+    .child(svg_case_box(
+      "SVG sized",
+      "120 x 120 frame",
+      vec![svg_preview(
+        "size(120, 120)",
+        Svg::from_str(LINE_CHART_SVG).size(120.0, 120.0).rounded(6.0).clip(),
+        false,
+      )],
+    ))
+    .child(svg_case_box(
+      "SVG stroke paths",
+      "line chart",
+      vec![svg_preview(
+        "inline strokes",
+        Svg::from_str(LINE_CHART_SVG)
+          .size(Dimension::Pct(100.0), 120.0)
+          .rounded(6.0)
+          .clip(),
+        false,
+      )],
+    ))
+    .child(svg_case_box(
+      "SVG color overrides",
+      "fill and stroke overrides",
+      vec![
+        svg_preview(
+          "stroke override",
+          Svg::new(SvgData::from_str(LINE_CHART_SVG).with_stroke(Color::from_hex(PRIMARY)))
+            .size(Dimension::Pct(100.0), 120.0)
+            .rounded(6.0)
+            .clip(),
+          false,
+        ),
+        svg_preview(
+          "fill + stroke",
+          Svg::new(
+            SvgData::from_str(LINE_CHART_SVG)
+              .with_fill(Color::from_hex(SECONDARY))
+              .with_stroke(Color::from_hex(PRIMARY)),
+          )
+          .size(Dimension::Pct(100.0), 120.0)
+          .rounded(6.0)
+          .clip(),
+          false,
+        ),
+      ],
+    ))
+    .width(FILL_WIDTH)
+    .into()
+}
+
+#[cfg(feature = "svg")]
+fn svg_case_box(label: &str, detail: &str, previews: Vec<Element>) -> Element {
+  lurq::components::Column::new()
+    .spacing(12.0)
+    .child(text(label, 13.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
+    .child(text(detail, 10.0, FontWeight::Normal, TEXT_MUTED).width(FILL_WIDTH))
+    .child(
+      lurq::components::Row::new()
+        .spacing(16.0)
+        .align_items(Alignment::Stretch)
+        .with_children(previews)
+        .width(FILL_WIDTH),
+    )
+    .pad(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+#[cfg(feature = "svg")]
+fn svg_preview(label: &str, svg: Svg, intrinsic: bool) -> Element {
+  let column = lurq::components::Column::new().spacing(8.0);
+
+  let column = if intrinsic {
+    column.child(svg)
+  } else {
+    column.child(
+      lurq::components::Stack::new()
+        .stack_align(StackAlignment::Center)
+        .child(svg)
+        .size(360.0, 132.0)
+        .fill("#0B1220")
+        .rounded(6.0)
+        .clip()
+        .border_inside(1.0, Color::from_hex(BORDER)),
+    )
+  };
+
+  column.child(text(label, 10.0, FontWeight::Normal, TEXT_MUTED)).into()
 }
 
 #[cfg(all(feature = "image", feature = "resources"))]

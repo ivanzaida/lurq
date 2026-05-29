@@ -261,6 +261,11 @@ impl Node {
     node
   }
 
+  #[cfg(all(feature = "svg", feature = "resources"))]
+  pub fn resource_svg(path: &str) -> Self {
+    Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
+  }
+
   pub fn row(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
     Self::from_parts(
       LayoutKind::Row {
