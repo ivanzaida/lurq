@@ -208,6 +208,15 @@ impl Ctx {
     self.set_props(props);
   }
 
+  pub(crate) fn update_root_props<T: Send + PartialEq + 'static>(&mut self, props: T) -> bool {
+    if !self.props_changed(&props) {
+      return false;
+    }
+    self.set_props(props);
+    self.dirty.store(true, Ordering::Relaxed);
+    true
+  }
+
   fn props_changed<T: Send + PartialEq + 'static>(&self, props: &T) -> bool {
     self.props.as_ref().and_then(|existing| existing.downcast_ref::<T>()) != Some(props)
   }

@@ -13,6 +13,8 @@ use lurq::{
   node::{Element, color::Color},
 };
 
+use crate::support::run_pass;
+
 #[derive(Clone)]
 struct Shared<T>(Arc<T>);
 
@@ -76,6 +78,7 @@ fn rerenders_after_click_updates_signal_value() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
   runtime.mount_root::<Counter>(Theme::default(), Shared(renders.clone()));
+  run_pass(&mut runtime);
 
   assert_eq!(renders.load(Ordering::Relaxed), 1);
 

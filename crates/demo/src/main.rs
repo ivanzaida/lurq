@@ -332,16 +332,24 @@ fn perf_row(label: &str, value: String, value_weight: FontWeight) -> lurq::compo
     .width(Dimension::Pct(100.0))
 }
 
-fn set_selected_render_engine(tree: &mut Tree) -> &'static str {
-  match selected_renderer_arg().as_str() {
-    "wgpu" => {
-      set_wgpu_render_engine(tree);
-      "wgpu"
-    }
-    "dx12" | "d3d12" => {
-      set_dx12_render_engine(tree);
-      "dx12"
-    }
+fn set_selected_render_engine(tree: &mut Tree) -> String {
+  let renderer = selected_renderer_arg();
+  tree.set_render_engine(create_render_engine(&renderer));
+  normalize_renderer_name(&renderer).to_owned()
+}
+
+fn create_render_engine(renderer: &str) -> Box<dyn lurq::app::render_engine::RenderEngine> {
+  match renderer {
+    "wgpu" => create_wgpu_render_engine(),
+    "dx12" | "d3d12" => create_dx12_render_engine(),
+    other => panic!("unknown renderer `{other}`; expected `wgpu` or `dx12`"),
+  }
+}
+
+fn normalize_renderer_name(renderer: &str) -> &'static str {
+  match renderer {
+    "wgpu" => "wgpu",
+    "dx12" | "d3d12" => "dx12",
     other => panic!("unknown renderer `{other}`; expected `wgpu` or `dx12`"),
   }
 }
@@ -365,22 +373,22 @@ fn selected_renderer_arg() -> String {
 }
 
 #[cfg(feature = "wgpu")]
-fn set_wgpu_render_engine(tree: &mut Tree) {
-  tree.set_render_engine(Box::new(WgpuRenderEngine::new()));
+fn create_wgpu_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
+  Box::new(WgpuRenderEngine::new())
 }
 
 #[cfg(not(feature = "wgpu"))]
-fn set_wgpu_render_engine(_tree: &mut Tree) {
+fn create_wgpu_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
   panic!("--renderer wgpu requires the demo `wgpu` feature");
 }
 
 #[cfg(all(feature = "dx12", target_os = "windows"))]
-fn set_dx12_render_engine(tree: &mut Tree) {
-  tree.set_render_engine(Box::new(Dx12RenderEngine::new()));
+fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
+  Box::new(Dx12RenderEngine::new())
 }
 
 #[cfg(not(all(feature = "dx12", target_os = "windows")))]
-fn set_dx12_render_engine(_tree: &mut Tree) {
+fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
   panic!("--renderer dx12 requires the demo `dx12` feature on Windows");
 }
 
@@ -391,13 +399,15 @@ fn main() {
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
   app.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut tree);
+  #[cfg(feature = "devtools")]
+  let devtools_renderer = renderer.clone();
   animation_demo::register_keyframes(&mut tree);
   let perf = Signal::new(PerfStats::default());
   let mut perf_meter = PerfMeter::new(perf.clone());
   tree.mount_root::<DemoApp>(app.theme().clone(), DemoProps { perf });
   let title = format!("lurq demo ({renderer})");
-  WinitWindow::new(app, tree)
-    .with_title(&title)
-    .on_tick(move |tree: &mut Tree| perf_meter.tick(tree))
-    .run();
+  let window = WinitWindow::new(app, tree).with_title(&title);
+  #[cfg(feature = "devtools")]
+  let window = window.with_devtools(move || create_render_engine(&devtools_renderer));
+  window.on_tick(move |tree: &mut Tree| perf_meter.tick(tree)).run();
 }

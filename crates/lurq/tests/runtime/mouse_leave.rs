@@ -52,6 +52,7 @@ fn mouse_leave_window_fires_on_mouse_leave() {
         move || *leaves.lock().unwrap() += 1
       }),
   );
+  run_pass(&mut runtime);
 
   runtime.mouse_move(10.0, 10.0);
   assert_eq!(runtime.cursor(), CursorIcon::Pointer);
@@ -88,6 +89,7 @@ fn node_mouse_leave_fires_when_pointer_exits_node() {
         move || *leaves.lock().unwrap() += 1
       }),
   );
+  run_pass(&mut runtime);
 
   runtime.mouse_move(10.0, 10.0);
   runtime.mouse_move(300.0, 10.0);
@@ -136,6 +138,7 @@ fn hovering_stable_left_edge_does_not_emit_repeated_leave() {
       .width(400.0)
       .height(40.0),
   );
+  run_pass(&mut runtime);
 
   let rect = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#2563eb")))
@@ -160,6 +163,7 @@ fn rebuild_preserves_hover_without_dispatching_mouse_leave() {
   let mut runtime = Tree::new();
 
   runtime.mount_root::<LeaveRoot>(Theme::default(), Shared(leaves.clone()));
+  run_pass(&mut runtime);
   runtime.mouse_move(10.0, 10.0);
 
   runtime.rebuild();
@@ -176,6 +180,7 @@ fn set_root_dispatches_mouse_leave_before_replacing_root() {
     let leaves = leaves.clone();
     move || *leaves.lock().unwrap() += 1
   }));
+  run_pass(&mut runtime);
   runtime.mouse_move(10.0, 10.0);
 
   runtime.set_root(lurq::components::Rect::new(100.0, 40.0));

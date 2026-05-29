@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use winit::{
   application::ApplicationHandler,
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
@@ -8,6 +6,11 @@ use winit::{
   window::{CursorIcon as WinitCursorIcon, Window, WindowAttributes, WindowId},
 };
 
+#[cfg(feature = "devtools")]
+use crate::app::{
+  devtools::{DevTools, DevToolsProps, DevToolsSnapshot},
+  render_engine::RenderEngine,
+};
 use crate::{
   app::{
     App, Tree,
@@ -17,13 +20,23 @@ use crate::{
 };
 
 type TickFn = Box<dyn FnMut(&mut Tree)>;
-const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
+#[cfg(feature = "devtools")]
+type RenderEngineFactory = Box<dyn Fn() -> Box<dyn RenderEngine>>;
 
 pub struct WinitWindow {
   app: App,
   tree: Tree,
   attrs: WindowAttributes,
   on_tick: Option<TickFn>,
+  #[cfg(feature = "devtools")]
+  devtools: Option<DevToolsConfig>,
+}
+
+#[cfg(feature = "devtools")]
+struct DevToolsConfig {
+  attrs: WindowAttributes,
+  render_engine_factory: RenderEngineFactory,
 }
 
 impl WinitWindow {
@@ -33,6 +46,8 @@ impl WinitWindow {
       tree,
       attrs: WindowAttributes::default(),
       on_tick: None,
+      #[cfg(feature = "devtools")]
+      devtools: None,
     }
   }
 
@@ -83,28 +98,46 @@ impl WinitWindow {
     self
   }
 
+  #[cfg(feature = "devtools")]
+  pub fn with_devtools<F>(mut self, render_engine_factory: F) -> Self
+  where
+    F: Fn() -> Box<dyn RenderEngine> + 'static,
+  {
+    self.devtools = Some(DevToolsConfig {
+      attrs: WindowAttributes::default()
+        .with_title("lurq DevTools")
+        .with_inner_size(winit::dpi::LogicalSize::new(1440, 900)),
+      render_engine_factory: Box::new(render_engine_factory),
+    });
+    self
+  }
+
   pub fn run(self) {
     let event_loop = EventLoop::new().unwrap();
     if self.on_tick.is_some() {
       event_loop.set_control_flow(ControlFlow::Poll);
     }
+
+    #[cfg(feature = "devtools")]
+    let devtools = self.devtools.map(|config| {
+      let snapshot = DevToolsSnapshot::from_tree(&self.tree);
+      let app = App::new();
+      let mut tree = Tree::new();
+      tree.set_render_engine((config.render_engine_factory)());
+      tree.mount_root::<DevTools>(app.theme().clone(), DevToolsProps { snapshot });
+      ManagedWindow::new(app, tree, config.attrs, None, false)
+    });
+
     let mut handler = WinitHandler {
-      app: self.app,
-      tree: self.tree,
-      window: None,
-      cursor_pos: (0.0, 0.0),
-      cursor: CursorIcon::Default,
-      modifiers: ModifiersState::empty(),
-      attrs: Some(self.attrs),
-      on_tick: self.on_tick,
-      redraw_pending: false,
-      last_present: Instant::now() - FRAME_INTERVAL,
+      main: ManagedWindow::new(self.app, self.tree, self.attrs, self.on_tick, true),
+      #[cfg(feature = "devtools")]
+      devtools,
     };
     event_loop.run_app(&mut handler).unwrap();
   }
 }
 
-struct WinitHandler {
+struct ManagedWindow {
   app: App,
   tree: Tree,
   window: Option<Window>,
@@ -114,26 +147,59 @@ struct WinitHandler {
   attrs: Option<WindowAttributes>,
   on_tick: Option<TickFn>,
   redraw_pending: bool,
-  last_present: Instant,
+  close_exits: bool,
 }
 
-impl WinitHandler {
-  fn check_redraw(&mut self) {
-    if !self.tree.needs_redraw() {
-      return;
-    }
-
-    if self.last_present.elapsed() >= FRAME_INTERVAL {
-      self.present_now();
-    } else if !self.redraw_pending {
-      if let Some(w) = &self.window {
-        self.redraw_pending = true;
-        w.request_redraw();
-      }
+impl ManagedWindow {
+  fn new(app: App, tree: Tree, attrs: WindowAttributes, on_tick: Option<TickFn>, close_exits: bool) -> Self {
+    Self {
+      app,
+      tree,
+      window: None,
+      cursor_pos: (0.0, 0.0),
+      cursor: CursorIcon::Default,
+      modifiers: ModifiersState::empty(),
+      attrs: Some(attrs),
+      on_tick,
+      redraw_pending: false,
+      close_exits,
     }
   }
 
-  fn present_now(&mut self) {
+  fn window_id(&self) -> Option<WindowId> {
+    self.window.as_ref().map(Window::id)
+  }
+
+  fn create_window(&mut self, event_loop: &ActiveEventLoop) {
+    if self.window.is_some() {
+      return;
+    }
+
+    let attrs = self.attrs.take().unwrap_or_default();
+    let window = event_loop.create_window(attrs).unwrap();
+    let size = window.inner_size();
+    self.tree.set_scale_factor(window.scale_factor() as f32);
+    self.tree.resize(size.width, size.height);
+    self.window = Some(window);
+    self.request_redraw();
+  }
+
+  fn check_redraw(&mut self) {
+    if self.tree.needs_redraw() {
+      self.request_redraw();
+    }
+  }
+
+  fn request_redraw(&mut self) {
+    if !self.redraw_pending
+      && let Some(w) = &self.window
+    {
+      self.redraw_pending = true;
+      w.request_redraw();
+    }
+  }
+
+  fn present_now(&mut self) -> bool {
     if let Some(w) = &self.window {
       let size = w.inner_size();
       self.tree.set_scale_factor(w.scale_factor() as f32);
@@ -141,8 +207,10 @@ impl WinitHandler {
       self.redraw_pending = false;
       self.tree.clear_needs_redraw();
       self.tree.pass(&mut self.app, w);
-      self.last_present = Instant::now();
+      self.check_redraw();
+      return true;
     }
+    false
   }
 
   fn apply_cursor(&mut self) {
@@ -156,37 +224,35 @@ impl WinitHandler {
     }
     self.cursor = cursor;
   }
-}
 
-impl ApplicationHandler for WinitHandler {
-  fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    if self.window.is_none() {
-      let attrs = self.attrs.take().unwrap_or_default();
-      let window = event_loop.create_window(attrs).unwrap();
-      let size = window.inner_size();
-      self.tree.set_scale_factor(window.scale_factor() as f32);
-      self.tree.resize(size.width, size.height);
-      window.request_redraw();
-      self.window = Some(window);
+  fn tick(&mut self) {
+    if let Some(tick) = &mut self.on_tick {
+      tick(&mut self.tree);
+      self.check_redraw();
     }
   }
 
-  fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+  fn handle_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
     match event {
-      WindowEvent::CloseRequested => event_loop.exit(),
+      WindowEvent::CloseRequested => {
+        if self.close_exits {
+          event_loop.exit();
+        } else {
+          self.window = None;
+          self.redraw_pending = false;
+        }
+      }
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
         self.tree.set_scale_factor(scale_factor as f32);
         if let Some(w) = &self.window {
           let size = w.inner_size();
           self.tree.resize(size.width, size.height);
-          w.request_redraw();
+          self.request_redraw();
         }
       }
       WindowEvent::Resized(size) => {
         self.tree.resize(size.width, size.height);
-        if let Some(w) = &self.window {
-          w.request_redraw();
-        }
+        self.request_redraw();
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
@@ -254,18 +320,68 @@ impl ApplicationHandler for WinitHandler {
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {
-        self.present_now();
-        self.check_redraw();
+        return self.present_now();
       }
       _ => {}
+    }
+    false
+  }
+}
+
+struct WinitHandler {
+  main: ManagedWindow,
+  #[cfg(feature = "devtools")]
+  devtools: Option<ManagedWindow>,
+}
+
+impl WinitHandler {
+  #[cfg(feature = "devtools")]
+  fn sync_devtools(&mut self) {
+    let Some(devtools) = &mut self.devtools else {
+      return;
+    };
+    if devtools.window.is_none() {
+      return;
+    }
+
+    let snapshot = DevToolsSnapshot::from_tree(&self.main.tree);
+    devtools.tree.update_root_props::<DevTools>(DevToolsProps { snapshot });
+    devtools.check_redraw();
+  }
+}
+
+impl ApplicationHandler for WinitHandler {
+  fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    self.main.create_window(event_loop);
+    #[cfg(feature = "devtools")]
+    if let Some(devtools) = &mut self.devtools {
+      devtools.create_window(event_loop);
+    }
+  }
+
+  fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    if self.main.window_id() == Some(id) {
+      #[cfg(feature = "devtools")]
+      let presented = self.main.handle_event(event_loop, event);
+      #[cfg(not(feature = "devtools"))]
+      self.main.handle_event(event_loop, event);
+      #[cfg(feature = "devtools")]
+      if presented {
+        self.sync_devtools();
+      }
+      return;
+    }
+
+    #[cfg(feature = "devtools")]
+    if let Some(devtools) = &mut self.devtools {
+      if devtools.window_id() == Some(id) {
+        devtools.handle_event(event_loop, event);
+      }
     }
   }
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    if let Some(tick) = &mut self.on_tick {
-      tick(&mut self.tree);
-      self.check_redraw();
-    }
+    self.main.tick();
   }
 }
 

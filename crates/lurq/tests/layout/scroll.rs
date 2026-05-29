@@ -10,6 +10,7 @@ use lurq::{
 };
 
 use super::PassLayoutExt;
+use crate::support::run_pass;
 
 fn rt() -> Tree {
   Tree::new()
@@ -146,8 +147,8 @@ fn scrollbar_hovered_overrides_scrollbar_style() {
     .size(100.0, 100.0);
 
   rt.set_root(node);
-  let rect = rt.find_element(|_| true).unwrap().bounds();
-  rt.mouse_move(rect.x + rect.width - 4.0, rect.y + 10.0);
+  run_pass(&mut rt);
+  rt.mouse_move(100.0 - 4.0, 10.0);
 
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -172,8 +173,8 @@ fn horizontal_scrollbar_hovered_overrides_scrollbar_style() {
     .size(100.0, 100.0);
 
   rt.set_root(node);
-  let rect = rt.find_element(|_| true).unwrap().bounds();
-  rt.mouse_move(rect.x + 10.0, rect.y + rect.height - 4.0);
+  run_pass(&mut rt);
+  rt.mouse_move(10.0, 100.0 - 4.0);
 
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);

@@ -190,6 +190,7 @@ fn signal_driven_rerender_does_not_cancel_active_drag() {
 
   assert_eq!(*moves.lock().unwrap(), vec![10.0, 160.0]);
 
+  run_pass(&mut runtime);
   let dragged = runtime
     .find_element(|element| element.color() == Some(DRAG_COLOR))
     .unwrap();
@@ -229,6 +230,7 @@ fn drag_container_clamps_draggable_to_container_bounds() {
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
   runtime.mouse_move(400.0, 100.0);
 
+  run_pass(&mut runtime);
   let dragged = runtime
     .find_element(|element| element.color() == Some(DRAG_COLOR))
     .unwrap();

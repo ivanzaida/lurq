@@ -1,5 +1,7 @@
 use lurq::{app::Tree, node::color::Color};
 
+use crate::support::run_pass;
+
 #[test]
 fn updates_layout_after_mutating_found_element_rect() {
   let mut runtime = Tree::new();
@@ -8,6 +10,7 @@ fn updates_layout_after_mutating_found_element_rect() {
       .child(lurq::components::Rect::new(10.0, 20.0).fill("#22c55e"))
       .pad(10.0),
   );
+  run_pass(&mut runtime);
 
   let found = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
@@ -23,6 +26,7 @@ fn updates_layout_after_mutating_found_element_rect() {
     .unwrap();
   found.set_relative_bounds(15.0, 20.0, 30.0, 40.0);
   assert!(runtime.needs_redraw());
+  run_pass(&mut runtime);
 
   let found = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))

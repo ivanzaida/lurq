@@ -23,6 +23,7 @@ fn runtime_with_click_log() -> (Tree, Signal<Vec<&'static str>>) {
         move |_| events.update(|events| events.push("dblclick"))
       }),
   );
+  run_pass(&mut runtime);
 
   (runtime, events)
 }

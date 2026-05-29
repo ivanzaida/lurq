@@ -8,6 +8,8 @@ use lurq::{
   node::{Element, color::Color},
 };
 
+use crate::support::run_pass;
+
 struct Counter {
   count: Signal<i32>,
 }
@@ -55,6 +57,7 @@ impl Component for Counter {
 fn updates_displayed_value_after_increment_and_decrement_clicks() {
   let mut runtime = Tree::new();
   runtime.mount_root::<Counter>(Theme::default(), ());
+  run_pass(&mut runtime);
   assert_counter_value(&runtime, "0");
 
   let increment = runtime

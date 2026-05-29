@@ -5,12 +5,13 @@ edition = "2024"
 
 [features]
 default = ["all"]
-all = ["wgpu", "dx12", "image", "svg", "resources"]
+all = ["wgpu", "dx12", "image", "svg", "resources", "devtools"]
 wgpu = ["lurq/wgpu"]
 dx12 = ["lurq/dx12"]
 image = ["lurq/image"]
 svg = ["lurq/svg"]
 resources = ["lurq/resources"]
+devtools = ["lurq/devtools"]
 
 [dependencies]
 lurq = { path = "../lurq", default-features = false, features = ["winit"] }

@@ -246,6 +246,13 @@ impl Tree {
     self.clear_focus();
   }
 
+  pub fn update_root_props<C: Component>(&mut self, props: C::Props) {
+    let changed = self.root_ctx.as_mut().is_some_and(|ctx| ctx.update_root_props(props));
+    if changed {
+      self.needs_redraw = true;
+    }
+  }
+
   pub fn rebuild(&mut self) {
     if self.root_component.is_none() || self.root_ctx.is_none() {
       return;

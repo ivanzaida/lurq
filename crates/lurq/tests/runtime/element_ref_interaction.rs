@@ -6,6 +6,8 @@ use lurq::{
   node::{Element, color::Color},
 };
 
+use crate::support::run_pass;
+
 #[derive(Clone)]
 struct Shared<T>(Arc<T>);
 
@@ -50,6 +52,7 @@ fn element_ref_tracks_hover_and_active_state() {
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::Rect::new(100.0, 40.0).ref_element(element_ref.clone()));
+  run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -91,6 +94,7 @@ fn element_ref_tracks_focus_state() {
           .width(100.0),
       ),
   );
+  run_pass(&mut runtime);
 
   let first = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
@@ -126,20 +130,15 @@ fn element_ref_mut_can_override_layout_bounds() {
       )
       .pad(10.0),
   );
+  run_pass(&mut runtime);
 
-  let rect = element_ref.bounds();
-  assert_eq!(rect.x, 0.0);
-  assert_eq!(rect.y, 0.0);
-
-  runtime
-    .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
-    .unwrap();
   let rect = element_ref.bounds();
   assert_eq!(rect.x, 10.0);
   assert_eq!(rect.y, 10.0);
 
   element_ref.set_relative_bounds(15.0, 20.0, 30.0, 40.0);
   assert!(runtime.needs_redraw());
+  run_pass(&mut runtime);
 
   let found = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
@@ -163,6 +162,7 @@ fn hovered_style_overrides_visuals_and_layout() {
       .fill("#334155")
       .hovered(|el| el.fill("#475569").width(120.0).height(50.0)),
   );
+  run_pass(&mut runtime);
 
   let base = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#334155")))
@@ -172,6 +172,7 @@ fn hovered_style_overrides_visuals_and_layout() {
   assert_eq!(base.height, 40.0);
 
   runtime.mouse_move(base.x + 1.0, base.y + 1.0);
+  run_pass(&mut runtime);
 
   let hovered = runtime
     .find_element(|el| el.color() == Some(Color::from_hex("#475569")))
@@ -186,6 +187,7 @@ fn ctx_element_ref_is_stable_across_rerenders() {
   let seen_bounds = Arc::new(Mutex::new(Vec::new()));
   let mut runtime = Tree::new();
   runtime.mount_root::<RefLoggingComponent>(Theme::default(), Shared(seen_bounds.clone()));
+  run_pass(&mut runtime);
 
   assert_eq!(seen_bounds.lock().unwrap()[0], ElementRect::default());
 
