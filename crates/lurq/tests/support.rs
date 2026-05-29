@@ -6,7 +6,7 @@ use std::{
 };
 
 use lurq::{
-  app::{Runtime, render_engine::RenderEngine},
+  app::{App, Tree, render_engine::RenderEngine},
   layout::render_list::{RectCmd, RenderList},
   node::color::Color,
 };
@@ -29,8 +29,8 @@ impl HasDisplayHandle for TestSurface {
   }
 }
 
-pub fn run_pass(runtime: &mut Runtime) {
-  runtime.pass(&TestSurface);
+pub fn run_pass(app: &mut App, tree: &mut Tree) {
+  tree.pass(app, &TestSurface);
 }
 
 #[derive(Clone, Debug)]
@@ -49,12 +49,12 @@ pub struct RectSnapshot {
   pub color: Color,
 }
 
-pub fn render_pass(runtime: &mut Runtime) -> RenderSnapshot {
+pub fn render_pass(app: &mut App, tree: &mut Tree) -> RenderSnapshot {
   let capture = Arc::new(Mutex::new(None));
-  runtime.set_render_engine(Box::new(CapturingRenderEngine {
+  tree.set_render_engine(Box::new(CapturingRenderEngine {
     capture: capture.clone(),
   }));
-  runtime.pass(&TestSurface);
+  tree.pass(app, &TestSurface);
   capture.lock().unwrap().clone().unwrap_or_else(empty_snapshot)
 }
 

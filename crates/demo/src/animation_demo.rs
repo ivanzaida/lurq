@@ -15,8 +15,8 @@ const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 
-pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
-  runtime.register_keyframes(
+pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
+  tree.register_keyframes(
     Keyframes::new("pulse")
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(1.0));
@@ -29,7 +29,7 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       }),
   );
 
-  runtime.register_keyframes(
+  tree.register_keyframes(
     Keyframes::new("color-cycle")
       .frame(0.0, |f| {
         f.set(
@@ -57,7 +57,7 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       }),
   );
 
-  runtime.register_keyframes(
+  tree.register_keyframes(
     Keyframes::new("slide-bounce")
       .frame(0.0, |f| {
         f.set(AnimatableProperty::OffsetX, AnimatableValue::Float(0.0));
@@ -72,7 +72,7 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       }),
   );
 
-  runtime.register_keyframes(
+  tree.register_keyframes(
     Keyframes::new("spin")
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
@@ -85,7 +85,7 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       }),
   );
 
-  runtime.register_keyframes(
+  tree.register_keyframes(
     Keyframes::new("rock")
       .frame(0.0, |f| {
         f.set(
@@ -107,7 +107,7 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       }),
   );
 
-  runtime.register_keyframes(
+  tree.register_keyframes(
     Keyframes::new("spin-color")
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
@@ -136,7 +136,7 @@ pub(crate) fn register_keyframes(runtime: &mut lurq::app::Runtime) {
       }),
   );
 
-  runtime.register_keyframes(
+  tree.register_keyframes(
     Keyframes::new("grow-shrink")
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Width, AnimatableValue::Float(60.0));

@@ -24,7 +24,7 @@ use lurq::app::dx12_render::Dx12RenderEngine;
 #[cfg(feature = "wgpu")]
 use lurq::app::wgpu_render::WgpuRenderEngine;
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, winit_shell::WinitWindow},
+  app::{App, Tree, component::Component, ctx::Ctx, winit_shell::WinitWindow},
   components::Row,
   core::Signal,
   layout::{
@@ -206,8 +206,8 @@ impl PerfMeter {
     }
   }
 
-  fn tick(&mut self, runtime: &mut Runtime) {
-    let frame_count = runtime.frame_count();
+  fn tick(&mut self, tree: &mut Tree) {
+    let frame_count = tree.frame_count();
     if frame_count > self.last_seen_frame {
       self.frames_since_sample += frame_count - self.last_seen_frame;
       self.last_seen_frame = frame_count;
@@ -219,7 +219,7 @@ impl PerfMeter {
       return;
     }
 
-    let profile = runtime.last_profile();
+    let profile = tree.last_profile();
     let fps = (self.frames_since_sample as f32 / elapsed.as_secs_f32()).round() as u32;
     let stats = PerfStats {
       fps,
@@ -330,14 +330,14 @@ fn perf_row(label: &str, value: String, value_weight: FontWeight) -> lurq::compo
     .width(Dimension::Pct(100.0))
 }
 
-fn set_selected_render_engine(runtime: &mut Runtime) -> &'static str {
+fn set_selected_render_engine(tree: &mut Tree) -> &'static str {
   match selected_renderer_arg().as_str() {
     "wgpu" => {
-      set_wgpu_render_engine(runtime);
+      set_wgpu_render_engine(tree);
       "wgpu"
     }
     "dx12" | "d3d12" => {
-      set_dx12_render_engine(runtime);
+      set_dx12_render_engine(tree);
       "dx12"
     }
     other => panic!("unknown renderer `{other}`; expected `wgpu` or `dx12`"),
@@ -363,38 +363,39 @@ fn selected_renderer_arg() -> String {
 }
 
 #[cfg(feature = "wgpu")]
-fn set_wgpu_render_engine(runtime: &mut Runtime) {
-  runtime.set_render_engine(Box::new(WgpuRenderEngine::new()));
+fn set_wgpu_render_engine(tree: &mut Tree) {
+  tree.set_render_engine(Box::new(WgpuRenderEngine::new()));
 }
 
 #[cfg(not(feature = "wgpu"))]
-fn set_wgpu_render_engine(_runtime: &mut Runtime) {
+fn set_wgpu_render_engine(_tree: &mut Tree) {
   panic!("--renderer wgpu requires the demo `wgpu` feature");
 }
 
 #[cfg(all(feature = "dx12", target_os = "windows"))]
-fn set_dx12_render_engine(runtime: &mut Runtime) {
-  runtime.set_render_engine(Box::new(Dx12RenderEngine::new()));
+fn set_dx12_render_engine(tree: &mut Tree) {
+  tree.set_render_engine(Box::new(Dx12RenderEngine::new()));
 }
 
 #[cfg(not(all(feature = "dx12", target_os = "windows")))]
-fn set_dx12_render_engine(_runtime: &mut Runtime) {
+fn set_dx12_render_engine(_tree: &mut Tree) {
   panic!("--renderer dx12 requires the demo `dx12` feature on Windows");
 }
 
 fn main() {
-  let mut runtime = Runtime::new();
+  let mut app = App::new();
+  let mut tree = Tree::new();
   #[cfg(feature = "resources")]
-  runtime.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
-  runtime.set_profiling_enabled(true);
-  let renderer = set_selected_render_engine(&mut runtime);
-  animation_demo::register_keyframes(&mut runtime);
+  app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
+  app.set_profiling_enabled(true);
+  let renderer = set_selected_render_engine(&mut tree);
+  animation_demo::register_keyframes(&mut tree);
   let perf = Signal::new(PerfStats::default());
   let mut perf_meter = PerfMeter::new(perf.clone());
-  runtime.mount_root::<DemoApp>(DemoProps { perf });
+  tree.mount_root::<DemoApp>(app.theme().clone(), DemoProps { perf });
   let title = format!("lurq demo ({renderer})");
-  WinitWindow::new(runtime)
+  WinitWindow::new(app, tree)
     .with_title(&title)
-    .on_tick(move |rt: &mut Runtime| perf_meter.tick(rt))
+    .on_tick(move |tree: &mut Tree| perf_meter.tick(tree))
     .run();
 }

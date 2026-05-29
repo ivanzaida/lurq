@@ -10,25 +10,27 @@ use winit::{
 
 use crate::{
   app::{
-    Runtime,
+    App, Tree,
     events::{MouseButton, ScrollPhase},
   },
   node::CursorIcon,
 };
 
-type TickFn = Box<dyn FnMut(&mut Runtime)>;
+type TickFn = Box<dyn FnMut(&mut Tree)>;
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 pub struct WinitWindow {
-  runtime: Runtime,
+  app: App,
+  tree: Tree,
   attrs: WindowAttributes,
   on_tick: Option<TickFn>,
 }
 
 impl WinitWindow {
-  pub fn new(runtime: Runtime) -> Self {
+  pub fn new(app: App, tree: Tree) -> Self {
     Self {
-      runtime,
+      app,
+      tree,
       attrs: WindowAttributes::default(),
       on_tick: None,
     }
@@ -75,7 +77,7 @@ impl WinitWindow {
 
   pub fn on_tick<F>(mut self, tick: F) -> Self
   where
-    F: FnMut(&mut Runtime) + 'static,
+    F: FnMut(&mut Tree) + 'static,
   {
     self.on_tick = Some(Box::new(tick));
     self
@@ -87,7 +89,8 @@ impl WinitWindow {
       event_loop.set_control_flow(ControlFlow::Poll);
     }
     let mut handler = WinitHandler {
-      runtime: self.runtime,
+      app: self.app,
+      tree: self.tree,
       window: None,
       cursor_pos: (0.0, 0.0),
       cursor: CursorIcon::Default,
@@ -102,7 +105,8 @@ impl WinitWindow {
 }
 
 struct WinitHandler {
-  runtime: Runtime,
+  app: App,
+  tree: Tree,
   window: Option<Window>,
   cursor_pos: (f64, f64),
   cursor: CursorIcon,
@@ -115,7 +119,7 @@ struct WinitHandler {
 
 impl WinitHandler {
   fn check_redraw(&mut self) {
-    if !self.runtime.needs_redraw() {
+    if !self.tree.needs_redraw() {
       return;
     }
 
@@ -132,14 +136,14 @@ impl WinitHandler {
   fn present_now(&mut self) {
     if let Some(w) = &self.window {
       self.redraw_pending = false;
-      self.runtime.clear_needs_redraw();
-      self.runtime.pass(w);
+      self.tree.clear_needs_redraw();
+      self.tree.pass(&mut self.app, w);
       self.last_present = Instant::now();
     }
   }
 
   fn apply_cursor(&mut self) {
-    let cursor = self.runtime.cursor();
+    let cursor = self.tree.cursor();
     if cursor == self.cursor {
       return;
     }
@@ -157,8 +161,8 @@ impl ApplicationHandler for WinitHandler {
       let attrs = self.attrs.take().unwrap_or_default();
       let window = event_loop.create_window(attrs).unwrap();
       let size = window.inner_size();
-      self.runtime.set_scale_factor(window.scale_factor() as f32);
-      self.runtime.resize(size.width, size.height);
+      self.tree.set_scale_factor(window.scale_factor() as f32);
+      self.tree.resize(size.width, size.height);
       window.request_redraw();
       self.window = Some(window);
     }
@@ -168,27 +172,27 @@ impl ApplicationHandler for WinitHandler {
     match event {
       WindowEvent::CloseRequested => event_loop.exit(),
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-        self.runtime.set_scale_factor(scale_factor as f32);
+        self.tree.set_scale_factor(scale_factor as f32);
         if let Some(w) = &self.window {
           let size = w.inner_size();
-          self.runtime.resize(size.width, size.height);
+          self.tree.resize(size.width, size.height);
           w.request_redraw();
         }
       }
       WindowEvent::Resized(size) => {
-        self.runtime.resize(size.width, size.height);
+        self.tree.resize(size.width, size.height);
         if let Some(w) = &self.window {
           w.request_redraw();
         }
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
-        self.runtime.mouse_move(position.x as f32, position.y as f32);
+        self.tree.mouse_move(position.x as f32, position.y as f32);
         self.apply_cursor();
         self.check_redraw();
       }
       WindowEvent::CursorLeft { .. } => {
-        self.runtime.mouse_leave_window();
+        self.tree.mouse_leave_window();
         self.apply_cursor();
         self.check_redraw();
       }
@@ -201,10 +205,10 @@ impl ApplicationHandler for WinitHandler {
         };
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
-          ElementState::Pressed => self.runtime.mouse_down(x, y, btn),
+          ElementState::Pressed => self.tree.mouse_down(x, y, btn),
           ElementState::Released => {
-            self.runtime.mouse_up(x, y, btn);
-            self.runtime.click(x, y, btn);
+            self.tree.mouse_up(x, y, btn);
+            self.tree.click(x, y, btn);
           }
         }
         self.apply_cursor();
@@ -215,7 +219,7 @@ impl ApplicationHandler for WinitHandler {
       }
       WindowEvent::KeyboardInput { event, .. } => {
         if matches!(event.state, ElementState::Pressed) {
-          self.runtime.key_down(
+          self.tree.key_down(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
@@ -241,7 +245,7 @@ impl ApplicationHandler for WinitHandler {
           TouchPhase::Ended | TouchPhase::Cancelled => ScrollPhase::End,
         };
         self
-          .runtime
+          .tree
           .scroll(self.cursor_pos.0 as f32, self.cursor_pos.1 as f32, dx, dy, scroll_phase);
         self.apply_cursor();
         self.check_redraw();
@@ -256,10 +260,11 @@ impl ApplicationHandler for WinitHandler {
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
     if let Some(tick) = &mut self.on_tick {
-      tick(&mut self.runtime);
+      tick(&mut self.tree);
       self.check_redraw();
     }
   }
+
 }
 
 fn key_to_string(event: &winit::event::KeyEvent) -> String {

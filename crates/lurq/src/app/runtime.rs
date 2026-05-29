@@ -1,7 +1,4 @@
-#[cfg(feature = "resources")]
-use std::path::PathBuf;
 use std::{
-  path::Path,
   sync::Arc,
   time::{Duration, Instant},
 };
@@ -11,13 +8,13 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
+    app_state::App,
     component::Component,
     ctx::{Ctx, component_tag_name},
     events::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
     },
-    glyph_engine::GlyphEngine,
     hit_test::hit_test_tree,
     profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
     render_engine::RenderEngine,
@@ -72,10 +69,8 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   }
 }
 
-pub struct Runtime {
+pub struct Tree {
   id_gen: IdGenerator,
-  theme: crate::app::theme::Theme,
-  glyph_engine: GlyphEngine,
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
   root: Option<Node>,
@@ -85,7 +80,6 @@ pub struct Runtime {
   layout_constraints_override: Option<Constraints>,
   viewport_physical: Size,
   scale_factor: f32,
-  scale_override: Option<f32>,
   hover_path: Vec<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
@@ -102,27 +96,18 @@ pub struct Runtime {
   last_profile: FrameProfile,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
-  #[cfg(feature = "resources")]
-  resource_loader: crate::resources::ResourceLoader,
-  #[cfg(all(feature = "image", feature = "resources"))]
-  image_resource_cache: std::collections::HashMap<Arc<str>, crate::images::ImageData>,
-  #[cfg(all(feature = "svg", feature = "resources"))]
-  svg_resource_cache: std::collections::HashMap<Arc<str>, crate::svg::SvgData>,
-  profiling_enabled: bool,
 }
 
-impl Default for Runtime {
+impl Default for Tree {
   fn default() -> Self {
     Self::new()
   }
 }
 
-impl Runtime {
+impl Tree {
   pub fn new() -> Self {
     Self {
       id_gen: IdGenerator::new(),
-      theme: crate::app::theme::Theme::new(),
-      glyph_engine: GlyphEngine::new(),
       layout_engine: LayoutEngine::new(),
       render_engine: None,
       root: None,
@@ -132,7 +117,6 @@ impl Runtime {
       layout_constraints_override: None,
       viewport_physical: Size::new(800.0, 600.0),
       scale_factor: 1.0,
-      scale_override: None,
       hover_path: Vec::new(),
       active_path: Vec::new(),
       dragging_scroll: None,
@@ -149,50 +133,18 @@ impl Runtime {
       last_profile: FrameProfile::default(),
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
-      #[cfg(feature = "resources")]
-      resource_loader: crate::resources::ResourceLoader::new(),
-      #[cfg(all(feature = "image", feature = "resources"))]
-      image_resource_cache: std::collections::HashMap::new(),
-      #[cfg(all(feature = "svg", feature = "resources"))]
-      svg_resource_cache: std::collections::HashMap::new(),
-      profiling_enabled: false,
-    }
-  }
-
-  pub fn profiling_enabled(&self) -> bool {
-    self.profiling_enabled
-  }
-
-  pub fn set_profiling_enabled(&mut self, enabled: bool) {
-    self.profiling_enabled = enabled;
-    if let Some(engine) = &mut self.render_engine {
-      engine.set_profiling_enabled(enabled);
     }
   }
 
   pub fn scale_factor(&self) -> f32 {
-    self.scale_override.unwrap_or(self.scale_factor)
-  }
-
-  pub fn set_scale_override(&mut self, scale: Option<f32>) {
-    self.scale_override = scale;
-    self.glyph_engine.clear_cache();
+    self.scale_factor
   }
 
   pub fn set_scale_factor(&mut self, scale: f32) {
     self.scale_factor = scale;
-    self.glyph_engine.clear_cache();
   }
 
-  pub fn last_profile(&self) -> &FrameProfile {
-    &self.last_profile
-  }
-
-  pub fn frame_count(&self) -> u64 {
-    self.frame_count
-  }
-
-  pub fn memory_profile(&self) -> RuntimeMemoryProfile {
+  pub(crate) fn memory_profile_with_glyph(&self, glyph_engine_bytes: usize) -> RuntimeMemoryProfile {
     let runtime_struct_bytes = std::mem::size_of::<Self>();
     let root_tree_bytes = self.root.as_ref().map(Node::estimated_memory_bytes).unwrap_or(0);
     let root_context_bytes = self.root_ctx.as_ref().map(Ctx::estimated_memory_bytes).unwrap_or(0);
@@ -206,7 +158,6 @@ impl Runtime {
       .as_ref()
       .map(LayoutResult::estimated_memory_bytes)
       .unwrap_or(0);
-    let glyph_engine_bytes = self.glyph_engine.estimated_memory_bytes();
     let render_engine_bytes = self
       .render_engine
       .as_ref()
@@ -245,14 +196,20 @@ impl Runtime {
     }
   }
 
+  pub fn last_profile(&self) -> &FrameProfile {
+    &self.last_profile
+  }
+
+  pub fn frame_count(&self) -> u64 {
+    self.frame_count
+  }
+
   fn viewport_logical(&self) -> Size {
     let s = self.scale_factor();
     Size::new(self.viewport_physical.width / s, self.viewport_physical.height / s)
   }
 
   pub fn set_render_engine(&mut self, engine: Box<dyn RenderEngine>) {
-    let mut engine = engine;
-    engine.set_profiling_enabled(self.profiling_enabled);
     self.render_engine = Some(engine);
   }
 
@@ -261,7 +218,7 @@ impl Runtime {
     self.animation_engine.clear_state();
   }
 
-  pub fn mount_root<C: Component>(&mut self, props: C::Props) {
+  pub fn mount_root<C: Component>(&mut self, theme: crate::app::theme::Theme, props: C::Props) {
     self.clear_hover_path();
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
@@ -271,7 +228,7 @@ impl Runtime {
       old.free_ids(&self.id_gen);
     }
     self.clear_animation_runtime_state();
-    let mut ctx = Ctx::new_root().with_theme(self.theme.clone());
+    let mut ctx = Ctx::new_root().with_theme(theme);
     ctx.set_root_props(props);
     let component = C::create(&mut ctx);
     let wrapper = RootComponentWrapper { component };
@@ -293,7 +250,6 @@ impl Runtime {
     if self.root_component.is_none() || self.root_ctx.is_none() {
       return;
     }
-
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
       let mut old_root = self.root.take().map(|old| {
         reset_element_ref_flags_recursive(&old);
@@ -310,7 +266,6 @@ impl Runtime {
       }
       node.assign_ids(&self.id_gen);
       self.root = Some(node);
-      self.last_layout = None;
       self.refresh_interaction_state();
     }
   }
@@ -346,9 +301,6 @@ impl Runtime {
   }
 
   pub fn find_element(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<OwnedElementRef> {
-    self.flush_due_pending_click(Instant::now());
-    self.update_layout();
-
     let root = self.root.as_mut()?;
     let layout = self.last_layout.as_ref()?;
     find_element_recursive(root, layout, 0.0, 0.0, 0.0, 0.0, &predicate)
@@ -362,10 +314,6 @@ impl Runtime {
     &self.id_gen
   }
 
-  pub fn theme(&self) -> &crate::app::theme::Theme {
-    &self.theme
-  }
-
   pub fn resize(&mut self, width: u32, height: u32) {
     self.viewport_physical = Size::new(width as f32, height as f32);
     if let Some(engine) = &mut self.render_engine {
@@ -373,18 +321,18 @@ impl Runtime {
     }
   }
 
-  pub fn pass(&mut self, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
-    let profiling_enabled = self.profiling_enabled;
+  pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
+    let profiling_enabled = app.profiling_enabled;
     let frame_start = ProfileScope::maybe_start(profiling_enabled);
     let scale = self.scale_factor();
     if profiling_enabled {
-      self.glyph_engine.reset_stats();
+      app.glyph_engine.reset_stats();
     }
 
     self.flush_due_pending_click(Instant::now());
 
     let layout_start = ProfileScope::maybe_start(profiling_enabled);
-    self.update_layout();
+    self.update_layout(app);
     let layout_dur = ProfileScope::elapsed_or_default(&layout_start);
 
     let root = match &self.root {
@@ -514,7 +462,7 @@ impl Runtime {
             f32::MAX
           };
           let mut glyph_cmds =
-            self
+            app
               .glyph_engine
               .rasterize_text(text, &scaled_style, max_width, quad.x * scale, quad.y * scale);
           let glyph_xf = quad.transform.matrix_2x2();
@@ -595,7 +543,7 @@ impl Runtime {
       images,
       #[cfg(feature = "svg")]
       svgs,
-      atlas: self.glyph_engine.atlas(),
+      atlas: app.glyph_engine.atlas(),
     };
 
     let gpu_start = ProfileScope::maybe_start(profiling_enabled);
@@ -614,11 +562,11 @@ impl Runtime {
         quad_count,
         rect_count,
         glyph_count,
-        glyph_cache_hits: self.glyph_engine.glyph_hits,
-        glyph_cache_misses: self.glyph_engine.glyph_misses,
-        text_measure_cache_hits: self.glyph_engine.measure_hits,
-        text_measure_cache_misses: self.glyph_engine.measure_misses,
-        memory: self.memory_profile(),
+        glyph_cache_hits: app.glyph_engine.glyph_hits,
+        glyph_cache_misses: app.glyph_engine.glyph_misses,
+        text_measure_cache_hits: app.glyph_engine.measure_hits,
+        text_measure_cache_misses: app.glyph_engine.measure_misses,
+        memory: self.memory_profile_with_glyph(app.glyph_engine.estimated_memory_bytes()),
       };
     }
     self.frame_count += 1;
@@ -729,7 +677,7 @@ impl Runtime {
     let lx = x / scale;
     let ly = y / scale;
 
-    self.update_layout();
+    self.rebuild_if_dirty();
 
     let root = match &self.root {
       Some(r) => r,
@@ -757,7 +705,7 @@ impl Runtime {
     let lx = evt.x / scale;
     let ly = evt.y / scale;
 
-    self.update_layout();
+    self.rebuild_if_dirty();
 
     // Handle active scrollbar drag
     if let Some(ref drag) = self.dragging_scroll.clone() {
@@ -854,7 +802,10 @@ impl Runtime {
     };
     let result = match &self.last_layout {
       Some(r) => r,
-      None => return,
+      None => {
+        self.needs_redraw = true;
+        return;
+      }
     };
 
     let mut hits = Vec::new();
@@ -1297,27 +1248,6 @@ impl Runtime {
     let _ = handled;
   }
 
-  #[cfg(feature = "resources")]
-  pub fn set_resource_root(&mut self, root: PathBuf) {
-    self.resource_loader.set_root(root);
-  }
-
-  pub fn load_font(&mut self, data: Vec<u8>) {
-    self.glyph_engine.load_font(data);
-  }
-
-  pub fn load_font_file(&mut self, path: &Path) {
-    self.glyph_engine.load_font_file(path);
-  }
-
-  pub fn load_fonts_dir(&mut self, path: &Path) {
-    self.glyph_engine.load_fonts_dir(path);
-  }
-
-  pub fn register_font(&mut self, name: &str, family: &str) {
-    self.glyph_engine.register_font(name, family);
-  }
-
   pub fn resolve_quads(&self, result: &LayoutResult) -> Vec<Quad> {
     match &self.root {
       Some(root) => self.layout_engine.resolve_quads(root, result),
@@ -1367,7 +1297,7 @@ impl Runtime {
       }
     }
 
-    self.last_layout = None;
+    self.needs_redraw = true;
     self.refresh_interaction_state();
   }
 
@@ -1375,16 +1305,16 @@ impl Runtime {
     self.animation_engine.register_keyframes(keyframes);
   }
 
-  fn update_layout(&mut self) {
+  fn update_layout(&mut self, app: &mut App) {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
-    self.resolve_resource_images();
+    self.resolve_resource_images(app);
     #[cfg(all(feature = "svg", feature = "resources"))]
-    self.resolve_resource_svgs();
+    self.resolve_resource_svgs(app);
 
     if let Some(root) = self.root.as_mut() {
-      let now = std::time::Instant::now();
+      let now = Instant::now();
       self.transition_engine.tick(root, now);
       self.animation_engine.tick(root, now);
       if self.transition_engine.has_active || self.animation_engine.has_active {
@@ -1396,7 +1326,7 @@ impl Runtime {
       let constraints = self
         .layout_constraints_override
         .unwrap_or_else(|| Constraints::tight(self.viewport_logical()));
-      let layout = self.layout_engine.compute(&mut self.glyph_engine, root, constraints);
+      let layout = self.layout_engine.compute(&mut app.glyph_engine, root, constraints);
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
       }
@@ -1411,9 +1341,9 @@ impl Runtime {
   }
 
   #[cfg(all(feature = "image", feature = "resources"))]
-  fn resolve_resource_images(&mut self) {
+  fn resolve_resource_images(&mut self, app: &mut App) {
     if let Some(root) = &mut self.root {
-      Self::resolve_resource_images_recursive(root, &self.resource_loader, &mut self.image_resource_cache);
+      Self::resolve_resource_images_recursive(root, &app.resource_loader, &mut app.image_resource_cache);
     }
   }
 
@@ -1476,9 +1406,9 @@ impl Runtime {
   }
 
   #[cfg(all(feature = "svg", feature = "resources"))]
-  fn resolve_resource_svgs(&mut self) {
+  fn resolve_resource_svgs(&mut self, app: &mut App) {
     if let Some(root) = &mut self.root {
-      Self::resolve_resource_svgs_recursive(root, &self.resource_loader, &mut self.svg_resource_cache);
+      Self::resolve_resource_svgs_recursive(root, &app.resource_loader, &mut app.svg_resource_cache);
     }
   }
 
@@ -1782,7 +1712,7 @@ fn distance_squared(a: (f32, f32), b: (f32, f32)) -> f32 {
   dx * dx + dy * dy
 }
 
-impl Drop for Runtime {
+impl Drop for Tree {
   fn drop(&mut self) {
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
