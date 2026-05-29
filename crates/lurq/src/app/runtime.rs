@@ -1,5 +1,5 @@
 use std::{
-  path::Path,
+  path::{Path, PathBuf},
   sync::Arc,
   time::{Duration, Instant},
 };
@@ -10,7 +10,7 @@ use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
     component::Component,
-    ctx::{Ctx, component_tag_name},
+    ctx::{component_tag_name, Ctx},
     events::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
@@ -22,19 +22,19 @@ use crate::{
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
-    Constraints, Size,
-    layout_engine::LayoutEngine,
-    layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
+    layout_engine::LayoutEngine, layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
+    Constraints,
+    Size,
   },
   node::{
-    Element, ElementRef, Node,
-    border::BorderPlacement,
-    color::Color,
-    cursor::CursorIcon,
+    border::BorderPlacement, color::Color, cursor::CursorIcon,
     node_kind::{NodeKind, SliderState},
+    Element,
+    ElementRef,
+    Node,
   },
 };
 
@@ -344,6 +344,7 @@ impl Runtime {
   }
 
   pub fn find_element(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<OwnedElementRef> {
+    self.flush_due_pending_click(Instant::now());
     self.update_layout();
 
     let root = self.root.as_mut()?;
@@ -377,6 +378,8 @@ impl Runtime {
     if profiling_enabled {
       self.glyph_engine.reset_stats();
     }
+
+    self.flush_due_pending_click(Instant::now());
 
     let layout_start = ProfileScope::maybe_start(profiling_enabled);
     self.update_layout();
@@ -640,13 +643,25 @@ impl Runtime {
   }
 
   pub fn click(&mut self, x: f32, y: f32, button: MouseButton) {
-    self.dispatch_mouse(x, y, button, MouseEventKind::Click);
-    let is_double_click = self.click_tracker.record_click(Instant::now(), (x, y), button);
-    if is_double_click {
-      self.apply_reactive_updates_after_event();
+    let now = Instant::now();
+    let position = (x, y);
+
+    if self.click_tracker.pending_matches(now, position, button) {
+      self.click_tracker.take_pending();
       self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
+      self.apply_reactive_updates_after_event();
+      return;
     }
-    self.apply_reactive_updates_after_event();
+
+    self.flush_pending_click();
+
+    if self.click_target_has_dblclick_handler(x, y) {
+      self.click_tracker.set_pending(now, position, button);
+      self.needs_redraw = true;
+    } else {
+      self.dispatch_mouse(x, y, button, MouseEventKind::Click);
+      self.apply_reactive_updates_after_event();
+    }
   }
 
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
@@ -677,7 +692,9 @@ impl Runtime {
   }
 
   pub fn needs_redraw(&self) -> bool {
-    self.needs_redraw || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
+    self.needs_redraw
+      || self.click_tracker.has_pending()
+      || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
   pub fn cursor(&self) -> CursorIcon {
@@ -686,6 +703,44 @@ impl Runtime {
 
   pub fn clear_needs_redraw(&mut self) {
     self.needs_redraw = false;
+  }
+
+  fn flush_due_pending_click(&mut self, now: Instant) {
+    if self.click_tracker.pending_is_due(now) {
+      self.flush_pending_click();
+    } else if self.click_tracker.has_pending() {
+      self.needs_redraw = true;
+    }
+  }
+
+  fn flush_pending_click(&mut self) {
+    let Some(click) = self.click_tracker.take_pending() else {
+      return;
+    };
+
+    self.dispatch_mouse(click.position.0, click.position.1, click.button, MouseEventKind::Click);
+    self.apply_reactive_updates_after_event();
+  }
+
+  fn click_target_has_dblclick_handler(&mut self, x: f32, y: f32) -> bool {
+    let scale = self.scale_factor();
+    let lx = x / scale;
+    let ly = y / scale;
+
+    self.update_layout();
+
+    let root = match &self.root {
+      Some(r) => r,
+      None => return false,
+    };
+    let result = match &self.last_layout {
+      Some(r) => r,
+      None => return false,
+    };
+
+    let mut hits = Vec::new();
+    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    hits.iter().any(|(node, _)| node.events.on_dblclick.is_some())
   }
 
   fn dispatch_mouse(&mut self, x: f32, y: f32, button: MouseButton, kind: MouseEventKind) {
@@ -1241,13 +1296,8 @@ impl Runtime {
   }
 
   #[cfg(feature = "resources")]
-  pub fn resource_loader(&self) -> &crate::resources::ResourceLoader {
-    &self.resource_loader
-  }
-
-  #[cfg(feature = "resources")]
-  pub fn resource_loader_mut(&mut self) -> &mut crate::resources::ResourceLoader {
-    &mut self.resource_loader
+  pub fn set_resource_root(&mut self, root: PathBuf) {
+    self.resource_loader.set_root(root);
   }
 
   pub fn load_font(&mut self, data: Vec<u8>) {
@@ -1682,33 +1732,43 @@ impl ActiveDrag {
 
 #[derive(Default)]
 struct ClickTracker {
-  last_click: Option<LastClick>,
+  pending_click: Option<PendingClick>,
 }
 
 impl ClickTracker {
-  fn record_click(&mut self, now: Instant, position: (f32, f32), button: MouseButton) -> bool {
-    let is_double_click = self.last_click.is_some_and(|last| {
-      last.button == button
-        && now.duration_since(last.time) <= DOUBLE_CLICK_INTERVAL
-        && distance_squared(last.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+  fn has_pending(&self) -> bool {
+    self.pending_click.is_some()
+  }
+
+  fn pending_matches(&self, now: Instant, position: (f32, f32), button: MouseButton) -> bool {
+    self.pending_click.is_some_and(|pending| {
+      pending.button == button
+        && now.duration_since(pending.time) <= DOUBLE_CLICK_INTERVAL
+        && distance_squared(pending.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+    })
+  }
+
+  fn pending_is_due(&self, now: Instant) -> bool {
+    self
+      .pending_click
+      .is_some_and(|pending| now.duration_since(pending.time) > DOUBLE_CLICK_INTERVAL)
+  }
+
+  fn set_pending(&mut self, now: Instant, position: (f32, f32), button: MouseButton) {
+    self.pending_click = Some(PendingClick {
+      time: now,
+      position,
+      button,
     });
+  }
 
-    if is_double_click {
-      self.last_click = None;
-    } else {
-      self.last_click = Some(LastClick {
-        time: now,
-        position,
-        button,
-      });
-    }
-
-    is_double_click
+  fn take_pending(&mut self) -> Option<PendingClick> {
+    self.pending_click.take()
   }
 }
 
 #[derive(Clone, Copy)]
-struct LastClick {
+struct PendingClick {
   time: Instant,
   position: (f32, f32),
   button: MouseButton,

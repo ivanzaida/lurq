@@ -428,52 +428,99 @@ impl Ctx {
     KF: Fn(&T) -> K,
     CF: Fn(&mut Ctx, T) -> Element,
   {
-    items
+    let cursor = self.child_cursor;
+    self.child_cursor += 1;
+
+    let can_reuse_group = self
+      .children
+      .get(cursor)
+      .is_some_and(|slot| slot.key.is_none() && slot.component.type_name() == ForEachSlot::TYPE_NAME);
+
+    if !can_reuse_group {
+      let mut group_ctx = Ctx::new();
+      group_ctx.batch = self.batch.clone();
+      group_ctx.theme = self.theme.clone();
+      group_ctx.context_map = self.context_map.clone();
+      let slot = ChildSlot {
+        id: next_component_slot_id(),
+        key: None,
+        component: Box::new(ForEachSlot),
+        ctx: group_ctx,
+        rendered: None,
+        mounted: false,
+      };
+      self.set_child_slot(cursor, slot);
+    }
+
+    let slot = &mut self.children[cursor];
+    slot.ctx.begin_render();
+    let elements = items
       .into_iter()
       .map(|item| {
         let key = format!("{}", key_fn(&item));
-        let cursor = self.child_cursor;
-        self.child_cursor += 1;
-
-        let can_reuse = self
-          .children
-          .get(cursor)
-          .is_some_and(|slot| slot.key.as_deref() == Some(&key));
-
-        if can_reuse {
-          let slot = &mut self.children[cursor];
-          slot.ctx.begin_render();
-          let mut element = component_fn(&mut slot.ctx, item);
-          slot.ctx.end_render();
-          element.node.set_component_slot_id(slot.id);
-          slot.rendered = Some(element.node.clone_for_reuse());
-          return element;
-        }
-
-        let mut child_ctx = Ctx::new();
-        child_ctx.batch = self.batch.clone();
-        child_ctx.theme = self.theme.clone();
-        child_ctx.context_map = self.context_map.clone();
-        child_ctx.begin_render();
-        let mut element = component_fn(&mut child_ctx, item);
-        child_ctx.end_render();
-        let slot_id = next_component_slot_id();
-        element.node.set_component_slot_id(slot_id);
-
-        let slot = ChildSlot {
-          id: slot_id,
-          key: Some(key),
-          component: Box::new(ForEachSlot),
-          ctx: child_ctx,
-          rendered: Some(element.node.clone_for_reuse()),
-          mounted: false,
-        };
-
-        self.set_child_slot(cursor, slot);
-
-        element
+        slot.ctx.render_for_each_item(key, item, &component_fn)
       })
-      .collect()
+      .collect();
+    slot.ctx.end_render();
+    elements
+  }
+
+  fn render_for_each_item<T, CF>(&mut self, key: String, item: T, component_fn: &CF) -> Element
+  where
+    CF: Fn(&mut Ctx, T) -> Element,
+  {
+    let cursor = self.child_cursor;
+    self.child_cursor += 1;
+
+    if let Some(found) = self.children[cursor..]
+      .iter()
+      .position(|slot| {
+        slot.key.as_deref() == Some(key.as_str()) && slot.component.type_name() == ForEachSlot::TYPE_NAME
+      })
+      .map(|offset| cursor + offset)
+    {
+      if found != cursor {
+        let slot = self.children.remove(found);
+        self.children.insert(cursor, slot);
+      }
+    }
+
+    let can_reuse = self.children.get(cursor).is_some_and(|slot| {
+      slot.key.as_deref() == Some(key.as_str()) && slot.component.type_name() == ForEachSlot::TYPE_NAME
+    });
+
+    if can_reuse {
+      let slot = &mut self.children[cursor];
+      slot.ctx.begin_render();
+      let mut element = component_fn(&mut slot.ctx, item);
+      slot.ctx.end_render();
+      element.node.set_component_slot_id(slot.id);
+      slot.rendered = Some(element.node.clone_for_reuse());
+      return element;
+    }
+
+    let mut child_ctx = Ctx::new();
+    child_ctx.batch = self.batch.clone();
+    child_ctx.theme = self.theme.clone();
+    child_ctx.context_map = self.context_map.clone();
+    child_ctx.begin_render();
+    let mut element = component_fn(&mut child_ctx, item);
+    child_ctx.end_render();
+    let slot_id = next_component_slot_id();
+    element.node.set_component_slot_id(slot_id);
+
+    let slot = ChildSlot {
+      id: slot_id,
+      key: Some(key),
+      component: Box::new(ForEachSlot),
+      ctx: child_ctx,
+      rendered: Some(element.node.clone_for_reuse()),
+      mounted: false,
+    };
+
+    self.insert_child_slot(cursor, slot);
+
+    element
   }
 
   // --- Error boundary ---
@@ -504,6 +551,14 @@ impl Ctx {
     if cursor < self.children.len() {
       self.children[cursor].component.on_unmounted();
       self.children[cursor] = slot;
+    } else {
+      self.children.push(slot);
+    }
+  }
+
+  fn insert_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
+    if cursor < self.children.len() {
+      self.children.insert(cursor, slot);
     } else {
       self.children.push(slot);
     }
@@ -573,6 +628,8 @@ impl Ctx {
           for (slot_id, replacement) in nested_replacements {
             rendered.replace_component_slot(slot_id, replacement);
           }
+        } else {
+          replacements.extend(nested_replacements);
         }
       }
 
@@ -606,6 +663,10 @@ impl Ctx {
 
 struct ForEachSlot;
 
+impl ForEachSlot {
+  const TYPE_NAME: &'static str = "ForEachSlot";
+}
+
 impl AnyComponent for ForEachSlot {
   fn render(&self, _ctx: &mut Ctx) -> Element {
     Element::new()
@@ -613,7 +674,7 @@ impl AnyComponent for ForEachSlot {
   fn on_mounted(&self) {}
   fn on_unmounted(&self) {}
   fn type_name(&self) -> &'static str {
-    "ForEachSlot"
+    Self::TYPE_NAME
   }
   fn tag_name(&self) -> Arc<str> {
     Arc::from("ForEachSlot")

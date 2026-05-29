@@ -387,8 +387,8 @@ fn glyph_cmds_from_cached(
     .iter()
     .map(|glyph| GlyphCmd {
       order: 0,
-      x: origin_x + glyph.x,
-      y: origin_y + glyph.y,
+      x: (origin_x + glyph.x).round(),
+      y: (origin_y + glyph.y).round(),
       width: glyph.width as f32,
       height: glyph.height as f32,
       color,
@@ -485,15 +485,20 @@ impl AtlasPacker {
       self.height = new_height;
     }
 
-    let x0 = self.cursor_x + padding;
-    let y0 = self.cursor_y + padding;
+    let padded_x = self.cursor_x;
+    let padded_y = self.cursor_y;
+    let x0 = padded_x + padding;
+    let y0 = padded_y + padding;
 
-    for row in 0..gh {
-      let src_start = (row * gw) as usize;
-      let src_end = src_start + gw as usize;
-      let dst_start = ((y0 + row) * self.width + x0) as usize;
-      if src_end <= glyph_data.len() {
-        self.data[dst_start..dst_start + gw as usize].copy_from_slice(&glyph_data[src_start..src_end]);
+    for row in 0..reserved_height {
+      let src_y = row.saturating_sub(padding).min(gh.saturating_sub(1));
+      for col in 0..reserved_width {
+        let src_x = col.saturating_sub(padding).min(gw.saturating_sub(1));
+        let src = (src_y * gw + src_x) as usize;
+        let dst = ((padded_y + row) * self.width + padded_x + col) as usize;
+        if src < glyph_data.len() && dst < self.data.len() {
+          self.data[dst] = glyph_data[src];
+        }
       }
     }
 
@@ -518,7 +523,7 @@ impl AtlasPacker {
 mod tests {
   use cosmic_text::{Attrs, Family, Shaping};
 
-  use super::{AtlasPacker, GlyphEngine};
+  use super::{AtlasPacker, GlyphEngine, glyph_coverage_mask};
 
   #[test]
   fn atlas_packer_leaves_padding_between_glyph_regions() {
@@ -530,6 +535,78 @@ mod tests {
     let second_x0 = (second_u0 * packer.width as f32).round() as u32;
 
     assert!(second_x0 > first_x1);
+  }
+
+  #[test]
+  fn atlas_packer_extends_glyph_edges_into_padding() {
+    let mut packer = AtlasPacker::new();
+    let (x, y, width, height) = packer.pack_pixels(&[10, 20, 30, 40], 2, 2);
+
+    assert_eq!((x, y, width, height), (1, 1, 2, 2));
+    assert_eq!(packer.data[0], 10);
+    assert_eq!(packer.data[3], 20);
+    assert_eq!(packer.data[(3 * packer.width) as usize], 30);
+    assert_eq!(packer.data[(3 * packer.width + 3) as usize], 40);
+  }
+
+  #[test]
+  fn small_key_label_descender_mask_contains_bottom_coverage() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 11.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let mut buffer = engine.acquire_buffer(&style, 42.0);
+    let resolved = engine.resolve_family(&style);
+    let attrs = Attrs::new()
+      .family(Family::Name(&resolved))
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    buffer.set_text(&mut engine.font_system, "key=\"a\"", attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut engine.font_system, false);
+
+    let y_glyph = buffer
+      .layout_runs()
+      .flat_map(|run| run.glyphs.iter().map(move |glyph| (run.line_y, glyph)))
+      .find(|(_, glyph)| glyph.start <= 2 && glyph.end >= 3)
+      .expect("the y glyph should be present");
+    let physical = y_glyph.1.physical((0.0, y_glyph.0), 1.0);
+    let image = engine
+      .swash_cache
+      .get_image(&mut engine.font_system, physical.cache_key)
+      .as_ref()
+      .expect("the y glyph should rasterize");
+    let mask = glyph_coverage_mask(&image);
+    let width = image.placement.width as usize;
+    let height = image.placement.height as usize;
+    let bottom_row = &mask[(height - 1) * width..height * width];
+
+    assert!(
+      bottom_row.iter().any(|coverage| *coverage > 0),
+      "the rasterized y glyph should contain nonzero bottom-row coverage"
+    );
+
+    engine.buffer_pool.push(buffer);
+  }
+
+  #[test]
+  fn rasterized_glyph_positions_snap_after_fractional_origin() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 11.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+
+    let glyphs = engine.rasterize_text("key=\"a\"", &style, 42.0, 0.0, 13.5);
+
+    assert!(!glyphs.is_empty());
+    for glyph in glyphs {
+      assert!(
+        glyph.y.fract().abs() < f32::EPSILON,
+        "glyph y should be snapped after adding the final origin: {}",
+        glyph.y
+      );
+    }
   }
 
   #[test]

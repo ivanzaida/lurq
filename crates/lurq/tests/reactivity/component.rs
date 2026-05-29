@@ -236,6 +236,42 @@ impl Component for ConditionalLifecycleParent {
   }
 }
 
+struct KeyedForEachLifecycleParent {
+  items: Signal<Vec<&'static str>>,
+  mounted: Arc<AtomicUsize>,
+  unmounted: Arc<AtomicUsize>,
+}
+
+impl Component for KeyedForEachLifecycleParent {
+  type Props = (
+    Shared<Mutex<Option<Signal<Vec<&'static str>>>>>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+  );
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    let items = ctx.signal(vec!["a", "b", "c"]);
+    *props.0.0.lock().unwrap() = Some(items.clone());
+    Self {
+      items,
+      mounted: props.1.0,
+      unmounted: props.2.0,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let mounted = self.mounted.clone();
+    let unmounted = self.unmounted.clone();
+    let rows = ctx.for_each(
+      self.items.get(),
+      |key| *key,
+      move |ctx, _key| ctx.mount::<LifecycleChild>((Shared(mounted.clone()), Shared(unmounted.clone()))),
+    );
+    lurq::components::Column::new().with_children(rows)
+  }
+}
+
 struct RootLifecycle {
   mounted: Arc<AtomicUsize>,
   unmounted: Arc<AtomicUsize>,
@@ -415,6 +451,31 @@ fn child_lifecycle_tracks_insertions_and_removals() {
 
   assert_eq!(mounted.load(Ordering::Relaxed), 2);
   assert_eq!(unmounted.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn for_each_preserves_keyed_child_components_across_reorder() {
+  let items = Arc::new(Mutex::new(None));
+  let mounted = Arc::new(AtomicUsize::new(0));
+  let unmounted = Arc::new(AtomicUsize::new(0));
+
+  let mut rt = Runtime::new();
+  rt.mount_root::<KeyedForEachLifecycleParent>((
+    Shared(items.clone()),
+    Shared(mounted.clone()),
+    Shared(unmounted.clone()),
+  ));
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 3);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 0);
+
+  items.lock().unwrap().as_ref().unwrap().update(|items| {
+    items.rotate_left(1);
+  });
+  run_pass(&mut rt);
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 3);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 0);
 }
 
 #[test]

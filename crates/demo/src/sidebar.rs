@@ -19,6 +19,8 @@ pub(crate) enum DemoTab {
   Text,
   Events,
   Reactivity,
+  Components,
+  Context,
 }
 
 impl DemoTab {
@@ -35,6 +37,8 @@ impl DemoTab {
       Self::Text => "Text",
       Self::Events => "Events",
       Self::Reactivity => "React.",
+      Self::Components => "Comps.",
+      Self::Context => "Context",
     }
   }
 }
@@ -63,8 +67,8 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>) -> Eleme
         ("Text", Some(DemoTab::Text)),
         ("Events", Some(DemoTab::Events)),
         ("React.", Some(DemoTab::Reactivity)),
-        ("Comps.", None),
-        ("Context", None),
+        ("Comps.", Some(DemoTab::Components)),
+        ("Context", Some(DemoTab::Context)),
         ("Debug", None),
       ]
       .into_iter()

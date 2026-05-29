@@ -1,4 +1,6 @@
 mod animation_demo;
+mod components_demo;
+mod context_demo;
 mod dnd_demo;
 mod events_demo;
 mod layout_demo;
@@ -22,16 +24,16 @@ use lurq::app::dx12_render::Dx12RenderEngine;
 #[cfg(feature = "wgpu")]
 use lurq::app::wgpu_render::WgpuRenderEngine;
 use lurq::{
-  app::{Runtime, component::Component, ctx::Ctx, winit_shell::WinitWindow},
+  app::{component::Component, ctx::Ctx, winit_shell::WinitWindow, Runtime},
   components::Row,
   core::Signal,
   layout::{
-    Alignment,
     layout_kind::Justify,
     scrollbar::{ScrollBarStyle, ScrollBarVisibility},
     text_style::FontWeight,
+    Alignment,
   },
-  node::{Element, color::Color, dimension::Dimension},
+  node::{color::Color, dimension::Dimension, Element},
 };
 
 use crate::{
@@ -40,9 +42,9 @@ use crate::{
   layout_demo::layout_content,
   positioning_demo::PositioningDemo,
   scroll_demo::scroll_content,
-  sidebar::{DemoTab, sidebar},
+  sidebar::{sidebar, DemoTab},
   sizing_demo::sizing_content,
-  style::{ACCENT, BG, BORDER, PRIMARY, SURFACE_DARK, TEXT, text},
+  style::{text, ACCENT, BG, BORDER, PRIMARY, SURFACE_DARK, TEXT},
 };
 
 const SIDEBAR_WIDTH: f32 = 200.0;
@@ -109,6 +111,8 @@ impl Component for DemoApp {
       DemoTab::Text => text_demo::text_content(),
       DemoTab::Events => ctx.mount::<events_demo::EventsDemo>(()),
       DemoTab::Reactivity => ctx.mount::<reactivity_demo::ReactivityDemo>(()),
+      DemoTab::Components => ctx.mount::<components_demo::ComponentsDemo>(()),
+      DemoTab::Context => ctx.mount::<context_demo::ContextDemo>(()),
     };
 
     let content = Row::new()
@@ -375,9 +379,7 @@ fn set_dx12_render_engine(_runtime: &mut Runtime) {
 fn main() {
   let mut runtime = Runtime::new();
   #[cfg(feature = "resources")]
-  runtime
-    .resource_loader_mut()
-    .set_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
+  runtime.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
   runtime.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut runtime);
   animation_demo::register_keyframes(&mut runtime);
