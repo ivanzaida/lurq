@@ -24,16 +24,16 @@ use lurq::app::dx12_render::Dx12RenderEngine;
 #[cfg(feature = "wgpu")]
 use lurq::app::wgpu_render::WgpuRenderEngine;
 use lurq::{
-  app::{component::Component, ctx::Ctx, winit_shell::WinitWindow, Runtime},
+  app::{Runtime, component::Component, ctx::Ctx, winit_shell::WinitWindow},
   components::Row,
   core::Signal,
   layout::{
+    Alignment,
     layout_kind::Justify,
     scrollbar::{ScrollBarStyle, ScrollBarVisibility},
     text_style::FontWeight,
-    Alignment,
   },
-  node::{color::Color, dimension::Dimension, Element},
+  node::{Element, color::Color, dimension::Dimension},
 };
 
 use crate::{
@@ -42,9 +42,9 @@ use crate::{
   layout_demo::layout_content,
   positioning_demo::PositioningDemo,
   scroll_demo::scroll_content,
-  sidebar::{sidebar, DemoTab},
+  sidebar::{DemoTab, sidebar},
   sizing_demo::sizing_content,
-  style::{text, ACCENT, BG, BORDER, PRIMARY, SURFACE_DARK, TEXT},
+  style::{BORDER, DemoTheme, SURFACE_DARK, TEXT, text},
 };
 
 const SIDEBAR_WIDTH: f32 = 200.0;
@@ -85,6 +85,7 @@ impl PartialEq for DemoProps {
 struct DemoApp {
   selected_tab: Signal<DemoTab>,
   perf: Signal<PerfStats>,
+  theme: Signal<DemoTheme>,
 }
 
 impl Component for DemoApp {
@@ -94,11 +95,14 @@ impl Component for DemoApp {
     Self {
       selected_tab: ctx.signal(DemoTab::Layout),
       perf: ctx.props::<DemoProps>().perf.clone(),
+      theme: ctx.signal(DemoTheme::Dark),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let selected_tab = self.selected_tab.get();
+    let theme = self.theme.get();
+    let palette = theme.palette();
     let content = match selected_tab {
       DemoTab::Layout => layout_content(),
       DemoTab::Sizing => sizing_content(),
@@ -112,45 +116,47 @@ impl Component for DemoApp {
       DemoTab::Events => ctx.mount::<events_demo::EventsDemo>(()),
       DemoTab::Reactivity => ctx.mount::<reactivity_demo::ReactivityDemo>(()),
       DemoTab::Components => ctx.mount::<components_demo::ComponentsDemo>(()),
-      DemoTab::Context => ctx.mount::<context_demo::ContextDemo>(()),
+      DemoTab::Context => ctx.mount::<context_demo::ContextDemo>(context_demo::ContextDemoProps {
+        theme: self.theme.clone(),
+      }),
     };
 
     let content = Row::new()
       .align_items(Alignment::Stretch)
       .child(
-        lurq::components::ScrollVertical::new(sidebar(selected_tab, self.selected_tab.clone()))
+        lurq::components::ScrollVertical::new(sidebar(selected_tab, self.selected_tab.clone(), theme))
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 6.0,
-            thumb_color: Color::from_hex(PRIMARY),
+            thumb_color: Color::from_hex(palette.primary),
             thumb_radius: 4.0,
             ..ScrollBarStyle::default()
           })
-          .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex(ACCENT)))
+          .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
           .width(SIDEBAR_WIDTH)
-          .fill(SURFACE_DARK),
+          .fill(palette.surface_dark),
       )
       .child(
         lurq::components::ScrollVertical::new(content)
           .scrollbar(ScrollBarStyle {
             visible: ScrollBarVisibility::Auto,
             width: 7.0,
-            thumb_color: Color::from_hex(PRIMARY),
+            thumb_color: Color::from_hex(palette.primary),
             thumb_radius: 4.0,
             ..ScrollBarStyle::default()
           })
-          .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex(ACCENT)))
-          .fill(BG)
+          .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
+          .fill(palette.bg)
           .flex(1.0),
       )
-      .fill(BG);
+      .fill(palette.bg);
 
     lurq::components::Stack::new()
       .child(content)
       .child(ctx.mount::<PerfOverlay>(PerfOverlayProps {
         perf: self.perf.clone(),
       }))
-      .fill(BG)
+      .fill(palette.bg)
   }
 }
 

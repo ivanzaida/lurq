@@ -83,6 +83,25 @@ impl Component for ContextConsumer {
   }
 }
 
+struct DynamicContextProvider {
+  value: Signal<i32>,
+}
+
+impl Component for DynamicContextProvider {
+  type Props = Shared<Mutex<Option<Signal<i32>>>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let value = ctx.signal(1);
+    *ctx.props::<Self::Props>().0.lock().unwrap() = Some(value.clone());
+    Self { value }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.provide(self.value.get());
+    ctx.mount::<ContextConsumer>(())
+  }
+}
+
 struct SlotWrapper;
 
 impl Component for SlotWrapper {
@@ -325,6 +344,20 @@ fn context_propagates_to_descendant() {
   rt.mount_root::<ContextProvider>(());
   let root = rt.root().unwrap();
   assert!(root.text_content().is_some() || !root.children().is_empty());
+}
+
+#[test]
+fn updated_context_propagates_to_reused_child_context() {
+  let value = Arc::new(Mutex::new(None));
+  let mut rt = Runtime::new();
+  rt.mount_root::<DynamicContextProvider>(Shared(value.clone()));
+
+  assert_eq!(rt.root().unwrap().text_content(), Some("1"));
+
+  value.lock().unwrap().as_ref().unwrap().set(9);
+  run_pass(&mut rt);
+
+  assert_eq!(rt.root().unwrap().text_content(), Some("9"));
 }
 
 #[test]

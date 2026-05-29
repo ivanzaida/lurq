@@ -9,11 +9,13 @@ use parking_lot::RwLock;
 #[derive(Clone, Default)]
 pub struct ContextMap {
   values: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+  revision: u64,
 }
 
 impl ContextMap {
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     self.values.insert(TypeId::of::<T>(), Arc::new(value));
+    self.revision = self.revision.wrapping_add(1);
   }
 
   pub fn get<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
@@ -22,6 +24,10 @@ impl ContextMap {
       .get(&TypeId::of::<T>())
       .and_then(|v| v.downcast_ref::<T>())
       .cloned()
+  }
+
+  pub(crate) fn revision(&self) -> u64 {
+    self.revision
   }
 }
 

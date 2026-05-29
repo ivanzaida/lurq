@@ -4,7 +4,7 @@ use lurq::{
   node::{CursorIcon, Element},
 };
 
-use crate::style::{NAV_SELECTED, PRIMARY, SURFACE_DARK, TEXT, TEXT_MUTED, text};
+use crate::style::{DemoTheme, text};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DemoTab {
@@ -43,13 +43,14 @@ impl DemoTab {
   }
 }
 
-pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>) -> Element {
+pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>, theme: DemoTheme) -> Element {
+  let palette = theme.palette();
   lurq::components::Column::new()
     .child(
       lurq::components::Column::new()
         .spacing(2.0)
-        .child(text("lurq engine demo", 12.0, FontWeight::Bold, TEXT))
-        .child(text(selected.label(), 10.0, FontWeight::Medium, TEXT_MUTED))
+        .child(text("lurq engine demo", 12.0, FontWeight::Bold, palette.text))
+        .child(text(selected.label(), 10.0, FontWeight::Medium, palette.text_muted))
         .pad_xy(16.0, 10.0)
         .width(200.0)
         .height(56.0),
@@ -72,28 +73,35 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>) -> Eleme
         ("Debug", None),
       ]
       .into_iter()
-      .map(move |(label, tab)| sidebar_item(label, tab == Some(selected), tab, selected_tab.clone())),
+      .map(move |(label, tab)| sidebar_item(label, tab == Some(selected), tab, selected_tab.clone(), theme)),
     )
     .width(200.0)
-    .fill(SURFACE_DARK)
+    .fill(palette.surface_dark)
     .into()
 }
 
-fn sidebar_item(label: &str, selected: bool, tab: Option<DemoTab>, selected_tab: Signal<DemoTab>) -> Element {
+fn sidebar_item(
+  label: &str,
+  selected: bool,
+  tab: Option<DemoTab>,
+  selected_tab: Signal<DemoTab>,
+  theme: DemoTheme,
+) -> Element {
+  let palette = theme.palette();
   let mut item = lurq::components::Row::new()
     .align_items(Alignment::Center)
-    .child(lurq::components::Rect::new(3.0, 38.0).fill(if selected { PRIMARY } else { "#00000000" }))
+    .child(lurq::components::Rect::new(3.0, 38.0).fill(if selected { palette.primary } else { "#00000000" }))
     .child(lurq::components::Spacer::new().width(13.0))
     .child(text(
       label,
       11.0,
       if selected { FontWeight::Bold } else { FontWeight::Medium },
-      if selected { TEXT } else { TEXT_MUTED },
+      if selected { palette.text } else { palette.text_muted },
     ))
     .width(200.0)
     .height(38.0)
     .cursor(CursorIcon::Pointer)
-    .fill(if selected { NAV_SELECTED } else { "#00000000" });
+    .fill(if selected { palette.nav_selected } else { "#00000000" });
 
   if let Some(tab) = tab {
     item = item.on_click(move |_| selected_tab.set(tab));

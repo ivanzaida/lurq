@@ -1,5 +1,7 @@
+#[cfg(feature = "resources")]
+use std::path::PathBuf;
 use std::{
-  path::{Path, PathBuf},
+  path::Path,
   sync::Arc,
   time::{Duration, Instant},
 };
@@ -10,7 +12,7 @@ use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
     component::Component,
-    ctx::{component_tag_name, Ctx},
+    ctx::{Ctx, component_tag_name},
     events::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
@@ -22,19 +24,19 @@ use crate::{
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
-    layout_engine::LayoutEngine, layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
+    Constraints, Size,
+    layout_engine::LayoutEngine,
+    layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{RectCmd, RenderList},
-    Constraints,
-    Size,
   },
   node::{
-    border::BorderPlacement, color::Color, cursor::CursorIcon,
+    Element, ElementRef, Node,
+    border::BorderPlacement,
+    color::Color,
+    cursor::CursorIcon,
     node_kind::{NodeKind, SliderState},
-    Element,
-    ElementRef,
-    Node,
   },
 };
 

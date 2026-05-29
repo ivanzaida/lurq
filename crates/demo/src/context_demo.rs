@@ -5,7 +5,7 @@ use lurq::{
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
-use crate::style::{ACCENT, BG, BORDER, PRIMARY, SURFACE, TEXT, TEXT_MUTED, text};
+use crate::style::{BG, BORDER, DemoTheme, PRIMARY, TEXT, TEXT_MUTED, ThemePalette, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
@@ -19,57 +19,127 @@ struct LocaleContext {
   date_format: &'static str,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LocaleMode {
+  EnUs,
+  EnGb,
+}
+
+impl LocaleMode {
+  fn toggle(self) -> Self {
+    match self {
+      Self::EnUs => Self::EnGb,
+      Self::EnGb => Self::EnUs,
+    }
+  }
+
+  fn context(self) -> LocaleContext {
+    match self {
+      Self::EnUs => LocaleContext {
+        locale: "en-US",
+        greeting: "Hello!",
+        date_format: "MM/DD/YYYY",
+      },
+      Self::EnGb => LocaleContext {
+        locale: "en-GB",
+        greeting: "Hello there!",
+        date_format: "DD/MM/YYYY",
+      },
+    }
+  }
+}
+
+#[derive(Clone)]
+pub(crate) struct ContextDemoProps {
+  pub(crate) theme: Signal<DemoTheme>,
+}
+
+impl PartialEq for ContextDemoProps {
+  fn eq(&self, _other: &Self) -> bool {
+    true
+  }
+}
+
 pub(crate) struct ContextDemo {
-  dark_theme: Signal<bool>,
+  theme: Signal<DemoTheme>,
+  locale: Signal<LocaleMode>,
 }
 
 impl Component for ContextDemo {
-  type Props = ();
+  type Props = ContextDemoProps;
 
   fn create(ctx: &mut Ctx) -> Self {
     Self {
-      dark_theme: ctx.signal(true),
+      theme: ctx.props::<ContextDemoProps>().theme.clone(),
+      locale: ctx.signal(LocaleMode::EnUs),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let is_dark = self.dark_theme.get();
-    let theme_signal = self.dark_theme.clone();
+    let theme = self.theme.get();
+    let palette = theme.palette();
 
     lurq::components::Column::new()
       .spacing(24.0)
-      .child(text("Context & Themes", 28.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
-      .child(section_title("Theme Switching"))
-      .child(theme_card(is_dark, theme_signal))
-      .child(section_title("Context Provide/Consume"))
-      .child(ctx.mount::<LocaleProvider>(()))
+      .child(text("Context & Themes", 28.0, FontWeight::Bold, palette.text).width(FILL_WIDTH))
+      .child(section_title("Theme Switching", palette))
+      .child(theme_card(theme, self.theme.clone(), palette))
+      .child(section_title("Context Provide/Consume", palette))
+      .child(ctx.mount::<LocaleProvider>(LocaleProviderProps {
+        locale: self.locale.clone(),
+        theme,
+      }))
       .pad(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .fill(palette.bg)
+  }
+}
+
+#[derive(Clone)]
+struct LocaleProviderProps {
+  locale: Signal<LocaleMode>,
+  theme: DemoTheme,
+}
+
+impl PartialEq for LocaleProviderProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.theme == other.theme
   }
 }
 
 struct LocaleProvider;
 
 impl Component for LocaleProvider {
-  type Props = ();
+  type Props = LocaleProviderProps;
 
   fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    ctx.provide(LocaleContext {
-      locale: "en-US",
-      greeting: "Hello!",
-      date_format: "MM/DD/YYYY",
-    });
+    let props = ctx.props::<LocaleProviderProps>().clone();
+    let locale_mode = props.locale.get();
+    let locale = locale_mode.context();
+    let palette = props.theme.palette();
+    ctx.provide(locale.clone());
 
-    card_frame()
+    card_frame(palette)
       .spacing(12.0)
-      .child(text("Provider: locale = \"en-US\"", 14.0, FontWeight::Normal, TEXT))
-      .child(ctx.mount::<LocaleConsumerA>(()))
-      .child(ctx.mount::<LocaleConsumerB>(()))
+      .child(
+        lurq::components::Row::new()
+          .spacing(12.0)
+          .align_items(Alignment::Center)
+          .child(text(
+            &format!("Provider: locale = \"{}\"", locale.locale),
+            14.0,
+            FontWeight::Normal,
+            palette.text,
+          ))
+          .child(locale_toggle(props.locale, palette))
+          .width(FILL_WIDTH),
+      )
+      .child(ctx.mount::<LocaleConsumerA>(props.theme))
+      .child(ctx.mount::<LocaleConsumerB>(props.theme))
       .pad(24.0)
   }
 }
@@ -77,13 +147,14 @@ impl Component for LocaleProvider {
 struct LocaleConsumerA;
 
 impl Component for LocaleConsumerA {
-  type Props = ();
+  type Props = DemoTheme;
 
   fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let palette = ctx.props::<DemoTheme>().palette();
     let locale = ctx.use_context::<LocaleContext>().unwrap_or(LocaleContext {
       locale: "unknown",
       greeting: "Unavailable",
@@ -93,6 +164,7 @@ impl Component for LocaleConsumerA {
     context_child(
       "Child A",
       &format!("locale: \"{}\" - Greeting: \"{}\"", locale.locale, locale.greeting),
+      palette,
     )
   }
 }
@@ -100,13 +172,14 @@ impl Component for LocaleConsumerA {
 struct LocaleConsumerB;
 
 impl Component for LocaleConsumerB {
-  type Props = ();
+  type Props = DemoTheme;
 
   fn create(_ctx: &mut Ctx) -> Self {
     Self
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let palette = ctx.props::<DemoTheme>().palette();
     let locale = ctx.use_context::<LocaleContext>().unwrap_or(LocaleContext {
       locale: "unknown",
       greeting: "Unavailable",
@@ -119,40 +192,39 @@ impl Component for LocaleConsumerB {
         "locale: \"{}\" - Date format: \"{}\"",
         locale.locale, locale.date_format
       ),
+      palette,
     )
   }
 }
 
-fn section_title(label: &str) -> Element {
-  text(label, 18.0, FontWeight::Bold, TEXT).width(FILL_WIDTH).into()
+fn section_title(label: &str, palette: ThemePalette) -> Element {
+  text(label, 18.0, FontWeight::Bold, palette.text)
+    .width(FILL_WIDTH)
+    .into()
 }
 
-fn card_frame() -> lurq::components::Column {
+fn card_frame(palette: ThemePalette) -> lurq::components::Column {
   lurq::components::Column::new()
     .width(FILL_WIDTH)
-    .fill(SURFACE)
-    .border_inside(1.0, Color::from_hex(BORDER))
+    .fill(palette.surface)
+    .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(CARD_RADIUS)
 }
 
-fn theme_card(is_dark: bool, dark_theme: Signal<bool>) -> Element {
-  card_frame()
+fn theme_card(theme: DemoTheme, theme_signal: Signal<DemoTheme>, palette: ThemePalette) -> Element {
+  card_frame(palette)
     .spacing(16.0)
     .child(
       lurq::components::Row::new()
         .spacing(12.0)
         .align_items(Alignment::Center)
         .child(text(
-          if is_dark {
-            "Current theme: Dark"
-          } else {
-            "Current theme: Light"
-          },
+          &format!("Current app theme: {}", theme.label()),
           14.0,
           FontWeight::Normal,
-          TEXT,
+          palette.text,
         ))
-        .child(theme_toggle(dark_theme))
+        .child(theme_toggle(theme_signal, palette))
         .width(FILL_WIDTH),
     )
     .child(
@@ -182,18 +254,33 @@ fn theme_card(is_dark: bool, dark_theme: Signal<bool>) -> Element {
     .into()
 }
 
-fn theme_toggle(dark_theme: Signal<bool>) -> Element {
+fn theme_toggle(theme: Signal<DemoTheme>, palette: ThemePalette) -> Element {
   lurq::components::Row::new()
     .align_items(Alignment::Center)
     .justify(Justify::Center)
     .child(text("Toggle Theme", 12.0, FontWeight::Normal, "#ffffff"))
     .size(120.0, 32.0)
-    .fill(PRIMARY)
+    .fill(palette.primary)
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Pointer)
-    .hovered(|style| style.fill("#60a5fa"))
-    .active(|style| style.fill("#2563eb"))
-    .on_click(move |_| dark_theme.set(!dark_theme.get()))
+    .hovered(move |style| style.fill(palette.primary_hover))
+    .active(move |style| style.fill(palette.primary_active))
+    .on_click(move |_| theme.set(theme.get().toggle()))
+    .into()
+}
+
+fn locale_toggle(locale: Signal<LocaleMode>, palette: ThemePalette) -> Element {
+  lurq::components::Row::new()
+    .align_items(Alignment::Center)
+    .justify(Justify::Center)
+    .child(text("Switch Locale", 12.0, FontWeight::Normal, "#ffffff"))
+    .size(120.0, 32.0)
+    .fill(palette.primary)
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Pointer)
+    .hovered(move |style| style.fill(palette.primary_hover))
+    .active(move |style| style.fill(palette.primary_active))
+    .on_click(move |_| locale.set(locale.get().toggle()))
     .into()
 }
 
@@ -228,15 +315,15 @@ fn theme_preview(
     .into()
 }
 
-fn context_child(name: &str, value: &str) -> Element {
+fn context_child(name: &str, value: &str, palette: ThemePalette) -> Element {
   lurq::components::Column::new()
     .spacing(2.0)
-    .child(text(name, 12.0, FontWeight::Bold, ACCENT))
-    .child(text(value, 12.0, FontWeight::Normal, TEXT).nowrap())
+    .child(text(name, 12.0, FontWeight::Bold, palette.accent))
+    .child(text(value, 12.0, FontWeight::Normal, palette.text).nowrap())
     .pad_xy(12.0, 8.0)
     .width(FILL_WIDTH)
-    .fill(BG)
-    .border_inside(1.0, Color::from_hex(BORDER))
+    .fill(palette.bg)
+    .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .into()
 }

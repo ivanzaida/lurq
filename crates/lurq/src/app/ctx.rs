@@ -370,11 +370,13 @@ impl Ctx {
       let slot = &mut self.children[cursor];
       let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
       let props_changed = slot.ctx.props_changed(&props);
+      let context_changed = slot.ctx.context_map.revision() != self.context_map.revision();
+      slot.ctx.context_map = self.context_map.clone();
       slot.ctx.slot_children = slot_children;
       if props_changed {
         slot.ctx.set_props(props);
       }
-      if has_slot_children || props_changed || slot.ctx.any_dirty() || slot.rendered.is_none() {
+      if has_slot_children || props_changed || context_changed || slot.ctx.any_dirty() || slot.rendered.is_none() {
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
@@ -453,6 +455,7 @@ impl Ctx {
     }
 
     let slot = &mut self.children[cursor];
+    slot.ctx.context_map = self.context_map.clone();
     slot.ctx.begin_render();
     let elements = items
       .into_iter()
@@ -491,6 +494,7 @@ impl Ctx {
 
     if can_reuse {
       let slot = &mut self.children[cursor];
+      slot.ctx.context_map = self.context_map.clone();
       slot.ctx.begin_render();
       let mut element = component_fn(&mut slot.ctx, item);
       slot.ctx.end_render();
