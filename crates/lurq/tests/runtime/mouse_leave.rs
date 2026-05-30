@@ -9,7 +9,7 @@ use lurq::{
 
 use crate::support::run_pass;
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> PartialEq for Shared<T> {

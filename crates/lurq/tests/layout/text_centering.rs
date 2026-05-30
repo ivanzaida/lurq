@@ -17,7 +17,7 @@ fn rt() -> Tree {
   Tree::new()
 }
 
-#[derive(lurq::ComponentProp)]
+#[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {

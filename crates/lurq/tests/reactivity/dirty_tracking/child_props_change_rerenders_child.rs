@@ -11,7 +11,7 @@ use lurq::{
 
 use crate::support::run_pass;
 
-#[derive(lurq::ComponentProp)]
+#[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {
@@ -32,7 +32,7 @@ impl<T> std::fmt::Debug for Shared<T> {
   }
 }
 
-#[derive(Debug, lurq::ComponentProp)]
+#[derive(Debug, lurq::DevtoolsInspectable)]
 struct ChildProps {
   value: i32,
   renders: Shared<AtomicUsize>,

@@ -13,7 +13,7 @@ use crate::support::run_pass;
 
 const DRAG_COLOR: Color = Color::new(59, 130, 246, 255);
 
-#[derive(Clone, Debug, lurq::ComponentProp)]
+#[derive(Clone, Debug, lurq::DevtoolsInspectable)]
 struct SharedDrops(Arc<Mutex<Vec<&'static str>>>);
 
 impl PartialEq for SharedDrops {

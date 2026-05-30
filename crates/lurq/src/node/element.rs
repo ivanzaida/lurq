@@ -1,5 +1,5 @@
 use crate::{
-  app::ctx::{ComponentContextDebug, ComponentPropsDebug, ComponentSignalDebug},
+  app::ctx::{ComponentContextDebug, ComponentSignalDebug, DevtoolsInspectableDebug},
   node::{color::Color, node::Node},
 };
 
@@ -73,7 +73,7 @@ impl<'a> ElementRef<'a> {
   }
 
   #[allow(dead_code)]
-  pub(crate) fn component_props_debug(&self) -> Option<&ComponentPropsDebug> {
+  pub(crate) fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
     self.node.component_props_debug()
   }
 

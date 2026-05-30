@@ -16,12 +16,16 @@ use crate::{
 
 type DragCallback = Arc<dyn Fn(&DragEvent) + Send + Sync>;
 
-#[derive(Clone, Default, crate::ComponentProp)]
+#[derive(Clone, Default, crate::DevtoolsInspectable)]
 pub struct DraggableProps {
+  #[devtools_ignore]
   pub on_drag_start: Option<DragCallback>,
+  #[devtools_ignore]
   pub on_drag_move: Option<DragCallback>,
+  #[devtools_ignore]
   pub on_drag_end: Option<DragCallback>,
   pub drop_miss_behavior: DropMissBehavior,
+  #[devtools_ignore]
   child: Option<Element>,
 }
 

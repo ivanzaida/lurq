@@ -8,9 +8,11 @@ use crate::{
 
 type DropCallback = Arc<dyn Fn(&DropEvent) + Send + Sync>;
 
-#[derive(Clone, Default, crate::ComponentProp)]
+#[derive(Clone, Default, crate::DevtoolsInspectable)]
 pub struct DropZoneProps {
+  #[devtools_ignore]
   pub on_drop: Option<DropCallback>,
+  #[devtools_ignore]
   child: Option<Element>,
 }
 

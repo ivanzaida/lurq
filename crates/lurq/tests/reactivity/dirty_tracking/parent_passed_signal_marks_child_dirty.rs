@@ -11,7 +11,7 @@ use lurq::{
 
 use crate::support::run_pass;
 
-#[derive(lurq::ComponentProp)]
+#[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {
@@ -32,7 +32,7 @@ impl<T> std::fmt::Debug for Shared<T> {
   }
 }
 
-#[derive(Clone, Debug, lurq::ComponentProp)]
+#[derive(Clone, Debug, lurq::DevtoolsInspectable)]
 struct SignalProp(Signal<i32>);
 
 impl PartialEq for SignalProp {
@@ -41,7 +41,7 @@ impl PartialEq for SignalProp {
   }
 }
 
-#[derive(Debug, lurq::ComponentProp)]
+#[derive(Debug, lurq::DevtoolsInspectable)]
 struct ChildProps {
   signal: SignalProp,
   renders: Shared<AtomicUsize>,

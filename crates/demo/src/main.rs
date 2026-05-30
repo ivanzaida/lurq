@@ -64,7 +64,7 @@ struct PerfStats {
   glyph_count: usize,
 }
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct DemoProps {
   perf: Signal<PerfStats>,
 }
@@ -154,7 +154,7 @@ impl Component for DemoApp {
   }
 }
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct PerfOverlayProps {
   perf: Signal<PerfStats>,
 }

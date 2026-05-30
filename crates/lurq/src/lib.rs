@@ -1,6 +1,6 @@
 extern crate self as lurq;
 
-pub use lurq_macros::ComponentProp;
+pub use lurq_macros::DevtoolsInspectable;
 
 pub mod animation;
 pub mod app;

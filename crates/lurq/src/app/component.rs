@@ -20,18 +20,18 @@ impl ComponentInfo {
   }
 }
 
-pub trait ComponentProp {
+pub trait DevtoolsInspectable {
   fn write_info(&self, buffer: &mut Vec<ComponentInfo>);
 }
 
-impl ComponentProp for () {
+impl DevtoolsInspectable for () {
   fn write_info(&self, _buffer: &mut Vec<ComponentInfo>) {}
 }
 
-macro_rules! impl_scalar_component_prop {
+macro_rules! impl_scalar_devtools_inspectable {
   ($($ty:ty),* $(,)?) => {
     $(
-      impl ComponentProp for $ty {
+      impl DevtoolsInspectable for $ty {
         fn write_info(&self, buffer: &mut Vec<ComponentInfo>) {
           buffer.push(ComponentInfo::new("value", std::any::type_name::<$ty>()));
         }
@@ -40,13 +40,13 @@ macro_rules! impl_scalar_component_prop {
   };
 }
 
-impl_scalar_component_prop!(
+impl_scalar_devtools_inspectable!(
   bool, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64, String
 );
 
-macro_rules! impl_tuple_component_prop {
+macro_rules! impl_tuple_devtools_inspectable {
   ($($name:ident:$index:tt),+ $(,)?) => {
-    impl<$($name),+> ComponentProp for ($($name,)+)
+    impl<$($name),+> DevtoolsInspectable for ($($name,)+)
     where
       $($name: Send + PartialEq + 'static),+
     {
@@ -59,15 +59,18 @@ macro_rules! impl_tuple_component_prop {
   };
 }
 
-impl_tuple_component_prop!(A:0);
-impl_tuple_component_prop!(A:0, B:1);
-impl_tuple_component_prop!(A:0, B:1, C:2);
-impl_tuple_component_prop!(A:0, B:1, C:2, D:3);
-impl_tuple_component_prop!(A:0, B:1, C:2, D:3, E:4);
-impl_tuple_component_prop!(A:0, B:1, C:2, D:3, E:4, F:5);
+impl_tuple_devtools_inspectable!(A:0);
+impl_tuple_devtools_inspectable!(A:0, B:1);
+impl_tuple_devtools_inspectable!(A:0, B:1, C:2);
+impl_tuple_devtools_inspectable!(A:0, B:1, C:2, D:3);
+impl_tuple_devtools_inspectable!(A:0, B:1, C:2, D:3, E:4);
+impl_tuple_devtools_inspectable!(A:0, B:1, C:2, D:3, E:4, F:5);
 
 pub trait Component: Send + Sync + 'static {
-  type Props: Send + PartialEq + ComponentProp + 'static;
+  #[cfg(feature = "devtools")]
+  type Props: Send + PartialEq + DevtoolsInspectable + 'static;
+  #[cfg(not(feature = "devtools"))]
+  type Props: Send + PartialEq + 'static;
   fn create(ctx: &mut Ctx) -> Self;
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element>;
   fn on_mounted(&self) {}

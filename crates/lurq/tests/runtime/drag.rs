@@ -89,7 +89,7 @@ fn drop_dispatches_to_hit_drop_target_on_release() {
   assert_eq!(*drops.lock().unwrap(), vec![(90.0, 20.0, 80.0, 10.0, true, true)]);
 }
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> PartialEq for Shared<T> {

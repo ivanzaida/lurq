@@ -5,18 +5,18 @@ use lurq::{
     events::{MouseEvent, MouseEventKind},
   },
   core::Signal,
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, color::Color, dimension::Dimension},
+  layout::{layout_kind::Justify, text_style::FontWeight, Alignment},
+  node::{color::Color, dimension::Dimension, CursorIcon, Element},
 };
 
-use crate::style::{ACCENT, BG, BORDER, ERROR, PRIMARY, SURFACE, TEXT, TEXT_MUTED, WARNING, text};
+use crate::style::{text, ACCENT, BG, BORDER, ERROR, PRIMARY, SURFACE, TEXT, TEXT_MUTED, WARNING};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
 
-#[derive(Clone, PartialEq, lurq::ComponentProp)]
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct InfoCardProps {
   title: &'static str,
   body: &'static str,
@@ -48,7 +48,7 @@ impl Component for InfoCard {
   }
 }
 
-#[derive(Clone, PartialEq, lurq::ComponentProp)]
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct ListItem {
   key: String,
   label: String,
@@ -67,14 +67,6 @@ impl Component for KeyedListItem {
       mount_count: ctx.signal(1),
       name: ctx.props::<Self::Props>().key.clone(),
     }
-  }
-
-  fn on_mounted(&self) {
-    println!(
-      ":mounting item with key={}, count={}",
-      self.name,
-      self.mount_count.get()
-    );
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -96,6 +88,14 @@ impl Component for KeyedListItem {
       .fill(BG)
       .border_inside(1.0, Color::from_hex(BORDER))
       .rounded(PANEL_RADIUS)
+  }
+
+  fn on_mounted(&self) {
+    println!(
+      ":mounting item with key={}, count={}",
+      self.name,
+      self.mount_count.get()
+    );
   }
 }
 

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
   app::{
-    ctx::{ComponentContextDebug, ComponentPropsDebug, ComponentSignalDebug},
+    ctx::{ComponentContextDebug, ComponentSignalDebug, DevtoolsInspectableDebug},
     profiler::FrameProfile,
     runtime::Tree,
   },
@@ -34,7 +34,7 @@ pub struct DevToolsNode {
   pub key: Option<String>,
   pub text: Option<String>,
   pub color: Option<String>,
-  pub props: Option<ComponentPropsDebug>,
+  pub props: Option<DevtoolsInspectableDebug>,
   pub signals: Vec<ComponentSignalDebug>,
   pub contexts: Vec<ComponentContextDebug>,
   pub shape: Vec<DevToolsShapeRow>,

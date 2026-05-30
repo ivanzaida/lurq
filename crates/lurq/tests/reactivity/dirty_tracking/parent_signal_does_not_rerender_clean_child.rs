@@ -11,7 +11,7 @@ use lurq::{
 
 use crate::support::run_pass;
 
-#[derive(lurq::ComponentProp)]
+#[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {

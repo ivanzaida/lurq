@@ -13,7 +13,7 @@ use crate::support::run_pass;
 
 // --- Test components ---
 
-#[derive(lurq::ComponentProp)]
+#[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {

@@ -49,7 +49,7 @@ impl LocaleMode {
   }
 }
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 pub(crate) struct ContextDemoProps {
   pub(crate) theme: Signal<DemoTheme>,
 }
@@ -95,7 +95,7 @@ impl Component for ContextDemo {
   }
 }
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct LocaleProviderProps {
   locale: Signal<LocaleMode>,
   theme: DemoTheme,

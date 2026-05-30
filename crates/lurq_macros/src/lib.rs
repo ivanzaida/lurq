@@ -61,8 +61,8 @@ pub fn derive_accessors(input: TokenStream) -> TokenStream {
   .into()
 }
 
-#[proc_macro_derive(ComponentProp)]
-pub fn derive_component_prop(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(DevtoolsInspectable, attributes(devtools_ignore))]
+pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
   let input = parse_macro_input!(input as DeriveInput);
 
   let struct_name = input.ident;
@@ -70,7 +70,7 @@ pub fn derive_component_prop(input: TokenStream) -> TokenStream {
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
   let write_info = match input.data {
-    Data::Struct(data_struct) => component_prop_struct_entries(data_struct.fields),
+    Data::Struct(data_struct) => devtools_inspectable_struct_entries(data_struct.fields),
     Data::Enum(data_enum) => {
       let arms = data_enum.variants.into_iter().map(|variant| {
         let variant_name = variant.ident;
@@ -94,14 +94,14 @@ pub fn derive_component_prop(input: TokenStream) -> TokenStream {
     }
     Data::Union(_) => {
       return quote! {
-        compile_error!("ComponentProp can only be derived for structs and enums.");
+        compile_error!("DevtoolsInspectable can only be derived for structs and enums.");
       }
       .into();
     }
   };
 
   quote! {
-    impl #impl_generics ::lurq::app::component::ComponentProp for #struct_name #ty_generics #where_clause {
+    impl #impl_generics ::lurq::app::component::DevtoolsInspectable for #struct_name #ty_generics #where_clause {
       fn write_info(&self, buffer: &mut ::std::vec::Vec<::lurq::app::component::ComponentInfo>) {
         #write_info
       }
@@ -110,39 +110,52 @@ pub fn derive_component_prop(input: TokenStream) -> TokenStream {
   .into()
 }
 
-fn component_prop_struct_entries(fields: Fields) -> proc_macro2::TokenStream {
+fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStream {
   match fields {
     Fields::Named(fields) => {
-      let entries = fields.named.into_iter().map(|field| {
-        let field_name = field.ident.expect("named field should have an ident");
-        let field_label = field_name.to_string();
-        let field_ty = field.ty;
-        quote! {
-          buffer.push(::lurq::app::component::ComponentInfo::new(
-            #field_label,
-            ::std::any::type_name::<#field_ty>(),
-          ));
-        }
-      });
+      let entries = fields
+        .named
+        .into_iter()
+        .filter(|field| !has_devtools_ignore(field))
+        .map(|field| {
+          let field_name = field.ident.expect("named field should have an ident");
+          let field_label = field_name.to_string();
+          let field_ty = field.ty;
+          quote! {
+            buffer.push(::lurq::app::component::ComponentInfo::new(
+              #field_label,
+              ::std::any::type_name::<#field_ty>(),
+            ));
+          }
+        });
       quote! {
         #(#entries)*
       }
     }
     Fields::Unnamed(fields) => {
-      let entries = fields.unnamed.into_iter().enumerate().map(|(index, field)| {
-        let field_label = index.to_string();
-        let field_ty = field.ty;
-        quote! {
-          buffer.push(::lurq::app::component::ComponentInfo::new(
-            #field_label,
-            ::std::any::type_name::<#field_ty>(),
-          ));
-        }
-      });
+      let entries = fields
+        .unnamed
+        .into_iter()
+        .enumerate()
+        .filter(|(_, field)| !has_devtools_ignore(field))
+        .map(|(index, field)| {
+          let field_label = index.to_string();
+          let field_ty = field.ty;
+          quote! {
+            buffer.push(::lurq::app::component::ComponentInfo::new(
+              #field_label,
+              ::std::any::type_name::<#field_ty>(),
+            ));
+          }
+        });
       quote! {
         #(#entries)*
       }
     }
     Fields::Unit => quote! {},
   }
+}
+
+fn has_devtools_ignore(field: &syn::Field) -> bool {
+  field.attrs.iter().any(|attr| attr.path().is_ident("devtools_ignore"))
 }

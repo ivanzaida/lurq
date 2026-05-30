@@ -17,9 +17,10 @@ pub enum DragBounds {
   SelfBounds,
 }
 
-#[derive(Clone, crate::ComponentProp)]
+#[derive(Clone, crate::DevtoolsInspectable)]
 pub struct DragContainerProps {
   pub bounds: DragBounds,
+  #[devtools_ignore]
   child: Option<Element>,
 }
 

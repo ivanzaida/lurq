@@ -76,7 +76,7 @@ impl Component for StableRoot {
   }
 }
 
-#[derive(Clone, Debug, lurq::ComponentProp)]
+#[derive(Clone, Debug, lurq::DevtoolsInspectable)]
 struct SignalProp(Signal<i32>);
 
 impl PartialEq for SignalProp {

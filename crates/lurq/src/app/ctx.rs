@@ -9,8 +9,10 @@ use std::{
 
 use parking_lot::Mutex;
 
+#[cfg(feature = "devtools")]
+use super::component::DevtoolsInspectable;
 use super::{
-  component::{Component, ComponentInfo, ComponentProp},
+  component::{Component, ComponentInfo},
   theme::Theme,
 };
 use crate::{
@@ -37,7 +39,7 @@ pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
   props: Option<Box<dyn Any + Send>>,
-  props_debug: Option<ComponentPropsDebug>,
+  props_debug: Option<DevtoolsInspectableDebug>,
   signals_debug: Vec<ComponentSignalDebug>,
   contexts_debug: Vec<ComponentContextDebug>,
   theme: Option<Theme>,
@@ -54,7 +56,7 @@ pub struct Ctx {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ComponentPropsDebug {
+pub struct DevtoolsInspectableDebug {
   pub type_name: Arc<str>,
   pub fields: Vec<ComponentInfo>,
 }
@@ -77,8 +79,8 @@ pub struct ComponentContextDebug {
   pub type_name: Arc<str>,
 }
 
-impl ComponentPropsDebug {
-  fn from_props<T: ComponentProp + 'static>(props: &T) -> Self {
+impl DevtoolsInspectableDebug {
+  fn from_props<T: DevtoolsInspectable + 'static>(props: &T) -> Self {
     let mut fields = Vec::new();
     props.write_info(&mut fields);
     Self {
@@ -244,16 +246,39 @@ impl Ctx {
       .expect("component props are not available for this type")
   }
 
-  fn set_props<T: Send + PartialEq + ComponentProp + 'static>(&mut self, props: T) {
-    self.props_debug = Some(ComponentPropsDebug::from_props(&props));
+  #[cfg(feature = "devtools")]
+  fn set_props<T: Send + PartialEq + DevtoolsInspectable + 'static>(&mut self, props: T) {
+    self.props_debug = Some(DevtoolsInspectableDebug::from_props(&props));
     self.props = Some(Box::new(props));
   }
 
-  pub(crate) fn set_root_props<T: Send + PartialEq + ComponentProp + 'static>(&mut self, props: T) {
+  #[cfg(not(feature = "devtools"))]
+  fn set_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
+    self.props = Some(Box::new(props));
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_root_props<T: Send + PartialEq + DevtoolsInspectable + 'static>(&mut self, props: T) {
     self.set_props(props);
   }
 
-  pub(crate) fn update_root_props<T: Send + PartialEq + ComponentProp + 'static>(&mut self, props: T) -> bool {
+  #[cfg(not(feature = "devtools"))]
+  pub(crate) fn set_root_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
+    self.set_props(props);
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn update_root_props<T: Send + PartialEq + DevtoolsInspectable + 'static>(&mut self, props: T) -> bool {
+    if !self.props_changed(&props) {
+      return false;
+    }
+    self.set_props(props);
+    self.dirty.store(true, Ordering::Relaxed);
+    true
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  pub(crate) fn update_root_props<T: Send + PartialEq + 'static>(&mut self, props: T) -> bool {
     if !self.props_changed(&props) {
       return false;
     }
@@ -266,7 +291,7 @@ impl Ctx {
     self.props.as_ref().and_then(|existing| existing.downcast_ref::<T>()) != Some(props)
   }
 
-  pub(crate) fn props_debug(&self) -> Option<ComponentPropsDebug> {
+  pub(crate) fn props_debug(&self) -> Option<DevtoolsInspectableDebug> {
     self.props_debug.clone()
   }
 

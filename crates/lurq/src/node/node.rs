@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
   animation::{Animation, Transition},
   app::{
-    ctx::{ComponentContextDebug, ComponentPropsDebug, ComponentSignalDebug},
+    ctx::{ComponentContextDebug, ComponentSignalDebug, DevtoolsInspectableDebug},
     events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
@@ -70,7 +70,7 @@ pub(crate) struct Node {
   pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
   pub(crate) component_key: Option<Arc<str>>,
-  pub(crate) component_props_debug: Option<ComponentPropsDebug>,
+  pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
   pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
   pub(crate) layout_kind: LayoutKind,
@@ -786,7 +786,7 @@ impl Node {
     self.component_key = key.map(Arc::from);
   }
 
-  pub(crate) fn set_component_props_debug(&mut self, props: Option<ComponentPropsDebug>) {
+  pub(crate) fn set_component_props_debug(&mut self, props: Option<DevtoolsInspectableDebug>) {
     self.component_props_debug = props;
   }
 
@@ -799,7 +799,7 @@ impl Node {
   }
 
   #[allow(dead_code)]
-  pub fn component_props_debug(&self) -> Option<&ComponentPropsDebug> {
+  pub fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
     self.component_props_debug.as_ref()
   }
 

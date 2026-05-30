@@ -10,7 +10,7 @@ use crate::support::run_pass;
 
 const DRAG_COLOR: Color = Color::new(59, 130, 246, 255);
 
-#[derive(Clone, lurq::ComponentProp)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
 impl<T> PartialEq for Shared<T> {

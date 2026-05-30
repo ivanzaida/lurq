@@ -21,7 +21,7 @@ pub fn load_fonts(app: &mut crate::app::App) {
   app.register_font("lucide", "lucide");
 }
 
-#[derive(Clone, Debug, crate::ComponentProp)]
+#[derive(Clone, Debug, crate::DevtoolsInspectable)]
 pub struct DevToolsProps {
   pub snapshot: DevToolsSnapshot,
 }
