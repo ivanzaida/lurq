@@ -17,7 +17,7 @@ fn build_flat(count: usize) -> Element {
 fn build_deep(depth: usize) -> Element {
   let mut el: Element = Rect::new(10.0, 10.0).fill("#3b82f6").into();
   for _ in 0..depth {
-    el = Column::new().child(el).pad(4.0).into();
+    el = Column::new().child(el).padding(4.0).into();
   }
   el
 }

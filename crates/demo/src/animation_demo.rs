@@ -205,7 +205,7 @@ pub(crate) fn animation_content() -> Element {
       TEXT_MUTED,
     ))
     .child(transform_demos())
-    .pad(CONTENT_PAD)
+    .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
     .fill(BG)
     .into()
@@ -252,7 +252,7 @@ fn hover_transitions() -> Element {
         .child(width_box())
         .child(all_props_box()),
     )
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -336,7 +336,7 @@ fn easing_comparison() -> Element {
     .child(easing_row("Ease-In", Easing::EASE_IN))
     .child(easing_row("Ease-Out", Easing::EASE_OUT))
     .child(easing_row("Ease-In-Out", Easing::EASE_IN_OUT))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -403,7 +403,7 @@ fn keyframe_demos() -> Element {
         .rounded(6.0)
         .animation(Animation::new("grow-shrink").duration_ms(2000).linear().infinite()),
     ))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -437,7 +437,7 @@ fn opacity_showcase() -> Element {
     .child(opacity_sample("50%", 0.5))
     .child(opacity_sample("25%", 0.25))
     .child(opacity_sample("10%", 0.1))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -509,7 +509,7 @@ fn combined_demo() -> Element {
         )
         .child(text("Multi-property", 10.0, FontWeight::Medium, TEXT_MUTED)),
     )
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -558,7 +558,7 @@ fn transform_demos() -> Element {
         .rounded(25.0)
         .animation(Animation::new("spin-color").duration_ms(3000).linear().infinite()),
     ))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))

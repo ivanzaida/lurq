@@ -13,6 +13,7 @@ use crate::support::run_pass;
 
 // --- Test components ---
 
+#[derive(lurq::ComponentProp)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {
@@ -24,6 +25,12 @@ impl<T> Clone for Shared<T> {
 impl<T> PartialEq for Shared<T> {
   fn eq(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl<T> std::fmt::Debug for Shared<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Shared").field(&(Arc::as_ptr(&self.0) as usize)).finish()
   }
 }
 
@@ -425,7 +432,7 @@ fn provide_and_use_context_roundtrip() {
 
 #[test]
 fn use_context_missing_returns_none() {
-  let ctx = Ctx::new_root();
+  let mut ctx = Ctx::new_root();
   assert_eq!(ctx.use_context::<f64>(), None);
 }
 

@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+  fmt,
+  sync::{Arc, Mutex},
+};
 
 use super::slot::single_slot_child as required_single_slot_child;
 use crate::{
@@ -14,10 +17,19 @@ pub enum DragBounds {
   SelfBounds,
 }
 
-#[derive(Clone)]
+#[derive(Clone, crate::ComponentProp)]
 pub struct DragContainerProps {
   pub bounds: DragBounds,
   child: Option<Element>,
+}
+
+impl fmt::Debug for DragContainerProps {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("DragContainerProps")
+      .field("bounds", &self.bounds)
+      .field("child", &self.child.as_ref().map(|_| "<slot child>"))
+      .finish()
+  }
 }
 
 impl DragContainerProps {

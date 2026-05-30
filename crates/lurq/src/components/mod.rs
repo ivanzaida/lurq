@@ -87,32 +87,8 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn pad(mut self, all: impl Into<$crate::node::dimension::Dimension>) -> Self {
-        self.node = self.node.pad(all);
-        self
-      }
-
-      pub fn pad_xy(
-        mut self,
-        horizontal: impl Into<$crate::node::dimension::Dimension>,
-        vertical: impl Into<$crate::node::dimension::Dimension>,
-      ) -> Self {
-        self.node = self.node.pad_xy(horizontal, vertical);
-        self
-      }
-
-      pub fn pad_left(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
-        self.node = self.node.pad_left(val);
-        self
-      }
-
       pub fn padding_left(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.padding_left(val);
-        self
-      }
-
-      pub fn pad_right(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
-        self.node = self.node.pad_right(val);
         self
       }
 
@@ -121,23 +97,23 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn pad_top(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
-        self.node = self.node.pad_top(val);
-        self
-      }
-
       pub fn padding_top(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.padding_top(val);
         self
       }
 
-      pub fn pad_bottom(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
-        self.node = self.node.pad_bottom(val);
+      pub fn padding_bottom(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_bottom(val);
         self
       }
 
-      pub fn padding_bottom(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
-        self.node = self.node.padding_bottom(val);
+      pub fn padding_horizontal(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_horizontal(val);
+        self
+      }
+
+      pub fn padding_vertical(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_vertical(val);
         self
       }
 
@@ -485,15 +461,6 @@ macro_rules! impl_into_node {
       pub fn intrinsic(mut self, width: f32, height: f32) -> Self {
         self.node = self.node.intrinsic(width, height);
         self
-      }
-
-      pub fn pad_dimension(mut self, padding: $crate::node::padding::Padding) -> Self {
-        self.node = self.node.padding(padding);
-        self
-      }
-
-      pub fn pad_dimension_all(self, all: $crate::node::dimension::Dimension) -> Self {
-        self.padding($crate::node::padding::Padding::all(all))
       }
 
       pub fn opacity(mut self, value: f32) -> Self {

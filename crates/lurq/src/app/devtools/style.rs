@@ -28,7 +28,8 @@ pub(crate) fn section_header(label: &str, count: &str) -> Element {
     .child(text(count, 10.0, FontWeight::Normal, MUTED))
     .width(FILL)
     .height(36.0)
-    .pad_xy(12.0, 0.0)
+    .padding_horizontal(12.0)
+    .padding_vertical(0.0)
     .border_inside(1.0, Color::from_hex(BORDER))
     .into()
 }
@@ -36,7 +37,8 @@ pub(crate) fn section_header(label: &str, count: &str) -> Element {
 pub(crate) fn empty_state(message: &str) -> Element {
   text(message, 11.0, FontWeight::Normal, MUTED)
     .width(FILL)
-    .pad_xy(40.0, 8.0)
+    .padding_horizontal(40.0)
+    .padding_vertical(8.0)
     .into()
 }
 
@@ -46,7 +48,8 @@ pub(crate) fn badge(label: &str, color: &str, fill: &str) -> Element {
     .justify(Justify::Center)
     .child(text(label, 10.0, FontWeight::Medium, color).nowrap())
     .height(18.0)
-    .pad_xy(6.0, 0.0)
+    .padding_horizontal(6.0)
+    .padding_vertical(0.0)
     .fill(fill)
     .rounded(3.0)
     .into()

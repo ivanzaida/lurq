@@ -19,6 +19,10 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     node_id: crate::core::NodeId::UNASSIGNED,
     tag_name,
     component_slot_id: None,
+    component_key: None,
+    component_props_debug: None,
+    component_signals_debug: Vec::new(),
+    component_contexts_debug: Vec::new(),
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,
@@ -231,43 +235,27 @@ impl Node {
     self.absolute_modifier(x, y, None, None)
   }
 
-  pub fn pad(self, all: impl Into<Dimension>) -> Self {
-    self.padding(Padding::all(all.into()))
+  pub fn padding_horizontal(self, val: impl Into<Dimension>) -> Self {
+    self.padding(Padding::horizontal(val.into()))
   }
 
-  pub fn pad_xy(self, horizontal: impl Into<Dimension>, vertical: impl Into<Dimension>) -> Self {
-    self.padding(Padding::symmetric(horizontal.into(), vertical.into()))
-  }
-
-  pub fn pad_left(self, val: impl Into<Dimension>) -> Self {
-    self.padding(Padding::new().left(val.into()))
+  pub fn padding_vertical(self, val: impl Into<Dimension>) -> Self {
+    self.padding(Padding::vertical(val.into()))
   }
 
   pub fn padding_left(self, val: impl Into<Dimension>) -> Self {
-    self.pad_left(val)
-  }
-
-  pub fn pad_right(self, val: impl Into<Dimension>) -> Self {
-    self.padding(Padding::new().right(val.into()))
+    self.padding(Padding::new().left(val.into()))
   }
 
   pub fn padding_right(self, val: impl Into<Dimension>) -> Self {
-    self.pad_right(val)
-  }
-
-  pub fn pad_top(self, val: impl Into<Dimension>) -> Self {
-    self.padding(Padding::new().top(val.into()))
+    self.padding(Padding::new().right(val.into()))
   }
 
   pub fn padding_top(self, val: impl Into<Dimension>) -> Self {
-    self.pad_top(val)
-  }
-
-  pub fn pad_bottom(self, val: impl Into<Dimension>) -> Self {
-    self.padding(Padding::new().bottom(val.into()))
+    self.padding(Padding::new().top(val.into()))
   }
 
   pub fn padding_bottom(self, val: impl Into<Dimension>) -> Self {
-    self.pad_bottom(val)
+    self.padding(Padding::new().bottom(val.into()))
   }
 }

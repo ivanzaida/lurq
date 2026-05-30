@@ -41,7 +41,7 @@ fn sidebar_with_content(item_count: usize) -> Element {
       )
     }),
   )
-  .pad(24.0)
+  .padding(24.0)
   .into();
 
   Row::with(0.0, Alignment::Start, vec![sidebar, content])

@@ -12,7 +12,7 @@ Modifiers are chainable and wrap the current element.
 
 ```rust
 lurq::components::Rect::new(80.0, 40.0)
-  .pad(12.0)
+  .padding(12.0)
   .fill("#3b82f6")
   .rounded(8.0)
 ```
@@ -24,7 +24,7 @@ Common modifiers:
 | `.size(width, height)` | Force width and height |
 | `.width(width)` | Force width |
 | `.height(height)` | Force height |
-| `.pad(...)` / `.pad_xy(...)` | Add insets around the child |
+| `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child |
 | `.fill(color)` | Fill the element background |
 | `.rounded(radius)` | Set border radius |
 | `.border_inside(width, color)` | Draw an inside border |

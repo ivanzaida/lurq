@@ -29,7 +29,7 @@ fn built_in_components_emit_component_tag_names() {
     ("Slider", root_tag_name(Slider::new(Signal::new(0.0)))),
     ("Spacer", root_tag_name(Spacer::new())),
     ("Stack", root_tag_name(Stack::new())),
-    ("Text", root_tag_name(Text::new("hello").pad(8.0))),
+    ("Text", root_tag_name(Text::new("hello").padding(8.0))),
     ("TextInput", root_tag_name(TextInput::new(Signal::new(String::new())))),
   ];
 

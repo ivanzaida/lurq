@@ -49,7 +49,7 @@ impl LocaleMode {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, lurq::ComponentProp)]
 pub(crate) struct ContextDemoProps {
   pub(crate) theme: Signal<DemoTheme>,
 }
@@ -89,13 +89,13 @@ impl Component for ContextDemo {
         locale: self.locale.clone(),
         theme,
       }))
-      .pad(CONTENT_PAD)
+      .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(palette.bg)
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, lurq::ComponentProp)]
 struct LocaleProviderProps {
   locale: Signal<LocaleMode>,
   theme: DemoTheme,
@@ -140,7 +140,7 @@ impl Component for LocaleProvider {
       )
       .child(ctx.mount::<LocaleConsumerA>(props.theme))
       .child(ctx.mount::<LocaleConsumerB>(props.theme))
-      .pad(24.0)
+      .padding(24.0)
   }
 }
 
@@ -250,7 +250,7 @@ fn theme_card(theme: DemoTheme, theme_signal: Signal<DemoTheme>, palette: ThemeP
         ))
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }
 
@@ -307,7 +307,7 @@ fn theme_preview(
         .rounded(4.0),
     )
     .height(150.0)
-    .pad(16.0)
+    .padding(16.0)
     .flex(1.0)
     .fill(background)
     .border_inside(1.0, Color::from_hex(border_color))
@@ -320,7 +320,8 @@ fn context_child(name: &str, value: &str, palette: ThemePalette) -> Element {
     .spacing(2.0)
     .child(text(name, 12.0, FontWeight::Bold, palette.accent))
     .child(text(value, 12.0, FontWeight::Normal, palette.text).nowrap())
-    .pad_xy(12.0, 8.0)
+    .padding_horizontal(12.0)
+    .padding_vertical(8.0)
     .width(FILL_WIDTH)
     .fill(palette.bg)
     .border_inside(1.0, Color::from_hex(palette.border))

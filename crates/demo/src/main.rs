@@ -19,9 +19,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use lurq::app::dx12_render::Dx12RenderEngine;
-use lurq::app::wgpu_render::WgpuRenderEngine;
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx, winit_shell::WinitWindow},
+  app::{App, Tree, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
   components::Row,
   core::Signal,
   layout::{
@@ -49,7 +48,7 @@ const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 const DEFAULT_RENDERER: &str = "wgpu";
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct PerfStats {
   fps: u32,
   total_ms: f32,
@@ -65,7 +64,7 @@ struct PerfStats {
   glyph_count: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, lurq::ComponentProp)]
 struct DemoProps {
   perf: Signal<PerfStats>,
 }
@@ -155,7 +154,7 @@ impl Component for DemoApp {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, lurq::ComponentProp)]
 struct PerfOverlayProps {
   perf: Signal<PerfStats>,
 }
@@ -309,7 +308,8 @@ fn perf_widget(stats: PerfStats) -> lurq::components::Column {
     ))
     .child(perf_row("quads", stats.quad_count.to_string(), FontWeight::Normal))
     .child(perf_row("glyphs", stats.glyph_count.to_string(), FontWeight::Normal))
-    .pad_xy(8.0, 8.0)
+    .padding_horizontal(8.0)
+    .padding_vertical(8.0)
     .size(160.0, 198.0)
     .fill(SURFACE_DARK)
     .border_inside(1.0, Color::from_hex(BORDER))

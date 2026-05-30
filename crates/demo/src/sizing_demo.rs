@@ -22,7 +22,7 @@ pub(crate) fn sizing_content() -> Element {
     .child(padding_showcase())
     .child(section_title("Spacer"))
     .child(spacer_showcase())
-    .pad(CONTENT_PAD)
+    .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
     .fill(BG)
     .into()
@@ -67,12 +67,13 @@ fn dimension_types() -> Element {
         .align_items(Alignment::Center)
         .justify(Justify::Center)
         .child(text("Auto sized", 11.0, FontWeight::Medium, TEXT_MUTED))
-        .pad_xy(18.0, 0.0)
+        .padding_horizontal(18.0)
+        .padding_vertical(0.0)
         .height(24.0)
         .fill(ACCENT)
         .into(),
     ))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -114,7 +115,7 @@ fn padding_showcase() -> Element {
       Padding::symmetric(Dimension::Px(40.0), Dimension::Px(10.0)),
       60.0,
     ))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -158,7 +159,7 @@ fn spacer_showcase() -> Element {
         .flex(1.0),
     )
     .child(spacer_button("Right"))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))

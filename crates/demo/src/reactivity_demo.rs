@@ -78,7 +78,7 @@ impl Component for ReactivityDemo {
       .child(batch_card(
         a, b, c, unbatched, batched, ba, bb, bc, ur, ba2, bb2, bc2, br,
       ))
-      .pad(CONTENT_PAD)
+      .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(BG)
   }
@@ -159,7 +159,7 @@ fn signals_card(count: i32, minus: Signal<i32>, plus: Signal<i32>, reset: Signal
             .on_click(move |_| plus10.set(plus10.get() + 10)),
         ),
     )
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }
 
@@ -191,7 +191,7 @@ fn memo_card(count: i32, doubled: i32, is_even: bool, render_count: i32) -> Elem
       FontWeight::Normal,
       TEXT_MUTED,
     ))
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }
 
@@ -248,6 +248,6 @@ fn batch_card(
         ))
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }

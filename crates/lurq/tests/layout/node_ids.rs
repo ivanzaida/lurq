@@ -76,7 +76,7 @@ impl Component for StableRoot {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, lurq::ComponentProp)]
 struct SignalProp(Signal<i32>);
 
 impl PartialEq for SignalProp {
@@ -433,7 +433,7 @@ fn modifier_wrappers_get_ids() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new()
     .size(100.0, 100.0)   // FrameModifier wrapper
-    .pad(10.0)             // PaddingModifier wrapper
+    .padding(10.0)             // PaddingModifier wrapper
     .offset(5.0, 5.0)     // OffsetModifier wrapper
     .flex(1.0); // FlexModifier wrapper
   rt.set_root(node);
@@ -488,7 +488,7 @@ fn depth_255_with_modifiers() {
     } else if i % 3 == 1 {
       lurq::components::Row::new().child(node).into()
     } else {
-      lurq::components::Stack::new().child(node).pad(1.0).into()
+      lurq::components::Stack::new().child(node).padding(1.0).into()
     };
   }
   rt.set_root(node);

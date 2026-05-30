@@ -1,15 +1,15 @@
 use super::{
   snapshot::{DevToolsNode, DevToolsSnapshot},
   style::{
-    badge, empty_state, icon, section_header, short_tag, text, BLUE, BORDER, FILL, GREEN, MUTED, PRIMARY, SELECTED,
-    SURFACE, SURFACE_2,
+    BLUE, BORDER, FILL, GREEN, MUTED, ORANGE, PRIMARY, SELECTED, SURFACE, SURFACE_2, badge, empty_state, icon,
+    section_header, short_tag, text,
   },
 };
 use crate::{
   components::{Column, Row, ScrollVertical, Spacer},
   core::Signal,
-  layout::{text_style::FontWeight, Alignment},
-  node::{border::Border, color::Color, CursorIcon, Element},
+  layout::{Alignment, text_style::FontWeight},
+  node::{CursorIcon, Element, border::Border, color::Color},
 };
 
 pub(crate) fn tree_panel(
@@ -32,7 +32,8 @@ pub(crate) fn tree_panel(
     .child(
       ScrollVertical::new(Column::new().with_children(rows).width(FILL))
         .height(FILL)
-        .width(FILL),
+        .width(FILL)
+        .flex(1.0),
     )
     .width(380.0)
     .height(FILL)
@@ -73,6 +74,9 @@ fn tree_row(
   let indent = 8.0 + depth as f32 * 16.0;
   let child_count = node.children.len();
   let click_path = path;
+  let tag = short_tag(&node.tag);
+  let key_preview = node.key.as_deref().map(format_attr_value);
+  let text_preview = node.text.as_deref().filter(|_| tag == "Text").map(format_attr_value);
   let tag_color = if node.tag.starts_with("lurq::") || node.tag.contains("Demo") {
     BLUE
   } else {
@@ -88,7 +92,21 @@ fn tree_row(
       text("", 12.0, FontWeight::Normal, MUTED).width(12.0)
     })
     .child(text("<", 12.0, FontWeight::Normal, MUTED))
-    .child(text(short_tag(&node.tag), 12.0, FontWeight::Bold, tag_color).nowrap())
+    .child(text(tag, 12.0, FontWeight::Bold, tag_color).nowrap());
+
+  if let Some(preview) = key_preview {
+    row = row
+      .child(text(" key=", 12.0, FontWeight::Normal, MUTED))
+      .child(text(&preview, 12.0, FontWeight::Normal, ORANGE).nowrap());
+  }
+
+  if let Some(preview) = text_preview {
+    row = row
+      .child(text(" text=", 12.0, FontWeight::Normal, MUTED))
+      .child(text(&preview, 12.0, FontWeight::Normal, ORANGE).nowrap());
+  }
+
+  row = row
     .child(text("/>", 12.0, FontWeight::Normal, MUTED))
     .width(FILL)
     .height(26.0)
@@ -104,4 +122,22 @@ fn tree_row(
   }
 
   row.into()
+}
+
+fn format_attr_value(content: &str) -> String {
+  const MAX_CHARS: usize = 48;
+
+  let mut escaped = content
+    .replace('\\', "\\\\")
+    .replace('"', "\\\"")
+    .replace('\n', "\\n")
+    .replace('\r', "\\r")
+    .replace('\t', "\\t");
+
+  if escaped.chars().count() > MAX_CHARS {
+    escaped = escaped.chars().take(MAX_CHARS).collect::<String>();
+    escaped.push_str("...");
+  }
+
+  format!("\"{escaped}\"")
 }

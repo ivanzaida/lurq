@@ -99,12 +99,12 @@ lurq::components::Rect::new(100.0, 50.0).hovered(|style| style.cursor(CursorIcon
 ## Padding
 
 ```rust
-lurq::components::Column::new().pad(16.0)
-lurq::components::Column::new().pad_xy(16.0, 8.0)
-lurq::components::Column::new().pad_left(10.0)
-lurq::components::Column::new().pad_right(10.0)
-lurq::components::Column::new().pad_top(10.0)
-lurq::components::Column::new().pad_bottom(10.0)
+lurq::components::Column::new().padding(16.0)
+lurq::components::Column::new().padding_horizontal(16.0).padding_vertical(8.0)
+lurq::components::Column::new().padding_left(10.0)
+lurq::components::Column::new().padding_right(10.0)
+lurq::components::Column::new().padding_top(10.0)
+lurq::components::Column::new().padding_bottom(10.0)
 ```
 
 ## Flex

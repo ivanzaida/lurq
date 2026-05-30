@@ -19,15 +19,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
-name = "accessors_macro"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1188,11 +1179,11 @@ checksum = "616ec5685824bcc94416c6d4a7a446eea774a31efd7062c8480ba6fd06d7a6e5"
 name = "lurq"
 version = "0.1.0"
 dependencies = [
- "accessors_macro",
  "bytemuck",
  "cosmic-text",
  "criterion",
  "image",
+ "lurq_macros",
  "lyon",
  "parking_lot",
  "paste",
@@ -1203,6 +1194,15 @@ dependencies = [
  "wgpu",
  "windows",
  "winit",
+]
+
+[[package]]
+name = "lurq_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ use lurq::{
 
 use crate::support::run_pass;
 
+#[derive(lurq::ComponentProp)]
 struct Shared<T>(Arc<T>);
 
 impl<T> Clone for Shared<T> {
@@ -25,6 +26,13 @@ impl<T> PartialEq for Shared<T> {
   }
 }
 
+impl<T> std::fmt::Debug for Shared<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Shared").field(&(Arc::as_ptr(&self.0) as usize)).finish()
+  }
+}
+
+#[derive(Debug, lurq::ComponentProp)]
 struct ChildProps {
   value: i32,
   renders: Shared<AtomicUsize>,

@@ -67,6 +67,21 @@ impl Padding {
     self
   }
 
+  pub fn merge_from(&mut self, other: &Padding) {
+    if other.left != Dimension::Auto {
+      self.left = other.left;
+    }
+    if other.top != Dimension::Auto {
+      self.top = other.top;
+    }
+    if other.right != Dimension::Auto {
+      self.right = other.right;
+    }
+    if other.bottom != Dimension::Auto {
+      self.bottom = other.bottom;
+    }
+  }
+
   pub fn get_left(&self) -> &Dimension {
     &self.left
   }

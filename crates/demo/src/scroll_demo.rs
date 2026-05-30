@@ -25,7 +25,7 @@ pub(crate) fn scroll_content() -> Element {
     .child(horizontal_scroll_demo())
     .child(section_title("Both-Axis Scroll"))
     .child(both_axis_scroll_demo())
-    .pad(CONTENT_PAD)
+    .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
     .fill(BG)
     .into()
@@ -93,7 +93,8 @@ fn vertical_item(index: usize) -> lurq::components::Row {
   lurq::components::Row::new()
     .align_items(Alignment::Center)
     .child(text(&format!("Item {}", index), 11.0, FontWeight::Medium, TEXT))
-    .pad_xy(12.0, 0.0)
+    .padding_horizontal(12.0)
+    .padding_vertical(0.0)
     .height(32.0)
     .width(FILL_WIDTH)
     .fill(fill)
@@ -177,7 +178,7 @@ fn placement_label(label: &str) -> Element {
 fn grid_content() -> lurq::components::Column {
   lurq::components::Column::new()
     .spacing(4.0)
-    .pad(4.0)
+    .padding(4.0)
     .with_children((1..=7).map(grid_row))
 }
 
@@ -208,7 +209,7 @@ fn grid_cell(row: usize, column: usize) -> lurq::components::Row {
 fn demo_panel(content: impl Into<Element>) -> Element {
   lurq::components::Column::new()
     .child(content)
-    .pad(20.0)
+    .padding(20.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))

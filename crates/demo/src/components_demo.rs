@@ -16,7 +16,7 @@ const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, lurq::ComponentProp)]
 struct InfoCardProps {
   title: &'static str,
   body: &'static str,
@@ -39,7 +39,8 @@ impl Component for InfoCard {
       .child(text(props.title, 16.0, FontWeight::Bold, props.accent))
       .child(lurq::components::Rect::new(Dimension::Pct(100.0), 1.0).fill(BORDER))
       .child(text(props.body, 13.0, FontWeight::Normal, TEXT))
-      .pad_xy(16.0, 12.0)
+      .padding_horizontal(16.0)
+      .padding_vertical(12.0)
       .flex(1.0)
       .fill(BG)
       .border_inside(2.0, Color::from_hex(props.accent))
@@ -47,7 +48,7 @@ impl Component for InfoCard {
   }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, lurq::ComponentProp)]
 struct ListItem {
   key: String,
   label: String,
@@ -89,7 +90,8 @@ impl Component for KeyedListItem {
         TEXT,
       ))
       .height(40.0)
-      .pad_xy(12.0, 0.0)
+      .padding_horizontal(12.0)
+      .padding_vertical(0.0)
       .width(FILL_WIDTH)
       .fill(BG)
       .border_inside(1.0, Color::from_hex(BORDER))
@@ -120,7 +122,7 @@ impl Component for ComponentsDemo {
       .child(props_demo(ctx))
       .child(section_title("Keyed List (for_each)"))
       .child(keyed_list_demo(ctx, self.items.clone(), self.next_item_index.clone()))
-      .pad(CONTENT_PAD)
+      .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(BG)
   }
@@ -144,7 +146,7 @@ fn props_demo(ctx: &mut Ctx) -> Element {
       body: "Something went wrong",
       accent: ERROR,
     }))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -170,7 +172,7 @@ fn keyed_list_demo(ctx: &mut Ctx, items: Signal<Vec<ListItem>>, next_item_index:
       FontWeight::Normal,
       ACCENT,
     ))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))

@@ -1,5 +1,5 @@
 [package]
-name = "accessors_macro"
+name = "lurq_macros"
 version = "0.1.0"
 edition = "2021"
 

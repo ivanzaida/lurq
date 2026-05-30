@@ -45,7 +45,7 @@ fn padding_shorthand_all_sides() {
 }
 
 #[test]
-fn padding_side_aliases() {
+fn padding_named_sides() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
@@ -59,6 +59,25 @@ fn padding_side_aliases() {
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 105.0);
   assert_eq!(result.size.height, 60.0);
+}
+
+#[test]
+fn chained_padding_overrides_named_sides() {
+  let mut rt = rt();
+  let node = lurq::components::Spacer::new()
+    .frame(FrameConstraints {
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+      ..Default::default()
+    })
+    .padding(10.0)
+    .padding_left(Dimension::Px(5.0));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  assert_eq!(result.size.width, 115.0);
+  assert_eq!(result.size.height, 70.0);
+  assert_eq!(result.children[0].offset.x, 5.0);
+  assert_eq!(result.children[0].offset.y, 10.0);
 }
 
 #[test]

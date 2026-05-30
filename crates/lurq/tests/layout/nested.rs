@@ -219,7 +219,7 @@ fn flex_children_in_nested_row() {
 }
 
 #[test]
-fn deeply_nested_padding() {
+fn repeated_padding_calls_merge() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
@@ -232,8 +232,8 @@ fn deeply_nested_padding() {
     .padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 110.0); // 50 + 10*2*3
-  assert_eq!(result.size.height, 110.0);
+  assert_eq!(result.size.width, 70.0);
+  assert_eq!(result.size.height, 70.0);
 }
 
 #[test]

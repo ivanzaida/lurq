@@ -17,7 +17,7 @@ pub(crate) const WARNING: &str = "#f59e0b";
 pub(crate) const ACCENT: &str = "#06b6d4";
 pub(crate) const SECONDARY: &str = "#8b5cf6";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, lurq::ComponentProp)]
 pub(crate) enum DemoTheme {
   Dark,
   Light,

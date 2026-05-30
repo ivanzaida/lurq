@@ -9,12 +9,18 @@ use lurq::{
 
 use crate::support::run_pass;
 
-#[derive(Clone)]
+#[derive(Clone, lurq::ComponentProp)]
 struct Shared<T>(Arc<T>);
 
 impl<T> PartialEq for Shared<T> {
   fn eq(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl<T> std::fmt::Debug for Shared<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Shared").field(&(Arc::as_ptr(&self.0) as usize)).finish()
   }
 }
 

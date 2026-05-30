@@ -1,6 +1,9 @@
-use std::sync::{
-  Arc, Weak,
-  atomic::{AtomicUsize, Ordering},
+use std::{
+  fmt,
+  sync::{
+    Arc, Weak,
+    atomic::{AtomicUsize, Ordering},
+  },
 };
 
 use parking_lot::{Mutex, RwLock};
@@ -23,6 +26,12 @@ struct SignalInner<T> {
 
 pub struct Signal<T> {
   inner: Arc<SignalInner<T>>,
+}
+
+impl<T> fmt::Debug for Signal<T> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_tuple("Signal").field(&self.inner.id).finish()
+  }
 }
 
 #[must_use = "dropping the subscription immediately unsubscribes it"]
@@ -56,6 +65,10 @@ impl<T> Signal<T> {
         watchers: Mutex::new(Vec::new()),
       }),
     }
+  }
+
+  pub fn id(&self) -> usize {
+    self.inner.id
   }
 
   pub fn get(&self) -> T

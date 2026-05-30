@@ -1,4 +1,7 @@
-use crate::node::{color::Color, node::Node};
+use crate::{
+  app::ctx::{ComponentContextDebug, ComponentPropsDebug, ComponentSignalDebug},
+  node::{color::Color, node::Node},
+};
 
 pub struct Element {
   pub(crate) node: Node,
@@ -56,12 +59,32 @@ impl<'a> ElementRef<'a> {
     self.node.tag_name()
   }
 
+  #[allow(dead_code)]
+  pub(crate) fn component_key(&self) -> Option<&'a str> {
+    self.node.component_key()
+  }
+
   pub fn text_content(&self) -> Option<&'a str> {
     self.node.text_content()
   }
 
   pub fn color(&self) -> Option<Color> {
     self.node.color()
+  }
+
+  #[allow(dead_code)]
+  pub(crate) fn component_props_debug(&self) -> Option<&ComponentPropsDebug> {
+    self.node.component_props_debug()
+  }
+
+  #[allow(dead_code)]
+  pub(crate) fn component_signals_debug(&self) -> &[ComponentSignalDebug] {
+    self.node.component_signals_debug()
+  }
+
+  #[allow(dead_code)]
+  pub(crate) fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
+    self.node.component_contexts_debug()
   }
 
   pub fn children(&self) -> ElementChildren<'a> {

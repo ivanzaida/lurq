@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use super::slot::single_slot_child as required_single_slot_child;
 use crate::{
@@ -8,10 +8,19 @@ use crate::{
 
 type DropCallback = Arc<dyn Fn(&DropEvent) + Send + Sync>;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, crate::ComponentProp)]
 pub struct DropZoneProps {
   pub on_drop: Option<DropCallback>,
   child: Option<Element>,
+}
+
+impl fmt::Debug for DropZoneProps {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("DropZoneProps")
+      .field("on_drop", &self.on_drop.as_ref().map(|_| "<callback>"))
+      .field("child", &self.child.as_ref().map(|_| "<slot child>"))
+      .finish()
+  }
 }
 
 impl DropZoneProps {

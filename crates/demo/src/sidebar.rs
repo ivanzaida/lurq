@@ -53,7 +53,8 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>, theme: D
         .spacing(2.0)
         .child(text("lurq engine demo", 12.0, FontWeight::Bold, palette.text))
         .child(text(selected.label(), 10.0, FontWeight::Medium, palette.text_muted))
-        .pad_xy(16.0, 10.0)
+        .padding_horizontal(16.0)
+        .padding_vertical(10.0)
         .width(200.0)
         .height(56.0),
     )

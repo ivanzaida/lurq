@@ -1,6 +1,6 @@
 use crate::node::color::Color;
 
-#[derive(Clone, accessors_macro::Accessors)]
+#[derive(Clone, lurq_macros::Accessors)]
 pub struct ScrollBarStyle {
   pub width: f32,
   pub min_thumb_length: f32,

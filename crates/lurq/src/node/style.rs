@@ -84,24 +84,27 @@ impl Style {
     self
   }
 
-  pub fn pad(mut self, all: impl Into<Dimension>) -> Self {
-    self.padding = Some(Padding::all(all.into()));
-    self
-  }
-
-  pub fn pad_xy(mut self, horizontal: impl Into<Dimension>, vertical: impl Into<Dimension>) -> Self {
-    self.padding = Some(Padding::symmetric(horizontal.into(), vertical.into()));
-    self
-  }
-
   pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
-    self.padding = Some(padding.into());
+    let padding = padding.into();
+    if let Some(existing) = &mut self.padding {
+      existing.merge_from(&padding);
+    } else {
+      self.padding = Some(padding);
+    }
     self
   }
 
   pub fn padding_custom(mut self, padding: Padding) -> Self {
     self.padding = Some(padding);
     self
+  }
+
+  pub fn padding_horizontal(self, value: impl Into<Dimension>) -> Self {
+    self.padding(Padding::horizontal(value.into()))
+  }
+
+  pub fn padding_vertical(self, value: impl Into<Dimension>) -> Self {
+    self.padding(Padding::vertical(value.into()))
   }
 
   pub fn padding_left(mut self, value: impl Into<Dimension>) -> Self {
@@ -164,7 +167,10 @@ impl Style {
   }
 
   pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
-    self.border_radius.get_or_insert_with(BorderRadius::default).bottom_right = radius;
+    self
+      .border_radius
+      .get_or_insert_with(BorderRadius::default)
+      .bottom_right = radius;
     self
   }
 

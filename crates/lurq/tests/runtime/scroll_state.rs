@@ -1,3 +1,8 @@
+use std::sync::{
+  Arc,
+  atomic::{AtomicUsize, Ordering},
+};
+
 use lurq::{
   app::{
     Tree,
@@ -90,6 +95,29 @@ fn horizontal_scrollbar_thumb_drags_content() {
     .find_element(|element| element.color() == Some(CONTENT_COLOR))
     .unwrap();
   assert_eq!(content.bounds().x, -100.0);
+}
+
+#[test]
+fn scrollbar_drag_release_does_not_click_under_cursor() {
+  let mut runtime = Tree::new();
+  let clicks = Arc::new(AtomicUsize::new(0));
+  let click_count = clicks.clone();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .on_click(move |_| {
+        click_count.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(94.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(94.0, 50.0);
+  runtime.mouse_up(10.0, 50.0, MouseButton::Left);
+  runtime.click(10.0, 50.0, MouseButton::Left);
+
+  assert_eq!(clicks.load(Ordering::SeqCst), 0);
 }
 
 #[test]

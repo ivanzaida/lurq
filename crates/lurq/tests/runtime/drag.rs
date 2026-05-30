@@ -89,12 +89,18 @@ fn drop_dispatches_to_hit_drop_target_on_release() {
   assert_eq!(*drops.lock().unwrap(), vec![(90.0, 20.0, 80.0, 10.0, true, true)]);
 }
 
-#[derive(Clone)]
+#[derive(Clone, lurq::ComponentProp)]
 struct Shared<T>(Arc<T>);
 
 impl<T> PartialEq for Shared<T> {
   fn eq(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl<T> std::fmt::Debug for Shared<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Shared").field(&(Arc::as_ptr(&self.0) as usize)).finish()
   }
 }
 

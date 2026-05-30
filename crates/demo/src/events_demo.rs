@@ -57,7 +57,7 @@ impl Component for EventsDemo {
       .child(hover_demo())
       .child(section_title("Mouse Tracking"))
       .child(mouse_demo(self.pointer.clone()))
-      .pad(CONTENT_PAD)
+      .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(BG)
   }
@@ -81,7 +81,7 @@ fn click_demo(log: Signal<Vec<String>>) -> Element {
         )),
     )
     .child(event_log(log).flex(1.0))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -169,7 +169,7 @@ fn event_log(log: Signal<Vec<String>>) -> lurq::components::Column {
         .map(|entry| text(entry, 12.0, FontWeight::Normal, SUCCESS).width(FILL_WIDTH)),
     )
     .height(140.0)
-    .pad(12.0)
+    .padding(12.0)
     .width(FILL_WIDTH)
     .fill(BG)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -183,7 +183,8 @@ fn hover_demo() -> Element {
     .child(state_sample("Normal", PRIMARY))
     .child(state_sample("Hovered", "#60a5fa"))
     .child(state_sample("Active", "#2563eb"))
-    .pad_xy(24.0, 20.0)
+    .padding_horizontal(24.0)
+    .padding_vertical(20.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -222,7 +223,7 @@ fn mouse_demo(pointer: Signal<PointerState>) -> Element {
       FontWeight::Normal,
       TEXT_MUTED,
     ))
-    .pad(20.0)
+    .padding(20.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))

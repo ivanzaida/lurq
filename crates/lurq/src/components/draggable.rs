@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+  fmt,
+  sync::{Arc, Mutex},
+};
 
 use super::slot::single_slot_child as required_single_slot_child;
 use crate::{
@@ -13,13 +16,25 @@ use crate::{
 
 type DragCallback = Arc<dyn Fn(&DragEvent) + Send + Sync>;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, crate::ComponentProp)]
 pub struct DraggableProps {
   pub on_drag_start: Option<DragCallback>,
   pub on_drag_move: Option<DragCallback>,
   pub on_drag_end: Option<DragCallback>,
   pub drop_miss_behavior: DropMissBehavior,
   child: Option<Element>,
+}
+
+impl fmt::Debug for DraggableProps {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("DraggableProps")
+      .field("on_drag_start", &self.on_drag_start.as_ref().map(|_| "<callback>"))
+      .field("on_drag_move", &self.on_drag_move.as_ref().map(|_| "<callback>"))
+      .field("on_drag_end", &self.on_drag_end.as_ref().map(|_| "<callback>"))
+      .field("drop_miss_behavior", &self.drop_miss_behavior)
+      .field("child", &self.child.as_ref().map(|_| "<slot child>"))
+      .finish()
+  }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -8,7 +8,7 @@ fn updates_layout_after_mutating_found_element_rect() {
   runtime.set_root(
     lurq::components::Column::new()
       .child(lurq::components::Rect::new(10.0, 20.0).fill("#22c55e"))
-      .pad(10.0),
+      .padding(10.0),
   );
   run_pass(&mut runtime);
 

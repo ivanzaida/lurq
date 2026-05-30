@@ -39,6 +39,8 @@ use crate::{
 
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
+const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
@@ -91,6 +93,7 @@ pub struct Tree {
   focused_event_path: Option<Vec<usize>>,
   cursor: CursorIcon,
   click_tracker: ClickTracker,
+  suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   frame_count: u64,
   last_profile: FrameProfile,
@@ -128,6 +131,7 @@ impl Tree {
       focused_event_path: None,
       cursor: CursorIcon::Default,
       click_tracker: ClickTracker::default(),
+      suppressed_click: None,
       needs_redraw: false,
       frame_count: 0,
       last_profile: FrameProfile::default(),
@@ -236,6 +240,9 @@ impl Tree {
     let mut node = wrapper.render(&mut ctx).node;
     ctx.end_render();
     node.set_tag_name(wrapper.tag_name());
+    node.set_component_props_debug(ctx.props_debug());
+    node.set_component_signals_debug(ctx.signals_debug());
+    node.set_component_contexts_debug(ctx.contexts_debug());
     node.assign_ids(&self.id_gen);
     wrapper.on_mounted();
     self.root = Some(node);
@@ -266,6 +273,9 @@ impl Tree {
       let mut node = component.render(ctx).node;
       ctx.end_render();
       node.set_tag_name(component.tag_name());
+      node.set_component_props_debug(ctx.props_debug());
+      node.set_component_signals_debug(ctx.signals_debug());
+      node.set_component_contexts_debug(ctx.contexts_debug());
       if let Some(old) = old_root.as_mut() {
         node.preserve_runtime_state_from(old);
         node.preserve_ids_from(old);
@@ -591,6 +601,12 @@ impl Tree {
     let now = Instant::now();
     let position = (x, y);
 
+    if self.should_suppress_click(now, position, button) {
+      self.click_tracker.take_pending();
+      self.apply_reactive_updates_after_event();
+      return;
+    }
+
     if self.click_tracker.pending_matches(now, position, button) {
       self.click_tracker.take_pending();
       self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
@@ -688,6 +704,26 @@ impl Tree {
     hits.iter().any(|(node, _)| node.events.on_dblclick.is_some())
   }
 
+  fn suppress_click(&mut self, position: (f32, f32), button: MouseButton) {
+    self.suppressed_click = Some(SuppressedClick {
+      time: Instant::now(),
+      position,
+      button,
+    });
+  }
+
+  fn should_suppress_click(&mut self, now: Instant, position: (f32, f32), button: MouseButton) -> bool {
+    let Some(suppressed) = self.suppressed_click else {
+      return false;
+    };
+
+    self.suppressed_click = None;
+
+    now.duration_since(suppressed.time) <= SUPPRESSED_CLICK_INTERVAL
+      && suppressed.button == button
+      && distance_squared(suppressed.position, position) <= SUPPRESSED_CLICK_DISTANCE * SUPPRESSED_CLICK_DISTANCE
+  }
+
   fn dispatch_mouse(&mut self, x: f32, y: f32, button: MouseButton, kind: MouseEventKind) {
     let mut evt = MouseEvent {
       x,
@@ -714,6 +750,7 @@ impl Tree {
           drag.state.end_drag();
           self.dragging_scroll = None;
           self.clear_active_path();
+          self.suppress_click((evt.x, evt.y), button);
           self.needs_redraw = true;
           return;
         }
@@ -1696,6 +1733,13 @@ impl ClickTracker {
 
 #[derive(Clone, Copy)]
 struct PendingClick {
+  time: Instant,
+  position: (f32, f32),
+  button: MouseButton,
+}
+
+#[derive(Clone, Copy)]
+struct SuppressedClick {
   time: Instant,
   position: (f32, f32),
   button: MouseButton,

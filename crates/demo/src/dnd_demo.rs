@@ -31,7 +31,7 @@ impl Component for DndDemo {
       .child(text("Drag & Drop", 28.0, FontWeight::Bold, TEXT).width(FILL_WIDTH))
       .child(section_title("Container Drop"))
       .child(dnd_showcase(ctx, self.drop_status.clone()))
-      .pad(CONTENT_PAD)
+      .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(BG)
   }
@@ -48,7 +48,8 @@ fn dnd_showcase(ctx: &mut Ctx, drop_status: Signal<String>) -> Element {
     .child(dnd_stack(ctx, drop_status))
     .width(FILL_WIDTH)
     .height(420.0)
-    .pad_xy(32.0, 36.0)
+    .padding_horizontal(32.0)
+    .padding_vertical(36.0)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)

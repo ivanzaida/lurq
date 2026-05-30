@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use crate::{
   animation::{Animation, Transition},
-  app::events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
+  app::{
+    ctx::{ComponentContextDebug, ComponentPropsDebug, ComponentSignalDebug},
+    events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
+  },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
     Alignment, Size, StackAlignment,
@@ -66,6 +69,10 @@ pub(crate) struct Node {
   pub(crate) node_id: NodeId,
   pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
+  pub(crate) component_key: Option<Arc<str>>,
+  pub(crate) component_props_debug: Option<ComponentPropsDebug>,
+  pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
+  pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
@@ -112,6 +119,10 @@ impl Node {
       node_id: NodeId::UNASSIGNED,
       tag_name: Arc::from("Node"),
       component_slot_id: None,
+      component_key: None,
+      component_props_debug: None,
+      component_signals_debug: Vec::new(),
+      component_contexts_debug: Vec::new(),
       text_content: Guard::new(None),
       text_wrap: true,
       overflow: Overflow::Hidden,
@@ -296,8 +307,14 @@ impl Node {
     Self::from_parts(LayoutKind::Stack { align }, NodeKind::Empty, children)
   }
 
-  pub fn padding(self, padding: impl Into<Padding>) -> Self {
-    Self::from_modifier(LayoutKind::PaddingModifier(padding.into()), self)
+  pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
+    let padding = padding.into();
+    if let LayoutKind::PaddingModifier(existing) = &mut self.layout_kind {
+      existing.merge_from(&padding);
+      self
+    } else {
+      Self::from_modifier(LayoutKind::PaddingModifier(padding), self)
+    }
   }
 
   pub fn padding_custom(self, padding: Padding) -> Self {
@@ -760,6 +777,42 @@ impl Node {
     self.component_slot_id = Some(id);
   }
 
+  #[allow(dead_code)]
+  pub(crate) fn component_key(&self) -> Option<&str> {
+    self.component_key.as_deref()
+  }
+
+  pub(crate) fn set_component_key(&mut self, key: Option<&str>) {
+    self.component_key = key.map(Arc::from);
+  }
+
+  pub(crate) fn set_component_props_debug(&mut self, props: Option<ComponentPropsDebug>) {
+    self.component_props_debug = props;
+  }
+
+  pub(crate) fn set_component_signals_debug(&mut self, signals: Vec<ComponentSignalDebug>) {
+    self.component_signals_debug = signals;
+  }
+
+  pub(crate) fn set_component_contexts_debug(&mut self, contexts: Vec<ComponentContextDebug>) {
+    self.component_contexts_debug = contexts;
+  }
+
+  #[allow(dead_code)]
+  pub fn component_props_debug(&self) -> Option<&ComponentPropsDebug> {
+    self.component_props_debug.as_ref()
+  }
+
+  #[allow(dead_code)]
+  pub fn component_signals_debug(&self) -> &[ComponentSignalDebug] {
+    &self.component_signals_debug
+  }
+
+  #[allow(dead_code)]
+  pub fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
+    &self.component_contexts_debug
+  }
+
   pub(crate) fn node_kind(&self) -> &NodeKind {
     &self.node_kind
   }
@@ -1041,6 +1094,10 @@ impl Node {
       node_id: NodeId::UNASSIGNED,
       tag_name: self.tag_name.clone(),
       component_slot_id: self.component_slot_id,
+      component_key: self.component_key.clone(),
+      component_props_debug: self.component_props_debug.clone(),
+      component_signals_debug: self.component_signals_debug.clone(),
+      component_contexts_debug: self.component_contexts_debug.clone(),
       layout_kind: self.layout_kind.clone(),
       node_kind: self.node_kind.clone(),
       text_content: self.text_content.clone(),
@@ -1092,6 +1149,23 @@ impl Node {
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
       + self.tag_name.len()
+      + self
+        .component_props_debug
+        .as_ref()
+        .map(|props| {
+          props.type_name.len() + props.fields.capacity() * std::mem::size_of::<crate::app::component::ComponentInfo>()
+        })
+        .unwrap_or(0)
+      + self
+        .component_signals_debug
+        .iter()
+        .map(|signal| signal.type_name.len())
+        .sum::<usize>()
+      + self
+        .component_contexts_debug
+        .iter()
+        .map(|context| context.type_name.len())
+        .sum::<usize>()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
       + self.layout_cache.estimated_memory_bytes()
@@ -1104,6 +1178,23 @@ impl Node {
 
   fn estimated_child_heap_bytes(&self) -> usize {
     self.tag_name.len()
+      + self
+        .component_props_debug
+        .as_ref()
+        .map(|props| {
+          props.type_name.len() + props.fields.capacity() * std::mem::size_of::<crate::app::component::ComponentInfo>()
+        })
+        .unwrap_or(0)
+      + self
+        .component_signals_debug
+        .iter()
+        .map(|signal| signal.type_name.len())
+        .sum::<usize>()
+      + self
+        .component_contexts_debug
+        .iter()
+        .map(|context| context.type_name.len())
+        .sum::<usize>()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
       + self.layout_cache.estimated_memory_bytes()

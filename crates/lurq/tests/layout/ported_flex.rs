@@ -573,7 +573,7 @@ fn flex_padding_reduces_available_space() {
       lurq::components::Spacer::new().flex(1.0),
       lurq::components::Spacer::new().flex(1.0),
     ])
-    .pad(20.0);
+    .padding(20.0);
   rt.set_root(node);
   let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Padding 20 on each side → 260 available for flex children → 130 each

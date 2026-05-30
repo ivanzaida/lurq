@@ -60,7 +60,7 @@ impl Component for InputsDemo {
         self.priority.clone(),
         palette,
       ))
-      .pad(CONTENT_PAD)
+      .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
       .fill(palette.bg)
   }
@@ -97,7 +97,7 @@ fn text_fields_card(name: Signal<String>, email: Signal<String>, palette: ThemeP
         .child(value_pill("email", display_text(&email.get()), palette))
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }
 
@@ -106,7 +106,8 @@ fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -
     .placeholder(placeholder)
     .height(38.0)
     .width(FILL_WIDTH)
-    .pad_xy(12.0, 6.0)
+    .padding_horizontal(12.0)
+    .padding_vertical(6.0)
     .fill("#ffffff")
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
@@ -144,7 +145,7 @@ fn selection_card(notifications: Signal<bool>, beta_access: Signal<bool>, palett
         .child(value_pill("beta", bool_label(beta_access.get()), palette))
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }
 
@@ -184,7 +185,7 @@ fn sliders_card(volume: Signal<f32>, priority: Signal<f32>, palette: ThemePalett
         .child(value_pill("priority", &format!("{:.1}", priority.get()), palette))
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .into()
 }
 
@@ -231,7 +232,7 @@ fn summary_card(
     .child(summary_row("beta", bool_label(beta_access.get()), palette))
     .child(summary_row("volume", &format!("{:.0}", volume.get()), palette))
     .child(summary_row("priority", &format!("{:.1}", priority.get()), palette))
-    .pad(20.0)
+    .padding(20.0)
     .into()
 }
 
@@ -252,7 +253,8 @@ fn value_pill(label: &str, value: &str, palette: ThemePalette) -> Element {
     .child(text(label, 11.0, FontWeight::Medium, palette.text_muted))
     .child(text(value, 11.0, FontWeight::Bold, palette.text).nowrap())
     .height(28.0)
-    .pad_xy(10.0, 0.0)
+    .padding_horizontal(10.0)
+    .padding_vertical(0.0)
     .fill(palette.bg)
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)

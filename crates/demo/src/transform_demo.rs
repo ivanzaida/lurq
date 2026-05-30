@@ -55,7 +55,7 @@ pub(crate) fn transform_content() -> Element {
       TEXT_MUTED,
     ))
     .child(text_section())
-    .pad(CONTENT_PAD)
+    .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
     .fill(BG)
     .into()
@@ -85,7 +85,7 @@ fn card_row(children: Vec<Element>) -> Element {
     .spacing(16.0)
     .align_items(Alignment::Start)
     .with_children(children)
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))

@@ -1,14 +1,11 @@
-use lurq::components::Image;
-use lurq::components::Svg;
-use lurq::layout::StackAlignment;
-use lurq::svg::SvgData;
 use lurq::{
-  layout::{Alignment, text_style::FontWeight},
+  components::{Image, Svg},
+  layout::{Alignment, StackAlignment, text_style::FontWeight},
   node::{Element, color::Color, dimension::Dimension},
+  svg::SvgData,
 };
 
-use crate::style::SECONDARY;
-use crate::style::{BG, BORDER, PRIMARY, SURFACE, TEXT, TEXT_MUTED, text};
+use crate::style::{BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_MUTED, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
@@ -47,7 +44,7 @@ pub(crate) fn visual_content() -> Element {
     .child(section_title("Background Images"))
     .child(background_images_showcase());
 
-  content.pad(CONTENT_PAD).width(FILL_WIDTH).fill(BG).into()
+  content.padding(CONTENT_PAD).width(FILL_WIDTH).fill(BG).into()
 }
 
 fn section_title(label: &str) -> Element {
@@ -73,7 +70,7 @@ fn color_palette() -> Element {
         .width(FILL_WIDTH),
     )
     .child(alpha_row())
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -136,7 +133,8 @@ fn radius_showcase() -> Element {
         .height(80.0)
         .flex(1.0)
     }))
-    .pad_xy(24.0, 16.0)
+    .padding_horizontal(24.0)
+    .padding_vertical(16.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -150,7 +148,8 @@ fn clip_showcase() -> Element {
     .align_items(Alignment::Center)
     .child(clip_example("Overflow::Visible", false))
     .child(clip_example("Overflow::Hidden", true))
-    .pad_xy(60.0, 20.0)
+    .padding_horizontal(60.0)
+    .padding_vertical(20.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -302,7 +301,7 @@ fn svg_case_box(label: &str, detail: &str, previews: Vec<Element>) -> Element {
         .with_children(previews)
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -340,7 +339,7 @@ fn plain_images_showcase() -> Element {
         .iter()
         .map(|(label, path)| image_resource_card(label, path)),
     )
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -353,7 +352,7 @@ fn sized_images_showcase() -> Element {
     .spacing(24.0)
     .align_items(Alignment::Start)
     .with_children(IMAGE_ASSETS.iter().map(|(label, path)| sized_image_card(label, path)))
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -380,7 +379,7 @@ fn intrinsic_images_showcase() -> Element {
         .child(intrinsic_image_card(IMAGE_ASSETS[3].0, IMAGE_ASSETS[3].1))
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -415,7 +414,7 @@ fn background_images_showcase() -> Element {
         )
         .width(FILL_WIDTH),
     )
-    .pad(24.0)
+    .padding(24.0)
     .width(FILL_WIDTH)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -480,7 +479,8 @@ fn background_resource_card(label: &str, path: &str, cover: bool) -> Element {
         .spacing(2.0)
         .child(text(label, 11.0, FontWeight::Bold, TEXT))
         .child(text("child", 9.0, FontWeight::Normal, TEXT_MUTED))
-        .pad_xy(8.0, 6.0)
+        .padding_horizontal(8.0)
+        .padding_vertical(6.0)
         .fill("#111827")
         .rounded(4.0)
         .absolute_position(10.0, 10.0),

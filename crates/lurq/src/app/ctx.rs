@@ -9,7 +9,10 @@ use std::{
 
 use parking_lot::Mutex;
 
-use super::{component::Component, theme::Theme};
+use super::{
+  component::{Component, ComponentInfo, ComponentProp},
+  theme::Theme,
+};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo,
@@ -34,6 +37,9 @@ pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
   props: Option<Box<dyn Any + Send>>,
+  props_debug: Option<ComponentPropsDebug>,
+  signals_debug: Vec<ComponentSignalDebug>,
+  contexts_debug: Vec<ComponentContextDebug>,
   theme: Option<Theme>,
   context_map: ContextMap,
   slot_children: Option<Vec<Element>>,
@@ -45,6 +51,41 @@ pub struct Ctx {
   effects: Vec<Effect>,
   element_refs: Vec<ElementRefMut>,
   rendering: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComponentPropsDebug {
+  pub type_name: Arc<str>,
+  pub fields: Vec<ComponentInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComponentSignalDebug {
+  pub id: usize,
+  pub type_name: Arc<str>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComponentContextKind {
+  Provided,
+  Consumed,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComponentContextDebug {
+  pub kind: ComponentContextKind,
+  pub type_name: Arc<str>,
+}
+
+impl ComponentPropsDebug {
+  fn from_props<T: ComponentProp + 'static>(props: &T) -> Self {
+    let mut fields = Vec::new();
+    props.write_info(&mut fields);
+    Self {
+      type_name: Arc::from(std::any::type_name::<T>()),
+      fields,
+    }
+  }
 }
 
 #[derive(Default)]
@@ -161,6 +202,9 @@ impl Ctx {
       dirty: Arc::new(AtomicBool::new(true)),
       batch: Arc::new(BatchState::default()),
       props: None,
+      props_debug: None,
+      signals_debug: Vec::new(),
+      contexts_debug: Vec::new(),
       theme: None,
       context_map: ContextMap::default(),
       slot_children: None,
@@ -200,15 +244,16 @@ impl Ctx {
       .expect("component props are not available for this type")
   }
 
-  fn set_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
+  fn set_props<T: Send + PartialEq + ComponentProp + 'static>(&mut self, props: T) {
+    self.props_debug = Some(ComponentPropsDebug::from_props(&props));
     self.props = Some(Box::new(props));
   }
 
-  pub(crate) fn set_root_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
+  pub(crate) fn set_root_props<T: Send + PartialEq + ComponentProp + 'static>(&mut self, props: T) {
     self.set_props(props);
   }
 
-  pub(crate) fn update_root_props<T: Send + PartialEq + 'static>(&mut self, props: T) -> bool {
+  pub(crate) fn update_root_props<T: Send + PartialEq + ComponentProp + 'static>(&mut self, props: T) -> bool {
     if !self.props_changed(&props) {
       return false;
     }
@@ -221,10 +266,26 @@ impl Ctx {
     self.props.as_ref().and_then(|existing| existing.downcast_ref::<T>()) != Some(props)
   }
 
+  pub(crate) fn props_debug(&self) -> Option<ComponentPropsDebug> {
+    self.props_debug.clone()
+  }
+
+  pub(crate) fn signals_debug(&self) -> Vec<ComponentSignalDebug> {
+    self.signals_debug.clone()
+  }
+
+  pub(crate) fn contexts_debug(&self) -> Vec<ComponentContextDebug> {
+    self.contexts_debug.clone()
+  }
+
   // --- Reactive primitives ---
 
   pub fn signal<T: Send + Sync + 'static>(&mut self, initial: T) -> Signal<T> {
     let sig = Signal::new(initial);
+    self.signals_debug.push(ComponentSignalDebug {
+      id: sig.id(),
+      type_name: Arc::from(std::any::type_name::<T>()),
+    });
     let dirty = self.dirty.clone();
     let batch = self.batch.clone();
     let handle = sig.watch(move || {
@@ -270,14 +331,20 @@ impl Ctx {
   // --- Context (Dependency Injection) ---
 
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
     self.context_map.provide(value);
   }
 
-  pub fn use_context<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
+  pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
+    self.push_context_debug(ComponentContextKind::Consumed, std::any::type_name::<T>());
     self.context_map.get::<T>()
   }
 
   pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
+    self.push_context_debug(
+      ComponentContextKind::Provided,
+      std::any::type_name::<ReactiveContext<T>>(),
+    );
     let ctx = ReactiveContext::new(value);
     self.context_map.provide(ctx.clone());
     let dirty = self.dirty.clone();
@@ -289,6 +356,10 @@ impl Ctx {
   }
 
   pub fn consume_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self) -> Option<ReactiveContext<T>> {
+    self.push_context_debug(
+      ComponentContextKind::Consumed,
+      std::any::type_name::<ReactiveContext<T>>(),
+    );
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     let dirty = self.dirty.clone();
     let batch = self.batch.clone();
@@ -296,6 +367,20 @@ impl Ctx {
       batch.mark_dirty(&dirty);
     });
     Some(ctx)
+  }
+
+  fn push_context_debug(&mut self, kind: ComponentContextKind, type_name: &'static str) {
+    if self
+      .contexts_debug
+      .iter()
+      .any(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name)
+    {
+      return;
+    }
+    self.contexts_debug.push(ComponentContextDebug {
+      kind,
+      type_name: Arc::from(type_name),
+    });
   }
 
   // --- Theme ---
@@ -391,6 +476,10 @@ impl Ctx {
         slot.ctx.end_render();
         element.node.set_tag_name(slot.component.tag_name());
         element.node.set_component_slot_id(slot.id);
+        element.node.set_component_key(slot.key.as_deref());
+        element.node.set_component_props_debug(slot.ctx.props_debug());
+        element.node.set_component_signals_debug(slot.ctx.signals_debug());
+        element.node.set_component_contexts_debug(slot.ctx.contexts_debug());
         slot.rendered = Some(element.node.clone_for_reuse());
         return element;
       }
@@ -411,6 +500,10 @@ impl Ctx {
     let slot_id = next_component_slot_id();
     element.node.set_tag_name(wrapper.tag_name());
     element.node.set_component_slot_id(slot_id);
+    element.node.set_component_key(key);
+    element.node.set_component_props_debug(child_ctx.props_debug());
+    element.node.set_component_signals_debug(child_ctx.signals_debug());
+    element.node.set_component_contexts_debug(child_ctx.contexts_debug());
 
     let slot = ChildSlot {
       id: slot_id,
@@ -508,6 +601,10 @@ impl Ctx {
       let mut element = component_fn(&mut slot.ctx, item);
       slot.ctx.end_render();
       element.node.set_component_slot_id(slot.id);
+      element.node.set_component_key(slot.key.as_deref());
+      element.node.set_component_props_debug(slot.ctx.props_debug());
+      element.node.set_component_signals_debug(slot.ctx.signals_debug());
+      element.node.set_component_contexts_debug(slot.ctx.contexts_debug());
       slot.rendered = Some(element.node.clone_for_reuse());
       return element;
     }
@@ -521,6 +618,10 @@ impl Ctx {
     child_ctx.end_render();
     let slot_id = next_component_slot_id();
     element.node.set_component_slot_id(slot_id);
+    element.node.set_component_key(Some(key.as_str()));
+    element.node.set_component_props_debug(child_ctx.props_debug());
+    element.node.set_component_signals_debug(child_ctx.signals_debug());
+    element.node.set_component_contexts_debug(child_ctx.contexts_debug());
 
     let slot = ChildSlot {
       id: slot_id,
@@ -631,6 +732,10 @@ impl Ctx {
         slot.ctx.end_render();
         element.node.set_tag_name(slot.component.tag_name());
         element.node.set_component_slot_id(slot.id);
+        element.node.set_component_key(slot.key.as_deref());
+        element.node.set_component_props_debug(slot.ctx.props_debug());
+        element.node.set_component_signals_debug(slot.ctx.signals_debug());
+        element.node.set_component_contexts_debug(slot.ctx.contexts_debug());
         if let Some(old) = old_rendered.as_ref() {
           element.node.preserve_runtime_state_from(old);
         }
