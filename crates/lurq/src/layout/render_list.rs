@@ -1,6 +1,7 @@
 use crate::{layout::quad::ClipRect, node::color::Color};
 
 pub struct RenderList {
+  pub clear_color: Color,
   pub rects: Vec<RectCmd>,
   pub glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "image")]

@@ -113,23 +113,31 @@ pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) ->
   let style = node.target_style();
   match prop {
     AnimatableProperty::BackgroundColor => style.color.or(*node.color).map(AnimatableValue::Color),
-    AnimatableProperty::BorderColor => style.border.or(*node.border).map(|b| AnimatableValue::Color(b.color)),
+    AnimatableProperty::BorderColor => style
+      .border
+      .or(*node.border)
+      .and_then(|b| b.color())
+      .map(AnimatableValue::Color),
     AnimatableProperty::BorderWidthTop => style
       .border
       .or(*node.border)
-      .map(|b| AnimatableValue::Float(b.width.top)),
+      .and_then(|b| b.top_width())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthRight => style
       .border
       .or(*node.border)
-      .map(|b| AnimatableValue::Float(b.width.right)),
+      .and_then(|b| b.right_width())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthBottom => style
       .border
       .or(*node.border)
-      .map(|b| AnimatableValue::Float(b.width.bottom)),
+      .and_then(|b| b.bottom_width())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthLeft => style
       .border
       .or(*node.border)
-      .map(|b| AnimatableValue::Float(b.width.left)),
+      .and_then(|b| b.left_width())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderRadiusTopLeft => style
       .border_radius
       .or(*node.border_radius)

@@ -14,6 +14,13 @@ use crate::{
   node::Element,
 };
 
+static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
+
+pub fn load_fonts(app: &mut crate::app::App) {
+  app.load_font(LUCIDE_TTF.to_vec());
+  app.register_font("lucide", "lucide");
+}
+
 #[derive(Clone)]
 pub struct DevToolsProps {
   pub snapshot: DevToolsSnapshot,

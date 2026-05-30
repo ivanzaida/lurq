@@ -11,7 +11,7 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
-    border::{Border, BorderPlacement, BorderRadius, BorderWidth},
+    border::{Border, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
@@ -74,7 +74,7 @@ pub(crate) struct Node {
   pub(crate) intrinsic_size: Option<Size>,
   pub(crate) color: Guard<Option<Color>>,
   pub(crate) border_radius: Guard<Option<BorderRadius>>,
-  pub(crate) border: Guard<Option<Border>>,
+  pub(crate) border: Guard<Option<Borders>>,
   pub(crate) cursor: Option<CursorIcon>,
   #[cfg(feature = "image")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
@@ -296,8 +296,12 @@ impl Node {
     Self::from_parts(LayoutKind::Stack { align }, NodeKind::Empty, children)
   }
 
-  pub fn padding(self, padding: Padding) -> Self {
-    Self::from_modifier(LayoutKind::PaddingModifier(padding), self)
+  pub fn padding(self, padding: impl Into<Padding>) -> Self {
+    Self::from_modifier(LayoutKind::PaddingModifier(padding.into()), self)
+  }
+
+  pub fn padding_custom(self, padding: Padding) -> Self {
+    self.padding(padding)
   }
 
   pub fn frame(self, frame: FrameConstraints) -> Self {
@@ -346,8 +350,41 @@ impl Node {
     self
   }
 
-  pub fn corner_radius(mut self, radius: BorderRadius) -> Self {
+  pub fn corner_radius(mut self, radius: f32) -> Self {
+    self.border_radius.set(Some(BorderRadius::all(radius)));
+    self
+  }
+
+  pub fn corner_radius_custom(mut self, radius: BorderRadius) -> Self {
     self.border_radius.set(Some(radius));
+    self
+  }
+
+  pub fn corner_radius_top_left(mut self, radius: f32) -> Self {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.top_left = radius;
+    self.border_radius.set(Some(border_radius));
+    self
+  }
+
+  pub fn corner_radius_top_right(mut self, radius: f32) -> Self {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.top_right = radius;
+    self.border_radius.set(Some(border_radius));
+    self
+  }
+
+  pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.bottom_right = radius;
+    self.border_radius.set(Some(border_radius));
+    self
+  }
+
+  pub fn corner_radius_bottom_left(mut self, radius: f32) -> Self {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.bottom_left = radius;
+    self.border_radius.set(Some(border_radius));
     self
   }
 
@@ -357,34 +394,55 @@ impl Node {
   }
 
   pub fn border_inside(mut self, width: f32, color: Color) -> Self {
-    self.border.set(Some(Border {
-      width: BorderWidth::all(width),
-      color,
-      placement: BorderPlacement::Inside,
-    }));
+    self.border.set(Some(Borders::all(Border::inside(width, color))));
     self
   }
 
   pub fn border_outside(mut self, width: f32, color: Color) -> Self {
-    self.border.set(Some(Border {
-      width: BorderWidth::all(width),
-      color,
-      placement: BorderPlacement::Outside,
-    }));
+    self.border.set(Some(Borders::all(Border::outside(width, color))));
     self
   }
 
   pub fn border_center(mut self, width: f32, color: Color) -> Self {
-    self.border.set(Some(Border {
-      width: BorderWidth::all(width),
-      color,
-      placement: BorderPlacement::Center,
-    }));
+    self.border.set(Some(Borders::all(Border::center(width, color))));
     self
   }
 
-  pub fn border_custom(mut self, border: Border) -> Self {
+  pub fn border(mut self, border: Border) -> Self {
+    self.border.set(Some(Borders::all(border)));
+    self
+  }
+
+  pub fn border_custom(mut self, border: Borders) -> Self {
     self.border.set(Some(border));
+    self
+  }
+
+  pub fn border_top(mut self, border: Border) -> Self {
+    let mut borders = (*self.border).unwrap_or_default();
+    borders.top = Some(border);
+    self.border.set(Some(borders));
+    self
+  }
+
+  pub fn border_right(mut self, border: Border) -> Self {
+    let mut borders = (*self.border).unwrap_or_default();
+    borders.right = Some(border);
+    self.border.set(Some(borders));
+    self
+  }
+
+  pub fn border_bottom(mut self, border: Border) -> Self {
+    let mut borders = (*self.border).unwrap_or_default();
+    borders.bottom = Some(border);
+    self.border.set(Some(borders));
+    self
+  }
+
+  pub fn border_left(mut self, border: Border) -> Self {
+    let mut borders = (*self.border).unwrap_or_default();
+    borders.left = Some(border);
+    self.border.set(Some(borders));
     self
   }
 
@@ -752,32 +810,40 @@ impl Node {
     r
   }
 
-  pub fn get_border(&self) -> Option<Border> {
+  pub fn get_border(&self) -> Option<Borders> {
     let mut b = self.state_style().border.or(*self.border);
     let overrides = &self.animation_overrides;
-    if let Some(ref mut border) = b {
+    if let Some(ref mut borders) = b {
       for (prop, val) in overrides {
         match (prop, val) {
           (crate::animation::AnimatableProperty::BorderColor, crate::animation::AnimatableValue::Color(c)) => {
-            border.color = *c;
+            borders.set_color(*c);
           }
           (crate::animation::AnimatableProperty::BorderWidthTop, crate::animation::AnimatableValue::Float(v)) => {
-            border.width.top = *v;
+            if let Some(border) = &mut borders.top {
+              border.width = *v;
+            }
           }
           (crate::animation::AnimatableProperty::BorderWidthRight, crate::animation::AnimatableValue::Float(v)) => {
-            border.width.right = *v;
+            if let Some(border) = &mut borders.right {
+              border.width = *v;
+            }
           }
           (crate::animation::AnimatableProperty::BorderWidthBottom, crate::animation::AnimatableValue::Float(v)) => {
-            border.width.bottom = *v;
+            if let Some(border) = &mut borders.bottom {
+              border.width = *v;
+            }
           }
           (crate::animation::AnimatableProperty::BorderWidthLeft, crate::animation::AnimatableValue::Float(v)) => {
-            border.width.left = *v;
+            if let Some(border) = &mut borders.left {
+              border.width = *v;
+            }
           }
           _ => {}
         }
       }
     }
-    b
+    b.filter(Borders::any)
   }
 
   pub(crate) fn effective_transform(&self) -> Transform2D {

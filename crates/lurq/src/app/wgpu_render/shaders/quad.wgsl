@@ -287,29 +287,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     let nz = nonzero_side_count(in.stroke);
-    var inner_half: vec2<f32>;
-    var inner_centre: vec2<f32>;
-
-    if (nz == 1) {
-        // One-sided ring: use a uniform inner box (concentric with the
-        // outer one) so the painted stroke width stays constant along
-        // the curve. The visible region is then trimmed below to the
-        // 45° wedge belonging to this side.
-        inner_half   = in.half_size - vec2<f32>(max_stroke, max_stroke);
-        inner_centre = vec2<f32>(0.0, 0.0);
-    } else {
-        // Multi-side ring (uniform when all four equal; possibly
-        // asymmetric otherwise). Inner box shrinks per-side and shifts
-        // when sides are unequal.
-        inner_half = vec2<f32>(
-            in.half_size.x - 0.5 * (in.stroke.y + in.stroke.w),
-            in.half_size.y - 0.5 * (in.stroke.x + in.stroke.z),
-        );
-        inner_centre = vec2<f32>(
-            0.5 * (in.stroke.w - in.stroke.y),
-            0.5 * (in.stroke.x - in.stroke.z),
-        );
-    }
+    let inner_half = vec2<f32>(
+        in.half_size.x - 0.5 * (in.stroke.y + in.stroke.w),
+        in.half_size.y - 0.5 * (in.stroke.x + in.stroke.z),
+    );
+    let inner_centre = vec2<f32>(
+        0.5 * (in.stroke.w - in.stroke.y),
+        0.5 * (in.stroke.x - in.stroke.z),
+    );
 
     let inner_r = vec2<f32>(
         max(0.0, outer_r.x - max_stroke),
@@ -318,33 +303,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let inner_dist = sd_rounded_box(in.local - inner_centre, inner_half, inner_r);
     let dist = max(outer_dist, -inner_dist);
 
-    // For a one-sided ring, restrict to the side's 45° wedge so the
-    // adjacent sides don't bleed into this draw call. Wedges are taken
-    // in normalised (-1..1) coords so non-square boxes still split into
-    // four equal triangles, mitering at the box centre.
     var side_idx: i32 = -1;
     if (nz == 1) {
-        let nx = in.local.x / max(in.half_size.x, 1e-6);
-        let ny = in.local.y / max(in.half_size.y, 1e-6);
-        var inside = false;
-        if (in.stroke.x > 0.0 && ny <= -abs(nx)) { inside = true; side_idx = 0; } // top
-        if (in.stroke.y > 0.0 && nx >=  abs(ny)) { inside = true; side_idx = 1; } // right
-        if (in.stroke.z > 0.0 && ny >=  abs(nx)) { inside = true; side_idx = 2; } // bottom
-        if (in.stroke.w > 0.0 && nx <= -abs(ny)) { inside = true; side_idx = 3; } // left
-        if (!inside) { discard; }
+        if (in.stroke.x > 0.0) { side_idx = 0; } // top
+        if (in.stroke.y > 0.0) { side_idx = 1; } // right
+        if (in.stroke.z > 0.0) { side_idx = 2; } // bottom
+        if (in.stroke.w > 0.0) { side_idx = 3; } // left
     }
 
     var alpha = clamp(0.5 - dist / aa, 0.0, 1.0);
 
     // Dash / dot modulation. Only meaningful on one-sided rings with a
     // uniform circular corner radius (h == v on every corner). Other
-    // configurations leave the pattern unhonoured (the per-side path
-    // upstream falls back to sharp segments in those cases).
+    // configurations leave the pattern unhonoured.
     let pattern_kind = in.pattern.x;
     if (side_idx >= 0 && pattern_kind > 0.5) {
-        // Treat as circular if h ≈ v on the relevant corners. Otherwise
-        // keep solid — the upstream paint code will have requested the
-        // straight-segment fallback instead.
+        // Treat as circular if h ~= v on the relevant corners. Otherwise
+        // keep solid.
         let r_max = max(max(in.radii_h.x, in.radii_h.y), max(in.radii_h.z, in.radii_h.w));
         let r_min = min(min(in.radii_h.x, in.radii_h.y), min(in.radii_h.z, in.radii_h.w));
         let v_max = max(max(in.radii_v.x, in.radii_v.y), max(in.radii_v.z, in.radii_v.w));

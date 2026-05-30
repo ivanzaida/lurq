@@ -29,6 +29,39 @@ fn padding_all_sides() {
 }
 
 #[test]
+fn padding_shorthand_all_sides() {
+  let mut rt = rt();
+  let node = lurq::components::Spacer::new()
+    .frame(FrameConstraints {
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+      ..Default::default()
+    })
+    .padding(10.0);
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  assert_eq!(result.size.width, 120.0);
+  assert_eq!(result.size.height, 70.0);
+}
+
+#[test]
+fn padding_side_aliases() {
+  let mut rt = rt();
+  let node = lurq::components::Spacer::new()
+    .frame(FrameConstraints {
+      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+      ..Default::default()
+    })
+    .padding_left(Dimension::Px(5.0))
+    .padding_top(Dimension::Px(10.0));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  assert_eq!(result.size.width, 105.0);
+  assert_eq!(result.size.height, 60.0);
+}
+
+#[test]
 fn padding_asymmetric() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new()

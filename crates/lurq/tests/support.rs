@@ -52,6 +52,9 @@ pub struct RectSnapshot {
   pub width: f32,
   pub height: f32,
   pub color: Color,
+  pub radii: [f32; 4],
+  pub stroke: [f32; 4],
+  pub stroke_color: Color,
 }
 
 pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
@@ -98,5 +101,8 @@ fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
     width: rect.width,
     height: rect.height,
     color: rect.color,
+    radii: rect.radii,
+    stroke: rect.stroke,
+    stroke_color: rect.stroke_color,
   }
 }

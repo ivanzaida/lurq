@@ -17,12 +17,8 @@ mod visual_demo;
 
 use std::time::{Duration, Instant};
 
-#[cfg(not(any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))))]
-compile_error!("demo requires feature `wgpu` or feature `dx12` on Windows");
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 use lurq::app::dx12_render::Dx12RenderEngine;
-#[cfg(feature = "wgpu")]
 use lurq::app::wgpu_render::WgpuRenderEngine;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, winit_shell::WinitWindow},
@@ -51,10 +47,7 @@ use crate::{
 const SIDEBAR_WIDTH: f32 = 200.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
-#[cfg(feature = "wgpu")]
 const DEFAULT_RENDERER: &str = "wgpu";
-#[cfg(all(not(feature = "wgpu"), feature = "dx12", target_os = "windows"))]
-const DEFAULT_RENDERER: &str = "dx12";
 
 #[derive(Clone, Copy, Default, PartialEq)]
 struct PerfStats {
@@ -372,34 +365,27 @@ fn selected_renderer_arg() -> String {
   DEFAULT_RENDERER.to_owned()
 }
 
-#[cfg(feature = "wgpu")]
 fn create_wgpu_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
   Box::new(WgpuRenderEngine::new())
 }
 
-#[cfg(not(feature = "wgpu"))]
-fn create_wgpu_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
-  panic!("--renderer wgpu requires the demo `wgpu` feature");
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
   Box::new(Dx12RenderEngine::new())
 }
 
-#[cfg(not(all(feature = "dx12", target_os = "windows")))]
+#[cfg(not(target_os = "windows"))]
 fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
-  panic!("--renderer dx12 requires the demo `dx12` feature on Windows");
+  panic!("--renderer dx12 requires Windows");
 }
 
 fn main() {
   let mut app = App::new();
   let mut tree = Tree::new();
-  #[cfg(feature = "resources")]
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
+  lurq::app::devtools::load_fonts(&mut app);
   app.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut tree);
-  #[cfg(feature = "devtools")]
   let devtools_renderer = renderer.clone();
   animation_demo::register_keyframes(&mut tree);
   let perf = Signal::new(PerfStats::default());
@@ -407,7 +393,7 @@ fn main() {
   tree.mount_root::<DemoApp>(app.theme().clone(), DemoProps { perf });
   let title = format!("lurq demo ({renderer})");
   let window = WinitWindow::new(app, tree).with_title(&title);
-  #[cfg(feature = "devtools")]
+
   let window = window.with_devtools(move || create_render_engine(&devtools_renderer));
   window.on_tick(move |tree: &mut Tree| perf_meter.tick(tree)).run();
 }

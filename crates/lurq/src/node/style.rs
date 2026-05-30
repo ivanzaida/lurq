@@ -1,7 +1,7 @@
 use crate::{
   layout::layout_kind::{FlexParams, FrameConstraints},
   node::{
-    border::{Border, BorderPlacement, BorderRadius, BorderWidth},
+    border::{Border, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
@@ -13,7 +13,7 @@ use crate::{
 pub struct Style {
   pub(crate) color: Option<Color>,
   pub(crate) border_radius: Option<BorderRadius>,
-  pub(crate) border: Option<Border>,
+  pub(crate) border: Option<Borders>,
   pub(crate) cursor: Option<CursorIcon>,
   pub(crate) frame: Option<FrameConstraints>,
   pub(crate) padding: Option<Padding>,
@@ -84,18 +84,43 @@ impl Style {
     self
   }
 
-  pub fn pad(mut self, all: f32) -> Self {
-    self.padding = Some(Padding::all(Dimension::Px(all)));
+  pub fn pad(mut self, all: impl Into<Dimension>) -> Self {
+    self.padding = Some(Padding::all(all.into()));
     self
   }
 
-  pub fn pad_xy(mut self, horizontal: f32, vertical: f32) -> Self {
-    self.padding = Some(Padding::symmetric(Dimension::Px(horizontal), Dimension::Px(vertical)));
+  pub fn pad_xy(mut self, horizontal: impl Into<Dimension>, vertical: impl Into<Dimension>) -> Self {
+    self.padding = Some(Padding::symmetric(horizontal.into(), vertical.into()));
     self
   }
 
-  pub fn padding(mut self, padding: Padding) -> Self {
+  pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
+    self.padding = Some(padding.into());
+    self
+  }
+
+  pub fn padding_custom(mut self, padding: Padding) -> Self {
     self.padding = Some(padding);
+    self
+  }
+
+  pub fn padding_left(mut self, value: impl Into<Dimension>) -> Self {
+    self.padding = Some(self.padding.unwrap_or_default().left(value.into()));
+    self
+  }
+
+  pub fn padding_right(mut self, value: impl Into<Dimension>) -> Self {
+    self.padding = Some(self.padding.unwrap_or_default().right(value.into()));
+    self
+  }
+
+  pub fn padding_top(mut self, value: impl Into<Dimension>) -> Self {
+    self.padding = Some(self.padding.unwrap_or_default().top(value.into()));
+    self
+  }
+
+  pub fn padding_bottom(mut self, value: impl Into<Dimension>) -> Self {
+    self.padding = Some(self.padding.unwrap_or_default().bottom(value.into()));
     self
   }
 
@@ -118,8 +143,33 @@ impl Style {
     self
   }
 
-  pub fn corner_radius(mut self, radius: BorderRadius) -> Self {
+  pub fn corner_radius(mut self, radius: f32) -> Self {
+    self.border_radius = Some(BorderRadius::all(radius));
+    self
+  }
+
+  pub fn corner_radius_custom(mut self, radius: BorderRadius) -> Self {
     self.border_radius = Some(radius);
+    self
+  }
+
+  pub fn corner_radius_top_left(mut self, radius: f32) -> Self {
+    self.border_radius.get_or_insert_with(BorderRadius::default).top_left = radius;
+    self
+  }
+
+  pub fn corner_radius_top_right(mut self, radius: f32) -> Self {
+    self.border_radius.get_or_insert_with(BorderRadius::default).top_right = radius;
+    self
+  }
+
+  pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
+    self.border_radius.get_or_insert_with(BorderRadius::default).bottom_right = radius;
+    self
+  }
+
+  pub fn corner_radius_bottom_left(mut self, radius: f32) -> Self {
+    self.border_radius.get_or_insert_with(BorderRadius::default).bottom_left = radius;
     self
   }
 
@@ -129,34 +179,47 @@ impl Style {
   }
 
   pub fn border_inside(mut self, width: f32, color: Color) -> Self {
-    self.border = Some(Border {
-      width: BorderWidth::all(width),
-      color,
-      placement: BorderPlacement::Inside,
-    });
+    self.border = Some(Borders::all(Border::inside(width, color)));
     self
   }
 
   pub fn border_outside(mut self, width: f32, color: Color) -> Self {
-    self.border = Some(Border {
-      width: BorderWidth::all(width),
-      color,
-      placement: BorderPlacement::Outside,
-    });
+    self.border = Some(Borders::all(Border::outside(width, color)));
     self
   }
 
   pub fn border_center(mut self, width: f32, color: Color) -> Self {
-    self.border = Some(Border {
-      width: BorderWidth::all(width),
-      color,
-      placement: BorderPlacement::Center,
-    });
+    self.border = Some(Borders::all(Border::center(width, color)));
     self
   }
 
-  pub fn border_custom(mut self, border: Border) -> Self {
+  pub fn border(mut self, border: Border) -> Self {
+    self.border = Some(Borders::all(border));
+    self
+  }
+
+  pub fn border_custom(mut self, border: Borders) -> Self {
     self.border = Some(border);
+    self
+  }
+
+  pub fn border_top(mut self, border: Border) -> Self {
+    self.border.get_or_insert_with(Borders::default).top = Some(border);
+    self
+  }
+
+  pub fn border_right(mut self, border: Border) -> Self {
+    self.border.get_or_insert_with(Borders::default).right = Some(border);
+    self
+  }
+
+  pub fn border_bottom(mut self, border: Border) -> Self {
+    self.border.get_or_insert_with(Borders::default).bottom = Some(border);
+    self
+  }
+
+  pub fn border_left(mut self, border: Border) -> Self {
+    self.border.get_or_insert_with(Borders::default).left = Some(border);
     self
   }
 

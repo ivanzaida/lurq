@@ -1,7 +1,7 @@
 use crate::{
   layout::text_style::TextStyle,
   node::{
-    border::{Border, BorderRadius},
+    border::{BorderRadius, Borders},
     color::Color,
     transform::Transform2D,
   },
@@ -25,7 +25,7 @@ pub struct Quad {
   pub transform: Transform2D,
   pub content: QuadContent,
   pub border_radius: Option<BorderRadius>,
-  pub border: Option<Border>,
+  pub border: Option<Borders>,
   pub clip: ClipRect,
 }
 

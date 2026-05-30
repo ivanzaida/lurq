@@ -1607,7 +1607,7 @@ impl Dx12State {
     self.command_list.OMSetRenderTargets(1, Some(&rtv), FALSE, None);
     self
       .command_list
-      .ClearRenderTargetView(rtv, &[1.0, 1.0, 1.0, 1.0], None);
+      .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
 
     let atlas_start = ProfileScope::maybe_start(profiling_enabled);
     self.update_glyph_atlas(list)?;

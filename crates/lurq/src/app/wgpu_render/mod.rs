@@ -656,7 +656,7 @@ impl RenderEngine for WgpuRenderEngine {
           view: &view,
           resolve_target: None,
           ops: wgpu::Operations {
-            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+            load: wgpu::LoadOp::Clear(wgpu_clear_color(list.clear_color)),
             store: wgpu::StoreOp::Store,
           },
         })],
@@ -1009,6 +1009,16 @@ impl RenderEngine for WgpuRenderEngine {
 
 fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect) -> bool {
   a.active == b.active && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+}
+
+fn wgpu_clear_color(color: crate::node::color::Color) -> wgpu::Color {
+  let [r, g, b, a] = color.to_linear_f32_array();
+  wgpu::Color {
+    r: r as f64,
+    g: g as f64,
+    b: b as f64,
+    a: a as f64,
+  }
 }
 
 fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> bool {

@@ -87,38 +87,67 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn pad(mut self, all: f32) -> Self {
+      pub fn pad(mut self, all: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.pad(all);
         self
       }
 
-      pub fn pad_xy(mut self, horizontal: f32, vertical: f32) -> Self {
+      pub fn pad_xy(
+        mut self,
+        horizontal: impl Into<$crate::node::dimension::Dimension>,
+        vertical: impl Into<$crate::node::dimension::Dimension>,
+      ) -> Self {
         self.node = self.node.pad_xy(horizontal, vertical);
         self
       }
 
-      pub fn pad_left(mut self, val: f32) -> Self {
+      pub fn pad_left(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.pad_left(val);
         self
       }
 
-      pub fn pad_right(mut self, val: f32) -> Self {
+      pub fn padding_left(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_left(val);
+        self
+      }
+
+      pub fn pad_right(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.pad_right(val);
         self
       }
 
-      pub fn pad_top(mut self, val: f32) -> Self {
+      pub fn padding_right(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_right(val);
+        self
+      }
+
+      pub fn pad_top(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.pad_top(val);
         self
       }
 
-      pub fn pad_bottom(mut self, val: f32) -> Self {
+      pub fn padding_top(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_top(val);
+        self
+      }
+
+      pub fn pad_bottom(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.node = self.node.pad_bottom(val);
         self
       }
 
-      pub fn padding(mut self, padding: $crate::node::padding::Padding) -> Self {
+      pub fn padding_bottom(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.padding_bottom(val);
+        self
+      }
+
+      pub fn padding(mut self, padding: impl Into<$crate::node::padding::Padding>) -> Self {
         self.node = self.node.padding(padding);
+        self
+      }
+
+      pub fn padding_custom(mut self, padding: $crate::node::padding::Padding) -> Self {
+        self.node = self.node.padding_custom(padding);
         self
       }
 
@@ -173,8 +202,33 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn corner_radius(mut self, radius: $crate::node::border::BorderRadius) -> Self {
+      pub fn corner_radius(mut self, radius: f32) -> Self {
         self.node = self.node.corner_radius(radius);
+        self
+      }
+
+      pub fn corner_radius_custom(mut self, radius: $crate::node::border::BorderRadius) -> Self {
+        self.node = self.node.corner_radius_custom(radius);
+        self
+      }
+
+      pub fn corner_radius_top_left(mut self, radius: f32) -> Self {
+        self.node = self.node.corner_radius_top_left(radius);
+        self
+      }
+
+      pub fn corner_radius_top_right(mut self, radius: f32) -> Self {
+        self.node = self.node.corner_radius_top_right(radius);
+        self
+      }
+
+      pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
+        self.node = self.node.corner_radius_bottom_right(radius);
+        self
+      }
+
+      pub fn corner_radius_bottom_left(mut self, radius: f32) -> Self {
+        self.node = self.node.corner_radius_bottom_left(radius);
         self
       }
 
@@ -198,8 +252,33 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn border_custom(mut self, border: $crate::node::border::Border) -> Self {
+      pub fn border(mut self, border: $crate::node::border::Border) -> Self {
+        self.node = self.node.border(border);
+        self
+      }
+
+      pub fn border_custom(mut self, border: $crate::node::border::Borders) -> Self {
         self.node = self.node.border_custom(border);
+        self
+      }
+
+      pub fn border_top(mut self, border: $crate::node::border::Border) -> Self {
+        self.node = self.node.border_top(border);
+        self
+      }
+
+      pub fn border_right(mut self, border: $crate::node::border::Border) -> Self {
+        self.node = self.node.border_right(border);
+        self
+      }
+
+      pub fn border_bottom(mut self, border: $crate::node::border::Border) -> Self {
+        self.node = self.node.border_bottom(border);
+        self
+      }
+
+      pub fn border_left(mut self, border: $crate::node::border::Border) -> Self {
+        self.node = self.node.border_left(border);
         self
       }
 

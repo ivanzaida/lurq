@@ -231,27 +231,43 @@ impl Node {
     self.absolute_modifier(x, y, None, None)
   }
 
-  pub fn pad(self, all: f32) -> Self {
-    self.padding(Padding::all(Dimension::Px(all)))
+  pub fn pad(self, all: impl Into<Dimension>) -> Self {
+    self.padding(Padding::all(all.into()))
   }
 
-  pub fn pad_xy(self, horizontal: f32, vertical: f32) -> Self {
-    self.padding(Padding::symmetric(Dimension::Px(horizontal), Dimension::Px(vertical)))
+  pub fn pad_xy(self, horizontal: impl Into<Dimension>, vertical: impl Into<Dimension>) -> Self {
+    self.padding(Padding::symmetric(horizontal.into(), vertical.into()))
   }
 
-  pub fn pad_left(self, val: f32) -> Self {
-    self.padding(Padding::new().left(Dimension::Px(val)))
+  pub fn pad_left(self, val: impl Into<Dimension>) -> Self {
+    self.padding(Padding::new().left(val.into()))
   }
 
-  pub fn pad_right(self, val: f32) -> Self {
-    self.padding(Padding::new().right(Dimension::Px(val)))
+  pub fn padding_left(self, val: impl Into<Dimension>) -> Self {
+    self.pad_left(val)
   }
 
-  pub fn pad_top(self, val: f32) -> Self {
-    self.padding(Padding::new().top(Dimension::Px(val)))
+  pub fn pad_right(self, val: impl Into<Dimension>) -> Self {
+    self.padding(Padding::new().right(val.into()))
   }
 
-  pub fn pad_bottom(self, val: f32) -> Self {
-    self.padding(Padding::new().bottom(Dimension::Px(val)))
+  pub fn padding_right(self, val: impl Into<Dimension>) -> Self {
+    self.pad_right(val)
+  }
+
+  pub fn pad_top(self, val: impl Into<Dimension>) -> Self {
+    self.padding(Padding::new().top(val.into()))
+  }
+
+  pub fn padding_top(self, val: impl Into<Dimension>) -> Self {
+    self.pad_top(val)
+  }
+
+  pub fn pad_bottom(self, val: impl Into<Dimension>) -> Self {
+    self.padding(Padding::new().bottom(val.into()))
+  }
+
+  pub fn padding_bottom(self, val: impl Into<Dimension>) -> Self {
+    self.pad_bottom(val)
   }
 }

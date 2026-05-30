@@ -30,7 +30,7 @@ use crate::{
   },
   node::{
     Element, ElementRef, Node,
-    border::BorderPlacement,
+    border::{Border, BorderPlacement, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
     node_kind::{NodeKind, SliderState},
@@ -408,45 +408,9 @@ impl Tree {
 
       match &quad.content {
         QuadContent::Rect { color } => {
-          let (mut x, mut y, mut w, mut h) = (quad.x * scale, quad.y * scale, quad.width * scale, quad.height * scale);
-          let (stroke, stroke_color) = if let Some(ref b) = quad.border {
-            let bw = b.width;
-            let sw = [bw.top * scale, bw.right * scale, bw.bottom * scale, bw.left * scale];
-            match b.placement {
-              BorderPlacement::Outside => {
-                x -= sw[3];
-                y -= sw[0];
-                w += sw[1] + sw[3];
-                h += sw[0] + sw[2];
-              }
-              BorderPlacement::Center => {
-                x -= sw[3] * 0.5;
-                y -= sw[0] * 0.5;
-                w += (sw[1] + sw[3]) * 0.5;
-                h += (sw[0] + sw[2]) * 0.5;
-              }
-              BorderPlacement::Inside => {}
-            }
-            (sw, b.color)
-          } else {
-            ([0.0; 4], Color::new(0, 0, 0, 0))
-          };
-
-          let max_r = w.min(h) * 0.5;
-          let radii = quad
-            .border_radius
-            .map(|r| {
-              [
-                (r.top_left * scale).min(max_r),
-                (r.top_right * scale).min(max_r),
-                (r.bottom_right * scale).min(max_r),
-                (r.bottom_left * scale).min(max_r),
-              ]
-            })
-            .unwrap_or([0.0; 4]);
-
+          let (x, y, w, h) = (quad.x * scale, quad.y * scale, quad.width * scale, quad.height * scale);
+          let radii = scaled_radii(quad.border_radius, scale, w, h);
           let final_color = apply_opacity(*color, quad.opacity);
-          let final_stroke = apply_opacity(stroke_color, quad.opacity);
           let xf = quad.transform.matrix_2x2();
           let xf_origin = [w * 0.5, h * 0.5];
 
@@ -458,12 +422,29 @@ impl Tree {
             height: h,
             color: final_color,
             radii,
-            stroke,
-            stroke_color: final_stroke,
+            stroke: [0.0; 4],
+            stroke_color: Color::new(0, 0, 0, 0),
             transform: xf,
             transform_origin: xf_origin,
             clip: scaled_clip,
           });
+
+          if let Some(borders) = quad.border {
+            push_border_rects(
+              &mut rects,
+              order,
+              x,
+              y,
+              w,
+              h,
+              scale,
+              quad.border_radius,
+              borders,
+              quad.opacity,
+              xf,
+              scaled_clip,
+            );
+          }
         }
         QuadContent::Text { text, style, wrap } => {
           let mut scaled_style = style.clone();
@@ -548,7 +529,9 @@ impl Tree {
     let rect_count = rects.len();
     let glyph_count = glyphs.len();
 
+    let clear_color = root.color().unwrap_or_else(|| app.theme.colors().background);
     let list = RenderList {
+      clear_color,
       rects,
       glyphs,
       #[cfg(feature = "image")]
@@ -2032,6 +2015,127 @@ fn apply_opacity(color: Color, opacity: f32) -> Color {
   }
   let a = (color.a() as f32 * opacity.clamp(0.0, 1.0)).round() as u8;
   Color::new(color.r(), color.g(), color.b(), a)
+}
+
+fn scaled_radii(border_radius: Option<BorderRadius>, scale: f32, width: f32, height: f32) -> [f32; 4] {
+  let max_r = width.min(height) * 0.5;
+  border_radius
+    .map(|r| {
+      [
+        (r.top_left * scale).min(max_r),
+        (r.top_right * scale).min(max_r),
+        (r.bottom_right * scale).min(max_r),
+        (r.bottom_left * scale).min(max_r),
+      ]
+    })
+    .unwrap_or([0.0; 4])
+}
+
+fn push_border_rects(
+  rects: &mut Vec<RectCmd>,
+  order: usize,
+  base_x: f32,
+  base_y: f32,
+  base_w: f32,
+  base_h: f32,
+  scale: f32,
+  border_radius: Option<BorderRadius>,
+  borders: Borders,
+  opacity: f32,
+  transform: [f32; 4],
+  clip: ClipRect,
+) {
+  let base_center = [base_x + base_w * 0.5, base_y + base_h * 0.5];
+  let sides = [borders.top, borders.right, borders.bottom, borders.left];
+  let mut used = [false; 4];
+
+  for side in 0..4 {
+    let Some(border) = sides[side] else {
+      continue;
+    };
+    if used[side] {
+      continue;
+    }
+
+    let mut stroke = [0.0; 4];
+    for other_side in side..4 {
+      if sides[other_side] == Some(border) {
+        used[other_side] = true;
+        stroke[other_side] = border.width * scale;
+      }
+    }
+
+    push_border_rect(
+      rects,
+      order,
+      base_x,
+      base_y,
+      base_w,
+      base_h,
+      scale,
+      border_radius,
+      border,
+      stroke,
+      opacity,
+      transform,
+      base_center,
+      clip,
+    );
+  }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_border_rect(
+  rects: &mut Vec<RectCmd>,
+  order: usize,
+  base_x: f32,
+  base_y: f32,
+  base_w: f32,
+  base_h: f32,
+  scale: f32,
+  border_radius: Option<BorderRadius>,
+  border: Border,
+  stroke: [f32; 4],
+  opacity: f32,
+  transform: [f32; 4],
+  base_center: [f32; 2],
+  clip: ClipRect,
+) {
+  if stroke.iter().all(|width| *width <= 0.0) {
+    return;
+  }
+
+  let (mut x, mut y, mut w, mut h) = (base_x, base_y, base_w, base_h);
+  match border.placement {
+    BorderPlacement::Outside => {
+      x -= stroke[3];
+      y -= stroke[0];
+      w += stroke[1] + stroke[3];
+      h += stroke[0] + stroke[2];
+    }
+    BorderPlacement::Center => {
+      x -= stroke[3] * 0.5;
+      y -= stroke[0] * 0.5;
+      w += (stroke[1] + stroke[3]) * 0.5;
+      h += (stroke[0] + stroke[2]) * 0.5;
+    }
+    _ => {}
+  }
+
+  rects.push(RectCmd {
+    order,
+    x,
+    y,
+    width: w,
+    height: h,
+    color: Color::new(0, 0, 0, 0),
+    radii: scaled_radii(border_radius, scale, w, h),
+    stroke,
+    stroke_color: apply_opacity(border.color, opacity),
+    transform,
+    transform_origin: [base_center[0] - x, base_center[1] - y],
+    clip,
+  });
 }
 
 fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {

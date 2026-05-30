@@ -1,26 +1,25 @@
-use super::style::{BORDER, FILL, MUTED, PRIMARY, SURFACE, SURFACE_2, TEXT, badge, text};
+use super::style::{BORDER, FILL, MUTED, PRIMARY, SURFACE, SURFACE_2, TEXT, badge, icon, text};
 use crate::{
   components::{Column, Rect, Row, Spacer},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color},
 };
 
-pub(crate) fn top_bar(node_count: usize) -> Element {
+pub(crate) fn top_bar(_node_count: usize) -> Element {
   Row::new()
     .align_items(Alignment::Center)
     .child(
       Row::new()
         .align_items(Alignment::Center)
         .spacing(8.0)
-        .child(text("bug", 11.0, FontWeight::Bold, PRIMARY))
+        .child(icon("bug", 16.0, PRIMARY))
         .child(text("lurq DevTools", 14.0, FontWeight::Bold, TEXT))
         .child(badge("v0.1.0", MUTED, SURFACE_2))
-        .child(badge(&format!("{node_count} nodes"), MUTED, SURFACE_2))
-        .width(300.0),
+        .width(200.0),
     )
-    .child(tab("Components", true))
-    .child(tab("Profiler", false))
-    .child(tab("Signals", false))
+    .child(tab("layers", "Components", true))
+    .child(tab("activity", "Profiler", false))
+    .child(tab("zap", "Signals", false))
     .child(Spacer::new().flex(1.0))
     .child(search_box())
     .child(icon_button("settings"))
@@ -32,14 +31,16 @@ pub(crate) fn top_bar(node_count: usize) -> Element {
     .into()
 }
 
-fn tab(label: &str, active: bool) -> Element {
+fn tab(icon_name: &str, label: &str, active: bool) -> Element {
+  let color = if active { TEXT } else { MUTED };
   Column::new()
     .align_items(Alignment::Center)
     .child(
       Row::new()
         .align_items(Alignment::Center)
         .spacing(6.0)
-        .child(text(label, 13.0, FontWeight::Medium, if active { TEXT } else { MUTED }))
+        .child(icon(icon_name, 14.0, color))
+        .child(text(label, 13.0, FontWeight::Medium, color))
         .height(36.0),
     )
     .child(Rect::new(64.0, 2.0).fill(if active { PRIMARY } else { "#00000000" }))
@@ -52,7 +53,7 @@ fn search_box() -> Element {
   Row::new()
     .align_items(Alignment::Center)
     .spacing(8.0)
-    .child(text("search", 10.0, FontWeight::Normal, MUTED))
+    .child(icon("search", 13.0, MUTED))
     .child(text("Search components...", 12.0, FontWeight::Normal, MUTED))
     .child(text("Ctrl+F", 10.0, FontWeight::Normal, MUTED))
     .height(30.0)
@@ -63,11 +64,11 @@ fn search_box() -> Element {
     .into()
 }
 
-fn icon_button(label: &str) -> Element {
+fn icon_button(icon_name: &str) -> Element {
   Row::new()
     .align_items(Alignment::Center)
     .justify(crate::layout::layout_kind::Justify::Center)
-    .child(text(label, 10.0, FontWeight::Normal, MUTED))
+    .child(icon(icon_name, 16.0, MUTED))
     .height(30.0)
     .pad_xy(8.0, 0.0)
     .rounded(4.0)

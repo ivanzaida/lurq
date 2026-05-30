@@ -87,17 +87,27 @@ float4 ps_main(VsOut input) : SV_TARGET
 {
   float2 radius = pick_radius(input.local, input.radii_h, input.radii_v);
   float outer_dist = sd_rounded_box(input.local, input.half_size, radius);
-  float outer_alpha = 1.0 - smoothstep(0.0, 1.0, outer_dist);
 
   float max_stroke = max(max(input.stroke.x, input.stroke.y), max(input.stroke.z, input.stroke.w));
-  float alpha = outer_alpha;
-  if (max_stroke > 0.0)
+  if (max_stroke <= 0.0)
   {
-    float2 inner_half = max(input.half_size - float2(max_stroke, max_stroke), float2(0.0, 0.0));
-    float2 inner_radius = max(radius - float2(max_stroke, max_stroke), float2(0.0, 0.0));
-    float inner_dist = sd_rounded_box(input.local, inner_half, inner_radius);
-    alpha *= smoothstep(0.0, 1.0, inner_dist);
+    float fill_alpha = 1.0 - smoothstep(0.0, 1.0, outer_dist);
+    return float4(input.color.rgb, input.color.a * fill_alpha);
   }
 
+  float2 inner_half = max(float2(
+    input.half_size.x - 0.5 * (input.stroke.y + input.stroke.w),
+    input.half_size.y - 0.5 * (input.stroke.x + input.stroke.z)
+  ), float2(0.0, 0.0));
+  float2 inner_center = float2(
+    0.5 * (input.stroke.w - input.stroke.y),
+    0.5 * (input.stroke.x - input.stroke.z)
+  );
+
+  float2 inner_radius = max(radius - float2(max_stroke, max_stroke), float2(0.0, 0.0));
+  float inner_dist = sd_rounded_box(input.local - inner_center, inner_half, inner_radius);
+  float dist = max(outer_dist, -inner_dist);
+
+  float alpha = 1.0 - smoothstep(0.0, 1.0, dist);
   return float4(input.color.rgb, input.color.a * alpha);
 }

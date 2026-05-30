@@ -1,17 +1,12 @@
-#[cfg(all(feature = "image", feature = "resources"))]
 use lurq::components::Image;
-#[cfg(feature = "svg")]
 use lurq::components::Svg;
-#[cfg(feature = "svg")]
 use lurq::layout::StackAlignment;
-#[cfg(feature = "svg")]
 use lurq::svg::SvgData;
 use lurq::{
   layout::{Alignment, text_style::FontWeight},
   node::{Element, color::Color, dimension::Dimension},
 };
 
-#[cfg(feature = "svg")]
 use crate::style::SECONDARY;
 use crate::style::{BG, BORDER, PRIMARY, SURFACE, TEXT, TEXT_MUTED, text};
 
@@ -19,12 +14,9 @@ const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 
-#[cfg(feature = "svg")]
 const LINE_CHART_SVG: &str = include_str!("../assets/line-chart-parallel-svgrepo-com.svg");
-#[cfg(feature = "svg")]
 const LINE_CHART_SVG_BYTES: &[u8] = include_bytes!("../assets/line-chart-parallel-svgrepo-com.svg");
 
-#[cfg(all(feature = "image", feature = "resources"))]
 const IMAGE_ASSETS: &[(&str, &str)] = &[
   ("JPG", "skebob.jpg"),
   ("PNG alpha", "transparent.png"),
@@ -43,10 +35,8 @@ pub(crate) fn visual_content() -> Element {
     .child(section_title("Clipping (Overflow)"))
     .child(clip_showcase());
 
-  #[cfg(feature = "svg")]
   let content = content.child(section_title("SVG")).child(svg_showcase());
 
-  #[cfg(all(feature = "image", feature = "resources"))]
   let content = content
     .child(section_title("Plain Images"))
     .child(plain_images_showcase())
@@ -199,7 +189,6 @@ fn clip_example(label: &str, clip: bool) -> Element {
   col.into()
 }
 
-#[cfg(feature = "svg")]
 fn svg_showcase() -> Element {
   let content = lurq::components::Column::new().spacing(16.0).child(svg_case_box(
     "SVG from string / bytes",
@@ -224,7 +213,6 @@ fn svg_showcase() -> Element {
     ],
   ));
 
-  #[cfg(feature = "resources")]
   let content = content.child(svg_case_box(
     "SVG from resource",
     "line-chart-parallel-svgrepo-com.svg",
@@ -302,7 +290,6 @@ fn svg_showcase() -> Element {
     .into()
 }
 
-#[cfg(feature = "svg")]
 fn svg_case_box(label: &str, detail: &str, previews: Vec<Element>) -> Element {
   lurq::components::Column::new()
     .spacing(12.0)
@@ -323,7 +310,6 @@ fn svg_case_box(label: &str, detail: &str, previews: Vec<Element>) -> Element {
     .into()
 }
 
-#[cfg(feature = "svg")]
 fn svg_preview(label: &str, svg: Svg, intrinsic: bool) -> Element {
   let column = lurq::components::Column::new().spacing(8.0);
 
@@ -345,7 +331,6 @@ fn svg_preview(label: &str, svg: Svg, intrinsic: bool) -> Element {
   column.child(text(label, 10.0, FontWeight::Normal, TEXT_MUTED)).into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn plain_images_showcase() -> Element {
   lurq::components::Row::new()
     .spacing(16.0)
@@ -363,7 +348,6 @@ fn plain_images_showcase() -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn sized_images_showcase() -> Element {
   lurq::components::Row::new()
     .spacing(24.0)
@@ -377,7 +361,6 @@ fn sized_images_showcase() -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn intrinsic_images_showcase() -> Element {
   lurq::components::Column::new()
     .spacing(24.0)
@@ -405,7 +388,6 @@ fn intrinsic_images_showcase() -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn background_images_showcase() -> Element {
   lurq::components::Column::new()
     .spacing(16.0)
@@ -441,7 +423,6 @@ fn background_images_showcase() -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn sized_image_card(label: &str, path: &str) -> Element {
   lurq::components::Column::new()
     .spacing(8.0)
@@ -459,7 +440,6 @@ fn sized_image_card(label: &str, path: &str) -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn intrinsic_image_card(label: &str, path: &str) -> Element {
   lurq::components::Column::new()
     .spacing(8.0)
@@ -474,7 +454,6 @@ fn intrinsic_image_card(label: &str, path: &str) -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn image_resource_card(label: &str, path: &str) -> Element {
   lurq::components::Column::new()
     .spacing(8.0)
@@ -491,7 +470,6 @@ fn image_resource_card(label: &str, path: &str) -> Element {
     .into()
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
 fn background_resource_card(label: &str, path: &str, cover: bool) -> Element {
   let mut background = lurq::components::Stack::new()
     .size(Dimension::Pct(100.0), 132.0)

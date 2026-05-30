@@ -1,11 +1,11 @@
 use crate::node::dimension::Dimension;
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Padding {
-  left: Dimension,
-  top: Dimension,
-  right: Dimension,
-  bottom: Dimension,
+  pub left: Dimension,
+  pub top: Dimension,
+  pub right: Dimension,
+  pub bottom: Dimension,
 }
 
 impl Padding {
@@ -81,5 +81,17 @@ impl Padding {
 
   pub fn get_bottom(&self) -> &Dimension {
     &self.bottom
+  }
+}
+
+impl From<f32> for Padding {
+  fn from(value: f32) -> Self {
+    Self::all(Dimension::Px(value))
+  }
+}
+
+impl From<Dimension> for Padding {
+  fn from(value: Dimension) -> Self {
+    Self::all(value)
   }
 }

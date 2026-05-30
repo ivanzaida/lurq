@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use winit::{
   application::ApplicationHandler,
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
@@ -20,6 +22,10 @@ use crate::{
 };
 
 type TickFn = Box<dyn FnMut(&mut Tree)>;
+const TICK_INTERVAL: Duration = Duration::from_millis(16);
+
+#[cfg(feature = "devtools")]
+const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 
 #[cfg(feature = "devtools")]
 type RenderEngineFactory = Box<dyn Fn() -> Box<dyn RenderEngine>>;
@@ -114,31 +120,29 @@ impl WinitWindow {
 
   pub fn run(self) {
     let event_loop = EventLoop::new().unwrap();
-    if self.on_tick.is_some() {
-      event_loop.set_control_flow(ControlFlow::Poll);
-    }
 
     #[cfg(feature = "devtools")]
     let devtools = self.devtools.map(|config| {
       let snapshot = DevToolsSnapshot::from_tree(&self.tree);
-      let app = App::new();
       let mut tree = Tree::new();
       tree.set_render_engine((config.render_engine_factory)());
-      tree.mount_root::<DevTools>(app.theme().clone(), DevToolsProps { snapshot });
-      ManagedWindow::new(app, tree, config.attrs, None, false)
+      tree.mount_root::<DevTools>(self.app.theme().clone(), DevToolsProps { snapshot });
+      ManagedWindow::new(tree, config.attrs, None, false)
     });
 
     let mut handler = WinitHandler {
-      main: ManagedWindow::new(self.app, self.tree, self.attrs, self.on_tick, true),
+      app: self.app,
+      main: ManagedWindow::new(self.tree, self.attrs, self.on_tick, true),
       #[cfg(feature = "devtools")]
       devtools,
+      #[cfg(feature = "devtools")]
+      last_devtools_sync: Instant::now() - DEVTOOLS_SYNC_INTERVAL,
     };
     event_loop.run_app(&mut handler).unwrap();
   }
 }
 
 struct ManagedWindow {
-  app: App,
   tree: Tree,
   window: Option<Window>,
   cursor_pos: (f64, f64),
@@ -151,9 +155,8 @@ struct ManagedWindow {
 }
 
 impl ManagedWindow {
-  fn new(app: App, tree: Tree, attrs: WindowAttributes, on_tick: Option<TickFn>, close_exits: bool) -> Self {
+  fn new(tree: Tree, attrs: WindowAttributes, on_tick: Option<TickFn>, close_exits: bool) -> Self {
     Self {
-      app,
       tree,
       window: None,
       cursor_pos: (0.0, 0.0),
@@ -168,6 +171,10 @@ impl ManagedWindow {
 
   fn window_id(&self) -> Option<WindowId> {
     self.window.as_ref().map(Window::id)
+  }
+
+  fn has_tick(&self) -> bool {
+    self.on_tick.is_some()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop) {
@@ -199,14 +206,14 @@ impl ManagedWindow {
     }
   }
 
-  fn present_now(&mut self) -> bool {
+  fn present_now(&mut self, app: &mut App) -> bool {
     if let Some(w) = &self.window {
       let size = w.inner_size();
       self.tree.set_scale_factor(w.scale_factor() as f32);
       self.tree.resize(size.width, size.height);
       self.redraw_pending = false;
       self.tree.clear_needs_redraw();
-      self.tree.pass(&mut self.app, w);
+      self.tree.pass(app, w);
       self.check_redraw();
       return true;
     }
@@ -232,7 +239,7 @@ impl ManagedWindow {
     }
   }
 
-  fn handle_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
+  fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
     match event {
       WindowEvent::CloseRequested => {
         if self.close_exits {
@@ -320,7 +327,7 @@ impl ManagedWindow {
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {
-        return self.present_now();
+        return self.present_now(app);
       }
       _ => {}
     }
@@ -329,14 +336,22 @@ impl ManagedWindow {
 }
 
 struct WinitHandler {
+  app: App,
   main: ManagedWindow,
   #[cfg(feature = "devtools")]
   devtools: Option<ManagedWindow>,
+  #[cfg(feature = "devtools")]
+  last_devtools_sync: Instant,
 }
 
 impl WinitHandler {
   #[cfg(feature = "devtools")]
   fn sync_devtools(&mut self) {
+    let now = Instant::now();
+    if now.duration_since(self.last_devtools_sync) < DEVTOOLS_SYNC_INTERVAL {
+      return;
+    }
+
     let Some(devtools) = &mut self.devtools else {
       return;
     };
@@ -347,6 +362,7 @@ impl WinitHandler {
     let snapshot = DevToolsSnapshot::from_tree(&self.main.tree);
     devtools.tree.update_root_props::<DevTools>(DevToolsProps { snapshot });
     devtools.check_redraw();
+    self.last_devtools_sync = now;
   }
 }
 
@@ -362,9 +378,9 @@ impl ApplicationHandler for WinitHandler {
   fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
     if self.main.window_id() == Some(id) {
       #[cfg(feature = "devtools")]
-      let presented = self.main.handle_event(event_loop, event);
+      let presented = self.main.handle_event(&mut self.app, event_loop, event);
       #[cfg(not(feature = "devtools"))]
-      self.main.handle_event(event_loop, event);
+      self.main.handle_event(&mut self.app, event_loop, event);
       #[cfg(feature = "devtools")]
       if presented {
         self.sync_devtools();
@@ -375,13 +391,18 @@ impl ApplicationHandler for WinitHandler {
     #[cfg(feature = "devtools")]
     if let Some(devtools) = &mut self.devtools {
       if devtools.window_id() == Some(id) {
-        devtools.handle_event(event_loop, event);
+        devtools.handle_event(&mut self.app, event_loop, event);
       }
     }
   }
 
-  fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+  fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     self.main.tick();
+    if self.main.has_tick() {
+      event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + TICK_INTERVAL));
+    } else {
+      event_loop.set_control_flow(ControlFlow::Wait);
+    }
   }
 }
 

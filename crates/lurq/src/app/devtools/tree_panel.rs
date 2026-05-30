@@ -1,14 +1,15 @@
 use super::{
   snapshot::{DevToolsNode, DevToolsSnapshot},
   style::{
-    BLUE, BORDER, FILL, GREEN, MUTED, SELECTED, SURFACE, SURFACE_2, badge, empty_state, section_header, short_tag, text,
+    badge, empty_state, icon, section_header, short_tag, text, BLUE, BORDER, FILL, GREEN, MUTED, PRIMARY, SELECTED,
+    SURFACE, SURFACE_2,
   },
 };
 use crate::{
   components::{Column, Row, ScrollVertical, Spacer},
   core::Signal,
-  layout::{Alignment, text_style::FontWeight},
-  node::{CursorIcon, Element, color::Color},
+  layout::{text_style::FontWeight, Alignment},
+  node::{border::Border, color::Color, CursorIcon, Element},
 };
 
 pub(crate) fn tree_panel(
@@ -26,7 +27,7 @@ pub(crate) fn tree_panel(
   Column::new()
     .child(section_header(
       "COMPONENT TREE",
-      &format!("{} nodes", snapshot.node_count()),
+      &format!("{} components", snapshot.node_count()),
     ))
     .child(
       ScrollVertical::new(Column::new().with_children(rows).width(FILL))
@@ -81,7 +82,11 @@ fn tree_row(
     .align_items(Alignment::Center)
     .spacing(6.0)
     .child(Spacer::new().width(indent))
-    .child(text(if child_count > 0 { "v" } else { "" }, 12.0, FontWeight::Normal, MUTED).width(12.0))
+    .child(if child_count > 0 {
+      icon("chevron-down", 12.0, MUTED).width(12.0)
+    } else {
+      text("", 12.0, FontWeight::Normal, MUTED).width(12.0)
+    })
     .child(text("<", 12.0, FontWeight::Normal, MUTED))
     .child(text(short_tag(&node.tag), 12.0, FontWeight::Bold, tag_color).nowrap())
     .child(text("/>", 12.0, FontWeight::Normal, MUTED))
@@ -90,6 +95,9 @@ fn tree_row(
     .fill(if selected { SELECTED } else { "#00000000" })
     .cursor(CursorIcon::Pointer)
     .on_click(move |_| selected_path.set(click_path.clone()));
+  if selected {
+    row = row.border_left(Border::inside(2.0, Color::from_hex(PRIMARY)));
+  }
 
   if child_count > 0 {
     row = row.child(badge(&child_count.to_string(), GREEN, SURFACE_2));
