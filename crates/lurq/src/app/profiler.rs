@@ -18,6 +18,22 @@ pub struct FrameProfile {
   pub memory: RuntimeMemoryProfile,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PerfMeterStats {
+  pub fps: u32,
+  pub total_ms: f32,
+  pub layout_ms: f32,
+  pub quad_resolve_ms: f32,
+  pub glyph_ms: f32,
+  pub render_acquire_ms: f32,
+  pub render_upload_ms: f32,
+  pub render_encode_ms: f32,
+  pub render_submit_ms: f32,
+  pub render_present_ms: f32,
+  pub quad_count: usize,
+  pub glyph_count: usize,
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct RenderProfile {
   pub init: Duration,

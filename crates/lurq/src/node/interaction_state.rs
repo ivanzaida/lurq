@@ -10,6 +10,7 @@ struct InteractionStateInner {
   hovered: bool,
   active: bool,
   focused: bool,
+  layout_dirty: bool,
 }
 
 impl InteractionState {
@@ -39,5 +40,16 @@ impl InteractionState {
 
   pub(crate) fn set_focused(&self, val: bool) {
     self.inner.lock().unwrap().focused = val;
+  }
+
+  pub(crate) fn mark_layout_dirty(&self) {
+    self.inner.lock().unwrap().layout_dirty = true;
+  }
+
+  pub(crate) fn take_layout_dirty(&self) -> bool {
+    let mut inner = self.inner.lock().unwrap();
+    let dirty = inner.layout_dirty;
+    inner.layout_dirty = false;
+    dirty
   }
 }

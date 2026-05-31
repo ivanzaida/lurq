@@ -16,7 +16,7 @@ use crate::{
       ScrollPhase,
     },
     hit_test::hit_test_tree,
-    profiler::{FrameProfile, ProfileScope, RuntimeMemoryProfile},
+    profiler::{FrameProfile, PerfMeterStats, ProfileScope, RuntimeMemoryProfile},
     render_engine::RenderEngine,
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
@@ -26,7 +26,8 @@ use crate::{
     layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
-    render_list::{RectCmd, RenderList},
+    render_list::{GlyphCmd, RectCmd, RenderList},
+    text_style::{FontWeight, TextStyle},
   },
   node::{
     Element, ElementRef, Node,
@@ -41,6 +42,7 @@ const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
+const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
@@ -95,6 +97,13 @@ pub struct Tree {
   click_tracker: ClickTracker,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
+  perf_overlay_enabled: bool,
+  perf_overlay_stats: PerfMeterStats,
+  perf_overlay_last_sample: Instant,
+  perf_overlay_last_seen_frame: u64,
+  perf_overlay_frames_since_sample: u64,
+  #[cfg(feature = "devtools")]
+  devtools_inspect_path: Option<Vec<usize>>,
   frame_count: u64,
   last_profile: FrameProfile,
   transition_engine: TransitionEngine,
@@ -133,6 +142,13 @@ impl Tree {
       click_tracker: ClickTracker::default(),
       suppressed_click: None,
       needs_redraw: false,
+      perf_overlay_enabled: false,
+      perf_overlay_stats: PerfMeterStats::default(),
+      perf_overlay_last_sample: Instant::now(),
+      perf_overlay_last_seen_frame: 0,
+      perf_overlay_frames_since_sample: 0,
+      #[cfg(feature = "devtools")]
+      devtools_inspect_path: None,
       frame_count: 0,
       last_profile: FrameProfile::default(),
       transition_engine: TransitionEngine::new(),
@@ -202,6 +218,32 @@ impl Tree {
 
   pub fn last_profile(&self) -> &FrameProfile {
     &self.last_profile
+  }
+
+  pub fn draw_perf_overlay(&mut self) {
+    if self.perf_overlay_enabled {
+      return;
+    }
+    self.perf_overlay_enabled = true;
+    self.perf_overlay_last_sample = Instant::now();
+    self.perf_overlay_last_seen_frame = self.frame_count;
+    self.perf_overlay_frames_since_sample = 0;
+    self.needs_redraw = true;
+  }
+
+  pub fn request_redraw(&mut self) {
+    self.needs_redraw = true;
+  }
+
+  pub(crate) fn perf_overlay_enabled(&self) -> bool {
+    self.perf_overlay_enabled
+  }
+
+  pub(crate) fn tick_perf_overlay(&mut self) {
+    if self.perf_overlay_enabled && Instant::now().duration_since(self.perf_overlay_last_sample) >= PERF_SAMPLE_INTERVAL
+    {
+      self.needs_redraw = true;
+    }
   }
 
   pub fn frame_count(&self) -> u64 {
@@ -350,6 +392,7 @@ impl Tree {
     if profiling_enabled {
       app.glyph_engine.reset_stats();
     }
+    self.update_perf_overlay_stats();
 
     self.flush_due_pending_click(Instant::now());
 
@@ -361,10 +404,9 @@ impl Tree {
       Some(r) => r,
       None => return,
     };
-    let render_engine = match &mut self.render_engine {
-      Some(r) => r,
-      None => return,
-    };
+    if self.render_engine.is_none() {
+      return;
+    }
 
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
@@ -375,9 +417,18 @@ impl Tree {
     };
 
     let quad_start = ProfileScope::maybe_start(profiling_enabled);
-    let quads = self.layout_engine.resolve_quads(root, &result);
+    let viewport_clip = ClipRect {
+      x: 0.0,
+      y: 0.0,
+      width: self.viewport_physical.width / scale,
+      height: self.viewport_physical.height / scale,
+      active: true,
+    };
+    let quads = self.layout_engine.resolve_quads_with_viewport(root, &result, viewport_clip);
     let quad_dur = ProfileScope::elapsed_or_default(&quad_start);
     let quad_count = quads.len();
+    #[cfg(feature = "devtools")]
+    let devtools_overlay = self.devtools_overlay_target(root, &result);
 
     self.last_layout = Some(result);
 
@@ -408,8 +459,7 @@ impl Tree {
       let scaled_y = quad.y * scale;
       let scaled_width = quad.width * scale;
       let scaled_height = quad.height * scale;
-      if matches!(&quad.content, QuadContent::Text { .. })
-        && quad.transform.is_identity()
+      if quad.transform.is_identity()
         && scaled_clip.active
         && !rect_intersects_clip(scaled_x, scaled_y, scaled_width, scaled_height, scaled_clip)
       {
@@ -535,6 +585,26 @@ impl Tree {
       }
     }
 
+    #[cfg(feature = "devtools")]
+    push_devtools_overlay(
+      &mut rects,
+      &mut glyphs,
+      &mut app.glyph_engine,
+      devtools_overlay,
+      quad_count,
+      scale,
+      self.viewport_physical,
+    );
+    push_perf_meter(
+      &mut rects,
+      &mut glyphs,
+      &mut app.glyph_engine,
+      self.perf_overlay_enabled.then_some(self.perf_overlay_stats),
+      quad_count + 20_000,
+      scale,
+      self.viewport_physical,
+    );
+
     let glyph_dur = ProfileScope::elapsed_or_default(&glyph_start);
     let rect_count = rects.len();
     let glyph_count = glyphs.len();
@@ -552,6 +622,10 @@ impl Tree {
     };
 
     let gpu_start = ProfileScope::maybe_start(profiling_enabled);
+    let Some(render_engine) = &mut self.render_engine else {
+      return;
+    };
+    render_engine.set_profiling_enabled(profiling_enabled);
     render_engine.render(&list, window, display);
     let gpu_dur = ProfileScope::elapsed_or_default(&gpu_start);
 
@@ -1188,7 +1262,6 @@ impl Tree {
     if let Some(handler) = focus {
       handler();
     }
-    self.needs_redraw = true;
   }
 
   fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
@@ -1287,6 +1360,13 @@ impl Tree {
     }
   }
 
+  pub fn resolve_quads_with_viewport(&self, result: &LayoutResult, viewport: ClipRect) -> Vec<Quad> {
+    match &self.root {
+      Some(root) => self.layout_engine.resolve_quads_with_viewport(root, result, viewport),
+      None => vec![],
+    }
+  }
+
   #[doc(hidden)]
   pub fn set_layout_constraints_override(&mut self, constraints: Option<Constraints>) {
     self.layout_constraints_override = constraints;
@@ -1296,6 +1376,16 @@ impl Tree {
   #[doc(hidden)]
   pub fn last_layout(&self) -> Option<&LayoutResult> {
     self.last_layout.as_ref()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_devtools_inspect_path(&mut self, path: Option<Vec<usize>>) -> bool {
+    if self.devtools_inspect_path == path {
+      return false;
+    }
+    self.devtools_inspect_path = path;
+    self.needs_redraw = true;
+    true
   }
 
   fn rebuild_if_dirty(&mut self) {
@@ -1310,6 +1400,40 @@ impl Tree {
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       self.needs_redraw = true;
       self.rebuild_if_dirty();
+    }
+  }
+
+  fn update_perf_overlay_stats(&mut self) {
+    if !self.perf_overlay_enabled {
+      return;
+    }
+
+    let frame_count = self.frame_count;
+    if frame_count > self.perf_overlay_last_seen_frame {
+      self.perf_overlay_frames_since_sample += frame_count - self.perf_overlay_last_seen_frame;
+      self.perf_overlay_last_seen_frame = frame_count;
+    }
+
+    let now = Instant::now();
+    let elapsed = now.duration_since(self.perf_overlay_last_sample);
+    if elapsed >= PERF_SAMPLE_INTERVAL {
+      let profile = &self.last_profile;
+      self.perf_overlay_stats = PerfMeterStats {
+        fps: (self.perf_overlay_frames_since_sample as f32 / elapsed.as_secs_f32()).round() as u32,
+        total_ms: ms(profile.total),
+        layout_ms: ms(profile.layout),
+        quad_resolve_ms: ms(profile.quad_resolve),
+        glyph_ms: ms(profile.glyph_rasterize),
+        render_acquire_ms: ms(profile.render.acquire),
+        render_upload_ms: ms(profile.render.globals_upload + profile.render.atlas_upload),
+        render_encode_ms: ms(profile.render.encode),
+        render_submit_ms: ms(profile.render.submit),
+        render_present_ms: ms(profile.render.present),
+        quad_count: profile.quad_count,
+        glyph_count: profile.glyph_count,
+      };
+      self.perf_overlay_frames_since_sample = 0;
+      self.perf_overlay_last_sample = now;
     }
   }
 
@@ -1830,6 +1954,70 @@ fn find_node_by_path<'a>(node: &'a Node, path: &[usize]) -> Option<&'a Node> {
   Some(current)
 }
 
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy)]
+struct DevtoolsOverlayRect {
+  x: f32,
+  y: f32,
+  width: f32,
+  height: f32,
+}
+
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy)]
+struct DevtoolsOverlayTarget {
+  outer: DevtoolsOverlayRect,
+  inner: Option<DevtoolsOverlayRect>,
+}
+
+#[cfg(feature = "devtools")]
+impl Tree {
+  fn devtools_overlay_target(&self, root: &Node, layout: &LayoutResult) -> Option<DevtoolsOverlayTarget> {
+    let path = self.devtools_inspect_path.as_deref()?;
+    devtools_overlay_target_at_path(root, layout, path, 0.0, 0.0)
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_overlay_target_at_path(
+  node: &Node,
+  layout: &LayoutResult,
+  path: &[usize],
+  abs_x: f32,
+  abs_y: f32,
+) -> Option<DevtoolsOverlayTarget> {
+  if let Some((&index, rest)) = path.split_first() {
+    let child_layout = layout.children.get(index)?;
+    let child_node = node.children().get(index)?;
+    return devtools_overlay_target_at_path(
+      child_node,
+      &child_layout.result,
+      rest,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+    );
+  }
+
+  let outer = DevtoolsOverlayRect {
+    x: abs_x,
+    y: abs_y,
+    width: layout.size.width,
+    height: layout.size.height,
+  };
+  let inner = if matches!(node.layout_kind(), LayoutKind::PaddingModifier(_)) {
+    layout.children.first().map(|child| DevtoolsOverlayRect {
+      x: abs_x + child.offset.x,
+      y: abs_y + child.offset.y,
+      width: child.result.size.width,
+      height: child.result.size.height,
+    })
+  } else {
+    None
+  };
+
+  Some(DevtoolsOverlayTarget { outer, inner })
+}
+
 fn find_path_by_id(node: &Node, id: NodeId) -> Option<Vec<usize>> {
   fn visit(node: &Node, id: NodeId, path: &mut Vec<usize>) -> bool {
     if node.node_id() == id {
@@ -2051,6 +2239,299 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
   for child in node.children() {
     fire_keyboard_recursive(child, evt);
   }
+}
+
+fn ms(duration: Duration) -> f32 {
+  duration.as_secs_f32() * 1000.0
+}
+
+#[cfg(feature = "devtools")]
+fn push_devtools_overlay(
+  rects: &mut Vec<RectCmd>,
+  glyphs: &mut Vec<GlyphCmd>,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  target: Option<DevtoolsOverlayTarget>,
+  base_order: usize,
+  scale: f32,
+  viewport: Size,
+) {
+  let Some(target) = target else {
+    return;
+  };
+
+  let outer = scale_devtools_rect(target.outer, scale);
+  let inner = target.inner.map(|rect| scale_devtools_rect(rect, scale));
+  let order = base_order + 10_000;
+
+  if let Some(inner) = inner {
+    rects.push(devtools_overlay_rect_cmd(
+      order,
+      outer,
+      Color::new(251, 146, 60, 48),
+      Color::new(251, 146, 60, 235),
+    ));
+    rects.push(devtools_overlay_rect_cmd(
+      order + 1,
+      inner,
+      Color::new(96, 165, 250, 48),
+      Color::new(96, 165, 250, 245),
+    ));
+  } else {
+    rects.push(devtools_overlay_rect_cmd(
+      order,
+      outer,
+      Color::new(96, 165, 250, 42),
+      Color::new(96, 165, 250, 245),
+    ));
+  }
+
+  push_devtools_size_label(
+    rects,
+    glyphs,
+    glyph_engine,
+    target.outer,
+    outer,
+    order + 2,
+    scale,
+    viewport,
+  );
+}
+
+#[cfg(feature = "devtools")]
+fn scale_devtools_rect(rect: DevtoolsOverlayRect, scale: f32) -> DevtoolsOverlayRect {
+  DevtoolsOverlayRect {
+    x: rect.x * scale,
+    y: rect.y * scale,
+    width: rect.width * scale,
+    height: rect.height * scale,
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_overlay_rect_cmd(order: usize, rect: DevtoolsOverlayRect, color: Color, stroke_color: Color) -> RectCmd {
+  RectCmd {
+    order,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width.max(0.0),
+    height: rect.height.max(0.0),
+    color,
+    radii: [0.0; 4],
+    stroke: [1.0; 4],
+    stroke_color,
+    transform: [1.0, 0.0, 0.0, 1.0],
+    transform_origin: [0.0, 0.0],
+    clip: ClipRect::default(),
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn push_devtools_size_label(
+  rects: &mut Vec<RectCmd>,
+  glyphs: &mut Vec<GlyphCmd>,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  logical_rect: DevtoolsOverlayRect,
+  physical_rect: DevtoolsOverlayRect,
+  order: usize,
+  scale: f32,
+  viewport: Size,
+) {
+  let label = format!("{:.0} x {:.0}", logical_rect.width, logical_rect.height);
+  let style = TextStyle {
+    font_size: 11.0 * scale,
+    weight: FontWeight::Medium,
+    color: Color::new(229, 231, 235, 255),
+    ..Default::default()
+  };
+  let text_size = glyph_engine.measure_text(&label, &style, f32::MAX);
+  let padding_x = 6.0 * scale;
+  let padding_y = 3.0 * scale;
+  let label_w = text_size.width + padding_x * 2.0;
+  let label_h = text_size.height + padding_y * 2.0;
+  let gap = 4.0 * scale;
+  let outside_x = physical_rect.x.max(0.0);
+  let outside_y = physical_rect.y + physical_rect.height + gap;
+  let outside_fits =
+    outside_x + label_w <= viewport.width && outside_y >= 0.0 && outside_y + label_h <= viewport.height;
+  let (label_x, label_y) = if outside_fits {
+    (outside_x, outside_y)
+  } else {
+    let max_x = (viewport.width - label_w).max(0.0);
+    let max_y = (viewport.height - label_h).max(0.0);
+    (
+      (physical_rect.x + gap).clamp(0.0, max_x),
+      (physical_rect.y + gap).clamp(0.0, max_y),
+    )
+  };
+
+  rects.push(RectCmd {
+    order,
+    x: label_x,
+    y: label_y,
+    width: label_w,
+    height: label_h,
+    color: Color::new(17, 24, 39, 235),
+    radii: [3.0 * scale; 4],
+    stroke: [1.0; 4],
+    stroke_color: Color::new(96, 165, 250, 235),
+    transform: [1.0, 0.0, 0.0, 1.0],
+    transform_origin: [0.0, 0.0],
+    clip: ClipRect::default(),
+  });
+
+  let mut label_glyphs =
+    glyph_engine.rasterize_text(&label, &style, f32::MAX, label_x + padding_x, label_y + padding_y);
+  for glyph in &mut label_glyphs {
+    glyph.order = order + 1;
+    glyph.clip = ClipRect::default();
+  }
+  glyphs.extend(label_glyphs);
+}
+
+fn push_perf_meter(
+  rects: &mut Vec<RectCmd>,
+  glyphs: &mut Vec<GlyphCmd>,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  stats: Option<PerfMeterStats>,
+  order: usize,
+  scale: f32,
+  viewport: Size,
+) {
+  let Some(stats) = stats else {
+    return;
+  };
+
+  let panel_w = 160.0 * scale;
+  let panel_h = 198.0 * scale;
+  let margin_top = 12.0 * scale;
+  let margin_right = 16.0 * scale;
+  let padding_x = 8.0 * scale;
+  let padding_y = 8.0 * scale;
+  let row_h = 15.0 * scale;
+  let x = (viewport.width - panel_w - margin_right).max(0.0);
+  let y = margin_top.max(0.0);
+
+  rects.push(RectCmd {
+    order,
+    x,
+    y,
+    width: panel_w,
+    height: panel_h,
+    color: Color::from_hex("#111827"),
+    radii: [6.0 * scale; 4],
+    stroke: [1.0; 4],
+    stroke_color: Color::from_hex("#374151"),
+    transform: [1.0, 0.0, 0.0, 1.0],
+    transform_origin: [0.0, 0.0],
+    clip: ClipRect::default(),
+  });
+
+  let rows = [
+    ("FPS", stats.fps.to_string(), FontWeight::Bold),
+    ("total", format!("{:.2} ms", stats.total_ms), FontWeight::Normal),
+    ("layout", format!("{:.2} ms", stats.layout_ms), FontWeight::Normal),
+    (
+      "resolve",
+      format!("{:.2} ms", stats.quad_resolve_ms),
+      FontWeight::Normal,
+    ),
+    ("glyph", format!("{:.2} ms", stats.glyph_ms), FontWeight::Normal),
+    (
+      "acquire",
+      format!("{:.2} ms", stats.render_acquire_ms),
+      FontWeight::Normal,
+    ),
+    (
+      "upload",
+      format!("{:.2} ms", stats.render_upload_ms),
+      FontWeight::Normal,
+    ),
+    (
+      "encode",
+      format!("{:.2} ms", stats.render_encode_ms),
+      FontWeight::Normal,
+    ),
+    (
+      "submit",
+      format!("{:.2} ms", stats.render_submit_ms),
+      FontWeight::Normal,
+    ),
+    (
+      "present",
+      format!("{:.2} ms", stats.render_present_ms),
+      FontWeight::Normal,
+    ),
+    ("quads", stats.quad_count.to_string(), FontWeight::Normal),
+    ("glyphs", stats.glyph_count.to_string(), FontWeight::Normal),
+  ];
+
+  for (index, (label, value, value_weight)) in rows.iter().enumerate() {
+    let row_y = y + padding_y + index as f32 * row_h;
+    push_raw_text(
+      glyphs,
+      glyph_engine,
+      label,
+      x + padding_x,
+      row_y,
+      10.0 * scale,
+      FontWeight::Normal,
+      Color::from_hex("#e5e7eb"),
+      order + 1,
+    );
+    let value_size = measure_raw_text(glyph_engine, value, 10.0 * scale, *value_weight);
+    push_raw_text(
+      glyphs,
+      glyph_engine,
+      value,
+      x + panel_w - padding_x - value_size.width,
+      row_y,
+      10.0 * scale,
+      *value_weight,
+      Color::from_hex("#e5e7eb"),
+      order + 1,
+    );
+  }
+}
+
+fn measure_raw_text(
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  text: &str,
+  font_size: f32,
+  weight: FontWeight,
+) -> Size {
+  let style = TextStyle {
+    font_size,
+    weight,
+    color: Color::new(255, 255, 255, 255),
+    ..Default::default()
+  };
+  glyph_engine.measure_text(text, &style, f32::MAX)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_raw_text(
+  glyphs: &mut Vec<GlyphCmd>,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  text: &str,
+  x: f32,
+  y: f32,
+  font_size: f32,
+  weight: FontWeight,
+  color: Color,
+  order: usize,
+) {
+  let style = TextStyle {
+    font_size,
+    weight,
+    color,
+    ..Default::default()
+  };
+  let mut text_glyphs = glyph_engine.rasterize_text(text, &style, f32::MAX, x, y);
+  for glyph in &mut text_glyphs {
+    glyph.order = order;
+    glyph.clip = ClipRect::default();
+  }
+  glyphs.extend(text_glyphs);
 }
 
 fn apply_opacity(color: Color, opacity: f32) -> Color {

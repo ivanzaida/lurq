@@ -1,3 +1,5 @@
+#[cfg(feature = "devtools")]
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use winit::{
@@ -10,7 +12,7 @@ use winit::{
 
 #[cfg(feature = "devtools")]
 use crate::app::{
-  devtools::{DevTools, DevToolsProps, DevToolsSnapshot},
+  devtools::{DevTools, DevToolsInspectCallback, DevToolsProps, DevToolsSnapshot},
   render_engine::RenderEngine,
 };
 use crate::{
@@ -122,19 +124,29 @@ impl WinitWindow {
     let event_loop = EventLoop::new().unwrap();
 
     #[cfg(feature = "devtools")]
-    let devtools = self.devtools.map(|config| {
+    let (devtools, devtools_inspect_path) = if let Some(config) = self.devtools {
+      let inspect_path = Arc::new(Mutex::new(None));
       let snapshot = DevToolsSnapshot::from_tree(&self.tree);
+      let props = DevToolsProps {
+        snapshot,
+        on_inspect_path: Some(devtools_inspect_callback(inspect_path.clone())),
+      };
       let mut tree = Tree::new();
       tree.set_render_engine((config.render_engine_factory)());
-      tree.mount_root::<DevTools>(self.app.theme().clone(), DevToolsProps { snapshot });
-      ManagedWindow::new(tree, config.attrs, None, false)
-    });
+      tree.draw_perf_overlay();
+      tree.mount_root::<DevTools>(self.app.theme().clone(), props);
+      (Some(ManagedWindow::new(tree, config.attrs, None, false)), inspect_path)
+    } else {
+      (None, Arc::new(Mutex::new(None)))
+    };
 
     let mut handler = WinitHandler {
       app: self.app,
       main: ManagedWindow::new(self.tree, self.attrs, self.on_tick, true),
       #[cfg(feature = "devtools")]
       devtools,
+      #[cfg(feature = "devtools")]
+      devtools_inspect_path,
       #[cfg(feature = "devtools")]
       last_devtools_sync: Instant::now() - DEVTOOLS_SYNC_INTERVAL,
     };
@@ -174,7 +186,7 @@ impl ManagedWindow {
   }
 
   fn has_tick(&self) -> bool {
-    self.on_tick.is_some()
+    self.on_tick.is_some() || self.tree.perf_overlay_enabled()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop) {
@@ -235,8 +247,9 @@ impl ManagedWindow {
   fn tick(&mut self) {
     if let Some(tick) = &mut self.on_tick {
       tick(&mut self.tree);
-      self.check_redraw();
     }
+    self.tree.tick_perf_overlay();
+    self.check_redraw();
   }
 
   fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
@@ -341,7 +354,16 @@ struct WinitHandler {
   #[cfg(feature = "devtools")]
   devtools: Option<ManagedWindow>,
   #[cfg(feature = "devtools")]
+  devtools_inspect_path: Arc<Mutex<Option<Vec<usize>>>>,
+  #[cfg(feature = "devtools")]
   last_devtools_sync: Instant,
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_inspect_callback(inspect_path: Arc<Mutex<Option<Vec<usize>>>>) -> DevToolsInspectCallback {
+  Arc::new(move |path| {
+    *inspect_path.lock().unwrap() = path;
+  })
 }
 
 impl WinitHandler {
@@ -360,9 +382,20 @@ impl WinitHandler {
     }
 
     let snapshot = DevToolsSnapshot::from_tree(&self.main.tree);
-    devtools.tree.update_root_props::<DevTools>(DevToolsProps { snapshot });
+    devtools.tree.update_root_props::<DevTools>(DevToolsProps {
+      snapshot,
+      on_inspect_path: Some(devtools_inspect_callback(self.devtools_inspect_path.clone())),
+    });
     devtools.check_redraw();
     self.last_devtools_sync = now;
+  }
+
+  #[cfg(feature = "devtools")]
+  fn sync_devtools_overlay(&mut self) {
+    let inspect_path = self.devtools_inspect_path.lock().unwrap().clone();
+    if self.main.tree.set_devtools_inspect_path(inspect_path) {
+      self.main.request_redraw();
+    }
   }
 }
 
@@ -392,13 +425,27 @@ impl ApplicationHandler for WinitHandler {
     if let Some(devtools) = &mut self.devtools {
       if devtools.window_id() == Some(id) {
         devtools.handle_event(&mut self.app, event_loop, event);
+        if devtools.window.is_none() {
+          *self.devtools_inspect_path.lock().unwrap() = None;
+        }
+        self.sync_devtools_overlay();
       }
     }
   }
 
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     self.main.tick();
-    if self.main.has_tick() {
+    #[cfg(feature = "devtools")]
+    if let Some(devtools) = &mut self.devtools {
+      devtools.tick();
+    }
+
+    #[cfg(feature = "devtools")]
+    let devtools_has_tick = self.devtools.as_ref().is_some_and(ManagedWindow::has_tick);
+    #[cfg(not(feature = "devtools"))]
+    let devtools_has_tick = false;
+
+    if self.main.has_tick() || devtools_has_tick {
       event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + TICK_INTERVAL));
     } else {
       event_loop.set_control_flow(ControlFlow::Wait);

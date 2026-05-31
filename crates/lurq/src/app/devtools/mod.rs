@@ -4,6 +4,8 @@ mod style;
 mod top_bar;
 mod tree_panel;
 
+use std::sync::Arc;
+
 pub use snapshot::{DevToolsNode, DevToolsSnapshot, FrameProfileSnapshot};
 
 pub use self::snapshot::DevToolsSnapshot as Snapshot;
@@ -16,14 +18,18 @@ use crate::{
 
 static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
 
+pub type DevToolsInspectCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
+
 pub fn load_fonts(app: &mut crate::app::App) {
   app.load_font(LUCIDE_TTF.to_vec());
   app.register_font("lucide", "lucide");
 }
 
-#[derive(Clone, Debug, crate::DevtoolsInspectable)]
+#[derive(Clone, crate::DevtoolsInspectable)]
 pub struct DevToolsProps {
   pub snapshot: DevToolsSnapshot,
+  #[devtools_ignore]
+  pub on_inspect_path: Option<DevToolsInspectCallback>,
 }
 
 pub struct DevTools {
@@ -46,7 +52,8 @@ impl Component for DevTools {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let snapshot = ctx.props::<DevToolsProps>().snapshot.clone();
+    let props = ctx.props::<DevToolsProps>().clone();
+    let snapshot = props.snapshot;
     let selected_path = self.selected_path.get();
     let selected = snapshot.selected_node(&selected_path);
 
@@ -58,6 +65,7 @@ impl Component for DevTools {
             &snapshot,
             selected_path,
             self.selected_path.clone(),
+            props.on_inspect_path.clone(),
           ))
           .child(
             Column::new()
@@ -89,6 +97,12 @@ mod tests {
   fn snapshot_collects_tree_nodes() {
     let mut tree = crate::app::Tree::new();
     tree.mount_root::<SnapshotTestApp>(Theme::default(), ());
+    assert!(tree.set_devtools_inspect_path(Some(vec![0])));
+    assert!(!tree.set_devtools_inspect_path(Some(vec![0])));
+    assert!(tree.set_devtools_inspect_path(None));
+    tree.draw_perf_overlay();
+    assert!(tree.perf_overlay_enabled());
+    tree.tick_perf_overlay();
 
     let snapshot = DevToolsSnapshot::from_tree(&tree);
 

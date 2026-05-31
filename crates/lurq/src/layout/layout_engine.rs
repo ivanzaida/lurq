@@ -152,7 +152,7 @@ impl LayoutEngine {
   }
 
   fn invalidate_state_style_ancestors(node: &Node) -> bool {
-    let mut dirty = node.state_styles_affect_layout();
+    let mut dirty = node.take_style_layout_dirty();
 
     for child in node.children() {
       if Self::invalidate_state_style_ancestors(child) {
@@ -168,6 +168,15 @@ impl LayoutEngine {
   }
 
   pub(crate) fn resolve_quads(&self, node: &Node, result: &LayoutResult) -> Vec<Quad> {
+    self.resolve_quads_with_viewport(node, result, ClipRect::default())
+  }
+
+  pub(crate) fn resolve_quads_with_viewport(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    viewport: ClipRect,
+  ) -> Vec<Quad> {
     let mut quads = Vec::new();
     self.collect_quads(
       node,
@@ -177,7 +186,7 @@ impl LayoutEngine {
       0.0,
       0.0,
       Transform2D::IDENTITY,
-      ClipRect::default(),
+      viewport,
       &mut quads,
     );
     quads
@@ -366,11 +375,24 @@ impl LayoutEngine {
     };
 
     for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
+      let child_abs_x = abs_x + child_layout.offset.x;
+      let child_abs_y = abs_y + child_layout.offset.y;
+      if clipped_subtree_is_hidden(
+        child_node,
+        &child_layout.result,
+        child_abs_x,
+        child_abs_y,
+        transform,
+        child_clip,
+      ) {
+        continue;
+      }
+
       self.collect_quads(
         child_node,
         &child_layout.result,
-        abs_x + child_layout.offset.x,
-        abs_y + child_layout.offset.y,
+        child_abs_x,
+        child_abs_y,
         abs_x,
         abs_y,
         transform,
@@ -1675,5 +1697,69 @@ fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
     width: (x2 - x1).max(0.0),
     height: (y2 - y1).max(0.0),
     active: true,
+  }
+}
+
+fn clipped_subtree_is_hidden(
+  node: &Node,
+  result: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  inherited_transform: Transform2D,
+  clip: ClipRect,
+) -> bool {
+  if !clip.active
+    || !inherited_transform.is_identity()
+    || !node.effective_transform().is_identity()
+    || node.overflow == Overflow::Visible
+    || border_can_paint_outside(node)
+  {
+    return false;
+  }
+
+  !rect_intersects_clip(abs_x, abs_y, result.size.width, result.size.height, clip)
+}
+
+fn border_can_paint_outside(node: &Node) -> bool {
+  let Some(borders) = node.get_border() else {
+    return false;
+  };
+
+  [borders.top, borders.right, borders.bottom, borders.left]
+    .into_iter()
+    .flatten()
+    .any(|border| {
+      matches!(
+        border.placement,
+        crate::node::border::BorderPlacement::Outside | crate::node::border::BorderPlacement::Center
+      )
+    })
+}
+
+fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {
+  width > 0.0
+    && height > 0.0
+    && x < clip.x + clip.width
+    && x + width > clip.x
+    && y < clip.y + clip.height
+    && y + height > clip.y
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn clipped_subtree_culling_keeps_partially_visible_rects() {
+    let clip = ClipRect {
+      x: 0.0,
+      y: 0.0,
+      width: 100.0,
+      height: 100.0,
+      active: true,
+    };
+
+    assert!(rect_intersects_clip(90.0, 90.0, 20.0, 20.0, clip));
+    assert!(!rect_intersects_clip(120.0, 0.0, 20.0, 20.0, clip));
   }
 }

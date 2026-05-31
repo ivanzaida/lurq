@@ -936,12 +936,20 @@ impl Node {
     self.state_styles.affects_layout()
   }
 
+  pub(crate) fn take_style_layout_dirty(&self) -> bool {
+    self.style_state.take_layout_dirty()
+  }
+
   pub(crate) fn set_style_hovered(&self, hovered: bool) -> bool {
     let changed = self.style_state.is_hovered() != hovered;
     if changed {
       self.style_state.set_hovered(hovered);
     }
-    changed && self.state_styles_affect_layout()
+    let layout_dirty = changed && self.state_styles_affect_layout();
+    if layout_dirty {
+      self.style_state.mark_layout_dirty();
+    }
+    layout_dirty
   }
 
   pub(crate) fn set_style_active(&self, active: bool) -> bool {
@@ -949,7 +957,11 @@ impl Node {
     if changed {
       self.style_state.set_active(active);
     }
-    changed && self.state_styles_affect_layout()
+    let layout_dirty = changed && self.state_styles_affect_layout();
+    if layout_dirty {
+      self.style_state.mark_layout_dirty();
+    }
+    layout_dirty
   }
 
   pub(crate) fn set_style_focused(&self, focused: bool) -> bool {
@@ -957,7 +969,11 @@ impl Node {
     if changed {
       self.style_state.set_focused(focused);
     }
-    changed && self.state_styles_affect_layout()
+    let layout_dirty = changed && self.state_styles_affect_layout();
+    if layout_dirty {
+      self.style_state.mark_layout_dirty();
+    }
+    layout_dirty
   }
 
   pub(crate) fn effective_frame(&self, base: FrameConstraints) -> FrameConstraints {

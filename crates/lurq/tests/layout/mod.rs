@@ -34,5 +34,6 @@ mod quads;
 mod row;
 mod scroll;
 mod scrollbar_placement;
+mod offscreen_clipping;
 mod stack;
 mod text_centering;

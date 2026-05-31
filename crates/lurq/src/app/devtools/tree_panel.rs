@@ -1,4 +1,5 @@
 use super::{
+  DevToolsInspectCallback,
   snapshot::{DevToolsNode, DevToolsSnapshot},
   style::{
     BLUE, BORDER, FILL, GREEN, MUTED, ORANGE, PRIMARY, SELECTED, SURFACE, SURFACE_2, badge, empty_state, icon,
@@ -16,10 +17,19 @@ pub(crate) fn tree_panel(
   snapshot: &DevToolsSnapshot,
   selected_path: Vec<usize>,
   selected: Signal<Vec<usize>>,
+  on_inspect_path: Option<DevToolsInspectCallback>,
 ) -> Element {
   let mut rows = Vec::new();
   if let Some(root) = &snapshot.root {
-    collect_tree_rows(root, &mut Vec::new(), 0, &selected_path, selected, &mut rows);
+    collect_tree_rows(
+      root,
+      &mut Vec::new(),
+      0,
+      &selected_path,
+      selected,
+      on_inspect_path,
+      &mut rows,
+    );
   } else {
     rows.push(empty_state("No mounted root"));
   }
@@ -48,6 +58,7 @@ fn collect_tree_rows(
   depth: usize,
   selected_path: &[usize],
   selected: Signal<Vec<usize>>,
+  on_inspect_path: Option<DevToolsInspectCallback>,
   rows: &mut Vec<Element>,
 ) {
   rows.push(tree_row(
@@ -56,10 +67,19 @@ fn collect_tree_rows(
     depth,
     path.as_slice() == selected_path,
     selected.clone(),
+    on_inspect_path.clone(),
   ));
   for (index, child) in node.children.iter().enumerate() {
     path.push(index);
-    collect_tree_rows(child, path, depth + 1, selected_path, selected.clone(), rows);
+    collect_tree_rows(
+      child,
+      path,
+      depth + 1,
+      selected_path,
+      selected.clone(),
+      on_inspect_path.clone(),
+      rows,
+    );
     path.pop();
   }
 }
@@ -70,6 +90,7 @@ fn tree_row(
   depth: usize,
   selected: bool,
   selected_path: Signal<Vec<usize>>,
+  on_inspect_path: Option<DevToolsInspectCallback>,
 ) -> Element {
   let indent = 8.0 + depth as f32 * 16.0;
   let child_count = node.children.len();
@@ -112,7 +133,12 @@ fn tree_row(
     .height(26.0)
     .fill(if selected { SELECTED } else { "#00000000" })
     .cursor(CursorIcon::Pointer)
-    .on_click(move |_| selected_path.set(click_path.clone()));
+    .on_click(move |_| {
+      selected_path.set(click_path.clone());
+      if let Some(on_inspect_path) = &on_inspect_path {
+        on_inspect_path(Some(click_path.clone()));
+      }
+    });
   if selected {
     row = row.border_left(Border::inside(2.0, Color::from_hex(PRIMARY)));
   }
