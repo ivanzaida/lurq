@@ -197,7 +197,7 @@ fn node_shape_section(selected: Option<&DevToolsNode>) -> Element {
     section = section.child(node_shape_empty_row());
   } else {
     for row in shape {
-      section = section.child(node_shape_row(&row.label, &row.value));
+      section = section.child(node_shape_row(row, 0));
     }
     section = section.child(Spacer::new().height(4.0));
   }
@@ -285,15 +285,31 @@ fn node_shape_empty_row() -> Element {
     .into()
 }
 
-fn node_shape_row(label: &str, value: &str) -> Element {
-  Row::new()
+fn node_shape_row(row: &super::snapshot::DevToolsShapeRow, depth: usize) -> Element {
+  let left = 40.0 + depth as f32 * 16.0;
+  let mut header = Row::new()
     .align_items(Alignment::Center)
-    .child(mono_text(label, 11.0, FontWeight::Normal, MUTED))
-    .child(Spacer::new().width(12.0))
-    .child(mono_text(value, 11.0, FontWeight::Medium, TEXT))
-    .padding_custom(content_padding(5.0, 16.0, 5.0, 40.0))
-    .width(FILL)
-    .into()
+    .child(mono_text(&format!("{}:", row.label), 11.0, FontWeight::Normal, MUTED))
+    .child(Spacer::new().width(12.0));
+
+  if let Some(value) = &row.value {
+    header = header.child(mono_text(value, 11.0, FontWeight::Medium, TEXT));
+  }
+
+  let bottom = if row.children.is_empty() { 5.0 } else { 2.0 };
+  let mut column = Column::new()
+    .child(
+      header
+        .padding_custom(content_padding(5.0, 16.0, bottom, left))
+        .width(FILL),
+    )
+    .width(FILL);
+
+  for child in &row.children {
+    column = column.child(node_shape_row(child, depth + 1));
+  }
+
+  column.into()
 }
 
 fn render_info_row(label: &str, value: &str, value_color: &str) -> Element {

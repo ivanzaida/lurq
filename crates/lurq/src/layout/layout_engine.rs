@@ -88,83 +88,46 @@ impl LayoutEngine {
   }
 
   pub(crate) fn compute(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
-    Self::invalidate_text_content_ancestors(node);
-    Self::invalidate_scroll_ancestors(node);
-    Self::invalidate_element_ref_ancestors(node);
-    Self::invalidate_state_style_ancestors(node);
+    Self::mark_layout_dirty(node);
     let result = self.layout_node(glyph_engine, node, constraints);
     node.clear_guards();
     result
   }
 
-  fn invalidate_text_content_ancestors(node: &Node) -> bool {
-    let mut dirty = node.text_content.is_changed();
+  fn mark_layout_dirty(node: &Node) -> bool {
+    let mut local_dirty = node.text_content.is_changed() || matches!(node.node_kind(), NodeKind::TextInput { .. });
 
-    for child in node.children() {
-      if Self::invalidate_text_content_ancestors(child) {
-        dirty = true;
-      }
+    if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind()
+      && state.take_scroll_dirty()
+    {
+      local_dirty = true;
     }
 
-    if dirty {
-      node.layout_cache.invalidate();
-    }
-
-    dirty
-  }
-
-  fn invalidate_scroll_ancestors(node: &Node) -> bool {
-    let mut child_dirty = false;
-    for child in node.children() {
-      if Self::invalidate_scroll_ancestors(child) {
-        child_dirty = true;
-      }
-    }
-    if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-      if state.take_scroll_dirty() {
-        node.layout_cache.invalidate();
-        return true;
-      }
-    }
-    if child_dirty {
-      node.layout_cache.invalidate();
-    }
-    child_dirty
-  }
-
-  fn invalidate_element_ref_ancestors(node: &Node) -> bool {
-    let mut dirty = node
+    if node
       .element_ref
       .as_ref()
-      .is_some_and(|element_ref| element_ref.take_layout_dirty());
+      .is_some_and(|element_ref| element_ref.take_layout_dirty())
+    {
+      local_dirty = true;
+    }
 
+    if node.take_style_layout_dirty() {
+      local_dirty = true;
+    }
+
+    let mut child_dirty = false;
     for child in node.children() {
-      if Self::invalidate_element_ref_ancestors(child) {
-        dirty = true;
-      }
+      child_dirty |= Self::mark_layout_dirty(child);
     }
 
-    if dirty {
-      node.layout_cache.invalidate();
+    if local_dirty {
+      node.layout_cache.mark_local_dirty();
+    }
+    if child_dirty {
+      node.layout_cache.mark_descendant_dirty();
     }
 
-    dirty
-  }
-
-  fn invalidate_state_style_ancestors(node: &Node) -> bool {
-    let mut dirty = node.take_style_layout_dirty();
-
-    for child in node.children() {
-      if Self::invalidate_state_style_ancestors(child) {
-        dirty = true;
-      }
-    }
-
-    if dirty {
-      node.layout_cache.invalidate();
-    }
-
-    dirty
+    local_dirty || child_dirty
   }
 
   pub(crate) fn resolve_quads(&self, node: &Node, result: &LayoutResult) -> Vec<Quad> {
@@ -481,27 +444,89 @@ impl LayoutEngine {
   }
 
   fn layout_node(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
-    if node.text_content.is_changed() || matches!(node.node_kind(), NodeKind::TextInput { .. }) {
-      node.layout_cache.invalidate();
-    }
-
-    // Check cache — skip layout if constraints unchanged and no structural changes
-    if let Some(mut cached) = node.layout_cache.get(constraints) {
-      if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-        if let Some(child) = cached.children.first_mut() {
-          child.offset.x = -state.scroll_x();
-          child.offset.y = -state.scroll_y();
-        }
-        state.update_layout(
-          cached.children.first().map(|c| c.result.size.width).unwrap_or(0.0),
-          cached.children.first().map(|c| c.result.size.height).unwrap_or(0.0),
-          cached.size.width,
-          cached.size.height,
-        );
-      }
+    if let Some(cached) = self.layout_node_from_cache(glyph_engine, node, constraints) {
       return cached;
     }
 
+    self.layout_node_uncached(glyph_engine, node, constraints)
+  }
+
+  fn layout_node_from_cache(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+  ) -> Option<LayoutResult> {
+    if !node.layout_cache.is_dirty() {
+      return node
+        .layout_cache
+        .get(constraints)
+        .map(|cached| Self::prepare_cached_result(node, cached));
+    }
+
+    if node.layout_cache.is_local_dirty() || !node.layout_cache.is_descendant_dirty() {
+      return None;
+    }
+
+    // A descendant changed, but this node may still be able to keep its own
+    // geometry. Patch dirty child results into the cached tree and only force
+    // this parent to relayout if an immediate child's size or parent-owned
+    // offset changed.
+    let mut cached = node.layout_cache.get_dirty(constraints)?;
+    if cached.children.len() != node.children().len() {
+      return None;
+    }
+
+    let mut child_size_changed = false;
+    for (index, child) in node.children().iter().enumerate() {
+      if !child.layout_cache.is_dirty() {
+        continue;
+      }
+
+      let child_constraints = child.layout_cache.constraints()?;
+      let repaired = self.layout_node(glyph_engine, child, child_constraints);
+      if repaired.size != cached.children[index].result.size {
+        child_size_changed = true;
+      }
+      if let Some(rect) = child.element_override_rect()
+        && (rect.relative_x != cached.children[index].offset.x || rect.relative_y != cached.children[index].offset.y)
+      {
+        child_size_changed = true;
+      }
+      cached.children[index].result = repaired;
+    }
+
+    if child_size_changed {
+      return None;
+    }
+
+    let prepared = Self::prepare_cached_result(node, cached);
+    node.layout_cache.store(constraints, prepared.clone());
+    Some(prepared)
+  }
+
+  fn prepare_cached_result(node: &Node, mut cached: LayoutResult) -> LayoutResult {
+    if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+      if let Some(child) = cached.children.first_mut() {
+        child.offset.x = -state.scroll_x();
+        child.offset.y = -state.scroll_y();
+      }
+      state.update_layout(
+        cached.children.first().map(|c| c.result.size.width).unwrap_or(0.0),
+        cached.children.first().map(|c| c.result.size.height).unwrap_or(0.0),
+        cached.size.width,
+        cached.size.height,
+      );
+    }
+    cached
+  }
+
+  fn layout_node_uncached(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+  ) -> LayoutResult {
     let frame_handled_by_layout_kind = matches!(node.layout_kind(), LayoutKind::FrameModifier(_));
     let mut result = match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints),

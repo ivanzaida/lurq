@@ -5,11 +5,11 @@ use lurq::{
     events::{MouseEvent, MouseEventKind},
   },
   core::Signal,
-  layout::{layout_kind::Justify, text_style::FontWeight, Alignment},
-  node::{color::Color, dimension::Dimension, CursorIcon, Element},
+  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
-use crate::style::{text, ACCENT, BG, BORDER, ERROR, PRIMARY, SURFACE, TEXT, TEXT_MUTED, WARNING};
+use crate::style::{ACCENT, BG, BORDER, ERROR, PRIMARY, SURFACE, TEXT, TEXT_MUTED, WARNING, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;

@@ -1,11 +1,26 @@
-use super::style::{BORDER, FILL, MUTED, PRIMARY, SURFACE, SURFACE_2, TEXT, badge, icon, text};
+use super::{
+  DevToolsBoolCallback, DevToolsDebugOverlayCallback, debug_overlay_path_for_selection,
+  style::{BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text},
+};
 use crate::{
   components::{Column, Rect, Row, Spacer},
+  core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color},
 };
 
-pub(crate) fn top_bar(_node_count: usize) -> Element {
+pub(crate) fn top_bar(
+  _node_count: usize,
+  overlay_enabled: bool,
+  overlay_enabled_signal: Signal<bool>,
+  pick_enabled: bool,
+  pick_enabled_signal: Signal<bool>,
+  selected_path: Vec<usize>,
+  has_selection: bool,
+  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  on_overlay_enabled: Option<DevToolsBoolCallback>,
+  on_pick_inspected: Option<DevToolsBoolCallback>,
+) -> Element {
   Row::new()
     .align_items(Alignment::Center)
     .child(
@@ -21,6 +36,17 @@ pub(crate) fn top_bar(_node_count: usize) -> Element {
     .child(tab("activity", "Profiler", false))
     .child(tab("zap", "Signals", false))
     .child(Spacer::new().flex(1.0))
+    .child(pick_toggle(pick_enabled, pick_enabled_signal, on_pick_inspected))
+    .child(Spacer::new().width(8.0))
+    .child(overlay_toggle(
+      overlay_enabled,
+      overlay_enabled_signal,
+      selected_path,
+      has_selection,
+      on_debug_overlay_path,
+      on_overlay_enabled,
+    ))
+    .child(Spacer::new().width(10.0))
     .child(search_box())
     .child(icon_button("settings"))
     .height(48.0)
@@ -29,6 +55,72 @@ pub(crate) fn top_bar(_node_count: usize) -> Element {
     .padding_vertical(0.0)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
+    .into()
+}
+
+fn overlay_toggle(
+  overlay_enabled: bool,
+  overlay_enabled_signal: Signal<bool>,
+  selected_path: Vec<usize>,
+  has_selection: bool,
+  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  on_overlay_enabled: Option<DevToolsBoolCallback>,
+) -> Element {
+  let color = if overlay_enabled { PRIMARY } else { MUTED };
+  Row::new()
+    .align_items(Alignment::Center)
+    .spacing(6.0)
+    .child(icon("box", 13.0, color))
+    .child(text("Overlay", 12.0, FontWeight::Medium, color))
+    .height(30.0)
+    .padding_horizontal(10.0)
+    .padding_vertical(0.0)
+    .fill(if overlay_enabled { SELECTED } else { SURFACE_2 })
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(4.0)
+    .cursor(CursorIcon::Pointer)
+    .on_click(move |_| {
+      let next = !overlay_enabled;
+      overlay_enabled_signal.set(next);
+      if let Some(on_overlay_enabled) = &on_overlay_enabled {
+        on_overlay_enabled(next);
+      }
+      if let Some(on_debug_overlay_path) = &on_debug_overlay_path {
+        on_debug_overlay_path(debug_overlay_path_for_selection(
+          next,
+          selected_path.clone(),
+          has_selection,
+        ));
+      }
+    })
+    .into()
+}
+
+fn pick_toggle(
+  pick_enabled: bool,
+  pick_enabled_signal: Signal<bool>,
+  on_pick_inspected: Option<DevToolsBoolCallback>,
+) -> Element {
+  let color = if pick_enabled { PRIMARY } else { MUTED };
+  Row::new()
+    .align_items(Alignment::Center)
+    .spacing(6.0)
+    .child(icon("search", 13.0, color))
+    .child(text("Pick", 12.0, FontWeight::Medium, color))
+    .height(30.0)
+    .padding_horizontal(10.0)
+    .padding_vertical(0.0)
+    .fill(if pick_enabled { SELECTED } else { SURFACE_2 })
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(4.0)
+    .cursor(CursorIcon::Pointer)
+    .on_click(move |_| {
+      let next = !pick_enabled;
+      pick_enabled_signal.set(next);
+      if let Some(on_pick_inspected) = &on_pick_inspected {
+        on_pick_inspected(next);
+      }
+    })
     .into()
 }
 

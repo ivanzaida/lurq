@@ -1,6 +1,9 @@
 use lurq::{
   app::Tree,
-  layout::{Alignment, Constraints, Size, quad::ClipRect, quad::QuadContent},
+  layout::{
+    Alignment, Constraints, Size,
+    quad::{ClipRect, QuadContent},
+  },
   node::Element,
 };
 
@@ -36,7 +39,11 @@ fn fully_offscreen_node_below_viewport_is_culled() {
 
   let quads = rt.resolve_quads_with_viewport(&result, viewport(100.0, 100.0));
 
-  assert_eq!(quads.len(), 1, "only the node inside the viewport should produce a quad");
+  assert_eq!(
+    quads.len(),
+    1,
+    "only the node inside the viewport should produce a quad"
+  );
   assert!(matches!(quads[0].content, QuadContent::Rect { .. }));
   assert_eq!(quads[0].y, 0.0);
 }
@@ -137,6 +144,10 @@ fn offscreen_subtree_is_culled_entirely() {
 
   let quads = rt.resolve_quads_with_viewport(&result, viewport(100.0, 50.0));
 
-  assert_eq!(quads.len(), 1, "the entire offscreen subtree (parent + 2 children) should be culled");
+  assert_eq!(
+    quads.len(),
+    1,
+    "the entire offscreen subtree (parent + 2 children) should be culled"
+  );
   assert_eq!(quads[0].y, 0.0);
 }

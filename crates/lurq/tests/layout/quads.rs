@@ -303,12 +303,12 @@ fn nested_default_overflow_intersects_text_clip() {
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 40.0))).unwrap();
   let quads = rt.resolve_quads(&result);
-  let text_quad = quads
-    .iter()
-    .find(|quad| matches!(quad.content, QuadContent::Text { .. }))
-    .expect("expected text quad");
-  assert!(text_quad.clip.active);
-  assert_eq!(text_quad.clip.width, 0.0);
+  assert!(
+    !quads
+      .iter()
+      .any(|quad| matches!(quad.content, QuadContent::Text { .. })),
+    "fully clipped nested text should be culled"
+  );
 }
 
 #[test]

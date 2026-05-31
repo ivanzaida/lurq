@@ -4,7 +4,10 @@ mod style;
 mod top_bar;
 mod tree_panel;
 
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicU64, Ordering},
+};
 
 pub use snapshot::{DevToolsNode, DevToolsSnapshot, FrameProfileSnapshot};
 
@@ -12,13 +15,14 @@ pub use self::snapshot::DevToolsSnapshot as Snapshot;
 use crate::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
-  core::Signal,
+  core::{NodeId, Signal},
   node::Element,
 };
 
 static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
 
-pub type DevToolsInspectCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
+pub type DevToolsDebugOverlayCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
+pub type DevToolsBoolCallback = Arc<dyn Fn(bool) + Send + Sync>;
 
 pub fn load_fonts(app: &mut crate::app::App) {
   app.load_font(LUCIDE_TTF.to_vec());
@@ -28,17 +32,27 @@ pub fn load_fonts(app: &mut crate::app::App) {
 #[derive(Clone, crate::DevtoolsInspectable)]
 pub struct DevToolsProps {
   pub snapshot: DevToolsSnapshot,
+  pub picked_path: Option<Vec<usize>>,
+  pub picked_revision: u64,
   #[devtools_ignore]
-  pub on_inspect_path: Option<DevToolsInspectCallback>,
+  pub on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  #[devtools_ignore]
+  pub on_overlay_enabled: Option<DevToolsBoolCallback>,
+  #[devtools_ignore]
+  pub on_pick_inspected: Option<DevToolsBoolCallback>,
 }
 
 pub struct DevTools {
   selected_path: Signal<Vec<usize>>,
+  collapsed_nodes: Signal<Vec<NodeId>>,
+  show_inspected_overlay: Signal<bool>,
+  pick_inspected: Signal<bool>,
+  last_picked_revision: AtomicU64,
 }
 
 impl PartialEq for DevToolsProps {
   fn eq(&self, other: &Self) -> bool {
-    self.snapshot == other.snapshot
+    self.snapshot.root == other.snapshot.root && self.picked_revision == other.picked_revision
   }
 }
 
@@ -48,24 +62,58 @@ impl Component for DevTools {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       selected_path: ctx.signal(Vec::new()),
+      collapsed_nodes: ctx.signal(Vec::new()),
+      show_inspected_overlay: ctx.signal(true),
+      pick_inspected: ctx.signal(false),
+      last_picked_revision: AtomicU64::new(0),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<DevToolsProps>().clone();
     let snapshot = props.snapshot;
-    let selected_path = self.selected_path.get();
+    let mut selected_path = self.selected_path.get();
+    let collapsed_nodes = self.collapsed_nodes.get();
+    let show_inspected_overlay = self.show_inspected_overlay.get();
+    let mut pick_inspected = self.pick_inspected.get();
+
+    if props.picked_revision != self.last_picked_revision.load(Ordering::Relaxed) {
+      self
+        .last_picked_revision
+        .store(props.picked_revision, Ordering::Relaxed);
+      self.pick_inspected.set(false);
+      pick_inspected = false;
+      if let Some(path) = props.picked_path.clone() {
+        self.selected_path.set(path.clone());
+        selected_path = path;
+      }
+    }
+
     let selected = snapshot.selected_node(&selected_path);
 
     Column::new()
-      .child(top_bar::top_bar(snapshot.node_count()))
+      .child(top_bar::top_bar(
+        snapshot.node_count(),
+        show_inspected_overlay,
+        self.show_inspected_overlay.clone(),
+        pick_inspected,
+        self.pick_inspected.clone(),
+        selected_path.clone(),
+        selected.is_some(),
+        props.on_debug_overlay_path.clone(),
+        props.on_overlay_enabled.clone(),
+        props.on_pick_inspected.clone(),
+      ))
       .child(
         Row::new()
           .child(tree_panel::tree_panel(
             &snapshot,
             selected_path,
             self.selected_path.clone(),
-            props.on_inspect_path.clone(),
+            collapsed_nodes,
+            self.collapsed_nodes.clone(),
+            show_inspected_overlay,
+            props.on_debug_overlay_path.clone(),
           ))
           .child(
             Column::new()
@@ -84,6 +132,18 @@ impl Component for DevTools {
   }
 }
 
+pub(crate) fn debug_overlay_path_for_selection(
+  overlay_enabled: bool,
+  selected_path: Vec<usize>,
+  has_selection: bool,
+) -> Option<Vec<usize>> {
+  if overlay_enabled && has_selection {
+    Some(selected_path)
+  } else {
+    None
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -97,9 +157,9 @@ mod tests {
   fn snapshot_collects_tree_nodes() {
     let mut tree = crate::app::Tree::new();
     tree.mount_root::<SnapshotTestApp>(Theme::default(), ());
-    assert!(tree.set_devtools_inspect_path(Some(vec![0])));
-    assert!(!tree.set_devtools_inspect_path(Some(vec![0])));
-    assert!(tree.set_devtools_inspect_path(None));
+    assert!(tree.draw_debug_overlay_over_node(vec![0]));
+    assert!(!tree.draw_debug_overlay_over_node(vec![0]));
+    assert!(tree.clear_debug_overlay());
     tree.draw_perf_overlay();
     assert!(tree.perf_overlay_enabled());
     tree.tick_perf_overlay();
@@ -133,15 +193,51 @@ mod tests {
       child_shape
         .iter()
         .find(|row| row.label == "layout")
-        .map(|row| row.value.as_str()),
+        .and_then(|row| row.value.as_deref()),
       Some("Padding")
     );
+    let padding = child_shape.iter().find(|row| row.label == "padding").unwrap();
+    assert_eq!(padding.value, None);
     assert_eq!(
-      child_shape
+      padding
+        .children
         .iter()
-        .find(|row| row.label == "padding")
-        .map(|row| row.value.as_str()),
-      Some("top 8px, right 8px, bottom 8px, left 8px")
+        .map(|row| (row.label.as_str(), row.value.as_deref()))
+        .collect::<Vec<_>>(),
+      vec![
+        ("left", Some("8px")),
+        ("right", Some("8px")),
+        ("top", Some("8px")),
+        ("bottom", Some("8px")),
+      ]
+    );
+    let hover_style = child_shape.iter().find(|row| row.label == "hover style").unwrap();
+    assert_eq!(
+      hover_style
+        .children
+        .iter()
+        .find(|row| row.label == "fill")
+        .and_then(|row| row.value.as_deref()),
+      Some("#ff0000")
+    );
+    let hover_padding = hover_style.children.iter().find(|row| row.label == "padding").unwrap();
+    assert_eq!(
+      hover_padding
+        .children
+        .iter()
+        .find(|row| row.label == "left")
+        .and_then(|row| row.value.as_deref()),
+      Some("4px")
+    );
+    let active_style = child_shape.iter().find(|row| row.label == "active style").unwrap();
+    let active_frame = active_style.children.iter().find(|row| row.label == "frame").unwrap();
+    assert_eq!(
+      active_frame
+        .children
+        .iter()
+        .find(|row| row.label == "width")
+        .and_then(|row| row.value.as_deref()),
+      Some("32px")
     );
     assert_eq!(
       snapshot
@@ -173,6 +269,16 @@ mod tests {
     assert_eq!(snapshot.root.as_ref().map(|node| node.contexts.len()), Some(2));
   }
 
+  #[test]
+  fn debug_overlay_path_for_selection_respects_toggle_and_selection() {
+    assert_eq!(
+      debug_overlay_path_for_selection(true, vec![1, 2], true),
+      Some(vec![1, 2])
+    );
+    assert_eq!(debug_overlay_path_for_selection(false, vec![1, 2], true), None);
+    assert_eq!(debug_overlay_path_for_selection(true, vec![1, 2], false), None);
+  }
+
   struct SnapshotTestApp {
     count: crate::core::Signal<i32>,
   }
@@ -195,7 +301,9 @@ mod tests {
             FontWeight::Normal,
             style::TEXT,
           )
-          .padding(8.0),
+          .padding(8.0)
+          .hovered(|style| style.fill("#ff0000").padding_left(4.0))
+          .active(|style| style.width(32.0)),
         )
         .child(ctx.mount_keyed::<KeyedChild>("child-key", ()))
     }

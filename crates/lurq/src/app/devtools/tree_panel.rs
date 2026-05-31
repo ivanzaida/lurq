@@ -1,5 +1,5 @@
 use super::{
-  DevToolsInspectCallback,
+  DevToolsDebugOverlayCallback, debug_overlay_path_for_selection,
   snapshot::{DevToolsNode, DevToolsSnapshot},
   style::{
     BLUE, BORDER, FILL, GREEN, MUTED, ORANGE, PRIMARY, SELECTED, SURFACE, SURFACE_2, badge, empty_state, icon,
@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
   components::{Column, Row, ScrollVertical, Spacer},
-  core::Signal,
+  core::{NodeId, Signal},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border, color::Color},
 };
@@ -17,7 +17,10 @@ pub(crate) fn tree_panel(
   snapshot: &DevToolsSnapshot,
   selected_path: Vec<usize>,
   selected: Signal<Vec<usize>>,
-  on_inspect_path: Option<DevToolsInspectCallback>,
+  collapsed_nodes: Vec<NodeId>,
+  collapsed: Signal<Vec<NodeId>>,
+  overlay_enabled: bool,
+  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
 ) -> Element {
   let mut rows = Vec::new();
   if let Some(root) = &snapshot.root {
@@ -27,7 +30,10 @@ pub(crate) fn tree_panel(
       0,
       &selected_path,
       selected,
-      on_inspect_path,
+      &collapsed_nodes,
+      collapsed,
+      overlay_enabled,
+      on_debug_overlay_path,
       &mut rows,
     );
   } else {
@@ -58,17 +64,28 @@ fn collect_tree_rows(
   depth: usize,
   selected_path: &[usize],
   selected: Signal<Vec<usize>>,
-  on_inspect_path: Option<DevToolsInspectCallback>,
+  collapsed_nodes: &[NodeId],
+  collapsed: Signal<Vec<NodeId>>,
+  overlay_enabled: bool,
+  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
   rows: &mut Vec<Element>,
 ) {
+  let is_collapsed = !node.children.is_empty() && collapsed_nodes.contains(&node.id);
   rows.push(tree_row(
     node,
     path.clone(),
     depth,
     path.as_slice() == selected_path,
+    is_collapsed,
     selected.clone(),
-    on_inspect_path.clone(),
+    collapsed.clone(),
+    overlay_enabled,
+    on_debug_overlay_path.clone(),
   ));
+  if is_collapsed {
+    return;
+  }
+
   for (index, child) in node.children.iter().enumerate() {
     path.push(index);
     collect_tree_rows(
@@ -77,7 +94,10 @@ fn collect_tree_rows(
       depth + 1,
       selected_path,
       selected.clone(),
-      on_inspect_path.clone(),
+      collapsed_nodes,
+      collapsed.clone(),
+      overlay_enabled,
+      on_debug_overlay_path.clone(),
       rows,
     );
     path.pop();
@@ -89,12 +109,16 @@ fn tree_row(
   path: Vec<usize>,
   depth: usize,
   selected: bool,
+  collapsed: bool,
   selected_path: Signal<Vec<usize>>,
-  on_inspect_path: Option<DevToolsInspectCallback>,
+  collapsed_nodes: Signal<Vec<NodeId>>,
+  overlay_enabled: bool,
+  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
 ) -> Element {
   let indent = 8.0 + depth as f32 * 16.0;
   let child_count = node.children.len();
   let click_path = path;
+  let collapse_id = node.id;
   let tag = short_tag(&node.tag);
   let key_preview = node.key.as_deref().map(format_attr_value);
   let text_preview = node.text.as_deref().filter(|_| tag == "Text").map(format_attr_value);
@@ -108,7 +132,12 @@ fn tree_row(
     .spacing(6.0)
     .child(Spacer::new().width(indent))
     .child(if child_count > 0 {
-      icon("chevron-down", 12.0, MUTED).width(12.0)
+      let icon_name = if collapsed { "chevron-right" } else { "chevron-down" };
+      icon(icon_name, 12.0, MUTED)
+        .width(12.0)
+        .height(18.0)
+        .cursor(CursorIcon::Pointer)
+        .on_click(move |_| toggle_collapsed(&collapsed_nodes, collapse_id))
     } else {
       text("", 12.0, FontWeight::Normal, MUTED).width(12.0)
     })
@@ -135,8 +164,12 @@ fn tree_row(
     .cursor(CursorIcon::Pointer)
     .on_click(move |_| {
       selected_path.set(click_path.clone());
-      if let Some(on_inspect_path) = &on_inspect_path {
-        on_inspect_path(Some(click_path.clone()));
+      if let Some(on_debug_overlay_path) = &on_debug_overlay_path {
+        on_debug_overlay_path(debug_overlay_path_for_selection(
+          overlay_enabled,
+          click_path.clone(),
+          true,
+        ));
       }
     });
   if selected {
@@ -166,4 +199,92 @@ fn format_attr_value(content: &str) -> String {
   }
 
   format!("\"{escaped}\"")
+}
+
+fn toggle_collapsed(collapsed_nodes: &Signal<Vec<NodeId>>, id: NodeId) {
+  collapsed_nodes.update(|nodes| {
+    if let Some(index) = nodes.iter().position(|node_id| *node_id == id) {
+      nodes.remove(index);
+    } else {
+      nodes.push(id);
+    }
+  });
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::core::IdGenerator;
+
+  #[test]
+  fn toggle_collapsed_adds_and_removes_node_id() {
+    let id = IdGenerator::new().next();
+    let collapsed = Signal::new(Vec::new());
+
+    toggle_collapsed(&collapsed, id);
+    assert_eq!(collapsed.get_untracked(), vec![id]);
+
+    toggle_collapsed(&collapsed, id);
+    assert!(collapsed.get_untracked().is_empty());
+  }
+
+  #[test]
+  fn collect_tree_rows_skips_children_below_collapsed_node() {
+    let ids = IdGenerator::new();
+    let child_id = ids.next();
+    let root = DevToolsNode {
+      id: ids.next(),
+      tag: "Root".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Component,
+      key: None,
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      children: vec![DevToolsNode {
+        id: child_id,
+        tag: "Child".to_owned(),
+        kind: super::super::snapshot::DevToolsNodeKind::Element,
+        key: None,
+        text: None,
+        color: None,
+        props: None,
+        signals: Vec::new(),
+        contexts: Vec::new(),
+        shape: Vec::new(),
+        children: vec![DevToolsNode {
+          id: ids.next(),
+          tag: "Grandchild".to_owned(),
+          kind: super::super::snapshot::DevToolsNodeKind::Element,
+          key: None,
+          text: None,
+          color: None,
+          props: None,
+          signals: Vec::new(),
+          contexts: Vec::new(),
+          shape: Vec::new(),
+          children: Vec::new(),
+        }],
+      }],
+    };
+    let collapsed = Signal::new(vec![child_id]);
+    let mut rows = Vec::new();
+
+    collect_tree_rows(
+      &root,
+      &mut Vec::new(),
+      0,
+      &[],
+      Signal::new(Vec::new()),
+      &collapsed.get_untracked(),
+      collapsed,
+      true,
+      None,
+      &mut rows,
+    );
+
+    assert_eq!(rows.len(), 2);
+  }
 }

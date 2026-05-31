@@ -33,7 +33,10 @@ fn overflow_visible_node_inside_viewport_is_kept() {
 
   let quads = rt.resolve_quads_with_viewport(&result, viewport(200.0, 200.0));
 
-  assert!(quads.len() >= 2, "overflow-visible parent and overflowing child should both be kept");
+  assert!(
+    quads.len() >= 2,
+    "overflow-visible parent and overflowing child should both be kept"
+  );
 }
 
 #[test]

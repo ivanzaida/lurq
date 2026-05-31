@@ -391,7 +391,7 @@ impl ScrollState {
   }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct FlexParams {
   pub grow: f32,
   pub shrink: f32,
@@ -457,7 +457,7 @@ pub enum ScrollAxis {
   Vertical,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub struct FrameConstraints {
   pub width: Option<Dimension>,
   pub height: Option<Dimension>,

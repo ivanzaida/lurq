@@ -314,8 +314,8 @@ fn nested_padding_accumulates() {
     .padding(Padding::all(Dimension::Px(5.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 30.0); // 10 + 5*2 + 5*2
-  assert_eq!(result.size.height, 30.0);
+  assert_eq!(result.size.width, 20.0); // repeated padding calls merge by side
+  assert_eq!(result.size.height, 20.0);
 }
 
 // --- Quad edge cases ---

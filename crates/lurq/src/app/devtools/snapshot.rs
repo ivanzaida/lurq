@@ -14,9 +14,11 @@ use crate::{
   node::{
     ElementRef,
     border::{Border, BorderPlacement, BorderRadius, Borders},
+    cursor::CursorIcon,
     dimension::Dimension,
     node_kind::NodeKind,
     padding::Padding,
+    style::Style,
   },
 };
 
@@ -50,7 +52,8 @@ pub enum DevToolsNodeKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevToolsShapeRow {
   pub label: String,
-  pub value: String,
+  pub value: Option<String>,
+  pub children: Vec<DevToolsShapeRow>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -152,16 +155,29 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
     push_shape_row(&mut rows, "fill", color.to_hex());
   }
   if let Some(radius) = element.node.get_border_radius() {
-    push_shape_row(&mut rows, "radius", format_radius(radius));
+    push_shape_group(&mut rows, "radius", radius_rows(radius));
   }
   if let Some(border) = element.node.get_border() {
-    push_shape_row(&mut rows, "border", format_borders(border));
+    push_shape_group(&mut rows, "border", border_rows(border));
   }
   if (element.node.opacity - 1.0).abs() > f32::EPSILON {
     push_shape_row(&mut rows, "opacity", format_number(element.node.opacity));
   }
+  push_state_style_rows(&mut rows, "hover style", element.node.state_styles.hovered.as_ref());
+  push_state_style_rows(&mut rows, "active style", element.node.state_styles.active.as_ref());
+  push_state_style_rows(&mut rows, "focused style", element.node.state_styles.focused.as_ref());
 
   rows
+}
+
+fn push_state_style_rows(rows: &mut Vec<DevToolsShapeRow>, label: &str, style: Option<&Style>) {
+  let Some(style) = style else {
+    return;
+  };
+  let children = style_rows(style);
+  if !children.is_empty() {
+    push_shape_group(rows, label, children);
+  }
 }
 
 fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
@@ -188,22 +204,27 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
       push_shape_row(rows, "align", stack_alignment_name(*align));
     }
     LayoutKind::PaddingModifier(padding) => {
-      push_shape_row(rows, "padding", format_padding(padding));
+      push_shape_group(rows, "padding", padding_rows(padding));
     }
     LayoutKind::FrameModifier(frame) => {
       push_frame_rows(rows, frame);
     }
     LayoutKind::OffsetModifier { x, y } => {
-      push_shape_row(rows, "offset", format!("x {}, y {}", format_px(*x), format_px(*y)));
+      push_shape_group(
+        rows,
+        "offset",
+        vec![shape_leaf("x", format_px(*x)), shape_leaf("y", format_px(*y))],
+      );
     }
     LayoutKind::AbsoluteModifier { x, y, width, height } => {
-      push_shape_row(rows, "position", format!("x {}, y {}", format_px(*x), format_px(*y)));
+      let mut position = vec![shape_leaf("x", format_px(*x)), shape_leaf("y", format_px(*y))];
       if let Some(width) = width {
-        push_shape_row(rows, "width", format_dimension(width));
+        position.push(shape_leaf("width", format_dimension(width)));
       }
       if let Some(height) = height {
-        push_shape_row(rows, "height", format_dimension(height));
+        position.push(shape_leaf("height", format_dimension(height)));
       }
+      push_shape_group(rows, "position", position);
     }
     LayoutKind::AlignModifier(align) => {
       push_shape_row(rows, "align", alignment_name(*align));
@@ -213,67 +234,124 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
     }
     LayoutKind::ScrollModifier { state, direction } => {
       push_shape_row(rows, "direction", scroll_direction_name(*direction));
-      push_shape_row(
+      push_shape_group(
         rows,
         "scroll",
-        format!("x {}, y {}", format_px(state.scroll_x()), format_px(state.scroll_y())),
+        vec![
+          shape_leaf("x", format_px(state.scroll_x())),
+          shape_leaf("y", format_px(state.scroll_y())),
+        ],
       );
-      push_shape_row(
+      push_shape_group(
         rows,
         "viewport",
-        format!(
-          "{} x {}",
-          format_px(state.viewport_width()),
-          format_px(state.viewport_height())
-        ),
+        vec![
+          shape_leaf("width", format_px(state.viewport_width())),
+          shape_leaf("height", format_px(state.viewport_height())),
+        ],
       );
-      push_shape_row(
+      push_shape_group(
         rows,
         "content",
-        format!(
-          "{} x {}",
-          format_px(state.content_width()),
-          format_px(state.content_height())
-        ),
+        vec![
+          shape_leaf("width", format_px(state.content_width())),
+          shape_leaf("height", format_px(state.content_height())),
+        ],
       );
     }
   }
 }
 
 fn push_frame_rows(rows: &mut Vec<DevToolsShapeRow>, frame: &FrameConstraints) {
+  rows.extend(frame_rows(frame));
+}
+
+fn frame_rows(frame: &FrameConstraints) -> Vec<DevToolsShapeRow> {
+  let mut rows = Vec::new();
   if let Some(value) = frame.width {
-    push_shape_row(rows, "width", format_dimension(&value));
+    push_shape_row(&mut rows, "width", format_dimension(&value));
   }
   if let Some(value) = frame.height {
-    push_shape_row(rows, "height", format_dimension(&value));
+    push_shape_row(&mut rows, "height", format_dimension(&value));
   }
   if let Some(value) = frame.min_width {
-    push_shape_row(rows, "min width", format_dimension(&value));
+    push_shape_row(&mut rows, "min width", format_dimension(&value));
   }
   if let Some(value) = frame.max_width {
-    push_shape_row(rows, "max width", format_dimension(&value));
+    push_shape_row(&mut rows, "max width", format_dimension(&value));
   }
   if let Some(value) = frame.min_height {
-    push_shape_row(rows, "min height", format_dimension(&value));
+    push_shape_row(&mut rows, "min height", format_dimension(&value));
   }
   if let Some(value) = frame.max_height {
-    push_shape_row(rows, "max height", format_dimension(&value));
+    push_shape_row(&mut rows, "max height", format_dimension(&value));
   }
+  rows
 }
 
 fn push_flex_rows(rows: &mut Vec<DevToolsShapeRow>, flex: FlexParams) {
-  push_shape_row(rows, "grow", format_number(flex.grow));
-  push_shape_row(rows, "shrink", format_number(flex.shrink));
+  rows.extend(flex_rows(flex));
+}
+
+fn flex_rows(flex: FlexParams) -> Vec<DevToolsShapeRow> {
+  let mut rows = vec![
+    shape_leaf("grow", format_number(flex.grow)),
+    shape_leaf("shrink", format_number(flex.shrink)),
+  ];
   if let Some(basis) = flex.basis {
-    push_shape_row(rows, "basis", format_px(basis));
+    rows.push(shape_leaf("basis", format_px(basis)));
   }
+  rows
 }
 
 fn push_shape_row(rows: &mut Vec<DevToolsShapeRow>, label: impl Into<String>, value: impl Into<String>) {
-  rows.push(DevToolsShapeRow {
+  rows.push(shape_leaf(label, value));
+}
+
+fn push_shape_group(rows: &mut Vec<DevToolsShapeRow>, label: impl Into<String>, children: Vec<DevToolsShapeRow>) {
+  rows.push(shape_group(label, children));
+}
+
+fn shape_leaf(label: impl Into<String>, value: impl Into<String>) -> DevToolsShapeRow {
+  DevToolsShapeRow {
     label: label.into(),
-    value: value.into(),
-  });
+    value: Some(value.into()),
+    children: Vec::new(),
+  }
+}
+
+fn shape_group(label: impl Into<String>, children: Vec<DevToolsShapeRow>) -> DevToolsShapeRow {
+  DevToolsShapeRow {
+    label: label.into(),
+    value: None,
+    children,
+  }
+}
+
+fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
+  let mut rows = Vec::new();
+  if let Some(color) = style.color {
+    rows.push(shape_leaf("fill", color.to_hex()));
+  }
+  if let Some(radius) = style.border_radius {
+    rows.push(shape_group("radius", radius_rows(radius)));
+  }
+  if let Some(border) = style.border {
+    rows.push(shape_group("border", border_rows(border)));
+  }
+  if let Some(cursor) = style.cursor {
+    rows.push(shape_leaf("cursor", cursor_name(cursor)));
+  }
+  if let Some(frame) = &style.frame {
+    rows.push(shape_group("frame", frame_rows(frame)));
+  }
+  if let Some(padding) = &style.padding {
+    rows.push(shape_group("padding", padding_rows(padding)));
+  }
+  if let Some(flex) = style.flex {
+    rows.push(shape_group("flex", flex_rows(flex)));
+  }
+  rows
 }
 
 fn layout_name(layout: &LayoutKind) -> &'static str {
@@ -359,27 +437,25 @@ fn scroll_direction_name(direction: ScrollDirection) -> &'static str {
   }
 }
 
-fn format_padding(padding: &Padding) -> String {
-  format!(
-    "top {}, right {}, bottom {}, left {}",
-    format_dimension(&padding.top),
-    format_dimension(&padding.right),
-    format_dimension(&padding.bottom),
-    format_dimension(&padding.left)
-  )
+fn padding_rows(padding: &Padding) -> Vec<DevToolsShapeRow> {
+  vec![
+    shape_leaf("left", format_dimension(&padding.left)),
+    shape_leaf("right", format_dimension(&padding.right)),
+    shape_leaf("top", format_dimension(&padding.top)),
+    shape_leaf("bottom", format_dimension(&padding.bottom)),
+  ]
 }
 
-fn format_radius(radius: BorderRadius) -> String {
-  format!(
-    "tl {}, tr {}, br {}, bl {}",
-    format_px(radius.top_left),
-    format_px(radius.top_right),
-    format_px(radius.bottom_right),
-    format_px(radius.bottom_left)
-  )
+fn radius_rows(radius: BorderRadius) -> Vec<DevToolsShapeRow> {
+  vec![
+    shape_leaf("top left", format_px(radius.top_left)),
+    shape_leaf("top right", format_px(radius.top_right)),
+    shape_leaf("bottom right", format_px(radius.bottom_right)),
+    shape_leaf("bottom left", format_px(radius.bottom_left)),
+  ]
 }
 
-fn format_borders(borders: Borders) -> String {
+fn border_rows(borders: Borders) -> Vec<DevToolsShapeRow> {
   [
     ("top", borders.top),
     ("right", borders.right),
@@ -387,18 +463,16 @@ fn format_borders(borders: Borders) -> String {
     ("left", borders.left),
   ]
   .into_iter()
-  .filter_map(|(side, border)| border.map(|border| format!("{side} {}", format_border(border))))
-  .collect::<Vec<_>>()
-  .join(", ")
+  .filter_map(|(side, border)| border.map(|border| shape_group(side, single_border_rows(border))))
+  .collect()
 }
 
-fn format_border(border: Border) -> String {
-  format!(
-    "{} {} {}",
-    format_px(border.width),
-    border.color.to_hex(),
-    border_placement_name(border.placement)
-  )
+fn single_border_rows(border: Border) -> Vec<DevToolsShapeRow> {
+  vec![
+    shape_leaf("width", format_px(border.width)),
+    shape_leaf("color", border.color.to_hex()),
+    shape_leaf("placement", border_placement_name(border.placement)),
+  ]
 }
 
 fn border_placement_name(placement: BorderPlacement) -> &'static str {
@@ -407,6 +481,10 @@ fn border_placement_name(placement: BorderPlacement) -> &'static str {
     BorderPlacement::Outside => "outside",
     BorderPlacement::Center => "center",
   }
+}
+
+fn cursor_name(cursor: CursorIcon) -> String {
+  format!("{cursor:?}")
 }
 
 fn format_dimension(value: &Dimension) -> String {

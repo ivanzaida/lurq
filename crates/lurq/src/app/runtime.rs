@@ -1,3 +1,5 @@
+#[cfg(feature = "devtools")]
+use std::sync::Mutex;
 use std::{
   sync::Arc,
   time::{Duration, Instant},
@@ -5,6 +7,10 @@ use std::{
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
+#[cfg(feature = "devtools")]
+use crate::app::devtools::{
+  DevTools, DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsProps, DevToolsSnapshot,
+};
 use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
@@ -43,6 +49,8 @@ const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(feature = "devtools")]
+const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
@@ -103,11 +111,53 @@ pub struct Tree {
   perf_overlay_last_seen_frame: u64,
   perf_overlay_frames_since_sample: u64,
   #[cfg(feature = "devtools")]
-  devtools_inspect_path: Option<Vec<usize>>,
+  pub(crate) devtools: Option<Box<Tree>>,
+  #[cfg(feature = "devtools")]
+  devtools_state: DevToolsState,
+  #[cfg(feature = "devtools")]
+  debug_overlay_node_path: Option<Vec<usize>>,
   frame_count: u64,
   last_profile: FrameProfile,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
+}
+
+#[cfg(feature = "devtools")]
+struct DevToolsState {
+  debug_overlay_path: Arc<Mutex<Option<Vec<usize>>>>,
+  overlay_enabled: Arc<Mutex<bool>>,
+  pick_mode: Arc<Mutex<bool>>,
+  picked_path: Option<Vec<usize>>,
+  picked_revision: u64,
+  last_sync: Instant,
+}
+
+#[cfg(feature = "devtools")]
+impl Default for DevToolsState {
+  fn default() -> Self {
+    Self {
+      debug_overlay_path: Arc::new(Mutex::new(None)),
+      overlay_enabled: Arc::new(Mutex::new(true)),
+      pick_mode: Arc::new(Mutex::new(false)),
+      picked_path: None,
+      picked_revision: 0,
+      last_sync: Instant::now() - DEVTOOLS_SYNC_INTERVAL,
+    }
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_debug_overlay_callback(debug_overlay_path: Arc<Mutex<Option<Vec<usize>>>>) -> DevToolsDebugOverlayCallback {
+  Arc::new(move |path| {
+    *debug_overlay_path.lock().unwrap() = path;
+  })
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_bool_callback(value: Arc<Mutex<bool>>) -> DevToolsBoolCallback {
+  Arc::new(move |enabled| {
+    *value.lock().unwrap() = enabled;
+  })
 }
 
 impl Default for Tree {
@@ -148,7 +198,11 @@ impl Tree {
       perf_overlay_last_seen_frame: 0,
       perf_overlay_frames_since_sample: 0,
       #[cfg(feature = "devtools")]
-      devtools_inspect_path: None,
+      devtools: None,
+      #[cfg(feature = "devtools")]
+      devtools_state: DevToolsState::default(),
+      #[cfg(feature = "devtools")]
+      debug_overlay_node_path: None,
       frame_count: 0,
       last_profile: FrameProfile::default(),
       transition_engine: TransitionEngine::new(),
@@ -257,6 +311,112 @@ impl Tree {
 
   pub fn set_render_engine(&mut self, engine: Box<dyn RenderEngine>) {
     self.render_engine = Some(engine);
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn mount_devtools(&mut self, theme: crate::app::theme::Theme, render_engine: Box<dyn RenderEngine>) {
+    let mut devtools = Tree::new();
+    devtools.set_render_engine(render_engine);
+    devtools.draw_perf_overlay();
+    devtools.mount_root::<DevTools>(theme, self.devtools_props(DevToolsSnapshot::from_tree(self)));
+    self.devtools = Some(Box::new(devtools));
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn devtools(&self) -> Option<&Tree> {
+    self.devtools.as_deref()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn devtools_mut(&mut self) -> Option<&mut Tree> {
+    self.devtools.as_deref_mut()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn close_devtools(&mut self) -> bool {
+    self.devtools = None;
+    *self.devtools_state.debug_overlay_path.lock().unwrap() = None;
+    *self.devtools_state.pick_mode.lock().unwrap() = false;
+    self.clear_debug_overlay()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn devtools_pick_mode(&self) -> bool {
+    *self.devtools_state.pick_mode.lock().unwrap()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn pick_devtools_node_at(&mut self, x: f32, y: f32) -> Option<Vec<usize>> {
+    let picked_path = self.debug_overlay_node_at(x, y);
+    *self.devtools_state.pick_mode.lock().unwrap() = false;
+    self.devtools_state.picked_path = picked_path.clone();
+    self.devtools_state.picked_revision = self.devtools_state.picked_revision.saturating_add(1);
+
+    let overlay_enabled = *self.devtools_state.overlay_enabled.lock().unwrap();
+    *self.devtools_state.debug_overlay_path.lock().unwrap() = if overlay_enabled { picked_path.clone() } else { None };
+    self.apply_devtools_requests();
+    self.sync_devtools_now();
+    picked_path
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn cancel_devtools_pick(&mut self) {
+    *self.devtools_state.pick_mode.lock().unwrap() = false;
+    self.devtools_state.picked_path = None;
+    self.devtools_state.picked_revision = self.devtools_state.picked_revision.saturating_add(1);
+    self.sync_devtools_now();
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn apply_devtools_requests(&mut self) -> bool {
+    let debug_overlay_path = self.devtools_state.debug_overlay_path.lock().unwrap().clone();
+    match debug_overlay_path {
+      Some(path) => self.draw_debug_overlay_over_node(path),
+      None => self.clear_debug_overlay(),
+    }
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn sync_devtools_now(&mut self) {
+    self.sync_devtools_inner(true);
+  }
+
+  #[cfg(feature = "devtools")]
+  fn sync_devtools(&mut self) {
+    self.sync_devtools_inner(false);
+  }
+
+  #[cfg(feature = "devtools")]
+  fn sync_devtools_inner(&mut self, force: bool) {
+    if self.devtools.is_none() {
+      return;
+    }
+
+    let now = Instant::now();
+    if !force && now.duration_since(self.devtools_state.last_sync) < DEVTOOLS_SYNC_INTERVAL {
+      return;
+    }
+
+    let props = self.devtools_props(DevToolsSnapshot::from_tree(self));
+    let Some(devtools) = self.devtools.as_deref_mut() else {
+      return;
+    };
+    devtools.update_root_props::<DevTools>(props);
+    self.devtools_state.last_sync = now;
+  }
+
+  #[cfg(feature = "devtools")]
+  fn devtools_props(&self, snapshot: DevToolsSnapshot) -> DevToolsProps {
+    DevToolsProps {
+      snapshot,
+      picked_path: self.devtools_state.picked_path.clone(),
+      picked_revision: self.devtools_state.picked_revision,
+      on_debug_overlay_path: Some(devtools_debug_overlay_callback(
+        self.devtools_state.debug_overlay_path.clone(),
+      )),
+      on_overlay_enabled: Some(devtools_bool_callback(self.devtools_state.overlay_enabled.clone())),
+      on_pick_inspected: Some(devtools_bool_callback(self.devtools_state.pick_mode.clone())),
+    }
   }
 
   fn clear_animation_runtime_state(&mut self) {
@@ -424,7 +584,9 @@ impl Tree {
       height: self.viewport_physical.height / scale,
       active: true,
     };
-    let quads = self.layout_engine.resolve_quads_with_viewport(root, &result, viewport_clip);
+    let quads = self
+      .layout_engine
+      .resolve_quads_with_viewport(root, &result, viewport_clip);
     let quad_dur = ProfileScope::elapsed_or_default(&quad_start);
     let quad_count = quads.len();
     #[cfg(feature = "devtools")]
@@ -649,6 +811,8 @@ impl Tree {
       };
     }
     self.frame_count += 1;
+    #[cfg(feature = "devtools")]
+    self.sync_devtools();
   }
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
@@ -1379,11 +1543,33 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
-  pub(crate) fn set_devtools_inspect_path(&mut self, path: Option<Vec<usize>>) -> bool {
-    if self.devtools_inspect_path == path {
+  pub(crate) fn draw_debug_overlay_over_node(&mut self, path: Vec<usize>) -> bool {
+    self.set_debug_overlay_node_path(Some(path))
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn clear_debug_overlay(&mut self) -> bool {
+    self.set_debug_overlay_node_path(None)
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn debug_overlay_node_at(&mut self, x: f32, y: f32) -> Option<Vec<usize>> {
+    self.rebuild_if_dirty();
+    let root = self.root.as_ref()?;
+    let result = self.last_layout.as_ref()?;
+    let scale = self.scale_factor();
+    let mut hits = Vec::new();
+    hit_test_tree(root, result, 0.0, 0.0, x / scale, y / scale, &mut hits);
+    let node = hits.first()?.0;
+    find_path_by_id(root, node.node_id())
+  }
+
+  #[cfg(feature = "devtools")]
+  fn set_debug_overlay_node_path(&mut self, path: Option<Vec<usize>>) -> bool {
+    if self.debug_overlay_node_path == path {
       return false;
     }
-    self.devtools_inspect_path = path;
+    self.debug_overlay_node_path = path;
     self.needs_redraw = true;
     true
   }
@@ -1973,7 +2159,7 @@ struct DevtoolsOverlayTarget {
 #[cfg(feature = "devtools")]
 impl Tree {
   fn devtools_overlay_target(&self, root: &Node, layout: &LayoutResult) -> Option<DevtoolsOverlayTarget> {
-    let path = self.devtools_inspect_path.as_deref()?;
+    let path = self.debug_overlay_node_path.as_deref()?;
     devtools_overlay_target_at_path(root, layout, path, 0.0, 0.0)
   }
 }

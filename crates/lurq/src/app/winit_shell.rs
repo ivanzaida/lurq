@@ -1,5 +1,3 @@
-#[cfg(feature = "devtools")]
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use winit::{
@@ -11,10 +9,7 @@ use winit::{
 };
 
 #[cfg(feature = "devtools")]
-use crate::app::{
-  devtools::{DevTools, DevToolsInspectCallback, DevToolsProps, DevToolsSnapshot},
-  render_engine::RenderEngine,
-};
+use crate::app::render_engine::RenderEngine;
 use crate::{
   app::{
     App, Tree,
@@ -25,9 +20,6 @@ use crate::{
 
 type TickFn = Box<dyn FnMut(&mut Tree)>;
 const TICK_INTERVAL: Duration = Duration::from_millis(16);
-
-#[cfg(feature = "devtools")]
-const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 
 #[cfg(feature = "devtools")]
 type RenderEngineFactory = Box<dyn Fn() -> Box<dyn RenderEngine>>;
@@ -124,31 +116,24 @@ impl WinitWindow {
     let event_loop = EventLoop::new().unwrap();
 
     #[cfg(feature = "devtools")]
-    let (devtools, devtools_inspect_path) = if let Some(config) = self.devtools {
-      let inspect_path = Arc::new(Mutex::new(None));
-      let snapshot = DevToolsSnapshot::from_tree(&self.tree);
-      let props = DevToolsProps {
-        snapshot,
-        on_inspect_path: Some(devtools_inspect_callback(inspect_path.clone())),
+    let (tree, devtools) = {
+      let mut tree = self.tree;
+      let devtools = if let Some(config) = self.devtools {
+        tree.mount_devtools(self.app.theme().clone(), (config.render_engine_factory)());
+        Some(ManagedDevtoolsWindow::new(config.attrs))
+      } else {
+        None
       };
-      let mut tree = Tree::new();
-      tree.set_render_engine((config.render_engine_factory)());
-      tree.draw_perf_overlay();
-      tree.mount_root::<DevTools>(self.app.theme().clone(), props);
-      (Some(ManagedWindow::new(tree, config.attrs, None, false)), inspect_path)
-    } else {
-      (None, Arc::new(Mutex::new(None)))
+      (tree, devtools)
     };
+    #[cfg(not(feature = "devtools"))]
+    let tree = self.tree;
 
     let mut handler = WinitHandler {
       app: self.app,
-      main: ManagedWindow::new(self.tree, self.attrs, self.on_tick, true),
+      main: ManagedWindow::new(tree, self.attrs, self.on_tick, true),
       #[cfg(feature = "devtools")]
       devtools,
-      #[cfg(feature = "devtools")]
-      devtools_inspect_path,
-      #[cfg(feature = "devtools")]
-      last_devtools_sync: Instant::now() - DEVTOOLS_SYNC_INTERVAL,
     };
     event_loop.run_app(&mut handler).unwrap();
   }
@@ -348,53 +333,252 @@ impl ManagedWindow {
   }
 }
 
+#[cfg(feature = "devtools")]
+struct ManagedDevtoolsWindow {
+  window: Option<Window>,
+  cursor_pos: (f64, f64),
+  cursor: CursorIcon,
+  modifiers: ModifiersState,
+  attrs: Option<WindowAttributes>,
+  redraw_pending: bool,
+}
+
+#[cfg(feature = "devtools")]
+impl ManagedDevtoolsWindow {
+  fn new(attrs: WindowAttributes) -> Self {
+    Self {
+      window: None,
+      cursor_pos: (0.0, 0.0),
+      cursor: CursorIcon::Default,
+      modifiers: ModifiersState::empty(),
+      attrs: Some(attrs),
+      redraw_pending: false,
+    }
+  }
+
+  fn window_id(&self) -> Option<WindowId> {
+    self.window.as_ref().map(Window::id)
+  }
+
+  fn has_tick(&self, tree: Option<&Tree>) -> bool {
+    tree.is_some_and(Tree::perf_overlay_enabled)
+  }
+
+  fn create_window(&mut self, event_loop: &ActiveEventLoop, tree: &mut Tree) {
+    if self.window.is_some() {
+      return;
+    }
+
+    let attrs = self.attrs.take().unwrap_or_default();
+    let window = event_loop.create_window(attrs).unwrap();
+    let size = window.inner_size();
+    tree.set_scale_factor(window.scale_factor() as f32);
+    tree.resize(size.width, size.height);
+    self.window = Some(window);
+    self.request_redraw();
+  }
+
+  fn check_redraw(&mut self, tree: &Tree) {
+    if tree.needs_redraw() {
+      self.request_redraw();
+    }
+  }
+
+  fn request_redraw(&mut self) {
+    if !self.redraw_pending
+      && let Some(w) = &self.window
+    {
+      self.redraw_pending = true;
+      w.request_redraw();
+    }
+  }
+
+  fn present_now(&mut self, app: &mut App, tree: &mut Tree) -> bool {
+    if let Some(w) = &self.window {
+      let size = w.inner_size();
+      tree.set_scale_factor(w.scale_factor() as f32);
+      tree.resize(size.width, size.height);
+      self.redraw_pending = false;
+      tree.clear_needs_redraw();
+      tree.pass(app, w);
+      self.check_redraw(tree);
+      return true;
+    }
+    false
+  }
+
+  fn apply_cursor(&mut self, tree: &Tree) {
+    let cursor = tree.cursor();
+    if cursor == self.cursor {
+      return;
+    }
+
+    if let Some(window) = &self.window {
+      window.set_cursor(to_winit_cursor(cursor));
+    }
+    self.cursor = cursor;
+  }
+
+  fn tick(&mut self, tree: &mut Tree) {
+    tree.tick_perf_overlay();
+    self.check_redraw(tree);
+  }
+
+  fn handle_event(
+    &mut self,
+    app: &mut App,
+    _event_loop: &ActiveEventLoop,
+    event: WindowEvent,
+    tree: &mut Tree,
+  ) -> bool {
+    match event {
+      WindowEvent::CloseRequested => {
+        self.window = None;
+        self.redraw_pending = false;
+      }
+      WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+        tree.set_scale_factor(scale_factor as f32);
+        if let Some(w) = &self.window {
+          let size = w.inner_size();
+          tree.resize(size.width, size.height);
+          self.request_redraw();
+        }
+      }
+      WindowEvent::Resized(size) => {
+        tree.resize(size.width, size.height);
+        self.request_redraw();
+      }
+      WindowEvent::CursorMoved { position, .. } => {
+        self.cursor_pos = (position.x, position.y);
+        tree.mouse_move(position.x as f32, position.y as f32);
+        self.apply_cursor(tree);
+        self.check_redraw(tree);
+      }
+      WindowEvent::CursorLeft { .. } => {
+        tree.mouse_leave_window();
+        self.apply_cursor(tree);
+        self.check_redraw(tree);
+      }
+      WindowEvent::MouseInput { state, button, .. } => {
+        let btn = match button {
+          winit::event::MouseButton::Left => MouseButton::Left,
+          winit::event::MouseButton::Right => MouseButton::Right,
+          winit::event::MouseButton::Middle => MouseButton::Middle,
+          _ => MouseButton::Left,
+        };
+        let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+        match state {
+          ElementState::Pressed => tree.mouse_down(x, y, btn),
+          ElementState::Released => {
+            tree.mouse_up(x, y, btn);
+            tree.click(x, y, btn);
+          }
+        }
+        self.apply_cursor(tree);
+        self.check_redraw(tree);
+      }
+      WindowEvent::ModifiersChanged(modifiers) => {
+        self.modifiers = modifiers.state();
+      }
+      WindowEvent::KeyboardInput { event, .. } => {
+        if matches!(event.state, ElementState::Pressed) {
+          tree.key_down(
+            key_to_string(&event),
+            physical_key_to_string(&event.physical_key),
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          );
+          self.apply_cursor(tree);
+          self.check_redraw(tree);
+        }
+      }
+      WindowEvent::MouseWheel { delta, phase, .. } => {
+        let (mut dx, mut dy) = match delta {
+          MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
+          MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+        };
+        if self.modifiers.shift_key() && dx == 0.0 {
+          dx = dy;
+          dy = 0.0;
+        }
+        let scroll_phase = match phase {
+          TouchPhase::Started => ScrollPhase::Start,
+          TouchPhase::Moved => ScrollPhase::Scroll,
+          TouchPhase::Ended | TouchPhase::Cancelled => ScrollPhase::End,
+        };
+        tree.scroll(self.cursor_pos.0 as f32, self.cursor_pos.1 as f32, dx, dy, scroll_phase);
+        self.apply_cursor(tree);
+        self.check_redraw(tree);
+      }
+      WindowEvent::RedrawRequested => {
+        return self.present_now(app, tree);
+      }
+      _ => {}
+    }
+    false
+  }
+}
+
 struct WinitHandler {
   app: App,
   main: ManagedWindow,
   #[cfg(feature = "devtools")]
-  devtools: Option<ManagedWindow>,
-  #[cfg(feature = "devtools")]
-  devtools_inspect_path: Arc<Mutex<Option<Vec<usize>>>>,
-  #[cfg(feature = "devtools")]
-  last_devtools_sync: Instant,
-}
-
-#[cfg(feature = "devtools")]
-fn devtools_inspect_callback(inspect_path: Arc<Mutex<Option<Vec<usize>>>>) -> DevToolsInspectCallback {
-  Arc::new(move |path| {
-    *inspect_path.lock().unwrap() = path;
-  })
+  devtools: Option<ManagedDevtoolsWindow>,
 }
 
 impl WinitHandler {
   #[cfg(feature = "devtools")]
-  fn sync_devtools(&mut self) {
-    let now = Instant::now();
-    if now.duration_since(self.last_devtools_sync) < DEVTOOLS_SYNC_INTERVAL {
-      return;
-    }
-
-    let Some(devtools) = &mut self.devtools else {
+  fn check_devtools_redraw(&mut self) {
+    let (Some(devtools_window), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools()) else {
       return;
     };
-    if devtools.window.is_none() {
-      return;
-    }
-
-    let snapshot = DevToolsSnapshot::from_tree(&self.main.tree);
-    devtools.tree.update_root_props::<DevTools>(DevToolsProps {
-      snapshot,
-      on_inspect_path: Some(devtools_inspect_callback(self.devtools_inspect_path.clone())),
-    });
-    devtools.check_redraw();
-    self.last_devtools_sync = now;
+    devtools_window.check_redraw(devtools_tree);
   }
 
   #[cfg(feature = "devtools")]
-  fn sync_devtools_overlay(&mut self) {
-    let inspect_path = self.devtools_inspect_path.lock().unwrap().clone();
-    if self.main.tree.set_devtools_inspect_path(inspect_path) {
+  fn apply_devtools_requests(&mut self) {
+    if self.main.tree.apply_devtools_requests() {
       self.main.request_redraw();
+    }
+    self.check_devtools_redraw();
+  }
+
+  #[cfg(feature = "devtools")]
+  fn handle_devtools_pick_event(&mut self, event: &WindowEvent) -> bool {
+    if !self.main.tree.devtools_pick_mode() {
+      return false;
+    }
+
+    match event {
+      WindowEvent::CursorMoved { position, .. } => {
+        self.main.cursor_pos = (position.x, position.y);
+        true
+      }
+      WindowEvent::MouseInput { state, button, .. } => {
+        if *button != winit::event::MouseButton::Left {
+          return true;
+        }
+
+        if matches!(state, ElementState::Pressed) {
+          return true;
+        }
+
+        let (x, y) = (self.main.cursor_pos.0 as f32, self.main.cursor_pos.1 as f32);
+        self.main.tree.pick_devtools_node_at(x, y);
+        self.main.request_redraw();
+        self.check_devtools_redraw();
+        true
+      }
+      WindowEvent::KeyboardInput { event, .. }
+        if matches!(event.state, ElementState::Pressed)
+          && matches!(event.logical_key, Key::Named(NamedKey::Escape)) =>
+      {
+        self.main.tree.cancel_devtools_pick();
+        self.check_devtools_redraw();
+        true
+      }
+      _ => false,
     }
   }
 }
@@ -403,32 +587,46 @@ impl ApplicationHandler for WinitHandler {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop);
     #[cfg(feature = "devtools")]
-    if let Some(devtools) = &mut self.devtools {
-      devtools.create_window(event_loop);
+    if let (Some(devtools), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools_mut()) {
+      devtools.create_window(event_loop, devtools_tree);
     }
   }
 
   fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
     if self.main.window_id() == Some(id) {
       #[cfg(feature = "devtools")]
+      if self.handle_devtools_pick_event(&event) {
+        return;
+      }
+      #[cfg(feature = "devtools")]
       let presented = self.main.handle_event(&mut self.app, event_loop, event);
       #[cfg(not(feature = "devtools"))]
       self.main.handle_event(&mut self.app, event_loop, event);
       #[cfg(feature = "devtools")]
       if presented {
-        self.sync_devtools();
+        self.check_devtools_redraw();
       }
       return;
     }
 
     #[cfg(feature = "devtools")]
-    if let Some(devtools) = &mut self.devtools {
-      if devtools.window_id() == Some(id) {
-        devtools.handle_event(&mut self.app, event_loop, event);
-        if devtools.window.is_none() {
-          *self.devtools_inspect_path.lock().unwrap() = None;
+    if self
+      .devtools
+      .as_ref()
+      .is_some_and(|devtools| devtools.window_id() == Some(id))
+    {
+      let mut closed = false;
+      if let (Some(devtools), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools_mut()) {
+        devtools.handle_event(&mut self.app, event_loop, event, devtools_tree);
+        closed = devtools.window.is_none();
+      }
+      if closed {
+        if self.main.tree.close_devtools() {
+          self.main.request_redraw();
         }
-        self.sync_devtools_overlay();
+        self.devtools = None;
+      } else {
+        self.apply_devtools_requests();
       }
     }
   }
@@ -436,12 +634,15 @@ impl ApplicationHandler for WinitHandler {
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     self.main.tick();
     #[cfg(feature = "devtools")]
-    if let Some(devtools) = &mut self.devtools {
-      devtools.tick();
+    if let (Some(devtools), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools_mut()) {
+      devtools.tick(devtools_tree);
     }
 
     #[cfg(feature = "devtools")]
-    let devtools_has_tick = self.devtools.as_ref().is_some_and(ManagedWindow::has_tick);
+    let devtools_has_tick = self
+      .devtools
+      .as_ref()
+      .is_some_and(|devtools| devtools.has_tick(self.main.tree.devtools()));
     #[cfg(not(feature = "devtools"))]
     let devtools_has_tick = false;
 

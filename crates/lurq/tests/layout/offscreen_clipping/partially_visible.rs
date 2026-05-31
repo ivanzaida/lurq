@@ -35,7 +35,11 @@ fn partially_visible_node_is_kept() {
 
   let quads = rt.resolve_quads_with_viewport(&result, viewport(100.0, 100.0));
 
-  assert_eq!(quads.len(), 2, "second node at y=80 overlaps viewport bottom — must be kept");
+  assert_eq!(
+    quads.len(),
+    2,
+    "second node at y=80 overlaps viewport bottom — must be kept"
+  );
 }
 
 #[test]
@@ -55,7 +59,11 @@ fn node_touching_viewport_edge_is_kept() {
   // Node 2 starts at y=100, viewport ends at y=100 — no overlap
   let quads = rt.resolve_quads_with_viewport(&result, viewport(100.0, 100.0));
 
-  assert_eq!(quads.len(), 1, "node starting exactly at viewport edge has zero overlap — culled");
+  assert_eq!(
+    quads.len(),
+    1,
+    "node starting exactly at viewport edge has zero overlap — culled"
+  );
 }
 
 #[test]

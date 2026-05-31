@@ -1,6 +1,6 @@
 use crate::layout::StackAlignment;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Alignment {
   #[default]
   Start,

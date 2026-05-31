@@ -1064,6 +1064,11 @@ impl Node {
   }
 
   pub(crate) fn preserve_runtime_state_from(&mut self, old: &Node) {
+    self.clear_unchanged_guard_flags_from(old);
+    if self.layout_signature_matches(old) {
+      self.layout_cache.preserve_from(&old.layout_cache);
+    }
+
     if let (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) =
       (&self.node_kind, &old.node_kind)
     {
@@ -1085,6 +1090,115 @@ impl Node {
 
     for (child, old_child) in self.children.iter_mut().zip(old.children.iter()) {
       child.preserve_runtime_state_from(old_child);
+    }
+  }
+
+  fn clear_unchanged_guard_flags_from(&self, old: &Node) {
+    if self.text_content.as_ref() == old.text_content.as_ref() {
+      self.text_content.clear_changed();
+    }
+    if self.color.as_ref() == old.color.as_ref() {
+      self.color.clear_changed();
+    }
+    if self.border_radius.as_ref() == old.border_radius.as_ref() {
+      self.border_radius.clear_changed();
+    }
+    if self.border.as_ref() == old.border.as_ref() {
+      self.border.clear_changed();
+    }
+  }
+
+  fn layout_signature_matches(&self, old: &Node) -> bool {
+    self.layout_kind_matches_for_cache(old)
+      && self.node_kind_matches_for_cache(old)
+      && self.text_wrap == old.text_wrap
+      && self.overflow == old.overflow
+      && self.intrinsic_size == old.intrinsic_size
+      && self.animation_overrides.is_empty()
+      && old.animation_overrides.is_empty()
+      && self.children.len() == old.children.len()
+      && self
+        .children
+        .iter()
+        .zip(old.children.iter())
+        .all(|(child, old_child)| child.layout_signature_matches(old_child))
+  }
+
+  fn layout_kind_matches_for_cache(&self, old: &Node) -> bool {
+    match (&self.layout_kind, &old.layout_kind) {
+      (LayoutKind::Leaf, LayoutKind::Leaf) => true,
+      (
+        LayoutKind::Row {
+          spacing,
+          align,
+          justify,
+          wrap,
+        },
+        LayoutKind::Row {
+          spacing: old_spacing,
+          align: old_align,
+          justify: old_justify,
+          wrap: old_wrap,
+        },
+      )
+      | (
+        LayoutKind::Column {
+          spacing,
+          align,
+          justify,
+          wrap,
+        },
+        LayoutKind::Column {
+          spacing: old_spacing,
+          align: old_align,
+          justify: old_justify,
+          wrap: old_wrap,
+        },
+      ) => spacing == old_spacing && align == old_align && justify == old_justify && wrap == old_wrap,
+      (LayoutKind::Stack { align }, LayoutKind::Stack { align: old_align }) => align == old_align,
+      (LayoutKind::PaddingModifier(padding), LayoutKind::PaddingModifier(old_padding)) => padding == old_padding,
+      (LayoutKind::FrameModifier(frame), LayoutKind::FrameModifier(old_frame)) => frame == old_frame,
+      (LayoutKind::OffsetModifier { x, y }, LayoutKind::OffsetModifier { x: old_x, y: old_y }) => {
+        x == old_x && y == old_y
+      }
+      (
+        LayoutKind::AbsoluteModifier { x, y, width, height },
+        LayoutKind::AbsoluteModifier {
+          x: old_x,
+          y: old_y,
+          width: old_width,
+          height: old_height,
+        },
+      ) => x == old_x && y == old_y && width == old_width && height == old_height,
+      (LayoutKind::AlignModifier(align), LayoutKind::AlignModifier(old_align)) => align == old_align,
+      (LayoutKind::FlexModifier(flex), LayoutKind::FlexModifier(old_flex)) => flex == old_flex,
+      (
+        LayoutKind::ScrollModifier { direction, .. },
+        LayoutKind::ScrollModifier {
+          direction: old_direction,
+          ..
+        },
+      ) => direction == old_direction,
+      _ => false,
+    }
+  }
+
+  fn node_kind_matches_for_cache(&self, old: &Node) -> bool {
+    match (&self.node_kind, &old.node_kind) {
+      (NodeKind::Empty, NodeKind::Empty) => true,
+      (NodeKind::Text { style }, NodeKind::Text { style: old_style }) => style == old_style,
+      (NodeKind::TextInput { style, .. }, NodeKind::TextInput { style: old_style, .. }) => style == old_style,
+      (NodeKind::Checkbox { .. }, NodeKind::Checkbox { .. }) => true,
+      (NodeKind::Slider { .. }, NodeKind::Slider { .. }) => true,
+      #[cfg(feature = "image")]
+      (NodeKind::Image { data }, NodeKind::Image { data: old_data }) => data.id() == old_data.id(),
+      #[cfg(feature = "image")]
+      (NodeKind::ResourceImage { path }, NodeKind::ResourceImage { path: old_path }) => path == old_path,
+      #[cfg(feature = "svg")]
+      (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
+      #[cfg(all(feature = "svg", feature = "resources"))]
+      (NodeKind::ResourceSvg { path }, NodeKind::ResourceSvg { path: old_path }) => path == old_path,
+      _ => false,
     }
   }
 

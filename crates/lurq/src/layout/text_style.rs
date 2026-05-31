@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::node::color::Color;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TextStyle {
   pub font_family: Arc<str>,
   pub font_size: f32,
@@ -36,7 +36,7 @@ fn default_font_family() -> Arc<str> {
   }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum FontWeight {
   Thin,
   Light,
@@ -60,7 +60,7 @@ impl FontWeight {
   }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum FontStyle {
   #[default]
   Normal,
