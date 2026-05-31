@@ -2,14 +2,19 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::core::{signal::Signal, tracking};
+#[cfg(feature = "devtools")]
+use crate::core::signal::Subscription;
+use crate::core::{
+  signal::{Signal, SignalValue},
+  tracking,
+};
 
-pub struct Memo<T: Clone + PartialEq + Send + Sync + 'static> {
+pub struct Memo<T: SignalValue + Clone + PartialEq + Send + Sync + 'static> {
   output: Signal<T>,
   _subscriptions: Arc<Mutex<Vec<Box<dyn Send + Sync>>>>,
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Memo<T> {
+impl<T: SignalValue + Clone + PartialEq + Send + Sync + 'static> Memo<T> {
   pub fn new(f: impl Fn() -> T + Send + Sync + 'static) -> Self {
     tracking::start_tracking();
     let initial = f();
@@ -48,9 +53,23 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Memo<T> {
   pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
     self.output.with(f)
   }
+
+  pub fn id(&self) -> usize {
+    self.output.id()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn subscribe(&self, sub: impl Fn(&T) + Send + Sync + 'static) -> Subscription<T> {
+    self.output.subscribe_debug(sub)
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn devtools_subscriber_count(&self) -> Arc<std::sync::atomic::AtomicUsize> {
+    self.output.devtools_subscriber_count()
+  }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Clone for Memo<T> {
+impl<T: SignalValue + Clone + PartialEq + Send + Sync + 'static> Clone for Memo<T> {
   fn clone(&self) -> Self {
     Self {
       output: self.output.clone(),

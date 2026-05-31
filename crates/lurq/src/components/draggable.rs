@@ -41,7 +41,7 @@ impl fmt::Debug for DraggableProps {
   }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, crate::DevtoolsInspectable)]
 pub enum DropMissBehavior {
   #[default]
   KeepPosition,

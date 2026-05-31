@@ -6,6 +6,7 @@ use super::{
   },
 };
 use crate::{
+  app::component::ComponentInfo,
   components::{Column, Rect, Row, ScrollVertical, Spacer, Text},
   layout::{
     Alignment,
@@ -42,7 +43,7 @@ pub(crate) fn inspector_panel(selected: Option<&DevToolsNode>, frame: FrameProfi
       ScrollVertical::new(
         details
           .child(render_section(&title, &node_id, &child_summary, frame))
-          .child(collapsed_section("EFFECTS", "circle-play", PINK, "0")),
+          .child(effects_section(selected)),
       )
       .width(FILL)
       .height(FILL),
@@ -87,9 +88,9 @@ fn props_section(selected: Option<&DevToolsNode>) -> Element {
     if props.fields.is_empty() {
       section = section.child(props_empty_row());
     } else {
-      section = section.child(prop_row("type", short_type_name(&props.type_name), ORANGE));
+      section = section.child(prop_struct_row(&short_type_name(&props.type_name)));
       for field in &props.fields {
-        section = section.child(prop_row(field.name(), short_type_name(field.value()), TEXT));
+        section = section.child(prop_info_row(field, 0));
       }
     }
   } else {
@@ -116,7 +117,11 @@ fn signals_section(selected: Option<&DevToolsNode>) -> Element {
     section = section.child(signal_empty_row());
   } else {
     for signal in signals {
-      section = section.child(signal_row(signal.id, &signal.type_name));
+      section = section.child(signal_row(
+        signal.id,
+        &signal.type_name,
+        signal.formatted_value().as_deref(),
+      ));
     }
     section = section.child(Spacer::new().height(4.0));
   }
@@ -147,14 +152,6 @@ fn render_section(title: &str, node_id: &str, child_summary: &str, frame: FrameP
     .into()
 }
 
-fn collapsed_section(title: &str, icon_name: &str, color: &str, count: &str) -> Element {
-  Column::new()
-    .child(section_header(title, Some(icon_name), color, count, false))
-    .width(FILL)
-    .border_bottom(divider())
-    .into()
-}
-
 fn context_section(selected: Option<&DevToolsNode>) -> Element {
   let contexts = selected.map(|node| node.contexts.as_slice()).unwrap_or(&[]);
   let mut section = Column::new()
@@ -173,6 +170,31 @@ fn context_section(selected: Option<&DevToolsNode>) -> Element {
   } else {
     for context in contexts {
       section = section.child(context_row(context.kind, &context.type_name));
+    }
+    section = section.child(Spacer::new().height(4.0));
+  }
+
+  section.into()
+}
+
+fn effects_section(selected: Option<&DevToolsNode>) -> Element {
+  let effects = selected.map(|node| node.effects.as_slice()).unwrap_or(&[]);
+  let mut section = Column::new()
+    .child(section_header(
+      "EFFECTS",
+      Some("circle-play"),
+      PINK,
+      &effects.len().to_string(),
+      true,
+    ))
+    .width(FILL)
+    .border_bottom(divider());
+
+  if effects.is_empty() {
+    section = section.child(effects_empty_row());
+  } else {
+    for effect in effects {
+      section = section.child(effect_row(effect.id));
     }
     section = section.child(Spacer::new().height(4.0));
   }
@@ -221,8 +243,8 @@ fn section_header(title: &str, leading_icon: Option<&str>, color: &str, count: &
   row.padding_horizontal(16.0).padding_vertical(8.0).width(FILL).into()
 }
 
-fn signal_row(id: usize, ty: &str) -> Element {
-  Row::new()
+fn signal_row(id: usize, ty: &str, value: Option<&str>) -> Element {
+  let mut row = Row::new()
     .align_items(Alignment::Center)
     .child(Rect::new(6.0, 6.0).fill(SIGNAL_GREEN).rounded(3.0))
     .child(Spacer::new().width(8.0))
@@ -234,6 +256,16 @@ fn signal_row(id: usize, ty: &str) -> Element {
       FontWeight::Normal,
       MUTED,
     ))
+    .child(Spacer::new().width(6.0));
+
+  if let Some(value) = value {
+    row = row
+      .child(mono_text("=", 11.0, FontWeight::Normal, MUTED))
+      .child(Spacer::new().width(6.0))
+      .child(mono_text(value, 11.0, FontWeight::Medium, SIGNAL_GREEN).nowrap());
+  }
+
+  row
     .child(Spacer::new().flex(1.0))
     .padding_custom(Padding {
       top: Dimension::Px(6.0),
@@ -262,7 +294,7 @@ fn context_row(kind: crate::app::ctx::ComponentContextKind, ty: &str) -> Element
     .align_items(Alignment::Center)
     .child(mono_text(label, 11.0, FontWeight::Medium, YELLOW))
     .child(Spacer::new().width(10.0))
-    .child(mono_text(short_type_name(ty), 11.0, FontWeight::Normal, MUTED))
+    .child(mono_text(&short_type_name(ty), 11.0, FontWeight::Normal, MUTED))
     .child(Spacer::new().flex(1.0))
     .padding_custom(content_padding(6.0, 16.0, 6.0, 40.0))
     .width(FILL)
@@ -281,6 +313,28 @@ fn node_shape_empty_row() -> Element {
   Row::new()
     .child(italic_mono("No node shape", 11.0, MUTED))
     .padding_custom(content_padding(8.0, 16.0, 12.0, 40.0))
+    .width(FILL)
+    .into()
+}
+
+fn effects_empty_row() -> Element {
+  Row::new()
+    .child(italic_mono("No effects", 11.0, MUTED))
+    .padding_custom(content_padding(8.0, 16.0, 12.0, 40.0))
+    .width(FILL)
+    .into()
+}
+
+fn effect_row(id: usize) -> Element {
+  Row::new()
+    .align_items(Alignment::Center)
+    .child(Rect::new(6.0, 6.0).fill(PINK).rounded(3.0))
+    .child(Spacer::new().width(8.0))
+    .child(mono_text(&format!("#{id}"), 12.0, FontWeight::Medium, TEXT))
+    .child(Spacer::new().width(8.0))
+    .child(mono_text("Effect", 11.0, FontWeight::Normal, MUTED))
+    .child(Spacer::new().flex(1.0))
+    .padding_custom(content_padding(6.0, 16.0, 6.0, 40.0))
     .width(FILL)
     .into()
 }
@@ -336,19 +390,77 @@ fn props_empty_row() -> Element {
     .into()
 }
 
-fn prop_row(label: &str, value: &str, value_color: &str) -> Element {
+fn prop_struct_row(type_name: &str) -> Element {
   Row::new()
     .align_items(Alignment::Center)
-    .child(mono_text(label, 11.0, FontWeight::Normal, MUTED))
-    .child(Spacer::new().width(12.0))
-    .child(mono_text(value, 11.0, FontWeight::Medium, value_color).nowrap())
-    .padding_custom(content_padding(5.0, 16.0, 5.0, 40.0))
+    .child(mono_text(type_name, 11.0, FontWeight::Bold, ORANGE).nowrap())
+    .padding_custom(content_padding(6.0, 16.0, 4.0, 40.0))
     .width(FILL)
     .into()
 }
 
-fn short_type_name(type_name: &str) -> &str {
-  type_name.rsplit("::").next().unwrap_or(type_name)
+fn prop_info_row(info: &ComponentInfo, depth: usize) -> Element {
+  let left = 64.0 + depth as f32 * 16.0;
+  let mut column = Column::new()
+    .child(prop_field_row(
+      info.name(),
+      &short_type_name(info.type_name()),
+      info.formatted_value(),
+      left,
+    ))
+    .width(FILL);
+
+  for child in info.children() {
+    column = column.child(prop_info_row(child, depth + 1));
+  }
+
+  column.into()
+}
+
+fn prop_field_row(name: &str, type_name: &str, value: Option<&str>, left: f32) -> Element {
+  let mut row = Row::new()
+    .align_items(Alignment::Center)
+    .child(mono_text(name, 11.0, FontWeight::Normal, MUTED))
+    .child(Spacer::new().width(10.0))
+    .child(mono_text(type_name, 11.0, FontWeight::Medium, TEXT).nowrap());
+
+  if let Some(value) = value {
+    row = row
+      .child(Spacer::new().width(6.0))
+      .child(mono_text("=", 11.0, FontWeight::Normal, MUTED))
+      .child(Spacer::new().width(6.0))
+      .child(mono_text(value, 11.0, FontWeight::Medium, ORANGE).nowrap());
+  }
+
+  row
+    .padding_custom(content_padding(4.0, 16.0, 4.0, left))
+    .width(FILL)
+    .into()
+}
+
+fn short_type_name(type_name: &str) -> String {
+  let mut out = String::new();
+  let mut token = String::new();
+
+  for ch in type_name.chars() {
+    if matches!(ch, '<' | '>' | ',' | ' ' | '&' | '[' | ']' | '(' | ')') {
+      push_short_type_token(&mut out, &mut token);
+      out.push(ch);
+    } else {
+      token.push(ch);
+    }
+  }
+  push_short_type_token(&mut out, &mut token);
+
+  out
+}
+
+fn push_short_type_token(out: &mut String, token: &mut String) {
+  if token.is_empty() {
+    return;
+  }
+  out.push_str(token.rsplit("::").next().unwrap_or(token));
+  token.clear();
 }
 
 fn content_padding(top: f32, right: f32, bottom: f32, left: f32) -> Padding {
@@ -388,6 +500,20 @@ fn italic_mono(content: &str, size: f32, color: &str) -> Text {
       ..Default::default()
     },
   )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::short_type_name;
+
+  #[test]
+  fn short_type_name_preserves_generic_delimiters() {
+    assert_eq!(
+      short_type_name("lurq::core::context::ReactiveContext<demo::context_demo::LocaleContext>"),
+      "ReactiveContext<LocaleContext>"
+    );
+    assert_eq!(short_type_name("&str"), "&str");
+  }
 }
 
 fn child_summary(node: &DevToolsNode) -> String {

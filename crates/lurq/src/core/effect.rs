@@ -1,19 +1,23 @@
 use std::sync::{
   Arc, Weak,
-  atomic::{AtomicBool, Ordering},
+  atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use parking_lot::Mutex;
 
 use crate::core::tracking;
 
+static NEXT_EFFECT_ID: AtomicUsize = AtomicUsize::new(1);
+
 pub struct Effect {
+  id: usize,
   _subscriptions: Arc<Mutex<Vec<Box<dyn Send + Sync>>>>,
   alive: Arc<AtomicBool>,
 }
 
 impl Effect {
   pub fn new(f: impl Fn() + Send + Sync + 'static) -> Self {
+    let id = NEXT_EFFECT_ID.fetch_add(1, Ordering::Relaxed);
     let subscriptions: Arc<Mutex<Vec<Box<dyn Send + Sync>>>> = Arc::new(Mutex::new(Vec::new()));
     let alive = Arc::new(AtomicBool::new(true));
     let compute = Arc::new(f);
@@ -47,9 +51,14 @@ impl Effect {
     rerun();
 
     Self {
+      id,
       _subscriptions: subscriptions,
       alive,
     }
+  }
+
+  pub fn id(&self) -> usize {
+    self.id
   }
 }
 

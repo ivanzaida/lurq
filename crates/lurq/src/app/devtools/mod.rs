@@ -1,4 +1,6 @@
 mod inspector;
+mod profiler;
+mod signals;
 mod snapshot;
 mod style;
 mod top_bar;
@@ -16,6 +18,7 @@ use crate::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
   core::{NodeId, Signal},
+  layout::layout_kind::ScrollState,
   node::Element,
 };
 
@@ -31,6 +34,7 @@ pub fn load_fonts(app: &mut crate::app::App) {
 
 #[derive(Clone, crate::DevtoolsInspectable)]
 pub struct DevToolsProps {
+  #[devtools_ignore]
   pub snapshot: DevToolsSnapshot,
   pub picked_path: Option<Vec<usize>>,
   pub picked_revision: u64,
@@ -47,7 +51,127 @@ pub struct DevTools {
   collapsed_nodes: Signal<Vec<NodeId>>,
   show_inspected_overlay: Signal<bool>,
   pick_inspected: Signal<bool>,
+  active_tab: Signal<DevToolsTab>,
+  profiler_recording: Signal<bool>,
+  profiler_commits: Signal<Vec<profiler::ProfilerCommitSnapshot>>,
+  profiler_selected_commit: Signal<usize>,
+  profiler_last_recorded_signature: Signal<u64>,
+  selected_signal: Signal<Option<String>>,
+  tree: DevToolsTree,
   last_picked_revision: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
+pub(crate) enum DevToolsTab {
+  Components,
+  Profiler,
+  Signals,
+}
+
+struct DevToolsTree {
+  scroll: ScrollState,
+}
+
+impl DevToolsTree {
+  fn new() -> Self {
+    Self {
+      scroll: ScrollState::new(),
+    }
+  }
+
+  fn scroll_state(&self) -> ScrollState {
+    self.scroll.clone()
+  }
+
+  fn expand_ancestors(&self, snapshot: &DevToolsSnapshot, path: &[usize], collapsed_nodes: &mut Vec<NodeId>) {
+    let Some(mut node) = snapshot.root.as_ref() else {
+      return;
+    };
+
+    for index in path {
+      collapsed_nodes.retain(|node_id| *node_id != node.id);
+      let Some(child) = node.children.get(*index) else {
+        return;
+      };
+      node = child;
+    }
+  }
+
+  fn scroll_into(&self, snapshot: &DevToolsSnapshot, path: &[usize], collapsed_nodes: &[NodeId]) {
+    let Some(index) = self.visible_row_index(snapshot, path, collapsed_nodes) else {
+      return;
+    };
+
+    let row_top = index as f32 * tree_panel::TREE_ROW_HEIGHT;
+    let row_bottom = row_top + tree_panel::TREE_ROW_HEIGHT;
+    let viewport_height = self.scroll.viewport_height();
+    let current_y = self.scroll.scroll_y();
+    let margin = tree_panel::TREE_ROW_HEIGHT * 2.0;
+
+    let next_y = if viewport_height <= 0.0 {
+      row_top
+    } else if row_top < current_y + margin {
+      row_top - margin
+    } else if row_bottom > current_y + viewport_height - margin {
+      row_bottom + margin - viewport_height
+    } else {
+      current_y
+    };
+
+    let target_x = path.len() as f32 * 16.0;
+    let viewport_width = self.scroll.viewport_width();
+    let current_x = self.scroll.scroll_x();
+    let next_x = if viewport_width <= 0.0 {
+      target_x
+    } else if target_x < current_x + 24.0 {
+      target_x - 24.0
+    } else if target_x + 220.0 > current_x + viewport_width {
+      target_x + 220.0 - viewport_width
+    } else {
+      current_x
+    };
+
+    self.scroll.set_scroll_pending(next_x, next_y);
+  }
+
+  fn visible_row_index(
+    &self,
+    snapshot: &DevToolsSnapshot,
+    target_path: &[usize],
+    collapsed_nodes: &[NodeId],
+  ) -> Option<usize> {
+    let root = snapshot.root.as_ref()?;
+    let mut row = 0;
+    Self::visible_row_index_in(root, target_path, &mut Vec::new(), collapsed_nodes, &mut row)
+  }
+
+  fn visible_row_index_in(
+    node: &DevToolsNode,
+    target_path: &[usize],
+    path: &mut Vec<usize>,
+    collapsed_nodes: &[NodeId],
+    row: &mut usize,
+  ) -> Option<usize> {
+    if path.as_slice() == target_path {
+      return Some(*row);
+    }
+
+    *row += 1;
+    if collapsed_nodes.contains(&node.id) {
+      return None;
+    }
+
+    for (index, child) in node.children.iter().enumerate() {
+      path.push(index);
+      let found = Self::visible_row_index_in(child, target_path, path, collapsed_nodes, row);
+      path.pop();
+      if found.is_some() {
+        return found;
+      }
+    }
+
+    None
+  }
 }
 
 impl PartialEq for DevToolsProps {
@@ -65,6 +189,13 @@ impl Component for DevTools {
       collapsed_nodes: ctx.signal(Vec::new()),
       show_inspected_overlay: ctx.signal(true),
       pick_inspected: ctx.signal(false),
+      active_tab: ctx.signal(DevToolsTab::Components),
+      profiler_recording: ctx.signal(false),
+      profiler_commits: ctx.signal(Vec::new()),
+      profiler_selected_commit: ctx.signal(0),
+      profiler_last_recorded_signature: ctx.signal(profiler::EMPTY_FRAME_SIGNATURE),
+      selected_signal: ctx.signal(None),
+      tree: DevToolsTree::new(),
       last_picked_revision: AtomicU64::new(0),
     }
   }
@@ -73,9 +204,24 @@ impl Component for DevTools {
     let props = ctx.props::<DevToolsProps>().clone();
     let snapshot = props.snapshot;
     let mut selected_path = self.selected_path.get();
-    let collapsed_nodes = self.collapsed_nodes.get();
+    let mut collapsed_nodes = self.collapsed_nodes.get();
     let show_inspected_overlay = self.show_inspected_overlay.get();
     let mut pick_inspected = self.pick_inspected.get();
+    let active_tab = self.active_tab.get();
+    let profiler_recording = self.profiler_recording.get();
+
+    if profiler_recording {
+      profiler::record_frame(
+        &snapshot,
+        &self.profiler_commits,
+        &self.profiler_selected_commit,
+        &self.profiler_last_recorded_signature,
+      );
+    }
+
+    let profiler_commits = self.profiler_commits.get();
+    let profiler_selected_commit = self.profiler_selected_commit.get();
+    let selected_signal = self.selected_signal.get();
 
     if props.picked_revision != self.last_picked_revision.load(Ordering::Relaxed) {
       self
@@ -84,8 +230,12 @@ impl Component for DevTools {
       self.pick_inspected.set(false);
       pick_inspected = false;
       if let Some(path) = props.picked_path.clone() {
+        let tree = &self.tree;
+        tree.expand_ancestors(&snapshot, &path, &mut collapsed_nodes);
+        self.collapsed_nodes.set(collapsed_nodes.clone());
         self.selected_path.set(path.clone());
         selected_path = path;
+        tree.scroll_into(&snapshot, &selected_path, &collapsed_nodes);
       }
     }
 
@@ -103,33 +253,74 @@ impl Component for DevTools {
         props.on_debug_overlay_path.clone(),
         props.on_overlay_enabled.clone(),
         props.on_pick_inspected.clone(),
+        active_tab,
+        self.active_tab.clone(),
+        profiler_recording,
+        self.profiler_recording.clone(),
+        self.profiler_commits.clone(),
+        self.profiler_selected_commit.clone(),
+        self.profiler_last_recorded_signature.clone(),
       ))
-      .child(
-        Row::new()
-          .child(tree_panel::tree_panel(
-            &snapshot,
-            selected_path,
-            self.selected_path.clone(),
-            collapsed_nodes,
-            self.collapsed_nodes.clone(),
-            show_inspected_overlay,
-            props.on_debug_overlay_path.clone(),
-          ))
-          .child(
-            Column::new()
-              .child(inspector::inspector_panel(selected, snapshot.frame))
-              .width(style::FILL)
-              .height(style::FILL)
-              .flex(1.0),
-          )
-          .width(style::FILL)
-          .height(style::FILL)
-          .flex(1.0),
-      )
+      .child(match active_tab {
+        DevToolsTab::Components => components_view(
+          &snapshot,
+          selected,
+          selected_path,
+          self.selected_path.clone(),
+          collapsed_nodes,
+          self.collapsed_nodes.clone(),
+          self.tree.scroll_state(),
+          show_inspected_overlay,
+          props.on_debug_overlay_path.clone(),
+        ),
+        DevToolsTab::Profiler => profiler::profiler_view(
+          &snapshot,
+          &profiler_commits,
+          profiler_selected_commit,
+          self.profiler_selected_commit.clone(),
+          profiler_recording,
+        ),
+        DevToolsTab::Signals => signals::signals_view(&snapshot, selected_signal, self.selected_signal.clone()),
+      })
       .width(style::FILL)
       .height(style::FILL)
       .fill(style::BG)
   }
+}
+
+fn components_view(
+  snapshot: &DevToolsSnapshot,
+  selected: Option<&DevToolsNode>,
+  selected_path: Vec<usize>,
+  selected_path_signal: Signal<Vec<usize>>,
+  collapsed_nodes: Vec<NodeId>,
+  collapsed_nodes_signal: Signal<Vec<NodeId>>,
+  tree_scroll: ScrollState,
+  show_inspected_overlay: bool,
+  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+) -> Element {
+  Row::new()
+    .child(tree_panel::tree_panel(
+      snapshot,
+      selected_path,
+      selected_path_signal,
+      collapsed_nodes,
+      collapsed_nodes_signal,
+      tree_scroll,
+      show_inspected_overlay,
+      on_debug_overlay_path,
+    ))
+    .child(
+      Column::new()
+        .child(inspector::inspector_panel(selected, snapshot.frame))
+        .width(style::FILL)
+        .height(style::FILL)
+        .flex(1.0),
+    )
+    .width(style::FILL)
+    .height(style::FILL)
+    .flex(1.0)
+    .into()
 }
 
 pub(crate) fn debug_overlay_path_for_selection(
@@ -239,16 +430,45 @@ mod tests {
         .and_then(|row| row.value.as_deref()),
       Some("32px")
     );
-    assert_eq!(
-      snapshot
-        .root
-        .as_ref()
-        .and_then(|node| node
+    let root_effects = snapshot
+      .root
+      .as_ref()
+      .map(|node| node.effects.as_slice())
+      .unwrap_or(&[]);
+    assert_eq!(root_effects.len(), 1);
+    assert!(root_effects[0].id > 0);
+    let keyed_child = snapshot
+      .root
+      .as_ref()
+      .and_then(|node| {
+        node
           .children
           .iter()
-          .find(|child| style::short_tag(&child.tag) == "KeyedChild"))
-        .and_then(|node| node.key.as_deref()),
-      Some("child-key")
+          .find(|child| style::short_tag(&child.tag) == "KeyedChild")
+      })
+      .expect("keyed child should be captured");
+    assert_eq!(keyed_child.key.as_deref(), Some("child-key"));
+    let keyed_child_props = keyed_child
+      .props
+      .as_ref()
+      .expect("keyed child props should be captured");
+    assert_eq!(style::short_tag(&keyed_child_props.type_name), "KeyedChildProps");
+    assert_eq!(keyed_child_props.fields[0].name(), "title");
+    assert_eq!(keyed_child_props.fields[0].type_name(), "&str");
+    assert_eq!(keyed_child_props.fields[0].formatted_value(), Some("\"keyed child\""));
+    assert_eq!(keyed_child_props.fields[1].name(), "count");
+    assert_eq!(keyed_child_props.fields[1].type_name(), "u32");
+    assert_eq!(keyed_child_props.fields[1].formatted_value(), Some("7"));
+    assert_eq!(keyed_child_props.fields[2].name(), "details");
+    assert_eq!(
+      style::short_tag(keyed_child_props.fields[2].type_name()),
+      "KeyedChildDetails"
+    );
+    assert_eq!(keyed_child_props.fields[2].children()[0].name(), "enabled");
+    assert_eq!(keyed_child_props.fields[2].children()[0].type_name(), "bool");
+    assert_eq!(
+      keyed_child_props.fields[2].children()[0].formatted_value(),
+      Some("true")
     );
     assert_eq!(
       snapshot
@@ -266,6 +486,14 @@ mod tests {
         .map(|signal| signal.type_name.as_ref()),
       Some("i32")
     );
+    assert_eq!(
+      snapshot
+        .root
+        .as_ref()
+        .and_then(|node| node.signals.first())
+        .and_then(|signal| signal.formatted_value()),
+      Some("0".to_owned())
+    );
     assert_eq!(snapshot.root.as_ref().map(|node| node.contexts.len()), Some(2));
   }
 
@@ -279,6 +507,67 @@ mod tests {
     assert_eq!(debug_overlay_path_for_selection(true, vec![1, 2], false), None);
   }
 
+  #[test]
+  fn picked_tree_path_expands_ancestors_and_resolves_visible_row() {
+    let ids = crate::core::IdGenerator::new();
+    let root_id = ids.next();
+    let child_id = ids.next();
+    let snapshot = DevToolsSnapshot {
+      root: Some(test_node(
+        root_id,
+        "Root",
+        vec![test_node(
+          child_id,
+          "Child",
+          vec![test_node(ids.next(), "Grandchild", Vec::new())],
+        )],
+      )),
+      frame: Default::default(),
+    };
+    let mut collapsed = vec![root_id, child_id];
+    let tree = DevToolsTree::new();
+
+    tree.expand_ancestors(&snapshot, &[0, 0], &mut collapsed);
+
+    assert!(collapsed.is_empty());
+    assert_eq!(tree.visible_row_index(&snapshot, &[0, 0], &collapsed), Some(2));
+  }
+
+  #[test]
+  fn visible_tree_row_index_respects_collapsed_nodes() {
+    let ids = crate::core::IdGenerator::new();
+    let root_id = ids.next();
+    let snapshot = DevToolsSnapshot {
+      root: Some(test_node(
+        root_id,
+        "Root",
+        vec![test_node(ids.next(), "Child", Vec::new())],
+      )),
+      frame: Default::default(),
+    };
+    let tree = DevToolsTree::new();
+
+    assert_eq!(tree.visible_row_index(&snapshot, &[0], &[root_id]), None);
+  }
+
+  fn test_node(id: NodeId, tag: &str, children: Vec<DevToolsNode>) -> DevToolsNode {
+    DevToolsNode {
+      id,
+      tag: tag.to_owned(),
+      kind: DevToolsNodeKind::Element,
+      key: None,
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      children,
+    }
+  }
+
   struct SnapshotTestApp {
     count: crate::core::Signal<i32>,
   }
@@ -287,7 +576,12 @@ mod tests {
     type Props = ();
 
     fn create(ctx: &mut Ctx) -> Self {
-      Self { count: ctx.signal(0) }
+      let count = ctx.signal(0);
+      let effect_count = count.clone();
+      ctx.on_effect(move || {
+        let _ = effect_count.get();
+      });
+      Self { count }
     }
 
     fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -305,21 +599,40 @@ mod tests {
           .hovered(|style| style.fill("#ff0000").padding_left(4.0))
           .active(|style| style.width(32.0)),
         )
-        .child(ctx.mount_keyed::<KeyedChild>("child-key", ()))
+        .child(ctx.mount_keyed::<KeyedChild>(
+          "child-key",
+          KeyedChildProps {
+            title: "keyed child",
+            count: 7,
+            details: KeyedChildDetails { enabled: true },
+          },
+        ))
     }
   }
 
   struct KeyedChild;
 
+  #[derive(Clone, PartialEq, crate::DevtoolsInspectable)]
+  struct KeyedChildProps {
+    title: &'static str,
+    count: u32,
+    details: KeyedChildDetails,
+  }
+
+  #[derive(Clone, PartialEq, crate::DevtoolsInspectable)]
+  struct KeyedChildDetails {
+    enabled: bool,
+  }
+
   impl Component for KeyedChild {
-    type Props = ();
+    type Props = KeyedChildProps;
 
     fn create(_ctx: &mut Ctx) -> Self {
       Self
     }
 
-    fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
-      style::text("keyed child", 12.0, FontWeight::Normal, style::TEXT)
+    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+      style::text(ctx.props::<Self::Props>().title, 12.0, FontWeight::Normal, style::TEXT)
     }
   }
 }

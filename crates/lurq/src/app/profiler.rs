@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Default)]
 pub struct FrameProfile {
   pub layout: Duration,
+  pub layout_recalculated: bool,
   pub quad_resolve: Duration,
   pub glyph_rasterize: Duration,
   pub gpu_submit: Duration,

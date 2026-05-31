@@ -80,7 +80,7 @@ fn with_untracked_reads() {
 
 #[test]
 fn update_complex_struct() {
-  #[derive(Clone, Debug, PartialEq)]
+  #[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
   struct State {
     x: i32,
     y: String,

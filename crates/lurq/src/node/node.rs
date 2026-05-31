@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+#[cfg(feature = "devtools")]
+use crate::app::ctx::{
+  ComponentContextDebug, ComponentEffectDebug, ComponentMemoDebug, ComponentSignalDebug, DevtoolsInspectableDebug,
+};
 use crate::{
   animation::{Animation, Transition},
-  app::{
-    ctx::{ComponentContextDebug, ComponentSignalDebug, DevtoolsInspectableDebug},
-    events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
-  },
+  app::events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
     Alignment, Size, StackAlignment,
@@ -70,8 +71,15 @@ pub(crate) struct Node {
   pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
   pub(crate) component_key: Option<Arc<str>>,
+  #[cfg(feature = "devtools")]
   pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
+  #[cfg(feature = "devtools")]
   pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_memos_debug: Vec<ComponentMemoDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
+  #[cfg(feature = "devtools")]
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) node_kind: NodeKind,
@@ -120,8 +128,15 @@ impl Node {
       tag_name: Arc::from("Node"),
       component_slot_id: None,
       component_key: None,
+      #[cfg(feature = "devtools")]
       component_props_debug: None,
+      #[cfg(feature = "devtools")]
       component_signals_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      component_memos_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      component_effects_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
       component_contexts_debug: Vec::new(),
       text_content: Guard::new(None),
       text_wrap: true,
@@ -786,28 +801,56 @@ impl Node {
     self.component_key = key.map(Arc::from);
   }
 
+  #[cfg(feature = "devtools")]
   pub(crate) fn set_component_props_debug(&mut self, props: Option<DevtoolsInspectableDebug>) {
     self.component_props_debug = props;
   }
 
+  #[cfg(feature = "devtools")]
   pub(crate) fn set_component_signals_debug(&mut self, signals: Vec<ComponentSignalDebug>) {
     self.component_signals_debug = signals;
   }
 
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_component_memos_debug(&mut self, memos: Vec<ComponentMemoDebug>) {
+    self.component_memos_debug = memos;
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_component_effects_debug(&mut self, effects: Vec<ComponentEffectDebug>) {
+    self.component_effects_debug = effects;
+  }
+
+  #[cfg(feature = "devtools")]
   pub(crate) fn set_component_contexts_debug(&mut self, contexts: Vec<ComponentContextDebug>) {
     self.component_contexts_debug = contexts;
   }
 
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
     self.component_props_debug.as_ref()
   }
 
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_signals_debug(&self) -> &[ComponentSignalDebug] {
     &self.component_signals_debug
   }
 
+  #[cfg(feature = "devtools")]
+  #[allow(dead_code)]
+  pub fn component_memos_debug(&self) -> &[ComponentMemoDebug] {
+    &self.component_memos_debug
+  }
+
+  #[cfg(feature = "devtools")]
+  #[allow(dead_code)]
+  pub fn component_effects_debug(&self) -> &[ComponentEffectDebug] {
+    &self.component_effects_debug
+  }
+
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
     &self.component_contexts_debug
@@ -1225,8 +1268,15 @@ impl Node {
       tag_name: self.tag_name.clone(),
       component_slot_id: self.component_slot_id,
       component_key: self.component_key.clone(),
+      #[cfg(feature = "devtools")]
       component_props_debug: self.component_props_debug.clone(),
+      #[cfg(feature = "devtools")]
       component_signals_debug: self.component_signals_debug.clone(),
+      #[cfg(feature = "devtools")]
+      component_memos_debug: self.component_memos_debug.clone(),
+      #[cfg(feature = "devtools")]
+      component_effects_debug: self.component_effects_debug.clone(),
+      #[cfg(feature = "devtools")]
       component_contexts_debug: self.component_contexts_debug.clone(),
       layout_kind: self.layout_kind.clone(),
       node_kind: self.node_kind.clone(),
@@ -1279,23 +1329,7 @@ impl Node {
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
       + self.tag_name.len()
-      + self
-        .component_props_debug
-        .as_ref()
-        .map(|props| {
-          props.type_name.len() + props.fields.capacity() * std::mem::size_of::<crate::app::component::ComponentInfo>()
-        })
-        .unwrap_or(0)
-      + self
-        .component_signals_debug
-        .iter()
-        .map(|signal| signal.type_name.len())
-        .sum::<usize>()
-      + self
-        .component_contexts_debug
-        .iter()
-        .map(|context| context.type_name.len())
-        .sum::<usize>()
+      + self.estimated_debug_memory_bytes()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
       + self.layout_cache.estimated_memory_bytes()
@@ -1306,25 +1340,47 @@ impl Node {
         .sum::<usize>()
   }
 
-  fn estimated_child_heap_bytes(&self) -> usize {
-    self.tag_name.len()
-      + self
-        .component_props_debug
-        .as_ref()
-        .map(|props| {
-          props.type_name.len() + props.fields.capacity() * std::mem::size_of::<crate::app::component::ComponentInfo>()
-        })
-        .unwrap_or(0)
+  #[cfg(feature = "devtools")]
+  fn estimated_debug_memory_bytes(&self) -> usize {
+    self
+      .component_props_debug
+      .as_ref()
+      .map(|props| {
+        props.type_name.len()
+          + props.fields.capacity() * std::mem::size_of::<crate::app::component::ComponentInfo>()
+          + props
+            .fields
+            .iter()
+            .map(|field| field.estimated_memory_bytes())
+            .sum::<usize>()
+      })
+      .unwrap_or(0)
       + self
         .component_signals_debug
         .iter()
-        .map(|signal| signal.type_name.len())
+        .map(|signal| signal.type_name.len() + signal.estimated_memory_bytes())
         .sum::<usize>()
+      + self
+        .component_memos_debug
+        .iter()
+        .map(|memo| memo.type_name.len() + memo.estimated_memory_bytes())
+        .sum::<usize>()
+      + self.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
       + self
         .component_contexts_debug
         .iter()
         .map(|context| context.type_name.len())
         .sum::<usize>()
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  fn estimated_debug_memory_bytes(&self) -> usize {
+    0
+  }
+
+  fn estimated_child_heap_bytes(&self) -> usize {
+    self.tag_name.len()
+      + self.estimated_debug_memory_bytes()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
       + self.layout_cache.estimated_memory_bytes()

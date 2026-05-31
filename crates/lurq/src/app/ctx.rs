@@ -1,3 +1,7 @@
+#[cfg(feature = "devtools")]
+use std::sync::atomic::AtomicUsize;
+#[cfg(feature = "devtools")]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
   any::Any,
   collections::HashSet,
@@ -10,15 +14,16 @@ use std::{
 use parking_lot::Mutex;
 
 #[cfg(feature = "devtools")]
-use super::component::DevtoolsInspectable;
-use super::{
-  component::{Component, ComponentInfo},
-  theme::Theme,
-};
+use super::component::{ComponentInfo, DevtoolsInspectable};
+use super::{component::Component, theme::Theme};
 use crate::{
   core::{
-    ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store, cell_ref::Ref, effect::Effect, memo::Memo,
-    signal::Signal, tracking,
+    ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
+    cell_ref::Ref,
+    effect::Effect,
+    memo::Memo,
+    signal::{Signal, SignalValue},
+    tracking,
   },
   node::{Element, Node},
 };
@@ -27,6 +32,15 @@ static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_component_slot_id() -> u64 {
   NEXT_COMPONENT_SLOT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+#[cfg(feature = "devtools")]
+fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
+  node.set_component_props_debug(ctx.props_debug());
+  node.set_component_signals_debug(ctx.signals_debug());
+  node.set_component_memos_debug(ctx.memos_debug());
+  node.set_component_effects_debug(ctx.effects_debug());
+  node.set_component_contexts_debug(ctx.contexts_debug());
 }
 
 pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
@@ -39,8 +53,15 @@ pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
   props: Option<Box<dyn Any + Send>>,
+  #[cfg(feature = "devtools")]
   props_debug: Option<DevtoolsInspectableDebug>,
+  #[cfg(feature = "devtools")]
   signals_debug: Vec<ComponentSignalDebug>,
+  #[cfg(feature = "devtools")]
+  memos_debug: Vec<ComponentMemoDebug>,
+  #[cfg(feature = "devtools")]
+  effects_debug: Vec<ComponentEffectDebug>,
+  #[cfg(feature = "devtools")]
   contexts_debug: Vec<ComponentContextDebug>,
   theme: Option<Theme>,
   context_map: ContextMap,
@@ -55,30 +76,62 @@ pub struct Ctx {
   rendering: bool,
 }
 
+#[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevtoolsInspectableDebug {
   pub type_name: Arc<str>,
   pub fields: Vec<ComponentInfo>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug)]
 pub struct ComponentSignalDebug {
   pub id: usize,
   pub type_name: Arc<str>,
+  value: Arc<Mutex<Option<Arc<str>>>>,
+  history: Arc<Mutex<Vec<ComponentValueChangeDebug>>>,
+  subscriber_count: Arc<AtomicUsize>,
 }
 
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug)]
+pub struct ComponentMemoDebug {
+  pub id: usize,
+  pub type_name: Arc<str>,
+  value: Arc<Mutex<Option<Arc<str>>>>,
+  history: Arc<Mutex<Vec<ComponentValueChangeDebug>>>,
+  subscriber_count: Arc<AtomicUsize>,
+}
+
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentValueChangeDebug {
+  pub timestamp: String,
+  pub from_value: String,
+  pub to_value: String,
+}
+
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComponentEffectDebug {
+  pub id: usize,
+}
+
+#[cfg(feature = "devtools")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ComponentContextKind {
   Provided,
   Consumed,
 }
 
+#[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComponentContextDebug {
   pub kind: ComponentContextKind,
   pub type_name: Arc<str>,
 }
 
+#[cfg(feature = "devtools")]
 impl DevtoolsInspectableDebug {
   fn from_props<T: DevtoolsInspectable + 'static>(props: &T) -> Self {
     let mut fields = Vec::new();
@@ -87,6 +140,170 @@ impl DevtoolsInspectableDebug {
       type_name: Arc::from(std::any::type_name::<T>()),
       fields,
     }
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl ComponentSignalDebug {
+  pub fn formatted_value(&self) -> Option<String> {
+    self.value.lock().as_ref().map(|value| value.to_string())
+  }
+
+  pub fn history(&self) -> Vec<ComponentValueChangeDebug> {
+    self.history.lock().clone()
+  }
+
+  pub fn subscriber_count(&self) -> usize {
+    self.subscriber_count.load(Ordering::Relaxed)
+  }
+
+  pub(crate) fn estimated_memory_bytes(&self) -> usize {
+    let history = self.history.lock();
+    self.value.lock().as_ref().map(|value| value.len()).unwrap_or(0)
+      + history.capacity() * std::mem::size_of::<ComponentValueChangeDebug>()
+      + history
+        .iter()
+        .map(ComponentValueChangeDebug::estimated_memory_bytes)
+        .sum::<usize>()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl ComponentMemoDebug {
+  pub fn formatted_value(&self) -> Option<String> {
+    self.value.lock().as_ref().map(|value| value.to_string())
+  }
+
+  pub fn history(&self) -> Vec<ComponentValueChangeDebug> {
+    self.history.lock().clone()
+  }
+
+  pub fn subscriber_count(&self) -> usize {
+    self.subscriber_count.load(Ordering::Relaxed)
+  }
+
+  pub(crate) fn estimated_memory_bytes(&self) -> usize {
+    let history = self.history.lock();
+    self.value.lock().as_ref().map(|value| value.len()).unwrap_or(0)
+      + history.capacity() * std::mem::size_of::<ComponentValueChangeDebug>()
+      + history
+        .iter()
+        .map(ComponentValueChangeDebug::estimated_memory_bytes)
+        .sum::<usize>()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl ComponentValueChangeDebug {
+  fn estimated_memory_bytes(&self) -> usize {
+    self.timestamp.capacity() + self.from_value.capacity() + self.to_value.capacity()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl PartialEq for ComponentSignalDebug {
+  fn eq(&self, other: &Self) -> bool {
+    self.id == other.id
+      && self.type_name == other.type_name
+      && self.formatted_value() == other.formatted_value()
+      && self.history() == other.history()
+      && self.subscriber_count() == other.subscriber_count()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl PartialEq for ComponentMemoDebug {
+  fn eq(&self, other: &Self) -> bool {
+    self.id == other.id
+      && self.type_name == other.type_name
+      && self.formatted_value() == other.formatted_value()
+      && self.history() == other.history()
+      && self.subscriber_count() == other.subscriber_count()
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn update_debug_value_history(
+  current_value: &Arc<Mutex<Option<Arc<str>>>>,
+  history: &Arc<Mutex<Vec<ComponentValueChangeDebug>>>,
+  next_value: Option<Arc<str>>,
+) {
+  let mut current_value = current_value.lock();
+  if *current_value == next_value {
+    return;
+  }
+
+  if let Some(previous) = current_value.as_ref() {
+    let mut history = history.lock();
+    history.push(ComponentValueChangeDebug {
+      timestamp: current_compact_timestamp(),
+      from_value: previous.to_string(),
+      to_value: next_value
+        .as_ref()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "<unknown>".to_owned()),
+    });
+    if history.len() > 64 {
+      let overflow = history.len() - 64;
+      history.drain(0..overflow);
+    }
+  }
+
+  *current_value = next_value;
+}
+
+#[cfg(feature = "devtools")]
+fn current_compact_timestamp() -> String {
+  let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+  let millis = duration.subsec_millis();
+  let seconds_of_day = duration.as_secs() % 86_400;
+  let hour = seconds_of_day / 3_600;
+  let minute = seconds_of_day % 3_600 / 60;
+  let second = seconds_of_day % 60;
+  format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
+}
+
+#[cfg(feature = "devtools")]
+fn format_debug_value<T: DevtoolsInspectable + 'static>(value: &T) -> Option<Arc<str>> {
+  let mut fields = Vec::new();
+  value.write_info(&mut fields);
+  format_debug_fields(&fields).map(Arc::from)
+}
+
+#[cfg(feature = "devtools")]
+fn format_debug_fields(fields: &[ComponentInfo]) -> Option<String> {
+  if fields.is_empty() {
+    return None;
+  }
+
+  if fields.len() == 1 {
+    let info = &fields[0];
+    if matches!(info.name(), "value" | "variant") {
+      if let Some(value) = info.formatted_value() {
+        return Some(value.to_owned());
+      }
+    }
+  }
+
+  Some(fields.iter().map(format_debug_info).collect::<Vec<_>>().join(", "))
+}
+
+#[cfg(feature = "devtools")]
+fn format_debug_info(info: &ComponentInfo) -> String {
+  if let Some(value) = info.formatted_value() {
+    if info.name() == "value" {
+      value.to_owned()
+    } else {
+      format!("{}: {}", info.name(), value)
+    }
+  } else if let Some(children) = format_debug_fields(info.children()) {
+    if info.name() == "Some" {
+      format!("Some({children})")
+    } else {
+      format!("{}: {{{children}}}", info.name())
+    }
+  } else {
+    format!("{}: {}", info.name(), info.type_name())
   }
 }
 
@@ -204,8 +421,15 @@ impl Ctx {
       dirty: Arc::new(AtomicBool::new(true)),
       batch: Arc::new(BatchState::default()),
       props: None,
+      #[cfg(feature = "devtools")]
       props_debug: None,
+      #[cfg(feature = "devtools")]
       signals_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      memos_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      effects_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
       contexts_debug: Vec::new(),
       theme: None,
       context_map: ContextMap::default(),
@@ -291,26 +515,61 @@ impl Ctx {
     self.props.as_ref().and_then(|existing| existing.downcast_ref::<T>()) != Some(props)
   }
 
+  #[cfg(feature = "devtools")]
   pub(crate) fn props_debug(&self) -> Option<DevtoolsInspectableDebug> {
     self.props_debug.clone()
   }
 
+  #[cfg(feature = "devtools")]
   pub(crate) fn signals_debug(&self) -> Vec<ComponentSignalDebug> {
     self.signals_debug.clone()
   }
 
+  #[cfg(feature = "devtools")]
+  pub(crate) fn memos_debug(&self) -> Vec<ComponentMemoDebug> {
+    self.memos_debug.clone()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn effects_debug(&self) -> Vec<ComponentEffectDebug> {
+    self.effects_debug.clone()
+  }
+
+  #[cfg(feature = "devtools")]
   pub(crate) fn contexts_debug(&self) -> Vec<ComponentContextDebug> {
     self.contexts_debug.clone()
   }
 
   // --- Reactive primitives ---
 
-  pub fn signal<T: Send + Sync + 'static>(&mut self, initial: T) -> Signal<T> {
+  #[cfg(feature = "devtools")]
+  pub fn signal<T: Send + Sync + DevtoolsInspectable + 'static>(&mut self, initial: T) -> Signal<T> {
+    let debug_value = Arc::new(Mutex::new(format_debug_value(&initial)));
+    let debug_history = Arc::new(Mutex::new(Vec::new()));
     let sig = Signal::new(initial);
     self.signals_debug.push(ComponentSignalDebug {
       id: sig.id(),
       type_name: Arc::from(std::any::type_name::<T>()),
+      value: debug_value.clone(),
+      history: debug_history.clone(),
+      subscriber_count: sig.devtools_subscriber_count(),
     });
+    let debug_handle = sig.subscribe_debug(move |value| {
+      update_debug_value_history(&debug_value, &debug_history, format_debug_value(value));
+    });
+    let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
+    let handle = sig.watch(move || {
+      batch.mark_dirty(&dirty);
+    });
+    self.watch_handles.push(Box::new(debug_handle));
+    self.watch_handles.push(Box::new(handle));
+    sig
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  pub fn signal<T: SignalValue + Send + Sync + 'static>(&mut self, initial: T) -> Signal<T> {
+    let sig = Signal::new(initial);
     let dirty = self.dirty.clone();
     let batch = self.batch.clone();
     let handle = sig.watch(move || {
@@ -320,7 +579,30 @@ impl Ctx {
     sig
   }
 
-  pub fn memo<T: Clone + PartialEq + Send + Sync + 'static>(
+  #[cfg(feature = "devtools")]
+  pub fn memo<T: Clone + PartialEq + Send + Sync + DevtoolsInspectable + 'static>(
+    &mut self,
+    f: impl Fn() -> T + Send + Sync + 'static,
+  ) -> Memo<T> {
+    let memo = Memo::new(f);
+    let debug_value = Arc::new(Mutex::new(memo.with(|value| format_debug_value(value))));
+    let debug_history = Arc::new(Mutex::new(Vec::new()));
+    self.memos_debug.push(ComponentMemoDebug {
+      id: memo.id(),
+      type_name: Arc::from(std::any::type_name::<T>()),
+      value: debug_value.clone(),
+      history: debug_history.clone(),
+      subscriber_count: memo.devtools_subscriber_count(),
+    });
+    let debug_handle = memo.subscribe(move |value| {
+      update_debug_value_history(&debug_value, &debug_history, format_debug_value(value));
+    });
+    self.watch_handles.push(Box::new(debug_handle));
+    memo
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  pub fn memo<T: SignalValue + Clone + PartialEq + Send + Sync + 'static>(
     &mut self,
     f: impl Fn() -> T + Send + Sync + 'static,
   ) -> Memo<T> {
@@ -332,17 +614,24 @@ impl Ctx {
   }
 
   pub fn on_effect(&mut self, f: impl Fn() + Send + Sync + 'static) {
-    self.effects.push(Effect::new(f));
+    let effect = Effect::new(f);
+    #[cfg(feature = "devtools")]
+    self.effects_debug.push(ComponentEffectDebug { id: effect.id() });
+    self.effects.push(effect);
   }
 
-  pub fn watch<T: Send + Sync + 'static>(&mut self, signal: &Signal<T>, f: impl Fn(&T) + Send + Sync + 'static) {
+  pub fn watch<T: SignalValue + Send + Sync + 'static>(
+    &mut self,
+    signal: &Signal<T>,
+    f: impl Fn(&T) + Send + Sync + 'static,
+  ) {
     let sub = signal.subscribe(f);
     self.watch_handles.push(Box::new(sub));
   }
 
   // --- Store + Lenses ---
 
-  pub fn store<T: Clone + Send + Sync + 'static>(&mut self, initial: T) -> Store<T> {
+  pub fn store<T: SignalValue + Clone + Send + Sync + 'static>(&mut self, initial: T) -> Store<T> {
     let store = Store::new(initial);
     let dirty = self.dirty.clone();
     let batch = self.batch.clone();
@@ -356,16 +645,19 @@ impl Ctx {
   // --- Context (Dependency Injection) ---
 
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+    #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
     self.context_map.provide(value);
   }
 
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
+    #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Consumed, std::any::type_name::<T>());
     self.context_map.get::<T>()
   }
 
   pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
+    #[cfg(feature = "devtools")]
     self.push_context_debug(
       ComponentContextKind::Provided,
       std::any::type_name::<ReactiveContext<T>>(),
@@ -381,6 +673,7 @@ impl Ctx {
   }
 
   pub fn consume_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self) -> Option<ReactiveContext<T>> {
+    #[cfg(feature = "devtools")]
     self.push_context_debug(
       ComponentContextKind::Consumed,
       std::any::type_name::<ReactiveContext<T>>(),
@@ -394,6 +687,7 @@ impl Ctx {
     Some(ctx)
   }
 
+  #[cfg(feature = "devtools")]
   fn push_context_debug(&mut self, kind: ComponentContextKind, type_name: &'static str) {
     if self
       .contexts_debug
@@ -502,9 +796,8 @@ impl Ctx {
         element.node.set_tag_name(slot.component.tag_name());
         element.node.set_component_slot_id(slot.id);
         element.node.set_component_key(slot.key.as_deref());
-        element.node.set_component_props_debug(slot.ctx.props_debug());
-        element.node.set_component_signals_debug(slot.ctx.signals_debug());
-        element.node.set_component_contexts_debug(slot.ctx.contexts_debug());
+        #[cfg(feature = "devtools")]
+        set_component_debug_metadata(&mut element.node, &slot.ctx);
         slot.rendered = Some(element.node.clone_for_reuse());
         return element;
       }
@@ -526,9 +819,8 @@ impl Ctx {
     element.node.set_tag_name(wrapper.tag_name());
     element.node.set_component_slot_id(slot_id);
     element.node.set_component_key(key);
-    element.node.set_component_props_debug(child_ctx.props_debug());
-    element.node.set_component_signals_debug(child_ctx.signals_debug());
-    element.node.set_component_contexts_debug(child_ctx.contexts_debug());
+    #[cfg(feature = "devtools")]
+    set_component_debug_metadata(&mut element.node, &child_ctx);
 
     let slot = ChildSlot {
       id: slot_id,
@@ -627,9 +919,8 @@ impl Ctx {
       slot.ctx.end_render();
       element.node.set_component_slot_id(slot.id);
       element.node.set_component_key(slot.key.as_deref());
-      element.node.set_component_props_debug(slot.ctx.props_debug());
-      element.node.set_component_signals_debug(slot.ctx.signals_debug());
-      element.node.set_component_contexts_debug(slot.ctx.contexts_debug());
+      #[cfg(feature = "devtools")]
+      set_component_debug_metadata(&mut element.node, &slot.ctx);
       slot.rendered = Some(element.node.clone_for_reuse());
       return element;
     }
@@ -644,9 +935,8 @@ impl Ctx {
     let slot_id = next_component_slot_id();
     element.node.set_component_slot_id(slot_id);
     element.node.set_component_key(Some(key.as_str()));
-    element.node.set_component_props_debug(child_ctx.props_debug());
-    element.node.set_component_signals_debug(child_ctx.signals_debug());
-    element.node.set_component_contexts_debug(child_ctx.contexts_debug());
+    #[cfg(feature = "devtools")]
+    set_component_debug_metadata(&mut element.node, &child_ctx);
 
     let slot = ChildSlot {
       id: slot_id,
@@ -758,9 +1048,8 @@ impl Ctx {
         element.node.set_tag_name(slot.component.tag_name());
         element.node.set_component_slot_id(slot.id);
         element.node.set_component_key(slot.key.as_deref());
-        element.node.set_component_props_debug(slot.ctx.props_debug());
-        element.node.set_component_signals_debug(slot.ctx.signals_debug());
-        element.node.set_component_contexts_debug(slot.ctx.contexts_debug());
+        #[cfg(feature = "devtools")]
+        set_component_debug_metadata(&mut element.node, &slot.ctx);
         if let Some(old) = old_rendered.as_ref() {
           element.node.preserve_runtime_state_from(old);
         }
@@ -794,6 +1083,17 @@ impl Ctx {
       + self.children.capacity() * std::mem::size_of::<ChildSlot>()
       + self.watch_handles.capacity() * std::mem::size_of::<Box<dyn Any + Send + Sync>>()
       + self.render_watch_handles.capacity() * std::mem::size_of::<Box<dyn Any + Send + Sync>>()
+      + {
+        #[cfg(feature = "devtools")]
+        {
+          self.memos_debug.capacity() * std::mem::size_of::<ComponentMemoDebug>()
+            + self.effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
+        }
+        #[cfg(not(feature = "devtools"))]
+        {
+          0
+        }
+      }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self
@@ -856,5 +1156,94 @@ mod tests {
     });
 
     assert!(ctx.is_dirty());
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn signal_debug_value_updates_when_signal_changes() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0_i32);
+    let debug = ctx.signals_debug();
+
+    assert_eq!(debug[0].formatted_value().as_deref(), Some("0"));
+
+    signal.set(42);
+
+    assert_eq!(debug[0].formatted_value().as_deref(), Some("42"));
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn signal_debug_history_records_value_changes() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0_i32);
+    let debug = ctx.signals_debug();
+
+    signal.set(1);
+    signal.set(2);
+
+    let history = debug[0].history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].from_value, "0");
+    assert_eq!(history[0].to_value, "1");
+    assert_eq!(history[1].from_value, "1");
+    assert_eq!(history[1].to_value, "2");
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn signal_debug_subscriber_count_excludes_runtime_and_debug_hooks() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0_i32);
+    let debug = ctx.signals_debug();
+
+    assert_eq!(debug[0].subscriber_count(), 0);
+
+    ctx.watch(&signal, |_| {});
+    assert_eq!(debug[0].subscriber_count(), 1);
+
+    let memo_signal = signal.clone();
+    let _memo = ctx.memo(move || memo_signal.get() + 1);
+    assert_eq!(debug[0].subscriber_count(), 2);
+  }
+
+  #[cfg(feature = "devtools")]
+  #[derive(crate::DevtoolsInspectable)]
+  struct DebugSignalValue {
+    count: i32,
+    active: bool,
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn signal_debug_value_uses_devtools_inspectable_fields() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(DebugSignalValue { count: 2, active: true });
+    let debug = ctx.signals_debug();
+
+    assert_eq!(debug[0].formatted_value().as_deref(), Some("count: 2, active: true"));
+
+    signal.set(DebugSignalValue {
+      count: 3,
+      active: false,
+    });
+
+    assert_eq!(debug[0].formatted_value().as_deref(), Some("count: 3, active: false"));
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn memo_debug_value_updates_when_dependencies_change() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(2_i32);
+    let memo_signal = signal.clone();
+    let _memo = ctx.memo(move || memo_signal.get() * 2);
+    let debug = ctx.memos_debug();
+
+    assert_eq!(debug[0].formatted_value().as_deref(), Some("4"));
+
+    signal.set(3);
+
+    assert_eq!(debug[0].formatted_value().as_deref(), Some("6"));
   }
 }

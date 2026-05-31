@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use crate::{
   app::{
-    ctx::{ComponentContextDebug, ComponentSignalDebug, DevtoolsInspectableDebug},
+    ctx::{
+      ComponentContextDebug, ComponentEffectDebug, ComponentMemoDebug, ComponentSignalDebug, DevtoolsInspectableDebug,
+    },
     profiler::FrameProfile,
     runtime::Tree,
   },
@@ -38,8 +40,10 @@ pub struct DevToolsNode {
   pub color: Option<String>,
   pub props: Option<DevtoolsInspectableDebug>,
   pub signals: Vec<ComponentSignalDebug>,
+  pub memos: Vec<ComponentMemoDebug>,
   pub contexts: Vec<ComponentContextDebug>,
   pub shape: Vec<DevToolsShapeRow>,
+  pub effects: Vec<ComponentEffectDebug>,
   pub children: Vec<DevToolsNode>,
 }
 
@@ -58,12 +62,17 @@ pub struct DevToolsShapeRow {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FrameProfileSnapshot {
+  pub fps: u32,
   pub total_ms: f32,
   pub layout_ms: f32,
+  pub layout_recalculated: bool,
   pub quad_ms: f32,
   pub glyph_ms: f32,
   pub render_ms: f32,
+  pub acquire_ms: f32,
+  pub upload_ms: f32,
   pub encode_ms: f32,
+  pub submit_ms: f32,
   pub present_ms: f32,
   pub quad_count: usize,
   pub rect_count: usize,
@@ -102,12 +111,21 @@ impl DevToolsSnapshot {
 impl FrameProfileSnapshot {
   pub fn from_profile(profile: &FrameProfile) -> Self {
     Self {
+      fps: if profile.total.is_zero() {
+        0
+      } else {
+        (1000.0 / ms(profile.total)).round() as u32
+      },
       total_ms: ms(profile.total),
       layout_ms: ms(profile.layout),
+      layout_recalculated: profile.layout_recalculated,
       quad_ms: ms(profile.quad_resolve),
       glyph_ms: ms(profile.glyph_rasterize),
       render_ms: ms(profile.gpu_submit),
+      acquire_ms: ms(profile.render.acquire),
+      upload_ms: ms(profile.render.globals_upload + profile.render.atlas_upload),
       encode_ms: ms(profile.render.encode),
+      submit_ms: ms(profile.render.submit),
       present_ms: ms(profile.render.present),
       quad_count: profile.quad_count,
       rect_count: profile.rect_count,
@@ -120,8 +138,10 @@ impl FrameProfileSnapshot {
 fn snapshot_node(element: ElementRef<'_>) -> DevToolsNode {
   let props = element.component_props_debug().cloned();
   let signals = element.component_signals_debug().to_vec();
+  let memos = element.component_memos_debug().to_vec();
+  let effects = element.component_effects_debug().to_vec();
   let contexts = element.component_contexts_debug().to_vec();
-  let kind = if props.is_some() || !signals.is_empty() || !contexts.is_empty() {
+  let kind = if props.is_some() || !signals.is_empty() || !memos.is_empty() || !contexts.is_empty() {
     DevToolsNodeKind::Component
   } else {
     DevToolsNodeKind::Element
@@ -136,6 +156,8 @@ fn snapshot_node(element: ElementRef<'_>) -> DevToolsNode {
     color: element.color().map(|color| color.to_hex()),
     props,
     signals,
+    memos,
+    effects,
     contexts,
     shape: shape_rows(element),
     children: element.children().into_iter().map(snapshot_node).collect(),

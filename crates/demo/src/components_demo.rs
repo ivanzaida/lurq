@@ -16,11 +16,19 @@ const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
 
+#[derive(Default, Clone, PartialEq, lurq::DevtoolsInspectable)]
+struct Test {
+  test1: i32,
+  test2: u32,
+  test3: bool,
+}
+
 #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct InfoCardProps {
   title: &'static str,
   body: &'static str,
   accent: &'static str,
+  test: Test,
 }
 
 struct InfoCard;
@@ -135,16 +143,19 @@ fn props_demo(ctx: &mut Ctx) -> Element {
       title: "Info",
       body: "Some info content",
       accent: PRIMARY,
+      test: Test::default(),
     }))
     .child(ctx.mount::<InfoCard>(InfoCardProps {
       title: "Warning",
       body: "Be careful!",
       accent: WARNING,
+      test: Test::default(),
     }))
     .child(ctx.mount::<InfoCard>(InfoCardProps {
       title: "Error",
       body: "Something went wrong",
       accent: ERROR,
+      test: Test::default(),
     }))
     .padding(24.0)
     .width(FILL_WIDTH)

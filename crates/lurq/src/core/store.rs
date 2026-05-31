@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use crate::core::signal::Signal;
+use crate::core::signal::{Signal, SignalValue};
 
-pub struct Store<T: Send + Sync + 'static> {
+pub struct Store<T: SignalValue + Send + Sync + 'static> {
   signal: Signal<T>,
 }
 
-impl<T: Clone + Send + Sync + 'static> Store<T> {
+impl<T: SignalValue + Clone + Send + Sync + 'static> Store<T> {
   pub fn new(value: T) -> Self {
     Self {
       signal: Signal::new(value),
@@ -29,7 +29,7 @@ impl<T: Clone + Send + Sync + 'static> Store<T> {
     self.signal.with(f)
   }
 
-  pub fn lens<R: Clone + PartialEq + Send + Sync + 'static>(
+  pub fn lens<R: SignalValue + Clone + PartialEq + Send + Sync + 'static>(
     &self,
     getter: impl Fn(&T) -> R + Send + Sync + 'static,
     setter: impl Fn(&mut T, R) + Send + Sync + 'static,
@@ -46,7 +46,7 @@ impl<T: Clone + Send + Sync + 'static> Store<T> {
   }
 }
 
-impl<T: Clone + Send + Sync + 'static> Clone for Store<T> {
+impl<T: SignalValue + Clone + Send + Sync + 'static> Clone for Store<T> {
   fn clone(&self) -> Self {
     Self {
       signal: self.signal.clone(),
@@ -54,13 +54,15 @@ impl<T: Clone + Send + Sync + 'static> Clone for Store<T> {
   }
 }
 
-pub struct Lens<T: Send + Sync + 'static, R> {
+pub struct Lens<T: SignalValue + Send + Sync + 'static, R: SignalValue> {
   signal: Signal<T>,
   getter: Arc<dyn Fn(&T) -> R + Send + Sync>,
   setter: Arc<dyn Fn(&mut T, R) + Send + Sync>,
 }
 
-impl<T: Clone + Send + Sync + 'static, R: Clone + PartialEq + Send + Sync + 'static> Lens<T, R> {
+impl<T: SignalValue + Clone + Send + Sync + 'static, R: SignalValue + Clone + PartialEq + Send + Sync + 'static>
+  Lens<T, R>
+{
   pub fn get(&self) -> R {
     self.signal.with(|v| (self.getter)(v))
   }
@@ -81,7 +83,7 @@ impl<T: Clone + Send + Sync + 'static, R: Clone + PartialEq + Send + Sync + 'sta
   }
 }
 
-impl<T: Send + Sync + 'static, R> Clone for Lens<T, R> {
+impl<T: SignalValue + Send + Sync + 'static, R: SignalValue> Clone for Lens<T, R> {
   fn clone(&self) -> Self {
     Self {
       signal: self.signal.clone(),

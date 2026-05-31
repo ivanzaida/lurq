@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use winit::{
   application::ApplicationHandler,
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
@@ -8,12 +9,11 @@ use winit::{
   window::{CursorIcon as WinitCursorIcon, Window, WindowAttributes, WindowId},
 };
 
-#[cfg(feature = "devtools")]
-use crate::app::render_engine::RenderEngine;
 use crate::{
   app::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
+    runtime::{SecondaryWindow, SecondaryWindowMetadata},
   },
   node::CursorIcon,
 };
@@ -21,22 +21,11 @@ use crate::{
 type TickFn = Box<dyn FnMut(&mut Tree)>;
 const TICK_INTERVAL: Duration = Duration::from_millis(16);
 
-#[cfg(feature = "devtools")]
-type RenderEngineFactory = Box<dyn Fn() -> Box<dyn RenderEngine>>;
-
 pub struct WinitWindow {
   app: App,
   tree: Tree,
   attrs: WindowAttributes,
   on_tick: Option<TickFn>,
-  #[cfg(feature = "devtools")]
-  devtools: Option<DevToolsConfig>,
-}
-
-#[cfg(feature = "devtools")]
-struct DevToolsConfig {
-  attrs: WindowAttributes,
-  render_engine_factory: RenderEngineFactory,
 }
 
 impl WinitWindow {
@@ -46,8 +35,6 @@ impl WinitWindow {
       tree,
       attrs: WindowAttributes::default(),
       on_tick: None,
-      #[cfg(feature = "devtools")]
-      devtools: None,
     }
   }
 
@@ -98,42 +85,22 @@ impl WinitWindow {
     self
   }
 
-  #[cfg(feature = "devtools")]
-  pub fn with_devtools<F>(mut self, render_engine_factory: F) -> Self
-  where
-    F: Fn() -> Box<dyn RenderEngine> + 'static,
-  {
-    self.devtools = Some(DevToolsConfig {
-      attrs: WindowAttributes::default()
-        .with_title("lurq DevTools")
-        .with_inner_size(winit::dpi::LogicalSize::new(1440, 900)),
-      render_engine_factory: Box::new(render_engine_factory),
-    });
-    self
-  }
-
   pub fn run(self) {
     let event_loop = EventLoop::new().unwrap();
 
-    #[cfg(feature = "devtools")]
-    let (tree, devtools) = {
-      let mut tree = self.tree;
-      let devtools = if let Some(config) = self.devtools {
-        tree.mount_devtools(self.app.theme().clone(), (config.render_engine_factory)());
-        Some(ManagedDevtoolsWindow::new(config.attrs))
-      } else {
-        None
-      };
-      (tree, devtools)
-    };
-    #[cfg(not(feature = "devtools"))]
     let tree = self.tree;
+    let secondaries = (0..tree.secondary_window_count())
+      .filter_map(|index| {
+        tree
+          .secondary_window(index)
+          .map(|secondary| ManagedSecondaryWindow::new(index, secondary))
+      })
+      .collect();
 
     let mut handler = WinitHandler {
       app: self.app,
       main: ManagedWindow::new(tree, self.attrs, self.on_tick, true),
-      #[cfg(feature = "devtools")]
-      devtools,
+      secondaries,
     };
     event_loop.run_app(&mut handler).unwrap();
   }
@@ -171,7 +138,7 @@ impl ManagedWindow {
   }
 
   fn has_tick(&self) -> bool {
-    self.on_tick.is_some() || self.tree.perf_overlay_enabled()
+    self.on_tick.is_some() || self.tree.perf_overlay_enabled() || self.tree.has_active_timeline()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop) {
@@ -195,9 +162,7 @@ impl ManagedWindow {
   }
 
   fn request_redraw(&mut self) {
-    if !self.redraw_pending
-      && let Some(w) = &self.window
-    {
+    if let Some(w) = &self.window {
       self.redraw_pending = true;
       w.request_redraw();
     }
@@ -234,6 +199,9 @@ impl ManagedWindow {
       tick(&mut self.tree);
     }
     self.tree.tick_perf_overlay();
+    if self.tree.perf_overlay_enabled() || self.tree.has_active_timeline() {
+      self.tree.request_redraw();
+    }
     self.check_redraw();
   }
 
@@ -333,8 +301,8 @@ impl ManagedWindow {
   }
 }
 
-#[cfg(feature = "devtools")]
-struct ManagedDevtoolsWindow {
+struct ManagedSecondaryWindow {
+  index: usize,
   window: Option<Window>,
   cursor_pos: (f64, f64),
   cursor: CursorIcon,
@@ -343,17 +311,25 @@ struct ManagedDevtoolsWindow {
   redraw_pending: bool,
 }
 
-#[cfg(feature = "devtools")]
-impl ManagedDevtoolsWindow {
-  fn new(attrs: WindowAttributes) -> Self {
+impl ManagedSecondaryWindow {
+  fn new(index: usize, secondary: &SecondaryWindow) -> Self {
     Self {
+      index,
       window: None,
       cursor_pos: (0.0, 0.0),
       cursor: CursorIcon::Default,
       modifiers: ModifiersState::empty(),
-      attrs: Some(attrs),
+      attrs: Some(
+        WindowAttributes::default()
+          .with_title(secondary.title())
+          .with_inner_size(winit::dpi::LogicalSize::new(secondary.width(), secondary.height())),
+      ),
       redraw_pending: false,
     }
+  }
+
+  fn index(&self) -> usize {
+    self.index
   }
 
   fn window_id(&self) -> Option<WindowId> {
@@ -361,21 +337,23 @@ impl ManagedDevtoolsWindow {
   }
 
   fn has_tick(&self, tree: Option<&Tree>) -> bool {
-    tree.is_some_and(Tree::perf_overlay_enabled)
+    tree.is_some_and(|tree| tree.perf_overlay_enabled() || tree.has_active_timeline())
   }
 
-  fn create_window(&mut self, event_loop: &ActiveEventLoop, tree: &mut Tree) {
+  fn create_window(&mut self, event_loop: &ActiveEventLoop, tree: &mut Tree) -> Option<SecondaryWindowMetadata> {
     if self.window.is_some() {
-      return;
+      return None;
     }
 
     let attrs = self.attrs.take().unwrap_or_default();
     let window = event_loop.create_window(attrs).unwrap();
     let size = window.inner_size();
+    let metadata = secondary_window_metadata(&window);
     tree.set_scale_factor(window.scale_factor() as f32);
     tree.resize(size.width, size.height);
     self.window = Some(window);
     self.request_redraw();
+    Some(metadata)
   }
 
   fn check_redraw(&mut self, tree: &Tree) {
@@ -385,9 +363,7 @@ impl ManagedDevtoolsWindow {
   }
 
   fn request_redraw(&mut self) {
-    if !self.redraw_pending
-      && let Some(w) = &self.window
-    {
+    if let Some(w) = &self.window {
       self.redraw_pending = true;
       w.request_redraw();
     }
@@ -421,6 +397,9 @@ impl ManagedDevtoolsWindow {
 
   fn tick(&mut self, tree: &mut Tree) {
     tree.tick_perf_overlay();
+    if tree.perf_overlay_enabled() || tree.has_active_timeline() {
+      tree.request_redraw();
+    }
     self.check_redraw(tree);
   }
 
@@ -520,33 +499,78 @@ impl ManagedDevtoolsWindow {
   }
 }
 
+fn secondary_window_metadata(window: &Window) -> SecondaryWindowMetadata {
+  let raw_window = window.window_handle().ok().map(|handle| handle.as_raw());
+  let raw_display = window.display_handle().ok().map(|handle| handle.as_raw());
+  let hwnd = raw_window.and_then(|handle| match handle {
+    RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+    _ => None,
+  });
+
+  SecondaryWindowMetadata {
+    window_id: Some(format!("{:?}", window.id())),
+    raw_window_handle: raw_window.map(|handle| format!("{handle:?}")),
+    raw_display_handle: raw_display.map(|handle| format!("{handle:?}")),
+    hwnd,
+  }
+}
+
 struct WinitHandler {
   app: App,
   main: ManagedWindow,
-  #[cfg(feature = "devtools")]
-  devtools: Option<ManagedDevtoolsWindow>,
+  secondaries: Vec<ManagedSecondaryWindow>,
 }
 
 impl WinitHandler {
-  #[cfg(feature = "devtools")]
-  fn check_devtools_redraw(&mut self) {
-    let (Some(devtools_window), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools()) else {
-      return;
-    };
-    devtools_window.check_redraw(devtools_tree);
+  fn check_secondary_redraw(&mut self) {
+    for secondary_window in &mut self.secondaries {
+      let index = secondary_window.index();
+      if let Some(secondary) = self.main.tree.secondary_window(index) {
+        secondary_window.check_redraw(secondary.tree());
+      }
+    }
   }
 
-  #[cfg(feature = "devtools")]
-  fn apply_devtools_requests(&mut self) {
-    if self.main.tree.apply_devtools_requests() {
+  fn present_dirty_main(&mut self) {
+    if self.main.tree.needs_redraw() {
+      self.main.present_now(&mut self.app);
+    }
+  }
+
+  fn present_dirty_secondaries(&mut self) {
+    for position in 0..self.secondaries.len() {
+      let index = self.secondaries[position].index();
+      let should_present = self
+        .main
+        .tree
+        .secondary_window(index)
+        .is_some_and(|secondary| secondary.tree().needs_redraw());
+      if !should_present {
+        continue;
+      }
+
+      let secondary_window = &mut self.secondaries[position];
+      if let Some(secondary) = self.main.tree.secondary_window_mut(index) {
+        secondary_window.present_now(&mut self.app, secondary.tree_mut());
+      }
+    }
+  }
+
+  fn present_dirty_windows(&mut self) {
+    self.present_dirty_main();
+    self.present_dirty_secondaries();
+  }
+
+  fn apply_secondary_window_requests(&mut self) {
+    if self.main.tree.apply_secondary_window_requests() {
       self.main.request_redraw();
     }
-    self.check_devtools_redraw();
+    self.check_secondary_redraw();
+    self.present_dirty_windows();
   }
 
-  #[cfg(feature = "devtools")]
-  fn handle_devtools_pick_event(&mut self, event: &WindowEvent) -> bool {
-    if !self.main.tree.devtools_pick_mode() {
+  fn handle_secondary_pick_event(&mut self, event: &WindowEvent) -> bool {
+    if !self.main.tree.secondary_pick_mode() {
       return false;
     }
 
@@ -565,17 +589,19 @@ impl WinitHandler {
         }
 
         let (x, y) = (self.main.cursor_pos.0 as f32, self.main.cursor_pos.1 as f32);
-        self.main.tree.pick_devtools_node_at(x, y);
+        self.main.tree.pick_secondary_node_at(x, y);
         self.main.request_redraw();
-        self.check_devtools_redraw();
+        self.check_secondary_redraw();
+        self.present_dirty_windows();
         true
       }
       WindowEvent::KeyboardInput { event, .. }
         if matches!(event.state, ElementState::Pressed)
           && matches!(event.logical_key, Key::Named(NamedKey::Escape)) =>
       {
-        self.main.tree.cancel_devtools_pick();
-        self.check_devtools_redraw();
+        self.main.tree.cancel_secondary_pick();
+        self.check_secondary_redraw();
+        self.present_dirty_windows();
         true
       }
       _ => false,
@@ -586,67 +612,71 @@ impl WinitHandler {
 impl ApplicationHandler for WinitHandler {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop);
-    #[cfg(feature = "devtools")]
-    if let (Some(devtools), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools_mut()) {
-      devtools.create_window(event_loop, devtools_tree);
+    for secondary_window in &mut self.secondaries {
+      let index = secondary_window.index();
+      let metadata = self
+        .main
+        .tree
+        .secondary_window_mut(index)
+        .and_then(|secondary| secondary_window.create_window(event_loop, secondary.tree_mut()));
+      if let Some(metadata) = metadata {
+        self.main.tree.set_secondary_window_metadata(index, metadata);
+      }
     }
   }
 
   fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
     if self.main.window_id() == Some(id) {
-      #[cfg(feature = "devtools")]
-      if self.handle_devtools_pick_event(&event) {
+      if self.handle_secondary_pick_event(&event) {
         return;
       }
-      #[cfg(feature = "devtools")]
       let presented = self.main.handle_event(&mut self.app, event_loop, event);
-      #[cfg(not(feature = "devtools"))]
-      self.main.handle_event(&mut self.app, event_loop, event);
-      #[cfg(feature = "devtools")]
       if presented {
-        self.check_devtools_redraw();
+        self.check_secondary_redraw();
+        self.present_dirty_secondaries();
       }
       return;
     }
 
-    #[cfg(feature = "devtools")]
-    if self
-      .devtools
-      .as_ref()
-      .is_some_and(|devtools| devtools.window_id() == Some(id))
+    if let Some(position) = self
+      .secondaries
+      .iter()
+      .position(|secondary| secondary.window_id() == Some(id))
     {
+      let index = self.secondaries[position].index();
       let mut closed = false;
-      if let (Some(devtools), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools_mut()) {
-        devtools.handle_event(&mut self.app, event_loop, event, devtools_tree);
-        closed = devtools.window.is_none();
+      if let Some(secondary) = self.main.tree.secondary_window_mut(index) {
+        self.secondaries[position].handle_event(&mut self.app, event_loop, event, secondary.tree_mut());
+        closed = self.secondaries[position].window.is_none();
       }
       if closed {
-        if self.main.tree.close_devtools() {
+        if self.main.tree.close_secondary_window(index) {
           self.main.request_redraw();
         }
-        self.devtools = None;
+        self.secondaries.remove(position);
       } else {
-        self.apply_devtools_requests();
+        self.apply_secondary_window_requests();
       }
     }
   }
 
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     self.main.tick();
-    #[cfg(feature = "devtools")]
-    if let (Some(devtools), Some(devtools_tree)) = (&mut self.devtools, self.main.tree.devtools_mut()) {
-      devtools.tick(devtools_tree);
+    for secondary_window in &mut self.secondaries {
+      if let Some(secondary) = self.main.tree.secondary_window_mut(secondary_window.index()) {
+        secondary_window.tick(secondary.tree_mut());
+      }
     }
 
-    #[cfg(feature = "devtools")]
-    let devtools_has_tick = self
-      .devtools
-      .as_ref()
-      .is_some_and(|devtools| devtools.has_tick(self.main.tree.devtools()));
-    #[cfg(not(feature = "devtools"))]
-    let devtools_has_tick = false;
+    let secondary_has_tick = self.secondaries.iter().any(|secondary_window| {
+      self
+        .main
+        .tree
+        .secondary_window(secondary_window.index())
+        .is_some_and(|secondary| secondary_window.has_tick(Some(secondary.tree())))
+    });
 
-    if self.main.has_tick() || devtools_has_tick {
+    if self.main.has_tick() || secondary_has_tick {
       event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + TICK_INTERVAL));
     } else {
       event_loop.set_control_flow(ControlFlow::Wait);

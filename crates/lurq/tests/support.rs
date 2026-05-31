@@ -59,9 +59,12 @@ pub struct RectSnapshot {
 
 pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
   let capture = Arc::new(Mutex::new(None));
-  tree.set_render_engine(Box::new(CapturingRenderEngine {
-    capture: capture.clone(),
-  }));
+  let render_capture = capture.clone();
+  tree.set_render_engine_factory(move || {
+    Box::new(CapturingRenderEngine {
+      capture: render_capture.clone(),
+    })
+  });
   let mut app = App::new();
   tree.pass(&mut app, &TestSurface);
   capture.lock().unwrap().clone().unwrap_or_else(empty_snapshot)

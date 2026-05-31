@@ -6,7 +6,7 @@ use lurq::{
 
 use crate::style::{DemoTheme, text};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, lurq::DevtoolsInspectable)]
 pub(crate) enum DemoTab {
   Layout,
   Sizing,

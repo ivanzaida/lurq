@@ -1,6 +1,6 @@
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  core::Signal,
+  core::{ReactiveContext, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
@@ -12,14 +12,14 @@ const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
 
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 struct LocaleContext {
   locale: &'static str,
   greeting: &'static str,
   date_format: &'static str,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, lurq::DevtoolsInspectable)]
 enum LocaleMode {
   EnUs,
   EnGb,
@@ -107,13 +107,18 @@ impl PartialEq for LocaleProviderProps {
   }
 }
 
-struct LocaleProvider;
+struct LocaleProvider {
+  locale_context: ReactiveContext<LocaleContext>,
+}
 
 impl Component for LocaleProvider {
   type Props = LocaleProviderProps;
 
-  fn create(_ctx: &mut Ctx) -> Self {
-    Self
+  fn create(ctx: &mut Ctx) -> Self {
+    let locale = ctx.props::<LocaleProviderProps>().locale.get().context();
+    Self {
+      locale_context: ctx.create_context(locale),
+    }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -121,7 +126,7 @@ impl Component for LocaleProvider {
     let locale_mode = props.locale.get();
     let locale = locale_mode.context();
     let palette = props.theme.palette();
-    ctx.provide(locale.clone());
+    self.locale_context.set(locale.clone());
 
     card_frame(palette)
       .spacing(12.0)
@@ -155,11 +160,14 @@ impl Component for LocaleConsumerA {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let palette = ctx.props::<DemoTheme>().palette();
-    let locale = ctx.use_context::<LocaleContext>().unwrap_or(LocaleContext {
-      locale: "unknown",
-      greeting: "Unavailable",
-      date_format: "Unavailable",
-    });
+    let locale = ctx
+      .consume_context::<LocaleContext>()
+      .map(|context| context.get())
+      .unwrap_or(LocaleContext {
+        locale: "unknown",
+        greeting: "Unavailable",
+        date_format: "Unavailable",
+      });
 
     context_child(
       "Child A",
@@ -180,11 +188,14 @@ impl Component for LocaleConsumerB {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let palette = ctx.props::<DemoTheme>().palette();
-    let locale = ctx.use_context::<LocaleContext>().unwrap_or(LocaleContext {
-      locale: "unknown",
-      greeting: "Unavailable",
-      date_format: "Unavailable",
-    });
+    let locale = ctx
+      .consume_context::<LocaleContext>()
+      .map(|context| context.get())
+      .unwrap_or(LocaleContext {
+        locale: "unknown",
+        greeting: "Unavailable",
+        date_format: "Unavailable",
+      });
 
     context_child(
       "Child B",

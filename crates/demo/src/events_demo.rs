@@ -16,7 +16,7 @@ const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, lurq::DevtoolsInspectable)]
 struct PointerState {
   x: f32,
   y: f32,

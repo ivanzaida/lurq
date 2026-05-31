@@ -20,8 +20,15 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     tag_name,
     component_slot_id: None,
     component_key: None,
+    #[cfg(feature = "devtools")]
     component_props_debug: None,
+    #[cfg(feature = "devtools")]
     component_signals_debug: Vec::new(),
+    #[cfg(feature = "devtools")]
+    component_memos_debug: Vec::new(),
+    #[cfg(feature = "devtools")]
+    component_effects_debug: Vec::new(),
+    #[cfg(feature = "devtools")]
     component_contexts_debug: Vec::new(),
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),

@@ -23,7 +23,7 @@ use crate::{
     },
     hit_test::hit_test_tree,
     profiler::{FrameProfile, PerfMeterStats, ProfileScope, RuntimeMemoryProfile},
-    render_engine::RenderEngine,
+    render_engine::{RenderEngine, RenderEngineFactory},
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
@@ -51,6 +51,14 @@ const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
+
+#[cfg(feature = "devtools")]
+fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
+  node.set_component_props_debug(ctx.props_debug());
+  node.set_component_signals_debug(ctx.signals_debug());
+  node.set_component_effects_debug(ctx.effects_debug());
+  node.set_component_contexts_debug(ctx.contexts_debug());
+}
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
@@ -85,6 +93,7 @@ pub struct Tree {
   id_gen: IdGenerator,
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
+  render_engine_factory: Option<RenderEngineFactory>,
   root: Option<Node>,
   root_component: Option<Box<dyn AnyRootComponent>>,
   root_ctx: Option<Ctx>,
@@ -110,8 +119,9 @@ pub struct Tree {
   perf_overlay_last_sample: Instant,
   perf_overlay_last_seen_frame: u64,
   perf_overlay_frames_since_sample: u64,
+  secondary_windows: Vec<SecondaryWindow>,
   #[cfg(feature = "devtools")]
-  pub(crate) devtools: Option<Box<Tree>>,
+  pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
   devtools_state: DevToolsState,
   #[cfg(feature = "devtools")]
@@ -120,6 +130,66 @@ pub struct Tree {
   last_profile: FrameProfile,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
+}
+
+pub(crate) struct SecondaryWindow {
+  title: String,
+  width: u32,
+  height: u32,
+  tree: Tree,
+  open: bool,
+  metadata: SecondaryWindowMetadata,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SecondaryWindowMetadata {
+  pub(crate) window_id: Option<String>,
+  pub(crate) raw_window_handle: Option<String>,
+  pub(crate) raw_display_handle: Option<String>,
+  pub(crate) hwnd: Option<isize>,
+}
+
+#[cfg(feature = "devtools")]
+pub(crate) struct DevToolsWindow {
+  secondary_index: usize,
+  pub(crate) metadata: SecondaryWindowMetadata,
+}
+
+impl SecondaryWindow {
+  fn new(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
+    Self {
+      title: title.into(),
+      width,
+      height,
+      tree,
+      open: true,
+      metadata: SecondaryWindowMetadata::default(),
+    }
+  }
+
+  pub(crate) fn title(&self) -> &str {
+    &self.title
+  }
+
+  pub(crate) fn width(&self) -> u32 {
+    self.width
+  }
+
+  pub(crate) fn height(&self) -> u32 {
+    self.height
+  }
+
+  pub(crate) fn tree(&self) -> &Tree {
+    &self.tree
+  }
+
+  pub(crate) fn tree_mut(&mut self) -> &mut Tree {
+    &mut self.tree
+  }
+
+  pub(crate) fn set_metadata(&mut self, metadata: SecondaryWindowMetadata) {
+    self.metadata = metadata;
+  }
 }
 
 #[cfg(feature = "devtools")]
@@ -172,6 +242,7 @@ impl Tree {
       id_gen: IdGenerator::new(),
       layout_engine: LayoutEngine::new(),
       render_engine: None,
+      render_engine_factory: None,
       root: None,
       root_component: None,
       root_ctx: None,
@@ -197,6 +268,7 @@ impl Tree {
       perf_overlay_last_sample: Instant::now(),
       perf_overlay_last_seen_frame: 0,
       perf_overlay_frames_since_sample: 0,
+      secondary_windows: Vec::new(),
       #[cfg(feature = "devtools")]
       devtools: None,
       #[cfg(feature = "devtools")]
@@ -300,6 +372,10 @@ impl Tree {
     }
   }
 
+  pub(crate) fn has_active_timeline(&self) -> bool {
+    self.transition_engine.has_active || self.animation_engine.has_active
+  }
+
   pub fn frame_count(&self) -> u64 {
     self.frame_count
   }
@@ -309,35 +385,140 @@ impl Tree {
     Size::new(self.viewport_physical.width / s, self.viewport_physical.height / s)
   }
 
-  pub fn set_render_engine(&mut self, engine: Box<dyn RenderEngine>) {
-    self.render_engine = Some(engine);
+  pub fn set_render_engine_factory<F>(&mut self, factory: F)
+  where
+    F: Fn() -> Box<dyn RenderEngine> + 'static,
+  {
+    let factory: RenderEngineFactory = Arc::new(factory);
+    self.render_engine = Some((factory)());
+    self.render_engine_factory = Some(factory);
+    self.apply_render_engine_factory_to_secondaries();
+  }
+
+  pub(crate) fn secondary_window_count(&self) -> usize {
+    self.secondary_windows.len()
+  }
+
+  pub(crate) fn secondary_window(&self, index: usize) -> Option<&SecondaryWindow> {
+    self.secondary_windows.get(index).filter(|window| window.open)
+  }
+
+  pub(crate) fn secondary_window_mut(&mut self, index: usize) -> Option<&mut SecondaryWindow> {
+    self.secondary_windows.get_mut(index).filter(|window| window.open)
+  }
+
+  fn push_secondary_window(&mut self, mut window: SecondaryWindow) -> usize {
+    let index = self.secondary_windows.len();
+    self.apply_render_engine_factory_to_secondary(&mut window);
+    self.secondary_windows.push(window);
+    index
+  }
+
+  fn apply_render_engine_factory_to_secondary(&self, window: &mut SecondaryWindow) {
+    if window.tree.render_engine.is_none()
+      && let Some(factory) = &self.render_engine_factory
+    {
+      window.tree.render_engine = Some((factory)());
+    }
+  }
+
+  fn apply_render_engine_factory_to_secondaries(&mut self) {
+    let Some(factory) = self.render_engine_factory.clone() else {
+      return;
+    };
+    for window in &mut self.secondary_windows {
+      window.tree.render_engine = Some((factory)());
+    }
+  }
+
+  pub(crate) fn set_secondary_window_metadata(&mut self, index: usize, metadata: SecondaryWindowMetadata) {
+    let Some(window) = self.secondary_windows.get_mut(index) else {
+      return;
+    };
+    window.set_metadata(metadata.clone());
+
+    #[cfg(feature = "devtools")]
+    if let Some(devtools) = &mut self.devtools
+      && devtools.secondary_index == index
+    {
+      devtools.metadata = metadata;
+    }
+  }
+
+  pub(crate) fn close_secondary_window(&mut self, index: usize) -> bool {
+    let Some(window) = self.secondary_windows.get_mut(index) else {
+      return false;
+    };
+    if !window.open {
+      return false;
+    }
+    window.open = false;
+    window.set_metadata(SecondaryWindowMetadata::default());
+
+    #[cfg(feature = "devtools")]
+    if self
+      .devtools
+      .as_ref()
+      .is_some_and(|devtools| devtools.secondary_index == index)
+    {
+      if let Some(devtools) = &mut self.devtools {
+        devtools.metadata = SecondaryWindowMetadata::default();
+      }
+      *self.devtools_state.debug_overlay_path.lock().unwrap() = None;
+      *self.devtools_state.pick_mode.lock().unwrap() = false;
+      return self.clear_debug_overlay();
+    }
+
+    false
+  }
+
+  pub(crate) fn apply_secondary_window_requests(&mut self) -> bool {
+    #[cfg(feature = "devtools")]
+    {
+      return self.apply_devtools_requests();
+    }
+    #[cfg(not(feature = "devtools"))]
+    false
+  }
+
+  pub(crate) fn secondary_pick_mode(&self) -> bool {
+    #[cfg(feature = "devtools")]
+    {
+      return self.devtools_pick_mode();
+    }
+    #[cfg(not(feature = "devtools"))]
+    false
+  }
+
+  pub(crate) fn pick_secondary_node_at(&mut self, _x: f32, _y: f32) -> Option<Vec<usize>> {
+    #[cfg(feature = "devtools")]
+    {
+      return self.pick_devtools_node_at(_x, _y);
+    }
+    #[cfg(not(feature = "devtools"))]
+    None
+  }
+
+  pub(crate) fn cancel_secondary_pick(&mut self) {
+    #[cfg(feature = "devtools")]
+    self.cancel_devtools_pick();
   }
 
   #[cfg(feature = "devtools")]
-  pub(crate) fn mount_devtools(&mut self, theme: crate::app::theme::Theme, render_engine: Box<dyn RenderEngine>) {
+  pub fn mount_devtools(&mut self, theme: crate::app::theme::Theme) {
     let mut devtools = Tree::new();
-    devtools.set_render_engine(render_engine);
-    devtools.draw_perf_overlay();
     devtools.mount_root::<DevTools>(theme, self.devtools_props(DevToolsSnapshot::from_tree(self)));
-    self.devtools = Some(Box::new(devtools));
+    let index = self.push_secondary_window(SecondaryWindow::new("lurq DevTools", 1440, 900, devtools));
+    self.devtools = Some(DevToolsWindow {
+      secondary_index: index,
+      metadata: SecondaryWindowMetadata::default(),
+    });
   }
 
   #[cfg(feature = "devtools")]
-  pub(crate) fn devtools(&self) -> Option<&Tree> {
-    self.devtools.as_deref()
-  }
-
-  #[cfg(feature = "devtools")]
-  pub(crate) fn devtools_mut(&mut self) -> Option<&mut Tree> {
-    self.devtools.as_deref_mut()
-  }
-
-  #[cfg(feature = "devtools")]
-  pub(crate) fn close_devtools(&mut self) -> bool {
-    self.devtools = None;
-    *self.devtools_state.debug_overlay_path.lock().unwrap() = None;
-    *self.devtools_state.pick_mode.lock().unwrap() = false;
-    self.clear_debug_overlay()
+  fn devtools_tree_mut(&mut self) -> Option<&mut Tree> {
+    let index = self.devtools.as_ref()?.secondary_index;
+    self.secondary_window_mut(index).map(SecondaryWindow::tree_mut)
   }
 
   #[cfg(feature = "devtools")]
@@ -398,7 +579,7 @@ impl Tree {
     }
 
     let props = self.devtools_props(DevToolsSnapshot::from_tree(self));
-    let Some(devtools) = self.devtools.as_deref_mut() else {
+    let Some(devtools) = self.devtools_tree_mut() else {
       return;
     };
     devtools.update_root_props::<DevTools>(props);
@@ -442,9 +623,8 @@ impl Tree {
     let mut node = wrapper.render(&mut ctx).node;
     ctx.end_render();
     node.set_tag_name(wrapper.tag_name());
-    node.set_component_props_debug(ctx.props_debug());
-    node.set_component_signals_debug(ctx.signals_debug());
-    node.set_component_contexts_debug(ctx.contexts_debug());
+    #[cfg(feature = "devtools")]
+    set_component_debug_metadata(&mut node, &ctx);
     node.assign_ids(&self.id_gen);
     wrapper.on_mounted();
     self.root = Some(node);
@@ -475,9 +655,8 @@ impl Tree {
       let mut node = component.render(ctx).node;
       ctx.end_render();
       node.set_tag_name(component.tag_name());
-      node.set_component_props_debug(ctx.props_debug());
-      node.set_component_signals_debug(ctx.signals_debug());
-      node.set_component_contexts_debug(ctx.contexts_debug());
+      #[cfg(feature = "devtools")]
+      set_component_debug_metadata(&mut node, ctx);
       if let Some(old) = old_root.as_mut() {
         node.preserve_runtime_state_from(old);
         node.preserve_ids_from(old);
@@ -559,6 +738,7 @@ impl Tree {
     let layout_start = ProfileScope::maybe_start(profiling_enabled);
     self.update_layout(app);
     let layout_dur = ProfileScope::elapsed_or_default(&layout_start);
+    let layout_recalculated = self.layout_engine.last_recalculated();
 
     let root = match &self.root {
       Some(r) => r,
@@ -795,6 +975,7 @@ impl Tree {
       let render_profile = render_engine.last_profile().unwrap_or_default();
       self.last_profile = FrameProfile {
         layout: layout_dur,
+        layout_recalculated,
         quad_resolve: quad_dur,
         glyph_rasterize: glyph_dur,
         gpu_submit: gpu_dur,

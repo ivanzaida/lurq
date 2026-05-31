@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crate::{
   app::glyph_engine::GlyphEngine,
   layout::{
@@ -13,7 +15,9 @@ use crate::{
   node::{dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding, transform::Transform2D},
 };
 
-pub(crate) struct LayoutEngine;
+pub(crate) struct LayoutEngine {
+  last_recalculated: Cell<bool>,
+}
 
 #[cfg(feature = "image")]
 struct BackgroundImagePlacement {
@@ -84,14 +88,21 @@ fn background_image_placement(
 
 impl LayoutEngine {
   pub(crate) fn new() -> Self {
-    Self
+    Self {
+      last_recalculated: Cell::new(false),
+    }
   }
 
   pub(crate) fn compute(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+    self.last_recalculated.set(false);
     Self::mark_layout_dirty(node);
     let result = self.layout_node(glyph_engine, node, constraints);
     node.clear_guards();
     result
+  }
+
+  pub(crate) fn last_recalculated(&self) -> bool {
+    self.last_recalculated.get()
   }
 
   fn mark_layout_dirty(node: &Node) -> bool {
@@ -527,6 +538,7 @@ impl LayoutEngine {
     node: &Node,
     constraints: Constraints,
   ) -> LayoutResult {
+    self.last_recalculated.set(true);
     let frame_handled_by_layout_kind = matches!(node.layout_kind(), LayoutKind::FrameModifier(_));
     let mut result = match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints),

@@ -1,7 +1,8 @@
-use crate::{
-  app::ctx::{ComponentContextDebug, ComponentSignalDebug, DevtoolsInspectableDebug},
-  node::{color::Color, node::Node},
+#[cfg(feature = "devtools")]
+use crate::app::ctx::{
+  ComponentContextDebug, ComponentEffectDebug, ComponentMemoDebug, ComponentSignalDebug, DevtoolsInspectableDebug,
 };
+use crate::node::{color::Color, node::Node};
 
 pub struct Element {
   pub(crate) node: Node,
@@ -72,16 +73,31 @@ impl<'a> ElementRef<'a> {
     self.node.color()
   }
 
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub(crate) fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
     self.node.component_props_debug()
   }
 
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub(crate) fn component_signals_debug(&self) -> &[ComponentSignalDebug] {
     self.node.component_signals_debug()
   }
 
+  #[cfg(feature = "devtools")]
+  #[allow(dead_code)]
+  pub(crate) fn component_memos_debug(&self) -> &[ComponentMemoDebug] {
+    self.node.component_memos_debug()
+  }
+
+  #[cfg(feature = "devtools")]
+  #[allow(dead_code)]
+  pub(crate) fn component_effects_debug(&self) -> &[ComponentEffectDebug] {
+    self.node.component_effects_debug()
+  }
+
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub(crate) fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
     self.node.component_contexts_debug()

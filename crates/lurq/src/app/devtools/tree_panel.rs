@@ -7,11 +7,19 @@ use super::{
   },
 };
 use crate::{
-  components::{Column, Row, ScrollVertical, Spacer},
+  components::{Column, Row, ScrollBoth, Spacer},
   core::{NodeId, Signal},
-  layout::{Alignment, text_style::FontWeight},
-  node::{CursorIcon, Element, border::Border, color::Color},
+  layout::{
+    Alignment,
+    layout_kind::{FrameConstraints, ScrollState},
+    text_style::FontWeight,
+  },
+  node::{CursorIcon, Element, border::Border, color::Color, dimension::Dimension},
 };
+
+const TREE_PANEL_WIDTH: f32 = 380.0;
+const TREE_CONTENT_MIN_WIDTH: f32 = 640.0;
+pub(crate) const TREE_ROW_HEIGHT: f32 = 26.0;
 
 pub(crate) fn tree_panel(
   snapshot: &DevToolsSnapshot,
@@ -19,6 +27,7 @@ pub(crate) fn tree_panel(
   selected: Signal<Vec<usize>>,
   collapsed_nodes: Vec<NodeId>,
   collapsed: Signal<Vec<NodeId>>,
+  scroll_state: ScrollState,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
 ) -> Element {
@@ -46,12 +55,13 @@ pub(crate) fn tree_panel(
       &format!("{} components", snapshot.node_count()),
     ))
     .child(
-      ScrollVertical::new(Column::new().with_children(rows).width(FILL))
+      ScrollBoth::new(Column::new().with_children(rows))
+        .with_scroll_state(scroll_state)
         .height(FILL)
         .width(FILL)
         .flex(1.0),
     )
-    .width(380.0)
+    .width(TREE_PANEL_WIDTH)
     .height(FILL)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
@@ -156,11 +166,18 @@ fn tree_row(
       .child(text(&preview, 12.0, FontWeight::Normal, ORANGE).nowrap());
   }
 
+  row = row.child(text("/>", 12.0, FontWeight::Normal, MUTED));
+  if child_count > 0 {
+    row = row.child(badge(&child_count.to_string(), GREEN, SURFACE_2));
+  }
+
   row = row
-    .child(text("/>", 12.0, FontWeight::Normal, MUTED))
-    .width(FILL)
-    .height(26.0)
+    .height(TREE_ROW_HEIGHT)
     .fill(if selected { SELECTED } else { "#00000000" })
+    .frame(FrameConstraints {
+      min_width: Some(Dimension::Px(TREE_CONTENT_MIN_WIDTH)),
+      ..Default::default()
+    })
     .cursor(CursorIcon::Pointer)
     .on_click(move |_| {
       selected_path.set(click_path.clone());
@@ -174,10 +191,6 @@ fn tree_row(
     });
   if selected {
     row = row.border_left(Border::inside(2.0, Color::from_hex(PRIMARY)));
-  }
-
-  if child_count > 0 {
-    row = row.child(badge(&child_count.to_string(), GREEN, SURFACE_2));
   }
 
   row.into()
@@ -241,8 +254,10 @@ mod tests {
       color: None,
       props: None,
       signals: Vec::new(),
+      memos: Vec::new(),
       contexts: Vec::new(),
       shape: Vec::new(),
+      effects: Vec::new(),
       children: vec![DevToolsNode {
         id: child_id,
         tag: "Child".to_owned(),
@@ -252,8 +267,10 @@ mod tests {
         color: None,
         props: None,
         signals: Vec::new(),
+        memos: Vec::new(),
         contexts: Vec::new(),
         shape: Vec::new(),
+        effects: Vec::new(),
         children: vec![DevToolsNode {
           id: ids.next(),
           tag: "Grandchild".to_owned(),
@@ -263,8 +280,10 @@ mod tests {
           color: None,
           props: None,
           signals: Vec::new(),
+          memos: Vec::new(),
           contexts: Vec::new(),
           shape: Vec::new(),
+          effects: Vec::new(),
           children: Vec::new(),
         }],
       }],

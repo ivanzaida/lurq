@@ -36,7 +36,6 @@ pub(crate) fn section_header(label: &str, count: &str) -> Element {
 
 pub(crate) fn empty_state(message: &str) -> Element {
   text(message, 11.0, FontWeight::Normal, MUTED)
-    .width(FILL)
     .padding_horizontal(40.0)
     .padding_vertical(8.0)
     .into()
@@ -70,10 +69,12 @@ pub(crate) fn text(content: &str, size: f32, weight: FontWeight, color: &str) ->
 pub(crate) fn icon(name: &str, size: f32, color: &str) -> Text {
   let ch = match name {
     "activity" => '\u{e038}',
+    "arrow-right" => '\u{e04b}',
     "box" => '\u{e061}',
     "bug" => '\u{e20c}',
     "chevron-down" => '\u{e06d}',
     "chevron-right" => '\u{e06f}',
+    "circle" => '\u{e083}',
     "component" => '\u{e2ad}',
     "external-link" => '\u{e0b9}',
     "git-branch" => '\u{e0e2}',
@@ -84,6 +85,7 @@ pub(crate) fn icon(name: &str, size: f32, color: &str) -> Text {
     "share-2" => '\u{e156}',
     "circle-play" => '\u{e080}',
     "trash-2" => '\u{e18e}',
+    "timer" => '\u{e188}',
     "zap" => '\u{e1b4}',
     _ => '\u{e061}',
   };

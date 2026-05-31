@@ -11,7 +11,7 @@ use crate::{
   node::{Element, Node},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
 pub enum DragBounds {
   None,
   SelfBounds,

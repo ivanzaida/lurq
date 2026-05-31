@@ -1,6 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use syn::{
+  parse_macro_input, AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument, PathArguments, Type,
+};
 
 #[proc_macro_derive(Accessors)]
 pub fn derive_accessors(input: TokenStream) -> TokenStream {
@@ -82,7 +84,11 @@ pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
         };
         quote! {
           #pattern => {
-            buffer.push(::lurq::app::component::ComponentInfo::new("variant", #variant_label));
+            buffer.push(::lurq::app::component::ComponentInfo::with_value(
+              "variant",
+              ::std::any::type_name::<Self>(),
+              #variant_label,
+            ));
           }
         }
       });
@@ -121,11 +127,25 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
           let field_name = field.ident.expect("named field should have an ident");
           let field_label = field_name.to_string();
           let field_ty = field.ty;
-          quote! {
-            buffer.push(::lurq::app::component::ComponentInfo::new(
-              #field_label,
-              ::std::any::type_name::<#field_ty>(),
-            ));
+          let value = devtools_value_expr(&field_ty, quote! { &self.#field_name });
+          if let Some(value) = value {
+            quote! {
+              buffer.push(::lurq::app::component::ComponentInfo::with_value(
+                #field_label,
+                ::std::any::type_name::<#field_ty>(),
+                #value,
+              ));
+            }
+          } else {
+            quote! {
+              let mut children = ::std::vec::Vec::new();
+              ::lurq::app::component::DevtoolsInspectable::write_info(&self.#field_name, &mut children);
+              buffer.push(::lurq::app::component::ComponentInfo::with_children(
+                #field_label,
+                ::std::any::type_name::<#field_ty>(),
+                children,
+              ));
+            }
           }
         });
       quote! {
@@ -141,11 +161,26 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
         .map(|(index, field)| {
           let field_label = index.to_string();
           let field_ty = field.ty;
-          quote! {
-            buffer.push(::lurq::app::component::ComponentInfo::new(
-              #field_label,
-              ::std::any::type_name::<#field_ty>(),
-            ));
+          let field_index = syn::Index::from(index);
+          let value = devtools_value_expr(&field_ty, quote! { &self.#field_index });
+          if let Some(value) = value {
+            quote! {
+              buffer.push(::lurq::app::component::ComponentInfo::with_value(
+                #field_label,
+                ::std::any::type_name::<#field_ty>(),
+                #value,
+              ));
+            }
+          } else {
+            quote! {
+              let mut children = ::std::vec::Vec::new();
+              ::lurq::app::component::DevtoolsInspectable::write_info(&self.#field_index, &mut children);
+              buffer.push(::lurq::app::component::ComponentInfo::with_children(
+                #field_label,
+                ::std::any::type_name::<#field_ty>(),
+                children,
+              ));
+            }
           }
         });
       quote! {
@@ -158,4 +193,93 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
 
 fn has_devtools_ignore(field: &syn::Field) -> bool {
   field.attrs.iter().any(|attr| attr.path().is_ident("devtools_ignore"))
+}
+
+fn devtools_value_expr(ty: &Type, access: proc_macro2::TokenStream) -> Option<proc_macro2::TokenStream> {
+  if is_str_ref(ty) {
+    return Some(quote! { ::std::format!("{:?}", #access) });
+  }
+
+  let path = match ty {
+    Type::Path(path) => &path.path,
+    _ => return None,
+  };
+  let segment = path.segments.last()?;
+  let ident = segment.ident.to_string();
+
+  if ident == "Arc" {
+    return Some(quote! { ::std::format!("{:p}", ::std::sync::Arc::as_ptr(#access)) });
+  }
+
+  if is_debug_safe_path(&ident, &segment.arguments) {
+    return Some(quote! { ::std::format!("{:?}", #access) });
+  }
+
+  None
+}
+
+fn is_str_ref(ty: &Type) -> bool {
+  let Type::Reference(reference) = ty else {
+    return false;
+  };
+  matches!(
+    reference.elem.as_ref(),
+    Type::Path(path) if path.path.is_ident("str")
+  )
+}
+
+fn is_debug_safe_type(ty: &Type) -> bool {
+  if is_str_ref(ty) {
+    return true;
+  }
+
+  let Type::Path(path) = ty else {
+    return false;
+  };
+  let Some(segment) = path.path.segments.last() else {
+    return false;
+  };
+  is_debug_safe_path(&segment.ident.to_string(), &segment.arguments)
+}
+
+fn is_debug_safe_path(ident: &str, arguments: &PathArguments) -> bool {
+  if matches!(
+    ident,
+    "bool"
+      | "i8"
+      | "i16"
+      | "i32"
+      | "i64"
+      | "i128"
+      | "isize"
+      | "u8"
+      | "u16"
+      | "u32"
+      | "u64"
+      | "u128"
+      | "usize"
+      | "f32"
+      | "f64"
+      | "String"
+      | "Signal"
+  ) {
+    return true;
+  }
+
+  if matches!(ident, "Option" | "Vec" | "Box") {
+    return first_type_argument(arguments).is_some_and(is_debug_safe_type);
+  }
+
+  false
+}
+
+fn first_type_argument(arguments: &PathArguments) -> Option<&Type> {
+  let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) = arguments else {
+    return None;
+  };
+
+  args.iter().find_map(|arg| match arg {
+    GenericArgument::Type(ty) => Some(ty),
+    _ => None,
+  })
 }

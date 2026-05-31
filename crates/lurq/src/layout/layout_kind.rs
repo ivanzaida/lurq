@@ -117,6 +117,13 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
+  pub(crate) fn set_scroll_pending(&self, x: f32, y: f32) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.scroll_x = x.max(0.0);
+    inner.scroll_y = y.max(0.0);
+    inner.scroll_dirty = true;
+  }
+
   pub fn scroll_by(&self, dx: f32, dy: f32) {
     self.scroll_by_with_overflow(dx, dy);
   }

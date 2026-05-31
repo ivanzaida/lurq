@@ -124,9 +124,10 @@ impl Component for DemoApp {
 }
 
 fn set_selected_render_engine(tree: &mut Tree) -> String {
-  let renderer = selected_renderer_arg();
-  tree.set_render_engine(create_render_engine(&renderer));
-  normalize_renderer_name(&renderer).to_owned()
+  let renderer = normalize_renderer_name(&selected_renderer_arg()).to_owned();
+  let renderer_for_factory = renderer.clone();
+  tree.set_render_engine_factory(move || create_render_engine(&renderer_for_factory));
+  renderer
 }
 
 fn create_render_engine(renderer: &str) -> Box<dyn lurq::app::render_engine::RenderEngine> {
@@ -184,13 +185,10 @@ fn main() {
   lurq::app::devtools::load_fonts(&mut app);
   app.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut tree);
-  tree.draw_perf_overlay();
-  let devtools_renderer = renderer.clone();
   animation_demo::register_keyframes(&mut tree);
   tree.mount_root::<DemoApp>(app.theme().clone(), DemoProps);
+  tree.mount_devtools(app.theme().clone());
   let title = format!("lurq demo ({renderer})");
   let window = WinitWindow::new(app, tree).with_title(&title);
-
-  let window = window.with_devtools(move || create_render_engine(&devtools_renderer));
   window.on_tick(Tree::request_redraw).run();
 }

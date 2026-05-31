@@ -1,6 +1,6 @@
 use lurq::core::Store;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
 struct AppState {
   count: i32,
   name: String,

@@ -12,3 +12,5 @@ pub trait RenderEngine {
     None
   }
 }
+
+pub type RenderEngineFactory = std::sync::Arc<dyn Fn() -> Box<dyn RenderEngine>>;
