@@ -41,6 +41,7 @@ pub fn run_pass(tree: &mut Tree) {
 #[derive(Clone, Debug)]
 pub struct RenderSnapshot {
   pub rects: Vec<RectSnapshot>,
+  pub glyph_count: usize,
   #[cfg(feature = "image")]
   pub image_orders: Vec<usize>,
   #[cfg(feature = "svg")]
@@ -49,6 +50,8 @@ pub struct RenderSnapshot {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectSnapshot {
+  pub x: f32,
+  pub y: f32,
   pub width: f32,
   pub height: f32,
   pub color: Color,
@@ -81,6 +84,7 @@ impl RenderEngine for CapturingRenderEngine {
     let rects = list.rects.iter().map(rect_snapshot).collect();
     *self.capture.lock().unwrap() = Some(RenderSnapshot {
       rects,
+      glyph_count: list.glyphs.len(),
       #[cfg(feature = "image")]
       image_orders: list.images.iter().map(|image| image.order).collect(),
       #[cfg(feature = "svg")]
@@ -92,6 +96,7 @@ impl RenderEngine for CapturingRenderEngine {
 fn empty_snapshot() -> RenderSnapshot {
   RenderSnapshot {
     rects: vec![],
+    glyph_count: 0,
     #[cfg(feature = "image")]
     image_orders: vec![],
     #[cfg(feature = "svg")]
@@ -101,6 +106,8 @@ fn empty_snapshot() -> RenderSnapshot {
 
 fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
   RectSnapshot {
+    x: rect.x,
+    y: rect.y,
     width: rect.width,
     height: rect.height,
     color: rect.color,

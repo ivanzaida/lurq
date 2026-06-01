@@ -1,5 +1,25 @@
 use crate::node::color::Color;
 
+const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0;
+const DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 24.0;
+const DEFAULT_SCROLLBAR_TRACK_COLOR: Color = Color::new(0, 0, 0, 0);
+const DEFAULT_SCROLLBAR_THUMB_COLOR: Color = Color::new(0, 0, 0, 80);
+const DEFAULT_SCROLLBAR_THUMB_RADIUS: f32 = 4.0;
+const DEFAULT_SCROLLBAR_TRACK_RADIUS: f32 = 4.0;
+const DEFAULT_SCROLLBAR_PADDING: f32 = 2.0;
+
+const THIN_SCROLLBAR_WIDTH: f32 = 4.0;
+const THIN_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 16.0;
+const THIN_SCROLLBAR_THUMB_RADIUS: f32 = 2.0;
+const THIN_SCROLLBAR_TRACK_RADIUS: f32 = 2.0;
+const THIN_SCROLLBAR_PADDING: f32 = 1.0;
+
+const WIDE_SCROLLBAR_WIDTH: f32 = 12.0;
+const WIDE_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 32.0;
+const WIDE_SCROLLBAR_THUMB_RADIUS: f32 = 6.0;
+const WIDE_SCROLLBAR_TRACK_RADIUS: f32 = 6.0;
+const WIDE_SCROLLBAR_PADDING: f32 = 2.0;
+
 #[derive(Clone, lurq_macros::Accessors)]
 pub struct ScrollBarStyle {
   pub width: f32,
@@ -31,13 +51,13 @@ pub enum ScrollBarPlacement {
 impl Default for ScrollBarStyle {
   fn default() -> Self {
     Self {
-      width: 8.0,
-      min_thumb_length: 24.0,
-      track_color: Color::new(0, 0, 0, 0),
-      thumb_color: Color::new(0, 0, 0, 80),
-      thumb_radius: 4.0,
-      track_radius: 4.0,
-      padding: 2.0,
+      width: DEFAULT_SCROLLBAR_WIDTH,
+      min_thumb_length: DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH,
+      track_color: DEFAULT_SCROLLBAR_TRACK_COLOR,
+      thumb_color: DEFAULT_SCROLLBAR_THUMB_COLOR,
+      thumb_radius: DEFAULT_SCROLLBAR_THUMB_RADIUS,
+      track_radius: DEFAULT_SCROLLBAR_TRACK_RADIUS,
+      padding: DEFAULT_SCROLLBAR_PADDING,
       visible: ScrollBarVisibility::Auto,
       placement: ScrollBarPlacement::Overlay,
     }
@@ -47,22 +67,22 @@ impl Default for ScrollBarStyle {
 impl ScrollBarStyle {
   pub fn thin() -> Self {
     Self {
-      width: 4.0,
-      min_thumb_length: 16.0,
-      thumb_radius: 2.0,
-      track_radius: 2.0,
-      padding: 1.0,
+      width: THIN_SCROLLBAR_WIDTH,
+      min_thumb_length: THIN_SCROLLBAR_MIN_THUMB_LENGTH,
+      thumb_radius: THIN_SCROLLBAR_THUMB_RADIUS,
+      track_radius: THIN_SCROLLBAR_TRACK_RADIUS,
+      padding: THIN_SCROLLBAR_PADDING,
       ..Self::default()
     }
   }
 
   pub fn wide() -> Self {
     Self {
-      width: 12.0,
-      min_thumb_length: 32.0,
-      thumb_radius: 6.0,
-      track_radius: 6.0,
-      padding: 2.0,
+      width: WIDE_SCROLLBAR_WIDTH,
+      min_thumb_length: WIDE_SCROLLBAR_MIN_THUMB_LENGTH,
+      thumb_radius: WIDE_SCROLLBAR_THUMB_RADIUS,
+      track_radius: WIDE_SCROLLBAR_TRACK_RADIUS,
+      padding: WIDE_SCROLLBAR_PADDING,
       ..Self::default()
     }
   }

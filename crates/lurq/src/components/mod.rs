@@ -34,7 +34,7 @@ pub use stack::Stack;
 #[cfg(feature = "svg")]
 pub use svg::Svg;
 pub use text::Text;
-pub use text_input::TextInput;
+pub use text_input::{TextInput, TextInputOverflow};
 
 #[macro_export]
 macro_rules! impl_into_node {

@@ -8,6 +8,9 @@ use crate::{
   node::{dimension::Dimension, padding::Padding},
 };
 
+const DEFAULT_FLEX_GROW: f32 = 1.0;
+const DEFAULT_FLEX_SHRINK: f32 = 0.0;
+
 #[derive(Clone)]
 pub enum LayoutKind {
   Leaf,
@@ -418,8 +421,8 @@ impl FlexParams {
 impl Default for FlexParams {
   fn default() -> Self {
     Self {
-      grow: 1.0,
-      shrink: 0.0,
+      grow: DEFAULT_FLEX_GROW,
+      shrink: DEFAULT_FLEX_SHRINK,
       basis: None,
     }
   }

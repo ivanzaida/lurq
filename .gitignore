@@ -1,4 +1,7 @@
 /target
+docs/dist
+docs/node_modules
+docs/.astro
 .plan
 .pencil
 .assets

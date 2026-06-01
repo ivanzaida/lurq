@@ -12,8 +12,31 @@ use crate::{
     scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
     text_style::TextStyle,
   },
-  node::{dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding, transform::Transform2D},
+  node::{
+    color::Color, dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding, transform::Transform2D,
+  },
 };
+
+const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
+const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
+const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
+const DEFAULT_SLIDER_HEIGHT: f32 = 20.0;
+const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
+const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
+const DEFAULT_TEXT_INPUT_HEIGHT: f32 = 28.0;
+#[cfg(any(feature = "image", feature = "svg"))]
+const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+#[cfg(any(feature = "image", feature = "svg"))]
+const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+const DEFAULT_QUAD_OPACITY: f32 = 1.0;
+
+const DEFAULT_CONTROL_SURFACE_COLOR: Color = Color::new(255, 255, 255, 255);
+const DEFAULT_TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
+const DEFAULT_CHECKBOX_CHECKED_COLOR: Color = Color::new(34, 197, 94, 255);
+const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
+const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
+const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
+const DEFAULT_CARET_COLOR: Color = Color::new(15, 23, 42, 255);
 
 pub(crate) struct LayoutEngine {
   last_recalculated: Cell<bool>,
@@ -197,15 +220,15 @@ impl LayoutEngine {
         wrap: node.text_wrap,
       },
       NodeKind::TextInput { state, style } => QuadContent::Text {
-        text: state.rendered_text().unwrap_or_default(),
+        text: state.rendered_text_for_layout(),
         style: style.clone(),
-        wrap: true,
+        wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
       },
       NodeKind::Checkbox { state } => QuadContent::Rect {
         color: if state.is_checked() {
-          crate::node::color::Color::from_hex("#22c55e")
+          DEFAULT_CHECKBOX_CHECKED_COLOR
         } else {
-          node.color().unwrap_or(crate::node::color::Color::from_hex("#ffffff"))
+          node.color().unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR)
         },
       },
       #[cfg(feature = "image")]
@@ -221,10 +244,10 @@ impl LayoutEngine {
       #[cfg(all(feature = "svg", feature = "resources"))]
       NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } if node.color().is_none() => QuadContent::Rect {
-        color: crate::node::color::Color::from_hex("#cbd5e1"),
+        color: DEFAULT_SLIDER_TRACK_COLOR,
       },
       _ if has_visual => QuadContent::Rect {
-        color: node.color().unwrap_or(crate::node::color::Color::new(0, 0, 0, 0)),
+        color: node.color().unwrap_or(DEFAULT_TRANSPARENT_COLOR),
       },
       _ => QuadContent::None,
     };
@@ -242,17 +265,60 @@ impl LayoutEngine {
     match &content {
       QuadContent::None => {}
       _ => {
+        if let NodeKind::TextInput { state, .. } = node.node_kind()
+          && state.is_focused()
+          && let Some((selection_start, selection_end)) = state.selection_x_range()
+        {
+          let selection_height = state.caret_height().min(result.size.height).max(1.0);
+          quads.push(Quad {
+            x: abs_x + selection_start,
+            y: abs_y + state.caret_y(),
+            width: (selection_end - selection_start).max(1.0),
+            height: selection_height,
+            opacity,
+            transform,
+            content: QuadContent::Rect {
+              color: DEFAULT_TEXT_SELECTION_COLOR,
+            },
+            border_radius: None,
+            border: None,
+            clip,
+          });
+        }
+
+        let (content_x, content_width, content_clip) = match node.node_kind() {
+          NodeKind::TextInput { state, .. }
+            if state.overflow() == crate::node::node_kind::TextInputOverflow::Scroll =>
+          {
+            (
+              abs_x - state.scroll_x(),
+              result.size.width + state.scroll_x(),
+              intersect_clip(
+                clip,
+                ClipRect {
+                  x: abs_x,
+                  y: abs_y,
+                  width: result.size.width,
+                  height: result.size.height,
+                  active: true,
+                },
+              ),
+            )
+          }
+          _ => (abs_x, result.size.width, clip),
+        };
+
         quads.push(Quad {
-          x: abs_x,
+          x: content_x,
           y: abs_y,
-          width: result.size.width,
+          width: content_width,
           height: result.size.height,
           opacity,
           transform,
           content,
           border_radius: node.get_border_radius(),
           border: node.get_border(),
-          clip,
+          clip: content_clip,
         });
       }
     }
@@ -286,15 +352,16 @@ impl LayoutEngine {
 
     match node.node_kind() {
       NodeKind::TextInput { state, .. } if state.is_focused() => {
+        let caret_height = state.caret_height().min(result.size.height).max(1.0);
         quads.push(Quad {
           x: abs_x + state.caret_x(),
-          y: abs_y + 3.0,
+          y: abs_y + state.caret_y(),
           width: 1.0,
-          height: (result.size.height - 6.0).max(1.0),
+          height: caret_height,
           opacity,
           transform,
           content: QuadContent::Rect {
-            color: crate::node::color::Color::from_hex("#0f172a"),
+            color: DEFAULT_CARET_COLOR,
           },
           border_radius: None,
           border: None,
@@ -302,7 +369,7 @@ impl LayoutEngine {
         });
       }
       NodeKind::Slider { state } => {
-        let thumb_size = result.size.height.max(12.0);
+        let thumb_size = result.size.height.max(DEFAULT_SLIDER_THUMB_MIN_SIZE);
         let thumb_x = abs_x + (result.size.width - thumb_size).max(0.0) * state.ratio();
         quads.push(Quad {
           x: thumb_x,
@@ -312,7 +379,7 @@ impl LayoutEngine {
           opacity,
           transform,
           content: QuadContent::Rect {
-            color: crate::node::color::Color::from_hex("#475569"),
+            color: DEFAULT_SLIDER_THUMB_COLOR,
           },
           border_radius: Some(crate::node::border::BorderRadius::all(thumb_size / 2.0)),
           border: None,
@@ -390,7 +457,7 @@ impl LayoutEngine {
                 y: geo.track_y,
                 width: geo.track_width,
                 height: geo.track_height,
-                opacity: 1.0,
+                opacity: DEFAULT_QUAD_OPACITY,
                 transform: Transform2D::IDENTITY,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
@@ -405,7 +472,7 @@ impl LayoutEngine {
               y: geo.thumb_y,
               width: geo.thumb_width,
               height: geo.thumb_height,
-              opacity: 1.0,
+              opacity: DEFAULT_QUAD_OPACITY,
               transform: Transform2D::IDENTITY,
               content: QuadContent::Rect { color: thumb_color },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
@@ -425,7 +492,7 @@ impl LayoutEngine {
                 y: geo.track_y,
                 width: geo.track_width,
                 height: geo.track_height,
-                opacity: 1.0,
+                opacity: DEFAULT_QUAD_OPACITY,
                 transform: Transform2D::IDENTITY,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
@@ -440,7 +507,7 @@ impl LayoutEngine {
               y: geo.thumb_y,
               width: geo.thumb_width,
               height: geo.thumb_height,
-              opacity: 1.0,
+              opacity: DEFAULT_QUAD_OPACITY,
               transform: Transform2D::IDENTITY,
               content: QuadContent::Rect { color: thumb_color },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
@@ -655,18 +722,22 @@ impl LayoutEngine {
         return self.layout_text(glyph_engine, content, style, constraints, node.text_wrap);
       }
       NodeKind::TextInput { state, style } => {
-        let content = state.rendered_text().unwrap_or_default();
+        let content = state.rendered_text_for_layout();
         return self.layout_text_input(glyph_engine, state, &content, style, constraints);
       }
       NodeKind::Checkbox { .. } => {
-        let preferred = node.intrinsic_size.unwrap_or(Size::new(18.0, 18.0));
+        let preferred = node
+          .intrinsic_size
+          .unwrap_or(Size::new(DEFAULT_CHECKBOX_WIDTH, DEFAULT_CHECKBOX_HEIGHT));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
         };
       }
       NodeKind::Slider { .. } => {
-        let preferred = node.intrinsic_size.unwrap_or(Size::new(120.0, 20.0));
+        let preferred = node
+          .intrinsic_size
+          .unwrap_or(Size::new(DEFAULT_SLIDER_WIDTH, DEFAULT_SLIDER_HEIGHT));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
@@ -684,7 +755,9 @@ impl LayoutEngine {
       }
       #[cfg(feature = "image")]
       NodeKind::ResourceImage { .. } => {
-        let preferred = node.intrinsic_size.unwrap_or(Size::new(0.0, 0.0));
+        let preferred = node
+          .intrinsic_size
+          .unwrap_or(Size::new(DEFAULT_RESOURCE_WIDTH, DEFAULT_RESOURCE_HEIGHT));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
@@ -702,7 +775,9 @@ impl LayoutEngine {
       }
       #[cfg(all(feature = "svg", feature = "resources"))]
       NodeKind::ResourceSvg { .. } => {
-        let preferred = node.intrinsic_size.unwrap_or(Size::new(0.0, 0.0));
+        let preferred = node
+          .intrinsic_size
+          .unwrap_or(Size::new(DEFAULT_RESOURCE_WIDTH, DEFAULT_RESOURCE_HEIGHT));
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
@@ -751,26 +826,75 @@ impl LayoutEngine {
     style: &TextStyle,
     constraints: Constraints,
   ) -> LayoutResult {
-    let caret_prefix = state.caret_prefix();
-    let caret_x = glyph_engine.measure_text(&caret_prefix, style, f32::MAX).width;
-    state.set_caret_x(caret_x);
+    let value = state.value();
+    let overflow = state.overflow();
+    let caret_positions = Self::text_caret_positions(glyph_engine, &value, style);
+    state.set_caret_positions(caret_positions);
 
+    let line_height = (style.font_size * style.line_height).max(1.0);
+    state.set_caret_height(line_height);
+    state.sync_caret_metrics_to_position(line_height);
+    let caret_x = state.caret_x() + state.scroll_x();
+
+    let text_constraints = Constraints {
+      min_width: 0.0,
+      min_height: 0.0,
+      ..constraints
+    };
     let text_result = self.layout_text(
       glyph_engine,
       text,
       style,
-      Constraints {
-        min_width: 0.0,
-        min_height: 0.0,
-        ..constraints
-      },
-      true,
+      text_constraints,
+      overflow == crate::node::node_kind::TextInputOverflow::Multiline,
     );
-    let preferred = Size::new(text_result.size.width.max(120.0), text_result.size.height.max(28.0));
-    LayoutResult {
-      size: constraints.constrain(preferred),
-      children: vec![],
+    let preferred = match overflow {
+      crate::node::node_kind::TextInputOverflow::Multiline => Size::new(
+        text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH),
+        text_result.size.height.max(DEFAULT_TEXT_INPUT_HEIGHT),
+      ),
+      crate::node::node_kind::TextInputOverflow::Scroll => {
+        Size::new(DEFAULT_TEXT_INPUT_WIDTH, line_height.max(DEFAULT_TEXT_INPUT_HEIGHT))
+      }
+    };
+    let size = constraints.constrain(preferred);
+    if overflow == crate::node::node_kind::TextInputOverflow::Scroll {
+      let max_scroll = (text_result.size.width - size.width).max(0.0);
+      let mut scroll_x = state.scroll_x().min(max_scroll);
+      if caret_x < scroll_x {
+        scroll_x = caret_x;
+      } else if caret_x > scroll_x + size.width {
+        scroll_x = (caret_x - size.width + 1.0).min(max_scroll);
+      }
+      state.set_scroll_x(scroll_x);
+    } else {
+      state.set_scroll_x(0.0);
     }
+    LayoutResult { size, children: vec![] }
+  }
+
+  fn text_caret_positions(glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> Vec<(usize, f32)> {
+    let mut positions = Vec::with_capacity(text.chars().count() + 1);
+    positions.push((0, 0.0));
+    let mut line_start = 0;
+    for (index, ch) in text.char_indices() {
+      if index > line_start {
+        let width = glyph_engine
+          .measure_text(&text[line_start..index], style, f32::MAX)
+          .width;
+        positions.push((index, width));
+      }
+      if ch == '\n' {
+        let next = index + ch.len_utf8();
+        positions.push((next, 0.0));
+        line_start = next;
+      }
+    }
+    let end_width = glyph_engine.measure_text(&text[line_start..], style, f32::MAX).width;
+    positions.push((text.len(), end_width));
+    positions.sort_by_key(|(index, _)| *index);
+    positions.dedup_by_key(|(index, _)| *index);
+    positions
   }
 
   fn layout_flex(

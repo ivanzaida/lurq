@@ -1,3 +1,8 @@
+---
+title: Typed Component API
+description: Public typed builders for layout, visuals, events, drag and drop, and components.
+---
+
 # Typed Component API
 
 ## Import

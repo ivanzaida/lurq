@@ -1,3 +1,8 @@
+---
+title: Ctx
+description: Per-component render context API for state, children, contexts, refs, and effects.
+---
+
 # Ctx
 
 ## Overview
@@ -65,7 +70,7 @@ let mut ctx = Ctx::new_root();
 
 `new_root` creates a standalone root context. Runtime normally creates and owns root contexts for mounted components, so application code rarely needs this directly. It is useful for tests and low-level component mounting.
 
-Standalone contexts do not have a runtime theme unless one is attached internally by `Runtime`.
+Standalone contexts do not have a runtime theme unless one is attached internally by `Tree`.
 
 ## Signals
 
@@ -80,6 +85,8 @@ count.update(|n| *n += 1);
 `ctx.signal(initial)` creates a `Signal<T>` and wires it to the current component. When the signal changes, the component context is marked dirty.
 
 Use `Signal` for state that should trigger a render when it changes.
+
+With the `devtools` feature enabled, `T` must implement `DevtoolsInspectable` so DevTools can show signal values. Without `devtools`, `Signal<T>` has no debug-inspection bound.
 
 ## Batch Updates
 
@@ -214,7 +221,7 @@ let colors = ctx.theme().colors();
 let primary = colors.primary;
 ```
 
-`theme()` returns the current runtime theme. Root and child contexts get the theme from `Runtime`.
+`theme()` returns the current runtime theme. Root and child contexts get the theme from `Tree::mount_root`.
 
 Only call `theme()` from a context managed by runtime. A manually-created root context without a theme will panic.
 
@@ -268,7 +275,7 @@ let focused = element_ref.focused();
 
 Use element refs when code outside normal layout traversal needs an element's measured rect or current interaction flags.
 
-Mutable element refs use the same handle type as `Runtime::find_element_mut`:
+Mutable element refs use the same handle type as `Tree::find_element_mut`:
 
 ```rust
 let element_ref = ctx.element_ref_mut();

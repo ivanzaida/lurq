@@ -49,6 +49,7 @@ const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -105,6 +106,7 @@ pub struct Tree {
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
   dragging_slider: Option<SliderDrag>,
+  dragging_text_selection: Option<TextSelectionDrag>,
   active_drag: Option<ActiveDrag>,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
@@ -254,6 +256,7 @@ impl Tree {
       active_path: Vec::new(),
       dragging_scroll: None,
       dragging_slider: None,
+      dragging_text_selection: None,
       active_drag: None,
       focused_node: None,
       focused_event_node: None,
@@ -825,7 +828,7 @@ impl Tree {
             color: final_color,
             radii,
             stroke: [0.0; 4],
-            stroke_color: Color::new(0, 0, 0, 0),
+            stroke_color: TRANSPARENT_COLOR,
             transform: xf,
             transform_origin: xf_origin,
             clip: scaled_clip,
@@ -1051,7 +1054,7 @@ impl Tree {
 
   pub fn key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
     self.rebuild_if_dirty();
-    if self.dispatch_text_input(&key, &code) {
+    if self.dispatch_text_input(&key, &code, shift, ctrl) {
       self.needs_redraw = true;
     }
 
@@ -1195,6 +1198,25 @@ impl Tree {
       }
     }
 
+    if let Some(drag) = self.dragging_text_selection.clone() {
+      match evt.kind {
+        MouseEventKind::Move => {
+          drag.update(lx);
+          self.needs_redraw = true;
+          return;
+        }
+        MouseEventKind::Up => {
+          drag.update(lx);
+          self.dragging_text_selection = None;
+          self.clear_active_path();
+          self.suppress_click((evt.x, evt.y), button);
+          self.needs_redraw = true;
+          return;
+        }
+        _ => {}
+      }
+    }
+
     if self.active_drag.is_some() {
       match evt.kind {
         MouseEventKind::Move => {
@@ -1264,9 +1286,28 @@ impl Tree {
     let mut pending_focus = None;
     let mut builtin_needs_redraw = false;
     let mut pending_slider_drag = None;
+    let mut pending_text_selection_drag = None;
 
     if matches!(evt.kind, MouseEventKind::Click | MouseEventKind::Down) {
       if matches!(evt.kind, MouseEventKind::Down) {
+        if let Some((node, rect)) = hits
+          .iter()
+          .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
+        {
+          if let NodeKind::TextInput { state, .. } = node.node_kind() {
+            state.begin_selection_at_x(lx - rect.x);
+            pending_text_selection_drag = Some(TextSelectionDrag {
+              state: state.clone(),
+              x: rect.x,
+            });
+            pending_focus = Some(FocusTarget {
+              input_id: node.node_id(),
+              event_id: node.node_id(),
+            });
+            builtin_needs_redraw = true;
+          }
+        }
+
         if let Some((node, rect)) = hits
           .iter()
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
@@ -1285,6 +1326,18 @@ impl Tree {
             });
             builtin_needs_redraw = true;
           }
+        }
+      } else if let Some((node, rect)) = hits
+        .iter()
+        .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
+      {
+        if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          state.set_caret_from_x(lx - rect.x);
+          pending_focus = Some(FocusTarget {
+            input_id: node.node_id(),
+            event_id: node.node_id(),
+          });
+          builtin_needs_redraw = true;
         }
       }
       if let Some(target) = dispatch_builtin_pointer(&hits, lx, matches!(evt.kind, MouseEventKind::Click)) {
@@ -1345,7 +1398,10 @@ impl Tree {
       }
     }
 
-    let pending_drag = if matches!(evt.kind, MouseEventKind::Down) && pending_slider_drag.is_none() {
+    let pending_drag = if matches!(evt.kind, MouseEventKind::Down)
+      && pending_slider_drag.is_none()
+      && pending_text_selection_drag.is_none()
+    {
       hits
         .iter()
         .find(|(node, _)| {
@@ -1476,6 +1532,9 @@ impl Tree {
     if let Some(drag) = pending_slider_drag {
       self.dragging_slider = Some(drag);
     }
+    if let Some(drag) = pending_text_selection_drag {
+      self.dragging_text_selection = Some(drag);
+    }
     if let Some((event, handler, drag)) = pending_drag {
       if let Some(handler) = handler {
         handler(&event);
@@ -1488,7 +1547,7 @@ impl Tree {
     }
   }
 
-  fn dispatch_text_input(&mut self, key: &str, code: &str) -> bool {
+  fn dispatch_text_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool) -> bool {
     let focused = match self.focused_node {
       Some(id) => id,
       None => return false,
@@ -1512,12 +1571,18 @@ impl Tree {
 
     match node.node_kind() {
       NodeKind::TextInput { state, .. } => match (logical, command) {
+        ("a" | "A", _) | (_, "KeyA") if ctrl => state.select_all(),
+        ("Enter", _) | (_, "Enter") => {
+          if !state.insert_newline() {
+            return false;
+          }
+        }
         ("Backspace", _) | (_, "Backspace") => state.backspace(),
         ("Delete", _) | (_, "Delete") => state.delete(),
-        ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(),
-        ("ArrowRight", _) | (_, "ArrowRight") => state.move_right(),
-        ("Home", _) | (_, "Home") => state.move_home(),
-        ("End", _) | (_, "End") => state.move_end(),
+        ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(shift),
+        ("ArrowRight", _) | (_, "ArrowRight") => state.move_right(shift),
+        ("Home", _) | (_, "Home") => state.move_home(shift),
+        ("End", _) | (_, "End") => state.move_end(shift),
         _ if key.chars().count() == 1 => state.insert(key),
         _ => return false,
       },
@@ -2150,6 +2215,18 @@ impl SliderDrag {
       0.0
     };
     self.state.set_from_ratio(ratio);
+  }
+}
+
+#[derive(Clone)]
+struct TextSelectionDrag {
+  state: crate::node::node_kind::TextInputState,
+  x: f32,
+}
+
+impl TextSelectionDrag {
+  fn update(&self, x: f32) {
+    self.state.update_selection_to_x(x - self.x);
   }
 }
 
@@ -3020,7 +3097,7 @@ fn push_border_rect(
     y,
     width: w,
     height: h,
-    color: Color::new(0, 0, 0, 0),
+    color: TRANSPARENT_COLOR,
     radii: scaled_radii(border_radius, scale, w, h),
     stroke,
     stroke_color: apply_opacity(border.color, opacity),

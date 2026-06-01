@@ -30,6 +30,8 @@ use crate::{
 type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
+const DEFAULT_TEXT_WRAP: bool = true;
+const DEFAULT_OPACITY: f32 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackgroundSize {
@@ -139,7 +141,7 @@ impl Node {
       #[cfg(feature = "devtools")]
       component_contexts_debug: Vec::new(),
       text_content: Guard::new(None),
-      text_wrap: true,
+      text_wrap: DEFAULT_TEXT_WRAP,
       overflow: Overflow::Hidden,
       intrinsic_size: None,
       color: Guard::new(None),
@@ -158,7 +160,7 @@ impl Node {
       interaction: None,
       style_state: InteractionState::new(),
       state_styles: StateStyles::default(),
-      opacity: 1.0,
+      opacity: DEFAULT_OPACITY,
       transform: Transform2D::IDENTITY,
       animation_overrides: Vec::new(),
       transitions: Vec::new(),
@@ -700,6 +702,13 @@ impl Node {
       if state.value().is_empty() {
         self.text_content.set(Some(placeholder.to_owned()));
       }
+    }
+    self
+  }
+
+  pub fn text_input_overflow(self, overflow: crate::node::node_kind::TextInputOverflow) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_overflow(overflow);
     }
     self
   }

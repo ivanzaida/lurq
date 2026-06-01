@@ -15,6 +15,8 @@ const PANEL_RADIUS: f32 = 6.0;
 pub(crate) struct InputsDemo {
   name: Signal<String>,
   email: Signal<String>,
+  scroll_sample: Signal<String>,
+  notes: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
   volume: Signal<f32>,
@@ -28,6 +30,8 @@ impl Component for InputsDemo {
     Self {
       name: ctx.signal("Mira Chen".to_owned()),
       email: ctx.signal(String::new()),
+      scroll_sample: ctx.signal("A long single-line value that should scroll inside a narrow input".to_owned()),
+      notes: ctx.signal("Line one\nLine two".to_owned()),
       notifications: ctx.signal(true),
       beta_access: ctx.signal(false),
       volume: ctx.signal(42.0),
@@ -42,7 +46,13 @@ impl Component for InputsDemo {
       .spacing(24.0)
       .child(text("Inputs", 28.0, FontWeight::Bold, palette.text).width(FILL_WIDTH))
       .child(section_title("Text Fields", palette))
-      .child(text_fields_card(self.name.clone(), self.email.clone(), palette))
+      .child(text_fields_card(
+        self.name.clone(),
+        self.email.clone(),
+        self.scroll_sample.clone(),
+        self.notes.clone(),
+        palette,
+      ))
       .child(section_title("Selection", palette))
       .child(selection_card(
         self.notifications.clone(),
@@ -54,6 +64,8 @@ impl Component for InputsDemo {
       .child(summary_card(
         self.name.clone(),
         self.email.clone(),
+        self.scroll_sample.clone(),
+        self.notes.clone(),
         self.notifications.clone(),
         self.beta_access.clone(),
         self.volume.clone(),
@@ -80,7 +92,16 @@ fn card_frame(palette: ThemePalette) -> lurq::components::Column {
     .rounded(CARD_RADIUS)
 }
 
-fn text_fields_card(name: Signal<String>, email: Signal<String>, palette: ThemePalette) -> Element {
+fn text_fields_card(
+  name: Signal<String>,
+  email: Signal<String>,
+  scroll_sample: Signal<String>,
+  notes: Signal<String>,
+  palette: ThemePalette,
+) -> Element {
+  let scroll_preview = preview_text(&scroll_sample.get());
+  let notes_preview = preview_text(&notes.get());
+
   card_frame(palette)
     .spacing(16.0)
     .child(
@@ -92,9 +113,25 @@ fn text_fields_card(name: Signal<String>, email: Signal<String>, palette: ThemeP
     )
     .child(
       lurq::components::Row::new()
+        .spacing(18.0)
+        .align_items(Alignment::Start)
+        .child(
+          field_stack(
+            "Scroll",
+            scroll_text_input(scroll_sample.clone(), "Single line", palette),
+          )
+          .width(220.0),
+        )
+        .child(field_stack("Multiline", multiline_text_input(notes.clone(), "Notes", palette)).flex(1.0))
+        .width(FILL_WIDTH),
+    )
+    .child(
+      lurq::components::Row::new()
         .spacing(12.0)
         .child(value_pill("name", display_text(&name.get()), palette))
         .child(value_pill("email", display_text(&email.get()), palette))
+        .child(value_pill("scroll", &scroll_preview, palette))
+        .child(value_pill("notes", &notes_preview, palette))
         .width(FILL_WIDTH),
     )
     .padding(24.0)
@@ -104,10 +141,42 @@ fn text_fields_card(name: Signal<String>, email: Signal<String>, palette: ThemeP
 fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
   lurq::components::TextInput::new(value)
     .placeholder(placeholder)
+    .overflow(lurq::components::TextInputOverflow::Scroll)
     .height(38.0)
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(6.0)
+    .fill("#ffffff")
+    .border_inside(1.0, Color::from_hex(palette.border))
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Text)
+    .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary)))
+    .into()
+}
+
+fn scroll_text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
+  lurq::components::TextInput::new(value)
+    .placeholder(placeholder)
+    .overflow(lurq::components::TextInputOverflow::Scroll)
+    .height(38.0)
+    .width(FILL_WIDTH)
+    .padding_horizontal(12.0)
+    .padding_vertical(6.0)
+    .fill("#ffffff")
+    .border_inside(1.0, Color::from_hex(palette.border))
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Text)
+    .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary)))
+    .into()
+}
+
+fn multiline_text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
+  lurq::components::TextInput::new(value)
+    .placeholder(placeholder)
+    .overflow(lurq::components::TextInputOverflow::Multiline)
+    .width(FILL_WIDTH)
+    .padding_horizontal(12.0)
+    .padding_vertical(8.0)
     .fill("#ffffff")
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
@@ -217,17 +286,24 @@ fn slider_row(label: &str, value: Signal<f32>, min: f32, max: f32, palette: Them
 fn summary_card(
   name: Signal<String>,
   email: Signal<String>,
+  scroll_sample: Signal<String>,
+  notes: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
   volume: Signal<f32>,
   priority: Signal<f32>,
   palette: ThemePalette,
 ) -> Element {
+  let scroll_preview = preview_text(&scroll_sample.get());
+  let notes_preview = preview_text(&notes.get());
+
   card_frame(palette)
     .spacing(8.0)
     .child(text("State Snapshot", 16.0, FontWeight::Bold, palette.text))
     .child(summary_row("name", display_text(&name.get()), palette))
     .child(summary_row("email", display_text(&email.get()), palette))
+    .child(summary_row("scroll", &scroll_preview, palette))
+    .child(summary_row("notes", &notes_preview, palette))
     .child(summary_row("notifications", bool_label(notifications.get()), palette))
     .child(summary_row("beta", bool_label(beta_access.get()), palette))
     .child(summary_row("volume", &format!("{:.0}", volume.get()), palette))
@@ -263,6 +339,18 @@ fn value_pill(label: &str, value: &str, palette: ThemePalette) -> Element {
 
 fn display_text(value: &str) -> &str {
   if value.is_empty() { "<empty>" } else { value }
+}
+
+fn preview_text(value: &str) -> String {
+  let normalized = value.replace(['\r', '\n'], " / ");
+  const MAX_CHARS: usize = 42;
+  if normalized.chars().count() <= MAX_CHARS {
+    return normalized;
+  }
+
+  let mut preview = normalized.chars().take(MAX_CHARS).collect::<String>();
+  preview.push_str("...");
+  preview
 }
 
 fn bool_label(value: bool) -> &'static str {

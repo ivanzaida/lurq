@@ -1,10 +1,15 @@
+---
+title: Components
+description: Component structure, props, mounting, state, effects, and lifecycle.
+---
+
 # Components
 
 ## Overview
 
 Components are structs that implement `Component`. They hold persistent state and return an `Element` tree from `render`.
 
-See [`ctx.md`](ctx.md) for the full `Ctx` API used inside `create` and `render`.
+See [Ctx](./ctx/) for the full `Ctx` API used inside `create` and `render`, and [Reactivity](./reactivity/) for signals, stores, memos, effects, and contexts.
 
 ```rust
 use lurq::{
@@ -108,6 +113,15 @@ impl Component for Greeting {
 ```
 
 Use `()` for components with no props. Reused components rerender when their props compare unequal, so custom props must implement `PartialEq`.
+
+When the `devtools` feature is enabled, props must also implement `DevtoolsInspectable`.
+
+```rust
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
+struct GreetingProps {
+  name: String,
+}
+```
 
 ## Mounting Children
 

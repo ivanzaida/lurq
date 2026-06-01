@@ -1,3 +1,8 @@
+---
+title: Layout
+description: Constraints, containers, modifiers, alignment, flex, scroll, and text layout.
+---
+
 # Layout
 
 ## Core Idea

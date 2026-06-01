@@ -2,6 +2,14 @@ use std::sync::Arc;
 
 use crate::node::color::Color;
 
+const DEFAULT_FONT_SIZE: f32 = 16.0;
+const DEFAULT_LINE_HEIGHT: f32 = 1.2;
+const DEFAULT_TEXT_COLOR: Color = Color::new(0, 0, 0, 255);
+#[cfg(target_os = "windows")]
+const DEFAULT_FONT_FAMILY_WINDOWS: &str = "Segoe UI";
+#[cfg(not(target_os = "windows"))]
+const DEFAULT_FONT_FAMILY_FALLBACK: &str = "";
+
 #[derive(Clone, PartialEq)]
 pub struct TextStyle {
   pub font_family: Arc<str>,
@@ -16,11 +24,11 @@ impl Default for TextStyle {
   fn default() -> Self {
     Self {
       font_family: default_font_family(),
-      font_size: 16.0,
-      line_height: 1.2,
+      font_size: DEFAULT_FONT_SIZE,
+      line_height: DEFAULT_LINE_HEIGHT,
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
-      color: Color::new(0, 0, 0, 255),
+      color: DEFAULT_TEXT_COLOR,
     }
   }
 }
@@ -28,11 +36,11 @@ impl Default for TextStyle {
 fn default_font_family() -> Arc<str> {
   #[cfg(target_os = "windows")]
   {
-    Arc::from("Segoe UI")
+    Arc::from(DEFAULT_FONT_FAMILY_WINDOWS)
   }
   #[cfg(not(target_os = "windows"))]
   {
-    Arc::from("")
+    Arc::from(DEFAULT_FONT_FAMILY_FALLBACK)
   }
 }
 

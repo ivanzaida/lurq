@@ -1,3 +1,8 @@
+---
+title: Demo App Wireframe Design
+description: Pencil wireframe notes for the lurq demo application.
+---
+
 # lurq Demo App — Wireframe Design (Pencil)
 
 ## Overview

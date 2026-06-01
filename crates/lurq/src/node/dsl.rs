@@ -13,6 +13,9 @@ use crate::{
   },
 };
 
+const DEFAULT_SCROLL_TEXT_WRAP: bool = true;
+const DEFAULT_SCROLL_OPACITY: f32 = 1.0;
+
 fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
   let tag_name = child.tag_name.clone();
   Node {
@@ -36,7 +39,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     },
     node_kind: NodeKind::Empty,
     text_content: Guard::new(None),
-    text_wrap: true,
+    text_wrap: DEFAULT_SCROLL_TEXT_WRAP,
     overflow: crate::layout::layout_kind::Overflow::Hidden,
     intrinsic_size: None,
     color: Guard::new(None),
@@ -55,7 +58,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     interaction: None,
     style_state: crate::node::interaction_state::InteractionState::new(),
     state_styles: crate::node::style::StateStyles::default(),
-    opacity: 1.0,
+    opacity: DEFAULT_SCROLL_OPACITY,
     transform: crate::node::transform::Transform2D::IDENTITY,
     animation_overrides: Vec::new(),
     transitions: Vec::new(),
