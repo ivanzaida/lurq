@@ -1201,12 +1201,12 @@ impl Tree {
     if let Some(drag) = self.dragging_text_selection.clone() {
       match evt.kind {
         MouseEventKind::Move => {
-          drag.update(lx);
+          drag.update(lx, ly);
           self.needs_redraw = true;
           return;
         }
         MouseEventKind::Up => {
-          drag.update(lx);
+          drag.update(lx, ly);
           self.dragging_text_selection = None;
           self.clear_active_path();
           self.suppress_click((evt.x, evt.y), button);
@@ -1295,10 +1295,11 @@ impl Tree {
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
-            state.begin_selection_at_x(lx - rect.x);
+            state.begin_selection_at_point(lx - rect.x, ly - rect.y);
             pending_text_selection_drag = Some(TextSelectionDrag {
               state: state.clone(),
               x: rect.x,
+              y: rect.y,
             });
             pending_focus = Some(FocusTarget {
               input_id: node.node_id(),
@@ -1332,7 +1333,7 @@ impl Tree {
         .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
       {
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
-          state.set_caret_from_x(lx - rect.x);
+          state.set_caret_from_point(lx - rect.x, ly - rect.y);
           pending_focus = Some(FocusTarget {
             input_id: node.node_id(),
             event_id: node.node_id(),
@@ -1579,8 +1580,12 @@ impl Tree {
         }
         ("Backspace", _) | (_, "Backspace") => state.backspace(),
         ("Delete", _) | (_, "Delete") => state.delete(),
+        ("ArrowLeft", _) | (_, "ArrowLeft") if ctrl => state.move_word_left(shift),
+        ("ArrowRight", _) | (_, "ArrowRight") if ctrl => state.move_word_right(shift),
         ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(shift),
         ("ArrowRight", _) | (_, "ArrowRight") => state.move_right(shift),
+        ("ArrowUp", _) | (_, "ArrowUp") => state.move_up(shift),
+        ("ArrowDown", _) | (_, "ArrowDown") => state.move_down(shift),
         ("Home", _) | (_, "Home") => state.move_home(shift),
         ("End", _) | (_, "End") => state.move_end(shift),
         _ if key.chars().count() == 1 => state.insert(key),
@@ -2222,11 +2227,12 @@ impl SliderDrag {
 struct TextSelectionDrag {
   state: crate::node::node_kind::TextInputState,
   x: f32,
+  y: f32,
 }
 
 impl TextSelectionDrag {
-  fn update(&self, x: f32) {
-    self.state.update_selection_to_x(x - self.x);
+  fn update(&self, x: f32, y: f32) {
+    self.state.update_selection_to_point(x - self.x, y - self.y);
   }
 }
 

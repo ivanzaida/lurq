@@ -713,6 +713,34 @@ impl Node {
     self
   }
 
+  pub fn text_input_rows(self, min_rows: usize, max_rows: usize) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_rows(min_rows, max_rows);
+    }
+    self
+  }
+
+  pub fn text_input_min_rows(self, min_rows: usize) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_min_rows(min_rows);
+    }
+    self
+  }
+
+  pub fn text_input_max_rows(self, max_rows: usize) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_max_rows(max_rows);
+    }
+    self
+  }
+
+  pub fn text_input_rows_exact(self, rows: usize) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_rows_exact(rows);
+    }
+    self
+  }
+
   pub fn range(self, min: f32, max: f32) -> Self {
     if let NodeKind::Slider { state } = &self.node_kind {
       state.set_range(min, max);

@@ -13,7 +13,12 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
-    color::Color, dimension::Dimension, node::Node, node_kind::NodeKind, padding::Padding, transform::Transform2D,
+    color::Color,
+    dimension::Dimension,
+    node::Node,
+    node_kind::{CaretPosition, NodeKind},
+    padding::Padding,
+    transform::Transform2D,
   },
 };
 
@@ -23,7 +28,6 @@ const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
 const DEFAULT_SLIDER_HEIGHT: f32 = 20.0;
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
-const DEFAULT_TEXT_INPUT_HEIGHT: f32 = 28.0;
 #[cfg(any(feature = "image", feature = "svg"))]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
 #[cfg(any(feature = "image", feature = "svg"))]
@@ -270,6 +274,16 @@ impl LayoutEngine {
           && let Some((selection_start, selection_end)) = state.selection_x_range()
         {
           let selection_height = state.caret_height().min(result.size.height).max(1.0);
+          let selection_clip = intersect_clip(
+            clip,
+            ClipRect {
+              x: abs_x,
+              y: abs_y,
+              width: result.size.width,
+              height: result.size.height,
+              active: true,
+            },
+          );
           quads.push(Quad {
             x: abs_x + selection_start,
             y: abs_y + state.caret_y(),
@@ -282,37 +296,46 @@ impl LayoutEngine {
             },
             border_radius: None,
             border: None,
-            clip,
+            clip: selection_clip,
           });
         }
 
-        let (content_x, content_width, content_clip) = match node.node_kind() {
-          NodeKind::TextInput { state, .. }
-            if state.overflow() == crate::node::node_kind::TextInputOverflow::Scroll =>
-          {
-            (
-              abs_x - state.scroll_x(),
-              result.size.width + state.scroll_x(),
-              intersect_clip(
-                clip,
-                ClipRect {
-                  x: abs_x,
-                  y: abs_y,
-                  width: result.size.width,
-                  height: result.size.height,
-                  active: true,
-                },
-              ),
-            )
+        let (content_x, content_y, content_width, content_height, content_clip) = match node.node_kind() {
+          NodeKind::TextInput { state, .. } => {
+            let scroll_x = state.scroll_x();
+            let scroll_y = state.scroll_y();
+            if matches!(
+              state.overflow(),
+              crate::node::node_kind::TextInputOverflow::Scroll | crate::node::node_kind::TextInputOverflow::Multiline
+            ) {
+              (
+                abs_x - scroll_x,
+                abs_y - scroll_y,
+                result.size.width + scroll_x,
+                result.size.height + scroll_y,
+                intersect_clip(
+                  clip,
+                  ClipRect {
+                    x: abs_x,
+                    y: abs_y,
+                    width: result.size.width,
+                    height: result.size.height,
+                    active: true,
+                  },
+                ),
+              )
+            } else {
+              (abs_x, abs_y, result.size.width, result.size.height, clip)
+            }
           }
-          _ => (abs_x, result.size.width, clip),
+          _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
 
         quads.push(Quad {
           x: content_x,
-          y: abs_y,
+          y: content_y,
           width: content_width,
-          height: result.size.height,
+          height: content_height,
           opacity,
           transform,
           content,
@@ -835,6 +858,7 @@ impl LayoutEngine {
     state.set_caret_height(line_height);
     state.sync_caret_metrics_to_position(line_height);
     let caret_x = state.caret_x() + state.scroll_x();
+    let caret_y = state.caret_y() + state.scroll_y();
 
     let text_constraints = Constraints {
       min_width: 0.0,
@@ -848,52 +872,85 @@ impl LayoutEngine {
       text_constraints,
       overflow == crate::node::node_kind::TextInputOverflow::Multiline,
     );
+    let text_height = text_result
+      .size
+      .height
+      .max(explicit_multiline_height(text, line_height));
     let preferred = match overflow {
-      crate::node::node_kind::TextInputOverflow::Multiline => Size::new(
-        text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH),
-        text_result.size.height.max(DEFAULT_TEXT_INPUT_HEIGHT),
-      ),
-      crate::node::node_kind::TextInputOverflow::Scroll => {
-        Size::new(DEFAULT_TEXT_INPUT_WIDTH, line_height.max(DEFAULT_TEXT_INPUT_HEIGHT))
+      crate::node::node_kind::TextInputOverflow::Multiline => {
+        let preferred_height = multiline_preferred_height(state, text_height, line_height);
+        Size::new(text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH), preferred_height)
       }
+      crate::node::node_kind::TextInputOverflow::Scroll => Size::new(DEFAULT_TEXT_INPUT_WIDTH, line_height),
     };
     let size = constraints.constrain(preferred);
-    if overflow == crate::node::node_kind::TextInputOverflow::Scroll {
-      let max_scroll = (text_result.size.width - size.width).max(0.0);
-      let mut scroll_x = state.scroll_x().min(max_scroll);
-      if caret_x < scroll_x {
-        scroll_x = caret_x;
-      } else if caret_x > scroll_x + size.width {
-        scroll_x = (caret_x - size.width + 1.0).min(max_scroll);
+    match overflow {
+      crate::node::node_kind::TextInputOverflow::Scroll => {
+        let max_scroll = (text_result.size.width - size.width).max(0.0);
+        let mut scroll_x = state.scroll_x().min(max_scroll);
+        if caret_x < scroll_x {
+          scroll_x = caret_x;
+        } else if caret_x > scroll_x + size.width {
+          scroll_x = (caret_x - size.width + 1.0).min(max_scroll);
+        }
+        state.set_scroll_x(scroll_x);
+        state.set_scroll_y(0.0);
       }
-      state.set_scroll_x(scroll_x);
-    } else {
-      state.set_scroll_x(0.0);
+      crate::node::node_kind::TextInputOverflow::Multiline => {
+        state.set_scroll_x(0.0);
+        let max_scroll = (text_height - size.height).max(0.0);
+        let mut scroll_y = state.scroll_y().min(max_scroll);
+        if caret_y < scroll_y {
+          scroll_y = caret_y;
+        } else if caret_y + line_height > scroll_y + size.height {
+          scroll_y = (caret_y + line_height - size.height).min(max_scroll);
+        }
+        state.set_scroll_y(scroll_y);
+      }
     }
     LayoutResult { size, children: vec![] }
   }
 
-  fn text_caret_positions(glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> Vec<(usize, f32)> {
+  fn text_caret_positions(glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> Vec<CaretPosition> {
     let mut positions = Vec::with_capacity(text.chars().count() + 1);
-    positions.push((0, 0.0));
+    positions.push(CaretPosition {
+      index: 0,
+      x: 0.0,
+      y: 0.0,
+    });
+    let line_height = (style.font_size * style.line_height).max(1.0);
     let mut line_start = 0;
+    let mut line_index = 0usize;
     for (index, ch) in text.char_indices() {
       if index > line_start {
         let width = glyph_engine
           .measure_text(&text[line_start..index], style, f32::MAX)
           .width;
-        positions.push((index, width));
+        positions.push(CaretPosition {
+          index,
+          x: width,
+          y: line_index as f32 * line_height,
+        });
       }
       if ch == '\n' {
         let next = index + ch.len_utf8();
-        positions.push((next, 0.0));
+        line_index += 1;
+        positions.push(CaretPosition {
+          index: next,
+          x: 0.0,
+          y: line_index as f32 * line_height,
+        });
         line_start = next;
       }
     }
     let end_width = glyph_engine.measure_text(&text[line_start..], style, f32::MAX).width;
-    positions.push((text.len(), end_width));
-    positions.sort_by_key(|(index, _)| *index);
-    positions.dedup_by_key(|(index, _)| *index);
+    positions.push(CaretPosition {
+      index: text.len(),
+      x: end_width,
+      y: line_index as f32 * line_height,
+    });
+    positions.sort_by_key(|position| position.index);
+    positions.dedup_by_key(|position| position.index);
     positions
   }
 
@@ -1731,6 +1788,27 @@ impl LayoutEngine {
       }],
     }
   }
+}
+
+fn multiline_preferred_height(
+  state: &crate::node::node_kind::TextInputState,
+  content_height: f32,
+  line_height: f32,
+) -> f32 {
+  let (min_rows, max_rows) = state.row_limits();
+  let min_height = min_rows
+    .map(|rows| rows.max(1) as f32 * line_height)
+    .unwrap_or(line_height);
+  let preferred_height = content_height.max(min_height);
+  let preferred_height = max_rows
+    .map(|rows| preferred_height.min((rows.max(1) as f32 * line_height).max(min_height)))
+    .unwrap_or(preferred_height);
+
+  preferred_height
+}
+
+fn explicit_multiline_height(text: &str, line_height: f32) -> f32 {
+  text.split('\n').count().max(1) as f32 * line_height
 }
 
 fn scroll_child_constraints(

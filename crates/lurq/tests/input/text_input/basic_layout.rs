@@ -42,7 +42,11 @@ fn scroll_overflow_keeps_single_line_height_for_long_text() {
 
   let bounds = runtime.find_element(|_| true).unwrap().bounds();
   assert_eq!(bounds.width, 120.0);
-  assert_eq!(bounds.height, 28.0);
+  assert!(
+    (bounds.height - 19.2).abs() < 0.01,
+    "default input height should follow text line height; got {}",
+    bounds.height
+  );
 }
 
 #[test]
@@ -78,13 +82,62 @@ fn multiline_overflow_grows_after_enter() {
 
   runtime.click(x, y, MouseButton::Left);
   runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
-  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
   run_pass(&mut runtime);
 
   let grown = runtime.find_element(|_| true).unwrap().bounds();
-  assert_eq!(value.get(), "A\nB");
+  assert_eq!(value.get(), "A\n");
   assert!(
     grown.height > initial.height,
-    "multiline input should grow to contain new lines"
+    "multiline input should grow as soon as the caret moves to a new row"
+  );
+
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+  run_pass(&mut runtime);
+  let with_text = runtime.find_element(|_| true).unwrap().bounds();
+  assert_eq!(value.get(), "A\nB");
+  assert_eq!(
+    with_text.height, grown.height,
+    "typing the first character on the row should not be the moment that changes height"
+  );
+}
+
+#[test]
+fn rows_sets_multiline_minimum_height() {
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  runtime.set_root(lurq::components::TextInput::new(value).rows(3, 6));
+  run_pass(&mut runtime);
+
+  let bounds = runtime.find_element(|_| true).unwrap().bounds();
+  assert!(
+    bounds.height > 50.0,
+    "three visible rows should be taller than the default input height; got {}",
+    bounds.height
+  );
+}
+
+#[test]
+fn max_rows_caps_multiline_growth() {
+  let value = Signal::new("A\nB\nC\nD\nE\nF".to_owned());
+  let mut capped = Tree::new();
+  let mut uncapped = Tree::new();
+
+  capped.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  capped.set_root(lurq::components::TextInput::new(value.clone()).rows(2, 3));
+  run_pass(&mut capped);
+
+  uncapped.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  uncapped.set_root(lurq::components::TextInput::new(value).multiline());
+  run_pass(&mut uncapped);
+
+  let capped_bounds = capped.find_element(|_| true).unwrap().bounds();
+  let uncapped_bounds = uncapped.find_element(|_| true).unwrap().bounds();
+  assert!(
+    capped_bounds.height < uncapped_bounds.height,
+    "max rows should cap multiline growth; capped={}, uncapped={}",
+    capped_bounds.height,
+    uncapped_bounds.height
   );
 }

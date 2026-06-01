@@ -17,6 +17,7 @@ pub(crate) struct InputsDemo {
   email: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
+  limited_notes: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
   volume: Signal<f32>,
@@ -32,6 +33,7 @@ impl Component for InputsDemo {
       email: ctx.signal(String::new()),
       scroll_sample: ctx.signal("A long single-line value that should scroll inside a narrow input".to_owned()),
       notes: ctx.signal("Line one\nLine two".to_owned()),
+      limited_notes: ctx.signal("First row\nSecond row\nThird row\nFourth row\nFifth row".to_owned()),
       notifications: ctx.signal(true),
       beta_access: ctx.signal(false),
       volume: ctx.signal(42.0),
@@ -51,6 +53,7 @@ impl Component for InputsDemo {
         self.email.clone(),
         self.scroll_sample.clone(),
         self.notes.clone(),
+        self.limited_notes.clone(),
         palette,
       ))
       .child(section_title("Selection", palette))
@@ -66,6 +69,7 @@ impl Component for InputsDemo {
         self.email.clone(),
         self.scroll_sample.clone(),
         self.notes.clone(),
+        self.limited_notes.clone(),
         self.notifications.clone(),
         self.beta_access.clone(),
         self.volume.clone(),
@@ -97,10 +101,12 @@ fn text_fields_card(
   email: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
+  limited_notes: Signal<String>,
   palette: ThemePalette,
 ) -> Element {
   let scroll_preview = preview_text(&scroll_sample.get());
   let notes_preview = preview_text(&notes.get());
+  let limited_notes_preview = preview_text(&limited_notes.get());
 
   card_frame(palette)
     .spacing(16.0)
@@ -126,12 +132,20 @@ fn text_fields_card(
         .width(FILL_WIDTH),
     )
     .child(
+      field_stack(
+        "Rows 3-4",
+        rows_text_input(limited_notes.clone(), "Capped rows", palette),
+      )
+      .width(FILL_WIDTH),
+    )
+    .child(
       lurq::components::Row::new()
         .spacing(12.0)
         .child(value_pill("name", display_text(&name.get()), palette))
         .child(value_pill("email", display_text(&email.get()), palette))
         .child(value_pill("scroll", &scroll_preview, palette))
         .child(value_pill("notes", &notes_preview, palette))
+        .child(value_pill("rows", &limited_notes_preview, palette))
         .width(FILL_WIDTH),
     )
     .padding(24.0)
@@ -141,7 +155,7 @@ fn text_fields_card(
 fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
   lurq::components::TextInput::new(value)
     .placeholder(placeholder)
-    .overflow(lurq::components::TextInputOverflow::Scroll)
+    .single_line()
     .height(38.0)
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
@@ -157,7 +171,7 @@ fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -
 fn scroll_text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
   lurq::components::TextInput::new(value)
     .placeholder(placeholder)
-    .overflow(lurq::components::TextInputOverflow::Scroll)
+    .single_line()
     .height(38.0)
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
@@ -173,7 +187,22 @@ fn scroll_text_input(value: Signal<String>, placeholder: &str, palette: ThemePal
 fn multiline_text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
   lurq::components::TextInput::new(value)
     .placeholder(placeholder)
-    .overflow(lurq::components::TextInputOverflow::Multiline)
+    .textarea()
+    .width(FILL_WIDTH)
+    .padding_horizontal(12.0)
+    .padding_vertical(8.0)
+    .fill("#ffffff")
+    .border_inside(1.0, Color::from_hex(palette.border))
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Text)
+    .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary)))
+    .into()
+}
+
+fn rows_text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
+  lurq::components::TextInput::new(value)
+    .placeholder(placeholder)
+    .rows(3, 4)
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(8.0)
@@ -288,6 +317,7 @@ fn summary_card(
   email: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
+  limited_notes: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
   volume: Signal<f32>,
@@ -296,6 +326,7 @@ fn summary_card(
 ) -> Element {
   let scroll_preview = preview_text(&scroll_sample.get());
   let notes_preview = preview_text(&notes.get());
+  let limited_notes_preview = preview_text(&limited_notes.get());
 
   card_frame(palette)
     .spacing(8.0)
@@ -304,6 +335,7 @@ fn summary_card(
     .child(summary_row("email", display_text(&email.get()), palette))
     .child(summary_row("scroll", &scroll_preview, palette))
     .child(summary_row("notes", &notes_preview, palette))
+    .child(summary_row("rows", &limited_notes_preview, palette))
     .child(summary_row("notifications", bool_label(notifications.get()), palette))
     .child(summary_row("beta", bool_label(beta_access.get()), palette))
     .child(summary_row("volume", &format!("{:.0}", volume.get()), palette))
