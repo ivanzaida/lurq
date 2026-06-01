@@ -18,6 +18,7 @@ pub(crate) enum NodeKind {
   TextInput {
     state: TextInputState,
     style: TextStyle,
+    placeholder_style: Option<TextStyle>,
   },
   Checkbox {
     state: CheckboxState,
@@ -54,6 +55,13 @@ pub(crate) struct CaretPosition {
   pub(crate) index: usize,
   pub(crate) x: f32,
   pub(crate) y: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TextSelectionRange {
+  pub(crate) x: f32,
+  pub(crate) y: f32,
+  pub(crate) width: f32,
 }
 
 struct TextInputInner {
@@ -118,6 +126,10 @@ impl TextInputState {
     } else {
       Some(value)
     }
+  }
+
+  pub(crate) fn is_showing_placeholder(&self) -> bool {
+    self.value().is_empty() && self.placeholder().is_some()
   }
 
   pub(crate) fn rendered_text_for_layout(&self) -> String {
@@ -456,13 +468,13 @@ impl TextInputState {
     (inner.min_rows, inner.max_rows)
   }
 
-  pub(crate) fn selection_x_range(&self) -> Option<(f32, f32)> {
+  pub(crate) fn selection_ranges(&self) -> Vec<TextSelectionRange> {
     let value = self.value();
     let inner = self.inner.lock().unwrap();
-    let (start, end) = selection_range_indices(&value, inner.selection_anchor, inner.caret)?;
-    let start_x = caret_x_for_index(&inner.caret_positions, start);
-    let end_x = caret_x_for_index(&inner.caret_positions, end);
-    Some((start_x.min(end_x) - inner.scroll_x, start_x.max(end_x) - inner.scroll_x))
+    let Some((start, end)) = selection_range_indices(&value, inner.selection_anchor, inner.caret) else {
+      return Vec::new();
+    };
+    selection_ranges_for_positions(&inner.caret_positions, start, end, inner.scroll_x, inner.scroll_y)
   }
 
   pub(crate) fn set_focused(&self, focused: bool) {
@@ -546,6 +558,44 @@ fn caret_y_for_index(positions: &[CaretPosition], index: usize) -> Option<f32> {
     .iter()
     .find(|position| position.index == index)
     .map(|position| position.y)
+}
+
+fn selection_ranges_for_positions(
+  positions: &[CaretPosition],
+  start: usize,
+  end: usize,
+  scroll_x: f32,
+  scroll_y: f32,
+) -> Vec<TextSelectionRange> {
+  let mut ranges = Vec::new();
+  let mut line_start = 0;
+  while line_start < positions.len() {
+    let y = positions[line_start].y;
+    let mut line_end = line_start + 1;
+    while line_end < positions.len() && (positions[line_end].y - y).abs() <= f32::EPSILON {
+      line_end += 1;
+    }
+
+    let line_positions = &positions[line_start..line_end];
+    let first = line_positions.first().unwrap();
+    let last = line_positions.last().unwrap();
+    if start <= last.index && end >= first.index {
+      let selection_start = start.max(first.index).min(last.index);
+      let selection_end = end.min(last.index).max(first.index);
+      if selection_start != selection_end {
+        let start_x = caret_x_for_index(line_positions, selection_start);
+        let end_x = caret_x_for_index(line_positions, selection_end);
+        ranges.push(TextSelectionRange {
+          x: start_x.min(end_x) - scroll_x,
+          y: y - scroll_y,
+          width: (start_x - end_x).abs().max(1.0),
+        });
+      }
+    }
+
+    line_start = line_end;
+  }
+  ranges
 }
 
 fn move_inner_to(inner: &mut TextInputInner, target: usize, selecting: bool) {

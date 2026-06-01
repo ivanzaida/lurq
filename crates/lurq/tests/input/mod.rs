@@ -5,6 +5,7 @@ mod text_input {
   mod focus;
   mod preserves_editing_state_across_render;
   mod renders_caret;
+  mod style;
   mod typing_updates_value;
 }
 

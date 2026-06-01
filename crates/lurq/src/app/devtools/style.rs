@@ -1,7 +1,7 @@
 use crate::{
   components::{Row, Text},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, color::Color, dimension::Dimension},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
 pub(crate) const BG: &str = "#0d0d0d";
@@ -19,6 +19,8 @@ pub(crate) const ORANGE: &str = "#fb923c";
 pub(crate) const YELLOW: &str = "#fbbf24";
 pub(crate) const PINK: &str = "#f472b6";
 pub(crate) const FILL: Dimension = Dimension::Pct(100.0);
+pub(crate) const CONTROL_HEIGHT: f32 = 30.0;
+pub(crate) const CONTROL_RADIUS: f32 = 4.0;
 
 pub(crate) fn section_header(label: &str, count: &str) -> Element {
   Row::new()
@@ -52,6 +54,53 @@ pub(crate) fn badge(label: &str, color: &str, fill: &str) -> Element {
     .fill(fill)
     .rounded(3.0)
     .into()
+}
+
+pub(crate) fn toolbar_button(icon_name: &str, label: &str, color: &str, fill: &str, border: &str) -> Row {
+  Row::new()
+    .align_items(Alignment::Center)
+    .spacing(6.0)
+    .child(icon(icon_name, 13.0, color))
+    .child(text(label, 12.0, FontWeight::Medium, color))
+    .height(CONTROL_HEIGHT)
+    .padding_horizontal(10.0)
+    .padding_vertical(0.0)
+    .fill(fill)
+    .border_inside(1.0, Color::from_hex(border))
+    .rounded(CONTROL_RADIUS)
+    .cursor(CursorIcon::Pointer)
+}
+
+pub(crate) fn toolbar_icon_button(icon_name: &str) -> Row {
+  Row::new()
+    .align_items(Alignment::Center)
+    .justify(Justify::Center)
+    .child(icon(icon_name, 16.0, MUTED))
+    .height(CONTROL_HEIGHT)
+    .padding_horizontal(8.0)
+    .padding_vertical(0.0)
+    .fill(SURFACE_2)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CONTROL_RADIUS)
+    .cursor(CursorIcon::Pointer)
+}
+
+pub(crate) fn toolbar_input(placeholder: &str, shortcut: Option<&str>) -> Row {
+  let mut row = Row::new()
+    .align_items(Alignment::Center)
+    .spacing(8.0)
+    .child(icon("search", 13.0, MUTED))
+    .child(text(placeholder, 12.0, FontWeight::Normal, MUTED));
+  if let Some(shortcut) = shortcut {
+    row = row.child(text(shortcut, 10.0, FontWeight::Normal, MUTED));
+  }
+  row
+    .height(CONTROL_HEIGHT)
+    .padding_horizontal(10.0)
+    .padding_vertical(0.0)
+    .fill(SURFACE_2)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CONTROL_RADIUS)
 }
 
 pub(crate) fn text(content: &str, size: f32, weight: FontWeight, color: &str) -> Text {

@@ -1,6 +1,9 @@
 use super::{
   DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsTab, debug_overlay_path_for_selection, profiler,
-  style::{BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text},
+  style::{
+    BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text, toolbar_button,
+    toolbar_icon_button, toolbar_input,
+  },
 };
 use crate::{
   components::{Column, Rect, Row, Spacer},
@@ -71,7 +74,7 @@ pub(crate) fn top_bar(
       ),
       DevToolsTab::Signals => Row::new()
         .align_items(Alignment::Center)
-        .child(search_box("Filter signals...", None))
+        .child(toolbar_input("Filter signals...", None))
         .into(),
       _ => Row::new()
         .align_items(Alignment::Center)
@@ -86,8 +89,8 @@ pub(crate) fn top_bar(
           on_overlay_enabled,
         ))
         .child(Spacer::new().width(10.0))
-        .child(search_box("Search components...", Some("Ctrl+F")))
-        .child(icon_button("settings"))
+        .child(toolbar_input("Search components...", Some("Ctrl+F")))
+        .child(toolbar_icon_button("settings"))
         .into(),
     })
     .height(48.0)
@@ -112,35 +115,21 @@ fn profiler_actions(
     .align_items(Alignment::Center)
     .spacing(8.0)
     .child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .spacing(6.0)
-        .child(icon("circle", 10.0, color))
-        .child(text(label, 11.0, FontWeight::Medium, color))
-        .padding_horizontal(12.0)
-        .padding_vertical(6.0)
-        .fill(if recording { "#ef444420" } else { SURFACE_2 })
-        .border_inside(1.0, Color::from_hex(if recording { "#ef444460" } else { BORDER }))
-        .rounded(4.0)
-        .cursor(CursorIcon::Pointer)
-        .on_click(move |_| recording_signal.set(!recording)),
+      toolbar_button(
+        "circle",
+        label,
+        color,
+        if recording { "#ef444420" } else { SURFACE_2 },
+        if recording { "#ef444460" } else { BORDER },
+      )
+      .on_click(move |_| recording_signal.set(!recording)),
     )
     .child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .spacing(4.0)
-        .child(icon("trash-2", 12.0, MUTED))
-        .child(text("Clear", 11.0, FontWeight::Normal, MUTED))
-        .padding_horizontal(10.0)
-        .padding_vertical(6.0)
-        .fill(SURFACE_2)
-        .rounded(4.0)
-        .cursor(CursorIcon::Pointer)
-        .on_click(move |_| {
-          commits_signal.set(Vec::new());
-          selected_commit_signal.set(0);
-          last_recorded_signature_signal.set(profiler::EMPTY_FRAME_SIGNATURE);
-        }),
+      toolbar_button("trash-2", "Clear", MUTED, SURFACE_2, BORDER).on_click(move |_| {
+        commits_signal.set(Vec::new());
+        selected_commit_signal.set(0);
+        last_recorded_signature_signal.set(profiler::EMPTY_FRAME_SIGNATURE);
+      }),
     )
     .into()
 }
@@ -154,33 +143,28 @@ fn overlay_toggle(
   on_overlay_enabled: Option<DevToolsBoolCallback>,
 ) -> Element {
   let color = if overlay_enabled { PRIMARY } else { MUTED };
-  Row::new()
-    .align_items(Alignment::Center)
-    .spacing(6.0)
-    .child(icon("box", 13.0, color))
-    .child(text("Overlay", 12.0, FontWeight::Medium, color))
-    .height(30.0)
-    .padding_horizontal(10.0)
-    .padding_vertical(0.0)
-    .fill(if overlay_enabled { SELECTED } else { SURFACE_2 })
-    .border_inside(1.0, Color::from_hex(BORDER))
-    .rounded(4.0)
-    .cursor(CursorIcon::Pointer)
-    .on_click(move |_| {
-      let next = !overlay_enabled;
-      overlay_enabled_signal.set(next);
-      if let Some(on_overlay_enabled) = &on_overlay_enabled {
-        on_overlay_enabled(next);
-      }
-      if let Some(on_debug_overlay_path) = &on_debug_overlay_path {
-        on_debug_overlay_path(debug_overlay_path_for_selection(
-          next,
-          selected_path.clone(),
-          has_selection,
-        ));
-      }
-    })
-    .into()
+  toolbar_button(
+    "box",
+    "Overlay",
+    color,
+    if overlay_enabled { SELECTED } else { SURFACE_2 },
+    BORDER,
+  )
+  .on_click(move |_| {
+    let next = !overlay_enabled;
+    overlay_enabled_signal.set(next);
+    if let Some(on_overlay_enabled) = &on_overlay_enabled {
+      on_overlay_enabled(next);
+    }
+    if let Some(on_debug_overlay_path) = &on_debug_overlay_path {
+      on_debug_overlay_path(debug_overlay_path_for_selection(
+        next,
+        selected_path.clone(),
+        has_selection,
+      ));
+    }
+  })
+  .into()
 }
 
 fn pick_toggle(
@@ -189,26 +173,21 @@ fn pick_toggle(
   on_pick_inspected: Option<DevToolsBoolCallback>,
 ) -> Element {
   let color = if pick_enabled { PRIMARY } else { MUTED };
-  Row::new()
-    .align_items(Alignment::Center)
-    .spacing(6.0)
-    .child(icon("search", 13.0, color))
-    .child(text("Pick", 12.0, FontWeight::Medium, color))
-    .height(30.0)
-    .padding_horizontal(10.0)
-    .padding_vertical(0.0)
-    .fill(if pick_enabled { SELECTED } else { SURFACE_2 })
-    .border_inside(1.0, Color::from_hex(BORDER))
-    .rounded(4.0)
-    .cursor(CursorIcon::Pointer)
-    .on_click(move |_| {
-      let next = !pick_enabled;
-      pick_enabled_signal.set(next);
-      if let Some(on_pick_inspected) = &on_pick_inspected {
-        on_pick_inspected(next);
-      }
-    })
-    .into()
+  toolbar_button(
+    "search",
+    "Pick",
+    color,
+    if pick_enabled { SELECTED } else { SURFACE_2 },
+    BORDER,
+  )
+  .on_click(move |_| {
+    let next = !pick_enabled;
+    pick_enabled_signal.set(next);
+    if let Some(on_pick_inspected) = &on_pick_inspected {
+      on_pick_inspected(next);
+    }
+  })
+  .into()
 }
 
 fn tab(
@@ -234,37 +213,5 @@ fn tab(
     .padding_vertical(0.0)
     .cursor(CursorIcon::Pointer)
     .on_click(move |_| active_tab_signal.set(target_tab))
-    .into()
-}
-
-fn search_box(placeholder: &str, shortcut: Option<&str>) -> Element {
-  let mut row = Row::new()
-    .align_items(Alignment::Center)
-    .spacing(8.0)
-    .child(icon("search", 13.0, MUTED))
-    .child(text(placeholder, 12.0, FontWeight::Normal, MUTED));
-  if let Some(shortcut) = shortcut {
-    row = row.child(text(shortcut, 10.0, FontWeight::Normal, MUTED));
-  }
-  row
-    .height(30.0)
-    .padding_horizontal(10.0)
-    .padding_vertical(0.0)
-    .fill(SURFACE_2)
-    .border_inside(1.0, Color::from_hex(BORDER))
-    .rounded(4.0)
-    .into()
-}
-
-fn icon_button(icon_name: &str) -> Element {
-  Row::new()
-    .align_items(Alignment::Center)
-    .justify(crate::layout::layout_kind::Justify::Center)
-    .child(icon(icon_name, 16.0, MUTED))
-    .height(30.0)
-    .padding_horizontal(8.0)
-    .padding_vertical(0.0)
-    .rounded(4.0)
-    .cursor(CursorIcon::Pointer)
     .into()
 }

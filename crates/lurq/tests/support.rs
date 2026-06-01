@@ -7,7 +7,7 @@ use std::{
 
 use lurq::{
   app::{App, Tree, render_engine::RenderEngine},
-  layout::render_list::{RectCmd, RenderList},
+  layout::render_list::{GlyphCmd, RectCmd, RenderList},
   node::color::Color,
 };
 
@@ -41,11 +41,21 @@ pub fn run_pass(tree: &mut Tree) {
 #[derive(Clone, Debug)]
 pub struct RenderSnapshot {
   pub rects: Vec<RectSnapshot>,
+  pub glyphs: Vec<GlyphSnapshot>,
   pub glyph_count: usize,
   #[cfg(feature = "image")]
   pub image_orders: Vec<usize>,
   #[cfg(feature = "svg")]
   pub svg_orders: Vec<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct GlyphSnapshot {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+  pub color: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,8 +92,10 @@ impl RenderEngine for CapturingRenderEngine {
 
   fn render(&mut self, list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
     let rects = list.rects.iter().map(rect_snapshot).collect();
+    let glyphs = list.glyphs.iter().map(glyph_snapshot).collect();
     *self.capture.lock().unwrap() = Some(RenderSnapshot {
       rects,
+      glyphs,
       glyph_count: list.glyphs.len(),
       #[cfg(feature = "image")]
       image_orders: list.images.iter().map(|image| image.order).collect(),
@@ -96,11 +108,22 @@ impl RenderEngine for CapturingRenderEngine {
 fn empty_snapshot() -> RenderSnapshot {
   RenderSnapshot {
     rects: vec![],
+    glyphs: vec![],
     glyph_count: 0,
     #[cfg(feature = "image")]
     image_orders: vec![],
     #[cfg(feature = "svg")]
     svg_orders: vec![],
+  }
+}
+
+fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
+  GlyphSnapshot {
+    x: glyph.x,
+    y: glyph.y,
+    width: glyph.width,
+    height: glyph.height,
+    color: glyph.color,
   }
 }
 

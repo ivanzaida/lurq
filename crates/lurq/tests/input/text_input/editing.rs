@@ -237,3 +237,29 @@ fn mouse_drag_selection_renders_and_replaces_selected_text() {
 
   assert_eq!(value.get(), "X");
 }
+
+#[test]
+fn multiline_selection_renders_a_rect_for_each_selected_row() {
+  let value = Signal::new("one\ntwo\nthree".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value).multiline());
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  runtime.key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
+
+  let snapshot = render_pass(&mut runtime);
+  let selection_rects = snapshot
+    .rects
+    .iter()
+    .filter(|rect| rect.color == Color::from_hex("#bfdbfe") && rect.width > 1.0 && rect.height > 0.0)
+    .count();
+
+  assert_eq!(
+    selection_rects, 3,
+    "multiline selection should render one highlight rect per selected row"
+  );
+}

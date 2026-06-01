@@ -234,12 +234,17 @@ impl Node {
   }
 
   pub fn text_input(value: Signal<String>) -> Self {
+    Self::text_input_styled(value, TextStyle::default())
+  }
+
+  pub fn text_input_styled(value: Signal<String>, style: TextStyle) -> Self {
     let rendered = value.get_untracked();
     let node = Self::from_parts(
       LayoutKind::Leaf,
       NodeKind::TextInput {
         state: TextInputState::new(value),
-        style: TextStyle::default(),
+        style,
+        placeholder_style: None,
       },
       vec![],
     );
@@ -709,6 +714,20 @@ impl Node {
   pub fn text_input_overflow(self, overflow: crate::node::node_kind::TextInputOverflow) -> Self {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_overflow(overflow);
+    }
+    self
+  }
+
+  pub fn text_input_style(mut self, text_style: TextStyle) -> Self {
+    if let NodeKind::TextInput { style, .. } = &mut self.node_kind {
+      *style = text_style;
+    }
+    self
+  }
+
+  pub fn text_input_placeholder_style(mut self, text_style: TextStyle) -> Self {
+    if let NodeKind::TextInput { placeholder_style, .. } = &mut self.node_kind {
+      *placeholder_style = Some(text_style);
     }
     self
   }
@@ -1267,7 +1286,18 @@ impl Node {
     match (&self.node_kind, &old.node_kind) {
       (NodeKind::Empty, NodeKind::Empty) => true,
       (NodeKind::Text { style }, NodeKind::Text { style: old_style }) => style == old_style,
-      (NodeKind::TextInput { style, .. }, NodeKind::TextInput { style: old_style, .. }) => style == old_style,
+      (
+        NodeKind::TextInput {
+          style,
+          placeholder_style,
+          ..
+        },
+        NodeKind::TextInput {
+          style: old_style,
+          placeholder_style: old_placeholder_style,
+          ..
+        },
+      ) => style == old_style && placeholder_style == old_placeholder_style,
       (NodeKind::Checkbox { .. }, NodeKind::Checkbox { .. }) => true,
       (NodeKind::Slider { .. }, NodeKind::Slider { .. }) => true,
       #[cfg(feature = "image")]

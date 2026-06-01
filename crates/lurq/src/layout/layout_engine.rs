@@ -42,6 +42,18 @@ const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
 const DEFAULT_CARET_COLOR: Color = Color::new(15, 23, 42, 255);
 
+fn text_input_display_style<'a>(
+  state: &crate::node::node_kind::TextInputState,
+  style: &'a TextStyle,
+  placeholder_style: Option<&'a TextStyle>,
+) -> &'a TextStyle {
+  if state.is_showing_placeholder() {
+    placeholder_style.unwrap_or(style)
+  } else {
+    style
+  }
+}
+
 pub(crate) struct LayoutEngine {
   last_recalculated: Cell<bool>,
 }
@@ -223,9 +235,13 @@ impl LayoutEngine {
         style: style.clone(),
         wrap: node.text_wrap,
       },
-      NodeKind::TextInput { state, style } => QuadContent::Text {
+      NodeKind::TextInput {
+        state,
+        style,
+        placeholder_style,
+      } => QuadContent::Text {
         text: state.rendered_text_for_layout(),
-        style: style.clone(),
+        style: text_input_display_style(state, style, placeholder_style.as_ref()).clone(),
         wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
       },
       NodeKind::Checkbox { state } => QuadContent::Rect {
@@ -271,7 +287,6 @@ impl LayoutEngine {
       _ => {
         if let NodeKind::TextInput { state, .. } = node.node_kind()
           && state.is_focused()
-          && let Some((selection_start, selection_end)) = state.selection_x_range()
         {
           let selection_height = state.caret_height().min(result.size.height).max(1.0);
           let selection_clip = intersect_clip(
@@ -284,20 +299,22 @@ impl LayoutEngine {
               active: true,
             },
           );
-          quads.push(Quad {
-            x: abs_x + selection_start,
-            y: abs_y + state.caret_y(),
-            width: (selection_end - selection_start).max(1.0),
-            height: selection_height,
-            opacity,
-            transform,
-            content: QuadContent::Rect {
-              color: DEFAULT_TEXT_SELECTION_COLOR,
-            },
-            border_radius: None,
-            border: None,
-            clip: selection_clip,
-          });
+          for selection in state.selection_ranges() {
+            quads.push(Quad {
+              x: abs_x + selection.x,
+              y: abs_y + selection.y,
+              width: selection.width,
+              height: selection_height,
+              opacity,
+              transform,
+              content: QuadContent::Rect {
+                color: DEFAULT_TEXT_SELECTION_COLOR,
+              },
+              border_radius: None,
+              border: None,
+              clip: selection_clip,
+            });
+          }
         }
 
         let (content_x, content_y, content_width, content_height, content_clip) = match node.node_kind() {
@@ -744,9 +761,20 @@ impl LayoutEngine {
         let content = node.text_content().unwrap_or_default();
         return self.layout_text(glyph_engine, content, style, constraints, node.text_wrap);
       }
-      NodeKind::TextInput { state, style } => {
+      NodeKind::TextInput {
+        state,
+        style,
+        placeholder_style,
+      } => {
         let content = state.rendered_text_for_layout();
-        return self.layout_text_input(glyph_engine, state, &content, style, constraints);
+        return self.layout_text_input(
+          glyph_engine,
+          state,
+          &content,
+          style,
+          placeholder_style.as_ref(),
+          constraints,
+        );
       }
       NodeKind::Checkbox { .. } => {
         let preferred = node
@@ -847,8 +875,10 @@ impl LayoutEngine {
     state: &crate::node::node_kind::TextInputState,
     text: &str,
     style: &TextStyle,
+    placeholder_style: Option<&TextStyle>,
     constraints: Constraints,
   ) -> LayoutResult {
+    let display_style = text_input_display_style(state, style, placeholder_style);
     let value = state.value();
     let overflow = state.overflow();
     let caret_positions = Self::text_caret_positions(glyph_engine, &value, style);
@@ -868,7 +898,7 @@ impl LayoutEngine {
     let text_result = self.layout_text(
       glyph_engine,
       text,
-      style,
+      display_style,
       text_constraints,
       overflow == crate::node::node_kind::TextInputOverflow::Multiline,
     );

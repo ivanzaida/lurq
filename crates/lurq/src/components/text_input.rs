@@ -1,11 +1,25 @@
 pub use crate::node::node_kind::TextInputOverflow;
-use crate::{core::Signal, impl_into_node};
+use crate::{core::Signal, impl_into_node, layout::text_style::TextStyle};
 
 impl_into_node!(TextInput);
 
 impl TextInput {
   pub fn new(value: Signal<String>) -> Self {
     Self::from_node(crate::node::Node::text_input(value))
+  }
+
+  pub fn styled(value: Signal<String>, style: TextStyle) -> Self {
+    Self::from_node(crate::node::Node::text_input_styled(value, style))
+  }
+
+  pub fn text_style(mut self, style: TextStyle) -> Self {
+    self.node = self.node.text_input_style(style);
+    self
+  }
+
+  pub fn placeholder_style(mut self, style: TextStyle) -> Self {
+    self.node = self.node.text_input_placeholder_style(style);
+    self
   }
 
   pub fn placeholder(mut self, placeholder: &str) -> Self {
