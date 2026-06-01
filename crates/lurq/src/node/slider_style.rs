@@ -1,0 +1,179 @@
+#[cfg(all(feature = "image", feature = "resources"))]
+use std::sync::Arc;
+
+#[cfg(feature = "image")]
+use crate::node::BackgroundSize;
+use crate::node::{
+  border::{Border, BorderRadius, Borders},
+  color::Color,
+};
+
+#[derive(Clone)]
+pub struct SliderPartStyle {
+  pub(crate) width: Option<f32>,
+  pub(crate) height: Option<f32>,
+  pub(crate) color: Option<Color>,
+  pub(crate) border_radius: Option<BorderRadius>,
+  pub(crate) border: Option<Borders>,
+  #[cfg(feature = "image")]
+  pub(crate) background_image: Option<crate::images::ImageData>,
+  #[cfg(all(feature = "image", feature = "resources"))]
+  pub(crate) background_resource_image: Option<Arc<str>>,
+  #[cfg(feature = "image")]
+  pub(crate) background_size: BackgroundSize,
+}
+
+impl Default for SliderPartStyle {
+  fn default() -> Self {
+    Self {
+      width: None,
+      height: None,
+      color: None,
+      border_radius: None,
+      border: None,
+      #[cfg(feature = "image")]
+      background_image: None,
+      #[cfg(all(feature = "image", feature = "resources"))]
+      background_resource_image: None,
+      #[cfg(feature = "image")]
+      background_size: BackgroundSize::default(),
+    }
+  }
+}
+
+impl SliderPartStyle {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn width(mut self, width: f32) -> Self {
+    self.width = Some(width);
+    self
+  }
+
+  pub fn height(mut self, height: f32) -> Self {
+    self.height = Some(height);
+    self
+  }
+
+  pub fn size(mut self, width: f32, height: f32) -> Self {
+    self.width = Some(width);
+    self.height = Some(height);
+    self
+  }
+
+  pub fn fill(mut self, color: impl Into<Color>) -> Self {
+    self.color = Some(color.into());
+    self
+  }
+
+  pub fn background(mut self, color: Color) -> Self {
+    self.color = Some(color);
+    self
+  }
+
+  pub fn rounded(mut self, radius: f32) -> Self {
+    self.border_radius = Some(BorderRadius::all(radius));
+    self
+  }
+
+  pub fn corner_radius(mut self, radius: f32) -> Self {
+    self.border_radius = Some(BorderRadius::all(radius));
+    self
+  }
+
+  pub fn corner_radius_custom(mut self, radius: BorderRadius) -> Self {
+    self.border_radius = Some(radius);
+    self
+  }
+
+  pub fn border_inside(mut self, width: f32, color: Color) -> Self {
+    self.border = Some(Borders::all(Border::inside(width, color)));
+    self
+  }
+
+  pub fn border_outside(mut self, width: f32, color: Color) -> Self {
+    self.border = Some(Borders::all(Border::outside(width, color)));
+    self
+  }
+
+  pub fn border_center(mut self, width: f32, color: Color) -> Self {
+    self.border = Some(Borders::all(Border::center(width, color)));
+    self
+  }
+
+  pub fn border(mut self, border: Border) -> Self {
+    self.border = Some(Borders::all(border));
+    self
+  }
+
+  pub fn border_custom(mut self, border: Borders) -> Self {
+    self.border = Some(border);
+    self
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
+    match data.into() {
+      crate::images::ImageKind::Bytes(data) => {
+        self.background_image = Some(data);
+      }
+      #[cfg(feature = "resources")]
+      crate::images::ImageKind::Resource(path) => {
+        self.background_resource_image = Some(path);
+      }
+    }
+    self
+  }
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  pub fn background_image_resource(mut self, path: &str) -> Self {
+    self.background_resource_image = Some(path.into());
+    self
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_size(mut self, size: BackgroundSize) -> Self {
+    self.background_size = size;
+    self
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_cover(self) -> Self {
+    self.background_size(BackgroundSize::Cover)
+  }
+
+  #[cfg(feature = "image")]
+  pub fn background_contain(self) -> Self {
+    self.background_size(BackgroundSize::Contain)
+  }
+
+  pub(crate) fn merge_from(&mut self, other: &Self) {
+    if other.width.is_some() {
+      self.width = other.width;
+    }
+    if other.height.is_some() {
+      self.height = other.height;
+    }
+    if other.color.is_some() {
+      self.color = other.color;
+    }
+    if other.border_radius.is_some() {
+      self.border_radius = other.border_radius;
+    }
+    if other.border.is_some() {
+      self.border = other.border;
+    }
+    #[cfg(feature = "image")]
+    {
+      if other.background_image.is_some() {
+        self.background_image = other.background_image.clone();
+      }
+      #[cfg(feature = "resources")]
+      if other.background_resource_image.is_some() {
+        self.background_resource_image = other.background_resource_image.clone();
+      }
+      self.background_size = other.background_size;
+    }
+  }
+}

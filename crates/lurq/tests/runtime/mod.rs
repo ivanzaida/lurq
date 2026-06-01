@@ -1,3 +1,4 @@
+mod click;
 mod cursor;
 mod double_click;
 mod drag;

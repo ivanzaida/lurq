@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::{
   DevToolsNode, DevToolsSnapshot,
   style::{
@@ -6,7 +8,7 @@ use super::{
 };
 use crate::{
   components::{Column, Rect, Row, ScrollVertical, Spacer, Text},
-  core::Signal,
+  core::{Signal, Store},
   layout::{
     Alignment,
     layout_kind::Justify,
@@ -14,6 +16,26 @@ use crate::{
   },
   node::{CursorIcon, Element, border::Border, color::Color, dimension::Dimension},
 };
+
+#[derive(Clone, Debug, Default, PartialEq, crate::DevtoolsInspectable)]
+pub(crate) struct SignalsRecordingState {
+  recording: bool,
+  previous_values: Vec<RecordedSignalValue>,
+  histories: Vec<RecordedSignalHistory>,
+}
+
+#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
+struct RecordedSignalValue {
+  key: String,
+  value: String,
+  trigger: String,
+}
+
+#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
+struct RecordedSignalHistory {
+  key: String,
+  entries: Vec<SignalHistoryRow>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 struct SignalRow {
@@ -26,7 +48,7 @@ struct SignalRow {
   subscriber_count: usize,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
 struct SignalHistoryRow {
   timestamp: String,
   from_value: String,
@@ -81,12 +103,104 @@ impl SignalRow {
   }
 }
 
+impl SignalsRecordingState {
+  pub(crate) fn recording(&self) -> bool {
+    self.recording
+  }
+
+  pub(crate) fn set_recording(&mut self, recording: bool) {
+    if self.recording != recording {
+      self.previous_values.clear();
+    }
+    self.recording = recording;
+  }
+
+  pub(crate) fn clear(&mut self) {
+    self.previous_values.clear();
+    self.histories.clear();
+  }
+
+  fn history_for(&self, key: &str) -> Vec<SignalHistoryRow> {
+    self
+      .histories
+      .iter()
+      .find(|history| history.key == key)
+      .map(|history| history.entries.iter().rev().take(8).cloned().collect())
+      .unwrap_or_default()
+  }
+
+  fn record_snapshot(&mut self, snapshot: &DevToolsSnapshot) {
+    let current_values = collect_signal_rows(snapshot)
+      .into_iter()
+      .filter(|row| row.kind != ReactiveKind::Effect)
+      .map(|row| RecordedSignalValue {
+        key: row.key(),
+        value: row.value,
+        trigger: match row.kind {
+          ReactiveKind::Signal => "change",
+          ReactiveKind::Memo => "recompute",
+          ReactiveKind::Effect => "effect",
+        }
+        .to_owned(),
+      })
+      .collect::<Vec<_>>();
+
+    for current in &current_values {
+      let previous = self.previous_values.iter().find(|previous| previous.key == current.key);
+      let Some(previous) = previous else {
+        continue;
+      };
+      if previous.value == current.value {
+        continue;
+      }
+
+      let history = self.histories.iter_mut().find(|history| history.key == current.key);
+      if let Some(history) = history {
+        history.entries.push(SignalHistoryRow {
+          timestamp: current_compact_timestamp(),
+          from_value: previous.value.clone(),
+          to_value: current.value.clone(),
+          trigger: current.trigger.clone(),
+        });
+        trim_history(&mut history.entries);
+      } else {
+        self.histories.push(RecordedSignalHistory {
+          key: current.key.clone(),
+          entries: vec![SignalHistoryRow {
+            timestamp: current_compact_timestamp(),
+            from_value: previous.value.clone(),
+            to_value: current.value.clone(),
+            trigger: current.trigger.clone(),
+          }],
+        });
+      }
+    }
+
+    self.previous_values = current_values;
+  }
+}
+
+pub(crate) fn record_signal_changes(snapshot: &DevToolsSnapshot, recording_state: &Store<SignalsRecordingState>) {
+  let next = recording_state.with(|state| {
+    let mut next = state.clone();
+    next.record_snapshot(snapshot);
+    if next == *state { None } else { Some(next) }
+  });
+  if let Some(next) = next {
+    recording_state.set(next);
+  }
+}
+
 pub(crate) fn signals_view(
   snapshot: &DevToolsSnapshot,
   selected_signal_key: Option<String>,
   selected_signal_signal: Signal<Option<String>>,
+  recording_state: &SignalsRecordingState,
 ) -> Element {
-  let signals = collect_signal_rows(snapshot);
+  let mut signals = collect_signal_rows(snapshot);
+  for signal in &mut signals {
+    signal.history = recording_state.history_for(&signal.key());
+  }
   let selected_key = selected_signal_key.or_else(|| signals.first().map(SignalRow::key));
   let selected_signal = selected_key
     .as_deref()
@@ -424,18 +538,7 @@ fn collect_signal_rows_in(node: &DevToolsNode, owner: &str, rows: &mut Vec<Signa
       type_name: short_type_name(signal.type_name.as_ref()),
       value: signal.formatted_value().unwrap_or_else(|| "<unknown>".to_owned()),
       owner: current_owner.to_owned(),
-      history: signal
-        .history()
-        .into_iter()
-        .rev()
-        .take(8)
-        .map(|change| SignalHistoryRow {
-          timestamp: change.timestamp,
-          from_value: change.from_value,
-          to_value: change.to_value,
-          trigger: "change".to_owned(),
-        })
-        .collect(),
+      history: Vec::new(),
       subscriber_count: signal.subscriber_count(),
     });
   }
@@ -446,18 +549,7 @@ fn collect_signal_rows_in(node: &DevToolsNode, owner: &str, rows: &mut Vec<Signa
       type_name: short_type_name(memo.type_name.as_ref()),
       value: memo.formatted_value().unwrap_or_else(|| "<unknown>".to_owned()),
       owner: current_owner.to_owned(),
-      history: memo
-        .history()
-        .into_iter()
-        .rev()
-        .take(8)
-        .map(|change| SignalHistoryRow {
-          timestamp: change.timestamp,
-          from_value: change.from_value,
-          to_value: change.to_value,
-          trigger: "recompute".to_owned(),
-        })
-        .collect(),
+      history: Vec::new(),
       subscriber_count: memo.subscriber_count(),
     });
   }
@@ -511,6 +603,23 @@ fn with_alpha(color: &str, alpha: &str) -> String {
   format!("{}{}", color.trim_end_matches(|ch| ch == '0' && color.len() > 7), alpha)
 }
 
+fn trim_history(history: &mut Vec<SignalHistoryRow>) {
+  if history.len() > 64 {
+    let overflow = history.len() - 64;
+    history.drain(0..overflow);
+  }
+}
+
+fn current_compact_timestamp() -> String {
+  let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+  let millis = duration.subsec_millis();
+  let seconds_of_day = duration.as_secs() % 86_400;
+  let hour = seconds_of_day / 3_600;
+  let minute = seconds_of_day % 3_600 / 60;
+  let second = seconds_of_day % 60;
+  format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
+}
+
 fn padding(top: f32, right: f32, bottom: f32, left: f32) -> crate::node::padding::Padding {
   crate::node::padding::Padding {
     top: Dimension::Px(top),
@@ -535,4 +644,76 @@ fn mono_text(content: &str, size: f32, weight: FontWeight, color: &str) -> Text 
       ..Default::default()
     },
   )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::{
+    app::{ctx::Ctx, devtools::snapshot::DevToolsNodeKind},
+    core::NodeId,
+  };
+
+  #[test]
+  fn recording_state_records_signal_changes_after_baseline() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0_i32);
+    let key = format!("Signal:{}", signal.id());
+    let mut state = SignalsRecordingState::default();
+
+    state.set_recording(true);
+    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
+    signal.set(1);
+    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
+
+    let history = state.history_for(&key);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].from_value, "0");
+    assert_eq!(history[0].to_value, "1");
+    assert_eq!(history[0].trigger, "change");
+  }
+
+  #[test]
+  fn recording_state_resets_baseline_when_recording_restarts() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0_i32);
+    let key = format!("Signal:{}", signal.id());
+    let mut state = SignalsRecordingState::default();
+
+    state.set_recording(true);
+    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
+    signal.set(1);
+    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
+
+    state.set_recording(false);
+    signal.set(2);
+    state.set_recording(true);
+    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
+
+    let history = state.history_for(&key);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].from_value, "0");
+    assert_eq!(history[0].to_value, "1");
+  }
+
+  fn snapshot_with_signals(signals: Vec<crate::app::ctx::ComponentSignalDebug>) -> DevToolsSnapshot {
+    DevToolsSnapshot {
+      root: Some(DevToolsNode {
+        id: NodeId::UNASSIGNED,
+        tag: "Root".to_owned(),
+        kind: DevToolsNodeKind::Component,
+        key: None,
+        text: None,
+        color: None,
+        props: None,
+        signals,
+        memos: Vec::new(),
+        contexts: Vec::new(),
+        shape: Vec::new(),
+        effects: Vec::new(),
+        children: Vec::new(),
+      }),
+      frame: Default::default(),
+    }
+  }
 }

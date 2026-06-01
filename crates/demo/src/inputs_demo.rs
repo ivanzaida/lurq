@@ -1,6 +1,7 @@
 use lurq::{
   app::{component::Component, ctx::Ctx},
   core::Signal,
+  images::ImageData,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
@@ -20,8 +21,9 @@ pub(crate) struct InputsDemo {
   limited_notes: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
-  volume: Signal<f32>,
-  priority: Signal<f32>,
+  volume: Signal<i32>,
+  priority: Signal<i32>,
+  styled_gain: Signal<i32>,
 }
 
 impl Component for InputsDemo {
@@ -29,15 +31,16 @@ impl Component for InputsDemo {
 
   fn create(ctx: &mut Ctx) -> Self {
     Self {
-      name: ctx.signal("Mira Chen".to_owned()),
+      name: ctx.signal("Lol Kek".to_owned()),
       email: ctx.signal(String::new()),
       scroll_sample: ctx.signal("A long single-line value that should scroll inside a narrow input".to_owned()),
       notes: ctx.signal("Line one\nLine two".to_owned()),
       limited_notes: ctx.signal("First row\nSecond row\nThird row\nFourth row\nFifth row".to_owned()),
       notifications: ctx.signal(true),
       beta_access: ctx.signal(false),
-      volume: ctx.signal(42.0),
-      priority: ctx.signal(3.0),
+      volume: ctx.signal(42),
+      priority: ctx.signal(3),
+      styled_gain: ctx.signal(68),
     }
   }
 
@@ -63,7 +66,12 @@ impl Component for InputsDemo {
         palette,
       ))
       .child(section_title("Sliders", palette))
-      .child(sliders_card(self.volume.clone(), self.priority.clone(), palette))
+      .child(sliders_card(
+        self.volume.clone(),
+        self.priority.clone(),
+        self.styled_gain.clone(),
+        palette,
+      ))
       .child(summary_card(
         self.name.clone(),
         self.email.clone(),
@@ -74,6 +82,7 @@ impl Component for InputsDemo {
         self.beta_access.clone(),
         self.volume.clone(),
         self.priority.clone(),
+        self.styled_gain.clone(),
         palette,
       ))
       .padding(CONTENT_PAD)
@@ -156,7 +165,6 @@ fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -
   lurq::components::TextInput::new(value)
     .placeholder(placeholder)
     .single_line()
-    .height(38.0)
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(6.0)
@@ -271,23 +279,30 @@ fn checkbox_row(label: &str, detail: &str, value: Signal<bool>, palette: ThemePa
     .into()
 }
 
-fn sliders_card(volume: Signal<f32>, priority: Signal<f32>, palette: ThemePalette) -> Element {
+fn sliders_card(
+  volume: Signal<i32>,
+  priority: Signal<i32>,
+  styled_gain: Signal<i32>,
+  palette: ThemePalette,
+) -> Element {
   card_frame(palette)
     .spacing(18.0)
-    .child(slider_row("Volume", volume.clone(), 0.0, 100.0, palette))
-    .child(slider_row("Priority", priority.clone(), 1.0, 5.0, palette))
+    .child(slider_row("Volume", volume.clone(), 0, 100, palette))
+    .child(slider_row("Priority", priority.clone(), 1, 5, palette))
+    .child(styled_slider_row("Styled", styled_gain.clone(), palette))
     .child(
       lurq::components::Row::new()
         .spacing(12.0)
-        .child(value_pill("volume", &format!("{:.0}", volume.get()), palette))
-        .child(value_pill("priority", &format!("{:.1}", priority.get()), palette))
+        .child(value_pill("volume", &volume.get().to_string(), palette))
+        .child(value_pill("priority", &priority.get().to_string(), palette))
+        .child(value_pill("styled", &styled_gain.get().to_string(), palette))
         .width(FILL_WIDTH),
     )
     .padding(24.0)
     .into()
 }
 
-fn slider_row(label: &str, value: Signal<f32>, min: f32, max: f32, palette: ThemePalette) -> Element {
+fn slider_row(label: &str, value: Signal<i32>, min: i32, max: i32, palette: ThemePalette) -> Element {
   let current = value.get();
   lurq::components::Column::new()
     .spacing(8.0)
@@ -296,7 +311,7 @@ fn slider_row(label: &str, value: Signal<f32>, min: f32, max: f32, palette: Them
         .align_items(Alignment::Center)
         .child(text(label, 14.0, FontWeight::Bold, palette.text))
         .child(lurq::components::Spacer::new().flex(1.0))
-        .child(text(&format!("{current:.1}"), 12.0, FontWeight::Medium, palette.accent)),
+        .child(text(&current.to_string(), 12.0, FontWeight::Medium, palette.accent)),
     )
     .child(
       lurq::components::Slider::new(value)
@@ -312,6 +327,67 @@ fn slider_row(label: &str, value: Signal<f32>, min: f32, max: f32, palette: Them
     .into()
 }
 
+fn styled_slider_row(label: &str, value: Signal<i32>, palette: ThemePalette) -> Element {
+  let current = value.get();
+  let track_image = slider_texture(palette.primary, palette.accent, 24, 1);
+  let track_hover_image = slider_texture(palette.primary_hover, "#22c55e", 24, 1);
+  let thumb_image = slider_texture("#f97316", "#facc15", 12, 12);
+  let thumb_hover_image = slider_texture("#fb7185", "#38bdf8", 14, 14);
+
+  lurq::components::Column::new()
+    .spacing(8.0)
+    .child(
+      lurq::components::Row::new()
+        .align_items(Alignment::Center)
+        .child(text(label, 14.0, FontWeight::Bold, palette.text))
+        .child(lurq::components::Spacer::new().flex(1.0))
+        .child(text(&current.to_string(), 12.0, FontWeight::Medium, palette.accent)),
+    )
+    .child(
+      lurq::components::Slider::new(value)
+        .range(0, 100)
+        .height(34.0)
+        .width(FILL_WIDTH)
+        .track(|style| {
+          style
+            .size(220.0, 2.0)
+            .fill(palette.surface_dark)
+            .background_image(track_image)
+            .background_cover()
+            .rounded(1.0)
+            .border_center(1.0, Color::from_hex(palette.border))
+        })
+        .track_hovered(|style| {
+          style
+            .height(4.0)
+            .background_image(track_hover_image)
+            .background_cover()
+            .border_center(1.0, Color::from_hex(palette.primary_hover))
+        })
+        .thumb(|style| {
+          style
+            .size(12.0, 12.0)
+            .fill("#f97316")
+            .background_image(thumb_image)
+            .background_cover()
+            .rounded(6.0)
+            .border_inside(2.0, Color::from_hex("#0f172a"))
+        })
+        .thumb_hovered(|style| {
+          style
+            .size(14.0, 14.0)
+            .background_image(thumb_hover_image)
+            .background_cover()
+            .rounded(7.0)
+            .border_inside(2.0, Color::from_hex("#f8fafc"))
+        })
+        .cursor(CursorIcon::Pointer)
+        .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary))),
+    )
+    .width(FILL_WIDTH)
+    .into()
+}
+
 fn summary_card(
   name: Signal<String>,
   email: Signal<String>,
@@ -320,8 +396,9 @@ fn summary_card(
   limited_notes: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
-  volume: Signal<f32>,
-  priority: Signal<f32>,
+  volume: Signal<i32>,
+  priority: Signal<i32>,
+  styled_gain: Signal<i32>,
   palette: ThemePalette,
 ) -> Element {
   let scroll_preview = preview_text(&scroll_sample.get());
@@ -338,8 +415,9 @@ fn summary_card(
     .child(summary_row("rows", &limited_notes_preview, palette))
     .child(summary_row("notifications", bool_label(notifications.get()), palette))
     .child(summary_row("beta", bool_label(beta_access.get()), palette))
-    .child(summary_row("volume", &format!("{:.0}", volume.get()), palette))
-    .child(summary_row("priority", &format!("{:.1}", priority.get()), palette))
+    .child(summary_row("volume", &volume.get().to_string(), palette))
+    .child(summary_row("priority", &priority.get().to_string(), palette))
+    .child(summary_row("styled", &styled_gain.get().to_string(), palette))
     .padding(20.0)
     .into()
 }
@@ -383,6 +461,29 @@ fn preview_text(value: &str) -> String {
   let mut preview = normalized.chars().take(MAX_CHARS).collect::<String>();
   preview.push_str("...");
   preview
+}
+
+fn slider_texture(start: &str, end: &str, width: u32, height: u32) -> ImageData {
+  let start = Color::from_hex(start);
+  let end = Color::from_hex(end);
+  let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+
+  for y in 0..height {
+    for x in 0..width {
+      let t = if width <= 1 { 0.0 } else { x as f32 / (width - 1) as f32 };
+      let stripe = if y % 2 == 0 { 0 } else { 12 };
+      pixels.push(lerp_channel(start.r(), end.r(), t).saturating_add(stripe));
+      pixels.push(lerp_channel(start.g(), end.g(), t).saturating_add(stripe));
+      pixels.push(lerp_channel(start.b(), end.b(), t).saturating_add(stripe));
+      pixels.push(255);
+    }
+  }
+
+  ImageData::from_rgba(pixels, width, height)
+}
+
+fn lerp_channel(start: u8, end: u8, t: f32) -> u8 {
+  (start as f32 + (end as f32 - start as f32) * t).round() as u8
 }
 
 fn bool_label(value: bool) -> &'static str {

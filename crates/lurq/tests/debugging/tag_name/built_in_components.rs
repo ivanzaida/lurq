@@ -26,7 +26,7 @@ fn built_in_components_emit_component_tag_names() {
       root_tag_name(ScrollHorizontal::new(Text::new("child"))),
     ),
     ("ScrollVertical", root_tag_name(ScrollVertical::new(Text::new("child")))),
-    ("Slider", root_tag_name(Slider::new(Signal::new(0.0)))),
+    ("Slider", root_tag_name(Slider::new(Signal::new(0)))),
     ("Spacer", root_tag_name(Spacer::new())),
     ("Stack", root_tag_name(Stack::new())),
     ("Text", root_tag_name(Text::new("hello").padding(8.0))),

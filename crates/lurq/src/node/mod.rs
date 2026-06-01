@@ -9,6 +9,7 @@ pub(crate) mod layout_cache;
 pub(crate) mod node;
 pub(crate) mod node_kind;
 pub mod padding;
+pub mod slider_style;
 pub mod style;
 pub mod transform;
 
@@ -16,4 +17,5 @@ pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
 pub use node::BackgroundSize;
 pub(crate) use node::Node;
+pub use slider_style::SliderPartStyle;
 pub use style::Style;

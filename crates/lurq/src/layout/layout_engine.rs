@@ -13,11 +13,13 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
+    border::{BorderRadius, Borders},
     color::Color,
     dimension::Dimension,
     node::Node,
-    node_kind::{CaretPosition, NodeKind},
+    node_kind::{CaretPosition, NodeKind, SliderPartRect},
     padding::Padding,
+    slider_style::SliderPartStyle,
     transform::Transform2D,
   },
 };
@@ -122,6 +124,82 @@ fn background_image_placement(
 
       BackgroundImagePlacement { uv_min, uv_max, ..full }
     }
+  }
+}
+
+fn push_slider_part_quads(
+  quads: &mut Vec<Quad>,
+  rect: SliderPartRect,
+  style: &SliderPartStyle,
+  color: Color,
+  border_radius: Option<BorderRadius>,
+  border: Option<Borders>,
+  opacity: f32,
+  transform: Transform2D,
+  clip: ClipRect,
+) {
+  #[cfg(not(feature = "image"))]
+  let _ = style;
+  #[cfg(feature = "image")]
+  let has_image = style.background_image.is_some();
+  #[cfg(not(feature = "image"))]
+  let has_image = false;
+
+  quads.push(Quad {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    opacity,
+    transform,
+    content: QuadContent::Rect { color },
+    border_radius,
+    border: if has_image { None } else { border },
+    clip,
+  });
+
+  #[cfg(feature = "image")]
+  if let Some(ref bg_image) = style.background_image {
+    let placement = background_image_placement(
+      style.background_size,
+      rect.width,
+      rect.height,
+      bg_image.width() as f32,
+      bg_image.height() as f32,
+    );
+    quads.push(Quad {
+      x: rect.x + placement.x,
+      y: rect.y + placement.y,
+      width: placement.width,
+      height: placement.height,
+      opacity,
+      transform,
+      content: QuadContent::Image {
+        data: bg_image.clone(),
+        uv_min: placement.uv_min,
+        uv_max: placement.uv_max,
+      },
+      border_radius,
+      border: None,
+      clip,
+    });
+  }
+
+  if has_image && border.is_some() {
+    quads.push(Quad {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      opacity,
+      transform,
+      content: QuadContent::Rect {
+        color: DEFAULT_TRANSPARENT_COLOR,
+      },
+      border_radius,
+      border,
+      clip,
+    });
   }
 }
 
@@ -263,9 +341,7 @@ impl LayoutEngine {
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
       #[cfg(all(feature = "svg", feature = "resources"))]
       NodeKind::ResourceSvg { .. } => QuadContent::None,
-      NodeKind::Slider { .. } if node.color().is_none() => QuadContent::Rect {
-        color: DEFAULT_SLIDER_TRACK_COLOR,
-      },
+      NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
         color: node.color().unwrap_or(DEFAULT_TRANSPARENT_COLOR),
       },
@@ -409,22 +485,49 @@ impl LayoutEngine {
         });
       }
       NodeKind::Slider { state } => {
-        let thumb_size = result.size.height.max(DEFAULT_SLIDER_THUMB_MIN_SIZE);
-        let thumb_x = abs_x + (result.size.width - thumb_size).max(0.0) * state.ratio();
-        quads.push(Quad {
-          x: thumb_x,
-          y: abs_y + (result.size.height - thumb_size) / 2.0,
-          width: thumb_size,
-          height: thumb_size,
+        let hovered = node.is_style_hovered() || state.is_hovered();
+        let track_style = state.track_style(hovered);
+        let thumb_style = state.thumb_style(hovered);
+        let (track_rect, thumb_rect) = state.part_rects(
+          abs_x,
+          abs_y,
+          result.size.width,
+          result.size.height,
+          hovered,
+          DEFAULT_SLIDER_THUMB_MIN_SIZE,
+        );
+        let track_color = track_style
+          .color
+          .or_else(|| node.color())
+          .unwrap_or(DEFAULT_SLIDER_TRACK_COLOR);
+        let track_radius = track_style.border_radius.or_else(|| node.get_border_radius());
+        let track_border = track_style.border.or_else(|| node.get_border());
+        push_slider_part_quads(
+          quads,
+          track_rect,
+          &track_style,
+          track_color,
+          track_radius,
+          track_border,
           opacity,
           transform,
-          content: QuadContent::Rect {
-            color: DEFAULT_SLIDER_THUMB_COLOR,
-          },
-          border_radius: Some(crate::node::border::BorderRadius::all(thumb_size / 2.0)),
-          border: None,
           clip,
-        });
+        );
+        push_slider_part_quads(
+          quads,
+          thumb_rect,
+          &thumb_style,
+          thumb_style.color.unwrap_or(DEFAULT_SLIDER_THUMB_COLOR),
+          Some(
+            thumb_style
+              .border_radius
+              .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5)),
+          ),
+          thumb_style.border,
+          opacity,
+          transform,
+          clip,
+        );
       }
       _ => {}
     }
@@ -786,9 +889,18 @@ impl LayoutEngine {
         };
       }
       NodeKind::Slider { .. } => {
-        let preferred = node
-          .intrinsic_size
-          .unwrap_or(Size::new(DEFAULT_SLIDER_WIDTH, DEFAULT_SLIDER_HEIGHT));
+        let preferred = if let NodeKind::Slider { state } = node.node_kind() {
+          let (width, height) = state.preferred_size(
+            DEFAULT_SLIDER_WIDTH,
+            DEFAULT_SLIDER_HEIGHT,
+            DEFAULT_SLIDER_THUMB_MIN_SIZE,
+          );
+          node.intrinsic_size.unwrap_or(Size::new(width, height))
+        } else {
+          node
+            .intrinsic_size
+            .unwrap_or(Size::new(DEFAULT_SLIDER_WIDTH, DEFAULT_SLIDER_HEIGHT))
+        };
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],

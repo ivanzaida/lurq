@@ -16,6 +16,7 @@ mod checkbox {
 }
 
 mod slider {
+  mod avoids_unchanged_updates;
   mod clamps_min_max;
   mod drag_updates_value;
   mod keyboard_update;

@@ -97,6 +97,16 @@ Rect::new(320.0, 180.0).background_cover()
 Rect::new(320.0, 180.0).background_contain()
 ```
 
+Slider track and thumb styles can also use resource-backed background images:
+
+```rust
+use lurq::components::Slider;
+
+Slider::new(value)
+  .track(|style| style.background_image_resource("ui/track.png").background_cover())
+  .thumb(|style| style.background_image_resource("ui/thumb.png").background_cover())
+```
+
 ## SVG
 
 With `svg`, construct SVGs from bytes or strings.

@@ -1,5 +1,5 @@
 use super::{
-  DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsTab, debug_overlay_path_for_selection, profiler,
+  DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsTab, debug_overlay_path_for_selection, profiler, signals,
   style::{
     BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text, toolbar_button,
     toolbar_icon_button, toolbar_input,
@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
   components::{Column, Rect, Row, Spacer},
-  core::Signal,
+  core::{Signal, Store},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color},
 };
@@ -30,6 +30,8 @@ pub(crate) fn top_bar(
   profiler_commits_signal: Signal<Vec<profiler::ProfilerCommitSnapshot>>,
   profiler_selected_commit_signal: Signal<usize>,
   profiler_last_recorded_signature_signal: Signal<u64>,
+  signals_recording: bool,
+  signals_recording_store: Store<signals::SignalsRecordingState>,
 ) -> Element {
   Row::new()
     .align_items(Alignment::Center)
@@ -72,10 +74,7 @@ pub(crate) fn top_bar(
         profiler_selected_commit_signal,
         profiler_last_recorded_signature_signal,
       ),
-      DevToolsTab::Signals => Row::new()
-        .align_items(Alignment::Center)
-        .child(toolbar_input("Filter signals...", None))
-        .into(),
+      DevToolsTab::Signals => signals_actions(signals_recording, signals_recording_store),
       _ => Row::new()
         .align_items(Alignment::Center)
         .child(pick_toggle(pick_enabled, pick_enabled_signal, on_pick_inspected))
@@ -99,6 +98,34 @@ pub(crate) fn top_bar(
     .padding_vertical(0.0)
     .fill(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
+    .into()
+}
+
+fn signals_actions(recording: bool, recording_store: Store<signals::SignalsRecordingState>) -> Element {
+  let color = if recording { "#ef4444" } else { PRIMARY };
+  let label = if recording { "Recording..." } else { "Start recording" };
+  let record_store = recording_store.clone();
+  Row::new()
+    .align_items(Alignment::Center)
+    .spacing(8.0)
+    .child(
+      toolbar_button(
+        "circle",
+        label,
+        color,
+        if recording { "#ef444420" } else { SURFACE_2 },
+        if recording { "#ef444460" } else { BORDER },
+      )
+      .on_click(move |_| {
+        record_store.update(move |state| state.set_recording(!recording));
+      }),
+    )
+    .child(
+      toolbar_button("trash-2", "Clear", MUTED, SURFACE_2, BORDER).on_click(move |_| {
+        recording_store.update(|state| state.clear());
+      }),
+    )
+    .child(toolbar_input("Filter signals...", None))
     .into()
 }
 

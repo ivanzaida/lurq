@@ -50,8 +50,11 @@ const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
+const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
+#[cfg(feature = "devtools")]
+const DEVTOOLS_INTERACTION_SYNC_DELAY: Duration = Duration::from_millis(250);
 
 #[cfg(feature = "devtools")]
 fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
@@ -114,6 +117,7 @@ pub struct Tree {
   focused_event_path: Option<Vec<usize>>,
   cursor: CursorIcon,
   click_tracker: ClickTracker,
+  click_press: Option<ClickPress>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   perf_overlay_enabled: bool,
@@ -202,6 +206,7 @@ struct DevToolsState {
   picked_path: Option<Vec<usize>>,
   picked_revision: u64,
   last_sync: Instant,
+  last_input_interaction: Instant,
 }
 
 #[cfg(feature = "devtools")]
@@ -214,6 +219,7 @@ impl Default for DevToolsState {
       picked_path: None,
       picked_revision: 0,
       last_sync: Instant::now() - DEVTOOLS_SYNC_INTERVAL,
+      last_input_interaction: Instant::now() - DEVTOOLS_INTERACTION_SYNC_DELAY,
     }
   }
 }
@@ -264,6 +270,7 @@ impl Tree {
       focused_event_path: None,
       cursor: CursorIcon::Default,
       click_tracker: ClickTracker::default(),
+      click_press: None,
       suppressed_click: None,
       needs_redraw: false,
       perf_overlay_enabled: false,
@@ -577,6 +584,16 @@ impl Tree {
     }
 
     let now = Instant::now();
+
+    if !force && self.has_active_input_interaction() {
+      self.devtools_state.last_input_interaction = now;
+      return;
+    }
+
+    if !force && now.duration_since(self.devtools_state.last_input_interaction) < DEVTOOLS_INTERACTION_SYNC_DELAY {
+      return;
+    }
+
     if !force && now.duration_since(self.devtools_state.last_sync) < DEVTOOLS_SYNC_INTERVAL {
       return;
     }
@@ -587,6 +604,14 @@ impl Tree {
     };
     devtools.update_root_props::<DevTools>(props);
     self.devtools_state.last_sync = now;
+  }
+
+  #[cfg(feature = "devtools")]
+  fn has_active_input_interaction(&self) -> bool {
+    self.dragging_scroll.is_some()
+      || self.dragging_slider.is_some()
+      || self.dragging_text_selection.is_some()
+      || self.active_drag.is_some()
   }
 
   #[cfg(feature = "devtools")]
@@ -1010,6 +1035,11 @@ impl Tree {
   }
 
   pub fn mouse_down(&mut self, x: f32, y: f32, button: MouseButton) {
+    self.click_press = Some(ClickPress {
+      position: (x, y),
+      button,
+      target_ids: self.hit_target_ids_at(x, y),
+    });
     self.dispatch_mouse(x, y, button, MouseEventKind::Down);
     self.apply_reactive_updates_after_event();
   }
@@ -1024,7 +1054,13 @@ impl Tree {
     let position = (x, y);
 
     if self.should_suppress_click(now, position, button) {
+      self.click_press = None;
       self.click_tracker.take_pending();
+      self.apply_reactive_updates_after_event();
+      return;
+    }
+
+    if !self.take_matching_click_press(position, button) {
       self.apply_reactive_updates_after_event();
       return;
     }
@@ -1124,6 +1160,43 @@ impl Tree {
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
     hits.iter().any(|(node, _)| node.events.on_dblclick.is_some())
+  }
+
+  fn take_matching_click_press(&mut self, position: (f32, f32), button: MouseButton) -> bool {
+    let Some(press) = self.click_press.take() else {
+      return true;
+    };
+
+    if press.button != button {
+      return false;
+    }
+
+    if distance_squared(press.position, position) > DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE {
+      return false;
+    }
+
+    press.target_ids == self.hit_target_ids_at(position.0, position.1)
+  }
+
+  fn hit_target_ids_at(&mut self, x: f32, y: f32) -> Vec<NodeId> {
+    let scale = self.scale_factor();
+    let lx = x / scale;
+    let ly = y / scale;
+
+    self.rebuild_if_dirty();
+
+    let root = match &self.root {
+      Some(r) => r,
+      None => return Vec::new(),
+    };
+    let result = match &self.last_layout {
+      Some(r) => r,
+      None => return Vec::new(),
+    };
+
+    let mut hits = Vec::new();
+    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    hits.into_iter().map(|(node, _)| node.node_id()).collect()
   }
 
   fn suppress_click(&mut self, position: (f32, f32), button: MouseButton) {
@@ -1314,10 +1387,18 @@ impl Tree {
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
         {
           if let NodeKind::Slider { state } = node.node_kind() {
+            let (track_rect, _) = state.part_rects(
+              rect.x,
+              rect.y,
+              rect.width,
+              rect.height,
+              node.is_style_hovered(),
+              DEFAULT_SLIDER_THUMB_MIN_SIZE,
+            );
             let drag = SliderDrag {
               state: state.clone(),
-              x: rect.x,
-              width: rect.width,
+              x: track_rect.x,
+              width: track_rect.width,
             };
             drag.update(lx);
             pending_slider_drag = Some(drag);
@@ -1348,8 +1429,16 @@ impl Tree {
       if hits.is_empty() && matches!(evt.kind, MouseEventKind::Click) {
         if let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly) {
           if let NodeKind::Slider { state } = node.node_kind() {
-            let ratio = if rect.width > 0.0 {
-              (lx - rect.x) / rect.width
+            let (track_rect, _) = state.part_rects(
+              rect.x,
+              rect.y,
+              rect.width,
+              rect.height,
+              node.is_style_hovered(),
+              DEFAULT_SLIDER_THUMB_MIN_SIZE,
+            );
+            let ratio = if track_rect.width > 0.0 {
+              (lx - track_rect.x) / track_rect.width
             } else {
               0.0
             };
@@ -1611,8 +1700,8 @@ impl Tree {
         _ => return false,
       },
       NodeKind::Slider { state } => match (logical, command) {
-        ("ArrowRight" | "ArrowUp", _) | (_, "ArrowRight" | "ArrowUp") => state.nudge(1.0),
-        ("ArrowLeft" | "ArrowDown", _) | (_, "ArrowLeft" | "ArrowDown") => state.nudge(-1.0),
+        ("ArrowRight" | "ArrowUp", _) | (_, "ArrowRight" | "ArrowUp") => state.nudge(1),
+        ("ArrowLeft" | "ArrowDown", _) | (_, "ArrowLeft" | "ArrowDown") => state.nudge(-1),
         _ => return false,
       },
       _ => return false,
@@ -1981,6 +2070,10 @@ impl Tree {
       }
     }
 
+    if let NodeKind::Slider { state } = node.node_kind() {
+      state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache));
+    }
+
     for child in &mut node.children {
       if Self::resolve_resource_images_recursive(child, loader, image_cache) {
         layout_dirty = true;
@@ -2228,13 +2321,13 @@ struct SliderDrag {
 }
 
 impl SliderDrag {
-  fn update(&self, x: f32) {
+  fn update(&self, x: f32) -> bool {
     let ratio = if self.width > 0.0 {
       (x - self.x) / self.width
     } else {
       0.0
     };
-    self.state.set_from_ratio(ratio);
+    self.state.set_from_ratio(ratio)
   }
 }
 
@@ -2325,6 +2418,12 @@ struct PendingClick {
   time: Instant,
   position: (f32, f32),
   button: MouseButton,
+}
+
+struct ClickPress {
+  position: (f32, f32),
+  button: MouseButton,
+  target_ids: Vec<NodeId>,
 }
 
 #[derive(Clone, Copy)]
@@ -2512,6 +2611,9 @@ struct FocusTarget {
 
 fn set_node_hovered(node: &Node, hovered: bool) {
   node.set_style_hovered(hovered);
+  if let Some(state) = node.slider_state() {
+    state.set_hovered(hovered);
+  }
   if let Some(ref state) = node.interaction {
     state.set_hovered(hovered);
   }
@@ -2554,8 +2656,21 @@ fn reset_element_ref_flags_recursive(node: &Node) {
   }
 }
 
-fn replace_live_component_slot(node: &mut Node, slot_id: u64, mut replacement: Node, id_gen: &IdGenerator) -> bool {
+fn replace_live_component_slot(node: &mut Node, slot_id: u64, replacement: Node, id_gen: &IdGenerator) -> bool {
+  let mut replacement = Some(replacement);
+  replace_live_component_slot_in(node, slot_id, &mut replacement, id_gen)
+}
+
+fn replace_live_component_slot_in(
+  node: &mut Node,
+  slot_id: u64,
+  replacement: &mut Option<Node>,
+  id_gen: &IdGenerator,
+) -> bool {
   if node.component_slot_id() == Some(slot_id) {
+    let mut replacement = replacement
+      .take()
+      .expect("component replacement should be available when matching slot is found");
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
     replacement.preserve_ids_from(node);
@@ -2566,7 +2681,7 @@ fn replace_live_component_slot(node: &mut Node, slot_id: u64, mut replacement: N
   }
 
   for child in &mut node.children {
-    if replace_live_component_slot(child, slot_id, replacement.clone_for_reuse(), id_gen) {
+    if replace_live_component_slot_in(child, slot_id, replacement, id_gen) {
       return true;
     }
   }
@@ -2643,8 +2758,16 @@ fn dispatch_builtin_pointer(
         });
       }
       NodeKind::Slider { state } => {
-        let ratio = if rect.width > 0.0 {
-          (x - rect.x) / rect.width
+        let (track_rect, _) = state.part_rects(
+          rect.x,
+          rect.y,
+          rect.width,
+          rect.height,
+          node.is_style_hovered(),
+          DEFAULT_SLIDER_THUMB_MIN_SIZE,
+        );
+        let ratio = if track_rect.width > 0.0 {
+          (x - track_rect.x) / track_rect.width
         } else {
           0.0
         };

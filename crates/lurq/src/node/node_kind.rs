@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{core::Signal, layout::text_style::TextStyle};
+use crate::{core::Signal, layout::text_style::TextStyle, node::SliderPartStyle};
 
 const MAX_TEXT_INPUT_HISTORY: usize = 128;
 
@@ -820,24 +820,57 @@ impl CheckboxState {
 
 #[derive(Clone)]
 pub(crate) struct SliderState {
-  value: Signal<f32>,
+  value: Signal<i32>,
   inner: Arc<Mutex<SliderInner>>,
 }
 
 struct SliderInner {
-  min: f32,
-  max: f32,
+  min: i32,
+  max: i32,
+  track_style: SliderPartStyle,
+  track_hovered_style: Option<SliderPartStyle>,
+  thumb_style: SliderPartStyle,
+  thumb_hovered_style: Option<SliderPartStyle>,
+  hovered: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SliderLayoutSignature {
+  track_width: Option<f32>,
+  track_height: Option<f32>,
+  track_hovered_width: Option<f32>,
+  track_hovered_height: Option<f32>,
+  thumb_width: Option<f32>,
+  thumb_height: Option<f32>,
+  thumb_hovered_width: Option<f32>,
+  thumb_hovered_height: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SliderPartRect {
+  pub(crate) x: f32,
+  pub(crate) y: f32,
+  pub(crate) width: f32,
+  pub(crate) height: f32,
 }
 
 impl SliderState {
-  pub(crate) fn new(value: Signal<f32>) -> Self {
+  pub(crate) fn new(value: Signal<i32>) -> Self {
     Self {
       value,
-      inner: Arc::new(Mutex::new(SliderInner { min: 0.0, max: 1.0 })),
+      inner: Arc::new(Mutex::new(SliderInner {
+        min: 0,
+        max: 1,
+        track_style: SliderPartStyle::new(),
+        track_hovered_style: None,
+        thumb_style: SliderPartStyle::new(),
+        thumb_hovered_style: None,
+        hovered: false,
+      })),
     }
   }
 
-  pub(crate) fn value(&self) -> f32 {
+  pub(crate) fn value(&self) -> i32 {
     self.value.get_untracked()
   }
 
@@ -846,26 +879,199 @@ impl SliderState {
     if inner.max <= inner.min {
       return 0.0;
     }
-    ((self.value() - inner.min) / (inner.max - inner.min)).clamp(0.0, 1.0)
+    ((self.value() - inner.min) as f32 / (inner.max - inner.min) as f32).clamp(0.0, 1.0)
   }
 
-  pub(crate) fn set_range(&self, min: f32, max: f32) {
+  pub(crate) fn set_range(&self, min: i32, max: i32) {
     let mut inner = self.inner.lock().unwrap();
     inner.min = min;
     inner.max = max.max(min);
     let current = self.value();
-    self.value.set(current.clamp(inner.min, inner.max));
+    let clamped = current.clamp(inner.min, inner.max);
+    if current != clamped {
+      self.value.set(clamped);
+    }
   }
 
-  pub(crate) fn set_from_ratio(&self, ratio: f32) {
+  pub(crate) fn set_from_ratio(&self, ratio: f32) -> bool {
     let inner = self.inner.lock().unwrap();
-    let value = inner.min + ratio.clamp(0.0, 1.0) * (inner.max - inner.min);
-    self.value.set(value);
+    let value = inner.min + (ratio.clamp(0.0, 1.0) * (inner.max - inner.min) as f32).round() as i32;
+    let current = self.value();
+    let changed = current != value;
+    if changed {
+      self.value.set(value);
+    }
+    changed
   }
 
-  pub(crate) fn nudge(&self, delta: f32) {
+  pub(crate) fn nudge(&self, delta: i32) {
     let inner = self.inner.lock().unwrap();
     let current = self.value();
-    self.value.set((current + delta).clamp(inner.min, inner.max));
+    let next = (current + delta).clamp(inner.min, inner.max);
+    if current != next {
+      self.value.set(next);
+    }
+  }
+
+  pub(crate) fn set_track_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().track_style = style;
+  }
+
+  pub(crate) fn set_track_hovered_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().track_hovered_style = Some(style);
+  }
+
+  pub(crate) fn set_thumb_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().thumb_style = style;
+  }
+
+  pub(crate) fn set_thumb_hovered_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().thumb_hovered_style = Some(style);
+  }
+
+  pub(crate) fn track_style(&self, hovered: bool) -> SliderPartStyle {
+    let inner = self.inner.lock().unwrap();
+    let mut style = inner.track_style.clone();
+    if hovered && let Some(hovered_style) = &inner.track_hovered_style {
+      style.merge_from(hovered_style);
+    }
+    style
+  }
+
+  pub(crate) fn thumb_style(&self, hovered: bool) -> SliderPartStyle {
+    let inner = self.inner.lock().unwrap();
+    let mut style = inner.thumb_style.clone();
+    if hovered && let Some(hovered_style) = &inner.thumb_hovered_style {
+      style.merge_from(hovered_style);
+    }
+    style
+  }
+
+  pub(crate) fn set_hovered(&self, hovered: bool) {
+    self.inner.lock().unwrap().hovered = hovered;
+  }
+
+  pub(crate) fn is_hovered(&self) -> bool {
+    self.inner.lock().unwrap().hovered
+  }
+
+  pub(crate) fn layout_signature(&self) -> SliderLayoutSignature {
+    let inner = self.inner.lock().unwrap();
+    SliderLayoutSignature {
+      track_width: inner.track_style.width,
+      track_height: inner.track_style.height,
+      track_hovered_width: inner.track_hovered_style.as_ref().and_then(|style| style.width),
+      track_hovered_height: inner.track_hovered_style.as_ref().and_then(|style| style.height),
+      thumb_width: inner.thumb_style.width,
+      thumb_height: inner.thumb_style.height,
+      thumb_hovered_width: inner.thumb_hovered_style.as_ref().and_then(|style| style.width),
+      thumb_hovered_height: inner.thumb_hovered_style.as_ref().and_then(|style| style.height),
+    }
+  }
+
+  pub(crate) fn preferred_size(&self, default_width: f32, default_height: f32, default_thumb_size: f32) -> (f32, f32) {
+    let inner = self.inner.lock().unwrap();
+    let track_width = inner
+      .track_style
+      .width
+      .into_iter()
+      .chain(inner.track_hovered_style.as_ref().and_then(|style| style.width))
+      .max_by(f32::total_cmp)
+      .unwrap_or(default_width);
+    let track_height = inner
+      .track_style
+      .height
+      .into_iter()
+      .chain(inner.track_hovered_style.as_ref().and_then(|style| style.height))
+      .max_by(f32::total_cmp)
+      .unwrap_or(default_height);
+    let thumb_width = inner
+      .thumb_style
+      .width
+      .into_iter()
+      .chain(inner.thumb_hovered_style.as_ref().and_then(|style| style.width))
+      .max_by(f32::total_cmp)
+      .unwrap_or(track_height.max(default_thumb_size));
+    let thumb_height = inner
+      .thumb_style
+      .height
+      .into_iter()
+      .chain(inner.thumb_hovered_style.as_ref().and_then(|style| style.height))
+      .max_by(f32::total_cmp)
+      .unwrap_or(track_height.max(default_thumb_size));
+    (track_width.max(thumb_width), track_height.max(thumb_height))
+  }
+
+  #[cfg(all(feature = "image", feature = "resources"))]
+  pub(crate) fn resolve_resource_images(
+    &self,
+    mut resolve: impl FnMut(&std::sync::Arc<str>) -> Option<crate::images::ImageData>,
+  ) {
+    fn resolve_style(
+      style: &mut SliderPartStyle,
+      resolve: &mut impl FnMut(&std::sync::Arc<str>) -> Option<crate::images::ImageData>,
+    ) {
+      let Some(key) = style.background_resource_image.clone() else {
+        return;
+      };
+      let Some(img) = resolve(&key) else {
+        return;
+      };
+      if style.background_image.as_ref().map(crate::images::ImageData::id) != Some(img.id()) {
+        style.background_image = Some(img);
+      }
+    }
+
+    let mut inner = self.inner.lock().unwrap();
+    resolve_style(&mut inner.track_style, &mut resolve);
+    if let Some(style) = &mut inner.track_hovered_style {
+      resolve_style(style, &mut resolve);
+    }
+    resolve_style(&mut inner.thumb_style, &mut resolve);
+    if let Some(style) = &mut inner.thumb_hovered_style {
+      resolve_style(style, &mut resolve);
+    }
+  }
+
+  pub(crate) fn part_rects(
+    &self,
+    bounds_x: f32,
+    bounds_y: f32,
+    bounds_width: f32,
+    bounds_height: f32,
+    hovered: bool,
+    default_thumb_size: f32,
+  ) -> (SliderPartRect, SliderPartRect) {
+    let track_style = self.track_style(hovered);
+    let thumb_style = self.thumb_style(hovered);
+    let track_width = track_style.width.unwrap_or(bounds_width).max(0.0);
+    let track_height = track_style.height.unwrap_or(bounds_height).max(0.0);
+    let thumb_width = thumb_style
+      .width
+      .unwrap_or(track_height.max(default_thumb_size))
+      .max(0.0);
+    let thumb_height = thumb_style
+      .height
+      .unwrap_or(track_height.max(default_thumb_size))
+      .max(0.0);
+    let track_x = bounds_x + (bounds_width - track_width) * 0.5;
+    let track_y = bounds_y + (bounds_height - track_height) * 0.5;
+    let thumb_center_x = track_x + track_width * self.ratio();
+    let thumb_center_y = track_y + track_height * 0.5;
+
+    (
+      SliderPartRect {
+        x: track_x,
+        y: track_y,
+        width: track_width,
+        height: track_height,
+      },
+      SliderPartRect {
+        x: thumb_center_x - thumb_width * 0.5,
+        y: thumb_center_y - thumb_height * 0.5,
+        width: thumb_width,
+        height: thumb_height,
+      },
+    )
   }
 }

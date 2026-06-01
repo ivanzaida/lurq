@@ -132,16 +132,85 @@ Inputs are controlled by signals.
 
 ```rust
 let checked = ctx.signal(false);
-let volume = ctx.signal(0.5_f32);
+let volume = ctx.signal(50);
 let name = ctx.signal(String::new());
 
 Column::new()
   .child(lurq::components::Checkbox::new(checked.clone()))
-  .child(lurq::components::Slider::new(volume.clone()).range(0.0, 1.0))
+  .child(lurq::components::Slider::new(volume.clone()).range(0, 100))
   .child(lurq::components::TextInput::new(name.clone()).placeholder("Name"))
 ```
 
 Input updates write back to their signals, which rerenders the owning component.
+
+### Slider Styling
+
+Sliders use integer signals. Pointer input maps the track position to the nearest integer in the configured range, and arrow keys nudge by `1`.
+
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`.
+
+```rust
+use lurq::{components::Slider, core::Signal, node::color::Color};
+
+let value = Signal::new(68);
+
+Slider::new(value)
+  .range(0, 100)
+  .width(260.0)
+  .height(34.0)
+  .track(|style| {
+    style
+      .size(220.0, 2.0)
+      .fill("#334155")
+      .rounded(1.0)
+      .border_center(1.0, Color::from_hex("#64748b"))
+  })
+  .track_hovered(|style| {
+    style
+      .height(4.0)
+      .fill("#475569")
+      .border_center(1.0, Color::from_hex("#93c5fd"))
+  })
+  .thumb(|style| {
+    style
+      .size(12.0, 12.0)
+      .fill("#f97316")
+      .rounded(6.0)
+      .border_inside(2.0, Color::from_hex("#0f172a"))
+  })
+  .thumb_hovered(|style| {
+    style
+      .size(14.0, 14.0)
+      .fill("#fb923c")
+      .rounded(7.0)
+      .border_inside(2.0, Color::from_hex("#f8fafc"))
+  })
+```
+
+The track and thumb support width, height, fill/background color, border, corner radius, image backgrounds, and hover overrides. Hover dimensions are included in the slider's preferred size, so a larger hover thumb does not resize surrounding layout when the pointer enters.
+
+The thumb is centered on the track line, not on the slider frame. A `2px` track with a `10px` or `14px` thumb keeps the thumb vertically centered on that thin track.
+
+Image-backed slider parts use the same `image` feature as node background images:
+
+```rust
+use lurq::{components::Slider, images::ImageData};
+
+let track = ImageData::from_file("assets/track.png").unwrap();
+let thumb = ImageData::from_file("assets/thumb.png").unwrap();
+
+Slider::new(value)
+  .track(|style| style.height(2.0).background_image(track).background_cover())
+  .thumb(|style| style.size(16.0, 16.0).background_image(thumb).background_cover())
+```
+
+With `image` and `resources`, pass resource paths instead:
+
+```rust
+Slider::new(value)
+  .track(|style| style.background_image_resource("ui/slider-track.png").background_cover())
+  .thumb(|style| style.background_image_resource("ui/slider-thumb.png").background_cover())
+```
 
 ## Drag And Drop
 

@@ -7,14 +7,10 @@ use crate::support::run_pass;
 
 #[test]
 fn click_updates_slider_signal_from_track_position() {
-  let value = Signal::new(0.0_f32);
+  let value = Signal::new(0);
   let mut runtime = Tree::new();
 
-  runtime.set_root(
-    lurq::components::Slider::new(value.clone())
-      .range(0.0, 10.0)
-      .width(100.0),
-  );
+  runtime.set_root(lurq::components::Slider::new(value.clone()).range(0, 10).width(100.0));
   run_pass(&mut runtime);
   let rect = runtime
     .find_element(|_| true)
@@ -23,5 +19,5 @@ fn click_updates_slider_signal_from_track_position() {
 
   runtime.click(rect.x + rect.width, rect.y + rect.height / 2.0, MouseButton::Left);
 
-  assert_eq!(value.get(), 10.0);
+  assert_eq!(value.get(), 10);
 }

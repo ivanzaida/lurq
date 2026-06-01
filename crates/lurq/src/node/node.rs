@@ -22,6 +22,7 @@ use crate::{
     interaction_state::InteractionState,
     node_kind::{CheckboxState, NodeKind, SliderState, TextInputState},
     padding::Padding,
+    slider_style::SliderPartStyle,
     style::{StateStyles, Style},
     transform::Transform2D,
   },
@@ -265,7 +266,7 @@ impl Node {
     )
   }
 
-  pub fn slider(value: Signal<f32>) -> Self {
+  pub fn slider(value: Signal<i32>) -> Self {
     Self::from_parts(
       LayoutKind::Leaf,
       NodeKind::Slider {
@@ -760,11 +761,49 @@ impl Node {
     self
   }
 
-  pub fn range(self, min: f32, max: f32) -> Self {
-    if let NodeKind::Slider { state } = &self.node_kind {
+  pub fn range(self, min: i32, max: i32) -> Self {
+    if let Some(state) = self.slider_state() {
       state.set_range(min, max);
     }
     self
+  }
+
+  pub fn slider_track_style(self, style: SliderPartStyle) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_track_style(style);
+    }
+    self
+  }
+
+  pub fn slider_track_hovered_style(self, style: SliderPartStyle) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_track_hovered_style(style);
+    }
+    self
+  }
+
+  pub fn slider_thumb_style(self, style: SliderPartStyle) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_thumb_style(style);
+    }
+    self
+  }
+
+  pub fn slider_thumb_hovered_style(self, style: SliderPartStyle) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_thumb_hovered_style(style);
+    }
+    self
+  }
+
+  pub(crate) fn slider_state(&self) -> Option<&SliderState> {
+    if let NodeKind::Slider { state } = &self.node_kind {
+      return Some(state);
+    }
+    if self.children.len() == 1 {
+      return self.children[0].slider_state();
+    }
+    None
   }
 
   pub fn clip(mut self) -> Self {
@@ -1039,6 +1078,10 @@ impl Node {
     self.style_state.take_layout_dirty()
   }
 
+  pub(crate) fn is_style_hovered(&self) -> bool {
+    self.style_state.is_hovered()
+  }
+
   pub(crate) fn set_style_hovered(&self, hovered: bool) -> bool {
     let changed = self.style_state.is_hovered() != hovered;
     if changed {
@@ -1299,7 +1342,9 @@ impl Node {
         },
       ) => style == old_style && placeholder_style == old_placeholder_style,
       (NodeKind::Checkbox { .. }, NodeKind::Checkbox { .. }) => true,
-      (NodeKind::Slider { .. }, NodeKind::Slider { .. }) => true,
+      (NodeKind::Slider { state }, NodeKind::Slider { state: old_state }) => {
+        state.layout_signature() == old_state.layout_signature()
+      }
       #[cfg(feature = "image")]
       (NodeKind::Image { data }, NodeKind::Image { data: old_data }) => data.id() == old_data.id(),
       #[cfg(feature = "image")]
@@ -1379,13 +1424,20 @@ impl Node {
   }
 
   pub(crate) fn replace_component_slot(&mut self, slot_id: u64, replacement: Node) -> bool {
+    let mut replacement = Some(replacement);
+    self.replace_component_slot_in(slot_id, &mut replacement)
+  }
+
+  fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Node>) -> bool {
     if self.component_slot_id == Some(slot_id) {
-      *self = replacement;
+      *self = replacement
+        .take()
+        .expect("component replacement should be available when matching slot is found");
       return true;
     }
 
     for child in &mut self.children {
-      if child.replace_component_slot(slot_id, replacement.clone_for_reuse()) {
+      if child.replace_component_slot_in(slot_id, replacement) {
         return true;
       }
     }

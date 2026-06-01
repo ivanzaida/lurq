@@ -17,7 +17,7 @@ pub use self::snapshot::DevToolsSnapshot as Snapshot;
 use crate::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
-  core::{NodeId, Signal},
+  core::{NodeId, Signal, Store},
   layout::layout_kind::ScrollState,
   node::Element,
 };
@@ -56,6 +56,7 @@ pub struct DevTools {
   profiler_commits: Signal<Vec<profiler::ProfilerCommitSnapshot>>,
   profiler_selected_commit: Signal<usize>,
   profiler_last_recorded_signature: Signal<u64>,
+  signals_recording: Store<signals::SignalsRecordingState>,
   selected_signal: Signal<Option<String>>,
   tree: DevToolsTree,
   last_picked_revision: AtomicU64,
@@ -194,6 +195,7 @@ impl Component for DevTools {
       profiler_commits: ctx.signal(Vec::new()),
       profiler_selected_commit: ctx.signal(0),
       profiler_last_recorded_signature: ctx.signal(profiler::EMPTY_FRAME_SIGNATURE),
+      signals_recording: ctx.store(signals::SignalsRecordingState::default()),
       selected_signal: ctx.signal(None),
       tree: DevToolsTree::new(),
       last_picked_revision: AtomicU64::new(0),
@@ -221,6 +223,11 @@ impl Component for DevTools {
 
     let profiler_commits = self.profiler_commits.get();
     let profiler_selected_commit = self.profiler_selected_commit.get();
+    let mut signals_recording = self.signals_recording.get();
+    if signals_recording.recording() {
+      signals::record_signal_changes(&snapshot, &self.signals_recording);
+      signals_recording = self.signals_recording.get();
+    }
     let selected_signal = self.selected_signal.get();
 
     if props.picked_revision != self.last_picked_revision.load(Ordering::Relaxed) {
@@ -260,6 +267,8 @@ impl Component for DevTools {
         self.profiler_commits.clone(),
         self.profiler_selected_commit.clone(),
         self.profiler_last_recorded_signature.clone(),
+        signals_recording.recording(),
+        self.signals_recording.clone(),
       ))
       .child(match active_tab {
         DevToolsTab::Components => components_view(
@@ -280,7 +289,12 @@ impl Component for DevTools {
           self.profiler_selected_commit.clone(),
           profiler_recording,
         ),
-        DevToolsTab::Signals => signals::signals_view(&snapshot, selected_signal, self.selected_signal.clone()),
+        DevToolsTab::Signals => signals::signals_view(
+          &snapshot,
+          selected_signal,
+          self.selected_signal.clone(),
+          &signals_recording,
+        ),
       })
       .width(style::FILL)
       .height(style::FILL)
