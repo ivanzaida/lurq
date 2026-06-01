@@ -1573,6 +1573,21 @@ impl Tree {
     match node.node_kind() {
       NodeKind::TextInput { state, .. } => match (logical, command) {
         ("a" | "A", _) | (_, "KeyA") if ctrl => state.select_all(),
+        ("z" | "Z", _) | (_, "KeyZ") if ctrl && shift => {
+          if !state.redo() {
+            return false;
+          }
+        }
+        ("z" | "Z", _) | (_, "KeyZ") if ctrl => {
+          if !state.undo() {
+            return false;
+          }
+        }
+        ("y" | "Y", _) | (_, "KeyY") if ctrl => {
+          if !state.redo() {
+            return false;
+          }
+        }
         ("Enter", _) | (_, "Enter") => {
           if !state.insert_newline() {
             return false;
@@ -1588,7 +1603,7 @@ impl Tree {
         ("ArrowDown", _) | (_, "ArrowDown") => state.move_down(shift),
         ("Home", _) | (_, "Home") => state.move_home(shift),
         ("End", _) | (_, "End") => state.move_end(shift),
-        _ if key.chars().count() == 1 => state.insert(key),
+        _ if !ctrl && key.chars().count() == 1 => state.insert(key),
         _ => return false,
       },
       NodeKind::Checkbox { state } => match (logical, command) {

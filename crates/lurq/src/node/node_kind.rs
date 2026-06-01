@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::{core::Signal, layout::text_style::TextStyle};
 
+const MAX_TEXT_INPUT_HISTORY: usize = 128;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextInputOverflow {
   Multiline,
@@ -78,6 +80,15 @@ struct TextInputInner {
   min_rows: Option<usize>,
   max_rows: Option<usize>,
   focused: bool,
+  undo_stack: Vec<TextInputSnapshot>,
+  redo_stack: Vec<TextInputSnapshot>,
+}
+
+#[derive(Clone)]
+struct TextInputSnapshot {
+  value: String,
+  caret: usize,
+  selection_anchor: Option<usize>,
 }
 
 impl TextInputState {
@@ -103,6 +114,8 @@ impl TextInputState {
         min_rows: None,
         max_rows: None,
         focused: false,
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
       })),
     }
   }
@@ -145,11 +158,10 @@ impl TextInputState {
       return;
     }
 
-    let mut caret = self.delete_selection_if_present();
-    if caret.is_none() {
-      caret = Some(self.inner.lock().unwrap().caret);
-    }
-    let mut caret = caret.unwrap();
+    self.push_undo_snapshot();
+    let mut caret = self
+      .delete_selection_if_present()
+      .unwrap_or_else(|| self.inner.lock().unwrap().caret);
     self.value.update(|value| {
       caret = clamp_to_char_boundary(value, caret);
       value.insert_str(caret, text);
@@ -169,7 +181,9 @@ impl TextInputState {
   }
 
   pub(crate) fn backspace(&self) {
-    if self.delete_selection_if_present().is_some() {
+    if self.has_selection() {
+      self.push_undo_snapshot();
+      self.delete_selection_if_present();
       return;
     }
 
@@ -178,6 +192,7 @@ impl TextInputState {
       return;
     }
 
+    self.push_undo_snapshot();
     self.value.update(|value| {
       caret = clamp_to_char_boundary(value, caret);
       if caret > 0 {
@@ -190,17 +205,23 @@ impl TextInputState {
   }
 
   pub(crate) fn delete(&self) {
-    if self.delete_selection_if_present().is_some() {
+    if self.has_selection() {
+      self.push_undo_snapshot();
+      self.delete_selection_if_present();
       return;
     }
 
     let mut caret = self.inner.lock().unwrap().caret;
+    let value = self.value();
+    caret = clamp_to_char_boundary(&value, caret);
+    if caret >= value.len() {
+      return;
+    }
+
+    self.push_undo_snapshot();
     self.value.update(|value| {
-      caret = clamp_to_char_boundary(value, caret);
-      if caret < value.len() {
-        let next = next_char_boundary(value, caret);
-        value.replace_range(caret..next, "");
-      }
+      let next = next_char_boundary(value, caret);
+      value.replace_range(caret..next, "");
     });
     self.inner.lock().unwrap().caret = caret;
   }
@@ -317,6 +338,26 @@ impl TextInputState {
     inner.caret = len;
   }
 
+  pub(crate) fn undo(&self) -> bool {
+    let current = self.snapshot();
+    let Some(snapshot) = self.inner.lock().unwrap().undo_stack.pop() else {
+      return false;
+    };
+    self.push_redo_snapshot(current);
+    self.restore_snapshot(snapshot);
+    true
+  }
+
+  pub(crate) fn redo(&self) -> bool {
+    let current = self.snapshot();
+    let Some(snapshot) = self.inner.lock().unwrap().redo_stack.pop() else {
+      return false;
+    };
+    self.push_undo_snapshot_value(current);
+    self.restore_snapshot(snapshot);
+    true
+  }
+
   pub(crate) fn begin_selection_at_point(&self, x: f32, y: f32) {
     let caret = self.closest_caret_to_point(x, y);
     let mut inner = self.inner.lock().unwrap();
@@ -350,6 +391,8 @@ impl TextInputState {
     let old_min_rows = old_inner.min_rows;
     let old_max_rows = old_inner.max_rows;
     let old_focused = old_inner.focused;
+    let old_undo_stack = old_inner.undo_stack.clone();
+    let old_redo_stack = old_inner.redo_stack.clone();
     let len = self.value().len();
     let mut inner = self.inner.lock().unwrap();
     inner.caret = old_caret.min(len);
@@ -364,6 +407,8 @@ impl TextInputState {
     inner.min_rows = old_min_rows;
     inner.max_rows = old_max_rows;
     inner.focused = old_focused;
+    inner.undo_stack = old_undo_stack;
+    inner.redo_stack = old_redo_stack;
   }
 
   pub(crate) fn sync_caret_metrics_to_position(&self, line_height: f32) {
@@ -533,6 +578,64 @@ impl TextInputState {
     inner.caret = start;
     inner.selection_anchor = None;
     Some(start)
+  }
+
+  fn has_selection(&self) -> bool {
+    let value = self.value();
+    let inner = self.inner.lock().unwrap();
+    selection_range_indices(&value, inner.selection_anchor, inner.caret).is_some()
+  }
+
+  fn snapshot(&self) -> TextInputSnapshot {
+    let value = self.value();
+    let inner = self.inner.lock().unwrap();
+    TextInputSnapshot {
+      value,
+      caret: inner.caret,
+      selection_anchor: inner.selection_anchor,
+    }
+  }
+
+  fn push_undo_snapshot(&self) {
+    let snapshot = self.snapshot();
+    let mut inner = self.inner.lock().unwrap();
+    push_limited(&mut inner.undo_stack, snapshot);
+    inner.redo_stack.clear();
+  }
+
+  fn push_undo_snapshot_value(&self, snapshot: TextInputSnapshot) {
+    let mut inner = self.inner.lock().unwrap();
+    push_limited(&mut inner.undo_stack, snapshot);
+  }
+
+  fn push_redo_snapshot(&self, snapshot: TextInputSnapshot) {
+    let mut inner = self.inner.lock().unwrap();
+    push_limited(&mut inner.redo_stack, snapshot);
+  }
+
+  fn restore_snapshot(&self, snapshot: TextInputSnapshot) {
+    let value = snapshot.value;
+    let len = value.len();
+    let caret = clamp_to_char_boundary(&value, snapshot.caret.min(len));
+    let selection_anchor = snapshot
+      .selection_anchor
+      .map(|anchor| clamp_to_char_boundary(&value, anchor.min(len)));
+    self.value.set(value);
+    let mut inner = self.inner.lock().unwrap();
+    inner.caret = caret;
+    inner.selection_anchor = selection_anchor;
+  }
+}
+
+fn push_limited(stack: &mut Vec<TextInputSnapshot>, snapshot: TextInputSnapshot) {
+  if stack.last().is_some_and(|last| {
+    last.value == snapshot.value && last.caret == snapshot.caret && last.selection_anchor == snapshot.selection_anchor
+  }) {
+    return;
+  }
+  stack.push(snapshot);
+  if stack.len() > MAX_TEXT_INPUT_HISTORY {
+    stack.remove(0);
   }
 }
 

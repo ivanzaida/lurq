@@ -195,6 +195,63 @@ fn ctrl_a_selects_all_text_for_replacement() {
 }
 
 #[test]
+fn ctrl_z_undoes_last_text_input_edit() {
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
+
+  assert_eq!(value.get(), "A");
+}
+
+#[test]
+fn ctrl_y_and_ctrl_shift_z_redo_text_input_edits() {
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
+  runtime.key_down("y".to_owned(), "KeyY".to_owned(), false, true, false);
+  assert_eq!(value.get(), "AB");
+
+  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
+  runtime.key_down("Z".to_owned(), "KeyZ".to_owned(), true, true, false);
+  assert_eq!(value.get(), "AB");
+}
+
+#[test]
+fn new_text_input_edit_clears_redo_history() {
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
+  runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
+  runtime.key_down("y".to_owned(), "KeyY".to_owned(), false, true, false);
+
+  assert_eq!(value.get(), "AC");
+}
+
+#[test]
 fn enter_is_ignored_for_scroll_overflow_text_input() {
   let value = Signal::new("A".to_owned());
   let mut runtime = Tree::new();
