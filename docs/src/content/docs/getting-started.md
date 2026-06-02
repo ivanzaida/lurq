@@ -12,13 +12,13 @@ description: Feature flags, demo commands, and the smallest useful lurq app.
 The demo is the best executable reference because it exercises layout, sizing, positioning, scrolling, input, events, reactivity, components, contexts, animation, transforms, resources, and DevTools.
 
 ```powershell
-cargo run -p demo --features "lurq/winit lurq/wgpu lurq/image lurq/svg lurq/resources lurq/devtools"
+cargo run -p demo --features "lurq/winit lurq/wgpu lurq/image lurq/svg lurq/resources lurq/devtools lurq/clipboard"
 ```
 
 On Windows, the demo can also use the DirectX 12 renderer:
 
 ```powershell
-cargo run -p demo --features "lurq/winit lurq/dx12 lurq/image lurq/svg lurq/resources lurq/devtools" -- --renderer dx12
+cargo run -p demo --features "lurq/winit lurq/dx12 lurq/image lurq/svg lurq/resources lurq/devtools lurq/clipboard" -- --renderer dx12
 ```
 
 The default demo renderer is `wgpu`. Pass `--renderer wgpu` or `--renderer dx12` to choose explicitly.
@@ -37,6 +37,7 @@ The default demo renderer is `wgpu`. Pass `--renderer wgpu` or `--renderer dx12`
 | `svg` | `Svg` and SVG tessellation/rendering. |
 | `resources` | Async local/remote resource loading. |
 | `devtools` | Component metadata, signal values, profiler data, and the DevTools secondary window. |
+| `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts. |
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:
 

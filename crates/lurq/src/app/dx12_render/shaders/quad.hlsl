@@ -36,7 +36,9 @@ struct VsOut
 
 VsOut vs_main(VsIn input)
 {
-  float2 local_px = input.corner * input.size;
+  float aa_outset = 2.0;
+  float2 local_px = input.corner * (input.size + float2(aa_outset * 2.0, aa_outset * 2.0))
+    - float2(aa_outset, aa_outset);
   float2 centered = local_px - input.xf_origin;
   float2 transformed = float2(
     input.transform.x * centered.x + input.transform.z * centered.y,
@@ -48,7 +50,7 @@ VsOut vs_main(VsIn input)
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);
   output.color = input.color;
-  output.local = (input.corner - float2(0.5, 0.5)) * input.size;
+  output.local = local_px - input.size * 0.5;
   output.half_size = input.size * 0.5;
   output.radii_h = input.radii_h;
   output.radii_v = input.radii_v;
@@ -91,7 +93,8 @@ float4 ps_main(VsOut input) : SV_TARGET
   float max_stroke = max(max(input.stroke.x, input.stroke.y), max(input.stroke.z, input.stroke.w));
   if (max_stroke <= 0.0)
   {
-    float fill_alpha = 1.0 - smoothstep(0.0, 1.0, outer_dist);
+    float aa = max(fwidth(outer_dist), 0.001);
+    float fill_alpha = saturate(0.5 - outer_dist / aa);
     return float4(input.color.rgb, input.color.a * fill_alpha);
   }
 
@@ -108,6 +111,7 @@ float4 ps_main(VsOut input) : SV_TARGET
   float inner_dist = sd_rounded_box(input.local - inner_center, inner_half, inner_radius);
   float dist = max(outer_dist, -inner_dist);
 
-  float alpha = 1.0 - smoothstep(0.0, 1.0, dist);
+  float aa = max(fwidth(dist), 0.001);
+  float alpha = saturate(0.5 - dist / aa);
   return float4(input.color.rgb, input.color.a * alpha);
 }

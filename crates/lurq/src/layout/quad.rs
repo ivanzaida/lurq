@@ -23,6 +23,7 @@ pub struct Quad {
   pub height: f32,
   pub opacity: f32,
   pub transform: Transform2D,
+  pub transform_origin: Option<[f32; 2]>,
   pub content: QuadContent,
   pub border_radius: Option<BorderRadius>,
   pub border: Option<Borders>,

@@ -59,7 +59,9 @@ float sd_rounded_box(float2 p, float2 half_size, float2 r)
 
 VsOut vs_main(VsIn input)
 {
-  float2 local_px = input.corner * input.size;
+  float aa_outset = 2.0;
+  float2 local_px = input.corner * (input.size + float2(aa_outset * 2.0, aa_outset * 2.0))
+    - float2(aa_outset, aa_outset);
   float2 centered = local_px - input.xf_origin;
   float2 transformed = float2(
     input.transform.x * centered.x + input.transform.z * centered.y,
@@ -70,7 +72,8 @@ VsOut vs_main(VsIn input)
 
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);
-  output.uv = input.uv_min + input.corner * (input.uv_max - input.uv_min);
+  float2 uv_size = max(input.size, float2(1e-6, 1e-6));
+  output.uv = input.uv_min + (local_px / uv_size) * (input.uv_max - input.uv_min);
   output.opacity = input.opacity.x;
   output.local_px = local_px;
   output.size = input.size;
@@ -80,16 +83,16 @@ VsOut vs_main(VsIn input)
 
 float4 ps_main(VsOut input) : SV_TARGET
 {
-  if (max(max(input.radii.x, input.radii.y), max(input.radii.z, input.radii.w)) > 0.0) {
-    float2 half_size = input.size * 0.5;
-    float2 local_clip = input.local_px - half_size;
-    float d = sd_rounded_box(local_clip, half_size, pick_radius(local_clip, input.radii));
-    if (d > 0.5) {
-      discard;
-    }
+  float2 half_size = input.size * 0.5;
+  float2 local_clip = input.local_px - half_size;
+  float d = sd_rounded_box(local_clip, half_size, pick_radius(local_clip, input.radii));
+  float aa = max(fwidth(d), 0.001);
+  float shape_alpha = saturate(0.5 - d / aa);
+  if (shape_alpha <= 0.0) {
+    discard;
   }
 
   float4 color = image_texture.Sample(image_sampler, input.uv);
-  color.a *= input.opacity;
+  color.a *= input.opacity * shape_alpha;
   return color;
 }

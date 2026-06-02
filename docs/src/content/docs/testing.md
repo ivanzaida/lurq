@@ -10,14 +10,14 @@ The repo has focused Rust tests under `crates/lurq/tests`. They are the best ref
 ## Run Tests
 
 ```powershell
-cargo test -p lurq
+cargo test -p lurq --features resources
 ```
 
 With feature combinations:
 
 ```powershell
 cargo test -p lurq --features "image svg resources devtools"
-cargo test -p lurq --features "winit wgpu image svg resources devtools"
+cargo test -p lurq --features "winit wgpu image svg resources devtools clipboard"
 ```
 
 Run one area:
@@ -98,7 +98,9 @@ tree.scroll(20.0, 20.0, 0.0, -120.0, ScrollPhase::Scroll);
 tree.key_down("a".into(), "KeyA".into(), false, false, false);
 ```
 
-Use direct tree input for deterministic hover, active, focus, scroll, text input, slider, checkbox, drag, and drop behavior.
+Use direct tree input for deterministic hover, active, focus, scroll, text input, selectable text, slider, checkbox, drag, and drop behavior.
+
+Text input tests cover caret placement, Unicode-safe deletion, keyboard selection, multiline movement, undo/redo, and double/triple-click selection. Selectable text tests cover drag ranges, word and line selection, and transformed visual-coordinate hit testing.
 
 ## DevTools Tests
 

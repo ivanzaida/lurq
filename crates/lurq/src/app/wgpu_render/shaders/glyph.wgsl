@@ -89,6 +89,7 @@ fn vs_main(in: VsIn) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    var clip_alpha = 1.0;
     // Rounded-clip discard. See quad.wgsl for the matching logic.
     if (globals.clip_active.x > 0.5) {
         let frag_pos = in.clip.xy;
@@ -98,7 +99,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let local_clip = frag_pos - centre;
         let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
         let d = sd_rounded_box(local_clip, half, r);
-        if (d > 0.5) {
+        let aa = max(fwidth(d), 0.001);
+        clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
+        if (clip_alpha <= 0.0) {
             discard;
         }
     }
@@ -106,5 +109,5 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Instance colors arrive in linear space and are written to an sRGB
     // surface, matching the quad pipeline.
     let coverage = textureSample(atlas, atlas_sampler, in.uv).r;
-    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+    return vec4<f32>(in.color.rgb, in.color.a * coverage * clip_alpha);
 }

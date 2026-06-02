@@ -63,7 +63,9 @@ struct VsOut {
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
-    let local_px = in.corner * in.size;
+    let aa_outset = 2.0;
+    let local_px = in.corner * (in.size + vec2<f32>(aa_outset * 2.0, aa_outset * 2.0))
+                 - vec2<f32>(aa_outset, aa_outset);
     let centered = local_px - in.xf_origin;
     let rotated = vec2<f32>(
         in.transform.x * centered.x + in.transform.z * centered.y,
@@ -76,7 +78,8 @@ fn vs_main(in: VsIn) -> VsOut {
 
     var out: VsOut;
     out.clip = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.uv = in.uv_min + in.corner * (in.uv_max - in.uv_min);
+    let uv_size = max(in.size, vec2<f32>(1e-6, 1e-6));
+    out.uv = in.uv_min + (local_px / uv_size) * (in.uv_max - in.uv_min);
     out.opacity = in.opacity.x;
     out.local_px = local_px;
     out.size = in.size;
@@ -86,6 +89,7 @@ fn vs_main(in: VsIn) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    var clip_alpha = 1.0;
     // Rounded-clip discard.
     if (globals.clip_active.x > 0.5) {
         let frag_pos = in.clip.xy;
@@ -95,23 +99,25 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let local_clip = frag_pos - centre;
         let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
         let d = sd_rounded_box(local_clip, half, r);
-        if (d > 0.5) {
+        let aa = max(fwidth(d), 0.001);
+        clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
+        if (clip_alpha <= 0.0) {
             discard;
         }
     }
 
-    if (max(max(in.radii.x, in.radii.y), max(in.radii.z, in.radii.w)) > 0.0) {
-        let half = in.size * 0.5;
-        let local_clip = in.local_px - half;
-        let r = pick_radius(local_clip, in.radii, in.radii);
-        let d = sd_rounded_box(local_clip, half, r);
-        if (d > 0.5) {
-            discard;
-        }
+    let half = in.size * 0.5;
+    let local_clip = in.local_px - half;
+    let r = pick_radius(local_clip, in.radii, in.radii);
+    let d = sd_rounded_box(local_clip, half, r);
+    let shape_aa = max(fwidth(d), 0.001);
+    let shape_alpha = clamp(0.5 - d / shape_aa, 0.0, 1.0);
+    if (shape_alpha <= 0.0) {
+        discard;
     }
 
     var color = textureSample(img_tex, img_sampler, in.uv);
-    color.a *= in.opacity;
+    color.a *= in.opacity * shape_alpha * clip_alpha;
     // The surface is sRGB; the texture is Rgba8UnormSrgb so the
     // hardware already decoded to linear. The sRGB surface view
     // re-encodes on write. Just output linear RGBA.

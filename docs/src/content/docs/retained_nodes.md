@@ -111,6 +111,7 @@ Layout is cached on retained nodes. Cache invalidation happens when layout-affec
 - flex parameters,
 - scroll state,
 - text input value,
+- text selection/caret runtime state,
 - style state that affects layout,
 - element-ref rect overrides,
 - root resize or scale changes.
@@ -157,7 +158,7 @@ tree.scroll(x, y, delta_x, delta_y, ScrollPhase::Scroll);
 tree.key_down(key, code, shift, ctrl, alt);
 ```
 
-The tree resolves target nodes from the latest layout and updates hover, active, focus, drag, scroll, and cursor state.
+The tree resolves target nodes from the latest layout and updates hover, active, focus, drag, scroll, cursor, text selection, and text input editing state. Hit testing uses visual coordinates, so transformed text and transformed parents can still receive pointer selection from their painted position.
 
 ## Redraw
 

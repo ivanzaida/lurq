@@ -1,10 +1,11 @@
 use lurq::{
   app::Tree,
   layout::{Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints, quad::QuadContent},
-  node::{Element, color::Color, dimension::Dimension, padding::Padding},
+  node::{Element, color::Color, dimension::Dimension, padding::Padding, transform::Transform2D},
 };
 
 use super::PassLayoutExt;
+use crate::support::{render_pass, run_pass};
 
 fn rt() -> Tree {
   Tree::new()
@@ -370,4 +371,93 @@ fn quads_with_padding_offset() {
   assert_eq!(quads[0].y, 0.0);
   assert_eq!(quads[0].width, 100.0);
   assert_eq!(quads[0].height, 80.0);
+}
+
+fn assert_close(actual: f32, expected: f32) {
+  assert!(
+    (actual - expected).abs() < 0.01,
+    "expected {actual} to be within 0.01 of {expected}"
+  );
+}
+
+#[test]
+fn transformed_padding_child_transforms_padding_offset() {
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .child(lurq::components::Rect::new(20.0, 20.0).fill("#0000ff"))
+    .padding(Padding {
+      top: Dimension::Px(10.0),
+      right: Dimension::Px(0.0),
+      bottom: Dimension::Px(0.0),
+      left: Dimension::Px(30.0),
+    })
+    .transform(Transform2D::rotate_deg(30.0));
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let child = quads
+    .iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Rect { color } if *color == Color::from_hex("#0000ff")))
+    .expect("child quad");
+
+  assert_close(child.x, 31.83);
+  assert_close(child.y, 13.17);
+  assert_eq!(child.transform_origin, Some([0.0, 0.0]));
+}
+
+#[test]
+fn transformed_padded_text_sends_glyphs_with_parent_transform() {
+  let mut rt = rt();
+  let transform = Transform2D::rotate_deg(-2.0).then(&Transform2D::scale(1.02, 1.02));
+  let node = lurq::components::Column::new()
+    .child(
+      lurq::components::Text::new(
+        "This selectable text lives inside a transformed parent.\nIts selection highlight inherits the same parent transform.",
+      )
+      .width(430.0),
+    )
+    .padding(14.0)
+    .width(480.0)
+    .fill("#172033")
+    .border_inside(1.0, Color::from_hex("#475569"))
+    .rounded(8.0)
+    .transform(transform)
+    .overflow_visible();
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(800.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let text_quad = quads
+    .iter()
+    .find(|quad| matches!(quad.content, QuadContent::Text { .. }))
+    .expect("text quad");
+  let origin = [240.0, result.size.height * 0.5];
+  let dx = 14.0 - origin[0];
+  let dy = 14.0 - origin[1];
+  let expected = (
+    origin[0] + transform.a * dx + transform.c * dy + transform.tx,
+    origin[1] + transform.b * dx + transform.d * dy + transform.ty,
+  );
+
+  assert_close(text_quad.x, expected.0);
+  assert_close(text_quad.y, expected.1);
+  assert_eq!(text_quad.transform.matrix_2x2(), transform.matrix_2x2());
+  assert_eq!(text_quad.transform_origin, Some([0.0, 0.0]));
+
+  run_pass(&mut rt);
+  let snapshot = render_pass(&mut rt);
+  let first_glyph = snapshot.glyphs.first().expect("glyph");
+  assert_eq!(first_glyph.transform, transform.matrix_2x2());
+  assert!(
+    first_glyph.x.fract().abs() > 0.001 || first_glyph.y.fract().abs() > 0.001,
+    "transformed text should preserve fractional glyph origin instead of pre-snapping: glyph=({}, {})",
+    first_glyph.x,
+    first_glyph.y
+  );
+  assert!(first_glyph.transform_origin[0].abs() < 2.0);
+  assert_close(first_glyph.clip.x, -1.0);
+  assert_close(first_glyph.clip.y, -1.0);
+  assert_close(first_glyph.clip.width, 802.0);
+  assert_close(first_glyph.clip.height, 602.0);
 }

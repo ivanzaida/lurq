@@ -32,6 +32,7 @@ fn vs_main(in: VsIn) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    var clip_alpha = 1.0;
     if (globals.clip_active.x > 0.5) {
         let frag_pos = in.clip.xy;
         let cr = globals.clip_rect;
@@ -39,10 +40,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let centre = vec2<f32>(cr.x + half.x, cr.y + half.y);
         let local_clip = frag_pos - centre;
         let d = max(abs(local_clip.x) - half.x, abs(local_clip.y) - half.y);
-        if (d > 0.5) {
+        let aa = max(fwidth(d), 0.001);
+        clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
+        if (clip_alpha <= 0.0) {
             discard;
         }
     }
 
-    return in.color;
+    return vec4<f32>(in.color.rgb, in.color.a * clip_alpha);
 }

@@ -99,6 +99,12 @@ Use `on_tick` when animations or app code need a steady tick even if there is no
 
 The shell observes `needs_redraw`, requests a redraw, then calls `Tree::pass(app, window)`.
 
+## Input Dispatch
+
+Pointer input is resolved against the latest layout and hit-tested in visual coordinates. The runtime tracks hover, active, focus, drag, scroll, cursor, text selection, and text click counts across retained nodes.
+
+Built-in text behavior runs before user keyboard handlers on focused text inputs. It handles caret movement, selection replacement, undo/redo, and clipboard shortcuts when the `clipboard` feature is enabled. If a key is not consumed by a text input, normal `on_key_down` handlers still receive the event.
+
 ## Sizing And Scale
 
 The shell updates the tree from the window before each pass:

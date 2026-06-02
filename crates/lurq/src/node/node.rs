@@ -20,7 +20,7 @@ use crate::{
     cursor::CursorIcon,
     dimension::Dimension,
     interaction_state::InteractionState,
-    node_kind::{CheckboxState, NodeKind, SliderState, TextInputState},
+    node_kind::{CheckboxState, NodeKind, SliderState, TextInputState, TextState},
     padding::Padding,
     slider_style::SliderPartStyle,
     style::{StateStyles, Style},
@@ -222,6 +222,7 @@ impl Node {
     let node = Self::from_parts(
       LayoutKind::Leaf,
       NodeKind::Text {
+        state: TextState::new(),
         style: TextStyle::default(),
       },
       vec![],
@@ -230,7 +231,14 @@ impl Node {
   }
 
   pub fn text_styled(content: &str, style: TextStyle) -> Self {
-    let node = Self::from_parts(LayoutKind::Leaf, NodeKind::Text { style }, vec![]);
+    let node = Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Text {
+        state: TextState::new(),
+        style,
+      },
+      vec![],
+    );
     node.with_text_content(content)
   }
 
@@ -700,6 +708,13 @@ impl Node {
 
   pub fn text_content(&self) -> Option<&str> {
     self.text_content.as_deref()
+  }
+
+  pub fn selectable(self, selectable: bool) -> Self {
+    if let NodeKind::Text { state, .. } = &self.node_kind {
+      state.set_selectable(selectable);
+    }
+    self
   }
 
   pub fn placeholder(mut self, placeholder: &str) -> Self {
@@ -1211,10 +1226,14 @@ impl Node {
       self.layout_cache.preserve_from(&old.layout_cache);
     }
 
-    if let (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) =
-      (&self.node_kind, &old.node_kind)
-    {
-      state.copy_runtime_state_from(old_state);
+    match (&self.node_kind, &old.node_kind) {
+      (NodeKind::Text { state, .. }, NodeKind::Text { state: old_state, .. }) => {
+        state.copy_runtime_state_from(old_state, self.text_content().unwrap_or_default());
+      }
+      (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
+        state.copy_runtime_state_from(old_state);
+      }
+      _ => {}
     }
 
     if let (
@@ -1328,7 +1347,13 @@ impl Node {
   fn node_kind_matches_for_cache(&self, old: &Node) -> bool {
     match (&self.node_kind, &old.node_kind) {
       (NodeKind::Empty, NodeKind::Empty) => true,
-      (NodeKind::Text { style }, NodeKind::Text { style: old_style }) => style == old_style,
+      (
+        NodeKind::Text { state, style },
+        NodeKind::Text {
+          state: old_state,
+          style: old_style,
+        },
+      ) => style == old_style && state.selectable() == old_state.selectable(),
       (
         NodeKind::TextInput {
           style,

@@ -11,6 +11,7 @@ pub(crate) mod node_kind;
 pub mod padding;
 pub mod slider_style;
 pub mod style;
+pub(crate) mod text_selection;
 pub mod transform;
 
 pub use cursor::CursorIcon;

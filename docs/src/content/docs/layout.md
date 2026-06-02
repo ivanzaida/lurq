@@ -37,6 +37,7 @@ Common modifiers:
 | `.relative(x, y)` | Alias for `.offset(x, y)` |
 | `.absolute(x, y, width, height)` | Absolute stack positioning with forced size |
 | `.absolute_position(x, y)` | Absolute stack positioning with measured size |
+| `.transform(Transform2D)` | Apply a visual 2D transform around the element center |
 | `.align(Alignment)` | Override alignment within parent container |
 | `.flex(factor)` | Participate in row/column flex distribution |
 
@@ -251,3 +252,7 @@ lurq::components::Text::styled("hello", TextStyle {
   ..TextStyle::default()
 })
 ```
+
+The glyph engine also records caret positions for text selection. `Text::selectable(true)` uses those positions for drag ranges, double-click word selection, and triple-click line selection. Wrapped or multiline selections render separate highlight rectangles for each selected row.
+
+Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text selection and text input carets therefore follow transformed text, including text inside a transformed parent.

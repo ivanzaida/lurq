@@ -40,7 +40,8 @@ use crate::{
     border::{Border, BorderPlacement, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
-    node_kind::{NodeKind, SliderState},
+    node_kind::{NodeKind, SliderState, TextInputState, TextState},
+    transform::Transform2D,
   },
 };
 
@@ -55,6 +56,30 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
 const DEVTOOLS_INTERACTION_SYNC_DELAY: Duration = Duration::from_millis(250);
+
+#[cfg(feature = "clipboard")]
+fn read_clipboard_text() -> Option<String> {
+  let mut clipboard = arboard::Clipboard::new().ok()?;
+  clipboard.get_text().ok()
+}
+
+#[cfg(not(feature = "clipboard"))]
+fn read_clipboard_text() -> Option<String> {
+  None
+}
+
+#[cfg(feature = "clipboard")]
+fn write_clipboard_text(text: &str) -> bool {
+  let Ok(mut clipboard) = arboard::Clipboard::new() else {
+    return false;
+  };
+  clipboard.set_text(text.to_owned()).is_ok()
+}
+
+#[cfg(not(feature = "clipboard"))]
+fn write_clipboard_text(_text: &str) -> bool {
+  false
+}
 
 #[cfg(feature = "devtools")]
 fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
@@ -117,6 +142,7 @@ pub struct Tree {
   focused_event_path: Option<Vec<usize>>,
   cursor: CursorIcon,
   click_tracker: ClickTracker,
+  text_click_tracker: TextClickTracker,
   click_press: Option<ClickPress>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
@@ -270,6 +296,7 @@ impl Tree {
       focused_event_path: None,
       cursor: CursorIcon::Default,
       click_tracker: ClickTracker::default(),
+      text_click_tracker: TextClickTracker::default(),
       click_press: None,
       suppressed_click: None,
       needs_redraw: false,
@@ -842,7 +869,10 @@ impl Tree {
           let radii = scaled_radii(quad.border_radius, scale, w, h);
           let final_color = apply_opacity(*color, quad.opacity);
           let xf = quad.transform.matrix_2x2();
-          let xf_origin = [w * 0.5, h * 0.5];
+          let xf_origin = quad
+            .transform_origin
+            .map(|[x, y]| [x * scale, y * scale])
+            .unwrap_or([w * 0.5, h * 0.5]);
 
           rects.push(RectCmd {
             order,
@@ -872,6 +902,7 @@ impl Tree {
               borders,
               quad.opacity,
               xf,
+              xf_origin,
               scaled_clip,
             );
           }
@@ -884,19 +915,47 @@ impl Tree {
           } else {
             f32::MAX
           };
-          let mut glyph_cmds =
+          let glyph_xf = quad.transform.matrix_2x2();
+          let mut glyph_cmds = if quad.transform.is_identity() {
             app
               .glyph_engine
-              .rasterize_text(text, &scaled_style, max_width, quad.x * scale, quad.y * scale);
-          let glyph_xf = quad.transform.matrix_2x2();
-          let quad_cx = quad.x * scale + quad.width * scale * 0.5;
-          let quad_cy = quad.y * scale + quad.height * scale * 0.5;
+              .rasterize_text(text, &scaled_style, max_width, quad.x * scale, quad.y * scale)
+          } else {
+            let raster_scale = transformed_text_raster_scale(quad.transform);
+            scaled_style.font_size *= raster_scale;
+            let raster_max_width = if max_width.is_finite() {
+              max_width * raster_scale
+            } else {
+              f32::MAX
+            };
+            let mut glyphs = app.glyph_engine.rasterize_text_unsnapped(
+              text,
+              &scaled_style,
+              raster_max_width,
+              quad.x * scale * raster_scale,
+              quad.y * scale * raster_scale,
+            );
+            for glyph in &mut glyphs {
+              glyph.x /= raster_scale;
+              glyph.y /= raster_scale;
+              glyph.width /= raster_scale;
+              glyph.height /= raster_scale;
+            }
+            glyphs
+          };
+          let glyph_origin = quad
+            .transform_origin
+            .map(|[x, y]| [(quad.x + x) * scale, (quad.y + y) * scale])
+            .unwrap_or([
+              quad.x * scale + quad.width * scale * 0.5,
+              quad.y * scale + quad.height * scale * 0.5,
+            ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           for g in &mut glyph_cmds {
             g.order = order;
             g.clip = glyph_clip;
             g.transform = glyph_xf;
-            g.transform_origin = [quad_cx - g.x, quad_cy - g.y];
+            g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
           }
           glyphs.extend(glyph_cmds);
         }
@@ -1092,6 +1151,8 @@ impl Tree {
     self.rebuild_if_dirty();
     if self.dispatch_text_input(&key, &code, shift, ctrl) {
       self.needs_redraw = true;
+    } else {
+      self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl);
     }
 
     let mut evt = KeyboardEvent {
@@ -1280,9 +1341,12 @@ impl Tree {
         }
         MouseEventKind::Up => {
           drag.update(lx, ly);
+          let has_selection = drag.has_selection();
           self.dragging_text_selection = None;
           self.clear_active_path();
-          self.suppress_click((evt.x, evt.y), button);
+          if has_selection {
+            self.suppress_click((evt.x, evt.y), button);
+          }
           self.needs_redraw = true;
           return;
         }
@@ -1368,11 +1432,12 @@ impl Tree {
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
-            state.begin_selection_at_point(lx - rect.x, ly - rect.y);
+            state.begin_selection_at_point(rect.local_x - rect.x, rect.local_y - rect.y);
             pending_text_selection_drag = Some(TextSelectionDrag {
-              state: state.clone(),
+              kind: TextSelectionDragKind::Input(state.clone()),
               x: rect.x,
               y: rect.y,
+              transform: rect.transform,
             });
             pending_focus = Some(FocusTarget {
               input_id: node.node_id(),
@@ -1382,9 +1447,31 @@ impl Tree {
           }
         }
 
-        if let Some((node, rect)) = hits
-          .iter()
-          .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
+        if pending_text_selection_drag.is_none()
+          && let Some((node, rect)) = hits
+            .iter()
+            .find(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
+        {
+          if let NodeKind::Text { state, .. } = node.node_kind() {
+            let value = node.text_content().unwrap_or_default().to_owned();
+            state.begin_selection_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y);
+            pending_text_selection_drag = Some(TextSelectionDrag {
+              kind: TextSelectionDragKind::Text {
+                state: state.clone(),
+                value,
+              },
+              x: rect.x,
+              y: rect.y,
+              transform: rect.transform,
+            });
+            builtin_needs_redraw = true;
+          }
+        }
+
+        if pending_text_selection_drag.is_none()
+          && let Some((node, rect)) = hits
+            .iter()
+            .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
         {
           if let NodeKind::Slider { state } = node.node_kind() {
             let (track_rect, _) = state.part_rects(
@@ -1414,11 +1501,34 @@ impl Tree {
         .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
       {
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
-          state.set_caret_from_point(lx - rect.x, ly - rect.y);
+          let text_click_count = self
+            .text_click_tracker
+            .record(Instant::now(), (evt.x, evt.y), button, node.node_id());
+          match text_click_count {
+            1 => state.set_caret_from_point(rect.local_x - rect.x, rect.local_y - rect.y),
+            2 => state.select_word_at_point(rect.local_x - rect.x, rect.local_y - rect.y),
+            _ => state.select_line_at_point(rect.local_x - rect.x, rect.local_y - rect.y),
+          }
           pending_focus = Some(FocusTarget {
             input_id: node.node_id(),
             event_id: node.node_id(),
           });
+          builtin_needs_redraw = true;
+        }
+      } else if let Some((node, rect)) = hits
+        .iter()
+        .find(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
+      {
+        if let NodeKind::Text { state, .. } = node.node_kind() {
+          let value = node.text_content().unwrap_or_default();
+          let text_click_count = self
+            .text_click_tracker
+            .record(Instant::now(), (evt.x, evt.y), button, node.node_id());
+          match text_click_count {
+            1 => state.clear_selection_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
+            2 => state.select_word_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
+            _ => state.select_line_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
+          }
           builtin_needs_redraw = true;
         }
       }
@@ -1662,6 +1772,48 @@ impl Tree {
     match node.node_kind() {
       NodeKind::TextInput { state, .. } => match (logical, command) {
         ("a" | "A", _) | (_, "KeyA") if ctrl => state.select_all(),
+        ("c" | "C", _) | (_, "KeyC") if ctrl => {
+          let Some(selected) = state.selected_text() else {
+            return false;
+          };
+          return write_clipboard_text(&selected);
+        }
+        ("x" | "X", _) | (_, "KeyX") if ctrl => {
+          let Some(selected) = state.selected_text() else {
+            return false;
+          };
+          if !write_clipboard_text(&selected) {
+            return false;
+          }
+          let _ = state.cut_selection();
+        }
+        ("v" | "V", _) | (_, "KeyV") if ctrl => {
+          let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
+            return false;
+          };
+          state.insert(&text);
+        }
+        ("Insert", _) | (_, "Insert") if ctrl => {
+          let Some(selected) = state.selected_text() else {
+            return false;
+          };
+          return write_clipboard_text(&selected);
+        }
+        ("Insert", _) | (_, "Insert") if shift => {
+          let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
+            return false;
+          };
+          state.insert(&text);
+        }
+        ("Delete", _) | (_, "Delete") if shift => {
+          let Some(selected) = state.selected_text() else {
+            return false;
+          };
+          if !write_clipboard_text(&selected) {
+            return false;
+          }
+          let _ = state.cut_selection();
+        }
         ("z" | "Z", _) | (_, "KeyZ") if ctrl && shift => {
           if !state.redo() {
             return false;
@@ -1708,6 +1860,28 @@ impl Tree {
     }
 
     true
+  }
+
+  fn dispatch_selectable_text_clipboard(&mut self, key: &str, code: &str, shift: bool, ctrl: bool) -> bool {
+    let command = code;
+    let logical = key;
+    if !matches!(
+      (logical, command),
+      ("c" | "C", _) | (_, "KeyC") if ctrl
+    ) && !matches!(
+      (logical, command),
+      ("Insert", _) | (_, "Insert") if ctrl && !shift
+    ) {
+      return false;
+    }
+
+    let Some(root) = &self.root else {
+      return false;
+    };
+    let Some(selected) = selected_selectable_text(root) else {
+      return false;
+    };
+    write_clipboard_text(&selected)
   }
 
   fn drop_target_at(&self, x: f32, y: f32) -> Option<(NodeId, DropCallback)> {
@@ -2333,14 +2507,45 @@ impl SliderDrag {
 
 #[derive(Clone)]
 struct TextSelectionDrag {
-  state: crate::node::node_kind::TextInputState,
+  kind: TextSelectionDragKind,
   x: f32,
   y: f32,
+  transform: Transform2D,
+}
+
+#[derive(Clone)]
+enum TextSelectionDragKind {
+  Input(TextInputState),
+  Text { state: TextState, value: String },
 }
 
 impl TextSelectionDrag {
   fn update(&self, x: f32, y: f32) {
-    self.state.update_selection_to_point(x - self.x, y - self.y);
+    let (local_x, local_y) = self.local_point(x, y);
+    match &self.kind {
+      TextSelectionDragKind::Input(state) => state.update_selection_to_point(local_x - self.x, local_y - self.y),
+      TextSelectionDragKind::Text { state, value } => {
+        state.update_selection_to_point(value, local_x - self.x, local_y - self.y)
+      }
+    }
+  }
+
+  fn has_selection(&self) -> bool {
+    match &self.kind {
+      TextSelectionDragKind::Input(state) => state.has_selection(),
+      TextSelectionDragKind::Text { state, value } => state.has_selection(value),
+    }
+  }
+
+  fn local_point(&self, x: f32, y: f32) -> (f32, f32) {
+    if self.transform.is_identity() {
+      return (x, y);
+    }
+
+    let Some(inverse) = self.transform.inverse_affine() else {
+      return (x, y);
+    };
+    inverse.transform_point(x, y)
   }
 }
 
@@ -2424,6 +2629,45 @@ struct ClickPress {
   position: (f32, f32),
   button: MouseButton,
   target_ids: Vec<NodeId>,
+}
+
+#[derive(Default)]
+struct TextClickTracker {
+  previous: Option<TextClick>,
+}
+
+impl TextClickTracker {
+  fn record(&mut self, now: Instant, position: (f32, f32), button: MouseButton, target_id: NodeId) -> u8 {
+    let count = self
+      .previous
+      .filter(|previous| {
+        previous.button == button
+          && previous.target_id == target_id
+          && now.duration_since(previous.time) <= DOUBLE_CLICK_INTERVAL
+          && distance_squared(previous.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+      })
+      .map(|previous| (previous.count + 1).min(3))
+      .unwrap_or(1);
+
+    self.previous = Some(TextClick {
+      time: now,
+      position,
+      button,
+      target_id,
+      count,
+    });
+
+    count
+  }
+}
+
+#[derive(Clone, Copy)]
+struct TextClick {
+  time: Instant,
+  position: (f32, f32),
+  button: MouseButton,
+  target_id: NodeId,
+  count: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -2784,6 +3028,23 @@ fn dispatch_builtin_pointer(
   None
 }
 
+fn selected_selectable_text(node: &Node) -> Option<String> {
+  if let NodeKind::Text { state, .. } = node.node_kind() {
+    let value = node.text_content().unwrap_or_default();
+    if let Some(selected) = state.selected_text(value) {
+      return Some(selected);
+    }
+  }
+
+  for child in node.children() {
+    if let Some(selected) = selected_selectable_text(child) {
+      return Some(selected);
+    }
+  }
+
+  None
+}
+
 fn find_slider_by_y_recursive<'a>(
   node: &'a Node,
   layout: &'a LayoutResult,
@@ -2831,6 +3092,17 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
 
 fn ms(duration: Duration) -> f32 {
   duration.as_secs_f32() * 1000.0
+}
+
+fn transformed_text_raster_scale(transform: Transform2D) -> f32 {
+  let aa = transform.a * transform.a + transform.b * transform.b;
+  let bb = transform.c * transform.c + transform.d * transform.d;
+  let ab = transform.a * transform.c + transform.b * transform.d;
+  let trace = aa + bb;
+  let det = aa * bb - ab * ab;
+  let discriminant = (trace * trace - 4.0 * det).max(0.0);
+  let max_scale = ((trace + discriminant.sqrt()) * 0.5).max(1.0).sqrt();
+  max_scale.max(4.0).min(8.0).ceil()
 }
 
 #[cfg(feature = "devtools")]
@@ -3156,9 +3428,10 @@ fn push_border_rects(
   borders: Borders,
   opacity: f32,
   transform: [f32; 4],
+  transform_origin: [f32; 2],
   clip: ClipRect,
 ) {
-  let base_center = [base_x + base_w * 0.5, base_y + base_h * 0.5];
+  let origin_abs = [base_x + transform_origin[0], base_y + transform_origin[1]];
   let sides = [borders.top, borders.right, borders.bottom, borders.left];
   let mut used = [false; 4];
 
@@ -3191,7 +3464,7 @@ fn push_border_rects(
       stroke,
       opacity,
       transform,
-      base_center,
+      origin_abs,
       clip,
     );
   }
@@ -3211,7 +3484,7 @@ fn push_border_rect(
   stroke: [f32; 4],
   opacity: f32,
   transform: [f32; 4],
-  base_center: [f32; 2],
+  origin_abs: [f32; 2],
   clip: ClipRect,
 ) {
   if stroke.iter().all(|width| *width <= 0.0) {
@@ -3246,7 +3519,7 @@ fn push_border_rect(
     stroke,
     stroke_color: apply_opacity(border.color, opacity),
     transform,
-    transform_origin: [base_center[0] - x, base_center[1] - y],
+    transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
     clip,
   });
 }
@@ -3272,7 +3545,11 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
 
 #[cfg(test)]
 mod tests {
-  use crate::{app::runtime::expand_text_clip_for_rasterization, layout::quad::ClipRect};
+  use crate::{
+    app::runtime::{expand_text_clip_for_rasterization, transformed_text_raster_scale},
+    layout::quad::ClipRect,
+    node::transform::Transform2D,
+  };
 
   #[test]
   fn text_clip_expands_by_one_physical_pixel_for_glyph_rasterization() {
@@ -3300,5 +3577,12 @@ mod tests {
     let expanded = expand_text_clip_for_rasterization(clip);
 
     assert!(!expanded.active);
+  }
+
+  #[test]
+  fn transformed_text_uses_high_quality_minimum_raster_scale() {
+    let transform = Transform2D::rotate_deg(-2.0).then(&Transform2D::scale(1.02, 1.02));
+
+    assert_eq!(transformed_text_raster_scale(transform), 4.0);
   }
 }

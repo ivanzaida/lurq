@@ -56,6 +56,9 @@ pub struct GlyphSnapshot {
   pub width: f32,
   pub height: f32,
   pub color: [f32; 4],
+  pub transform: [f32; 4],
+  pub transform_origin: [f32; 2],
+  pub clip: ClipSnapshot,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -68,6 +71,18 @@ pub struct RectSnapshot {
   pub radii: [f32; 4],
   pub stroke: [f32; 4],
   pub stroke_color: Color,
+  pub transform: [f32; 4],
+  pub transform_origin: [f32; 2],
+  pub clip: ClipSnapshot,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ClipSnapshot {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+  pub active: bool,
 }
 
 pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
@@ -124,6 +139,9 @@ fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
     width: glyph.width,
     height: glyph.height,
     color: glyph.color,
+    transform: glyph.transform,
+    transform_origin: glyph.transform_origin,
+    clip: clip_snapshot(glyph.clip),
   }
 }
 
@@ -137,5 +155,18 @@ fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
     radii: rect.radii,
     stroke: rect.stroke,
     stroke_color: rect.stroke_color,
+    transform: rect.transform,
+    transform_origin: rect.transform_origin,
+    clip: clip_snapshot(rect.clip),
+  }
+}
+
+fn clip_snapshot(clip: lurq::layout::quad::ClipRect) -> ClipSnapshot {
+  ClipSnapshot {
+    x: clip.x,
+    y: clip.y,
+    width: clip.width,
+    height: clip.height,
+    active: clip.active,
   }
 }

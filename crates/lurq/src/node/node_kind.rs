@@ -1,6 +1,18 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{core::Signal, layout::text_style::TextStyle, node::SliderPartStyle};
+use crate::{
+  core::Signal,
+  layout::text_style::TextStyle,
+  node::{
+    SliderPartStyle,
+    text_selection::{
+      CaretPosition, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
+      closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
+      previous_char_boundary, previous_word_boundary, selection_range_indices, selection_ranges_for_positions,
+      word_selection_bounds,
+    },
+  },
+};
 
 const MAX_TEXT_INPUT_HISTORY: usize = 128;
 
@@ -15,6 +27,7 @@ pub enum TextInputOverflow {
 pub(crate) enum NodeKind {
   Empty,
   Text {
+    state: TextState,
     style: TextStyle,
   },
   TextInput {
@@ -47,23 +60,145 @@ pub(crate) enum NodeKind {
 }
 
 #[derive(Clone)]
+pub(crate) struct TextState {
+  inner: Arc<Mutex<TextInner>>,
+}
+
+struct TextInner {
+  selectable: bool,
+  caret: usize,
+  selection_anchor: Option<usize>,
+  caret_positions: Vec<CaretPosition>,
+}
+
+impl TextState {
+  pub(crate) fn new() -> Self {
+    Self {
+      inner: Arc::new(Mutex::new(TextInner {
+        selectable: false,
+        caret: 0,
+        selection_anchor: None,
+        caret_positions: vec![CaretPosition {
+          index: 0,
+          x: 0.0,
+          y: 0.0,
+        }],
+      })),
+    }
+  }
+
+  pub(crate) fn set_selectable(&self, selectable: bool) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.selectable = selectable;
+    if !selectable {
+      inner.selection_anchor = None;
+      inner.caret = 0;
+    }
+  }
+
+  pub(crate) fn selectable(&self) -> bool {
+    self.inner.lock().unwrap().selectable
+  }
+
+  pub(crate) fn begin_selection_at_point(&self, value: &str, x: f32, y: f32) {
+    if !self.selectable() {
+      return;
+    }
+    let caret = self.closest_caret_to_point(value, x, y);
+    let mut inner = self.inner.lock().unwrap();
+    inner.caret = caret;
+    inner.selection_anchor = Some(caret);
+  }
+
+  pub(crate) fn update_selection_to_point(&self, value: &str, x: f32, y: f32) {
+    if !self.selectable() {
+      return;
+    }
+    let caret = self.closest_caret_to_point(value, x, y);
+    self.inner.lock().unwrap().caret = caret;
+  }
+
+  pub(crate) fn clear_selection_at_point(&self, value: &str, x: f32, y: f32) {
+    let caret = self.closest_caret_to_point(value, x, y);
+    let mut inner = self.inner.lock().unwrap();
+    inner.caret = caret;
+    inner.selection_anchor = None;
+  }
+
+  pub(crate) fn select_word_at_point(&self, value: &str, x: f32, y: f32) {
+    if !self.selectable() {
+      return;
+    }
+    let caret = self.closest_caret_to_point(value, x, y);
+    let (start, end) = word_selection_bounds(value, caret);
+    let mut inner = self.inner.lock().unwrap();
+    inner.selection_anchor = Some(start);
+    inner.caret = end;
+  }
+
+  pub(crate) fn select_line_at_point(&self, value: &str, x: f32, y: f32) {
+    if !self.selectable() {
+      return;
+    }
+    let caret = self.closest_caret_to_point(value, x, y);
+    let (start, end) = line_bounds(value, caret);
+    let mut inner = self.inner.lock().unwrap();
+    inner.selection_anchor = Some(start);
+    inner.caret = end;
+  }
+
+  pub(crate) fn has_selection(&self, value: &str) -> bool {
+    let inner = self.inner.lock().unwrap();
+    selection_range_indices(value, inner.selection_anchor, inner.caret).is_some()
+  }
+
+  pub(crate) fn selected_text(&self, value: &str) -> Option<String> {
+    let inner = self.inner.lock().unwrap();
+    let (start, end) = selection_range_indices(value, inner.selection_anchor, inner.caret)?;
+    Some(value[start..end].to_owned())
+  }
+
+  pub(crate) fn selection_ranges(&self, value: &str) -> Vec<TextSelectionRange> {
+    if !self.selectable() {
+      return Vec::new();
+    }
+    let inner = self.inner.lock().unwrap();
+    let Some((start, end)) = selection_range_indices(value, inner.selection_anchor, inner.caret) else {
+      return Vec::new();
+    };
+    selection_ranges_for_positions(&inner.caret_positions, start, end, 0.0, 0.0)
+  }
+
+  pub(crate) fn set_caret_positions(&self, positions: Vec<CaretPosition>) {
+    self.inner.lock().unwrap().caret_positions = positions;
+  }
+
+  pub(crate) fn copy_runtime_state_from(&self, old: &Self, value: &str) {
+    let old_inner = old.inner.lock().unwrap();
+    let selectable = self.selectable();
+    let len = value.len();
+    let mut inner = self.inner.lock().unwrap();
+    inner.selectable = selectable;
+    if selectable {
+      inner.caret = old_inner.caret.min(len);
+      inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));
+      inner.caret_positions = old_inner.caret_positions.clone();
+    } else {
+      inner.caret = 0;
+      inner.selection_anchor = None;
+    }
+  }
+
+  fn closest_caret_to_point(&self, value: &str, x: f32, y: f32) -> usize {
+    let inner = self.inner.lock().unwrap();
+    clamp_to_char_boundary(value, closest_caret_to_point(&inner.caret_positions, x, y))
+  }
+}
+
+#[derive(Clone)]
 pub(crate) struct TextInputState {
   value: Signal<String>,
   inner: Arc<Mutex<TextInputInner>>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct CaretPosition {
-  pub(crate) index: usize,
-  pub(crate) x: f32,
-  pub(crate) y: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct TextSelectionRange {
-  pub(crate) x: f32,
-  pub(crate) y: f32,
-  pub(crate) width: f32,
 }
 
 struct TextInputInner {
@@ -338,6 +473,20 @@ impl TextInputState {
     inner.caret = len;
   }
 
+  pub(crate) fn selected_text(&self) -> Option<String> {
+    let value = self.value();
+    let inner = self.inner.lock().unwrap();
+    let (start, end) = selection_range_indices(&value, inner.selection_anchor, inner.caret)?;
+    Some(value[start..end].to_owned())
+  }
+
+  pub(crate) fn cut_selection(&self) -> Option<String> {
+    let selected = self.selected_text()?;
+    self.push_undo_snapshot();
+    self.delete_selection_if_present();
+    Some(selected)
+  }
+
   pub(crate) fn undo(&self) -> bool {
     let current = self.snapshot();
     let Some(snapshot) = self.inner.lock().unwrap().undo_stack.pop() else {
@@ -375,6 +524,24 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.caret = caret;
     inner.selection_anchor = None;
+  }
+
+  pub(crate) fn select_word_at_point(&self, x: f32, y: f32) {
+    let caret = self.closest_caret_to_point(x, y);
+    let value = self.value();
+    let (start, end) = word_selection_bounds(&value, caret);
+    let mut inner = self.inner.lock().unwrap();
+    inner.selection_anchor = Some(start);
+    inner.caret = end;
+  }
+
+  pub(crate) fn select_line_at_point(&self, x: f32, y: f32) {
+    let caret = self.closest_caret_to_point(x, y);
+    let value = self.value();
+    let (start, end) = line_bounds(&value, caret);
+    let mut inner = self.inner.lock().unwrap();
+    inner.selection_anchor = Some(start);
+    inner.caret = end;
   }
 
   pub(crate) fn copy_runtime_state_from(&self, old: &Self) {
@@ -534,30 +701,7 @@ impl TextInputState {
     let inner = self.inner.lock().unwrap();
     let content_x = x + inner.scroll_x;
     let content_y = y + inner.scroll_y;
-    let closest_y = inner
-      .caret_positions
-      .iter()
-      .min_by(|a, b| {
-        (a.y - content_y)
-          .abs()
-          .partial_cmp(&(b.y - content_y).abs())
-          .unwrap_or(std::cmp::Ordering::Equal)
-      })
-      .map(|position| position.y)
-      .unwrap_or(0.0);
-
-    inner
-      .caret_positions
-      .iter()
-      .filter(|position| (position.y - closest_y).abs() <= f32::EPSILON)
-      .min_by(|a, b| {
-        (a.x - content_x)
-          .abs()
-          .partial_cmp(&(b.x - content_x).abs())
-          .unwrap_or(std::cmp::Ordering::Equal)
-      })
-      .map(|position| position.index)
-      .unwrap_or(0)
+    closest_caret_to_point(&inner.caret_positions, content_x, content_y)
   }
 
   fn delete_selection_if_present(&self) -> Option<usize> {
@@ -580,7 +724,7 @@ impl TextInputState {
     Some(start)
   }
 
-  fn has_selection(&self) -> bool {
+  pub(crate) fn has_selection(&self) -> bool {
     let value = self.value();
     let inner = self.inner.lock().unwrap();
     selection_range_indices(&value, inner.selection_anchor, inner.caret).is_some()
@@ -639,68 +783,6 @@ fn push_limited(stack: &mut Vec<TextInputSnapshot>, snapshot: TextInputSnapshot)
   }
 }
 
-fn selection_range_indices(value: &str, anchor: Option<usize>, caret: usize) -> Option<(usize, usize)> {
-  let anchor = clamp_to_char_boundary(value, anchor?);
-  let caret = clamp_to_char_boundary(value, caret);
-  if anchor == caret {
-    return None;
-  }
-  Some((anchor.min(caret), anchor.max(caret)))
-}
-
-fn caret_x_for_index(positions: &[CaretPosition], index: usize) -> f32 {
-  positions
-    .iter()
-    .find(|position| position.index == index)
-    .map(|position| position.x)
-    .unwrap_or_else(|| positions.last().map(|position| position.x).unwrap_or(0.0))
-}
-
-fn caret_y_for_index(positions: &[CaretPosition], index: usize) -> Option<f32> {
-  positions
-    .iter()
-    .find(|position| position.index == index)
-    .map(|position| position.y)
-}
-
-fn selection_ranges_for_positions(
-  positions: &[CaretPosition],
-  start: usize,
-  end: usize,
-  scroll_x: f32,
-  scroll_y: f32,
-) -> Vec<TextSelectionRange> {
-  let mut ranges = Vec::new();
-  let mut line_start = 0;
-  while line_start < positions.len() {
-    let y = positions[line_start].y;
-    let mut line_end = line_start + 1;
-    while line_end < positions.len() && (positions[line_end].y - y).abs() <= f32::EPSILON {
-      line_end += 1;
-    }
-
-    let line_positions = &positions[line_start..line_end];
-    let first = line_positions.first().unwrap();
-    let last = line_positions.last().unwrap();
-    if start <= last.index && end >= first.index {
-      let selection_start = start.max(first.index).min(last.index);
-      let selection_end = end.min(last.index).max(first.index);
-      if selection_start != selection_end {
-        let start_x = caret_x_for_index(line_positions, selection_start);
-        let end_x = caret_x_for_index(line_positions, selection_end);
-        ranges.push(TextSelectionRange {
-          x: start_x.min(end_x) - scroll_x,
-          y: y - scroll_y,
-          width: (start_x - end_x).abs().max(1.0),
-        });
-      }
-    }
-
-    line_start = line_end;
-  }
-  ranges
-}
-
 fn move_inner_to(inner: &mut TextInputInner, target: usize, selecting: bool) {
   if selecting {
     if inner.selection_anchor.is_none() {
@@ -710,93 +792,6 @@ fn move_inner_to(inner: &mut TextInputInner, target: usize, selecting: bool) {
     inner.selection_anchor = None;
   }
   inner.caret = target;
-}
-
-fn line_bounds(value: &str, index: usize) -> (usize, usize) {
-  let index = clamp_to_char_boundary(value, index);
-  let line_start = value[..index].rfind('\n').map(|position| position + 1).unwrap_or(0);
-  let line_end = value[index..]
-    .find('\n')
-    .map(|position| index + position)
-    .unwrap_or(value.len());
-  (line_start, line_end)
-}
-
-fn closest_caret_in_range(positions: &[CaretPosition], start: usize, end: usize, x: f32) -> usize {
-  positions
-    .iter()
-    .filter(|position| position.index >= start && position.index <= end)
-    .min_by(|a, b| {
-      (a.x - x)
-        .abs()
-        .partial_cmp(&(b.x - x).abs())
-        .unwrap_or(std::cmp::Ordering::Equal)
-    })
-    .map(|position| position.index)
-    .unwrap_or(start)
-}
-
-fn previous_word_boundary(value: &str, index: usize) -> usize {
-  let mut index = clamp_to_char_boundary(value, index);
-  while let Some((previous, ch)) = char_before(value, index) {
-    if !ch.is_whitespace() {
-      break;
-    }
-    index = previous;
-  }
-  while let Some((previous, ch)) = char_before(value, index) {
-    if ch.is_whitespace() {
-      break;
-    }
-    index = previous;
-  }
-  index
-}
-
-fn next_word_boundary(value: &str, index: usize) -> usize {
-  let mut index = clamp_to_char_boundary(value, index);
-  while index < value.len() {
-    let ch = value[index..].chars().next().unwrap();
-    if ch.is_whitespace() {
-      break;
-    }
-    index += ch.len_utf8();
-  }
-  while index < value.len() {
-    let ch = value[index..].chars().next().unwrap();
-    if !ch.is_whitespace() {
-      break;
-    }
-    index += ch.len_utf8();
-  }
-  index
-}
-
-fn char_before(value: &str, index: usize) -> Option<(usize, char)> {
-  let index = clamp_to_char_boundary(value, index);
-  value[..index].char_indices().last()
-}
-
-fn clamp_to_char_boundary(value: &str, index: usize) -> usize {
-  let mut index = index.min(value.len());
-  while index > 0 && !value.is_char_boundary(index) {
-    index -= 1;
-  }
-  index
-}
-
-fn previous_char_boundary(value: &str, index: usize) -> usize {
-  let index = clamp_to_char_boundary(value, index);
-  value[..index].char_indices().last().map(|(idx, _)| idx).unwrap_or(0)
-}
-
-fn next_char_boundary(value: &str, index: usize) -> usize {
-  let index = clamp_to_char_boundary(value, index);
-  value[index..]
-    .char_indices()
-    .nth(1)
-    .map(|(offset, _)| index + offset)
-    .unwrap_or(value.len())
 }
 
 #[derive(Clone)]

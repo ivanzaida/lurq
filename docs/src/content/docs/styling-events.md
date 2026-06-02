@@ -92,6 +92,19 @@ Text::new("Focusable")
 
 `KeyboardEvent` includes `key`, `code`, `shift`, `ctrl`, `alt`, and `target_id`.
 
+## Text Selection
+
+Plain text is not selectable by default. Opt in with `.selectable(true)`:
+
+```rust
+lurq::components::Text::new("Drag, double-click, or triple-click this text")
+  .selectable(true)
+```
+
+Selectable text supports pointer drag ranges, double-click word selection, and triple-click line selection. Multiline and wrapped text render one selection highlight per selected row. Selection is visual-coordinate aware, so text inside transformed parents can still be selected from the painted position.
+
+With the `clipboard` feature enabled, `Ctrl+C` and `Ctrl+Insert` copy the current selectable text selection to the system clipboard.
+
 ## Scroll
 
 Wrap content in one of the scroll components:
@@ -142,6 +155,14 @@ Column::new()
 ```
 
 Input updates write back to their signals, which rerenders the owning component.
+
+### Text Input Editing
+
+`TextInput` keeps editing state internally while the string value remains signal-owned. Clicking focuses the input and places the caret. Dragging selects a range; double-click selects a word; triple-click selects a line. Multiline inputs support vertical caret movement and per-row selection highlights.
+
+Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
+
+With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete`. Without `clipboard`, those shortcuts do not read or write the system clipboard.
 
 ### Slider Styling
 

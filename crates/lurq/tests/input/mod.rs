@@ -1,3 +1,7 @@
+mod text {
+  mod selectable;
+}
+
 mod text_input {
   mod basic_layout;
   mod editing;

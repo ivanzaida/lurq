@@ -6,6 +6,12 @@ use lurq::{
 
 use crate::support::{render_pass, run_pass};
 
+fn pointer_click(runtime: &mut Tree, x: f32, y: f32) {
+  runtime.mouse_down(x, y, MouseButton::Left);
+  runtime.mouse_up(x, y, MouseButton::Left);
+  runtime.click(x, y, MouseButton::Left);
+}
+
 #[test]
 fn typing_into_focused_text_input_appends_to_existing_value() {
   let value = Signal::new("A".to_owned());
@@ -319,4 +325,61 @@ fn multiline_selection_renders_a_rect_for_each_selected_row() {
     selection_rects, 3,
     "multiline selection should render one highlight rect per selected row"
   );
+}
+
+#[test]
+fn double_click_text_input_selects_clicked_word() {
+  let value = Signal::new("one two".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+  let x = rect.x + 46.0;
+
+  pointer_click(&mut runtime, x, y);
+  pointer_click(&mut runtime, x, y);
+  runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
+
+  assert_eq!(value.get(), "one X");
+}
+
+#[test]
+fn triple_click_single_line_text_input_selects_whole_line() {
+  let value = Signal::new("one two".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value.clone()));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+  let x = rect.x + 46.0;
+
+  pointer_click(&mut runtime, x, y);
+  pointer_click(&mut runtime, x, y);
+  pointer_click(&mut runtime, x, y);
+  runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
+
+  assert_eq!(value.get(), "X");
+}
+
+#[test]
+fn triple_click_multiline_text_input_selects_clicked_line() {
+  let value = Signal::new("one\ntwo words\nthree".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value.clone()).multiline());
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let line_height = 19.2;
+  let y = rect.y + line_height + 1.0;
+  let x = rect.x + 46.0;
+
+  pointer_click(&mut runtime, x, y);
+  pointer_click(&mut runtime, x, y);
+  pointer_click(&mut runtime, x, y);
+  runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
+
+  assert_eq!(value.get(), "one\nX\nthree");
 }

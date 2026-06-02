@@ -8,13 +8,17 @@ use cosmic_text::{
   Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage,
 };
 
-use crate::layout::{
-  Size,
-  render_list::{GlyphAtlas, GlyphCmd},
-  text_style::{FontStyle, FontWeight, TextStyle},
+use crate::{
+  layout::{
+    Size,
+    render_list::{GlyphAtlas, GlyphCmd},
+    text_style::{FontStyle, FontWeight, TextStyle},
+  },
+  node::text_selection::CaretPosition,
 };
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
+const GLYPH_ATLAS_PADDING: u32 = 2;
 
 #[derive(Clone, PartialEq)]
 struct CacheKey {
@@ -25,6 +29,7 @@ struct CacheKey {
   max_width_bits: u32,
   weight: u8,
   style: u8,
+  raster_mode: u8,
 }
 
 impl Eq for CacheKey {}
@@ -38,6 +43,7 @@ impl Hash for CacheKey {
     self.max_width_bits.hash(state);
     self.weight.hash(state);
     self.style.hash(state);
+    self.raster_mode.hash(state);
   }
 }
 
@@ -51,7 +57,14 @@ impl CacheKey {
       max_width_bits: max_width.to_bits(),
       weight: weight_to_u8(style.weight),
       style: style_to_u8(style.style),
+      raster_mode: 0,
     }
+  }
+
+  fn new_for_raster(text: &str, style: &TextStyle, max_width: f32, snap_to_pixel: bool) -> Self {
+    let mut key = Self::new(text, style, max_width);
+    key.raster_mode = if snap_to_pixel { 0 } else { 1 };
+    key
   }
 }
 
@@ -166,6 +179,75 @@ impl GlyphEngine {
     size
   }
 
+  pub(crate) fn caret_positions(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Vec<CaretPosition> {
+    let mut buffer = self.acquire_buffer(style, max_width);
+    let resolved = self.resolve_family(style);
+    let family = if resolved.is_empty() {
+      Family::SansSerif
+    } else {
+      Family::Name(&resolved)
+    };
+    let attrs = Attrs::new()
+      .family(family)
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+
+    let mut line_offsets = Vec::with_capacity(buffer.lines.len());
+    let mut offset = 0usize;
+    for line in &buffer.lines {
+      line_offsets.push(offset);
+      offset += line.text().len() + line.ending().as_str().len();
+    }
+
+    let mut positions = Vec::with_capacity(text.chars().count() + buffer.lines.len().max(1));
+    for run in buffer.layout_runs() {
+      let line_offset = line_offsets.get(run.line_i).copied().unwrap_or(0);
+      let y = run.line_top.max(0.0);
+      if run.glyphs.is_empty() {
+        positions.push(CaretPosition {
+          index: line_offset,
+          x: 0.0,
+          y,
+        });
+        continue;
+      }
+
+      for glyph in run.glyphs {
+        positions.push(CaretPosition {
+          index: line_offset + glyph.start,
+          x: glyph.x,
+          y,
+        });
+        positions.push(CaretPosition {
+          index: line_offset + glyph.end,
+          x: glyph.x + glyph.w,
+          y,
+        });
+      }
+    }
+
+    if positions.is_empty() {
+      positions.push(CaretPosition {
+        index: 0,
+        x: 0.0,
+        y: 0.0,
+      });
+    }
+    if !positions.iter().any(|position| position.index == text.len()) {
+      let last_y = positions.last().map(|position| position.y).unwrap_or(0.0);
+      positions.push(CaretPosition {
+        index: text.len(),
+        x: positions.last().map(|position| position.x).unwrap_or(0.0),
+        y: last_y,
+      });
+    }
+
+    self.buffer_pool.push(buffer);
+    positions
+  }
+
   pub(crate) fn rasterize_text(
     &mut self,
     text: &str,
@@ -174,12 +256,35 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
-    let key = CacheKey::new(text, style, max_width);
+    self.rasterize_text_with_snap(text, style, max_width, origin_x, origin_y, true)
+  }
+
+  pub(crate) fn rasterize_text_unsnapped(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    origin_x: f32,
+    origin_y: f32,
+  ) -> Vec<GlyphCmd> {
+    self.rasterize_text_with_snap(text, style, max_width, origin_x, origin_y, false)
+  }
+
+  fn rasterize_text_with_snap(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    origin_x: f32,
+    origin_y: f32,
+    snap_to_pixel: bool,
+  ) -> Vec<GlyphCmd> {
+    let key = CacheKey::new_for_raster(text, style, max_width, snap_to_pixel);
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
     if let Some(cached) = self.glyph_layout_cache.get(&key) {
       self.glyph_hits += cached.len();
-      return glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h);
+      return glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel);
     }
 
     let mut buffer = self.acquire_buffer(style, max_width);
@@ -199,22 +304,45 @@ impl GlyphEngine {
     let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
-        let physical = glyph.physical((0.0, run.line_y), 1.0);
-        let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
-          continue;
+        let cached_glyph = if snap_to_pixel {
+          let physical = glyph.physical((0.0, run.line_y), 1.0);
+          let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
+            continue;
+          };
+
+          CachedGlyph {
+            x: (physical.x + packed.left) as f32,
+            y: (physical.y - packed.top) as f32,
+            atlas_x: packed.x,
+            atlas_y: packed.y,
+            width: packed.width,
+            height: packed.height,
+          }
+        } else {
+          let x_offset = glyph.font_size * glyph.x_offset;
+          let y_offset = glyph.font_size * glyph.y_offset;
+          let (cache_key, _, _) = GlyphCacheKey::new(
+            glyph.font_id,
+            glyph.glyph_id,
+            glyph.font_size,
+            (0.0, 0.0),
+            glyph.cache_key_flags,
+          );
+          let Some(packed) = self.get_or_pack_glyph(cache_key) else {
+            continue;
+          };
+
+          CachedGlyph {
+            x: glyph.x + x_offset + packed.left as f32,
+            y: run.line_y + glyph.y - y_offset - packed.top as f32,
+            atlas_x: packed.x,
+            atlas_y: packed.y,
+            width: packed.width,
+            height: packed.height,
+          }
         };
 
-        let gx = origin_x + (physical.x + packed.left) as f32;
-        let gy = origin_y + (physical.y - packed.top) as f32;
-
-        cached.push(CachedGlyph {
-          x: gx - origin_x,
-          y: gy - origin_y,
-          atlas_x: packed.x,
-          atlas_y: packed.y,
-          width: packed.width,
-          height: packed.height,
-        });
+        cached.push(cached_glyph);
       }
     }
 
@@ -225,7 +353,7 @@ impl GlyphEngine {
     self.glyph_layout_cache.insert(key, cached.clone());
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
-    glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h)
+    glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel)
   }
 
   pub(crate) fn atlas(&self) -> GlyphAtlas {
@@ -255,8 +383,8 @@ impl GlyphEngine {
       y,
       width,
       height,
-      left: image.placement.left,
-      top: image.placement.top,
+      left: image.placement.left - GLYPH_ATLAS_PADDING as i32,
+      top: image.placement.top + GLYPH_ATLAS_PADDING as i32,
     };
     self.atlas_entries.insert(cache_key, packed);
     self.glyph_misses += 1;
@@ -381,25 +509,30 @@ fn glyph_cmds_from_cached(
   style: &TextStyle,
   atlas_w: f32,
   atlas_h: f32,
+  snap_to_pixel: bool,
 ) -> Vec<GlyphCmd> {
   let color = style.color.to_linear_f32_array();
   cached
     .iter()
-    .map(|glyph| GlyphCmd {
-      order: 0,
-      x: (origin_x + glyph.x).round(),
-      y: (origin_y + glyph.y).round(),
-      width: glyph.width as f32,
-      height: glyph.height as f32,
-      color,
-      uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
-      uv_max: [
-        (glyph.atlas_x + glyph.width) as f32 / atlas_w,
-        (glyph.atlas_y + glyph.height) as f32 / atlas_h,
-      ],
-      transform: [1.0, 0.0, 0.0, 1.0],
-      transform_origin: [0.0, 0.0],
-      clip: crate::layout::quad::ClipRect::default(),
+    .map(|glyph| {
+      let x = origin_x + glyph.x;
+      let y = origin_y + glyph.y;
+      GlyphCmd {
+        order: 0,
+        x: if snap_to_pixel { x.round() } else { x },
+        y: if snap_to_pixel { y.round() } else { y },
+        width: glyph.width as f32,
+        height: glyph.height as f32,
+        color,
+        uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
+        uv_max: [
+          (glyph.atlas_x + glyph.width) as f32 / atlas_w,
+          (glyph.atlas_y + glyph.height) as f32 / atlas_h,
+        ],
+        transform: [1.0, 0.0, 0.0, 1.0],
+        transform_origin: [0.0, 0.0],
+        clip: crate::layout::quad::ClipRect::default(),
+      }
     })
     .collect()
 }
@@ -469,7 +602,7 @@ impl AtlasPacker {
   }
 
   fn pack_pixels(&mut self, glyph_data: &[u8], gw: u32, gh: u32) -> (u32, u32, u32, u32) {
-    let padding = 1;
+    let padding = GLYPH_ATLAS_PADDING;
     let reserved_width = gw + padding * 2;
     let reserved_height = gh + padding * 2;
 
@@ -487,15 +620,13 @@ impl AtlasPacker {
 
     let padded_x = self.cursor_x;
     let padded_y = self.cursor_y;
-    let x0 = padded_x + padding;
-    let y0 = padded_y + padding;
+    let x0 = padded_x;
+    let y0 = padded_y;
 
-    for row in 0..reserved_height {
-      let src_y = row.saturating_sub(padding).min(gh.saturating_sub(1));
-      for col in 0..reserved_width {
-        let src_x = col.saturating_sub(padding).min(gw.saturating_sub(1));
-        let src = (src_y * gw + src_x) as usize;
-        let dst = ((padded_y + row) * self.width + padded_x + col) as usize;
+    for row in 0..gh {
+      for col in 0..gw {
+        let src = (row * gw + col) as usize;
+        let dst = ((padded_y + padding + row) * self.width + padded_x + padding + col) as usize;
         if src < glyph_data.len() && dst < self.data.len() {
           self.data[dst] = glyph_data[src];
         }
@@ -506,7 +637,7 @@ impl AtlasPacker {
     self.row_height = self.row_height.max(reserved_height);
     self.version += 1;
 
-    (x0, y0, gw, gh)
+    (x0, y0, reserved_width, reserved_height)
   }
 
   pub(crate) fn to_atlas(&self) -> GlyphAtlas {
@@ -523,7 +654,7 @@ impl AtlasPacker {
 mod tests {
   use cosmic_text::{Attrs, Family, Shaping};
 
-  use super::{AtlasPacker, GlyphEngine, glyph_coverage_mask};
+  use super::{AtlasPacker, GLYPH_ATLAS_PADDING, GlyphEngine, glyph_coverage_mask};
 
   #[test]
   fn atlas_packer_leaves_padding_between_glyph_regions() {
@@ -534,19 +665,23 @@ mod tests {
     let first_x1 = (first_u1 * packer.width as f32).round() as u32;
     let second_x0 = (second_u0 * packer.width as f32).round() as u32;
 
-    assert!(second_x0 > first_x1);
+    assert!(second_x0 >= first_x1);
   }
 
   #[test]
-  fn atlas_packer_extends_glyph_edges_into_padding() {
+  fn atlas_packer_leaves_transparent_glyph_padding() {
     let mut packer = AtlasPacker::new();
     let (x, y, width, height) = packer.pack_pixels(&[10, 20, 30, 40], 2, 2);
+    let p = GLYPH_ATLAS_PADDING as usize;
+    let stride = packer.width as usize;
 
-    assert_eq!((x, y, width, height), (1, 1, 2, 2));
-    assert_eq!(packer.data[0], 10);
-    assert_eq!(packer.data[3], 20);
-    assert_eq!(packer.data[(3 * packer.width) as usize], 30);
-    assert_eq!(packer.data[(3 * packer.width + 3) as usize], 40);
+    assert_eq!((x, y, width, height), (0, 0, 2 + GLYPH_ATLAS_PADDING * 2, 2 + GLYPH_ATLAS_PADDING * 2));
+    assert_eq!(packer.data[0], 0);
+    assert_eq!(packer.data[p * stride + p], 10);
+    assert_eq!(packer.data[p * stride + p + 1], 20);
+    assert_eq!(packer.data[(p + 1) * stride + p], 30);
+    assert_eq!(packer.data[(p + 1) * stride + p + 1], 40);
+    assert_eq!(packer.data[(p + 2) * stride + p + 2], 0);
   }
 
   #[test]
@@ -607,6 +742,23 @@ mod tests {
         glyph.y
       );
     }
+  }
+
+  #[test]
+  fn unsnapped_rasterized_glyph_positions_preserve_float_layout() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 16.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+
+    let glyphs = engine.rasterize_text_unsnapped("This selectable text", &style, 400.0, 0.0, 0.0);
+
+    assert!(!glyphs.is_empty());
+    assert!(
+      glyphs.iter().any(|glyph| glyph.x.fract().abs() > 0.001),
+      "transformed text should keep float layout glyph positions"
+    );
   }
 
   #[test]
@@ -682,11 +834,13 @@ mod tests {
       .map(|glyph| glyph.y + glyph.height)
       .fold(0.0_f32, f32::max);
 
+    let transparent_padding = GLYPH_ATLAS_PADDING as f32;
     assert!(
-      glyph_bottom <= measured.height.ceil(),
-      "painted glyph bottom should fit measured height: bottom={}, measured={}",
+      glyph_bottom <= measured.height.ceil() + transparent_padding,
+      "painted glyph bottom should fit measured height plus transparent atlas padding: bottom={}, measured={}, padding={}",
       glyph_bottom,
-      measured.height
+      measured.height,
+      transparent_padding
     );
   }
 
@@ -710,13 +864,15 @@ mod tests {
         .fold(0.0_f32, f32::max);
 
       let clip_bottom = (measured.height * scale).ceil();
+      let transparent_padding = GLYPH_ATLAS_PADDING as f32;
       assert!(
-        glyph_bottom <= clip_bottom + 1.0,
-        "painted scaled glyph bottom should fit scaled measured height plus rasterization slop: bottom={}, clip={}, measured={}, scale={}",
+        glyph_bottom <= clip_bottom + transparent_padding + 1.0,
+        "painted scaled glyph bottom should fit scaled measured height plus rasterization slop and transparent atlas padding: bottom={}, clip={}, measured={}, scale={}, padding={}",
         glyph_bottom,
         clip_bottom,
         measured.height,
-        scale
+        scale,
+        transparent_padding
       );
     }
   }

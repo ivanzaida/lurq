@@ -82,6 +82,53 @@ impl Transform2D {
     [self.a, self.b, self.c, self.d]
   }
 
+  pub(crate) fn inverse_2x2(&self) -> Option<Self> {
+    let det = self.a * self.d - self.b * self.c;
+    if det.abs() < 1e-6 {
+      return None;
+    }
+    let inv_det = 1.0 / det;
+    Some(Self {
+      a: self.d * inv_det,
+      b: -self.b * inv_det,
+      c: -self.c * inv_det,
+      d: self.a * inv_det,
+      tx: 0.0,
+      ty: 0.0,
+    })
+  }
+
+  pub(crate) fn transform_point(&self, x: f32, y: f32) -> (f32, f32) {
+    (self.a * x + self.c * y + self.tx, self.b * x + self.d * y + self.ty)
+  }
+
+  pub(crate) fn inverse_affine(&self) -> Option<Self> {
+    let mut inverse = self.inverse_2x2()?;
+    inverse.tx = -(inverse.a * self.tx + inverse.c * self.ty);
+    inverse.ty = -(inverse.b * self.tx + inverse.d * self.ty);
+    Some(inverse)
+  }
+
+  pub(crate) fn linear_part(&self) -> Self {
+    Self {
+      tx: 0.0,
+      ty: 0.0,
+      ..*self
+    }
+  }
+
+  pub(crate) fn around_origin(&self, origin: [f32; 2]) -> Self {
+    let (ox, oy) = (origin[0], origin[1]);
+    Self {
+      a: self.a,
+      b: self.b,
+      c: self.c,
+      d: self.d,
+      tx: ox - (self.a * ox + self.c * oy) + self.tx,
+      ty: oy - (self.b * ox + self.d * oy) + self.ty,
+    }
+  }
+
   pub fn is_identity(&self) -> bool {
     *self == Self::IDENTITY
   }

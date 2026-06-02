@@ -20,7 +20,7 @@ Tree
   root component/static root
   retained nodes and component contexts
   layout cache and last layout
-  input, hover, active, focus, drag, scroll state
+  input, hover, active, focus, drag, scroll, text selection state
   render engine instance/factory
   optional DevTools secondary tree
 ```
@@ -45,7 +45,7 @@ Components return `impl Into<Element>`, but the runtime stores a retained intern
 - reuse component instances across renders,
 - keep signal/store/memo/ref/effect state inside each `Ctx`,
 - update only dirty component subtrees,
-- preserve scroll, hover, active, focus, and drag state,
+- preserve scroll, hover, active, focus, drag, and text editing state,
 - cache layout and redraw only when needed,
 - inspect the current tree in DevTools.
 

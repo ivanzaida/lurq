@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 default = []
+clipboard = ["dep:arboard"]
 image = ["dep:image"]
 svg = ["dep:usvg", "dep:lyon"]
 render = ["dep:bytemuck"]
@@ -15,6 +16,7 @@ resources = ["dep:ureq"]
 devtools = []
 
 [dependencies]
+arboard = { version = "3", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 cosmic-text = "0.12"
 parking_lot.workspace = true

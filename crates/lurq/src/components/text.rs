@@ -15,6 +15,11 @@ impl Text {
     self.node = self.node.text_wrap(false);
     self
   }
+
+  pub fn selectable(mut self, selectable: bool) -> Self {
+    self.node = self.node.selectable(selectable);
+    self
+  }
 }
 
 impl Default for Text {

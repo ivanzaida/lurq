@@ -708,6 +708,7 @@ fn named_key_to_string(key: NamedKey) -> &'static str {
     NamedKey::ArrowDown => "ArrowDown",
     NamedKey::Home => "Home",
     NamedKey::End => "End",
+    NamedKey::Insert => "Insert",
     NamedKey::Enter => "Enter",
     NamedKey::Space => " ",
     _ => "",

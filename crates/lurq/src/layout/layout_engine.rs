@@ -17,7 +17,7 @@ use crate::{
     color::Color,
     dimension::Dimension,
     node::Node,
-    node_kind::{CaretPosition, NodeKind, SliderPartRect},
+    node_kind::{NodeKind, SliderPartRect},
     padding::Padding,
     slider_style::SliderPartStyle,
     transform::Transform2D,
@@ -145,13 +145,15 @@ fn push_slider_part_quads(
   #[cfg(not(feature = "image"))]
   let has_image = false;
 
+  let (rect_x, rect_y, rect_transform, rect_transform_origin) = transformed_quad_frame(rect.x, rect.y, transform);
   quads.push(Quad {
-    x: rect.x,
-    y: rect.y,
+    x: rect_x,
+    y: rect_y,
     width: rect.width,
     height: rect.height,
     opacity,
-    transform,
+    transform: rect_transform,
+    transform_origin: rect_transform_origin,
     content: QuadContent::Rect { color },
     border_radius,
     border: if has_image { None } else { border },
@@ -167,13 +169,18 @@ fn push_slider_part_quads(
       bg_image.width() as f32,
       bg_image.height() as f32,
     );
+    let image_x = rect.x + placement.x;
+    let image_y = rect.y + placement.y;
+    let (image_x, image_y, image_transform, image_transform_origin) =
+      transformed_quad_frame(image_x, image_y, transform);
     quads.push(Quad {
-      x: rect.x + placement.x,
-      y: rect.y + placement.y,
+      x: image_x,
+      y: image_y,
       width: placement.width,
       height: placement.height,
       opacity,
-      transform,
+      transform: image_transform,
+      transform_origin: image_transform_origin,
       content: QuadContent::Image {
         data: bg_image.clone(),
         uv_min: placement.uv_min,
@@ -186,13 +193,15 @@ fn push_slider_part_quads(
   }
 
   if has_image && border.is_some() {
+    let (rect_x, rect_y, rect_transform, rect_transform_origin) = transformed_quad_frame(rect.x, rect.y, transform);
     quads.push(Quad {
-      x: rect.x,
-      y: rect.y,
+      x: rect_x,
+      y: rect_y,
       width: rect.width,
       height: rect.height,
       opacity,
-      transform,
+      transform: rect_transform,
+      transform_origin: rect_transform_origin,
       content: QuadContent::Rect {
         color: DEFAULT_TRANSPARENT_COLOR,
       },
@@ -201,6 +210,21 @@ fn push_slider_part_quads(
       clip,
     });
   }
+}
+
+fn quad_transform(transform: Transform2D) -> Transform2D {
+  transform.linear_part()
+}
+
+fn transformed_quad_frame(x: f32, y: f32, transform: Transform2D) -> (f32, f32, Transform2D, Option<[f32; 2]>) {
+  if transform.is_identity() {
+    return (x, y, Transform2D::IDENTITY, None);
+  }
+
+  let (x, y) = transform.transform_point(x, y);
+  let linear = quad_transform(transform);
+  let origin = if linear.is_identity() { None } else { Some([0.0, 0.0]) };
+  (x, y, linear, origin)
 }
 
 impl LayoutEngine {
@@ -308,7 +332,7 @@ impl LayoutEngine {
 
     let has_visual = node.color().is_some() || node.get_border().is_some();
     let content = match node.node_kind() {
-      NodeKind::Text { style } => QuadContent::Text {
+      NodeKind::Text { style, .. } => QuadContent::Text {
         text: node.text_content().unwrap_or_default().to_owned(),
         style: style.clone(),
         wrap: node.text_wrap,
@@ -350,17 +374,53 @@ impl LayoutEngine {
 
     let opacity = node.opacity;
     let local_transform = node.effective_transform();
+    let local_transform_origin_abs = [abs_x + result.size.width * 0.5, abs_y + result.size.height * 0.5];
+    let local_affine = if local_transform.is_identity() {
+      Transform2D::IDENTITY
+    } else {
+      local_transform.around_origin(local_transform_origin_abs)
+    };
     let transform = if inherited_transform.is_identity() {
-      local_transform
+      local_affine
+    } else if local_affine.is_identity() {
+      inherited_transform
     } else if local_transform.is_identity() {
       inherited_transform
     } else {
-      inherited_transform.then(&local_transform)
+      inherited_transform.then(&local_affine)
     };
 
     match &content {
       QuadContent::None => {}
       _ => {
+        if let NodeKind::Text { state, style } = node.node_kind()
+          && state.selectable()
+        {
+          let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
+          let selection_clip = clip;
+          for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
+            let selection_x = abs_x + selection.x;
+            let selection_y = abs_y + selection.y;
+            let (selection_x, selection_y, selection_transform, selection_transform_origin) =
+              transformed_quad_frame(selection_x, selection_y, transform);
+            quads.push(Quad {
+              x: selection_x,
+              y: selection_y,
+              width: selection.width,
+              height: selection_height,
+              opacity,
+              transform: selection_transform,
+              transform_origin: selection_transform_origin,
+              content: QuadContent::Rect {
+                color: DEFAULT_TEXT_SELECTION_COLOR,
+              },
+              border_radius: None,
+              border: None,
+              clip: selection_clip,
+            });
+          }
+        }
+
         if let NodeKind::TextInput { state, .. } = node.node_kind()
           && state.is_focused()
         {
@@ -376,13 +436,18 @@ impl LayoutEngine {
             },
           );
           for selection in state.selection_ranges() {
+            let selection_x = abs_x + selection.x;
+            let selection_y = abs_y + selection.y;
+            let (selection_x, selection_y, selection_transform, selection_transform_origin) =
+              transformed_quad_frame(selection_x, selection_y, transform);
             quads.push(Quad {
-              x: abs_x + selection.x,
-              y: abs_y + selection.y,
+              x: selection_x,
+              y: selection_y,
               width: selection.width,
               height: selection_height,
               opacity,
-              transform,
+              transform: selection_transform,
+              transform_origin: selection_transform_origin,
               content: QuadContent::Rect {
                 color: DEFAULT_TEXT_SELECTION_COLOR,
               },
@@ -424,13 +489,16 @@ impl LayoutEngine {
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
 
+        let (content_x, content_y, content_transform, content_transform_origin) =
+          transformed_quad_frame(content_x, content_y, transform);
         quads.push(Quad {
           x: content_x,
           y: content_y,
           width: content_width,
           height: content_height,
           opacity,
-          transform,
+          transform: content_transform,
+          transform_origin: content_transform_origin,
           content,
           border_radius: node.get_border_radius(),
           border: node.get_border(),
@@ -448,13 +516,18 @@ impl LayoutEngine {
         bg_image.width() as f32,
         bg_image.height() as f32,
       );
+      let image_x = abs_x + placement.x;
+      let image_y = abs_y + placement.y;
+      let (image_x, image_y, image_transform, image_transform_origin) =
+        transformed_quad_frame(image_x, image_y, transform);
       quads.push(Quad {
-        x: abs_x + placement.x,
-        y: abs_y + placement.y,
+        x: image_x,
+        y: image_y,
         width: placement.width,
         height: placement.height,
         opacity,
-        transform,
+        transform: image_transform,
+        transform_origin: image_transform_origin,
         content: QuadContent::Image {
           data: bg_image.clone(),
           uv_min: placement.uv_min,
@@ -469,13 +542,18 @@ impl LayoutEngine {
     match node.node_kind() {
       NodeKind::TextInput { state, .. } if state.is_focused() => {
         let caret_height = state.caret_height().min(result.size.height).max(1.0);
+        let caret_x = abs_x + state.caret_x();
+        let caret_y = abs_y + state.caret_y();
+        let (caret_x, caret_y, caret_transform, caret_transform_origin) =
+          transformed_quad_frame(caret_x, caret_y, transform);
         quads.push(Quad {
-          x: abs_x + state.caret_x(),
-          y: abs_y + state.caret_y(),
+          x: caret_x,
+          y: caret_y,
           width: 1.0,
           height: caret_height,
           opacity,
-          transform,
+          transform: caret_transform,
+          transform_origin: caret_transform_origin,
           content: QuadContent::Rect {
             color: DEFAULT_CARET_COLOR,
           },
@@ -543,7 +621,7 @@ impl LayoutEngine {
           active: true,
         },
       )
-    } else if node.overflow == Overflow::Hidden {
+    } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
       intersect_clip(
         clip,
         ClipRect {
@@ -602,6 +680,7 @@ impl LayoutEngine {
                 height: geo.track_height,
                 opacity: DEFAULT_QUAD_OPACITY,
                 transform: Transform2D::IDENTITY,
+                transform_origin: None,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
                 },
@@ -617,6 +696,7 @@ impl LayoutEngine {
               height: geo.thumb_height,
               opacity: DEFAULT_QUAD_OPACITY,
               transform: Transform2D::IDENTITY,
+              transform_origin: None,
               content: QuadContent::Rect { color: thumb_color },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
               border: None,
@@ -637,6 +717,7 @@ impl LayoutEngine {
                 height: geo.track_height,
                 opacity: DEFAULT_QUAD_OPACITY,
                 transform: Transform2D::IDENTITY,
+                transform_origin: None,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
                 },
@@ -652,6 +733,7 @@ impl LayoutEngine {
               height: geo.thumb_height,
               opacity: DEFAULT_QUAD_OPACITY,
               transform: Transform2D::IDENTITY,
+              transform_origin: None,
               content: QuadContent::Rect { color: thumb_color },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
               border: None,
@@ -860,9 +942,9 @@ impl LayoutEngine {
 
   fn layout_leaf(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
     match node.node_kind() {
-      NodeKind::Text { style } => {
+      NodeKind::Text { state, style } => {
         let content = node.text_content().unwrap_or_default();
-        return self.layout_text(glyph_engine, content, style, constraints, node.text_wrap);
+        return self.layout_text_node(glyph_engine, content, state, style, constraints, node.text_wrap);
       }
       NodeKind::TextInput {
         state,
@@ -981,6 +1063,24 @@ impl LayoutEngine {
     LayoutResult { size, children: vec![] }
   }
 
+  fn layout_text_node(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    text: &str,
+    state: &crate::node::node_kind::TextState,
+    style: &TextStyle,
+    constraints: Constraints,
+    wrap: bool,
+  ) -> LayoutResult {
+    let max_width = if wrap && constraints.max_width.is_finite() {
+      constraints.max_width
+    } else {
+      f32::MAX
+    };
+    state.set_caret_positions(glyph_engine.caret_positions(text, style, max_width));
+    self.layout_text(glyph_engine, text, style, constraints, wrap)
+  }
+
   fn layout_text_input(
     &self,
     glyph_engine: &mut GlyphEngine,
@@ -993,7 +1093,7 @@ impl LayoutEngine {
     let display_style = text_input_display_style(state, style, placeholder_style);
     let value = state.value();
     let overflow = state.overflow();
-    let caret_positions = Self::text_caret_positions(glyph_engine, &value, style);
+    let caret_positions = glyph_engine.caret_positions(&value, style, f32::MAX);
     state.set_caret_positions(caret_positions);
 
     let line_height = (style.font_size * style.line_height).max(1.0);
@@ -1051,49 +1151,6 @@ impl LayoutEngine {
       }
     }
     LayoutResult { size, children: vec![] }
-  }
-
-  fn text_caret_positions(glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> Vec<CaretPosition> {
-    let mut positions = Vec::with_capacity(text.chars().count() + 1);
-    positions.push(CaretPosition {
-      index: 0,
-      x: 0.0,
-      y: 0.0,
-    });
-    let line_height = (style.font_size * style.line_height).max(1.0);
-    let mut line_start = 0;
-    let mut line_index = 0usize;
-    for (index, ch) in text.char_indices() {
-      if index > line_start {
-        let width = glyph_engine
-          .measure_text(&text[line_start..index], style, f32::MAX)
-          .width;
-        positions.push(CaretPosition {
-          index,
-          x: width,
-          y: line_index as f32 * line_height,
-        });
-      }
-      if ch == '\n' {
-        let next = index + ch.len_utf8();
-        line_index += 1;
-        positions.push(CaretPosition {
-          index: next,
-          x: 0.0,
-          y: line_index as f32 * line_height,
-        });
-        line_start = next;
-      }
-    }
-    let end_width = glyph_engine.measure_text(&text[line_start..], style, f32::MAX).width;
-    positions.push(CaretPosition {
-      index: text.len(),
-      x: end_width,
-      y: line_index as f32 * line_height,
-    });
-    positions.sort_by_key(|position| position.index);
-    positions.dedup_by_key(|position| position.index);
-    positions
   }
 
   fn layout_flex(
@@ -2099,6 +2156,10 @@ fn clipped_subtree_is_hidden(
   }
 
   !rect_intersects_clip(abs_x, abs_y, result.size.width, result.size.height, clip)
+}
+
+fn hidden_overflow_creates_clip(has_visual: bool, transform: Transform2D) -> bool {
+  transform.is_identity() || has_visual
 }
 
 fn border_can_paint_outside(node: &Node) -> bool {

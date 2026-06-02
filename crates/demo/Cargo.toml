@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools"] }
+lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools", "clipboard"] }

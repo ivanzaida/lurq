@@ -66,8 +66,13 @@ struct VsOut {
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
-    // Local position within the quad (before transform).
-    let local_px = in.corner * in.size;
+    // Local position within the quad (before transform). The mesh is
+    // expanded slightly so transformed edges have fragments on both
+    // sides of the SDF boundary; otherwise the rasterizer clips away
+    // the outer half of the AA band.
+    let aa_outset = 2.0;
+    let local_px = in.corner * (in.size + vec2<f32>(aa_outset * 2.0, aa_outset * 2.0))
+                 - vec2<f32>(aa_outset, aa_outset);
     // Apply 2x2 transform around xf_origin.
     let centered = local_px - in.xf_origin;
     let rotated = vec2<f32>(
@@ -87,7 +92,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.color     = in.color;
     out.half_size = in.size * 0.5;
     // SDF local coords stay in un-rotated quad space.
-    out.local     = (in.corner - vec2<f32>(0.5, 0.5)) * in.size;
+    out.local     = local_px - in.size * 0.5;
     out.radii_h   = in.radii_h;
     out.radii_v   = in.radii_v;
     out.stroke       = in.stroke;
@@ -210,6 +215,7 @@ fn nonzero_side_count(s: vec4<f32>) -> i32 {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    var clip_alpha = 1.0;
     // Rounded-clip discard. The active clip's rect + radii are
     // supplied by the per-range `Globals` uniform; we recover the
     // fragment's screen-space pixel position from the @builtin
@@ -224,10 +230,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let local_clip = frag_pos - centre;
         let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
         let d = sd_rounded_box(local_clip, half, r);
-        // Half-pixel AA band on the clip edge. Anything past the
-        // outer rounded edge is hard-discarded; everything else
-        // proceeds to the box's own shading.
-        if (d > 0.5) {
+        let aa = max(fwidth(d), 0.001);
+        clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
+        if (clip_alpha <= 0.0) {
             discard;
         }
     }
@@ -250,8 +255,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
     let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
 
-    let fw = length(vec2<f32>(fwidth(in.local.x), fwidth(in.local.y)));
-    let aa = max(fw * 0.7, 0.001);
     let max_stroke = max(max(in.stroke.x, in.stroke.y), max(in.stroke.z, in.stroke.w));
 
     if (max_stroke <= 0.0) {
@@ -259,7 +262,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let sigma = in.shadow_sigma;
         if (sigma > 0.0) {
             let t = clamp(-outer_dist / sigma, 0.0, 1.0);
-            let alpha = t * t * (3.0 - 2.0 * t) * base_color.a;
+            let alpha = t * t * (3.0 - 2.0 * t) * base_color.a * clip_alpha;
             if (alpha <= 0.001) { discard; }
             return vec4<f32>(base_color.rgb, alpha);
         }
@@ -274,16 +277,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             let inner_r_raw = pick_radius(inner_local, in.radii_h, in.radii_v);
             let inner_r = max(inner_r_raw - vec2<f32>(spread, spread), vec2<f32>(0.0, 0.0));
             let inner_dist = sd_rounded_box(inner_local, inner_half, inner_r);
+            let aa = max(fwidth(outer_dist), 0.001);
             let t = clamp(inner_dist / sigma_abs, 0.0, 1.0);
             let outer_mask = clamp(0.5 - outer_dist / aa, 0.0, 1.0);
-            let alpha = t * t * (3.0 - 2.0 * t) * outer_mask * base_color.a;
+            let alpha = t * t * (3.0 - 2.0 * t) * outer_mask * base_color.a * clip_alpha;
             if (alpha <= 0.001) { discard; }
             return vec4<f32>(base_color.rgb, alpha);
         }
         // Filled mode.
+        let aa = max(fwidth(outer_dist), 0.001);
         let alpha = clamp(0.5 - outer_dist / aa, 0.0, 1.0);
         if (alpha <= 0.0) { discard; }
-        return vec4<f32>(base_color.rgb, base_color.a * alpha);
+        return vec4<f32>(base_color.rgb, base_color.a * alpha * clip_alpha);
     }
 
     let nz = nonzero_side_count(in.stroke);
@@ -302,6 +307,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
     let inner_dist = sd_rounded_box(in.local - inner_centre, inner_half, inner_r);
     let dist = max(outer_dist, -inner_dist);
+    let aa = max(fwidth(dist), 0.001);
 
     var side_idx: i32 = -1;
     if (nz == 1) {
@@ -342,5 +348,5 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (alpha <= 0.0) {
         discard;
     }
-    return vec4<f32>(base_color.rgb, base_color.a * alpha);
+    return vec4<f32>(base_color.rgb, base_color.a * alpha * clip_alpha);
 }

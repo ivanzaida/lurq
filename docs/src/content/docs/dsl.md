@@ -10,8 +10,8 @@ description: Public typed builders for layout, visuals, events, drag and drop, a
 ```rust
 use lurq::{
   components::{
-    Column, DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row, Spacer,
-    Stack, Text,
+    Checkbox, Column, DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row,
+    Slider, Spacer, Stack, Text, TextInput,
   },
   layout::{Alignment, StackAlignment},
   node::{Element, color::Color},
@@ -29,6 +29,9 @@ Typed components are the public UI builders. `Element` is the erased return/tran
 | `Stack::new()` | Overlay container; later children paint on top |
 | `Text::new("content")` | Text with default style |
 | `Text::styled("content", style)` | Text with custom `TextStyle` |
+| `TextInput::new(signal)` | Controlled editable text input |
+| `Checkbox::new(signal)` | Controlled boolean checkbox |
+| `Slider::new(signal)` | Controlled integer slider |
 | `Rect::new(width, height)` | Fixed-size rectangle leaf |
 | `Spacer::new()` | Empty leaf, often used with `.flex(1.0)` |
 | `ScrollVertical::new(child)` | Vertical scroll container |
@@ -237,6 +240,15 @@ lurq::components::Text::styled("Bold title", TextStyle {
   ..TextStyle::default()
 })
 ```
+
+Make plain text selectable when users need copyable or inspectable text:
+
+```rust
+lurq::components::Text::new("Selectable text")
+  .selectable(true)
+```
+
+Selectable text supports drag selection, double-click word selection, and triple-click line selection. `TextInput` has the same pointer selection gestures plus caret movement, undo/redo, and signal-backed edits.
 
 ## Components
 

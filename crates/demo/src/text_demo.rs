@@ -3,7 +3,7 @@ use lurq::{
     Alignment,
     text_style::{FontStyle, FontWeight, TextStyle},
   },
-  node::{Element, color::Color, dimension::Dimension},
+  node::{Element, color::Color, dimension::Dimension, transform::Transform2D},
 };
 
 use crate::style::{BG, BORDER, SURFACE, TEXT, TEXT_MUTED, text};
@@ -26,6 +26,8 @@ pub(crate) fn text_content() -> Element {
     .child(line_heights())
     .child(section_title("Wrapping"))
     .child(wrapping())
+    .child(section_title("Selection"))
+    .child(selection_examples())
     .child(section_title("Text Colors"))
     .child(text_colors())
     .padding(CONTENT_PAD)
@@ -198,6 +200,66 @@ fn wrapping() -> Element {
     .rounded(CARD_RADIUS)
     .overflow_visible()
     .into()
+}
+
+fn selection_examples() -> Element {
+  let single_line =
+    "Selectable text supports drag selection, double-click word selection, and triple-click line selection.";
+  let multiline = "Selectable multiline text wraps and keeps each selected row highlighted.\nDrag across lines to inspect the range rectangles.";
+  let transformed = "This selectable text lives inside a transformed parent.\nIts selection highlight inherits the same parent transform.";
+
+  lurq::components::Column::new()
+    .spacing(18.0)
+    .child(selection_row(
+      "Single line",
+      text(single_line, 16.0, FontWeight::Normal, TEXT)
+        .selectable(true)
+        .nowrap()
+        .width(620.0)
+        .overflow_visible()
+        .into(),
+    ))
+    .child(selection_row(
+      "Multiline",
+      text(multiline, 16.0, FontWeight::Normal, TEXT)
+        .selectable(true)
+        .width(420.0)
+        .into(),
+    ))
+    .child(selection_row(
+      "Transformed parent",
+      lurq::components::Column::new()
+        .child(
+          text(transformed, 16.0, FontWeight::Normal, TEXT)
+            .selectable(true)
+            .width(430.0),
+        )
+        .padding(14.0)
+        .width(480.0)
+        .fill("#172033")
+        .border_inside(1.0, Color::from_hex("#475569"))
+        .rounded(8.0)
+        .transform(Transform2D::rotate_deg(-2.0).then(&Transform2D::scale(1.02, 1.02)))
+        .overflow_visible()
+        .into(),
+    ))
+    .padding(24.0)
+    .width(FILL_WIDTH)
+    .fill(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .overflow_visible()
+    .into()
+}
+
+fn selection_row(label: &str, content: Element) -> lurq::components::Row {
+  lurq::components::Row::new()
+    .spacing(16.0)
+    .align_items(Alignment::Start)
+    .child(text(label, 12.0, FontWeight::Normal, TEXT_MUTED).width(120.0))
+    .child(content)
+    .width(FILL_WIDTH)
+    .overflow_visible()
 }
 
 fn text_colors() -> Element {
