@@ -37,6 +37,7 @@ pub struct GlyphCmd {
   pub uv_max: [f32; 2],
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
+  pub sharpness: f32,
   pub clip: ClipRect,
 }
 

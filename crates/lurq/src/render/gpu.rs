@@ -43,6 +43,7 @@ pub struct GlyphInstance {
   pub uv_max: [f32; 2],
   pub transform: [f32; 4],
   pub xf_origin: [f32; 2],
+  pub sharpness: f32,
 }
 
 #[cfg(feature = "image")]

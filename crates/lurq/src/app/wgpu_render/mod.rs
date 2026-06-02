@@ -707,6 +707,7 @@ impl RenderEngine for WgpuRenderEngine {
         uv_max: g.uv_max,
         transform: g.transform,
         xf_origin: g.transform_origin,
+        sharpness: g.sharpness,
       })
       .collect();
     let glyph_instance_buf = (!glyph_instances.is_empty()).then(|| {

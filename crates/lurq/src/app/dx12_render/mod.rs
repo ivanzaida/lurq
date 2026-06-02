@@ -1081,7 +1081,7 @@ fn rect_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 12] {
   ]
 }
 
-fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 8] {
+fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
   [
     input_element(
       0,
@@ -1144,6 +1144,14 @@ fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 8] {
       DXGI_FORMAT_R32G32_FLOAT,
       1,
       64,
+      D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+      1,
+    ),
+    input_element(
+      8,
+      DXGI_FORMAT_R32_FLOAT,
+      1,
+      72,
       D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
       1,
     ),
@@ -1278,6 +1286,7 @@ fn glyph_instance(glyph: &GlyphCmd) -> GlyphInstance {
     uv_max: glyph.uv_max,
     transform: glyph.transform,
     xf_origin: glyph.transform_origin,
+    sharpness: glyph.sharpness,
   }
 }
 

@@ -15,6 +15,7 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
+    TextTransformMode,
     border::{Border, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
@@ -224,6 +225,7 @@ impl Node {
       NodeKind::Text {
         state: TextState::new(),
         style: TextStyle::default(),
+        transform_mode: TextTransformMode::default(),
       },
       vec![],
     );
@@ -236,6 +238,7 @@ impl Node {
       NodeKind::Text {
         state: TextState::new(),
         style,
+        transform_mode: TextTransformMode::default(),
       },
       vec![],
     );
@@ -713,6 +716,13 @@ impl Node {
   pub fn selectable(self, selectable: bool) -> Self {
     if let NodeKind::Text { state, .. } = &self.node_kind {
       state.set_selectable(selectable);
+    }
+    self
+  }
+
+  pub fn text_transform_mode(mut self, mode: TextTransformMode) -> Self {
+    if let NodeKind::Text { transform_mode, .. } = &mut self.node_kind {
+      *transform_mode = mode;
     }
     self
   }
@@ -1348,12 +1358,17 @@ impl Node {
     match (&self.node_kind, &old.node_kind) {
       (NodeKind::Empty, NodeKind::Empty) => true,
       (
-        NodeKind::Text { state, style },
+        NodeKind::Text {
+          state,
+          style,
+          transform_mode,
+        },
         NodeKind::Text {
           state: old_state,
           style: old_style,
+          transform_mode: old_transform_mode,
         },
-      ) => style == old_style && state.selectable() == old_state.selectable(),
+      ) => style == old_style && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
       (
         NodeKind::TextInput {
           style,

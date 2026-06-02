@@ -13,6 +13,7 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
+    TextTransformMode,
     border::{BorderRadius, Borders},
     color::Color,
     dimension::Dimension,
@@ -332,10 +333,13 @@ impl LayoutEngine {
 
     let has_visual = node.color().is_some() || node.get_border().is_some();
     let content = match node.node_kind() {
-      NodeKind::Text { style, .. } => QuadContent::Text {
+      NodeKind::Text {
+        style, transform_mode, ..
+      } => QuadContent::Text {
         text: node.text_content().unwrap_or_default().to_owned(),
         style: style.clone(),
         wrap: node.text_wrap,
+        transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
         state,
@@ -345,6 +349,7 @@ impl LayoutEngine {
         text: state.rendered_text_for_layout(),
         style: text_input_display_style(state, style, placeholder_style.as_ref()).clone(),
         wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
+        transform_mode: TextTransformMode::Bitmap,
       },
       NodeKind::Checkbox { state } => QuadContent::Rect {
         color: if state.is_checked() {
@@ -393,7 +398,7 @@ impl LayoutEngine {
     match &content {
       QuadContent::None => {}
       _ => {
-        if let NodeKind::Text { state, style } = node.node_kind()
+        if let NodeKind::Text { state, style, .. } = node.node_kind()
           && state.selectable()
         {
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
@@ -942,7 +947,7 @@ impl LayoutEngine {
 
   fn layout_leaf(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
     match node.node_kind() {
-      NodeKind::Text { state, style } => {
+      NodeKind::Text { state, style, .. } => {
         let content = node.text_content().unwrap_or_default();
         return self.layout_text_node(glyph_engine, content, state, style, constraints, node.text_wrap);
       }

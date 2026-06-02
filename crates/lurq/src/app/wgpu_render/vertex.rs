@@ -125,6 +125,11 @@ impl GlyphInstance {
           shader_location: 7,
           format: wgpu::VertexFormat::Float32x2,
         },
+        wgpu::VertexAttribute {
+          offset: 72,
+          shader_location: 8,
+          format: wgpu::VertexFormat::Float32,
+        },
       ],
     }
   }

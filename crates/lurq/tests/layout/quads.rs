@@ -1,7 +1,10 @@
 use lurq::{
   app::Tree,
-  layout::{Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints, quad::QuadContent},
-  node::{Element, color::Color, dimension::Dimension, padding::Padding, transform::Transform2D},
+  layout::{
+    Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints, quad::QuadContent,
+    text_style::TextStyle,
+  },
+  node::{Element, TextTransformMode, color::Color, dimension::Dimension, padding::Padding, transform::Transform2D},
 };
 
 use super::PassLayoutExt;
@@ -460,4 +463,81 @@ fn transformed_padded_text_sends_glyphs_with_parent_transform() {
   assert_close(first_glyph.clip.y, -1.0);
   assert_close(first_glyph.clip.width, 802.0);
   assert_close(first_glyph.clip.height, 602.0);
+}
+
+#[test]
+fn rasterized_transform_mode_bakes_transform_into_glyph_mask() {
+  let mut rt = rt();
+  let transform = Transform2D::rotate_deg(-2.0).then(&Transform2D::scale(1.02, 1.02));
+
+  rt.set_root(
+    lurq::components::Text::new("Stable transformed text")
+      .text_transform_mode(TextTransformMode::Rasterized)
+      .width(260.0)
+      .transform(transform)
+      .overflow_visible(),
+  );
+
+  let snapshot = render_pass(&mut rt);
+  let first_glyph = snapshot.glyphs.first().expect("glyph");
+
+  assert_eq!(first_glyph.transform, [1.0, 0.0, 0.0, 1.0]);
+  assert_eq!(first_glyph.transform_origin, [0.0, 0.0]);
+  assert!(first_glyph.width > 0.0);
+  assert!(first_glyph.height > 0.0);
+}
+
+#[test]
+fn rasterized_transform_mode_rotates_glyph_mask_bounds() {
+  let style = TextStyle {
+    font_size: 32.0,
+    ..TextStyle::default()
+  };
+
+  let mut plain = rt();
+  plain.set_root(lurq::components::Text::styled("I", style.clone()).overflow_visible());
+  let plain_snapshot = render_pass(&mut plain);
+  let plain_glyph = plain_snapshot.glyphs.first().expect("plain glyph");
+
+  let mut rotated = rt();
+  rotated.set_root(
+    lurq::components::Text::styled("I", style)
+      .text_transform_mode(TextTransformMode::Rasterized)
+      .transform(Transform2D::rotate_deg(45.0))
+      .overflow_visible(),
+  );
+  let rotated_snapshot = render_pass(&mut rotated);
+  let rotated_glyph = rotated_snapshot.glyphs.first().expect("rotated glyph");
+
+  assert!(
+    rotated_glyph.width > plain_glyph.width + 2.0,
+    "baked rotated glyph mask should have a wider bounding box than the upright glyph"
+  );
+}
+
+#[test]
+fn rasterized_transform_mode_preserves_float_transformed_glyph_position() {
+  let mut rt = rt();
+
+  rt.set_root(
+    lurq::components::Text::styled(
+      "I",
+      TextStyle {
+        font_size: 32.0,
+        ..TextStyle::default()
+      },
+    )
+    .text_transform_mode(TextTransformMode::Rasterized)
+    .transform(Transform2D::rotate_deg(-8.0))
+    .offset(13.25, 17.5)
+    .overflow_visible(),
+  );
+
+  let snapshot = render_pass(&mut rt);
+  let glyph = snapshot.glyphs.first().expect("glyph");
+
+  assert!(
+    glyph.x.fract().abs() > 0.001 || glyph.y.fract().abs() > 0.001,
+    "baked transformed glyph placement should stay in float screen space"
+  );
 }

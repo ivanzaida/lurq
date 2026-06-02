@@ -14,7 +14,7 @@ use lurq::{
     Slider, Spacer, Stack, Text, TextInput,
   },
   layout::{Alignment, StackAlignment},
-  node::{Element, color::Color},
+  node::{Element, TextTransformMode, color::Color},
 };
 ```
 
@@ -249,6 +249,8 @@ lurq::components::Text::new("Selectable text")
 ```
 
 Selectable text supports drag selection, double-click word selection, and triple-click line selection. `TextInput` has the same pointer selection gestures plus caret movement, undo/redo, and signal-backed edits.
+
+Transformed text uses a moderately oversampled bitmap transform path by default. This keeps glyph positions in float layout space, which is the right default for animated transforms. `TextTransformMode::Rasterized` bakes the transform into glyph rasterization so static rotated text has sharper glyph edges; animated transform angles should usually stay on the bitmap path to avoid creating atlas entries for every angle.
 
 ## Components
 

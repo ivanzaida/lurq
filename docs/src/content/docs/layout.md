@@ -256,3 +256,5 @@ lurq::components::Text::styled("hello", TextStyle {
 The glyph engine also records caret positions for text selection. `Text::selectable(true)` uses those positions for drag ranges, double-click word selection, and triple-click line selection. Wrapped or multiline selections render separate highlight rectangles for each selected row.
 
 Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text selection and text input carets therefore follow transformed text, including text inside a transformed parent.
+
+Transformed `Text` uses a moderately oversampled bitmap transform path and keeps glyph positions in float layout space so animated transforms do not introduce per-frame snapping. `TextTransformMode::Rasterized` bakes the transform into glyph rasterization so static rotated text has sharper glyph edges; animated transform angles should usually stay on the bitmap path to avoid creating atlas entries for every angle.

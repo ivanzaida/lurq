@@ -1,6 +1,7 @@
 use crate::{
   layout::text_style::TextStyle,
   node::{
+    TextTransformMode,
     border::{BorderRadius, Borders},
     color::Color,
     transform::Transform2D,
@@ -38,6 +39,7 @@ pub enum QuadContent {
     text: String,
     style: TextStyle,
     wrap: bool,
+    transform_mode: TextTransformMode,
   },
   #[cfg(feature = "image")]
   Image {

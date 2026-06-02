@@ -14,6 +14,13 @@ pub mod style;
 pub(crate) mod text_selection;
 pub mod transform;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextTransformMode {
+  #[default]
+  Bitmap,
+  Rasterized,
+}
+
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
 pub use node::BackgroundSize;

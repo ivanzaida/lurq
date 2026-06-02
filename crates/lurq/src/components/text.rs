@@ -1,4 +1,4 @@
-use crate::{impl_into_node, layout::text_style::TextStyle};
+use crate::{impl_into_node, layout::text_style::TextStyle, node::TextTransformMode};
 
 impl_into_node!(Text);
 
@@ -18,6 +18,11 @@ impl Text {
 
   pub fn selectable(mut self, selectable: bool) -> Self {
     self.node = self.node.selectable(selectable);
+    self
+  }
+
+  pub fn text_transform_mode(mut self, mode: TextTransformMode) -> Self {
+    self.node = self.node.text_transform_mode(mode);
     self
   }
 }

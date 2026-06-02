@@ -4,7 +4,7 @@ use crate::{
   core::Signal,
   layout::text_style::TextStyle,
   node::{
-    SliderPartStyle,
+    SliderPartStyle, TextTransformMode,
     text_selection::{
       CaretPosition, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
@@ -29,6 +29,7 @@ pub(crate) enum NodeKind {
   Text {
     state: TextState,
     style: TextStyle,
+    transform_mode: TextTransformMode,
   },
   TextInput {
     state: TextInputState,

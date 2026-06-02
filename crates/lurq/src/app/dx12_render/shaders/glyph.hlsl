@@ -20,6 +20,7 @@ struct VsIn
   float2 uv_max : TEXCOORD5;
   float4 transform : TEXCOORD6;
   float2 xf_origin : TEXCOORD7;
+  float sharpness : TEXCOORD8;
 };
 
 struct VsOut
@@ -27,6 +28,7 @@ struct VsOut
   float4 position : SV_POSITION;
   float4 color : COLOR0;
   float2 uv : TEXCOORD0;
+  float sharpness : TEXCOORD1;
 };
 
 VsOut vs_main(VsIn input)
@@ -44,11 +46,13 @@ VsOut vs_main(VsIn input)
   output.position = float4(ndc, 0.0, 1.0);
   output.color = input.color;
   output.uv = lerp(input.uv_min, input.uv_max, input.corner);
+  output.sharpness = input.sharpness;
   return output;
 }
 
 float4 ps_main(VsOut input) : SV_TARGET
 {
   float coverage = atlas_texture.Sample(atlas_sampler, input.uv);
+  coverage = saturate((coverage - 0.5) * max(input.sharpness, 1.0) + 0.5);
   return float4(input.color.rgb, input.color.a * coverage);
 }

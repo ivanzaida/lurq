@@ -36,7 +36,7 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{
-    Element, ElementRef, Node,
+    Element, ElementRef, Node, TextTransformMode,
     border::{Border, BorderPlacement, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
@@ -802,6 +802,7 @@ impl Tree {
     if self.render_engine.is_none() {
       return;
     }
+    let clear_color = root.color().unwrap_or_else(|| app.theme.colors().background);
 
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
@@ -907,7 +908,12 @@ impl Tree {
             );
           }
         }
-        QuadContent::Text { text, style, wrap } => {
+        QuadContent::Text {
+          text,
+          style,
+          wrap,
+          transform_mode,
+        } => {
           let mut scaled_style = style.clone();
           scaled_style.font_size *= scale;
           let max_width = if *wrap && quad.width > 0.0 {
@@ -916,10 +922,27 @@ impl Tree {
             f32::MAX
           };
           let glyph_xf = quad.transform.matrix_2x2();
+          let glyph_origin = quad
+            .transform_origin
+            .map(|[x, y]| [(quad.x + x) * scale, (quad.y + y) * scale])
+            .unwrap_or([
+              quad.x * scale + quad.width * scale * 0.5,
+              quad.y * scale + quad.height * scale * 0.5,
+            ]);
           let mut glyph_cmds = if quad.transform.is_identity() {
             app
               .glyph_engine
               .rasterize_text(text, &scaled_style, max_width, quad.x * scale, quad.y * scale)
+          } else if *transform_mode == TextTransformMode::Rasterized {
+            app.glyph_engine.rasterize_text_with_baked_transform(
+              text,
+              &scaled_style,
+              max_width,
+              quad.x * scale,
+              quad.y * scale,
+              quad.transform,
+              glyph_origin,
+            )
           } else {
             let raster_scale = transformed_text_raster_scale(quad.transform);
             scaled_style.font_size *= raster_scale;
@@ -928,13 +951,12 @@ impl Tree {
             } else {
               f32::MAX
             };
-            let mut glyphs = app.glyph_engine.rasterize_text_unsnapped(
-              text,
-              &scaled_style,
-              raster_max_width,
-              quad.x * scale * raster_scale,
-              quad.y * scale * raster_scale,
-            );
+            let raster_x = quad.x * scale * raster_scale;
+            let raster_y = quad.y * scale * raster_scale;
+            let mut glyphs =
+              app
+                .glyph_engine
+                .rasterize_text_unsnapped(text, &scaled_style, raster_max_width, raster_x, raster_y);
             for glyph in &mut glyphs {
               glyph.x /= raster_scale;
               glyph.y /= raster_scale;
@@ -943,19 +965,14 @@ impl Tree {
             }
             glyphs
           };
-          let glyph_origin = quad
-            .transform_origin
-            .map(|[x, y]| [(quad.x + x) * scale, (quad.y + y) * scale])
-            .unwrap_or([
-              quad.x * scale + quad.width * scale * 0.5,
-              quad.y * scale + quad.height * scale * 0.5,
-            ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           for g in &mut glyph_cmds {
             g.order = order;
             g.clip = glyph_clip;
-            g.transform = glyph_xf;
-            g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
+            if !quad.transform.is_identity() && *transform_mode == TextTransformMode::Bitmap {
+              g.transform = glyph_xf;
+              g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
+            }
           }
           glyphs.extend(glyph_cmds);
         }
@@ -1038,7 +1055,6 @@ impl Tree {
     let rect_count = rects.len();
     let glyph_count = glyphs.len();
 
-    let clear_color = root.color().unwrap_or_else(|| app.theme.colors().background);
     let list = RenderList {
       clear_color,
       rects,
@@ -3102,7 +3118,7 @@ fn transformed_text_raster_scale(transform: Transform2D) -> f32 {
   let det = aa * bb - ab * ab;
   let discriminant = (trace * trace - 4.0 * det).max(0.0);
   let max_scale = ((trace + discriminant.sqrt()) * 0.5).max(1.0).sqrt();
-  max_scale.max(4.0).min(8.0).ceil()
+  max_scale.max(2.0).min(4.0).ceil()
 }
 
 #[cfg(feature = "devtools")]
@@ -3580,9 +3596,9 @@ mod tests {
   }
 
   #[test]
-  fn transformed_text_uses_high_quality_minimum_raster_scale() {
+  fn transformed_text_bitmap_mode_uses_moderate_minimum_raster_scale() {
     let transform = Transform2D::rotate_deg(-2.0).then(&Transform2D::scale(1.02, 1.02));
 
-    assert_eq!(transformed_text_raster_scale(transform), 4.0);
+    assert_eq!(transformed_text_raster_scale(transform), 2.0);
   }
 }

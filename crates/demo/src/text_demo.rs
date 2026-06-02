@@ -3,7 +3,7 @@ use lurq::{
     Alignment,
     text_style::{FontStyle, FontWeight, TextStyle},
   },
-  node::{Element, color::Color, dimension::Dimension, transform::Transform2D},
+  node::{Element, TextTransformMode, color::Color, dimension::Dimension, transform::Transform2D},
 };
 
 use crate::style::{BG, BORDER, SURFACE, TEXT, TEXT_MUTED, text};
@@ -232,6 +232,7 @@ fn selection_examples() -> Element {
         .child(
           text(transformed, 16.0, FontWeight::Normal, TEXT)
             .selectable(true)
+            .text_transform_mode(TextTransformMode::Rasterized)
             .width(430.0),
         )
         .padding(14.0)

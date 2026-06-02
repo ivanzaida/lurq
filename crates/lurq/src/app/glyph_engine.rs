@@ -7,6 +7,10 @@ use std::{
 use cosmic_text::{
   Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage,
 };
+use swash::{
+  scale::{Render, ScaleContext, Source, StrikeWith},
+  zeno::{Angle, Format, Transform as SwashTransform, Vector},
+};
 
 use crate::{
   layout::{
@@ -14,7 +18,7 @@ use crate::{
     render_list::{GlyphAtlas, GlyphCmd},
     text_style::{FontStyle, FontWeight, TextStyle},
   },
-  node::text_selection::CaretPosition,
+  node::{text_selection::CaretPosition, transform::Transform2D},
 };
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
@@ -89,11 +93,13 @@ fn style_to_u8(s: FontStyle) -> u8 {
 pub(crate) struct GlyphEngine {
   font_system: FontSystem,
   swash_cache: SwashCache,
+  transformed_scale_context: ScaleContext,
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<CacheKey, Size>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
   atlas_packer: AtlasPacker,
   atlas_entries: HashMap<GlyphCacheKey, PackedGlyph>,
+  transformed_atlas_entries: HashMap<TransformedGlyphKey, PackedGlyph>,
   buffer_pool: Vec<Buffer>,
   pub(crate) measure_hits: usize,
   pub(crate) measure_misses: usize,
@@ -109,11 +115,13 @@ impl GlyphEngine {
     Self {
       font_system,
       swash_cache: SwashCache::new(),
+      transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
       glyph_layout_cache: HashMap::new(),
       atlas_packer: AtlasPacker::new(),
       atlas_entries: HashMap::new(),
+      transformed_atlas_entries: HashMap::new(),
       buffer_pool: Vec::new(),
       measure_hits: 0,
       measure_misses: 0,
@@ -158,6 +166,7 @@ impl GlyphEngine {
   fn clear_atlas(&mut self) {
     self.atlas_packer = AtlasPacker::new();
     self.atlas_entries.clear();
+    self.transformed_atlas_entries.clear();
   }
 
   pub(crate) fn reset_stats(&mut self) {
@@ -270,6 +279,85 @@ impl GlyphEngine {
     self.rasterize_text_with_snap(text, style, max_width, origin_x, origin_y, false)
   }
 
+  #[allow(clippy::too_many_arguments)]
+  pub(crate) fn rasterize_text_with_baked_transform(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    origin_x: f32,
+    origin_y: f32,
+    transform: Transform2D,
+    transform_origin: [f32; 2],
+  ) -> Vec<GlyphCmd> {
+    let mut buffer = self.acquire_buffer(style, max_width);
+    let resolved = self.resolve_family(style);
+    let family = if resolved.is_empty() {
+      Family::SansSerif
+    } else {
+      Family::Name(&resolved)
+    };
+    let attrs = Attrs::new()
+      .family(family)
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    let color = style.color.to_linear_f32_array();
+    let swash_transform = swash_transform_from_screen(transform);
+    let mut glyph_cmds = Vec::new();
+
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs.iter() {
+        let x_offset = glyph.font_size * glyph.x_offset;
+        let y_offset = glyph.font_size * glyph.y_offset;
+        let glyph_origin_x = origin_x + glyph.x + x_offset;
+        let glyph_origin_y = origin_y + run.line_y + glyph.y - y_offset;
+        let transformed_origin_x = transform_origin[0]
+          + transform.a * (glyph_origin_x - transform_origin[0])
+          + transform.c * (glyph_origin_y - transform_origin[1]);
+        let transformed_origin_y = transform_origin[1]
+          + transform.b * (glyph_origin_x - transform_origin[0])
+          + transform.d * (glyph_origin_y - transform_origin[1]);
+
+        let (cache_key, ..) = GlyphCacheKey::new(
+          glyph.font_id,
+          glyph.glyph_id,
+          glyph.font_size,
+          (0.0, 0.0),
+          glyph.cache_key_flags,
+        );
+        let Some(packed) = self.get_or_pack_transformed_glyph(cache_key, swash_transform) else {
+          continue;
+        };
+
+        glyph_cmds.push(GlyphCmd {
+          order: 0,
+          x: transformed_origin_x + packed.left as f32,
+          y: transformed_origin_y - packed.top as f32,
+          width: packed.width as f32,
+          height: packed.height as f32,
+          color,
+          uv_min: [packed.x as f32 / atlas_w, packed.y as f32 / atlas_h],
+          uv_max: [
+            (packed.x + packed.width) as f32 / atlas_w,
+            (packed.y + packed.height) as f32 / atlas_h,
+          ],
+          transform: [1.0, 0.0, 0.0, 1.0],
+          transform_origin: [0.0, 0.0],
+          sharpness: 1.0,
+          clip: crate::layout::quad::ClipRect::default(),
+        });
+      }
+    }
+
+    self.buffer_pool.push(buffer);
+    glyph_cmds
+  }
+
   fn rasterize_text_with_snap(
     &mut self,
     text: &str,
@@ -321,7 +409,7 @@ impl GlyphEngine {
         } else {
           let x_offset = glyph.font_size * glyph.x_offset;
           let y_offset = glyph.font_size * glyph.y_offset;
-          let (cache_key, _, _) = GlyphCacheKey::new(
+          let (cache_key, ..) = GlyphCacheKey::new(
             glyph.font_id,
             glyph.glyph_id,
             glyph.font_size,
@@ -387,6 +475,60 @@ impl GlyphEngine {
       top: image.placement.top + GLYPH_ATLAS_PADDING as i32,
     };
     self.atlas_entries.insert(cache_key, packed);
+    self.glyph_misses += 1;
+    Some(packed)
+  }
+
+  fn get_or_pack_transformed_glyph(
+    &mut self,
+    cache_key: GlyphCacheKey,
+    transform: SwashTransform,
+  ) -> Option<PackedGlyph> {
+    let key = TransformedGlyphKey::new(cache_key, transform);
+    if let Some(&packed) = self.transformed_atlas_entries.get(&key) {
+      self.glyph_hits += 1;
+      return Some(packed);
+    }
+
+    let font = self.font_system.get_font(cache_key.font_id)?;
+    let mut scaler = self
+      .transformed_scale_context
+      .builder(font.as_swash())
+      .size(f32::from_bits(cache_key.font_size_bits))
+      .hint(false)
+      .build();
+    let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
+    let transform = if cache_key.flags.contains(cosmic_text::CacheKeyFlags::FAKE_ITALIC) {
+      SwashTransform::skew(Angle::from_degrees(14.0), Angle::from_degrees(0.0)).then(&transform)
+    } else {
+      transform
+    };
+    let image = Render::new(&[
+      Source::ColorOutline(0),
+      Source::ColorBitmap(StrikeWith::BestFit),
+      Source::Outline,
+    ])
+    .format(Format::Alpha)
+    .offset(offset)
+    .transform(Some(transform))
+    .render(&mut scaler, cache_key.glyph_id)?;
+    if image.placement.width == 0 || image.placement.height == 0 {
+      return None;
+    }
+
+    let mask = glyph_coverage_mask(&image);
+    let (x, y, width, height) = self
+      .atlas_packer
+      .pack_pixels(&mask, image.placement.width, image.placement.height);
+    let packed = PackedGlyph {
+      x,
+      y,
+      width,
+      height,
+      left: image.placement.left - GLYPH_ATLAS_PADDING as i32,
+      top: image.placement.top + GLYPH_ATLAS_PADDING as i32,
+    };
+    self.transformed_atlas_entries.insert(key, packed);
     self.glyph_misses += 1;
     Some(packed)
   }
@@ -502,6 +644,30 @@ struct CachedGlyph {
   height: u32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct TransformedGlyphKey {
+  cache_key: GlyphCacheKey,
+  transform: [u32; 4],
+}
+
+impl TransformedGlyphKey {
+  fn new(cache_key: GlyphCacheKey, transform: SwashTransform) -> Self {
+    Self {
+      cache_key,
+      transform: [
+        transform.xx.to_bits(),
+        transform.xy.to_bits(),
+        transform.yx.to_bits(),
+        transform.yy.to_bits(),
+      ],
+    }
+  }
+}
+
+fn swash_transform_from_screen(transform: Transform2D) -> SwashTransform {
+  SwashTransform::new(transform.a, -transform.b, -transform.c, transform.d, 0.0, 0.0)
+}
+
 fn glyph_cmds_from_cached(
   cached: &[CachedGlyph],
   origin_x: f32,
@@ -531,6 +697,7 @@ fn glyph_cmds_from_cached(
         ],
         transform: [1.0, 0.0, 0.0, 1.0],
         transform_origin: [0.0, 0.0],
+        sharpness: 1.0,
         clip: crate::layout::quad::ClipRect::default(),
       }
     })
@@ -654,7 +821,8 @@ impl AtlasPacker {
 mod tests {
   use cosmic_text::{Attrs, Family, Shaping};
 
-  use super::{AtlasPacker, GLYPH_ATLAS_PADDING, GlyphEngine, glyph_coverage_mask};
+  use super::{AtlasPacker, GLYPH_ATLAS_PADDING, GlyphEngine, glyph_coverage_mask, swash_transform_from_screen};
+  use crate::node::transform::Transform2D;
 
   #[test]
   fn atlas_packer_leaves_padding_between_glyph_regions() {
@@ -675,7 +843,10 @@ mod tests {
     let p = GLYPH_ATLAS_PADDING as usize;
     let stride = packer.width as usize;
 
-    assert_eq!((x, y, width, height), (0, 0, 2 + GLYPH_ATLAS_PADDING * 2, 2 + GLYPH_ATLAS_PADDING * 2));
+    assert_eq!(
+      (x, y, width, height),
+      (0, 0, 2 + GLYPH_ATLAS_PADDING * 2, 2 + GLYPH_ATLAS_PADDING * 2)
+    );
     assert_eq!(packer.data[0], 0);
     assert_eq!(packer.data[p * stride + p], 10);
     assert_eq!(packer.data[p * stride + p + 1], 20);
@@ -759,6 +930,17 @@ mod tests {
       glyphs.iter().any(|glyph| glyph.x.fract().abs() > 0.001),
       "transformed text should keep float layout glyph positions"
     );
+  }
+
+  #[test]
+  fn screen_transform_is_flipped_for_glyph_outline_space() {
+    let screen = Transform2D::rotate_deg(-10.0);
+    let glyph = swash_transform_from_screen(screen);
+
+    assert_eq!(glyph.xx, screen.a);
+    assert_eq!(glyph.xy, -screen.b);
+    assert_eq!(glyph.yx, -screen.c);
+    assert_eq!(glyph.yy, screen.d);
   }
 
   #[test]

@@ -58,12 +58,14 @@ struct VsIn {
     @location(5) uv_max: vec2<f32>,
     @location(6) transform: vec4<f32>, // 2x2 matrix: a, b, c, d
     @location(7) xf_origin: vec2<f32>, // transform origin relative to rect top-left
+    @location(8) sharpness: f32,
 }
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) uv: vec2<f32>,
+    @location(2) sharpness: f32,
 }
 
 @vertex
@@ -84,6 +86,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.clip = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.color = in.color;
     out.uv = uv;
+    out.sharpness = in.sharpness;
     return out;
 }
 
@@ -108,6 +111,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // Instance colors arrive in linear space and are written to an sRGB
     // surface, matching the quad pipeline.
-    let coverage = textureSample(atlas, atlas_sampler, in.uv).r;
+    var coverage = textureSample(atlas, atlas_sampler, in.uv).r;
+    coverage = clamp((coverage - 0.5) * max(in.sharpness, 1.0) + 0.5, 0.0, 1.0);
     return vec4<f32>(in.color.rgb, in.color.a * coverage * clip_alpha);
 }
