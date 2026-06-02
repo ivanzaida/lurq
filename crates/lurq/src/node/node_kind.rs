@@ -900,6 +900,17 @@ impl SliderState {
     changed
   }
 
+  pub(crate) fn pointer_ratio(&self, x: f32, track_rect: SliderPartRect, thumb_rect: SliderPartRect) -> f32 {
+    let travel_width = track_rect.width - thumb_rect.width;
+    if travel_width > 0.0 {
+      (x - (track_rect.x + thumb_rect.width * 0.5)) / travel_width
+    } else if track_rect.width > 0.0 {
+      (x - track_rect.x) / track_rect.width
+    } else {
+      0.0
+    }
+  }
+
   pub(crate) fn nudge(&self, delta: i32) {
     let inner = self.inner.lock().unwrap();
     let current = self.value();
@@ -1052,7 +1063,12 @@ impl SliderState {
       .max(0.0);
     let track_x = bounds_x + (bounds_width - track_width) * 0.5;
     let track_y = bounds_y + (bounds_height - track_height) * 0.5;
-    let thumb_center_x = track_x + track_width * self.ratio();
+    let thumb_travel_width = (track_width - thumb_width).max(0.0);
+    let thumb_center_x = if thumb_travel_width > 0.0 {
+      track_x + thumb_width * 0.5 + thumb_travel_width * self.ratio()
+    } else {
+      track_x + track_width * 0.5
+    };
     let thumb_center_y = track_y + track_height * 0.5;
 
     (

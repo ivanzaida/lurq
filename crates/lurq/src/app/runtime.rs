@@ -1490,7 +1490,7 @@ impl Tree {
             .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
         {
           if let NodeKind::Slider { state } = node.node_kind() {
-            let (track_rect, _) = state.part_rects(
+            let (track_rect, thumb_rect) = state.part_rects(
               rect.x,
               rect.y,
               rect.width,
@@ -1498,10 +1498,16 @@ impl Tree {
               node.is_style_hovered(),
               DEFAULT_SLIDER_THUMB_MIN_SIZE,
             );
+            let travel_width = track_rect.width - thumb_rect.width;
+            let (drag_x, drag_width) = if travel_width > 0.0 {
+              (track_rect.x + thumb_rect.width * 0.5, travel_width)
+            } else {
+              (track_rect.x, track_rect.width)
+            };
             let drag = SliderDrag {
               state: state.clone(),
-              x: track_rect.x,
-              width: track_rect.width,
+              x: drag_x,
+              width: drag_width,
             };
             drag.update(lx);
             pending_slider_drag = Some(drag);
@@ -1555,7 +1561,7 @@ impl Tree {
       if hits.is_empty() && matches!(evt.kind, MouseEventKind::Click) {
         if let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly) {
           if let NodeKind::Slider { state } = node.node_kind() {
-            let (track_rect, _) = state.part_rects(
+            let (track_rect, thumb_rect) = state.part_rects(
               rect.x,
               rect.y,
               rect.width,
@@ -1563,11 +1569,7 @@ impl Tree {
               node.is_style_hovered(),
               DEFAULT_SLIDER_THUMB_MIN_SIZE,
             );
-            let ratio = if track_rect.width > 0.0 {
-              (lx - track_rect.x) / track_rect.width
-            } else {
-              0.0
-            };
+            let ratio = state.pointer_ratio(lx, track_rect, thumb_rect);
             state.set_from_ratio(ratio);
             pending_focus = Some(FocusTarget {
               input_id: node.node_id(),
@@ -3018,7 +3020,7 @@ fn dispatch_builtin_pointer(
         });
       }
       NodeKind::Slider { state } => {
-        let (track_rect, _) = state.part_rects(
+        let (track_rect, thumb_rect) = state.part_rects(
           rect.x,
           rect.y,
           rect.width,
@@ -3026,11 +3028,7 @@ fn dispatch_builtin_pointer(
           node.is_style_hovered(),
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
-        let ratio = if track_rect.width > 0.0 {
-          (x - track_rect.x) / track_rect.width
-        } else {
-          0.0
-        };
+        let ratio = state.pointer_ratio(x, track_rect, thumb_rect);
         state.set_from_ratio(ratio);
         return Some(FocusTarget {
           input_id: node.node_id(),
