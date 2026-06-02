@@ -257,4 +257,16 @@ The glyph engine also records caret positions for text selection. `Text::selecta
 
 Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text selection and text input carets therefore follow transformed text, including text inside a transformed parent.
 
-Transformed `Text` uses a moderately oversampled bitmap transform path and keeps glyph positions in float layout space so animated transforms do not introduce per-frame snapping. `TextTransformMode::Rasterized` bakes the transform into glyph rasterization so static rotated text has sharper glyph edges; animated transform angles should usually stay on the bitmap path to avoid creating atlas entries for every angle.
+### Text Transform Modes
+
+`TextTransformMode::Bitmap` is the default. It rasterizes glyphs in their normal orientation and transforms those glyph quads during rendering. This path preserves float placement and is best for animated transforms because changing the transform does not create a new glyph atlas entry for every angle.
+
+`TextTransformMode::Rasterized` is for static transformed text. It bakes the transform into the glyph mask, uses float screen-space placement for the baked mask, and emits identity-transform glyph quads. This produces sharper rotated edges than GPU-transforming the normal glyph bitmap, but the transform matrix is part of the glyph cache key, so continuously animated angles can grow the atlas.
+
+```rust
+use lurq::node::{TextTransformMode, transform::Transform2D};
+
+lurq::components::Text::new("Static rotated text")
+  .text_transform_mode(TextTransformMode::Rasterized)
+  .transform(Transform2D::rotate_deg(-8.0))
+```

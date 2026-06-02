@@ -250,7 +250,17 @@ lurq::components::Text::new("Selectable text")
 
 Selectable text supports drag selection, double-click word selection, and triple-click line selection. `TextInput` has the same pointer selection gestures plus caret movement, undo/redo, and signal-backed edits.
 
-Transformed text uses a moderately oversampled bitmap transform path by default. This keeps glyph positions in float layout space, which is the right default for animated transforms. `TextTransformMode::Rasterized` bakes the transform into glyph rasterization so static rotated text has sharper glyph edges; animated transform angles should usually stay on the bitmap path to avoid creating atlas entries for every angle.
+### Transformed Text
+
+Text uses `TextTransformMode::Bitmap` by default. In this mode the glyphs are rasterized normally, then transformed during rendering. This keeps glyph placement in float screen space and is the right default for animated transforms because it does not create a new glyph atlas entry for every angle.
+
+Use `TextTransformMode::Rasterized` for static transformed text when the rotated glyph edges need to stay sharp. This mode bakes the transform into glyph rasterization, disables transform-time hinting for the rotated mask, and emits identity-transform glyph quads. Because the transform is part of the glyph atlas cache key, animated rotations should usually stay on `Bitmap`.
+
+```rust
+lurq::components::Text::new("Static rotated label")
+  .text_transform_mode(TextTransformMode::Rasterized)
+  .transform(lurq::node::transform::Transform2D::rotate_deg(-8.0))
+```
 
 ## Components
 

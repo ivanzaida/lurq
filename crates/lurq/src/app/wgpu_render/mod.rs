@@ -55,6 +55,8 @@ pub struct WgpuRenderEngine {
   glyph_bind_group: Option<wgpu::BindGroup>,
   vertex_buffer: Option<wgpu::Buffer>,
   index_buffer: Option<wgpu::Buffer>,
+  width: u32,
+  height: u32,
 }
 
 impl Default for WgpuRenderEngine {
@@ -104,6 +106,8 @@ impl WgpuRenderEngine {
       glyph_bind_group: None,
       vertex_buffer: None,
       index_buffer: None,
+      width: 800,
+      height: 600,
     }
   }
 
@@ -143,8 +147,8 @@ impl WgpuRenderEngine {
     let config = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
       format,
-      width: 800,
-      height: 600,
+      width: self.width.max(1),
+      height: self.height.max(1),
       present_mode: wgpu::PresentMode::Fifo,
       alpha_mode: caps.alpha_modes[0],
       view_formats: vec![],
@@ -436,8 +440,8 @@ impl WgpuRenderEngine {
     let globals_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("lurq_globals"),
       contents: bytemuck::bytes_of(&Globals {
-        viewport: [800.0, 600.0, 0.0, 0.0],
-        clip_rect: [0.0, 0.0, 800.0, 600.0],
+        viewport: [config.width as f32, config.height as f32, 0.0, 0.0],
+        clip_rect: [0.0, 0.0, config.width as f32, config.height as f32],
         clip_radii_h: [0.0; 4],
         clip_radii_v: [0.0; 4],
         clip_active: [0.0; 4],
@@ -524,9 +528,11 @@ impl WgpuRenderEngine {
 
 impl RenderEngine for WgpuRenderEngine {
   fn resize(&mut self, width: u32, height: u32) {
+    self.width = width.max(1);
+    self.height = height.max(1);
     if let (Some(config), Some(device), Some(surface)) = (&mut self.surface_config, &self.device, &self.surface) {
-      config.width = width.max(1);
-      config.height = height.max(1);
+      config.width = self.width;
+      config.height = self.height;
       surface.configure(device, config);
     }
   }
@@ -1085,7 +1091,7 @@ fn scissor_rect(clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> Option
 
 #[cfg(test)]
 mod tests {
-  use crate::layout::quad::ClipRect;
+  use crate::{app::render_engine::RenderEngine, layout::quad::ClipRect};
 
   #[test]
   fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {
@@ -1103,6 +1109,16 @@ mod tests {
       ),
       Some((10, 20, 31, 41))
     );
+  }
+
+  #[test]
+  fn resize_before_initialization_sets_initial_surface_size() {
+    let mut engine = super::WgpuRenderEngine::new();
+
+    engine.resize(1440, 900);
+
+    assert_eq!(engine.width, 1440);
+    assert_eq!(engine.height, 900);
   }
 }
 
