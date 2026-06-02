@@ -15,6 +15,7 @@ export default defineConfig({
                         'components',
                         'reactivity',
                         'layout',
+                        'animation-transforms',
                         'styling-events',
                         'app-runtime',
                         'devtools',

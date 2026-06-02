@@ -257,6 +257,8 @@ The glyph engine also records caret positions for text selection. `Text::selecta
 
 Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text selection and text input carets therefore follow transformed text, including text inside a transformed parent.
 
+See [Animation And Transforms](../animation-transforms/) for transform composition, keyframe animation, and transition details.
+
 ### Text Transform Modes
 
 `TextTransformMode::Bitmap` is the default. It rasterizes glyphs in their normal orientation and transforms those glyph quads during rendering. This path preserves float placement and is best for animated transforms because changing the transform does not create a new glyph atlas entry for every angle.
