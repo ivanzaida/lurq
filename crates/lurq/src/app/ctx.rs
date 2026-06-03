@@ -52,6 +52,12 @@ pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
   Arc::from(base.rsplit("::").next().unwrap_or(base))
 }
 
+struct ModalEntry {
+  scope_id: u64,
+  cursor: usize,
+  node: Node,
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
@@ -74,6 +80,9 @@ pub struct Ctx {
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
+  modal_registry: Arc<Mutex<Vec<ModalEntry>>>,
+  modal_scope_id: u64,
+  modal_cursor: usize,
   element_ref_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
@@ -445,6 +454,9 @@ impl Ctx {
       slot_children: None,
       children: Vec::new(),
       child_cursor: 0,
+      modal_registry: Arc::new(Mutex::new(Vec::new())),
+      modal_scope_id: 0,
+      modal_cursor: 0,
       element_ref_cursor: 0,
       watch_handles: Vec::new(),
       render_watch_handles: Vec::new(),
@@ -812,6 +824,36 @@ impl Ctx {
     crate::node::interaction_state::InteractionState::new()
   }
 
+  pub fn modal(&mut self, modal: impl Into<Element>) {
+    let cursor = self.modal_cursor;
+    self.modal_cursor += 1;
+    let modal = modal.into().node;
+
+    let mut registry = self.modal_registry.lock();
+    if let Some(entry) = registry
+      .iter_mut()
+      .find(|entry| entry.scope_id == self.modal_scope_id && entry.cursor == cursor)
+    {
+      entry.node = modal;
+      return;
+    }
+
+    registry.push(ModalEntry {
+      scope_id: self.modal_scope_id,
+      cursor,
+      node: modal,
+    });
+  }
+
+  pub(crate) fn modal_nodes(&self) -> Vec<Node> {
+    self
+      .modal_registry
+      .lock()
+      .iter()
+      .map(|entry| entry.node.clone_for_reuse())
+      .collect()
+  }
+
   // --- Component mounting ---
 
   pub fn mount<C: Component>(&mut self, props: C::Props) -> Element {
@@ -877,6 +919,7 @@ impl Ctx {
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.app = self.app;
+    child_ctx.modal_registry = self.modal_registry.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
@@ -884,12 +927,13 @@ impl Ctx {
     child_ctx.context_map = self.context_map.clone();
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
+    let slot_id = next_component_slot_id();
+    child_ctx.modal_scope_id = slot_id;
     let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();
     let mut element = wrapper.render(&mut child_ctx);
     child_ctx.end_render();
-    let slot_id = next_component_slot_id();
     element.node.set_tag_name(wrapper.tag_name());
     element.node.set_component_slot_id(slot_id);
     element.node.set_component_key(key);
@@ -936,13 +980,16 @@ impl Ctx {
       group_ctx.batch = self.batch.clone();
       group_ctx.theme = self.theme.clone();
       group_ctx.app = self.app;
+      group_ctx.modal_registry = self.modal_registry.clone();
       #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
       }
       group_ctx.context_map = self.context_map.clone();
+      let slot_id = next_component_slot_id();
+      group_ctx.modal_scope_id = slot_id;
       let slot = ChildSlot {
-        id: next_component_slot_id(),
+        id: slot_id,
         key: None,
         component: Box::new(ForEachSlot),
         ctx: group_ctx,
@@ -1008,15 +1055,17 @@ impl Ctx {
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.app = self.app;
+    child_ctx.modal_registry = self.modal_registry.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
     child_ctx.context_map = self.context_map.clone();
+    let slot_id = next_component_slot_id();
+    child_ctx.modal_scope_id = slot_id;
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);
     child_ctx.end_render();
-    let slot_id = next_component_slot_id();
     element.node.set_component_slot_id(slot_id);
     element.node.set_component_key(Some(key.as_str()));
     #[cfg(feature = "devtools")]
@@ -1054,6 +1103,7 @@ impl Ctx {
 
   pub fn begin_render(&mut self) {
     self.child_cursor = 0;
+    self.modal_cursor = 0;
     self.element_ref_cursor = 0;
     self.render_watch_handles.clear();
     tracking::start_tracking();
@@ -1062,6 +1112,7 @@ impl Ctx {
 
   fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
     if cursor < self.children.len() {
+      self.children[cursor].ctx.clear_modal_entries_recursive();
       self.children[cursor].component.on_unmounted();
       self.children[cursor] = slot;
     } else {
@@ -1077,9 +1128,27 @@ impl Ctx {
     }
   }
 
+  fn clear_modal_entries_recursive(&mut self) {
+    self
+      .modal_registry
+      .lock()
+      .retain(|entry| entry.scope_id != self.modal_scope_id);
+    for slot in &mut self.children {
+      slot.ctx.clear_modal_entries_recursive();
+    }
+  }
+
   pub(crate) fn end_render(&mut self) {
+    self
+      .modal_registry
+      .lock()
+      .retain(|entry| entry.scope_id != self.modal_scope_id || entry.cursor < self.modal_cursor);
+
     for slot in &self.children[self.child_cursor..] {
       slot.component.on_unmounted();
+    }
+    for slot in &mut self.children[self.child_cursor..] {
+      slot.ctx.clear_modal_entries_recursive();
     }
     self.children.truncate(self.child_cursor);
 

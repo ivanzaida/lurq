@@ -74,7 +74,6 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>, theme: D
         ("React.", Some(DemoTab::Reactivity)),
         ("Comps.", Some(DemoTab::Components)),
         ("Context", Some(DemoTab::Context)),
-        ("Debug", None),
       ]
       .into_iter()
       .map(move |(label, tab)| sidebar_item(label, tab == Some(selected), tab, selected_tab.clone(), theme)),

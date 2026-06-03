@@ -16,6 +16,7 @@ mod effect;
 #[cfg(feature = "i18n")]
 mod i18n;
 mod memo;
+mod modal;
 mod signal;
 mod store;
 mod theme;

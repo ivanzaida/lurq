@@ -19,13 +19,15 @@ mod visual_demo;
 use lurq::app::dx12_render::Dx12RenderEngine;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::Row,
+  components::{Column, Rect, Row, Stack},
   core::Signal,
   layout::{
-    Alignment,
+    Alignment, StackAlignment,
+    layout_kind::Justify,
     scrollbar::{ScrollBarStyle, ScrollBarVisibility},
+    text_style::FontWeight,
   },
-  node::{Element, color::Color},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
 use crate::{
@@ -54,6 +56,7 @@ impl PartialEq for DemoProps {
 struct DemoApp {
   selected_tab: Signal<DemoTab>,
   theme: Signal<DemoTheme>,
+  modal_open: Signal<bool>,
 }
 
 impl Component for DemoApp {
@@ -63,6 +66,7 @@ impl Component for DemoApp {
     Self {
       selected_tab: ctx.signal(DemoTab::Layout),
       theme: ctx.signal(DemoTheme::Dark),
+      modal_open: ctx.signal(false),
     }
   }
 
@@ -70,6 +74,11 @@ impl Component for DemoApp {
     let selected_tab = self.selected_tab.get();
     let theme = self.theme.get();
     let palette = theme.palette();
+
+    if self.modal_open.get() {
+      ctx.modal(demo_modal(theme, self.modal_open.clone()));
+    }
+
     let content = match selected_tab {
       DemoTab::Layout => layout_content(),
       DemoTab::Sizing => sizing_content(),
@@ -105,15 +114,21 @@ impl Component for DemoApp {
           .background(palette.surface_dark),
       )
       .child(
-        lurq::components::ScrollVertical::new(content)
-          .scrollbar(ScrollBarStyle {
-            visible: ScrollBarVisibility::Auto,
-            width: 7.0,
-            thumb_color: Color::from_hex(palette.primary),
-            thumb_radius: 4.0,
-            ..ScrollBarStyle::default()
-          })
-          .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
+        Column::new()
+          .child(demo_toolbar(selected_tab, theme, self.modal_open.clone()))
+          .child(
+            lurq::components::ScrollVertical::new(content)
+              .scrollbar(ScrollBarStyle {
+                visible: ScrollBarVisibility::Auto,
+                width: 7.0,
+                thumb_color: Color::from_hex(palette.primary),
+                thumb_radius: 4.0,
+                ..ScrollBarStyle::default()
+              })
+              .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
+              .background(palette.bg)
+              .flex(1.0),
+          )
           .background(palette.bg)
           .flex(1.0),
       )
@@ -121,6 +136,84 @@ impl Component for DemoApp {
 
     content.background(palette.bg)
   }
+}
+
+fn demo_toolbar(selected_tab: DemoTab, theme: DemoTheme, modal_open: Signal<bool>) -> Element {
+  let palette = theme.palette();
+  Row::new()
+    .align_items(Alignment::Center)
+    .justify(Justify::End)
+    .child(style::text(
+      selected_tab.label(),
+      13.0,
+      FontWeight::Bold,
+      palette.text_muted,
+    ))
+    .child(lurq::components::Spacer::new().flex(1.0))
+    .child(demo_button("Open modal", palette.primary, move || modal_open.set(true)))
+    .height(54.0)
+    .padding_horizontal(18.0)
+    .background(palette.surface_dark)
+    .border_inside(1.0, Color::from_hex(palette.border))
+    .into()
+}
+
+fn demo_modal(theme: DemoTheme, modal_open: Signal<bool>) -> Element {
+  let palette = theme.palette();
+  Stack::new()
+    .stack_align(StackAlignment::Center)
+    .child(
+      Rect::new(1.0, 1.0)
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .background("#000000")
+        .opacity(0.58)
+        .on_click({
+          let modal_open = modal_open.clone();
+          move |_| modal_open.set(false)
+        }),
+    )
+    .child(
+      Column::new()
+        .spacing(12.0)
+        .child(style::text("Demo modal", 22.0, FontWeight::Bold, palette.text))
+        .child(
+          style::text(
+            "This panel is declared from the demo root with ctx.modal and rendered above the app content.",
+            13.0,
+            FontWeight::Medium,
+            palette.text_muted,
+          )
+          .width(Dimension::Pct(100.0)),
+        )
+        .child(
+          Row::new()
+            .justify(Justify::End)
+            .child(demo_button("Close", palette.primary, move || modal_open.set(false))),
+        )
+        .width(420.0)
+        .padding(24.0)
+        .background(palette.surface)
+        .border_inside(1.0, Color::from_hex(palette.border))
+        .rounded(10.0),
+    )
+    .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+    .into()
+}
+
+fn demo_button(label: &str, fill: &'static str, on_click: impl Fn() + Send + Sync + 'static) -> Element {
+  Row::new()
+    .align_items(Alignment::Center)
+    .justify(Justify::Center)
+    .child(style::text(label, 12.0, FontWeight::Bold, "#ffffff"))
+    .height(34.0)
+    .padding_horizontal(14.0)
+    .background(fill)
+    .rounded(6.0)
+    .cursor(CursorIcon::Pointer)
+    .hovered(|style| style.background("#60a5fa"))
+    .active(|style| style.background("#2563eb"))
+    .on_click(move |_| on_click())
+    .into()
 }
 
 fn set_selected_render_engine(tree: &mut Tree) -> String {

@@ -53,6 +53,7 @@ const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
+const MODAL_HOST_TAG: &str = "__lurq_modal_host";
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
@@ -688,9 +689,12 @@ impl Tree {
     node.set_tag_name(wrapper.tag_name());
     #[cfg(feature = "devtools")]
     set_component_debug_metadata(&mut node, &ctx);
-    node.assign_ids(&self.id_gen);
     wrapper.on_mounted();
     self.root = Some(node);
+    self.sync_modal_layer();
+    if let Some(root) = &mut self.root {
+      root.assign_ids(&self.id_gen);
+    }
     self.root_component = Some(Box::new(wrapper));
     self.root_ctx = Some(ctx);
     self.last_layout = None;
@@ -721,6 +725,7 @@ impl Tree {
     }
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
       let mut old_root = self.root.take().map(|old| {
+        let old = modal_host_base(old);
         reset_element_ref_flags_recursive(&old);
         old
       });
@@ -735,8 +740,11 @@ impl Tree {
         node.preserve_ids_from(old);
         old.free_ids(&self.id_gen);
       }
-      node.assign_ids(&self.id_gen);
       self.root = Some(node);
+      self.sync_modal_layer();
+      if let Some(root) = &mut self.root {
+        root.assign_ids(&self.id_gen);
+      }
       self.refresh_interaction_state();
     }
   }
@@ -2206,8 +2214,30 @@ impl Tree {
       }
     }
 
+    self.sync_modal_layer();
     self.needs_redraw = true;
     self.refresh_interaction_state();
+  }
+
+  fn sync_modal_layer(&mut self) {
+    let modals = self.root_ctx.as_ref().map(Ctx::modal_nodes).unwrap_or_default();
+    let Some(root) = self.root.take() else {
+      return;
+    };
+
+    let base = modal_host_base(root);
+
+    if modals.is_empty() {
+      self.root = Some(base);
+      return;
+    }
+
+    let mut children = Vec::with_capacity(1 + modals.len());
+    children.push(base);
+    children.extend(modals);
+    let mut host = Node::stack(crate::layout::StackAlignment::TopStart, children);
+    host.set_tag_name(MODAL_HOST_TAG);
+    self.root = Some(host);
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
@@ -2541,6 +2571,14 @@ impl Tree {
     if let Some(node) = find_node_by_path(root, &event_path) {
       set_node_focused(node, true);
     }
+  }
+}
+
+fn modal_host_base(mut root: Node) -> Node {
+  if root.tag_name() == MODAL_HOST_TAG && !root.children.is_empty() {
+    root.children.remove(0)
+  } else {
+    root
   }
 }
 
