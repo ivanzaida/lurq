@@ -40,7 +40,7 @@ use crate::{
     border::{Border, BorderPlacement, BorderRadius, Borders},
     color::Color,
     cursor::CursorIcon,
-    node_kind::{NodeKind, SliderState, TextInputState, TextState},
+    node_kind::{NodeKind, SliderState, TextInputOverflow, TextInputState, TextState},
     transform::Transform2D,
   },
 };
@@ -1476,11 +1476,12 @@ impl Tree {
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
-            state.begin_selection_at_point(rect.local_x - rect.x, rect.local_y - rect.y);
+            let vertical_offset = text_input_vertical_offset(state, rect.height);
+            state.begin_selection_at_point(rect.local_x - rect.x, rect.local_y - rect.y - vertical_offset);
             pending_text_selection_drag = Some(TextSelectionDrag {
               kind: TextSelectionDragKind::Input(state.clone()),
               x: rect.x,
-              y: rect.y,
+              y: rect.y + vertical_offset,
               transform: rect.transform,
             });
             pending_focus = Some(FocusTarget {
@@ -1554,10 +1555,13 @@ impl Tree {
           let text_click_count = self
             .text_click_tracker
             .record(Instant::now(), (evt.x, evt.y), button, node.node_id());
+          let vertical_offset = text_input_vertical_offset(state, rect.height);
+          let text_x = rect.local_x - rect.x;
+          let text_y = rect.local_y - rect.y - vertical_offset;
           match text_click_count {
-            1 => state.set_caret_from_point(rect.local_x - rect.x, rect.local_y - rect.y),
-            2 => state.select_word_at_point(rect.local_x - rect.x, rect.local_y - rect.y),
-            _ => state.select_line_at_point(rect.local_x - rect.x, rect.local_y - rect.y),
+            1 => state.set_caret_from_point(text_x, text_y),
+            2 => state.select_word_at_point(text_x, text_y),
+            _ => state.select_line_at_point(text_x, text_y),
           }
           pending_focus = Some(FocusTarget {
             input_id: node.node_id(),
@@ -2664,6 +2668,14 @@ impl TextSelectionDrag {
       return (x, y);
     };
     inverse.transform_point(x, y)
+  }
+}
+
+fn text_input_vertical_offset(state: &TextInputState, height: f32) -> f32 {
+  if state.overflow() == TextInputOverflow::Scroll {
+    ((height - state.caret_height()).max(0.0)) * 0.5
+  } else {
+    0.0
   }
 }
 

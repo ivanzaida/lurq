@@ -21,7 +21,7 @@ use crate::{
     color::Color,
     dimension::Dimension,
     node::Node,
-    node_kind::{NodeKind, SliderPartRect},
+    node_kind::{NodeKind, SliderPartRect, TextInputOverflow, TextInputState},
     padding::Padding,
     slider_style::SliderPartStyle,
     transform::Transform2D,
@@ -57,6 +57,14 @@ fn text_input_display_style<'a>(
     placeholder_style.unwrap_or(style)
   } else {
     style
+  }
+}
+
+fn text_input_vertical_offset(state: &TextInputState, height: f32) -> f32 {
+  if state.overflow() == TextInputOverflow::Scroll {
+    ((height - state.caret_height()).max(0.0)) * 0.5
+  } else {
+    0.0
   }
 }
 
@@ -527,6 +535,7 @@ impl LayoutEngine {
           && state.is_focused()
         {
           let selection_height = state.caret_height().min(result.size.height).max(1.0);
+          let vertical_offset = text_input_vertical_offset(state, result.size.height);
           let selection_clip = intersect_clip(
             clip,
             ClipRect {
@@ -539,7 +548,7 @@ impl LayoutEngine {
           );
           for selection in state.selection_ranges() {
             let selection_x = abs_x + selection.x;
-            let selection_y = abs_y + selection.y;
+            let selection_y = abs_y + vertical_offset + selection.y;
             let (selection_x, selection_y, selection_transform, selection_transform_origin) =
               transformed_quad_frame(selection_x, selection_y, transform);
             quads.push(Quad {
@@ -564,13 +573,14 @@ impl LayoutEngine {
           NodeKind::TextInput { state, .. } => {
             let scroll_x = state.scroll_x();
             let scroll_y = state.scroll_y();
+            let vertical_offset = text_input_vertical_offset(state, result.size.height);
             if matches!(
               state.overflow(),
-              crate::node::node_kind::TextInputOverflow::Scroll | crate::node::node_kind::TextInputOverflow::Multiline
+              TextInputOverflow::Scroll | TextInputOverflow::Multiline
             ) {
               (
                 abs_x - scroll_x,
-                abs_y - scroll_y,
+                abs_y + vertical_offset - scroll_y,
                 result.size.width + scroll_x,
                 result.size.height + scroll_y,
                 intersect_clip(
@@ -644,8 +654,9 @@ impl LayoutEngine {
     match node.node_kind() {
       NodeKind::TextInput { state, .. } if state.is_focused() => {
         let caret_height = state.caret_height().min(result.size.height).max(1.0);
+        let vertical_offset = text_input_vertical_offset(state, result.size.height);
         let caret_x = abs_x + state.caret_x();
-        let caret_y = abs_y + state.caret_y();
+        let caret_y = abs_y + vertical_offset + state.caret_y();
         let (caret_x, caret_y, caret_transform, caret_transform_origin) =
           transformed_quad_frame(caret_x, caret_y, transform);
         quads.push(Quad {

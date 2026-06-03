@@ -2,11 +2,15 @@ use lurq::{
   app::{component::Component, ctx::Ctx},
   core::Signal,
   images::ImageData,
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{
+    Alignment,
+    layout_kind::Justify,
+    text_style::{FontWeight, TextStyle},
+  },
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
-use crate::style::{DemoTheme, ThemePalette, text};
+use crate::style::{BORDER, DemoTheme, ThemePalette, text};
 
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
@@ -16,6 +20,7 @@ const PANEL_RADIUS: f32 = 6.0;
 pub(crate) struct InputsDemo {
   name: Signal<String>,
   email: Signal<String>,
+  hash: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
@@ -33,6 +38,7 @@ impl Component for InputsDemo {
     Self {
       name: ctx.signal("Lol Kek".to_owned()),
       email: ctx.signal(String::new()),
+      hash: ctx.signal(String::new()),
       scroll_sample: ctx.signal("A long single-line value that should scroll inside a narrow input".to_owned()),
       notes: ctx.signal("Line one\nLine two".to_owned()),
       limited_notes: ctx.signal("First row\nSecond row\nThird row\nFourth row\nFifth row".to_owned()),
@@ -54,6 +60,7 @@ impl Component for InputsDemo {
       .child(text_fields_card(
         self.name.clone(),
         self.email.clone(),
+        self.hash.clone(),
         self.scroll_sample.clone(),
         self.notes.clone(),
         self.limited_notes.clone(),
@@ -75,6 +82,7 @@ impl Component for InputsDemo {
       .child(summary_card(
         self.name.clone(),
         self.email.clone(),
+        self.hash.clone(),
         self.scroll_sample.clone(),
         self.notes.clone(),
         self.limited_notes.clone(),
@@ -108,11 +116,13 @@ fn card_frame(palette: ThemePalette) -> lurq::components::Column {
 fn text_fields_card(
   name: Signal<String>,
   email: Signal<String>,
+  hash: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
   palette: ThemePalette,
 ) -> Element {
+  let hash_preview = preview_text(&hash.get());
   let scroll_preview = preview_text(&scroll_sample.get());
   let notes_preview = preview_text(&notes.get());
   let limited_notes_preview = preview_text(&limited_notes.get());
@@ -126,6 +136,7 @@ fn text_fields_card(
         .child(field_stack("Email", text_input(email.clone(), "name@example.com", palette)).flex(1.0))
         .width(FILL_WIDTH),
     )
+    .child(field_stack("Styled hash", styled_hash_input(hash.clone())).width(FILL_WIDTH))
     .child(
       lurq::components::Row::new()
         .spacing(18.0)
@@ -152,6 +163,7 @@ fn text_fields_card(
         .spacing(12.0)
         .child(value_pill("name", display_text(&name.get()), palette))
         .child(value_pill("email", display_text(&email.get()), palette))
+        .child(value_pill("hash", &hash_preview, palette))
         .child(value_pill("scroll", &scroll_preview, palette))
         .child(value_pill("notes", &notes_preview, palette))
         .child(value_pill("rows", &limited_notes_preview, palette))
@@ -189,6 +201,34 @@ fn scroll_text_input(value: Signal<String>, placeholder: &str, palette: ThemePal
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Text)
     .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary)))
+    .into()
+}
+
+fn styled_hash_input(value: Signal<String>) -> Element {
+  let value_style = TextStyle {
+    font_size: 13.0,
+    weight: FontWeight::Medium,
+    color: Color::from_hex("#e5e7eb"),
+    ..TextStyle::default()
+  };
+  let placeholder_style = TextStyle {
+    font_size: 13.0,
+    weight: FontWeight::Medium,
+    color: Color::from_hex("#64748b"),
+    ..TextStyle::default()
+  };
+
+  lurq::components::TextInput::styled(value, value_style)
+    .width(Dimension::Pct(100.0))
+    .height(40.0)
+    .padding_horizontal(10.0)
+    .rounded(5.0)
+    .background("#101215")
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .placeholder("a3f1b2c4d5e691cc...")
+    .placeholder_style(placeholder_style)
+    .single_line()
+    .cursor(CursorIcon::Text)
     .into()
 }
 
@@ -391,6 +431,7 @@ fn styled_slider_row(label: &str, value: Signal<i32>, palette: ThemePalette) -> 
 fn summary_card(
   name: Signal<String>,
   email: Signal<String>,
+  hash: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
@@ -401,6 +442,7 @@ fn summary_card(
   styled_gain: Signal<i32>,
   palette: ThemePalette,
 ) -> Element {
+  let hash_preview = preview_text(&hash.get());
   let scroll_preview = preview_text(&scroll_sample.get());
   let notes_preview = preview_text(&notes.get());
   let limited_notes_preview = preview_text(&limited_notes.get());
@@ -410,6 +452,7 @@ fn summary_card(
     .child(text("State Snapshot", 16.0, FontWeight::Bold, palette.text))
     .child(summary_row("name", display_text(&name.get()), palette))
     .child(summary_row("email", display_text(&email.get()), palette))
+    .child(summary_row("hash", &hash_preview, palette))
     .child(summary_row("scroll", &scroll_preview, palette))
     .child(summary_row("notes", &notes_preview, palette))
     .child(summary_row("rows", &limited_notes_preview, palette))
