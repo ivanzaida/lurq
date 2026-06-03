@@ -190,5 +190,5 @@ fn main() {
   tree.mount_devtools(app.theme().clone());
   let title = format!("lurq demo ({renderer})");
   let window = WinitWindow::new(app, tree).with_title(&title);
-  window.on_tick(Tree::request_redraw).run();
+  window.run();
 }

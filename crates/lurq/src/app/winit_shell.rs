@@ -138,7 +138,7 @@ impl ManagedWindow {
   }
 
   fn has_tick(&self) -> bool {
-    self.on_tick.is_some() || self.tree.perf_overlay_enabled() || self.tree.has_active_timeline()
+    true
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop) {
@@ -198,6 +198,7 @@ impl ManagedWindow {
     if let Some(tick) = &mut self.on_tick {
       tick(&mut self.tree);
     }
+    self.tree.request_redraw();
     self.tree.tick_perf_overlay();
     if self.tree.perf_overlay_enabled() || self.tree.has_active_timeline() {
       self.tree.request_redraw();
@@ -337,7 +338,7 @@ impl ManagedSecondaryWindow {
   }
 
   fn has_tick(&self, tree: Option<&Tree>) -> bool {
-    tree.is_some_and(|tree| tree.perf_overlay_enabled() || tree.has_active_timeline())
+    tree.is_some()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop, tree: &mut Tree) -> Option<SecondaryWindowMetadata> {
@@ -396,6 +397,7 @@ impl ManagedSecondaryWindow {
   }
 
   fn tick(&mut self, tree: &mut Tree) {
+    tree.request_redraw();
     tree.tick_perf_overlay();
     if tree.perf_overlay_enabled() || tree.has_active_timeline() {
       tree.request_redraw();

@@ -80,11 +80,10 @@ WinitWindow::new(app, tree)
   .with_title("lurq app")
   .with_size(1200, 800)
   .with_min_size(800, 500)
-  .on_tick(Tree::request_redraw)
   .run();
 ```
 
-Use `on_tick` when animations or app code need a steady tick even if there is no input. The shell also keeps ticking while perf overlay or active timelines need redraws.
+The shell runs a steady redraw tick automatically. Use `on_tick` only for custom per-frame app work.
 
 ## Frame And Redraw Flow
 
