@@ -5,11 +5,11 @@ use crate::{
     layout_kind::{FrameConstraints, ScrollDirection, ScrollState},
   },
   node::{
-    color::Color,
     dimension::Dimension,
     node::{EventHandlers, Node},
     node_kind::NodeKind,
     padding::Padding,
+    spacing_value::SpacingValue,
   },
 };
 
@@ -94,12 +94,13 @@ impl Node {
     self
   }
 
-  pub fn spacing(mut self, spacing: f32) -> Self {
+  pub fn spacing(mut self, spacing: impl Into<SpacingValue>) -> Self {
     self.set_spacing(spacing);
     self
   }
 
-  fn set_spacing(&mut self, spacing: f32) {
+  fn set_spacing(&mut self, spacing: impl Into<SpacingValue>) {
+    let spacing = spacing.into();
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { spacing: s, .. } => *s = spacing,
       crate::layout::layout_kind::LayoutKind::Column { spacing: s, .. } => *s = spacing,
@@ -207,10 +208,6 @@ impl Node {
     }
   }
 
-  pub fn fill(self, col: impl Into<Color>) -> Self {
-    self.background(col.into())
-  }
-
   pub fn size(self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
       width: Some(width.into()),
@@ -245,27 +242,27 @@ impl Node {
     self.absolute_modifier(x, y, None, None)
   }
 
-  pub fn padding_horizontal(self, val: impl Into<Dimension>) -> Self {
+  pub fn padding_horizontal(self, val: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::horizontal(val.into()))
   }
 
-  pub fn padding_vertical(self, val: impl Into<Dimension>) -> Self {
+  pub fn padding_vertical(self, val: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::vertical(val.into()))
   }
 
-  pub fn padding_left(self, val: impl Into<Dimension>) -> Self {
+  pub fn padding_left(self, val: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::new().left(val.into()))
   }
 
-  pub fn padding_right(self, val: impl Into<Dimension>) -> Self {
+  pub fn padding_right(self, val: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::new().right(val.into()))
   }
 
-  pub fn padding_top(self, val: impl Into<Dimension>) -> Self {
+  pub fn padding_top(self, val: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::new().top(val.into()))
   }
 
-  pub fn padding_bottom(self, val: impl Into<Dimension>) -> Self {
+  pub fn padding_bottom(self, val: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::new().bottom(val.into()))
   }
 }

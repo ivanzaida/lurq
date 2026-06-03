@@ -7,5 +7,5 @@ mod transition;
 pub use animation::{Animation, AnimationDirection, AnimationEngine, AnimationFillMode, AnimationIterationCount};
 pub use easing::{Easing, StepPosition};
 pub use interpolate::{AnimatableProperty, AnimatableValue};
-pub use keyframes::{KeyframeBuilder, KeyframeEntry, Keyframes};
+pub use keyframes::{KeyframeBuilder, KeyframeEntry, Keyframes, KeyframesId};
 pub use transition::{Transition, TransitionEngine, TransitionProperty};

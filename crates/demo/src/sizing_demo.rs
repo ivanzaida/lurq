@@ -24,7 +24,7 @@ pub(crate) fn sizing_content() -> Element {
     .child(spacer_showcase())
     .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .into()
 }
 
@@ -42,7 +42,7 @@ fn dimension_types() -> Element {
         .justify(Justify::Center)
         .child(text("120px", 11.0, FontWeight::Medium, TEXT_MUTED))
         .size(120.0, 24.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .into(),
     ))
     .child(dimension_row(
@@ -55,7 +55,7 @@ fn dimension_types() -> Element {
             .child(text("80% of parent", 11.0, FontWeight::Medium, TEXT_MUTED))
             .width(Dimension::Pct(80.0))
             .height(24.0)
-            .fill(SECONDARY),
+            .background(SECONDARY),
         )
         .width(FILL_WIDTH)
         .height(24.0)
@@ -70,12 +70,12 @@ fn dimension_types() -> Element {
         .padding_horizontal(18.0)
         .padding_vertical(0.0)
         .height(24.0)
-        .fill(ACCENT)
+        .background(ACCENT)
         .into(),
     ))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -117,7 +117,7 @@ fn padding_showcase() -> Element {
     ))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -134,13 +134,13 @@ fn padding_sample(label: &str, fill: &str, stroke: &str, padding: Padding, heigh
         .child(text(label, 13.0, FontWeight::Normal, TEXT))
         .width(FILL_WIDTH)
         .height(24.0)
-        .fill(SURFACE_DARK)
+        .background(SURFACE_DARK)
         .rounded(3.0),
     )
     .padding(padding)
     .width(FILL_WIDTH)
     .height(height)
-    .fill(fill)
+    .background(fill)
     .border_inside(1.0, Color::from_hex(stroke))
     .rounded(PANEL_RADIUS)
     .into()
@@ -161,7 +161,7 @@ fn spacer_showcase() -> Element {
     .child(spacer_button("Right"))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -173,7 +173,7 @@ fn spacer_button(label: &str) -> Element {
     .justify(Justify::Center)
     .child(text(label, 11.0, FontWeight::Bold, TEXT))
     .size(100.0, 48.0)
-    .fill(PRIMARY)
+    .background(PRIMARY)
     .rounded(PANEL_RADIUS)
     .into()
 }

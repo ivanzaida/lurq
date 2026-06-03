@@ -1,5 +1,5 @@
 use lurq::{
-  animation::{AnimatableProperty, AnimatableValue, Animation, Keyframes},
+  animation::{AnimatableProperty, AnimatableValue, Animation, Keyframes, KeyframesId},
   app::Tree,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
@@ -12,7 +12,7 @@ fn keyframe_animation_applies_values_to_node() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("fade-in")
+    Keyframes::new(KeyframesId::new(4))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.0));
       })
@@ -22,8 +22,8 @@ fn keyframe_animation_applies_values_to_node() {
   );
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("fade-in").duration_ms(100).linear());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(4)).duration_ms(100).linear());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -40,7 +40,7 @@ fn animation_with_color_keyframes() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("color-shift")
+    Keyframes::new(KeyframesId::new(2))
       .frame(0.0, |f| {
         f.set(
           AnimatableProperty::BackgroundColor,
@@ -56,8 +56,8 @@ fn animation_with_color_keyframes() {
   );
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("color-shift").duration_ms(1000).linear());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(2)).duration_ms(1000).linear());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -81,8 +81,8 @@ fn animation_with_unregistered_keyframes_does_nothing() {
   let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("nonexistent").duration_ms(100).linear());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(9)).duration_ms(100).linear());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -102,7 +102,7 @@ fn three_keyframe_animation_interpolates_middle() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("three-step")
+    Keyframes::new(KeyframesId::new(17))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.0));
       })
@@ -115,8 +115,8 @@ fn three_keyframe_animation_interpolates_middle() {
   );
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("three-step").duration_ms(10000).linear());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(17)).duration_ms(10000).linear());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

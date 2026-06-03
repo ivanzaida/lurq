@@ -102,7 +102,7 @@ impl Component for DemoApp {
           })
           .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
           .width(SIDEBAR_WIDTH)
-          .fill(palette.surface_dark),
+          .background(palette.surface_dark),
       )
       .child(
         lurq::components::ScrollVertical::new(content)
@@ -114,12 +114,12 @@ impl Component for DemoApp {
             ..ScrollBarStyle::default()
           })
           .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
-          .fill(palette.bg)
+          .background(palette.bg)
           .flex(1.0),
       )
-      .fill(palette.bg);
+      .background(palette.bg);
 
-    content.fill(palette.bg)
+    content.background(palette.bg)
   }
 }
 

@@ -57,7 +57,7 @@ impl Component for Counter {
       .align_items(Alignment::Center)
       .child(
         lurq::components::Rect::new(36.0, 36.0)
-          .fill("#ef4444")
+          .background("#ef4444")
           .rounded(6.0)
           .on_click(move |_| c.update(|n| *n -= 1)),
       )
@@ -72,7 +72,7 @@ impl Component for Counter {
       ))
       .child(
         lurq::components::Rect::new(36.0, 36.0)
-          .fill("#22c55e")
+          .background("#22c55e")
           .rounded(6.0)
           .on_click(move |_| c2.update(|n| *n += 1)),
       )

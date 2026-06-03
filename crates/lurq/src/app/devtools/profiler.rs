@@ -163,7 +163,7 @@ fn commit_timeline(
         .align_items(Alignment::End)
         .child(
           Rect::new(8.0, (sample / max_sample * 40.0).max(4.0))
-            .fill(if selected { PRIMARY } else { duration_color(sample) })
+            .background(if selected { PRIMARY } else { duration_color(sample) })
             .rounded(1.0)
             .opacity(if selected { 1.0 } else { 0.6 }),
         )
@@ -194,7 +194,7 @@ fn commit_timeline(
     )
     .child(bars)
     .width(FILL)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_bottom(divider())
     .into()
 }
@@ -275,12 +275,12 @@ fn profile_bar(label: &str, ms: f32, max_ms: f32) -> Element {
             .padding_horizontal(8.0)
             .height(FILL)
             .width(Dimension::Pct(width))
-            .fill(Color::from_hex(&with_alpha(color, "40")))
+            .background(Color::from_hex(&with_alpha(color, "40")))
             .rounded(2.0),
         )
         .height(20.0)
         .width(FILL)
-        .fill(SURFACE_2)
+        .background(SURFACE_2)
         .rounded(2.0),
     )
     .height(28.0)
@@ -309,7 +309,7 @@ fn profiler_sidebar(
     .child(trigger_section(triggers))
     .width(320.0)
     .height(FILL)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_left(divider())
     .into()
 }
@@ -432,7 +432,7 @@ fn trigger_row(trigger: &ProfilerTriggerSnapshot) -> Element {
     .padding_horizontal(8.0)
     .padding_vertical(6.0)
     .width(FILL)
-    .fill(SURFACE_2)
+    .background(SURFACE_2)
     .rounded(4.0)
     .into()
 }
@@ -617,10 +617,10 @@ fn with_alpha(color: &str, alpha: &str) -> String {
 
 fn padding(top: f32, right: f32, bottom: f32, left: f32) -> crate::node::padding::Padding {
   crate::node::padding::Padding {
-    top: Dimension::Px(top),
-    right: Dimension::Px(right),
-    bottom: Dimension::Px(bottom),
-    left: Dimension::Px(left),
+    top: Dimension::Px(top).into(),
+    right: Dimension::Px(right).into(),
+    bottom: Dimension::Px(bottom).into(),
+    left: Dimension::Px(left).into(),
   }
 }
 

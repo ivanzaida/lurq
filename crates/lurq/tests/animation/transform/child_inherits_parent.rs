@@ -14,9 +14,9 @@ fn rt() -> Tree {
 fn child_rect_inherits_parent_rotation() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()
-    .child(lurq::components::Rect::new(30.0, 30.0).fill("#00ff00"))
+    .child(lurq::components::Rect::new(30.0, 30.0).background("#00ff00"))
     .size(60.0, 60.0)
-    .fill("#ff0000")
+    .background("#ff0000")
     .transform(Transform2D::rotate_deg(90.0));
   rt.set_root(node);
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -59,11 +59,11 @@ fn child_with_own_transform_composes_with_parent() {
   let node = lurq::components::Stack::new()
     .child(
       lurq::components::Rect::new(30.0, 30.0)
-        .fill("#00ff00")
+        .background("#00ff00")
         .transform(Transform2D::scale(2.0, 2.0)),
     )
     .size(60.0, 60.0)
-    .fill("#ff0000")
+    .background("#ff0000")
     .transform(Transform2D::rotate_deg(90.0));
   rt.set_root(node);
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -96,9 +96,9 @@ fn child_with_own_transform_composes_with_parent() {
 fn untransformed_child_of_untransformed_parent_stays_identity() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()
-    .child(lurq::components::Rect::new(30.0, 30.0).fill("#00ff00"))
+    .child(lurq::components::Rect::new(30.0, 30.0).background("#00ff00"))
     .size(60.0, 60.0)
-    .fill("#ff0000");
+    .background("#ff0000");
   rt.set_root(node);
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
   run_pass(&mut rt);

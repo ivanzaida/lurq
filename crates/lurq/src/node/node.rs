@@ -6,7 +6,10 @@ use crate::app::ctx::{
 };
 use crate::{
   animation::{Animation, Transition},
-  app::events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
+  app::{
+    events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
+    theme::TypographyId,
+  },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
     Alignment, Size, StackAlignment,
@@ -15,16 +18,18 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
-    TextTransformMode,
-    border::{Border, BorderRadius, Borders},
+    BackgroundColor, TextTransformMode,
+    border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     checkbox_style::CheckboxStyle,
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
     interaction_state::InteractionState,
-    node_kind::{CheckboxState, NodeKind, SliderState, TextInputState, TextState},
+    node_kind::{CheckboxState, NodeKind, SliderState, TextInputState, TextState, TextStyleSource},
     padding::Padding,
+    radius_value::RadiusValue,
     slider_style::SliderPartStyle,
+    spacing_value::SpacingValue,
     style::{StateStyles, Style},
     transform::Transform2D,
   },
@@ -92,8 +97,8 @@ pub(crate) struct Node {
   pub(crate) text_wrap: bool,
   pub(crate) overflow: Overflow,
   pub(crate) intrinsic_size: Option<Size>,
-  pub(crate) color: Guard<Option<Color>>,
-  pub(crate) border_radius: Guard<Option<BorderRadius>>,
+  pub(crate) color: Guard<Option<BackgroundColor>>,
+  pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
   pub(crate) cursor: Option<CursorIcon>,
   #[cfg(feature = "image")]
@@ -225,7 +230,7 @@ impl Node {
       LayoutKind::Leaf,
       NodeKind::Text {
         state: TextState::new(),
-        style: TextStyle::default(),
+        style: TextStyleSource::default_style(),
         transform_mode: TextTransformMode::default(),
       },
       vec![],
@@ -238,7 +243,7 @@ impl Node {
       LayoutKind::Leaf,
       NodeKind::Text {
         state: TextState::new(),
-        style,
+        style: TextStyleSource::explicit(style),
         transform_mode: TextTransformMode::default(),
       },
       vec![],
@@ -340,10 +345,10 @@ impl Node {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
   }
 
-  pub fn row(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
+  pub fn row(spacing: impl Into<SpacingValue>, align: Alignment, children: Vec<Node>) -> Self {
     Self::from_parts(
       LayoutKind::Row {
-        spacing,
+        spacing: spacing.into(),
         align,
         justify: crate::layout::layout_kind::Justify::Start,
         wrap: crate::layout::layout_kind::FlexWrap::NoWrap,
@@ -353,10 +358,10 @@ impl Node {
     )
   }
 
-  pub fn column(spacing: f32, align: Alignment, children: Vec<Node>) -> Self {
+  pub fn column(spacing: impl Into<SpacingValue>, align: Alignment, children: Vec<Node>) -> Self {
     Self::from_parts(
       LayoutKind::Column {
-        spacing,
+        spacing: spacing.into(),
         align,
         justify: crate::layout::layout_kind::Justify::Start,
         wrap: crate::layout::layout_kind::FlexWrap::NoWrap,
@@ -425,51 +430,51 @@ impl Node {
     )
   }
 
-  pub fn background(mut self, color: Color) -> Self {
-    self.color.set(Some(color));
+  pub fn background(mut self, color: impl Into<BackgroundColor>) -> Self {
+    self.color.set(Some(color.into()));
     self
   }
 
-  pub fn corner_radius(mut self, radius: f32) -> Self {
-    self.border_radius.set(Some(BorderRadius::all(radius)));
+  pub fn corner_radius(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self.border_radius.set(Some(ThemedBorderRadius::all(radius)));
     self
   }
 
   pub fn corner_radius_custom(mut self, radius: BorderRadius) -> Self {
-    self.border_radius.set(Some(radius));
+    self.border_radius.set(Some(radius.into()));
     self
   }
 
-  pub fn corner_radius_top_left(mut self, radius: f32) -> Self {
+  pub fn corner_radius_top_left(mut self, radius: impl Into<RadiusValue>) -> Self {
     let mut border_radius = (*self.border_radius).unwrap_or_default();
-    border_radius.top_left = radius;
+    border_radius.top_left = radius.into();
     self.border_radius.set(Some(border_radius));
     self
   }
 
-  pub fn corner_radius_top_right(mut self, radius: f32) -> Self {
+  pub fn corner_radius_top_right(mut self, radius: impl Into<RadiusValue>) -> Self {
     let mut border_radius = (*self.border_radius).unwrap_or_default();
-    border_radius.top_right = radius;
+    border_radius.top_right = radius.into();
     self.border_radius.set(Some(border_radius));
     self
   }
 
-  pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
+  pub fn corner_radius_bottom_right(mut self, radius: impl Into<RadiusValue>) -> Self {
     let mut border_radius = (*self.border_radius).unwrap_or_default();
-    border_radius.bottom_right = radius;
+    border_radius.bottom_right = radius.into();
     self.border_radius.set(Some(border_radius));
     self
   }
 
-  pub fn corner_radius_bottom_left(mut self, radius: f32) -> Self {
+  pub fn corner_radius_bottom_left(mut self, radius: impl Into<RadiusValue>) -> Self {
     let mut border_radius = (*self.border_radius).unwrap_or_default();
-    border_radius.bottom_left = radius;
+    border_radius.bottom_left = radius.into();
     self.border_radius.set(Some(border_radius));
     self
   }
 
-  pub fn rounded(mut self, radius: f32) -> Self {
-    self.border_radius.set(Some(BorderRadius::all(radius)));
+  pub fn rounded(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self.border_radius.set(Some(ThemedBorderRadius::all(radius)));
     self
   }
 
@@ -758,6 +763,14 @@ impl Node {
     self
   }
 
+  pub fn text_variant(mut self, id: impl Into<TypographyId>) -> Self {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      *style = TextStyleSource::variant(id);
+      self.layout_cache.invalidate();
+    }
+    self
+  }
+
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_placeholder(placeholder);
@@ -1041,14 +1054,33 @@ impl Node {
   }
 
   pub fn color(&self) -> Option<Color> {
+    self.background_color().and_then(BackgroundColor::as_color)
+  }
+
+  pub(crate) fn background_color(&self) -> Option<BackgroundColor> {
     if let Some(c) = self.animation_override_color() {
-      return Some(c);
+      return Some(BackgroundColor::Color(c));
     }
     self.state_style().color.or(*self.color)
   }
 
-  pub fn get_border_radius(&self) -> Option<BorderRadius> {
-    let mut r = self.state_style().border_radius.or(*self.border_radius);
+  pub(crate) fn resolved_color(&self, palette: &crate::app::theme::ThemePalette) -> Option<Color> {
+    if let Some(c) = self.animation_override_color() {
+      return Some(c);
+    }
+    self
+      .state_style()
+      .color
+      .or(*self.color)
+      .and_then(|color| color.resolve(palette))
+  }
+
+  pub fn get_border_radius(&self, radii: &crate::app::theme::ThemeRadii) -> Option<BorderRadius> {
+    let mut r = self
+      .state_style()
+      .border_radius
+      .or(*self.border_radius)
+      .map(|radius| radius.resolve(radii));
     if let Some(mut br) = r {
       let overrides = &self.animation_overrides;
       for (prop, val) in overrides {
@@ -1597,7 +1629,7 @@ impl Node {
     self.state_style()
   }
 
-  fn state_style(&self) -> Style {
+  pub(crate) fn state_style(&self) -> Style {
     let mut style = Style::new();
     if self.style_state.is_focused() {
       if let Some(focused) = &self.state_styles.focused {

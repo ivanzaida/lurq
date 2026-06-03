@@ -246,7 +246,7 @@ fn signals_list_panel(
     .child(ScrollVertical::new(body).height(FILL).width(FILL).flex(1.0))
     .width(560.0)
     .height(FILL)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_right(divider())
     .into()
 }
@@ -282,7 +282,7 @@ fn signal_row(
   let signal_key = signal.key();
   let mut row = Row::new()
     .align_items(Alignment::Center)
-    .child(Rect::new(6.0, 6.0).fill(color).rounded(3.0))
+    .child(Rect::new(6.0, 6.0).background(color).rounded(3.0))
     .child(Spacer::new().width(6.0))
     .child(mono_text(&format!("#{}", signal.id), 11.0, FontWeight::Medium, TEXT).width(148.0))
     .child(mono_text(&signal.type_display(), 10.0, FontWeight::Normal, MUTED).width(120.0))
@@ -291,7 +291,7 @@ fn signal_row(
     .child(mono_text(&signal.owner, 10.0, FontWeight::Normal, BLUE).width(130.0))
     .padding_custom(padding(7.0, 16.0, 7.0, 16.0))
     .width(FILL)
-    .fill(background)
+    .background(background)
     .cursor(CursorIcon::Pointer)
     .on_click(move |_| selected_signal_signal.set(Some(signal_key.clone())));
 
@@ -367,7 +367,7 @@ fn dependency_graph(selected: Option<&SignalRow>) -> Element {
     .child(Spacer::new().flex(1.0))
     .height(220.0)
     .width(FILL)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_bottom(divider())
     .into()
 }
@@ -379,7 +379,7 @@ fn empty_graph(message: &str) -> Element {
     .child(text(message, 12.0, FontWeight::Normal, MUTED))
     .height(220.0)
     .width(FILL)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_bottom(divider())
     .into()
 }
@@ -397,7 +397,7 @@ fn graph_node(label: &str, kind: &str, color: &str, value: Option<&str>) -> Colu
     .padding_custom(padding(10.0, 16.0, 10.0, 16.0))
     .width(132.0)
     .height(72.0)
-    .fill(Color::from_hex(&with_alpha(color, "18")))
+    .background(Color::from_hex(&with_alpha(color, "18")))
     .border_inside(1.0, Color::from_hex(color))
     .rounded(6.0)
 }
@@ -407,7 +407,7 @@ fn graph_relation(label: &str) -> Column {
     .align_items(Alignment::Center)
     .spacing(7.0)
     .child(graph_label(label))
-    .child(Rect::new(56.0, 1.0).fill(MUTED).opacity(0.35))
+    .child(Rect::new(56.0, 1.0).background(MUTED).opacity(0.35))
     .width(66.0)
 }
 
@@ -418,7 +418,7 @@ fn graph_label(label: &str) -> Row {
     .child(mono_text(label, 8.0, FontWeight::Normal, MUTED))
     .padding_horizontal(6.0)
     .padding_vertical(2.0)
-    .fill(SURFACE_2)
+    .background(SURFACE_2)
     .rounded(3.0)
 }
 
@@ -475,7 +475,7 @@ fn empty_history_placeholder() -> Element {
     )
     .padding_custom(padding(10.0, 12.0, 10.0, 12.0))
     .width(FILL)
-    .fill(SURFACE_2)
+    .background(SURFACE_2)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(4.0)
     .into()
@@ -512,7 +512,7 @@ fn history_row(row: &SignalHistoryRow, index: usize) -> Element {
     )
     .padding_custom(padding(6.0, 16.0, 6.0, 16.0))
     .width(FILL)
-    .fill(if index % 2 == 1 { SURFACE_2 } else { "#00000000" })
+    .background(if index % 2 == 1 { SURFACE_2 } else { "#00000000" })
     .into()
 }
 
@@ -579,7 +579,7 @@ fn value_badge_with_color(value: &str, color: &str) -> Row {
     .child(mono_text(value, 11.0, FontWeight::Bold, color))
     .padding_horizontal(6.0)
     .padding_vertical(1.0)
-    .fill(Color::from_hex(&with_alpha(color, "12")))
+    .background(Color::from_hex(&with_alpha(color, "12")))
     .rounded(3.0)
 }
 
@@ -591,7 +591,7 @@ fn history_badge(label: &str) -> Row {
     .padding_horizontal(6.0)
     .padding_vertical(1.0)
     .width(68.0)
-    .fill(SURFACE_2)
+    .background(SURFACE_2)
     .rounded(3.0)
 }
 
@@ -622,10 +622,10 @@ fn current_compact_timestamp() -> String {
 
 fn padding(top: f32, right: f32, bottom: f32, left: f32) -> crate::node::padding::Padding {
   crate::node::padding::Padding {
-    top: Dimension::Px(top),
-    right: Dimension::Px(right),
-    bottom: Dimension::Px(bottom),
-    left: Dimension::Px(left),
+    top: Dimension::Px(top).into(),
+    right: Dimension::Px(right).into(),
+    bottom: Dimension::Px(bottom).into(),
+    left: Dimension::Px(left).into(),
   }
 }
 

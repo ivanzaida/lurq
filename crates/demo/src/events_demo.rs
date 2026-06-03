@@ -59,7 +59,7 @@ impl Component for EventsDemo {
       .child(mouse_demo(self.pointer.clone()))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .background(BG)
   }
 }
 
@@ -83,7 +83,7 @@ fn click_demo(log: Signal<Vec<String>>) -> Element {
     .child(event_log(log).flex(1.0))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -95,11 +95,11 @@ fn event_button(label: &str, fill: &str, handlers: ButtonHandlers) -> Element {
     .justify(Justify::Center)
     .child(text(label, 14.0, FontWeight::Bold, "#ffffff"))
     .size(180.0, 48.0)
-    .fill(fill)
+    .background(fill)
     .rounded(CARD_RADIUS)
     .cursor(CursorIcon::Pointer)
-    .hovered(|style| style.fill("#60a5fa"))
-    .active(|style| style.fill("#2563eb"));
+    .hovered(|style| style.background("#60a5fa"))
+    .active(|style| style.background("#2563eb"));
 
   if let Some(on_click) = handlers.on_click {
     button = button.on_click(on_click);
@@ -171,7 +171,7 @@ fn event_log(log: Signal<Vec<String>>) -> lurq::components::Column {
     .height(140.0)
     .padding(12.0)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(PANEL_RADIUS)
 }
@@ -186,7 +186,7 @@ fn hover_demo() -> Element {
     .padding_horizontal(24.0)
     .padding_vertical(20.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -203,11 +203,11 @@ fn state_sample(label: &str, fill: &str) -> Element {
         .justify(Justify::Center)
         .child(text("Button", 14.0, FontWeight::Bold, "#ffffff"))
         .size(140.0, 44.0)
-        .fill(fill)
+        .background(fill)
         .rounded(CARD_RADIUS)
         .cursor(CursorIcon::Pointer)
-        .hovered(|style| style.fill("#60a5fa"))
-        .active(|style| style.fill("#2563eb")),
+        .hovered(|style| style.background("#60a5fa"))
+        .active(|style| style.background("#2563eb")),
     )
     .into()
 }
@@ -225,7 +225,7 @@ fn mouse_demo(pointer: Signal<PointerState>) -> Element {
     ))
     .padding(20.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -246,7 +246,7 @@ fn track_area(pointer: Signal<PointerState>, state: PointerState) -> Element {
     )
     .height(70.0)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Crosshair)

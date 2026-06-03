@@ -57,7 +57,7 @@ pub(crate) fn transform_content() -> Element {
     .child(text_section())
     .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .into()
 }
 
@@ -87,14 +87,14 @@ fn card_row(children: Vec<Element>) -> Element {
     .with_children(children)
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
 }
 
 fn box_60(color: &str) -> lurq::components::Rect {
-  lurq::components::Rect::new(60.0, 60.0).fill(color).rounded(8.0)
+  lurq::components::Rect::new(60.0, 60.0).background(color).rounded(8.0)
 }
 
 fn rotate_section() -> Element {
@@ -183,7 +183,7 @@ fn text_box(label: &str, color: &str, xf: Transform2D) -> Element {
     .justify(Justify::Center)
     .child(text(label, 14.0, FontWeight::Bold, "#ffffff"))
     .size(100.0, 50.0)
-    .fill(color)
+    .background(color)
     .rounded(8.0)
     .transform(xf)
     .into()

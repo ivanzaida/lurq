@@ -1,5 +1,5 @@
 use lurq::{
-  animation::{AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, Keyframes},
+  animation::{AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, Keyframes, KeyframesId},
   app::Tree,
   layout::{Constraints, Size},
 };
@@ -11,7 +11,7 @@ fn fill_forwards_holds_final_value_after_completion() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("fade-out")
+    Keyframes::new(KeyframesId::new(5))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(1.0));
       })
@@ -20,12 +20,14 @@ fn fill_forwards_holds_final_value_after_completion() {
       }),
   );
 
-  let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").animation(
-    Animation::new("fade-out")
-      .duration_ms(1)
-      .linear()
-      .fill_mode(AnimationFillMode::Forwards),
-  );
+  let node = lurq::components::Rect::new(100.0, 50.0)
+    .background("#ff0000")
+    .animation(
+      Animation::new(KeyframesId::new(5))
+        .duration_ms(1)
+        .linear()
+        .fill_mode(AnimationFillMode::Forwards),
+    );
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -49,7 +51,7 @@ fn fill_none_does_not_hold_final_value() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("fade-out")
+    Keyframes::new(KeyframesId::new(5))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(1.0));
       })
@@ -58,12 +60,14 @@ fn fill_none_does_not_hold_final_value() {
       }),
   );
 
-  let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").animation(
-    Animation::new("fade-out")
-      .duration_ms(1)
-      .linear()
-      .fill_mode(AnimationFillMode::None),
-  );
+  let node = lurq::components::Rect::new(100.0, 50.0)
+    .background("#ff0000")
+    .animation(
+      Animation::new(KeyframesId::new(5))
+        .duration_ms(1)
+        .linear()
+        .fill_mode(AnimationFillMode::None),
+    );
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -83,7 +87,7 @@ fn fill_backwards_applies_first_frame_during_delay() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("start-dim")
+    Keyframes::new(KeyframesId::new(16))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.3));
       })
@@ -92,13 +96,15 @@ fn fill_backwards_applies_first_frame_during_delay() {
       }),
   );
 
-  let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").animation(
-    Animation::new("start-dim")
-      .duration_ms(10000)
-      .delay_ms(10000)
-      .linear()
-      .fill_mode(AnimationFillMode::Backwards),
-  );
+  let node = lurq::components::Rect::new(100.0, 50.0)
+    .background("#ff0000")
+    .animation(
+      Animation::new(KeyframesId::new(16))
+        .duration_ms(10000)
+        .delay_ms(10000)
+        .linear()
+        .fill_mode(AnimationFillMode::Backwards),
+    );
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

@@ -13,9 +13,9 @@ fn image_command_carries_structural_order() {
   let mut runtime = Tree::new();
   runtime.set_root(
     Stack::new()
-      .child(Rect::new(10.0, 10.0).fill("#ef4444"))
+      .child(Rect::new(10.0, 10.0).background("#ef4444"))
       .child(Image::new(image).size(10.0, 10.0))
-      .child(Rect::new(10.0, 10.0).fill("#22c55e")),
+      .child(Rect::new(10.0, 10.0).background("#22c55e")),
   );
 
   let snapshot = render_pass(&mut runtime);
@@ -29,7 +29,7 @@ fn left_border_emits_only_left_stroke() {
   let mut runtime = Tree::new();
   runtime.set_root(
     Rect::new(20.0, 10.0)
-      .fill("#111827")
+      .background("#111827")
       .border_left(Border::inside(2.0, Color::from_hex("#8b5cf6"))),
   );
 
@@ -45,7 +45,7 @@ fn all_sides_border_stays_grouped() {
   let mut runtime = Tree::new();
   runtime.set_root(
     Rect::new(20.0, 10.0)
-      .fill("#111827")
+      .background("#111827")
       .border(Border::inside(1.0, Color::from_hex("#8b5cf6"))),
   );
 
@@ -60,7 +60,7 @@ fn corner_radius_shorthand_and_per_corner_setters_emit_radii() {
   let mut runtime = Tree::new();
   runtime.set_root(
     Rect::new(20.0, 10.0)
-      .fill("#111827")
+      .background("#111827")
       .corner_radius(2.0)
       .corner_radius_top_right(4.0)
       .corner_radius_bottom_left(6.0),

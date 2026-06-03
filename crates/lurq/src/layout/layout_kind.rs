@@ -5,7 +5,7 @@ use crate::{
     Alignment, StackAlignment,
     scrollbar::{ScrollBarGeometry, ScrollBarStyle, ScrollBarVisibility},
   },
-  node::{dimension::Dimension, padding::Padding},
+  node::{dimension::Dimension, padding::Padding, spacing_value::SpacingValue},
 };
 
 const DEFAULT_FLEX_GROW: f32 = 1.0;
@@ -15,13 +15,13 @@ const DEFAULT_FLEX_SHRINK: f32 = 0.0;
 pub enum LayoutKind {
   Leaf,
   Row {
-    spacing: f32,
+    spacing: SpacingValue,
     align: Alignment,
     justify: Justify,
     wrap: FlexWrap,
   },
   Column {
-    spacing: f32,
+    spacing: SpacingValue,
     align: Alignment,
     justify: Justify,
     wrap: FlexWrap,

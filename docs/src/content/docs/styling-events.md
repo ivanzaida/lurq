@@ -13,7 +13,7 @@ Most visual and input behavior is expressed as chainable modifiers on typed comp
 use lurq::{components::Rect, node::color::Color};
 
 Rect::new(120.0, 40.0)
-  .fill("#2563eb")
+  .background("#2563eb")
   .rounded(8.0)
   .border_inside(1.0, Color::from_hex("#1d4ed8"))
 ```
@@ -22,10 +22,9 @@ Common visual modifiers:
 
 | Modifier | Purpose |
 | --- | --- |
-| `.fill(color)` | Background fill. Accepts hex strings through `Into<Color>`. |
-| `.background(color)` | Background fill from `Color`. |
-| `.rounded(radius)` | Uniform corner radius. |
-| `.corner_radius_*` | Per-corner radius. |
+| `.background(color)` | Background color from a concrete color or `PaletteId`. |
+| `.rounded(radius)` | Uniform corner radius from `f32` or `RadiusId`. |
+| `.corner_radius_*` | Per-corner radius from `f32` or `RadiusId`. |
 | `.border_inside(width, color)` | Border inside the element bounds. |
 | `.border_center(width, color)` | Border centered on the element edge. |
 | `.border_outside(width, color)` | Border outside the element bounds. |
@@ -43,11 +42,11 @@ use lurq::{components::Text, node::CursorIcon};
 Text::new("Save")
   .padding_horizontal(12.0)
   .padding_vertical(8.0)
-  .fill("#2563eb")
+  .background("#2563eb")
   .rounded(6.0)
   .cursor(CursorIcon::Pointer)
-  .hovered(|style| style.fill("#3b82f6"))
-  .active(|style| style.fill("#1d4ed8"))
+  .hovered(|style| style.background("#3b82f6"))
+  .active(|style| style.background("#1d4ed8"))
   .focused(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
 
@@ -158,7 +157,7 @@ Input updates write back to their signals, which rerenders the owning component.
 
 ### Checkbox Styling
 
-Checkboxes accept normal element modifiers such as `.size()`, `.fill()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.fill()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator.
+Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator.
 
 ```rust
 use lurq::{components::Checkbox, core::Signal, node::color::Color};
@@ -167,17 +166,17 @@ let enabled = Signal::new(true);
 
 Checkbox::new(enabled)
   .size(20.0, 20.0)
-  .fill("#ffffff")
+  .background("#ffffff")
   .border_inside(1.0, Color::from_hex("#94a3b8"))
   .rounded(4.0)
   .checked_box(|style| {
     style
-      .fill("#2563eb")
+      .background("#2563eb")
       .border_inside(1.0, Color::from_hex("#1d4ed8"))
       .rounded(4.0)
   })
   .box_hovered(|style| style.border_inside(1.0, Color::from_hex("#38bdf8")))
-  .checked_box_hovered(|style| style.fill("#1d4ed8"))
+  .checked_box_hovered(|style| style.background("#1d4ed8"))
 ```
 
 With the `image` feature enabled, checked boxes can render an indicator image centered inside the box:
@@ -190,7 +189,7 @@ let check = ImageData::from_file("assets/check.png").unwrap();
 Checkbox::new(enabled)
   .checked_box(|style| {
     style
-      .fill("#16a34a")
+      .background("#16a34a")
       .indicator_image(check)
       .indicator_size(12.0, 12.0)
       .indicator_contain()
@@ -230,33 +229,33 @@ Slider::new(value)
   .track(|style| {
     style
       .size(220.0, 2.0)
-      .fill("#334155")
+      .background("#334155")
       .rounded(1.0)
       .border_center(1.0, Color::from_hex("#64748b"))
   })
   .track_hovered(|style| {
     style
       .height(4.0)
-      .fill("#475569")
+      .background("#475569")
       .border_center(1.0, Color::from_hex("#93c5fd"))
   })
   .thumb(|style| {
     style
       .size(12.0, 12.0)
-      .fill("#f97316")
+      .background("#f97316")
       .rounded(6.0)
       .border_inside(2.0, Color::from_hex("#0f172a"))
   })
   .thumb_hovered(|style| {
     style
       .size(14.0, 14.0)
-      .fill("#fb923c")
+      .background("#fb923c")
       .rounded(7.0)
       .border_inside(2.0, Color::from_hex("#f8fafc"))
   })
 ```
 
-The track and thumb support width, height, fill/background color, border, corner radius, image backgrounds, and hover overrides. Hover dimensions are included in the slider's preferred size, so a larger hover thumb does not resize surrounding layout when the pointer enters.
+The track and thumb support width, height, background color, border, corner radius, image backgrounds, and hover overrides. Corner radius accepts `f32` or `RadiusId`. Hover dimensions are included in the slider's preferred size, so a larger hover thumb does not resize surrounding layout when the pointer enters.
 
 The thumb is centered on the track line, not on the slider frame. A `2px` track with a `10px` or `14px` thumb keeps the thumb vertically centered on that thin track.
 
@@ -296,7 +295,7 @@ let card = Draggable::mount(
     println!("drop result: {:?}", event.drop_result);
   }),
   Rect::new(64.0, 64.0)
-    .fill("#2563eb")
+    .background("#2563eb")
     .absolute_position(24.0, 24.0),
 );
 
@@ -306,7 +305,7 @@ let zone = DropZone::mount(
     println!("source {:?} dropped on {:?}", event.source_id, event.target_id);
   }),
   Rect::new(160.0, 100.0)
-    .fill("#16a34a33")
+    .background("#16a34a33")
     .absolute_position(180.0, 80.0),
 );
 

@@ -1,5 +1,5 @@
 use lurq::{
-  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes},
+  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, KeyframesId},
   app::Tree,
   layout::{Constraints, Size},
 };
@@ -11,7 +11,7 @@ fn per_keyframe_easing_overrides_animation_easing() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("custom-ease")
+    Keyframes::new(KeyframesId::new(3))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.0));
         f.easing(Easing::EASE_IN);
@@ -22,8 +22,8 @@ fn per_keyframe_easing_overrides_animation_easing() {
   );
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("custom-ease").duration_ms(10000).linear());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(3)).duration_ms(10000).linear());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -42,7 +42,7 @@ fn keyframes_without_per_frame_easing_use_animation_easing() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("no-per-frame")
+    Keyframes::new(KeyframesId::new(8))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.0));
       })
@@ -52,8 +52,8 @@ fn keyframes_without_per_frame_easing_use_animation_easing() {
   );
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("no-per-frame").duration_ms(10000).linear());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(8)).duration_ms(10000).linear());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

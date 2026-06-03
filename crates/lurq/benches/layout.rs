@@ -10,7 +10,7 @@ fn build_flat_rects(count: usize) -> Element {
   Column::with(
     0.0,
     Alignment::Start,
-    (0..count).map(|_| Rect::new(100.0, 20.0).fill("#334155")),
+    (0..count).map(|_| Rect::new(100.0, 20.0).background("#334155")),
   )
   .into()
 }
@@ -18,7 +18,7 @@ fn build_flat_rects(count: usize) -> Element {
 fn build_nested_rows(depth: usize, items_per_level: usize) -> Element {
   fn nest(depth: usize, items: usize) -> Element {
     if depth == 0 {
-      return Rect::new(40.0, 20.0).fill("#3b82f6").into();
+      return Rect::new(40.0, 20.0).background("#3b82f6").into();
     }
     Row::with(4.0, Alignment::Start, (0..items).map(|_| nest(depth - 1, items))).into()
   }
@@ -48,7 +48,7 @@ fn build_mixed_dashboard() -> Element {
             Alignment::Start,
             vec![
               Element::from(Text::new("Metric")),
-              Element::from(Rect::new(120.0, 60.0).fill("#1e293b").rounded(8.0)),
+              Element::from(Rect::new(120.0, 60.0).background("#1e293b").rounded(8.0)),
               Element::from(Text::new("12,345")),
             ],
           )

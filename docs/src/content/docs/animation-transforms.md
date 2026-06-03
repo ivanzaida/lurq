@@ -23,14 +23,14 @@ use lurq::{
 };
 
 lurq::components::Rect::new(80.0, 40.0)
-  .fill("#3b82f6")
+  .background("#3b82f6")
   .rounded(4.0)
   .border_inside(1.0, Color::from_hex("#1d4ed8"))
   .transition(Transition::background_color().duration_ms(250))
   .transition(Transition::all().duration_ms(350).easing(Easing::EASE_OUT))
   .hovered(|style| {
     style
-      .fill("#ef4444")
+      .background("#ef4444")
       .rounded(18.0)
       .border_inside(2.0, Color::from_hex("#f8fafc"))
   })
@@ -61,14 +61,15 @@ Register keyframes on the tree before nodes reference them:
 
 ```rust
 use lurq::{
-  animation::{AnimatableProperty, Animation, Easing, Keyframes},
+  animation::{AnimatableProperty, Animation, Easing, Keyframes, KeyframesId},
   node::color::Color,
 };
 
 let mut tree = lurq::app::Tree::new();
+const COLOR_CYCLE: KeyframesId = KeyframesId::new(1);
 
 tree.register_keyframes(
-  Keyframes::new("color-cycle")
+  Keyframes::new(COLOR_CYCLE)
     .frame(0.0, |f| {
       f.set(AnimatableProperty::BackgroundColor, Color::from_hex("#3b82f6"));
     })
@@ -82,12 +83,12 @@ tree.register_keyframes(
 );
 ```
 
-Then attach the animation by name:
+Then attach the animation by ID:
 
 ```rust
 lurq::components::Rect::new(64.0, 64.0)
-  .fill("#3b82f6")
-  .animation(Animation::new("color-cycle").duration_ms(1600).linear().infinite())
+  .background("#3b82f6")
+  .animation(Animation::new(COLOR_CYCLE).duration_ms(1600).linear().infinite())
 ```
 
 Keyframe offsets are normalized from `0.0` to `1.0`. The engine finds the surrounding frames for the current progress, applies the frame easing when present, and interpolates properties that exist in both frames.
@@ -139,7 +140,7 @@ Use `.transform(Transform2D)` for a visual 2D transform around the element cente
 use lurq::node::transform::Transform2D;
 
 lurq::components::Rect::new(80.0, 48.0)
-  .fill("#3b82f6")
+  .background("#3b82f6")
   .transform(Transform2D::rotate_deg(12.0))
 ```
 
@@ -170,12 +171,14 @@ Transform interpolation uses `Decomposed` values: translation, scale, rotation, 
 
 ```rust
 use lurq::{
-  animation::{AnimatableProperty, Animation, Keyframes},
+  animation::{AnimatableProperty, Animation, Keyframes, KeyframesId},
   node::transform::Decomposed,
 };
 
+const SPIN: KeyframesId = KeyframesId::new(14);
+
 tree.register_keyframes(
-  Keyframes::new("spin")
+  Keyframes::new(SPIN)
     .frame(0.0, |f| {
       f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
     })
@@ -188,7 +191,7 @@ tree.register_keyframes(
 );
 
 lurq::components::Rect::new(48.0, 48.0)
-  .animation(Animation::new("spin").duration_ms(1200).linear().infinite())
+  .animation(Animation::new(SPIN).duration_ms(1200).linear().infinite())
 ```
 
 Use `Decomposed` directly when the path matters. For example, `Transform2D::rotate_deg(360.0)` is visually the identity matrix, so it cannot express a full spin by itself.

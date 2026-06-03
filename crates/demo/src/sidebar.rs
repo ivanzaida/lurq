@@ -80,7 +80,7 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>, theme: D
       .map(move |(label, tab)| sidebar_item(label, tab == Some(selected), tab, selected_tab.clone(), theme)),
     )
     .width(200.0)
-    .fill(palette.surface_dark)
+    .background(palette.surface_dark)
     .into()
 }
 
@@ -94,7 +94,7 @@ fn sidebar_item(
   let palette = theme.palette();
   let mut item = lurq::components::Row::new()
     .align_items(Alignment::Center)
-    .child(lurq::components::Rect::new(3.0, 38.0).fill(if selected { palette.primary } else { "#00000000" }))
+    .child(lurq::components::Rect::new(3.0, 38.0).background(if selected { palette.primary } else { "#00000000" }))
     .child(lurq::components::Spacer::new().width(13.0))
     .child(text(
       label,
@@ -105,7 +105,7 @@ fn sidebar_item(
     .width(200.0)
     .height(38.0)
     .cursor(CursorIcon::Pointer)
-    .fill(if selected { palette.nav_selected } else { "#00000000" });
+    .background(if selected { palette.nav_selected } else { "#00000000" });
 
   if let Some(tab) = tab {
     item = item.on_click(move |_| selected_tab.set(tab));

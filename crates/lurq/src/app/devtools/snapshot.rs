@@ -15,11 +15,13 @@ use crate::{
   },
   node::{
     ElementRef,
-    border::{Border, BorderPlacement, BorderRadius, Borders},
+    border::{Border, BorderPlacement, Borders, ThemedBorderRadius},
     cursor::CursorIcon,
     dimension::Dimension,
     node_kind::NodeKind,
     padding::Padding,
+    radius_value::RadiusValue,
+    spacing_value::SpacingValue,
     style::Style,
   },
 };
@@ -176,8 +178,8 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
   if let Some(color) = element.color() {
     push_shape_row(&mut rows, "fill", color.to_hex());
   }
-  if let Some(radius) = element.node.get_border_radius() {
-    push_shape_group(&mut rows, "radius", radius_rows(radius));
+  if let Some(radius) = element.node.state_style().border_radius.or(*element.node.border_radius) {
+    push_shape_group(&mut rows, "radius", themed_radius_rows(radius));
   }
   if let Some(border) = element.node.get_border() {
     push_shape_group(&mut rows, "border", border_rows(border));
@@ -217,7 +219,7 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
       justify,
       wrap,
     } => {
-      push_shape_row(rows, "spacing", format_px(*spacing));
+      push_shape_row(rows, "spacing", format_spacing_value(spacing));
       push_shape_row(rows, "align", alignment_name(*align));
       push_shape_row(rows, "justify", justify_name(*justify));
       push_shape_row(rows, "wrap", flex_wrap_name(*wrap));
@@ -353,10 +355,15 @@ fn shape_group(label: impl Into<String>, children: Vec<DevToolsShapeRow>) -> Dev
 fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
   let mut rows = Vec::new();
   if let Some(color) = style.color {
-    rows.push(shape_leaf("fill", color.to_hex()));
+    match color {
+      crate::node::BackgroundColor::Color(color) => rows.push(shape_leaf("background", color.to_hex())),
+      crate::node::BackgroundColor::Palette(id) => {
+        rows.push(shape_leaf("background", format!("palette({})", id.get())))
+      }
+    }
   }
   if let Some(radius) = style.border_radius {
-    rows.push(shape_group("radius", radius_rows(radius)));
+    rows.push(shape_group("radius", themed_radius_rows(radius)));
   }
   if let Some(border) = style.border {
     rows.push(shape_group("border", border_rows(border)));
@@ -461,19 +468,19 @@ fn scroll_direction_name(direction: ScrollDirection) -> &'static str {
 
 fn padding_rows(padding: &Padding) -> Vec<DevToolsShapeRow> {
   vec![
-    shape_leaf("left", format_dimension(&padding.left)),
-    shape_leaf("right", format_dimension(&padding.right)),
-    shape_leaf("top", format_dimension(&padding.top)),
-    shape_leaf("bottom", format_dimension(&padding.bottom)),
+    shape_leaf("left", format_spacing_value(&padding.left)),
+    shape_leaf("right", format_spacing_value(&padding.right)),
+    shape_leaf("top", format_spacing_value(&padding.top)),
+    shape_leaf("bottom", format_spacing_value(&padding.bottom)),
   ]
 }
 
-fn radius_rows(radius: BorderRadius) -> Vec<DevToolsShapeRow> {
+fn themed_radius_rows(radius: ThemedBorderRadius) -> Vec<DevToolsShapeRow> {
   vec![
-    shape_leaf("top left", format_px(radius.top_left)),
-    shape_leaf("top right", format_px(radius.top_right)),
-    shape_leaf("bottom right", format_px(radius.bottom_right)),
-    shape_leaf("bottom left", format_px(radius.bottom_left)),
+    shape_leaf("top left", format_radius_value(radius.top_left)),
+    shape_leaf("top right", format_radius_value(radius.top_right)),
+    shape_leaf("bottom right", format_radius_value(radius.bottom_right)),
+    shape_leaf("bottom left", format_radius_value(radius.bottom_left)),
   ]
 }
 
@@ -514,6 +521,20 @@ fn format_dimension(value: &Dimension) -> String {
     Dimension::Auto => "auto".to_owned(),
     Dimension::Px(value) => format_px(*value),
     Dimension::Pct(value) => format!("{}%", format_number(*value)),
+  }
+}
+
+fn format_spacing_value(value: &SpacingValue) -> String {
+  match value {
+    SpacingValue::Dimension(value) => format_dimension(value),
+    SpacingValue::Theme(id) => format!("spacing({})", id.get()),
+  }
+}
+
+fn format_radius_value(value: RadiusValue) -> String {
+  match value {
+    RadiusValue::Px(value) => format_px(value),
+    RadiusValue::Theme(id) => format!("radius({})", id.get()),
   }
 }
 

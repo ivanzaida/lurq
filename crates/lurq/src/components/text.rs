@@ -1,4 +1,4 @@
-use crate::{impl_into_node, layout::text_style::TextStyle, node::TextTransformMode};
+use crate::{app::theme::TypographyId, impl_into_node, layout::text_style::TextStyle, node::TextTransformMode};
 
 impl_into_node!(Text);
 
@@ -23,6 +23,11 @@ impl Text {
 
   pub fn text_transform_mode(mut self, mode: TextTransformMode) -> Self {
     self.node = self.node.text_transform_mode(mode);
+    self
+  }
+
+  pub fn variant(mut self, id: impl Into<TypographyId>) -> Self {
+    self.node = self.node.text_variant(id);
     self
   }
 }

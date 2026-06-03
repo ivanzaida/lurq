@@ -7,7 +7,11 @@ impl Row {
     Self::from_node(crate::node::Node::row(0.0, Alignment::Start, vec![]))
   }
 
-  pub fn with(spacing: f32, align: Alignment, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+  pub fn with(
+    spacing: impl Into<crate::node::SpacingValue>,
+    align: Alignment,
+    children: impl IntoIterator<Item = impl Into<Element>>,
+  ) -> Self {
     Self::new().spacing(spacing).align_items(align).with_children(children)
   }
 
@@ -23,7 +27,7 @@ impl Row {
     self
   }
 
-  pub fn spacing(mut self, spacing: f32) -> Self {
+  pub fn spacing(mut self, spacing: impl Into<crate::node::SpacingValue>) -> Self {
     self.node = self.node.spacing(spacing);
     self
   }

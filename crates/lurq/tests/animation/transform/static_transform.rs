@@ -13,7 +13,7 @@ fn rt() -> Tree {
 #[test]
 fn identity_transform_by_default() {
   let mut rt = rt();
-  rt.set_root(lurq::components::Rect::new(60.0, 40.0).fill("#ff0000"));
+  rt.set_root(lurq::components::Rect::new(60.0, 40.0).background("#ff0000"));
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
   run_pass(&mut rt);
 
@@ -27,7 +27,7 @@ fn rotate_propagates_to_quad() {
   let mut rt = rt();
   rt.set_root(
     lurq::components::Rect::new(60.0, 40.0)
-      .fill("#ff0000")
+      .background("#ff0000")
       .transform(Transform2D::rotate_deg(45.0)),
   );
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -46,7 +46,7 @@ fn scale_propagates_to_quad() {
   let mut rt = rt();
   rt.set_root(
     lurq::components::Rect::new(60.0, 40.0)
-      .fill("#ff0000")
+      .background("#ff0000")
       .transform(Transform2D::scale(2.0, 0.5)),
   );
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -63,7 +63,7 @@ fn transform_does_not_affect_layout_size() {
   let mut rt = rt();
   rt.set_root(
     lurq::components::Rect::new(60.0, 40.0)
-      .fill("#ff0000")
+      .background("#ff0000")
       .transform(Transform2D::scale(3.0, 3.0)),
   );
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

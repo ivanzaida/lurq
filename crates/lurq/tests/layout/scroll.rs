@@ -213,7 +213,7 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
   let mut rt = rt();
   let thumb_color = Color::from_hex("#3b82f6");
 
-  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0).fill("#162032"))
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0).background("#162032"))
     .scrollbar(ScrollBarStyle {
       visible: ScrollBarVisibility::Always,
       width: 6.0,
@@ -223,7 +223,7 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
     })
     .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex("#06b6d4")))
     .width(200.0)
-    .fill("#162032");
+    .background("#162032");
 
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 100.0))).unwrap();

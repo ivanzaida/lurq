@@ -1,5 +1,5 @@
 use lurq::{
-  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, Transition},
+  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, KeyframesId, Transition},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{
     CursorIcon, Element,
@@ -14,10 +14,17 @@ use crate::style::{ACCENT, BG, BORDER, PRIMARY, SECONDARY, SURFACE, TEXT, TEXT_M
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
+const COLOR_CYCLE_KEYFRAMES: KeyframesId = KeyframesId::new(1);
+const GROW_SHRINK_KEYFRAMES: KeyframesId = KeyframesId::new(7);
+const PULSE_KEYFRAMES: KeyframesId = KeyframesId::new(11);
+const ROCK_KEYFRAMES: KeyframesId = KeyframesId::new(12);
+const SLIDE_BOUNCE_KEYFRAMES: KeyframesId = KeyframesId::new(13);
+const SPIN_KEYFRAMES: KeyframesId = KeyframesId::new(14);
+const SPIN_COLOR_KEYFRAMES: KeyframesId = KeyframesId::new(15);
 
 pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   tree.register_keyframes(
-    Keyframes::new("pulse")
+    Keyframes::new(PULSE_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(1.0));
       })
@@ -30,7 +37,7 @@ pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   );
 
   tree.register_keyframes(
-    Keyframes::new("color-cycle")
+    Keyframes::new(COLOR_CYCLE_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(
           AnimatableProperty::BackgroundColor,
@@ -58,7 +65,7 @@ pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   );
 
   tree.register_keyframes(
-    Keyframes::new("slide-bounce")
+    Keyframes::new(SLIDE_BOUNCE_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(AnimatableProperty::OffsetX, AnimatableValue::Float(0.0));
       })
@@ -73,7 +80,7 @@ pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   );
 
   tree.register_keyframes(
-    Keyframes::new("spin")
+    Keyframes::new(SPIN_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
       })
@@ -86,7 +93,7 @@ pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   );
 
   tree.register_keyframes(
-    Keyframes::new("rock")
+    Keyframes::new(ROCK_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(
           AnimatableProperty::Transform,
@@ -108,7 +115,7 @@ pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   );
 
   tree.register_keyframes(
-    Keyframes::new("spin-color")
+    Keyframes::new(SPIN_COLOR_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Transform, Decomposed::IDENTITY.with_rotate(0.0));
         f.set(AnimatableProperty::BackgroundColor, Color::from_hex("#3b82f6"));
@@ -137,7 +144,7 @@ pub(crate) fn register_keyframes(tree: &mut lurq::app::Tree) {
   );
 
   tree.register_keyframes(
-    Keyframes::new("grow-shrink")
+    Keyframes::new(GROW_SHRINK_KEYFRAMES)
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Width, AnimatableValue::Float(60.0));
         f.set(AnimatableProperty::Height, AnimatableValue::Float(40.0));
@@ -207,7 +214,7 @@ pub(crate) fn animation_content() -> Element {
     .child(transform_demos())
     .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .into()
 }
 
@@ -226,7 +233,7 @@ fn hover_transitions() -> Element {
         .child(transition_box(
           "Color",
           "#3b82f6",
-          |s| s.fill("#ef4444"),
+          |s| s.background("#ef4444"),
           Transition::background_color().duration_ms(400),
         ))
         .child(transition_box(
@@ -254,7 +261,7 @@ fn hover_transitions() -> Element {
     )
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -271,7 +278,7 @@ fn transition_box(
     .align_items(Alignment::Center)
     .child(
       lurq::components::Rect::new(80.0, 60.0)
-        .fill(base_color)
+        .background(base_color)
         .rounded(8.0)
         .border_inside(2.0, Color::new(255, 255, 255, 30))
         .transition(transition)
@@ -288,7 +295,7 @@ fn width_box() -> Element {
     .align_items(Alignment::Center)
     .child(
       lurq::components::Rect::new(80.0, 60.0)
-        .fill("#f59e0b")
+        .background("#f59e0b")
         .rounded(8.0)
         .border_inside(2.0, Color::new(255, 255, 255, 30))
         .transition(Transition::all().duration_ms(400).easing(Easing::EASE_IN_OUT))
@@ -305,7 +312,7 @@ fn all_props_box() -> Element {
     .align_items(Alignment::Center)
     .child(
       lurq::components::Rect::new(80.0, 60.0)
-        .fill("#3b82f6")
+        .background("#3b82f6")
         .rounded(4.0)
         .border_inside(2.0, Color::new(255, 255, 255, 30))
         .transition(
@@ -315,7 +322,7 @@ fn all_props_box() -> Element {
         )
         .transition(Transition::all().duration_ms(500).easing(Easing::EASE_OUT))
         .hovered(|s| {
-          s.fill("#ef4444")
+          s.background("#ef4444")
             .rounded(28.0)
             .border_inside(3.0, Color::from_hex("#22c55e"))
             .size(130.0, 70.0)
@@ -338,7 +345,7 @@ fn easing_comparison() -> Element {
     .child(easing_row("Ease-In-Out", Easing::EASE_IN_OUT))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -351,11 +358,11 @@ fn easing_row(label: &str, easing: Easing) -> Element {
     .child(text(label, 11.0, FontWeight::Medium, TEXT_MUTED).width(90.0))
     .child(
       lurq::components::Rect::new(120.0, 32.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(6.0)
         .transition(Transition::background_color().duration_ms(800).easing(easing))
         .transition(Transition::all().duration_ms(800).easing(easing))
-        .hovered(|s| s.fill("#22c55e").size(240.0, 32.0))
+        .hovered(|s| s.background("#22c55e").size(240.0, 32.0))
         .cursor(CursorIcon::Pointer),
     )
     .width(FILL_WIDTH)
@@ -372,25 +379,30 @@ fn keyframe_demos() -> Element {
     .child(keyframe_card(
       "Pulse",
       lurq::components::Rect::new(60.0, 60.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(8.0)
-        .animation(Animation::new("pulse").duration_ms(2000).linear().infinite()),
+        .animation(Animation::new(PULSE_KEYFRAMES).duration_ms(2000).linear().infinite()),
     ))
     .child(keyframe_card(
       "Color Cycle",
       lurq::components::Rect::new(60.0, 60.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(30.0)
-        .animation(Animation::new("color-cycle").duration_ms(3000).linear().infinite()),
+        .animation(
+          Animation::new(COLOR_CYCLE_KEYFRAMES)
+            .duration_ms(3000)
+            .linear()
+            .infinite(),
+        ),
     ))
     .child(keyframe_card(
       "Slide",
       lurq::components::Rect::new(40.0, 40.0)
-        .fill(ACCENT)
+        .background(ACCENT)
         .rounded(6.0)
         .relative(0.0, 0.0)
         .animation(
-          Animation::new("slide-bounce")
+          Animation::new(SLIDE_BOUNCE_KEYFRAMES)
             .duration_ms(2500)
             .easing(Easing::EASE_IN_OUT)
             .infinite(),
@@ -399,13 +411,18 @@ fn keyframe_demos() -> Element {
     .child(keyframe_card(
       "Grow/Shrink",
       lurq::components::Rect::new(60.0, 40.0)
-        .fill(SECONDARY)
+        .background(SECONDARY)
         .rounded(6.0)
-        .animation(Animation::new("grow-shrink").duration_ms(2000).linear().infinite()),
+        .animation(
+          Animation::new(GROW_SHRINK_KEYFRAMES)
+            .duration_ms(2000)
+            .linear()
+            .infinite(),
+        ),
     ))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -439,7 +456,7 @@ fn opacity_showcase() -> Element {
     .child(opacity_sample("10%", 0.1))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -451,7 +468,7 @@ fn opacity_sample(label: &str, value: f32) -> Element {
     .align_items(Alignment::Center)
     .child(
       lurq::components::Rect::new(60.0, 60.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(8.0)
         .opacity(value),
     )
@@ -470,11 +487,11 @@ fn combined_demo() -> Element {
         .align_items(Alignment::Center)
         .child(
           lurq::components::Rect::new(100.0, 60.0)
-            .fill(PRIMARY)
+            .background(PRIMARY)
             .rounded(8.0)
-            .animation(Animation::new("pulse").duration_ms(3000).linear().infinite())
+            .animation(Animation::new(PULSE_KEYFRAMES).duration_ms(3000).linear().infinite())
             .transition(Transition::background_color().duration_ms(300))
-            .hovered(|s| s.fill("#ef4444"))
+            .hovered(|s| s.background("#ef4444"))
             .cursor(CursorIcon::Pointer),
         )
         .child(text("Pulse + Hover Color", 10.0, FontWeight::Medium, TEXT_MUTED)),
@@ -485,9 +502,14 @@ fn combined_demo() -> Element {
         .align_items(Alignment::Center)
         .child(
           lurq::components::Rect::new(100.0, 60.0)
-            .fill(SECONDARY)
+            .background(SECONDARY)
             .rounded(8.0)
-            .animation(Animation::new("color-cycle").duration_ms(4000).linear().infinite())
+            .animation(
+              Animation::new(COLOR_CYCLE_KEYFRAMES)
+                .duration_ms(4000)
+                .linear()
+                .infinite(),
+            )
             .transition(Transition::all().duration_ms(400).easing(Easing::EASE_OUT))
             .hovered(|s| s.rounded(30.0))
             .cursor(CursorIcon::Pointer),
@@ -500,18 +522,18 @@ fn combined_demo() -> Element {
         .align_items(Alignment::Center)
         .child(
           lurq::components::Rect::new(100.0, 60.0)
-            .fill(ACCENT)
+            .background(ACCENT)
             .rounded(8.0)
             .transition(Transition::background_color().duration_ms(500))
             .transition(Transition::all().duration_ms(500).easing(Easing::EASE_IN_OUT))
-            .hovered(|s| s.fill("#f59e0b").rounded(30.0).size(120.0, 70.0))
+            .hovered(|s| s.background("#f59e0b").rounded(30.0).size(120.0, 70.0))
             .cursor(CursorIcon::Pointer),
         )
         .child(text("Multi-property", 10.0, FontWeight::Medium, TEXT_MUTED)),
     )
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -526,41 +548,46 @@ fn transform_demos() -> Element {
     .child(transform_card(
       "Static Rotate",
       lurq::components::Rect::new(60.0, 60.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(8.0)
         .transform(Transform2D::rotate_deg(45.0)),
     ))
     .child(transform_card(
       "Static Scale",
       lurq::components::Rect::new(60.0, 60.0)
-        .fill(SECONDARY)
+        .background(SECONDARY)
         .rounded(8.0)
         .transform(Transform2D::scale(1.4, 0.7)),
     ))
     .child(transform_card(
       "Spin",
       lurq::components::Rect::new(50.0, 50.0)
-        .fill(ACCENT)
+        .background(ACCENT)
         .rounded(6.0)
-        .animation(Animation::new("spin").duration_ms(2000).linear().infinite()),
+        .animation(Animation::new(SPIN_KEYFRAMES).duration_ms(2000).linear().infinite()),
     ))
     .child(transform_card(
       "Rock",
       lurq::components::Rect::new(50.0, 50.0)
-        .fill("#f59e0b")
+        .background("#f59e0b")
         .rounded(6.0)
-        .animation(Animation::new("rock").duration_ms(1000).linear().infinite()),
+        .animation(Animation::new(ROCK_KEYFRAMES).duration_ms(1000).linear().infinite()),
     ))
     .child(transform_card(
       "Spin + Cycle",
       lurq::components::Rect::new(50.0, 50.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(25.0)
-        .animation(Animation::new("spin-color").duration_ms(3000).linear().infinite()),
+        .animation(
+          Animation::new(SPIN_COLOR_KEYFRAMES)
+            .duration_ms(3000)
+            .linear()
+            .infinite(),
+        ),
     ))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()

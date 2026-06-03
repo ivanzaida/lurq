@@ -23,10 +23,10 @@ fn viewport(w: f32, h: f32) -> ClipRect {
 fn overflow_visible_node_inside_viewport_is_kept() {
   let mut rt = rt();
   let node = lurq::components::Row::new()
-    .child(lurq::components::Rect::new(200.0, 50.0).fill("#ff0000"))
+    .child(lurq::components::Rect::new(200.0, 50.0).background("#ff0000"))
     .width(100.0)
     .height(50.0)
-    .fill("#000000")
+    .background("#000000")
     .overflow_visible();
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(200.0, 200.0))).unwrap();
@@ -48,10 +48,10 @@ fn overflow_visible_offscreen_child_not_culled_when_no_active_clip() {
   // With Overflow::Visible, the child's own clip.active is false,
   // so clipped_subtree_is_hidden returns false (safe — not culled).
   let node = lurq::components::Row::new()
-    .child(lurq::components::Rect::new(200.0, 50.0).fill("#ff0000"))
+    .child(lurq::components::Rect::new(200.0, 50.0).background("#ff0000"))
     .width(100.0)
     .height(50.0)
-    .fill("#000000")
+    .background("#000000")
     .overflow_visible();
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(300.0, 200.0))).unwrap();

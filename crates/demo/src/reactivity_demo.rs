@@ -80,7 +80,7 @@ impl Component for ReactivityDemo {
       ))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .background(BG)
   }
 }
 
@@ -91,7 +91,7 @@ fn section_title(label: &str) -> Element {
 fn card_frame() -> lurq::components::Column {
   lurq::components::Column::new()
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .rounded(CARD_RADIUS)
     .border_inside(1.0, Color::from_hex(BORDER))
 }
@@ -112,7 +112,7 @@ fn btn(
       "#ffffff",
     ))
     .size(width, if width > 60.0 { 32.0 } else { 48.0 })
-    .fill(color)
+    .background(color)
     .rounded(if width > 60.0 { 6.0 } else { 8.0 })
     .cursor(CursorIcon::Pointer)
     .on_click(handler)
@@ -136,7 +136,7 @@ fn signals_card(count: i32, minus: Signal<i32>, plus: Signal<i32>, reset: Signal
             .justify(Justify::Center)
             .child(text(&count.to_string(), 24.0, FontWeight::Bold, TEXT))
             .size(80.0, 48.0)
-            .fill("#0F172A")
+            .background("#0F172A")
             .rounded(8.0)
             .border_inside(2.0, Color::from_hex(PRIMARY)),
         )

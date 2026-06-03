@@ -112,7 +112,11 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) -> Option<AnimatableValue> {
   let style = node.target_style();
   match prop {
-    AnimatableProperty::BackgroundColor => style.color.or(*node.color).map(AnimatableValue::Color),
+    AnimatableProperty::BackgroundColor => style
+      .color
+      .or(*node.color)
+      .and_then(|color| color.as_color())
+      .map(AnimatableValue::Color),
     AnimatableProperty::BorderColor => style
       .border
       .or(*node.border)
@@ -141,19 +145,23 @@ pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) ->
     AnimatableProperty::BorderRadiusTopLeft => style
       .border_radius
       .or(*node.border_radius)
-      .map(|r| AnimatableValue::Float(r.top_left)),
+      .and_then(|r| r.top_left.as_px())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderRadiusTopRight => style
       .border_radius
       .or(*node.border_radius)
-      .map(|r| AnimatableValue::Float(r.top_right)),
+      .and_then(|r| r.top_right.as_px())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderRadiusBottomRight => style
       .border_radius
       .or(*node.border_radius)
-      .map(|r| AnimatableValue::Float(r.bottom_right)),
+      .and_then(|r| r.bottom_right.as_px())
+      .map(AnimatableValue::Float),
     AnimatableProperty::BorderRadiusBottomLeft => style
       .border_radius
       .or(*node.border_radius)
-      .map(|r| AnimatableValue::Float(r.bottom_left)),
+      .and_then(|r| r.bottom_left.as_px())
+      .map(AnimatableValue::Float),
     AnimatableProperty::OffsetX => read_offset_x(node).map(AnimatableValue::Float),
     AnimatableProperty::OffsetY => read_offset_y(node).map(AnimatableValue::Float),
     AnimatableProperty::Width => read_target_frame_dim(node, &style, true).map(AnimatableValue::Float),

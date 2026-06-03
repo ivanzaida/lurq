@@ -298,7 +298,7 @@ impl Component for DevTools {
       })
       .width(style::FILL)
       .height(style::FILL)
-      .fill(style::BG)
+      .background(style::BG)
   }
 }
 
@@ -610,7 +610,7 @@ mod tests {
             style::TEXT,
           )
           .padding(8.0)
-          .hovered(|style| style.fill("#ff0000").padding_left(4.0))
+          .hovered(|style| style.background("#ff0000").padding_left(4.0))
           .active(|style| style.width(32.0)),
         )
         .child(ctx.mount_keyed::<KeyedChild>(

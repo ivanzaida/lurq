@@ -92,7 +92,7 @@ lurq::components::Spacer::new().height(Dimension::Auto)
 
 ```rust
 lurq::components::Rect::new(100.0, 50.0)
-  .fill("#3b82f6")
+  .background("#3b82f6")
   .rounded(8.0)
   .border_inside(1.0, Color::from_hex("#1d4ed8"))
 ```
@@ -142,12 +142,12 @@ Absolute positioning is supported in `Stack`.
 lurq::components::Stack::new()
   .child(
     lurq::components::Rect::new(300.0, 120.0)
-      .fill("#f8fafc")
+      .background("#f8fafc")
       .rounded(12.0),
   )
   .child(
     lurq::components::Rect::new(86.0, 34.0)
-      .fill("#f97316")
+      .background("#f97316")
       .rounded(8.0)
       .absolute(190.0, 24.0, 86.0, 34.0),
   )
@@ -177,7 +177,7 @@ lurq::components::Column::new()
 
 ```rust
 lurq::components::Rect::new(100.0, 40.0)
-  .fill("#3b82f6")
+  .background("#3b82f6")
   .on_click(|e| println!("clicked at {}, {}", e.x, e.y))
   .on_drag_start(|e| println!("drag started at {}, {}", e.x, e.y))
   .on_drag_move(|e| println!("drag delta: {}, {}", e.delta_x, e.delta_y))
@@ -199,7 +199,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
       println!("dropped on {:?}", event.target_id);
     }),
     lurq::components::Rect::new(120.0, 80.0)
-      .fill("#22c55e33")
+      .background("#22c55e33")
       .absolute_position(200.0, 110.0),
   );
 
@@ -209,7 +209,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
       println!("move by {}, {}", event.delta_x, event.delta_y);
     }),
     lurq::components::Rect::new(64.0, 64.0)
-      .fill("#3b82f6")
+      .background("#3b82f6")
       .absolute_position(24.0, 24.0),
   );
 
@@ -225,6 +225,52 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 ```
 
 ## Text Styling
+
+Theme palettes, spacing, radii, and typography use cheap IDs that map to theme token values:
+
+```rust
+use lurq::node::{color::Color, dimension::Dimension};
+
+let brand_id = app.theme().register_palette_color(Color::from_hex("#2563eb"));
+
+let gap_id = app.theme().register_spacing(Dimension::Px(8.0));
+
+let card_radius_id = app.theme().register_radius(6.0);
+
+lurq::components::Rect::new(120.0, 40.0)
+  .background(brand_id)
+  .padding(gap_id)
+  .rounded(card_radius_id);
+
+lurq::components::Row::new()
+  .spacing(gap_id);
+```
+
+Plain text resolves its style from the active theme. `Text::new` uses the theme default text style, and `variant` selects any user-defined typography entry from the theme.
+
+```rust
+use lurq::layout::text_style::{FontWeight, TextStyle};
+
+app.theme().set_default_text_style(TextStyle {
+  font_size: 16.0,
+  ..TextStyle::default()
+});
+
+let display_id = app.theme().register_typography_style(
+  TextStyle {
+    font_size: 32.0,
+    weight: FontWeight::Bold,
+    ..TextStyle::default()
+  },
+);
+
+lurq::components::Text::new("Headline")
+  .variant(display_id)
+```
+
+Missing variants fall back to the default text style. Generated IDs are the default path for custom theme entries; manual IDs are available through `PaletteId::new(...)`, `SpacingId::new(...)`, `RadiusId::new(...)`, and `TypographyId::new(...)` when stable numeric IDs are needed. Lurq does not define or reserve built-in theme token IDs.
+
+Use `Text::styled` for a one-off style that should ignore theme typography:
 
 ```rust
 use lurq::{

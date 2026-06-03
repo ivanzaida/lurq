@@ -1,5 +1,7 @@
 use lurq::{
-  animation::{AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, AnimationIterationCount, Keyframes},
+  animation::{
+    AnimatableProperty, AnimatableValue, Animation, AnimationFillMode, AnimationIterationCount, Keyframes, KeyframesId,
+  },
   app::Tree,
   layout::{Constraints, Size},
 };
@@ -11,7 +13,7 @@ fn single_iteration_finishes_after_duration() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("blink")
+    Keyframes::new(KeyframesId::new(0))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.0));
       })
@@ -20,13 +22,15 @@ fn single_iteration_finishes_after_duration() {
       }),
   );
 
-  let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").animation(
-    Animation::new("blink")
-      .duration_ms(1)
-      .linear()
-      .fill_mode(AnimationFillMode::Forwards)
-      .iteration_count(AnimationIterationCount::Count(1.0)),
-  );
+  let node = lurq::components::Rect::new(100.0, 50.0)
+    .background("#ff0000")
+    .animation(
+      Animation::new(KeyframesId::new(0))
+        .duration_ms(1)
+        .linear()
+        .fill_mode(AnimationFillMode::Forwards)
+        .iteration_count(AnimationIterationCount::Count(1.0)),
+    );
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -49,7 +53,7 @@ fn infinite_iteration_keeps_animating() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("pulse")
+    Keyframes::new(KeyframesId::new(11))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.5));
       })
@@ -59,8 +63,8 @@ fn infinite_iteration_keeps_animating() {
   );
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
-    .animation(Animation::new("pulse").duration_ms(10).linear().infinite());
+    .background("#ff0000")
+    .animation(Animation::new(KeyframesId::new(11)).duration_ms(10).linear().infinite());
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -82,7 +86,7 @@ fn two_iterations_run_twice_the_duration() {
   let mut rt = Tree::new();
 
   rt.register_keyframes(
-    Keyframes::new("grow")
+    Keyframes::new(KeyframesId::new(6))
       .frame(0.0, |f| {
         f.set(AnimatableProperty::Opacity, AnimatableValue::Float(0.0));
       })
@@ -91,12 +95,14 @@ fn two_iterations_run_twice_the_duration() {
       }),
   );
 
-  let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000").animation(
-    Animation::new("grow")
-      .duration_ms(5000)
-      .linear()
-      .iteration_count(AnimationIterationCount::Count(2.0)),
-  );
+  let node = lurq::components::Rect::new(100.0, 50.0)
+    .background("#ff0000")
+    .animation(
+      Animation::new(KeyframesId::new(6))
+        .duration_ms(5000)
+        .linear()
+        .iteration_count(AnimationIterationCount::Count(2.0)),
+    );
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

@@ -45,12 +45,12 @@ impl Component for InfoCard {
     lurq::components::Column::new()
       .spacing(8.0)
       .child(text(props.title, 16.0, FontWeight::Bold, props.accent))
-      .child(lurq::components::Rect::new(Dimension::Pct(100.0), 1.0).fill(BORDER))
+      .child(lurq::components::Rect::new(Dimension::Pct(100.0), 1.0).background(BORDER))
       .child(text(props.body, 13.0, FontWeight::Normal, TEXT))
       .padding_horizontal(16.0)
       .padding_vertical(12.0)
       .flex(1.0)
-      .fill(BG)
+      .background(BG)
       .border_inside(2.0, Color::from_hex(props.accent))
       .rounded(CARD_RADIUS)
   }
@@ -93,7 +93,7 @@ impl Component for KeyedListItem {
       .padding_horizontal(12.0)
       .padding_vertical(0.0)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .background(BG)
       .border_inside(1.0, Color::from_hex(BORDER))
       .rounded(PANEL_RADIUS)
   }
@@ -132,7 +132,7 @@ impl Component for ComponentsDemo {
       .child(keyed_list_demo(ctx, self.items.clone(), self.next_item_index.clone()))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .background(BG)
   }
 }
 
@@ -159,7 +159,7 @@ fn props_demo(ctx: &mut Ctx) -> Element {
     }))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -185,7 +185,7 @@ fn keyed_list_demo(ctx: &mut Ctx, items: Signal<Vec<ListItem>>, next_item_index:
     ))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -233,11 +233,11 @@ fn action_button(label: &str, on_click: impl Fn(&MouseEvent) + Send + Sync + 'st
     .justify(Justify::Center)
     .child(text(label, 11.0, FontWeight::Bold, TEXT))
     .size(120.0, 32.0)
-    .fill(PRIMARY)
+    .background(PRIMARY)
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Pointer)
-    .hovered(|style| style.fill("#60a5fa"))
-    .active(|style| style.fill("#2563eb"))
+    .hovered(|style| style.background("#60a5fa"))
+    .active(|style| style.background("#2563eb"))
     .on_click(move |event| {
       if matches!(event.kind, MouseEventKind::Click) {
         on_click(event);

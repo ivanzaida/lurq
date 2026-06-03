@@ -24,7 +24,7 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
       .child(
         lurq::components::TextInput::new(Signal::new(String::new()))
           .width(100.0)
-          .fill("#ef4444")
+          .background("#ef4444")
           .on_focus({
             let first_focus = first_focus.clone();
             move || {
@@ -41,7 +41,7 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
       .child(
         lurq::components::TextInput::new(Signal::new(String::new()))
           .width(100.0)
-          .fill("#22c55e")
+          .background("#22c55e")
           .on_focus({
             let second_focus = second_focus.clone();
             move || {

@@ -26,8 +26,8 @@ fn partially_visible_node_is_kept() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Rect::new(100.0, 80.0).fill("#ff0000"),
-      lurq::components::Rect::new(100.0, 80.0).fill("#00ff00"),
+      lurq::components::Rect::new(100.0, 80.0).background("#ff0000"),
+      lurq::components::Rect::new(100.0, 80.0).background("#00ff00"),
     ],
   );
   rt.set_root(node);
@@ -49,8 +49,8 @@ fn node_touching_viewport_edge_is_kept() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Rect::new(100.0, 100.0).fill("#ff0000"),
-      lurq::components::Rect::new(100.0, 50.0).fill("#00ff00"),
+      lurq::components::Rect::new(100.0, 100.0).background("#ff0000"),
+      lurq::components::Rect::new(100.0, 50.0).background("#00ff00"),
     ],
   );
   rt.set_root(node);
@@ -73,8 +73,8 @@ fn node_one_pixel_inside_viewport_is_kept() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Rect::new(100.0, 99.0).fill("#ff0000"),
-      lurq::components::Rect::new(100.0, 50.0).fill("#00ff00"),
+      lurq::components::Rect::new(100.0, 99.0).background("#ff0000"),
+      lurq::components::Rect::new(100.0, 50.0).background("#00ff00"),
     ],
   );
   rt.set_root(node);
@@ -89,7 +89,7 @@ fn node_one_pixel_inside_viewport_is_kept() {
 #[test]
 fn viewport_clip_is_carried_onto_quads() {
   let mut rt = rt();
-  let node = lurq::components::Rect::new(200.0, 200.0).fill("#ff0000");
+  let node = lurq::components::Rect::new(200.0, 200.0).background("#ff0000");
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
 

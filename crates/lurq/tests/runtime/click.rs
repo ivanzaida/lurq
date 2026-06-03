@@ -10,10 +10,14 @@ fn release_over_click_target_does_not_click_when_press_started_elsewhere() {
   let clicks = Signal::new(0);
   let mut runtime = Tree::new();
 
-  runtime.set_root(lurq::components::Rect::new(100.0, 40.0).fill("#22c55e").on_click({
-    let clicks = clicks.clone();
-    move |_| clicks.update(|count| *count += 1)
-  }));
+  runtime.set_root(
+    lurq::components::Rect::new(100.0, 40.0)
+      .background("#22c55e")
+      .on_click({
+        let clicks = clicks.clone();
+        move |_| clicks.update(|count| *count += 1)
+      }),
+  );
   run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
@@ -30,10 +34,14 @@ fn release_far_from_press_does_not_click_even_on_same_target() {
   let clicks = Signal::new(0);
   let mut runtime = Tree::new();
 
-  runtime.set_root(lurq::components::Rect::new(100.0, 40.0).fill("#22c55e").on_click({
-    let clicks = clicks.clone();
-    move |_| clicks.update(|count| *count += 1)
-  }));
+  runtime.set_root(
+    lurq::components::Rect::new(100.0, 40.0)
+      .background("#22c55e")
+      .on_click({
+        let clicks = clicks.clone();
+        move |_| clicks.update(|count| *count += 1)
+      }),
+  );
   run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let y = rect.y + rect.height / 2.0;
@@ -50,10 +58,14 @@ fn release_near_press_clicks_same_target() {
   let clicks = Signal::new(0);
   let mut runtime = Tree::new();
 
-  runtime.set_root(lurq::components::Rect::new(100.0, 40.0).fill("#22c55e").on_click({
-    let clicks = clicks.clone();
-    move |_| clicks.update(|count| *count += 1)
-  }));
+  runtime.set_root(
+    lurq::components::Rect::new(100.0, 40.0)
+      .background("#22c55e")
+      .on_click({
+        let clicks = clicks.clone();
+        move |_| clicks.update(|count| *count += 1)
+      }),
+  );
   run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();

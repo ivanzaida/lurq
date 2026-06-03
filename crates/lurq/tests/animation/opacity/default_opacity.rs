@@ -8,7 +8,7 @@ use crate::support::run_pass;
 #[test]
 fn default_opacity_is_one() {
   let mut rt = Tree::new();
-  let node = lurq::components::Rect::new(100.0, 50.0).fill("#ff0000");
+  let node = lurq::components::Rect::new(100.0, 50.0).background("#ff0000");
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

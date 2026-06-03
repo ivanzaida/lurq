@@ -104,8 +104,8 @@ Input is resolved against the latest layout. The tree tracks hover path, active 
 ```rust
 Text::new("Save")
   .cursor(CursorIcon::Pointer)
-  .hovered(|style| style.fill("#334155"))
-  .active(|style| style.fill("#0f172a"))
+  .hovered(|style| style.background("#334155"))
+  .active(|style| style.background("#0f172a"))
   .on_click(|event| {
     println!("clicked at {}, {}", event.x, event.y);
   })

@@ -1,7 +1,10 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use crate::{
-  app::glyph_engine::GlyphEngine,
+  app::{
+    glyph_engine::GlyphEngine,
+    theme::{ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
+  },
   layout::{
     Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
@@ -59,6 +62,10 @@ fn text_input_display_style<'a>(
 
 pub(crate) struct LayoutEngine {
   last_recalculated: Cell<bool>,
+  palette: RefCell<ThemePalette>,
+  spacing: RefCell<ThemeSpacing>,
+  radii: RefCell<ThemeRadii>,
+  typography: RefCell<ThemeTypography>,
 }
 
 #[cfg(feature = "image")]
@@ -307,12 +314,30 @@ impl LayoutEngine {
   pub(crate) fn new() -> Self {
     Self {
       last_recalculated: Cell::new(false),
+      palette: RefCell::new(ThemePalette::default()),
+      spacing: RefCell::new(ThemeSpacing::default()),
+      radii: RefCell::new(ThemeRadii::default()),
+      typography: RefCell::new(ThemeTypography::default()),
     }
   }
 
-  pub(crate) fn compute(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+  pub(crate) fn compute(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    palette: ThemePalette,
+    spacing: ThemeSpacing,
+    radii: ThemeRadii,
+    typography: ThemeTypography,
+    force_dirty: bool,
+  ) -> LayoutResult {
     self.last_recalculated.set(false);
-    Self::mark_layout_dirty(node);
+    *self.palette.borrow_mut() = palette;
+    *self.spacing.borrow_mut() = spacing;
+    *self.radii.borrow_mut() = radii;
+    *self.typography.borrow_mut() = typography;
+    Self::mark_layout_dirty(node, force_dirty);
     let result = self.layout_node(glyph_engine, node, constraints);
     node.clear_guards();
     result
@@ -322,8 +347,9 @@ impl LayoutEngine {
     self.last_recalculated.get()
   }
 
-  fn mark_layout_dirty(node: &Node) -> bool {
-    let mut local_dirty = node.text_content.is_changed() || matches!(node.node_kind(), NodeKind::TextInput { .. });
+  fn mark_layout_dirty(node: &Node, force_dirty: bool) -> bool {
+    let mut local_dirty =
+      force_dirty || node.text_content.is_changed() || matches!(node.node_kind(), NodeKind::TextInput { .. });
 
     if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind()
       && state.take_scroll_dirty()
@@ -345,7 +371,7 @@ impl LayoutEngine {
 
     let mut child_dirty = false;
     for child in node.children() {
-      child_dirty |= Self::mark_layout_dirty(child);
+      child_dirty |= Self::mark_layout_dirty(child, force_dirty);
     }
 
     if local_dirty {
@@ -406,13 +432,14 @@ impl LayoutEngine {
       );
     }
 
-    let has_visual = node.color().is_some() || node.get_border().is_some();
+    let background_color = node.resolved_color(&self.palette.borrow());
+    let has_visual = background_color.is_some() || node.get_border().is_some();
     let content = match node.node_kind() {
       NodeKind::Text {
         style, transform_mode, ..
       } => QuadContent::Text {
         text: node.text_content().unwrap_or_default().to_owned(),
-        style: style.clone(),
+        style: style.resolve(&self.typography.borrow()),
         wrap: node.text_wrap,
         transform_mode: *transform_mode,
       },
@@ -441,7 +468,7 @@ impl LayoutEngine {
       NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
-        color: node.color().unwrap_or(DEFAULT_TRANSPARENT_COLOR),
+        color: background_color.unwrap_or(DEFAULT_TRANSPARENT_COLOR),
       },
       _ => QuadContent::None,
     };
@@ -470,6 +497,7 @@ impl LayoutEngine {
         if let NodeKind::Text { state, style, .. } = node.node_kind()
           && state.selectable()
         {
+          let style = style.resolve(&self.typography.borrow());
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
           let selection_clip = clip;
           for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
@@ -574,7 +602,7 @@ impl LayoutEngine {
           transform: content_transform,
           transform_origin: content_transform_origin,
           content,
-          border_radius: node.get_border_radius(),
+          border_radius: node.get_border_radius(&self.radii.borrow()),
           border: node.get_border(),
           clip: content_clip,
         });
@@ -607,7 +635,7 @@ impl LayoutEngine {
           uv_min: placement.uv_min,
           uv_max: placement.uv_max,
         },
-        border_radius: node.get_border_radius(),
+        border_radius: node.get_border_radius(&self.radii.borrow()),
         border: None,
         clip,
       });
@@ -657,7 +685,7 @@ impl LayoutEngine {
         } else {
           style
             .color
-            .or_else(|| node.color())
+            .or_else(|| node.resolved_color(&self.palette.borrow()))
             .unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR)
         };
         push_checkbox_quads(
@@ -665,7 +693,10 @@ impl LayoutEngine {
           rect,
           &style,
           color,
-          style.border_radius.or_else(|| node.get_border_radius()),
+          style
+            .border_radius
+            .map(|radius| radius.resolve(&self.radii.borrow()))
+            .or_else(|| node.get_border_radius(&self.radii.borrow())),
           style.border.or_else(|| node.get_border()),
           checked,
           opacity,
@@ -687,9 +718,12 @@ impl LayoutEngine {
         );
         let track_color = track_style
           .color
-          .or_else(|| node.color())
+          .or_else(|| node.resolved_color(&self.palette.borrow()))
           .unwrap_or(DEFAULT_SLIDER_TRACK_COLOR);
-        let track_radius = track_style.border_radius.or_else(|| node.get_border_radius());
+        let track_radius = track_style
+          .border_radius
+          .map(|radius| radius.resolve(&self.radii.borrow()))
+          .or_else(|| node.get_border_radius(&self.radii.borrow()));
         let track_border = track_style.border.or_else(|| node.get_border());
         push_slider_part_quads(
           quads,
@@ -710,6 +744,7 @@ impl LayoutEngine {
           Some(
             thumb_style
               .border_radius
+              .map(|radius| radius.resolve(&self.radii.borrow()))
               .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5)),
           ),
           thumb_style.border,
@@ -950,22 +985,19 @@ impl LayoutEngine {
         align,
         justify,
         wrap,
-      } => self.layout_flex(
-        glyph_engine,
-        node,
-        constraints,
-        *spacing,
-        *align,
-        *justify,
-        *wrap,
-        false,
-      ),
+      } => {
+        let spacing = spacing.resolve(&self.spacing.borrow(), constraints.max_width);
+        self.layout_flex(glyph_engine, node, constraints, spacing, *align, *justify, *wrap, false)
+      }
       LayoutKind::Column {
         spacing,
         align,
         justify,
         wrap,
-      } => self.layout_flex(glyph_engine, node, constraints, *spacing, *align, *justify, *wrap, true),
+      } => {
+        let spacing = spacing.resolve(&self.spacing.borrow(), constraints.max_height);
+        self.layout_flex(glyph_engine, node, constraints, spacing, *align, *justify, *wrap, true)
+      }
       LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align),
       LayoutKind::PaddingModifier(padding) => {
         let padding = node.effective_padding(padding);
@@ -1055,7 +1087,8 @@ impl LayoutEngine {
     match node.node_kind() {
       NodeKind::Text { state, style, .. } => {
         let content = node.text_content().unwrap_or_default();
-        return self.layout_text_node(glyph_engine, content, state, style, constraints, node.text_wrap);
+        let style = style.resolve(&self.typography.borrow());
+        return self.layout_text_node(glyph_engine, content, state, &style, constraints, node.text_wrap);
       }
       NodeKind::TextInput {
         state,
@@ -1817,10 +1850,11 @@ impl LayoutEngine {
   ) -> LayoutResult {
     let parent_w = constraints.max_width;
     let parent_h = constraints.max_height;
-    let left = padding.get_left().resolve(parent_w);
-    let right = padding.get_right().resolve(parent_w);
-    let top = padding.get_top().resolve(parent_h);
-    let bottom = padding.get_bottom().resolve(parent_h);
+    let spacing = self.spacing.borrow();
+    let left = padding.get_left().resolve(&spacing, parent_w);
+    let right = padding.get_right().resolve(&spacing, parent_w);
+    let top = padding.get_top().resolve(&spacing, parent_h);
+    let bottom = padding.get_bottom().resolve(&spacing, parent_h);
     let h_pad = left + right;
     let v_pad = top + bottom;
 

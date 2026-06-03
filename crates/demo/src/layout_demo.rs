@@ -36,7 +36,7 @@ pub(crate) fn layout_content() -> Element {
     .child(flex_wrap_demo())
     .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .into()
 }
 
@@ -74,7 +74,7 @@ fn row_vs_column() -> Element {
     .padding(24.0)
     .width(FILL_WIDTH)
     .height(188.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -107,7 +107,7 @@ fn justify_modes() -> Element {
             .padding_vertical(4.0)
             .height(40.0)
             .flex(1.0)
-            .fill(BG)
+            .background(BG)
             .border_inside(1.0, Color::from_hex(BORDER))
             .rounded(CONTROL_RADIUS),
         )
@@ -115,7 +115,7 @@ fn justify_modes() -> Element {
     .padding(24.0)
     .width(FILL_WIDTH)
     .height(288.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -131,7 +131,7 @@ fn cross_axis_alignment() -> Element {
     .padding(20.0)
     .width(FILL_WIDTH)
     .height(188.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -158,7 +158,7 @@ fn alignment_card(label: &str, align: Alignment) -> Element {
     .padding(10.0)
     .height(148.0)
     .flex(1.0)
-    .fill(BG)
+    .background(BG)
     .rounded(PANEL_RADIUS)
     .into()
 }
@@ -173,7 +173,7 @@ fn flex_distribution() -> Element {
     .padding(20.0)
     .width(FILL_WIDTH)
     .height(104.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -186,7 +186,7 @@ fn distribution_segment(label: &str, color: &str, fill: &str) -> Element {
     .child(text(label, 13.0, FontWeight::Normal, TEXT))
     .height(64.0)
     .flex(1.0)
-    .fill(fill)
+    .background(fill)
     .border_inside(2.0, Color::from_hex(color))
     .rounded(PANEL_RADIUS)
     .into()
@@ -196,19 +196,19 @@ fn stack_overlay() -> Element {
   lurq::components::Stack::new()
     .child(
       lurq::components::Rect::new(200.0, 200.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(SECTION_RADIUS)
         .absolute_position(280.0, 30.0),
     )
     .child(
       lurq::components::Rect::new(150.0, 150.0)
-        .fill(SUCCESS)
+        .background(SUCCESS)
         .rounded(SECTION_RADIUS)
         .absolute_position(305.0, 55.0),
     )
     .child(
       lurq::components::Rect::new(100.0, 100.0)
-        .fill(ERROR)
+        .background(ERROR)
         .rounded(SECTION_RADIUS)
         .absolute_position(330.0, 80.0),
     )
@@ -223,7 +223,7 @@ fn stack_overlay() -> Element {
     )
     .width(FILL_WIDTH)
     .height(260.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -257,13 +257,13 @@ fn flex_wrap_demo() -> Element {
         .padding(12.0)
         .width(FILL_WIDTH)
         .height(114.0)
-        .fill(BG)
+        .background(BG)
         .rounded(PANEL_RADIUS),
     )
     .padding(24.0)
     .width(FILL_WIDTH)
     .height(162.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -277,7 +277,7 @@ fn demo_card(title: &str, body: Element) -> Element {
     .padding(12.0)
     .height(140.0)
     .flex(1.0)
-    .fill(SURFACE_DARK)
+    .background(SURFACE_DARK)
     .rounded(PANEL_RADIUS)
     .into()
 }
@@ -288,7 +288,7 @@ fn row_col_box(label: &str, color: &str, width: impl Into<Dimension>, height: f3
     .justify(Justify::Center)
     .child(text(label, 14.0, FontWeight::Bold, TEXT))
     .size(width, height)
-    .fill(color)
+    .background(color)
     .rounded(ROW_COL_BOX_RADIUS)
     .into()
 }
@@ -296,7 +296,7 @@ fn row_col_box(label: &str, color: &str, width: impl Into<Dimension>, height: f3
 fn align_block(color: &str, height: f32) -> Element {
   lurq::components::Spacer::new()
     .size(36.0, height)
-    .fill(color)
+    .background(color)
     .rounded(ALIGN_BLOCK_RADIUS)
     .into()
 }
@@ -307,7 +307,7 @@ fn wrap_item(label: &str, color: &str) -> Element {
     .justify(Justify::Center)
     .child(text(label, 14.0, FontWeight::Bold, TEXT))
     .size(90.0, 40.0)
-    .fill(color)
+    .background(color)
     .rounded(PANEL_RADIUS)
     .into()
 }
@@ -315,7 +315,7 @@ fn wrap_item(label: &str, color: &str) -> Element {
 fn justify_swatch(color: &str) -> Element {
   lurq::components::Spacer::new()
     .size(56.0, 28.0)
-    .fill(color)
+    .background(color)
     .rounded(CONTROL_RADIUS)
     .into()
 }

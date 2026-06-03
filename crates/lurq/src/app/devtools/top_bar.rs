@@ -96,7 +96,7 @@ pub(crate) fn top_bar(
     .width(FILL)
     .padding_horizontal(16.0)
     .padding_vertical(0.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .into()
 }
@@ -235,7 +235,7 @@ fn tab(
         .child(text(label, 13.0, FontWeight::Medium, color))
         .height(36.0),
     )
-    .child(Rect::new(64.0, 2.0).fill(if active { PRIMARY } else { "#00000000" }))
+    .child(Rect::new(64.0, 2.0).background(if active { PRIMARY } else { "#00000000" }))
     .padding_horizontal(16.0)
     .padding_vertical(0.0)
     .cursor(CursorIcon::Pointer)

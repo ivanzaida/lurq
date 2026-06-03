@@ -705,7 +705,9 @@ impl Ctx {
   // --- Theme ---
 
   pub fn theme(&self) -> &Theme {
-    self.theme.as_ref().expect("theme not set")
+    let theme = self.theme.as_ref().expect("theme not set");
+    theme.track_access();
+    theme
   }
 
   // --- Slot Children ---

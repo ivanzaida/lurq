@@ -3,6 +3,26 @@ use super::{
   interpolate::{AnimatableProperty, AnimatableValue},
 };
 
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct KeyframesId(u16);
+
+impl KeyframesId {
+  pub const fn new(id: u16) -> Self {
+    Self(id)
+  }
+
+  pub const fn get(self) -> u16 {
+    self.0
+  }
+}
+
+impl From<u16> for KeyframesId {
+  fn from(value: u16) -> Self {
+    Self::new(value)
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct KeyframeEntry {
   pub offset: f32,
@@ -12,14 +32,14 @@ pub struct KeyframeEntry {
 
 #[derive(Clone, Debug)]
 pub struct Keyframes {
-  pub name: String,
+  pub id: KeyframesId,
   pub frames: Vec<KeyframeEntry>,
 }
 
 impl Keyframes {
-  pub fn new(name: impl Into<String>) -> Self {
+  pub fn new(id: impl Into<KeyframesId>) -> Self {
     Self {
-      name: name.into(),
+      id: id.into(),
       frames: Vec::new(),
     }
   }

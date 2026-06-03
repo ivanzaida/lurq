@@ -12,9 +12,9 @@ fn transition_all_applies_to_background_color() {
   let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#ff0000")
+    .background("#ff0000")
     .transition(Transition::all().duration_ms(1000).linear())
-    .hovered(|s| s.fill("#0000ff"));
+    .hovered(|s| s.background("#0000ff"));
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -41,7 +41,7 @@ fn transition_all_width_stays_at_hover_target_after_completion() {
   let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(120.0, 32.0)
-    .fill("#3b82f6")
+    .background("#3b82f6")
     .transition(Transition::all().duration_ms(5).linear())
     .hovered(|s| s.size(240.0, 32.0));
   rt.set_root(node);
@@ -68,7 +68,7 @@ fn transition_all_width_reverses_to_base_after_hover_leave() {
   let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(120.0, 32.0)
-    .fill("#3b82f6")
+    .background("#3b82f6")
     .transition(Transition::all().duration_ms(5).linear())
     .hovered(|s| s.size(240.0, 32.0));
   rt.set_root(node);
@@ -102,10 +102,10 @@ fn overlapping_transition_specs_do_not_restart_width_after_reverse() {
   let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(120.0, 32.0)
-    .fill("#3b82f6")
+    .background("#3b82f6")
     .transition(Transition::background_color().duration_ms(5).linear())
     .transition(Transition::all().duration_ms(5).linear())
-    .hovered(|s| s.fill("#22c55e").size(240.0, 32.0));
+    .hovered(|s| s.background("#22c55e").size(240.0, 32.0));
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -131,7 +131,7 @@ fn transition_state_is_cleared_when_root_is_replaced() {
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
 
   let first = lurq::components::Rect::new(120.0, 32.0)
-    .fill("#3b82f6")
+    .background("#3b82f6")
     .transition(Transition::all().duration_ms(5).linear())
     .hovered(|s| s.size(240.0, 32.0));
   rt.set_root(first);
@@ -142,7 +142,7 @@ fn transition_state_is_cleared_when_root_is_replaced() {
   assert_eq!(render_pass(&mut rt).rects[0].width, 240.0);
 
   let second = lurq::components::Rect::new(120.0, 32.0)
-    .fill("#3b82f6")
+    .background("#3b82f6")
     .transition(Transition::all().duration_ms(5).linear())
     .hovered(|s| s.size(240.0, 32.0));
   rt.set_root(second);

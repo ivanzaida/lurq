@@ -9,13 +9,13 @@ fn build_flat(count: usize) -> Element {
   Column::with(
     0.0,
     Alignment::Start,
-    (0..count).map(|_| Rect::new(100.0, 20.0).fill("#334155")),
+    (0..count).map(|_| Rect::new(100.0, 20.0).background("#334155")),
   )
   .into()
 }
 
 fn build_deep(depth: usize) -> Element {
-  let mut el: Element = Rect::new(10.0, 10.0).fill("#3b82f6").into();
+  let mut el: Element = Rect::new(10.0, 10.0).background("#3b82f6").into();
   for _ in 0..depth {
     el = Column::new().child(el).padding(4.0).into();
   }
@@ -30,7 +30,7 @@ fn build_wide_row(count: usize) -> Element {
       if i % 3 == 0 {
         Text::new(&format!("Label {i}")).into()
       } else if i % 3 == 1 {
-        Rect::new(60.0, 30.0).fill("#22c55e").rounded(4.0).into()
+        Rect::new(60.0, 30.0).background("#22c55e").rounded(4.0).into()
       } else {
         Spacer::new().into()
       }
@@ -44,7 +44,7 @@ fn build_stacked(count: usize) -> Element {
     StackAlignment::Center,
     (0..count).map(|i| {
       let s = (count - i) as f32 * 20.0;
-      Rect::new(s, s).fill("#3b82f6").rounded(4.0)
+      Rect::new(s, s).background("#3b82f6").rounded(4.0)
     }),
   )
   .into()

@@ -30,8 +30,8 @@ fn fully_offscreen_node_below_viewport_is_culled() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Rect::new(100.0, 100.0).fill("#ff0000"),
-      lurq::components::Rect::new(100.0, 100.0).fill("#00ff00"),
+      lurq::components::Rect::new(100.0, 100.0).background("#ff0000"),
+      lurq::components::Rect::new(100.0, 100.0).background("#00ff00"),
     ],
   );
   rt.set_root(node);
@@ -55,8 +55,8 @@ fn fully_offscreen_node_right_of_viewport_is_culled() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Rect::new(100.0, 50.0).fill("#ff0000"),
-      lurq::components::Rect::new(100.0, 50.0).fill("#00ff00"),
+      lurq::components::Rect::new(100.0, 50.0).background("#ff0000"),
+      lurq::components::Rect::new(100.0, 50.0).background("#00ff00"),
     ],
   );
   rt.set_root(node);
@@ -75,9 +75,9 @@ fn all_visible_nodes_are_kept() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Rect::new(50.0, 30.0).fill("#ff0000"),
-      lurq::components::Rect::new(50.0, 30.0).fill("#00ff00"),
-      lurq::components::Rect::new(50.0, 30.0).fill("#0000ff"),
+      lurq::components::Rect::new(50.0, 30.0).background("#ff0000"),
+      lurq::components::Rect::new(50.0, 30.0).background("#00ff00"),
+      lurq::components::Rect::new(50.0, 30.0).background("#0000ff"),
     ],
   );
   rt.set_root(node);
@@ -92,7 +92,7 @@ fn all_visible_nodes_are_kept() {
 fn many_offscreen_nodes_in_column_are_culled() {
   let mut rt = rt();
   let children: Vec<Element> = (0..20)
-    .map(|_| lurq::components::Rect::new(50.0, 50.0).fill("#334155").into())
+    .map(|_| lurq::components::Rect::new(50.0, 50.0).background("#334155").into())
     .collect();
   let node = lurq::components::Column::with(0.0, Alignment::Start, children);
   rt.set_root(node);
@@ -107,7 +107,7 @@ fn many_offscreen_nodes_in_column_are_culled() {
 fn without_viewport_all_nodes_are_emitted() {
   let mut rt = rt();
   let children: Vec<Element> = (0..20)
-    .map(|_| lurq::components::Rect::new(50.0, 50.0).fill("#334155").into())
+    .map(|_| lurq::components::Rect::new(50.0, 50.0).background("#334155").into())
     .collect();
   let node = lurq::components::Column::with(0.0, Alignment::Start, children);
   rt.set_root(node);
@@ -125,17 +125,17 @@ fn offscreen_subtree_is_culled_entirely() {
     0.0,
     Alignment::Start,
     vec![
-      Element::from(lurq::components::Rect::new(100.0, 50.0).fill("#ff0000")),
+      Element::from(lurq::components::Rect::new(100.0, 50.0).background("#ff0000")),
       Element::from(
         lurq::components::Column::with(
           0.0,
           Alignment::Start,
           vec![
-            lurq::components::Rect::new(100.0, 50.0).fill("#00ff00"),
-            lurq::components::Rect::new(100.0, 50.0).fill("#0000ff"),
+            lurq::components::Rect::new(100.0, 50.0).background("#00ff00"),
+            lurq::components::Rect::new(100.0, 50.0).background("#0000ff"),
           ],
         )
-        .fill("#aaaaaa"),
+        .background("#aaaaaa"),
       ),
     ],
   );

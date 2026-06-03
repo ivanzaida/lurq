@@ -91,7 +91,7 @@ impl Component for ContextDemo {
       }))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(palette.bg)
+      .background(palette.bg)
   }
 }
 
@@ -217,7 +217,7 @@ fn section_title(label: &str, palette: ThemePalette) -> Element {
 fn card_frame(palette: ThemePalette) -> lurq::components::Column {
   lurq::components::Column::new()
     .width(FILL_WIDTH)
-    .fill(palette.surface)
+    .background(palette.surface)
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(CARD_RADIUS)
 }
@@ -271,11 +271,11 @@ fn theme_toggle(theme: Signal<DemoTheme>, palette: ThemePalette) -> Element {
     .justify(Justify::Center)
     .child(text("Toggle Theme", 12.0, FontWeight::Normal, "#ffffff"))
     .size(120.0, 32.0)
-    .fill(palette.primary)
+    .background(palette.primary)
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Pointer)
-    .hovered(move |style| style.fill(palette.primary_hover))
-    .active(move |style| style.fill(palette.primary_active))
+    .hovered(move |style| style.background(palette.primary_hover))
+    .active(move |style| style.background(palette.primary_active))
     .on_click(move |_| theme.set(theme.get().toggle()))
     .into()
 }
@@ -286,11 +286,11 @@ fn locale_toggle(locale: Signal<LocaleMode>, palette: ThemePalette) -> Element {
     .justify(Justify::Center)
     .child(text("Switch Locale", 12.0, FontWeight::Normal, "#ffffff"))
     .size(120.0, 32.0)
-    .fill(palette.primary)
+    .background(palette.primary)
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Pointer)
-    .hovered(move |style| style.fill(palette.primary_hover))
-    .active(move |style| style.fill(palette.primary_active))
+    .hovered(move |style| style.background(palette.primary_hover))
+    .active(move |style| style.background(palette.primary_active))
     .on_click(move |_| locale.set(locale.get().toggle()))
     .into()
 }
@@ -314,13 +314,13 @@ fn theme_preview(
         .justify(Justify::Center)
         .child(text("Primary", 11.0, FontWeight::Normal, "#ffffff"))
         .size(100.0, 28.0)
-        .fill(button_color)
+        .background(button_color)
         .rounded(4.0),
     )
     .height(150.0)
     .padding(16.0)
     .flex(1.0)
-    .fill(background)
+    .background(background)
     .border_inside(1.0, Color::from_hex(border_color))
     .rounded(CARD_RADIUS)
     .into()
@@ -334,7 +334,7 @@ fn context_child(name: &str, value: &str, palette: ThemePalette) -> Element {
     .padding_horizontal(12.0)
     .padding_vertical(8.0)
     .width(FILL_WIDTH)
-    .fill(palette.bg)
+    .background(palette.bg)
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .into()

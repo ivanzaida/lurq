@@ -33,7 +33,7 @@ impl Component for DndDemo {
       .child(dnd_showcase(ctx, self.drop_status.clone()))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .background(BG)
   }
 }
 
@@ -50,7 +50,7 @@ fn dnd_showcase(ctx: &mut Ctx, drop_status: Signal<String>) -> Element {
     .height(420.0)
     .padding_horizontal(32.0)
     .padding_vertical(36.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -102,7 +102,7 @@ fn dnd_stack(ctx: &mut Ctx, drop_status: Signal<String>) -> Element {
     lurq::components::DragContainerProps::new(),
     lurq::components::Stack::new()
       .size(400.0, 280.0)
-      .fill(BG)
+      .background(BG)
       .border_inside(1.0, Color::from_hex(BORDER))
       .rounded(SECTION_RADIUS)
       .with_children([
@@ -123,7 +123,7 @@ fn drop_zone_card(label: &str) -> lurq::components::Row {
     .justify(Justify::Center)
     .child(text(label, 11.0, FontWeight::Bold, TEXT))
     .size(140.0, 82.0)
-    .fill("#22c55e33")
+    .background("#22c55e33")
     .border_inside(1.0, Color::from_hex(SUCCESS))
     .rounded(PANEL_RADIUS)
 }
@@ -138,6 +138,6 @@ fn drag_card_with_color(label: &str, color: &str) -> lurq::components::Row {
     .justify(Justify::Center)
     .child(text(label, 11.0, FontWeight::Normal, TEXT))
     .size(120.0, 80.0)
-    .fill(color)
+    .background(color)
     .rounded(PANEL_RADIUS)
 }

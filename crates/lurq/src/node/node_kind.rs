@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
+  app::theme::{ThemeTypography, TypographyId},
   core::Signal,
   layout::text_style::TextStyle,
   node::{
@@ -28,7 +29,7 @@ pub(crate) enum NodeKind {
   Empty,
   Text {
     state: TextState,
-    style: TextStyle,
+    style: TextStyleSource,
     transform_mode: TextTransformMode,
   },
   TextInput {
@@ -58,6 +59,35 @@ pub(crate) enum NodeKind {
   ResourceSvg {
     path: Arc<str>,
   },
+}
+
+#[derive(Clone, PartialEq)]
+pub(crate) enum TextStyleSource {
+  Default,
+  Typography(TypographyId),
+  Explicit(TextStyle),
+}
+
+impl TextStyleSource {
+  pub(crate) fn default_style() -> Self {
+    Self::Default
+  }
+
+  pub(crate) fn explicit(style: TextStyle) -> Self {
+    Self::Explicit(style)
+  }
+
+  pub(crate) fn variant(id: impl Into<TypographyId>) -> Self {
+    Self::Typography(id.into())
+  }
+
+  pub(crate) fn resolve(&self, typography: &ThemeTypography) -> TextStyle {
+    match self {
+      Self::Default => typography.default_style().clone(),
+      Self::Typography(id) => typography.resolve(id),
+      Self::Explicit(style) => style.clone(),
+    }
+  }
 }
 
 #[derive(Clone)]

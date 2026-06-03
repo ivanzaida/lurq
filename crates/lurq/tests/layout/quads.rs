@@ -199,10 +199,10 @@ fn quads_absolute_positions_in_column() {
 fn default_overflow_clips_children() {
   let mut rt = rt();
   let node = lurq::components::Row::new()
-    .child(lurq::components::Rect::new(200.0, 50.0).fill("#ff0000"))
+    .child(lurq::components::Rect::new(200.0, 50.0).background("#ff0000"))
     .width(100.0)
     .height(50.0)
-    .fill("#000000");
+    .background("#000000");
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -215,10 +215,10 @@ fn default_overflow_clips_children() {
 fn overflow_visible_allows_children_to_escape() {
   let mut rt = rt();
   let node = lurq::components::Row::new()
-    .child(lurq::components::Rect::new(200.0, 50.0).fill("#ff0000"))
+    .child(lurq::components::Rect::new(200.0, 50.0).background("#ff0000"))
     .width(100.0)
     .height(50.0)
-    .fill("#000000")
+    .background("#000000")
     .overflow_visible();
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
@@ -231,7 +231,7 @@ fn offset_visuals_move_with_the_offset_and_clip_by_default() {
   let mut rt = rt();
   let node = lurq::components::Stack::new().size(100.0, 100.0).child(
     lurq::components::Rect::new(80.0, 40.0)
-      .fill("#ff0000")
+      .background("#ff0000")
       .offset(20.0, 10.0)
       .absolute_position(0.0, 0.0),
   );
@@ -258,8 +258,8 @@ fn container_children_can_be_added_after_frame_modifiers() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()
     .size(100.0, 100.0)
-    .fill("#000000")
-    .child(lurq::components::Rect::new(20.0, 20.0).fill("#ff0000"));
+    .background("#000000")
+    .child(lurq::components::Rect::new(20.0, 20.0).background("#ff0000"));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -275,7 +275,7 @@ fn container_props_can_be_set_after_frame_modifiers() {
   let node = lurq::components::Stack::new()
     .size(100.0, 100.0)
     .stack_align(StackAlignment::BottomEnd)
-    .child(lurq::components::Rect::new(20.0, 20.0).fill("#ff0000"));
+    .child(lurq::components::Rect::new(20.0, 20.0).background("#ff0000"));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -294,16 +294,16 @@ fn container_props_can_be_set_after_frame_modifiers() {
 fn nested_default_overflow_intersects_text_clip() {
   let mut rt = rt();
   let node = lurq::components::Row::new()
-    .child(lurq::components::Rect::new(100.0, 40.0).fill("#0000ff"))
+    .child(lurq::components::Rect::new(100.0, 40.0).background("#0000ff"))
     .child(
       lurq::components::Row::new()
         .child(lurq::components::Text::new("B"))
         .size(50.0, 40.0)
-        .fill("#ff0000"),
+        .background("#ff0000"),
     )
     .width(100.0)
     .height(40.0)
-    .fill("#000000");
+    .background("#000000");
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 40.0))).unwrap();
   let quads = rt.resolve_quads(&result);
@@ -387,12 +387,12 @@ fn assert_close(actual: f32, expected: f32) {
 fn transformed_padding_child_transforms_padding_offset() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()
-    .child(lurq::components::Rect::new(20.0, 20.0).fill("#0000ff"))
+    .child(lurq::components::Rect::new(20.0, 20.0).background("#0000ff"))
     .padding(Padding {
-      top: Dimension::Px(10.0),
-      right: Dimension::Px(0.0),
-      bottom: Dimension::Px(0.0),
-      left: Dimension::Px(30.0),
+      top: Dimension::Px(10.0).into(),
+      right: Dimension::Px(0.0).into(),
+      bottom: Dimension::Px(0.0).into(),
+      left: Dimension::Px(30.0).into(),
     })
     .transform(Transform2D::rotate_deg(30.0));
 
@@ -422,7 +422,7 @@ fn transformed_padded_text_sends_glyphs_with_parent_transform() {
     )
     .padding(14.0)
     .width(480.0)
-    .fill("#172033")
+    .background("#172033")
     .border_inside(1.0, Color::from_hex("#475569"))
     .rounded(8.0)
     .transform(transform)

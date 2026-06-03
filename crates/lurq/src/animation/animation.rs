@@ -6,7 +6,7 @@ use std::{
 use super::{
   easing::Easing,
   interpolate::write_property,
-  keyframes::{KeyframeEntry, Keyframes},
+  keyframes::{KeyframeEntry, Keyframes, KeyframesId},
 };
 use crate::core::NodeId;
 
@@ -34,7 +34,7 @@ pub enum AnimationIterationCount {
 
 #[derive(Clone, Debug)]
 pub struct Animation {
-  pub name: String,
+  pub keyframes: KeyframesId,
   pub duration: Duration,
   pub delay: Duration,
   pub easing: Easing,
@@ -44,9 +44,9 @@ pub struct Animation {
 }
 
 impl Animation {
-  pub fn new(name: impl Into<String>) -> Self {
+  pub fn new(keyframes: impl Into<KeyframesId>) -> Self {
     Self {
-      name: name.into(),
+      keyframes: keyframes.into(),
       duration: Duration::from_millis(300),
       delay: Duration::ZERO,
       easing: Easing::EASE,
@@ -113,7 +113,7 @@ impl Animation {
 }
 
 struct AnimationRun {
-  name: String,
+  keyframes: KeyframesId,
   duration: Duration,
   delay: Duration,
   easing: Easing,
@@ -125,8 +125,8 @@ struct AnimationRun {
 }
 
 pub struct AnimationEngine {
-  active: HashMap<(NodeId, String), AnimationRun>,
-  keyframe_store: HashMap<String, Vec<KeyframeEntry>>,
+  active: HashMap<(NodeId, KeyframesId), AnimationRun>,
+  keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
   pub has_active: bool,
 }
 
@@ -140,7 +140,7 @@ impl AnimationEngine {
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
-    self.keyframe_store.insert(keyframes.name, keyframes.frames);
+    self.keyframe_store.insert(keyframes.id, keyframes.frames);
   }
 
   pub(crate) fn clear_state(&mut self) {
@@ -179,14 +179,14 @@ impl AnimationEngine {
 
   fn process_node(&mut self, node: &mut crate::node::Node, spec: &Animation, now: Instant) -> bool {
     let node_id = node.node_id();
-    let key = (node_id, spec.name.clone());
+    let key = (node_id, spec.keyframes);
     let iteration_count = match spec.iteration_count {
       AnimationIterationCount::Count(c) => c,
       AnimationIterationCount::Infinite => f64::INFINITY,
     };
 
     let run = self.active.entry(key).or_insert_with(|| AnimationRun {
-      name: spec.name.clone(),
+      keyframes: spec.keyframes,
       duration: spec.duration,
       delay: spec.delay,
       easing: spec.easing,
@@ -201,7 +201,7 @@ impl AnimationEngine {
       return false;
     }
 
-    let frames = match self.keyframe_store.get(&run.name) {
+    let frames = match self.keyframe_store.get(&run.keyframes) {
       Some(f) => f,
       None => return false,
     };
@@ -221,7 +221,7 @@ impl AnimationEngine {
 
     if dur <= 0.0 {
       run.finished = true;
-      self.active.get_mut(&(node_id, spec.name.clone())).unwrap().finished = true;
+      self.active.get_mut(&(node_id, spec.keyframes)).unwrap().finished = true;
       return false;
     }
 

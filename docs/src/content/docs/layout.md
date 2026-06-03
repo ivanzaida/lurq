@@ -18,7 +18,7 @@ Modifiers are chainable and wrap the current element.
 ```rust
 lurq::components::Rect::new(80.0, 40.0)
   .padding(12.0)
-  .fill("#3b82f6")
+  .background("#3b82f6")
   .rounded(8.0)
 ```
 
@@ -29,9 +29,9 @@ Common modifiers:
 | `.size(width, height)` | Force width and height |
 | `.width(width)` | Force width |
 | `.height(height)` | Force height |
-| `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child |
-| `.fill(color)` | Fill the element background |
-| `.rounded(radius)` | Set border radius |
+| `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingId` |
+| `.background(color)` | Fill the element background from a concrete color or `PaletteId` |
+| `.rounded(radius)` | Set border radius from `f32` or `RadiusId` |
 | `.border_inside(width, color)` | Draw an inside border |
 | `.offset(x, y)` | Shift visually without changing parent layout |
 | `.relative(x, y)` | Alias for `.offset(x, y)` |
@@ -41,7 +41,7 @@ Common modifiers:
 | `.align(Alignment)` | Override alignment within parent container |
 | `.flex(factor)` | Participate in row/column flex distribution |
 
-Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`.
+Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Padding accepts `f32`, `Dimension`, or `SpacingId`.
 
 ```rust
 use lurq::node::dimension::Dimension;
@@ -98,6 +98,8 @@ Column layout:
 4. Positions children vertically and applies cross-axis alignment.
 5. Distributes remaining height to flex children when present.
 
+`.spacing(...)` accepts either a plain pixel value or a `SpacingId` from the active theme.
+
 ### Row
 
 `lurq::components::Row::new()` arranges children left-to-right.
@@ -112,6 +114,8 @@ lurq::components::Row::new()
 
 Row layout is the horizontal equivalent of column layout.
 
+`.spacing(...)` accepts either a plain pixel value or a `SpacingId` from the active theme.
+
 ### Stack
 
 `lurq::components::Stack::new()` overlays children. Later children paint on top of earlier children.
@@ -120,7 +124,7 @@ Row layout is the horizontal equivalent of column layout.
 lurq::components::Stack::new()
   .stack_align(StackAlignment::Center)
   .child(lurq::components::Rect::new(200.0, 120.0))
-  .child(lurq::components::Rect::new(40.0, 40.0).fill("#ef4444"))
+  .child(lurq::components::Rect::new(40.0, 40.0).background("#ef4444"))
 ```
 
 Stack layout:
@@ -146,10 +150,10 @@ Absolute positioning is intentionally scoped to `Stack`.
 
 ```rust
 lurq::components::Stack::new()
-  .child(lurq::components::Rect::new(300.0, 120.0).fill("#f8fafc"))
+  .child(lurq::components::Rect::new(300.0, 120.0).background("#f8fafc"))
   .child(
     lurq::components::Rect::new(80.0, 32.0)
-      .fill("#f97316")
+      .background("#f97316")
       .absolute(190.0, 24.0, 80.0, 32.0),
   )
 ```

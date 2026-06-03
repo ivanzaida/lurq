@@ -37,14 +37,14 @@ fn slider_customizes_track_and_thumb_geometry_and_visuals() {
       .track(|style| {
         style
           .size(80.0, 2.0)
-          .fill("#111827")
+          .background("#111827")
           .rounded(1.0)
           .border_inside(1.0, Color::from_hex("#38bdf8"))
       })
       .thumb(|style| {
         style
           .size(10.0, 10.0)
-          .fill("#f97316")
+          .background("#f97316")
           .rounded(5.0)
           .border_inside(2.0, Color::from_hex("#0f172a"))
       }),
@@ -89,8 +89,8 @@ fn slider_thumb_stays_fully_inside_track_at_range_edges() {
         .range(0, 10)
         .width(100.0)
         .height(20.0)
-        .track(|style| style.size(80.0, 2.0).fill("#111827"))
-        .thumb(|style| style.size(10.0, 10.0).fill("#f97316")),
+        .track(|style| style.size(80.0, 2.0).background("#111827"))
+        .thumb(|style| style.size(10.0, 10.0).background("#f97316")),
     );
     let snapshot = render_pass(&mut runtime);
 
@@ -120,10 +120,10 @@ fn slider_applies_track_and_thumb_hover_styles() {
       .range(0, 10)
       .width(100.0)
       .height(20.0)
-      .track(|style| style.height(4.0).fill("#64748b"))
-      .track_hovered(|style| style.fill("#22c55e"))
-      .thumb(|style| style.size(10.0, 10.0).fill("#0f172a"))
-      .thumb_hovered(|style| style.fill("#eab308")),
+      .track(|style| style.height(4.0).background("#64748b"))
+      .track_hovered(|style| style.background("#22c55e"))
+      .thumb(|style| style.size(10.0, 10.0).background("#0f172a"))
+      .thumb_hovered(|style| style.background("#eab308")),
   );
   render_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();

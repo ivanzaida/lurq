@@ -7,7 +7,7 @@ fn updates_layout_after_mutating_found_element_rect() {
   let mut runtime = Tree::new();
   runtime.set_root(
     lurq::components::Column::new()
-      .child(lurq::components::Rect::new(10.0, 20.0).fill("#22c55e"))
+      .child(lurq::components::Rect::new(10.0, 20.0).background("#22c55e"))
       .padding(10.0),
   );
   run_pass(&mut runtime);

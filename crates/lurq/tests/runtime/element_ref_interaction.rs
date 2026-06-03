@@ -44,7 +44,7 @@ impl Component for RefLoggingComponent {
 
     lurq::components::Rect::new(100.0, 40.0)
       .ref_element(element_ref)
-      .fill("#22c55e")
+      .background("#22c55e")
       .on_click({
         let count = self.count.clone();
         move |_| count.update(|value| *value += 1)
@@ -90,13 +90,13 @@ fn element_ref_tracks_focus_state() {
       .child(
         lurq::components::TextInput::new(Signal::new(String::new()))
           .ref_element(first_ref.clone())
-          .fill("#ef4444")
+          .background("#ef4444")
           .width(100.0),
       )
       .child(
         lurq::components::TextInput::new(Signal::new(String::new()))
           .ref_element(second_ref.clone())
-          .fill("#22c55e")
+          .background("#22c55e")
           .width(100.0),
       ),
   );
@@ -132,7 +132,7 @@ fn element_ref_mut_can_override_layout_bounds() {
       .child(
         lurq::components::Rect::new(10.0, 20.0)
           .ref_element(element_ref.clone())
-          .fill("#22c55e"),
+          .background("#22c55e"),
       )
       .padding(10.0),
   );
@@ -165,8 +165,8 @@ fn hovered_style_overrides_visuals_and_layout() {
 
   runtime.set_root(
     lurq::components::Rect::new(100.0, 40.0)
-      .fill("#334155")
-      .hovered(|el| el.fill("#475569").width(120.0).height(50.0)),
+      .background("#334155")
+      .hovered(|el| el.background("#475569").width(120.0).height(50.0)),
   );
   run_pass(&mut runtime);
 

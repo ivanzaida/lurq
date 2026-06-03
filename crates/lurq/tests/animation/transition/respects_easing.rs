@@ -11,9 +11,9 @@ fn linear_easing_produces_proportional_interpolation() {
   let mut rt = Tree::new();
 
   let node = lurq::components::Rect::new(100.0, 50.0)
-    .fill("#000000")
+    .background("#000000")
     .transition(Transition::background_color().duration_ms(1000).linear())
-    .hovered(|s| s.fill("#ffffff"));
+    .hovered(|s| s.background("#ffffff"));
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

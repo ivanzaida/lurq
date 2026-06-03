@@ -34,7 +34,7 @@ impl Component for PositioningDemo {
       .child(stack_alignment_grid())
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(BG)
+      .background(BG)
   }
 }
 
@@ -53,7 +53,7 @@ fn relative_offset() -> Element {
     .padding_vertical(24.0)
     .width(FILL_WIDTH)
     .height(178.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -76,7 +76,7 @@ fn offset_sample(label: &str, offset_x: f32, visible_overflow: bool) -> lurq::co
   let mut body = lurq::components::Stack::new()
     .child(
       lurq::components::Rect::new(80.0, 40.0)
-        .fill(GHOST_PRIMARY)
+        .background(GHOST_PRIMARY)
         .border_inside(1.0, Color::from_hex(PRIMARY))
         .rounded(CONTROL_RADIUS)
         .absolute_position(0.0, 0.0),
@@ -115,7 +115,7 @@ fn absolute_positioning() -> Element {
     .height(340.0)
     .padding_horizontal(32.0)
     .padding_vertical(30.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -131,12 +131,12 @@ fn static_absolute_stack() -> lurq::components::Stack {
         .justify(Justify::Center)
         .child(text("abs(220, 160)", 11.0, FontWeight::Normal, TEXT))
         .size(120.0, 80.0)
-        .fill(SUCCESS)
+        .background(SUCCESS)
         .rounded(PANEL_RADIUS)
         .absolute_position(220.0, 160.0),
     )
     .size(400.0, 280.0)
-    .fill(BG)
+    .background(BG)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
 }
@@ -147,7 +147,7 @@ fn abs_box(label: &str, color: &str) -> lurq::components::Row {
     .justify(Justify::Center)
     .child(text(label, 11.0, FontWeight::Normal, TEXT))
     .size(120.0, 80.0)
-    .fill(color)
+    .background(color)
     .rounded(PANEL_RADIUS)
 }
 
@@ -172,7 +172,7 @@ fn stack_alignment_grid() -> Element {
   grid
     .width(FILL_WIDTH)
     .height(340.0)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()
@@ -183,12 +183,12 @@ fn alignment_cell(label: &str, alignment: StackAlignment) -> lurq::components::S
     .stack_align(alignment)
     .child(
       lurq::components::Rect::new(40.0, 30.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(CONTROL_RADIUS),
     )
     .child(text(label, 10.0, FontWeight::Normal, TEXT_MUTED).absolute_position(6.0, 4.0))
     .size(260.0, 96.0)
-    .fill(BG)
+    .background(BG)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(PANEL_RADIUS)
 }
@@ -199,6 +199,6 @@ fn offset_box(label: &str, color: &str) -> lurq::components::Row {
     .justify(Justify::Center)
     .child(text(label, 14.0, FontWeight::Bold, TEXT))
     .size(80.0, 40.0)
-    .fill(color)
+    .background(color)
     .rounded(CONTROL_RADIUS)
 }

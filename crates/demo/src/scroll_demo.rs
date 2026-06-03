@@ -27,7 +27,7 @@ pub(crate) fn scroll_content() -> Element {
     .child(both_axis_scroll_demo())
     .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
-    .fill(BG)
+    .background(BG)
     .into()
 }
 
@@ -82,7 +82,7 @@ fn vertical_scroll_case(label: &str, placement: ScrollBarPlacement) -> lurq::com
       .scrollbar(scrollbar(placement))
       .width(FILL_WIDTH)
       .height(220.0)
-      .fill(BG)
+      .background(BG)
       .rounded(PANEL_RADIUS),
     )
 }
@@ -97,7 +97,7 @@ fn vertical_item(index: usize) -> lurq::components::Row {
     .padding_vertical(0.0)
     .height(32.0)
     .width(FILL_WIDTH)
-    .fill(fill)
+    .background(fill)
     .rounded(4.0)
 }
 
@@ -124,7 +124,7 @@ fn horizontal_scroll_case(label: &str, placement: ScrollBarPlacement) -> lurq::c
       .scrollbar(scrollbar(placement))
       .width(FILL_WIDTH)
       .height(116.0)
-      .fill(BG)
+      .background(BG)
       .rounded(PANEL_RADIUS),
     )
 }
@@ -135,7 +135,7 @@ fn horizontal_card(index: usize) -> lurq::components::Row {
     .justify(Justify::Center)
     .child(text(&format!("Card {}", index), 12.0, FontWeight::Bold, TEXT))
     .size(150.0, 80.0)
-    .fill(BG)
+    .background(BG)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
 }
@@ -160,7 +160,7 @@ fn both_axis_scroll_case(label: &str, placement: ScrollBarPlacement) -> lurq::co
         .scrollbar(scrollbar(placement))
         .width(FILL_WIDTH)
         .height(180.0)
-        .fill(BG)
+        .background(BG)
         .rounded(PANEL_RADIUS),
     )
     .child(text(
@@ -201,7 +201,7 @@ fn grid_cell(row: usize, column: usize) -> lurq::components::Row {
       TEXT_MUTED,
     ))
     .size(56.0, 56.0)
-    .fill(fill)
+    .background(fill)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(4.0)
 }
@@ -211,7 +211,7 @@ fn demo_panel(content: impl Into<Element>) -> Element {
     .child(content)
     .padding(20.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(SECTION_RADIUS)
     .into()

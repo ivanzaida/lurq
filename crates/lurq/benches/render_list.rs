@@ -15,15 +15,15 @@ fn sidebar_with_content(item_count: usize) -> Element {
         0.0,
         Alignment::Center,
         vec![
-          Element::from(Rect::new(3.0, 38.0).fill("#3b82f6")),
+          Element::from(Rect::new(3.0, 38.0).background("#3b82f6")),
           Element::from(Text::new(if i == 0 { "Layout" } else { "Item" })),
         ],
       )
-      .fill(if i == 0 { "#1e3a5f" } else { "#1e293b" })
+      .background(if i == 0 { "#1e3a5f" } else { "#1e293b" })
       .width(200.0)
     }),
   )
-  .fill("#1e293b")
+  .background("#1e293b")
   .into();
 
   let content: Element = Column::with(
@@ -35,8 +35,8 @@ fn sidebar_with_content(item_count: usize) -> Element {
         Alignment::Center,
         vec![
           Element::from(Text::new(&format!("Label {i}"))),
-          Element::from(Rect::new(60.0, 30.0).fill("#334155").rounded(4.0)),
-          Element::from(Rect::new(200.0, 30.0).fill("#0f172a").rounded(4.0)),
+          Element::from(Rect::new(60.0, 30.0).background("#334155").rounded(4.0)),
+          Element::from(Rect::new(200.0, 30.0).background("#0f172a").rounded(4.0)),
         ],
       )
     }),
@@ -45,7 +45,7 @@ fn sidebar_with_content(item_count: usize) -> Element {
   .into();
 
   Row::with(0.0, Alignment::Start, vec![sidebar, content])
-    .fill("#0f172a")
+    .background("#0f172a")
     .size(1200.0, 800.0)
     .into()
 }

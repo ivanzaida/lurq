@@ -9,7 +9,7 @@ fn checked_checkbox_style_controls_box_fill() {
 
   runtime.set_root(
     lurq::components::Checkbox::new(checked)
-      .checked_box(|style| style.fill("#111827"))
+      .checked_box(|style| style.background("#111827"))
       .size(20.0, 20.0),
   );
   let snapshot = render_pass(&mut runtime);
@@ -27,7 +27,7 @@ fn generic_fill_still_styles_unchecked_checkbox() {
   let checked = Signal::new(false);
   let mut runtime = Tree::new();
 
-  runtime.set_root(lurq::components::Checkbox::new(checked).fill("#f8fafc"));
+  runtime.set_root(lurq::components::Checkbox::new(checked).background("#f8fafc"));
   let snapshot = render_pass(&mut runtime);
 
   assert!(

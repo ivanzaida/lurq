@@ -50,7 +50,7 @@ pub(crate) fn inspector_panel(selected: Option<&DevToolsNode>, frame: FrameProfi
     )
     .width(FILL)
     .height(FILL)
-    .fill(BG)
+    .background(BG)
     .into()
 }
 
@@ -246,7 +246,7 @@ fn section_header(title: &str, leading_icon: Option<&str>, color: &str, count: &
 fn signal_row(id: usize, ty: &str, value: Option<&str>) -> Element {
   let mut row = Row::new()
     .align_items(Alignment::Center)
-    .child(Rect::new(6.0, 6.0).fill(SIGNAL_GREEN).rounded(3.0))
+    .child(Rect::new(6.0, 6.0).background(SIGNAL_GREEN).rounded(3.0))
     .child(Spacer::new().width(8.0))
     .child(mono_text(&format!("#{id}"), 12.0, FontWeight::Medium, TEXT))
     .child(Spacer::new().width(8.0))
@@ -268,10 +268,10 @@ fn signal_row(id: usize, ty: &str, value: Option<&str>) -> Element {
   row
     .child(Spacer::new().flex(1.0))
     .padding_custom(Padding {
-      top: Dimension::Px(6.0),
-      right: Dimension::Px(16.0),
-      bottom: Dimension::Px(6.0),
-      left: Dimension::Px(40.0),
+      top: Dimension::Px(6.0).into(),
+      right: Dimension::Px(16.0).into(),
+      bottom: Dimension::Px(6.0).into(),
+      left: Dimension::Px(40.0).into(),
     })
     .width(FILL)
     .into()
@@ -328,7 +328,7 @@ fn effects_empty_row() -> Element {
 fn effect_row(id: usize) -> Element {
   Row::new()
     .align_items(Alignment::Center)
-    .child(Rect::new(6.0, 6.0).fill(PINK).rounded(3.0))
+    .child(Rect::new(6.0, 6.0).background(PINK).rounded(3.0))
     .child(Spacer::new().width(8.0))
     .child(mono_text(&format!("#{id}"), 12.0, FontWeight::Medium, TEXT))
     .child(Spacer::new().width(8.0))
@@ -373,10 +373,10 @@ fn render_info_row(label: &str, value: &str, value_color: &str) -> Element {
     .child(Spacer::new().flex(1.0))
     .child(mono_text(value, 11.0, FontWeight::Medium, value_color).nowrap())
     .padding_custom(Padding {
-      top: Dimension::Px(5.0),
-      right: Dimension::Px(16.0),
-      bottom: Dimension::Px(5.0),
-      left: Dimension::Px(40.0),
+      top: Dimension::Px(5.0).into(),
+      right: Dimension::Px(16.0).into(),
+      bottom: Dimension::Px(5.0).into(),
+      left: Dimension::Px(40.0).into(),
     })
     .width(FILL)
     .into()
@@ -465,10 +465,10 @@ fn push_short_type_token(out: &mut String, token: &mut String) {
 
 fn content_padding(top: f32, right: f32, bottom: f32, left: f32) -> Padding {
   Padding {
-    top: Dimension::Px(top),
-    right: Dimension::Px(right),
-    bottom: Dimension::Px(bottom),
-    left: Dimension::Px(left),
+    top: Dimension::Px(top).into(),
+    right: Dimension::Px(right).into(),
+    bottom: Dimension::Px(bottom).into(),
+    left: Dimension::Px(left).into(),
   }
 }
 

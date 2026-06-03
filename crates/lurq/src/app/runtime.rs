@@ -51,6 +51,7 @@ const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
+const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
@@ -162,6 +163,7 @@ pub struct Tree {
   last_profile: FrameProfile,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
+  last_theme_version: u64,
 }
 
 pub(crate) struct SecondaryWindow {
@@ -316,6 +318,7 @@ impl Tree {
       last_profile: FrameProfile::default(),
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
+      last_theme_version: u64::MAX,
     }
   }
 
@@ -686,6 +689,7 @@ impl Tree {
     self.root_component = Some(Box::new(wrapper));
     self.root_ctx = Some(ctx);
     self.last_layout = None;
+    self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
   }
@@ -744,6 +748,7 @@ impl Tree {
     self.root_component = None;
     self.root_ctx = None;
     self.last_layout = None;
+    self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.active_drag = None;
     self.clear_focus();
@@ -802,7 +807,7 @@ impl Tree {
     if self.render_engine.is_none() {
       return;
     }
-    let clear_color = root.color().unwrap_or_else(|| app.theme.colors().background);
+    let clear_color = root.color().unwrap_or(DEFAULT_CLEAR_COLOR);
 
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
@@ -2215,7 +2220,43 @@ impl Tree {
       let constraints = self
         .layout_constraints_override
         .unwrap_or_else(|| Constraints::tight(self.viewport_logical()));
-      let layout = self.layout_engine.compute(&mut app.glyph_engine, root, constraints);
+      let theme_version = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().version())
+        .unwrap_or_else(|| app.theme().version());
+      let typography = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().typography().clone())
+        .unwrap_or_else(|| app.theme().typography().clone());
+      let palette = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().palette().clone())
+        .unwrap_or_else(|| app.theme().palette().clone());
+      let spacing = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().spacing().clone())
+        .unwrap_or_else(|| app.theme().spacing().clone());
+      let radii = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().radii().clone())
+        .unwrap_or_else(|| app.theme().radii().clone());
+      let theme_changed = self.last_theme_version != theme_version;
+      let layout = self.layout_engine.compute(
+        &mut app.glyph_engine,
+        root,
+        constraints,
+        palette,
+        spacing,
+        radii,
+        typography,
+        theme_changed,
+      );
+      self.last_theme_version = theme_version;
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
       }

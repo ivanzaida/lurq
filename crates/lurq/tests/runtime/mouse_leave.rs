@@ -80,11 +80,11 @@ fn node_mouse_leave_fires_when_pointer_exits_node() {
 
   runtime.set_root(
     lurq::components::Rect::new(120.0, 32.0)
-      .fill("#2563eb")
+      .background("#2563eb")
       .rounded(6.0)
       .transition(Transition::background_color().duration_ms(800).easing(Easing::Linear))
       .transition(Transition::all().duration_ms(800).easing(Easing::Linear))
-      .hovered(|s| s.fill("#22c55e").size(240.0, 32.0))
+      .hovered(|s| s.background("#22c55e").size(240.0, 32.0))
       .cursor(CursorIcon::Pointer)
       .on_mouse_enter({
         let enters = enters.clone();
@@ -127,10 +127,10 @@ fn hovering_stable_left_edge_does_not_emit_repeated_leave() {
       )
       .child(
         lurq::components::Rect::new(120.0, 32.0)
-          .fill("#2563eb")
+          .background("#2563eb")
           .transition(Transition::background_color().duration_ms(800).easing(Easing::Linear))
           .transition(Transition::all().duration_ms(800).easing(Easing::Linear))
-          .hovered(|s| s.fill("#22c55e").size(240.0, 32.0))
+          .hovered(|s| s.background("#22c55e").size(240.0, 32.0))
           .cursor(CursorIcon::Pointer)
           .on_mouse_enter({
             let enters = enters.clone();

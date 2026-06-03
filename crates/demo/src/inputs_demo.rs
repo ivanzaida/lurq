@@ -87,7 +87,7 @@ impl Component for InputsDemo {
       ))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
-      .fill(palette.bg)
+      .background(palette.bg)
   }
 }
 
@@ -100,7 +100,7 @@ fn section_title(label: &str, palette: ThemePalette) -> Element {
 fn card_frame(palette: ThemePalette) -> lurq::components::Column {
   lurq::components::Column::new()
     .width(FILL_WIDTH)
-    .fill(palette.surface)
+    .background(palette.surface)
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(CARD_RADIUS)
 }
@@ -168,7 +168,7 @@ fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(6.0)
-    .fill("#ffffff")
+    .background("#ffffff")
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Text)
@@ -184,7 +184,7 @@ fn scroll_text_input(value: Signal<String>, placeholder: &str, palette: ThemePal
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(6.0)
-    .fill("#ffffff")
+    .background("#ffffff")
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Text)
@@ -199,7 +199,7 @@ fn multiline_text_input(value: Signal<String>, placeholder: &str, palette: Theme
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(8.0)
-    .fill("#ffffff")
+    .background("#ffffff")
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Text)
@@ -214,7 +214,7 @@ fn rows_text_input(value: Signal<String>, placeholder: &str, palette: ThemePalet
     .width(FILL_WIDTH)
     .padding_horizontal(12.0)
     .padding_vertical(8.0)
-    .fill("#ffffff")
+    .background("#ffffff")
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .cursor(CursorIcon::Text)
@@ -262,7 +262,7 @@ fn checkbox_row(label: &str, detail: &str, value: Signal<bool>, palette: ThemePa
     .child(
       lurq::components::Checkbox::new(value)
         .size(20.0, 20.0)
-        .fill("#ffffff")
+        .background("#ffffff")
         .border_inside(1.0, Color::from_hex(palette.border))
         .rounded(4.0)
         .cursor(CursorIcon::Pointer)
@@ -318,7 +318,7 @@ fn slider_row(label: &str, value: Signal<i32>, min: i32, max: i32, palette: Them
         .range(min, max)
         .height(18.0)
         .width(FILL_WIDTH)
-        .fill("#cbd5e1")
+        .background("#cbd5e1")
         .rounded(9.0)
         .cursor(CursorIcon::Pointer)
         .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary))),
@@ -351,7 +351,7 @@ fn styled_slider_row(label: &str, value: Signal<i32>, palette: ThemePalette) -> 
         .track(|style| {
           style
             .size(220.0, 2.0)
-            .fill(palette.surface_dark)
+            .background(palette.surface_dark)
             .background_image(track_image)
             .background_cover()
             .rounded(1.0)
@@ -367,7 +367,7 @@ fn styled_slider_row(label: &str, value: Signal<i32>, palette: ThemePalette) -> 
         .thumb(|style| {
           style
             .size(12.0, 12.0)
-            .fill("#f97316")
+            .background("#f97316")
             .background_image(thumb_image)
             .background_cover()
             .rounded(6.0)
@@ -441,7 +441,7 @@ fn value_pill(label: &str, value: &str, palette: ThemePalette) -> Element {
     .height(28.0)
     .padding_horizontal(10.0)
     .padding_vertical(0.0)
-    .fill(palette.bg)
+    .background(palette.bg)
     .border_inside(1.0, Color::from_hex(palette.border))
     .rounded(PANEL_RADIUS)
     .into()

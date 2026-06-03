@@ -63,7 +63,7 @@ pub(crate) fn tree_panel(
     )
     .width(TREE_PANEL_WIDTH)
     .height(FILL)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .into()
 }
@@ -173,7 +173,7 @@ fn tree_row(
 
   row = row
     .height(TREE_ROW_HEIGHT)
-    .fill(if selected { SELECTED } else { "#00000000" })
+    .background(if selected { SELECTED } else { "#00000000" })
     .frame(FrameConstraints {
       min_width: Some(Dimension::Px(TREE_CONTENT_MIN_WIDTH)),
       ..Default::default()

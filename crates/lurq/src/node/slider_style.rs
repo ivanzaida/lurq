@@ -4,8 +4,9 @@ use std::sync::Arc;
 #[cfg(feature = "image")]
 use crate::node::BackgroundSize;
 use crate::node::{
-  border::{Border, BorderRadius, Borders},
+  border::{Border, BorderRadius, Borders, ThemedBorderRadius},
   color::Color,
+  radius_value::RadiusValue,
 };
 
 #[derive(Clone)]
@@ -13,7 +14,7 @@ pub struct SliderPartStyle {
   pub(crate) width: Option<f32>,
   pub(crate) height: Option<f32>,
   pub(crate) color: Option<Color>,
-  pub(crate) border_radius: Option<BorderRadius>,
+  pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) border: Option<Borders>,
   #[cfg(feature = "image")]
   pub(crate) background_image: Option<crate::images::ImageData>,
@@ -62,28 +63,23 @@ impl SliderPartStyle {
     self
   }
 
-  pub fn fill(mut self, color: impl Into<Color>) -> Self {
+  pub fn background(mut self, color: impl Into<Color>) -> Self {
     self.color = Some(color.into());
     self
   }
 
-  pub fn background(mut self, color: Color) -> Self {
-    self.color = Some(color);
+  pub fn rounded(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self.border_radius = Some(ThemedBorderRadius::all(radius));
     self
   }
 
-  pub fn rounded(mut self, radius: f32) -> Self {
-    self.border_radius = Some(BorderRadius::all(radius));
-    self
-  }
-
-  pub fn corner_radius(mut self, radius: f32) -> Self {
-    self.border_radius = Some(BorderRadius::all(radius));
+  pub fn corner_radius(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self.border_radius = Some(ThemedBorderRadius::all(radius));
     self
   }
 
   pub fn corner_radius_custom(mut self, radius: BorderRadius) -> Self {
-    self.border_radius = Some(radius);
+    self.border_radius = Some(radius.into());
     self
   }
 

@@ -59,7 +59,7 @@ Use this style when testing visual output without opening a real GPU window:
 
 ```rust
 let mut tree = Tree::new();
-tree.set_root(lurq::components::Rect::new(100.0, 50.0).fill("#22c55e"));
+tree.set_root(lurq::components::Rect::new(100.0, 50.0).background("#22c55e"));
 
 let snapshot = support::render_pass(&mut tree);
 assert_eq!(snapshot.rects.len(), 1);

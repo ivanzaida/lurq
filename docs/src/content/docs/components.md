@@ -40,7 +40,7 @@ impl Component for Counter {
       .align_items(Alignment::Center)
       .child(
         lurq::components::Rect::new(36.0, 36.0)
-          .fill("#ef4444")
+          .background("#ef4444")
           .rounded(6.0)
           .on_click(move |_| dec.update(|n| *n -= 1)),
       )
@@ -55,7 +55,7 @@ impl Component for Counter {
       ))
       .child(
         lurq::components::Rect::new(36.0, 36.0)
-          .fill("#22c55e")
+          .background("#22c55e")
           .rounded(6.0)
           .on_click(move |_| inc.update(|n| *n += 1)),
       )
@@ -181,7 +181,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
       println!("drag delta: {}, {}", event.delta_x, event.delta_y);
     }),
     Rect::new(64.0, 64.0)
-      .fill("#3b82f6")
+      .background("#3b82f6")
       .absolute_position(24.0, 24.0),
   );
 
@@ -209,7 +209,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
       println!("dropped from {:?} onto {:?}", event.source_id, event.target_id);
     }),
     Rect::new(140.0, 80.0)
-      .fill("#22c55e33")
+      .background("#22c55e33")
       .border_inside(1.0, lurq::node::color::Color::from_hex("#22c55e")),
   )
 }

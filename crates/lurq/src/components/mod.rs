@@ -58,12 +58,7 @@ macro_rules! impl_into_node {
         self.node.node_id()
       }
 
-      pub fn fill(mut self, col: impl Into<$crate::node::color::Color>) -> Self {
-        self.node = self.node.fill(col);
-        self
-      }
-
-      pub fn background(mut self, color: $crate::node::color::Color) -> Self {
+      pub fn background(mut self, color: impl Into<$crate::node::BackgroundColor>) -> Self {
         self.node = self.node.background(color);
         self
       }
@@ -87,32 +82,32 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn padding_left(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+      pub fn padding_left(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_left(val);
         self
       }
 
-      pub fn padding_right(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+      pub fn padding_right(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_right(val);
         self
       }
 
-      pub fn padding_top(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+      pub fn padding_top(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_top(val);
         self
       }
 
-      pub fn padding_bottom(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+      pub fn padding_bottom(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_bottom(val);
         self
       }
 
-      pub fn padding_horizontal(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+      pub fn padding_horizontal(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_horizontal(val);
         self
       }
 
-      pub fn padding_vertical(mut self, val: impl Into<$crate::node::dimension::Dimension>) -> Self {
+      pub fn padding_vertical(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_vertical(val);
         self
       }
@@ -178,7 +173,7 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn corner_radius(mut self, radius: f32) -> Self {
+      pub fn corner_radius(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.node = self.node.corner_radius(radius);
         self
       }
@@ -188,27 +183,27 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn corner_radius_top_left(mut self, radius: f32) -> Self {
+      pub fn corner_radius_top_left(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.node = self.node.corner_radius_top_left(radius);
         self
       }
 
-      pub fn corner_radius_top_right(mut self, radius: f32) -> Self {
+      pub fn corner_radius_top_right(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.node = self.node.corner_radius_top_right(radius);
         self
       }
 
-      pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
+      pub fn corner_radius_bottom_right(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.node = self.node.corner_radius_bottom_right(radius);
         self
       }
 
-      pub fn corner_radius_bottom_left(mut self, radius: f32) -> Self {
+      pub fn corner_radius_bottom_left(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.node = self.node.corner_radius_bottom_left(radius);
         self
       }
 
-      pub fn rounded(mut self, radius: f32) -> Self {
+      pub fn rounded(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.node = self.node.rounded(radius);
         self
       }

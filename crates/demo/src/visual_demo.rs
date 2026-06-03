@@ -44,7 +44,7 @@ pub(crate) fn visual_content() -> Element {
     .child(section_title("Background Images"))
     .child(background_images_showcase());
 
-  content.padding(CONTENT_PAD).width(FILL_WIDTH).fill(BG).into()
+  content.padding(CONTENT_PAD).width(FILL_WIDTH).background(BG).into()
 }
 
 fn section_title(label: &str) -> Element {
@@ -72,7 +72,7 @@ fn color_palette() -> Element {
     .child(alpha_row())
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -86,7 +86,7 @@ fn color_swatch(name: &str, hex: &str) -> Element {
     .child(text(hex, 10.0, FontWeight::Normal, "#ffffff"))
     .child(text(name, 11.0, FontWeight::Bold, "#ffffff"))
     .size(Dimension::Pct(100.0), 70.0)
-    .fill(hex)
+    .background(hex)
     .rounded(8.0)
     .flex(1.0)
     .into()
@@ -105,7 +105,7 @@ fn alpha_row() -> Element {
         .justify(lurq::layout::layout_kind::Justify::Center)
         .child(text(label, 11.0, FontWeight::Normal, "#ffffff"))
         .size(60.0, 32.0)
-        .fill(PRIMARY)
+        .background(PRIMARY)
         .rounded(4.0)
         .opacity(*alpha)
     }))
@@ -128,7 +128,11 @@ fn radius_showcase() -> Element {
       lurq::components::Column::new()
         .spacing(8.0)
         .align_items(Alignment::Center)
-        .child(lurq::components::Rect::new(140.0, 50.0).fill(PRIMARY).rounded(*radius))
+        .child(
+          lurq::components::Rect::new(140.0, 50.0)
+            .background(PRIMARY)
+            .rounded(*radius),
+        )
         .child(text(label, 11.0, FontWeight::Normal, TEXT_MUTED))
         .height(80.0)
         .flex(1.0)
@@ -136,7 +140,7 @@ fn radius_showcase() -> Element {
     .padding_horizontal(24.0)
     .padding_vertical(16.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -151,7 +155,7 @@ fn clip_showcase() -> Element {
     .padding_horizontal(60.0)
     .padding_vertical(20.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .overflow_visible()
@@ -162,13 +166,13 @@ fn clip_example(label: &str, clip: bool) -> Element {
   let mut parent = lurq::components::Stack::new()
     .child(
       lurq::components::Rect::new(80.0, 50.0)
-        .fill("#F59E0B")
+        .background("#F59E0B")
         .opacity(0.7)
         .rounded(4.0)
         .absolute_position(60.0, 20.0),
     )
     .size(120.0, 80.0)
-    .fill("#0F172A")
+    .background("#0F172A")
     .rounded(4.0)
     .border_inside(1.0, Color::from_hex(BORDER));
   if clip {
@@ -303,7 +307,7 @@ fn svg_case_box(label: &str, detail: &str, previews: Vec<Element>) -> Element {
     )
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -320,7 +324,7 @@ fn svg_preview(label: &str, svg: Svg, intrinsic: bool) -> Element {
         .stack_align(StackAlignment::Center)
         .child(svg)
         .size(360.0, 132.0)
-        .fill("#0B1220")
+        .background("#0B1220")
         .rounded(6.0)
         .clip()
         .border_inside(1.0, Color::from_hex(BORDER)),
@@ -341,7 +345,7 @@ fn plain_images_showcase() -> Element {
     )
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -354,7 +358,7 @@ fn sized_images_showcase() -> Element {
     .with_children(IMAGE_ASSETS.iter().map(|(label, path)| sized_image_card(label, path)))
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -381,7 +385,7 @@ fn intrinsic_images_showcase() -> Element {
     )
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -416,7 +420,7 @@ fn background_images_showcase() -> Element {
     )
     .padding(24.0)
     .width(FILL_WIDTH)
-    .fill(SURFACE)
+    .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(CARD_RADIUS)
     .into()
@@ -472,7 +476,7 @@ fn image_resource_card(label: &str, path: &str) -> Element {
 fn background_resource_card(label: &str, path: &str, cover: bool) -> Element {
   let mut background = lurq::components::Stack::new()
     .size(Dimension::Pct(100.0), 132.0)
-    .fill("#0B1220")
+    .background("#0B1220")
     .background_image(path)
     .child(
       lurq::components::Column::new()
@@ -481,7 +485,7 @@ fn background_resource_card(label: &str, path: &str, cover: bool) -> Element {
         .child(text("child", 9.0, FontWeight::Normal, TEXT_MUTED))
         .padding_horizontal(8.0)
         .padding_vertical(6.0)
-        .fill("#111827")
+        .background("#111827")
         .rounded(4.0)
         .absolute_position(10.0, 10.0),
     )

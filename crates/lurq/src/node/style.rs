@@ -1,18 +1,21 @@
 use crate::{
   layout::layout_kind::{FlexParams, FrameConstraints},
   node::{
-    border::{Border, BorderRadius, Borders},
+    background_color::BackgroundColor,
+    border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
     padding::Padding,
+    radius_value::RadiusValue,
+    spacing_value::SpacingValue,
   },
 };
 
 #[derive(Clone, Default)]
 pub struct Style {
-  pub(crate) color: Option<Color>,
-  pub(crate) border_radius: Option<BorderRadius>,
+  pub(crate) color: Option<BackgroundColor>,
+  pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) border: Option<Borders>,
   pub(crate) cursor: Option<CursorIcon>,
   pub(crate) frame: Option<FrameConstraints>,
@@ -32,13 +35,8 @@ impl Style {
     Self::default()
   }
 
-  pub fn fill(mut self, hex: &str) -> Self {
-    self.color = Some(Color::from_hex(hex));
-    self
-  }
-
-  pub fn background(mut self, color: Color) -> Self {
-    self.color = Some(color);
+  pub fn background(mut self, color: impl Into<BackgroundColor>) -> Self {
+    self.color = Some(color.into());
     self
   }
 
@@ -99,30 +97,30 @@ impl Style {
     self
   }
 
-  pub fn padding_horizontal(self, value: impl Into<Dimension>) -> Self {
+  pub fn padding_horizontal(self, value: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::horizontal(value.into()))
   }
 
-  pub fn padding_vertical(self, value: impl Into<Dimension>) -> Self {
+  pub fn padding_vertical(self, value: impl Into<SpacingValue>) -> Self {
     self.padding(Padding::vertical(value.into()))
   }
 
-  pub fn padding_left(mut self, value: impl Into<Dimension>) -> Self {
+  pub fn padding_left(mut self, value: impl Into<SpacingValue>) -> Self {
     self.padding = Some(self.padding.unwrap_or_default().left(value.into()));
     self
   }
 
-  pub fn padding_right(mut self, value: impl Into<Dimension>) -> Self {
+  pub fn padding_right(mut self, value: impl Into<SpacingValue>) -> Self {
     self.padding = Some(self.padding.unwrap_or_default().right(value.into()));
     self
   }
 
-  pub fn padding_top(mut self, value: impl Into<Dimension>) -> Self {
+  pub fn padding_top(mut self, value: impl Into<SpacingValue>) -> Self {
     self.padding = Some(self.padding.unwrap_or_default().top(value.into()));
     self
   }
 
-  pub fn padding_bottom(mut self, value: impl Into<Dimension>) -> Self {
+  pub fn padding_bottom(mut self, value: impl Into<SpacingValue>) -> Self {
     self.padding = Some(self.padding.unwrap_or_default().bottom(value.into()));
     self
   }
@@ -146,41 +144,50 @@ impl Style {
     self
   }
 
-  pub fn corner_radius(mut self, radius: f32) -> Self {
-    self.border_radius = Some(BorderRadius::all(radius));
+  pub fn corner_radius(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self.border_radius = Some(ThemedBorderRadius::all(radius));
     self
   }
 
   pub fn corner_radius_custom(mut self, radius: BorderRadius) -> Self {
-    self.border_radius = Some(radius);
+    self.border_radius = Some(radius.into());
     self
   }
 
-  pub fn corner_radius_top_left(mut self, radius: f32) -> Self {
-    self.border_radius.get_or_insert_with(BorderRadius::default).top_left = radius;
-    self
-  }
-
-  pub fn corner_radius_top_right(mut self, radius: f32) -> Self {
-    self.border_radius.get_or_insert_with(BorderRadius::default).top_right = radius;
-    self
-  }
-
-  pub fn corner_radius_bottom_right(mut self, radius: f32) -> Self {
+  pub fn corner_radius_top_left(mut self, radius: impl Into<RadiusValue>) -> Self {
     self
       .border_radius
-      .get_or_insert_with(BorderRadius::default)
-      .bottom_right = radius;
+      .get_or_insert_with(ThemedBorderRadius::default)
+      .top_left = radius.into();
     self
   }
 
-  pub fn corner_radius_bottom_left(mut self, radius: f32) -> Self {
-    self.border_radius.get_or_insert_with(BorderRadius::default).bottom_left = radius;
+  pub fn corner_radius_top_right(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self
+      .border_radius
+      .get_or_insert_with(ThemedBorderRadius::default)
+      .top_right = radius.into();
     self
   }
 
-  pub fn rounded(mut self, radius: f32) -> Self {
-    self.border_radius = Some(BorderRadius::all(radius));
+  pub fn corner_radius_bottom_right(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self
+      .border_radius
+      .get_or_insert_with(ThemedBorderRadius::default)
+      .bottom_right = radius.into();
+    self
+  }
+
+  pub fn corner_radius_bottom_left(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self
+      .border_radius
+      .get_or_insert_with(ThemedBorderRadius::default)
+      .bottom_left = radius.into();
+    self
+  }
+
+  pub fn rounded(mut self, radius: impl Into<RadiusValue>) -> Self {
+    self.border_radius = Some(ThemedBorderRadius::all(radius));
     self
   }
 
