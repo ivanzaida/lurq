@@ -1,7 +1,8 @@
 use lurq::{
   app::{Tree, events::MouseButton},
   core::Signal,
-  layout::quad::QuadContent,
+  layout::{quad::QuadContent, text_style::TextStyle},
+  node::color::Color,
 };
 
 use crate::support::{render_pass, run_pass};
@@ -72,4 +73,61 @@ fn single_line_text_input_centers_text_quad_in_tall_input() {
     "40px single-line input should center 19.2px line-height text; got y {}",
     text_quad.y
   );
+}
+
+#[test]
+fn caret_color_sets_rendered_caret_color() {
+  let expected = Color::from_hex("#e5e7eb");
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::new(value)
+      .height(40.0)
+      .caret_color("#e5e7eb"),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  let snapshot = render_pass(&mut runtime);
+  let caret = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .expect("focused text input should render a caret");
+
+  assert_eq!(caret.color, expected);
+}
+
+#[test]
+fn text_style_caret_color_sets_rendered_caret_color() {
+  let expected = Color::from_hex("#38bdf8");
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::styled(
+      value,
+      TextStyle {
+        caret_color: Some(expected),
+        ..TextStyle::default()
+      },
+    )
+    .height(40.0),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  let snapshot = render_pass(&mut runtime);
+  let caret = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .expect("focused text input should render a caret");
+
+  assert_eq!(caret.color, expected);
 }

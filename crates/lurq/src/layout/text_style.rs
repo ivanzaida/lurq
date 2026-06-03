@@ -18,6 +18,7 @@ pub struct TextStyle {
   pub weight: FontWeight,
   pub style: FontStyle,
   pub color: Color,
+  pub caret_color: Option<Color>,
 }
 
 impl Default for TextStyle {
@@ -29,6 +30,7 @@ impl Default for TextStyle {
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
       color: DEFAULT_TEXT_COLOR,
+      caret_color: None,
     }
   }
 }

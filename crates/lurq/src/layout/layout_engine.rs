@@ -652,11 +652,15 @@ impl LayoutEngine {
     }
 
     match node.node_kind() {
-      NodeKind::TextInput { state, .. } if state.is_focused() => {
+      NodeKind::TextInput { state, style, .. } if state.is_focused() => {
         let caret_height = state.caret_height().min(result.size.height).max(1.0);
         let vertical_offset = text_input_vertical_offset(state, result.size.height);
         let caret_x = abs_x + state.caret_x();
         let caret_y = abs_y + vertical_offset + state.caret_y();
+        let caret_color = node
+          .caret_color_value()
+          .or(style.caret_color)
+          .unwrap_or(DEFAULT_CARET_COLOR);
         let (caret_x, caret_y, caret_transform, caret_transform_origin) =
           transformed_quad_frame(caret_x, caret_y, transform);
         quads.push(Quad {
@@ -667,9 +671,7 @@ impl LayoutEngine {
           opacity,
           transform: caret_transform,
           transform_origin: caret_transform_origin,
-          content: QuadContent::Rect {
-            color: DEFAULT_CARET_COLOR,
-          },
+          content: QuadContent::Rect { color: caret_color },
           border_radius: None,
           border: None,
           clip,

@@ -45,6 +45,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     color: Guard::new(None),
     border_radius: Guard::new(None),
     border: Guard::new(None),
+    caret_color: Guard::new(None),
     cursor: None,
     #[cfg(feature = "image")]
     background_image: Guard::new(None),
@@ -191,7 +192,7 @@ impl Node {
     }
   }
 
-  fn modifier_child_mut(&mut self) -> Option<&mut Node> {
+  pub(crate) fn modifier_child_mut(&mut self) -> Option<&mut Node> {
     if matches!(
       self.layout_kind,
       crate::layout::layout_kind::LayoutKind::PaddingModifier(_)

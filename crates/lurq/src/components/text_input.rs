@@ -27,6 +27,11 @@ impl TextInput {
     self
   }
 
+  pub fn caret_color(mut self, color: impl Into<crate::node::color::Color>) -> Self {
+    self.node = self.node.caret_color(color);
+    self
+  }
+
   pub fn overflow(mut self, overflow: TextInputOverflow) -> Self {
     self.node = self.node.text_input_overflow(overflow);
     self

@@ -32,6 +32,21 @@ fn renders_placeholder_when_value_is_empty() {
 }
 
 #[test]
+fn placeholder_after_layout_modifier_is_rendered() {
+  let value = Signal::new(String::new());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value).width(200.0).placeholder("Name"));
+  run_pass(&mut runtime);
+
+  let found = runtime.find_element(|el| el.text_content() == Some("Name"));
+  assert!(
+    found.is_some(),
+    "text input placeholder should apply through layout modifiers"
+  );
+}
+
+#[test]
 fn scroll_overflow_keeps_single_line_height_for_long_text() {
   let value = Signal::new("This is a long text input value that should scroll".to_owned());
   let mut runtime = Tree::new();

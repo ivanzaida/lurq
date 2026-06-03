@@ -209,12 +209,13 @@ fn styled_hash_input(value: Signal<String>) -> Element {
     font_size: 13.0,
     weight: FontWeight::Medium,
     color: Color::from_hex("#e5e7eb"),
+    caret_color: Some(Color::from_hex("#38bdf8")),
     ..TextStyle::default()
   };
   let placeholder_style = TextStyle {
     font_size: 13.0,
     weight: FontWeight::Medium,
-    color: Color::from_hex("#64748b"),
+    color: Color::from_hex("#94a3b8"),
     ..TextStyle::default()
   };
 

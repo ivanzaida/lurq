@@ -100,6 +100,7 @@ pub(crate) struct Node {
   pub(crate) color: Guard<Option<BackgroundColor>>,
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
+  pub(crate) caret_color: Guard<Option<Color>>,
   pub(crate) cursor: Option<CursorIcon>,
   #[cfg(feature = "image")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
@@ -155,6 +156,7 @@ impl Node {
       color: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
+      caret_color: Guard::new(None),
       cursor: None,
       #[cfg(feature = "image")]
       background_image: Guard::new(None),
@@ -433,6 +435,21 @@ impl Node {
   pub fn background(mut self, color: impl Into<BackgroundColor>) -> Self {
     self.color.set(Some(color.into()));
     self
+  }
+
+  pub(crate) fn caret_color(mut self, color: impl Into<Color>) -> Self {
+    self.set_caret_color(color.into());
+    self
+  }
+
+  fn set_caret_color(&mut self, color: Color) {
+    if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+      self.caret_color.set(Some(color));
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_caret_color(color);
+    } else {
+      self.caret_color.set(Some(color));
+    }
   }
 
   pub fn corner_radius(mut self, radius: impl Into<RadiusValue>) -> Self {
@@ -779,62 +796,110 @@ impl Node {
   }
 
   pub fn placeholder(mut self, placeholder: &str) -> Self {
+    self.set_placeholder(placeholder);
+    self
+  }
+
+  fn set_placeholder(&mut self, placeholder: &str) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_placeholder(placeholder);
       if state.value().is_empty() {
         self.text_content.set(Some(placeholder.to_owned()));
       }
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_placeholder(placeholder);
     }
+  }
+
+  pub fn text_input_overflow(mut self, overflow: crate::node::node_kind::TextInputOverflow) -> Self {
+    self.set_text_input_overflow(overflow);
     self
   }
 
-  pub fn text_input_overflow(self, overflow: crate::node::node_kind::TextInputOverflow) -> Self {
+  fn set_text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_overflow(overflow);
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_overflow(overflow);
     }
-    self
   }
 
   pub fn text_input_style(mut self, text_style: TextStyle) -> Self {
+    self.set_text_input_style(text_style);
+    self
+  }
+
+  fn set_text_input_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { style, .. } = &mut self.node_kind {
       *style = text_style;
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_style(text_style);
     }
-    self
   }
 
   pub fn text_input_placeholder_style(mut self, text_style: TextStyle) -> Self {
+    self.set_text_input_placeholder_style(text_style);
+    self
+  }
+
+  fn set_text_input_placeholder_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { placeholder_style, .. } = &mut self.node_kind {
       *placeholder_style = Some(text_style);
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_placeholder_style(text_style);
     }
+  }
+
+  pub fn text_input_rows(mut self, min_rows: usize, max_rows: usize) -> Self {
+    self.set_text_input_rows(min_rows, max_rows);
     self
   }
 
-  pub fn text_input_rows(self, min_rows: usize, max_rows: usize) -> Self {
+  fn set_text_input_rows(&mut self, min_rows: usize, max_rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_rows(min_rows, max_rows);
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_rows(min_rows, max_rows);
     }
+  }
+
+  pub fn text_input_min_rows(mut self, min_rows: usize) -> Self {
+    self.set_text_input_min_rows(min_rows);
     self
   }
 
-  pub fn text_input_min_rows(self, min_rows: usize) -> Self {
+  fn set_text_input_min_rows(&mut self, min_rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_min_rows(min_rows);
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_min_rows(min_rows);
     }
+  }
+
+  pub fn text_input_max_rows(mut self, max_rows: usize) -> Self {
+    self.set_text_input_max_rows(max_rows);
     self
   }
 
-  pub fn text_input_max_rows(self, max_rows: usize) -> Self {
+  fn set_text_input_max_rows(&mut self, max_rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_max_rows(max_rows);
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_max_rows(max_rows);
     }
+  }
+
+  pub fn text_input_rows_exact(mut self, rows: usize) -> Self {
+    self.set_text_input_rows_exact(rows);
     self
   }
 
-  pub fn text_input_rows_exact(self, rows: usize) -> Self {
+  fn set_text_input_rows_exact(&mut self, rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_rows_exact(rows);
+    } else if let Some(child) = self.modifier_child_mut() {
+      child.set_text_input_rows_exact(rows);
     }
-    self
   }
 
   pub fn range(self, min: i32, max: i32) -> Self {
@@ -1062,6 +1127,10 @@ impl Node {
 
   pub fn color(&self) -> Option<Color> {
     self.background_color().and_then(BackgroundColor::as_color)
+  }
+
+  pub(crate) fn caret_color_value(&self) -> Option<Color> {
+    *self.caret_color
   }
 
   pub(crate) fn background_color(&self) -> Option<BackgroundColor> {
@@ -1521,6 +1590,7 @@ impl Node {
       color: self.color.clone(),
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
+      caret_color: self.caret_color.clone(),
       cursor: self.cursor,
       #[cfg(feature = "image")]
       background_image: self.background_image.clone(),

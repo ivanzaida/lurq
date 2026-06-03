@@ -40,6 +40,11 @@ impl Text {
     self.node = self.node.text_color(color);
     self
   }
+
+  pub fn caret_color(mut self, color: impl Into<crate::node::color::Color>) -> Self {
+    self.node = self.node.caret_color(color);
+    self
+  }
 }
 
 impl Default for Text {
