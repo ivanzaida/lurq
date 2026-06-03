@@ -133,6 +133,50 @@ fn text_style_caret_color_sets_rendered_caret_color() {
 }
 
 #[test]
+fn fixed_height_multiline_caret_stays_on_new_line_after_typing() {
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::styled(
+      value.clone(),
+      TextStyle {
+        font_size: 13.0,
+        caret_color: Some(Color::from_hex("#38bdf8").into()),
+        ..TextStyle::default()
+      },
+    )
+    .width(240.0)
+    .height(82.0)
+    .padding_horizontal(10.0)
+    .padding_vertical(10.0)
+    .background("#101215")
+    .border_inside(1.0, "#334155")
+    .multiline(),
+  );
+  run_pass(&mut runtime);
+  let input_rect = runtime
+    .find_element(|el| el.text_content() == Some("A"))
+    .unwrap()
+    .bounds();
+  let (x, y) = input_rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  runtime.key_down("End".to_owned(), "End".to_owned(), false, false, false);
+  runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  let after_enter_y = focused_caret_y(&mut runtime);
+
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+  let after_typing_y = focused_caret_y(&mut runtime);
+
+  assert_eq!(value.get(), "A\nB");
+  assert!(
+    (after_typing_y - after_enter_y).abs() < 0.01,
+    "typing on a new fixed-height multiline row should not move the caret to another row; after enter={after_enter_y}, after typing={after_typing_y}"
+  );
+}
+
+#[test]
 fn caret_color_accepts_palette_token() {
   const BRAND: PaletteId = PaletteId::new(9);
   let expected = Color::from_hex("#123456");
@@ -184,4 +228,13 @@ fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
       _ => None,
     })
     .expect("focused text input should render a caret")
+}
+
+fn focused_caret_y(runtime: &mut Tree) -> f32 {
+  render_pass(runtime)
+    .rects
+    .iter()
+    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .expect("focused text input should render a caret")
+    .y
 }

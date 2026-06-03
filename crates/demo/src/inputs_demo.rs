@@ -21,6 +21,7 @@ pub(crate) struct InputsDemo {
   name: Signal<String>,
   email: Signal<String>,
   hash: Signal<String>,
+  styled_notes: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
@@ -39,6 +40,7 @@ impl Component for InputsDemo {
       name: ctx.signal("Lol Kek".to_owned()),
       email: ctx.signal(String::new()),
       hash: ctx.signal(String::new()),
+      styled_notes: ctx.signal(String::new()),
       scroll_sample: ctx.signal("A long single-line value that should scroll inside a narrow input".to_owned()),
       notes: ctx.signal("Line one\nLine two".to_owned()),
       limited_notes: ctx.signal("First row\nSecond row\nThird row\nFourth row\nFifth row".to_owned()),
@@ -61,6 +63,7 @@ impl Component for InputsDemo {
         self.name.clone(),
         self.email.clone(),
         self.hash.clone(),
+        self.styled_notes.clone(),
         self.scroll_sample.clone(),
         self.notes.clone(),
         self.limited_notes.clone(),
@@ -117,6 +120,7 @@ fn text_fields_card(
   name: Signal<String>,
   email: Signal<String>,
   hash: Signal<String>,
+  styled_notes: Signal<String>,
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
@@ -137,6 +141,13 @@ fn text_fields_card(
         .width(FILL_WIDTH),
     )
     .child(field_stack("Styled hash", styled_hash_input(hash.clone())).width(FILL_WIDTH))
+    .child(
+      field_stack(
+        "Styled multiline",
+        styled_multiline_text_input(styled_notes.clone(), "Fixed height notes"),
+      )
+      .width(FILL_WIDTH),
+    )
     .child(
       lurq::components::Row::new()
         .spacing(18.0)
@@ -229,6 +240,37 @@ fn styled_hash_input(value: Signal<String>) -> Element {
     .placeholder("a3f1b2c4d5e691cc...")
     .placeholder_style(placeholder_style)
     .single_line()
+    .cursor(CursorIcon::Text)
+    .into()
+}
+
+fn styled_multiline_text_input(value: Signal<String>, placeholder: &str) -> Element {
+  let value_style = TextStyle {
+    font_size: 13.0,
+    weight: FontWeight::Medium,
+    color: Color::from_hex("#e5e7eb"),
+    caret_color: Some(Color::from_hex("#38bdf8").into()),
+    ..TextStyle::default()
+  };
+  let placeholder_style = TextStyle {
+    font_size: 13.0,
+    weight: FontWeight::Medium,
+    color: Color::from_hex("#94a3b8"),
+    ..TextStyle::default()
+  };
+
+  lurq::components::TextInput::styled(value, value_style)
+    .width(Dimension::Pct(100.0))
+    .height(82.0)
+    .padding_horizontal(10.0)
+    .padding_vertical(10.0)
+    .rounded(5.0)
+    .background("#101215")
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .caret_color("#38bdf8")
+    .placeholder(placeholder)
+    .placeholder_style(placeholder_style)
+    .multiline()
     .cursor(CursorIcon::Text)
     .into()
 }

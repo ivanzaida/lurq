@@ -632,11 +632,15 @@ impl TextInputState {
   pub(crate) fn sync_caret_metrics_to_position(&self, line_height: f32) {
     let value = self.value();
     let mut inner = self.inner.lock().unwrap();
+    let caret = clamp_to_char_boundary(&value, inner.caret);
+    if caret == value.len() && value[..caret].ends_with('\n') {
+      inner.caret_x = 0.0;
+      inner.caret_y = value[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
+      return;
+    }
     inner.caret_x = caret_x_for_index(&inner.caret_positions, inner.caret);
-    inner.caret_y = caret_y_for_index(&inner.caret_positions, inner.caret).unwrap_or_else(|| {
-      let caret = clamp_to_char_boundary(&value, inner.caret);
-      value[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height
-    });
+    inner.caret_y = caret_y_for_index(&inner.caret_positions, inner.caret)
+      .unwrap_or_else(|| value[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height);
   }
 
   pub(crate) fn caret_x(&self) -> f32 {
