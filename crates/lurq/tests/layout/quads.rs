@@ -372,8 +372,8 @@ fn quads_with_padding_offset() {
   assert_eq!(quads.len(), 1);
   assert_eq!(quads[0].x, 0.0);
   assert_eq!(quads[0].y, 0.0);
-  assert_eq!(quads[0].width, 100.0);
-  assert_eq!(quads[0].height, 80.0);
+  assert_eq!(quads[0].width, 60.0);
+  assert_eq!(quads[0].height, 40.0);
 }
 
 fn assert_close(actual: f32, expected: f32) {

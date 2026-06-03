@@ -183,10 +183,13 @@ fn padding_resolves_theme_spacing() {
   tree.pass(&mut app, &TestSurface);
 
   let layout = tree.last_layout().unwrap();
-  assert_eq!(layout.size.width, 40.0);
-  assert_eq!(layout.size.height, 30.0);
-  assert_eq!(layout.children[0].offset.x, 10.0);
-  assert_eq!(layout.children[0].offset.y, 10.0);
+  assert_eq!(layout.size.width, 20.0);
+  assert_eq!(layout.size.height, 10.0);
+  let inner = &layout.children[0].result.children[0];
+  assert_eq!(inner.offset.x, 10.0);
+  assert_eq!(inner.offset.y, 10.0);
+  assert_eq!(inner.result.size.width, 0.0);
+  assert_eq!(inner.result.size.height, 0.0);
 }
 
 #[test]

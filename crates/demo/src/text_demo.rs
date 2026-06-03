@@ -11,6 +11,8 @@ use crate::style::{BG, BORDER, SURFACE, TEXT, TEXT_MUTED, text};
 const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
+const INTRO_WIDTH: f32 = 420.0;
+const META_CARD_PADDING: f32 = 12.0;
 
 pub(crate) fn text_content() -> Element {
   lurq::components::Column::new()
@@ -26,6 +28,8 @@ pub(crate) fn text_content() -> Element {
     .child(line_heights())
     .child(section_title("Wrapping"))
     .child(wrapping())
+    .child(section_title("Meta Cards"))
+    .child(meta_cards())
     .child(section_title("Selection"))
     .child(selection_examples())
     .child(section_title("Text Colors"))
@@ -200,6 +204,43 @@ fn wrapping() -> Element {
     .rounded(CARD_RADIUS)
     .overflow_visible()
     .into()
+}
+
+fn meta_cards() -> Element {
+  lurq::components::Row::new()
+    .spacing(16.0)
+    .align_items(Alignment::Start)
+    .child(meta_card(
+      "Advanced path",
+      "Prefer seed restore unless you explicitly exported a private key and verified the recovery package before moving funds.",
+    ))
+    .child(meta_card(
+      "Recovery note",
+      "Keep account phrases separate from device unlock credentials.",
+    ))
+    .width(FILL_WIDTH)
+    .padding(24.0)
+    .background(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+fn meta_card(title: &str, description: &str) -> lurq::components::Column {
+  lurq::components::Column::new()
+    .width(INTRO_WIDTH)
+    .spacing(8.0)
+    .padding(META_CARD_PADDING)
+    .rounded(6.0)
+    .background("#101215")
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .child(dot("#ff6b5f"))
+    .child(text(title, 15.0, FontWeight::Bold, TEXT))
+    .child(text(description, 14.0, FontWeight::Normal, TEXT_MUTED).width(Dimension::Pct(100.0)))
+}
+
+fn dot(color: &str) -> lurq::components::Rect {
+  lurq::components::Rect::new(12.0, 12.0).rounded(6.0).background(color)
 }
 
 fn selection_examples() -> Element {

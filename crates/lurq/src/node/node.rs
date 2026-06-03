@@ -382,6 +382,10 @@ impl Node {
     if let LayoutKind::PaddingModifier(existing) = &mut self.layout_kind {
       existing.merge_from(&padding);
       self
+    } else if matches!(self.layout_kind, LayoutKind::FrameModifier(_)) && self.children.len() == 1 {
+      let child = self.children.remove(0).padding(padding);
+      self.children.push(child);
+      self
     } else {
       Self::from_modifier(LayoutKind::PaddingModifier(padding), self)
     }

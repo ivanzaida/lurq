@@ -129,9 +129,12 @@ fn padding_inside_row() {
   );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 180.0); // (80+20) + 80
-  assert_eq!(result.children[0].result.size.width, 100.0);
-  assert_eq!(result.children[1].offset.x, 100.0);
+  assert_eq!(result.size.width, 160.0);
+  assert_eq!(result.children[0].result.size.width, 80.0);
+  assert_eq!(result.children[1].offset.x, 80.0);
+  let padded_inner = &result.children[0].result.children[0].result.children[0];
+  assert_eq!(padded_inner.offset.x, 10.0);
+  assert_eq!(padded_inner.result.size.width, 60.0);
 }
 
 #[test]
@@ -146,10 +149,13 @@ fn frame_inside_padding() {
     .padding(Padding::all(Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 140.0);
-  assert_eq!(result.size.height, 90.0);
-  assert_eq!(result.children[0].offset.x, 20.0);
-  assert_eq!(result.children[0].offset.y, 20.0);
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let padded_inner = &result.children[0].result.children[0];
+  assert_eq!(padded_inner.offset.x, 20.0);
+  assert_eq!(padded_inner.offset.y, 20.0);
+  assert_eq!(padded_inner.result.size.width, 60.0);
+  assert_eq!(padded_inner.result.size.height, 10.0);
 }
 
 #[test]
@@ -232,8 +238,13 @@ fn repeated_padding_calls_merge() {
     .padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 70.0);
-  assert_eq!(result.size.height, 70.0);
+  assert_eq!(result.size.width, 50.0);
+  assert_eq!(result.size.height, 50.0);
+  let padded_inner = &result.children[0].result.children[0];
+  assert_eq!(padded_inner.offset.x, 10.0);
+  assert_eq!(padded_inner.offset.y, 10.0);
+  assert_eq!(padded_inner.result.size.width, 30.0);
+  assert_eq!(padded_inner.result.size.height, 30.0);
 }
 
 #[test]

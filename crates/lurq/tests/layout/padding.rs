@@ -1,6 +1,10 @@
 use lurq::{
   app::Tree,
-  layout::{Constraints, Size, layout_kind::FrameConstraints},
+  layout::{
+    Constraints, Size,
+    layout_kind::FrameConstraints,
+    layout_result::{ChildLayout, LayoutResult},
+  },
   node::{dimension::Dimension, padding::Padding},
 };
 
@@ -8,6 +12,10 @@ use super::PassLayoutExt;
 
 fn rt() -> Tree {
   Tree::new()
+}
+
+fn framed_padding_child(result: &LayoutResult) -> &ChildLayout {
+  &result.children[0].result.children[0]
 }
 
 #[test]
@@ -22,10 +30,13 @@ fn padding_all_sides() {
     .padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 120.0);
-  assert_eq!(result.size.height, 70.0);
-  assert_eq!(result.children[0].offset.x, 10.0);
-  assert_eq!(result.children[0].offset.y, 10.0);
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 10.0);
+  assert_eq!(inner.offset.y, 10.0);
+  assert_eq!(inner.result.size.width, 80.0);
+  assert_eq!(inner.result.size.height, 30.0);
 }
 
 #[test]
@@ -40,8 +51,13 @@ fn padding_shorthand_all_sides() {
     .padding(10.0);
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 120.0);
-  assert_eq!(result.size.height, 70.0);
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 10.0);
+  assert_eq!(inner.offset.y, 10.0);
+  assert_eq!(inner.result.size.width, 80.0);
+  assert_eq!(inner.result.size.height, 30.0);
 }
 
 #[test]
@@ -57,8 +73,13 @@ fn padding_named_sides() {
     .padding_top(Dimension::Px(10.0));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 105.0);
-  assert_eq!(result.size.height, 60.0);
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 5.0);
+  assert_eq!(inner.offset.y, 10.0);
+  assert_eq!(inner.result.size.width, 95.0);
+  assert_eq!(inner.result.size.height, 40.0);
 }
 
 #[test]
@@ -74,10 +95,13 @@ fn chained_padding_overrides_named_sides() {
     .padding_left(Dimension::Px(5.0));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 115.0);
-  assert_eq!(result.size.height, 70.0);
-  assert_eq!(result.children[0].offset.x, 5.0);
-  assert_eq!(result.children[0].offset.y, 10.0);
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 5.0);
+  assert_eq!(inner.offset.y, 10.0);
+  assert_eq!(inner.result.size.width, 85.0);
+  assert_eq!(inner.result.size.height, 30.0);
 }
 
 #[test]
@@ -98,10 +122,13 @@ fn padding_asymmetric() {
     );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 120.0); // 100 + 5 + 15
-  assert_eq!(result.size.height, 80.0); // 50 + 10 + 20
-  assert_eq!(result.children[0].offset.x, 5.0);
-  assert_eq!(result.children[0].offset.y, 10.0);
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 5.0);
+  assert_eq!(inner.offset.y, 10.0);
+  assert_eq!(inner.result.size.width, 80.0);
+  assert_eq!(inner.result.size.height, 20.0);
 }
 
 #[test]
@@ -116,8 +143,13 @@ fn padding_horizontal_only() {
     .padding(Padding::horizontal(Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 140.0);
+  assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 20.0);
+  assert_eq!(inner.offset.y, 0.0);
+  assert_eq!(inner.result.size.width, 60.0);
+  assert_eq!(inner.result.size.height, 50.0);
 }
 
 #[test]
@@ -133,7 +165,12 @@ fn padding_vertical_only() {
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
-  assert_eq!(result.size.height, 80.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 0.0);
+  assert_eq!(inner.offset.y, 15.0);
+  assert_eq!(inner.result.size.width, 100.0);
+  assert_eq!(inner.result.size.height, 20.0);
 }
 
 #[test]
@@ -148,8 +185,13 @@ fn padding_symmetric() {
     .padding(Padding::symmetric(Dimension::Px(10.0), Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 120.0); // 100 + 10*2
-  assert_eq!(result.size.height, 90.0); // 50 + 20*2
+  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.size.height, 50.0);
+  let inner = framed_padding_child(&result);
+  assert_eq!(inner.offset.x, 10.0);
+  assert_eq!(inner.offset.y, 20.0);
+  assert_eq!(inner.result.size.width, 80.0);
+  assert_eq!(inner.result.size.height, 10.0);
 }
 
 #[test]

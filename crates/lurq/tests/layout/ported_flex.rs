@@ -630,31 +630,20 @@ fn flex_intrinsic_leaf_contributes_size() {
 // ============================================================================
 
 #[test]
-fn percentage_padding_resolves_against_parent() {
+fn percentage_padding_resolves_inside_explicit_frame() {
   use lurq::node::{dimension::Dimension, padding::Padding};
   let mut rt = rt();
   let node = rect(100.0, 100.0).padding(Padding::all(Dimension::Pct(10.0)));
   rt.set_root(node);
   let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
-  // 10% of 400 = 40 horizontal padding on each side, 10% of 300 = 30 vertical
-  // Inner rect is 100x100, so outer = 100+80=180 x 100+60=160
-  // The padding is the outermost wrapper applied first on the node
-  let pad_result = &r;
-  let frame_result = &pad_result.children[0].result;
-  let inner_w = frame_result.children[0].result.size.width;
-  let inner_h = frame_result.children[0].result.size.height;
-  assert_eq!(inner_w, 100.0, "inner width");
-  assert_eq!(inner_h, 100.0, "inner height");
-  assert!(
-    (pad_result.size.width - 180.0).abs() < 1.0,
-    "outer w={}",
-    pad_result.size.width
-  );
-  assert!(
-    (pad_result.size.height - 160.0).abs() < 1.0,
-    "outer h={}",
-    pad_result.size.height
-  );
+  // The explicit frame is the outer box. 10% padding resolves against that
+  // 100x100 frame, so the inner rect receives 80x80.
+  let pad_result = &r.children[0].result;
+  let inner = &pad_result.children[0];
+  assert_eq!(inner.result.size.width, 80.0, "inner width");
+  assert_eq!(inner.result.size.height, 80.0, "inner height");
+  assert_eq!(r.size.width, 100.0, "outer width");
+  assert_eq!(r.size.height, 100.0, "outer height");
 }
 
 // ============================================================================

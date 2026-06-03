@@ -211,9 +211,9 @@ fn multiple_modifiers_chain() {
     .offset(5.0, 5.0);
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  // offset wraps padding wraps background wraps frame
-  assert_eq!(result.size.width, 70.0); // 50 + 10*2
-  assert_eq!(result.size.height, 70.0);
+  // offset wraps the framed outer box; padding is applied inside the frame
+  assert_eq!(result.size.width, 50.0);
+  assert_eq!(result.size.height, 50.0);
   assert_eq!(result.children[0].offset.x, 5.0); // offset
   assert_eq!(result.children[0].offset.y, 5.0);
 }
@@ -314,8 +314,13 @@ fn nested_padding_accumulates() {
     .padding(Padding::all(Dimension::Px(5.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  assert_eq!(result.size.width, 20.0); // repeated padding calls merge by side
-  assert_eq!(result.size.height, 20.0);
+  assert_eq!(result.size.width, 10.0); // repeated padding calls merge by side
+  assert_eq!(result.size.height, 10.0);
+  let padded_inner = &result.children[0].result.children[0];
+  assert_eq!(padded_inner.offset.x, 5.0);
+  assert_eq!(padded_inner.offset.y, 5.0);
+  assert_eq!(padded_inner.result.size.width, 0.0);
+  assert_eq!(padded_inner.result.size.height, 0.0);
 }
 
 // --- Quad edge cases ---
