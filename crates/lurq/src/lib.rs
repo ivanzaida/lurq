@@ -4,6 +4,8 @@ pub use lurq_macros::DevtoolsInspectable;
 
 pub mod animation;
 pub mod app;
+#[cfg(feature = "clipboard")]
+pub mod clipboard;
 pub mod components;
 pub mod core;
 #[cfg(feature = "image")]

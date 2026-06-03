@@ -61,8 +61,7 @@ const DEVTOOLS_INTERACTION_SYNC_DELAY: Duration = Duration::from_millis(250);
 
 #[cfg(feature = "clipboard")]
 fn read_clipboard_text() -> Option<String> {
-  let mut clipboard = arboard::Clipboard::new().ok()?;
-  clipboard.get_text().ok()
+  crate::clipboard::read_from_clipboard()
 }
 
 #[cfg(not(feature = "clipboard"))]
@@ -72,10 +71,7 @@ fn read_clipboard_text() -> Option<String> {
 
 #[cfg(feature = "clipboard")]
 fn write_clipboard_text(text: &str) -> bool {
-  let Ok(mut clipboard) = arboard::Clipboard::new() else {
-    return false;
-  };
-  clipboard.set_text(text.to_owned()).is_ok()
+  crate::clipboard::copy_to_clipboard(text)
 }
 
 #[cfg(not(feature = "clipboard"))]
