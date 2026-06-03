@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::node::color::Color;
+use crate::node::{TextColor, color::Color};
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
@@ -18,7 +18,7 @@ pub struct TextStyle {
   pub weight: FontWeight,
   pub style: FontStyle,
   pub color: Color,
-  pub caret_color: Option<Color>,
+  pub caret_color: Option<TextColor>,
 }
 
 impl Default for TextStyle {

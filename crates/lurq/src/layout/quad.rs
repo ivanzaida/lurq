@@ -2,7 +2,7 @@ use crate::{
   layout::text_style::TextStyle,
   node::{
     TextTransformMode,
-    border::{BorderRadius, Borders},
+    border::{BorderRadius, ResolvedBorders},
     color::Color,
     transform::Transform2D,
   },
@@ -27,7 +27,7 @@ pub struct Quad {
   pub transform_origin: Option<[f32; 2]>,
   pub content: QuadContent,
   pub border_radius: Option<BorderRadius>,
-  pub border: Option<Borders>,
+  pub border: Option<ResolvedBorders>,
   pub clip: ClipRect,
 }
 

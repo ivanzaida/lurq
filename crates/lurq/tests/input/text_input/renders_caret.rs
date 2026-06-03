@@ -1,11 +1,11 @@
 use lurq::{
-  app::{Tree, events::MouseButton},
+  app::{App, Tree, events::MouseButton, theme::PaletteId},
   core::Signal,
   layout::{quad::QuadContent, text_style::TextStyle},
   node::color::Color,
 };
 
-use crate::support::{render_pass, run_pass};
+use crate::support::{TestSurface, render_pass, run_pass};
 
 #[test]
 fn renders_caret_after_text_input_is_focused() {
@@ -111,7 +111,7 @@ fn text_style_caret_color_sets_rendered_caret_color() {
     lurq::components::TextInput::styled(
       value,
       TextStyle {
-        caret_color: Some(expected),
+        caret_color: Some(expected.into()),
         ..TextStyle::default()
       },
     )
@@ -130,4 +130,58 @@ fn text_style_caret_color_sets_rendered_caret_color() {
     .expect("focused text input should render a caret");
 
   assert_eq!(caret.color, expected);
+}
+
+#[test]
+fn caret_color_accepts_palette_token() {
+  const BRAND: PaletteId = PaletteId::new(9);
+  let expected = Color::from_hex("#123456");
+  let value = Signal::new("A".to_owned());
+  let mut app = App::new();
+  let mut runtime = Tree::new();
+  app.theme().set_palette_color(BRAND, expected);
+
+  runtime.set_root(lurq::components::TextInput::new(value).height(40.0).caret_color(BRAND));
+
+  assert_eq!(focused_caret_color(&mut runtime, &mut app), expected);
+}
+
+#[test]
+fn text_style_caret_color_accepts_palette_token() {
+  const BRAND: PaletteId = PaletteId::new(9);
+  let expected = Color::from_hex("#123456");
+  let value = Signal::new("A".to_owned());
+  let mut app = App::new();
+  let mut runtime = Tree::new();
+  app.theme().set_palette_color(BRAND, expected);
+
+  runtime.set_root(
+    lurq::components::TextInput::styled(
+      value,
+      TextStyle {
+        caret_color: Some(BRAND.into()),
+        ..TextStyle::default()
+      },
+    )
+    .height(40.0),
+  );
+
+  assert_eq!(focused_caret_color(&mut runtime, &mut app), expected);
+}
+
+fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
+  runtime.pass(app, &TestSurface);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.click(x, y, MouseButton::Left);
+  runtime.pass(app, &TestSurface);
+  let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
+  quads
+    .iter()
+    .find_map(|quad| match quad.content {
+      QuadContent::Rect { color } if quad.width == 1.0 && quad.height > 0.0 => Some(color),
+      _ => None,
+    })
+    .expect("focused text input should render a caret")
 }

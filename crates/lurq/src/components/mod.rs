@@ -208,17 +208,17 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn border_inside(mut self, width: f32, color: $crate::node::color::Color) -> Self {
+      pub fn border_inside(mut self, width: f32, color: impl Into<$crate::node::BackgroundColor>) -> Self {
         self.node = self.node.border_inside(width, color);
         self
       }
 
-      pub fn border_outside(mut self, width: f32, color: $crate::node::color::Color) -> Self {
+      pub fn border_outside(mut self, width: f32, color: impl Into<$crate::node::BackgroundColor>) -> Self {
         self.node = self.node.border_outside(width, color);
         self
       }
 
-      pub fn border_center(mut self, width: f32, color: $crate::node::color::Color) -> Self {
+      pub fn border_center(mut self, width: f32, color: impl Into<$crate::node::BackgroundColor>) -> Self {
         self.node = self.node.border_center(width, color);
         self
       }

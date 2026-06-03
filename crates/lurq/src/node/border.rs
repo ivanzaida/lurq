@@ -1,6 +1,6 @@
 use crate::{
-  app::theme::ThemeRadii,
-  node::{color::Color, radius_value::RadiusValue},
+  app::theme::{ThemePalette, ThemeRadii},
+  node::{BackgroundColor, color::Color, radius_value::RadiusValue},
 };
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -108,29 +108,37 @@ impl From<BorderRadius> for ThemedBorderRadius {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
   pub width: f32,
-  pub color: Color,
+  pub color: BackgroundColor,
   pub placement: BorderPlacement,
 }
 
 impl Border {
-  pub fn new(width: f32, color: Color, placement: BorderPlacement) -> Self {
+  pub fn new(width: f32, color: impl Into<BackgroundColor>, placement: BorderPlacement) -> Self {
     Self {
       width,
-      color,
+      color: color.into(),
       placement,
     }
   }
 
-  pub fn inside(width: f32, color: Color) -> Self {
+  pub fn inside(width: f32, color: impl Into<BackgroundColor>) -> Self {
     Self::new(width, color, BorderPlacement::Inside)
   }
 
-  pub fn outside(width: f32, color: Color) -> Self {
+  pub fn outside(width: f32, color: impl Into<BackgroundColor>) -> Self {
     Self::new(width, color, BorderPlacement::Outside)
   }
 
-  pub fn center(width: f32, color: Color) -> Self {
+  pub fn center(width: f32, color: impl Into<BackgroundColor>) -> Self {
     Self::new(width, color, BorderPlacement::Center)
+  }
+
+  pub(crate) fn resolve(&self, palette: &ThemePalette) -> Option<ResolvedBorder> {
+    Some(ResolvedBorder {
+      width: self.width,
+      color: self.color.resolve(palette)?,
+      placement: self.placement,
+    })
   }
 }
 
@@ -156,7 +164,7 @@ impl Borders {
     self.top.is_some() || self.right.is_some() || self.bottom.is_some() || self.left.is_some()
   }
 
-  pub fn color(&self) -> Option<Color> {
+  pub fn color(&self) -> Option<BackgroundColor> {
     self
       .top
       .or(self.right)
@@ -165,7 +173,8 @@ impl Borders {
       .map(|border| border.color)
   }
 
-  pub fn set_color(&mut self, color: Color) {
+  pub fn set_color(&mut self, color: impl Into<BackgroundColor>) {
+    let color = color.into();
     if let Some(border) = &mut self.top {
       border.color = color;
     }
@@ -178,6 +187,16 @@ impl Borders {
     if let Some(border) = &mut self.left {
       border.color = color;
     }
+  }
+
+  pub(crate) fn resolve(&self, palette: &ThemePalette) -> Option<ResolvedBorders> {
+    let borders = ResolvedBorders {
+      top: self.top.and_then(|border| border.resolve(palette)),
+      right: self.right.and_then(|border| border.resolve(palette)),
+      bottom: self.bottom.and_then(|border| border.resolve(palette)),
+      left: self.left.and_then(|border| border.resolve(palette)),
+    };
+    borders.any().then_some(borders)
   }
 
   pub fn top_width(&self) -> Option<f32> {
@@ -203,4 +222,25 @@ pub enum BorderPlacement {
   Inside,
   Outside,
   Center,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ResolvedBorder {
+  pub width: f32,
+  pub color: Color,
+  pub placement: BorderPlacement,
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct ResolvedBorders {
+  pub top: Option<ResolvedBorder>,
+  pub right: Option<ResolvedBorder>,
+  pub bottom: Option<ResolvedBorder>,
+  pub left: Option<ResolvedBorder>,
+}
+
+impl ResolvedBorders {
+  pub(crate) fn any(&self) -> bool {
+    self.top.is_some() || self.right.is_some() || self.bottom.is_some() || self.left.is_some()
+  }
 }

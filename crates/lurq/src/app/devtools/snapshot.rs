@@ -499,9 +499,16 @@ fn border_rows(borders: Borders) -> Vec<DevToolsShapeRow> {
 fn single_border_rows(border: Border) -> Vec<DevToolsShapeRow> {
   vec![
     shape_leaf("width", format_px(border.width)),
-    shape_leaf("color", border.color.to_hex()),
+    shape_leaf("color", format_background_color(border.color)),
     shape_leaf("placement", border_placement_name(border.placement)),
   ]
+}
+
+fn format_background_color(color: crate::node::BackgroundColor) -> String {
+  match color {
+    crate::node::BackgroundColor::Color(color) => color.to_hex(),
+    crate::node::BackgroundColor::Palette(id) => format!("palette({})", id.get()),
+  }
 }
 
 fn border_placement_name(placement: BorderPlacement) -> &'static str {

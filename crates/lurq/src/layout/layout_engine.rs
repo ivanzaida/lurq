@@ -17,7 +17,7 @@ use crate::{
   },
   node::{
     CheckboxStyle, TextTransformMode,
-    border::{BorderRadius, Borders},
+    border::{BorderRadius, ResolvedBorders},
     color::Color,
     dimension::Dimension,
     node::Node,
@@ -149,7 +149,7 @@ fn push_slider_part_quads(
   style: &SliderPartStyle,
   color: Color,
   border_radius: Option<BorderRadius>,
-  border: Option<Borders>,
+  border: Option<ResolvedBorders>,
   opacity: f32,
   transform: Transform2D,
   clip: ClipRect,
@@ -234,7 +234,7 @@ fn push_checkbox_quads(
   style: &CheckboxStyle,
   color: Color,
   border_radius: Option<BorderRadius>,
-  border: Option<Borders>,
+  border: Option<ResolvedBorders>,
   checked: bool,
   opacity: f32,
   transform: Transform2D,
@@ -441,7 +441,8 @@ impl LayoutEngine {
     }
 
     let background_color = node.resolved_color(&self.palette.borrow());
-    let has_visual = background_color.is_some() || node.get_border().is_some();
+    let resolved_border = node.get_resolved_border(&self.palette.borrow());
+    let has_visual = background_color.is_some() || resolved_border.is_some();
     let content = match node.node_kind() {
       NodeKind::Text {
         style, transform_mode, ..
@@ -613,7 +614,7 @@ impl LayoutEngine {
           transform_origin: content_transform_origin,
           content,
           border_radius: node.get_border_radius(&self.radii.borrow()),
-          border: node.get_border(),
+          border: resolved_border,
           clip: content_clip,
         });
       }
@@ -657,9 +658,11 @@ impl LayoutEngine {
         let vertical_offset = text_input_vertical_offset(state, result.size.height);
         let caret_x = abs_x + state.caret_x();
         let caret_y = abs_y + vertical_offset + state.caret_y();
+        let palette = self.palette.borrow();
         let caret_color = node
           .caret_color_value()
-          .or(style.caret_color)
+          .and_then(|color| color.resolve(&palette))
+          .or_else(|| style.caret_color.and_then(|color| color.resolve(&palette)))
           .unwrap_or(DEFAULT_CARET_COLOR);
         let (caret_x, caret_y, caret_transform, caret_transform_origin) =
           transformed_quad_frame(caret_x, caret_y, transform);
@@ -710,7 +713,10 @@ impl LayoutEngine {
             .border_radius
             .map(|radius| radius.resolve(&self.radii.borrow()))
             .or_else(|| node.get_border_radius(&self.radii.borrow())),
-          style.border.or_else(|| node.get_border()),
+          style
+            .border
+            .and_then(|border| border.resolve(&self.palette.borrow()))
+            .or_else(|| node.get_resolved_border(&self.palette.borrow())),
           checked,
           opacity,
           transform,
@@ -737,7 +743,10 @@ impl LayoutEngine {
           .border_radius
           .map(|radius| radius.resolve(&self.radii.borrow()))
           .or_else(|| node.get_border_radius(&self.radii.borrow()));
-        let track_border = track_style.border.or_else(|| node.get_border());
+        let track_border = track_style
+          .border
+          .and_then(|border| border.resolve(&self.palette.borrow()))
+          .or_else(|| node.get_resolved_border(&self.palette.borrow()));
         push_slider_part_quads(
           quads,
           track_rect,
@@ -760,7 +769,9 @@ impl LayoutEngine {
               .map(|radius| radius.resolve(&self.radii.borrow()))
               .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5)),
           ),
-          thumb_style.border,
+          thumb_style
+            .border
+            .and_then(|border| border.resolve(&self.palette.borrow())),
           opacity,
           transform,
           clip,

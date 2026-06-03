@@ -27,7 +27,7 @@ impl TextInput {
     self
   }
 
-  pub fn caret_color(mut self, color: impl Into<crate::node::color::Color>) -> Self {
+  pub fn caret_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
     self.node = self.node.caret_color(color);
     self
   }

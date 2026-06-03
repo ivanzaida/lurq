@@ -121,6 +121,7 @@ pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) ->
       .border
       .or(*node.border)
       .and_then(|b| b.color())
+      .and_then(|color| color.as_color())
       .map(AnimatableValue::Color),
     AnimatableProperty::BorderWidthTop => style
       .border

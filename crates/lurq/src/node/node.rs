@@ -100,7 +100,7 @@ pub(crate) struct Node {
   pub(crate) color: Guard<Option<BackgroundColor>>,
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
-  pub(crate) caret_color: Guard<Option<Color>>,
+  pub(crate) caret_color: Guard<Option<TextColor>>,
   pub(crate) cursor: Option<CursorIcon>,
   #[cfg(feature = "image")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
@@ -437,12 +437,12 @@ impl Node {
     self
   }
 
-  pub(crate) fn caret_color(mut self, color: impl Into<Color>) -> Self {
+  pub(crate) fn caret_color(mut self, color: impl Into<TextColor>) -> Self {
     self.set_caret_color(color.into());
     self
   }
 
-  fn set_caret_color(&mut self, color: Color) {
+  fn set_caret_color(&mut self, color: TextColor) {
     if matches!(self.node_kind, NodeKind::TextInput { .. }) {
       self.caret_color.set(Some(color));
     } else if let Some(child) = self.modifier_child_mut() {
@@ -495,17 +495,17 @@ impl Node {
     self
   }
 
-  pub fn border_inside(mut self, width: f32, color: Color) -> Self {
+  pub fn border_inside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
     self.border.set(Some(Borders::all(Border::inside(width, color))));
     self
   }
 
-  pub fn border_outside(mut self, width: f32, color: Color) -> Self {
+  pub fn border_outside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
     self.border.set(Some(Borders::all(Border::outside(width, color))));
     self
   }
 
-  pub fn border_center(mut self, width: f32, color: Color) -> Self {
+  pub fn border_center(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
     self.border.set(Some(Borders::all(Border::center(width, color))));
     self
   }
@@ -1129,7 +1129,7 @@ impl Node {
     self.background_color().and_then(BackgroundColor::as_color)
   }
 
-  pub(crate) fn caret_color_value(&self) -> Option<Color> {
+  pub(crate) fn caret_color_value(&self) -> Option<TextColor> {
     *self.caret_color
   }
 
@@ -1209,6 +1209,13 @@ impl Node {
       }
     }
     b.filter(Borders::any)
+  }
+
+  pub(crate) fn get_resolved_border(
+    &self,
+    palette: &crate::app::theme::ThemePalette,
+  ) -> Option<crate::node::border::ResolvedBorders> {
+    self.get_border().and_then(|borders| borders.resolve(palette))
   }
 
   pub(crate) fn effective_transform(&self) -> Transform2D {

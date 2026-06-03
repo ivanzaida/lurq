@@ -3,7 +3,6 @@ use crate::{
   node::{
     background_color::BackgroundColor,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
-    color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
     padding::Padding,
@@ -191,17 +190,17 @@ impl Style {
     self
   }
 
-  pub fn border_inside(mut self, width: f32, color: Color) -> Self {
+  pub fn border_inside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::inside(width, color)));
     self
   }
 
-  pub fn border_outside(mut self, width: f32, color: Color) -> Self {
+  pub fn border_outside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::outside(width, color)));
     self
   }
 
-  pub fn border_center(mut self, width: f32, color: Color) -> Self {
+  pub fn border_center(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::center(width, color)));
     self
   }
