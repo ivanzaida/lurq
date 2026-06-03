@@ -473,7 +473,7 @@ fn background_resource_card(label: &str, path: &str, cover: bool) -> Element {
   let mut background = lurq::components::Stack::new()
     .size(Dimension::Pct(100.0), 132.0)
     .fill("#0B1220")
-    .background_image_resource(path)
+    .background_image(path)
     .child(
       lurq::components::Column::new()
         .spacing(2.0)

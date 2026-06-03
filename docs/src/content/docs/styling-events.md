@@ -156,6 +156,54 @@ Column::new()
 
 Input updates write back to their signals, which rerenders the owning component.
 
+### Checkbox Styling
+
+Checkboxes accept normal element modifiers such as `.size()`, `.fill()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.fill()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator.
+
+```rust
+use lurq::{components::Checkbox, core::Signal, node::color::Color};
+
+let enabled = Signal::new(true);
+
+Checkbox::new(enabled)
+  .size(20.0, 20.0)
+  .fill("#ffffff")
+  .border_inside(1.0, Color::from_hex("#94a3b8"))
+  .rounded(4.0)
+  .checked_box(|style| {
+    style
+      .fill("#2563eb")
+      .border_inside(1.0, Color::from_hex("#1d4ed8"))
+      .rounded(4.0)
+  })
+  .box_hovered(|style| style.border_inside(1.0, Color::from_hex("#38bdf8")))
+  .checked_box_hovered(|style| style.fill("#1d4ed8"))
+```
+
+With the `image` feature enabled, checked boxes can render an indicator image centered inside the box:
+
+```rust
+use lurq::{components::Checkbox, images::ImageData};
+
+let check = ImageData::from_file("assets/check.png").unwrap();
+
+Checkbox::new(enabled)
+  .checked_box(|style| {
+    style
+      .fill("#16a34a")
+      .indicator_image(check)
+      .indicator_size(12.0, 12.0)
+      .indicator_contain()
+  })
+```
+
+With `image` and `resources`, the indicator can come from the app resource loader:
+
+```rust
+Checkbox::new(enabled)
+  .checked_box(|style| style.indicator_image("ui/check.png").indicator_size(12.0, 12.0))
+```
+
 ### Text Input Editing
 
 `TextInput` keeps editing state internally while the string value remains signal-owned. Clicking focuses the input and places the caret. Dragging selects a range; double-click selects a word; triple-click selects a line. Multiline inputs support vertical caret movement and per-row selection highlights.
@@ -229,8 +277,8 @@ With `image` and `resources`, pass resource paths instead:
 
 ```rust
 Slider::new(value)
-  .track(|style| style.background_image_resource("ui/slider-track.png").background_cover())
-  .thumb(|style| style.background_image_resource("ui/slider-thumb.png").background_cover())
+  .track(|style| style.background_image("ui/slider-track.png").background_cover())
+  .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
 
 ## Drag And Drop

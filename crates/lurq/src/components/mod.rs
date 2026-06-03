@@ -260,16 +260,7 @@ macro_rules! impl_into_node {
 
       #[cfg(feature = "image")]
       pub fn background_image(mut self, data: impl Into<$crate::images::ImageKind>) -> Self {
-        match data.into() {
-          $crate::images::ImageKind::Bytes(data) => {
-            self.node = self.node.background_image(data);
-          }
-          #[cfg(feature = "resources")]
-          $crate::images::ImageKind::Resource(path) => {
-            self.node = self.node.background_image_resource(path.as_ref());
-          }
-        }
-
+        self.node = self.node.background_image(data);
         self
       }
 
@@ -288,12 +279,6 @@ macro_rules! impl_into_node {
       #[cfg(feature = "image")]
       pub fn background_contain(mut self) -> Self {
         self.node = self.node.background_contain();
-        self
-      }
-
-      #[cfg(all(feature = "image", feature = "resources"))]
-      pub fn background_image_resource(mut self, path: &str) -> Self {
-        self.node = self.node.background_image_resource(path);
         self
       }
 

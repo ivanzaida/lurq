@@ -2262,8 +2262,14 @@ impl Tree {
       }
     }
 
-    if let NodeKind::Slider { state } = node.node_kind() {
-      state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache));
+    match node.node_kind() {
+      NodeKind::Checkbox { state } => {
+        state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache));
+      }
+      NodeKind::Slider { state } => {
+        state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache));
+      }
+      _ => {}
     }
 
     for child in &mut node.children {

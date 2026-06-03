@@ -9,21 +9,23 @@ use crate::node::{
 };
 
 #[derive(Clone)]
-pub struct SliderPartStyle {
+pub struct CheckboxStyle {
   pub(crate) width: Option<f32>,
   pub(crate) height: Option<f32>,
   pub(crate) color: Option<Color>,
   pub(crate) border_radius: Option<BorderRadius>,
   pub(crate) border: Option<Borders>,
+  pub(crate) indicator_width: Option<f32>,
+  pub(crate) indicator_height: Option<f32>,
   #[cfg(feature = "image")]
-  pub(crate) background_image: Option<crate::images::ImageData>,
+  pub(crate) indicator_image: Option<crate::images::ImageData>,
   #[cfg(all(feature = "image", feature = "resources"))]
-  pub(crate) background_resource_image: Option<Arc<str>>,
+  pub(crate) indicator_resource_image: Option<Arc<str>>,
   #[cfg(feature = "image")]
-  pub(crate) background_size: BackgroundSize,
+  pub(crate) indicator_size: BackgroundSize,
 }
 
-impl Default for SliderPartStyle {
+impl Default for CheckboxStyle {
   fn default() -> Self {
     Self {
       width: None,
@@ -31,17 +33,19 @@ impl Default for SliderPartStyle {
       color: None,
       border_radius: None,
       border: None,
+      indicator_width: None,
+      indicator_height: None,
       #[cfg(feature = "image")]
-      background_image: None,
+      indicator_image: None,
       #[cfg(all(feature = "image", feature = "resources"))]
-      background_resource_image: None,
+      indicator_resource_image: None,
       #[cfg(feature = "image")]
-      background_size: BackgroundSize::default(),
+      indicator_size: BackgroundSize::default(),
     }
   }
 }
 
-impl SliderPartStyle {
+impl CheckboxStyle {
   pub fn new() -> Self {
     Self::default()
   }
@@ -112,34 +116,50 @@ impl SliderPartStyle {
     self
   }
 
+  pub fn indicator_width(mut self, width: f32) -> Self {
+    self.indicator_width = Some(width);
+    self
+  }
+
+  pub fn indicator_height(mut self, height: f32) -> Self {
+    self.indicator_height = Some(height);
+    self
+  }
+
+  pub fn indicator_size(mut self, width: f32, height: f32) -> Self {
+    self.indicator_width = Some(width);
+    self.indicator_height = Some(height);
+    self
+  }
+
   #[cfg(feature = "image")]
-  pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
+  pub fn indicator_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => {
-        self.background_image = Some(data);
+        self.indicator_image = Some(data);
       }
       #[cfg(feature = "resources")]
       crate::images::ImageKind::Resource(path) => {
-        self.background_resource_image = Some(path);
+        self.indicator_resource_image = Some(path);
       }
     }
     self
   }
 
   #[cfg(feature = "image")]
-  pub fn background_size(mut self, size: BackgroundSize) -> Self {
-    self.background_size = size;
+  pub fn indicator_background_size(mut self, size: BackgroundSize) -> Self {
+    self.indicator_size = size;
     self
   }
 
   #[cfg(feature = "image")]
-  pub fn background_cover(self) -> Self {
-    self.background_size(BackgroundSize::Cover)
+  pub fn indicator_cover(self) -> Self {
+    self.indicator_background_size(BackgroundSize::Cover)
   }
 
   #[cfg(feature = "image")]
-  pub fn background_contain(self) -> Self {
-    self.background_size(BackgroundSize::Contain)
+  pub fn indicator_contain(self) -> Self {
+    self.indicator_background_size(BackgroundSize::Contain)
   }
 
   pub(crate) fn merge_from(&mut self, other: &Self) {
@@ -158,16 +178,22 @@ impl SliderPartStyle {
     if other.border.is_some() {
       self.border = other.border;
     }
+    if other.indicator_width.is_some() {
+      self.indicator_width = other.indicator_width;
+    }
+    if other.indicator_height.is_some() {
+      self.indicator_height = other.indicator_height;
+    }
     #[cfg(feature = "image")]
     {
-      if other.background_image.is_some() {
-        self.background_image = other.background_image.clone();
+      if other.indicator_image.is_some() {
+        self.indicator_image = other.indicator_image.clone();
       }
       #[cfg(feature = "resources")]
-      if other.background_resource_image.is_some() {
-        self.background_resource_image = other.background_resource_image.clone();
+      if other.indicator_resource_image.is_some() {
+        self.indicator_resource_image = other.indicator_resource_image.clone();
       }
-      self.background_size = other.background_size;
+      self.indicator_size = other.indicator_size;
     }
   }
 }

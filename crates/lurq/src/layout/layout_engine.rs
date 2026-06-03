@@ -13,7 +13,7 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
-    TextTransformMode,
+    CheckboxStyle, TextTransformMode,
     border::{BorderRadius, Borders},
     color::Color,
     dimension::Dimension,
@@ -213,6 +213,81 @@ fn push_slider_part_quads(
   }
 }
 
+fn push_checkbox_quads(
+  quads: &mut Vec<Quad>,
+  rect: SliderPartRect,
+  style: &CheckboxStyle,
+  color: Color,
+  border_radius: Option<BorderRadius>,
+  border: Option<Borders>,
+  checked: bool,
+  opacity: f32,
+  transform: Transform2D,
+  clip: ClipRect,
+) {
+  #[cfg(not(feature = "image"))]
+  let _ = (style, checked);
+
+  let (rect_x, rect_y, rect_transform, rect_transform_origin) = transformed_quad_frame(rect.x, rect.y, transform);
+  quads.push(Quad {
+    x: rect_x,
+    y: rect_y,
+    width: rect.width,
+    height: rect.height,
+    opacity,
+    transform: rect_transform,
+    transform_origin: rect_transform_origin,
+    content: QuadContent::Rect { color },
+    border_radius,
+    border,
+    clip,
+  });
+
+  #[cfg(feature = "image")]
+  if checked && let Some(ref indicator_image) = style.indicator_image {
+    let indicator_width = style
+      .indicator_width
+      .unwrap_or(rect.width * 0.65)
+      .min(rect.width)
+      .max(0.0);
+    let indicator_height = style
+      .indicator_height
+      .unwrap_or(rect.height * 0.65)
+      .min(rect.height)
+      .max(0.0);
+    let indicator_x = rect.x + (rect.width - indicator_width) * 0.5;
+    let indicator_y = rect.y + (rect.height - indicator_height) * 0.5;
+    let placement = background_image_placement(
+      style.indicator_size,
+      indicator_width,
+      indicator_height,
+      indicator_image.width() as f32,
+      indicator_image.height() as f32,
+    );
+    let image_x = indicator_x + placement.x;
+    let image_y = indicator_y + placement.y;
+    let (image_x, image_y, image_transform, image_transform_origin) =
+      transformed_quad_frame(image_x, image_y, transform);
+    quads.push(Quad {
+      x: image_x,
+      y: image_y,
+      width: placement.width,
+      height: placement.height,
+      opacity,
+      transform: image_transform,
+      transform_origin: image_transform_origin,
+      content: QuadContent::Image {
+        data: indicator_image.clone(),
+        uv_min: placement.uv_min,
+        uv_max: placement.uv_max,
+      },
+      border_radius: None,
+      border: None,
+      clip,
+    });
+  }
+}
+
 fn quad_transform(transform: Transform2D) -> Transform2D {
   transform.linear_part()
 }
@@ -351,13 +426,7 @@ impl LayoutEngine {
         wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
         transform_mode: TextTransformMode::Bitmap,
       },
-      NodeKind::Checkbox { state } => QuadContent::Rect {
-        color: if state.is_checked() {
-          DEFAULT_CHECKBOX_CHECKED_COLOR
-        } else {
-          node.color().unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR)
-        },
-      },
+      NodeKind::Checkbox { .. } => QuadContent::None,
       #[cfg(feature = "image")]
       NodeKind::Image { data } => QuadContent::Image {
         data: data.clone(),
@@ -566,6 +635,43 @@ impl LayoutEngine {
           border: None,
           clip,
         });
+      }
+      NodeKind::Checkbox { state } => {
+        let checked = state.is_checked();
+        let hovered = node.is_style_hovered();
+        let style = state.style(checked, hovered);
+        let width = style.width.unwrap_or(result.size.width).min(result.size.width).max(0.0);
+        let height = style
+          .height
+          .unwrap_or(result.size.height)
+          .min(result.size.height)
+          .max(0.0);
+        let rect = SliderPartRect {
+          x: abs_x + (result.size.width - width) * 0.5,
+          y: abs_y + (result.size.height - height) * 0.5,
+          width,
+          height,
+        };
+        let color = if checked {
+          style.color.unwrap_or(DEFAULT_CHECKBOX_CHECKED_COLOR)
+        } else {
+          style
+            .color
+            .or_else(|| node.color())
+            .unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR)
+        };
+        push_checkbox_quads(
+          quads,
+          rect,
+          &style,
+          color,
+          style.border_radius.or_else(|| node.get_border_radius()),
+          style.border.or_else(|| node.get_border()),
+          checked,
+          opacity,
+          transform,
+          clip,
+        );
       }
       NodeKind::Slider { state } => {
         let hovered = node.is_style_hovered() || state.is_hovered();
@@ -967,9 +1073,14 @@ impl LayoutEngine {
         );
       }
       NodeKind::Checkbox { .. } => {
-        let preferred = node
-          .intrinsic_size
-          .unwrap_or(Size::new(DEFAULT_CHECKBOX_WIDTH, DEFAULT_CHECKBOX_HEIGHT));
+        let preferred = if let NodeKind::Checkbox { state } = node.node_kind() {
+          let (width, height) = state.preferred_size(DEFAULT_CHECKBOX_WIDTH, DEFAULT_CHECKBOX_HEIGHT);
+          node.intrinsic_size.unwrap_or(Size::new(width, height))
+        } else {
+          node
+            .intrinsic_size
+            .unwrap_or(Size::new(DEFAULT_CHECKBOX_WIDTH, DEFAULT_CHECKBOX_HEIGHT))
+        };
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],

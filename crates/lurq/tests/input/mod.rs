@@ -16,6 +16,7 @@ mod text_input {
 mod checkbox {
   mod double_toggle;
   mod keyboard_toggle;
+  mod renders_style;
   mod toggles_on_click;
 }
 

@@ -1,4 +1,5 @@
 pub mod border;
+pub mod checkbox_style;
 pub mod color;
 pub mod cursor;
 pub mod dimension;
@@ -21,6 +22,7 @@ pub enum TextTransformMode {
   Rasterized,
 }
 
+pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
 pub use node::BackgroundSize;

@@ -14,7 +14,7 @@ use lurq::{
     Slider, Spacer, Stack, Text, TextInput,
   },
   layout::{Alignment, StackAlignment},
-  node::{Element, TextTransformMode, color::Color},
+  node::{CheckboxStyle, Element, TextTransformMode, color::Color},
 };
 ```
 

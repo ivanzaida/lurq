@@ -17,6 +17,7 @@ use crate::{
   node::{
     TextTransformMode,
     border::{Border, BorderRadius, Borders},
+    checkbox_style::CheckboxStyle,
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
@@ -277,6 +278,34 @@ impl Node {
     )
   }
 
+  pub fn checkbox_box_style(self, style: CheckboxStyle) -> Self {
+    if let Some(state) = self.checkbox_state() {
+      state.set_style(style);
+    }
+    self
+  }
+
+  pub fn checkbox_checked_box_style(self, style: CheckboxStyle) -> Self {
+    if let Some(state) = self.checkbox_state() {
+      state.set_checked_style(style);
+    }
+    self
+  }
+
+  pub fn checkbox_box_hovered_style(self, style: CheckboxStyle) -> Self {
+    if let Some(state) = self.checkbox_state() {
+      state.set_hovered_style(style);
+    }
+    self
+  }
+
+  pub fn checkbox_checked_box_hovered_style(self, style: CheckboxStyle) -> Self {
+    if let Some(state) = self.checkbox_state() {
+      state.set_checked_hovered_style(style);
+    }
+    self
+  }
+
   pub fn slider(value: Signal<i32>) -> Self {
     Self::from_parts(
       LayoutKind::Leaf,
@@ -503,8 +532,16 @@ impl Node {
   }
 
   #[cfg(feature = "image")]
-  pub fn background_image(mut self, data: crate::images::ImageData) -> Self {
-    self.background_image.set(Some(data));
+  pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
+    match data.into() {
+      crate::images::ImageKind::Bytes(data) => {
+        self.background_image.set(Some(data));
+      }
+      #[cfg(feature = "resources")]
+      crate::images::ImageKind::Resource(path) => {
+        self.background_resource_image = Some(path);
+      }
+    }
     self
   }
 
@@ -522,12 +559,6 @@ impl Node {
   #[cfg(feature = "image")]
   pub fn background_contain(self) -> Self {
     self.background_size(BackgroundSize::Contain)
-  }
-
-  #[cfg(all(feature = "image", feature = "resources"))]
-  pub fn background_image_resource(mut self, path: &str) -> Self {
-    self.background_resource_image = Some(path.into());
-    self
   }
 
   pub fn cursor_icon(&self) -> Option<CursorIcon> {
@@ -819,6 +850,16 @@ impl Node {
       state.set_thumb_hovered_style(style);
     }
     self
+  }
+
+  pub(crate) fn checkbox_state(&self) -> Option<&CheckboxState> {
+    if let NodeKind::Checkbox { state } = &self.node_kind {
+      return Some(state);
+    }
+    if self.children.len() == 1 {
+      return self.children[0].checkbox_state();
+    }
+    None
   }
 
   pub(crate) fn slider_state(&self) -> Option<&SliderState> {
@@ -1381,7 +1422,9 @@ impl Node {
           ..
         },
       ) => style == old_style && placeholder_style == old_placeholder_style,
-      (NodeKind::Checkbox { .. }, NodeKind::Checkbox { .. }) => true,
+      (NodeKind::Checkbox { state }, NodeKind::Checkbox { state: old_state }) => {
+        state.layout_signature() == old_state.layout_signature()
+      }
       (NodeKind::Slider { state }, NodeKind::Slider { state: old_state }) => {
         state.layout_signature() == old_state.layout_signature()
       }

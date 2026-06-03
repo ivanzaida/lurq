@@ -86,7 +86,7 @@ Background images use the same feature pair:
 use lurq::{components::Rect, node::BackgroundSize};
 
 Rect::new(320.0, 180.0)
-  .background_image_resource("hero.jpg")
+  .background_image("hero.jpg")
   .background_size(BackgroundSize::Cover)
 ```
 
@@ -103,8 +103,8 @@ Slider track and thumb styles can also use resource-backed background images:
 use lurq::components::Slider;
 
 Slider::new(value)
-  .track(|style| style.background_image_resource("ui/track.png").background_cover())
-  .thumb(|style| style.background_image_resource("ui/thumb.png").background_cover())
+  .track(|style| style.background_image("ui/track.png").background_cover())
+  .thumb(|style| style.background_image("ui/thumb.png").background_cover())
 ```
 
 ## SVG
