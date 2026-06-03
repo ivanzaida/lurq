@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   core::Signal,
   node::Element,
 };
@@ -82,7 +82,7 @@ fn parent_signal_update_does_not_rerender_clean_child_with_same_props() {
   let child_renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
   runtime.mount_root::<Parent>(
-    Theme::default(),
+    &mut lurq::app::App::new(),
     (Shared(signal_out.clone()), Shared(child_renders.clone())),
   );
 

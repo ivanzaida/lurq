@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   core::{NodeId, Signal},
   node::{Element, ElementRef},
 };
@@ -225,7 +225,7 @@ fn replacing_root_new_tree_fully_assigned() {
 #[test]
 fn rebuild_preserves_matching_node_ids() {
   let mut rt = rt();
-  rt.mount_root::<StableRoot>(Theme::default(), ());
+  rt.mount_root::<StableRoot>(&mut lurq::app::App::new(), ());
   let mut before = Vec::new();
   collect_ids(rt.root().unwrap(), &mut before);
 
@@ -240,7 +240,7 @@ fn rebuild_preserves_matching_node_ids() {
 fn dirty_subtree_refresh_preserves_matching_node_ids() {
   let signal = Signal::new(0);
   let mut rt = rt();
-  rt.mount_root::<SignalParent>(Theme::default(), SignalProp(signal.clone()));
+  rt.mount_root::<SignalParent>(&mut lurq::app::App::new(), SignalProp(signal.clone()));
   let mut before = Vec::new();
   collect_ids(rt.root().unwrap(), &mut before);
 

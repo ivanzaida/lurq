@@ -2,11 +2,15 @@ use std::path::Path;
 #[cfg(feature = "resources")]
 use std::path::PathBuf;
 
+#[cfg(feature = "i18n")]
+use crate::app::i18n::I18n;
 use crate::app::{glyph_engine::GlyphEngine, theme::Theme};
 
 pub struct App {
   pub(crate) glyph_engine: GlyphEngine,
   pub(crate) theme: Theme,
+  #[cfg(feature = "i18n")]
+  pub(crate) i18n: I18n,
   pub(crate) profiling_enabled: bool,
   pub(crate) scale_override: Option<f32>,
   #[cfg(feature = "resources")]
@@ -28,6 +32,8 @@ impl App {
     Self {
       glyph_engine: GlyphEngine::new(),
       theme: Theme::new(),
+      #[cfg(feature = "i18n")]
+      i18n: I18n::new(),
       profiling_enabled: false,
       scale_override: None,
       #[cfg(feature = "resources")]
@@ -54,6 +60,11 @@ impl App {
 
   pub fn theme(&self) -> &Theme {
     &self.theme
+  }
+
+  #[cfg(feature = "i18n")]
+  pub fn i18n(&self) -> &I18n {
+    &self.i18n
   }
 
   pub fn load_font(&mut self, data: Vec<u8>) {

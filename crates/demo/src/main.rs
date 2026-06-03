@@ -186,8 +186,8 @@ fn main() {
   app.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut tree);
   animation_demo::register_keyframes(&mut tree);
-  tree.mount_root::<DemoApp>(app.theme().clone(), DemoProps);
-  tree.mount_devtools(app.theme().clone());
+  tree.mount_root::<DemoApp>(&mut app, DemoProps);
+  tree.mount_devtools(&mut app);
   let title = format!("lurq demo ({renderer})");
   let window = WinitWindow::new(app, tree).with_title(&title);
   window.run();

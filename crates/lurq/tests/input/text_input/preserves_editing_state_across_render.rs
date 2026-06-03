@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
   core::Signal,
   node::Element,
 };
@@ -27,7 +27,7 @@ impl Component for EditableText {
 #[test]
 fn preserves_focus_and_caret_after_signal_driven_render() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<EditableText>(Theme::default(), ());
+  runtime.mount_root::<EditableText>(&mut lurq::app::App::new(), ());
   run_pass(&mut runtime);
 
   let rect = runtime.find_element(|_| true).unwrap().bounds();

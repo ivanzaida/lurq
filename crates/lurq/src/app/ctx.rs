@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
   any::Any,
   collections::HashSet,
+  ptr::NonNull,
   sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -15,7 +16,9 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "devtools")]
 use super::component::{ComponentInfo, DevtoolsInspectable};
-use super::{component::Component, theme::Theme};
+#[cfg(feature = "i18n")]
+use super::i18n::I18n;
+use super::{app_state::App, component::Component, theme::Theme};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
@@ -64,6 +67,9 @@ pub struct Ctx {
   #[cfg(feature = "devtools")]
   contexts_debug: Vec<ComponentContextDebug>,
   theme: Option<Theme>,
+  #[cfg(feature = "i18n")]
+  i18n: Option<I18n>,
+  app: Option<NonNull<App>>,
   context_map: ContextMap,
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
@@ -432,6 +438,9 @@ impl Ctx {
       #[cfg(feature = "devtools")]
       contexts_debug: Vec::new(),
       theme: None,
+      #[cfg(feature = "i18n")]
+      i18n: None,
+      app: None,
       context_map: ContextMap::default(),
       slot_children: None,
       children: Vec::new(),
@@ -448,6 +457,19 @@ impl Ctx {
   pub(crate) fn with_theme(mut self, theme: Theme) -> Self {
     self.theme = Some(theme);
     self
+  }
+
+  #[cfg(feature = "i18n")]
+  pub(crate) fn with_i18n(mut self, i18n: I18n) -> Self {
+    self.i18n = Some(i18n);
+    self
+  }
+
+  pub(crate) fn set_app_ref(&mut self, app: &mut App) {
+    self.app = Some(NonNull::from(&mut *app));
+    for slot in &mut self.children {
+      slot.ctx.set_app_ref(app);
+    }
   }
 
   pub fn is_dirty(&self) -> bool {
@@ -710,6 +732,51 @@ impl Ctx {
     theme
   }
 
+  pub fn app_ref(&self) -> &App {
+    unsafe { self.app.expect("app ref not set").as_ref() }
+  }
+
+  pub fn app_ref_mut(&mut self) -> &mut App {
+    unsafe { self.app.expect("app ref not set").as_mut() }
+  }
+
+  #[cfg(feature = "i18n")]
+  pub fn i18n(&self) -> &I18n {
+    let i18n = self.i18n.as_ref().expect("i18n not set");
+    i18n.track_access();
+    i18n
+  }
+
+  #[cfg(feature = "i18n")]
+  pub fn t(&self, key: &str) -> String {
+    self.i18n().t(key)
+  }
+
+  #[cfg(feature = "i18n")]
+  pub fn t_ns(&self, namespace: &str, key: &str) -> String {
+    self.i18n().t_ns(namespace, key)
+  }
+
+  #[cfg(feature = "i18n")]
+  pub fn t_args<I, K, V>(&self, key: &str, args: I) -> String
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: ToString,
+  {
+    self.i18n().t_args(key, args)
+  }
+
+  #[cfg(feature = "i18n")]
+  pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> String
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: ToString,
+  {
+    self.i18n().t_ns_args(namespace, key, args)
+  }
+
   // --- Slot Children ---
 
   pub fn children(&self) -> &[Element] {
@@ -809,6 +876,11 @@ impl Ctx {
     let mut child_ctx = Ctx::new();
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
+    child_ctx.app = self.app;
+    #[cfg(feature = "i18n")]
+    {
+      child_ctx.i18n = self.i18n.clone();
+    }
     child_ctx.context_map = self.context_map.clone();
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
@@ -863,6 +935,11 @@ impl Ctx {
       let mut group_ctx = Ctx::new();
       group_ctx.batch = self.batch.clone();
       group_ctx.theme = self.theme.clone();
+      group_ctx.app = self.app;
+      #[cfg(feature = "i18n")]
+      {
+        group_ctx.i18n = self.i18n.clone();
+      }
       group_ctx.context_map = self.context_map.clone();
       let slot = ChildSlot {
         id: next_component_slot_id(),
@@ -930,6 +1007,11 @@ impl Ctx {
     let mut child_ctx = Ctx::new();
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
+    child_ctx.app = self.app;
+    #[cfg(feature = "i18n")]
+    {
+      child_ctx.i18n = self.i18n.clone();
+    }
     child_ctx.context_map = self.context_map.clone();
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);

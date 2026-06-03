@@ -9,7 +9,6 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     events::{MouseButton, ScrollPhase},
-    theme::Theme,
   },
   components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
   core::Signal,
@@ -45,7 +44,7 @@ impl Component for ScrollRerender {
 #[test]
 fn scroll_state_survives_signal_driven_rerender() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<ScrollRerender>(Theme::default(), ());
+  runtime.mount_root::<ScrollRerender>(&mut lurq::app::App::new(), ());
 
   run_pass(&mut runtime);
   runtime.scroll(10.0, 10.0, 0.0, -60.0, ScrollPhase::Scroll);

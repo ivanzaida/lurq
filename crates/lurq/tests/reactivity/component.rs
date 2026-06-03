@@ -4,8 +4,9 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{App, Tree, component::Component, ctx::Ctx},
   core::Signal,
+  layout::text_style::TextStyle,
   node::Element,
 };
 
@@ -327,20 +328,74 @@ impl Component for RootLifecycle {
   }
 }
 
+struct AppThemeReader;
+
+impl Component for AppThemeReader {
+  type Props = ();
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let font_size = ctx.app_ref().theme().default_text_style().font_size;
+    lurq::components::Text::new(&format!("font={font_size}"))
+  }
+}
+
+struct AppMutWriter;
+
+impl Component for AppMutWriter {
+  type Props = ();
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.app_ref_mut().set_profiling_enabled(true);
+    lurq::components::Text::new("updated")
+  }
+}
+
 // --- Tests ---
 
 #[test]
 fn mount_root_renders() {
   let mut rt = Tree::new();
-  rt.mount_root::<Counter>(Theme::default(), 5);
+  rt.mount_root::<Counter>(&mut lurq::app::App::new(), 5);
   let root = rt.root().unwrap();
   assert!(root.text_content().is_some());
 }
 
 #[test]
+fn ctx_app_ref_reads_app() {
+  let mut app = App::new();
+  app.theme().set_default_text_style(TextStyle {
+    font_size: 31.0,
+    ..TextStyle::default()
+  });
+  let mut rt = Tree::new();
+  rt.mount_root::<AppThemeReader>(&mut app, ());
+
+  assert_eq!(rt.root().unwrap().text_content(), Some("font=31"));
+}
+
+#[test]
+fn ctx_app_ref_mut_mutates_app() {
+  let mut app = App::new();
+  assert!(!app.profiling_enabled());
+
+  let mut rt = Tree::new();
+  rt.mount_root::<AppMutWriter>(&mut app, ());
+
+  assert!(app.profiling_enabled());
+}
+
+#[test]
 fn parent_mounts_children() {
   let mut rt = Tree::new();
-  rt.mount_root::<Parent>(Theme::default(), ());
+  rt.mount_root::<Parent>(&mut lurq::app::App::new(), ());
   let root = rt.root().unwrap();
   assert_eq!(root.children().len(), 2);
 }
@@ -348,7 +403,7 @@ fn parent_mounts_children() {
 #[test]
 fn context_propagates_to_descendant() {
   let mut rt = Tree::new();
-  rt.mount_root::<ContextProvider>(Theme::default(), ());
+  rt.mount_root::<ContextProvider>(&mut lurq::app::App::new(), ());
   let root = rt.root().unwrap();
   assert!(root.text_content().is_some() || !root.children().is_empty());
 }
@@ -357,7 +412,7 @@ fn context_propagates_to_descendant() {
 fn updated_context_propagates_to_reused_child_context() {
   let value = Arc::new(Mutex::new(None));
   let mut rt = Tree::new();
-  rt.mount_root::<DynamicContextProvider>(Theme::default(), Shared(value.clone()));
+  rt.mount_root::<DynamicContextProvider>(&mut lurq::app::App::new(), Shared(value.clone()));
 
   assert_eq!(rt.root().unwrap().text_content(), Some("1"));
 
@@ -380,7 +435,7 @@ fn slot_children_passed_through() {
 #[test]
 fn for_each_renders_all_items() {
   let mut rt = Tree::new();
-  rt.mount_root::<ForEachParent>(Theme::default(), ());
+  rt.mount_root::<ForEachParent>(&mut lurq::app::App::new(), ());
   let root = rt.root().unwrap();
   assert_eq!(root.children().len(), 5);
 }
@@ -388,7 +443,7 @@ fn for_each_renders_all_items() {
 #[test]
 fn error_boundary_catches_panic() {
   let mut rt = Tree::new();
-  rt.mount_root::<ErrorComponent>(Theme::default(), ());
+  rt.mount_root::<ErrorComponent>(&mut lurq::app::App::new(), ());
   let root = rt.root().unwrap();
   assert_eq!(root.text_content(), Some("fallback"));
 }
@@ -439,14 +494,14 @@ fn use_context_missing_returns_none() {
 #[test]
 fn empty_component_renders_leaf() {
   let mut rt = Tree::new();
-  rt.mount_root::<EmptyComponent>(Theme::default(), ());
+  rt.mount_root::<EmptyComponent>(&mut lurq::app::App::new(), ());
   assert!(rt.root().is_some());
 }
 
 #[test]
 fn deeply_nested_mount() {
   let mut rt = Tree::new();
-  rt.mount_root::<DeeplyNested>(Theme::default(), 0);
+  rt.mount_root::<DeeplyNested>(&mut lurq::app::App::new(), 0);
   assert!(rt.root().is_some());
 }
 
@@ -454,7 +509,7 @@ fn deeply_nested_mount() {
 fn dirty_signal_rebuilds_before_layout() {
   let signal_out = Arc::new(Mutex::new(None));
   let mut rt = Tree::new();
-  rt.mount_root::<SignalRoot>(Theme::default(), Shared(signal_out.clone()));
+  rt.mount_root::<SignalRoot>(&mut lurq::app::App::new(), Shared(signal_out.clone()));
 
   assert_eq!(rt.root().unwrap().text_content(), Some("1"));
 
@@ -472,7 +527,7 @@ fn child_lifecycle_tracks_insertions_and_removals() {
 
   let mut rt = Tree::new();
   rt.mount_root::<ConditionalLifecycleParent>(
-    Theme::default(),
+    &mut lurq::app::App::new(),
     (
       Shared(show_child.clone()),
       Shared(mounted.clone()),
@@ -504,7 +559,7 @@ fn for_each_preserves_keyed_child_components_across_reorder() {
 
   let mut rt = Tree::new();
   rt.mount_root::<KeyedForEachLifecycleParent>(
-    Theme::default(),
+    &mut lurq::app::App::new(),
     (
       Shared(items.clone()),
       Shared(mounted.clone()),
@@ -530,7 +585,10 @@ fn root_lifecycle_runs_once_and_unmounts() {
   let unmounted = Arc::new(AtomicUsize::new(0));
   let mut rt = Tree::new();
 
-  rt.mount_root::<RootLifecycle>(Theme::default(), (Shared(mounted.clone()), Shared(unmounted.clone())));
+  rt.mount_root::<RootLifecycle>(
+    &mut lurq::app::App::new(),
+    (Shared(mounted.clone()), Shared(unmounted.clone())),
+  );
   rt.rebuild();
 
   assert_eq!(mounted.load(Ordering::Relaxed), 1);

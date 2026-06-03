@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
   core::Signal,
   layout::{
     Alignment,
@@ -56,7 +56,7 @@ impl Component for Counter {
 #[test]
 fn updates_displayed_value_after_increment_and_decrement_clicks() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<Counter>(Theme::default(), ());
+  runtime.mount_root::<Counter>(&mut lurq::app::App::new(), ());
   run_pass(&mut runtime);
   assert_counter_value(&runtime, "0");
 

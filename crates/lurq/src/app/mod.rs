@@ -8,6 +8,8 @@ pub mod dx12_render;
 pub mod events;
 pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;
+#[cfg(feature = "i18n")]
+pub mod i18n;
 pub mod profiler;
 pub mod render_engine;
 pub mod runtime;

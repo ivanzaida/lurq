@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   core::Signal,
   node::Element,
 };
@@ -107,7 +107,7 @@ fn signal_passed_from_parent_marks_child_dirty_when_child_reads_it() {
   let child_renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
   runtime.mount_root::<Parent>(
-    Theme::default(),
+    &mut lurq::app::App::new(),
     (
       SignalProp(signal.clone()),
       Shared(parent_renders.clone()),

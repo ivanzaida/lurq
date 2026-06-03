@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, Rect, Stack},
   node::{Element, color::Color},
 };
@@ -44,7 +44,7 @@ fn dragged_bounds(runtime: &mut Tree) -> lurq::core::ElementRect {
 #[test]
 fn draggable_stops_at_container_edge_while_pointer_remains_outside() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<BoundedDrag>(Theme::default(), ());
+  runtime.mount_root::<BoundedDrag>(&mut lurq::app::App::new(), ());
 
   run_pass(&mut runtime);
   runtime.mouse_down(30.0, 30.0, MouseButton::Left);
@@ -64,7 +64,7 @@ fn draggable_stops_at_container_edge_while_pointer_remains_outside() {
 #[test]
 fn draggable_does_not_resume_when_pointer_reenters_after_exit() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<BoundedDrag>(Theme::default(), ());
+  runtime.mount_root::<BoundedDrag>(&mut lurq::app::App::new(), ());
 
   run_pass(&mut runtime);
   runtime.mouse_down(30.0, 30.0, MouseButton::Left);

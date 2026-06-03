@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   core::Signal,
   layout::{
     Alignment, Constraints, Size,
@@ -126,7 +126,7 @@ fn nowrap_text_keeps_intrinsic_single_line_width() {
 fn changed_text_content_invalidates_ancestor_layout_cache() {
   let count = Arc::new(Mutex::new(None));
   let mut rt = rt();
-  rt.mount_root::<TextCounterHost>(Theme::default(), Shared(count.clone()));
+  rt.mount_root::<TextCounterHost>(&mut lurq::app::App::new(), Shared(count.clone()));
 
   let one_digit = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
   let one_digit_width = one_digit.children[0].result.size.width;

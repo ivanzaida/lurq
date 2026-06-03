@@ -353,15 +353,16 @@ pub(crate) fn debug_overlay_path_for_selection(
 mod tests {
   use super::*;
   use crate::{
-    app::{devtools::snapshot::DevToolsNodeKind, theme::Theme},
+    app::{App, devtools::snapshot::DevToolsNodeKind},
     components::Column,
     layout::text_style::FontWeight,
   };
 
   #[test]
   fn snapshot_collects_tree_nodes() {
+    let mut app = App::new();
     let mut tree = crate::app::Tree::new();
-    tree.mount_root::<SnapshotTestApp>(Theme::default(), ());
+    tree.mount_root::<SnapshotTestApp>(&mut app, ());
     assert!(tree.draw_debug_overlay_over_node(vec![0]));
     assert!(!tree.draw_debug_overlay_over_node(vec![0]));
     assert!(tree.clear_debug_overlay());

@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
   core::Signal,
   layout::{
     Alignment,
@@ -83,7 +83,7 @@ impl Component for Counter {
 fn rerenders_after_click_updates_signal_value() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
-  runtime.mount_root::<Counter>(Theme::default(), Shared(renders.clone()));
+  runtime.mount_root::<Counter>(&mut lurq::app::App::new(), Shared(renders.clone()));
   run_pass(&mut runtime);
 
   assert_eq!(renders.load(Ordering::Relaxed), 1);

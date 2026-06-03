@@ -5,7 +5,7 @@ use std::sync::{
 
 use lurq::{
   app::{
-    Tree,
+    App, Tree,
     component::Component,
     ctx::Ctx,
     theme::{
@@ -341,14 +341,14 @@ impl Component for ThemeSubscriberChild {
 #[test]
 fn theme_change_rerenders_subscriber_components() {
   let renders = Arc::new(AtomicUsize::new(0));
-  let theme = Theme::new();
+  let mut app = App::new();
   let mut tree = Tree::new();
-  tree.mount_root::<ThemeSubscriberRoot>(theme.clone(), Shared(renders.clone()));
+  tree.mount_root::<ThemeSubscriberRoot>(&mut app, Shared(renders.clone()));
 
   run_pass(&mut tree);
   assert_eq!(renders.load(Ordering::Relaxed), 1);
 
-  theme.set_default_text_style(TextStyle {
+  app.theme().set_default_text_style(TextStyle {
     font_size: 22.0,
     ..TextStyle::default()
   });

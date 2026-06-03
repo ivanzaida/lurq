@@ -1,5 +1,5 @@
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   components::Text,
   node::Element,
 };
@@ -22,7 +22,7 @@ impl Component for DebugPanel {
 fn mounted_root_component_emits_component_tag_name() {
   let mut runtime = Tree::new();
 
-  runtime.mount_root::<DebugPanel>(Theme::default(), ());
+  runtime.mount_root::<DebugPanel>(&mut lurq::app::App::new(), ());
 
   assert_eq!(runtime.root().unwrap().tag_name(), "DebugPanel");
 }

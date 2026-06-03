@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
   core::{ElementRect, ElementRef, Signal},
   node::{Element, color::Color},
 };
@@ -192,7 +192,7 @@ fn hovered_style_overrides_visuals_and_layout() {
 fn ctx_element_ref_is_stable_across_rerenders() {
   let seen_bounds = Arc::new(Mutex::new(Vec::new()));
   let mut runtime = Tree::new();
-  runtime.mount_root::<RefLoggingComponent>(Theme::default(), Shared(seen_bounds.clone()));
+  runtime.mount_root::<RefLoggingComponent>(&mut lurq::app::App::new(), Shared(seen_bounds.clone()));
   run_pass(&mut runtime);
 
   assert_eq!(seen_bounds.lock().unwrap()[0], ElementRect::default());

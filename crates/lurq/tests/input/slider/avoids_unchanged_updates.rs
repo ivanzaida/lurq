@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   core::Signal,
   node::Element,
 };
@@ -47,7 +47,7 @@ impl Component for RangedSlider {
 fn range_does_not_dirty_component_when_value_is_unchanged() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mut runtime = Tree::new();
-  runtime.mount_root::<RangedSlider>(Theme::default(), Shared(renders.clone()));
+  runtime.mount_root::<RangedSlider>(&mut lurq::app::App::new(), Shared(renders.clone()));
 
   run_pass(&mut runtime);
   run_pass(&mut runtime);

@@ -545,9 +545,9 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
-  pub fn mount_devtools(&mut self, theme: crate::app::theme::Theme) {
+  pub fn mount_devtools(&mut self, app: &mut App) {
     let mut devtools = Tree::new();
-    devtools.mount_root::<DevTools>(theme, self.devtools_props(DevToolsSnapshot::from_tree(self)));
+    devtools.mount_root::<DevTools>(app, self.devtools_props(DevToolsSnapshot::from_tree(self)));
     let index = self.push_secondary_window(SecondaryWindow::new("lurq DevTools", 1440, 900, devtools));
     self.devtools = Some(DevToolsWindow {
       secondary_index: index,
@@ -663,7 +663,7 @@ impl Tree {
     self.animation_engine.clear_state();
   }
 
-  pub fn mount_root<C: Component>(&mut self, theme: crate::app::theme::Theme, props: C::Props) {
+  pub fn mount_root<C: Component>(&mut self, app: &mut App, props: C::Props) {
     self.clear_hover_path();
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
@@ -673,7 +673,12 @@ impl Tree {
       old.free_ids(&self.id_gen);
     }
     self.clear_animation_runtime_state();
-    let mut ctx = Ctx::new_root().with_theme(theme);
+    let mut ctx = Ctx::new_root().with_theme(app.theme().clone());
+    #[cfg(feature = "i18n")]
+    {
+      ctx = ctx.with_i18n(app.i18n().clone());
+    }
+    ctx.set_app_ref(app);
     ctx.set_root_props(props);
     let component = C::create(&mut ctx);
     let wrapper = RootComponentWrapper { component };
@@ -692,6 +697,15 @@ impl Tree {
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
+  }
+
+  pub(crate) fn set_app_ref(&mut self, app: &mut App) {
+    if let Some(ctx) = &mut self.root_ctx {
+      ctx.set_app_ref(app);
+    }
+    for secondary in &mut self.secondary_windows {
+      secondary.tree.set_app_ref(app);
+    }
   }
 
   pub fn update_root_props<C: Component>(&mut self, props: C::Props) {
@@ -785,6 +799,7 @@ impl Tree {
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
+    self.set_app_ref(app);
     let profiling_enabled = app.profiling_enabled;
     let frame_start = ProfileScope::maybe_start(profiling_enabled);
     let scale = self.scale_factor();

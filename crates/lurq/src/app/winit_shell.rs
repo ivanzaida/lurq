@@ -207,6 +207,7 @@ impl ManagedWindow {
   }
 
   fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
+    self.tree.set_app_ref(app);
     match event {
       WindowEvent::CloseRequested => {
         if self.close_exits {
@@ -412,6 +413,7 @@ impl ManagedSecondaryWindow {
     event: WindowEvent,
     tree: &mut Tree,
   ) -> bool {
+    tree.set_app_ref(app);
     match event {
       WindowEvent::CloseRequested => {
         self.window = None;

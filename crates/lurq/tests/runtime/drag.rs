@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row},
   core::Signal,
   node::{Element, color::Color},
@@ -80,7 +80,7 @@ fn drop_dispatches_to_hit_drop_target_on_release() {
   let drops = Arc::new(Mutex::new(Vec::new()));
 
   let mut runtime = Tree::new();
-  runtime.mount_root::<DropDispatch>(Theme::default(), Shared(drops.clone()));
+  runtime.mount_root::<DropDispatch>(&mut lurq::app::App::new(), Shared(drops.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
@@ -187,7 +187,7 @@ impl Component for DragRerender {
 fn signal_driven_rerender_does_not_cancel_active_drag() {
   let moves = Arc::new(Mutex::new(Vec::new()));
   let mut runtime = Tree::new();
-  runtime.mount_root::<DragRerender>(Theme::default(), Shared(moves.clone()));
+  runtime.mount_root::<DragRerender>(&mut lurq::app::App::new(), Shared(moves.clone()));
 
   run_pass(&mut runtime);
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
@@ -230,7 +230,7 @@ impl Component for BoundedDrag {
 #[test]
 fn drag_container_clamps_draggable_to_container_bounds() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<BoundedDrag>(Theme::default(), ());
+  runtime.mount_root::<BoundedDrag>(&mut lurq::app::App::new(), ());
 
   run_pass(&mut runtime);
   runtime.mouse_down(10.0, 10.0, MouseButton::Left);
@@ -284,7 +284,7 @@ impl Component for DemoBoundedDrag {
 #[test]
 fn drag_container_clamp_survives_drag_start_rerender() {
   let mut runtime = Tree::new();
-  runtime.mount_root::<DemoBoundedDrag>(Theme::default(), ());
+  runtime.mount_root::<DemoBoundedDrag>(&mut lurq::app::App::new(), ());
 
   run_pass(&mut runtime);
   runtime.mouse_down(30.0, 50.0, MouseButton::Left);

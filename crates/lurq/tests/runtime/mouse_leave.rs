@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   animation::{Easing, Transition},
-  app::{Tree, component::Component, ctx::Ctx, theme::Theme},
+  app::{Tree, component::Component, ctx::Ctx},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color},
 };
@@ -168,7 +168,7 @@ fn rebuild_preserves_hover_without_dispatching_mouse_leave() {
   let leaves = Arc::new(Mutex::new(0));
   let mut runtime = Tree::new();
 
-  runtime.mount_root::<LeaveRoot>(Theme::default(), Shared(leaves.clone()));
+  runtime.mount_root::<LeaveRoot>(&mut lurq::app::App::new(), Shared(leaves.clone()));
   run_pass(&mut runtime);
   runtime.mouse_move(10.0, 10.0);
 
