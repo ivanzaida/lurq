@@ -58,6 +58,29 @@ struct ModalEntry {
   node: Node,
 }
 
+#[derive(Clone)]
+pub struct ModalContext {
+  open: Signal<bool>,
+}
+
+impl ModalContext {
+  pub fn open(&self) {
+    self.open.set(true);
+  }
+
+  pub fn close(&self) {
+    self.open.set(false);
+  }
+
+  pub fn is_open(&self) -> bool {
+    self.open.get()
+  }
+
+  pub fn signal(&self) -> Signal<bool> {
+    self.open.clone()
+  }
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
@@ -83,6 +106,7 @@ pub struct Ctx {
   modal_registry: Arc<Mutex<Vec<ModalEntry>>>,
   modal_scope_id: u64,
   modal_cursor: usize,
+  modal_context: Option<ModalContext>,
   element_ref_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
@@ -457,6 +481,7 @@ impl Ctx {
       modal_registry: Arc::new(Mutex::new(Vec::new())),
       modal_scope_id: 0,
       modal_cursor: 0,
+      modal_context: None,
       element_ref_cursor: 0,
       watch_handles: Vec::new(),
       render_watch_handles: Vec::new(),
@@ -824,7 +849,25 @@ impl Ctx {
     crate::node::interaction_state::InteractionState::new()
   }
 
-  pub fn modal(&mut self, modal: impl Into<Element>) {
+  pub fn modal<R>(&mut self, open: Signal<bool>, render: impl FnOnce(&mut Ctx) -> R)
+  where
+    R: Into<Element>,
+  {
+    if !open.get() {
+      return;
+    }
+
+    let previous = self.modal_context.replace(ModalContext { open });
+    let modal = render(self).into();
+    self.modal_context = previous;
+    self.push_modal(modal);
+  }
+
+  pub fn modal_context(&self) -> Option<&ModalContext> {
+    self.modal_context.as_ref()
+  }
+
+  fn push_modal(&mut self, modal: impl Into<Element>) {
     let cursor = self.modal_cursor;
     self.modal_cursor += 1;
     let modal = modal.into().node;
@@ -920,6 +963,7 @@ impl Ctx {
     child_ctx.theme = self.theme.clone();
     child_ctx.app = self.app;
     child_ctx.modal_registry = self.modal_registry.clone();
+    child_ctx.modal_context = self.modal_context.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
@@ -981,6 +1025,7 @@ impl Ctx {
       group_ctx.theme = self.theme.clone();
       group_ctx.app = self.app;
       group_ctx.modal_registry = self.modal_registry.clone();
+      group_ctx.modal_context = self.modal_context.clone();
       #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
@@ -1056,6 +1101,7 @@ impl Ctx {
     child_ctx.theme = self.theme.clone();
     child_ctx.app = self.app;
     child_ctx.modal_registry = self.modal_registry.clone();
+    child_ctx.modal_context = self.modal_context.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();

@@ -51,10 +51,23 @@ impl Component for ModalChild {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    if self.open.get() {
-      ctx.modal(Text::new("modal"));
-    }
+    ctx.modal(self.open.clone(), |ctx| ctx.mount::<ModalPanel>(()));
     Text::new("child")
+  }
+}
+
+struct ModalPanel;
+
+impl Component for ModalPanel {
+  type Props = ();
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    assert!(ctx.modal_context().expect("modal context should be set").is_open());
+    Text::new("modal")
   }
 }
 

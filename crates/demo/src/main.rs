@@ -75,9 +75,7 @@ impl Component for DemoApp {
     let theme = self.theme.get();
     let palette = theme.palette();
 
-    if self.modal_open.get() {
-      ctx.modal(demo_modal(theme, self.modal_open.clone()));
-    }
+    ctx.modal(self.modal_open.clone(), |ctx| ctx.mount::<DemoModal>(theme));
 
     let content = match selected_tab {
       DemoTab::Layout => layout_content(),
@@ -158,18 +156,35 @@ fn demo_toolbar(selected_tab: DemoTab, theme: DemoTheme, modal_open: Signal<bool
     .into()
 }
 
-fn demo_modal(theme: DemoTheme, modal_open: Signal<bool>) -> Element {
+struct DemoModal;
+
+impl Component for DemoModal {
+  type Props = DemoTheme;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    demo_modal(
+      ctx.props::<Self::Props>().to_owned(),
+      ctx.modal_context().unwrap().clone(),
+    )
+  }
+}
+
+fn demo_modal(theme: DemoTheme, modal: lurq::app::ctx::ModalContext) -> Element {
   let palette = theme.palette();
+
   Stack::new()
     .stack_align(StackAlignment::Center)
     .child(
-      Rect::new(1.0, 1.0)
-        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+      Rect::new(Dimension::Pct(100.0), Dimension::Pct(100.0))
         .background("#000000")
         .opacity(0.58)
         .on_click({
-          let modal_open = modal_open.clone();
-          move |_| modal_open.set(false)
+          let modal = modal.clone();
+          move |_| modal.close()
         }),
     )
     .child(
@@ -188,7 +203,7 @@ fn demo_modal(theme: DemoTheme, modal_open: Signal<bool>) -> Element {
         .child(
           Row::new()
             .justify(Justify::End)
-            .child(demo_button("Close", palette.primary, move || modal_open.set(false))),
+            .child(demo_button("Close", palette.primary, move || modal.close())),
         )
         .width(420.0)
         .padding(24.0)

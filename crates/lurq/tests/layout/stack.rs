@@ -58,6 +58,26 @@ fn stack_center_alignment() {
 }
 
 #[test]
+fn fixed_size_stack_does_not_force_child_cross_axis_size() {
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .stack_align(StackAlignment::Center)
+    .child(lurq::components::Spacer::new().width(100.0))
+    .size(300.0, 200.0);
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+
+  assert_eq!(result.size.width, 300.0);
+  assert_eq!(result.size.height, 200.0);
+  let stack_result = &result.children[0].result;
+  assert_eq!(stack_result.children[0].result.size.width, 100.0);
+  assert_eq!(stack_result.children[0].result.size.height, 0.0);
+  assert_eq!(stack_result.children[0].offset.x, 100.0);
+  assert_eq!(stack_result.children[0].offset.y, 100.0);
+}
+
+#[test]
 fn stack_top_start() {
   let mut rt = rt();
   let node = lurq::components::Stack::with(

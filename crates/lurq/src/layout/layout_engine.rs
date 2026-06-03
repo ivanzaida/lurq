@@ -1801,9 +1801,10 @@ impl LayoutEngine {
     align: StackAlignment,
   ) -> LayoutResult {
     let children = node.children();
+    let child_constraints = constraints.loosen_width().loosen_height();
     let results: Vec<LayoutResult> = children
       .iter()
-      .map(|child| self.layout_node(glyph_engine, child, constraints))
+      .map(|child| self.layout_node(glyph_engine, child, child_constraints))
       .collect();
 
     let normal_results: Vec<&LayoutResult> = children

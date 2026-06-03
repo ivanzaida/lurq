@@ -21,7 +21,7 @@ use crate::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
     },
-    hit_test::hit_test_tree,
+    hit_test::{hit_test_tree, hit_test_tree_all},
     profiler::{FrameProfile, PerfMeterStats, ProfileScope, RuntimeMemoryProfile},
     render_engine::{RenderEngine, RenderEngineFactory},
   },
@@ -1934,7 +1934,7 @@ impl Tree {
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
+    hit_test_tree_all(root, result, 0.0, 0.0, x, y, &mut hits);
     hits
       .into_iter()
       .find_map(|(node, _)| node.events.on_drop.clone().map(|handler| (node.node_id(), handler)))

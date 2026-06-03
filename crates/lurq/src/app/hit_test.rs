@@ -1,5 +1,8 @@
 use crate::{
-  layout::{layout_kind::Overflow, layout_result::LayoutResult},
+  layout::{
+    layout_kind::{LayoutKind, Overflow},
+    layout_result::LayoutResult,
+  },
   node::{node::Node, transform::Transform2D},
 };
 
@@ -28,7 +31,19 @@ pub(crate) fn hit_test_tree<'a>(
   py: f32,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
-  hit_test_tree_with_transform(node, result, abs_x, abs_y, px, py, Transform2D::IDENTITY, hits);
+  hit_test_tree_with_transform(node, result, abs_x, abs_y, px, py, Transform2D::IDENTITY, true, hits);
+}
+
+pub(crate) fn hit_test_tree_all<'a>(
+  node: &'a Node,
+  result: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  px: f32,
+  py: f32,
+  hits: &mut Vec<(&'a Node, HitRect)>,
+) {
+  hit_test_tree_with_transform(node, result, abs_x, abs_y, px, py, Transform2D::IDENTITY, false, hits);
 }
 
 fn hit_test_tree_with_transform<'a>(
@@ -39,6 +54,7 @@ fn hit_test_tree_with_transform<'a>(
   px: f32,
   py: f32,
   inherited_transform: Transform2D,
+  occlude_stack_siblings: bool,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
   let rect = HitRect {
@@ -78,17 +94,38 @@ fn hit_test_tree_with_transform<'a>(
   let can_have_visible_children = inside || node.overflow == Overflow::Visible;
 
   if can_have_visible_children {
-    for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
-      hit_test_tree_with_transform(
-        child_node,
-        &child_layout.result,
-        abs_x + child_layout.offset.x,
-        abs_y + child_layout.offset.y,
-        px,
-        py,
-        transform,
-        hits,
-      );
+    if occlude_stack_siblings && matches!(node.layout_kind(), LayoutKind::Stack { .. }) {
+      for (child_layout, child_node) in result.children.iter().zip(node.children().iter()).rev() {
+        let hit_count = hits.len();
+        hit_test_tree_with_transform(
+          child_node,
+          &child_layout.result,
+          abs_x + child_layout.offset.x,
+          abs_y + child_layout.offset.y,
+          px,
+          py,
+          transform,
+          occlude_stack_siblings,
+          hits,
+        );
+        if hits.len() > hit_count {
+          break;
+        }
+      }
+    } else {
+      for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
+        hit_test_tree_with_transform(
+          child_node,
+          &child_layout.result,
+          abs_x + child_layout.offset.x,
+          abs_y + child_layout.offset.y,
+          px,
+          py,
+          transform,
+          occlude_stack_siblings,
+          hits,
+        );
+      }
     }
   }
 

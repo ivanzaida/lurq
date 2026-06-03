@@ -1,5 +1,6 @@
 use lurq::{
   app::{Tree, events::MouseButton},
+  components::{Rect, Stack},
   core::Signal,
 };
 
@@ -75,4 +76,32 @@ fn release_near_press_clicks_same_target() {
   runtime.click(x + 2.0, y, MouseButton::Left);
 
   assert_eq!(clicks.get(), 1);
+}
+
+#[test]
+fn stack_top_child_occludes_lower_sibling_clicks() {
+  let lower_clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Stack::new()
+      .child(Rect::new(100.0, 100.0).background("#111827").on_click({
+        let lower_clicks = lower_clicks.clone();
+        move |_| lower_clicks.update(|count| *count += 1)
+      }))
+      .child(Rect::new(50.0, 50.0).background("#ffffff")),
+  );
+  run_pass(&mut runtime);
+
+  runtime.mouse_down(25.0, 25.0, MouseButton::Left);
+  runtime.mouse_up(25.0, 25.0, MouseButton::Left);
+  runtime.click(25.0, 25.0, MouseButton::Left);
+
+  assert_eq!(lower_clicks.get(), 0);
+
+  runtime.mouse_down(75.0, 75.0, MouseButton::Left);
+  runtime.mouse_up(75.0, 75.0, MouseButton::Left);
+  runtime.click(75.0, 75.0, MouseButton::Left);
+
+  assert_eq!(lower_clicks.get(), 1);
 }
