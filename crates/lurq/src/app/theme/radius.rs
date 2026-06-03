@@ -20,6 +20,12 @@ impl From<u8> for RadiusId {
   }
 }
 
+impl From<&RadiusId> for RadiusId {
+  fn from(id: &RadiusId) -> Self {
+    *id
+  }
+}
+
 #[derive(Clone)]
 pub struct ThemeRadii {
   values: HashMap<RadiusId, f32>,

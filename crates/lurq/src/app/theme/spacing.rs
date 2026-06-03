@@ -22,6 +22,12 @@ impl From<u8> for SpacingId {
   }
 }
 
+impl From<&SpacingId> for SpacingId {
+  fn from(id: &SpacingId) -> Self {
+    *id
+  }
+}
+
 #[derive(Clone)]
 pub struct ThemeSpacing {
   values: HashMap<SpacingId, Dimension>,

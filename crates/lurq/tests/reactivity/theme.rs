@@ -46,6 +46,45 @@ fn default_theme_has_palette() {
 }
 
 #[test]
+fn theme_token_apis_accept_raw_and_borrowed_ids() {
+  let mut palette = ThemePalette::from_colors([(1u8, Color::from_hex("#123456"))]);
+  let palette_id = PaletteId::new(1);
+  palette.set(&palette_id, Color::from_hex("#abcdef"));
+  assert_eq!(palette.get(&palette_id).unwrap().to_hex(), "#abcdef");
+  assert_eq!(palette.resolve(1u8).to_hex(), "#abcdef");
+  assert_eq!(palette.resolve(&palette_id).to_hex(), "#abcdef");
+
+  let mut spacing = ThemeSpacing::from_values([(2u8, 12.0)]);
+  let spacing_id = SpacingId::new(2);
+  spacing.set(&spacing_id, Dimension::Pct(5.0));
+  assert_eq!(spacing.get(&spacing_id), Some(Dimension::Pct(5.0)));
+  assert_eq!(spacing.get(2u8), Some(Dimension::Pct(5.0)));
+
+  let mut radii = ThemeRadii::from_values([(3u8, 4.0)]);
+  let radius_id = RadiusId::new(3);
+  radii.set(&radius_id, 8.0);
+  assert_eq!(radii.get(&radius_id), Some(8.0));
+  assert_eq!(radii.get(3u8), Some(8.0));
+
+  let style = TextStyle {
+    font_size: 22.0,
+    ..TextStyle::default()
+  };
+  let mut typography = ThemeTypography::from_styles([(4u8, style.clone())]);
+  let typography_id = TypographyId::new(4);
+  typography.set(
+    &typography_id,
+    TextStyle {
+      font_size: 24.0,
+      ..style
+    },
+  );
+  assert_eq!(typography.get(&typography_id).unwrap().font_size, 24.0);
+  assert_eq!(typography.resolve(4u8).font_size, 24.0);
+  assert_eq!(typography.resolve(&typography_id).font_size, 24.0);
+}
+
+#[test]
 fn set_palette_color_updates_variant() {
   const BRAND: PaletteId = PaletteId::new(20);
   let t = Theme::new();

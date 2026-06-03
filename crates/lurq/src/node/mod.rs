@@ -15,6 +15,7 @@ pub mod radius_value;
 pub mod slider_style;
 pub mod spacing_value;
 pub mod style;
+pub mod text_color;
 pub(crate) mod text_selection;
 pub mod transform;
 
@@ -35,3 +36,4 @@ pub use radius_value::RadiusValue;
 pub use slider_style::SliderPartStyle;
 pub use spacing_value::SpacingValue;
 pub use style::Style;
+pub use text_color::TextColor;

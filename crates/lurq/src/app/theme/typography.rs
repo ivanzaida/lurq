@@ -22,6 +22,12 @@ impl From<u8> for TypographyId {
   }
 }
 
+impl From<&TypographyId> for TypographyId {
+  fn from(id: &TypographyId) -> Self {
+    *id
+  }
+}
+
 #[derive(Clone)]
 pub struct ThemeTypography {
   styles: HashMap<TypographyId, TextStyle>,
@@ -70,10 +76,10 @@ impl ThemeTypography {
     self.styles.get(&id.into())
   }
 
-  pub fn resolve(&self, id: &TypographyId) -> TextStyle {
+  pub fn resolve(&self, id: impl Into<TypographyId>) -> TextStyle {
     self
       .styles
-      .get(id)
+      .get(&id.into())
       .cloned()
       .unwrap_or_else(|| self.default_style.clone())
   }

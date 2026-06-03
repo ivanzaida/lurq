@@ -439,7 +439,7 @@ impl LayoutEngine {
         style, transform_mode, ..
       } => QuadContent::Text {
         text: node.text_content().unwrap_or_default().to_owned(),
-        style: style.resolve(&self.typography.borrow()),
+        style: style.resolve(&self.typography.borrow(), &self.palette.borrow()),
         wrap: node.text_wrap,
         transform_mode: *transform_mode,
       },
@@ -497,7 +497,7 @@ impl LayoutEngine {
         if let NodeKind::Text { state, style, .. } = node.node_kind()
           && state.selectable()
         {
-          let style = style.resolve(&self.typography.borrow());
+          let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
           let selection_clip = clip;
           for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
@@ -1087,7 +1087,7 @@ impl LayoutEngine {
     match node.node_kind() {
       NodeKind::Text { state, style, .. } => {
         let content = node.text_content().unwrap_or_default();
-        let style = style.resolve(&self.typography.borrow());
+        let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
         return self.layout_text_node(glyph_engine, content, state, &style, constraints, node.text_wrap);
       }
       NodeKind::TextInput {

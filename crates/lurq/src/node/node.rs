@@ -18,7 +18,7 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
-    BackgroundColor, TextTransformMode,
+    BackgroundColor, TextColor, TextTransformMode,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     checkbox_style::CheckboxStyle,
     color::Color,
@@ -765,8 +765,15 @@ impl Node {
 
   pub fn text_variant(mut self, id: impl Into<TypographyId>) -> Self {
     if let NodeKind::Text { style, .. } = &mut self.node_kind {
-      *style = TextStyleSource::variant(id);
+      style.set_variant(id);
       self.layout_cache.invalidate();
+    }
+    self
+  }
+
+  pub fn text_color(mut self, color: impl Into<TextColor>) -> Self {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      style.set_color(color);
     }
     self
   }

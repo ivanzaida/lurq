@@ -1,11 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-  app::theme::{ThemeTypography, TypographyId},
+  app::theme::{ThemePalette, ThemeTypography, TypographyId},
   core::Signal,
   layout::text_style::TextStyle,
   node::{
-    CheckboxStyle, SliderPartStyle, TextTransformMode,
+    CheckboxStyle, SliderPartStyle, TextColor, TextTransformMode,
     text_selection::{
       CaretPosition, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
@@ -62,7 +62,13 @@ pub(crate) enum NodeKind {
 }
 
 #[derive(Clone, PartialEq)]
-pub(crate) enum TextStyleSource {
+pub(crate) struct TextStyleSource {
+  base: TextStyleBase,
+  color: Option<TextColor>,
+}
+
+#[derive(Clone, PartialEq)]
+enum TextStyleBase {
   Default,
   Typography(TypographyId),
   Explicit(TextStyle),
@@ -70,23 +76,37 @@ pub(crate) enum TextStyleSource {
 
 impl TextStyleSource {
   pub(crate) fn default_style() -> Self {
-    Self::Default
+    Self {
+      base: TextStyleBase::Default,
+      color: None,
+    }
   }
 
   pub(crate) fn explicit(style: TextStyle) -> Self {
-    Self::Explicit(style)
-  }
-
-  pub(crate) fn variant(id: impl Into<TypographyId>) -> Self {
-    Self::Typography(id.into())
-  }
-
-  pub(crate) fn resolve(&self, typography: &ThemeTypography) -> TextStyle {
-    match self {
-      Self::Default => typography.default_style().clone(),
-      Self::Typography(id) => typography.resolve(id),
-      Self::Explicit(style) => style.clone(),
+    Self {
+      base: TextStyleBase::Explicit(style),
+      color: None,
     }
+  }
+
+  pub(crate) fn set_variant(&mut self, id: impl Into<TypographyId>) {
+    self.base = TextStyleBase::Typography(id.into());
+  }
+
+  pub(crate) fn set_color(&mut self, color: impl Into<TextColor>) {
+    self.color = Some(color.into());
+  }
+
+  pub(crate) fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
+    let mut style = match &self.base {
+      TextStyleBase::Default => typography.default_style().clone(),
+      TextStyleBase::Typography(id) => typography.resolve(id),
+      TextStyleBase::Explicit(style) => style.clone(),
+    };
+    if let Some(color) = self.color.and_then(|color| color.resolve(palette)) {
+      style.color = color;
+    }
+    style
   }
 }
 

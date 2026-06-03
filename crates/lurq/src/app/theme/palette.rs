@@ -22,6 +22,12 @@ impl From<u8> for PaletteId {
   }
 }
 
+impl From<&PaletteId> for PaletteId {
+  fn from(id: &PaletteId) -> Self {
+    *id
+  }
+}
+
 #[derive(Clone)]
 pub struct ThemePalette {
   colors: HashMap<PaletteId, Color>,
@@ -60,8 +66,12 @@ impl ThemePalette {
     self.colors.get(&id.into())
   }
 
-  pub fn resolve(&self, id: &PaletteId) -> Color {
-    self.colors.get(id).copied().unwrap_or_else(|| Color::new(0, 0, 0, 0))
+  pub fn resolve(&self, id: impl Into<PaletteId>) -> Color {
+    self
+      .colors
+      .get(&id.into())
+      .copied()
+      .unwrap_or_else(|| Color::new(0, 0, 0, 0))
   }
 
   fn next_available_id(&self) -> PaletteId {
