@@ -198,6 +198,7 @@ impl ManagedWindow {
     if let Some(tick) = &mut self.on_tick {
       tick(&mut self.tree);
     }
+    self.tree.tick_timers();
     self.tree.request_redraw();
     self.tree.tick_perf_overlay();
     if self.tree.perf_overlay_enabled() || self.tree.has_active_timeline() {
@@ -398,6 +399,7 @@ impl ManagedSecondaryWindow {
   }
 
   fn tick(&mut self, tree: &mut Tree) {
+    tree.tick_timers();
     tree.request_redraw();
     tree.tick_perf_overlay();
     if tree.perf_overlay_enabled() || tree.has_active_timeline() {

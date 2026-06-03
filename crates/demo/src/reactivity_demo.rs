@@ -1,5 +1,10 @@
+use std::time::Duration;
+
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{
+    component::Component,
+    ctx::{Ctx, Timeout},
+  },
   core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
@@ -11,6 +16,12 @@ const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
 const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 
+#[derive(Clone, Copy, PartialEq, Eq, lurq::DevtoolsInspectable)]
+enum CopyFeedback {
+  Idle,
+  Copied,
+}
+
 pub(crate) struct ReactivityDemo {
   count: Signal<i32>,
   memo_count: Signal<i32>,
@@ -20,12 +31,20 @@ pub(crate) struct ReactivityDemo {
   batch_c: Signal<i32>,
   unbatched_renders: Signal<i32>,
   batched_renders: Signal<i32>,
+  copy_feedback: Signal<CopyFeedback>,
+  reset_copy_feedback: Timeout,
 }
 
 impl Component for ReactivityDemo {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
+    let copy_feedback = ctx.signal(CopyFeedback::Idle);
+    let reset_copy_feedback = ctx.create_timeout(Duration::from_secs(1), {
+      let copy_feedback = copy_feedback.clone();
+      move || copy_feedback.set(CopyFeedback::Idle)
+    });
+
     Self {
       count: ctx.signal(0),
       memo_count: ctx.signal(7),
@@ -35,6 +54,8 @@ impl Component for ReactivityDemo {
       batch_c: ctx.signal(3),
       unbatched_renders: ctx.signal(0),
       batched_renders: ctx.signal(0),
+      copy_feedback,
+      reset_copy_feedback,
     }
   }
 
@@ -49,6 +70,7 @@ impl Component for ReactivityDemo {
     let c = self.batch_c.get();
     let unbatched = self.unbatched_renders.get();
     let batched = self.batched_renders.get();
+    let copy_feedback = self.copy_feedback.get();
 
     self.render_count.set(render_count + 1);
 
@@ -77,6 +99,12 @@ impl Component for ReactivityDemo {
       .child(section_title("Batch Updates"))
       .child(batch_card(
         a, b, c, unbatched, batched, ba, bb, bc, ur, ba2, bb2, bc2, br,
+      ))
+      .child(section_title("Timers"))
+      .child(timer_card(
+        copy_feedback,
+        self.copy_feedback.clone(),
+        self.reset_copy_feedback.clone(),
       ))
       .padding(CONTENT_PAD)
       .width(FILL_WIDTH)
@@ -247,6 +275,29 @@ fn batch_card(
           TEXT_MUTED,
         ))
         .width(FILL_WIDTH),
+    )
+    .padding(24.0)
+    .into()
+}
+
+fn timer_card(feedback: CopyFeedback, feedback_signal: Signal<CopyFeedback>, reset_feedback: Timeout) -> Element {
+  let (label, fill, status) = match feedback {
+    CopyFeedback::Idle => ("Copy", PRIMARY, "Idle"),
+    CopyFeedback::Copied => ("Copied", "#22c55e", "Resetting"),
+  };
+
+  card_frame()
+    .spacing(12.0)
+    .child(text("Copy feedback", 13.0, FontWeight::Normal, TEXT_MUTED))
+    .child(
+      lurq::components::Row::new()
+        .spacing(12.0)
+        .align_items(Alignment::Center)
+        .child(btn(label, fill, 96.0, move |_| {
+          feedback_signal.set(CopyFeedback::Copied);
+          reset_feedback.restart();
+        }))
+        .child(text(status, 14.0, FontWeight::Bold, TEXT)),
     )
     .padding(24.0)
     .into()

@@ -10,6 +10,7 @@ use std::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
+  time::{Duration, Instant},
 };
 
 use parking_lot::Mutex;
@@ -81,6 +82,122 @@ impl ModalContext {
   }
 }
 
+#[derive(Clone)]
+pub struct Timeout {
+  timer: Timer,
+}
+
+#[derive(Clone)]
+pub struct Interval {
+  timer: Timer,
+}
+
+#[derive(Clone)]
+struct Timer {
+  inner: Arc<Mutex<TimerInner>>,
+}
+
+struct TimerInner {
+  duration: Duration,
+  repeat: bool,
+  next_fire: Option<Instant>,
+  callback: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl Timeout {
+  pub fn start(&self) {
+    self.timer.start();
+  }
+
+  pub fn restart(&self) {
+    self.timer.restart();
+  }
+
+  pub fn cancel(&self) {
+    self.timer.stop();
+  }
+
+  pub fn is_active(&self) -> bool {
+    self.timer.is_active()
+  }
+}
+
+impl Interval {
+  pub fn start(&self) {
+    self.timer.start();
+  }
+
+  pub fn restart(&self) {
+    self.timer.restart();
+  }
+
+  pub fn stop(&self) {
+    self.timer.stop();
+  }
+
+  pub fn is_active(&self) -> bool {
+    self.timer.is_active()
+  }
+}
+
+impl Timer {
+  fn new(duration: Duration, repeat: bool, callback: impl Fn() + Send + Sync + 'static) -> Self {
+    Self {
+      inner: Arc::new(Mutex::new(TimerInner {
+        duration,
+        repeat,
+        next_fire: None,
+        callback: Arc::new(callback),
+      })),
+    }
+  }
+
+  fn start(&self) {
+    let now = Instant::now();
+    let mut inner = self.inner.lock();
+    if inner.next_fire.is_none() {
+      inner.next_fire = Some(now + inner.duration);
+    }
+  }
+
+  fn restart(&self) {
+    self.restart_at(Instant::now());
+  }
+
+  fn restart_at(&self, now: Instant) {
+    let mut inner = self.inner.lock();
+    inner.next_fire = Some(now + inner.duration);
+  }
+
+  fn stop(&self) {
+    self.inner.lock().next_fire = None;
+  }
+
+  fn is_active(&self) -> bool {
+    self.inner.lock().next_fire.is_some()
+  }
+
+  fn tick(&self, now: Instant) -> bool {
+    let callback = {
+      let mut inner = self.inner.lock();
+      let Some(next_fire) = inner.next_fire else {
+        return false;
+      };
+      if now < next_fire {
+        return false;
+      }
+      if inner.repeat {
+        inner.next_fire = Some(now + inner.duration);
+      } else {
+        inner.next_fire = None;
+      }
+      inner.callback.clone()
+    };
+    callback();
+    true
+  }
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
@@ -111,6 +228,7 @@ pub struct Ctx {
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
+  timers: Vec<Timer>,
   element_refs: Vec<ElementRefMut>,
   rendering: bool,
 }
@@ -486,6 +604,7 @@ impl Ctx {
       watch_handles: Vec::new(),
       render_watch_handles: Vec::new(),
       effects: Vec::new(),
+      timers: Vec::new(),
       element_refs: Vec::new(),
       rendering: false,
     }
@@ -677,6 +796,18 @@ impl Ctx {
     #[cfg(feature = "devtools")]
     self.effects_debug.push(ComponentEffectDebug { id: effect.id() });
     self.effects.push(effect);
+  }
+
+  pub fn create_timeout(&mut self, duration: Duration, f: impl Fn() + Send + Sync + 'static) -> Timeout {
+    let timer = Timer::new(duration, false, f);
+    self.timers.push(timer.clone());
+    Timeout { timer }
+  }
+
+  pub fn create_interval(&mut self, duration: Duration, f: impl Fn() + Send + Sync + 'static) -> Interval {
+    let timer = Timer::new(duration, true, f);
+    self.timers.push(timer.clone());
+    Interval { timer }
   }
 
   pub fn watch<T: SignalValue + Send + Sync + 'static>(
@@ -1231,6 +1362,17 @@ impl Ctx {
     self.children.iter().any(|slot| slot.ctx.any_dirty())
   }
 
+  pub(crate) fn tick_timers(&mut self, now: Instant) -> bool {
+    let mut fired = false;
+    for timer in &self.timers {
+      fired |= timer.tick(now);
+    }
+    for slot in &mut self.children {
+      fired |= slot.ctx.tick_timers(now);
+    }
+    fired
+  }
+
   pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Node)> {
     let mut replacements = Vec::new();
 
@@ -1294,6 +1436,7 @@ impl Ctx {
         }
       }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
+      + self.timers.capacity() * std::mem::size_of::<Timer>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self
         .children

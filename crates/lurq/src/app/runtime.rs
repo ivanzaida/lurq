@@ -398,6 +398,18 @@ impl Tree {
     self.needs_redraw = true;
   }
 
+  pub fn tick_timers(&mut self) {
+    self.tick_timers_at(Instant::now());
+  }
+
+  pub fn tick_timers_at(&mut self, now: Instant) {
+    let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now));
+    if fired {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
+    }
+  }
+
   pub(crate) fn perf_overlay_enabled(&self) -> bool {
     self.perf_overlay_enabled
   }
