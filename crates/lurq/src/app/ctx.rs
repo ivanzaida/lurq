@@ -1170,6 +1170,63 @@ impl Ctx {
     )
   }
 
+  #[cfg(feature = "form")]
+  pub fn form_view<R>(&mut self, form: crate::components::FormHandle, render: impl FnOnce(&mut Ctx) -> R) -> Element
+  where
+    R: Into<Element>,
+  {
+    self.form_view_with(crate::components::FormProps::new(form), render)
+  }
+
+  #[cfg(feature = "form")]
+  pub fn form_view_with<R>(
+    &mut self,
+    props: crate::components::FormProps,
+    render: impl FnOnce(&mut Ctx) -> R,
+  ) -> Element
+  where
+    R: Into<Element>,
+  {
+    let previous_context = self.context_map.clone();
+    if let Some(form) = props.form.clone() {
+      self.provide(crate::components::FormContext::new(form));
+    }
+    let child = render(self).into();
+    self.context_map = previous_context;
+    crate::components::Form::element(props, child)
+  }
+
+  #[cfg(feature = "form")]
+  pub fn form_control<T>(&mut self, control: &crate::components::Control<T>) -> crate::components::ResolvedControl<T>
+  where
+    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+  {
+    control.resolve()
+  }
+
+  #[cfg(feature = "form")]
+  pub fn string_control(&mut self, name: impl Into<Arc<str>>) -> crate::components::ResolvedControl<String> {
+    self.current_form().string_control(name).resolve()
+  }
+
+  #[cfg(feature = "form")]
+  pub fn number_control(&mut self, name: impl Into<Arc<str>>) -> crate::components::ResolvedControl<f64> {
+    self.current_form().number_control(name).resolve()
+  }
+
+  #[cfg(feature = "form")]
+  pub fn bool_control(&mut self, name: impl Into<Arc<str>>) -> crate::components::ResolvedControl<bool> {
+    self.current_form().bool_control(name).resolve()
+  }
+
+  #[cfg(feature = "form")]
+  fn current_form(&mut self) -> crate::components::FormHandle {
+    self
+      .use_context::<crate::components::FormContext>()
+      .map(|ctx| ctx.form())
+      .expect("form controls must be resolved inside a Form render context")
+  }
+
   #[cfg(feature = "router")]
   pub fn router(&mut self, routes: crate::router::Routes) -> crate::router::RouterHandle {
     let current_path = Signal::new(String::new());

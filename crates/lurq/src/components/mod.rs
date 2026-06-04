@@ -33,7 +33,12 @@ pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
 pub use draggable::{Draggable, DraggableProps, DropMissBehavior};
 pub use drop_zone::{DropZone, DropZoneProps};
 #[cfg(feature = "form")]
-pub use form::{Form, FormData, FormHandle, FormOptions, FormProps, FormValue, FormValues};
+pub(crate) use form::FormContext;
+#[cfg(feature = "form")]
+pub use form::{
+  Control, ControlOptions, ControlState, ErrorVisibility, Form, FormData, FormErrors, FormField, FormHandle,
+  FormOptions, FormProps, FormValue, FormValues, ResolvedControl, ValidationResult, validators,
+};
 #[cfg(feature = "image")]
 pub use image::Image;
 #[cfg(feature = "router")]

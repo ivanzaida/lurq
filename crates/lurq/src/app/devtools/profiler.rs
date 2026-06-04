@@ -762,6 +762,7 @@ mod tests {
         tag: "Root".to_owned(),
         kind: DevToolsNodeKind::Component,
         key: None,
+        attrs: Vec::new(),
         text: None,
         color: None,
         props: None,

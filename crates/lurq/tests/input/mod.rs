@@ -22,12 +22,17 @@ mod checkbox {
 
 #[cfg(feature = "form")]
 mod forms {
+  mod async_submit;
+  mod control;
   mod enter_submits;
   mod form_data;
   mod logical_wrapper;
   mod prefill;
+  mod rerender;
+  mod state;
   mod submit_button;
   mod tab_navigation;
+  mod validation;
 }
 
 mod slider {

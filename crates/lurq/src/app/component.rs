@@ -90,6 +90,16 @@ impl DevtoolsInspectable for &'static str {
   }
 }
 
+impl DevtoolsInspectable for std::sync::Arc<str> {
+  fn write_info(&self, buffer: &mut Vec<ComponentInfo>) {
+    buffer.push(ComponentInfo::with_value(
+      "value",
+      std::any::type_name::<std::sync::Arc<str>>(),
+      format!("{self:?}"),
+    ));
+  }
+}
+
 macro_rules! impl_scalar_devtools_inspectable {
   ($($ty:ty),* $(,)?) => {
     $(

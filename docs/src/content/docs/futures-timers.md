@@ -99,6 +99,8 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 `FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)`.
 
+When using the `form` feature, `FormProps::submit_action(action)` wires a `FutureAction<FormValues, _, FormErrors>` into a mounted form. It validates before running the action, exposes `form.submitting()`, blocks duplicate submits while pending, and maps rejected `FormErrors` back into field errors.
+
 ## Tokio Integration
 
 Enable the `tokio` feature to run futures on a real async runtime instead of polling them manually each frame.

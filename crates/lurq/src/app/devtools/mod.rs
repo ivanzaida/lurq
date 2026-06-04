@@ -571,6 +571,7 @@ mod tests {
       tag: tag.to_owned(),
       kind: DevToolsNodeKind::Element,
       key: None,
+      attrs: Vec::new(),
       text: None,
       color: None,
       props: None,
