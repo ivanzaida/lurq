@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -14,6 +14,7 @@ categories = ["gui", "rendering"]
 [features]
 default = []
 clipboard = ["dep:arboard"]
+form = []
 image = ["dep:image"]
 i18n = []
 tokio = ["dep:tokio"]

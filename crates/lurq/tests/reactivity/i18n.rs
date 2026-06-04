@@ -14,6 +14,11 @@ use crate::support::{TestSurface, run_pass};
 #[derive(Clone)]
 struct Shared<T>(Arc<T>);
 
+#[cfg(feature = "devtools")]
+impl<T> lurq::app::component::DevtoolsInspectable for Shared<T> {
+  fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+}
+
 impl<T> PartialEq for Shared<T> {
   fn eq(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.0, &other.0)

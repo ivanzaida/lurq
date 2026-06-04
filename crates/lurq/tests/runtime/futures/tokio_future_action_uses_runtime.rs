@@ -19,6 +19,11 @@ struct SharedTokioAction {
   completed: Arc<AtomicBool>,
 }
 
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for SharedTokioAction {
+  fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+}
+
 impl Clone for SharedTokioAction {
   fn clone(&self) -> Self {
     Self {

@@ -57,6 +57,11 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     scrollbar_hovered_style: None,
     element_ref: None,
     interaction: None,
+    focusable: false,
+    tab_index: None,
+    button_kind: None,
+    #[cfg(feature = "form")]
+    form_name: None,
     style_state: crate::node::interaction_state::InteractionState::new(),
     state_styles: crate::node::style::StateStyles::default(),
     opacity: DEFAULT_SCROLL_OPACITY,

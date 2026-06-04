@@ -1,8 +1,11 @@
+mod button;
 mod checkbox;
 mod column;
 mod drag_container;
 mod draggable;
 mod drop_zone;
+#[cfg(feature = "form")]
+mod form;
 #[cfg(feature = "image")]
 mod image;
 mod rect;
@@ -17,11 +20,14 @@ mod svg;
 mod text;
 mod text_input;
 
+pub use button::Button;
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
 pub use draggable::{Draggable, DraggableProps, DropMissBehavior};
 pub use drop_zone::{DropZone, DropZoneProps};
+#[cfg(feature = "form")]
+pub use form::{Form, FormData, FormHandle, FormOptions, FormProps, FormValue, FormValues};
 #[cfg(feature = "image")]
 pub use image::Image;
 pub use rect::Rect;
@@ -425,6 +431,22 @@ macro_rules! impl_into_node {
 
       pub fn interactive(mut self, state: $crate::node::interaction_state::InteractionState) -> Self {
         self.node = self.node.interactive(state);
+        self
+      }
+
+      pub fn focusable(mut self, focusable: bool) -> Self {
+        self.node = self.node.focusable(focusable);
+        self
+      }
+
+      pub fn tab_index(mut self, tab_index: i32) -> Self {
+        self.node = self.node.tab_index(tab_index);
+        self
+      }
+
+      #[cfg(feature = "form")]
+      pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
+        self.node = self.node.name(name);
         self
       }
 

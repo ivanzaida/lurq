@@ -390,6 +390,81 @@ ctx.error_boundary(
 
 `error_boundary` catches panics from the component closure and returns the fallback element instead.
 
+## Timers
+
+```rust
+use std::time::Duration;
+
+let timeout = ctx.create_timeout(Duration::from_secs(2), || { /* fires once */ });
+timeout.start();
+
+let interval = ctx.create_interval(Duration::from_millis(500), || { /* fires repeatedly */ });
+interval.start();
+```
+
+`Timeout` has `.start()`, `.restart()`, `.cancel()`, and `.is_active()`. `Interval` has `.start()`, `.restart()`, `.stop()`, and `.is_active()`. Create timers in `Component::create` and store them in the struct.
+
+See [Futures And Timers](./futures-timers/) for full details.
+
+## Futures
+
+```rust
+let handle = ctx.future(deps, |deps| async move {
+  Ok::<_, String>("result".to_owned())
+});
+let state = handle.state().get();
+```
+
+`ctx.future` runs an async operation that restarts when `deps` changes. Returns a `FutureHandle` with a reactive `Signal<FutureState<T, E>>`.
+
+```rust
+let action = ctx.future_action(|args: String| async move {
+  Ok::<_, String>(args)
+});
+action.run("go".to_owned());
+```
+
+`ctx.future_action` creates a future that only runs when `.run(args)` is called.
+
+See [Futures And Timers](./futures-timers/) for full details.
+
+## Forms
+
+Requires the `form` feature.
+
+```rust
+let form = ctx
+  .form(FormOptions::new().field("user", "Ada"))
+  .on_submit(|values| { /* handle submission */ });
+```
+
+Returns a `FormHandle` that owns field signals and a submit callback. See [Forms](./forms/) for full details.
+
+## Internationalization
+
+Requires the `i18n` feature.
+
+```rust
+let label = ctx.t("hello");
+let greeting = ctx.t_args("welcome", [("name", "Ada")]);
+let ns_label = ctx.t_ns("errors", "not_found");
+let i18n = ctx.i18n();
+```
+
+Translation lookups are reactive — components re-render when the locale changes. See [Internationalization](./i18n/) for full details.
+
+## Modals
+
+```rust
+ctx.modal(self.open.clone(), |ctx| {
+  lurq::components::Text::new("Modal content")
+});
+
+let modal_ctx = ctx.modal_context();
+```
+
+`ctx.modal` renders content above the tree when the signal is `true`. Inside the modal closure, `ctx.modal_context()` returns a `ModalContext` with `.open()`, `.close()`, and `.is_open()`. See [Modals](./modals/) for full details.
+
 ## Render Lifecycle Methods
 
 ```rust

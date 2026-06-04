@@ -38,8 +38,63 @@ use crate::{
 type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
+#[cfg(feature = "form")]
+type FormSubmitCallback = Arc<dyn Fn(FormData) + Send + Sync>;
 const DEFAULT_TEXT_WRAP: bool = true;
 const DEFAULT_OPACITY: f32 = 1.0;
+
+#[cfg(feature = "form")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FormData {
+  fields: Vec<(String, String)>,
+}
+
+#[cfg(feature = "form")]
+impl FormData {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn append(&mut self, name: impl Into<String>, value: impl Into<String>) {
+    self.fields.push((name.into(), value.into()));
+  }
+
+  pub fn get(&self, name: &str) -> Option<&str> {
+    self
+      .fields
+      .iter()
+      .find(|(field_name, _)| field_name == name)
+      .map(|(_, value)| value.as_str())
+  }
+
+  pub fn get_all(&self, name: &str) -> Vec<&str> {
+    self
+      .fields
+      .iter()
+      .filter(|(field_name, _)| field_name == name)
+      .map(|(_, value)| value.as_str())
+      .collect()
+  }
+
+  pub fn entries(&self) -> &[(String, String)] {
+    &self.fields
+  }
+
+  pub fn len(&self) -> usize {
+    self.fields.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.fields.is_empty()
+  }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonKind {
+  Button,
+  #[cfg(feature = "form")]
+  Submit,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackgroundSize {
@@ -71,6 +126,8 @@ pub struct EventHandlers {
   pub on_key_up: Option<Callback<KeyboardEvent>>,
   pub on_focus: Option<VoidCallback>,
   pub on_blur: Option<VoidCallback>,
+  #[cfg(feature = "form")]
+  pub on_submit: Option<FormSubmitCallback>,
   pub on_scroll: Option<Callback<ScrollEvent>>,
   pub on_scroll_start: Option<Callback<ScrollEvent>>,
   pub on_scroll_end: Option<Callback<ScrollEvent>>,
@@ -112,6 +169,11 @@ pub(crate) struct Node {
   pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
   pub(crate) interaction: Option<InteractionState>,
+  pub(crate) focusable: bool,
+  pub(crate) tab_index: Option<i32>,
+  pub(crate) button_kind: Option<ButtonKind>,
+  #[cfg(feature = "form")]
+  pub(crate) form_name: Option<Arc<str>>,
   pub(crate) style_state: InteractionState,
   pub(crate) state_styles: StateStyles,
   pub(crate) opacity: f32,
@@ -168,6 +230,11 @@ impl Node {
       scrollbar_hovered_style: None,
       element_ref: None,
       interaction: None,
+      focusable: false,
+      tab_index: None,
+      button_kind: None,
+      #[cfg(feature = "form")]
+      form_name: None,
       style_state: InteractionState::new(),
       state_styles: StateStyles::default(),
       opacity: DEFAULT_OPACITY,
@@ -225,6 +292,10 @@ impl Node {
 
   pub fn new() -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::Empty, vec![])
+  }
+
+  pub fn logical() -> Self {
+    Self::from_parts(LayoutKind::LogicalModifier, NodeKind::Empty, vec![])
   }
 
   pub fn text(content: &str) -> Self {
@@ -766,8 +837,58 @@ impl Node {
     self
   }
 
+  pub fn focusable(mut self, focusable: bool) -> Self {
+    self.focusable = focusable;
+    self
+  }
+
+  pub fn tab_index(mut self, tab_index: i32) -> Self {
+    self.tab_index = Some(tab_index);
+    self
+  }
+
+  pub fn button_kind(mut self, kind: ButtonKind) -> Self {
+    self.button_kind = Some(kind);
+    self.focusable = true;
+    self
+  }
+
+  #[cfg(feature = "form")]
+  pub fn form(mut self, on_submit: impl Fn(FormData) + Send + Sync + 'static) -> Self {
+    self.events.on_submit = Some(Arc::new(on_submit));
+    self
+  }
+
+  #[cfg(feature = "form")]
+  pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
+    self.form_name = Some(name.into());
+    self
+  }
+
   pub fn text_content(&self) -> Option<&str> {
     self.text_content.as_deref()
+  }
+
+  pub(crate) fn is_focusable(&self) -> bool {
+    self.focusable
+  }
+
+  pub(crate) fn tab_index_value(&self) -> Option<i32> {
+    self.tab_index
+  }
+
+  pub(crate) fn button_kind_value(&self) -> Option<ButtonKind> {
+    self.button_kind
+  }
+
+  #[cfg(feature = "form")]
+  pub(crate) fn submit_handler(&self) -> Option<FormSubmitCallback> {
+    self.events.on_submit.clone()
+  }
+
+  #[cfg(feature = "form")]
+  pub(crate) fn form_name_value(&self) -> Option<&str> {
+    self.form_name.as_deref()
   }
 
   pub fn selectable(self, selectable: bool) -> Self {
@@ -975,7 +1096,8 @@ impl Node {
     self.overflow = overflow;
     if matches!(
       &self.layout_kind,
-      LayoutKind::PaddingModifier(_)
+      LayoutKind::LogicalModifier
+        | LayoutKind::PaddingModifier(_)
         | LayoutKind::FrameModifier(_)
         | LayoutKind::OffsetModifier { .. }
         | LayoutKind::AbsoluteModifier { .. }
@@ -1350,9 +1472,10 @@ impl Node {
     }
 
     match &self.layout_kind {
-      LayoutKind::FlexModifier(_) | LayoutKind::PaddingModifier(_) | LayoutKind::AlignModifier(_) => {
-        self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0)
-      }
+      LayoutKind::LogicalModifier
+      | LayoutKind::FlexModifier(_)
+      | LayoutKind::PaddingModifier(_)
+      | LayoutKind::AlignModifier(_) => self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0),
       LayoutKind::FrameModifier(frame) => {
         let frame = self.effective_frame(*frame);
         if vertical {
@@ -1487,6 +1610,7 @@ impl Node {
         },
       ) => spacing == old_spacing && align == old_align && justify == old_justify && wrap == old_wrap,
       (LayoutKind::Stack { align }, LayoutKind::Stack { align: old_align }) => align == old_align,
+      (LayoutKind::LogicalModifier, LayoutKind::LogicalModifier) => true,
       (LayoutKind::PaddingModifier(padding), LayoutKind::PaddingModifier(old_padding)) => padding == old_padding,
       (LayoutKind::FrameModifier(frame), LayoutKind::FrameModifier(old_frame)) => frame == old_frame,
       (LayoutKind::OffsetModifier { x, y }, LayoutKind::OffsetModifier { x: old_x, y: old_y }) => {
@@ -1613,6 +1737,11 @@ impl Node {
       scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
       element_ref: self.element_ref.clone(),
       interaction: self.interaction.clone(),
+      focusable: self.focusable,
+      tab_index: self.tab_index,
+      button_kind: self.button_kind,
+      #[cfg(feature = "form")]
+      form_name: self.form_name.clone(),
       style_state: self.style_state.clone(),
       state_styles: self.state_styles.clone(),
       opacity: self.opacity,

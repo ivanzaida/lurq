@@ -1158,6 +1158,18 @@ impl Ctx {
     Interval { timer }
   }
 
+  #[cfg(feature = "form")]
+  pub fn form(&mut self, options: crate::components::FormOptions) -> crate::components::FormHandle {
+    let dirty = self.dirty.clone();
+    let batch = self.batch.clone();
+    crate::components::FormHandle::with_dirty(
+      options,
+      Arc::new(move || {
+        batch.mark_dirty(&dirty);
+      }),
+    )
+  }
+
   pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
   where
     D: Clone + PartialEq + Send + Sync + 'static,

@@ -11,6 +11,8 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use crate::app::devtools::{
   DevTools, DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsProps, DevToolsSnapshot,
 };
+#[cfg(feature = "form")]
+use crate::node::ButtonKind;
 use crate::{
   animation::{AnimationEngine, Keyframes, TransitionEngine},
   app::{
@@ -1209,7 +1211,39 @@ impl Tree {
 
   pub fn key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
     self.rebuild_if_dirty();
-    if self.dispatch_text_input(&key, &code, shift, ctrl) {
+    let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
+      #[cfg(feature = "form")]
+      {
+        self.focus_form_tab(shift)
+      }
+      #[cfg(not(feature = "form"))]
+      {
+        false
+      }
+    } else if matches!(
+      (key.as_str(), code.as_str()),
+      ("Enter" | " ", _) | (_, "Enter" | "Space")
+    ) && self.activate_focused_button()
+    {
+      true
+    } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
+      #[cfg(feature = "form")]
+      {
+        self.submit_focused_single_line_text_input()
+      }
+      #[cfg(not(feature = "form"))]
+      {
+        false
+      }
+    } {
+      true
+    } else {
+      false
+    };
+
+    if handled {
+      self.needs_redraw = true;
+    } else if self.dispatch_text_input(&key, &code, shift, ctrl) {
       self.needs_redraw = true;
     } else {
       self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl);
@@ -1229,6 +1263,122 @@ impl Tree {
     };
     fire_keyboard_recursive(root, &mut evt);
     self.apply_reactive_updates_after_event();
+  }
+
+  #[cfg(feature = "form")]
+  fn focus_form_tab(&mut self, reverse: bool) -> bool {
+    let target = {
+      let Some(root) = &self.root else {
+        return false;
+      };
+      let form_path = match self.focused_path.as_deref() {
+        Some(path) => nearest_form_path_for_path(root, path),
+        None => first_form_path(root),
+      };
+      let Some(form_path) = form_path else {
+        return false;
+      };
+      let Some(form) = find_node_by_path(root, &form_path) else {
+        return false;
+      };
+      let mut candidates = Vec::new();
+      collect_focus_candidates(form, None, &mut candidates);
+      sort_focus_candidates(&mut candidates);
+      if candidates.is_empty() {
+        return false;
+      }
+
+      let current_index = self
+        .focused_node
+        .and_then(|id| candidates.iter().position(|candidate| candidate.input_id == id));
+      let next_index = match (current_index, reverse) {
+        (Some(0), true) => candidates.len() - 1,
+        (Some(index), true) => index - 1,
+        (Some(index), false) => (index + 1) % candidates.len(),
+        (None, true) => candidates.len() - 1,
+        (None, false) => 0,
+      };
+      candidates[next_index].target()
+    };
+
+    self.focus_node(target);
+    true
+  }
+
+  #[cfg(feature = "form")]
+  fn submit_focused_single_line_text_input(&mut self) -> bool {
+    let Some(focused) = self.focused_node else {
+      return false;
+    };
+    let is_single_line = {
+      let Some(root) = &self.root else {
+        return false;
+      };
+      let node = self
+        .focused_path
+        .as_deref()
+        .and_then(|path| find_node_by_path(root, path))
+        .or_else(|| find_node_by_id(root, focused));
+      matches!(node.map(Node::node_kind), Some(NodeKind::TextInput { state, .. }) if state.overflow() != TextInputOverflow::Multiline)
+    };
+    is_single_line && self.submit_nearest_form_for_node_id(focused)
+  }
+
+  fn activate_focused_button(&mut self) -> bool {
+    let Some(focused) = self.focused_node else {
+      return false;
+    };
+    let (_kind, click) = {
+      let Some(root) = &self.root else {
+        return false;
+      };
+      let node = self
+        .focused_path
+        .as_deref()
+        .and_then(|path| find_node_by_path(root, path))
+        .or_else(|| find_node_by_id(root, focused));
+      let Some(node) = node else {
+        return false;
+      };
+      let Some(kind) = node.button_kind_value() else {
+        return false;
+      };
+      (kind, node.events.on_click.clone())
+    };
+
+    if let Some(handler) = click {
+      handler(&MouseEvent {
+        x: 0.0,
+        y: 0.0,
+        button: MouseButton::Left,
+        kind: MouseEventKind::Click,
+        target_id: focused,
+      });
+    }
+
+    #[cfg(feature = "form")]
+    if _kind == ButtonKind::Submit {
+      self.submit_nearest_form_for_node_id(focused);
+    }
+    true
+  }
+
+  #[cfg(feature = "form")]
+  fn submit_nearest_form_for_node_id(&mut self, node_id: NodeId) -> bool {
+    let submission = {
+      let Some(root) = &self.root else {
+        return false;
+      };
+      let Some(path) = find_path_by_id(root, node_id) else {
+        return false;
+      };
+      nearest_form_submission(root, &path)
+    };
+    let Some((handler, data)) = submission else {
+      return false;
+    };
+    handler(data);
+    true
   }
 
   pub fn needs_redraw(&self) -> bool {
@@ -1484,6 +1634,16 @@ impl Tree {
     let mut builtin_needs_redraw = false;
     let mut pending_slider_drag = None;
     let mut pending_text_selection_drag = None;
+    #[cfg(feature = "form")]
+    let pending_submit = if matches!(evt.kind, MouseEventKind::Click) {
+      hits
+        .iter()
+        .find(|(node, _)| node.button_kind_value() == Some(ButtonKind::Submit))
+        .and_then(|(node, _)| find_path_by_id(root, node.node_id()))
+        .and_then(|path| nearest_form_submission(root, &path))
+    } else {
+      None
+    };
 
     if matches!(evt.kind, MouseEventKind::Click | MouseEventKind::Down) {
       if matches!(evt.kind, MouseEventKind::Down) {
@@ -1737,6 +1897,11 @@ impl Tree {
         }
       }
     }
+    #[cfg(feature = "form")]
+    if let Some((handler, data)) = pending_submit {
+      handler(data);
+      self.needs_redraw = true;
+    }
 
     let current_ids: Vec<NodeId> = hits.iter().map(|(n, _)| n.node_id()).collect();
 
@@ -1914,7 +2079,7 @@ impl Tree {
         _ => return false,
       },
       NodeKind::Checkbox { state } => match (logical, command) {
-        (" " | "Space" | "Enter", _) | (_, "Space" | "Enter") => state.toggle(),
+        (" " | "Space", _) | (_, "Space") => state.toggle(),
         _ => return false,
       },
       NodeKind::Slider { state } => match (logical, command) {
@@ -2999,6 +3164,25 @@ struct FocusTarget {
   event_id: NodeId,
 }
 
+#[derive(Clone)]
+#[cfg(feature = "form")]
+struct FocusCandidate {
+  input_id: NodeId,
+  event_id: NodeId,
+  tab_index: i32,
+  order: usize,
+}
+
+#[cfg(feature = "form")]
+impl FocusCandidate {
+  fn target(&self) -> FocusTarget {
+    FocusTarget {
+      input_id: self.input_id,
+      event_id: self.event_id,
+    }
+  }
+}
+
 fn set_node_hovered(node: &Node, hovered: bool) {
   node.set_style_hovered(hovered);
   if let Some(state) = node.slider_state() {
@@ -3118,6 +3302,107 @@ fn update_element_refs_recursive(
   }
 }
 
+#[cfg(feature = "form")]
+fn first_form_path(root: &Node) -> Option<Vec<usize>> {
+  if root.events.on_submit.is_some() {
+    return Some(Vec::new());
+  }
+  for (index, child) in root.children().iter().enumerate() {
+    if let Some(mut path) = first_form_path(child) {
+      path.insert(0, index);
+      return Some(path);
+    }
+  }
+  None
+}
+
+#[cfg(feature = "form")]
+fn nearest_form_path_for_path(root: &Node, path: &[usize]) -> Option<Vec<usize>> {
+  for len in (0..=path.len()).rev() {
+    let candidate = &path[..len];
+    if find_node_by_path(root, candidate).is_some_and(|node| node.events.on_submit.is_some()) {
+      return Some(candidate.to_vec());
+    }
+  }
+  None
+}
+
+#[cfg(feature = "form")]
+fn nearest_form_submission(
+  root: &Node,
+  path: &[usize],
+) -> Option<(Arc<dyn Fn(crate::node::FormData) + Send + Sync>, crate::node::FormData)> {
+  let form_path = nearest_form_path_for_path(root, path)?;
+  let form = find_node_by_path(root, &form_path)?;
+  let handler = form.submit_handler()?;
+  let mut data = crate::node::FormData::new();
+  collect_form_data(form, &mut data);
+  Some((handler, data))
+}
+
+#[cfg(feature = "form")]
+fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
+  if let Some(name) = node.form_name_value() {
+    match node.node_kind() {
+      NodeKind::TextInput { state, .. } => data.append(name, state.value()),
+      NodeKind::Checkbox { state } => {
+        if state.is_checked() {
+          data.append(name, "on");
+        }
+      }
+      NodeKind::Slider { state } => data.append(name, state.value().to_string()),
+      _ => {}
+    }
+  }
+
+  for child in node.children() {
+    collect_form_data(child, data);
+  }
+}
+
+#[cfg(feature = "form")]
+fn collect_focus_candidates(node: &Node, focus_event_id: Option<NodeId>, candidates: &mut Vec<FocusCandidate>) {
+  let focus_event_id = if node.events.on_focus.is_some() || node.events.on_blur.is_some() {
+    Some(node.node_id())
+  } else {
+    focus_event_id
+  };
+  let tab_index = node.tab_index_value().unwrap_or(0);
+  if tab_index >= 0 && is_tabbable(node) {
+    candidates.push(FocusCandidate {
+      input_id: node.node_id(),
+      event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
+      tab_index,
+      order: candidates.len(),
+    });
+    if node.button_kind_value().is_some() {
+      return;
+    }
+  }
+
+  for child in node.children() {
+    collect_focus_candidates(child, focus_event_id, candidates);
+  }
+}
+
+#[cfg(feature = "form")]
+fn sort_focus_candidates(candidates: &mut [FocusCandidate]) {
+  candidates.sort_by_key(|candidate| {
+    let positive_rank = if candidate.tab_index > 0 { 0 } else { 1 };
+    (positive_rank, candidate.tab_index.max(0), candidate.order)
+  });
+}
+
+#[cfg(feature = "form")]
+fn is_tabbable(node: &Node) -> bool {
+  node.is_focusable()
+    || node.button_kind_value().is_some()
+    || matches!(
+      node.node_kind(),
+      NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. }
+    )
+}
+
 fn dispatch_builtin_pointer(
   hits: &[(&Node, crate::app::hit_test::HitRect)],
   x: f32,
@@ -3133,6 +3418,12 @@ fn dispatch_builtin_pointer(
     .map(|(node, _)| node.node_id());
 
   for (node, rect) in hits {
+    if node.button_kind_value().is_some() {
+      return Some(FocusTarget {
+        input_id: node.node_id(),
+        event_id: event_id.unwrap_or_else(|| node.node_id()),
+      });
+    }
     match node.node_kind() {
       NodeKind::TextInput { .. } => {
         return Some(FocusTarget {

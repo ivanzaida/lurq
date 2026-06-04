@@ -227,6 +227,7 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
     LayoutKind::Stack { align } => {
       push_shape_row(rows, "align", stack_alignment_name(*align));
     }
+    LayoutKind::LogicalModifier => {}
     LayoutKind::PaddingModifier(padding) => {
       push_shape_group(rows, "padding", padding_rows(padding));
     }
@@ -356,10 +357,8 @@ fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
   let mut rows = Vec::new();
   if let Some(color) = style.color {
     match color {
-      crate::node::BackgroundColor::Color(color) => rows.push(shape_leaf("background", color.to_hex())),
-      crate::node::BackgroundColor::Palette(id) => {
-        rows.push(shape_leaf("background", format!("palette({})", id.get())))
-      }
+      crate::node::BackgroundColor::Color(color) => rows.push(shape_leaf("fill", color.to_hex())),
+      crate::node::BackgroundColor::Palette(id) => rows.push(shape_leaf("fill", format!("palette({})", id.get()))),
     }
   }
   if let Some(radius) = style.border_radius {
@@ -389,6 +388,7 @@ fn layout_name(layout: &LayoutKind) -> &'static str {
     LayoutKind::Row { .. } => "Row",
     LayoutKind::Column { .. } => "Column",
     LayoutKind::Stack { .. } => "Stack",
+    LayoutKind::LogicalModifier => "Logical",
     LayoutKind::PaddingModifier(_) => "Padding",
     LayoutKind::FrameModifier(_) => "Frame",
     LayoutKind::OffsetModifier { .. } => "Offset",

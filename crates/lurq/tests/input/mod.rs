@@ -20,6 +20,16 @@ mod checkbox {
   mod toggles_on_click;
 }
 
+#[cfg(feature = "form")]
+mod forms {
+  mod enter_submits;
+  mod form_data;
+  mod logical_wrapper;
+  mod prefill;
+  mod submit_button;
+  mod tab_navigation;
+}
+
 mod slider {
   mod avoids_unchanged_updates;
   mod clamps_min_max;

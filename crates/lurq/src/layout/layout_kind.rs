@@ -29,6 +29,7 @@ pub enum LayoutKind {
   Stack {
     align: StackAlignment,
   },
+  LogicalModifier,
   PaddingModifier(Padding),
   FrameModifier(FrameConstraints),
   OffsetModifier {

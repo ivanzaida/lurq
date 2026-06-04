@@ -30,8 +30,10 @@ pub use background_color::BackgroundColor;
 pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
-pub use node::BackgroundSize;
+#[cfg(feature = "form")]
+pub use node::FormData;
 pub(crate) use node::Node;
+pub use node::{BackgroundSize, ButtonKind};
 pub use radius_value::RadiusValue;
 pub use slider_style::SliderPartStyle;
 pub use spacing_value::SpacingValue;

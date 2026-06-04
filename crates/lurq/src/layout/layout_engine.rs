@@ -1023,6 +1023,7 @@ impl LayoutEngine {
         self.layout_flex(glyph_engine, node, constraints, spacing, *align, *justify, *wrap, true)
       }
       LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align),
+      LayoutKind::LogicalModifier => self.layout_passthrough(glyph_engine, node, constraints),
       LayoutKind::PaddingModifier(padding) => {
         let padding = node.effective_padding(padding);
         self.layout_padding(glyph_engine, node, constraints, &padding)
@@ -2150,7 +2151,12 @@ impl LayoutEngine {
   }
 
   fn layout_passthrough(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
-    let child = &node.children()[0];
+    let Some(child) = node.children().first() else {
+      return LayoutResult {
+        size: Size::new(0.0, 0.0),
+        children: Vec::new(),
+      };
+    };
     let child_result = self.layout_node(glyph_engine, child, constraints);
     let size = child_result.size;
 

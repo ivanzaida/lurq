@@ -1,5 +1,6 @@
 use lurq::{
   app::{component::Component, ctx::Ctx},
+  components::{FormHandle, FormOptions},
   core::Signal,
   images::ImageData,
   layout::{
@@ -25,6 +26,9 @@ pub(crate) struct InputsDemo {
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
+  form: FormHandle,
+  form_submit_count: Signal<i32>,
+  form_last_submit: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
   volume: Signal<i32>,
@@ -36,6 +40,27 @@ impl Component for InputsDemo {
   type Props = DemoTheme;
 
   fn create(ctx: &mut Ctx) -> Self {
+    let form_submit_count = ctx.signal(0);
+    let form_last_submit = ctx.signal("<none>".to_owned());
+    let form = ctx
+      .form(
+        FormOptions::new()
+          .field("user", "Ada Lovelace")
+          .field("email", "ada@example.com"),
+      )
+      .on_submit({
+        let submit_count = form_submit_count.clone();
+        let last_submit = form_last_submit.clone();
+        move |values| {
+          submit_count.update(|count| *count += 1);
+          last_submit.set(format!(
+            "{} / {}",
+            display_text(values.get_string("user").unwrap_or_default()),
+            display_text(values.get_string("email").unwrap_or_default())
+          ));
+        }
+      });
+
     Self {
       name: ctx.signal("Lol Kek".to_owned()),
       email: ctx.signal(String::new()),
@@ -44,6 +69,9 @@ impl Component for InputsDemo {
       scroll_sample: ctx.signal("A long single-line value that should scroll inside a narrow input".to_owned()),
       notes: ctx.signal("Line one\nLine two".to_owned()),
       limited_notes: ctx.signal("First row\nSecond row\nThird row\nFourth row\nFifth row".to_owned()),
+      form,
+      form_submit_count,
+      form_last_submit,
       notifications: ctx.signal(true),
       beta_access: ctx.signal(false),
       volume: ctx.signal(42),
@@ -69,6 +97,14 @@ impl Component for InputsDemo {
         self.limited_notes.clone(),
         palette,
       ))
+      .child(section_title("Form", palette))
+      .child(form_card(
+        ctx,
+        self.form.clone(),
+        self.form_submit_count.clone(),
+        self.form_last_submit.clone(),
+        palette,
+      ))
       .child(section_title("Selection", palette))
       .child(selection_card(
         self.notifications.clone(),
@@ -89,6 +125,9 @@ impl Component for InputsDemo {
         self.scroll_sample.clone(),
         self.notes.clone(),
         self.limited_notes.clone(),
+        self.form.clone(),
+        self.form_submit_count.clone(),
+        self.form_last_submit.clone(),
         self.notifications.clone(),
         self.beta_access.clone(),
         self.volume.clone(),
@@ -186,6 +225,22 @@ fn text_fields_card(
 
 fn text_input(value: Signal<String>, placeholder: &str, palette: ThemePalette) -> Element {
   lurq::components::TextInput::new(value)
+    .placeholder(placeholder)
+    .single_line()
+    .width(FILL_WIDTH)
+    .padding_horizontal(12.0)
+    .padding_vertical(6.0)
+    .background("#ffffff")
+    .border_inside(1.0, Color::from_hex(palette.border))
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Text)
+    .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary)))
+    .into()
+}
+
+fn named_text_input(value: Signal<String>, name: &str, placeholder: &str, palette: ThemePalette) -> Element {
+  lurq::components::TextInput::new(value)
+    .name(name)
     .placeholder(placeholder)
     .single_line()
     .width(FILL_WIDTH)
@@ -310,6 +365,98 @@ fn field_stack(label: &str, input: Element) -> lurq::components::Column {
     .spacing(6.0)
     .child(text(label, 12.0, FontWeight::Bold, "#94a3b8"))
     .child(input)
+}
+
+fn form_card(
+  ctx: &mut Ctx,
+  form: FormHandle,
+  submit_count: Signal<i32>,
+  last_submit: Signal<String>,
+  palette: ThemePalette,
+) -> Element {
+  let user = form.string("user");
+  let email = form.string("email");
+  let clear_user = user.clone();
+  let clear_email = email.clone();
+  let clear_last_submit = last_submit.clone();
+
+  card_frame(palette)
+    .spacing(16.0)
+    .child(lurq::components::Form::mount(
+      ctx,
+      lurq::components::FormProps::new(form),
+      lurq::components::Column::new()
+        .spacing(14.0)
+        .child(
+          lurq::components::Row::new()
+            .spacing(18.0)
+            .child(field_stack("User", named_text_input(user.clone(), "user", "Ada Lovelace", palette)).flex(1.0))
+            .child(
+              field_stack(
+                "Contact",
+                named_text_input(email.clone(), "email", "ada@example.com", palette),
+              )
+              .flex(1.0),
+            )
+            .width(FILL_WIDTH),
+        )
+        .child(
+          lurq::components::Row::new()
+            .spacing(10.0)
+            .align_items(Alignment::Center)
+            .child(form_button("Clear", palette.surface_dark, palette, move || {
+              clear_user.set(String::new());
+              clear_email.set(String::new());
+              clear_last_submit.set("<none>".to_owned());
+            }))
+            .child(form_submit_button("Submit", palette.primary, palette)),
+        )
+        .width(FILL_WIDTH),
+    ))
+    .child(
+      lurq::components::Row::new()
+        .spacing(12.0)
+        .child(value_pill("submits", &submit_count.get().to_string(), palette))
+        .child(value_pill("last", &last_submit.get(), palette))
+        .width(FILL_WIDTH),
+    )
+    .padding(24.0)
+    .into()
+}
+
+fn form_button(
+  label: &str,
+  fill: &'static str,
+  palette: ThemePalette,
+  on_click: impl Fn() + Send + Sync + 'static,
+) -> Element {
+  lurq::components::Button::new(label)
+    .height(34.0)
+    .padding_horizontal(14.0)
+    .background(fill)
+    .border_inside(1.0, Color::from_hex(palette.border))
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Pointer)
+    .hovered(move |style| style.background(palette.surface))
+    .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary)))
+    .button()
+    .on_click(move |_| on_click())
+    .into()
+}
+
+fn form_submit_button(label: &str, fill: &'static str, palette: ThemePalette) -> Element {
+  lurq::components::Button::new(label)
+    .height(34.0)
+    .padding_horizontal(14.0)
+    .background(fill)
+    .border_inside(1.0, Color::from_hex(palette.primary))
+    .rounded(PANEL_RADIUS)
+    .cursor(CursorIcon::Pointer)
+    .hovered(move |style| style.background(palette.primary_hover))
+    .active(move |style| style.background(palette.primary_active))
+    .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.accent)))
+    .submit()
+    .into()
 }
 
 fn selection_card(notifications: Signal<bool>, beta_access: Signal<bool>, palette: ThemePalette) -> Element {
@@ -478,6 +625,9 @@ fn summary_card(
   scroll_sample: Signal<String>,
   notes: Signal<String>,
   limited_notes: Signal<String>,
+  form: FormHandle,
+  form_submit_count: Signal<i32>,
+  form_last_submit: Signal<String>,
   notifications: Signal<bool>,
   beta_access: Signal<bool>,
   volume: Signal<i32>,
@@ -489,6 +639,8 @@ fn summary_card(
   let scroll_preview = preview_text(&scroll_sample.get());
   let notes_preview = preview_text(&notes.get());
   let limited_notes_preview = preview_text(&limited_notes.get());
+  let form_user = form.string("user");
+  let form_email = form.string("email");
 
   card_frame(palette)
     .spacing(8.0)
@@ -499,6 +651,14 @@ fn summary_card(
     .child(summary_row("scroll", &scroll_preview, palette))
     .child(summary_row("notes", &notes_preview, palette))
     .child(summary_row("rows", &limited_notes_preview, palette))
+    .child(summary_row("form user", display_text(&form_user.get()), palette))
+    .child(summary_row("form email", display_text(&form_email.get()), palette))
+    .child(summary_row(
+      "form submits",
+      &form_submit_count.get().to_string(),
+      palette,
+    ))
+    .child(summary_row("form last", &form_last_submit.get(), palette))
     .child(summary_row("notifications", bool_label(notifications.get()), palette))
     .child(summary_row("beta", bool_label(beta_access.get()), palette))
     .child(summary_row("volume", &volume.get().to_string(), palette))

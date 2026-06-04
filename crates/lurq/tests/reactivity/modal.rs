@@ -11,6 +11,11 @@ use crate::support::run_pass;
 
 struct Shared<T>(Arc<T>);
 
+#[cfg(feature = "devtools")]
+impl<T> lurq::app::component::DevtoolsInspectable for Shared<T> {
+  fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+}
+
 impl<T> Clone for Shared<T> {
   fn clone(&self) -> Self {
     Self(self.0.clone())
