@@ -1,12 +1,12 @@
 use lurq::{
-  app::Tree,
-  components::TextInput,
+  app::{App, Tree, component::Component, ctx::Ctx},
+  components::{Column, TextInput},
   core::Signal,
   layout::{
     Constraints, Size,
     text_style::{FontWeight, TextStyle},
   },
-  node::color::Color,
+  node::{Element, color::Color, dimension::Dimension},
 };
 
 use crate::support::{render_pass, run_pass};
@@ -102,6 +102,92 @@ fn placeholder_style_overrides_text_style_only_for_placeholder() {
   let text_snapshot = render_pass(&mut runtime);
   let text_glyph = text_snapshot.glyphs.first().expect("input value should render glyphs");
   assert_color_close(text_glyph.color, text_color);
+}
+
+#[derive(Clone, Debug, lurq::DevtoolsInspectable)]
+struct ErrorStyledTextInputProps {
+  error: Signal<bool>,
+}
+
+impl PartialEq for ErrorStyledTextInputProps {
+  fn eq(&self, _other: &Self) -> bool {
+    true
+  }
+}
+
+struct ErrorStyledTextInput;
+
+impl Component for ErrorStyledTextInput {
+  type Props = ErrorStyledTextInputProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    let has_error = props.error.get();
+    let background = if has_error { "#33191b" } else { "#111827" };
+    let border = if has_error { "#f05d5e" } else { "#30343a" };
+
+    Column::new().width(240.0).child(
+      TextInput::styled(
+        Signal::new("a3f1".to_owned()),
+        TextStyle {
+          color: Color::from_hex("#f4f4f2"),
+          font_size: 12.0,
+          ..TextStyle::default()
+        },
+      )
+      .name("private_key")
+      .width(Dimension::Pct(100.0))
+      .height(40.0)
+      .padding_horizontal(10.0)
+      .rounded(5.0)
+      .background(background)
+      .border_inside(1.0, Color::from_hex(border))
+      .placeholder("a3f1b2c4d5e691cc...")
+      .placeholder_style(TextStyle {
+        color: Color::from_hex("#7d766c"),
+        ..TextStyle::default()
+      })
+      .single_line(),
+    )
+  }
+}
+
+#[test]
+fn text_input_wrapper_visuals_update_after_component_rerender() {
+  let error = Signal::new(false);
+  let mut runtime = Tree::new();
+  runtime.mount_root::<ErrorStyledTextInput>(&mut App::new(), ErrorStyledTextInputProps { error: error.clone() });
+
+  let ok = render_pass(&mut runtime);
+  assert_input_visuals(&ok.rects, Color::from_hex("#111827"), Color::from_hex("#30343a"));
+
+  error.set(true);
+
+  let invalid = render_pass(&mut runtime);
+  assert_input_visuals(&invalid.rects, Color::from_hex("#33191b"), Color::from_hex("#f05d5e"));
+}
+
+fn assert_input_visuals(rects: &[crate::support::RectSnapshot], fill: Color, border: Color) {
+  let background = rects
+    .iter()
+    .find(|rect| rect.width == 240.0 && rect.height == 40.0 && rect.color == fill)
+    .expect("expected rendered text input wrapper fill rect");
+  assert_eq!(background.radii, [5.0; 4]);
+
+  let border_rect = rects
+    .iter()
+    .find(|rect| {
+      rect.width == 240.0
+        && rect.height == 40.0
+        && rect.color == Color::from_hex("#00000000")
+        && rect.stroke == [1.0; 4]
+    })
+    .expect("expected rendered text input wrapper border rect");
+  assert_eq!(border_rect.stroke_color, border);
 }
 
 fn assert_color_close(actual: [f32; 4], expected: [f32; 4]) {

@@ -3,10 +3,11 @@ use std::sync::{Arc, Mutex};
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{Button, Column, FormHandle, FormOptions, FormValues, Text, TextInput, validators},
-  node::Element,
+  layout::text_style::TextStyle,
+  node::{Element, color::Color, dimension::Dimension},
 };
 
-use crate::support::{pointer_click, run_pass};
+use crate::support::{RectSnapshot, pointer_click, render_pass, run_pass};
 
 #[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
 struct TextControlProps {
@@ -158,6 +159,110 @@ fn reusable_control_visible_error_tracks_submit_attempted_state() {
       .find_element(|element| element.text_content() == Some("Email is required"))
       .is_some()
   );
+}
+
+struct StyledReusableTextControl;
+
+impl Component for StyledReusableTextControl {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let control = ctx.string_control("email");
+    let has_error = control.visible_error().is_some();
+    let background = if has_error { "#33191b" } else { "#111827" };
+    let border = if has_error { "#f05d5e" } else { "#30343a" };
+
+    Column::new().width(240.0).child(
+      TextInput::styled(
+        control.value(),
+        TextStyle {
+          color: Color::from_hex("#f4f4f2"),
+          font_size: 12.0,
+          ..TextStyle::default()
+        },
+      )
+      .name(control.name())
+      .width(Dimension::Pct(100.0))
+      .height(40.0)
+      .padding_horizontal(10.0)
+      .rounded(5.0)
+      .background(background)
+      .border_inside(1.0, Color::from_hex(border))
+      .single_line(),
+    )
+  }
+}
+
+struct StyledControlFormRoot {
+  form: FormHandle,
+}
+
+impl Component for StyledControlFormRoot {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      form: ctx.form(
+        FormOptions::new()
+          .field("email", "")
+          .validate_string("email", validators::required("Email is required")),
+      ),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.form_view(self.form.clone(), |ctx| {
+      Column::new()
+        .child(ctx.mount::<StyledReusableTextControl>(()))
+        .child(Button::new("Save").submit())
+    })
+  }
+}
+
+#[test]
+fn reusable_control_styled_input_visuals_update_after_submit_validation() {
+  let mut tree = Tree::new();
+  tree.mount_root::<StyledControlFormRoot>(&mut App::new(), ());
+
+  let ok = render_pass(&mut tree);
+  assert_input_visuals(&ok.rects, Color::from_hex("#111827"), Color::from_hex("#30343a"));
+
+  let button = tree
+    .find_element(|element| element.text_content() == Some("Save"))
+    .expect("submit button should render")
+    .bounds();
+  pointer_click(
+    &mut tree,
+    button.x + button.width / 2.0,
+    button.y + button.height / 2.0,
+    MouseButton::Left,
+  );
+
+  let invalid = render_pass(&mut tree);
+  assert_input_visuals(&invalid.rects, Color::from_hex("#33191b"), Color::from_hex("#f05d5e"));
+}
+
+fn assert_input_visuals(rects: &[RectSnapshot], fill: Color, border: Color) {
+  let background = rects
+    .iter()
+    .find(|rect| rect.width == 240.0 && rect.height == 40.0 && rect.color == fill)
+    .expect("expected rendered text input wrapper fill rect");
+  assert_eq!(background.radii, [5.0; 4]);
+
+  let border_rect = rects
+    .iter()
+    .find(|rect| {
+      rect.width == 240.0
+        && rect.height == 40.0
+        && rect.color == Color::from_hex("#00000000")
+        && rect.stroke == [1.0; 4]
+    })
+    .expect("expected rendered text input wrapper border rect");
+  assert_eq!(border_rect.stroke_color, border);
 }
 
 #[test]
