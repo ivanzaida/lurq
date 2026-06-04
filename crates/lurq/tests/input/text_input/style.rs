@@ -139,7 +139,6 @@ impl Component for ErrorStyledTextInput {
           ..TextStyle::default()
         },
       )
-      .name("private_key")
       .width(Dimension::Pct(100.0))
       .height(40.0)
       .padding_horizontal(10.0)
