@@ -1167,10 +1167,10 @@ impl Tree {
 
   pub fn mouse_up(&mut self, x: f32, y: f32, button: MouseButton) {
     self.dispatch_mouse(x, y, button, MouseEventKind::Up);
-    self.apply_reactive_updates_after_event();
+    self.synthesize_click(x, y, button);
   }
 
-  pub fn click(&mut self, x: f32, y: f32, button: MouseButton) {
+  fn synthesize_click(&mut self, x: f32, y: f32, button: MouseButton) {
     let now = Instant::now();
     let position = (x, y);
 
@@ -1435,7 +1435,7 @@ impl Tree {
 
   fn take_matching_click_press(&mut self, position: (f32, f32), button: MouseButton) -> bool {
     let Some(press) = self.click_press.take() else {
-      return true;
+      return false;
     };
 
     if press.button != button {

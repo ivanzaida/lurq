@@ -13,7 +13,7 @@ use lurq::{
   node::{Element, color::Color},
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
@@ -95,7 +95,7 @@ fn rerenders_after_click_updates_signal_value() {
   assert_eq!(renders.load(Ordering::Relaxed), 1);
 
   let (x, y) = increment.center();
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
 
   assert_eq!(renders.load(Ordering::Relaxed), 2);
   assert!(runtime.needs_redraw());

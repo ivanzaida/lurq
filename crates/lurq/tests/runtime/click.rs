@@ -25,7 +25,6 @@ fn release_over_click_target_does_not_click_when_press_started_elsewhere() {
 
   runtime.mouse_down(x + rect.width + 20.0, y, MouseButton::Left);
   runtime.mouse_up(x, y, MouseButton::Left);
-  runtime.click(x, y, MouseButton::Left);
 
   assert_eq!(clicks.get(), 0);
 }
@@ -49,7 +48,6 @@ fn release_far_from_press_does_not_click_even_on_same_target() {
 
   runtime.mouse_down(rect.x + 10.0, y, MouseButton::Left);
   runtime.mouse_up(rect.x + 90.0, y, MouseButton::Left);
-  runtime.click(rect.x + 90.0, y, MouseButton::Left);
 
   assert_eq!(clicks.get(), 0);
 }
@@ -73,7 +71,6 @@ fn release_near_press_clicks_same_target() {
 
   runtime.mouse_down(x, y, MouseButton::Left);
   runtime.mouse_up(x + 2.0, y, MouseButton::Left);
-  runtime.click(x + 2.0, y, MouseButton::Left);
 
   assert_eq!(clicks.get(), 1);
 }
@@ -95,13 +92,11 @@ fn stack_top_child_occludes_lower_sibling_clicks() {
 
   runtime.mouse_down(25.0, 25.0, MouseButton::Left);
   runtime.mouse_up(25.0, 25.0, MouseButton::Left);
-  runtime.click(25.0, 25.0, MouseButton::Left);
 
   assert_eq!(lower_clicks.get(), 0);
 
   runtime.mouse_down(75.0, 75.0, MouseButton::Left);
   runtime.mouse_up(75.0, 75.0, MouseButton::Left);
-  runtime.click(75.0, 75.0, MouseButton::Left);
 
   assert_eq!(lower_clicks.get(), 1);
 }

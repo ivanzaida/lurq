@@ -19,3 +19,5 @@ pub mod svg;
 
 #[cfg(feature = "resources")]
 pub mod resources;
+#[cfg(feature = "router")]
+pub mod router;

@@ -20,6 +20,7 @@ export default defineConfig({
                         'animation-transforms',
                         'styling-events',
                         'forms',
+                        'routing',
                         'futures-timers',
                         'i18n',
                         'modals',

@@ -1,8 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use lurq::{
-  components::{Column, Form, FormHandle, FormOptions, FormProps, FormValue, FormValues, TextInput},
-};
+use lurq::components::{Column, Form, FormHandle, FormOptions, FormProps, FormValue, FormValues, TextInput};
 
 use crate::support::run_pass;
 

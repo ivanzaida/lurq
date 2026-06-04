@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn space_toggles_focused_checkbox() {
@@ -15,7 +15,7 @@ fn space_toggles_focused_checkbox() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   assert!(checked.get());
 
   runtime.key_down(" ".to_owned(), "Space".to_owned(), false, false, false);

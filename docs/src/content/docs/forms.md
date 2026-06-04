@@ -8,7 +8,7 @@ description: Form handling, field binding, submission, and the Button component.
 Requires the `form` feature flag.
 
 ```toml
-lurq = { version = "0.2", features = ["form"] }
+lurq = { version = "0.4", features = ["form"] }
 ```
 
 ## Creating A Form

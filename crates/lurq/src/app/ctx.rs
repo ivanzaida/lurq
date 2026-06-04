@@ -1170,6 +1170,42 @@ impl Ctx {
     )
   }
 
+  #[cfg(feature = "router")]
+  pub fn router(&mut self, routes: crate::router::Routes) -> crate::router::RouterHandle {
+    let current_path = Signal::new(String::new());
+    crate::router::RouterHandle::new_with_signal(routes, current_path)
+  }
+
+  #[cfg(feature = "router")]
+  pub fn navigator(&mut self) -> Option<crate::router::Navigator> {
+    self.use_context::<crate::router::Navigator>()
+  }
+
+  #[cfg(feature = "router")]
+  pub fn route_params(&mut self) -> crate::router::Params {
+    self
+      .use_context::<crate::router::route_match::RouterMatches>()
+      .and_then(|matches| matches.0.last().map(|m| m.params().clone()))
+      .or_else(|| {
+        self
+          .use_context::<crate::router::route_match::OutletDepth>()
+          .and_then(|depth| {
+            self
+              .use_context::<crate::router::route_match::RouterMatches>()
+              .and_then(|matches| matches.0.get(depth.0).map(|m| m.params().clone()))
+          })
+      })
+      .unwrap_or_default()
+  }
+
+  #[cfg(feature = "router")]
+  pub fn route_path(&mut self) -> String {
+    self
+      .use_context::<crate::router::Navigator>()
+      .map(|nav| nav.path().get())
+      .unwrap_or_default()
+  }
+
   pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
   where
     D: Clone + PartialEq + Send + Sync + 'static,

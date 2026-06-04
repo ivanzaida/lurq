@@ -1,10 +1,15 @@
 use std::{
   any::{Any, TypeId},
   collections::HashMap,
-  sync::Arc,
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
 };
 
 use parking_lot::RwLock;
+
+static NEXT_CONTEXT_REVISION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Default)]
 pub struct ContextMap {
@@ -15,7 +20,7 @@ pub struct ContextMap {
 impl ContextMap {
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     self.values.insert(TypeId::of::<T>(), Arc::new(value));
-    self.revision = self.revision.wrapping_add(1);
+    self.revision = NEXT_CONTEXT_REVISION.fetch_add(1, Ordering::Relaxed);
   }
 
   pub fn get<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {

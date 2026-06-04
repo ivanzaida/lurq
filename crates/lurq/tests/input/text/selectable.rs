@@ -9,7 +9,6 @@ use crate::support::{render_pass, run_pass};
 fn pointer_click(runtime: &mut Tree, x: f32, y: f32) {
   runtime.mouse_down(x, y, MouseButton::Left);
   runtime.mouse_up(x, y, MouseButton::Left);
-  runtime.click(x, y, MouseButton::Left);
 }
 
 fn selection_rect_count(runtime: &mut Tree) -> usize {

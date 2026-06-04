@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn enter_on_submit_button_submits_form() {
@@ -56,7 +56,8 @@ fn clicking_submit_button_submits_form() {
     .find_element(|el| el.text_content() == Some("Save"))
     .expect("submit button should render text")
     .bounds();
-  runtime.click(
+  pointer_click(
+    &mut runtime,
     button.x + button.width / 2.0,
     button.y + button.height / 2.0,
     MouseButton::Left,

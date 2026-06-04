@@ -8,7 +8,13 @@ mod drop_zone;
 mod form;
 #[cfg(feature = "image")]
 mod image;
+#[cfg(feature = "router")]
+mod link;
+#[cfg(feature = "router")]
+mod outlet;
 mod rect;
+#[cfg(feature = "router")]
+mod router_component;
 mod row;
 mod scroll;
 mod slider;
@@ -30,7 +36,13 @@ pub use drop_zone::{DropZone, DropZoneProps};
 pub use form::{Form, FormData, FormHandle, FormOptions, FormProps, FormValue, FormValues};
 #[cfg(feature = "image")]
 pub use image::Image;
+#[cfg(feature = "router")]
+pub use link::Link;
+#[cfg(feature = "router")]
+pub use outlet::Outlet;
 pub use rect::Rect;
+#[cfg(feature = "router")]
+pub use router_component::{Router, RouterProps};
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
 pub use slider::Slider;

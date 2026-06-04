@@ -38,6 +38,7 @@ pub struct DevToolsNode {
   pub tag: String,
   pub kind: DevToolsNodeKind,
   pub key: Option<String>,
+  pub attrs: Vec<(String, String)>,
   pub text: Option<String>,
   pub color: Option<String>,
   pub props: Option<DevtoolsInspectableDebug>,
@@ -154,6 +155,11 @@ fn snapshot_node(element: ElementRef<'_>) -> DevToolsNode {
     tag: element.tag_name().to_owned(),
     kind,
     key: element.component_key().map(str::to_owned),
+    attrs: element
+      .debug_attrs()
+      .iter()
+      .map(|(name, value)| (name.to_string(), value.to_string()))
+      .collect(),
     text: element.text_content().map(str::to_owned),
     color: element.color().map(|color| color.to_hex()),
     props,

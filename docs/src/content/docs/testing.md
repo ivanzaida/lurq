@@ -93,10 +93,11 @@ Input tests drive the tree directly:
 tree.mouse_move(20.0, 20.0);
 tree.mouse_down(20.0, 20.0, MouseButton::Left);
 tree.mouse_up(20.0, 20.0, MouseButton::Left);
-tree.click(20.0, 20.0, MouseButton::Left);
 tree.scroll(20.0, 20.0, 0.0, -120.0, ScrollPhase::Scroll);
 tree.key_down("a".into(), "KeyA".into(), false, false, false);
 ```
+
+Click handlers run from a matching pointer down/up pair; tests should not inject a separate click event.
 
 Use direct tree input for deterministic hover, active, focus, scroll, text input, selectable text, slider, checkbox, drag, and drop behavior.
 

@@ -148,6 +148,8 @@ pub(crate) struct Node {
   pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
@@ -211,6 +213,8 @@ impl Node {
       component_effects_debug: Vec::new(),
       #[cfg(feature = "devtools")]
       component_contexts_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      debug_attrs: Vec::new(),
       text_content: Guard::new(None),
       text_wrap: DEFAULT_TEXT_WRAP,
       overflow: Overflow::Hidden,
@@ -1199,6 +1203,12 @@ impl Node {
   }
 
   #[cfg(feature = "devtools")]
+  pub(crate) fn debug_attr(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
+    self.debug_attrs.push((name.into(), value.into()));
+    self
+  }
+
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
     self.component_props_debug.as_ref()
@@ -1226,6 +1236,12 @@ impl Node {
   #[allow(dead_code)]
   pub fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
     &self.component_contexts_debug
+  }
+
+  #[cfg(feature = "devtools")]
+  #[allow(dead_code)]
+  pub fn debug_attrs(&self) -> &[(Arc<str>, Arc<str>)] {
+    &self.debug_attrs
   }
 
   pub(crate) fn node_kind(&self) -> &NodeKind {
@@ -1716,6 +1732,8 @@ impl Node {
       component_effects_debug: self.component_effects_debug.clone(),
       #[cfg(feature = "devtools")]
       component_contexts_debug: self.component_contexts_debug.clone(),
+      #[cfg(feature = "devtools")]
+      debug_attrs: self.debug_attrs.clone(),
       layout_kind: self.layout_kind.clone(),
       node_kind: self.node_kind.clone(),
       text_content: self.text_content.clone(),
@@ -1822,6 +1840,12 @@ impl Node {
         .iter()
         .map(|context| context.type_name.len())
         .sum::<usize>()
+      + self
+        .debug_attrs
+        .iter()
+        .map(|(name, value)| name.len() + value.len())
+        .sum::<usize>()
+      + self.debug_attrs.capacity() * std::mem::size_of::<(Arc<str>, Arc<str>)>()
   }
 
   #[cfg(not(feature = "devtools"))]

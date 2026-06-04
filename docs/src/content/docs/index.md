@@ -17,6 +17,7 @@ The docs are organized around the questions that come up while building:
 - [Animation And Transforms](./animation-transforms/) covers transitions, keyframes, easing, transform composition, transform animation, and transformed text.
 - [Styling And Events](./styling-events/) covers visual modifiers, hover/active/focus styles, cursor state, handlers, text selection, inputs, clipboard behavior, and drag and drop.
 - [Forms](./forms/) covers form handles, field binding, submission, `FormValues`, and the `Button` component.
+- [Routing](./routing/) covers declarative routes, nested layouts, links, params, guards, and history navigation.
 - [Futures And Timers](./futures-timers/) covers async data fetching, dependency-driven re-execution, future actions, tokio integration, timeouts, and intervals.
 - [Internationalization](./i18n/) covers translation resources, locale switching, interpolation, namespaces, and reactive re-rendering.
 - [Modals](./modals/) covers declaring modal overlays, `ModalContext`, and controlling visibility.

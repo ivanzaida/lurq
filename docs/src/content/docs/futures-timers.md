@@ -104,7 +104,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 Enable the `tokio` feature to run futures on a real async runtime instead of polling them manually each frame.
 
 ```toml
-lurq = { version = "0.2", features = ["tokio"] }
+lurq = { version = "0.4", features = ["tokio"] }
 ```
 
 Pass a tokio handle when creating the `App`:

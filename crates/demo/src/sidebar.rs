@@ -1,5 +1,5 @@
 use lurq::{
-  core::Signal,
+  app::ctx::Ctx,
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element},
 };
@@ -43,10 +43,70 @@ impl DemoTab {
       Self::Context => "Context",
     }
   }
+
+  pub(crate) fn path(self) -> &'static str {
+    match self {
+      Self::Layout => "/",
+      Self::Sizing => "/sizing",
+      Self::Position => "/position",
+      Self::Dnd => "/dnd",
+      Self::Animation => "/animation",
+      Self::Transform => "/transform",
+      Self::Scroll => "/scroll",
+      Self::Visual => "/visual",
+      Self::Text => "/text",
+      Self::Inputs => "/inputs",
+      Self::Events => "/events",
+      Self::Reactivity => "/reactivity",
+      Self::Components => "/components",
+      Self::Context => "/context",
+    }
+  }
+
+  pub(crate) fn from_path(path: &str) -> Self {
+    match path {
+      "/sizing" => Self::Sizing,
+      "/position" => Self::Position,
+      "/dnd" => Self::Dnd,
+      "/animation" => Self::Animation,
+      "/transform" => Self::Transform,
+      "/scroll" => Self::Scroll,
+      "/visual" => Self::Visual,
+      "/text" => Self::Text,
+      "/inputs" => Self::Inputs,
+      "/events" => Self::Events,
+      "/reactivity" => Self::Reactivity,
+      "/components" => Self::Components,
+      "/context" => Self::Context,
+      _ => Self::Layout,
+    }
+  }
 }
 
-pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>, theme: DemoTheme) -> Element {
+pub(crate) fn sidebar(ctx: &mut Ctx, selected: DemoTab, theme: DemoTheme) -> Element {
   let palette = theme.palette();
+  let items = [
+    DemoTab::Layout,
+    DemoTab::Sizing,
+    DemoTab::Position,
+    DemoTab::Dnd,
+    DemoTab::Animation,
+    DemoTab::Transform,
+    DemoTab::Scroll,
+    DemoTab::Visual,
+    DemoTab::Text,
+    DemoTab::Inputs,
+    DemoTab::Events,
+    DemoTab::Reactivity,
+    DemoTab::Components,
+    DemoTab::Context,
+  ];
+
+  let mut children = Vec::new();
+  for tab in items {
+    children.push(sidebar_item(ctx, tab, tab == selected, theme));
+  }
+
   lurq::components::Column::new()
     .child(
       lurq::components::Column::new()
@@ -58,45 +118,20 @@ pub(crate) fn sidebar(selected: DemoTab, selected_tab: Signal<DemoTab>, theme: D
         .width(200.0)
         .height(56.0),
     )
-    .with_children(
-      [
-        ("Layout", Some(DemoTab::Layout)),
-        ("Sizing", Some(DemoTab::Sizing)),
-        ("Position", Some(DemoTab::Position)),
-        ("DnD", Some(DemoTab::Dnd)),
-        ("Animation", Some(DemoTab::Animation)),
-        ("Transform", Some(DemoTab::Transform)),
-        ("Scroll", Some(DemoTab::Scroll)),
-        ("Visual", Some(DemoTab::Visual)),
-        ("Text", Some(DemoTab::Text)),
-        ("Inputs", Some(DemoTab::Inputs)),
-        ("Events", Some(DemoTab::Events)),
-        ("React.", Some(DemoTab::Reactivity)),
-        ("Comps.", Some(DemoTab::Components)),
-        ("Context", Some(DemoTab::Context)),
-      ]
-      .into_iter()
-      .map(move |(label, tab)| sidebar_item(label, tab == Some(selected), tab, selected_tab.clone(), theme)),
-    )
+    .with_children(children)
     .width(200.0)
     .background(palette.surface_dark)
     .into()
 }
 
-fn sidebar_item(
-  label: &str,
-  selected: bool,
-  tab: Option<DemoTab>,
-  selected_tab: Signal<DemoTab>,
-  theme: DemoTheme,
-) -> Element {
+fn sidebar_item(ctx: &mut Ctx, tab: DemoTab, selected: bool, theme: DemoTheme) -> Element {
   let palette = theme.palette();
-  let mut item = lurq::components::Row::new()
+  let item = lurq::components::Row::new()
     .align_items(Alignment::Center)
     .child(lurq::components::Rect::new(3.0, 38.0).background(if selected { palette.primary } else { "#00000000" }))
     .child(lurq::components::Spacer::new().width(13.0))
     .child(text(
-      label,
+      tab.label(),
       11.0,
       if selected { FontWeight::Bold } else { FontWeight::Medium },
       if selected { palette.text } else { palette.text_muted },
@@ -106,9 +141,5 @@ fn sidebar_item(
     .cursor(CursorIcon::Pointer)
     .background(if selected { palette.nav_selected } else { "#00000000" });
 
-  if let Some(tab) = tab {
-    item = item.on_click(move |_| selected_tab.set(tab));
-  }
-
-  item.into()
+  lurq::components::Link::build_empty(ctx, tab.path()).child(item).into()
 }

@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn focused_text_input_appends_key_down_text_to_signal() {
@@ -18,7 +18,7 @@ fn focused_text_input_appends_key_down_text_to_signal() {
     .bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   runtime.key_down("A".to_owned(), "KeyA".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "A");
@@ -34,7 +34,7 @@ fn displayed_text_updates_after_typing() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   runtime.key_down("A".to_owned(), "KeyA".to_owned(), false, false, false);
   run_pass(&mut runtime);
 

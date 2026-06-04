@@ -5,7 +5,7 @@ use lurq::{
   node::color::Color,
 };
 
-use crate::support::{TestSurface, render_pass, run_pass};
+use crate::support::{TestSurface, pointer_click, render_pass, run_pass};
 
 #[test]
 fn renders_caret_after_text_input_is_focused() {
@@ -17,7 +17,7 @@ fn renders_caret_after_text_input_is_focused() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
 
   assert!(snapshot.rects.iter().any(|rect| rect.width == 1.0 && rect.height > 0.0));
@@ -33,7 +33,7 @@ fn caret_uses_text_line_height_in_tall_text_input() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
   let caret = snapshot
     .rects
@@ -90,7 +90,7 @@ fn caret_color_sets_rendered_caret_color() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
   let caret = snapshot
     .rects
@@ -121,7 +121,7 @@ fn text_style_caret_color_sets_rendered_caret_color() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
   let caret = snapshot
     .rects
@@ -161,7 +161,7 @@ fn fixed_height_multiline_caret_stays_on_new_line_after_typing() {
     .bounds();
   let (x, y) = input_rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   runtime.key_down("End".to_owned(), "End".to_owned(), false, false, false);
   runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
   let after_enter_y = focused_caret_y(&mut runtime);
@@ -218,7 +218,7 @@ fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(runtime, x, y, MouseButton::Left);
   runtime.pass(app, &TestSurface);
   let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
   quads

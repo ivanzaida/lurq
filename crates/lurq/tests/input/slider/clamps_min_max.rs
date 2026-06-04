@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn clicks_outside_slider_track_clamp_to_min_and_max() {
@@ -17,10 +17,16 @@ fn clicks_outside_slider_track_clamp_to_min_and_max() {
     .expect("slider should be layoutable")
     .bounds();
 
-  runtime.click(rect.x - 20.0, rect.y + rect.height / 2.0, MouseButton::Left);
+  pointer_click(
+    &mut runtime,
+    rect.x - 20.0,
+    rect.y + rect.height / 2.0,
+    MouseButton::Left,
+  );
   assert_eq!(value.get(), 0);
 
-  runtime.click(
+  pointer_click(
+    &mut runtime,
     rect.x + rect.width + 20.0,
     rect.y + rect.height / 2.0,
     MouseButton::Left,

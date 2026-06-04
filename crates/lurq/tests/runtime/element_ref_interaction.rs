@@ -6,7 +6,7 @@ use lurq::{
   node::{Element, color::Color},
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
@@ -111,12 +111,22 @@ fn element_ref_tracks_focus_state() {
     .unwrap()
     .bounds();
 
-  runtime.click(first.x + 10.0, first.y + first.height / 2.0, MouseButton::Left);
+  pointer_click(
+    &mut runtime,
+    first.x + 10.0,
+    first.y + first.height / 2.0,
+    MouseButton::Left,
+  );
 
   assert!(first_ref.focused());
   assert!(!second_ref.focused());
 
-  runtime.click(second.x + 10.0, second.y + second.height / 2.0, MouseButton::Left);
+  pointer_click(
+    &mut runtime,
+    second.x + 10.0,
+    second.y + second.height / 2.0,
+    MouseButton::Left,
+  );
 
   assert!(!first_ref.focused());
   assert!(second_ref.focused());
@@ -203,7 +213,7 @@ fn ctx_element_ref_is_stable_across_rerenders() {
     .bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
 
   let seen_bounds = seen_bounds.lock().unwrap();
   assert_eq!(seen_bounds.len(), 2);

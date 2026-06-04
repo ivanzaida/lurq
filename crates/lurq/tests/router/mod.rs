@@ -1,0 +1,42 @@
+mod pattern {
+  mod catch_all;
+  mod edge_cases;
+  mod param_segments;
+  mod priority;
+  mod static_segments;
+  mod wildcard_segments;
+}
+
+mod navigation {
+  mod back_forward;
+  mod push;
+  mod replace;
+}
+
+mod outlet {
+  mod fallback;
+  mod nested_outlets;
+  mod renders_matched_route;
+}
+
+mod guard {
+  mod allow;
+  mod deny;
+  mod redirect;
+}
+
+mod params {
+  mod extract;
+  mod missing;
+  mod parsed;
+}
+
+mod link {
+  mod click_navigates;
+}
+
+mod rerender {
+  mod navigation_triggers_single_pass;
+  mod only_matched_route_rerenders;
+  mod sibling_unchanged;
+}

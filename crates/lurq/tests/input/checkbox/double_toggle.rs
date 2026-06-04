@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn double_click_returns_checkbox_signal_to_initial_state() {
@@ -18,8 +18,8 @@ fn double_click_returns_checkbox_signal_to_initial_state() {
     .bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
 
   assert!(!checked.get());
 }

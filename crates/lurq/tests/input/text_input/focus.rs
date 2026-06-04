@@ -9,7 +9,7 @@ use lurq::{
   node::color::Color,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
@@ -61,8 +61,18 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
     .unwrap()
     .bounds();
 
-  runtime.click(first.x + 10.0, first.y + first.height / 2.0, MouseButton::Left);
-  runtime.click(second.x + 10.0, second.y + second.height / 2.0, MouseButton::Left);
+  pointer_click(
+    &mut runtime,
+    first.x + 10.0,
+    first.y + first.height / 2.0,
+    MouseButton::Left,
+  );
+  pointer_click(
+    &mut runtime,
+    second.x + 10.0,
+    second.y + second.height / 2.0,
+    MouseButton::Left,
+  );
 
   assert_eq!(first_focus.load(Ordering::SeqCst), 1);
   assert_eq!(first_blur.load(Ordering::SeqCst), 1);

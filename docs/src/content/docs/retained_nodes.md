@@ -153,12 +153,11 @@ The shell forwards input into `Tree`:
 tree.mouse_move(x, y);
 tree.mouse_down(x, y, MouseButton::Left);
 tree.mouse_up(x, y, MouseButton::Left);
-tree.click(x, y, MouseButton::Left);
 tree.scroll(x, y, delta_x, delta_y, ScrollPhase::Scroll);
 tree.key_down(key, code, shift, ctrl, alt);
 ```
 
-The tree resolves target nodes from the latest layout and updates hover, active, focus, drag, scroll, cursor, text selection, and text input editing state. Hit testing uses visual coordinates, so transformed text and transformed parents can still receive pointer selection from their painted position.
+The tree resolves target nodes from the latest layout and updates hover, active, focus, drag, scroll, cursor, text selection, and text input editing state. Click events are synthesized from matching pointer down/up events. Hit testing uses visual coordinates, so transformed text and transformed parents can still receive pointer selection from their painted position.
 
 ## Redraw
 

@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn arrow_keys_update_focused_slider_within_range() {
@@ -15,7 +15,7 @@ fn arrow_keys_update_focused_slider_within_range() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   runtime.key_down("ArrowRight".to_owned(), "ArrowRight".to_owned(), false, false, false);
   assert_eq!(value.get(), 6);
 

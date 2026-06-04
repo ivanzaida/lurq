@@ -10,7 +10,7 @@ use lurq::{
   node::color::Color,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn tab_moves_focus_through_form_controls_in_order() {
@@ -159,7 +159,8 @@ fn tab_from_focused_control_outside_form_does_not_enter_form() {
     .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
     .expect("outside input should render")
     .bounds();
-  runtime.click(
+  pointer_click(
+    &mut runtime,
     outside.x + outside.width / 2.0,
     outside.y + outside.height / 2.0,
     MouseButton::Left,

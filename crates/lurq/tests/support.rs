@@ -6,7 +6,7 @@ use std::{
 };
 
 use lurq::{
-  app::{App, Tree, render_engine::RenderEngine},
+  app::{App, Tree, events::MouseButton, render_engine::RenderEngine},
   layout::render_list::{GlyphCmd, RectCmd, RenderList},
   node::color::Color,
 };
@@ -36,6 +36,11 @@ impl HasDisplayHandle for TestSurface {
 pub fn run_pass(tree: &mut Tree) {
   let mut app = App::new();
   tree.pass(&mut app, &TestSurface);
+}
+
+pub fn pointer_click(tree: &mut Tree, x: f32, y: f32, button: MouseButton) {
+  tree.mouse_down(x, y, button);
+  tree.mouse_up(x, y, button);
 }
 
 #[derive(Clone, Debug)]

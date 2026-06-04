@@ -225,6 +225,9 @@ impl TextState {
   }
 
   pub(crate) fn copy_runtime_state_from(&self, old: &Self, value: &str) {
+    if Arc::ptr_eq(&self.inner, &old.inner) {
+      return;
+    }
     let old_inner = old.inner.lock().unwrap();
     let selectable = self.selectable();
     let len = value.len();
@@ -596,6 +599,9 @@ impl TextInputState {
   }
 
   pub(crate) fn copy_runtime_state_from(&self, old: &Self) {
+    if Arc::ptr_eq(&self.inner, &old.inner) {
+      return;
+    }
     let old_inner = old.inner.lock().unwrap();
     let old_caret = old_inner.caret;
     let old_selection_anchor = old_inner.selection_anchor;

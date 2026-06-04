@@ -4,7 +4,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 const DOUBLE_CLICK_SETTLE_MS: u64 = 550;
 
@@ -34,7 +34,7 @@ fn single_click_dispatches_click_after_dblclick_threshold() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   assert_eq!(events.get(), Vec::<&'static str>::new());
 
   std::thread::sleep(std::time::Duration::from_millis(DOUBLE_CLICK_SETTLE_MS));
@@ -48,8 +48,8 @@ fn second_nearby_click_dispatches_only_dblclick_handler() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
 
   assert_eq!(events.get(), vec!["dblclick"]);
 }
@@ -60,8 +60,8 @@ fn distant_click_does_not_dispatch_dblclick_handler() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
-  runtime.click(x + 10.0, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x + 10.0, y, MouseButton::Left);
 
   assert_eq!(events.get(), vec!["click"]);
 

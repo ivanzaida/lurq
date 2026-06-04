@@ -160,6 +160,13 @@ fn tree_row(
       .child(text(&preview, 12.0, FontWeight::Normal, ORANGE).nowrap());
   }
 
+  for (name, value) in &node.attrs {
+    let preview = format_attr_value(value);
+    row = row
+      .child(text(&format!(" {name}="), 12.0, FontWeight::Normal, MUTED))
+      .child(text(&preview, 12.0, FontWeight::Normal, ORANGE).nowrap());
+  }
+
   if let Some(preview) = text_preview {
     row = row
       .child(text(" text=", 12.0, FontWeight::Normal, MUTED))

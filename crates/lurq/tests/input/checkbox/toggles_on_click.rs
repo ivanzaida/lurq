@@ -3,7 +3,7 @@ use lurq::{
   core::Signal,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[test]
 fn click_toggles_checkbox_signal() {
@@ -18,7 +18,7 @@ fn click_toggles_checkbox_signal() {
     .bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
 
   assert!(checked.get());
 }

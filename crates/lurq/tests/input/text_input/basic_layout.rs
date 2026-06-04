@@ -5,7 +5,7 @@ use lurq::{
   layout::{Constraints, Size},
 };
 
-use crate::support::{render_pass, run_pass};
+use crate::support::{pointer_click, render_pass, run_pass};
 
 #[test]
 fn renders_current_value_and_can_be_found_by_rendered_text() {
@@ -74,7 +74,12 @@ fn scroll_overflow_keeps_glyphs_visible_when_text_is_scrolled() {
   run_pass(&mut runtime);
 
   let bounds = runtime.find_element(|_| true).unwrap().bounds();
-  runtime.click(bounds.x + 1.0, bounds.y + bounds.height / 2.0, MouseButton::Left);
+  pointer_click(
+    &mut runtime,
+    bounds.x + 1.0,
+    bounds.y + bounds.height / 2.0,
+    MouseButton::Left,
+  );
   runtime.key_down("End".to_owned(), "End".to_owned(), false, false, false);
 
   let snapshot = render_pass(&mut runtime);
@@ -95,7 +100,7 @@ fn multiline_overflow_grows_after_enter() {
   let initial = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = initial.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
   run_pass(&mut runtime);
 

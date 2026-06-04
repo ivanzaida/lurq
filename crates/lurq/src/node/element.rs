@@ -103,6 +103,12 @@ impl<'a> ElementRef<'a> {
     self.node.component_contexts_debug()
   }
 
+  #[cfg(feature = "devtools")]
+  #[allow(dead_code)]
+  pub(crate) fn debug_attrs(&self) -> &[(std::sync::Arc<str>, std::sync::Arc<str>)] {
+    self.node.debug_attrs()
+  }
+
   pub fn children(&self) -> ElementChildren<'a> {
     ElementChildren {
       nodes: self.node.children(),

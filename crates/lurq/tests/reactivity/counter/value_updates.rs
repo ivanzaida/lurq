@@ -8,7 +8,7 @@ use lurq::{
   node::{Element, color::Color},
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 struct Counter {
   count: Signal<i32>,
@@ -65,7 +65,7 @@ fn updates_displayed_value_after_increment_and_decrement_clicks() {
     .unwrap()
     .bounds();
   let (x, y) = increment.center();
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   assert_counter_value(&runtime, "1");
 
   let decrement = runtime
@@ -73,7 +73,7 @@ fn updates_displayed_value_after_increment_and_decrement_clicks() {
     .unwrap()
     .bounds();
   let (x, y) = decrement.center();
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   assert_counter_value(&runtime, "0");
 }
 

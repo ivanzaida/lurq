@@ -4,7 +4,7 @@ use lurq::{
   node::Element,
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 struct EditableText {
   value: Signal<String>,
@@ -33,7 +33,7 @@ fn preserves_focus_and_caret_after_signal_driven_render() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
   runtime.key_down("ArrowLeft".to_owned(), "ArrowLeft".to_owned(), false, false, false);
   runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
   runtime.key_down("D".to_owned(), "KeyD".to_owned(), false, false, false);

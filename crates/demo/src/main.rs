@@ -19,7 +19,7 @@ mod visual_demo;
 use lurq::app::dx12_render::Dx12RenderEngine;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::{Column, Rect, Row, Stack},
+  components::{Column, Outlet, Rect, Router, Row, Stack},
   core::Signal,
   layout::{
     Alignment, StackAlignment,
@@ -28,6 +28,7 @@ use lurq::{
     text_style::FontWeight,
   },
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
+  router::{RouterHandle, Routes},
 };
 
 use crate::{
@@ -54,86 +55,103 @@ impl PartialEq for DemoProps {
 }
 
 struct DemoApp {
-  selected_tab: Signal<DemoTab>,
-  theme: Signal<DemoTheme>,
-  modal_open: Signal<bool>,
+  router: RouterHandle,
 }
 
 impl Component for DemoApp {
   type Props = DemoProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    Self {
-      selected_tab: ctx.signal(DemoTab::Layout),
-      theme: ctx.signal(DemoTheme::Dark),
-      modal_open: ctx.signal(false),
-    }
+    let theme = ctx.signal(DemoTheme::Dark);
+    let modal_open = ctx.signal(false);
+    let router = ctx.router(demo_routes(theme.clone(), modal_open.clone()));
+    router.replace("/");
+
+    Self { router }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let selected_tab = self.selected_tab.get();
-    let theme = self.theme.get();
-    let palette = theme.palette();
-
-    ctx.modal(self.modal_open.clone(), |ctx| ctx.mount::<DemoModal>(theme));
-
-    let content = match selected_tab {
-      DemoTab::Layout => layout_content(),
-      DemoTab::Sizing => sizing_content(),
-      DemoTab::Position => ctx.mount::<PositioningDemo>(()),
-      DemoTab::Dnd => ctx.mount::<DndDemo>(()),
-      DemoTab::Animation => animation_content(),
-      DemoTab::Transform => transform_demo::transform_content(),
-      DemoTab::Scroll => scroll_content(),
-      DemoTab::Visual => visual_demo::visual_content(),
-      DemoTab::Text => text_demo::text_content(),
-      DemoTab::Inputs => ctx.mount::<inputs_demo::InputsDemo>(theme),
-      DemoTab::Events => ctx.mount::<events_demo::EventsDemo>(()),
-      DemoTab::Reactivity => ctx.mount::<reactivity_demo::ReactivityDemo>(()),
-      DemoTab::Components => ctx.mount::<components_demo::ComponentsDemo>(()),
-      DemoTab::Context => ctx.mount::<context_demo::ContextDemo>(context_demo::ContextDemoProps {
-        theme: self.theme.clone(),
-      }),
-    };
-
-    let content = Row::new()
-      .align_items(Alignment::Stretch)
-      .child(
-        lurq::components::ScrollVertical::new(sidebar(selected_tab, self.selected_tab.clone(), theme))
-          .scrollbar(ScrollBarStyle {
-            visible: ScrollBarVisibility::Auto,
-            width: 6.0,
-            thumb_color: Color::from_hex(palette.primary),
-            thumb_radius: 4.0,
-            ..ScrollBarStyle::default()
-          })
-          .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
-          .width(SIDEBAR_WIDTH)
-          .background(palette.surface_dark),
-      )
-      .child(
-        Column::new()
-          .child(demo_toolbar(selected_tab, theme, self.modal_open.clone()))
-          .child(
-            lurq::components::ScrollVertical::new(content)
-              .scrollbar(ScrollBarStyle {
-                visible: ScrollBarVisibility::Auto,
-                width: 7.0,
-                thumb_color: Color::from_hex(palette.primary),
-                thumb_radius: 4.0,
-                ..ScrollBarStyle::default()
-              })
-              .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
-              .background(palette.bg)
-              .flex(1.0),
-          )
-          .background(palette.bg)
-          .flex(1.0),
-      )
-      .background(palette.bg);
-
-    content.background(palette.bg)
+    Router::mount(ctx, self.router.clone())
   }
+}
+
+fn demo_routes(theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Routes {
+  let inputs_theme = theme.clone();
+  let context_theme = theme.clone();
+
+  Routes::new().layout(
+    "/",
+    move |ctx| demo_shell(ctx, theme.clone(), modal_open.clone()),
+    move |routes| {
+      routes
+        .route("/", |_ctx| layout_content())
+        .route("/sizing", |_ctx| sizing_content())
+        .route("/position", |ctx| ctx.mount::<PositioningDemo>(()))
+        .route("/dnd", |ctx| ctx.mount::<DndDemo>(()))
+        .route("/animation", |_ctx| animation_content())
+        .route("/transform", |_ctx| transform_demo::transform_content())
+        .route("/scroll", |_ctx| scroll_content())
+        .route("/visual", |_ctx| visual_demo::visual_content())
+        .route("/text", |_ctx| text_demo::text_content())
+        .route("/inputs", move |ctx| {
+          ctx.mount::<inputs_demo::InputsDemo>(inputs_theme.get())
+        })
+        .route("/events", |ctx| ctx.mount::<events_demo::EventsDemo>(()))
+        .route("/reactivity", |ctx| ctx.mount::<reactivity_demo::ReactivityDemo>(()))
+        .route("/components", |ctx| ctx.mount::<components_demo::ComponentsDemo>(()))
+        .route("/context", move |ctx| {
+          ctx.mount::<context_demo::ContextDemo>(context_demo::ContextDemoProps {
+            theme: context_theme.clone(),
+          })
+        })
+        .fallback(|_ctx| layout_content())
+    },
+  )
+}
+
+fn demo_shell(ctx: &mut Ctx, theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Element {
+  let theme = theme.get();
+  let palette = theme.palette();
+  let selected_tab = DemoTab::from_path(&ctx.route_path());
+
+  ctx.modal(modal_open.clone(), |ctx| ctx.mount::<DemoModal>(theme));
+
+  Row::new()
+    .align_items(Alignment::Stretch)
+    .child(
+      lurq::components::ScrollVertical::new(sidebar(ctx, selected_tab, theme))
+        .scrollbar(ScrollBarStyle {
+          visible: ScrollBarVisibility::Auto,
+          width: 6.0,
+          thumb_color: Color::from_hex(palette.primary),
+          thumb_radius: 4.0,
+          ..ScrollBarStyle::default()
+        })
+        .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
+        .width(SIDEBAR_WIDTH)
+        .background(palette.surface_dark),
+    )
+    .child(
+      Column::new()
+        .child(demo_toolbar(selected_tab, theme, modal_open.clone()))
+        .child(
+          lurq::components::ScrollVertical::new(Outlet::mount(ctx))
+            .scrollbar(ScrollBarStyle {
+              visible: ScrollBarVisibility::Auto,
+              width: 7.0,
+              thumb_color: Color::from_hex(palette.primary),
+              thumb_radius: 4.0,
+              ..ScrollBarStyle::default()
+            })
+            .scrollbar_hovered(move |style| style.with_thumb_color(Color::from_hex(palette.accent)))
+            .background(palette.bg)
+            .flex(1.0),
+        )
+        .background(palette.bg)
+        .flex(1.0),
+    )
+    .background(palette.bg)
+    .into()
 }
 
 fn demo_toolbar(selected_tab: DemoTab, theme: DemoTheme, modal_open: Signal<bool>) -> Element {

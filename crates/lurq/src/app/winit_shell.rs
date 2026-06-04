@@ -252,10 +252,7 @@ impl ManagedWindow {
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
           ElementState::Pressed => self.tree.mouse_down(x, y, btn),
-          ElementState::Released => {
-            self.tree.mouse_up(x, y, btn);
-            self.tree.click(x, y, btn);
-          }
+          ElementState::Released => self.tree.mouse_up(x, y, btn),
         }
         self.apply_cursor();
         self.check_redraw();
@@ -456,10 +453,7 @@ impl ManagedSecondaryWindow {
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
           ElementState::Pressed => tree.mouse_down(x, y, btn),
-          ElementState::Released => {
-            tree.mouse_up(x, y, btn);
-            tree.click(x, y, btn);
-          }
+          ElementState::Released => tree.mouse_up(x, y, btn),
         }
         self.apply_cursor(tree);
         self.check_redraw(tree);

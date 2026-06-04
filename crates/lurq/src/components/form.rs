@@ -1,9 +1,4 @@
-use std::{
-  any::Any,
-  collections::BTreeMap,
-  fmt,
-  sync::Arc,
-};
+use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use parking_lot::Mutex;
 

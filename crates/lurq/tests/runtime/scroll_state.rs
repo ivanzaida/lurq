@@ -16,7 +16,7 @@ use lurq::{
   node::{Element, color::Color},
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 const CONTENT_COLOR: Color = Color::new(255, 0, 255, 255);
 
@@ -55,7 +55,7 @@ fn scroll_state_survives_signal_driven_rerender() {
     .unwrap();
   assert_eq!(content.bounds().y, -60.0);
 
-  runtime.click(10.0, 10.0, MouseButton::Left);
+  pointer_click(&mut runtime, 10.0, 10.0, MouseButton::Left);
   run_pass(&mut runtime);
 
   let content = runtime
@@ -114,7 +114,6 @@ fn scrollbar_drag_release_does_not_click_under_cursor() {
   runtime.mouse_down(94.0, 10.0, MouseButton::Left);
   runtime.mouse_move(94.0, 50.0);
   runtime.mouse_up(10.0, 50.0, MouseButton::Left);
-  runtime.click(10.0, 50.0, MouseButton::Left);
 
   assert_eq!(clicks.load(Ordering::SeqCst), 0);
 }

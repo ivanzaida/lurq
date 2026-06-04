@@ -9,7 +9,6 @@ use crate::support::{render_pass, run_pass};
 fn pointer_click(runtime: &mut Tree, x: f32, y: f32) {
   runtime.mouse_down(x, y, MouseButton::Left);
   runtime.mouse_up(x, y, MouseButton::Left);
-  runtime.click(x, y, MouseButton::Left);
 }
 
 #[test]
@@ -22,7 +21,7 @@ fn typing_into_focused_text_input_appends_to_existing_value() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "AB");
@@ -38,7 +37,7 @@ fn backspace_removes_character_before_caret() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("Backspace".to_owned(), "Backspace".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "A");
@@ -54,7 +53,7 @@ fn arrow_left_moves_caret_before_inserted_text() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("ArrowLeft".to_owned(), "ArrowLeft".to_owned(), false, false, false);
   runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
 
@@ -71,7 +70,7 @@ fn ctrl_arrow_left_moves_caret_to_previous_word() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("End".to_owned(), "End".to_owned(), false, false, false);
   runtime.key_down("ArrowLeft".to_owned(), "ArrowLeft".to_owned(), false, true, false);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
@@ -89,7 +88,7 @@ fn arrow_up_moves_caret_to_previous_multiline_row() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("End".to_owned(), "End".to_owned(), false, false, false);
   runtime.key_down("ArrowUp".to_owned(), "ArrowUp".to_owned(), false, false, false);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
@@ -107,7 +106,7 @@ fn arrow_down_moves_caret_to_next_multiline_row() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("Home".to_owned(), "Home".to_owned(), false, false, false);
   runtime.key_down("ArrowDown".to_owned(), "ArrowDown".to_owned(), false, false, false);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
@@ -125,7 +124,7 @@ fn clicking_multiline_row_places_caret_on_that_row() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let line_height = 19.2;
 
-  runtime.click(rect.x + 1.0, rect.y + line_height * 2.0 + 1.0, MouseButton::Left);
+  pointer_click(&mut runtime, rect.x + 1.0, rect.y + line_height * 2.0 + 1.0);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "one\ntwo\nXthree");
@@ -160,7 +159,7 @@ fn backspace_removes_previous_unicode_character() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("Backspace".to_owned(), "Backspace".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "A");
@@ -176,7 +175,7 @@ fn shift_arrow_selection_is_replaced_by_inserted_text() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("ArrowLeft".to_owned(), "ArrowLeft".to_owned(), true, false, false);
   runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
 
@@ -193,7 +192,7 @@ fn ctrl_a_selects_all_text_for_replacement() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
 
@@ -210,7 +209,7 @@ fn ctrl_z_undoes_last_text_input_edit() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
   runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
 
@@ -227,7 +226,7 @@ fn ctrl_y_and_ctrl_shift_z_redo_text_input_edits() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
   runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
   runtime.key_down("y".to_owned(), "KeyY".to_owned(), false, true, false);
@@ -248,7 +247,7 @@ fn new_text_input_edit_clears_redo_history() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
   runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
   runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
@@ -267,7 +266,7 @@ fn enter_is_ignored_for_scroll_overflow_text_input() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "A");
@@ -286,7 +285,6 @@ fn mouse_drag_selection_renders_and_replaces_selected_text() {
   runtime.mouse_down(rect.x, y, MouseButton::Left);
   runtime.mouse_move(rect.x + rect.width, y);
   runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
-  runtime.click(rect.x + rect.width, y, MouseButton::Left);
 
   let snapshot = render_pass(&mut runtime);
   assert!(
@@ -311,7 +309,7 @@ fn multiline_selection_renders_a_rect_for_each_selected_row() {
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
-  runtime.click(x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y);
   runtime.key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
 
   let snapshot = render_pass(&mut runtime);

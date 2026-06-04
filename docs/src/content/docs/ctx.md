@@ -440,6 +440,21 @@ let form = ctx
 
 Returns a `FormHandle` that owns field signals and a submit callback. See [Forms](./forms/) for full details.
 
+## Routing
+
+Requires the `router` feature.
+
+```rust
+let router = ctx.router(Routes::new().route("/", |_ctx| Element::new()));
+let navigator = ctx.navigator();
+let path = ctx.route_path();
+let params = ctx.route_params();
+```
+
+`ctx.router` creates a `RouterHandle` from a route table. `ctx.navigator` reads the current router navigator from context, and `route_path` / `route_params` expose the current match during render.
+
+See [Routing](./routing/) for route definitions, layouts, links, guards, and testing patterns.
+
 ## Internationalization
 
 Requires the `i18n` feature.
