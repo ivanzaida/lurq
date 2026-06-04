@@ -6,6 +6,15 @@ mod element_lookup {
   mod mutates_rect;
 }
 mod element_ref_interaction;
+mod futures {
+  mod future_action_runs_on_run;
+  mod future_resolves;
+  mod future_restarts_on_deps_change;
+  #[cfg(feature = "tokio")]
+  mod tokio_future_action_uses_runtime;
+  #[cfg(feature = "tokio")]
+  mod tokio_future_uses_runtime;
+}
 mod mouse_leave;
 #[cfg(feature = "image")]
 mod render_order;

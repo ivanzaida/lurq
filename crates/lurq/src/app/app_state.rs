@@ -13,6 +13,8 @@ pub struct App {
   pub(crate) i18n: I18n,
   pub(crate) profiling_enabled: bool,
   pub(crate) scale_override: Option<f32>,
+  #[cfg(feature = "tokio")]
+  pub(crate) tokio_handle: Option<tokio::runtime::Handle>,
   #[cfg(feature = "resources")]
   pub(crate) resource_loader: crate::resources::ResourceLoader,
   #[cfg(all(feature = "image", feature = "resources"))]
@@ -36,6 +38,8 @@ impl App {
       i18n: I18n::new(),
       profiling_enabled: false,
       scale_override: None,
+      #[cfg(feature = "tokio")]
+      tokio_handle: None,
       #[cfg(feature = "resources")]
       resource_loader: crate::resources::ResourceLoader::new(),
       #[cfg(all(feature = "image", feature = "resources"))]
@@ -56,6 +60,27 @@ impl App {
   pub fn set_scale_override(&mut self, scale: Option<f32>) {
     self.scale_override = scale;
     self.glyph_engine.clear_cache();
+  }
+
+  #[cfg(feature = "tokio")]
+  pub fn with_tokio_handle(mut self, handle: tokio::runtime::Handle) -> Self {
+    self.tokio_handle = Some(handle);
+    self
+  }
+
+  #[cfg(feature = "tokio")]
+  pub fn set_tokio_handle(&mut self, handle: tokio::runtime::Handle) {
+    self.tokio_handle = Some(handle);
+  }
+
+  #[cfg(feature = "tokio")]
+  pub fn clear_tokio_handle(&mut self) {
+    self.tokio_handle = None;
+  }
+
+  #[cfg(feature = "tokio")]
+  pub(crate) fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
+    self.tokio_handle.clone()
   }
 
   pub fn theme(&self) -> &Theme {

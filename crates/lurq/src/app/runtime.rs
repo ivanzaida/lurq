@@ -410,6 +410,14 @@ impl Tree {
     }
   }
 
+  pub fn tick_futures(&mut self) {
+    let completed = self.root_ctx.as_mut().is_some_and(Ctx::tick_futures);
+    if completed {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
+    }
+  }
+
   pub(crate) fn perf_overlay_enabled(&self) -> bool {
     self.perf_overlay_enabled
   }

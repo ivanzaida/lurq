@@ -1,15 +1,20 @@
 #[cfg(feature = "devtools")]
 use std::sync::atomic::AtomicUsize;
+#[cfg(feature = "tokio")]
+use std::sync::mpsc::{self, TryRecvError};
 #[cfg(feature = "devtools")]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
   any::Any,
   collections::HashSet,
+  future::Future,
+  pin::Pin,
   ptr::NonNull,
   sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
+  task::{Context as TaskContext, Poll, Wake, Waker},
   time::{Duration, Instant},
 };
 
@@ -198,6 +203,336 @@ impl Timer {
   }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
+pub enum FutureStatus {
+  Idle,
+  Pending,
+  Fulfilled,
+  Rejected,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FutureState<T, E> {
+  pub status: FutureStatus,
+  pub data: Option<T>,
+  pub error: Option<E>,
+}
+
+impl<T, E> crate::app::component::DevtoolsInspectable for FutureState<T, E>
+where
+  T: crate::app::component::DevtoolsInspectable,
+  E: crate::app::component::DevtoolsInspectable,
+{
+  fn write_info(&self, buffer: &mut Vec<crate::app::component::ComponentInfo>) {
+    let mut children = Vec::new();
+    crate::app::component::DevtoolsInspectable::write_info(&self.status, &mut children);
+    crate::app::component::DevtoolsInspectable::write_info(&self.data, &mut children);
+    crate::app::component::DevtoolsInspectable::write_info(&self.error, &mut children);
+    buffer.push(crate::app::component::ComponentInfo::with_children(
+      "FutureState",
+      std::any::type_name::<Self>(),
+      children,
+    ));
+  }
+}
+
+impl<T, E> FutureState<T, E> {
+  pub fn idle() -> Self {
+    Self {
+      status: FutureStatus::Idle,
+      data: None,
+      error: None,
+    }
+  }
+
+  pub fn pending(data: Option<T>) -> Self {
+    Self {
+      status: FutureStatus::Pending,
+      data,
+      error: None,
+    }
+  }
+
+  pub fn fulfilled(data: T) -> Self {
+    Self {
+      status: FutureStatus::Fulfilled,
+      data: Some(data),
+      error: None,
+    }
+  }
+
+  pub fn rejected(error: E, data: Option<T>) -> Self {
+    Self {
+      status: FutureStatus::Rejected,
+      data,
+      error: Some(error),
+    }
+  }
+
+  pub fn is_idle(&self) -> bool {
+    self.status == FutureStatus::Idle
+  }
+
+  pub fn is_pending(&self) -> bool {
+    self.status == FutureStatus::Pending
+  }
+
+  pub fn is_fulfilled(&self) -> bool {
+    self.status == FutureStatus::Fulfilled
+  }
+
+  pub fn is_rejected(&self) -> bool {
+    self.status == FutureStatus::Rejected
+  }
+}
+
+pub struct FutureHandle<T: SignalValue, E: SignalValue> {
+  state: Signal<FutureState<T, E>>,
+  task: AsyncTask,
+}
+
+pub struct FutureAction<A, T: SignalValue, E: SignalValue> {
+  state: Signal<FutureState<T, E>>,
+  task: AsyncTask,
+  runner: Arc<Mutex<ActionRunner<A, T, E>>>,
+  runtime_handle: RuntimeFutureHandle,
+}
+
+type BoxFutureResult<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+type ActionRunner<A, T, E> = Arc<dyn Fn(A) -> BoxFutureResult<T, E> + Send + Sync>;
+#[cfg(feature = "tokio")]
+type FutureCompletion = Box<dyn FnOnce() + Send>;
+#[cfg(feature = "tokio")]
+type RuntimeFutureHandle = Option<tokio::runtime::Handle>;
+#[cfg(not(feature = "tokio"))]
+type RuntimeFutureHandle = ();
+
+#[derive(Clone)]
+struct AsyncTask {
+  inner: Arc<Mutex<AsyncTaskInner>>,
+}
+
+#[derive(Default)]
+struct AsyncTaskInner {
+  future: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+  #[cfg(feature = "tokio")]
+  tokio_task: Option<TokioAsyncTask>,
+}
+
+struct FutureSlot {
+  deps: Option<Box<dyn Any + Send + Sync>>,
+  handle: Box<dyn Any + Send + Sync>,
+  task: AsyncTask,
+}
+
+#[cfg(feature = "tokio")]
+struct TokioAsyncTask {
+  join: tokio::task::JoinHandle<()>,
+  receiver: mpsc::Receiver<FutureCompletion>,
+}
+
+struct NoopWake;
+
+impl Wake for NoopWake {
+  fn wake(self: Arc<Self>) {}
+}
+
+impl<T: SignalValue, E: SignalValue> Clone for FutureHandle<T, E> {
+  fn clone(&self) -> Self {
+    Self {
+      state: self.state.clone(),
+      task: self.task.clone(),
+    }
+  }
+}
+
+impl<A, T: SignalValue, E: SignalValue> Clone for FutureAction<A, T, E> {
+  fn clone(&self) -> Self {
+    Self {
+      state: self.state.clone(),
+      task: self.task.clone(),
+      runner: self.runner.clone(),
+      runtime_handle: self.runtime_handle.clone(),
+    }
+  }
+}
+
+impl<T: SignalValue, E: SignalValue> FutureHandle<T, E> {
+  pub fn state(&self) -> Signal<FutureState<T, E>> {
+    self.state.clone()
+  }
+
+  pub fn cancel(&self) {
+    self.task.cancel();
+  }
+
+  pub fn is_active(&self) -> bool {
+    self.task.is_active()
+  }
+}
+
+impl<A: Send + Sync + 'static, T, E> FutureAction<A, T, E>
+where
+  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+{
+  pub fn state(&self) -> Signal<FutureState<T, E>> {
+    self.state.clone()
+  }
+
+  pub fn run(&self, args: A) {
+    let runner = self.runner.lock().clone();
+    let future = runner(args);
+    start_future_task(
+      self.state.clone(),
+      self.task.clone(),
+      self.runtime_handle.clone(),
+      future,
+    );
+  }
+
+  pub fn cancel(&self) {
+    self.task.cancel();
+  }
+
+  pub fn is_active(&self) -> bool {
+    self.task.is_active()
+  }
+}
+
+impl AsyncTask {
+  fn new() -> Self {
+    Self {
+      inner: Arc::new(Mutex::new(AsyncTaskInner::default())),
+    }
+  }
+
+  fn set(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+    self.cancel();
+    self.inner.lock().future = Some(future);
+  }
+
+  #[cfg(feature = "tokio")]
+  fn set_tokio(&self, join: tokio::task::JoinHandle<()>, receiver: mpsc::Receiver<FutureCompletion>) {
+    self.cancel();
+    self.inner.lock().tokio_task = Some(TokioAsyncTask { join, receiver });
+  }
+
+  fn cancel(&self) {
+    let mut inner = self.inner.lock();
+    inner.future = None;
+    #[cfg(feature = "tokio")]
+    if let Some(task) = inner.tokio_task.take() {
+      task.join.abort();
+    }
+  }
+
+  fn is_active(&self) -> bool {
+    let inner = self.inner.lock();
+    inner.future.is_some() || {
+      #[cfg(feature = "tokio")]
+      {
+        inner.tokio_task.is_some()
+      }
+      #[cfg(not(feature = "tokio"))]
+      {
+        false
+      }
+    }
+  }
+
+  fn poll(&self, cx: &mut TaskContext<'_>) -> bool {
+    if let Some(mut future) = self.inner.lock().future.take() {
+      match future.as_mut().poll(cx) {
+        Poll::Ready(()) => return true,
+        Poll::Pending => {
+          let mut inner = self.inner.lock();
+          if inner.future.is_none() {
+            inner.future = Some(future);
+          }
+          return false;
+        }
+      }
+    }
+
+    #[cfg(feature = "tokio")]
+    {
+      let mut completion = None;
+      let mut disconnected = false;
+      {
+        let mut inner = self.inner.lock();
+        if let Some(task) = inner.tokio_task.as_mut() {
+          match task.receiver.try_recv() {
+            Ok(received) => completion = Some(received),
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => disconnected = true,
+          }
+        }
+        if completion.is_some() || disconnected {
+          inner.tokio_task = None;
+        }
+      }
+
+      if let Some(completion) = completion {
+        completion();
+        return true;
+      }
+    }
+
+    false
+  }
+}
+
+fn noop_waker() -> Waker {
+  Waker::from(Arc::new(NoopWake))
+}
+
+fn start_future_task<T, E>(
+  state: Signal<FutureState<T, E>>,
+  task: AsyncTask,
+  runtime_handle: RuntimeFutureHandle,
+  future: BoxFutureResult<T, E>,
+) where
+  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+{
+  let previous_data = state.get_untracked().data;
+  state.set(FutureState::pending(previous_data));
+
+  #[cfg(feature = "tokio")]
+  if let Some(handle) = runtime_handle {
+    let completion_state = state.clone();
+    let (sender, receiver) = mpsc::channel::<FutureCompletion>();
+    let join = handle.spawn(async move {
+      let result = future.await;
+      let completion: FutureCompletion = Box::new(move || match result {
+        Ok(data) => completion_state.set(FutureState::fulfilled(data)),
+        Err(error) => {
+          let previous_data = completion_state.get_untracked().data;
+          completion_state.set(FutureState::rejected(error, previous_data));
+        }
+      });
+      let _ = sender.send(completion);
+    });
+    task.set_tokio(join, receiver);
+    return;
+  }
+
+  #[cfg(not(feature = "tokio"))]
+  let _ = runtime_handle;
+
+  let completion_state = state.clone();
+  task.set(Box::pin(async move {
+    match future.await {
+      Ok(data) => completion_state.set(FutureState::fulfilled(data)),
+      Err(error) => {
+        let previous_data = completion_state.get_untracked().data;
+        completion_state.set(FutureState::rejected(error, previous_data));
+      }
+    }
+  }));
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   batch: Arc<BatchState>,
@@ -225,10 +560,12 @@ pub struct Ctx {
   modal_cursor: usize,
   modal_context: Option<ModalContext>,
   element_ref_cursor: usize,
+  future_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
   timers: Vec<Timer>,
+  future_slots: Vec<FutureSlot>,
   element_refs: Vec<ElementRefMut>,
   rendering: bool,
 }
@@ -601,10 +938,12 @@ impl Ctx {
       modal_cursor: 0,
       modal_context: None,
       element_ref_cursor: 0,
+      future_cursor: 0,
       watch_handles: Vec::new(),
       render_watch_handles: Vec::new(),
       effects: Vec::new(),
       timers: Vec::new(),
+      future_slots: Vec::new(),
       element_refs: Vec::new(),
       rendering: false,
     }
@@ -626,6 +965,15 @@ impl Ctx {
     for slot in &mut self.children {
       slot.ctx.set_app_ref(app);
     }
+  }
+
+  fn runtime_future_handle(&self) -> RuntimeFutureHandle {
+    #[cfg(feature = "tokio")]
+    {
+      self.app.and_then(|app| unsafe { app.as_ref().tokio_handle() })
+    }
+    #[cfg(not(feature = "tokio"))]
+    {}
   }
 
   pub fn is_dirty(&self) -> bool {
@@ -808,6 +1156,101 @@ impl Ctx {
     let timer = Timer::new(duration, true, f);
     self.timers.push(timer.clone());
     Interval { timer }
+  }
+
+  pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
+  where
+    D: Clone + PartialEq + Send + Sync + 'static,
+    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+    E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+    F: Fn(D) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<T, E>> + Send + 'static,
+  {
+    let cursor = self.future_cursor;
+    self.future_cursor += 1;
+    let runtime_handle = self.runtime_future_handle();
+
+    if cursor < self.future_slots.len() {
+      let slot = &mut self.future_slots[cursor];
+      if let Some(handle) = slot.handle.downcast_ref::<FutureHandle<T, E>>() {
+        let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
+        let handle = handle.clone();
+        if deps_changed {
+          slot.deps = Some(Box::new(deps.clone()));
+          start_future_task(
+            handle.state.clone(),
+            handle.task.clone(),
+            runtime_handle.clone(),
+            Box::pin(factory(deps)),
+          );
+        }
+        return handle;
+      }
+      slot.task.cancel();
+    }
+
+    let state = self.signal(FutureState::idle());
+    let task = AsyncTask::new();
+    let handle = FutureHandle {
+      state: state.clone(),
+      task: task.clone(),
+    };
+    let slot = FutureSlot {
+      deps: Some(Box::new(deps.clone())),
+      handle: Box::new(handle.clone()),
+      task: task.clone(),
+    };
+    if cursor < self.future_slots.len() {
+      self.future_slots[cursor] = slot;
+    } else {
+      self.future_slots.push(slot);
+    }
+    start_future_task(state, task, runtime_handle, Box::pin(factory(deps)));
+    handle
+  }
+
+  pub fn future_action<A, T, E, F, Fut>(&mut self, factory: F) -> FutureAction<A, T, E>
+  where
+    A: Send + Sync + 'static,
+    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+    E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+    F: Fn(A) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<T, E>> + Send + 'static,
+  {
+    let cursor = self.future_cursor;
+    self.future_cursor += 1;
+    let runtime_handle = self.runtime_future_handle();
+    let runner: ActionRunner<A, T, E> = Arc::new(move |args| Box::pin(factory(args)));
+
+    if cursor < self.future_slots.len() {
+      let slot = &mut self.future_slots[cursor];
+      if let Some(action) = slot.handle.downcast_mut::<FutureAction<A, T, E>>() {
+        *action.runner.lock() = runner;
+        action.runtime_handle = runtime_handle;
+        return action.clone();
+      }
+      slot.task.cancel();
+    }
+
+    let state = self.signal(FutureState::idle());
+    let task = AsyncTask::new();
+    let action = FutureAction {
+      state,
+      task: task.clone(),
+      runner: Arc::new(Mutex::new(runner)),
+      runtime_handle,
+    };
+    let slot = FutureSlot {
+      deps: None,
+      handle: Box::new(action.clone()),
+      task,
+    };
+    if cursor < self.future_slots.len() {
+      self.future_slots[cursor] = slot;
+    } else {
+      self.future_slots.push(slot);
+    }
+    action
   }
 
   pub fn watch<T: SignalValue + Send + Sync + 'static>(
@@ -1282,6 +1725,7 @@ impl Ctx {
     self.child_cursor = 0;
     self.modal_cursor = 0;
     self.element_ref_cursor = 0;
+    self.future_cursor = 0;
     self.render_watch_handles.clear();
     tracking::start_tracking();
     self.rendering = true;
@@ -1337,6 +1781,10 @@ impl Ctx {
     }
 
     self.element_refs.truncate(self.element_ref_cursor);
+    for slot in &self.future_slots[self.future_cursor..] {
+      slot.task.cancel();
+    }
+    self.future_slots.truncate(self.future_cursor);
     self.rendering = false;
     let deps = tracking::stop_tracking();
     let dirty = self.dirty.clone();
@@ -1371,6 +1819,23 @@ impl Ctx {
       fired |= slot.ctx.tick_timers(now);
     }
     fired
+  }
+
+  pub(crate) fn tick_futures(&mut self) -> bool {
+    let waker = noop_waker();
+    let mut cx = TaskContext::from_waker(&waker);
+    self.poll_futures(&mut cx)
+  }
+
+  fn poll_futures(&mut self, cx: &mut TaskContext<'_>) -> bool {
+    let mut completed = false;
+    for slot in &self.future_slots {
+      completed |= slot.task.poll(cx);
+    }
+    for slot in &mut self.children {
+      completed |= slot.ctx.poll_futures(cx);
+    }
+    completed
   }
 
   pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Node)> {
@@ -1437,6 +1902,7 @@ impl Ctx {
       }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.timers.capacity() * std::mem::size_of::<Timer>()
+      + self.future_slots.capacity() * std::mem::size_of::<FutureSlot>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self
         .children
