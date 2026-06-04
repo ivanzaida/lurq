@@ -121,6 +121,7 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
+  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   pub(crate) fn set_scroll_pending(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.scroll_x = x.max(0.0);

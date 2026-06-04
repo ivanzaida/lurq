@@ -165,6 +165,7 @@ pub struct Tree {
   last_theme_version: u64,
 }
 
+#[cfg_attr(not(feature = "winit"), allow(dead_code))]
 pub(crate) struct SecondaryWindow {
   title: String,
   width: u32,
@@ -183,11 +184,13 @@ pub(crate) struct SecondaryWindowMetadata {
 }
 
 #[cfg(feature = "devtools")]
+#[cfg_attr(not(feature = "winit"), allow(dead_code))]
 pub(crate) struct DevToolsWindow {
   secondary_index: usize,
   pub(crate) metadata: SecondaryWindowMetadata,
 }
 
+#[cfg_attr(not(feature = "winit"), allow(dead_code))]
 impl SecondaryWindow {
   fn new(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
     Self {
@@ -420,10 +423,12 @@ impl Tree {
     }
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn perf_overlay_enabled(&self) -> bool {
     self.perf_overlay_enabled
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn tick_perf_overlay(&mut self) {
     if self.perf_overlay_enabled && Instant::now().duration_since(self.perf_overlay_last_sample) >= PERF_SAMPLE_INTERVAL
     {
@@ -431,6 +436,7 @@ impl Tree {
     }
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_timeline(&self) -> bool {
     self.transition_engine.has_active || self.animation_engine.has_active
   }
@@ -454,18 +460,22 @@ impl Tree {
     self.apply_render_engine_factory_to_secondaries();
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn secondary_window_count(&self) -> usize {
     self.secondary_windows.len()
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn secondary_window(&self, index: usize) -> Option<&SecondaryWindow> {
     self.secondary_windows.get(index).filter(|window| window.open)
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn secondary_window_mut(&mut self, index: usize) -> Option<&mut SecondaryWindow> {
     self.secondary_windows.get_mut(index).filter(|window| window.open)
   }
 
+  #[cfg_attr(not(any(feature = "winit", feature = "devtools")), allow(dead_code))]
   fn push_secondary_window(&mut self, mut window: SecondaryWindow) -> usize {
     let index = self.secondary_windows.len();
     self.apply_render_engine_factory_to_secondary(&mut window);
@@ -473,6 +483,7 @@ impl Tree {
     index
   }
 
+  #[cfg_attr(not(any(feature = "winit", feature = "devtools")), allow(dead_code))]
   fn apply_render_engine_factory_to_secondary(&self, window: &mut SecondaryWindow) {
     if window.tree.render_engine.is_none()
       && let Some(factory) = &self.render_engine_factory
@@ -490,6 +501,7 @@ impl Tree {
     }
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn set_secondary_window_metadata(&mut self, index: usize, metadata: SecondaryWindowMetadata) {
     let Some(window) = self.secondary_windows.get_mut(index) else {
       return;
@@ -504,6 +516,7 @@ impl Tree {
     }
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn close_secondary_window(&mut self, index: usize) -> bool {
     let Some(window) = self.secondary_windows.get_mut(index) else {
       return false;
@@ -531,6 +544,7 @@ impl Tree {
     false
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn apply_secondary_window_requests(&mut self) -> bool {
     #[cfg(feature = "devtools")]
     {
@@ -540,6 +554,7 @@ impl Tree {
     false
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn secondary_pick_mode(&self) -> bool {
     #[cfg(feature = "devtools")]
     {
@@ -549,6 +564,7 @@ impl Tree {
     false
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn pick_secondary_node_at(&mut self, _x: f32, _y: f32) -> Option<Vec<usize>> {
     #[cfg(feature = "devtools")]
     {
@@ -558,6 +574,7 @@ impl Tree {
     None
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn cancel_secondary_pick(&mut self) {
     #[cfg(feature = "devtools")]
     self.cancel_devtools_pick();
@@ -581,11 +598,13 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn devtools_pick_mode(&self) -> bool {
     *self.devtools_state.pick_mode.lock().unwrap()
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn pick_devtools_node_at(&mut self, x: f32, y: f32) -> Option<Vec<usize>> {
     let picked_path = self.debug_overlay_node_at(x, y);
     *self.devtools_state.pick_mode.lock().unwrap() = false;
@@ -600,6 +619,7 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn cancel_devtools_pick(&mut self) {
     *self.devtools_state.pick_mode.lock().unwrap() = false;
     self.devtools_state.picked_path = None;
@@ -608,6 +628,7 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn apply_devtools_requests(&mut self) -> bool {
     let debug_overlay_path = self.devtools_state.debug_overlay_path.lock().unwrap().clone();
     match debug_overlay_path {
@@ -617,6 +638,7 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn sync_devtools_now(&mut self) {
     self.sync_devtools_inner(true);
   }
@@ -2303,16 +2325,19 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn draw_debug_overlay_over_node(&mut self, path: Vec<usize>) -> bool {
     self.set_debug_overlay_node_path(Some(path))
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn clear_debug_overlay(&mut self) -> bool {
     self.set_debug_overlay_node_path(None)
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn debug_overlay_node_at(&mut self, x: f32, y: f32) -> Option<Vec<usize>> {
     self.rebuild_if_dirty();
     let root = self.root.as_ref()?;
@@ -2325,6 +2350,7 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   fn set_debug_overlay_node_path(&mut self, path: Option<Vec<usize>>) -> bool {
     if self.debug_overlay_node_path == path {
       return false;

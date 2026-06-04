@@ -298,6 +298,7 @@ impl Node {
     Self::from_parts(LayoutKind::Leaf, NodeKind::Empty, vec![])
   }
 
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
   pub fn logical() -> Self {
     Self::from_parts(LayoutKind::LogicalModifier, NodeKind::Empty, vec![])
   }
@@ -873,10 +874,12 @@ impl Node {
     self.text_content.as_deref()
   }
 
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
   pub(crate) fn is_focusable(&self) -> bool {
     self.focusable
   }
 
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
   pub(crate) fn tab_index_value(&self) -> Option<i32> {
     self.tab_index
   }
@@ -1203,6 +1206,7 @@ impl Node {
   }
 
   #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "router"), allow(dead_code))]
   pub(crate) fn debug_attr(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
     self.debug_attrs.push((name.into(), value.into()));
     self
