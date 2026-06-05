@@ -80,6 +80,80 @@ impl Component for TextCounter {
   }
 }
 
+#[derive(Clone, Debug, lurq::DevtoolsInspectable)]
+struct ErrorLabelProps {
+  error: Signal<bool>,
+}
+
+impl PartialEq for ErrorLabelProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.error.id() == other.error.id()
+  }
+}
+
+struct ErrorLabelHost;
+
+impl Component for ErrorLabelHost {
+  type Props = ErrorLabelProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let label = if ctx.props::<Self::Props>().error.get() {
+      "ERROR!!!!!!!!!!!!!"
+    } else {
+      "HEX PRIVATE KEY"
+    };
+
+    lurq::components::Column::new().child(lurq::components::Text::styled(
+      label,
+      TextStyle {
+        font_size: 10.0,
+        weight: FontWeight::Bold,
+        color: Color::from_hex("#f05d5e"),
+        ..TextStyle::default()
+      },
+    ))
+  }
+}
+
+struct KeyedErrorLabelHost;
+
+impl Component for KeyedErrorLabelHost {
+  type Props = ErrorLabelProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    let key = if props.error.get() {
+      "private_key-invalid"
+    } else {
+      "private_key-valid"
+    };
+
+    ctx.mount_keyed::<ErrorLabelHost>(key, props)
+  }
+}
+
+struct NestedKeyedErrorLabelRoot;
+
+impl Component for NestedKeyedErrorLabelRoot {
+  type Props = ErrorLabelProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::Column::new().child(ctx.mount::<KeyedErrorLabelHost>(ctx.props::<Self::Props>().clone()))
+  }
+}
+
 #[test]
 fn text_height_equals_line_height() {
   let mut rt = rt();
@@ -97,6 +171,104 @@ fn text_height_equals_line_height() {
     expected_height,
     r.size.height
   );
+}
+
+#[test]
+fn signal_dirty_component_requests_redraw() {
+  let error = Signal::new(false);
+  let mut rt = rt();
+  rt.mount_root::<ErrorLabelHost>(&mut lurq::app::App::new(), ErrorLabelProps { error: error.clone() });
+  let _ = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  rt.clear_needs_redraw();
+  assert!(!rt.needs_redraw());
+
+  error.set(true);
+
+  assert!(rt.needs_redraw());
+}
+
+#[test]
+fn mounted_child_text_content_updates_after_signal_rerender() {
+  let error = Signal::new(false);
+  let mut rt = rt();
+  rt.mount_root::<ErrorLabelHost>(&mut lurq::app::App::new(), ErrorLabelProps { error: error.clone() });
+
+  let initial = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let initial_quads = rt.resolve_quads(&initial);
+  assert!(text_quads_contain(&initial_quads, "HEX PRIVATE KEY"));
+
+  error.set(true);
+
+  let updated = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let updated_quads = rt.resolve_quads(&updated);
+  assert!(text_quads_contain(&updated_quads, "ERROR!!!!!!!!!!!!!"));
+  assert!(!text_quads_contain(&updated_quads, "HEX PRIVATE KEY"));
+}
+
+#[test]
+fn keyed_mounted_child_updates_after_signal_rerender() {
+  let error = Signal::new(false);
+  let mut rt = rt();
+  rt.mount_root::<KeyedErrorLabelHost>(&mut lurq::app::App::new(), ErrorLabelProps { error: error.clone() });
+
+  let initial = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let initial_quads = rt.resolve_quads(&initial);
+  assert!(text_quads_contain(&initial_quads, "HEX PRIVATE KEY"));
+  #[cfg(feature = "devtools")]
+  assert_eq!(snapshot_child_key(&rt).as_deref(), Some("private_key-valid"));
+
+  error.set(true);
+
+  let updated = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let updated_quads = rt.resolve_quads(&updated);
+  assert!(text_quads_contain(&updated_quads, "ERROR!!!!!!!!!!!!!"));
+  assert!(!text_quads_contain(&updated_quads, "HEX PRIVATE KEY"));
+  #[cfg(feature = "devtools")]
+  assert_eq!(snapshot_child_key(&rt).as_deref(), Some("private_key-invalid"));
+}
+
+#[test]
+fn nested_dirty_component_updates_keyed_child_after_signal_rerender() {
+  let error = Signal::new(false);
+  let mut rt = rt();
+  rt.mount_root::<NestedKeyedErrorLabelRoot>(&mut lurq::app::App::new(), ErrorLabelProps { error: error.clone() });
+
+  let initial = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let initial_quads = rt.resolve_quads(&initial);
+  assert!(text_quads_contain(&initial_quads, "HEX PRIVATE KEY"));
+  #[cfg(feature = "devtools")]
+  assert_eq!(snapshot_child_key(&rt).as_deref(), Some("private_key-valid"));
+
+  error.set(true);
+
+  let updated = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let updated_quads = rt.resolve_quads(&updated);
+  assert!(text_quads_contain(&updated_quads, "ERROR!!!!!!!!!!!!!"));
+  assert!(!text_quads_contain(&updated_quads, "HEX PRIVATE KEY"));
+  #[cfg(feature = "devtools")]
+  assert_eq!(snapshot_child_key(&rt).as_deref(), Some("private_key-invalid"));
+}
+
+fn text_quads_contain(quads: &[lurq::layout::quad::Quad], expected: &str) -> bool {
+  quads.iter().any(|quad| match &quad.content {
+    QuadContent::Text { text, .. } => text == expected,
+    _ => false,
+  })
+}
+
+#[cfg(feature = "devtools")]
+fn snapshot_child_key(rt: &Tree) -> Option<String> {
+  let snapshot = lurq::app::devtools::DevToolsSnapshot::from_tree(rt);
+  find_snapshot_key(snapshot.root.as_ref()?).map(str::to_owned)
+}
+
+#[cfg(feature = "devtools")]
+fn find_snapshot_key(node: &lurq::app::devtools::DevToolsNode) -> Option<&str> {
+  if matches!(node.key.as_deref(), Some("private_key-valid" | "private_key-invalid")) {
+    return node.key.as_deref();
+  }
+
+  node.children.iter().find_map(find_snapshot_key)
 }
 
 #[test]

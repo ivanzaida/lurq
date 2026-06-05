@@ -52,6 +52,25 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
   node.set_component_contexts_debug(ctx.contexts_debug());
 }
 
+fn attach_component_metadata(
+  mut node: Node,
+  tag_name: Arc<str>,
+  slot_id: u64,
+  key: Option<&str>,
+  #[cfg(feature = "devtools")] ctx: &Ctx,
+) -> Node {
+  if node.component_slot_id().is_some() {
+    node = Node::logical().child(node);
+  }
+
+  node.set_tag_name(tag_name);
+  node.set_component_slot_id(slot_id);
+  node.set_component_key(key);
+  #[cfg(feature = "devtools")]
+  set_component_debug_metadata(&mut node, ctx);
+  node
+}
+
 pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
   let type_name = std::any::type_name::<C>();
   let base = type_name.split('<').next().unwrap_or(type_name);
@@ -1626,11 +1645,14 @@ impl Ctx {
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
-        element.node.set_tag_name(slot.component.tag_name());
-        element.node.set_component_slot_id(slot.id);
-        element.node.set_component_key(slot.key.as_deref());
-        #[cfg(feature = "devtools")]
-        set_component_debug_metadata(&mut element.node, &slot.ctx);
+        element.node = attach_component_metadata(
+          element.node,
+          slot.component.tag_name(),
+          slot.id,
+          slot.key.as_deref(),
+          #[cfg(feature = "devtools")]
+          &slot.ctx,
+        );
         slot.rendered = Some(element.node.clone_for_reuse());
         return element;
       }
@@ -1657,11 +1679,14 @@ impl Ctx {
     child_ctx.begin_render();
     let mut element = wrapper.render(&mut child_ctx);
     child_ctx.end_render();
-    element.node.set_tag_name(wrapper.tag_name());
-    element.node.set_component_slot_id(slot_id);
-    element.node.set_component_key(key);
-    #[cfg(feature = "devtools")]
-    set_component_debug_metadata(&mut element.node, &child_ctx);
+    element.node = attach_component_metadata(
+      element.node,
+      wrapper.tag_name(),
+      slot_id,
+      key,
+      #[cfg(feature = "devtools")]
+      &child_ctx,
+    );
 
     let slot = ChildSlot {
       id: slot_id,
@@ -1767,10 +1792,14 @@ impl Ctx {
       slot.ctx.begin_render();
       let mut element = component_fn(&mut slot.ctx, item);
       slot.ctx.end_render();
-      element.node.set_component_slot_id(slot.id);
-      element.node.set_component_key(slot.key.as_deref());
-      #[cfg(feature = "devtools")]
-      set_component_debug_metadata(&mut element.node, &slot.ctx);
+      element.node = attach_component_metadata(
+        element.node,
+        slot.component.tag_name(),
+        slot.id,
+        slot.key.as_deref(),
+        #[cfg(feature = "devtools")]
+        &slot.ctx,
+      );
       slot.rendered = Some(element.node.clone_for_reuse());
       return element;
     }
@@ -1791,10 +1820,14 @@ impl Ctx {
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);
     child_ctx.end_render();
-    element.node.set_component_slot_id(slot_id);
-    element.node.set_component_key(Some(key.as_str()));
-    #[cfg(feature = "devtools")]
-    set_component_debug_metadata(&mut element.node, &child_ctx);
+    element.node = attach_component_metadata(
+      element.node,
+      component_tag_name::<ForEachSlot>(),
+      slot_id,
+      Some(key.as_str()),
+      #[cfg(feature = "devtools")]
+      &child_ctx,
+    );
 
     let slot = ChildSlot {
       id: slot_id,
@@ -1956,11 +1989,14 @@ impl Ctx {
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
-        element.node.set_tag_name(slot.component.tag_name());
-        element.node.set_component_slot_id(slot.id);
-        element.node.set_component_key(slot.key.as_deref());
-        #[cfg(feature = "devtools")]
-        set_component_debug_metadata(&mut element.node, &slot.ctx);
+        element.node = attach_component_metadata(
+          element.node,
+          slot.component.tag_name(),
+          slot.id,
+          slot.key.as_deref(),
+          #[cfg(feature = "devtools")]
+          &slot.ctx,
+        );
         if let Some(old) = old_rendered.as_ref() {
           element.node.preserve_runtime_state_from(old);
         }

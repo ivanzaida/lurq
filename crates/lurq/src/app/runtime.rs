@@ -1406,6 +1406,7 @@ impl Tree {
   pub fn needs_redraw(&self) -> bool {
     self.needs_redraw
       || self.click_tracker.has_pending()
+      || self.root_ctx.as_ref().is_some_and(Ctx::any_dirty)
       || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
