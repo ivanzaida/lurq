@@ -644,6 +644,7 @@ impl LayoutEngine {
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
 
+        let content_uses_separate_visual_rect = matches!(content, QuadContent::Text { .. }) && has_visual;
         let (content_x, content_y, content_transform, content_transform_origin) =
           transformed_quad_frame(content_x, content_y, transform);
         quads.push(Quad {
@@ -655,8 +656,16 @@ impl LayoutEngine {
           transform: content_transform,
           transform_origin: content_transform_origin,
           content,
-          border_radius: node.get_border_radius(&self.radii.borrow()),
-          border: resolved_border,
+          border_radius: if content_uses_separate_visual_rect {
+            None
+          } else {
+            node.get_border_radius(&self.radii.borrow())
+          },
+          border: if content_uses_separate_visual_rect {
+            None
+          } else {
+            resolved_border
+          },
           clip: content_clip,
         });
       }

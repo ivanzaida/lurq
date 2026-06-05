@@ -1,15 +1,15 @@
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx},
+  app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{Column, TextInput},
   core::Signal,
   layout::{
     Constraints, Size,
     text_style::{FontWeight, TextStyle},
   },
-  node::{Element, color::Color, dimension::Dimension},
+  node::{Element, Style, color::Color, dimension::Dimension},
 };
 
-use crate::support::{render_pass, run_pass};
+use crate::support::{pointer_click, render_pass, run_pass};
 
 #[test]
 fn styled_constructor_applies_text_color_to_glyphs() {
@@ -168,6 +168,68 @@ fn text_input_wrapper_visuals_update_after_component_rerender() {
 
   let invalid = render_pass(&mut runtime);
   assert_input_visuals(&invalid.rects, Color::from_hex("#33191b"), Color::from_hex("#f05d5e"));
+}
+
+#[test]
+fn focused_text_input_style_draws_on_input_frame_not_padded_text_content() {
+  let value = Signal::new("a3f1".to_owned());
+  let mut runtime = Tree::new();
+  runtime.set_root(
+    TextInput::new(value)
+      .width(240.0)
+      .height(40.0)
+      .padding_horizontal(10.0)
+      .background("#111827")
+      .border_inside(1.0, "#30343a")
+      .focused_style(Style::new().border_inside(1.0, "#60a5fa"))
+      .single_line(),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+
+  let focused = render_pass(&mut runtime);
+  let focused_borders = focused
+    .rects
+    .iter()
+    .filter(|rect| rect.stroke_color == Color::from_hex("#60a5fa"))
+    .collect::<Vec<_>>();
+
+  assert_eq!(focused_borders.len(), 1, "focused border should be emitted once");
+  assert_eq!(focused_borders[0].width, 240.0);
+  assert_eq!(focused_borders[0].height, 40.0);
+}
+
+#[test]
+fn mouse_down_focused_text_input_style_stays_on_input_frame() {
+  let value = Signal::new("abandon ability able about above\nabsent ...".to_owned());
+  let mut runtime = Tree::new();
+  runtime.set_root(
+    TextInput::new(value)
+      .width(600.0)
+      .height(120.0)
+      .padding(15.0)
+      .background("#111827")
+      .border_inside(1.0, "#30343a")
+      .focused_style(Style::new().background("#111827").border_inside(1.0, "#60a5fa"))
+      .multiline(),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.mouse_down(x, y, MouseButton::Left);
+  let active = render_pass(&mut runtime);
+  let focused_borders = active
+    .rects
+    .iter()
+    .filter(|rect| rect.stroke_color == Color::from_hex("#60a5fa"))
+    .collect::<Vec<_>>();
+
+  assert_eq!(focused_borders.len(), 1, "active focused border should be emitted once");
+  assert_eq!(focused_borders[0].width, 600.0);
+  assert_eq!(focused_borders[0].height, 120.0);
 }
 
 fn assert_input_visuals(rects: &[crate::support::RectSnapshot], fill: Color, border: Color) {

@@ -36,8 +36,11 @@ pub use drop_zone::{DropZone, DropZoneProps};
 pub(crate) use form::FormContext;
 #[cfg(feature = "form")]
 pub use form::{
-  Control, ControlOptions, ControlState, ErrorVisibility, Form, FormData, FormErrors, FormField, FormHandle,
-  FormOptions, FormProps, FormValue, FormValues, ResolvedControl, ValidationResult, validators,
+  Control, ControlOptions, ControlState, ErrorVisibility, Form, FormCheckboxInput, FormCheckboxInputProps,
+  FormControlField, FormData, FormErrors, FormField, FormFieldProps, FormHandle, FormOptions, FormPrimaryButton,
+  FormPrimaryButtonProps, FormProps, FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput,
+  FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue, FormValues, ResolvedControl, ValidationResult,
+  validators,
 };
 #[cfg(feature = "image")]
 pub use image::Image;

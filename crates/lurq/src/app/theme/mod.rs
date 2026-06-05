@@ -9,11 +9,15 @@ use crate::{
   node::{color::Color, dimension::Dimension},
 };
 
+#[cfg(feature = "form")]
+mod form;
 mod palette;
 mod radius;
 mod spacing;
 mod typography;
 
+#[cfg(feature = "form")]
+pub use form::{FormButtonStyle, FormCheckboxStyle, FormFieldStyle, FormInputStyle, FormSliderStyle, FormTheme};
 pub use palette::{PaletteId, ThemePalette};
 pub use radius::{RadiusId, ThemeRadii};
 pub use spacing::{SpacingId, ThemeSpacing};
@@ -30,6 +34,8 @@ struct ThemeInner {
   spacing: ThemeSpacing,
   radii: ThemeRadii,
   typography: ThemeTypography,
+  #[cfg(feature = "form")]
+  form: FormTheme,
   version: u64,
 }
 
@@ -54,6 +60,8 @@ impl Default for Theme {
         spacing: ThemeSpacing::default(),
         radii: ThemeRadii::default(),
         typography: ThemeTypography::default(),
+        #[cfg(feature = "form")]
+        form: FormTheme::default(),
         version: 0,
       })),
       version_signal: Signal::new(0),
@@ -214,6 +222,21 @@ impl Theme {
 
   pub fn set_fonts(&self, fonts: ThemeFonts) {
     self.set_typography(fonts.into());
+  }
+
+  #[cfg(feature = "form")]
+  pub fn form(&self) -> ThemeRef<'_, FormTheme> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.form,
+    }
+  }
+
+  #[cfg(feature = "form")]
+  pub fn set_form(&self, form: FormTheme) {
+    let mut inner = self.inner.write().unwrap();
+    inner.form = form;
+    self.bump_version(&mut inner);
   }
 
   pub(crate) fn version(&self) -> u64 {

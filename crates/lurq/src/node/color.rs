@@ -202,6 +202,15 @@ impl Color {
       )
     }
   }
+
+  pub fn with_alpha(mut self, alpha: u8) -> Self {
+    self.a = alpha;
+    self
+  }
+
+  pub fn with_opacity(self, opacity: f32) -> Self {
+    self.with_alpha((opacity.clamp(0.0, 1.0) * 255.0).round() as u8)
+  }
 }
 
 impl From<&str> for Color {

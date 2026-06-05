@@ -1,4 +1,5 @@
 mod component;
+mod compound;
 mod control;
 mod field;
 mod handle;
@@ -8,6 +9,11 @@ pub mod validators;
 mod value;
 
 pub use component::{Form, FormProps};
+pub use compound::{
+  FormCheckboxInput, FormCheckboxInputProps, FormField as FormControlField, FormFieldProps, FormPrimaryButton,
+  FormPrimaryButtonProps, FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps,
+  FormTextInput, FormTextInputProps,
+};
 pub(crate) use control::FormContext;
 pub use control::{Control, ControlOptions, ControlState, ErrorVisibility, ResolvedControl};
 pub use field::FormField;

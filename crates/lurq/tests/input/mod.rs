@@ -23,6 +23,7 @@ mod checkbox {
 #[cfg(feature = "form")]
 mod forms {
   mod async_submit;
+  mod compound;
   mod control;
   mod enter_submits;
   mod form_data;
