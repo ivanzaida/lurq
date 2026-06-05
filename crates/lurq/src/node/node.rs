@@ -580,28 +580,28 @@ impl Node {
   }
 
   pub fn border_top(mut self, border: Border) -> Self {
-    let mut borders = (*self.border).unwrap_or_default();
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.top = Some(border);
     self.border.set(Some(borders));
     self
   }
 
   pub fn border_right(mut self, border: Border) -> Self {
-    let mut borders = (*self.border).unwrap_or_default();
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.right = Some(border);
     self.border.set(Some(borders));
     self
   }
 
   pub fn border_bottom(mut self, border: Border) -> Self {
-    let mut borders = (*self.border).unwrap_or_default();
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.bottom = Some(border);
     self.border.set(Some(borders));
     self
   }
 
   pub fn border_left(mut self, border: Border) -> Self {
-    let mut borders = (*self.border).unwrap_or_default();
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.left = Some(border);
     self.border.set(Some(borders));
     self
@@ -1229,14 +1229,17 @@ impl Node {
   }
 
   pub(crate) fn caret_color_value(&self) -> Option<TextColor> {
-    *self.caret_color
+    <Option<TextColor> as Clone>::clone(&self.caret_color)
   }
 
   pub(crate) fn background_color(&self) -> Option<BackgroundColor> {
     if let Some(c) = self.animation_override_color() {
       return Some(BackgroundColor::Color(c));
     }
-    self.state_style().color.or(*self.color)
+    self
+      .state_style()
+      .color
+      .or_else(|| <Option<BackgroundColor> as Clone>::clone(&self.color))
   }
 
   pub(crate) fn resolved_color(&self, palette: &crate::app::theme::ThemePalette) -> Option<Color> {
@@ -1246,7 +1249,7 @@ impl Node {
     self
       .state_style()
       .color
-      .or(*self.color)
+      .or_else(|| <Option<BackgroundColor> as Clone>::clone(&self.color))
       .and_then(|color| color.resolve(palette))
   }
 
@@ -1275,7 +1278,10 @@ impl Node {
   }
 
   pub fn get_border(&self) -> Option<Borders> {
-    let mut b = self.state_style().border.or(*self.border);
+    let mut b = self
+      .state_style()
+      .border
+      .or_else(|| <Option<Borders> as Clone>::clone(&self.border));
     let overrides = &self.animation_overrides;
     if let Some(ref mut borders) = b {
       for (prop, val) in overrides {

@@ -103,7 +103,7 @@ impl TextStyleSource {
       TextStyleBase::Typography(style) => typography.resolve(*style),
       TextStyleBase::Explicit(style) => style.clone(),
     };
-    if let Some(color) = self.color.and_then(|color| color.resolve(palette)) {
+    if let Some(color) = self.color.as_ref().and_then(|color| color.resolve(palette)) {
       style.color = color;
     }
     style

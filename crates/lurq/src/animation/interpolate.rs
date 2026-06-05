@@ -114,36 +114,36 @@ pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) ->
   match prop {
     AnimatableProperty::BackgroundColor => style
       .color
-      .or(*node.color)
+      .or_else(|| <Option<_> as Clone>::clone(&node.color))
       .and_then(|color| color.as_color())
       .map(AnimatableValue::Color),
     AnimatableProperty::BorderColor => style
       .border
-      .or(*node.border)
+      .or_else(|| <Option<_> as Clone>::clone(&node.border))
       .and_then(|b| b.color())
       .and_then(|color| color.as_color())
       .map(AnimatableValue::Color),
     AnimatableProperty::BorderWidthTop => style
       .border
-      .or(*node.border)
+      .or_else(|| <Option<_> as Clone>::clone(&node.border))
       .and_then(|b| b.top_width())
       .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthRight => style
       .border
-      .or(*node.border)
+      .or_else(|| <Option<_> as Clone>::clone(&node.border))
       .and_then(|b| b.right_width())
       .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthBottom => style
       .border
-      .or(*node.border)
+      .or_else(|| <Option<_> as Clone>::clone(&node.border))
       .and_then(|b| b.bottom_width())
       .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthLeft => style
       .border
-      .or(*node.border)
+      .or_else(|| <Option<_> as Clone>::clone(&node.border))
       .and_then(|b| b.left_width())
       .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),

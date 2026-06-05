@@ -16,5 +16,7 @@ pub struct ImageCmd {
   pub uv_min: [f32; 2],
   pub uv_max: [f32; 2],
   pub radii: [f32; 4],
+  pub transform: [f32; 4],
+  pub transform_origin: [f32; 2],
   pub clip: ClipRect,
 }

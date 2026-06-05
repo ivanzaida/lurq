@@ -35,9 +35,9 @@ const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
 const DEFAULT_SLIDER_HEIGHT: f32 = 20.0;
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
-#[cfg(any(feature = "image", feature = "svg"))]
+#[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
-#[cfg(any(feature = "image", feature = "svg"))]
+#[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
 
@@ -720,7 +720,7 @@ impl LayoutEngine {
         let caret_color = node
           .caret_color_value()
           .and_then(|color| color.resolve(&palette))
-          .or_else(|| style.caret_color.and_then(|color| color.resolve(&palette)))
+          .or_else(|| style.caret_color.as_ref().and_then(|color| color.resolve(&palette)))
           .unwrap_or(DEFAULT_CARET_COLOR);
         let (caret_x, caret_y, caret_transform, caret_transform_origin) =
           transformed_quad_frame(caret_x, caret_y, transform);
@@ -782,6 +782,7 @@ impl LayoutEngine {
             .or_else(|| node.get_border_radius(&self.radii.borrow())),
           style
             .border
+            .as_ref()
             .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
             .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow())),
           checked,
@@ -812,6 +813,7 @@ impl LayoutEngine {
           .or_else(|| node.get_border_radius(&self.radii.borrow()));
         let track_border = track_style
           .border
+          .as_ref()
           .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
           .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
         push_slider_part_quads(
@@ -838,6 +840,7 @@ impl LayoutEngine {
           ),
           thumb_style
             .border
+            .as_ref()
             .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow())),
           opacity,
           transform,

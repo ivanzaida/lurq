@@ -154,7 +154,7 @@ impl SliderPartStyle {
       self.border_radius = other.border_radius;
     }
     if other.border.is_some() {
-      self.border = other.border;
+      self.border = other.border.clone();
     }
     #[cfg(feature = "image")]
     {

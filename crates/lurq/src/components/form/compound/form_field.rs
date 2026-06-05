@@ -70,9 +70,9 @@ where
 
     if let Some(label) = props.label.as_deref() {
       let label_style = if visible_error.is_some() {
-        style.error
+        &style.error
       } else {
-        style.label
+        &style.label
       };
       field = field.child(Text::styled(label, label_style.resolve(&typography, &palette)));
     }

@@ -257,13 +257,13 @@ impl Style {
 
   pub(crate) fn merge_from(&mut self, other: &Style) {
     if other.color.is_some() {
-      self.color = other.color;
+      self.color = other.color.clone();
     }
     if other.border_radius.is_some() {
       self.border_radius = other.border_radius;
     }
     if other.border.is_some() {
-      self.border = other.border;
+      self.border = other.border.clone();
     }
     if other.cursor.is_some() {
       self.cursor = other.cursor;

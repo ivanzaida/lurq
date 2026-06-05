@@ -35,6 +35,28 @@ fn resolves_palette_background_from_active_theme() {
 }
 
 #[test]
+fn resolves_extra_palette_background_from_active_theme() {
+  let mut app = App::new();
+  app.theme().set_palette_color("brand", Color::from_hex("#123456"));
+
+  let mut tree = Tree::new();
+  tree.set_root(Rect::new(40.0, 20.0).background(PaletteColor::extra("brand")));
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
+  tree.pass(&mut app, &TestSurface);
+
+  let quads = tree.resolve_quads(tree.last_layout().unwrap());
+  let color = quads
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Rect { color } => Some(*color),
+      _ => None,
+    })
+    .expect("rect quad should be emitted");
+
+  assert_eq!(color.to_hex(), "#123456");
+}
+
+#[test]
 fn resolves_palette_border_from_active_theme() {
   let mut app = App::new();
   app
@@ -43,6 +65,27 @@ fn resolves_palette_border_from_active_theme() {
 
   let mut tree = Tree::new();
   tree.set_root(Rect::new(40.0, 20.0).border_inside(2.0, PaletteColor::BorderFocus));
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
+  tree.pass(&mut app, &TestSurface);
+
+  let quads = tree.resolve_quads(tree.last_layout().unwrap());
+  let border = quads
+    .iter()
+    .find_map(|quad| quad.border)
+    .expect("rect border should be emitted");
+
+  assert_eq!(border.top.unwrap().color.to_hex(), "#8b5cf6");
+}
+
+#[test]
+fn resolves_extra_palette_border_from_active_theme() {
+  let mut app = App::new();
+  app
+    .theme()
+    .set_palette_color("brand_border", Color::from_hex("#8b5cf6"));
+
+  let mut tree = Tree::new();
+  tree.set_root(Rect::new(40.0, 20.0).border_inside(2.0, PaletteColor::extra("brand_border")));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 

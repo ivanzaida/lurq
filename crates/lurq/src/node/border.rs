@@ -105,7 +105,7 @@ impl From<BorderRadius> for ThemedBorderRadius {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Border {
   pub width: BorderSizeValue,
   pub color: BackgroundColor,
@@ -142,7 +142,7 @@ impl Border {
   }
 }
 
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct Borders {
   pub top: Option<Border>,
   pub right: Option<Border>,
@@ -153,9 +153,9 @@ pub struct Borders {
 impl Borders {
   pub fn all(border: Border) -> Self {
     Self {
-      top: Some(border),
-      right: Some(border),
-      bottom: Some(border),
+      top: Some(border.clone()),
+      right: Some(border.clone()),
+      bottom: Some(border.clone()),
       left: Some(border),
     }
   }
@@ -167,22 +167,23 @@ impl Borders {
   pub fn color(&self) -> Option<BackgroundColor> {
     self
       .top
-      .or(self.right)
-      .or(self.bottom)
-      .or(self.left)
-      .map(|border| border.color)
+      .as_ref()
+      .or(self.right.as_ref())
+      .or(self.bottom.as_ref())
+      .or(self.left.as_ref())
+      .map(|border| border.color.clone())
   }
 
   pub fn set_color(&mut self, color: impl Into<BackgroundColor>) {
     let color = color.into();
     if let Some(border) = &mut self.top {
-      border.color = color;
+      border.color = color.clone();
     }
     if let Some(border) = &mut self.right {
-      border.color = color;
+      border.color = color.clone();
     }
     if let Some(border) = &mut self.bottom {
-      border.color = color;
+      border.color = color.clone();
     }
     if let Some(border) = &mut self.left {
       border.color = color;
@@ -195,28 +196,40 @@ impl Borders {
     border_sizes: &ThemeBorderSizes,
   ) -> Option<ResolvedBorders> {
     let borders = ResolvedBorders {
-      top: self.top.and_then(|border| border.resolve(palette, border_sizes)),
-      right: self.right.and_then(|border| border.resolve(palette, border_sizes)),
-      bottom: self.bottom.and_then(|border| border.resolve(palette, border_sizes)),
-      left: self.left.and_then(|border| border.resolve(palette, border_sizes)),
+      top: self
+        .top
+        .as_ref()
+        .and_then(|border| border.resolve(palette, border_sizes)),
+      right: self
+        .right
+        .as_ref()
+        .and_then(|border| border.resolve(palette, border_sizes)),
+      bottom: self
+        .bottom
+        .as_ref()
+        .and_then(|border| border.resolve(palette, border_sizes)),
+      left: self
+        .left
+        .as_ref()
+        .and_then(|border| border.resolve(palette, border_sizes)),
     };
     borders.any().then_some(borders)
   }
 
   pub fn top_width(&self) -> Option<BorderSizeValue> {
-    self.top.map(|border| border.width)
+    self.top.as_ref().map(|border| border.width)
   }
 
   pub fn right_width(&self) -> Option<BorderSizeValue> {
-    self.right.map(|border| border.width)
+    self.right.as_ref().map(|border| border.width)
   }
 
   pub fn bottom_width(&self) -> Option<BorderSizeValue> {
-    self.bottom.map(|border| border.width)
+    self.bottom.as_ref().map(|border| border.width)
   }
 
   pub fn left_width(&self) -> Option<BorderSizeValue> {
-    self.left.map(|border| border.width)
+    self.left.as_ref().map(|border| border.width)
   }
 }
 

@@ -28,3 +28,28 @@ impl From<f32> for Dimension {
     Self::Px(value)
   }
 }
+
+pub trait IntoDimension {
+  fn pct(&self) -> Dimension;
+  fn px(&self) -> Dimension;
+}
+
+impl IntoDimension for f32 {
+  fn pct(&self) -> Dimension {
+    Dimension::Pct(*self)
+  }
+
+  fn px(&self) -> Dimension {
+    Dimension::Px(*self)
+  }
+}
+
+impl IntoDimension for i32 {
+  fn pct(&self) -> Dimension {
+    Dimension::Pct(*self as f32)
+  }
+
+  fn px(&self) -> Dimension {
+    Dimension::Px(*self as f32)
+  }
+}

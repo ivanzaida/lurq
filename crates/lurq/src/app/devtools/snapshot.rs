@@ -189,7 +189,7 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
     push_shape_group(&mut rows, "radius", themed_radius_rows(radius));
   }
   if let Some(border) = element.node.get_border() {
-    push_shape_group(&mut rows, "border", border_rows(border));
+    push_shape_group(&mut rows, "border", border_rows(&border));
   }
   if (element.node.opacity - 1.0).abs() > f32::EPSILON {
     push_shape_row(&mut rows, "opacity", format_number(element.node.opacity));
@@ -373,7 +373,7 @@ fn shape_group(label: impl Into<String>, children: Vec<DevToolsShapeRow>) -> Dev
 
 fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
   let mut rows = Vec::new();
-  if let Some(color) = style.color {
+  if let Some(color) = &style.color {
     match color {
       crate::node::BackgroundColor::Color(color) => rows.push(shape_leaf("fill", color.to_hex())),
       crate::node::BackgroundColor::Palette(color) => {
@@ -384,7 +384,7 @@ fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
   if let Some(radius) = style.border_radius {
     rows.push(shape_group("radius", themed_radius_rows(radius)));
   }
-  if let Some(border) = style.border {
+  if let Some(border) = &style.border {
     rows.push(shape_group("border", border_rows(border)));
   }
   if let Some(cursor) = style.cursor {
@@ -498,27 +498,27 @@ fn themed_radius_rows(radius: ThemedBorderRadius) -> Vec<DevToolsShapeRow> {
   ]
 }
 
-fn border_rows(borders: Borders) -> Vec<DevToolsShapeRow> {
+fn border_rows(borders: &Borders) -> Vec<DevToolsShapeRow> {
   [
-    ("top", borders.top),
-    ("right", borders.right),
-    ("bottom", borders.bottom),
-    ("left", borders.left),
+    ("top", borders.top.as_ref()),
+    ("right", borders.right.as_ref()),
+    ("bottom", borders.bottom.as_ref()),
+    ("left", borders.left.as_ref()),
   ]
   .into_iter()
   .filter_map(|(side, border)| border.map(|border| shape_group(side, single_border_rows(border))))
   .collect()
 }
 
-fn single_border_rows(border: Border) -> Vec<DevToolsShapeRow> {
+fn single_border_rows(border: &Border) -> Vec<DevToolsShapeRow> {
   vec![
     shape_leaf("width", format_border_size_value(border.width)),
-    shape_leaf("color", format_background_color(border.color)),
+    shape_leaf("color", format_background_color(&border.color)),
     shape_leaf("placement", border_placement_name(border.placement)),
   ]
 }
 
-fn format_background_color(color: crate::node::BackgroundColor) -> String {
+fn format_background_color(color: &crate::node::BackgroundColor) -> String {
   match color {
     crate::node::BackgroundColor::Color(color) => color.to_hex(),
     crate::node::BackgroundColor::Palette(color) => format!("palette({})", color.as_str()),

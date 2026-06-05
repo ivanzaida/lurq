@@ -1,6 +1,8 @@
+use std::{collections::HashMap, sync::Arc};
+
 use crate::node::color::Color;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PaletteColor {
   Accent,
   AccentHover,
@@ -24,10 +26,15 @@ pub enum PaletteColor {
   DangerMuted,
   Info,
   InfoMuted,
+  Extra(Arc<str>),
 }
 
 impl PaletteColor {
-  pub const fn as_str(self) -> &'static str {
+  pub fn extra(name: impl Into<Arc<str>>) -> Self {
+    Self::Extra(name.into())
+  }
+
+  pub fn as_str(&self) -> &str {
     match self {
       Self::Accent => "accent",
       Self::AccentHover => "accent_hover",
@@ -51,7 +58,26 @@ impl PaletteColor {
       Self::DangerMuted => "danger_muted",
       Self::Info => "info",
       Self::InfoMuted => "info_muted",
+      Self::Extra(name) => name,
     }
+  }
+}
+
+impl From<&PaletteColor> for PaletteColor {
+  fn from(color: &PaletteColor) -> Self {
+    color.clone()
+  }
+}
+
+impl From<Arc<str>> for PaletteColor {
+  fn from(name: Arc<str>) -> Self {
+    Self::Extra(name)
+  }
+}
+
+impl From<&str> for PaletteColor {
+  fn from(name: &str) -> Self {
+    Self::Extra(Arc::from(name))
   }
 }
 
@@ -79,6 +105,7 @@ pub struct ThemePalette {
   pub danger_muted: Color,
   pub info: Color,
   pub info_muted: Color,
+  pub extra: HashMap<Arc<str>, Color>,
 }
 
 impl ThemePalette {
@@ -87,29 +114,37 @@ impl ThemePalette {
   }
 
   pub fn get(&self, color: impl Into<PaletteColor>) -> Color {
+    let color = color.into();
+    self
+      .try_get(&color)
+      .unwrap_or_else(|| panic!("palette color not found: {}", color.as_str()))
+  }
+
+  pub fn try_get(&self, color: impl Into<PaletteColor>) -> Option<Color> {
     match color.into() {
-      PaletteColor::Accent => self.accent,
-      PaletteColor::AccentHover => self.accent_hover,
-      PaletteColor::AccentMuted => self.accent_muted,
-      PaletteColor::SurfaceBase => self.surface_base,
-      PaletteColor::SurfacePanel => self.surface_panel,
-      PaletteColor::SurfaceRaised => self.surface_raised,
-      PaletteColor::SurfaceInput => self.surface_input,
-      PaletteColor::Border => self.border,
-      PaletteColor::BorderStrong => self.border_strong,
-      PaletteColor::BorderFocus => self.border_focus,
-      PaletteColor::TextPrimary => self.text_primary,
-      PaletteColor::TextSecondary => self.text_secondary,
-      PaletteColor::TextMuted => self.text_muted,
-      PaletteColor::TextInverse => self.text_inverse,
-      PaletteColor::Success => self.success,
-      PaletteColor::SuccessMuted => self.success_muted,
-      PaletteColor::Warning => self.warning,
-      PaletteColor::WarningMuted => self.warning_muted,
-      PaletteColor::Danger => self.danger,
-      PaletteColor::DangerMuted => self.danger_muted,
-      PaletteColor::Info => self.info,
-      PaletteColor::InfoMuted => self.info_muted,
+      PaletteColor::Accent => Some(self.accent),
+      PaletteColor::AccentHover => Some(self.accent_hover),
+      PaletteColor::AccentMuted => Some(self.accent_muted),
+      PaletteColor::SurfaceBase => Some(self.surface_base),
+      PaletteColor::SurfacePanel => Some(self.surface_panel),
+      PaletteColor::SurfaceRaised => Some(self.surface_raised),
+      PaletteColor::SurfaceInput => Some(self.surface_input),
+      PaletteColor::Border => Some(self.border),
+      PaletteColor::BorderStrong => Some(self.border_strong),
+      PaletteColor::BorderFocus => Some(self.border_focus),
+      PaletteColor::TextPrimary => Some(self.text_primary),
+      PaletteColor::TextSecondary => Some(self.text_secondary),
+      PaletteColor::TextMuted => Some(self.text_muted),
+      PaletteColor::TextInverse => Some(self.text_inverse),
+      PaletteColor::Success => Some(self.success),
+      PaletteColor::SuccessMuted => Some(self.success_muted),
+      PaletteColor::Warning => Some(self.warning),
+      PaletteColor::WarningMuted => Some(self.warning_muted),
+      PaletteColor::Danger => Some(self.danger),
+      PaletteColor::DangerMuted => Some(self.danger_muted),
+      PaletteColor::Info => Some(self.info),
+      PaletteColor::InfoMuted => Some(self.info_muted),
+      PaletteColor::Extra(name) => self.extra.get(&name).copied(),
     }
   }
 
@@ -137,11 +172,18 @@ impl ThemePalette {
       PaletteColor::DangerMuted => self.danger_muted = value,
       PaletteColor::Info => self.info = value,
       PaletteColor::InfoMuted => self.info_muted = value,
+      PaletteColor::Extra(name) => {
+        self.extra.insert(name, value);
+      }
     }
   }
 
   pub fn resolve(&self, color: impl Into<PaletteColor>) -> Color {
     self.get(color)
+  }
+
+  pub fn try_resolve(&self, color: impl Into<PaletteColor>) -> Option<Color> {
+    self.try_get(color)
   }
 }
 
@@ -170,6 +212,7 @@ impl Default for ThemePalette {
       danger_muted: Color::from_hex("#fee2e2"),
       info: Color::from_hex("#0284c7"),
       info_muted: Color::from_hex("#e0f2fe"),
+      extra: HashMap::new(),
     }
   }
 }

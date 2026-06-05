@@ -905,7 +905,9 @@ impl Tree {
     let mut images = Vec::new();
     #[cfg(feature = "image")]
     let image_frame_time = std::time::Instant::now();
-    #[cfg(feature = "svg")]
+    #[cfg(all(feature = "svg", feature = "image"))]
+    let svgs = Vec::new();
+    #[cfg(all(feature = "svg", not(feature = "image")))]
     let mut svgs = Vec::new();
 
     for (order, quad) in quads.iter().enumerate() {
@@ -1050,6 +1052,11 @@ impl Tree {
           if data.is_animated() {
             self.needs_redraw = true;
           }
+          let image_transform = quad.transform.matrix_2x2();
+          let image_transform_origin = quad
+            .transform_origin
+            .map(|[x, y]| [x * scale, y * scale])
+            .unwrap_or([quad.width * scale * 0.5, quad.height * scale * 0.5]);
           let max_r = scaled_width.min(scaled_height) * 0.5;
           let radii = quad
             .border_radius
@@ -1076,10 +1083,41 @@ impl Tree {
             uv_min: *uv_min,
             uv_max: *uv_max,
             radii,
+            transform: image_transform,
+            transform_origin: image_transform_origin,
             clip: scaled_clip,
           });
         }
-        #[cfg(feature = "svg")]
+        #[cfg(all(feature = "svg", feature = "image"))]
+        QuadContent::Svg { data } => {
+          let w = quad.width * scale;
+          let h = quad.height * scale;
+          let raster = crate::svg::rasterize::rasterize(&data, w, h);
+          let image_transform = quad.transform.matrix_2x2();
+          let image_transform_origin = quad
+            .transform_origin
+            .map(|[x, y]| [x * scale, y * scale])
+            .unwrap_or([w * 0.5, h * 0.5]);
+          images.push(crate::images::ImageCmd {
+            order,
+            x: quad.x * scale,
+            y: quad.y * scale,
+            width: w,
+            height: h,
+            image_id: raster.image_id,
+            frame_index: 0,
+            data: raster.data,
+            image_width: raster.width,
+            image_height: raster.height,
+            uv_min: [0.0, 0.0],
+            uv_max: [1.0, 1.0],
+            radii: [0.0; 4],
+            transform: image_transform,
+            transform_origin: image_transform_origin,
+            clip: scaled_clip,
+          });
+        }
+        #[cfg(all(feature = "svg", not(feature = "image")))]
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;

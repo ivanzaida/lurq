@@ -1,6 +1,6 @@
 use crate::{app::theme::PaletteColor, node::color::Color};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BackgroundColor {
   Color(Color),
   Palette(PaletteColor),
@@ -14,10 +14,10 @@ impl BackgroundColor {
     }
   }
 
-  pub(crate) fn resolve(self, palette: &crate::app::theme::ThemePalette) -> Option<Color> {
+  pub(crate) fn resolve(&self, palette: &crate::app::theme::ThemePalette) -> Option<Color> {
     match self {
-      Self::Color(color) => Some(color),
-      Self::Palette(color) => Some(palette.get(color)),
+      Self::Color(color) => Some(*color),
+      Self::Palette(color) => palette.try_get(color),
     }
   }
 }
@@ -37,5 +37,11 @@ impl From<&str> for BackgroundColor {
 impl From<PaletteColor> for BackgroundColor {
   fn from(color: PaletteColor) -> Self {
     Self::Palette(color)
+  }
+}
+
+impl From<&PaletteColor> for BackgroundColor {
+  fn from(color: &PaletteColor) -> Self {
+    Self::Palette(color.clone())
   }
 }

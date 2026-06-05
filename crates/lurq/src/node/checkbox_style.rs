@@ -174,7 +174,7 @@ impl CheckboxStyle {
       self.border_radius = other.border_radius;
     }
     if other.border.is_some() {
-      self.border = other.border;
+      self.border = other.border.clone();
     }
     if other.indicator_width.is_some() {
       self.indicator_width = other.indicator_width;

@@ -13,7 +13,7 @@ pub struct FormTheme {
   pub button: FormButtonTheme,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct FormTextRole {
   pub typography: TypographyStyle,
   pub color: PaletteColor,
@@ -85,7 +85,7 @@ pub struct FormButtonRole {
 impl FormTextRole {
   pub fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
     let mut style = typography.resolve(self.typography);
-    style.color = palette.resolve(self.color);
+    style.color = palette.resolve(&self.color);
     style
   }
 }
@@ -94,24 +94,24 @@ impl FormCheckboxStyle {
   pub fn box_style(&self, palette: &ThemePalette) -> CheckboxStyle {
     CheckboxStyle::new()
       .size(16.0, 16.0)
-      .background(palette.resolve(self.background))
+      .background(palette.resolve(&self.background))
       .rounded(self.radius)
-      .border_inside(BorderSize::Sm, self.border)
+      .border_inside(BorderSize::Sm, &self.border)
   }
 
   pub fn checked_box_style(&self, palette: &ThemePalette) -> CheckboxStyle {
     CheckboxStyle::new()
-      .background(palette.resolve(self.checked_background))
-      .border_inside(BorderSize::Sm, self.checked_border)
+      .background(palette.resolve(&self.checked_background))
+      .border_inside(BorderSize::Sm, &self.checked_border)
       .indicator_size(8.0, 8.0)
   }
 
   pub fn box_hovered_style(&self) -> CheckboxStyle {
-    CheckboxStyle::new().border_inside(BorderSize::Sm, self.border_hover)
+    CheckboxStyle::new().border_inside(BorderSize::Sm, &self.border_hover)
   }
 
   pub fn checked_box_hovered_style(&self, palette: &ThemePalette) -> CheckboxStyle {
-    CheckboxStyle::new().background(palette.resolve(self.checked_background_hover))
+    CheckboxStyle::new().background(palette.resolve(&self.checked_background_hover))
   }
 }
 
@@ -119,23 +119,23 @@ impl FormSliderStyle {
   pub fn track_style(&self, palette: &ThemePalette) -> SliderPartStyle {
     SliderPartStyle::new()
       .height(4.0)
-      .background(palette.resolve(self.track))
+      .background(palette.resolve(&self.track))
       .rounded(999.0)
   }
 
   pub fn track_hovered_style(&self, palette: &ThemePalette) -> SliderPartStyle {
-    SliderPartStyle::new().background(palette.resolve(self.track_hover))
+    SliderPartStyle::new().background(palette.resolve(&self.track_hover))
   }
 
   pub fn thumb_style(&self, palette: &ThemePalette) -> SliderPartStyle {
     SliderPartStyle::new()
       .size(16.0, 16.0)
-      .background(palette.resolve(self.thumb))
+      .background(palette.resolve(&self.thumb))
       .rounded(999.0)
   }
 
   pub fn thumb_hovered_style(&self, palette: &ThemePalette) -> SliderPartStyle {
-    SliderPartStyle::new().background(palette.resolve(self.thumb_hover))
+    SliderPartStyle::new().background(palette.resolve(&self.thumb_hover))
   }
 }
 

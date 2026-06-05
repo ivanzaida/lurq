@@ -89,6 +89,28 @@ fn text_color_accepts_palette_color() {
 }
 
 #[test]
+fn text_color_accepts_extra_palette_color() {
+  let mut app = App::new();
+  app.theme().set_palette_color("brand_text", Color::from_hex("#123456"));
+
+  let mut tree = Tree::new();
+  tree.set_root(Text::new("Label").color(PaletteColor::extra("brand_text")));
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(200.0, 80.0))));
+  tree.pass(&mut app, &TestSurface);
+
+  let quads = tree.resolve_quads(tree.last_layout().unwrap());
+  let style = quads
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { style, .. } => Some(style),
+      _ => None,
+    })
+    .expect("text quad should be emitted");
+
+  assert_eq!(style.color.to_hex(), "#123456");
+}
+
+#[test]
 fn text_color_and_variant_compose_in_either_order() {
   let mut app = App::new();
   app
