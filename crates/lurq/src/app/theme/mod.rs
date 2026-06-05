@@ -17,11 +17,14 @@ mod spacing;
 mod typography;
 
 #[cfg(feature = "form")]
-pub use form::{FormButtonStyle, FormCheckboxStyle, FormFieldStyle, FormInputStyle, FormSliderStyle, FormTheme};
-pub use palette::{PaletteId, ThemePalette};
-pub use radius::{RadiusId, ThemeRadii};
-pub use spacing::{SpacingId, ThemeSpacing};
-pub use typography::{ThemeFonts, ThemeTypography, TypographyId};
+pub use form::{
+  FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
+  FormTheme,
+};
+pub use palette::{PaletteColor, ThemePalette};
+pub use radius::{RadiusSize, ThemeRadii};
+pub use spacing::{SpacingSize, ThemeSpacing};
+pub use typography::{ThemeFonts, ThemeTypography, TypographyStyle};
 
 #[derive(Clone)]
 pub struct Theme {
@@ -99,21 +102,14 @@ impl Theme {
     self.bump_version(&mut inner);
   }
 
-  pub fn set_palette_color(&self, id: impl Into<PaletteId>, color: Color) {
+  pub fn set_palette_color(&self, palette_color: impl Into<PaletteColor>, color: Color) {
     let mut inner = self.inner.write().unwrap();
-    inner.palette.set(id, color);
+    inner.palette.set(palette_color, color);
     self.bump_version(&mut inner);
   }
 
-  pub fn register_palette_color(&self, color: Color) -> PaletteId {
-    let mut inner = self.inner.write().unwrap();
-    let id = inner.palette.register(color);
-    self.bump_version(&mut inner);
-    id
-  }
-
-  pub fn palette_color(&self, id: impl Into<PaletteId>) -> Option<Color> {
-    self.inner.read().unwrap().palette.get(id).copied()
+  pub fn palette_color(&self, palette_color: impl Into<PaletteColor>) -> Color {
+    self.inner.read().unwrap().palette.get(palette_color)
   }
 
   pub fn spacing(&self) -> ThemeRef<'_, ThemeSpacing> {
@@ -129,21 +125,14 @@ impl Theme {
     self.bump_version(&mut inner);
   }
 
-  pub fn set_spacing_value(&self, id: impl Into<SpacingId>, value: impl Into<Dimension>) {
+  pub fn set_spacing_value(&self, size: impl Into<SpacingSize>, value: impl Into<Dimension>) {
     let mut inner = self.inner.write().unwrap();
-    inner.spacing.set(id, value);
+    inner.spacing.set(size, value);
     self.bump_version(&mut inner);
   }
 
-  pub fn register_spacing(&self, value: impl Into<Dimension>) -> SpacingId {
-    let mut inner = self.inner.write().unwrap();
-    let id = inner.spacing.register(value);
-    self.bump_version(&mut inner);
-    id
-  }
-
-  pub fn spacing_value(&self, id: impl Into<SpacingId>) -> Option<Dimension> {
-    self.inner.read().unwrap().spacing.get(id)
+  pub fn spacing_value(&self, size: impl Into<SpacingSize>) -> Dimension {
+    self.inner.read().unwrap().spacing.get(size)
   }
 
   pub fn radii(&self) -> ThemeRef<'_, ThemeRadii> {
@@ -159,21 +148,14 @@ impl Theme {
     self.bump_version(&mut inner);
   }
 
-  pub fn set_radius_value(&self, id: impl Into<RadiusId>, value: f32) {
+  pub fn set_radius_value(&self, size: impl Into<RadiusSize>, value: f32) {
     let mut inner = self.inner.write().unwrap();
-    inner.radii.set(id, value);
+    inner.radii.set(size, value);
     self.bump_version(&mut inner);
   }
 
-  pub fn register_radius(&self, value: f32) -> RadiusId {
-    let mut inner = self.inner.write().unwrap();
-    let id = inner.radii.register(value);
-    self.bump_version(&mut inner);
-    id
-  }
-
-  pub fn radius_value(&self, id: impl Into<RadiusId>) -> Option<f32> {
-    self.inner.read().unwrap().radii.get(id)
+  pub fn radius_value(&self, size: impl Into<RadiusSize>) -> f32 {
+    self.inner.read().unwrap().radii.get(size)
   }
 
   pub fn typography(&self) -> ThemeRef<'_, ThemeTypography> {
@@ -189,9 +171,9 @@ impl Theme {
     self.bump_version(&mut inner);
   }
 
-  pub fn set_typography_style(&self, id: impl Into<TypographyId>, style: TextStyle) {
+  pub fn set_typography_style(&self, typography_style: impl Into<TypographyStyle>, style: TextStyle) {
     let mut inner = self.inner.write().unwrap();
-    inner.typography.set(id, style);
+    inner.typography.set(typography_style, style);
     self.bump_version(&mut inner);
   }
 
@@ -205,15 +187,8 @@ impl Theme {
     self.bump_version(&mut inner);
   }
 
-  pub fn register_typography_style(&self, style: TextStyle) -> TypographyId {
-    let mut inner = self.inner.write().unwrap();
-    let id = inner.typography.register(style);
-    self.bump_version(&mut inner);
-    id
-  }
-
-  pub fn typography_style(&self, id: impl Into<TypographyId>) -> Option<TextStyle> {
-    self.inner.read().unwrap().typography.get(id).cloned()
+  pub fn typography_style(&self, typography_style: impl Into<TypographyStyle>) -> TextStyle {
+    self.inner.read().unwrap().typography.get(typography_style)
   }
 
   pub fn fonts(&self) -> ThemeFonts {

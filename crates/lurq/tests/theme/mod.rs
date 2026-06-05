@@ -3,7 +3,7 @@ mod lens {
 }
 
 mod palette {
-  mod background_token_resolves;
+  mod background_palette_resolves;
 }
 
 mod subscription {

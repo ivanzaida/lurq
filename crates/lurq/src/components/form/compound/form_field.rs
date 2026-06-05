@@ -63,16 +63,18 @@ where
     let control = ctx.form_control(&props.control);
     let visible_error = control.visible_error();
     let style = ctx.theme().form().field.clone();
+    let palette = ctx.theme().palette().clone();
+    let typography = ctx.theme().typography().clone();
 
     let mut field = Column::new().spacing(style.spacing);
 
     if let Some(label) = props.label.as_deref() {
       let label_style = if visible_error.is_some() {
-        style.error.clone()
+        style.error
       } else {
-        style.label.clone()
+        style.label
       };
-      field = field.child(Text::styled(label, label_style));
+      field = field.child(Text::styled(label, label_style.resolve(&typography, &palette)));
     }
 
     for child in ctx.children() {
@@ -80,9 +82,9 @@ where
     }
 
     if let Some(error) = visible_error {
-      field = field.child(Text::styled(&error, style.error));
+      field = field.child(Text::styled(&error, style.error.resolve(&typography, &palette)));
     } else if let Some(hint) = props.hint.as_deref() {
-      field = field.child(Text::styled(hint, style.hint));
+      field = field.child(Text::styled(hint, style.hint.resolve(&typography, &palette)));
     }
 
     field

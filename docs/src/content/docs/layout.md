@@ -29,9 +29,9 @@ Common modifiers:
 | `.size(width, height)` | Force width and height |
 | `.width(width)` | Force width |
 | `.height(height)` | Force height |
-| `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingId` |
-| `.background(color)` | Fill the element background from a concrete color or `PaletteId` |
-| `.rounded(radius)` | Set border radius from `f32` or `RadiusId` |
+| `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingSize` |
+| `.background(color)` | Fill the element background from a concrete color or `PaletteColor` |
+| `.rounded(radius)` | Set border radius from `f32` or `RadiusSize` |
 | `.border_inside(width, color)` | Draw an inside border |
 | `.offset(x, y)` | Shift visually without changing parent layout |
 | `.relative(x, y)` | Alias for `.offset(x, y)` |
@@ -41,7 +41,7 @@ Common modifiers:
 | `.align(Alignment)` | Override alignment within parent container |
 | `.flex(factor)` | Participate in row/column flex distribution |
 
-Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Padding accepts `f32`, `Dimension`, or `SpacingId`.
+Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
 
 ```rust
 use lurq::node::dimension::Dimension;
@@ -98,7 +98,7 @@ Column layout:
 4. Positions children vertically and applies cross-axis alignment.
 5. Distributes remaining height to flex children when present.
 
-`.spacing(...)` accepts either a plain pixel value or a `SpacingId` from the active theme.
+`.spacing(...)` accepts either a plain pixel value or a `SpacingSize` from the active theme.
 
 ### Row
 
@@ -114,7 +114,7 @@ lurq::components::Row::new()
 
 Row layout is the horizontal equivalent of column layout.
 
-`.spacing(...)` accepts either a plain pixel value or a `SpacingId` from the active theme.
+`.spacing(...)` accepts either a plain pixel value or a `SpacingSize` from the active theme.
 
 ### Stack
 

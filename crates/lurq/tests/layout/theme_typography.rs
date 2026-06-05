@@ -1,7 +1,7 @@
 use lurq::{
   app::{
     App, Tree,
-    theme::{PaletteId, RadiusId, SpacingId, TypographyId},
+    theme::{PaletteColor, RadiusSize, SpacingSize, TypographyStyle},
   },
   components::{Rect, Row, Text},
   layout::{
@@ -40,10 +40,9 @@ fn text_new_uses_default_text_style() {
 
 #[test]
 fn text_variant_uses_named_typography_style() {
-  const DISPLAY: TypographyId = TypographyId::new(10);
   let mut app = App::new();
   app.theme().set_typography_style(
-    DISPLAY,
+    TypographyStyle::Heading,
     TextStyle {
       font_size: 34.0,
       weight: FontWeight::Bold,
@@ -52,7 +51,7 @@ fn text_variant_uses_named_typography_style() {
   );
 
   let mut tree = Tree::new();
-  tree.set_root(Text::new("headline").variant(DISPLAY));
+  tree.set_root(Text::new("headline").variant(TypographyStyle::Heading));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -124,12 +123,13 @@ fn typography_change_recalculates_text_layout() {
 
 #[test]
 fn background_resolves_palette_color() {
-  const BRAND: PaletteId = PaletteId::new(9);
   let mut app = App::new();
-  app.theme().set_palette_color(BRAND, Color::from_hex("#123456"));
+  app
+    .theme()
+    .set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
 
   let mut tree = Tree::new();
-  tree.set_root(Rect::new(40.0, 20.0).background(BRAND));
+  tree.set_root(Rect::new(40.0, 20.0).background(PaletteColor::Accent));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -146,14 +146,13 @@ fn background_resolves_palette_color() {
 
 #[test]
 fn row_spacing_resolves_theme_spacing() {
-  const GAP: SpacingId = SpacingId::new(7);
   let mut app = App::new();
-  app.theme().set_spacing_value(GAP, 12.0);
+  app.theme().set_spacing_value(SpacingSize::Md, 12.0);
 
   let mut tree = Tree::new();
   tree.set_root(
     Row::new()
-      .spacing(GAP)
+      .spacing(SpacingSize::Md)
       .child(Rect::new(10.0, 10.0).background("#111111"))
       .child(Rect::new(10.0, 10.0).background("#222222")),
   );
@@ -173,17 +172,19 @@ fn row_spacing_resolves_theme_spacing() {
 
 #[test]
 fn padding_resolves_theme_spacing() {
-  const PAD: SpacingId = SpacingId::new(8);
   let mut app = App::new();
-  app.theme().set_spacing_value(PAD, Dimension::Px(10.0));
+  app.theme().set_spacing_value(SpacingSize::Lg, Dimension::Px(10.0));
 
   let mut tree = Tree::new();
   tree.set_root(
-    lurq::components::Stack::new().size(20.0, 10.0).padding(PAD).child(
-      lurq::components::Spacer::new()
-        .width(Dimension::Pct(100.0))
-        .height(Dimension::Pct(100.0)),
-    ),
+    lurq::components::Stack::new()
+      .size(20.0, 10.0)
+      .padding(SpacingSize::Lg)
+      .child(
+        lurq::components::Spacer::new()
+          .width(Dimension::Pct(100.0))
+          .height(Dimension::Pct(100.0)),
+      ),
   );
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
@@ -200,12 +201,11 @@ fn padding_resolves_theme_spacing() {
 
 #[test]
 fn radius_resolves_theme_radius() {
-  const CARD: RadiusId = RadiusId::new(9);
   let mut app = App::new();
-  app.theme().set_radius_value(CARD, 6.0);
+  app.theme().set_radius_value(RadiusSize::Lg, 8.0);
 
   let mut tree = Tree::new();
-  tree.set_root(Rect::new(30.0, 20.0).background("#123456").rounded(CARD));
+  tree.set_root(Rect::new(30.0, 20.0).background("#123456").rounded(RadiusSize::Lg));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -214,8 +214,8 @@ fn radius_resolves_theme_radius() {
     .iter()
     .find_map(|quad| quad.border_radius)
     .expect("rect quad should include border radius");
-  assert_eq!(radius.top_left, 6.0);
-  assert_eq!(radius.top_right, 6.0);
-  assert_eq!(radius.bottom_right, 6.0);
-  assert_eq!(radius.bottom_left, 6.0);
+  assert_eq!(radius.top_left, 8.0);
+  assert_eq!(radius.top_right, 8.0);
+  assert_eq!(radius.bottom_right, 8.0);
+  assert_eq!(radius.bottom_left, 8.0);
 }

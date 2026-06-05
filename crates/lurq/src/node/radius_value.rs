@@ -1,16 +1,16 @@
-use crate::app::theme::{RadiusId, ThemeRadii};
+use crate::app::theme::{RadiusSize, ThemeRadii};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RadiusValue {
   Px(f32),
-  Theme(RadiusId),
+  Theme(RadiusSize),
 }
 
 impl RadiusValue {
   pub fn resolve(&self, radii: &ThemeRadii) -> f32 {
     match self {
       Self::Px(value) => *value,
-      Self::Theme(id) => radii.get(*id).unwrap_or(0.0),
+      Self::Theme(size) => radii.get(*size),
     }
   }
 
@@ -34,8 +34,8 @@ impl From<f32> for RadiusValue {
   }
 }
 
-impl From<RadiusId> for RadiusValue {
-  fn from(value: RadiusId) -> Self {
+impl From<RadiusSize> for RadiusValue {
+  fn from(value: RadiusSize) -> Self {
     Self::Theme(value)
   }
 }

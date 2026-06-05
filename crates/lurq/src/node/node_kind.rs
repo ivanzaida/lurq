@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-  app::theme::{ThemePalette, ThemeTypography, TypographyId},
+  app::theme::{ThemePalette, ThemeTypography, TypographyStyle},
   core::Signal,
   layout::text_style::TextStyle,
   node::{
@@ -70,7 +70,7 @@ pub(crate) struct TextStyleSource {
 #[derive(Clone, PartialEq)]
 enum TextStyleBase {
   Default,
-  Typography(TypographyId),
+  Typography(TypographyStyle),
   Explicit(TextStyle),
 }
 
@@ -89,8 +89,8 @@ impl TextStyleSource {
     }
   }
 
-  pub(crate) fn set_variant(&mut self, id: impl Into<TypographyId>) {
-    self.base = TextStyleBase::Typography(id.into());
+  pub(crate) fn set_variant(&mut self, style: impl Into<TypographyStyle>) {
+    self.base = TextStyleBase::Typography(style.into());
   }
 
   pub(crate) fn set_color(&mut self, color: impl Into<TextColor>) {
@@ -100,7 +100,7 @@ impl TextStyleSource {
   pub(crate) fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
     let mut style = match &self.base {
       TextStyleBase::Default => typography.default_style().clone(),
-      TextStyleBase::Typography(id) => typography.resolve(id),
+      TextStyleBase::Typography(style) => typography.resolve(*style),
       TextStyleBase::Explicit(style) => style.clone(),
     };
     if let Some(color) = self.color.and_then(|color| color.resolve(palette)) {

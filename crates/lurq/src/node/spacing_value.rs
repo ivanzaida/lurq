@@ -1,19 +1,19 @@
 use crate::{
-  app::theme::{SpacingId, ThemeSpacing},
+  app::theme::{SpacingSize, ThemeSpacing},
   node::dimension::Dimension,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SpacingValue {
   Dimension(Dimension),
-  Theme(SpacingId),
+  Theme(SpacingSize),
 }
 
 impl SpacingValue {
   pub fn resolve(&self, spacing: &ThemeSpacing, parent_size: f32) -> f32 {
     match self {
       Self::Dimension(value) => value.resolve(parent_size),
-      Self::Theme(id) => spacing.get(*id).map(|value| value.resolve(parent_size)).unwrap_or(0.0),
+      Self::Theme(size) => spacing.get(*size).resolve(parent_size),
     }
   }
 
@@ -43,8 +43,8 @@ impl From<Dimension> for SpacingValue {
   }
 }
 
-impl From<SpacingId> for SpacingValue {
-  fn from(value: SpacingId) -> Self {
+impl From<SpacingSize> for SpacingValue {
+  fn from(value: SpacingSize) -> Self {
     Self::Theme(value)
   }
 }

@@ -4,7 +4,7 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     events::MouseButton,
-    theme::{FormFieldStyle, FormTheme},
+    theme::{FormTheme, PaletteColor},
   },
   components::{
     Column, ErrorVisibility, FormCheckboxInput, FormCheckboxInputProps, FormControlField, FormFieldProps, FormHandle,
@@ -104,13 +104,10 @@ fn form_control_field_renders_visible_error_instead_of_hint() {
 fn form_control_field_uses_theme_field_styles() {
   let mut app = App::new();
   let mut form_theme = FormTheme::default();
-  form_theme.field = FormFieldStyle {
-    label: TextStyle {
-      color: Color::from_hex("#123456"),
-      ..form_theme.field.label.clone()
-    },
-    ..form_theme.field
-  };
+  form_theme.field.label.color = PaletteColor::Info;
+  app
+    .theme()
+    .set_palette_color(PaletteColor::Info, Color::from_hex("#123456"));
   app.theme().set_form(form_theme);
 
   let mut tree = Tree::new();
@@ -223,7 +220,7 @@ fn builtin_form_text_input_focus_style_renders_on_input_frame() {
 
   pointer_click(&mut tree, x, y, MouseButton::Left);
   let focused = render_pass(&mut tree);
-  let focused_border = Color::new(13, 110, 253, 255);
+  let focused_border = Color::from_hex("#2563eb");
   let focused_borders = focused
     .rects
     .iter()

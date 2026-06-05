@@ -226,37 +226,39 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 ## Text Styling
 
-Theme palettes, spacing, radii, and typography use cheap IDs that map to theme token values:
+Theme palettes, typography, radii, and spacing expose strict named values:
 
 ```rust
-use lurq::node::{color::Color, dimension::Dimension};
+use lurq::{
+  app::theme::{PaletteColor, RadiusSize, SpacingSize, TypographyStyle},
+  node::color::Color,
+};
 
-let brand_id = app.theme().register_palette_color(Color::from_hex("#2563eb"));
+app.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
 
-let gap_id = app.theme().register_spacing(Dimension::Px(8.0));
-
-let card_radius_id = app.theme().register_radius(6.0);
+app.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
 lurq::components::Rect::new(120.0, 40.0)
-  .background(brand_id)
-  .padding(gap_id)
-  .rounded(card_radius_id);
+  .background(PaletteColor::Accent)
+  .padding(SpacingSize::Sm)
+  .rounded(RadiusSize::Md);
 
 lurq::components::Row::new()
-  .spacing(gap_id);
+  .spacing(SpacingSize::Sm);
 ```
 
-Plain text resolves its style from the active theme. `Text::new` uses the theme default text style, and `variant` selects any user-defined typography entry from the theme.
+Plain text resolves its style from the active theme. `Text::new` uses the theme body text style, and `variant` selects one of the strict named typography styles.
 
 ```rust
 use lurq::layout::text_style::{FontWeight, TextStyle};
 
-app.theme().set_default_text_style(TextStyle {
+app.theme().set_typography_style(TypographyStyle::Body, TextStyle {
   font_size: 16.0,
   ..TextStyle::default()
 });
 
-let display_id = app.theme().register_typography_style(
+app.theme().set_typography_style(
+  TypographyStyle::Heading,
   TextStyle {
     font_size: 32.0,
     weight: FontWeight::Bold,
@@ -265,10 +267,10 @@ let display_id = app.theme().register_typography_style(
 );
 
 lurq::components::Text::new("Headline")
-  .variant(display_id)
+  .variant(TypographyStyle::Heading)
 ```
 
-Missing variants fall back to the default text style. Generated IDs are the default path for custom theme entries; manual IDs are available through `PaletteId::new(...)`, `SpacingId::new(...)`, `RadiusId::new(...)`, and `TypographyId::new(...)` when stable numeric IDs are needed. Lurq does not define or reserve built-in theme token IDs.
+Text variants are closed over the `TypographyStyle` names. Radius variants are closed over `RadiusSize::Sm`, `RadiusSize::Md`, and `RadiusSize::Lg`. Spacing variants are closed over `SpacingSize::Xs`, `SpacingSize::Sm`, `SpacingSize::Md`, `SpacingSize::Lg`, `SpacingSize::Xl`, and `SpacingSize::Section`.
 
 Use `Text::styled` for a one-off style that should ignore theme typography:
 

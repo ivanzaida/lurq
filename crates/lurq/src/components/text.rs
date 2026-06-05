@@ -1,5 +1,5 @@
 use crate::{
-  app::theme::TypographyId,
+  app::theme::TypographyStyle,
   impl_into_node,
   layout::text_style::TextStyle,
   node::{TextColor, TextTransformMode},
@@ -31,8 +31,8 @@ impl Text {
     self
   }
 
-  pub fn variant(mut self, id: impl Into<TypographyId>) -> Self {
-    self.node = self.node.text_variant(id);
+  pub fn variant(mut self, style: impl Into<TypographyStyle>) -> Self {
+    self.node = self.node.text_variant(style);
     self
   }
 

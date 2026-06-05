@@ -8,7 +8,7 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
-    theme::TypographyId,
+    theme::TypographyStyle,
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
@@ -890,9 +890,9 @@ impl Node {
     self
   }
 
-  pub fn text_variant(mut self, id: impl Into<TypographyId>) -> Self {
+  pub fn text_variant(mut self, typography_style: impl Into<TypographyStyle>) -> Self {
     if let NodeKind::Text { style, .. } = &mut self.node_kind {
-      style.set_variant(id);
+      style.set_variant(typography_style);
       self.layout_cache.invalidate();
     }
     self

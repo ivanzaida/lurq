@@ -1,36 +1,36 @@
-use std::collections::HashMap;
-
 use crate::node::dimension::Dimension;
 
-#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SpacingId(u8);
+pub enum SpacingSize {
+  Xs,
+  Sm,
+  Md,
+  Lg,
+  Xl,
+  Section,
+}
 
-impl SpacingId {
-  pub const fn new(id: u8) -> Self {
-    Self(id)
-  }
-
-  pub const fn get(self) -> u8 {
-    self.0
+impl SpacingSize {
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Xs => "xs",
+      Self::Sm => "sm",
+      Self::Md => "md",
+      Self::Lg => "lg",
+      Self::Xl => "xl",
+      Self::Section => "section",
+    }
   }
 }
 
-impl From<u8> for SpacingId {
-  fn from(id: u8) -> Self {
-    Self::new(id)
-  }
-}
-
-impl From<&SpacingId> for SpacingId {
-  fn from(id: &SpacingId) -> Self {
-    *id
-  }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThemeSpacing {
-  values: HashMap<SpacingId, Dimension>,
+  pub xs: Dimension,
+  pub sm: Dimension,
+  pub md: Dimension,
+  pub lg: Dimension,
+  pub xl: Dimension,
+  pub section: Dimension,
 }
 
 impl ThemeSpacing {
@@ -38,51 +38,38 @@ impl ThemeSpacing {
     Self::default()
   }
 
-  pub fn from_values<I, K, V>(values: I) -> Self
-  where
-    I: IntoIterator<Item = (K, V)>,
-    K: Into<SpacingId>,
-    V: Into<Dimension>,
-  {
-    Self {
-      values: values
-        .into_iter()
-        .map(|(id, value)| (id.into(), value.into()))
-        .collect(),
+  pub fn get(&self, size: impl Into<SpacingSize>) -> Dimension {
+    match size.into() {
+      SpacingSize::Xs => self.xs,
+      SpacingSize::Sm => self.sm,
+      SpacingSize::Md => self.md,
+      SpacingSize::Lg => self.lg,
+      SpacingSize::Xl => self.xl,
+      SpacingSize::Section => self.section,
     }
   }
 
-  pub fn values(&self) -> &HashMap<SpacingId, Dimension> {
-    &self.values
-  }
-
-  pub fn set(&mut self, id: impl Into<SpacingId>, value: impl Into<Dimension>) {
-    self.values.insert(id.into(), value.into());
-  }
-
-  pub fn register(&mut self, value: impl Into<Dimension>) -> SpacingId {
-    let id = self.next_available_id();
-    self.values.insert(id, value.into());
-    id
-  }
-
-  pub fn get(&self, id: impl Into<SpacingId>) -> Option<Dimension> {
-    self.values.get(&id.into()).copied()
-  }
-
-  fn next_available_id(&self) -> SpacingId {
-    for raw in 0..=u8::MAX {
-      let id = SpacingId::new(raw);
-      if !self.values.contains_key(&id) {
-        return id;
-      }
+  pub fn set(&mut self, size: impl Into<SpacingSize>, value: impl Into<Dimension>) {
+    match size.into() {
+      SpacingSize::Xs => self.xs = value.into(),
+      SpacingSize::Sm => self.sm = value.into(),
+      SpacingSize::Md => self.md = value.into(),
+      SpacingSize::Lg => self.lg = value.into(),
+      SpacingSize::Xl => self.xl = value.into(),
+      SpacingSize::Section => self.section = value.into(),
     }
-    panic!("no spacing ids available");
   }
 }
 
 impl Default for ThemeSpacing {
   fn default() -> Self {
-    Self { values: HashMap::new() }
+    Self {
+      xs: Dimension::Px(4.0),
+      sm: Dimension::Px(8.0),
+      md: Dimension::Px(12.0),
+      lg: Dimension::Px(16.0),
+      xl: Dimension::Px(24.0),
+      section: Dimension::Px(32.0),
+    }
   }
 }

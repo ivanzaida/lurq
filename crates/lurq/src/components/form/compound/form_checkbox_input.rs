@@ -46,14 +46,15 @@ impl crate::app::component::Component for FormCheckboxInput {
     let props = ctx.props::<Self::Props>().clone();
     let control = ctx.form_control(&props.control);
     let checkbox_style = ctx.theme().form().checkbox.clone();
+    let palette = ctx.theme().palette().clone();
     let blur_control = control.clone();
 
     let checkbox = Checkbox::new(control.value())
       .name(control.name())
-      .box_style(checkbox_style.box_style)
-      .checked_box_style(checkbox_style.checked_box_style)
-      .box_hovered_style(checkbox_style.box_hovered_style)
-      .checked_box_hovered_style(checkbox_style.checked_box_hovered_style)
+      .box_style(checkbox_style.box_style(&palette))
+      .checked_box_style(checkbox_style.checked_box_style(&palette))
+      .box_hovered_style(checkbox_style.box_hovered_style())
+      .checked_box_hovered_style(checkbox_style.checked_box_hovered_style(&palette))
       .on_blur(move || {
         blur_control.mark_touched();
         blur_control.validate();

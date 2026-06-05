@@ -9,7 +9,8 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     theme::{
-      PaletteId, RadiusId, SpacingId, Theme, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography, TypographyId,
+      PaletteColor, RadiusSize, SpacingSize, Theme, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography,
+      TypographyStyle,
     },
   },
   layout::text_style::{FontWeight, TextStyle},
@@ -42,169 +43,135 @@ impl<T> std::fmt::Debug for Shared<T> {
 #[test]
 fn default_theme_has_palette() {
   let t = Theme::new();
-  assert!(t.palette_color(PaletteId::new(0)).is_none());
+  assert_eq!(t.palette_color(PaletteColor::Accent).to_hex(), "#2563eb");
+  assert_eq!(t.palette().accent.to_hex(), "#2563eb");
 }
 
 #[test]
-fn theme_token_apis_accept_raw_and_borrowed_ids() {
-  let mut palette = ThemePalette::from_colors([(1u8, Color::from_hex("#123456"))]);
-  let palette_id = PaletteId::new(1);
-  palette.set(&palette_id, Color::from_hex("#abcdef"));
-  assert_eq!(palette.get(&palette_id).unwrap().to_hex(), "#abcdef");
-  assert_eq!(palette.resolve(1u8).to_hex(), "#abcdef");
-  assert_eq!(palette.resolve(&palette_id).to_hex(), "#abcdef");
+fn named_theme_values_can_be_set_and_resolved() {
+  let mut spacing = ThemeSpacing::default();
+  spacing.set(SpacingSize::Section, Dimension::Pct(5.0));
+  assert_eq!(spacing.get(SpacingSize::Section), Dimension::Pct(5.0));
 
-  let mut spacing = ThemeSpacing::from_values([(2u8, 12.0)]);
-  let spacing_id = SpacingId::new(2);
-  spacing.set(&spacing_id, Dimension::Pct(5.0));
-  assert_eq!(spacing.get(&spacing_id), Some(Dimension::Pct(5.0)));
-  assert_eq!(spacing.get(2u8), Some(Dimension::Pct(5.0)));
-
-  let mut radii = ThemeRadii::from_values([(3u8, 4.0)]);
-  let radius_id = RadiusId::new(3);
-  radii.set(&radius_id, 8.0);
-  assert_eq!(radii.get(&radius_id), Some(8.0));
-  assert_eq!(radii.get(3u8), Some(8.0));
-
-  let style = TextStyle {
-    font_size: 22.0,
-    ..TextStyle::default()
-  };
-  let mut typography = ThemeTypography::from_styles([(4u8, style.clone())]);
-  let typography_id = TypographyId::new(4);
+  let mut typography = ThemeTypography::default();
   typography.set(
-    &typography_id,
+    TypographyStyle::Title,
     TextStyle {
       font_size: 24.0,
-      ..style
+      ..TextStyle::default()
     },
   );
-  assert_eq!(typography.get(&typography_id).unwrap().font_size, 24.0);
-  assert_eq!(typography.resolve(4u8).font_size, 24.0);
-  assert_eq!(typography.resolve(&typography_id).font_size, 24.0);
+  assert_eq!(typography.get(TypographyStyle::Title).font_size, 24.0);
+  assert_eq!(typography.resolve(TypographyStyle::Title).font_size, 24.0);
 }
 
 #[test]
 fn set_palette_color_updates_variant() {
-  const BRAND: PaletteId = PaletteId::new(20);
   let t = Theme::new();
-  t.set_palette_color(BRAND, Color::from_hex("#123456"));
+  t.set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
 
-  assert_eq!(t.palette_color(BRAND).unwrap().to_hex(), "#123456");
+  assert_eq!(t.palette_color(PaletteColor::Accent).to_hex(), "#123456");
+  assert_eq!(t.palette().accent.to_hex(), "#123456");
 }
 
 #[test]
-fn register_palette_color_allocates_unique_ids() {
+fn set_palette_replaces_named_palette() {
   let t = Theme::new();
-  let brand = t.register_palette_color(Color::from_hex("#123456"));
-  let accent = t.register_palette_color(Color::from_hex("#abcdef"));
-
-  assert_eq!(brand, PaletteId::new(0));
-  assert_eq!(accent, PaletteId::new(1));
-  assert_ne!(brand, accent);
-  assert_eq!(t.palette_color(brand).unwrap().to_hex(), "#123456");
-  assert_eq!(t.palette_color(accent).unwrap().to_hex(), "#abcdef");
-}
-
-#[test]
-fn set_palette_replaces_registry() {
-  const BRAND: PaletteId = PaletteId::new(20);
-  let t = Theme::new();
-  let palette = ThemePalette::from_colors([(BRAND, Color::from_hex("#abcdef"))]);
+  let mut palette = ThemePalette::default();
+  palette.accent = Color::from_hex("#abcdef");
+  palette.surface_base = Color::from_hex("#101010");
 
   t.set_palette(palette);
 
-  assert_eq!(t.palette_color(BRAND).unwrap().to_hex(), "#abcdef");
-  assert!(t.palette_color(PaletteId::new(0)).is_none());
+  assert_eq!(t.palette_color(PaletteColor::Accent).to_hex(), "#abcdef");
+  assert_eq!(t.palette_color(PaletteColor::SurfaceBase).to_hex(), "#101010");
+  let mut radii = ThemeRadii::default();
+  radii.set(RadiusSize::Lg, 8.0);
+  assert_eq!(radii.get(RadiusSize::Lg), 8.0);
 }
 
 #[test]
-fn default_theme_has_empty_spacing() {
+fn default_theme_has_spacing() {
   let t = Theme::new();
-  assert!(t.spacing_value(SpacingId::new(0)).is_none());
+  assert_eq!(t.spacing_value(SpacingSize::Xs), Dimension::Px(4.0));
+  assert_eq!(t.spacing_value(SpacingSize::Sm), Dimension::Px(8.0));
+  assert_eq!(t.spacing_value(SpacingSize::Md), Dimension::Px(12.0));
+  assert_eq!(t.spacing_value(SpacingSize::Lg), Dimension::Px(16.0));
+  assert_eq!(t.spacing_value(SpacingSize::Xl), Dimension::Px(24.0));
+  assert_eq!(t.spacing_value(SpacingSize::Section), Dimension::Px(32.0));
+  assert_eq!(t.spacing().xs, Dimension::Px(4.0));
+  assert_eq!(t.spacing().section, Dimension::Px(32.0));
 }
 
 #[test]
-fn set_spacing_value_updates_token() {
-  const GAP: SpacingId = SpacingId::new(9);
+fn set_spacing_value_updates_named_spacing() {
   let t = Theme::new();
-  t.set_spacing_value(GAP, 12.0);
+  t.set_spacing_value(SpacingSize::Md, 14.0);
 
-  assert_eq!(t.spacing_value(GAP), Some(Dimension::Px(12.0)));
+  assert_eq!(t.spacing_value(SpacingSize::Md), Dimension::Px(14.0));
+  assert_eq!(t.spacing().md, Dimension::Px(14.0));
 }
 
 #[test]
 fn set_spacing_value_accepts_dimension() {
-  const GAP: SpacingId = SpacingId::new(9);
   let t = Theme::new();
-  t.set_spacing_value(GAP, Dimension::Pct(5.0));
+  t.set_spacing_value(SpacingSize::Section, Dimension::Pct(5.0));
 
-  assert_eq!(t.spacing_value(GAP), Some(Dimension::Pct(5.0)));
+  assert_eq!(t.spacing_value(SpacingSize::Section), Dimension::Pct(5.0));
 }
 
 #[test]
-fn register_spacing_allocates_unique_ids() {
+fn set_spacing_replaces_named_spacing() {
   let t = Theme::new();
-  let small = t.register_spacing(4.0);
-  let medium = t.register_spacing(8.0);
-
-  assert_eq!(small, SpacingId::new(0));
-  assert_eq!(medium, SpacingId::new(1));
-  assert_ne!(small, medium);
-  assert_eq!(t.spacing_value(small), Some(Dimension::Px(4.0)));
-  assert_eq!(t.spacing_value(medium), Some(Dimension::Px(8.0)));
-}
-
-#[test]
-fn set_spacing_replaces_registry() {
-  const GAP: SpacingId = SpacingId::new(9);
-  let t = Theme::new();
-  let spacing = ThemeSpacing::from_values([(GAP, 12.0)]);
+  let spacing = ThemeSpacing {
+    xs: Dimension::Px(1.0),
+    sm: Dimension::Px(2.0),
+    md: Dimension::Px(3.0),
+    lg: Dimension::Px(4.0),
+    xl: Dimension::Px(5.0),
+    section: Dimension::Px(6.0),
+  };
 
   t.set_spacing(spacing);
 
-  assert_eq!(t.spacing_value(GAP), Some(Dimension::Px(12.0)));
-  assert!(t.spacing_value(SpacingId::new(0)).is_none());
+  assert_eq!(t.spacing_value(SpacingSize::Xs), Dimension::Px(1.0));
+  assert_eq!(t.spacing_value(SpacingSize::Section), Dimension::Px(6.0));
 }
 
 #[test]
-fn default_theme_has_empty_radii() {
+fn default_theme_has_radii() {
   let t = Theme::new();
-  assert!(t.radius_value(RadiusId::new(0)).is_none());
+  assert_eq!(t.radius_value(RadiusSize::Sm), 3.0);
+  assert_eq!(t.radius_value(RadiusSize::Md), 5.0);
+  assert_eq!(t.radius_value(RadiusSize::Lg), 6.0);
+  assert_eq!(t.radii().sm, 3.0);
+  assert_eq!(t.radii().md, 5.0);
+  assert_eq!(t.radii().lg, 6.0);
 }
 
 #[test]
-fn set_radius_value_updates_token() {
-  const CARD: RadiusId = RadiusId::new(9);
+fn set_radius_value_updates_named_radius() {
   let t = Theme::new();
-  t.set_radius_value(CARD, 6.0);
+  t.set_radius_value(RadiusSize::Md, 8.0);
 
-  assert_eq!(t.radius_value(CARD), Some(6.0));
+  assert_eq!(t.radius_value(RadiusSize::Md), 8.0);
+  assert_eq!(t.radii().md, 8.0);
 }
 
 #[test]
-fn register_radius_allocates_unique_ids() {
+fn set_radii_replaces_named_radii() {
   let t = Theme::new();
-  let small = t.register_radius(4.0);
-  let medium = t.register_radius(8.0);
-
-  assert_eq!(small, RadiusId::new(0));
-  assert_eq!(medium, RadiusId::new(1));
-  assert_ne!(small, medium);
-  assert_eq!(t.radius_value(small), Some(4.0));
-  assert_eq!(t.radius_value(medium), Some(8.0));
-}
-
-#[test]
-fn set_radii_replaces_registry() {
-  const CARD: RadiusId = RadiusId::new(9);
-  let t = Theme::new();
-  let radii = ThemeRadii::from_values([(CARD, 6.0)]);
+  let radii = ThemeRadii {
+    sm: 2.0,
+    md: 4.0,
+    lg: 8.0,
+  };
 
   t.set_radii(radii);
 
-  assert_eq!(t.radius_value(CARD), Some(6.0));
-  assert!(t.radius_value(RadiusId::new(0)).is_none());
+  assert_eq!(t.radius_value(RadiusSize::Sm), 2.0);
+  assert_eq!(t.radius_value(RadiusSize::Md), 4.0);
+  assert_eq!(t.radius_value(RadiusSize::Lg), 8.0);
 }
 
 #[test]
@@ -228,15 +195,15 @@ fn set_fonts_updates() {
 fn default_theme_has_typography() {
   let t = Theme::new();
   assert_eq!(t.default_text_style().font_size, 16.0);
-  assert!(t.typography_style(TypographyId::new(0)).is_none());
+  assert_eq!(t.typography().body.font_size, 16.0);
+  assert_eq!(t.typography_style(TypographyStyle::Heading).font_size, 24.0);
 }
 
 #[test]
 fn set_typography_style_updates_variant() {
-  const DISPLAY: TypographyId = TypographyId::new(10);
   let t = Theme::new();
   t.set_typography_style(
-    DISPLAY,
+    TypographyStyle::Title,
     TextStyle {
       font_size: 32.0,
       weight: FontWeight::Bold,
@@ -244,61 +211,42 @@ fn set_typography_style_updates_variant() {
     },
   );
 
-  let style = t.typography_style(DISPLAY).unwrap();
+  let style = t.typography_style(TypographyStyle::Title);
   assert_eq!(style.font_size, 32.0);
   assert!(style.weight == FontWeight::Bold);
 }
 
 #[test]
-fn register_typography_style_allocates_unique_ids() {
+fn set_typography_replaces_named_typography() {
   let t = Theme::new();
-  let label = t.register_typography_style(TextStyle {
-    font_size: 13.0,
+  let mut typography = ThemeTypography::default();
+  typography.caption = TextStyle {
+    font_size: 11.0,
     ..TextStyle::default()
-  });
-  let display = t.register_typography_style(TextStyle {
-    font_size: 32.0,
+  };
+  typography.title = TextStyle {
+    font_size: 30.0,
     ..TextStyle::default()
-  });
-
-  assert_eq!(label, TypographyId::new(0));
-  assert_eq!(display, TypographyId::new(1));
-  assert_ne!(label, display);
-  assert_eq!(t.typography_style(label).unwrap().font_size, 13.0);
-  assert_eq!(t.typography_style(display).unwrap().font_size, 32.0);
-}
-
-#[test]
-fn set_typography_replaces_registry() {
-  const CAPTION: TypographyId = TypographyId::new(11);
-  let t = Theme::new();
-  let typography = ThemeTypography::from_styles([(
-    CAPTION,
-    TextStyle {
-      font_size: 11.0,
-      ..TextStyle::default()
-    },
-  )]);
+  };
 
   t.set_typography(typography);
 
-  assert_eq!(t.typography_style(CAPTION).unwrap().font_size, 11.0);
-  assert!(t.typography_style(TypographyId::new(0)).is_none());
+  assert_eq!(t.typography_style(TypographyStyle::Caption).font_size, 11.0);
+  assert_eq!(t.typography_style(TypographyStyle::Title).font_size, 30.0);
 }
 
 #[test]
 fn theme_lens_reads_sets_and_updates_value() {
-  const BRAND: PaletteId = PaletteId::new(4);
   let theme = Theme::new();
   let brand = theme.lens(
-    |theme| theme.palette_color(BRAND).unwrap_or(Color::from_hex("#000000")),
-    |theme, color| theme.set_palette_color(BRAND, color),
+    |theme| theme.palette_color(PaletteColor::Accent),
+    |theme, color| theme.set_palette_color(PaletteColor::Accent, color),
   );
 
-  assert_eq!(brand.get().to_hex(), "#000000");
+  assert_eq!(brand.get().to_hex(), "#2563eb");
 
   brand.set(Color::from_hex("#123456"));
-  assert_eq!(theme.palette_color(BRAND).unwrap().to_hex(), "#123456");
+  assert_eq!(theme.palette_color(PaletteColor::Accent).to_hex(), "#123456");
 
   brand.update(|color| *color = Color::from_hex("#abcdef"));
   assert_eq!(brand.get().to_hex(), "#abcdef");
@@ -362,6 +310,6 @@ fn theme_change_rerenders_subscriber_components() {
 fn theme_clone_shares_state() {
   let t1 = Theme::new();
   let t2 = t1.clone();
-  t1.set_palette_color(PaletteId::new(7), Color::from_hex("#123456"));
-  assert_eq!(t2.palette_color(PaletteId::new(7)).unwrap().to_hex(), "#123456");
+  t1.set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
+  assert_eq!(t2.palette_color(PaletteColor::Accent).to_hex(), "#123456");
 }

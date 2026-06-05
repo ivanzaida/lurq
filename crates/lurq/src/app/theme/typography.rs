@@ -1,37 +1,50 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::layout::text_style::TextStyle;
+use crate::layout::text_style::{FontWeight, TextStyle};
 
-#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TypographyId(u8);
+pub enum TypographyStyle {
+  Heading,
+  Title,
+  Body,
+  Description,
+  Caption,
+  Label,
+  FieldLabel,
+  Button,
+  Link,
+  Mono,
+}
 
-impl TypographyId {
-  pub const fn new(id: u8) -> Self {
-    Self(id)
-  }
-
-  pub const fn get(self) -> u8 {
-    self.0
+impl TypographyStyle {
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Heading => "heading",
+      Self::Title => "title",
+      Self::Body => "body",
+      Self::Description => "description",
+      Self::Caption => "caption",
+      Self::Label => "label",
+      Self::FieldLabel => "field_label",
+      Self::Button => "button",
+      Self::Link => "link",
+      Self::Mono => "mono",
+    }
   }
 }
 
-impl From<u8> for TypographyId {
-  fn from(id: u8) -> Self {
-    Self::new(id)
-  }
-}
-
-impl From<&TypographyId> for TypographyId {
-  fn from(id: &TypographyId) -> Self {
-    *id
-  }
-}
-
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ThemeTypography {
-  styles: HashMap<TypographyId, TextStyle>,
-  default_style: TextStyle,
+  pub heading: TextStyle,
+  pub title: TextStyle,
+  pub body: TextStyle,
+  pub description: TextStyle,
+  pub caption: TextStyle,
+  pub label: TextStyle,
+  pub field_label: TextStyle,
+  pub button: TextStyle,
+  pub link: TextStyle,
+  pub mono: TextStyle,
 }
 
 impl ThemeTypography {
@@ -39,67 +52,92 @@ impl ThemeTypography {
     Self::default()
   }
 
-  pub fn from_styles<I, K>(styles: I) -> Self
-  where
-    I: IntoIterator<Item = (K, TextStyle)>,
-    K: Into<TypographyId>,
-  {
-    Self {
-      styles: styles.into_iter().map(|(id, style)| (id.into(), style)).collect(),
-      default_style: TextStyle::default(),
+  pub fn get(&self, style: impl Into<TypographyStyle>) -> TextStyle {
+    match style.into() {
+      TypographyStyle::Heading => self.heading.clone(),
+      TypographyStyle::Title => self.title.clone(),
+      TypographyStyle::Body => self.body.clone(),
+      TypographyStyle::Description => self.description.clone(),
+      TypographyStyle::Caption => self.caption.clone(),
+      TypographyStyle::Label => self.label.clone(),
+      TypographyStyle::FieldLabel => self.field_label.clone(),
+      TypographyStyle::Button => self.button.clone(),
+      TypographyStyle::Link => self.link.clone(),
+      TypographyStyle::Mono => self.mono.clone(),
     }
   }
 
-  pub fn styles(&self) -> &HashMap<TypographyId, TextStyle> {
-    &self.styles
+  pub fn set(&mut self, style: impl Into<TypographyStyle>, value: TextStyle) {
+    match style.into() {
+      TypographyStyle::Heading => self.heading = value,
+      TypographyStyle::Title => self.title = value,
+      TypographyStyle::Body => self.body = value,
+      TypographyStyle::Description => self.description = value,
+      TypographyStyle::Caption => self.caption = value,
+      TypographyStyle::Label => self.label = value,
+      TypographyStyle::FieldLabel => self.field_label = value,
+      TypographyStyle::Button => self.button = value,
+      TypographyStyle::Link => self.link = value,
+      TypographyStyle::Mono => self.mono = value,
+    }
   }
 
   pub fn default_style(&self) -> &TextStyle {
-    &self.default_style
+    &self.body
   }
 
   pub fn set_default_style(&mut self, style: TextStyle) {
-    self.default_style = style;
+    self.body = style;
   }
 
-  pub fn set(&mut self, id: impl Into<TypographyId>, style: TextStyle) {
-    self.styles.insert(id.into(), style);
-  }
-
-  pub fn register(&mut self, style: TextStyle) -> TypographyId {
-    let id = self.next_available_id();
-    self.styles.insert(id, style);
-    id
-  }
-
-  pub fn get(&self, id: impl Into<TypographyId>) -> Option<&TextStyle> {
-    self.styles.get(&id.into())
-  }
-
-  pub fn resolve(&self, id: impl Into<TypographyId>) -> TextStyle {
-    self
-      .styles
-      .get(&id.into())
-      .cloned()
-      .unwrap_or_else(|| self.default_style.clone())
-  }
-
-  fn next_available_id(&self) -> TypographyId {
-    for raw in 0..=u8::MAX {
-      let id = TypographyId::new(raw);
-      if !self.styles.contains_key(&id) {
-        return id;
-      }
-    }
-    panic!("no typography ids available");
+  pub fn resolve(&self, style: impl Into<TypographyStyle>) -> TextStyle {
+    self.get(style)
   }
 }
 
 impl Default for ThemeTypography {
   fn default() -> Self {
+    let body = TextStyle::default();
     Self {
-      styles: HashMap::new(),
-      default_style: TextStyle::default(),
+      heading: TextStyle {
+        font_size: 24.0,
+        weight: FontWeight::Bold,
+        ..body.clone()
+      },
+      title: TextStyle {
+        font_size: 20.0,
+        weight: FontWeight::Bold,
+        ..body.clone()
+      },
+      body: body.clone(),
+      description: TextStyle {
+        font_size: 14.0,
+        ..body.clone()
+      },
+      caption: TextStyle {
+        font_size: 12.0,
+        ..body.clone()
+      },
+      label: TextStyle {
+        font_size: 13.0,
+        weight: FontWeight::Medium,
+        ..body.clone()
+      },
+      field_label: TextStyle {
+        font_size: 13.0,
+        weight: FontWeight::Medium,
+        ..body.clone()
+      },
+      button: TextStyle {
+        font_size: 13.0,
+        weight: FontWeight::Medium,
+        ..body.clone()
+      },
+      link: body.clone(),
+      mono: TextStyle {
+        font_family: Arc::from("monospace"),
+        ..body
+      },
     }
   }
 }
@@ -114,16 +152,9 @@ pub struct ThemeFonts {
 impl From<ThemeTypography> for ThemeFonts {
   fn from(typography: ThemeTypography) -> Self {
     Self {
-      body: typography.default_style,
-      heading: TextStyle {
-        font_size: 24.0,
-        weight: crate::layout::text_style::FontWeight::Bold,
-        ..TextStyle::default()
-      },
-      mono: TextStyle {
-        font_family: std::sync::Arc::from("monospace"),
-        ..TextStyle::default()
-      },
+      body: typography.body,
+      heading: typography.heading,
+      mono: typography.mono,
     }
   }
 }
@@ -131,7 +162,9 @@ impl From<ThemeTypography> for ThemeFonts {
 impl From<ThemeFonts> for ThemeTypography {
   fn from(fonts: ThemeFonts) -> Self {
     let mut typography = Self::default();
-    typography.set_default_style(fonts.body);
+    typography.body = fonts.body;
+    typography.heading = fonts.heading;
+    typography.mono = fonts.mono;
     typography
   }
 }

@@ -14,6 +14,7 @@ The docs are organized around the questions that come up while building:
 - [Components](./components/) covers props, mounting, keyed children, slots, and lifecycle.
 - [Reactivity](./reactivity/) covers signals, stores, memos, effects, refs, contexts, and debug inspectability.
 - [Layout](./layout/) covers constraints, row/column/stack, flex, scroll, absolute positioning, and clipping.
+- [Theme](./theme/) covers strict palette, typography, radius, spacing, and form theme roles.
 - [Animation And Transforms](./animation-transforms/) covers transitions, keyframes, easing, transform composition, transform animation, and transformed text.
 - [Styling And Events](./styling-events/) covers visual modifiers, hover/active/focus styles, cursor state, handlers, text selection, inputs, clipboard behavior, and drag and drop.
 - [Forms](./forms/) covers form handles, field binding, submission, `FormValues`, and the `Button` component.

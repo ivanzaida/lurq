@@ -376,7 +376,9 @@ fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
   if let Some(color) = style.color {
     match color {
       crate::node::BackgroundColor::Color(color) => rows.push(shape_leaf("fill", color.to_hex())),
-      crate::node::BackgroundColor::Palette(id) => rows.push(shape_leaf("fill", format!("palette({})", id.get()))),
+      crate::node::BackgroundColor::Palette(color) => {
+        rows.push(shape_leaf("fill", format!("palette({})", color.as_str())))
+      }
     }
   }
   if let Some(radius) = style.border_radius {
@@ -519,7 +521,7 @@ fn single_border_rows(border: Border) -> Vec<DevToolsShapeRow> {
 fn format_background_color(color: crate::node::BackgroundColor) -> String {
   match color {
     crate::node::BackgroundColor::Color(color) => color.to_hex(),
-    crate::node::BackgroundColor::Palette(id) => format!("palette({})", id.get()),
+    crate::node::BackgroundColor::Palette(color) => format!("palette({})", color.as_str()),
   }
 }
 
@@ -546,14 +548,14 @@ fn format_dimension(value: &Dimension) -> String {
 fn format_spacing_value(value: &SpacingValue) -> String {
   match value {
     SpacingValue::Dimension(value) => format_dimension(value),
-    SpacingValue::Theme(id) => format!("spacing({})", id.get()),
+    SpacingValue::Theme(size) => format!("spacing({})", size.as_str()),
   }
 }
 
 fn format_radius_value(value: RadiusValue) -> String {
   match value {
     RadiusValue::Px(value) => format_px(value),
-    RadiusValue::Theme(id) => format!("radius({})", id.get()),
+    RadiusValue::Theme(size) => format!("radius({})", size.as_str()),
   }
 }
 

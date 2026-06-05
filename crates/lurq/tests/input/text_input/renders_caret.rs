@@ -1,5 +1,5 @@
 use lurq::{
-  app::{App, Tree, events::MouseButton, theme::PaletteId},
+  app::{App, Tree, events::MouseButton, theme::PaletteColor},
   core::Signal,
   layout::{quad::QuadContent, text_style::TextStyle},
   node::color::Color,
@@ -243,33 +243,35 @@ fn fixed_height_multiline_caret_stays_on_new_line_after_typing() {
 }
 
 #[test]
-fn caret_color_accepts_palette_token() {
-  const BRAND: PaletteId = PaletteId::new(9);
+fn caret_color_accepts_palette_color() {
   let expected = Color::from_hex("#123456");
   let value = Signal::new("A".to_owned());
   let mut app = App::new();
   let mut runtime = Tree::new();
-  app.theme().set_palette_color(BRAND, expected);
+  app.theme().set_palette_color(PaletteColor::Accent, expected);
 
-  runtime.set_root(lurq::components::TextInput::new(value).height(40.0).caret_color(BRAND));
+  runtime.set_root(
+    lurq::components::TextInput::new(value)
+      .height(40.0)
+      .caret_color(PaletteColor::Accent),
+  );
 
   assert_eq!(focused_caret_color(&mut runtime, &mut app), expected);
 }
 
 #[test]
-fn text_style_caret_color_accepts_palette_token() {
-  const BRAND: PaletteId = PaletteId::new(9);
+fn text_style_caret_color_accepts_palette_color() {
   let expected = Color::from_hex("#123456");
   let value = Signal::new("A".to_owned());
   let mut app = App::new();
   let mut runtime = Tree::new();
-  app.theme().set_palette_color(BRAND, expected);
+  app.theme().set_palette_color(PaletteColor::Accent, expected);
 
   runtime.set_root(
     lurq::components::TextInput::styled(
       value,
       TextStyle {
-        caret_color: Some(BRAND.into()),
+        caret_color: Some(PaletteColor::Accent.into()),
         ..TextStyle::default()
       },
     )

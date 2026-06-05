@@ -79,16 +79,17 @@ impl crate::app::component::Component for FormSliderInput {
     let props = ctx.props::<Self::Props>().clone();
     let control = ctx.form_control(&props.control);
     let slider_style = ctx.theme().form().slider.clone();
+    let palette = ctx.theme().palette().clone();
     let blur_control = control.clone();
 
     let slider = Slider::new(self.value.clone())
       .name(control.name())
       .width(Dimension::Pct(100.0))
       .range(props.min, props.max)
-      .track_style(slider_style.track)
-      .track_hovered_style(slider_style.track_hovered)
-      .thumb_style(slider_style.thumb)
-      .thumb_hovered_style(slider_style.thumb_hovered)
+      .track_style(slider_style.track_style(&palette))
+      .track_hovered_style(slider_style.track_hovered_style(&palette))
+      .thumb_style(slider_style.thumb_style(&palette))
+      .thumb_hovered_style(slider_style.thumb_hovered_style(&palette))
       .on_blur(move || {
         blur_control.mark_touched();
         blur_control.validate();

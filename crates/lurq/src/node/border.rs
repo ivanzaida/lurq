@@ -93,8 +93,8 @@ impl From<f32> for ThemedBorderRadius {
   }
 }
 
-impl From<crate::app::theme::RadiusId> for ThemedBorderRadius {
-  fn from(value: crate::app::theme::RadiusId) -> Self {
+impl From<crate::app::theme::RadiusSize> for ThemedBorderRadius {
+  fn from(value: crate::app::theme::RadiusSize) -> Self {
     Self::all(value)
   }
 }

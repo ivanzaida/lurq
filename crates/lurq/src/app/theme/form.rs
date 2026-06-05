@@ -1,144 +1,196 @@
+use super::{PaletteColor, RadiusSize, SpacingSize, ThemePalette, ThemeTypography, TypographyStyle};
 use crate::{
-  layout::text_style::{FontWeight, TextStyle},
-  node::{
-    BackgroundColor, CheckboxStyle, SliderPartStyle, TextColor,
-    border::{Border, ThemedBorderRadius},
-    color::Color,
-    dimension::Dimension,
-    padding::Padding,
-    spacing_value::SpacingValue,
-  },
+  layout::text_style::TextStyle,
+  node::{CheckboxStyle, SliderPartStyle, dimension::Dimension, padding::Padding, spacing_value::SpacingValue},
 };
 
 #[derive(Clone)]
 pub struct FormTheme {
-  pub field: FormFieldStyle,
-  pub input: FormInputStyle,
+  pub field: FormFieldTheme,
+  pub input: FormInputTheme,
   pub checkbox: FormCheckboxStyle,
   pub slider: FormSliderStyle,
-  pub primary_button: FormButtonStyle,
-  pub secondary_button: FormButtonStyle,
+  pub button: FormButtonTheme,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct FormTextRole {
+  pub typography: TypographyStyle,
+  pub color: PaletteColor,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct FormFieldStyle {
+pub struct FormFieldTheme {
   pub spacing: SpacingValue,
-  pub label: TextStyle,
-  pub hint: TextStyle,
-  pub error: TextStyle,
+  pub label: FormTextRole,
+  pub hint: FormTextRole,
+  pub error: FormTextRole,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct FormInputStyle {
+pub struct FormInputTheme {
   pub height: Dimension,
   pub padding: Padding,
-  pub radius: ThemedBorderRadius,
-  pub background: BackgroundColor,
-  pub border: Option<Border>,
-  pub focused_background: Option<BackgroundColor>,
-  pub focused_border: Option<Border>,
-  pub error_background: Option<BackgroundColor>,
-  pub error_border: Option<Border>,
-  pub disabled_background: Option<BackgroundColor>,
-  pub disabled_border: Option<Border>,
-  pub text: TextStyle,
-  pub placeholder: TextStyle,
-  pub caret_color: TextColor,
+  pub radius: RadiusSize,
+  pub background: PaletteColor,
+  pub border: PaletteColor,
+  pub border_focus: PaletteColor,
+  pub background_error: PaletteColor,
+  pub border_error: PaletteColor,
+  pub text: FormTextRole,
+  pub placeholder: FormTextRole,
+  pub caret: PaletteColor,
 }
 
 #[derive(Clone)]
 pub struct FormCheckboxStyle {
-  pub box_style: CheckboxStyle,
-  pub checked_box_style: CheckboxStyle,
-  pub box_hovered_style: CheckboxStyle,
-  pub checked_box_hovered_style: CheckboxStyle,
+  pub background: PaletteColor,
+  pub border: PaletteColor,
+  pub border_hover: PaletteColor,
+  pub checked_background: PaletteColor,
+  pub checked_border: PaletteColor,
+  pub checked_background_hover: PaletteColor,
+  pub radius: RadiusSize,
 }
 
 #[derive(Clone)]
 pub struct FormSliderStyle {
-  pub track: SliderPartStyle,
-  pub track_hovered: SliderPartStyle,
-  pub thumb: SliderPartStyle,
-  pub thumb_hovered: SliderPartStyle,
+  pub track: PaletteColor,
+  pub track_hover: PaletteColor,
+  pub thumb: PaletteColor,
+  pub thumb_hover: PaletteColor,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct FormButtonStyle {
+pub struct FormButtonTheme {
+  pub primary: FormButtonRole,
+  pub secondary: FormButtonRole,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct FormButtonRole {
   pub width: Dimension,
   pub height: Dimension,
   pub padding: Padding,
-  pub radius: ThemedBorderRadius,
-  pub background: BackgroundColor,
-  pub border: Option<Border>,
-  pub hovered_background: Option<BackgroundColor>,
-  pub hovered_border: Option<Border>,
-  pub active_background: Option<BackgroundColor>,
-  pub active_border: Option<Border>,
-  pub text: TextStyle,
+  pub radius: RadiusSize,
+  pub background: PaletteColor,
+  pub border: PaletteColor,
+  pub background_hover: PaletteColor,
+  pub border_hover: PaletteColor,
+  pub background_active: PaletteColor,
+  pub border_active: PaletteColor,
+  pub text: FormTextRole,
+}
+
+impl FormTextRole {
+  pub fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
+    let mut style = typography.resolve(self.typography);
+    style.color = palette.resolve(self.color);
+    style
+  }
+}
+
+impl FormCheckboxStyle {
+  pub fn box_style(&self, palette: &ThemePalette) -> CheckboxStyle {
+    CheckboxStyle::new()
+      .size(16.0, 16.0)
+      .background(palette.resolve(self.background))
+      .rounded(self.radius)
+      .border_inside(1.0, self.border)
+  }
+
+  pub fn checked_box_style(&self, palette: &ThemePalette) -> CheckboxStyle {
+    CheckboxStyle::new()
+      .background(palette.resolve(self.checked_background))
+      .border_inside(1.0, self.checked_border)
+      .indicator_size(8.0, 8.0)
+  }
+
+  pub fn box_hovered_style(&self) -> CheckboxStyle {
+    CheckboxStyle::new().border_inside(1.0, self.border_hover)
+  }
+
+  pub fn checked_box_hovered_style(&self, palette: &ThemePalette) -> CheckboxStyle {
+    CheckboxStyle::new().background(palette.resolve(self.checked_background_hover))
+  }
+}
+
+impl FormSliderStyle {
+  pub fn track_style(&self, palette: &ThemePalette) -> SliderPartStyle {
+    SliderPartStyle::new()
+      .height(4.0)
+      .background(palette.resolve(self.track))
+      .rounded(999.0)
+  }
+
+  pub fn track_hovered_style(&self, palette: &ThemePalette) -> SliderPartStyle {
+    SliderPartStyle::new().background(palette.resolve(self.track_hover))
+  }
+
+  pub fn thumb_style(&self, palette: &ThemePalette) -> SliderPartStyle {
+    SliderPartStyle::new()
+      .size(16.0, 16.0)
+      .background(palette.resolve(self.thumb))
+      .rounded(999.0)
+  }
+
+  pub fn thumb_hovered_style(&self, palette: &ThemePalette) -> SliderPartStyle {
+    SliderPartStyle::new().background(palette.resolve(self.thumb_hover))
+  }
 }
 
 impl Default for FormTheme {
   fn default() -> Self {
     Self {
-      field: FormFieldStyle::default(),
-      input: FormInputStyle::default(),
+      field: FormFieldTheme::default(),
+      input: FormInputTheme::default(),
       checkbox: FormCheckboxStyle::default(),
       slider: FormSliderStyle::default(),
-      primary_button: FormButtonStyle::primary(),
-      secondary_button: FormButtonStyle::secondary(),
+      button: FormButtonTheme::default(),
     }
   }
 }
 
-impl Default for FormFieldStyle {
+impl Default for FormFieldTheme {
   fn default() -> Self {
-    let base = TextStyle::default();
     Self {
-      spacing: SpacingValue::from(4.0),
-      label: TextStyle {
-        font_size: 13.0,
-        weight: FontWeight::Medium,
-        color: Color::new(33, 37, 41, 255),
-        ..base.clone()
+      spacing: SpacingValue::from(SpacingSize::Xs),
+      label: FormTextRole {
+        typography: TypographyStyle::FieldLabel,
+        color: PaletteColor::TextPrimary,
       },
-      hint: TextStyle {
-        font_size: 12.0,
-        color: Color::new(108, 117, 125, 255),
-        ..base.clone()
+      hint: FormTextRole {
+        typography: TypographyStyle::Caption,
+        color: PaletteColor::TextMuted,
       },
-      error: TextStyle {
-        font_size: 12.0,
-        color: Color::new(220, 53, 69, 255),
-        ..base
+      error: FormTextRole {
+        typography: TypographyStyle::Caption,
+        color: PaletteColor::Danger,
       },
     }
   }
 }
 
-impl Default for FormInputStyle {
+impl Default for FormInputTheme {
   fn default() -> Self {
-    let text = TextStyle {
-      color: Color::new(33, 37, 41, 255),
-      ..TextStyle::default()
-    };
     Self {
       height: Dimension::Px(36.0),
       padding: Padding::symmetric(10.0, 8.0),
-      radius: ThemedBorderRadius::all(4.0),
-      background: BackgroundColor::from(Color::new(255, 255, 255, 255)),
-      border: Some(Border::inside(1.0, Color::new(206, 212, 218, 255))),
-      focused_background: None,
-      focused_border: Some(Border::inside(1.0, Color::new(13, 110, 253, 255))),
-      error_background: None,
-      error_border: Some(Border::inside(1.0, Color::new(220, 53, 69, 255))),
-      disabled_background: Some(BackgroundColor::from(Color::new(233, 236, 239, 255))),
-      disabled_border: None,
-      placeholder: TextStyle {
-        color: Color::new(108, 117, 125, 255),
-        ..text.clone()
+      radius: RadiusSize::Md,
+      background: PaletteColor::SurfaceInput,
+      border: PaletteColor::Border,
+      border_focus: PaletteColor::BorderFocus,
+      background_error: PaletteColor::DangerMuted,
+      border_error: PaletteColor::Danger,
+      text: FormTextRole {
+        typography: TypographyStyle::Body,
+        color: PaletteColor::TextPrimary,
       },
-      text,
-      caret_color: TextColor::from(Color::new(13, 110, 253, 255)),
+      placeholder: FormTextRole {
+        typography: TypographyStyle::Body,
+        color: PaletteColor::TextMuted,
+      },
+      caret: PaletteColor::BorderFocus,
     }
   }
 }
@@ -146,17 +198,13 @@ impl Default for FormInputStyle {
 impl Default for FormCheckboxStyle {
   fn default() -> Self {
     Self {
-      box_style: CheckboxStyle::new()
-        .size(16.0, 16.0)
-        .background(Color::new(255, 255, 255, 255))
-        .rounded(4.0)
-        .border_inside(1.0, Color::new(206, 212, 218, 255)),
-      checked_box_style: CheckboxStyle::new()
-        .background(Color::new(13, 110, 253, 255))
-        .border_inside(1.0, Color::new(13, 110, 253, 255))
-        .indicator_size(8.0, 8.0),
-      box_hovered_style: CheckboxStyle::new().border_inside(1.0, Color::new(13, 110, 253, 255)),
-      checked_box_hovered_style: CheckboxStyle::new().background(Color::new(11, 94, 215, 255)),
+      background: PaletteColor::SurfaceInput,
+      border: PaletteColor::Border,
+      border_hover: PaletteColor::BorderFocus,
+      checked_background: PaletteColor::Accent,
+      checked_border: PaletteColor::Accent,
+      checked_background_hover: PaletteColor::AccentHover,
+      radius: RadiusSize::Sm,
     }
   }
 }
@@ -164,38 +212,39 @@ impl Default for FormCheckboxStyle {
 impl Default for FormSliderStyle {
   fn default() -> Self {
     Self {
-      track: SliderPartStyle::new()
-        .height(4.0)
-        .background(Color::new(222, 226, 230, 255))
-        .rounded(999.0),
-      track_hovered: SliderPartStyle::new().background(Color::new(206, 212, 218, 255)),
-      thumb: SliderPartStyle::new()
-        .size(16.0, 16.0)
-        .background(Color::new(13, 110, 253, 255))
-        .rounded(999.0),
-      thumb_hovered: SliderPartStyle::new().background(Color::new(11, 94, 215, 255)),
+      track: PaletteColor::Border,
+      track_hover: PaletteColor::BorderStrong,
+      thumb: PaletteColor::Accent,
+      thumb_hover: PaletteColor::AccentHover,
     }
   }
 }
 
-impl FormButtonStyle {
+impl Default for FormButtonTheme {
+  fn default() -> Self {
+    Self {
+      primary: FormButtonRole::primary(),
+      secondary: FormButtonRole::secondary(),
+    }
+  }
+}
+
+impl FormButtonRole {
   pub fn primary() -> Self {
     Self {
       width: Dimension::Pct(100.0),
       height: Dimension::Px(36.0),
       padding: Padding::symmetric(14.0, 8.0),
-      radius: ThemedBorderRadius::all(4.0),
-      background: BackgroundColor::from(Color::new(13, 110, 253, 255)),
-      border: Some(Border::inside(1.0, Color::new(13, 110, 253, 255))),
-      hovered_background: Some(BackgroundColor::from(Color::new(11, 94, 215, 255))),
-      hovered_border: Some(Border::inside(1.0, Color::new(10, 88, 202, 255))),
-      active_background: Some(BackgroundColor::from(Color::new(10, 88, 202, 255))),
-      active_border: Some(Border::inside(1.0, Color::new(10, 83, 190, 255))),
-      text: TextStyle {
-        font_size: 13.0,
-        weight: FontWeight::Medium,
-        color: Color::new(255, 255, 255, 255),
-        ..TextStyle::default()
+      radius: RadiusSize::Md,
+      background: PaletteColor::Accent,
+      border: PaletteColor::Accent,
+      background_hover: PaletteColor::AccentHover,
+      border_hover: PaletteColor::AccentHover,
+      background_active: PaletteColor::AccentHover,
+      border_active: PaletteColor::AccentHover,
+      text: FormTextRole {
+        typography: TypographyStyle::Button,
+        color: PaletteColor::TextInverse,
       },
     }
   }
@@ -205,18 +254,16 @@ impl FormButtonStyle {
       width: Dimension::Pct(100.0),
       height: Dimension::Px(36.0),
       padding: Padding::symmetric(14.0, 8.0),
-      radius: ThemedBorderRadius::all(4.0),
-      background: BackgroundColor::from(Color::new(255, 255, 255, 255)),
-      border: Some(Border::inside(1.0, Color::new(108, 117, 125, 255))),
-      hovered_background: Some(BackgroundColor::from(Color::new(108, 117, 125, 255))),
-      hovered_border: Some(Border::inside(1.0, Color::new(108, 117, 125, 255))),
-      active_background: Some(BackgroundColor::from(Color::new(90, 98, 104, 255))),
-      active_border: Some(Border::inside(1.0, Color::new(86, 94, 100, 255))),
-      text: TextStyle {
-        font_size: 13.0,
-        weight: FontWeight::Medium,
-        color: Color::new(33, 37, 41, 255),
-        ..TextStyle::default()
+      radius: RadiusSize::Md,
+      background: PaletteColor::SurfaceInput,
+      border: PaletteColor::BorderStrong,
+      background_hover: PaletteColor::SurfacePanel,
+      border_hover: PaletteColor::BorderStrong,
+      background_active: PaletteColor::Border,
+      border_active: PaletteColor::BorderStrong,
+      text: FormTextRole {
+        typography: TypographyStyle::Button,
+        color: PaletteColor::TextPrimary,
       },
     }
   }

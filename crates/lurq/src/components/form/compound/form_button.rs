@@ -4,7 +4,7 @@ use crate::{
   app::{ctx::Ctx, events::MouseEvent},
   components::{Button, Text},
   layout::{Alignment, layout_kind::Justify},
-  node::{CursorIcon, Element, Style},
+  node::{CursorIcon, Element, Style, border::Border},
 };
 
 type ClickCallback = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
@@ -110,8 +110,10 @@ impl crate::app::component::Component for FormPrimaryButton {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let style = ctx.theme().form().primary_button.clone();
-    render_form_button(&props.label, props.submit, props.on_click, style)
+    let style = ctx.theme().form().button.primary.clone();
+    let palette = ctx.theme().palette().clone();
+    let typography = ctx.theme().typography().clone();
+    render_form_button(&props.label, props.submit, props.on_click, style, &typography, &palette)
   }
 }
 
@@ -126,8 +128,10 @@ impl crate::app::component::Component for FormSecondaryButton {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let style = ctx.theme().form().secondary_button.clone();
-    render_form_button(&props.label, props.submit, props.on_click, style)
+    let style = ctx.theme().form().button.secondary.clone();
+    let palette = ctx.theme().palette().clone();
+    let typography = ctx.theme().typography().clone();
+    render_form_button(&props.label, props.submit, props.on_click, style, &typography, &palette)
   }
 }
 
@@ -135,7 +139,9 @@ fn render_form_button(
   label: &str,
   submit: bool,
   on_click: Option<ClickCallback>,
-  style: crate::app::theme::FormButtonStyle,
+  style: crate::app::theme::FormButtonRole,
+  typography: &crate::app::theme::ThemeTypography,
+  palette: &crate::app::theme::ThemePalette,
 ) -> Button {
   let mut button = Button::empty()
     .width(style.width)
@@ -145,25 +151,17 @@ fn render_form_button(
     .align_items(Alignment::Center)
     .justify(Justify::Center)
     .cursor(CursorIcon::Pointer)
-    .child(Text::styled(label, style.text));
+    .child(Text::styled(label, style.text.resolve(typography, palette)))
+    .border(Border::inside(1.0, style.border))
+    .rounded(style.radius);
 
   if submit {
     button = button.submit();
   } else {
     button = button.button();
   }
-  if let Some(border) = style.border {
-    button = button.border(border);
-  }
-  if let Some(radius) = style.radius.as_border_radius() {
-    button = button.corner_radius_custom(radius);
-  }
-  if style.hovered_background.is_some() || style.hovered_border.is_some() {
-    button = button.hovered_style(state_style(style.hovered_background, style.hovered_border));
-  }
-  if style.active_background.is_some() || style.active_border.is_some() {
-    button = button.active_style(state_style(style.active_background, style.active_border));
-  }
+  button = button.hovered_style(state_style(style.background_hover, style.border_hover));
+  button = button.active_style(state_style(style.background_active, style.border_active));
   if let Some(on_click) = on_click {
     button = button.on_click(move |event| on_click(event));
   }
@@ -171,14 +169,10 @@ fn render_form_button(
   button
 }
 
-fn state_style(background: Option<crate::node::BackgroundColor>, border: Option<crate::node::border::Border>) -> Style {
+fn state_style(background: crate::app::theme::PaletteColor, border: crate::app::theme::PaletteColor) -> Style {
   let mut style = Style::new();
-  if let Some(background) = background {
-    style = style.background(background);
-  }
-  if let Some(border) = border {
-    style = style.border(border);
-  }
+  style = style.background(background);
+  style = style.border(Border::inside(1.0, border));
   style
 }
 

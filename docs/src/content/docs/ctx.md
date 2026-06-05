@@ -218,24 +218,26 @@ let current = theme_name.get();
 
 `theme()` returns the current runtime theme. Root and child contexts get the theme from `Tree::mount_root`.
 
-Theme typography is a map keyed by cheap `TypographyId` values. `Text::new` uses the theme default text style, and `Text::new("Label").variant(LABEL)` resolves `LABEL` during layout.
+Theme typography exposes strict named text styles. `Text::new` uses `theme.typography().body`, and `Text::new("Label").variant(TypographyStyle::Label)` resolves the named style during layout.
+See [Theme](./theme/) for the full palette, typography, radius, spacing, and form role tables.
 
 ```rust
 use lurq::{
+  app::theme::{PaletteColor, SpacingSize, TypographyStyle},
   layout::text_style::TextStyle,
-  node::{color::Color, dimension::Dimension},
+  node::color::Color,
 };
 
-let brand = ctx.theme().register_palette_color(Color::from_hex("#2563eb"));
-let gap = ctx.theme().register_spacing(Dimension::Px(8.0));
-let card_radius = ctx.theme().register_radius(6.0);
+ctx.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+ctx.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
-ctx.theme().set_default_text_style(TextStyle {
+ctx.theme().set_typography_style(TypographyStyle::Body, TextStyle {
   font_size: 16.0,
   ..TextStyle::default()
 });
 
-let label = ctx.theme().register_typography_style(
+ctx.theme().set_typography_style(
+  TypographyStyle::Label,
   TextStyle {
     font_size: 13.0,
     ..TextStyle::default()
@@ -243,14 +245,14 @@ let label = ctx.theme().register_typography_style(
 );
 ```
 
-Use the returned IDs with APIs such as `Text::new("Label").variant(label)`, `.background(brand)`, `.spacing(gap)`, `.padding(gap)`, and `.rounded(card_radius)`. The lookup methods `palette_color`, `spacing_value`, and `radius_value` are also available when component code needs the concrete value. Manual IDs are available with `PaletteId::new(...)`, `SpacingId::new(...)`, `RadiusId::new(...)`, and `TypographyId::new(...)` when stable numeric IDs are needed. Lurq does not define or reserve built-in theme token IDs.
+Use strict theme keys with APIs such as `.background(PaletteColor::Accent)`, `Text::new("Label").variant(TypographyStyle::Label)`, `.rounded(RadiusSize::Md)`, `.spacing(SpacingSize::Sm)`, and `.padding(SpacingSize::Md)`. The lookup methods `palette_color`, `typography_style`, `radius_value`, and `spacing_value` are also available when component code needs the concrete value.
 
 Components that call `ctx.theme()` during render subscribe to theme version changes. Mutating that theme rerenders those subscriber components on the next pass. Use `theme.lens(getter, setter)` when component code needs a focused handle for one theme value:
 
 ```rust
 let brand = ctx.theme().lens(
-  |theme| theme.palette_color(brand_id).unwrap_or(Color::from_hex("#000000")),
-  move |theme, color| theme.set_palette_color(brand_id, color),
+  |theme| theme.palette_color(PaletteColor::Accent),
+  move |theme, color| theme.set_palette_color(PaletteColor::Accent, color),
 );
 
 brand.set(Color::from_hex("#2563eb"));

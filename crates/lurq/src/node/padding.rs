@@ -122,8 +122,8 @@ impl From<SpacingValue> for Padding {
   }
 }
 
-impl From<crate::app::theme::SpacingId> for Padding {
-  fn from(value: crate::app::theme::SpacingId) -> Self {
+impl From<crate::app::theme::SpacingSize> for Padding {
+  fn from(value: crate::app::theme::SpacingSize) -> Self {
     Self::all(value)
   }
 }

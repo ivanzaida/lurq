@@ -1,34 +1,25 @@
-use std::collections::HashMap;
-
-#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RadiusId(u8);
+pub enum RadiusSize {
+  Sm,
+  Md,
+  Lg,
+}
 
-impl RadiusId {
-  pub const fn new(id: u8) -> Self {
-    Self(id)
-  }
-
-  pub const fn get(self) -> u8 {
-    self.0
+impl RadiusSize {
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Sm => "sm",
+      Self::Md => "md",
+      Self::Lg => "lg",
+    }
   }
 }
 
-impl From<u8> for RadiusId {
-  fn from(id: u8) -> Self {
-    Self::new(id)
-  }
-}
-
-impl From<&RadiusId> for RadiusId {
-  fn from(id: &RadiusId) -> Self {
-    *id
-  }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThemeRadii {
-  values: HashMap<RadiusId, f32>,
+  pub sm: f32,
+  pub md: f32,
+  pub lg: f32,
 }
 
 impl ThemeRadii {
@@ -36,47 +27,29 @@ impl ThemeRadii {
     Self::default()
   }
 
-  pub fn from_values<I, K>(values: I) -> Self
-  where
-    I: IntoIterator<Item = (K, f32)>,
-    K: Into<RadiusId>,
-  {
-    Self {
-      values: values.into_iter().map(|(id, value)| (id.into(), value)).collect(),
+  pub fn get(&self, size: impl Into<RadiusSize>) -> f32 {
+    match size.into() {
+      RadiusSize::Sm => self.sm,
+      RadiusSize::Md => self.md,
+      RadiusSize::Lg => self.lg,
     }
   }
 
-  pub fn values(&self) -> &HashMap<RadiusId, f32> {
-    &self.values
-  }
-
-  pub fn set(&mut self, id: impl Into<RadiusId>, value: f32) {
-    self.values.insert(id.into(), value);
-  }
-
-  pub fn register(&mut self, value: f32) -> RadiusId {
-    let id = self.next_available_id();
-    self.values.insert(id, value);
-    id
-  }
-
-  pub fn get(&self, id: impl Into<RadiusId>) -> Option<f32> {
-    self.values.get(&id.into()).copied()
-  }
-
-  fn next_available_id(&self) -> RadiusId {
-    for raw in 0..=u8::MAX {
-      let id = RadiusId::new(raw);
-      if !self.values.contains_key(&id) {
-        return id;
-      }
+  pub fn set(&mut self, size: impl Into<RadiusSize>, value: f32) {
+    match size.into() {
+      RadiusSize::Sm => self.sm = value,
+      RadiusSize::Md => self.md = value,
+      RadiusSize::Lg => self.lg = value,
     }
-    panic!("no radius ids available");
   }
 }
 
 impl Default for ThemeRadii {
   fn default() -> Self {
-    Self { values: HashMap::new() }
+    Self {
+      sm: 3.0,
+      md: 5.0,
+      lg: 6.0,
+    }
   }
 }

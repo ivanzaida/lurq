@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
   app::ctx::Ctx,
   components::{Control, FormControlField, FormFieldProps, TextInput},
-  node::{Element, Style, dimension::Dimension},
+  node::{Element, Style, border::Border, dimension::Dimension},
 };
 
 #[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
@@ -69,20 +69,22 @@ impl crate::app::component::Component for FormTextInput {
     let control = ctx.form_control(&props.control);
     let value = control.value();
     let input_style = ctx.theme().form().input.clone();
+    let palette = ctx.theme().palette().clone();
+    let typography = ctx.theme().typography().clone();
     let has_error = control.should_show_error();
     let disabled = control.is_disabled();
 
     let background = if disabled {
-      input_style.disabled_background.unwrap_or(input_style.background)
+      crate::app::theme::PaletteColor::SurfacePanel
     } else if has_error {
-      input_style.error_background.unwrap_or(input_style.background)
+      input_style.background_error
     } else {
       input_style.background
     };
     let border = if disabled {
-      input_style.disabled_border.or(input_style.border)
+      input_style.border
     } else if has_error {
-      input_style.error_border.or(input_style.border)
+      input_style.border_error
     } else {
       input_style.border
     };
@@ -94,32 +96,26 @@ impl crate::app::component::Component for FormTextInput {
       clear_error_form.clear_error(&clear_error_name);
     });
 
-    let mut input = TextInput::styled(value, input_style.text.clone())
+    let mut placeholder_style = input_style.placeholder.resolve(&typography, &palette);
+    placeholder_style.color = placeholder_style.color.with_opacity(0.4);
+
+    let mut input = TextInput::styled(value, input_style.text.resolve(&typography, &palette))
       .name(control.name())
       .width(Dimension::Pct(100.0))
       .height(height)
       .padding_custom(input_style.padding)
       .background(background)
-      .placeholder_style(input_style.placeholder.clone())
-      .caret_color(input_style.caret_color);
+      .placeholder_style(placeholder_style)
+      .caret_color(input_style.caret)
+      .border(Border::inside(1.0, border))
+      .rounded(input_style.radius);
 
     if let Some(placeholder) = props.placeholder.as_deref() {
       input = input.placeholder(placeholder);
     }
-    if let Some(border) = border {
-      input = input.border(border);
-    }
-    if let Some(radius) = input_style.radius.as_border_radius() {
-      input = input.corner_radius_custom(radius);
-    }
-    if !has_error && !disabled && (input_style.focused_background.is_some() || input_style.focused_border.is_some()) {
+    if !has_error && !disabled {
       let mut focused = Style::new();
-      if let Some(background) = input_style.focused_background {
-        focused = focused.background(background);
-      }
-      if let Some(border) = input_style.focused_border {
-        focused = focused.border(border);
-      }
+      focused = focused.border(Border::inside(1.0, input_style.border_focus));
       input = input.focused_style(focused);
     }
     input = if props.multiline {

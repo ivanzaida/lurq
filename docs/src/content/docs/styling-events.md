@@ -7,6 +7,8 @@ description: Visual modifiers, state styles, cursors, inputs, event handlers, sc
 
 Most visual and input behavior is expressed as chainable modifiers on typed components.
 
+Use [Theme](./theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, and compound form controls. Use concrete values for isolated one-off visuals.
+
 ## Visual Modifiers
 
 ```rust
@@ -22,9 +24,9 @@ Common visual modifiers:
 
 | Modifier | Purpose |
 | --- | --- |
-| `.background(color)` | Background color from a concrete color or `PaletteId`. |
-| `.rounded(radius)` | Uniform corner radius from `f32` or `RadiusId`. |
-| `.corner_radius_*` | Per-corner radius from `f32` or `RadiusId`. |
+| `.background(color)` | Background color from a concrete color or `PaletteColor`. |
+| `.rounded(radius)` | Uniform corner radius from `f32` or `RadiusSize`. |
+| `.corner_radius_*` | Per-corner radius from `f32` or `RadiusSize`. |
 | `.border_inside(width, color)` | Border inside the element bounds. |
 | `.border_center(width, color)` | Border centered on the element edge. |
 | `.border_outside(width, color)` | Border outside the element bounds. |
@@ -255,7 +257,7 @@ Slider::new(value)
   })
 ```
 
-The track and thumb support width, height, background color, border, corner radius, image backgrounds, and hover overrides. Corner radius accepts `f32` or `RadiusId`. Hover dimensions are included in the slider's preferred size, so a larger hover thumb does not resize surrounding layout when the pointer enters.
+The track and thumb support width, height, background color, border, corner radius, image backgrounds, and hover overrides. Corner radius accepts `f32` or `RadiusSize`. Hover dimensions are included in the slider's preferred size, so a larger hover thumb does not resize surrounding layout when the pointer enters.
 
 The thumb is centered on the track line, not on the slider frame. A `2px` track with a `10px` or `14px` thumb keeps the thumb vertically centered on that thin track.
 

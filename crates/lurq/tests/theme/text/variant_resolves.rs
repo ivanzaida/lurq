@@ -1,7 +1,7 @@
 use lurq::{
   app::{
     App, Tree,
-    theme::{PaletteId, TypographyId},
+    theme::{PaletteColor, TypographyStyle},
   },
   components::Text,
   layout::{
@@ -16,10 +16,9 @@ use crate::support::TestSurface;
 
 #[test]
 fn resolves_text_variant_from_active_theme() {
-  const LABEL: TypographyId = TypographyId::new(3);
   let mut app = App::new();
   app.theme().set_typography_style(
-    LABEL,
+    TypographyStyle::Label,
     TextStyle {
       font_size: 18.0,
       weight: FontWeight::Bold,
@@ -28,7 +27,7 @@ fn resolves_text_variant_from_active_theme() {
   );
 
   let mut tree = Tree::new();
-  tree.set_root(Text::new("Label").variant(LABEL));
+  tree.set_root(Text::new("Label").variant(TypographyStyle::Label));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(200.0, 80.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -66,13 +65,14 @@ fn text_color_accepts_concrete_color() {
 }
 
 #[test]
-fn text_color_accepts_palette_token() {
-  const BRAND: PaletteId = PaletteId::new(6);
+fn text_color_accepts_palette_color() {
   let mut app = App::new();
-  app.theme().set_palette_color(BRAND, Color::from_hex("#123456"));
+  app
+    .theme()
+    .set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
 
   let mut tree = Tree::new();
-  tree.set_root(Text::new("Label").color(BRAND));
+  tree.set_root(Text::new("Label").color(PaletteColor::Accent));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(200.0, 80.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -90,12 +90,12 @@ fn text_color_accepts_palette_token() {
 
 #[test]
 fn text_color_and_variant_compose_in_either_order() {
-  const BRAND: PaletteId = PaletteId::new(6);
-  const LABEL: TypographyId = TypographyId::new(7);
   let mut app = App::new();
-  app.theme().set_palette_color(BRAND, Color::from_hex("#123456"));
+  app
+    .theme()
+    .set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
   app.theme().set_typography_style(
-    LABEL,
+    TypographyStyle::Label,
     TextStyle {
       font_size: 18.0,
       color: Color::from_hex("#abcdef"),
@@ -104,7 +104,11 @@ fn text_color_and_variant_compose_in_either_order() {
   );
 
   let mut tree = Tree::new();
-  tree.set_root(Text::new("Label").color(BRAND).variant(LABEL));
+  tree.set_root(
+    Text::new("Label")
+      .color(PaletteColor::Accent)
+      .variant(TypographyStyle::Label),
+  );
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(200.0, 80.0))));
   tree.pass(&mut app, &TestSurface);
 

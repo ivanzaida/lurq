@@ -1,5 +1,5 @@
 use lurq::{
-  app::{App, Tree, theme::PaletteId},
+  app::{App, Tree, theme::PaletteColor},
   components::Rect,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
@@ -8,13 +8,14 @@ use lurq::{
 use crate::support::TestSurface;
 
 #[test]
-fn resolves_palette_token_background_from_active_theme() {
-  const SURFACE: PaletteId = PaletteId::new(5);
+fn resolves_palette_background_from_active_theme() {
   let mut app = App::new();
-  app.theme().set_palette_color(SURFACE, Color::from_hex("#123456"));
+  app
+    .theme()
+    .set_palette_color(PaletteColor::SurfacePanel, Color::from_hex("#123456"));
 
   let mut tree = Tree::new();
-  tree.set_root(Rect::new(40.0, 20.0).background(SURFACE));
+  tree.set_root(Rect::new(40.0, 20.0).background(PaletteColor::SurfacePanel));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -31,13 +32,14 @@ fn resolves_palette_token_background_from_active_theme() {
 }
 
 #[test]
-fn resolves_palette_token_border_from_active_theme() {
-  const BORDER: PaletteId = PaletteId::new(6);
+fn resolves_palette_border_from_active_theme() {
   let mut app = App::new();
-  app.theme().set_palette_color(BORDER, Color::from_hex("#8b5cf6"));
+  app
+    .theme()
+    .set_palette_color(PaletteColor::BorderFocus, Color::from_hex("#8b5cf6"));
 
   let mut tree = Tree::new();
-  tree.set_root(Rect::new(40.0, 20.0).border_inside(2.0, BORDER));
+  tree.set_root(Rect::new(40.0, 20.0).border_inside(2.0, PaletteColor::BorderFocus));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 

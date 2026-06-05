@@ -17,6 +17,7 @@ export default defineConfig({
                         'components',
                         'reactivity',
                         'layout',
+                        'theme',
                         'animation-transforms',
                         'styling-events',
                         'forms',
