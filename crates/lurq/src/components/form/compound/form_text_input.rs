@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-  app::ctx::Ctx,
+  app::{ctx::Ctx, theme::BorderSize},
   components::{Control, FormControlField, FormFieldProps, TextInput},
   node::{Element, Style, border::Border, dimension::Dimension},
 };
@@ -107,7 +107,7 @@ impl crate::app::component::Component for FormTextInput {
       .background(background)
       .placeholder_style(placeholder_style)
       .caret_color(input_style.caret)
-      .border(Border::inside(1.0, border))
+      .border(Border::inside(BorderSize::Sm, border))
       .rounded(input_style.radius);
 
     if let Some(placeholder) = props.placeholder.as_deref() {
@@ -115,7 +115,7 @@ impl crate::app::component::Component for FormTextInput {
     }
     if !has_error && !disabled {
       let mut focused = Style::new();
-      focused = focused.border(Border::inside(1.0, input_style.border_focus));
+      focused = focused.border(Border::inside(BorderSize::Sm, input_style.border_focus));
       input = input.focused_style(focused);
     }
     input = if props.multiline {

@@ -1,7 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use crate::{
-  app::{ctx::Ctx, events::MouseEvent},
+  app::{ctx::Ctx, events::MouseEvent, theme::BorderSize},
   components::{Button, Text},
   layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, Style, border::Border},
@@ -152,7 +152,7 @@ fn render_form_button(
     .justify(Justify::Center)
     .cursor(CursorIcon::Pointer)
     .child(Text::styled(label, style.text.resolve(typography, palette)))
-    .border(Border::inside(1.0, style.border))
+    .border(Border::inside(BorderSize::Sm, style.border))
     .rounded(style.radius);
 
   if submit {
@@ -172,7 +172,7 @@ fn render_form_button(
 fn state_style(background: crate::app::theme::PaletteColor, border: crate::app::theme::PaletteColor) -> Style {
   let mut style = Style::new();
   style = style.background(background);
-  style = style.border(Border::inside(1.0, border));
+  style = style.border(Border::inside(BorderSize::Sm, border));
   style
 }
 

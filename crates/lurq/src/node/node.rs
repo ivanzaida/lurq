@@ -20,6 +20,7 @@ use crate::{
   node::{
     BackgroundColor, TextColor, TextTransformMode,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
+    border_size_value::BorderSizeValue,
     checkbox_style::CheckboxStyle,
     color::Color,
     cursor::CursorIcon,
@@ -553,17 +554,17 @@ impl Node {
     self
   }
 
-  pub fn border_inside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_inside(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border.set(Some(Borders::all(Border::inside(width, color))));
     self
   }
 
-  pub fn border_outside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_outside(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border.set(Some(Borders::all(Border::outside(width, color))));
     self
   }
 
-  pub fn border_center(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_center(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border.set(Some(Borders::all(Border::center(width, color))));
     self
   }
@@ -1284,22 +1285,22 @@ impl Node {
           }
           (crate::animation::AnimatableProperty::BorderWidthTop, crate::animation::AnimatableValue::Float(v)) => {
             if let Some(border) = &mut borders.top {
-              border.width = *v;
+              border.width = BorderSizeValue::Px(*v);
             }
           }
           (crate::animation::AnimatableProperty::BorderWidthRight, crate::animation::AnimatableValue::Float(v)) => {
             if let Some(border) = &mut borders.right {
-              border.width = *v;
+              border.width = BorderSizeValue::Px(*v);
             }
           }
           (crate::animation::AnimatableProperty::BorderWidthBottom, crate::animation::AnimatableValue::Float(v)) => {
             if let Some(border) = &mut borders.bottom {
-              border.width = *v;
+              border.width = BorderSizeValue::Px(*v);
             }
           }
           (crate::animation::AnimatableProperty::BorderWidthLeft, crate::animation::AnimatableValue::Float(v)) => {
             if let Some(border) = &mut borders.left {
-              border.width = *v;
+              border.width = BorderSizeValue::Px(*v);
             }
           }
           _ => {}
@@ -1312,8 +1313,11 @@ impl Node {
   pub(crate) fn get_resolved_border(
     &self,
     palette: &crate::app::theme::ThemePalette,
+    border_sizes: &crate::app::theme::ThemeBorderSizes,
   ) -> Option<crate::node::border::ResolvedBorders> {
-    self.get_border().and_then(|borders| borders.resolve(palette))
+    self
+      .get_border()
+      .and_then(|borders| borders.resolve_with_sizes(palette, border_sizes))
   }
 
   pub(crate) fn effective_transform(&self) -> Transform2D {

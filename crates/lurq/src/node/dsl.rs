@@ -203,6 +203,50 @@ impl Node {
     })
   }
 
+  pub fn min_width(self, width: impl Into<Dimension>) -> Self {
+    self.frame(FrameConstraints {
+      min_width: Some(width.into()),
+      ..Default::default()
+    })
+  }
+
+  pub fn max_width(self, width: impl Into<Dimension>) -> Self {
+    self.frame(FrameConstraints {
+      max_width: Some(width.into()),
+      ..Default::default()
+    })
+  }
+
+  pub fn min_height(self, height: impl Into<Dimension>) -> Self {
+    self.frame(FrameConstraints {
+      min_height: Some(height.into()),
+      ..Default::default()
+    })
+  }
+
+  pub fn max_height(self, height: impl Into<Dimension>) -> Self {
+    self.frame(FrameConstraints {
+      max_height: Some(height.into()),
+      ..Default::default()
+    })
+  }
+
+  pub fn min_size(self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
+    self.frame(FrameConstraints {
+      min_width: Some(width.into()),
+      min_height: Some(height.into()),
+      ..Default::default()
+    })
+  }
+
+  pub fn max_size(self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
+    self.frame(FrameConstraints {
+      max_width: Some(width.into()),
+      max_height: Some(height.into()),
+      ..Default::default()
+    })
+  }
+
   pub fn relative(self, x: f32, y: f32) -> Self {
     self.offset(x, y)
   }

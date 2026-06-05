@@ -9,8 +9,8 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     theme::{
-      PaletteColor, RadiusSize, SpacingSize, Theme, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography,
-      TypographyStyle,
+      BorderSize, PaletteColor, RadiusSize, SpacingSize, Theme, ThemeBorderSizes, ThemePalette, ThemeRadii,
+      ThemeSpacing, ThemeTypography, TypographyStyle,
     },
   },
   layout::text_style::{FontWeight, TextStyle},
@@ -88,6 +88,36 @@ fn set_palette_replaces_named_palette() {
   let mut radii = ThemeRadii::default();
   radii.set(RadiusSize::Lg, 8.0);
   assert_eq!(radii.get(RadiusSize::Lg), 8.0);
+}
+
+#[test]
+fn theme_border_sizes_have_strict_defaults() {
+  let t = Theme::new();
+  assert_eq!(t.border_size_value(BorderSize::Sm), 1.0);
+  assert_eq!(t.border_size_value(BorderSize::Md), 2.0);
+  assert_eq!(t.border_size_value(BorderSize::Lg), 3.0);
+  assert_eq!(t.border_sizes().sm, 1.0);
+  assert_eq!(t.border_sizes().lg, 3.0);
+}
+
+#[test]
+fn theme_border_size_setter_updates_one_size() {
+  let t = Theme::new();
+  t.set_border_size_value(BorderSize::Md, 4.0);
+  assert_eq!(t.border_size_value(BorderSize::Md), 4.0);
+  assert_eq!(t.border_sizes().md, 4.0);
+}
+
+#[test]
+fn theme_set_border_sizes_replaces_table() {
+  let t = Theme::new();
+  t.set_border_sizes(ThemeBorderSizes {
+    sm: 0.5,
+    md: 1.5,
+    lg: 2.5,
+  });
+  assert_eq!(t.border_size_value(BorderSize::Sm), 0.5);
+  assert_eq!(t.border_size_value(BorderSize::Lg), 2.5);
 }
 
 #[test]

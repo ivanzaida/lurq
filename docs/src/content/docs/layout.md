@@ -29,10 +29,13 @@ Common modifiers:
 | `.size(width, height)` | Force width and height |
 | `.width(width)` | Force width |
 | `.height(height)` | Force height |
+| `.min_size(width, height)` / `.max_size(width, height)` | Set minimum or maximum width and height |
+| `.min_width(width)` / `.max_width(width)` | Set a width bound |
+| `.min_height(height)` / `.max_height(height)` | Set a height bound |
 | `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingSize` |
 | `.background(color)` | Fill the element background from a concrete color or `PaletteColor` |
 | `.rounded(radius)` | Set border radius from `f32` or `RadiusSize` |
-| `.border_inside(width, color)` | Draw an inside border |
+| `.border_inside(width, color)` | Draw an inside border from a concrete width or `BorderSize` |
 | `.offset(x, y)` | Shift visually without changing parent layout |
 | `.relative(x, y)` | Alias for `.offset(x, y)` |
 | `.absolute(x, y, width, height)` | Absolute stack positioning with forced size |
@@ -41,7 +44,7 @@ Common modifiers:
 | `.align(Alignment)` | Override alignment within parent container |
 | `.flex(factor)` | Participate in row/column flex distribution |
 
-Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
+Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
 
 ```rust
 use lurq::node::dimension::Dimension;
@@ -49,6 +52,8 @@ use lurq::node::dimension::Dimension;
 lurq::components::Spacer::new().width(120.0)
 lurq::components::Spacer::new().width(Dimension::Pct(50.0))
 lurq::components::Spacer::new().width(Dimension::Auto)
+lurq::components::Spacer::new().min_width(160.0).max_height(240.0)
+lurq::components::Spacer::new().min_size(120.0, 80.0).max_size(320.0, 180.0)
 ```
 
 ## Constraints Model

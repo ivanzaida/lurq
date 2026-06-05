@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use crate::{
   app::{
     glyph_engine::GlyphEngine,
-    theme::{ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
+    theme::{ThemeBorderSizes, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
   },
   layout::{
     Alignment, Constraints, Offset, Size, StackAlignment,
@@ -80,6 +80,7 @@ pub(crate) struct ResolvedPadding {
 pub(crate) struct LayoutEngine {
   last_recalculated: Cell<bool>,
   palette: RefCell<ThemePalette>,
+  border_sizes: RefCell<ThemeBorderSizes>,
   spacing: RefCell<ThemeSpacing>,
   radii: RefCell<ThemeRadii>,
   typography: RefCell<ThemeTypography>,
@@ -332,6 +333,7 @@ impl LayoutEngine {
     Self {
       last_recalculated: Cell::new(false),
       palette: RefCell::new(ThemePalette::default()),
+      border_sizes: RefCell::new(ThemeBorderSizes::default()),
       spacing: RefCell::new(ThemeSpacing::default()),
       radii: RefCell::new(ThemeRadii::default()),
       typography: RefCell::new(ThemeTypography::default()),
@@ -344,6 +346,7 @@ impl LayoutEngine {
     node: &Node,
     constraints: Constraints,
     palette: ThemePalette,
+    border_sizes: ThemeBorderSizes,
     spacing: ThemeSpacing,
     radii: ThemeRadii,
     typography: ThemeTypography,
@@ -351,6 +354,7 @@ impl LayoutEngine {
   ) -> LayoutResult {
     self.last_recalculated.set(false);
     *self.palette.borrow_mut() = palette;
+    *self.border_sizes.borrow_mut() = border_sizes;
     *self.spacing.borrow_mut() = spacing;
     *self.radii.borrow_mut() = radii;
     *self.typography.borrow_mut() = typography;
@@ -451,7 +455,7 @@ impl LayoutEngine {
     }
 
     let background_color = node.resolved_color(&self.palette.borrow());
-    let resolved_border = node.get_resolved_border(&self.palette.borrow());
+    let resolved_border = node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow());
     let has_visual = background_color.is_some() || resolved_border.is_some();
     let content = match node.node_kind() {
       NodeKind::Text {
@@ -778,8 +782,8 @@ impl LayoutEngine {
             .or_else(|| node.get_border_radius(&self.radii.borrow())),
           style
             .border
-            .and_then(|border| border.resolve(&self.palette.borrow()))
-            .or_else(|| node.get_resolved_border(&self.palette.borrow())),
+            .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
+            .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow())),
           checked,
           opacity,
           transform,
@@ -808,8 +812,8 @@ impl LayoutEngine {
           .or_else(|| node.get_border_radius(&self.radii.borrow()));
         let track_border = track_style
           .border
-          .and_then(|border| border.resolve(&self.palette.borrow()))
-          .or_else(|| node.get_resolved_border(&self.palette.borrow()));
+          .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
+          .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
         push_slider_part_quads(
           quads,
           track_rect,
@@ -834,7 +838,7 @@ impl LayoutEngine {
           ),
           thumb_style
             .border
-            .and_then(|border| border.resolve(&self.palette.borrow())),
+            .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow())),
           opacity,
           transform,
           clip,
@@ -1979,15 +1983,29 @@ impl LayoutEngine {
     let resolved_height = frame
       .height
       .and_then(|size| Self::resolve_dimension(size, constraints.max_height));
+    let resolved_min_width = frame
+      .min_width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+    let resolved_max_width = frame
+      .max_width
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+    let resolved_min_height = frame
+      .min_height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height));
+    let resolved_max_height = frame
+      .max_height
+      .and_then(|size| Self::resolve_dimension(size, constraints.max_height));
 
     let mut c = constraints;
     if let Some(w) = resolved_width {
-      c.min_width = w;
-      c.max_width = w;
+      let width = Self::clamp_resolved_dimension(w, resolved_min_width, resolved_max_width);
+      c.min_width = width;
+      c.max_width = width;
     }
     if let Some(h) = resolved_height {
-      c.min_height = h;
-      c.max_height = h;
+      let height = Self::clamp_resolved_dimension(h, resolved_min_height, resolved_max_height);
+      c.min_height = height;
+      c.max_height = height;
     }
 
     #[cfg(feature = "image")]
@@ -2008,27 +2026,23 @@ impl LayoutEngine {
       Self::apply_intrinsic_aspect_ratio(_node, &mut c, resolved_width, resolved_height);
     }
 
-    if let Some(v) = frame
-      .min_width
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    if resolved_width.is_none()
+      && let Some(v) = resolved_min_width
     {
       c.min_width = c.min_width.max(v);
     }
-    if let Some(v) = frame
-      .max_width
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
+    if resolved_width.is_none()
+      && let Some(v) = resolved_max_width
     {
       c.max_width = c.max_width.min(v);
     }
-    if let Some(v) = frame
-      .min_height
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    if resolved_height.is_none()
+      && let Some(v) = resolved_min_height
     {
       c.min_height = c.min_height.max(v);
     }
-    if let Some(v) = frame
-      .max_height
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
+    if resolved_height.is_none()
+      && let Some(v) = resolved_max_height
     {
       c.max_height = c.max_height.min(v);
     }
@@ -2036,6 +2050,17 @@ impl LayoutEngine {
     c.min_width = c.min_width.min(c.max_width);
     c.min_height = c.min_height.min(c.max_height);
     c
+  }
+
+  fn clamp_resolved_dimension(value: f32, min: Option<f32>, max: Option<f32>) -> f32 {
+    let mut value = value;
+    if let Some(min) = min {
+      value = value.max(min);
+    }
+    if let Some(max) = max {
+      value = value.min(max);
+    }
+    value
   }
 
   #[cfg(any(feature = "image", feature = "svg"))]

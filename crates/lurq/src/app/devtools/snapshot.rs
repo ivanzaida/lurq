@@ -512,7 +512,7 @@ fn border_rows(borders: Borders) -> Vec<DevToolsShapeRow> {
 
 fn single_border_rows(border: Border) -> Vec<DevToolsShapeRow> {
   vec![
-    shape_leaf("width", format_px(border.width)),
+    shape_leaf("width", format_border_size_value(border.width)),
     shape_leaf("color", format_background_color(border.color)),
     shape_leaf("placement", border_placement_name(border.placement)),
   ]
@@ -556,6 +556,13 @@ fn format_radius_value(value: RadiusValue) -> String {
   match value {
     RadiusValue::Px(value) => format_px(value),
     RadiusValue::Theme(size) => format!("radius({})", size.as_str()),
+  }
+}
+
+fn format_border_size_value(value: crate::node::BorderSizeValue) -> String {
+  match value {
+    crate::node::BorderSizeValue::Px(value) => format_px(value),
+    crate::node::BorderSizeValue::Theme(size) => format!("border_size({})", size.as_str()),
   }
 }
 

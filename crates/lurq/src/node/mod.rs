@@ -1,5 +1,6 @@
 pub mod background_color;
 pub mod border;
+pub mod border_size_value;
 pub mod checkbox_style;
 pub mod color;
 pub mod cursor;
@@ -27,6 +28,7 @@ pub enum TextTransformMode {
 }
 
 pub use background_color::BackgroundColor;
+pub use border_size_value::BorderSizeValue;
 pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};

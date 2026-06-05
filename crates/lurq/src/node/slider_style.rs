@@ -6,6 +6,7 @@ use crate::node::BackgroundSize;
 use crate::node::{
   BackgroundColor,
   border::{Border, BorderRadius, Borders, ThemedBorderRadius},
+  border_size_value::BorderSizeValue,
   color::Color,
   radius_value::RadiusValue,
 };
@@ -84,17 +85,17 @@ impl SliderPartStyle {
     self
   }
 
-  pub fn border_inside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_inside(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::inside(width, color)));
     self
   }
 
-  pub fn border_outside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_outside(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::outside(width, color)));
     self
   }
 
-  pub fn border_center(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_center(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::center(width, color)));
     self
   }

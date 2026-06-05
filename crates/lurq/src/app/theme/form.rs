@@ -1,4 +1,4 @@
-use super::{PaletteColor, RadiusSize, SpacingSize, ThemePalette, ThemeTypography, TypographyStyle};
+use super::{BorderSize, PaletteColor, RadiusSize, SpacingSize, ThemePalette, ThemeTypography, TypographyStyle};
 use crate::{
   layout::text_style::TextStyle,
   node::{CheckboxStyle, SliderPartStyle, dimension::Dimension, padding::Padding, spacing_value::SpacingValue},
@@ -96,18 +96,18 @@ impl FormCheckboxStyle {
       .size(16.0, 16.0)
       .background(palette.resolve(self.background))
       .rounded(self.radius)
-      .border_inside(1.0, self.border)
+      .border_inside(BorderSize::Sm, self.border)
   }
 
   pub fn checked_box_style(&self, palette: &ThemePalette) -> CheckboxStyle {
     CheckboxStyle::new()
       .background(palette.resolve(self.checked_background))
-      .border_inside(1.0, self.checked_border)
+      .border_inside(BorderSize::Sm, self.checked_border)
       .indicator_size(8.0, 8.0)
   }
 
   pub fn box_hovered_style(&self) -> CheckboxStyle {
-    CheckboxStyle::new().border_inside(1.0, self.border_hover)
+    CheckboxStyle::new().border_inside(BorderSize::Sm, self.border_hover)
   }
 
   pub fn checked_box_hovered_style(&self, palette: &ThemePalette) -> CheckboxStyle {

@@ -2513,12 +2513,18 @@ impl Tree {
         .as_ref()
         .map(|ctx| ctx.theme().radii().clone())
         .unwrap_or_else(|| app.theme().radii().clone());
+      let border_sizes = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().border_sizes().clone())
+        .unwrap_or_else(|| app.theme().border_sizes().clone());
       let theme_changed = self.last_theme_version != theme_version;
       let layout = self.layout_engine.compute(
         &mut app.glyph_engine,
         root,
         constraints,
         palette,
+        border_sizes,
         spacing,
         radii,
         typography,

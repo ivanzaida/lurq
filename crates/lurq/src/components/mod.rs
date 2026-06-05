@@ -108,6 +108,44 @@ macro_rules! impl_into_node {
         self
       }
 
+      pub fn min_width(mut self, width: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.min_width(width);
+        self
+      }
+
+      pub fn max_width(mut self, width: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.max_width(width);
+        self
+      }
+
+      pub fn min_height(mut self, height: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.min_height(height);
+        self
+      }
+
+      pub fn max_height(mut self, height: impl Into<$crate::node::dimension::Dimension>) -> Self {
+        self.node = self.node.max_height(height);
+        self
+      }
+
+      pub fn min_size(
+        mut self,
+        width: impl Into<$crate::node::dimension::Dimension>,
+        height: impl Into<$crate::node::dimension::Dimension>,
+      ) -> Self {
+        self.node = self.node.min_size(width, height);
+        self
+      }
+
+      pub fn max_size(
+        mut self,
+        width: impl Into<$crate::node::dimension::Dimension>,
+        height: impl Into<$crate::node::dimension::Dimension>,
+      ) -> Self {
+        self.node = self.node.max_size(width, height);
+        self
+      }
+
       pub fn padding_left(mut self, val: impl Into<$crate::node::SpacingValue>) -> Self {
         self.node = self.node.padding_left(val);
         self
@@ -234,17 +272,29 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn border_inside(mut self, width: f32, color: impl Into<$crate::node::BackgroundColor>) -> Self {
+      pub fn border_inside(
+        mut self,
+        width: impl Into<$crate::node::BorderSizeValue>,
+        color: impl Into<$crate::node::BackgroundColor>,
+      ) -> Self {
         self.node = self.node.border_inside(width, color);
         self
       }
 
-      pub fn border_outside(mut self, width: f32, color: impl Into<$crate::node::BackgroundColor>) -> Self {
+      pub fn border_outside(
+        mut self,
+        width: impl Into<$crate::node::BorderSizeValue>,
+        color: impl Into<$crate::node::BackgroundColor>,
+      ) -> Self {
         self.node = self.node.border_outside(width, color);
         self
       }
 
-      pub fn border_center(mut self, width: f32, color: impl Into<$crate::node::BackgroundColor>) -> Self {
+      pub fn border_center(
+        mut self,
+        width: impl Into<$crate::node::BorderSizeValue>,
+        color: impl Into<$crate::node::BackgroundColor>,
+      ) -> Self {
         self.node = self.node.border_center(width, color);
         self
       }

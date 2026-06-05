@@ -7,7 +7,7 @@ description: Visual modifiers, state styles, cursors, inputs, event handlers, sc
 
 Most visual and input behavior is expressed as chainable modifiers on typed components.
 
-Use [Theme](./theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, and compound form controls. Use concrete values for isolated one-off visuals.
+Use [Theme](./theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, and compound form controls. Use concrete values for isolated one-off visuals.
 
 ## Visual Modifiers
 
@@ -27,9 +27,9 @@ Common visual modifiers:
 | `.background(color)` | Background color from a concrete color or `PaletteColor`. |
 | `.rounded(radius)` | Uniform corner radius from `f32` or `RadiusSize`. |
 | `.corner_radius_*` | Per-corner radius from `f32` or `RadiusSize`. |
-| `.border_inside(width, color)` | Border inside the element bounds. |
-| `.border_center(width, color)` | Border centered on the element edge. |
-| `.border_outside(width, color)` | Border outside the element bounds. |
+| `.border_inside(width, color)` | Border inside the element bounds from a concrete width or `BorderSize`. |
+| `.border_center(width, color)` | Border centered on the element edge from a concrete width or `BorderSize`. |
+| `.border_outside(width, color)` | Border outside the element bounds from a concrete width or `BorderSize`. |
 | `.opacity(value)` | Draw opacity. |
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |

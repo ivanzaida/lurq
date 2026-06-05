@@ -76,6 +76,9 @@ lurq::components::Stack::new()
 lurq::components::Spacer::new().size(200.0, 100.0)
 lurq::components::Spacer::new().width(200.0)
 lurq::components::Spacer::new().height(100.0)
+lurq::components::Spacer::new().min_width(160.0).max_width(320.0)
+lurq::components::Spacer::new().min_height(80.0).max_height(180.0)
+lurq::components::Spacer::new().min_size(120.0, 80.0).max_size(320.0, 180.0)
 lurq::components::Rect::new(80.0, 80.0)
 ```
 
@@ -230,7 +233,7 @@ Theme palettes, typography, radii, and spacing expose strict named values:
 
 ```rust
 use lurq::{
-  app::theme::{PaletteColor, RadiusSize, SpacingSize, TypographyStyle},
+  app::theme::{BorderSize, PaletteColor, RadiusSize, SpacingSize, TypographyStyle},
   node::color::Color,
 };
 
@@ -241,6 +244,7 @@ app.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 lurq::components::Rect::new(120.0, 40.0)
   .background(PaletteColor::Accent)
   .padding(SpacingSize::Sm)
+  .border_inside(BorderSize::Sm, PaletteColor::Border)
   .rounded(RadiusSize::Md);
 
 lurq::components::Row::new()
@@ -270,7 +274,7 @@ lurq::components::Text::new("Headline")
   .variant(TypographyStyle::Heading)
 ```
 
-Text variants are closed over the `TypographyStyle` names. Radius variants are closed over `RadiusSize::Sm`, `RadiusSize::Md`, and `RadiusSize::Lg`. Spacing variants are closed over `SpacingSize::Xs`, `SpacingSize::Sm`, `SpacingSize::Md`, `SpacingSize::Lg`, `SpacingSize::Xl`, and `SpacingSize::Section`.
+Text variants are closed over the `TypographyStyle` names. Radius variants are closed over `RadiusSize::Sm`, `RadiusSize::Md`, and `RadiusSize::Lg`. Spacing variants are closed over `SpacingSize::Xs`, `SpacingSize::Sm`, `SpacingSize::Md`, `SpacingSize::Lg`, `SpacingSize::Xl`, and `SpacingSize::Section`. Border-size variants are closed over `BorderSize::Sm`, `BorderSize::Md`, and `BorderSize::Lg`.
 
 Use `Text::styled` for a one-off style that should ignore theme typography:
 

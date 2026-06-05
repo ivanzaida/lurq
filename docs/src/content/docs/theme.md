@@ -1,17 +1,17 @@
 ---
 title: Theme
-description: Strict palette, typography, radius, spacing, and form theme roles.
+description: Strict palette, typography, radius, spacing, border size, and form theme roles.
 ---
 
 # Theme
 
-The runtime theme is a strict set of semantic roles. There is no dynamic token registry: palette colors, typography styles, radius sizes, and spacing sizes are closed enums with matching fields on the theme structs.
+The runtime theme is a strict set of semantic roles. There is no dynamic token registry: palette colors, typography styles, radius sizes, spacing sizes, and border sizes are closed enums with matching fields on the theme structs.
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
 ```rust
 use lurq::{
-  app::theme::{PaletteColor, RadiusSize, SpacingSize, TypographyStyle},
+  app::theme::{BorderSize, PaletteColor, RadiusSize, SpacingSize, TypographyStyle},
   components::{Column, Rect, Text},
 };
 
@@ -22,6 +22,7 @@ Column::new()
   .child(
     Rect::new(120.0, 36.0)
       .background(PaletteColor::Accent)
+      .border_inside(BorderSize::Sm, PaletteColor::Border)
       .rounded(RadiusSize::Md),
   )
 ```
@@ -57,6 +58,8 @@ The main theme accessors are:
 | `theme.radius_value(key)` / `theme.set_radius_value(key, value)` | Read or set one radius role. |
 | `theme.spacing()` / `theme.set_spacing(...)` | Read or replace `ThemeSpacing`. |
 | `theme.spacing_value(key)` / `theme.set_spacing_value(key, value)` | Read or set one spacing role. |
+| `theme.border_sizes()` / `theme.set_border_sizes(...)` | Read or replace `ThemeBorderSizes`. |
+| `theme.border_size_value(key)` / `theme.set_border_size_value(key, value)` | Read or set one border-size role. |
 | `theme.form()` / `theme.set_form(...)` | Read or replace `FormTheme`; requires the `form` feature. |
 
 Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for one theme value:
@@ -221,12 +224,34 @@ use lurq::{app::theme::SpacingSize, node::dimension::Dimension};
 app.theme().set_spacing_value(SpacingSize::Md, Dimension::Px(14.0));
 ```
 
+## Border Size
+
+Border-size roles are named by `BorderSize` and stored as public fields on `ThemeBorderSizes`.
+
+| `BorderSize` | `ThemeBorderSizes` field | Default |
+| --- | --- | --- |
+| `Sm` | `sm` | `1px` |
+| `Md` | `md` | `2px` |
+| `Lg` | `lg` | `3px` |
+
+Use border-size roles anywhere a border width accepts a `BorderSizeValue`:
+
+```rust
+use lurq::{app::theme::{BorderSize, PaletteColor}, components::Rect};
+
+app.theme().set_border_size_value(BorderSize::Md, 2.0);
+
+Rect::new(100.0, 40.0)
+  .border_inside(BorderSize::Sm, PaletteColor::Border)
+  .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
+```
+
 ## Form Theme
 
 Form theme roles require the `form` feature:
 
 ```toml
-lurq = { version = "0.6", features = ["form"] }
+lurq = { version = "0.7", features = ["form"] }
 ```
 
 `FormTheme` groups compound form styling into semantic roles:
@@ -283,7 +308,7 @@ FormTextRole {
 
 `theme.form().button` is a `FormButtonTheme` with `primary` and `secondary` `FormButtonRole`s.
 
-Both button roles own layout values (`width`, `height`, `padding`) and semantic theme references (`radius`, background roles, border roles, text role). Defaults:
+Both button roles own layout values (`width`, `height`, `padding`) and semantic theme references (`radius`, background roles, border roles, text role). Compound form controls draw their default borders with `BorderSize::Sm`. Defaults:
 
 | Role | Background | Border | Text |
 | --- | --- | --- | --- |
@@ -352,4 +377,4 @@ Rect::new(80.0, 32.0)
   .border_inside(1.0, Color::from_hex("#334155"));
 ```
 
-Prefer concrete values for isolated drawings, debug visuals, or one-off component details. Prefer theme roles for app surfaces, text, controls, repeated spacing, and reusable component defaults.
+Prefer concrete values for isolated drawings, debug visuals, or one-off component details. Prefer theme roles for app surfaces, text, controls, repeated spacing, repeated border widths, and reusable component defaults.

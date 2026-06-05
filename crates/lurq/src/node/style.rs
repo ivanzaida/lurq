@@ -3,6 +3,7 @@ use crate::{
   node::{
     background_color::BackgroundColor,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
+    border_size_value::BorderSizeValue,
     cursor::CursorIcon,
     dimension::Dimension,
     padding::Padding,
@@ -73,6 +74,20 @@ impl Style {
 
   pub fn max_height(mut self, height: impl Into<Dimension>) -> Self {
     self.frame_mut().max_height = Some(height.into());
+    self
+  }
+
+  pub fn min_size(mut self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
+    let frame = self.frame_mut();
+    frame.min_width = Some(width.into());
+    frame.min_height = Some(height.into());
+    self
+  }
+
+  pub fn max_size(mut self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
+    let frame = self.frame_mut();
+    frame.max_width = Some(width.into());
+    frame.max_height = Some(height.into());
     self
   }
 
@@ -190,17 +205,17 @@ impl Style {
     self
   }
 
-  pub fn border_inside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_inside(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::inside(width, color)));
     self
   }
 
-  pub fn border_outside(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_outside(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::outside(width, color)));
     self
   }
 
-  pub fn border_center(mut self, width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn border_center(mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     self.border = Some(Borders::all(Border::center(width, color)));
     self
   }

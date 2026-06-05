@@ -9,6 +9,7 @@ use crate::{
   node::{color::Color, dimension::Dimension},
 };
 
+mod border;
 #[cfg(feature = "form")]
 mod form;
 mod palette;
@@ -16,6 +17,7 @@ mod radius;
 mod spacing;
 mod typography;
 
+pub use border::{BorderSize, ThemeBorderSizes};
 #[cfg(feature = "form")]
 pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
@@ -34,6 +36,7 @@ pub struct Theme {
 
 struct ThemeInner {
   palette: ThemePalette,
+  border_sizes: ThemeBorderSizes,
   spacing: ThemeSpacing,
   radii: ThemeRadii,
   typography: ThemeTypography,
@@ -60,6 +63,7 @@ impl Default for Theme {
     Self {
       inner: Arc::new(RwLock::new(ThemeInner {
         palette: ThemePalette::default(),
+        border_sizes: ThemeBorderSizes::default(),
         spacing: ThemeSpacing::default(),
         radii: ThemeRadii::default(),
         typography: ThemeTypography::default(),
@@ -110,6 +114,29 @@ impl Theme {
 
   pub fn palette_color(&self, palette_color: impl Into<PaletteColor>) -> Color {
     self.inner.read().unwrap().palette.get(palette_color)
+  }
+
+  pub fn border_sizes(&self) -> ThemeRef<'_, ThemeBorderSizes> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.border_sizes,
+    }
+  }
+
+  pub fn set_border_sizes(&self, border_sizes: ThemeBorderSizes) {
+    let mut inner = self.inner.write().unwrap();
+    inner.border_sizes = border_sizes;
+    self.bump_version(&mut inner);
+  }
+
+  pub fn set_border_size_value(&self, size: impl Into<BorderSize>, value: f32) {
+    let mut inner = self.inner.write().unwrap();
+    inner.border_sizes.set(size, value);
+    self.bump_version(&mut inner);
+  }
+
+  pub fn border_size_value(&self, size: impl Into<BorderSize>) -> f32 {
+    self.inner.read().unwrap().border_sizes.get(size)
   }
 
   pub fn spacing(&self) -> ThemeRef<'_, ThemeSpacing> {

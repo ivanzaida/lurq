@@ -127,21 +127,25 @@ pub(crate) fn read_target(node: &crate::node::Node, prop: AnimatableProperty) ->
       .border
       .or(*node.border)
       .and_then(|b| b.top_width())
+      .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthRight => style
       .border
       .or(*node.border)
       .and_then(|b| b.right_width())
+      .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthBottom => style
       .border
       .or(*node.border)
       .and_then(|b| b.bottom_width())
+      .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderWidthLeft => style
       .border
       .or(*node.border)
       .and_then(|b| b.left_width())
+      .and_then(|width| width.as_px())
       .map(AnimatableValue::Float),
     AnimatableProperty::BorderRadiusTopLeft => style
       .border_radius

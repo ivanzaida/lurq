@@ -1,6 +1,6 @@
 use crate::{
-  app::theme::{ThemePalette, ThemeRadii},
-  node::{BackgroundColor, color::Color, radius_value::RadiusValue},
+  app::theme::{ThemeBorderSizes, ThemePalette, ThemeRadii},
+  node::{BackgroundColor, border_size_value::BorderSizeValue, color::Color, radius_value::RadiusValue},
 };
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -107,35 +107,35 @@ impl From<BorderRadius> for ThemedBorderRadius {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
-  pub width: f32,
+  pub width: BorderSizeValue,
   pub color: BackgroundColor,
   pub placement: BorderPlacement,
 }
 
 impl Border {
-  pub fn new(width: f32, color: impl Into<BackgroundColor>, placement: BorderPlacement) -> Self {
+  pub fn new(width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>, placement: BorderPlacement) -> Self {
     Self {
-      width,
+      width: width.into(),
       color: color.into(),
       placement,
     }
   }
 
-  pub fn inside(width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn inside(width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     Self::new(width, color, BorderPlacement::Inside)
   }
 
-  pub fn outside(width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn outside(width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     Self::new(width, color, BorderPlacement::Outside)
   }
 
-  pub fn center(width: f32, color: impl Into<BackgroundColor>) -> Self {
+  pub fn center(width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) -> Self {
     Self::new(width, color, BorderPlacement::Center)
   }
 
-  pub(crate) fn resolve(&self, palette: &ThemePalette) -> Option<ResolvedBorder> {
+  pub(crate) fn resolve(&self, palette: &ThemePalette, border_sizes: &ThemeBorderSizes) -> Option<ResolvedBorder> {
     Some(ResolvedBorder {
-      width: self.width,
+      width: self.width.resolve(border_sizes),
       color: self.color.resolve(palette)?,
       placement: self.placement,
     })
@@ -189,29 +189,33 @@ impl Borders {
     }
   }
 
-  pub(crate) fn resolve(&self, palette: &ThemePalette) -> Option<ResolvedBorders> {
+  pub(crate) fn resolve_with_sizes(
+    &self,
+    palette: &ThemePalette,
+    border_sizes: &ThemeBorderSizes,
+  ) -> Option<ResolvedBorders> {
     let borders = ResolvedBorders {
-      top: self.top.and_then(|border| border.resolve(palette)),
-      right: self.right.and_then(|border| border.resolve(palette)),
-      bottom: self.bottom.and_then(|border| border.resolve(palette)),
-      left: self.left.and_then(|border| border.resolve(palette)),
+      top: self.top.and_then(|border| border.resolve(palette, border_sizes)),
+      right: self.right.and_then(|border| border.resolve(palette, border_sizes)),
+      bottom: self.bottom.and_then(|border| border.resolve(palette, border_sizes)),
+      left: self.left.and_then(|border| border.resolve(palette, border_sizes)),
     };
     borders.any().then_some(borders)
   }
 
-  pub fn top_width(&self) -> Option<f32> {
+  pub fn top_width(&self) -> Option<BorderSizeValue> {
     self.top.map(|border| border.width)
   }
 
-  pub fn right_width(&self) -> Option<f32> {
+  pub fn right_width(&self) -> Option<BorderSizeValue> {
     self.right.map(|border| border.width)
   }
 
-  pub fn bottom_width(&self) -> Option<f32> {
+  pub fn bottom_width(&self) -> Option<BorderSizeValue> {
     self.bottom.map(|border| border.width)
   }
 
-  pub fn left_width(&self) -> Option<f32> {
+  pub fn left_width(&self) -> Option<BorderSizeValue> {
     self.left.map(|border| border.width)
   }
 }

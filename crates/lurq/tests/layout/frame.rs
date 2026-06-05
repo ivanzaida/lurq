@@ -53,10 +53,7 @@ fn frame_percentage_size_resolves_against_parent_constraints() {
 #[test]
 fn frame_min_width() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new().frame(FrameConstraints {
-    min_width: Some(lurq::node::dimension::Dimension::Px(200.0)),
-    ..Default::default()
-  });
+  let node = lurq::components::Spacer::new().min_width(200.0);
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert!(result.size.width >= 200.0);
@@ -82,10 +79,7 @@ fn frame_max_width_limits() {
 #[test]
 fn frame_min_height() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new().frame(FrameConstraints {
-    min_height: Some(lurq::node::dimension::Dimension::Px(100.0)),
-    ..Default::default()
-  });
+  let node = lurq::components::Spacer::new().min_height(100.0);
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert!(result.size.height >= 100.0);
