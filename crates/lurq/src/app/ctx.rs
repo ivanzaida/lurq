@@ -570,6 +570,8 @@ pub struct Ctx {
   #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<NonNull<App>>,
+  #[cfg(feature = "tokio")]
+  runtime_future_handle: RuntimeFutureHandle,
   context_map: ContextMap,
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
@@ -948,6 +950,8 @@ impl Ctx {
       #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
+      #[cfg(feature = "tokio")]
+      runtime_future_handle: None,
       context_map: ContextMap::default(),
       slot_children: None,
       children: Vec::new(),
@@ -981,6 +985,10 @@ impl Ctx {
 
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
     self.app = Some(NonNull::from(&mut *app));
+    #[cfg(feature = "tokio")]
+    {
+      self.runtime_future_handle = app.tokio_handle();
+    }
     for slot in &mut self.children {
       slot.ctx.set_app_ref(app);
     }
@@ -989,7 +997,7 @@ impl Ctx {
   fn runtime_future_handle(&self) -> RuntimeFutureHandle {
     #[cfg(feature = "tokio")]
     {
-      self.app.and_then(|app| unsafe { app.as_ref().tokio_handle() })
+      self.runtime_future_handle.clone()
     }
     #[cfg(not(feature = "tokio"))]
     {}
@@ -1663,6 +1671,10 @@ impl Ctx {
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.app = self.app;
+    #[cfg(feature = "tokio")]
+    {
+      child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
+    }
     child_ctx.modal_registry = self.modal_registry.clone();
     child_ctx.modal_context = self.modal_context.clone();
     #[cfg(feature = "i18n")]
@@ -1728,6 +1740,10 @@ impl Ctx {
       group_ctx.batch = self.batch.clone();
       group_ctx.theme = self.theme.clone();
       group_ctx.app = self.app;
+      #[cfg(feature = "tokio")]
+      {
+        group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
+      }
       group_ctx.modal_registry = self.modal_registry.clone();
       group_ctx.modal_context = self.modal_context.clone();
       #[cfg(feature = "i18n")]
@@ -1808,6 +1824,10 @@ impl Ctx {
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.app = self.app;
+    #[cfg(feature = "tokio")]
+    {
+      child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
+    }
     child_ctx.modal_registry = self.modal_registry.clone();
     child_ctx.modal_context = self.modal_context.clone();
     #[cfg(feature = "i18n")]
