@@ -211,24 +211,18 @@ pub(crate) fn clear_overrides(node: &mut crate::node::Node) {
 }
 
 fn read_offset_x(node: &crate::node::Node) -> Option<f32> {
-  match node.layout_kind() {
-    crate::layout::layout_kind::LayoutKind::OffsetModifier { x, .. } => Some(*x),
-    _ => None,
-  }
+  node.offset_position().map(|offset| offset.x)
 }
 
 fn read_offset_y(node: &crate::node::Node) -> Option<f32> {
-  match node.layout_kind() {
-    crate::layout::layout_kind::LayoutKind::OffsetModifier { y, .. } => Some(*y),
-    _ => None,
-  }
+  node.offset_position().map(|offset| offset.y)
 }
 
 fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::Style, is_width: bool) -> Option<f32> {
-  let base = match node.layout_kind() {
-    crate::layout::layout_kind::LayoutKind::FrameModifier(f) => *f,
-    _ => return None,
-  };
+  let base = node.frame;
+  if base == crate::layout::layout_kind::FrameConstraints::default() && style.frame.is_none() {
+    return None;
+  }
   let effective = match style.frame {
     Some(overlay) => crate::node::node::merge_frame(base, overlay),
     None => base,
@@ -241,15 +235,15 @@ fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::S
 }
 
 fn write_offset_x(node: &mut crate::node::Node, v: f32) {
-  if let crate::layout::layout_kind::LayoutKind::OffsetModifier { x, .. } = &mut node.layout_kind {
-    *x = v;
-  }
+  let mut offset = node.offset.unwrap_or_default();
+  offset.x = v;
+  node.offset = Some(offset);
 }
 
 fn write_offset_y(node: &mut crate::node::Node, v: f32) {
-  if let crate::layout::layout_kind::LayoutKind::OffsetModifier { y, .. } = &mut node.layout_kind {
-    *y = v;
-  }
+  let mut offset = node.offset.unwrap_or_default();
+  offset.y = v;
+  node.offset = Some(offset);
 }
 
 #[cfg(test)]

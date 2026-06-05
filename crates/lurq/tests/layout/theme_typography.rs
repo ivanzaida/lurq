@@ -178,14 +178,20 @@ fn padding_resolves_theme_spacing() {
   app.theme().set_spacing_value(PAD, Dimension::Px(10.0));
 
   let mut tree = Tree::new();
-  tree.set_root(Rect::new(20.0, 10.0).padding(PAD));
+  tree.set_root(
+    lurq::components::Stack::new().size(20.0, 10.0).padding(PAD).child(
+      lurq::components::Spacer::new()
+        .width(Dimension::Pct(100.0))
+        .height(Dimension::Pct(100.0)),
+    ),
+  );
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 
   let layout = tree.last_layout().unwrap();
   assert_eq!(layout.size.width, 20.0);
   assert_eq!(layout.size.height, 10.0);
-  let inner = &layout.children[0].result.children[0];
+  let inner = &layout.children[0];
   assert_eq!(inner.offset.x, 10.0);
   assert_eq!(inner.offset.y, 10.0);
   assert_eq!(inner.result.size.width, 0.0);

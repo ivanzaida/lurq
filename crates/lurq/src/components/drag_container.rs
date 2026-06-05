@@ -7,7 +7,7 @@ use super::slot::single_slot_child as required_single_slot_child;
 use crate::{
   app::{component::Component, ctx::Ctx, events::DragEvent},
   core::{ElementRect, ElementRef},
-  layout::layout_kind::LayoutKind,
+  layout::layout_kind::Position,
   node::{Element, Node},
 };
 
@@ -243,19 +243,22 @@ fn clamp_point_to_rect(x: f32, y: f32, rect: ElementRect) -> (f32, f32) {
 }
 
 fn drag_extent_ref(node: &mut Node) -> ElementRef {
-  match node.layout_kind {
-    LayoutKind::AbsoluteModifier {
+  if matches!(
+    node.position(),
+    Position::Absolute {
       width: None,
       height: None,
       ..
     }
-    | LayoutKind::OffsetModifier { .. }
-      if node.children.len() == 1 =>
-    {
-      drag_extent_ref(&mut node.children[0])
-    }
-    _ => node.element_ref_handle(),
+  ) {
+    return node.element_ref_handle();
   }
+
+  if node.offset_position().is_some() {
+    return node.element_ref_handle();
+  }
+
+  node.element_ref_handle()
 }
 
 fn clamp_to_container(draggable_ref: &crate::core::ElementRefMut, container_ref: &ElementRef, extent: DragExtent) {

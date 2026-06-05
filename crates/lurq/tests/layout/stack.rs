@@ -70,11 +70,10 @@ fn fixed_size_stack_does_not_force_child_cross_axis_size() {
 
   assert_eq!(result.size.width, 300.0);
   assert_eq!(result.size.height, 200.0);
-  let stack_result = &result.children[0].result;
-  assert_eq!(stack_result.children[0].result.size.width, 100.0);
-  assert_eq!(stack_result.children[0].result.size.height, 0.0);
-  assert_eq!(stack_result.children[0].offset.x, 100.0);
-  assert_eq!(stack_result.children[0].offset.y, 100.0);
+  assert_eq!(result.children[0].result.size.width, 100.0);
+  assert_eq!(result.children[0].result.size.height, 0.0);
+  assert_eq!(result.children[0].offset.x, 100.0);
+  assert_eq!(result.children[0].offset.y, 100.0);
 }
 
 #[test]

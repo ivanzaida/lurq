@@ -577,9 +577,8 @@ fn flex_padding_reduces_available_space() {
   rt.set_root(node);
   let r = rt.pass_layout(Constraints::tight(Size::new(300.0, 100.0))).unwrap();
   // Padding 20 on each side → 260 available for flex children → 130 each
-  let inner = &r.children[0].result;
-  let a_w = inner.children[0].result.size.width;
-  let b_w = inner.children[1].result.size.width;
+  let a_w = r.children[0].result.size.width;
+  let b_w = r.children[1].result.size.width;
   assert!(
     (a_w - 130.0).abs() < 1.0,
     "padding should reduce available space, a_w={}",
@@ -633,13 +632,19 @@ fn flex_intrinsic_leaf_contributes_size() {
 fn percentage_padding_resolves_inside_explicit_frame() {
   use lurq::node::{dimension::Dimension, padding::Padding};
   let mut rt = rt();
-  let node = rect(100.0, 100.0).padding(Padding::all(Dimension::Pct(10.0)));
+  let node = lurq::components::Stack::new()
+    .size(100.0, 100.0)
+    .padding(Padding::all(Dimension::Pct(10.0)))
+    .child(
+      lurq::components::Spacer::new()
+        .width(Dimension::Pct(100.0))
+        .height(Dimension::Pct(100.0)),
+    );
   rt.set_root(node);
   let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
   // The explicit frame is the outer box. 10% padding resolves against that
   // 100x100 frame, so the inner rect receives 80x80.
-  let pad_result = &r.children[0].result;
-  let inner = &pad_result.children[0];
+  let inner = &r.children[0];
   assert_eq!(inner.result.size.width, 80.0, "inner width");
   assert_eq!(inner.result.size.height, 80.0, "inner height");
   assert_eq!(r.size.width, 100.0, "outer width");

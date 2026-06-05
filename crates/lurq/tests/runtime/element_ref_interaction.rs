@@ -161,8 +161,8 @@ fn element_ref_mut_can_override_layout_bounds() {
     .unwrap();
   let rect = found.bounds();
 
-  assert_eq!(rect.x, 25.0);
-  assert_eq!(rect.y, 30.0);
+  assert_eq!(rect.x, 15.0);
+  assert_eq!(rect.y, 20.0);
   assert_eq!(rect.relative_x, 15.0);
   assert_eq!(rect.relative_y, 20.0);
   assert_eq!(rect.width, 30.0);

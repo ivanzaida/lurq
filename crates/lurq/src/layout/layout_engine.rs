@@ -8,7 +8,8 @@ use crate::{
   layout::{
     Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
-      FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, ScrollAxis, ScrollDirection, ScrollState,
+      FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, Position, ScrollAxis, ScrollDirection,
+      ScrollState,
     },
     layout_result::{ChildLayout, LayoutResult},
     quad::{ClipRect, Quad, QuadContent},
@@ -66,6 +67,14 @@ fn text_input_vertical_offset(state: &TextInputState, height: f32) -> f32 {
   } else {
     0.0
   }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ResolvedPadding {
+  pub(crate) left: f32,
+  pub(crate) top: f32,
+  pub(crate) right: f32,
+  pub(crate) bottom: f32,
 }
 
 pub(crate) struct LayoutEngine {
@@ -403,11 +412,12 @@ impl LayoutEngine {
     viewport: ClipRect,
   ) -> Vec<Quad> {
     let mut quads = Vec::new();
+    let root_offset = node.offset_position().unwrap_or_default();
     self.collect_quads(
       node,
       result,
-      0.0,
-      0.0,
+      root_offset.x,
+      root_offset.y,
       0.0,
       0.0,
       Transform2D::IDENTITY,
@@ -503,6 +513,26 @@ impl LayoutEngine {
     match &content {
       QuadContent::None => {}
       _ => {
+        if matches!(content, QuadContent::Text { .. }) && has_visual {
+          let (visual_x, visual_y, visual_transform, visual_transform_origin) =
+            transformed_quad_frame(abs_x, abs_y, transform);
+          quads.push(Quad {
+            x: visual_x,
+            y: visual_y,
+            width: result.size.width,
+            height: result.size.height,
+            opacity,
+            transform: visual_transform,
+            transform_origin: visual_transform_origin,
+            content: QuadContent::Rect {
+              color: background_color.unwrap_or(DEFAULT_TRANSPARENT_COLOR),
+            },
+            border_radius: node.get_border_radius(&self.radii.borrow()),
+            border: resolved_border,
+            clip,
+          });
+        }
+
         if let NodeKind::Text { state, style, .. } = node.node_kind()
           && state.selectable()
         {
@@ -535,20 +565,23 @@ impl LayoutEngine {
         if let NodeKind::TextInput { state, .. } = node.node_kind()
           && state.is_focused()
         {
-          let selection_height = state.caret_height().min(result.size.height).max(1.0);
-          let vertical_offset = text_input_vertical_offset(state, result.size.height);
+          let padding = self.resolved_padding_for_size(node, result.size);
+          let content_width = (result.size.width - padding.left - padding.right).max(0.0);
+          let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
+          let selection_height = state.caret_height().min(content_height).max(1.0);
+          let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
           let selection_clip = intersect_clip(
             clip,
             ClipRect {
-              x: abs_x,
-              y: abs_y,
-              width: result.size.width,
-              height: result.size.height,
+              x: abs_x + padding.left,
+              y: abs_y + padding.top,
+              width: content_width,
+              height: content_height,
               active: true,
             },
           );
           for selection in state.selection_ranges() {
-            let selection_x = abs_x + selection.x;
+            let selection_x = abs_x + padding.left + selection.x;
             let selection_y = abs_y + vertical_offset + selection.y;
             let (selection_x, selection_y, selection_transform, selection_transform_origin) =
               transformed_quad_frame(selection_x, selection_y, transform);
@@ -572,31 +605,40 @@ impl LayoutEngine {
 
         let (content_x, content_y, content_width, content_height, content_clip) = match node.node_kind() {
           NodeKind::TextInput { state, .. } => {
+            let padding = self.resolved_padding_for_size(node, result.size);
+            let content_width = (result.size.width - padding.left - padding.right).max(0.0);
+            let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
             let scroll_x = state.scroll_x();
             let scroll_y = state.scroll_y();
-            let vertical_offset = text_input_vertical_offset(state, result.size.height);
+            let vertical_offset = text_input_vertical_offset(state, content_height);
             if matches!(
               state.overflow(),
               TextInputOverflow::Scroll | TextInputOverflow::Multiline
             ) {
               (
-                abs_x - scroll_x,
-                abs_y + vertical_offset - scroll_y,
-                result.size.width + scroll_x,
-                result.size.height + scroll_y,
+                abs_x + padding.left - scroll_x,
+                abs_y + padding.top + vertical_offset - scroll_y,
+                content_width + scroll_x,
+                content_height + scroll_y,
                 intersect_clip(
                   clip,
                   ClipRect {
-                    x: abs_x,
-                    y: abs_y,
-                    width: result.size.width,
-                    height: result.size.height,
+                    x: abs_x + padding.left,
+                    y: abs_y + padding.top,
+                    width: content_width,
+                    height: content_height,
                     active: true,
                   },
                 ),
               )
             } else {
-              (abs_x, abs_y, result.size.width, result.size.height, clip)
+              (
+                abs_x + padding.left,
+                abs_y + padding.top,
+                content_width,
+                content_height,
+                clip,
+              )
             }
           }
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
@@ -654,9 +696,12 @@ impl LayoutEngine {
 
     match node.node_kind() {
       NodeKind::TextInput { state, style, .. } if state.is_focused() => {
-        let caret_height = state.caret_height().min(result.size.height).max(1.0);
-        let vertical_offset = text_input_vertical_offset(state, result.size.height);
-        let caret_x = abs_x + state.caret_x();
+        let padding = self.resolved_padding_for_size(node, result.size);
+        let content_width = (result.size.width - padding.left - padding.right).max(0.0);
+        let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
+        let caret_height = state.caret_height().min(content_height).max(1.0);
+        let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+        let caret_x = abs_x + padding.left + state.caret_x();
         let caret_y = abs_y + vertical_offset + state.caret_y();
         let palette = self.palette.borrow();
         let caret_color = node
@@ -677,7 +722,16 @@ impl LayoutEngine {
           content: QuadContent::Rect { color: caret_color },
           border_radius: None,
           border: None,
-          clip,
+          clip: intersect_clip(
+            clip,
+            ClipRect {
+              x: abs_x + padding.left,
+              y: abs_y + padding.top,
+              width: content_width,
+              height: content_height,
+              active: true,
+            },
+          ),
         });
       }
       NodeKind::Checkbox { state } => {
@@ -1001,8 +1055,27 @@ impl LayoutEngine {
     constraints: Constraints,
   ) -> LayoutResult {
     self.last_recalculated.set(true);
-    let frame_handled_by_layout_kind = matches!(node.layout_kind(), LayoutKind::FrameModifier(_));
-    let mut result = match node.layout_kind() {
+    let mut result = self.layout_node_box(glyph_engine, node, constraints);
+    Self::apply_runtime_rect(node, &mut result);
+    node.layout_cache.store(constraints, result.clone());
+    result
+  }
+
+  fn layout_node_box(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+    let frame = node.effective_frame(FrameConstraints::default());
+    let padding = node.effective_padding(&Padding::default());
+    let frame_is_flat = frame != FrameConstraints::default();
+    let padding_is_flat = padding != Padding::default();
+
+    if frame_is_flat || padding_is_flat {
+      return self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding);
+    }
+
+    self.layout_node_content(glyph_engine, node, constraints)
+  }
+
+  fn layout_node_content(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+    match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints),
       LayoutKind::Row {
         spacing,
@@ -1024,73 +1097,9 @@ impl LayoutEngine {
       }
       LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align),
       LayoutKind::LogicalModifier => self.layout_passthrough(glyph_engine, node, constraints),
-      LayoutKind::PaddingModifier(padding) => {
-        let padding = node.effective_padding(padding);
-        self.layout_padding(glyph_engine, node, constraints, &padding)
-      }
-      LayoutKind::FrameModifier(frame) => {
-        let frame = node.effective_frame(*frame);
-        self.layout_frame(glyph_engine, node, constraints, &frame)
-      }
-      LayoutKind::OffsetModifier { x, y } => self.layout_offset(glyph_engine, node, constraints, *x, *y),
-      LayoutKind::AbsoluteModifier { width, height, .. } => {
-        self.layout_absolute(glyph_engine, node, constraints, *width, *height)
-      }
-      LayoutKind::AlignModifier(_) => self.layout_passthrough(glyph_engine, node, constraints),
-      LayoutKind::FlexModifier(_) => self.layout_passthrough(glyph_engine, node, constraints),
       LayoutKind::ScrollModifier { state, direction } => {
         self.layout_scroll(glyph_engine, node, constraints, state, *direction)
       }
-    };
-
-    if !frame_handled_by_layout_kind {
-      Self::apply_state_frame(node, &mut result, constraints);
-    }
-    Self::apply_runtime_rect(node, &mut result);
-    node.layout_cache.store(constraints, result.clone());
-    result
-  }
-
-  fn apply_state_frame(node: &Node, result: &mut LayoutResult, constraints: Constraints) {
-    let Some(frame) = node.state_frame() else {
-      return;
-    };
-
-    if let Some(width) = frame
-      .width
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
-    {
-      result.size.width = width;
-    }
-    if let Some(height) = frame
-      .height
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
-    {
-      result.size.height = height;
-    }
-    if let Some(min_width) = frame
-      .min_width
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
-    {
-      result.size.width = result.size.width.max(min_width);
-    }
-    if let Some(max_width) = frame
-      .max_width
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_width))
-    {
-      result.size.width = result.size.width.min(max_width);
-    }
-    if let Some(min_height) = frame
-      .min_height
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
-    {
-      result.size.height = result.size.height.max(min_height);
-    }
-    if let Some(max_height) = frame
-      .max_height
-      .and_then(|size| Self::resolve_dimension(size, constraints.max_height))
-    {
-      result.size.height = result.size.height.min(max_height);
     }
   }
 
@@ -1302,12 +1311,13 @@ impl LayoutEngine {
     let size = constraints.constrain(preferred);
     match overflow {
       crate::node::node_kind::TextInputOverflow::Scroll => {
-        let max_scroll = (text_result.size.width - size.width).max(0.0);
+        let caret_width = 1.0;
+        let max_scroll = (text_result.size.width + caret_width - size.width).max(0.0);
         let mut scroll_x = state.scroll_x().min(max_scroll);
         if caret_x < scroll_x {
           scroll_x = caret_x;
-        } else if caret_x > scroll_x + size.width {
-          scroll_x = (caret_x - size.width + 1.0).min(max_scroll);
+        } else if caret_x + caret_width > scroll_x + size.width {
+          scroll_x = (caret_x + caret_width - size.width).min(max_scroll);
         }
         state.set_scroll_x(scroll_x);
         state.set_scroll_y(0.0);
@@ -1363,10 +1373,7 @@ impl LayoutEngine {
     let mut flex_params_list: Vec<FlexParams> = Vec::with_capacity(children.len());
 
     for child in children {
-      let flex_params = match child.layout_kind() {
-        LayoutKind::FlexModifier(params) => Some(child.effective_flex(*params)),
-        _ => child.state_flex(),
-      };
+      let flex_params = child.state_flex();
 
       if let Some(params) = flex_params {
         grow_total += params.grow;
@@ -1574,7 +1581,7 @@ impl LayoutEngine {
       }
     }
 
-    let child_layouts = self.position_flex_line(&results, &size, spacing, align, justify, vertical);
+    let child_layouts = self.position_flex_line(children, &results, &size, spacing, align, justify, vertical);
 
     LayoutResult {
       size,
@@ -1584,6 +1591,7 @@ impl LayoutEngine {
 
   fn position_flex_line(
     &self,
+    children: &[Node],
     results: &[LayoutResult],
     container_size: &Size,
     spacing: f32,
@@ -1650,6 +1658,7 @@ impl LayoutEngine {
       } else {
         Offset::new(main_cursor, cross_offset)
       };
+      let offset = Self::apply_relative_position(&children[i], offset);
 
       main_cursor += child_main + if i < (n as usize - 1) { gap } else { 0.0 };
       child_layouts.push(ChildLayout {
@@ -1798,6 +1807,7 @@ impl LayoutEngine {
         } else {
           Offset::new(main_cursor, cross_offset)
         };
+        let offset = Self::apply_relative_position(&children[idx], offset);
         main_cursor += child_main + if j < (n as usize - 1) { gap } else { 0.0 };
         all_layouts[idx] = ChildLayout { offset, result };
       }
@@ -1829,13 +1839,33 @@ impl LayoutEngine {
     let child_constraints = constraints.loosen_width().loosen_height();
     let results: Vec<LayoutResult> = children
       .iter()
-      .map(|child| self.layout_node(glyph_engine, child, child_constraints))
+      .map(|child| match child.position() {
+        Position::Absolute { width, height, .. } => {
+          let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+          let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
+          let positioned_constraints = Constraints {
+            min_width: resolved_width.unwrap_or(0.0),
+            max_width: resolved_width.unwrap_or(child_constraints.max_width),
+            min_height: resolved_height.unwrap_or(0.0),
+            max_height: resolved_height.unwrap_or(child_constraints.max_height),
+          };
+          let mut result = self.layout_node(glyph_engine, child, positioned_constraints);
+          if let Some(width) = resolved_width {
+            result.size.width = width;
+          }
+          if let Some(height) = resolved_height {
+            result.size.height = height;
+          }
+          result
+        }
+        _ => self.layout_node(glyph_engine, child, child_constraints),
+      })
       .collect();
 
     let normal_results: Vec<&LayoutResult> = children
       .iter()
       .zip(results.iter())
-      .filter(|(child, _)| !matches!(child.layout_kind(), LayoutKind::AbsoluteModifier { .. }))
+      .filter(|(child, _)| !matches!(child.position(), Position::Absolute { .. }))
       .map(|(_, result)| result)
       .collect();
 
@@ -1847,14 +1877,14 @@ impl LayoutEngine {
       .into_iter()
       .zip(children.iter())
       .map(|(result, child)| {
-        let offset = match child.layout_kind() {
-          LayoutKind::AbsoluteModifier { x, y, .. } => Offset::new(*x, *y),
+        let offset = match child.position() {
+          Position::Absolute { x, y, .. } => Self::apply_relative_position(child, Offset::new(x, y)),
           _ => {
-            let child_align = match child.layout_kind() {
-              LayoutKind::AlignModifier(a) => a.to_stack_alignment(),
-              _ => align,
-            };
-            child_align.resolve_offset(size, result.size)
+            let child_align = child
+              .align_self()
+              .map(|align| align.to_stack_alignment())
+              .unwrap_or(align);
+            Self::apply_relative_position(child, child_align.resolve_offset(size, result.size))
           }
         };
         ChildLayout { offset, result }
@@ -1867,15 +1897,39 @@ impl LayoutEngine {
     }
   }
 
-  fn layout_padding(
+  fn apply_relative_position(node: &Node, offset: Offset) -> Offset {
+    node
+      .offset_position()
+      .map(|relative| Offset::new(offset.x + relative.x, offset.y + relative.y))
+      .unwrap_or(offset)
+  }
+
+  pub(crate) fn resolved_padding_for_size(&self, node: &Node, size: Size) -> ResolvedPadding {
+    let padding = node.effective_padding(&Padding::default());
+    if padding == Padding::default() {
+      return ResolvedPadding::default();
+    }
+
+    let spacing = self.spacing.borrow();
+    ResolvedPadding {
+      left: padding.get_left().resolve(&spacing, size.width),
+      top: padding.get_top().resolve(&spacing, size.height),
+      right: padding.get_right().resolve(&spacing, size.width),
+      bottom: padding.get_bottom().resolve(&spacing, size.height),
+    }
+  }
+
+  fn layout_flat_box(
     &self,
     glyph_engine: &mut GlyphEngine,
     node: &Node,
     constraints: Constraints,
+    frame: &FrameConstraints,
     padding: &Padding,
   ) -> LayoutResult {
-    let parent_w = constraints.max_width;
-    let parent_h = constraints.max_height;
+    let outer_constraints = self.frame_constraints_for_node(node, constraints, frame);
+    let parent_w = outer_constraints.max_width;
+    let parent_h = outer_constraints.max_height;
     let spacing = self.spacing.borrow();
     let left = padding.get_left().resolve(&spacing, parent_w);
     let right = padding.get_right().resolve(&spacing, parent_w);
@@ -1885,39 +1939,31 @@ impl LayoutEngine {
     let v_pad = top + bottom;
 
     let inner_constraints = Constraints {
-      min_width: (constraints.min_width - h_pad).max(0.0),
-      max_width: (constraints.max_width - h_pad).max(0.0),
-      min_height: (constraints.min_height - v_pad).max(0.0),
-      max_height: (constraints.max_height - v_pad).max(0.0),
+      min_width: (outer_constraints.min_width - h_pad).max(0.0),
+      max_width: (outer_constraints.max_width - h_pad).max(0.0),
+      min_height: (outer_constraints.min_height - v_pad).max(0.0),
+      max_height: (outer_constraints.max_height - v_pad).max(0.0),
     };
 
-    let child = &node.children()[0];
-    let child_result = self.layout_node(glyph_engine, child, inner_constraints);
+    let mut result = self.layout_node_content(glyph_engine, node, inner_constraints);
+    result.size = outer_constraints.constrain(Size::new(result.size.width + h_pad, result.size.height + v_pad));
 
-    let size = constraints.constrain(Size::new(
-      child_result.size.width + h_pad,
-      child_result.size.height + v_pad,
-    ));
-
-    let offset = Offset::new(left, top);
-
-    LayoutResult {
-      size,
-      children: vec![ChildLayout {
-        offset,
-        result: child_result,
-      }],
+    if left != 0.0 || top != 0.0 {
+      for child in &mut result.children {
+        child.offset.x += left;
+        child.offset.y += top;
+      }
     }
+
+    result
   }
 
-  fn layout_frame(
+  fn frame_constraints_for_node(
     &self,
-    glyph_engine: &mut GlyphEngine,
-    node: &Node,
+    _node: &Node,
     constraints: Constraints,
     frame: &FrameConstraints,
-  ) -> LayoutResult {
-    let child = &node.children()[0];
+  ) -> Constraints {
     let resolved_width = frame
       .width
       .and_then(|size| Self::resolve_dimension(size, constraints.max_width));
@@ -1937,43 +1983,20 @@ impl LayoutEngine {
 
     #[cfg(feature = "image")]
     if matches!(
-      child.node_kind(),
+      _node.node_kind(),
       NodeKind::Image { .. } | NodeKind::ResourceImage { .. }
     ) {
-      if let Some(intrinsic) = child.intrinsic_size {
-        if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
-          if let (Some(w), None) = (resolved_width, resolved_height) {
-            let h = w * intrinsic.height / intrinsic.width;
-            c.min_height = h;
-            c.max_height = h;
-          } else if let (None, Some(h)) = (resolved_width, resolved_height) {
-            let w = h * intrinsic.width / intrinsic.height;
-            c.min_width = w;
-            c.max_width = w;
-          }
-        }
-      }
+      Self::apply_intrinsic_aspect_ratio(_node, &mut c, resolved_width, resolved_height);
     }
+
     #[cfg(all(feature = "svg", feature = "resources"))]
-    let is_svg_media = matches!(child.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
+    let is_svg_media = matches!(_node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
     #[cfg(all(feature = "svg", not(feature = "resources")))]
-    let is_svg_media = matches!(child.node_kind(), NodeKind::Svg { .. });
+    let is_svg_media = matches!(_node.node_kind(), NodeKind::Svg { .. });
 
     #[cfg(feature = "svg")]
     if is_svg_media {
-      if let Some(intrinsic) = child.intrinsic_size {
-        if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
-          if let (Some(w), None) = (resolved_width, resolved_height) {
-            let h = w * intrinsic.height / intrinsic.width;
-            c.min_height = h;
-            c.max_height = h;
-          } else if let (None, Some(h)) = (resolved_width, resolved_height) {
-            let w = h * intrinsic.width / intrinsic.height;
-            c.min_width = w;
-            c.max_width = w;
-          }
-        }
-      }
+      Self::apply_intrinsic_aspect_ratio(_node, &mut c, resolved_width, resolved_height);
     }
 
     if let Some(v) = frame
@@ -2003,16 +2026,28 @@ impl LayoutEngine {
 
     c.min_width = c.min_width.min(c.max_width);
     c.min_height = c.min_height.min(c.max_height);
+    c
+  }
 
-    let child_result = self.layout_node(glyph_engine, child, c);
-    let size = c.constrain(child_result.size);
-
-    LayoutResult {
-      size,
-      children: vec![ChildLayout {
-        offset: Offset::default(),
-        result: child_result,
-      }],
+  #[cfg(any(feature = "image", feature = "svg"))]
+  fn apply_intrinsic_aspect_ratio(
+    node: &Node,
+    constraints: &mut Constraints,
+    resolved_width: Option<f32>,
+    resolved_height: Option<f32>,
+  ) {
+    if let Some(intrinsic) = node.intrinsic_size {
+      if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
+        if let (Some(w), None) = (resolved_width, resolved_height) {
+          let h = w * intrinsic.height / intrinsic.width;
+          constraints.min_height = h;
+          constraints.max_height = h;
+        } else if let (None, Some(h)) = (resolved_width, resolved_height) {
+          let w = h * intrinsic.width / intrinsic.height;
+          constraints.min_width = w;
+          constraints.max_width = w;
+        }
+      }
     }
   }
 
@@ -2022,59 +2057,6 @@ impl LayoutEngine {
       Dimension::Px(value) => Some(value),
       Dimension::Pct(percent) if parent_size.is_finite() => Some(parent_size * percent / 100.0),
       Dimension::Pct(_) => None,
-    }
-  }
-
-  fn layout_absolute(
-    &self,
-    glyph_engine: &mut GlyphEngine,
-    node: &Node,
-    constraints: Constraints,
-    width: Option<Dimension>,
-    height: Option<Dimension>,
-  ) -> LayoutResult {
-    let child = &node.children()[0];
-    let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
-    let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
-    let child_constraints = Constraints {
-      min_width: resolved_width.unwrap_or(0.0),
-      max_width: resolved_width.unwrap_or(constraints.max_width),
-      min_height: resolved_height.unwrap_or(0.0),
-      max_height: resolved_height.unwrap_or(constraints.max_height),
-    };
-    let child_result = self.layout_node(glyph_engine, child, child_constraints);
-    let size = Size::new(
-      resolved_width.unwrap_or(child_result.size.width),
-      resolved_height.unwrap_or(child_result.size.height),
-    );
-
-    LayoutResult {
-      size,
-      children: vec![ChildLayout {
-        offset: Offset::default(),
-        result: child_result,
-      }],
-    }
-  }
-
-  fn layout_offset(
-    &self,
-    glyph_engine: &mut GlyphEngine,
-    node: &Node,
-    constraints: Constraints,
-    x: f32,
-    y: f32,
-  ) -> LayoutResult {
-    let child = &node.children()[0];
-    let child_result = self.layout_node(glyph_engine, child, constraints);
-    let size = child_result.size;
-
-    LayoutResult {
-      size,
-      children: vec![ChildLayout {
-        offset: Offset::new(x, y),
-        result: child_result,
-      }],
     }
   }
 

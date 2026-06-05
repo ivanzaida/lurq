@@ -249,12 +249,12 @@ fn offset_visuals_move_with_the_offset_and_clip_by_default() {
   assert_eq!(rect.x, 20.0);
   assert_eq!(rect.y, 10.0);
   assert!(rect.clip.active);
-  assert_eq!(rect.clip.width, 80.0);
-  assert_eq!(rect.clip.height, 40.0);
+  assert_eq!(rect.clip.width, 100.0);
+  assert_eq!(rect.clip.height, 100.0);
 }
 
 #[test]
-fn container_children_can_be_added_after_frame_modifiers() {
+fn container_children_can_be_added_after_sizing() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()
     .size(100.0, 100.0)
@@ -270,7 +270,7 @@ fn container_children_can_be_added_after_frame_modifiers() {
 }
 
 #[test]
-fn container_props_can_be_set_after_frame_modifiers() {
+fn container_props_can_be_set_after_sizing() {
   let mut rt = rt();
   let node = lurq::components::Stack::new()
     .size(100.0, 100.0)

@@ -195,23 +195,25 @@ fn flex_factor_very_small() {
   assert!(result.children[1].result.size.width > 998.0);
 }
 
-// --- Stacking modifiers ---
+// --- Flat layout properties ---
 
 #[test]
-fn multiple_modifiers_chain() {
+fn multiple_flat_layout_properties_chain() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .background(Color::new(255, 0, 0, 255))
-    .padding(Padding::all(Dimension::Px(10.0)))
-    .offset(5.0, 5.0);
+  let node = lurq::components::Stack::new().child(
+    lurq::components::Spacer::new()
+      .frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        ..Default::default()
+      })
+      .background(Color::new(255, 0, 0, 255))
+      .padding(Padding::all(Dimension::Px(10.0)))
+      .offset(5.0, 5.0),
+  );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  // offset wraps the framed outer box; padding is applied inside the frame
+  // Offset is parent placement; padding is applied inside the frame.
   assert_eq!(result.size.width, 50.0);
   assert_eq!(result.size.height, 50.0);
   assert_eq!(result.children[0].offset.x, 5.0); // offset
@@ -219,7 +221,7 @@ fn multiple_modifiers_chain() {
 }
 
 #[test]
-fn align_modifier_is_passthrough_in_flex() {
+fn align_self_does_not_affect_flex_sizing() {
   let mut rt = rt();
   let node = lurq::components::Row::with(
     0.0,
@@ -241,7 +243,7 @@ fn align_modifier_is_passthrough_in_flex() {
   );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
-  // align doesn't affect sizing, just passes through
+  // align_self doesn't affect flex sizing.
   assert_eq!(result.children[0].result.size.width, 50.0);
   assert_eq!(result.children[1].offset.x, 50.0);
 }
@@ -304,19 +306,24 @@ fn padding_larger_than_constraints() {
 #[test]
 fn nested_padding_accumulates() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
+  let node = lurq::components::Stack::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(10.0)),
       height: Some(lurq::node::dimension::Dimension::Px(10.0)),
       ..Default::default()
     })
+    .child(
+      lurq::components::Spacer::new()
+        .width(Dimension::Pct(100.0))
+        .height(Dimension::Pct(100.0)),
+    )
     .padding(Padding::all(Dimension::Px(5.0)))
     .padding(Padding::all(Dimension::Px(5.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 10.0); // repeated padding calls merge by side
   assert_eq!(result.size.height, 10.0);
-  let padded_inner = &result.children[0].result.children[0];
+  let padded_inner = &result.children[0];
   assert_eq!(padded_inner.offset.x, 5.0);
   assert_eq!(padded_inner.offset.y, 5.0);
   assert_eq!(padded_inner.result.size.width, 0.0);
@@ -326,9 +333,8 @@ fn nested_padding_accumulates() {
 // --- Quad edge cases ---
 
 #[test]
-fn quads_skip_modifier_wrapper_nodes() {
+fn quads_use_single_flat_node_for_visuals() {
   let mut rt = rt();
-  // padding modifier itself has no color, so no quad for it
   let node = lurq::components::Spacer::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
@@ -340,7 +346,6 @@ fn quads_skip_modifier_wrapper_nodes() {
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   let quads = rt.resolve_quads(&result);
-  // Visual properties hoist to outermost modifier — padding wrapper has the color
   assert_eq!(quads.len(), 1);
   assert_eq!(quads[0].x, 0.0);
   assert_eq!(quads[0].y, 0.0);

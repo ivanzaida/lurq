@@ -5,7 +5,7 @@ use crate::{
     Alignment, StackAlignment,
     scrollbar::{ScrollBarGeometry, ScrollBarStyle, ScrollBarVisibility},
   },
-  node::{dimension::Dimension, padding::Padding, spacing_value::SpacingValue},
+  node::{dimension::Dimension, spacing_value::SpacingValue},
 };
 
 const DEFAULT_FLEX_GROW: f32 = 1.0;
@@ -30,20 +30,6 @@ pub enum LayoutKind {
     align: StackAlignment,
   },
   LogicalModifier,
-  PaddingModifier(Padding),
-  FrameModifier(FrameConstraints),
-  OffsetModifier {
-    x: f32,
-    y: f32,
-  },
-  AbsoluteModifier {
-    x: f32,
-    y: f32,
-    width: Option<Dimension>,
-    height: Option<Dimension>,
-  },
-  AlignModifier(Alignment),
-  FlexModifier(FlexParams),
   ScrollModifier {
     state: ScrollState,
     direction: ScrollDirection,
@@ -477,6 +463,18 @@ pub struct FrameConstraints {
   pub max_width: Option<Dimension>,
   pub min_height: Option<Dimension>,
   pub max_height: Option<Dimension>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum Position {
+  #[default]
+  Static,
+  Absolute {
+    x: f32,
+    y: f32,
+    width: Option<Dimension>,
+    height: Option<Dimension>,
+  },
 }
 
 impl FrameConstraints {

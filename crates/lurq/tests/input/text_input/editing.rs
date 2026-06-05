@@ -28,6 +28,26 @@ fn typing_into_focused_text_input_appends_to_existing_value() {
 }
 
 #[test]
+fn clicking_text_input_padding_places_caret_before_text() {
+  let value = Signal::new("AB".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::new(value.clone())
+      .width(120.0)
+      .height(40.0)
+      .padding_horizontal(10.0),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+
+  pointer_click(&mut runtime, rect.x + 5.0, rect.y + rect.height / 2.0);
+  runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
+
+  assert_eq!(value.get(), "XAB");
+}
+
+#[test]
 fn backspace_removes_character_before_caret() {
   let value = Signal::new("AB".to_owned());
   let mut runtime = Tree::new();

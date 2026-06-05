@@ -400,7 +400,7 @@ mod tests {
         .iter()
         .find(|row| row.label == "layout")
         .and_then(|row| row.value.as_deref()),
-      Some("Padding")
+      Some("Leaf")
     );
     let padding = child_shape.iter().find(|row| row.label == "padding").unwrap();
     assert_eq!(padding.value, None);

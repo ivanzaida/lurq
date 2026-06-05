@@ -2,7 +2,7 @@ use crate::{
   core::Guard,
   layout::{
     Alignment, StackAlignment,
-    layout_kind::{FrameConstraints, ScrollDirection, ScrollState},
+    layout_kind::{FrameConstraints, Position, ScrollDirection, ScrollState},
   },
   node::{
     dimension::Dimension,
@@ -39,6 +39,12 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
       state: ScrollState::new(),
       direction,
     },
+    frame: FrameConstraints::default(),
+    padding: Padding::default(),
+    position: Position::Static,
+    offset: None,
+    align_self: None,
+    flex: None,
     node_kind: NodeKind::Empty,
     text_content: Guard::new(None),
     text_wrap: DEFAULT_SCROLL_TEXT_WRAP,
@@ -112,11 +118,7 @@ impl Node {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { spacing: s, .. } => *s = spacing,
       crate::layout::layout_kind::LayoutKind::Column { spacing: s, .. } => *s = spacing,
-      _ => {
-        if let Some(child) = self.modifier_child_mut() {
-          child.set_spacing(spacing);
-        }
-      }
+      _ => {}
     }
   }
 
@@ -129,11 +131,7 @@ impl Node {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { align: a, .. } => *a = align,
       crate::layout::layout_kind::LayoutKind::Column { align: a, .. } => *a = align,
-      _ => {
-        if let Some(child) = self.modifier_child_mut() {
-          child.set_align_items(align);
-        }
-      }
+      _ => {}
     }
   }
 
@@ -146,11 +144,7 @@ impl Node {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { justify: j, .. } => *j = justify,
       crate::layout::layout_kind::LayoutKind::Column { justify: j, .. } => *j = justify,
-      _ => {
-        if let Some(child) = self.modifier_child_mut() {
-          child.set_justify(justify);
-        }
-      }
+      _ => {}
     }
   }
 
@@ -163,11 +157,7 @@ impl Node {
     match &mut self.layout_kind {
       crate::layout::layout_kind::LayoutKind::Row { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
       crate::layout::layout_kind::LayoutKind::Column { wrap: w, .. } => *w = crate::layout::layout_kind::FlexWrap::Wrap,
-      _ => {
-        if let Some(child) = self.modifier_child_mut() {
-          child.set_wrap();
-        }
-      }
+      _ => {}
     }
   }
 
@@ -179,8 +169,6 @@ impl Node {
   fn set_stack_align(&mut self, align: StackAlignment) {
     if let crate::layout::layout_kind::LayoutKind::Stack { align: a } = &mut self.layout_kind {
       *a = align;
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_stack_align(align);
     }
   }
 
@@ -189,30 +177,7 @@ impl Node {
       crate::layout::layout_kind::LayoutKind::Row { .. }
       | crate::layout::layout_kind::LayoutKind::Column { .. }
       | crate::layout::layout_kind::LayoutKind::Stack { .. } => self.children.push(child),
-      _ => {
-        if let Some(inner) = self.modifier_child_mut() {
-          inner.push_child(child);
-        } else {
-          self.children.push(child);
-        }
-      }
-    }
-  }
-
-  pub(crate) fn modifier_child_mut(&mut self) -> Option<&mut Node> {
-    if matches!(
-      self.layout_kind,
-      crate::layout::layout_kind::LayoutKind::PaddingModifier(_)
-        | crate::layout::layout_kind::LayoutKind::FrameModifier(_)
-        | crate::layout::layout_kind::LayoutKind::OffsetModifier { .. }
-        | crate::layout::layout_kind::LayoutKind::AbsoluteModifier { .. }
-        | crate::layout::layout_kind::LayoutKind::AlignModifier(_)
-        | crate::layout::layout_kind::LayoutKind::FlexModifier(_)
-    ) && self.children.len() == 1
-    {
-      Some(&mut self.children[0])
-    } else {
-      None
+      _ => self.children.push(child),
     }
   }
 
@@ -243,11 +208,11 @@ impl Node {
   }
 
   pub fn absolute(self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
-    self.absolute_modifier(x, y, Some(width.into()), Some(height.into()))
+    self.absolute_positioned(x, y, Some(width.into()), Some(height.into()))
   }
 
   pub fn absolute_position(self, x: f32, y: f32) -> Self {
-    self.absolute_modifier(x, y, None, None)
+    self.absolute_positioned(x, y, None, None)
   }
 
   pub fn padding_horizontal(self, val: impl Into<SpacingValue>) -> Self {

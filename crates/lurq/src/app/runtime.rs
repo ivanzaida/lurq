@@ -1674,11 +1674,18 @@ impl Tree {
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
-            let vertical_offset = text_input_vertical_offset(state, rect.height);
-            state.begin_selection_at_point(rect.local_x - rect.x, rect.local_y - rect.y - vertical_offset);
+            let padding = self
+              .layout_engine
+              .resolved_padding_for_size(node, Size::new(rect.width, rect.height));
+            let content_height = (rect.height - padding.top - padding.bottom).max(0.0);
+            let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+            state.begin_selection_at_point(
+              rect.local_x - rect.x - padding.left,
+              rect.local_y - rect.y - vertical_offset,
+            );
             pending_text_selection_drag = Some(TextSelectionDrag {
               kind: TextSelectionDragKind::Input(state.clone()),
-              x: rect.x,
+              x: rect.x + padding.left,
               y: rect.y + vertical_offset,
               transform: rect.transform,
             });
@@ -1753,8 +1760,12 @@ impl Tree {
           let text_click_count = self
             .text_click_tracker
             .record(Instant::now(), (evt.x, evt.y), button, node.node_id());
-          let vertical_offset = text_input_vertical_offset(state, rect.height);
-          let text_x = rect.local_x - rect.x;
+          let padding = self
+            .layout_engine
+            .resolved_padding_for_size(node, Size::new(rect.width, rect.height));
+          let content_height = (rect.height - padding.top - padding.bottom).max(0.0);
+          let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+          let text_x = rect.local_x - rect.x - padding.left;
           let text_y = rect.local_y - rect.y - vertical_offset;
           match text_click_count {
             1 => state.set_caret_from_point(text_x, text_y),
@@ -3149,7 +3160,7 @@ fn devtools_overlay_target_at_path(
     width: layout.size.width,
     height: layout.size.height,
   };
-  let inner = if matches!(node.layout_kind(), LayoutKind::PaddingModifier(_)) {
+  let inner = if node.padding != crate::node::padding::Padding::default() {
     layout.children.first().map(|child| DevtoolsOverlayRect {
       x: abs_x + child.offset.x,
       y: abs_y + child.offset.y,

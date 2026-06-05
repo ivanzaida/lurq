@@ -1,6 +1,6 @@
 use lurq::{
   app::Tree,
-  layout::{Alignment, Constraints, Size, quad::QuadContent},
+  layout::{Constraints, Size, quad::QuadContent},
   node::{color::Color, transform::Transform2D},
 };
 

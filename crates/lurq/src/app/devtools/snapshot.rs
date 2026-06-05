@@ -11,7 +11,7 @@ use crate::{
   core::NodeId,
   layout::{
     Alignment, StackAlignment,
-    layout_kind::{FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, ScrollDirection},
+    layout_kind::{FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Position, ScrollDirection},
   },
   node::{
     ElementRef,
@@ -177,6 +177,7 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
   push_shape_row(&mut rows, "layout", layout_name(element.node.layout_kind()));
   push_shape_row(&mut rows, "node", node_kind_name(element.node.node_kind()));
   push_layout_rows(&mut rows, element.node.layout_kind());
+  push_flat_layout_rows(&mut rows, element.node);
 
   if let Some(text) = element.text_content() {
     push_shape_row(&mut rows, "text", text);
@@ -234,35 +235,6 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
       push_shape_row(rows, "align", stack_alignment_name(*align));
     }
     LayoutKind::LogicalModifier => {}
-    LayoutKind::PaddingModifier(padding) => {
-      push_shape_group(rows, "padding", padding_rows(padding));
-    }
-    LayoutKind::FrameModifier(frame) => {
-      push_frame_rows(rows, frame);
-    }
-    LayoutKind::OffsetModifier { x, y } => {
-      push_shape_group(
-        rows,
-        "offset",
-        vec![shape_leaf("x", format_px(*x)), shape_leaf("y", format_px(*y))],
-      );
-    }
-    LayoutKind::AbsoluteModifier { x, y, width, height } => {
-      let mut position = vec![shape_leaf("x", format_px(*x)), shape_leaf("y", format_px(*y))];
-      if let Some(width) = width {
-        position.push(shape_leaf("width", format_dimension(width)));
-      }
-      if let Some(height) = height {
-        position.push(shape_leaf("height", format_dimension(height)));
-      }
-      push_shape_group(rows, "position", position);
-    }
-    LayoutKind::AlignModifier(align) => {
-      push_shape_row(rows, "align", alignment_name(*align));
-    }
-    LayoutKind::FlexModifier(flex) => {
-      push_flex_rows(rows, *flex);
-    }
     LayoutKind::ScrollModifier { state, direction } => {
       push_shape_row(rows, "direction", scroll_direction_name(*direction));
       push_shape_group(
@@ -290,6 +262,46 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
         ],
       );
     }
+  }
+}
+
+fn push_flat_layout_rows(rows: &mut Vec<DevToolsShapeRow>, node: &crate::node::Node) {
+  let frame = node.effective_frame(FrameConstraints::default());
+  if frame != FrameConstraints::default() {
+    push_frame_rows(rows, &frame);
+  }
+  let padding = node.effective_padding(&crate::node::padding::Padding::default());
+  if padding != crate::node::padding::Padding::default() {
+    push_shape_group(rows, "padding", padding_rows(&padding));
+  }
+  if let Some(align) = node.align_self() {
+    push_shape_row(rows, "align", alignment_name(align));
+  }
+  if let Some(flex) = node.state_flex() {
+    push_flex_rows(rows, flex);
+  }
+  match node.position() {
+    Position::Static => {}
+    Position::Absolute { x, y, width, height } => {
+      let mut position = vec![shape_leaf("x", format_px(x)), shape_leaf("y", format_px(y))];
+      if let Some(width) = width {
+        position.push(shape_leaf("width", format_dimension(&width)));
+      }
+      if let Some(height) = height {
+        position.push(shape_leaf("height", format_dimension(&height)));
+      }
+      push_shape_group(rows, "position", position);
+    }
+  }
+  if let Some(offset) = node.offset_position() {
+    push_shape_group(
+      rows,
+      "offset",
+      vec![
+        shape_leaf("x", format_px(offset.x)),
+        shape_leaf("y", format_px(offset.y)),
+      ],
+    );
   }
 }
 
@@ -395,12 +407,6 @@ fn layout_name(layout: &LayoutKind) -> &'static str {
     LayoutKind::Column { .. } => "Column",
     LayoutKind::Stack { .. } => "Stack",
     LayoutKind::LogicalModifier => "Logical",
-    LayoutKind::PaddingModifier(_) => "Padding",
-    LayoutKind::FrameModifier(_) => "Frame",
-    LayoutKind::OffsetModifier { .. } => "Offset",
-    LayoutKind::AbsoluteModifier { .. } => "Absolute",
-    LayoutKind::AlignModifier(_) => "Align",
-    LayoutKind::FlexModifier(_) => "Flex",
     LayoutKind::ScrollModifier { .. } => "Scroll",
   }
 }

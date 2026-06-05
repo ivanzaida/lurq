@@ -2,7 +2,6 @@ use lurq::{
   app::Tree,
   layout::{
     Constraints, Size,
-    layout_kind::FrameConstraints,
     layout_result::{ChildLayout, LayoutResult},
   },
   node::{dimension::Dimension, padding::Padding},
@@ -14,25 +13,27 @@ fn rt() -> Tree {
   Tree::new()
 }
 
-fn framed_padding_child(result: &LayoutResult) -> &ChildLayout {
-  &result.children[0].result.children[0]
+fn padded_child(result: &LayoutResult) -> &ChildLayout {
+  &result.children[0]
+}
+
+fn padded_stack() -> lurq::components::Stack {
+  lurq::components::Stack::new().size(100.0, 50.0).child(
+    lurq::components::Spacer::new()
+      .width(Dimension::Pct(100.0))
+      .height(Dimension::Pct(100.0)),
+  )
 }
 
 #[test]
 fn padding_all_sides() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(Padding::all(Dimension::Px(10.0)));
+  let node = padded_stack().padding(Padding::all(Dimension::Px(10.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 10.0);
   assert_eq!(inner.offset.y, 10.0);
   assert_eq!(inner.result.size.width, 80.0);
@@ -42,18 +43,12 @@ fn padding_all_sides() {
 #[test]
 fn padding_shorthand_all_sides() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(10.0);
+  let node = padded_stack().padding(10.0);
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 10.0);
   assert_eq!(inner.offset.y, 10.0);
   assert_eq!(inner.result.size.width, 80.0);
@@ -63,19 +58,14 @@ fn padding_shorthand_all_sides() {
 #[test]
 fn padding_named_sides() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
+  let node = padded_stack()
     .padding_left(Dimension::Px(5.0))
     .padding_top(Dimension::Px(10.0));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 5.0);
   assert_eq!(inner.offset.y, 10.0);
   assert_eq!(inner.result.size.width, 95.0);
@@ -85,19 +75,12 @@ fn padding_named_sides() {
 #[test]
 fn chained_padding_overrides_named_sides() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(10.0)
-    .padding_left(Dimension::Px(5.0));
+  let node = padded_stack().padding(10.0).padding_left(Dimension::Px(5.0));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 5.0);
   assert_eq!(inner.offset.y, 10.0);
   assert_eq!(inner.result.size.width, 85.0);
@@ -107,24 +90,18 @@ fn chained_padding_overrides_named_sides() {
 #[test]
 fn padding_asymmetric() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(
-      Padding::new()
-        .left(Dimension::Px(5.0))
-        .top(Dimension::Px(10.0))
-        .right(Dimension::Px(15.0))
-        .bottom(Dimension::Px(20.0)),
-    );
+  let node = padded_stack().padding(
+    Padding::new()
+      .left(Dimension::Px(5.0))
+      .top(Dimension::Px(10.0))
+      .right(Dimension::Px(15.0))
+      .bottom(Dimension::Px(20.0)),
+  );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 5.0);
   assert_eq!(inner.offset.y, 10.0);
   assert_eq!(inner.result.size.width, 80.0);
@@ -134,18 +111,12 @@ fn padding_asymmetric() {
 #[test]
 fn padding_horizontal_only() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(Padding::horizontal(Dimension::Px(20.0)));
+  let node = padded_stack().padding(Padding::horizontal(Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 20.0);
   assert_eq!(inner.offset.y, 0.0);
   assert_eq!(inner.result.size.width, 60.0);
@@ -155,18 +126,12 @@ fn padding_horizontal_only() {
 #[test]
 fn padding_vertical_only() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(Padding::vertical(Dimension::Px(15.0)));
+  let node = padded_stack().padding(Padding::vertical(Dimension::Px(15.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 0.0);
   assert_eq!(inner.offset.y, 15.0);
   assert_eq!(inner.result.size.width, 100.0);
@@ -176,18 +141,12 @@ fn padding_vertical_only() {
 #[test]
 fn padding_symmetric() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(Padding::symmetric(Dimension::Px(10.0), Dimension::Px(20.0)));
+  let node = padded_stack().padding(Padding::symmetric(Dimension::Px(10.0), Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let inner = framed_padding_child(&result);
+  let inner = padded_child(&result);
   assert_eq!(inner.offset.x, 10.0);
   assert_eq!(inner.offset.y, 20.0);
   assert_eq!(inner.result.size.width, 80.0);
@@ -210,13 +169,7 @@ fn padding_reduces_child_constraints() {
 #[test]
 fn padding_zero() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .padding(Padding::all(Dimension::Px(0.0)));
+  let node = padded_stack().padding(Padding::all(Dimension::Px(0.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);

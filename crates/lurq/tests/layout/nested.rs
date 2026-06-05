@@ -113,18 +113,25 @@ fn padding_inside_row() {
     0.0,
     Alignment::Start,
     vec![
-      lurq::components::Spacer::new()
-        .frame(FrameConstraints {
-          width: Some(lurq::node::dimension::Dimension::Px(80.0)),
-          height: Some(lurq::node::dimension::Dimension::Px(40.0)),
-          ..Default::default()
-        })
-        .padding(Padding::all(Dimension::Px(10.0))),
-      lurq::components::Spacer::new().frame(FrameConstraints {
+      Element::from(
+        lurq::components::Stack::new()
+          .frame(FrameConstraints {
+            width: Some(lurq::node::dimension::Dimension::Px(80.0)),
+            height: Some(lurq::node::dimension::Dimension::Px(40.0)),
+            ..Default::default()
+          })
+          .child(
+            lurq::components::Spacer::new()
+              .width(Dimension::Pct(100.0))
+              .height(Dimension::Pct(100.0)),
+          )
+          .padding(Padding::all(Dimension::Px(10.0))),
+      ),
+      Element::from(lurq::components::Spacer::new().frame(FrameConstraints {
         width: Some(lurq::node::dimension::Dimension::Px(80.0)),
         height: Some(lurq::node::dimension::Dimension::Px(40.0)),
         ..Default::default()
-      }),
+      })),
     ],
   );
   rt.set_root(node);
@@ -132,7 +139,7 @@ fn padding_inside_row() {
   assert_eq!(result.size.width, 160.0);
   assert_eq!(result.children[0].result.size.width, 80.0);
   assert_eq!(result.children[1].offset.x, 80.0);
-  let padded_inner = &result.children[0].result.children[0].result.children[0];
+  let padded_inner = &result.children[0].result.children[0];
   assert_eq!(padded_inner.offset.x, 10.0);
   assert_eq!(padded_inner.result.size.width, 60.0);
 }
@@ -140,18 +147,23 @@ fn padding_inside_row() {
 #[test]
 fn frame_inside_padding() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
+  let node = lurq::components::Stack::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(100.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
+    .child(
+      lurq::components::Spacer::new()
+        .width(Dimension::Pct(100.0))
+        .height(Dimension::Pct(100.0)),
+    )
     .padding(Padding::all(Dimension::Px(20.0)));
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 50.0);
-  let padded_inner = &result.children[0].result.children[0];
+  let padded_inner = &result.children[0];
   assert_eq!(padded_inner.offset.x, 20.0);
   assert_eq!(padded_inner.offset.y, 20.0);
   assert_eq!(padded_inner.result.size.width, 60.0);
@@ -227,12 +239,17 @@ fn flex_children_in_nested_row() {
 #[test]
 fn repeated_padding_calls_merge() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
+  let node = lurq::components::Stack::new()
     .frame(FrameConstraints {
       width: Some(lurq::node::dimension::Dimension::Px(50.0)),
       height: Some(lurq::node::dimension::Dimension::Px(50.0)),
       ..Default::default()
     })
+    .child(
+      lurq::components::Spacer::new()
+        .width(Dimension::Pct(100.0))
+        .height(Dimension::Pct(100.0)),
+    )
     .padding(Padding::all(Dimension::Px(10.0)))
     .padding(Padding::all(Dimension::Px(10.0)))
     .padding(Padding::all(Dimension::Px(10.0)));
@@ -240,7 +257,7 @@ fn repeated_padding_calls_merge() {
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 50.0);
   assert_eq!(result.size.height, 50.0);
-  let padded_inner = &result.children[0].result.children[0];
+  let padded_inner = &result.children[0];
   assert_eq!(padded_inner.offset.x, 10.0);
   assert_eq!(padded_inner.offset.y, 10.0);
   assert_eq!(padded_inner.result.size.width, 30.0);

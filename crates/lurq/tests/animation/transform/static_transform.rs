@@ -1,7 +1,7 @@
 use lurq::{
   app::Tree,
-  layout::{Constraints, Size, quad::QuadContent},
-  node::{color::Color, transform::Transform2D},
+  layout::{Constraints, Size},
+  node::transform::Transform2D,
 };
 
 use crate::support::run_pass;

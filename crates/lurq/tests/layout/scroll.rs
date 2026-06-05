@@ -36,8 +36,7 @@ fn scroll_vertical_child_grows_unbounded() {
   assert_eq!(result.size.height, 200.0);
   assert_eq!(result.size.width, 100.0);
   // The child (column) inside should be 500 tall (10 * 50)
-  let scroll_child = &result.children[0].result;
-  let column_child = &scroll_child.children[0].result;
+  let column_child = &result.children[0].result;
   assert_eq!(column_child.size.height, 500.0);
 }
 
@@ -54,8 +53,7 @@ fn scroll_vertical_offset_applied() {
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   // Default scroll offset is 0
-  let scroll_child = &result.children[0].result;
-  assert_eq!(scroll_child.children[0].offset.y, 0.0);
+  assert_eq!(result.children[0].offset.y, 0.0);
 }
 
 #[test]
@@ -76,8 +74,7 @@ fn scroll_horizontal_child_grows_unbounded() {
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 200.0);
   assert_eq!(result.size.height, 50.0);
-  let scroll_child = &result.children[0].result;
-  let row_child = &scroll_child.children[0].result;
+  let row_child = &result.children[0].result;
   assert_eq!(row_child.size.width, 1000.0);
 }
 
@@ -96,8 +93,8 @@ fn scroll_both_unbounded() {
   assert_eq!(result.size.width, 200.0);
   assert_eq!(result.size.height, 150.0);
   let scroll_child = &result.children[0].result;
-  assert_eq!(scroll_child.children[0].result.size.width, 800.0);
-  assert_eq!(scroll_child.children[0].result.size.height, 600.0);
+  assert_eq!(scroll_child.size.width, 800.0);
+  assert_eq!(scroll_child.size.height, 600.0);
 }
 
 #[test]

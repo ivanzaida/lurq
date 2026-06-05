@@ -12,8 +12,8 @@ use crate::{
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
-    Alignment, Size, StackAlignment,
-    layout_kind::{FlexParams, FrameConstraints, LayoutKind, Overflow},
+    Alignment, Offset, Size, StackAlignment,
+    layout_kind::{FlexParams, FrameConstraints, LayoutKind, Overflow, Position},
     scrollbar::ScrollBarStyle,
     text_style::TextStyle,
   },
@@ -151,6 +151,12 @@ pub(crate) struct Node {
   #[cfg(feature = "devtools")]
   pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
   pub(crate) layout_kind: LayoutKind,
+  pub(crate) frame: FrameConstraints,
+  pub(crate) padding: Padding,
+  pub(crate) position: Position,
+  pub(crate) offset: Option<Offset>,
+  pub(crate) align_self: Option<Alignment>,
+  pub(crate) flex: Option<FlexParams>,
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
   pub(crate) text_wrap: bool,
@@ -198,6 +204,12 @@ impl Node {
   fn from_parts(layout_kind: LayoutKind, node_kind: NodeKind, children: Vec<Node>) -> Self {
     Self {
       layout_kind,
+      frame: FrameConstraints::default(),
+      padding: Padding::default(),
+      position: Position::Static,
+      offset: None,
+      align_self: None,
+      flex: None,
       node_kind,
       node_id: NodeId::UNASSIGNED,
       tag_name: Arc::from("Node"),
@@ -261,37 +273,6 @@ impl Node {
     self.text_wrap = wrap;
     self.layout_cache.invalidate();
     self
-  }
-
-  fn from_modifier(layout_kind: LayoutKind, mut child: Node) -> Self {
-    let tag_name = child.tag_name.clone();
-    let hoist_visuals = !matches!(layout_kind, LayoutKind::OffsetModifier { .. })
-      && !matches!(child.layout_kind, LayoutKind::OffsetModifier { .. });
-    let color = hoist_visuals.then(|| (*child.color).clone()).flatten();
-    let border = hoist_visuals.then(|| (*child.border).clone()).flatten();
-    let border_radius = hoist_visuals.then(|| (*child.border_radius).clone()).flatten();
-    if hoist_visuals {
-      if color.is_some() {
-        child.color.set(None);
-      }
-      if border.is_some() {
-        child.border.set(None);
-      }
-      if border_radius.is_some() {
-        child.border_radius.set(None);
-      }
-    }
-    let mut wrapper = Self::from_parts(layout_kind, NodeKind::Empty, vec![child]).with_tag_name(tag_name);
-    if let Some(c) = color {
-      wrapper.color.set(Some(c));
-    }
-    if let Some(b) = border {
-      wrapper.border.set(Some(b));
-    }
-    if let Some(r) = border_radius {
-      wrapper.border_radius.set(Some(r));
-    }
-    wrapper
   }
 
   pub fn new() -> Self {
@@ -455,61 +436,60 @@ impl Node {
 
   pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
     let padding = padding.into();
-    if let LayoutKind::PaddingModifier(existing) = &mut self.layout_kind {
-      existing.merge_from(&padding);
-      self
-    } else if matches!(self.layout_kind, LayoutKind::FrameModifier(_)) && self.children.len() == 1 {
-      let child = self.children.remove(0).padding(padding);
-      self.children.push(child);
-      self
-    } else {
-      Self::from_modifier(LayoutKind::PaddingModifier(padding), self)
-    }
+    self.padding.merge_from(&padding);
+    self.layout_cache.invalidate();
+    self
   }
 
   pub fn padding_custom(self, padding: Padding) -> Self {
     self.padding(padding)
   }
 
-  pub fn frame(self, frame: FrameConstraints) -> Self {
-    Self::from_modifier(LayoutKind::FrameModifier(frame), self)
+  pub fn frame(mut self, frame: FrameConstraints) -> Self {
+    self.frame = merge_frame(self.frame, frame);
+    self.layout_cache.invalidate();
+    self
   }
 
-  pub fn offset(self, x: f32, y: f32) -> Self {
-    Self::from_modifier(LayoutKind::OffsetModifier { x, y }, self)
+  pub fn offset(mut self, x: f32, y: f32) -> Self {
+    self.offset = Some(Offset::new(x, y));
+    self.layout_cache.invalidate();
+    self
   }
 
-  pub(crate) fn absolute_modifier(self, x: f32, y: f32, width: Option<Dimension>, height: Option<Dimension>) -> Self {
-    Self::from_modifier(LayoutKind::AbsoluteModifier { x, y, width, height }, self)
+  pub(crate) fn absolute_positioned(self, x: f32, y: f32, width: Option<Dimension>, height: Option<Dimension>) -> Self {
+    let mut node = self;
+    node.position = Position::Absolute { x, y, width, height };
+    node.layout_cache.invalidate();
+    node
   }
 
-  pub fn align(self, alignment: Alignment) -> Self {
-    Self::from_modifier(LayoutKind::AlignModifier(alignment), self)
+  pub fn align(mut self, alignment: Alignment) -> Self {
+    self.align_self = Some(alignment);
+    self.layout_cache.invalidate();
+    self
   }
 
-  pub fn flex(self, factor: f32) -> Self {
-    Self::from_modifier(
-      LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams::grow(factor)),
-      self,
-    )
+  pub fn flex(mut self, factor: f32) -> Self {
+    self.flex = Some(crate::layout::layout_kind::FlexParams::grow(factor));
+    self.layout_cache.invalidate();
+    self
   }
 
-  pub fn flex_shrink(self, factor: f32) -> Self {
-    Self::from_modifier(
-      LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams {
-        grow: 0.0,
-        shrink: factor,
-        basis: None,
-      }),
-      self,
-    )
+  pub fn flex_shrink(mut self, factor: f32) -> Self {
+    self.flex = Some(crate::layout::layout_kind::FlexParams {
+      grow: 0.0,
+      shrink: factor,
+      basis: None,
+    });
+    self.layout_cache.invalidate();
+    self
   }
 
-  pub fn flex_full(self, grow: f32, shrink: f32, basis: Option<f32>) -> Self {
-    Self::from_modifier(
-      LayoutKind::FlexModifier(crate::layout::layout_kind::FlexParams { grow, shrink, basis }),
-      self,
-    )
+  pub fn flex_full(mut self, grow: f32, shrink: f32, basis: Option<f32>) -> Self {
+    self.flex = Some(crate::layout::layout_kind::FlexParams { grow, shrink, basis });
+    self.layout_cache.invalidate();
+    self
   }
 
   pub fn background(mut self, color: impl Into<BackgroundColor>) -> Self {
@@ -525,8 +505,6 @@ impl Node {
   fn set_caret_color(&mut self, color: TextColor) {
     if matches!(self.node_kind, NodeKind::TextInput { .. }) {
       self.caret_color.set(Some(color));
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_caret_color(color);
     } else {
       self.caret_color.set(Some(color));
     }
@@ -938,8 +916,6 @@ impl Node {
       if state.value().is_empty() {
         self.text_content.set(Some(placeholder.to_owned()));
       }
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_placeholder(placeholder);
     }
   }
 
@@ -951,8 +927,6 @@ impl Node {
   fn set_text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_overflow(overflow);
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_overflow(overflow);
     }
   }
 
@@ -964,8 +938,6 @@ impl Node {
   fn set_text_input_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { style, .. } = &mut self.node_kind {
       *style = text_style;
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_style(text_style);
     }
   }
 
@@ -977,8 +949,6 @@ impl Node {
   fn set_text_input_placeholder_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { placeholder_style, .. } = &mut self.node_kind {
       *placeholder_style = Some(text_style);
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_placeholder_style(text_style);
     }
   }
 
@@ -990,8 +960,6 @@ impl Node {
   fn set_text_input_rows(&mut self, min_rows: usize, max_rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_rows(min_rows, max_rows);
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_rows(min_rows, max_rows);
     }
   }
 
@@ -1003,8 +971,6 @@ impl Node {
   fn set_text_input_min_rows(&mut self, min_rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_min_rows(min_rows);
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_min_rows(min_rows);
     }
   }
 
@@ -1016,8 +982,6 @@ impl Node {
   fn set_text_input_max_rows(&mut self, max_rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_max_rows(max_rows);
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_max_rows(max_rows);
     }
   }
 
@@ -1029,8 +993,6 @@ impl Node {
   fn set_text_input_rows_exact(&mut self, rows: usize) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_rows_exact(rows);
-    } else if let Some(child) = self.modifier_child_mut() {
-      child.set_text_input_rows_exact(rows);
     }
   }
 
@@ -1090,29 +1052,19 @@ impl Node {
   }
 
   pub fn clip(mut self) -> Self {
-    self.set_overflow_through_modifiers(Overflow::Hidden);
+    self.set_overflow_through_logical(Overflow::Hidden);
     self
   }
 
   pub fn overflow_visible(mut self) -> Self {
-    self.set_overflow_through_modifiers(Overflow::Visible);
+    self.set_overflow_through_logical(Overflow::Visible);
     self
   }
 
-  fn set_overflow_through_modifiers(&mut self, overflow: Overflow) {
+  fn set_overflow_through_logical(&mut self, overflow: Overflow) {
     self.overflow = overflow;
-    if matches!(
-      &self.layout_kind,
-      LayoutKind::LogicalModifier
-        | LayoutKind::PaddingModifier(_)
-        | LayoutKind::FrameModifier(_)
-        | LayoutKind::OffsetModifier { .. }
-        | LayoutKind::AbsoluteModifier { .. }
-        | LayoutKind::AlignModifier(_)
-        | LayoutKind::FlexModifier(_)
-    ) && self.children.len() == 1
-    {
-      self.children[0].set_overflow_through_modifiers(overflow);
+    if matches!(&self.layout_kind, LayoutKind::LogicalModifier) && self.children.len() == 1 {
+      self.children[0].set_overflow_through_logical(overflow);
     }
   }
 
@@ -1446,6 +1398,7 @@ impl Node {
   }
 
   pub(crate) fn effective_frame(&self, base: FrameConstraints) -> FrameConstraints {
+    let base = merge_frame(self.frame, base);
     let mut result = self.state_style().frame.map_or(base, |frame| merge_frame(base, frame));
     for (prop, val) in &self.animation_overrides {
       if let crate::animation::AnimatableValue::Float(v) = val {
@@ -1464,46 +1417,42 @@ impl Node {
   }
 
   pub(crate) fn state_frame(&self) -> Option<FrameConstraints> {
-    self.state_style().frame
+    let frame = self.effective_frame(FrameConstraints::default());
+    (frame != FrameConstraints::default()).then_some(frame)
   }
 
   pub(crate) fn effective_padding(&self, base: &Padding) -> Padding {
-    self.state_style().padding.unwrap_or_else(|| base.clone())
-  }
-
-  pub(crate) fn effective_flex(&self, base: FlexParams) -> FlexParams {
-    self.state_style().flex.unwrap_or(base)
+    let mut padding = self.padding;
+    padding.merge_from(base);
+    self.state_style().padding.unwrap_or(padding)
   }
 
   pub(crate) fn state_flex(&self) -> Option<FlexParams> {
-    self.state_style().flex
+    self.state_style().flex.or(self.flex)
+  }
+
+  pub(crate) fn align_self(&self) -> Option<Alignment> {
+    self.align_self
+  }
+
+  pub(crate) fn position(&self) -> Position {
+    self.position
+  }
+
+  pub(crate) fn offset_position(&self) -> Option<Offset> {
+    self.offset
   }
 
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
     if let Some(frame) = self.state_frame() {
-      let size = if vertical {
-        frame.height.or(frame.min_height)
-      } else {
-        frame.width.or(frame.min_width)
-      };
+      let size = if vertical { frame.min_height } else { frame.min_width };
       if let Some(size) = size {
         return size.to_px();
       }
     }
 
     match &self.layout_kind {
-      LayoutKind::LogicalModifier
-      | LayoutKind::FlexModifier(_)
-      | LayoutKind::PaddingModifier(_)
-      | LayoutKind::AlignModifier(_) => self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0),
-      LayoutKind::FrameModifier(frame) => {
-        let frame = self.effective_frame(*frame);
-        if vertical {
-          frame.min_height.map_or(0.0, |size| size.to_px())
-        } else {
-          frame.min_width.map_or(0.0, |size| size.to_px())
-        }
-      }
+      LayoutKind::LogicalModifier => self.children.first().map(|c| c.min_main_size(vertical)).unwrap_or(0.0),
       _ => 0.0,
     }
   }
@@ -1585,6 +1534,12 @@ impl Node {
   fn layout_signature_matches(&self, old: &Node) -> bool {
     self.layout_kind_matches_for_cache(old)
       && self.node_kind_matches_for_cache(old)
+      && self.frame == old.frame
+      && self.padding == old.padding
+      && self.position == old.position
+      && self.offset == old.offset
+      && self.align_self == old.align_self
+      && self.flex == old.flex
       && self.text_wrap == old.text_wrap
       && self.overflow == old.overflow
       && self.intrinsic_size == old.intrinsic_size
@@ -1631,22 +1586,6 @@ impl Node {
       ) => spacing == old_spacing && align == old_align && justify == old_justify && wrap == old_wrap,
       (LayoutKind::Stack { align }, LayoutKind::Stack { align: old_align }) => align == old_align,
       (LayoutKind::LogicalModifier, LayoutKind::LogicalModifier) => true,
-      (LayoutKind::PaddingModifier(padding), LayoutKind::PaddingModifier(old_padding)) => padding == old_padding,
-      (LayoutKind::FrameModifier(frame), LayoutKind::FrameModifier(old_frame)) => frame == old_frame,
-      (LayoutKind::OffsetModifier { x, y }, LayoutKind::OffsetModifier { x: old_x, y: old_y }) => {
-        x == old_x && y == old_y
-      }
-      (
-        LayoutKind::AbsoluteModifier { x, y, width, height },
-        LayoutKind::AbsoluteModifier {
-          x: old_x,
-          y: old_y,
-          width: old_width,
-          height: old_height,
-        },
-      ) => x == old_x && y == old_y && width == old_width && height == old_height,
-      (LayoutKind::AlignModifier(align), LayoutKind::AlignModifier(old_align)) => align == old_align,
-      (LayoutKind::FlexModifier(flex), LayoutKind::FlexModifier(old_flex)) => flex == old_flex,
       (
         LayoutKind::ScrollModifier { direction, .. },
         LayoutKind::ScrollModifier {
@@ -1739,6 +1678,12 @@ impl Node {
       #[cfg(feature = "devtools")]
       debug_attrs: self.debug_attrs.clone(),
       layout_kind: self.layout_kind.clone(),
+      frame: self.frame,
+      padding: self.padding,
+      position: self.position,
+      offset: self.offset,
+      align_self: self.align_self,
+      flex: self.flex,
       node_kind: self.node_kind.clone(),
       text_content: self.text_content.clone(),
       text_wrap: self.text_wrap,

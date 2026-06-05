@@ -6,7 +6,7 @@ use lurq::{
 use super::super::PassLayoutExt;
 
 #[test]
-fn absolute_position_wrapper_keeps_child_size_under_tight_parent_constraints() {
+fn absolute_position_keeps_child_size_under_tight_parent_constraints() {
   let mut runtime = Tree::new();
   runtime.set_root(
     lurq::components::Stack::new()
@@ -17,8 +17,7 @@ fn absolute_position_wrapper_keeps_child_size_under_tight_parent_constraints() {
   let result = runtime
     .pass_layout(Constraints::tight(Size::new(200.0, 100.0)))
     .unwrap();
-  let stack = &result.children[0].result;
-  let absolute = &stack.children[0].result;
+  let absolute = &result.children[0].result;
 
   assert_eq!(absolute.size.width, 50.0);
   assert_eq!(absolute.size.height, 40.0);

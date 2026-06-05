@@ -28,13 +28,15 @@ fn offset_does_not_affect_size() {
 #[test]
 fn offset_shifts_child() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .offset(20.0, 30.0);
+  let node = lurq::components::Stack::new().child(
+    lurq::components::Spacer::new()
+      .frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        ..Default::default()
+      })
+      .offset(20.0, 30.0),
+  );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.children[0].offset.x, 20.0);
@@ -44,13 +46,15 @@ fn offset_shifts_child() {
 #[test]
 fn offset_negative() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .offset(-10.0, -5.0);
+  let node = lurq::components::Stack::new().child(
+    lurq::components::Spacer::new()
+      .frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        ..Default::default()
+      })
+      .offset(-10.0, -5.0),
+  );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.children[0].offset.x, -10.0);
@@ -60,16 +64,18 @@ fn offset_negative() {
 #[test]
 fn offset_zero_is_noop() {
   let mut rt = rt();
-  let node = lurq::components::Spacer::new()
-    .frame(FrameConstraints {
-      width: Some(lurq::node::dimension::Dimension::Px(100.0)),
-      height: Some(lurq::node::dimension::Dimension::Px(50.0)),
-      ..Default::default()
-    })
-    .offset(0.0, 0.0);
+  let node = lurq::components::Stack::new().child(
+    lurq::components::Spacer::new()
+      .frame(FrameConstraints {
+        width: Some(lurq::node::dimension::Dimension::Px(100.0)),
+        height: Some(lurq::node::dimension::Dimension::Px(50.0)),
+        ..Default::default()
+      })
+      .offset(0.0, 0.0),
+  );
   rt.set_root(node);
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.children[0].offset.x, 0.0);
   assert_eq!(result.children[0].offset.y, 0.0);
-  assert_eq!(result.size.width, 100.0);
+  assert_eq!(result.children[0].result.size.width, 100.0);
 }

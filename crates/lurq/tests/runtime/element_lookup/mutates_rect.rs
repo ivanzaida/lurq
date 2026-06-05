@@ -18,8 +18,8 @@ fn updates_layout_after_mutating_found_element_rect() {
   let rect = found.bounds();
   assert_eq!(rect.x, 10.0);
   assert_eq!(rect.y, 10.0);
-  assert_eq!(rect.relative_x, 0.0);
-  assert_eq!(rect.relative_y, 0.0);
+  assert_eq!(rect.relative_x, 10.0);
+  assert_eq!(rect.relative_y, 10.0);
 
   let found = runtime
     .find_element_mut(|el| el.color() == Some(Color::from_hex("#22c55e")))
@@ -33,8 +33,8 @@ fn updates_layout_after_mutating_found_element_rect() {
     .unwrap();
 
   let rect = found.bounds();
-  assert_eq!(rect.x, 25.0);
-  assert_eq!(rect.y, 30.0);
+  assert_eq!(rect.x, 15.0);
+  assert_eq!(rect.y, 20.0);
   assert_eq!(rect.relative_x, 15.0);
   assert_eq!(rect.relative_y, 20.0);
   assert_eq!(rect.width, 30.0);

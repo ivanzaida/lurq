@@ -32,7 +32,7 @@ fn renders_placeholder_when_value_is_empty() {
 }
 
 #[test]
-fn placeholder_after_layout_modifier_is_rendered() {
+fn placeholder_after_sizing_is_rendered() {
   let value = Signal::new(String::new());
   let mut runtime = Tree::new();
 
@@ -40,10 +40,7 @@ fn placeholder_after_layout_modifier_is_rendered() {
   run_pass(&mut runtime);
 
   let found = runtime.find_element(|el| el.text_content() == Some("Name"));
-  assert!(
-    found.is_some(),
-    "text input placeholder should apply through layout modifiers"
-  );
+  assert!(found.is_some(), "text input placeholder should apply after sizing");
 }
 
 #[test]

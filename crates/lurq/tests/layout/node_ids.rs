@@ -425,22 +425,22 @@ fn ids_recycled_varying_tree_sizes() {
 }
 
 // ============================================================================
-// Mixed modifier chains — ensure wrapping modifiers get IDs too
+// Flat layout property chains keep one semantic node
 // ============================================================================
 
 #[test]
-fn modifier_wrappers_get_ids() {
+fn flat_layout_property_chain_keeps_one_id() {
   let mut rt = rt();
   let node = lurq::components::Spacer::new()
-    .size(100.0, 100.0)   // FrameModifier wrapper
-    .padding(10.0)             // PaddingModifier wrapper
-    .offset(5.0, 5.0)     // OffsetModifier wrapper
-    .flex(1.0); // FlexModifier wrapper
+    .size(100.0, 100.0)
+    .padding(10.0)
+    .offset(5.0, 5.0)
+    .flex(1.0);
   rt.set_root(node);
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
-  assert_eq!(count_nodes(root), 5); // flex > offset > padding > frame > leaf
+  assert_eq!(count_nodes(root), 1);
 }
 
 #[test]
@@ -471,15 +471,15 @@ fn stack_children_get_ids() {
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
-  assert_eq!(count_nodes(root), 5); // stack + 2*(frame + leaf)
+  assert_eq!(count_nodes(root), 3); // stack + 2 leaves
 }
 
 // ============================================================================
-// Depth 255 with modifiers at every level
+// Depth 255 with flat layout properties at every level
 // ============================================================================
 
 #[test]
-fn depth_255_with_modifiers() {
+fn depth_255_with_flat_layout_properties() {
   let mut rt = rt();
   let mut node = Element::new();
   for i in 0..255 {
@@ -495,7 +495,7 @@ fn depth_255_with_modifiers() {
   let root = rt.root().unwrap();
   assert!(all_ids_assigned(root));
   assert!(all_unique(root));
-  assert_eq!(count_nodes(root), 341);
+  assert_eq!(count_nodes(root), 256);
 }
 
 // ============================================================================

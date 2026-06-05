@@ -213,7 +213,7 @@ fn text_vertically_centered_in_fixed_height_row() {
   rt.set_root(node);
   let r = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
 
-  let row = &r.children[0].result.children[0].result;
+  let row = &r;
   let text_child = &row.children[0];
   let text_height = text_child.result.size.height;
   let text_center_y = text_child.offset.y + text_height / 2.0;
