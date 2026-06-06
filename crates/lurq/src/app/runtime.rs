@@ -130,6 +130,7 @@ pub struct Tree {
   layout_constraints_override: Option<Constraints>,
   viewport_physical: Size,
   scale_factor: f32,
+  window: crate::app::window::Window,
   hover_path: Vec<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
@@ -276,7 +277,7 @@ impl Default for Tree {
 
 impl Tree {
   pub fn new() -> Self {
-    Self {
+    let tree = Self {
       id_gen: IdGenerator::new(),
       layout_engine: LayoutEngine::new(),
       render_engine: None,
@@ -288,6 +289,7 @@ impl Tree {
       layout_constraints_override: None,
       viewport_physical: Size::new(800.0, 600.0),
       scale_factor: 1.0,
+      window: crate::app::window::Window::new(),
       hover_path: Vec::new(),
       active_path: Vec::new(),
       dragging_scroll: None,
@@ -321,7 +323,12 @@ impl Tree {
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       last_theme_version: u64::MAX,
-    }
+    };
+    tree
+      .window
+      .set_resolved_size(tree.viewport_physical.width, tree.viewport_physical.height);
+    tree.window.set_scale_factor(tree.scale_factor);
+    tree
   }
 
   pub fn scale_factor(&self) -> f32 {
@@ -330,6 +337,18 @@ impl Tree {
 
   pub fn set_scale_factor(&mut self, scale: f32) {
     self.scale_factor = scale;
+    self.window.set_scale_factor(scale);
+  }
+
+  /// The reactive window handle for this tree's window. The shell pushes
+  /// position updates here; size and scale are kept in sync by `resize` and
+  /// `set_scale_factor`.
+  pub fn window(&self) -> &crate::app::window::Window {
+    &self.window
+  }
+
+  pub fn set_window_position(&mut self, x: i32, y: i32) {
+    self.window.set_position(x, y);
   }
 
   pub(crate) fn memory_profile_with_glyph(&self, glyph_engine_bytes: usize) -> RuntimeMemoryProfile {
@@ -714,7 +733,9 @@ impl Tree {
       old.free_ids(&self.id_gen);
     }
     self.clear_animation_runtime_state();
-    let mut ctx = Ctx::new_root().with_theme(app.theme().clone());
+    let mut ctx = Ctx::new_root()
+      .with_theme(app.theme().clone())
+      .with_window(self.window.clone());
     #[cfg(feature = "i18n")]
     {
       ctx = ctx.with_i18n(app.i18n().clone());
@@ -841,6 +862,7 @@ impl Tree {
     }
 
     self.viewport_physical = size;
+    self.window.set_resolved_size(size.width, size.height);
     if let Some(engine) = &mut self.render_engine {
       engine.resize(width, height);
     }

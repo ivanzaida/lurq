@@ -151,6 +151,9 @@ impl ManagedWindow {
     let size = window.inner_size();
     self.tree.set_scale_factor(window.scale_factor() as f32);
     self.tree.resize(size.width, size.height);
+    if let Ok(position) = window.outer_position() {
+      self.tree.set_window_position(position.x, position.y);
+    }
     self.window = Some(window);
     self.request_redraw();
   }
@@ -230,6 +233,10 @@ impl ManagedWindow {
       WindowEvent::Resized(size) => {
         self.tree.resize(size.width, size.height);
         self.request_redraw();
+      }
+      WindowEvent::Moved(position) => {
+        self.tree.set_window_position(position.x, position.y);
+        self.check_redraw();
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);

@@ -16,8 +16,10 @@ pub mod runtime;
 pub mod theme;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
+pub mod window;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
 
 pub use app_state::App;
 pub use runtime::Tree;
+pub use window::{Window, WindowInfo};

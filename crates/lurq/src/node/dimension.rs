@@ -21,6 +21,10 @@ impl Dimension {
       Dimension::Auto => 0.0,
     }
   }
+
+  pub fn full() -> Dimension {
+    Dimension::Pct(100.0)
+  }
 }
 
 impl From<f32> for Dimension {

@@ -567,6 +567,7 @@ pub struct Ctx {
   #[cfg(feature = "devtools")]
   contexts_debug: Vec<ComponentContextDebug>,
   theme: Option<Theme>,
+  window: Option<crate::app::window::Window>,
   #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<NonNull<App>>,
@@ -947,6 +948,7 @@ impl Ctx {
       #[cfg(feature = "devtools")]
       contexts_debug: Vec::new(),
       theme: None,
+      window: None,
       #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
@@ -974,6 +976,11 @@ impl Ctx {
 
   pub(crate) fn with_theme(mut self, theme: Theme) -> Self {
     self.theme = Some(theme);
+    self
+  }
+
+  pub(crate) fn with_window(mut self, window: crate::app::window::Window) -> Self {
+    self.window = Some(window);
     self
   }
 
@@ -1475,6 +1482,14 @@ impl Ctx {
     theme
   }
 
+  /// Current window geometry (position, resolved/logical size, scale factor).
+  /// Reading this subscribes the component to window resize/move/scale changes.
+  pub fn window(&self) -> crate::app::window::WindowInfo {
+    let window = self.window.as_ref().expect("window not set");
+    window.track_access();
+    window.info()
+  }
+
   pub fn app_ref(&self) -> &App {
     unsafe { self.app.expect("app ref not set").as_ref() }
   }
@@ -1670,6 +1685,7 @@ impl Ctx {
     let mut child_ctx = Ctx::new();
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
+    child_ctx.window = self.window.clone();
     child_ctx.app = self.app;
     #[cfg(feature = "tokio")]
     {
@@ -1739,6 +1755,7 @@ impl Ctx {
       let mut group_ctx = Ctx::new();
       group_ctx.batch = self.batch.clone();
       group_ctx.theme = self.theme.clone();
+      group_ctx.window = self.window.clone();
       group_ctx.app = self.app;
       #[cfg(feature = "tokio")]
       {
@@ -1823,6 +1840,7 @@ impl Ctx {
     let mut child_ctx = Ctx::new();
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
+    child_ctx.window = self.window.clone();
     child_ctx.app = self.app;
     #[cfg(feature = "tokio")]
     {
