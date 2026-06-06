@@ -49,6 +49,7 @@ pub struct DevToolsProps {
 pub struct DevTools {
   selected_path: Signal<Vec<usize>>,
   collapsed_nodes: Signal<Vec<NodeId>>,
+  collapsed_sections: Signal<Vec<String>>,
   show_inspected_overlay: Signal<bool>,
   pick_inspected: Signal<bool>,
   active_tab: Signal<DevToolsTab>,
@@ -188,6 +189,7 @@ impl Component for DevTools {
     Self {
       selected_path: ctx.signal(Vec::new()),
       collapsed_nodes: ctx.signal(Vec::new()),
+      collapsed_sections: ctx.signal(Vec::new()),
       show_inspected_overlay: ctx.signal(true),
       pick_inspected: ctx.signal(false),
       active_tab: ctx.signal(DevToolsTab::Components),
@@ -278,6 +280,8 @@ impl Component for DevTools {
           self.selected_path.clone(),
           collapsed_nodes,
           self.collapsed_nodes.clone(),
+          self.collapsed_sections.get(),
+          self.collapsed_sections.clone(),
           self.tree.scroll_state(),
           show_inspected_overlay,
           props.on_debug_overlay_path.clone(),
@@ -309,6 +313,8 @@ fn components_view(
   selected_path_signal: Signal<Vec<usize>>,
   collapsed_nodes: Vec<NodeId>,
   collapsed_nodes_signal: Signal<Vec<NodeId>>,
+  collapsed_sections: Vec<String>,
+  collapsed_sections_signal: Signal<Vec<String>>,
   tree_scroll: ScrollState,
   show_inspected_overlay: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
@@ -324,13 +330,12 @@ fn components_view(
       show_inspected_overlay,
       on_debug_overlay_path,
     ))
-    .child(
-      Column::new()
-        .child(inspector::inspector_panel(selected, snapshot.frame))
-        .width(style::FILL)
-        .height(style::FILL)
-        .flex(1.0),
-    )
+    .child(inspector::inspector_panel(
+      selected,
+      snapshot.frame,
+      collapsed_sections,
+      collapsed_sections_signal,
+    ))
     .width(style::FILL)
     .height(style::FILL)
     .flex(1.0)

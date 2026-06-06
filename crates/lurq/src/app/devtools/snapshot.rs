@@ -12,6 +12,7 @@ use crate::{
   layout::{
     Alignment, StackAlignment,
     layout_kind::{FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Position, ScrollDirection},
+    layout_result::LayoutResult,
   },
   node::{
     ElementRef,
@@ -47,7 +48,29 @@ pub struct DevToolsNode {
   pub contexts: Vec<ComponentContextDebug>,
   pub shape: Vec<DevToolsShapeRow>,
   pub effects: Vec<ComponentEffectDebug>,
+  pub layout_box: Option<DevToolsLayoutBox>,
+  pub hovered: bool,
+  pub active: bool,
+  pub focused: bool,
   pub children: Vec<DevToolsNode>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DevToolsRect {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DevToolsLayoutBox {
+  pub bounds: DevToolsRect,
+  pub relative_x: f32,
+  pub relative_y: f32,
+  pub content: Option<DevToolsRect>,
+  pub overflow_x: bool,
+  pub overflow_y: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,7 +109,9 @@ pub struct FrameProfileSnapshot {
 impl DevToolsSnapshot {
   pub fn from_tree(tree: &Tree) -> Self {
     Self {
-      root: tree.root().map(snapshot_node),
+      root: tree
+        .root()
+        .map(|root| snapshot_node(root, tree.last_layout(), 0.0, 0.0, 0.0, 0.0)),
       frame: FrameProfileSnapshot::from_profile(tree.last_profile()),
     }
   }
@@ -138,7 +163,14 @@ impl FrameProfileSnapshot {
   }
 }
 
-fn snapshot_node(element: ElementRef<'_>) -> DevToolsNode {
+fn snapshot_node(
+  element: ElementRef<'_>,
+  layout: Option<&LayoutResult>,
+  abs_x: f32,
+  abs_y: f32,
+  rel_x: f32,
+  rel_y: f32,
+) -> DevToolsNode {
   let props = element.component_props_debug().cloned();
   let signals = element.component_signals_debug().to_vec();
   let memos = element.component_memos_debug().to_vec();
@@ -168,7 +200,69 @@ fn snapshot_node(element: ElementRef<'_>) -> DevToolsNode {
     effects,
     contexts,
     shape: shape_rows(element),
-    children: element.children().into_iter().map(snapshot_node).collect(),
+    layout_box: layout.map(|layout| layout_box(element.node, layout, abs_x, abs_y, rel_x, rel_y)),
+    hovered: element.node.style_state.is_hovered(),
+    active: element.node.style_state.is_active(),
+    focused: element.node.style_state.is_focused(),
+    children: element
+      .children()
+      .into_iter()
+      .enumerate()
+      .map(|(index, child)| {
+        let child_layout = layout.and_then(|layout| layout.children.get(index));
+        let (result, x, y, rx, ry) = match child_layout {
+          Some(child) => (
+            Some(&child.result),
+            abs_x + child.offset.x,
+            abs_y + child.offset.y,
+            child.offset.x,
+            child.offset.y,
+          ),
+          None => (None, abs_x, abs_y, 0.0, 0.0),
+        };
+        snapshot_node(child, result, x, y, rx, ry)
+      })
+      .collect(),
+  }
+}
+
+fn layout_box(
+  node: &crate::node::Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  rel_x: f32,
+  rel_y: f32,
+) -> DevToolsLayoutBox {
+  let bounds = DevToolsRect {
+    x: abs_x,
+    y: abs_y,
+    width: layout.size.width,
+    height: layout.size.height,
+  };
+  let content = if node.padding != Padding::default() {
+    layout.children.first().map(|child| DevToolsRect {
+      x: abs_x + child.offset.x,
+      y: abs_y + child.offset.y,
+      width: child.result.size.width,
+      height: child.result.size.height,
+    })
+  } else {
+    None
+  };
+  let mut content_right = 0.0_f32;
+  let mut content_bottom = 0.0_f32;
+  for child in &layout.children {
+    content_right = content_right.max(child.offset.x + child.result.size.width);
+    content_bottom = content_bottom.max(child.offset.y + child.result.size.height);
+  }
+  DevToolsLayoutBox {
+    bounds,
+    relative_x: rel_x,
+    relative_y: rel_y,
+    content,
+    overflow_x: content_right > layout.size.width + 0.5,
+    overflow_y: content_bottom > layout.size.height + 0.5,
   }
 }
 

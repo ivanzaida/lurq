@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, lurq_macros::DevtoolsInspectable)]
 pub struct Color {
   r: u8,
   g: u8,
