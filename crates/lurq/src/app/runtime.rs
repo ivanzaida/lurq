@@ -34,7 +34,7 @@ use crate::{
     layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
-    render_list::{GlyphCmd, RectCmd, RenderList},
+    render_list::{GlyphCmd, RectCmd, RenderGradient, RenderList},
     text_style::{FontWeight, TextStyle},
   },
   node::{
@@ -935,10 +935,11 @@ impl Tree {
       }
 
       match &quad.content {
-        QuadContent::Rect { color } => {
+        QuadContent::Rect { color, gradient } => {
           let (x, y, w, h) = (quad.x * scale, quad.y * scale, quad.width * scale, quad.height * scale);
           let radii = scaled_radii(quad.border_radius, scale, w, h);
           let final_color = apply_opacity(*color, quad.opacity);
+          let gradient = gradient.as_ref().map(|gradient| apply_opacity_gradient(gradient, quad.opacity));
           let xf = quad.transform.matrix_2x2();
           let xf_origin = quad
             .transform_origin
@@ -958,6 +959,7 @@ impl Tree {
             transform: xf,
             transform_origin: xf_origin,
             clip: scaled_clip,
+            gradient,
           });
 
           if let Some(borders) = quad.border {
@@ -3697,6 +3699,7 @@ fn devtools_overlay_rect_cmd(order: usize, rect: DevtoolsOverlayRect, color: Col
     transform: [1.0, 0.0, 0.0, 1.0],
     transform_origin: [0.0, 0.0],
     clip: ClipRect::default(),
+    gradient: None,
   }
 }
 
@@ -3752,6 +3755,7 @@ fn push_devtools_size_label(
     transform: [1.0, 0.0, 0.0, 1.0],
     transform_origin: [0.0, 0.0],
     clip: ClipRect::default(),
+    gradient: None,
   });
 
   let mut label_glyphs =
@@ -3799,6 +3803,7 @@ fn push_perf_meter(
     transform: [1.0, 0.0, 0.0, 1.0],
     transform_origin: [0.0, 0.0],
     clip: ClipRect::default(),
+    gradient: None,
   });
 
   let rows = [
@@ -3915,6 +3920,18 @@ fn apply_opacity(color: Color, opacity: f32) -> Color {
   }
   let a = (color.a() as f32 * opacity.clamp(0.0, 1.0)).round() as u8;
   Color::new(color.r(), color.g(), color.b(), a)
+}
+
+fn apply_opacity_gradient(gradient: &RenderGradient, opacity: f32) -> RenderGradient {
+  if opacity >= 1.0 {
+    return gradient.clone();
+  }
+  let factor = opacity.clamp(0.0, 1.0);
+  let mut gradient = gradient.clone();
+  for stop in &mut gradient.stops {
+    stop.color[3] *= factor;
+  }
+  gradient
 }
 
 fn scaled_radii(border_radius: Option<BorderRadius>, scale: f32, width: f32, height: f32) -> [f32; 4] {
@@ -4036,6 +4053,7 @@ fn push_border_rect(
     transform,
     transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
     clip,
+    gradient: None,
   });
 }
 

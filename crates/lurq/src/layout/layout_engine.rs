@@ -180,7 +180,7 @@ fn push_slider_part_quads(
     opacity,
     transform: rect_transform,
     transform_origin: rect_transform_origin,
-    content: QuadContent::Rect { color },
+    content: QuadContent::Rect { color, gradient: None },
     border_radius,
     border: if has_image { None } else { border },
     clip,
@@ -230,6 +230,7 @@ fn push_slider_part_quads(
       transform_origin: rect_transform_origin,
       content: QuadContent::Rect {
         color: DEFAULT_TRANSPARENT_COLOR,
+        gradient: None,
       },
       border_radius,
       border,
@@ -262,7 +263,7 @@ fn push_checkbox_quads(
     opacity,
     transform: rect_transform,
     transform_origin: rect_transform_origin,
-    content: QuadContent::Rect { color },
+    content: QuadContent::Rect { color, gradient: None },
     border_radius,
     border,
     clip,
@@ -455,8 +456,11 @@ impl LayoutEngine {
     }
 
     let background_color = node.resolved_color(&self.palette.borrow());
+    let background_gradient = node
+      .resolved_gradient()
+      .and_then(|gradient| crate::layout::render_list::RenderGradient::resolve(&gradient, &self.palette.borrow()));
     let resolved_border = node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow());
-    let has_visual = background_color.is_some() || resolved_border.is_some();
+    let has_visual = background_color.is_some() || background_gradient.is_some() || resolved_border.is_some();
     let content = match node.node_kind() {
       NodeKind::Text {
         style, transform_mode, ..
@@ -492,6 +496,7 @@ impl LayoutEngine {
       NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
         color: background_color.unwrap_or(DEFAULT_TRANSPARENT_COLOR),
+        gradient: background_gradient.clone(),
       },
       _ => QuadContent::None,
     };
@@ -530,6 +535,7 @@ impl LayoutEngine {
             transform_origin: visual_transform_origin,
             content: QuadContent::Rect {
               color: background_color.unwrap_or(DEFAULT_TRANSPARENT_COLOR),
+              gradient: background_gradient,
             },
             border_radius: node.get_border_radius(&self.radii.borrow()),
             border: resolved_border,
@@ -558,6 +564,7 @@ impl LayoutEngine {
               transform_origin: selection_transform_origin,
               content: QuadContent::Rect {
                 color: DEFAULT_TEXT_SELECTION_COLOR,
+                gradient: None,
               },
               border_radius: None,
               border: None,
@@ -599,6 +606,7 @@ impl LayoutEngine {
               transform_origin: selection_transform_origin,
               content: QuadContent::Rect {
                 color: DEFAULT_TEXT_SELECTION_COLOR,
+                gradient: None,
               },
               border_radius: None,
               border: None,
@@ -732,7 +740,10 @@ impl LayoutEngine {
           opacity,
           transform: caret_transform,
           transform_origin: caret_transform_origin,
-          content: QuadContent::Rect { color: caret_color },
+          content: QuadContent::Rect {
+            color: caret_color,
+            gradient: None,
+          },
           border_radius: None,
           border: None,
           clip: intersect_clip(
@@ -923,6 +934,7 @@ impl LayoutEngine {
                 transform_origin: None,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
+                  gradient: None,
                 },
                 border_radius: Some(crate::node::border::BorderRadius::all(sb_style.track_radius)),
                 border: None,
@@ -937,7 +949,10 @@ impl LayoutEngine {
               opacity: DEFAULT_QUAD_OPACITY,
               transform: Transform2D::IDENTITY,
               transform_origin: None,
-              content: QuadContent::Rect { color: thumb_color },
+              content: QuadContent::Rect {
+                color: thumb_color,
+                gradient: None,
+              },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
               border: None,
               clip,
@@ -960,6 +975,7 @@ impl LayoutEngine {
                 transform_origin: None,
                 content: QuadContent::Rect {
                   color: sb_style.track_color,
+                  gradient: None,
                 },
                 border_radius: Some(crate::node::border::BorderRadius::all(sb_style.track_radius)),
                 border: None,
@@ -974,7 +990,10 @@ impl LayoutEngine {
               opacity: DEFAULT_QUAD_OPACITY,
               transform: Transform2D::IDENTITY,
               transform_origin: None,
-              content: QuadContent::Rect { color: thumb_color },
+              content: QuadContent::Rect {
+                color: thumb_color,
+                gradient: None,
+              },
               border_radius: Some(crate::node::border::BorderRadius::all(sb_style.thumb_radius)),
               border: None,
               clip,
@@ -1396,21 +1415,7 @@ impl LayoutEngine {
         shrink_total += params.shrink;
         flex_params_list.push(params);
         if params.grow == 0.0 && params.basis.is_none() {
-          let child_constraints = if vertical {
-            Constraints {
-              min_width: 0.0,
-              max_width: constraints.max_width,
-              min_height: 0.0,
-              max_height: f32::INFINITY,
-            }
-          } else {
-            Constraints {
-              min_width: 0.0,
-              max_width: f32::INFINITY,
-              min_height: 0.0,
-              max_height: constraints.max_height,
-            }
-          };
+          let child_constraints = Self::non_flex_child_constraints(child, constraints, vertical);
           non_flex_results.push(Some(self.layout_node(glyph_engine, child, child_constraints)));
         } else {
           non_flex_results.push(None);
@@ -1421,21 +1426,7 @@ impl LayoutEngine {
           shrink: 0.0,
           basis: None,
         });
-        let child_constraints = if vertical {
-          Constraints {
-            min_width: 0.0,
-            max_width: constraints.max_width,
-            min_height: 0.0,
-            max_height: f32::INFINITY,
-          }
-        } else {
-          Constraints {
-            min_width: 0.0,
-            max_width: f32::INFINITY,
-            min_height: 0.0,
-            max_height: constraints.max_height,
-          }
-        };
+        let child_constraints = Self::non_flex_child_constraints(child, constraints, vertical);
         non_flex_results.push(Some(self.layout_node(glyph_engine, child, child_constraints)));
       }
     }
@@ -1603,6 +1594,51 @@ impl LayoutEngine {
       size,
       children: child_layouts.into(),
     }
+  }
+
+  fn non_flex_child_constraints(child: &Node, constraints: Constraints, vertical: bool) -> Constraints {
+    let bounds_percent_main = Self::has_percent_main_frame(child, vertical);
+
+    if vertical {
+      Constraints {
+        min_width: 0.0,
+        max_width: constraints.max_width,
+        min_height: 0.0,
+        max_height: if bounds_percent_main {
+          constraints.max_height
+        } else {
+          f32::INFINITY
+        },
+      }
+    } else {
+      Constraints {
+        min_width: 0.0,
+        max_width: if bounds_percent_main {
+          constraints.max_width
+        } else {
+          f32::INFINITY
+        },
+        min_height: 0.0,
+        max_height: constraints.max_height,
+      }
+    }
+  }
+
+  fn has_percent_main_frame(child: &Node, vertical: bool) -> bool {
+    let Some(frame) = child.state_frame() else {
+      return false;
+    };
+
+    let dimensions = if vertical {
+      [frame.height, frame.min_height, frame.max_height]
+    } else {
+      [frame.width, frame.min_width, frame.max_width]
+    };
+
+    dimensions
+      .into_iter()
+      .flatten()
+      .any(|dimension| matches!(dimension, Dimension::Pct(_)))
   }
 
   fn position_flex_line(

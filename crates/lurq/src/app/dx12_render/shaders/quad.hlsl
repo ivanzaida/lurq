@@ -7,6 +7,13 @@ cbuffer Globals : register(b0)
   float4 clip_active;
 };
 
+// Gradient stop storage. Layout per gradient (each element is a float4):
+//   [count, kind, flags, from_angle]
+//   [dir.x, dir.y, center.x, center.y]
+//   then per stop: [r, g, b, a], [position, _, _, _]
+// kind: 0 = linear, 1 = radial (flags bit0 = ellipse), 2 = conic.
+StructuredBuffer<float4> gradients : register(t0);
+
 struct VsIn
 {
   float2 corner : TEXCOORD0;
@@ -32,6 +39,7 @@ struct VsOut
   float4 radii_h : TEXCOORD2;
   float4 radii_v : TEXCOORD3;
   float4 stroke : TEXCOORD4;
+  float gradient_offset : TEXCOORD5;
 };
 
 VsOut vs_main(VsIn input)
@@ -55,7 +63,75 @@ VsOut vs_main(VsIn input)
   output.radii_h = input.radii_h;
   output.radii_v = input.radii_v;
   output.stroke = input.stroke;
+  output.gradient_offset = input.gradient_offset;
   return output;
+}
+
+float4 sample_gradient(int off, float2 local, float2 half_size)
+{
+  float4 h0 = gradients[off];
+  float4 h1 = gradients[off + 1];
+  int count = (int)h0.x;
+  int kind = (int)h0.y;
+  const float PI = 3.14159265359;
+
+  float t;
+  if (kind == 0)
+  {
+    float2 dir = h1.xy;
+    float hl = abs(half_size.x * dir.x) + abs(half_size.y * dir.y);
+    t = (dot(local, dir) + hl) / (2.0 * max(hl, 1e-5));
+  }
+  else if (kind == 1)
+  {
+    float2 center = (h1.zw * 2.0 - float2(1.0, 1.0)) * half_size;
+    if (h0.z > 0.5)
+    {
+      float2 cn = h1.zw * 2.0 - float2(1.0, 1.0);
+      float2 p = (local - center) / max(half_size, float2(1e-3, 1e-3));
+      float radius = max(
+        max(length(float2(-1.0, -1.0) - cn), length(float2(1.0, -1.0) - cn)),
+        max(length(float2(-1.0, 1.0) - cn), length(float2(1.0, 1.0) - cn)));
+      t = length(p) / max(radius, 1e-5);
+    }
+    else
+    {
+      float radius = max(
+        max(length(float2(-half_size.x, -half_size.y) - center), length(float2(half_size.x, -half_size.y) - center)),
+        max(length(float2(-half_size.x, half_size.y) - center), length(float2(half_size.x, half_size.y) - center)));
+      t = length(local - center) / max(radius, 1e-5);
+    }
+  }
+  else
+  {
+    float2 center = (h1.zw * 2.0 - float2(1.0, 1.0)) * half_size;
+    float2 d = local - center;
+    float ang = (atan2(d.x, -d.y) - h0.w) / (2.0 * PI);
+    t = ang - floor(ang);
+  }
+
+  if (kind != 2)
+  {
+    t = saturate(t);
+  }
+
+  int stop_base = off + 2;
+  int last = count - 1;
+  float4 color = gradients[stop_base + 2 * last];
+  for (int i = 0; i < last; i = i + 1)
+  {
+    float pb = gradients[stop_base + 2 * (i + 1) + 1].x;
+    if (t <= pb)
+    {
+      float pa = gradients[stop_base + 2 * i + 1].x;
+      float4 ca = gradients[stop_base + 2 * i];
+      float4 cb = gradients[stop_base + 2 * (i + 1)];
+      float span = max(pb - pa, 1e-5);
+      color = lerp(ca, cb, saturate((t - pa) / span));
+      break;
+    }
+  }
+  return color;
 }
 
 float2 pick_radius(float2 p, float4 radii_h, float4 radii_v)
@@ -87,6 +163,16 @@ float sd_rounded_box(float2 p, float2 half_size, float2 radius)
 
 float4 ps_main(VsOut input) : SV_TARGET
 {
+  float4 base_color = input.color;
+  if (input.gradient_offset >= 0.0)
+  {
+    int off = (int)(input.gradient_offset + 0.5);
+    if ((int)gradients[off].x >= 1)
+    {
+      base_color = sample_gradient(off, input.local, input.half_size);
+    }
+  }
+
   float2 radius = pick_radius(input.local, input.radii_h, input.radii_v);
   float outer_dist = sd_rounded_box(input.local, input.half_size, radius);
 
@@ -95,7 +181,7 @@ float4 ps_main(VsOut input) : SV_TARGET
   {
     float aa = max(fwidth(outer_dist), 0.001);
     float fill_alpha = saturate(0.5 - outer_dist / aa);
-    return float4(input.color.rgb, input.color.a * fill_alpha);
+    return float4(base_color.rgb, base_color.a * fill_alpha);
   }
 
   float2 inner_half = max(float2(

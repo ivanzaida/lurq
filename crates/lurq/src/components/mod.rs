@@ -89,6 +89,11 @@ macro_rules! impl_into_node {
         self
       }
 
+      pub fn background_gradient(mut self, gradient: impl Into<$crate::node::Gradient>) -> Self {
+        self.node = self.node.background_gradient(gradient);
+        self
+      }
+
       pub fn size(
         mut self,
         width: impl Into<$crate::node::dimension::Dimension>,

@@ -51,6 +51,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     overflow: crate::layout::layout_kind::Overflow::Hidden,
     intrinsic_size: None,
     color: Guard::new(None),
+    gradient: Guard::new(None),
     border_radius: Guard::new(None),
     border: Guard::new(None),
     caret_color: Guard::new(None),

@@ -40,7 +40,8 @@ use windows::{
         D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PRESENT,
         D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATES, D3D12_RESOURCE_TRANSITION_BARRIER,
         D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
-        D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, D3D12_ROOT_SIGNATURE_DESC,
+        D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER_TYPE_SRV,
+        D3D12_ROOT_SIGNATURE_DESC,
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_RTV_DIMENSION_TEXTURE2D,
         D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
         D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_RTV,
@@ -826,19 +827,33 @@ fn buffer_resource_desc(size: u64) -> D3D12_RESOURCE_DESC {
 }
 
 unsafe fn create_rect_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature> {
-  let root_parameter = D3D12_ROOT_PARAMETER {
-    ParameterType: D3D12_ROOT_PARAMETER_TYPE_CBV,
-    Anonymous: D3D12_ROOT_PARAMETER_0 {
-      Descriptor: D3D12_ROOT_DESCRIPTOR {
-        ShaderRegister: 0,
-        RegisterSpace: 0,
+  let root_parameters = [
+    // b0: per-frame globals.
+    D3D12_ROOT_PARAMETER {
+      ParameterType: D3D12_ROOT_PARAMETER_TYPE_CBV,
+      Anonymous: D3D12_ROOT_PARAMETER_0 {
+        Descriptor: D3D12_ROOT_DESCRIPTOR {
+          ShaderRegister: 0,
+          RegisterSpace: 0,
+        },
       },
+      ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
     },
-    ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
-  };
+    // t0: gradient stop storage (StructuredBuffer<float4>) as a root SRV.
+    D3D12_ROOT_PARAMETER {
+      ParameterType: D3D12_ROOT_PARAMETER_TYPE_SRV,
+      Anonymous: D3D12_ROOT_PARAMETER_0 {
+        Descriptor: D3D12_ROOT_DESCRIPTOR {
+          ShaderRegister: 0,
+          RegisterSpace: 0,
+        },
+      },
+      ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
+    },
+  ];
   let desc = D3D12_ROOT_SIGNATURE_DESC {
-    NumParameters: 1,
-    pParameters: &root_parameter,
+    NumParameters: root_parameters.len() as u32,
+    pParameters: root_parameters.as_ptr(),
     NumStaticSamplers: 0,
     pStaticSamplers: ptr::null(),
     Flags: D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
@@ -1371,7 +1386,7 @@ unsafe fn create_rgba_texture(device: &ID3D12Device, width: u32, height: u32) ->
   resource.ok_or_else(Error::from_win32)
 }
 
-fn rect_instances(rect: &RectCmd) -> Vec<QuadInstance> {
+fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
   let mut instances = Vec::with_capacity(2);
   instances.push(QuadInstance {
     pos: [rect.x, rect.y],
@@ -1384,7 +1399,7 @@ fn rect_instances(rect: &RectCmd) -> Vec<QuadInstance> {
     transform: rect.transform,
     xf_origin: rect.transform_origin,
     shadow_sigma: 0.0,
-    gradient_offset: -1.0,
+    gradient_offset,
   });
   if rect.stroke.iter().any(|width| *width > 0.0) {
     instances.push(QuadInstance {
@@ -1778,13 +1793,29 @@ impl Dx12State {
       return Ok(());
     };
 
+    // Encode this rect's gradient (if any) into a per-draw storage buffer.
+    // The structured buffer must always be bound, so a single zeroed vec4 is
+    // uploaded when there is no gradient (offset stays -1 and is never read).
+    let mut gradient_data: Vec<[f32; 4]> = Vec::new();
+    let gradient_offset = match &rect.gradient {
+      Some(gradient) => crate::layout::render_list::encode_gradient(&mut gradient_data, gradient),
+      None => -1.0,
+    };
+    if gradient_data.is_empty() {
+      gradient_data.push([0.0; 4]);
+    }
+    let gradient_upload = self.upload_frame_pod_slice(&gradient_data, 16)?;
+
     self.command_list.SetPipelineState(&self.rect_pipeline.pipeline_state);
     self
       .command_list
       .SetGraphicsRootSignature(&self.rect_pipeline.root_signature);
     self.command_list.SetGraphicsRootConstantBufferView(0, globals_address);
+    self
+      .command_list
+      .SetGraphicsRootShaderResourceView(1, gradient_upload.gpu_address);
 
-    let instances = rect_instances(rect);
+    let instances = rect_instances(rect, gradient_offset);
     let instance_upload = self.upload_frame_pod_slice(&instances, 16)?;
     let instance_view = instance_upload.vertex_view::<QuadInstance>();
 

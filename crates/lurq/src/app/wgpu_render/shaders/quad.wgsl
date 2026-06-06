@@ -203,6 +203,75 @@ fn sd_rounded_box(p: vec2<f32>, half_size: vec2<f32>, r: vec2<f32>) -> f32 {
     return max(q.x - safe_r.x, q.y - safe_r.y);
 }
 
+/// Evaluate a CSS-like gradient for a fragment at centre-relative pixel
+/// `local`, within a box of half-extent `half`. `off` is the vec4 index of
+/// the gradient header in the `gradients` storage buffer. Layout:
+///   [count, kind, flags, from_angle]
+///   [dir.x, dir.y, center.x, center.y]
+///   then per stop: [r, g, b, a], [position, _, _, _]
+/// kind: 0 = linear, 1 = radial (flags bit0 = ellipse), 2 = conic.
+fn sample_gradient(off: i32, local: vec2<f32>, half: vec2<f32>) -> vec4<f32> {
+    let h0 = gradients[off];
+    let h1 = gradients[off + 1];
+    let count = i32(h0.x);
+    let kind = i32(h0.y);
+    let pi = 3.14159265359;
+
+    var t: f32;
+    if (kind == 0) {
+        // Linear: project onto the unit direction, normalized by half the
+        // gradient-line length so 0/1 reach the corners (CSS behaviour).
+        let dir = h1.xy;
+        let hl = abs(half.x * dir.x) + abs(half.y * dir.y);
+        t = (dot(local, dir) + hl) / (2.0 * max(hl, 1e-5));
+    } else if (kind == 1) {
+        // Radial, farthest-corner.
+        let center = (h1.zw * 2.0 - vec2<f32>(1.0, 1.0)) * half;
+        if (h0.z > 0.5) {
+            // Ellipse fitted to the box.
+            let cn = h1.zw * 2.0 - vec2<f32>(1.0, 1.0);
+            let p = (local - center) / max(half, vec2<f32>(1e-3, 1e-3));
+            let radius = max(
+                max(length(vec2<f32>(-1.0, -1.0) - cn), length(vec2<f32>(1.0, -1.0) - cn)),
+                max(length(vec2<f32>(-1.0, 1.0) - cn), length(vec2<f32>(1.0, 1.0) - cn)),
+            );
+            t = length(p) / max(radius, 1e-5);
+        } else {
+            let radius = max(
+                max(length(vec2<f32>(-half.x, -half.y) - center), length(vec2<f32>(half.x, -half.y) - center)),
+                max(length(vec2<f32>(-half.x, half.y) - center), length(vec2<f32>(half.x, half.y) - center)),
+            );
+            t = length(local - center) / max(radius, 1e-5);
+        }
+    } else {
+        // Conic: angle clockwise from the top.
+        let center = (h1.zw * 2.0 - vec2<f32>(1.0, 1.0)) * half;
+        let d = local - center;
+        let ang = (atan2(d.x, -d.y) - h0.w) / (2.0 * pi);
+        t = ang - floor(ang);
+    }
+
+    if (kind != 2) {
+        t = clamp(t, 0.0, 1.0);
+    }
+
+    let stop_base = off + 2;
+    let last = count - 1;
+    var color = gradients[stop_base + 2 * last];
+    for (var i: i32 = 0; i < last; i = i + 1) {
+        let pb = gradients[stop_base + 2 * (i + 1) + 1].x;
+        if (t <= pb) {
+            let pa = gradients[stop_base + 2 * i + 1].x;
+            let ca = gradients[stop_base + 2 * i];
+            let cb = gradients[stop_base + 2 * (i + 1)];
+            let span = max(pb - pa, 1e-5);
+            color = mix(ca, cb, clamp((t - pa) / span, 0.0, 1.0));
+            break;
+        }
+    }
+    return color;
+}
+
 /// Count how many sides have a positive stroke width.
 fn nonzero_side_count(s: vec4<f32>) -> i32 {
     var n: i32 = 0;
@@ -239,16 +308,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     var base_color = in.color;
     if (in.gradient_offset >= 0.0) {
-        let base = i32(in.gradient_offset);
-        let count = i32(gradients[base / 4].x);
-        if (count >= 2) {
-            let t = clamp((in.local.x + in.half_size.x) / (2.0 * in.half_size.x), 0.0, 1.0);
-            let seg = t * f32(count - 1);
-            let i = min(i32(floor(seg)), count - 2);
-            let frac = seg - f32(i);
-            let c0 = gradients[base / 4 + 1 + i];
-            let c1 = gradients[base / 4 + 1 + i + 1];
-            base_color = mix(c0, c1, frac);
+        let off = i32(in.gradient_offset + 0.5);
+        if (i32(gradients[off].x) >= 1) {
+            base_color = sample_gradient(off, in.local, in.half_size);
         }
     }
 

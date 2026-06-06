@@ -25,6 +25,7 @@ use crate::{
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
+    gradient::Gradient,
     interaction_state::InteractionState,
     node_kind::{CheckboxState, NodeKind, SliderState, TextInputState, TextState, TextStyleSource},
     padding::Padding,
@@ -164,6 +165,7 @@ pub(crate) struct Node {
   pub(crate) overflow: Overflow,
   pub(crate) intrinsic_size: Option<Size>,
   pub(crate) color: Guard<Option<BackgroundColor>>,
+  pub(crate) gradient: Guard<Option<Gradient>>,
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
   pub(crate) caret_color: Guard<Option<TextColor>>,
@@ -233,6 +235,7 @@ impl Node {
       overflow: Overflow::Hidden,
       intrinsic_size: None,
       color: Guard::new(None),
+      gradient: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
       caret_color: Guard::new(None),
@@ -495,6 +498,11 @@ impl Node {
 
   pub fn background(mut self, color: impl Into<BackgroundColor>) -> Self {
     self.color.set(Some(color.into()));
+    self
+  }
+
+  pub fn background_gradient(mut self, gradient: impl Into<Gradient>) -> Self {
+    self.gradient.set(Some(gradient.into()));
     self
   }
 
@@ -1253,6 +1261,10 @@ impl Node {
       .and_then(|color| color.resolve(palette))
   }
 
+  pub(crate) fn resolved_gradient(&self) -> Option<Gradient> {
+    <Option<Gradient> as Clone>::clone(&self.gradient)
+  }
+
   pub fn get_border_radius(&self, radii: &crate::app::theme::ThemeRadii) -> Option<BorderRadius> {
     let mut r = self
       .state_style()
@@ -1438,7 +1450,14 @@ impl Node {
   }
 
   pub(crate) fn state_flex(&self) -> Option<FlexParams> {
-    self.state_style().flex.or(self.flex)
+    self
+      .state_style()
+      .flex
+      .or(self.flex)
+      .or_else(|| match &self.layout_kind {
+        LayoutKind::LogicalModifier => self.children.first().and_then(|child| child.state_flex()),
+        _ => None,
+      })
   }
 
   pub(crate) fn align_self(&self) -> Option<Alignment> {
@@ -1700,6 +1719,7 @@ impl Node {
       overflow: self.overflow,
       intrinsic_size: self.intrinsic_size,
       color: self.color.clone(),
+      gradient: self.gradient.clone(),
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
       caret_color: self.caret_color.clone(),

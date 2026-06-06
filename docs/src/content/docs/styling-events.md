@@ -25,6 +25,7 @@ Common visual modifiers:
 | Modifier | Purpose |
 | --- | --- |
 | `.background(color)` | Background color from a concrete color or `PaletteColor`. |
+| `.background_gradient(gradient)` | Linear, radial, or conic gradient fill. See [Gradients](#gradients). |
 | `.rounded(radius)` | Uniform corner radius from `f32` or `RadiusSize`. |
 | `.corner_radius_*` | Per-corner radius from `f32` or `RadiusSize`. |
 | `.border_inside(width, color)` | Border inside the element bounds from a concrete width or `BorderSize`. |
@@ -33,6 +34,60 @@ Common visual modifiers:
 | `.opacity(value)` | Draw opacity. |
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |
+
+## Gradients
+
+`.background_gradient(...)` fills an element with a CSS-like gradient. It is separate from `.background(color)`; if both are set, the gradient paints the fill. Gradients respect the element's rounded corners, clipping, and `.opacity(...)` just like a solid background.
+
+```rust
+use lurq::{components::Rect, node::{Gradient, GradientStop}};
+
+Rect::new(240.0, 120.0)
+  .rounded(12.0)
+  .background_gradient(Gradient::linear(135.0, ["#ff0080", "#7928ca"]))
+```
+
+Three kinds are supported on both the wgpu and dx12 backends:
+
+| Constructor | Description |
+| --- | --- |
+| `Gradient::linear(angle_deg, stops)` | Linear gradient. `angle_deg` follows CSS: `0` points up, increasing clockwise (`90` is to the right). The line is sized so `0%`/`100%` reach the box corners. |
+| `Gradient::radial(stops)` | Radial gradient, farthest-corner. Defaults to an ellipse fitted to the box; call `.circle()` for a circle. |
+| `Gradient::conic(from_deg, stops)` | Conic gradient sweeping clockwise from `from_deg` at the top. |
+
+### Color Stops
+
+Stops accept anything that converts into a color (hex strings, `Color`, or a `PaletteColor`), so theme palette colors work inside gradients. A bare color is auto-positioned; use `GradientStop::at(color, position)` for an explicit position in `0.0..=1.0`.
+
+```rust
+use lurq::node::{Gradient, GradientStop};
+
+// Auto-spaced: first at 0.0, last at 1.0, middle evenly distributed.
+Gradient::linear(90.0, ["#f00", "#0f0", "#00f"]);
+
+// Explicit positions and a palette color (lurq::app::theme::PaletteColor).
+Gradient::linear(90.0, [
+  GradientStop::at("#000", 0.0),
+  GradientStop::at(PaletteColor::Accent, 0.4),
+  GradientStop::at("#fff", 1.0),
+]);
+```
+
+Omitted positions follow the CSS rules: the first defaults to `0.0`, the last to `1.0`, and runs of omitted stops are spread evenly between their defined neighbors. Colors are interpolated in linear space.
+
+### Center And Shape
+
+```rust
+use lurq::node::Gradient;
+
+// Radial circle centered in the top-left quadrant.
+Gradient::radial(["#fff", "#1e293b"]).circle().center(0.25, 0.25);
+
+// Conic starting from 45 degrees, centered.
+Gradient::conic(45.0, ["#f43f5e", "#8b5cf6", "#06b6d4", "#f43f5e"]);
+```
+
+`.center(x, y)` moves the radial/conic origin; coordinates are normalized `0.0..=1.0` within the element (default `(0.5, 0.5)`).
 
 ## Hover, Active, And Focus Styles
 

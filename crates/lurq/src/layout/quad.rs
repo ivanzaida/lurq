@@ -1,5 +1,5 @@
 use crate::{
-  layout::text_style::TextStyle,
+  layout::{render_list::RenderGradient, text_style::TextStyle},
   node::{
     TextTransformMode,
     border::{BorderRadius, ResolvedBorders},
@@ -34,6 +34,7 @@ pub struct Quad {
 pub enum QuadContent {
   Rect {
     color: Color,
+    gradient: Option<RenderGradient>,
   },
   Text {
     text: String,

@@ -659,8 +659,13 @@ impl RenderEngine for WgpuRenderEngine {
 
     let mut rect_instances = Vec::new();
     let mut rect_draws = Vec::with_capacity(list.rects.len());
+    let mut gradient_data: Vec<[f32; 4]> = Vec::new();
     for r in &list.rects {
       let start = rect_instances.len();
+      let gradient_offset = match &r.gradient {
+        Some(gradient) => crate::layout::render_list::encode_gradient(&mut gradient_data, gradient),
+        None => -1.0,
+      };
       rect_instances.push(QuadInstance {
         pos: [r.x, r.y],
         size: [r.width, r.height],
@@ -672,7 +677,7 @@ impl RenderEngine for WgpuRenderEngine {
         transform: r.transform,
         xf_origin: r.transform_origin,
         shadow_sigma: 0.0,
-        gradient_offset: -1.0,
+        gradient_offset,
       });
       if r.stroke.iter().any(|s| *s > 0.0) {
         rect_instances.push(QuadInstance {
@@ -700,6 +705,32 @@ impl RenderEngine for WgpuRenderEngine {
         contents: bytemuck::cast_slice(&rect_instances),
         usage: wgpu::BufferUsages::VERTEX,
       })
+    });
+
+    // Storage buffers must be non-empty; a single zeroed vec4 is enough when
+    // no rect uses a gradient (their `gradient_offset` is -1 and the shader
+    // never reads it).
+    if gradient_data.is_empty() {
+      gradient_data.push([0.0; 4]);
+    }
+    let gradient_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("lurq_gradients_frame"),
+      contents: bytemuck::cast_slice(&gradient_data),
+      usage: wgpu::BufferUsages::STORAGE,
+    });
+    let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: Some("lurq_quad_bg_frame"),
+      layout: self.quad_bgl.as_ref().unwrap(),
+      entries: &[
+        wgpu::BindGroupEntry {
+          binding: 0,
+          resource: self.globals_buffer.as_ref().unwrap().as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+          binding: 1,
+          resource: gradient_buf.as_entire_binding(),
+        },
+      ],
     });
 
     let glyph_instances: Vec<GlyphInstance> = list
@@ -798,7 +829,7 @@ impl RenderEngine for WgpuRenderEngine {
             let start = (prepared.start * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             let end = ((prepared.start + prepared.count) * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
-            pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
+            pass.set_bind_group(0, &quad_bind_group, &[]);
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
             pass.set_vertex_buffer(1, rect_instance_buf.as_ref().unwrap().slice(start..end));
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);

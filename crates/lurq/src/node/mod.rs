@@ -7,6 +7,7 @@ pub mod cursor;
 pub mod dimension;
 pub(crate) mod dsl;
 pub mod element;
+pub mod gradient;
 pub mod interaction_state;
 pub(crate) mod layout_cache;
 pub(crate) mod node;
@@ -32,6 +33,7 @@ pub use border_size_value::BorderSizeValue;
 pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
+pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;
 pub(crate) use node::Node;
