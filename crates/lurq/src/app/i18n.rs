@@ -114,15 +114,15 @@ impl I18n {
     self.bump_version(&mut inner);
   }
 
-  pub fn t(&self, key: &str) -> String {
+  pub fn t(&self, key: &str) -> Arc<str> {
     self.t_ns(DEFAULT_NAMESPACE, key)
   }
 
-  pub fn t_ns(&self, namespace: &str, key: &str) -> String {
+  pub fn t_ns(&self, namespace: &str, key: &str) -> Arc<str> {
     self.t_ns_args(namespace, key, std::iter::empty::<(&str, &str)>())
   }
 
-  pub fn t_args<I, K, V>(&self, key: &str, args: I) -> String
+  pub fn t_args<I, K, V>(&self, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
     K: AsRef<str>,
@@ -131,7 +131,7 @@ impl I18n {
     self.t_ns_args(DEFAULT_NAMESPACE, key, args)
   }
 
-  pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> String
+  pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
     K: AsRef<str>,
@@ -146,9 +146,11 @@ impl I18n {
     let value = inner
       .lookup(&inner.locale, namespace, key)
       .or_else(|| inner.lookup(&inner.fallback_locale, namespace, key))
-      .map(str::to_owned)
-      .unwrap_or_else(|| key.to_owned());
-    interpolate(value, &args)
+      .unwrap_or_else(|| Arc::from(key));
+    if args.is_empty() {
+      return value;
+    }
+    interpolate(&value, &args)
   }
 
   pub(crate) fn track_access(&self) {
@@ -162,20 +164,21 @@ impl I18n {
 }
 
 impl I18nInner {
-  fn lookup<'a>(&'a self, locale: &Arc<str>, namespace: &str, key: &str) -> Option<&'a str> {
+  fn lookup(&self, locale: &Arc<str>, namespace: &str, key: &str) -> Option<Arc<str>> {
     let namespace = ResourceKey {
       locale: locale.clone(),
       namespace: Arc::from(namespace),
     };
-    self.resources.get(&namespace)?.get(key).map(AsRef::as_ref)
+    self.resources.get(&namespace)?.get(key).cloned()
   }
 }
 
-fn interpolate(mut value: String, args: &[(String, String)]) -> String {
+fn interpolate(value: &str, args: &[(String, String)]) -> Arc<str> {
+  let mut value = value.to_owned();
   for (key, replacement) in args {
     value = value.replace(&format!("{{{{{key}}}}}"), replacement);
   }
-  value
+  Arc::from(value)
 }
 
 #[cfg(test)]
@@ -187,7 +190,7 @@ mod tests {
     let i18n = I18n::new();
     i18n.add_resource("en", "translation", "hello", "Hello");
 
-    assert_eq!(i18n.t("hello"), "Hello");
+    assert_eq!(&*i18n.t("hello"), "Hello");
   }
 
   #[test]
@@ -196,7 +199,7 @@ mod tests {
     i18n.set_locale("uk");
     i18n.add_resource("en", "translation", "hello", "Hello");
 
-    assert_eq!(i18n.t("hello"), "Hello");
+    assert_eq!(&*i18n.t("hello"), "Hello");
   }
 
   #[test]
@@ -204,6 +207,6 @@ mod tests {
     let i18n = I18n::new();
     i18n.add_resource("en", "translation", "hello", "Hello, {{name}}");
 
-    assert_eq!(i18n.t_args("hello", [("name", "Ada")]), "Hello, Ada");
+    assert_eq!(&*i18n.t_args("hello", [("name", "Ada")]), "Hello, Ada");
   }
 }

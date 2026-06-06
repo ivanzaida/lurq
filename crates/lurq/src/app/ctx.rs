@@ -1491,17 +1491,17 @@ impl Ctx {
   }
 
   #[cfg(feature = "i18n")]
-  pub fn t(&self, key: &str) -> String {
+  pub fn t(&self, key: &str) -> Arc<str> {
     self.i18n().t(key)
   }
 
   #[cfg(feature = "i18n")]
-  pub fn t_ns(&self, namespace: &str, key: &str) -> String {
+  pub fn t_ns(&self, namespace: &str, key: &str) -> Arc<str> {
     self.i18n().t_ns(namespace, key)
   }
 
   #[cfg(feature = "i18n")]
-  pub fn t_args<I, K, V>(&self, key: &str, args: I) -> String
+  pub fn t_args<I, K, V>(&self, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
     K: AsRef<str>,
@@ -1511,7 +1511,7 @@ impl Ctx {
   }
 
   #[cfg(feature = "i18n")]
-  pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> String
+  pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
     K: AsRef<str>,
