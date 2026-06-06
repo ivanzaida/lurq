@@ -292,7 +292,7 @@ fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
   quads
     .iter()
     .find_map(|quad| match quad.content {
-      QuadContent::Rect { color } if quad.width == 1.0 && quad.height > 0.0 => Some(color),
+      QuadContent::Rect { color, .. } if quad.width == 1.0 && quad.height > 0.0 => Some(color),
       _ => None,
     })
     .expect("focused text input should render a caret")

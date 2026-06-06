@@ -1311,7 +1311,17 @@ impl LayoutEngine {
     let display_style = text_input_display_style(state, style, placeholder_style);
     let value = state.value();
     let overflow = state.overflow();
-    let caret_positions = glyph_engine.caret_positions(&value, style, f32::MAX);
+    // Caret positions must wrap exactly like the rendered text, otherwise
+    // soft-wrapped rows collapse onto the first row's y and pointer hit-testing
+    // can never reach them. Single-line (Scroll) inputs never wrap.
+    let caret_width = if overflow == crate::node::node_kind::TextInputOverflow::Multiline
+      && constraints.max_width.is_finite()
+    {
+      constraints.max_width
+    } else {
+      f32::MAX
+    };
+    let caret_positions = glyph_engine.caret_positions(&value, style, caret_width);
     state.set_caret_positions(caret_positions);
 
     let line_height = (style.font_size * style.line_height).max(1.0);
