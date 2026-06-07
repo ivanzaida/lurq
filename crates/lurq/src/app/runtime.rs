@@ -3319,8 +3319,8 @@ fn build_select_menu(
     };
 
     row = row.width(Dimension::Pct(100.0)).apply_select_part(&part);
-    if part.padding.is_none() {
-      row = row.padding_horizontal(10.0).padding_vertical(7.0);
+    if part.min_height.is_none() {
+      row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
     }
     let commit_state = state.clone();
     row.events.on_click = Some(Arc::new(move |_| commit_state.commit(index)));

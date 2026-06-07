@@ -286,6 +286,27 @@ fn default_overflow_clips_children() {
 }
 
 #[test]
+fn inside_border_insets_default_child_clip() {
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .child(lurq::components::Rect::new(100.0, 50.0).background("#ff0000"))
+    .width(100.0)
+    .height(50.0)
+    .background("#000000")
+    .border_inside(2.0, "#475569");
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 50.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert!(quads[1].clip.active);
+  assert_eq!(quads[1].clip.x, 2.0);
+  assert_eq!(quads[1].clip.y, 2.0);
+  assert_eq!(quads[1].clip.width, 96.0);
+  assert_eq!(quads[1].clip.height, 46.0);
+  assert!(quads[2].border.is_some());
+}
+
+#[test]
 fn overflow_visible_allows_children_to_escape() {
   let mut rt = rt();
   let node = lurq::components::Row::new()

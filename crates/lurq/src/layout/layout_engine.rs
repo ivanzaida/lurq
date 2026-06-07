@@ -18,7 +18,7 @@ use crate::{
   },
   node::{
     CheckboxStyle, TextTransformMode,
-    border::{BorderRadius, ResolvedBorders},
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     color::Color,
     dimension::Dimension,
     node::Node,
@@ -486,6 +486,7 @@ impl LayoutEngine {
       .and_then(|gradient| crate::layout::render_list::RenderGradient::resolve(&gradient, &self.palette.borrow()));
     let resolved_border = node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow());
     let has_visual = background_color.is_some() || background_gradient.is_some() || resolved_border.is_some();
+    let defer_border_to_overlay = resolved_border.is_some() && has_visual && !node.children().is_empty();
     let content = match node.node_kind() {
       NodeKind::Text {
         state,
@@ -567,7 +568,7 @@ impl LayoutEngine {
               gradient: background_gradient,
             },
             border_radius: node.get_border_radius(&self.radii.borrow()),
-            border: resolved_border,
+            border: if defer_border_to_overlay { None } else { resolved_border },
             clip,
           });
         }
@@ -703,6 +704,8 @@ impl LayoutEngine {
             node.get_border_radius(&self.radii.borrow())
           },
           border: if content_uses_separate_visual_rect {
+            None
+          } else if defer_border_to_overlay {
             None
           } else {
             resolved_border
@@ -930,7 +933,7 @@ impl LayoutEngine {
     }
 
     let child_clip = if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-      intersect_clip(
+      let viewport_clip = intersect_clip(
         clip,
         ClipRect {
           x: abs_x,
@@ -939,9 +942,10 @@ impl LayoutEngine {
           height: state.viewport_height(),
           active: true,
         },
-      )
+      );
+      inset_clip_for_border(viewport_clip, resolved_border)
     } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
-      intersect_clip(
+      let overflow_clip = intersect_clip(
         clip,
         ClipRect {
           x: abs_x,
@@ -950,7 +954,8 @@ impl LayoutEngine {
           height: result.size.height,
           active: true,
         },
-      )
+      );
+      inset_clip_for_border(overflow_clip, resolved_border)
     } else {
       clip
     };
@@ -980,6 +985,27 @@ impl LayoutEngine {
         child_clip,
         quads,
       );
+    }
+
+    if defer_border_to_overlay {
+      let (border_x, border_y, border_transform, border_transform_origin) =
+        transformed_quad_frame(abs_x, abs_y, transform);
+      quads.push(Quad {
+        x: border_x,
+        y: border_y,
+        width: result.size.width,
+        height: result.size.height,
+        opacity,
+        transform: border_transform,
+        transform_origin: border_transform_origin,
+        content: QuadContent::Rect {
+          color: DEFAULT_TRANSPARENT_COLOR,
+          gradient: None,
+        },
+        border_radius: node.get_border_radius(&self.radii.borrow()),
+        border: resolved_border,
+        clip,
+      });
     }
 
     if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
@@ -2530,6 +2556,42 @@ fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
     width: (x2 - x1).max(0.0),
     height: (y2 - y1).max(0.0),
     active: true,
+  }
+}
+
+fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> ClipRect {
+  if !clip.active {
+    return clip;
+  }
+  let Some(border) = border else {
+    return clip;
+  };
+
+  let left = border_clip_inset(border.left);
+  let top = border_clip_inset(border.top);
+  let right = border_clip_inset(border.right);
+  let bottom = border_clip_inset(border.bottom);
+  if left == 0.0 && top == 0.0 && right == 0.0 && bottom == 0.0 {
+    return clip;
+  }
+
+  ClipRect {
+    x: clip.x + left,
+    y: clip.y + top,
+    width: (clip.width - left - right).max(0.0),
+    height: (clip.height - top - bottom).max(0.0),
+    active: true,
+  }
+}
+
+fn border_clip_inset(border: Option<ResolvedBorder>) -> f32 {
+  let Some(border) = border else {
+    return 0.0;
+  };
+  match border.placement {
+    BorderPlacement::Inside => border.width,
+    BorderPlacement::Center => border.width * 0.5,
+    BorderPlacement::Outside => 0.0,
   }
 }
 
