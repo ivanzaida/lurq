@@ -1,7 +1,7 @@
 use lurq::{
   app::{Tree, events::MouseButton},
-  components::{Select, Text},
-  core::Signal,
+  components::{Column, Rect, Select, Text},
+  core::{ElementRef, Signal},
   node::{SelectPartStyle, SelectStyle, color::Color},
 };
 
@@ -62,6 +62,77 @@ fn custom_trigger_slot_renders_selected_state() {
       .is_some(),
     "custom trigger slot should receive and render the selected label"
   );
+}
+
+#[test]
+fn clicking_outside_blurs_focused_select_and_closes_menu() {
+  let value = Signal::new("md".to_owned());
+  let select_ref = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    Column::new()
+      .spacing(12.0)
+      .child(
+        Select::new(value)
+          .options(options())
+          .width(200.0)
+          .height(40.0)
+          .ref_element(select_ref.clone()),
+      )
+      .child(Rect::new(200.0, 40.0).background("#ef4444")),
+  );
+  run_pass(&mut tree);
+
+  let (x, y) = select_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+
+  assert!(select_ref.focused());
+  assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_some());
+
+  pointer_click(&mut tree, 500.0, 500.0, MouseButton::Left);
+  run_pass(&mut tree);
+
+  assert!(!select_ref.focused());
+  assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_none());
+}
+
+#[test]
+fn opening_another_select_blurs_previous_select() {
+  let first_ref = ElementRef::new();
+  let second_ref = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    Column::new()
+      .spacing(180.0)
+      .child(
+        Select::new(Signal::new("md".to_owned()))
+          .options(options())
+          .width(200.0)
+          .height(40.0)
+          .ref_element(first_ref.clone()),
+      )
+      .child(
+        Select::new(Signal::new("sm".to_owned()))
+          .options(options())
+          .width(200.0)
+          .height(40.0)
+          .ref_element(second_ref.clone()),
+      ),
+  );
+  run_pass(&mut tree);
+
+  let (x, y) = first_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(first_ref.focused());
+
+  let (x, y) = second_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+
+  assert!(!first_ref.focused());
+  assert!(second_ref.focused());
 }
 
 #[test]

@@ -88,36 +88,45 @@ impl Window {
   }
 
   pub(crate) fn set_resolved_size(&self, width: f32, height: f32) {
-    let mut inner = self.inner.write().unwrap();
-    if inner.info.resolved_width == width && inner.info.resolved_height == height {
-      return;
-    }
-    inner.info.resolved_width = width;
-    inner.info.resolved_height = height;
-    self.bump_version(&mut inner);
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.resolved_width == width && inner.info.resolved_height == height {
+        return;
+      }
+      inner.info.resolved_width = width;
+      inner.info.resolved_height = height;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
   }
 
   pub(crate) fn set_scale_factor(&self, scale_factor: f32) {
-    let mut inner = self.inner.write().unwrap();
-    if inner.info.scale_factor == scale_factor {
-      return;
-    }
-    inner.info.scale_factor = scale_factor;
-    self.bump_version(&mut inner);
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.scale_factor == scale_factor {
+        return;
+      }
+      inner.info.scale_factor = scale_factor;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
   }
 
   pub(crate) fn set_position(&self, x: i32, y: i32) {
-    let mut inner = self.inner.write().unwrap();
-    if inner.info.x == x && inner.info.y == y {
-      return;
-    }
-    inner.info.x = x;
-    inner.info.y = y;
-    self.bump_version(&mut inner);
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.x == x && inner.info.y == y {
+        return;
+      }
+      inner.info.x = x;
+      inner.info.y = y;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
   }
 
-  fn bump_version(&self, inner: &mut WindowInner) {
+  fn bump_version(inner: &mut WindowInner) -> u64 {
     inner.version = inner.version.wrapping_add(1);
-    self.version_signal.set(inner.version);
+    inner.version
   }
 }

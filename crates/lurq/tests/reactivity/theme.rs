@@ -375,6 +375,24 @@ fn theme_breakpoint_change_recomputes_without_reentering_theme_lock() {
 }
 
 #[test]
+fn window_resize_recomputes_breakpoint_without_reentering_window_lock() {
+  let renders = Arc::new(AtomicUsize::new(0));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<BreakpointSubscriber>(&mut app, Shared(renders.clone()));
+
+  run_pass(&mut tree);
+  assert_eq!(renders.load(Ordering::Relaxed), 1);
+  assert!(tree.find_element(|el| el.text_content() == Some("md")).is_some());
+
+  tree.resize(1200, 600);
+  run_pass(&mut tree);
+
+  assert_eq!(renders.load(Ordering::Relaxed), 2);
+  assert!(tree.find_element(|el| el.text_content() == Some("lg")).is_some());
+}
+
+#[test]
 fn theme_clone_shares_state() {
   let t1 = Theme::new();
   let t2 = t1.clone();

@@ -1800,6 +1800,7 @@ impl Tree {
     let mut pending_slider_drag = None;
     let mut pending_text_selection_drag = None;
     let mut reset_text_input_caret_blink = false;
+    let mut blur_focused_select = false;
     #[cfg(feature = "form")]
     let pending_submit = if matches!(evt.kind, MouseEventKind::Click) {
       hits
@@ -1827,11 +1828,26 @@ impl Tree {
       // Dismiss open selects when the press lands outside their menu and
       // outside the open trigger (the trigger's own click toggles it).
       let on_menu = hits.iter().any(|(node, _)| node.tag_name() == SELECT_MENU_TAG);
+      let on_select = hits
+        .iter()
+        .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }));
       let on_open_trigger = hits
         .iter()
         .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { state } if state.is_open()));
       if !on_menu && !on_open_trigger && close_all_open_selects(root) {
         builtin_needs_redraw = true;
+      }
+      if !on_menu && !on_select {
+        blur_focused_select = self
+          .focused_node
+          .and_then(|focused| find_node_by_id(root, focused))
+          .or_else(|| {
+            self
+              .focused_path
+              .as_deref()
+              .and_then(|path| find_node_by_path(root, path))
+          })
+          .is_some_and(|node| matches!(node.node_kind(), NodeKind::Select { .. }));
       }
     }
 
@@ -2163,6 +2179,9 @@ impl Tree {
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
     }
+    if blur_focused_select {
+      self.blur_focus();
+    }
     if clear_active_after_dispatch {
       self.clear_active_path();
     }
@@ -2401,9 +2420,15 @@ impl Tree {
       .and_then(|node| node.events.on_focus.clone());
 
     if let Some(node) = self
-      .focused_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      .root
+      .as_ref()
+      .and_then(|root| self.focused_node.and_then(|id| find_node_by_id(root, id)))
+      .or_else(|| {
+        self
+          .focused_path
+          .as_deref()
+          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      })
     {
       set_node_focused(node, false);
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
@@ -2411,9 +2436,15 @@ impl Tree {
       }
     }
     if let Some(node) = self
-      .focused_event_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      .root
+      .as_ref()
+      .and_then(|root| self.focused_event_node.and_then(|id| find_node_by_id(root, id)))
+      .or_else(|| {
+        self
+          .focused_event_path
+          .as_deref()
+          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      })
     {
       set_node_focused(node, false);
     }
@@ -3075,9 +3106,15 @@ impl Tree {
 
   fn clear_focus(&mut self) {
     if let Some(node) = self
-      .focused_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      .root
+      .as_ref()
+      .and_then(|root| self.focused_node.and_then(|id| find_node_by_id(root, id)))
+      .or_else(|| {
+        self
+          .focused_path
+          .as_deref()
+          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      })
     {
       set_node_focused(node, false);
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
@@ -3085,9 +3122,15 @@ impl Tree {
       }
     }
     if let Some(node) = self
-      .focused_event_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      .root
+      .as_ref()
+      .and_then(|root| self.focused_event_node.and_then(|id| find_node_by_id(root, id)))
+      .or_else(|| {
+        self
+          .focused_event_path
+          .as_deref()
+          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      })
     {
       set_node_focused(node, false);
     }
@@ -3102,9 +3145,15 @@ impl Tree {
       return false;
     }
     let blur = self
-      .focused_event_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      .root
+      .as_ref()
+      .and_then(|root| self.focused_event_node.and_then(|id| find_node_by_id(root, id)))
+      .or_else(|| {
+        self
+          .focused_event_path
+          .as_deref()
+          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      })
       .and_then(|node| node.events.on_blur.clone());
     self.clear_focus();
     if let Some(handler) = blur {
