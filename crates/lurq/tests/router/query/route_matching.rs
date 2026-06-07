@@ -74,7 +74,11 @@ fn setup() -> (Tree, RouterHandle) {
 fn route_matches_when_a_query_string_is_present() {
   let (mut tree, _router) = setup();
 
-  assert!(tree.find_element(|e| e.text_content() == Some("user-42-ref-home")).is_some());
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("user-42-ref-home"))
+      .is_some()
+  );
 }
 
 #[test]
@@ -85,5 +89,9 @@ fn query_string_is_excluded_from_path_params() {
   router.push("/users/7?page=2");
   run_pass(&mut tree);
 
-  assert!(tree.find_element(|e| e.text_content() == Some("user-7-ref-none")).is_some());
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("user-7-ref-none"))
+      .is_some()
+  );
 }

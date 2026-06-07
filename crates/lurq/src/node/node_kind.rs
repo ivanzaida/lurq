@@ -391,8 +391,8 @@ impl TextInputState {
     }
   }
 
-  pub(crate) fn set_mask(&self, mask: char) {
-    self.inner.lock().unwrap().mask = Some(mask);
+  pub(crate) fn set_mask(&self, mask: Option<char>) {
+    self.inner.lock().unwrap().mask = mask;
   }
 
   pub(crate) fn mask(&self) -> Option<char> {

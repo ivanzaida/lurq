@@ -2,7 +2,7 @@ use lurq::{
   app::{Tree, events::MouseButton},
   components::TextInputOverflow,
   core::Signal,
-  layout::{Constraints, Size},
+  layout::{Constraints, Size, quad::QuadContent},
 };
 
 use crate::support::{pointer_click, render_pass, run_pass};
@@ -41,6 +41,57 @@ fn placeholder_after_sizing_is_rendered() {
 
   let found = runtime.find_element(|el| el.text_content() == Some("Name"));
   assert!(found.is_some(), "text input placeholder should apply after sizing");
+}
+
+#[test]
+fn mask_renders_default_mask_character_for_value() {
+  let value = Signal::new("Ada".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value).mask());
+  run_pass(&mut runtime);
+  let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
+
+  assert!(
+    quads
+      .iter()
+      .any(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "***")),
+    "masked text input should render one default mask character per value character"
+  );
+}
+
+#[test]
+fn mask_char_sets_custom_mask_character_for_value() {
+  let value = Signal::new("Ada".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value).mask_char('#'));
+  run_pass(&mut runtime);
+  let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
+
+  assert!(
+    quads
+      .iter()
+      .any(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "###")),
+    "custom masked text input should render one custom mask character per value character"
+  );
+}
+
+#[test]
+fn unmask_clears_text_input_mask() {
+  let value = Signal::new("Ada".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value).mask().unmask());
+  run_pass(&mut runtime);
+  let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
+
+  assert!(
+    quads
+      .iter()
+      .any(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Ada")),
+    "unmasked text input should render the original value"
+  );
 }
 
 #[test]

@@ -114,5 +114,9 @@ fn replace_with_state_attaches_state_to_the_current_entry() {
   );
   run_pass(&mut tree);
 
-  assert!(tree.find_element(|e| e.text_content() == Some("from-replaced")).is_some());
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("from-replaced"))
+      .is_some()
+  );
 }

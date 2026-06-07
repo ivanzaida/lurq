@@ -285,13 +285,21 @@ TextInput::new(endpoint.clone())
   .text_align(TextAlign::Center)
 ```
 
-Password inputs can hide their contents with `.mask()`, which renders `*` for each character instead of the typed text:
+Password inputs can hide their contents with `.mask()`, which renders `*` for each character instead of the typed text. Use `.mask_char(...)` for a custom mask character and `.unmask()` to clear masking:
 
 ```rust
 TextInput::new(password.clone())
   .placeholder("Password")
   .single_line()
   .mask()
+
+TextInput::new(pin.clone())
+  .single_line()
+  .mask_char('#')
+
+TextInput::new(visible_secret.clone())
+  .mask()
+  .unmask()
 ```
 
 Masking only affects rendering. The signal value, clipboard copy/cut, and caret and selection behavior all operate on the real text.

@@ -92,7 +92,10 @@ impl RouterHandle {
       if !history.entries.is_empty() {
         history.entries.truncate(cursor + 1);
       }
-      history.entries.push(HistoryEntry { path: path.clone(), state });
+      history.entries.push(HistoryEntry {
+        path: path.clone(),
+        state,
+      });
       history.cursor = history.entries.len() - 1;
     }
     self.inner.current_path.set(path);
@@ -123,11 +126,17 @@ impl RouterHandle {
     {
       let mut history = self.inner.history.lock();
       if history.entries.is_empty() {
-        history.entries.push(HistoryEntry { path: path.clone(), state });
+        history.entries.push(HistoryEntry {
+          path: path.clone(),
+          state,
+        });
         history.cursor = 0;
       } else {
         let cursor = history.cursor;
-        history.entries[cursor] = HistoryEntry { path: path.clone(), state };
+        history.entries[cursor] = HistoryEntry {
+          path: path.clone(),
+          state,
+        };
       }
     }
     self.inner.current_path.set(path);
@@ -136,7 +145,10 @@ impl RouterHandle {
   /// In-memory state attached to the current history entry, if any.
   pub(crate) fn current_state(&self) -> Option<Arc<dyn Any + Send + Sync>> {
     let history = self.inner.history.lock();
-    history.entries.get(history.cursor).and_then(|entry| entry.state.clone())
+    history
+      .entries
+      .get(history.cursor)
+      .and_then(|entry| entry.state.clone())
   }
 
   pub fn back(&self) -> bool {

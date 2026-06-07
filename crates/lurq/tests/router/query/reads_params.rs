@@ -75,7 +75,11 @@ fn setup() -> (Tree, RouterHandle) {
 fn exposes_query_string_values_to_component() {
   let (mut tree, _router) = setup();
 
-  assert!(tree.find_element(|e| e.text_content() == Some("tab=images;page=3")).is_some());
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("tab=images;page=3"))
+      .is_some()
+  );
 }
 
 #[test]
@@ -85,8 +89,16 @@ fn parses_query_value_into_target_type() {
   router.push("/search?tab=videos&page=7");
   run_pass(&mut tree);
 
-  assert!(tree.find_element(|e| e.text_content() == Some("tab=videos;page=7")).is_some());
-  assert!(tree.find_element(|e| e.text_content() == Some("tab=images;page=3")).is_none());
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("tab=videos;page=7"))
+      .is_some()
+  );
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("tab=images;page=3"))
+      .is_none()
+  );
 }
 
 #[test]
@@ -96,5 +108,9 @@ fn falls_back_to_defaults_when_query_param_is_absent() {
   router.push("/search");
   run_pass(&mut tree);
 
-  assert!(tree.find_element(|e| e.text_content() == Some("tab=none;page=0")).is_some());
+  assert!(
+    tree
+      .find_element(|e| e.text_content() == Some("tab=none;page=0"))
+      .is_some()
+  );
 }

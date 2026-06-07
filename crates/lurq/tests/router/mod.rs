@@ -37,8 +37,8 @@ mod query {
 }
 
 mod state {
-  mod push_with_state;
   mod persists_across_history;
+  mod push_with_state;
 }
 
 mod link {
