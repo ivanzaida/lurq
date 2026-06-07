@@ -30,6 +30,36 @@ fn vs_main(in: VsIn) -> VsOut {
     return out;
 }
 
+fn pick_radius(p: vec2<f32>, rh: vec4<f32>, rv: vec4<f32>) -> vec2<f32> {
+    if (p.y < 0.0) {
+        if (p.x < 0.0) { return vec2<f32>(rh.x, rv.x); }
+        else           { return vec2<f32>(rh.y, rv.y); }
+    } else {
+        if (p.x < 0.0) { return vec2<f32>(rh.w, rv.w); }
+        else           { return vec2<f32>(rh.z, rv.z); }
+    }
+}
+
+fn sd_rounded_box(p: vec2<f32>, half_size: vec2<f32>, r: vec2<f32>) -> f32 {
+    let safe_r = max(r, vec2<f32>(0.0, 0.0));
+    let q = abs(p) - half_size + safe_r;
+
+    if (q.x > 0.0 && q.y > 0.0) {
+        if (safe_r.x <= 0.0 || safe_r.y <= 0.0) {
+            return max(q.x, q.y);
+        }
+        let pn = q / safe_r;
+        let l = length(pn);
+        if (l <= 1e-6) {
+            return -min(safe_r.x, safe_r.y);
+        }
+        let g = max(length(pn / safe_r), 1e-6);
+        return (l - 1.0) * l / g;
+    }
+
+    return max(q.x - safe_r.x, q.y - safe_r.y);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var clip_alpha = 1.0;
@@ -39,8 +69,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let half = vec2<f32>(cr.z, cr.w) * 0.5;
         let centre = vec2<f32>(cr.x + half.x, cr.y + half.y);
         let local_clip = frag_pos - centre;
-        let d = max(abs(local_clip.x) - half.x, abs(local_clip.y) - half.y);
-        let aa = max(fwidth(d), 0.001);
+        let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
+        let d = sd_rounded_box(local_clip, half, r);
+        let aa = max(fwidth(d), 1.0);
         clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
         if (clip_alpha <= 0.0) {
             discard;

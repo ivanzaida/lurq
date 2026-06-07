@@ -177,7 +177,21 @@ ScrollVertical::new(
 .on_scroll(|event| println!("delta: {}, {}", event.delta_x, event.delta_y))
 ```
 
-Customize the scrollbar:
+Set the default scrollbar style on the theme:
+
+```rust
+use lurq::{layout::scrollbar::{ScrollBarStyle, ScrollBarVisibility}, node::color::Color};
+
+app.theme().set_scrollbar(ScrollBarStyle {
+  visible: ScrollBarVisibility::Auto,
+  width: 7.0,
+  thumb_color: Color::from_hex("#64748b"),
+  thumb_radius: 4.0,
+  ..ScrollBarStyle::default()
+});
+```
+
+Override the scrollbar on a specific scroll component:
 
 ```rust
 use lurq::{layout::scrollbar::{ScrollBarStyle, ScrollBarVisibility}, node::color::Color};
@@ -192,6 +206,8 @@ ScrollVertical::new(content)
   })
   .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex("#94a3b8")))
 ```
+
+`.scrollbar_hovered(...)` receives the effective style, so it applies to either the theme default or the component override.
 
 `ScrollEvent` includes `x`, `y`, `delta_x`, `delta_y`, `phase`, and `target_id`.
 

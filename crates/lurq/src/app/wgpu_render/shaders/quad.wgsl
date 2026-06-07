@@ -206,6 +206,68 @@ fn sd_rounded_box(p: vec2<f32>, half_size: vec2<f32>, r: vec2<f32>) -> f32 {
     return max(q.x - safe_r.x, q.y - safe_r.y);
 }
 
+fn aa_width(d: f32) -> f32 {
+    return max(fwidth(d), 1.0);
+}
+
+fn rounded_fill_alpha(local: vec2<f32>, half_size: vec2<f32>, radii_h: vec4<f32>, radii_v: vec4<f32>) -> f32 {
+    let radius = pick_radius(local, radii_h, radii_v);
+    let dist = sd_rounded_box(local, half_size, radius);
+    return clamp(0.5 - dist / aa_width(dist), 0.0, 1.0);
+}
+
+fn rounded_stroke_alpha(
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    radii_h: vec4<f32>,
+    radii_v: vec4<f32>,
+    stroke: vec4<f32>,
+    max_stroke: f32,
+) -> f32 {
+    let radius = pick_radius(local, radii_h, radii_v);
+    let outer_dist = sd_rounded_box(local, half_size, radius);
+    let inner_half = max(vec2<f32>(
+        half_size.x - 0.5 * (stroke.y + stroke.w),
+        half_size.y - 0.5 * (stroke.x + stroke.z),
+    ), vec2<f32>(0.0, 0.0));
+    let inner_centre = vec2<f32>(
+        0.5 * (stroke.w - stroke.y),
+        0.5 * (stroke.x - stroke.z),
+    );
+    let inner_r = vec2<f32>(
+        max(0.0, radius.x - max_stroke),
+        max(0.0, radius.y - max_stroke),
+    );
+    let inner_dist = sd_rounded_box(local - inner_centre, inner_half, inner_r);
+    let dist = max(outer_dist, -inner_dist);
+    return clamp(0.5 - dist / aa_width(dist), 0.0, 1.0);
+}
+
+fn supersampled_fill_alpha(local: vec2<f32>, half_size: vec2<f32>, radii_h: vec4<f32>, radii_v: vec4<f32>) -> f32 {
+    return (
+        rounded_fill_alpha(local + vec2<f32>(-0.25, -0.25), half_size, radii_h, radii_v) +
+        rounded_fill_alpha(local + vec2<f32>(0.25, -0.25), half_size, radii_h, radii_v) +
+        rounded_fill_alpha(local + vec2<f32>(-0.25, 0.25), half_size, radii_h, radii_v) +
+        rounded_fill_alpha(local + vec2<f32>(0.25, 0.25), half_size, radii_h, radii_v)
+    ) * 0.25;
+}
+
+fn supersampled_stroke_alpha(
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    radii_h: vec4<f32>,
+    radii_v: vec4<f32>,
+    stroke: vec4<f32>,
+    max_stroke: f32,
+) -> f32 {
+    return (
+        rounded_stroke_alpha(local + vec2<f32>(-0.25, -0.25), half_size, radii_h, radii_v, stroke, max_stroke) +
+        rounded_stroke_alpha(local + vec2<f32>(0.25, -0.25), half_size, radii_h, radii_v, stroke, max_stroke) +
+        rounded_stroke_alpha(local + vec2<f32>(-0.25, 0.25), half_size, radii_h, radii_v, stroke, max_stroke) +
+        rounded_stroke_alpha(local + vec2<f32>(0.25, 0.25), half_size, radii_h, radii_v, stroke, max_stroke)
+    ) * 0.25;
+}
+
 /// Evaluate a CSS-like gradient for a fragment at centre-relative pixel
 /// `local`, within a box of half-extent `half`. `off` is the vec4 index of
 /// the gradient header in the `gradients` storage buffer. Layout:
@@ -302,7 +364,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let local_clip = frag_pos - centre;
         let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
         let d = sd_rounded_box(local_clip, half, r);
-        let aa = max(fwidth(d), 0.001);
+        let aa = aa_width(d);
         clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
         if (clip_alpha <= 0.0) {
             discard;
@@ -317,15 +379,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
 
-    let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
-    let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
-
     let max_stroke = max(max(in.stroke.x, in.stroke.y), max(in.stroke.z, in.stroke.w));
 
     if (max_stroke <= 0.0) {
+        let alpha = supersampled_fill_alpha(in.local, in.half_size, in.radii_h, in.radii_v);
         // Shadow mode: soft Gaussian-like falloff.
         let sigma = in.shadow_sigma;
         if (sigma > 0.0) {
+            let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
+            let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
             let t = clamp(-outer_dist / sigma, 0.0, 1.0);
             let alpha = t * t * (3.0 - 2.0 * t) * base_color.a * clip_alpha;
             if (alpha <= 0.001) { discard; }
@@ -342,7 +404,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             let inner_r_raw = pick_radius(inner_local, in.radii_h, in.radii_v);
             let inner_r = max(inner_r_raw - vec2<f32>(spread, spread), vec2<f32>(0.0, 0.0));
             let inner_dist = sd_rounded_box(inner_local, inner_half, inner_r);
-            let aa = max(fwidth(outer_dist), 0.001);
+            let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
+            let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
+            let aa = aa_width(outer_dist);
             let t = clamp(inner_dist / sigma_abs, 0.0, 1.0);
             let outer_mask = clamp(0.5 - outer_dist / aa, 0.0, 1.0);
             let alpha = t * t * (3.0 - 2.0 * t) * outer_mask * base_color.a * clip_alpha;
@@ -350,13 +414,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             return vec4<f32>(base_color.rgb, alpha);
         }
         // Filled mode.
-        let aa = max(fwidth(outer_dist), 0.001);
-        let alpha = clamp(0.5 - outer_dist / aa, 0.0, 1.0);
         if (alpha <= 0.0) { discard; }
         return vec4<f32>(base_color.rgb, base_color.a * alpha * clip_alpha);
     }
 
     let nz = nonzero_side_count(in.stroke);
+    let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
+    let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
     let inner_half = vec2<f32>(
         in.half_size.x - 0.5 * (in.stroke.y + in.stroke.w),
         in.half_size.y - 0.5 * (in.stroke.x + in.stroke.z),
@@ -372,7 +436,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
     let inner_dist = sd_rounded_box(in.local - inner_centre, inner_half, inner_r);
     let dist = max(outer_dist, -inner_dist);
-    let aa = max(fwidth(dist), 0.001);
+    let aa = aa_width(dist);
 
     var side_idx: i32 = -1;
     if (nz == 1) {
@@ -382,7 +446,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         if (in.stroke.w > 0.0) { side_idx = 3; } // left
     }
 
-    var alpha = clamp(0.5 - dist / aa, 0.0, 1.0);
+    var alpha = supersampled_stroke_alpha(in.local, in.half_size, in.radii_h, in.radii_v, in.stroke, max_stroke);
 
     // Dash / dot modulation. Only meaningful on one-sided rings with a
     // uniform circular corner radius (h == v on every corner). Other

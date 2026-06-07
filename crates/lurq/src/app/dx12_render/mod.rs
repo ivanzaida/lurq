@@ -1419,7 +1419,40 @@ fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
 }
 
 fn same_clip(a: ClipRect, b: ClipRect) -> bool {
-  a.active == b.active && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+  a.active == b.active
+    && a.x == b.x
+    && a.y == b.y
+    && a.width == b.width
+    && a.height == b.height
+    && a.border_radius == b.border_radius
+}
+
+fn globals_for_clip(clip: ClipRect, width: f32, height: f32) -> Globals {
+  let radius = clip.border_radius.unwrap_or_default();
+  let radii = radius.to_array();
+  Globals {
+    viewport: [width, height, 0.0, 0.0],
+    clip_rect: if clip.active {
+      [clip.x, clip.y, clip.width, clip.height]
+    } else {
+      [0.0, 0.0, width, height]
+    },
+    clip_radii_h: radii,
+    clip_radii_v: radii,
+    clip_active: if rounded_clip_needs_shader(clip) {
+      [1.0, 0.0, 0.0, 0.0]
+    } else {
+      [0.0; 4]
+    },
+  }
+}
+
+fn rounded_clip_needs_shader(clip: ClipRect) -> bool {
+  let Some(radius) = clip.border_radius else {
+    return false;
+  };
+  clip.active
+    && (radius.top_left > 0.0 || radius.top_right > 0.0 || radius.bottom_right > 0.0 || radius.bottom_left > 0.0)
 }
 
 fn scissor_rect(clip: ClipRect, vw: f32, vh: f32) -> Option<RECT> {
@@ -1712,16 +1745,6 @@ impl Dx12State {
     };
     self.command_list.RSSetViewports(std::slice::from_ref(&viewport));
 
-    let globals = Globals {
-      viewport: [self.width as f32, self.height as f32, 0.0, 0.0],
-      clip_rect: [0.0; 4],
-      clip_radii_h: [0.0; 4],
-      clip_radii_v: [0.0; 4],
-      clip_active: [0.0; 4],
-    };
-    let globals_upload = self.upload_frame_constant(&globals)?;
-    let globals_address = globals_upload.gpu_address;
-
     self
       .command_list
       .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1775,19 +1798,19 @@ impl Dx12State {
 
     for (_, draw) in ordered_draws {
       match draw {
-        OrderedDraw::Rect(index) => self.draw_rect(&list.rects[index], globals_address)?,
-        OrderedDraw::Glyph { start, count } => self.draw_glyphs(&list.glyphs[start..start + count], globals_address)?,
+        OrderedDraw::Rect(index) => self.draw_rect(&list.rects[index])?,
+        OrderedDraw::Glyph { start, count } => self.draw_glyphs(&list.glyphs[start..start + count])?,
         #[cfg(feature = "image")]
-        OrderedDraw::Image(index) => self.draw_image(&list.images[index], globals_address)?,
+        OrderedDraw::Image(index) => self.draw_image(&list.images[index])?,
         #[cfg(feature = "svg")]
-        OrderedDraw::Svg(index) => self.draw_svg(&list.svgs[index], globals_address)?,
+        OrderedDraw::Svg(index) => self.draw_svg(&list.svgs[index])?,
       }
     }
 
     Ok(())
   }
 
-  unsafe fn draw_rect(&mut self, rect: &RectCmd, globals_address: u64) -> Result<()> {
+  unsafe fn draw_rect(&mut self, rect: &RectCmd) -> Result<()> {
     let Some(scissor) = scissor_rect(rect.clip, self.width as f32, self.height as f32) else {
       return Ok(());
     };
@@ -1804,12 +1827,16 @@ impl Dx12State {
       gradient_data.push([0.0; 4]);
     }
     let gradient_upload = self.upload_frame_pod_slice(&gradient_data, 16)?;
+    let globals = globals_for_clip(rect.clip, self.width as f32, self.height as f32);
+    let globals_upload = self.upload_frame_constant(&globals)?;
 
     self.command_list.SetPipelineState(&self.rect_pipeline.pipeline_state);
     self
       .command_list
       .SetGraphicsRootSignature(&self.rect_pipeline.root_signature);
-    self.command_list.SetGraphicsRootConstantBufferView(0, globals_address);
+    self
+      .command_list
+      .SetGraphicsRootConstantBufferView(0, globals_upload.gpu_address);
     self
       .command_list
       .SetGraphicsRootShaderResourceView(1, gradient_upload.gpu_address);
@@ -1828,7 +1855,7 @@ impl Dx12State {
     Ok(())
   }
 
-  unsafe fn draw_glyphs(&mut self, glyphs: &[GlyphCmd], globals_address: u64) -> Result<()> {
+  unsafe fn draw_glyphs(&mut self, glyphs: &[GlyphCmd]) -> Result<()> {
     if glyphs.is_empty() || self.glyph_atlas.is_none() {
       return Ok(());
     }
@@ -1839,6 +1866,8 @@ impl Dx12State {
     let instances: Vec<GlyphInstance> = glyphs.iter().map(glyph_instance).collect();
     let instance_upload = self.upload_frame_pod_slice(&instances, 16)?;
     let instance_view = instance_upload.vertex_view::<GlyphInstance>();
+    let globals = globals_for_clip(glyphs[0].clip, self.width as f32, self.height as f32);
+    let globals_upload = self.upload_frame_constant(&globals)?;
 
     let descriptor_heaps = [Some(self.srv_heap.heap.clone()), Some(self.sampler_heap.heap.clone())];
     self.command_list.SetDescriptorHeaps(&descriptor_heaps);
@@ -1846,7 +1875,9 @@ impl Dx12State {
     self
       .command_list
       .SetGraphicsRootSignature(&self.glyph_pipeline.root_signature);
-    self.command_list.SetGraphicsRootConstantBufferView(0, globals_address);
+    self
+      .command_list
+      .SetGraphicsRootConstantBufferView(0, globals_upload.gpu_address);
     self
       .command_list
       .SetGraphicsRootDescriptorTable(1, self.srv_heap.gpu_handle(GLYPH_ATLAS_SRV_INDEX));
@@ -1865,7 +1896,7 @@ impl Dx12State {
   }
 
   #[cfg(feature = "image")]
-  unsafe fn draw_image(&mut self, image: &crate::images::ImageCmd, globals_address: u64) -> Result<()> {
+  unsafe fn draw_image(&mut self, image: &crate::images::ImageCmd) -> Result<()> {
     if image.image_width == 0 || image.image_height == 0 {
       return Ok(());
     }
@@ -1886,6 +1917,8 @@ impl Dx12State {
     };
     let instance_upload = self.upload_frame_pod_slice(&[instance], 16)?;
     let instance_view = instance_upload.vertex_view::<ImageInstance>();
+    let globals = globals_for_clip(image.clip, self.width as f32, self.height as f32);
+    let globals_upload = self.upload_frame_constant(&globals)?;
 
     let descriptor_heaps = [Some(self.srv_heap.heap.clone()), Some(self.sampler_heap.heap.clone())];
     self.command_list.SetDescriptorHeaps(&descriptor_heaps);
@@ -1893,7 +1926,9 @@ impl Dx12State {
     self
       .command_list
       .SetGraphicsRootSignature(&self.image_pipeline.root_signature);
-    self.command_list.SetGraphicsRootConstantBufferView(0, globals_address);
+    self
+      .command_list
+      .SetGraphicsRootConstantBufferView(0, globals_upload.gpu_address);
     self
       .command_list
       .SetGraphicsRootDescriptorTable(1, self.srv_heap.gpu_handle(descriptor_index));
@@ -1912,7 +1947,7 @@ impl Dx12State {
   }
 
   #[cfg(feature = "svg")]
-  unsafe fn draw_svg(&mut self, svg: &crate::svg::SvgCmd, globals_address: u64) -> Result<()> {
+  unsafe fn draw_svg(&mut self, svg: &crate::svg::SvgCmd) -> Result<()> {
     if svg.mesh.vertices.is_empty() || svg.mesh.indices.is_empty() {
       return Ok(());
     }
@@ -1931,6 +1966,8 @@ impl Dx12State {
       .collect();
     let vertex_upload = self.upload_frame_pod_slice(&vertices, 16)?;
     let index_upload = self.upload_frame_pod_slice(&svg.mesh.indices, 4)?;
+    let globals = globals_for_clip(svg.clip, self.width as f32, self.height as f32);
+    let globals_upload = self.upload_frame_constant(&globals)?;
     let vertex_view = vertex_upload.vertex_view::<SvgVertexGpu>();
     let index_view = D3D12_INDEX_BUFFER_VIEW {
       BufferLocation: index_upload.gpu_address,
@@ -1942,7 +1979,9 @@ impl Dx12State {
     self
       .command_list
       .SetGraphicsRootSignature(&self.svg_pipeline.root_signature);
-    self.command_list.SetGraphicsRootConstantBufferView(0, globals_address);
+    self
+      .command_list
+      .SetGraphicsRootConstantBufferView(0, globals_upload.gpu_address);
     self.command_list.RSSetScissorRects(std::slice::from_ref(&scissor));
     self
       .command_list
@@ -2338,6 +2377,7 @@ mod tests {
         width: 30.1,
         height: 40.6,
         active: true,
+        border_radius: None,
       },
       100.0,
       100.0,

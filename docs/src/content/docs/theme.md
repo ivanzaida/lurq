@@ -1,11 +1,11 @@
 ---
 title: Theme
-description: Strict palette, typography, radius, spacing, border size, and form theme roles.
+description: Strict palette, typography, radius, spacing, scrollbar, border size, and form theme roles.
 ---
 
 # Theme
 
-The runtime theme is a strict set of semantic roles. There is no dynamic token registry: palette colors, typography styles, radius sizes, spacing sizes, and border sizes are closed enums with matching fields on the theme structs.
+The runtime theme is a strict set of semantic roles. There is no dynamic token registry: palette colors, typography styles, radius sizes, spacing sizes, scrollbar style, and border sizes are closed enums with matching fields on the theme structs.
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
@@ -60,6 +60,7 @@ The main theme accessors are:
 | `theme.spacing_value(key)` / `theme.set_spacing_value(key, value)` | Read or set one spacing role. |
 | `theme.border_sizes()` / `theme.set_border_sizes(...)` | Read or replace `ThemeBorderSizes`. |
 | `theme.border_size_value(key)` / `theme.set_border_size_value(key, value)` | Read or set one border-size role. |
+| `theme.scrollbar()` / `theme.set_scrollbar(...)` | Read or replace the default `ScrollBarStyle`. |
 | `theme.breakpoints()` / `theme.set_breakpoints(...)` | Read or replace `ThemeBreakpoints`. |
 | `theme.breakpoint_value(key)` / `theme.set_breakpoint_value(key, value)` | Read or set one breakpoint threshold. |
 | `theme.form()` / `theme.set_form(...)` | Read or replace `FormTheme`; requires the `form` feature. |
@@ -256,6 +257,27 @@ Rect::new(100.0, 40.0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
   .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
 ```
+
+## Scrollbar
+
+`theme.scrollbar()` is the default style for scroll components. Set it once to make scrollbars consistent across the app:
+
+```rust
+use lurq::{
+  layout::scrollbar::{ScrollBarStyle, ScrollBarVisibility},
+  node::color::Color,
+};
+
+app.theme().set_scrollbar(ScrollBarStyle {
+  visible: ScrollBarVisibility::Auto,
+  width: 7.0,
+  thumb_color: Color::from_hex("#64748b"),
+  thumb_radius: 4.0,
+  ..ScrollBarStyle::default()
+});
+```
+
+Scroll components can still override the theme default with `.scrollbar(...)`. `.scrollbar_hovered(...)` receives the effective style, whether it came from the theme or the component.
 
 ## Breakpoints
 

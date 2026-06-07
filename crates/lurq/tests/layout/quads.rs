@@ -50,6 +50,27 @@ fn background_produces_rect_quad() {
   assert!(matches!(quads[0].content, QuadContent::Rect { .. }));
 }
 
+#[test]
+fn rounded_clip_propagates_radius_to_child_quads() {
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .size(100.0, 20.0)
+    .rounded(7.0)
+    .clip()
+    .child(lurq::components::Rect::new(120.0, 20.0).background("#ff0000"));
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(200.0, 100.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert_eq!(quads.len(), 1);
+  assert!(quads[0].clip.active);
+  assert_eq!(
+    quads[0].clip.border_radius,
+    Some(lurq::node::border::BorderRadius::all(7.0))
+  );
+}
+
 #[cfg(feature = "image")]
 #[test]
 fn image_width_preserves_intrinsic_aspect_ratio() {

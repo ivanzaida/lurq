@@ -7,6 +7,8 @@ use crate::core::Signal;
 
 const DEFAULT_LOCALE: &str = "en";
 const DEFAULT_NAMESPACE: &str = "translation";
+#[cfg(feature = "serde")]
+const JSON_VALUE_KEY: &str = "$value";
 
 #[derive(Clone)]
 pub struct I18n {
@@ -193,6 +195,11 @@ fn flatten_json(value: &serde_json::Value, prefix: &mut String, out: &mut Vec<(S
   match value {
     serde_json::Value::Object(map) => {
       for (key, child) in map {
+        if key == JSON_VALUE_KEY {
+          push_json_value(child, prefix, out);
+          continue;
+        }
+
         let len = prefix.len();
         if !prefix.is_empty() {
           prefix.push('.');
@@ -202,8 +209,15 @@ fn flatten_json(value: &serde_json::Value, prefix: &mut String, out: &mut Vec<(S
         prefix.truncate(len);
       }
     }
-    serde_json::Value::String(s) => out.push((prefix.clone(), s.clone())),
-    other => out.push((prefix.clone(), other.to_string())),
+    other => push_json_value(other, prefix, out),
+  }
+}
+
+#[cfg(feature = "serde")]
+fn push_json_value(value: &serde_json::Value, prefix: &str, out: &mut Vec<(String, String)>) {
+  match value {
+    serde_json::Value::String(s) => out.push((prefix.to_owned(), s.clone())),
+    other => out.push((prefix.to_owned(), other.to_string())),
   }
 }
 
@@ -258,6 +272,9 @@ fn interpolate(value: &str, args: &[(String, String)]) -> Arc<str> {
 
 #[cfg(test)]
 mod tests {
+  #[cfg(feature = "serde")]
+  use std::collections::HashMap;
+
   use super::I18n;
 
   #[test]
@@ -283,5 +300,30 @@ mod tests {
     i18n.add_resource("en", "translation", "hello", "Hello, {{name}}");
 
     assert_eq!(&*i18n.t_args("hello", [("name", "Ada")]), "Hello, Ada");
+  }
+
+  #[cfg(feature = "serde")]
+  #[test]
+  fn flattens_nested_json_value_keys() {
+    let value = serde_json::json!({
+      "settings": {
+        "audio": {
+          "input": {
+            "$value": "INPUT",
+            "device": "Input device"
+          }
+        }
+      }
+    });
+    let mut entries = Vec::new();
+
+    super::flatten_json(&value, &mut String::new(), &mut entries);
+
+    let entries = entries.into_iter().collect::<HashMap<_, _>>();
+    assert_eq!(entries.get("settings.audio.input").map(String::as_str), Some("INPUT"));
+    assert_eq!(
+      entries.get("settings.audio.input.device").map(String::as_str),
+      Some("Input device")
+    );
   }
 }

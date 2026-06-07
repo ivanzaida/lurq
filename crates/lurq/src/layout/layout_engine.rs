@@ -87,6 +87,7 @@ pub(crate) struct LayoutEngine {
   spacing: RefCell<ThemeSpacing>,
   radii: RefCell<ThemeRadii>,
   caret: RefCell<ThemeCaret>,
+  scrollbar: RefCell<ScrollBarStyle>,
   typography: RefCell<ThemeTypography>,
 }
 
@@ -159,7 +160,7 @@ fn background_image_placement(
 
 fn push_slider_part_quads(
   quads: &mut Vec<Quad>,
-  rect: SliderPartRect,
+  mut rect: SliderPartRect,
   style: &SliderPartStyle,
   color: Color,
   border_radius: Option<BorderRadius>,
@@ -168,6 +169,11 @@ fn push_slider_part_quads(
   transform: Transform2D,
   clip: ClipRect,
 ) {
+  if transform.is_identity() {
+    rect.x = rect.x.round();
+    rect.y = rect.y.round();
+  }
+
   #[cfg(not(feature = "image"))]
   let _ = style;
   #[cfg(feature = "image")]
@@ -343,6 +349,7 @@ impl LayoutEngine {
       spacing: RefCell::new(ThemeSpacing::default()),
       radii: RefCell::new(ThemeRadii::default()),
       caret: RefCell::new(ThemeCaret::default()),
+      scrollbar: RefCell::new(ScrollBarStyle::default()),
       typography: RefCell::new(ThemeTypography::default()),
     }
   }
@@ -357,6 +364,7 @@ impl LayoutEngine {
     spacing: ThemeSpacing,
     radii: ThemeRadii,
     caret: ThemeCaret,
+    scrollbar: ScrollBarStyle,
     typography: ThemeTypography,
     force_dirty: bool,
   ) -> LayoutResult {
@@ -366,6 +374,7 @@ impl LayoutEngine {
     *self.spacing.borrow_mut() = spacing;
     *self.radii.borrow_mut() = radii;
     *self.caret.borrow_mut() = caret;
+    *self.scrollbar.borrow_mut() = scrollbar;
     *self.typography.borrow_mut() = typography;
     Self::mark_layout_dirty(node, force_dirty);
     let result = self.layout_node(glyph_engine, node, constraints);
@@ -619,6 +628,7 @@ impl LayoutEngine {
               width: content_width,
               height: content_height,
               active: true,
+              border_radius: None,
             },
           );
           for selection in state.selection_ranges() {
@@ -670,6 +680,7 @@ impl LayoutEngine {
                     width: content_width,
                     height: content_height,
                     active: true,
+                    border_radius: None,
                   },
                 ),
               )
@@ -786,6 +797,7 @@ impl LayoutEngine {
               width: content_width,
               height: content_height,
               active: true,
+              border_radius: None,
             },
           ),
         });
@@ -835,7 +847,7 @@ impl LayoutEngine {
         );
       }
       NodeKind::Slider { state } => {
-        let hovered = node.is_style_hovered() || state.is_hovered();
+        let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
         let thumb_style = state.thumb_style(hovered);
         let (track_rect, thumb_rect) = state.part_rects(
@@ -941,6 +953,7 @@ impl LayoutEngine {
           width: state.viewport_width(),
           height: state.viewport_height(),
           active: true,
+          border_radius: node.get_border_radius(&self.radii.borrow()),
         },
       );
       inset_clip_for_border(viewport_clip, resolved_border)
@@ -953,6 +966,7 @@ impl LayoutEngine {
           width: result.size.width,
           height: result.size.height,
           active: true,
+          border_radius: node.get_border_radius(&self.radii.borrow()),
         },
       );
       inset_clip_for_border(overflow_clip, resolved_border)
@@ -1010,7 +1024,7 @@ impl LayoutEngine {
 
     if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
       state.set_viewport_position(abs_x, abs_y);
-      let sb_style = node.scrollbar_style();
+      let sb_style = node.scrollbar_style(self.scrollbar.borrow().clone());
       state.set_style(sb_style.clone());
       let thumb_color = sb_style.thumb_color;
 
@@ -2327,7 +2341,7 @@ impl LayoutEngine {
     direction: ScrollDirection,
   ) -> LayoutResult {
     let child = &node.children()[0];
-    let style = node.scrollbar_style();
+    let style = node.scrollbar_style(self.scrollbar.borrow().clone());
 
     let mut reserve_vertical = false;
     let mut reserve_horizontal = false;
@@ -2556,7 +2570,33 @@ fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
     width: (x2 - x1).max(0.0),
     height: (y2 - y1).max(0.0),
     active: true,
+    border_radius: intersected_clip_radius(parent, child, x1, y1, x2, y2),
   }
+}
+
+fn intersected_clip_radius(
+  parent: ClipRect,
+  child: ClipRect,
+  x1: f32,
+  y1: f32,
+  x2: f32,
+  y2: f32,
+) -> Option<crate::node::border::BorderRadius> {
+  if same_clip_rect(parent, x1, y1, x2, y2) {
+    return parent.border_radius;
+  }
+  if same_clip_rect(child, x1, y1, x2, y2) {
+    return child.border_radius;
+  }
+  None
+}
+
+fn same_clip_rect(clip: ClipRect, x1: f32, y1: f32, x2: f32, y2: f32) -> bool {
+  const EPSILON: f32 = 0.001;
+  (clip.x - x1).abs() <= EPSILON
+    && (clip.y - y1).abs() <= EPSILON
+    && (clip.x + clip.width - x2).abs() <= EPSILON
+    && (clip.y + clip.height - y2).abs() <= EPSILON
 }
 
 fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> ClipRect {
@@ -2581,6 +2621,24 @@ fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> Cli
     width: (clip.width - left - right).max(0.0),
     height: (clip.height - top - bottom).max(0.0),
     active: true,
+    border_radius: clip
+      .border_radius
+      .map(|radius| inset_border_radius(radius, left, top, right, bottom)),
+  }
+}
+
+fn inset_border_radius(
+  radius: crate::node::border::BorderRadius,
+  left: f32,
+  top: f32,
+  right: f32,
+  bottom: f32,
+) -> crate::node::border::BorderRadius {
+  crate::node::border::BorderRadius {
+    top_left: (radius.top_left - left.max(top)).max(0.0),
+    top_right: (radius.top_right - right.max(top)).max(0.0),
+    bottom_right: (radius.bottom_right - right.max(bottom)).max(0.0),
+    bottom_left: (radius.bottom_left - left.max(bottom)).max(0.0),
   }
 }
 
@@ -2656,6 +2714,7 @@ mod tests {
       width: 100.0,
       height: 100.0,
       active: true,
+      border_radius: None,
     };
 
     assert!(rect_intersects_clip(90.0, 90.0, 20.0, 20.0, clip));

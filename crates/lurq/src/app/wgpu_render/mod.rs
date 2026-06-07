@@ -15,6 +15,7 @@ use crate::{
 #[cfg(feature = "image")]
 struct CachedImageTexture {
   texture: wgpu::Texture,
+  view: wgpu::TextureView,
   bind_group: wgpu::BindGroup,
   frame_index: usize,
 }
@@ -829,7 +830,26 @@ impl RenderEngine for WgpuRenderEngine {
             let start = (prepared.start * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             let end = ((prepared.start + prepared.count) * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
-            pass.set_bind_group(0, &quad_bind_group, &[]);
+            if rounded_clip_needs_shader(r.clip) {
+              let clip_globals = globals_buffer_for_clip(device, r.clip, vw, vh);
+              let clip_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_quad_clip_bg"),
+                layout: self.quad_bgl.as_ref().unwrap(),
+                entries: &[
+                  wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: clip_globals.as_entire_binding(),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: gradient_buf.as_entire_binding(),
+                  },
+                ],
+              });
+              pass.set_bind_group(0, &clip_bind_group, &[]);
+            } else {
+              pass.set_bind_group(0, &quad_bind_group, &[]);
+            }
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
             pass.set_vertex_buffer(1, rect_instance_buf.as_ref().unwrap().slice(start..end));
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
@@ -843,7 +863,30 @@ impl RenderEngine for WgpuRenderEngine {
             let start_byte = (start * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
             let end_byte = ((start + count) * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
             pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
-            pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
+            if rounded_clip_needs_shader(glyph_slice[0].clip) {
+              let clip_globals = globals_buffer_for_clip(device, glyph_slice[0].clip, vw, vh);
+              let clip_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_glyph_clip_bg"),
+                layout: self.glyph_bgl.as_ref().unwrap(),
+                entries: &[
+                  wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: clip_globals.as_entire_binding(),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(self.atlas_view.as_ref().unwrap()),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(self.atlas_sampler.as_ref().unwrap()),
+                  },
+                ],
+              });
+              pass.set_bind_group(0, &clip_bind_group, &[]);
+            } else {
+              pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
+            }
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
             pass.set_vertex_buffer(1, glyph_instance_buf.as_ref().unwrap().slice(start_byte..end_byte));
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
@@ -909,6 +952,7 @@ impl RenderEngine for WgpuRenderEngine {
               });
               CachedImageTexture {
                 texture,
+                view,
                 bind_group,
                 frame_index: img.frame_index,
               }
@@ -957,7 +1001,30 @@ impl RenderEngine for WgpuRenderEngine {
               usage: wgpu::BufferUsages::VERTEX,
             });
             pass.set_pipeline(self.image_pipeline.as_ref().unwrap());
-            pass.set_bind_group(0, &cached.bind_group, &[]);
+            if rounded_clip_needs_shader(img.clip) {
+              let clip_globals = globals_buffer_for_clip(device, img.clip, vw, vh);
+              let clip_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_image_clip_bg"),
+                layout: self.image_bgl.as_ref().unwrap(),
+                entries: &[
+                  wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: clip_globals.as_entire_binding(),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&cached.view),
+                  },
+                  wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(self.image_sampler.as_ref().unwrap()),
+                  },
+                ],
+              });
+              pass.set_bind_group(0, &clip_bind_group, &[]);
+            } else {
+              pass.set_bind_group(0, &cached.bind_group, &[]);
+            }
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
             pass.set_vertex_buffer(1, instance_buf.slice(..));
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
@@ -972,21 +1039,7 @@ impl RenderEngine for WgpuRenderEngine {
               continue;
             }
 
-            let svg_globals = Globals {
-              viewport: [vw, vh, 0.0, 0.0],
-              clip_rect: if svg_cmd.clip.active {
-                [svg_cmd.clip.x, svg_cmd.clip.y, svg_cmd.clip.width, svg_cmd.clip.height]
-              } else {
-                [0.0, 0.0, vw, vh]
-              },
-              clip_radii_h: [0.0; 4],
-              clip_radii_v: [0.0; 4],
-              clip_active: if svg_cmd.clip.active {
-                [1.0, 0.0, 0.0, 0.0]
-              } else {
-                [0.0; 4]
-              },
-            };
+            let svg_globals = globals_for_clip(svg_cmd.clip, vw, vh);
             let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
               label: Some("lurq_svg_globals"),
               contents: bytemuck::bytes_of(&svg_globals),
@@ -1070,7 +1123,12 @@ impl RenderEngine for WgpuRenderEngine {
 }
 
 fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect) -> bool {
-  a.active == b.active && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+  a.active == b.active
+    && a.x == b.x
+    && a.y == b.y
+    && a.width == b.width
+    && a.height == b.height
+    && a.border_radius == b.border_radius
 }
 
 fn wgpu_clear_color(color: crate::node::color::Color) -> wgpu::Color {
@@ -1081,6 +1139,48 @@ fn wgpu_clear_color(color: crate::node::color::Color) -> wgpu::Color {
     b: b as f64,
     a: a as f64,
   }
+}
+
+fn globals_for_clip(clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> Globals {
+  let radius = clip.border_radius.unwrap_or_default();
+  let radii = radius.to_array();
+  Globals {
+    viewport: [vw, vh, 0.0, 0.0],
+    clip_rect: if clip.active {
+      [clip.x, clip.y, clip.width, clip.height]
+    } else {
+      [0.0, 0.0, vw, vh]
+    },
+    clip_radii_h: radii,
+    clip_radii_v: radii,
+    clip_active: if rounded_clip_needs_shader(clip) {
+      [1.0, 0.0, 0.0, 0.0]
+    } else {
+      [0.0; 4]
+    },
+  }
+}
+
+fn rounded_clip_needs_shader(clip: crate::layout::quad::ClipRect) -> bool {
+  let Some(radius) = clip.border_radius else {
+    return false;
+  };
+  clip.active
+    && (radius.top_left > 0.0 || radius.top_right > 0.0 || radius.bottom_right > 0.0 || radius.bottom_left > 0.0)
+}
+
+fn globals_buffer_for_clip(
+  device: &wgpu::Device,
+  clip: crate::layout::quad::ClipRect,
+  vw: f32,
+  vh: f32,
+) -> wgpu::Buffer {
+  let globals = globals_for_clip(clip, vw, vh);
+  device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    label: Some("lurq_clip_globals"),
+    contents: bytemuck::bytes_of(&globals),
+    usage: wgpu::BufferUsages::UNIFORM,
+  })
 }
 
 fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> bool {
@@ -1134,6 +1234,7 @@ mod tests {
           width: 30.1,
           height: 40.6,
           active: true,
+          border_radius: None,
         },
         100.0,
         100.0,

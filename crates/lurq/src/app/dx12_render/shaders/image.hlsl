@@ -41,6 +41,14 @@ float2 pick_radius(float2 p, float4 r)
   return p.x < 0.0 ? float2(r.w, r.w) : float2(r.z, r.z);
 }
 
+float2 pick_clip_radius(float2 p, float4 radii_h, float4 radii_v)
+{
+  if (p.y < 0.0) {
+    return p.x < 0.0 ? float2(radii_h.x, radii_v.x) : float2(radii_h.y, radii_v.y);
+  }
+  return p.x < 0.0 ? float2(radii_h.w, radii_v.w) : float2(radii_h.z, radii_v.z);
+}
+
 float sd_rounded_box(float2 p, float2 half_size, float2 r)
 {
   float2 safe_r = max(r, float2(0.0, 0.0));
@@ -86,6 +94,18 @@ VsOut vs_main(VsIn input)
 
 float4 ps_main(VsOut input) : SV_TARGET
 {
+  float clip_alpha_value = 1.0;
+  if (clip_active.x > 0.5) {
+    float2 clip_half = clip_rect.zw * 0.5;
+    float2 clip_centre = clip_rect.xy + clip_half;
+    float2 clip_local = input.position.xy - clip_centre;
+    float clip_dist = sd_rounded_box(clip_local, clip_half, pick_clip_radius(clip_local, clip_radii_h, clip_radii_v));
+    clip_alpha_value = saturate(0.5 - clip_dist / max(fwidth(clip_dist), 1.0));
+    if (clip_alpha_value <= 0.0) {
+      discard;
+    }
+  }
+
   float2 half_size = input.size * 0.5;
   float2 local_clip = input.local_px - half_size;
   float d = sd_rounded_box(local_clip, half_size, pick_radius(local_clip, input.radii));
@@ -96,6 +116,6 @@ float4 ps_main(VsOut input) : SV_TARGET
   }
 
   float4 color = image_texture.Sample(image_sampler, input.uv);
-  color.a *= input.opacity * shape_alpha;
+  color.a *= input.opacity * shape_alpha * clip_alpha_value;
   return color;
 }

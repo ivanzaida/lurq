@@ -397,6 +397,16 @@ impl Node {
     )
   }
 
+  pub fn slider_f32(value: Signal<f32>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Slider {
+        state: SliderState::new_f32(value),
+      },
+      vec![],
+    )
+  }
+
   pub fn select() -> Self {
     let state = SelectState::new();
     let toggle = state.clone();
@@ -1179,6 +1189,20 @@ impl Node {
     self
   }
 
+  pub fn range_f32(self, min: f32, max: f32) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_range_f32(min, max);
+    }
+    self
+  }
+
+  pub fn slider_step(self, step: f32) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_step(step);
+    }
+    self
+  }
+
   pub fn slider_track_style(self, style: SliderPartStyle) -> Self {
     if let Some(state) = self.slider_state() {
       state.set_track_style(style);
@@ -1387,8 +1411,8 @@ impl Node {
     self
   }
 
-  pub fn scrollbar_style(&self) -> ScrollBarStyle {
-    let mut style = (*self.scrollbar_style).clone().unwrap_or_default();
+  pub fn scrollbar_style(&self, default_style: ScrollBarStyle) -> ScrollBarStyle {
+    let mut style = (*self.scrollbar_style).clone().unwrap_or(default_style);
     if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind {
       if state.is_thumb_hovered() {
         if let Some(ref hovered) = self.scrollbar_hovered_style {
@@ -1698,6 +1722,9 @@ impl Node {
       (NodeKind::Select { state, .. }, NodeKind::Select { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);
         self.element_ref = old.element_ref.clone();
+      }
+      (NodeKind::Slider { state }, NodeKind::Slider { state: old_state }) => {
+        state.copy_runtime_state_from(old_state);
       }
       _ => {}
     }

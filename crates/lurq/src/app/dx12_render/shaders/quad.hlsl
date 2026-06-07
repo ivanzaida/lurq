@@ -165,8 +165,78 @@ float sd_rounded_box(float2 p, float2 half_size, float2 radius)
   return max(q.x - safe_radius.x, q.y - safe_radius.y);
 }
 
+float aa_width(float dist)
+{
+  return max(fwidth(dist), 1.0);
+}
+
+float rounded_clip_alpha(float2 frag_pos)
+{
+  if (clip_active.x <= 0.5)
+  {
+    return 1.0;
+  }
+
+  float2 half_size = clip_rect.zw * 0.5;
+  float2 centre = clip_rect.xy + half_size;
+  float2 local = frag_pos - centre;
+  float dist = sd_rounded_box(local, half_size, pick_radius(local, clip_radii_h, clip_radii_v));
+  return saturate(0.5 - dist / aa_width(dist));
+}
+
+float rounded_fill_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v)
+{
+  float2 radius = pick_radius(local, radii_h, radii_v);
+  float dist = sd_rounded_box(local, half_size, radius);
+  return saturate(0.5 - dist / aa_width(dist));
+}
+
+float rounded_stroke_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float max_stroke)
+{
+  float2 radius = pick_radius(local, radii_h, radii_v);
+  float outer_dist = sd_rounded_box(local, half_size, radius);
+  float2 inner_half = max(float2(
+    half_size.x - 0.5 * (stroke.y + stroke.w),
+    half_size.y - 0.5 * (stroke.x + stroke.z)
+  ), float2(0.0, 0.0));
+  float2 inner_center = float2(
+    0.5 * (stroke.w - stroke.y),
+    0.5 * (stroke.x - stroke.z)
+  );
+  float2 inner_radius = max(radius - float2(max_stroke, max_stroke), float2(0.0, 0.0));
+  float inner_dist = sd_rounded_box(local - inner_center, inner_half, inner_radius);
+  float dist = max(outer_dist, -inner_dist);
+  return saturate(0.5 - dist / aa_width(dist));
+}
+
+float supersampled_fill_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v)
+{
+  return (
+    rounded_fill_alpha(local + float2(-0.25, -0.25), half_size, radii_h, radii_v) +
+    rounded_fill_alpha(local + float2(0.25, -0.25), half_size, radii_h, radii_v) +
+    rounded_fill_alpha(local + float2(-0.25, 0.25), half_size, radii_h, radii_v) +
+    rounded_fill_alpha(local + float2(0.25, 0.25), half_size, radii_h, radii_v)
+  ) * 0.25;
+}
+
+float supersampled_stroke_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float max_stroke)
+{
+  return (
+    rounded_stroke_alpha(local + float2(-0.25, -0.25), half_size, radii_h, radii_v, stroke, max_stroke) +
+    rounded_stroke_alpha(local + float2(0.25, -0.25), half_size, radii_h, radii_v, stroke, max_stroke) +
+    rounded_stroke_alpha(local + float2(-0.25, 0.25), half_size, radii_h, radii_v, stroke, max_stroke) +
+    rounded_stroke_alpha(local + float2(0.25, 0.25), half_size, radii_h, radii_v, stroke, max_stroke)
+  ) * 0.25;
+}
+
 float4 ps_main(VsOut input) : SV_TARGET
 {
+  float clip_alpha_value = rounded_clip_alpha(input.position.xy);
+  if (clip_alpha_value <= 0.0)
+  {
+    discard;
+  }
+
   float4 base_color = input.color;
   if (input.gradient_offset >= 0.0)
   {
@@ -177,31 +247,13 @@ float4 ps_main(VsOut input) : SV_TARGET
     }
   }
 
-  float2 radius = pick_radius(input.local, input.radii_h, input.radii_v);
-  float outer_dist = sd_rounded_box(input.local, input.half_size, radius);
-
   float max_stroke = max(max(input.stroke.x, input.stroke.y), max(input.stroke.z, input.stroke.w));
   if (max_stroke <= 0.0)
   {
-    float aa = max(fwidth(outer_dist), 0.001);
-    float fill_alpha = saturate(0.5 - outer_dist / aa);
-    return float4(base_color.rgb, base_color.a * fill_alpha);
+    float fill_alpha = supersampled_fill_alpha(input.local, input.half_size, input.radii_h, input.radii_v);
+    return float4(base_color.rgb, base_color.a * fill_alpha * clip_alpha_value);
   }
 
-  float2 inner_half = max(float2(
-    input.half_size.x - 0.5 * (input.stroke.y + input.stroke.w),
-    input.half_size.y - 0.5 * (input.stroke.x + input.stroke.z)
-  ), float2(0.0, 0.0));
-  float2 inner_center = float2(
-    0.5 * (input.stroke.w - input.stroke.y),
-    0.5 * (input.stroke.x - input.stroke.z)
-  );
-
-  float2 inner_radius = max(radius - float2(max_stroke, max_stroke), float2(0.0, 0.0));
-  float inner_dist = sd_rounded_box(input.local - inner_center, inner_half, inner_radius);
-  float dist = max(outer_dist, -inner_dist);
-
-  float aa = max(fwidth(dist), 0.001);
-  float alpha = saturate(0.5 - dist / aa);
-  return float4(input.color.rgb, input.color.a * alpha);
+  float alpha = supersampled_stroke_alpha(input.local, input.half_size, input.radii_h, input.radii_v, input.stroke, max_stroke);
+  return float4(input.color.rgb, input.color.a * alpha * clip_alpha_value);
 }

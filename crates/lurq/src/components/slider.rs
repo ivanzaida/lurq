@@ -7,8 +7,22 @@ impl Slider {
     Self::from_node(crate::node::Node::slider(value))
   }
 
+  pub fn new_f32(value: Signal<f32>) -> Self {
+    Self::from_node(crate::node::Node::slider_f32(value))
+  }
+
   pub fn range(mut self, min: i32, max: i32) -> Self {
     self.node = self.node.range(min, max);
+    self
+  }
+
+  pub fn range_f32(mut self, min: f32, max: f32) -> Self {
+    self.node = self.node.range_f32(min, max);
+    self
+  }
+
+  pub fn step(mut self, step: f32) -> Self {
+    self.node = self.node.slider_step(step);
     self
   }
 

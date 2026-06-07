@@ -16,6 +16,7 @@ fn viewport(w: f32, h: f32) -> ClipRect {
     width: w,
     height: h,
     active: true,
+    border_radius: None,
   }
 }
 

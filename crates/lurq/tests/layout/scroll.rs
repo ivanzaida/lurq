@@ -1,5 +1,5 @@
 use lurq::{
-  app::Tree,
+  app::{App, Tree},
   layout::{
     Constraints, Size,
     layout_kind::FrameConstraints,
@@ -10,7 +10,7 @@ use lurq::{
 };
 
 use super::PassLayoutExt;
-use crate::support::run_pass;
+use crate::support::{TestSurface, run_pass};
 
 fn rt() -> Tree {
   Tree::new()
@@ -128,6 +128,65 @@ fn scroll_empty_child() {
   let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
   assert_eq!(result.size.width, 100.0);
   assert_eq!(result.size.height, 100.0);
+}
+
+#[test]
+fn scrollbar_uses_theme_style_by_default() {
+  let mut app = App::new();
+  let thumb_color = Color::from_hex("#8b5cf6");
+  app.theme().set_scrollbar(ScrollBarStyle {
+    visible: ScrollBarVisibility::Always,
+    width: 6.0,
+    thumb_color,
+    ..Default::default()
+  });
+
+  let mut rt = rt();
+  rt.set_root(lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0)).size(100.0, 100.0));
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  rt.pass(&mut app, &TestSurface);
+
+  let quads = rt.resolve_quads(rt.last_layout().unwrap());
+  assert!(quads.iter().any(|quad| match &quad.content {
+    QuadContent::Rect { color, .. } => *color == thumb_color && quad.width == 6.0,
+    _ => false,
+  }));
+}
+
+#[test]
+fn scrollbar_node_style_overrides_theme_style() {
+  let mut app = App::new();
+  let theme_thumb_color = Color::from_hex("#8b5cf6");
+  let node_thumb_color = Color::from_hex("#14b8a6");
+  app.theme().set_scrollbar(ScrollBarStyle {
+    visible: ScrollBarVisibility::Always,
+    width: 6.0,
+    thumb_color: theme_thumb_color,
+    ..Default::default()
+  });
+
+  let mut rt = rt();
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0))
+    .scrollbar(ScrollBarStyle {
+      visible: ScrollBarVisibility::Always,
+      width: 9.0,
+      thumb_color: node_thumb_color,
+      ..Default::default()
+    })
+    .size(100.0, 100.0);
+  rt.set_root(node);
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  rt.pass(&mut app, &TestSurface);
+
+  let quads = rt.resolve_quads(rt.last_layout().unwrap());
+  assert!(quads.iter().any(|quad| match &quad.content {
+    QuadContent::Rect { color, .. } => *color == node_thumb_color && quad.width == 9.0,
+    _ => false,
+  }));
+  assert!(!quads.iter().any(|quad| match &quad.content {
+    QuadContent::Rect { color, .. } => *color == theme_thumb_color && quad.width == 6.0,
+    _ => false,
+  }));
 }
 
 #[test]

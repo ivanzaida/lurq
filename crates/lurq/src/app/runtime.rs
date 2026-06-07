@@ -924,6 +924,7 @@ impl Tree {
       width: self.viewport_physical.width / scale,
       height: self.viewport_physical.height / scale,
       active: true,
+      border_radius: None,
     };
     let quads = self
       .layout_engine
@@ -955,6 +956,12 @@ impl Tree {
           width: quad.clip.width * scale,
           height: quad.clip.height * scale,
           active: true,
+          border_radius: quad.clip.border_radius.map(|radius| crate::node::border::BorderRadius {
+            top_left: radius.top_left * scale,
+            top_right: radius.top_right * scale,
+            bottom_right: radius.bottom_right * scale,
+            bottom_left: radius.bottom_left * scale,
+          }),
         }
       } else {
         ClipRect::default()
@@ -1689,7 +1696,11 @@ impl Tree {
       }
     }
 
-    if let Some(drag) = self.dragging_slider.clone() {
+    if let Some(mut drag) = self.dragging_slider.clone() {
+      if let Some(state) = self.current_slider_state(drag.target_id) {
+        drag.state = state;
+        self.dragging_slider = Some(drag.clone());
+      }
       match evt.kind {
         MouseEventKind::Move => {
           drag.update(lx);
@@ -1698,6 +1709,7 @@ impl Tree {
         }
         MouseEventKind::Up => {
           drag.update(lx);
+          drag.finish();
           self.dragging_slider = None;
           self.clear_active_path();
           self.needs_redraw = true;
@@ -1924,6 +1936,7 @@ impl Tree {
               (track_rect.x, track_rect.width)
             };
             let drag = SliderDrag {
+              target_id: node.node_id(),
               state: state.clone(),
               x: drag_x,
               width: drag_width,
@@ -2011,7 +2024,7 @@ impl Tree {
     // Check scrollbar thumb hover/press
     for (node, _) in &hits {
       if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
-        let sb_style = node.scrollbar_style();
+        let sb_style = state.style();
         let mut on_thumb = false;
         let mut pressed_axis = None;
 
@@ -2200,6 +2213,14 @@ impl Tree {
     }
     if let Some(target) = pending_focus {
       self.focus_node(target);
+    }
+  }
+
+  fn current_slider_state(&self, node_id: NodeId) -> Option<SliderState> {
+    let node = find_node_by_id(self.root.as_ref()?, node_id)?;
+    match node.node_kind() {
+      NodeKind::Slider { state } => Some(state.clone()),
+      _ => None,
     }
   }
 
@@ -2810,6 +2831,11 @@ impl Tree {
         .as_ref()
         .map(|ctx| *ctx.theme().caret())
         .unwrap_or_else(|| *app.theme().caret());
+      let scrollbar = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().scrollbar().clone())
+        .unwrap_or_else(|| app.theme().scrollbar().clone());
       let border_sizes = self
         .root_ctx
         .as_ref()
@@ -2825,6 +2851,7 @@ impl Tree {
         spacing,
         radii,
         caret,
+        scrollbar.clone(),
         typography.clone(),
         theme_changed,
       );
@@ -2841,6 +2868,7 @@ impl Tree {
           spacing,
           radii,
           caret,
+          scrollbar,
           typography,
           theme_changed,
         );
@@ -3420,6 +3448,7 @@ struct ScrollDrag {
 
 #[derive(Clone)]
 struct SliderDrag {
+  target_id: NodeId,
   state: SliderState,
   x: f32,
   width: f32,
@@ -3432,7 +3461,12 @@ impl SliderDrag {
     } else {
       0.0
     };
+    self.state.set_drag_ratio(ratio);
     self.state.set_from_ratio(ratio)
+  }
+
+  fn finish(&self) {
+    self.state.clear_drag_ratio();
   }
 }
 
@@ -3978,7 +4012,7 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
           data.append(name, "on");
         }
       }
-      NodeKind::Slider { state } => data.append(name, state.value().to_string()),
+      NodeKind::Slider { state } => data.append(name, state.value_string()),
       NodeKind::Select { state } => {
         for label in state.selected_labels() {
           data.append(name, label.to_string());
@@ -4712,6 +4746,7 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
     width: clip.width + RASTERIZATION_SLOP_PX * 2.0,
     height: clip.height + RASTERIZATION_SLOP_PX * 2.0,
     active: true,
+    border_radius: clip.border_radius,
   }
 }
 
@@ -4731,6 +4766,7 @@ mod tests {
       width: 30.0,
       height: 40.0,
       active: true,
+      border_radius: None,
     };
 
     let expanded = expand_text_clip_for_rasterization(clip);

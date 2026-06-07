@@ -15,6 +15,7 @@ pub struct ClipRect {
   pub width: f32,
   pub height: f32,
   pub active: bool,
+  pub border_radius: Option<BorderRadius>,
 }
 
 pub struct Quad {

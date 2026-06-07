@@ -1083,18 +1083,26 @@ impl CheckboxState {
 
 #[derive(Clone)]
 pub(crate) struct SliderState {
-  value: Signal<i32>,
+  value: SliderValue,
   inner: Arc<Mutex<SliderInner>>,
 }
 
+#[derive(Clone)]
+enum SliderValue {
+  Int(Signal<i32>),
+  Float(Signal<f32>),
+}
+
 struct SliderInner {
-  min: i32,
-  max: i32,
+  min: f32,
+  max: f32,
+  step: f32,
   track_style: SliderPartStyle,
   track_hovered_style: Option<SliderPartStyle>,
   thumb_style: SliderPartStyle,
   thumb_hovered_style: Option<SliderPartStyle>,
   hovered: bool,
+  drag_ratio: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1120,51 +1128,122 @@ pub(crate) struct SliderPartRect {
 impl SliderState {
   pub(crate) fn new(value: Signal<i32>) -> Self {
     Self {
-      value,
+      value: SliderValue::Int(value),
       inner: Arc::new(Mutex::new(SliderInner {
-        min: 0,
-        max: 1,
+        min: 0.0,
+        max: 1.0,
+        step: 1.0,
         track_style: SliderPartStyle::new(),
         track_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
         hovered: false,
+        drag_ratio: None,
       })),
     }
   }
 
-  pub(crate) fn value(&self) -> i32 {
-    self.value.get_untracked()
+  pub(crate) fn new_f32(value: Signal<f32>) -> Self {
+    Self {
+      value: SliderValue::Float(value),
+      inner: Arc::new(Mutex::new(SliderInner {
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        track_style: SliderPartStyle::new(),
+        track_hovered_style: None,
+        thumb_style: SliderPartStyle::new(),
+        thumb_hovered_style: None,
+        hovered: false,
+        drag_ratio: None,
+      })),
+    }
   }
 
-  pub(crate) fn ratio(&self) -> f32 {
-    let inner = self.inner.lock().unwrap();
-    if inner.max <= inner.min {
-      return 0.0;
+  #[cfg(feature = "form")]
+  pub(crate) fn value_string(&self) -> String {
+    match &self.value {
+      SliderValue::Int(value) => value.get_untracked().to_string(),
+      SliderValue::Float(value) => value.get_untracked().to_string(),
     }
-    ((self.value() - inner.min) as f32 / (inner.max - inner.min) as f32).clamp(0.0, 1.0)
+  }
+
+  fn value_f32(&self) -> f32 {
+    match &self.value {
+      SliderValue::Int(value) => value.get_untracked() as f32,
+      SliderValue::Float(value) => value.get_untracked(),
+    }
+  }
+
+  fn set_value(&self, value: f32) -> bool {
+    match &self.value {
+      SliderValue::Int(signal) => {
+        let next = value.round() as i32;
+        let current = signal.get_untracked();
+        if current != next {
+          signal.set(next);
+          return true;
+        }
+      }
+      SliderValue::Float(signal) => {
+        let current = signal.get_untracked();
+        if (current - value).abs() > f32::EPSILON {
+          signal.set(value);
+          return true;
+        }
+      }
+    }
+    false
+  }
+
+  pub(crate) fn visual_ratio(&self) -> f32 {
+    let inner = self.inner.lock().unwrap();
+    inner
+      .drag_ratio
+      .unwrap_or_else(|| slider_ratio_for_value(self.value_f32(), inner.min, inner.max))
   }
 
   pub(crate) fn set_range(&self, min: i32, max: i32) {
+    self.set_range_f32(min as f32, max as f32);
+  }
+
+  pub(crate) fn set_range_f32(&self, min: f32, max: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.min = min;
     inner.max = max.max(min);
-    let current = self.value();
-    let clamped = current.clamp(inner.min, inner.max);
-    if current != clamped {
-      self.value.set(clamped);
-    }
+    let current = self.value_f32();
+    let clamped = snap_slider_value(current, inner.min, inner.max, inner.step);
+    drop(inner);
+    self.set_value(clamped);
+  }
+
+  pub(crate) fn set_step(&self, step: f32) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.step = step.abs().max(f32::EPSILON);
+    let current = self.value_f32();
+    let stepped = snap_slider_value(current, inner.min, inner.max, inner.step);
+    drop(inner);
+    self.set_value(stepped);
   }
 
   pub(crate) fn set_from_ratio(&self, ratio: f32) -> bool {
     let inner = self.inner.lock().unwrap();
-    let value = inner.min + (ratio.clamp(0.0, 1.0) * (inner.max - inner.min) as f32).round() as i32;
-    let current = self.value();
-    let changed = current != value;
-    if changed {
-      self.value.set(value);
-    }
-    changed
+    let raw_value = inner.min + ratio.clamp(0.0, 1.0) * (inner.max - inner.min);
+    let value = snap_slider_value(raw_value, inner.min, inner.max, inner.step);
+    drop(inner);
+    self.set_value(value)
+  }
+
+  pub(crate) fn set_drag_ratio(&self, ratio: f32) {
+    self.inner.lock().unwrap().drag_ratio = Some(ratio.clamp(0.0, 1.0));
+  }
+
+  pub(crate) fn clear_drag_ratio(&self) {
+    self.inner.lock().unwrap().drag_ratio = None;
+  }
+
+  pub(crate) fn is_dragging(&self) -> bool {
+    self.inner.lock().unwrap().drag_ratio.is_some()
   }
 
   pub(crate) fn pointer_ratio(&self, x: f32, track_rect: SliderPartRect, thumb_rect: SliderPartRect) -> f32 {
@@ -1180,11 +1259,10 @@ impl SliderState {
 
   pub(crate) fn nudge(&self, delta: i32) {
     let inner = self.inner.lock().unwrap();
-    let current = self.value();
-    let next = (current + delta).clamp(inner.min, inner.max);
-    if current != next {
-      self.value.set(next);
-    }
+    let current = self.value_f32();
+    let next = snap_slider_value(current + delta as f32 * inner.step, inner.min, inner.max, inner.step);
+    drop(inner);
+    self.set_value(next);
   }
 
   pub(crate) fn set_track_style(&self, style: SliderPartStyle) {
@@ -1227,6 +1305,16 @@ impl SliderState {
 
   pub(crate) fn is_hovered(&self) -> bool {
     self.inner.lock().unwrap().hovered
+  }
+
+  pub(crate) fn copy_runtime_state_from(&self, old: &Self) {
+    if Arc::ptr_eq(&self.inner, &old.inner) {
+      return;
+    }
+    let old_inner = old.inner.lock().unwrap();
+    let mut inner = self.inner.lock().unwrap();
+    inner.hovered = old_inner.hovered;
+    inner.drag_ratio = old_inner.drag_ratio;
   }
 
   pub(crate) fn layout_signature(&self) -> SliderLayoutSignature {
@@ -1332,7 +1420,7 @@ impl SliderState {
     let track_y = bounds_y + (bounds_height - track_height) * 0.5;
     let thumb_travel_width = (track_width - thumb_width).max(0.0);
     let thumb_center_x = if thumb_travel_width > 0.0 {
-      track_x + thumb_width * 0.5 + thumb_travel_width * self.ratio()
+      track_x + thumb_width * 0.5 + thumb_travel_width * self.visual_ratio()
     } else {
       track_x + track_width * 0.5
     };
@@ -1353,6 +1441,24 @@ impl SliderState {
       },
     )
   }
+}
+
+fn slider_ratio_for_value(value: f32, min: f32, max: f32) -> f32 {
+  if max <= min {
+    return 0.0;
+  }
+  ((value - min) / (max - min)).clamp(0.0, 1.0)
+}
+
+fn snap_slider_value(value: f32, min: f32, max: f32, step: f32) -> f32 {
+  let value = value.clamp(min, max);
+  let step = step.abs();
+  if step <= f32::EPSILON {
+    return value;
+  }
+  let steps = ((value - min) / step).round();
+  let snapped = min + steps * step;
+  snapped.clamp(min, max)
 }
 
 pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;

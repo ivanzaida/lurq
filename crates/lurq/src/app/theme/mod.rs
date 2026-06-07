@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
   core::Signal,
-  layout::text_style::TextStyle,
+  layout::{scrollbar::ScrollBarStyle, text_style::TextStyle},
   node::{color::Color, dimension::Dimension},
 };
 
@@ -45,6 +45,7 @@ struct ThemeInner {
   radii: ThemeRadii,
   breakpoints: ThemeBreakpoints,
   caret: ThemeCaret,
+  scrollbar: ScrollBarStyle,
   typography: ThemeTypography,
   #[cfg(feature = "form")]
   form: FormTheme,
@@ -74,6 +75,7 @@ impl Default for Theme {
         radii: ThemeRadii::default(),
         breakpoints: ThemeBreakpoints::default(),
         caret: ThemeCaret::default(),
+        scrollbar: ScrollBarStyle::default(),
         typography: ThemeTypography::default(),
         #[cfg(feature = "form")]
         form: FormTheme::default(),
@@ -213,6 +215,17 @@ impl Theme {
 
   pub fn caret_mode(&self) -> CaretMode {
     self.inner.read().unwrap().caret.mode()
+  }
+
+  pub fn scrollbar(&self) -> ThemeRef<'_, ScrollBarStyle> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.scrollbar,
+    }
+  }
+
+  pub fn set_scrollbar(&self, scrollbar: ScrollBarStyle) {
+    self.mutate_inner(|inner| inner.scrollbar = scrollbar);
   }
 
   pub fn typography(&self) -> ThemeRef<'_, ThemeTypography> {
