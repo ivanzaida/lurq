@@ -1,4 +1,5 @@
 use crate::{
+  app::theme::{BorderSize, PaletteColor, RadiusSize},
   layout::text_style::TextStyle,
   node::{
     BackgroundColor,
@@ -134,6 +135,40 @@ pub struct SelectStyle {
 impl Default for SelectStyle {
   fn default() -> Self {
     Self {
+      trigger: SelectPartStyle::new()
+        .background(PaletteColor::SurfaceInput)
+        .border_inside(BorderSize::Sm, PaletteColor::Border)
+        .rounded(RadiusSize::Md)
+        .padding(Padding::symmetric(10.0, 8.0))
+        .min_height(36.0),
+      trigger_hovered: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
+      trigger_focused: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
+      trigger_open: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
+      placeholder_text: None,
+      menu: SelectPartStyle::new()
+        .background(PaletteColor::SurfaceRaised)
+        .border_inside(BorderSize::Sm, PaletteColor::Border)
+        .rounded(RadiusSize::Md),
+      option: SelectPartStyle::default(),
+      option_hovered: Some(SelectPartStyle::new().background(PaletteColor::SurfacePanel)),
+      option_selected: Some(SelectPartStyle::new().background(PaletteColor::Accent)),
+      option_selected_hovered: Some(SelectPartStyle::new().background(PaletteColor::AccentHover)),
+      chevron_color: None,
+      chevron_size: 10.0,
+      checkmark_color: None,
+      max_menu_height: 240.0,
+      menu_gap: 4.0,
+    }
+  }
+}
+
+impl SelectStyle {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn unstyled() -> Self {
+    Self {
       trigger: SelectPartStyle::default(),
       trigger_hovered: None,
       trigger_focused: None,
@@ -151,11 +186,80 @@ impl Default for SelectStyle {
       menu_gap: 4.0,
     }
   }
-}
 
-impl SelectStyle {
-  pub fn new() -> Self {
-    Self::default()
+  pub fn trigger(mut self, style: SelectPartStyle) -> Self {
+    self.trigger = style;
+    self
+  }
+
+  pub fn trigger_hovered(mut self, style: SelectPartStyle) -> Self {
+    self.trigger_hovered = Some(style);
+    self
+  }
+
+  pub fn trigger_focused(mut self, style: SelectPartStyle) -> Self {
+    self.trigger_focused = Some(style);
+    self
+  }
+
+  pub fn trigger_open(mut self, style: SelectPartStyle) -> Self {
+    self.trigger_open = Some(style);
+    self
+  }
+
+  pub fn placeholder_text(mut self, style: TextStyle) -> Self {
+    self.placeholder_text = Some(style);
+    self
+  }
+
+  pub fn menu(mut self, style: SelectPartStyle) -> Self {
+    self.menu = style;
+    self
+  }
+
+  pub fn option(mut self, style: SelectPartStyle) -> Self {
+    self.option = style;
+    self
+  }
+
+  pub fn option_hovered(mut self, style: SelectPartStyle) -> Self {
+    self.option_hovered = Some(style);
+    self
+  }
+
+  pub fn option_selected(mut self, style: SelectPartStyle) -> Self {
+    self.option_selected = Some(style);
+    self
+  }
+
+  pub fn option_selected_hovered(mut self, style: SelectPartStyle) -> Self {
+    self.option_selected_hovered = Some(style);
+    self
+  }
+
+  pub fn chevron_color(mut self, color: Color) -> Self {
+    self.chevron_color = Some(color);
+    self
+  }
+
+  pub fn chevron_size(mut self, size: f32) -> Self {
+    self.chevron_size = size;
+    self
+  }
+
+  pub fn checkmark_color(mut self, color: Color) -> Self {
+    self.checkmark_color = Some(color);
+    self
+  }
+
+  pub fn max_menu_height(mut self, height: f32) -> Self {
+    self.max_menu_height = height;
+    self
+  }
+
+  pub fn menu_gap(mut self, gap: f32) -> Self {
+    self.menu_gap = gap;
+    self
   }
 
   /// The trigger part resolved for the current interaction/open state.

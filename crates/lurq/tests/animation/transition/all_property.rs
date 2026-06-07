@@ -29,7 +29,7 @@ fn transition_all_applies_to_background_color() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_ne!(color, Color::from_hex("#ff0000"), "transition all should animate color");

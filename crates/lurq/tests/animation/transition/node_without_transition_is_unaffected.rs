@@ -25,7 +25,7 @@ fn transition_engine_does_not_affect_nodes_without_transition_spec() {
   let colors: Vec<_> = quads
     .iter()
     .filter_map(|q| match &q.content {
-      QuadContent::Rect { color } => Some(*color),
+      QuadContent::Rect { color, .. } => Some(*color),
       _ => None,
     })
     .collect();

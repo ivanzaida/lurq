@@ -35,6 +35,8 @@ const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
 const DEFAULT_SLIDER_HEIGHT: f32 = 20.0;
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
+const DEFAULT_SELECT_WIDTH: f32 = 160.0;
+const DEFAULT_SELECT_HEIGHT: f32 = 32.0;
 #[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
 #[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
@@ -370,8 +372,14 @@ impl LayoutEngine {
   }
 
   fn mark_layout_dirty(node: &Node, force_dirty: bool) -> bool {
-    let mut local_dirty =
-      force_dirty || node.text_content.is_changed() || matches!(node.node_kind(), NodeKind::TextInput { .. });
+    // A node without a cached result has either never been laid out or had its
+    // cache invalidated by a layout-affecting change (e.g. a reconciled subtree
+    // patched in via a component slot replacement). It must be laid out, and its
+    // ancestors must recompute to reposition it, so propagate dirtiness upward.
+    let mut local_dirty = force_dirty
+      || node.text_content.is_changed()
+      || matches!(node.node_kind(), NodeKind::TextInput { .. })
+      || !node.layout_cache.has_cached_result();
 
     if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind()
       && state.take_scroll_dirty()
@@ -858,6 +866,45 @@ impl LayoutEngine {
           clip,
         );
       }
+      NodeKind::Select { state } => {
+        let style = state.style();
+        let hovered = node.style_state.is_hovered();
+        let focused = node.style_state.is_focused();
+        let open = state.is_open();
+        let trigger = style.resolved_trigger(hovered, focused, open);
+
+        let background = {
+          let palette = self.palette.borrow();
+          trigger.background.as_ref().and_then(|color| color.resolve(&palette))
+        };
+        let radius = trigger
+          .border_radius
+          .map(|radius| radius.resolve(&self.radii.borrow()))
+          .or_else(|| node.get_border_radius(&self.radii.borrow()));
+        let border = trigger
+          .border
+          .as_ref()
+          .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
+          .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
+
+        let (bg_x, bg_y, bg_transform, bg_origin) = transformed_quad_frame(abs_x, abs_y, transform);
+        quads.push(Quad {
+          x: bg_x,
+          y: bg_y,
+          width: result.size.width,
+          height: result.size.height,
+          opacity,
+          transform: bg_transform,
+          transform_origin: bg_origin,
+          content: QuadContent::Rect {
+            color: background.unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR),
+            gradient: None,
+          },
+          border_radius: radius,
+          border,
+          clip,
+        });
+      }
       _ => {}
     }
 
@@ -1206,6 +1253,23 @@ impl LayoutEngine {
           children: vec![],
         };
       }
+      NodeKind::Select { state } => {
+        let trigger = state.style().resolved_trigger(false, false, false);
+        let width = node
+          .intrinsic_size
+          .map(|size| size.width)
+          .or(trigger.min_width)
+          .unwrap_or(DEFAULT_SELECT_WIDTH);
+        let height = node
+          .intrinsic_size
+          .map(|size| size.height)
+          .or(trigger.min_height)
+          .unwrap_or(DEFAULT_SELECT_HEIGHT);
+        return LayoutResult {
+          size: constraints.constrain(Size::new(width, height)),
+          children: vec![],
+        };
+      }
       #[cfg(feature = "image")]
       NodeKind::Image { data } => {
         let preferred = node
@@ -1295,7 +1359,7 @@ impl LayoutEngine {
     } else {
       f32::MAX
     };
-    state.set_caret_positions(glyph_engine.caret_positions(text, style, max_width));
+    state.set_caret_positions(glyph_engine.caret_positions(text, style, max_width, wrap));
     self.layout_text(glyph_engine, text, style, constraints, wrap)
   }
 
@@ -1309,27 +1373,7 @@ impl LayoutEngine {
     constraints: Constraints,
   ) -> LayoutResult {
     let display_style = text_input_display_style(state, style, placeholder_style);
-    let value = state.value();
     let overflow = state.overflow();
-    // Caret positions must wrap exactly like the rendered text, otherwise
-    // soft-wrapped rows collapse onto the first row's y and pointer hit-testing
-    // can never reach them. Single-line (Scroll) inputs never wrap.
-    let caret_width = if overflow == crate::node::node_kind::TextInputOverflow::Multiline
-      && constraints.max_width.is_finite()
-    {
-      constraints.max_width
-    } else {
-      f32::MAX
-    };
-    let caret_positions = glyph_engine.caret_positions(&value, style, caret_width);
-    state.set_caret_positions(caret_positions);
-
-    let line_height = (style.font_size * style.line_height).max(1.0);
-    state.set_caret_height(line_height);
-    state.sync_caret_metrics_to_position(line_height);
-    let caret_x = state.caret_x() + state.scroll_x();
-    let caret_y = state.caret_y() + state.scroll_y();
-
     let text_constraints = Constraints {
       min_width: 0.0,
       min_height: 0.0,
@@ -1342,6 +1386,7 @@ impl LayoutEngine {
       text_constraints,
       overflow == crate::node::node_kind::TextInputOverflow::Multiline,
     );
+    let line_height = (style.font_size * style.line_height).max(1.0);
     let text_height = text_result
       .size
       .height
@@ -1354,6 +1399,26 @@ impl LayoutEngine {
       crate::node::node_kind::TextInputOverflow::Scroll => Size::new(DEFAULT_TEXT_INPUT_WIDTH, line_height),
     };
     let size = constraints.constrain(preferred);
+    // Caret positions must wrap exactly like the rendered text, otherwise
+    // soft-wrapped rows collapse onto the first row's y and pointer hit-testing
+    // can never reach them. Single-line (Scroll) inputs never wrap, but aligned
+    // text still needs the finite content width so caret/selection geometry
+    // follows centered or right-aligned glyphs.
+    let wraps = overflow == crate::node::node_kind::TextInputOverflow::Multiline;
+    let caret_width = if wraps || display_style.text_align != crate::layout::text_style::TextAlign::Left {
+      size.width
+    } else {
+      f32::MAX
+    };
+    let caret_source = state.caret_source_text();
+    let mut caret_positions = glyph_engine.caret_positions(&caret_source, style, caret_width, wraps);
+    state.remap_caret_positions(&mut caret_positions);
+    state.set_caret_positions(caret_positions);
+
+    state.set_caret_height(line_height);
+    state.sync_caret_metrics_to_position(line_height);
+    let caret_x = state.caret_x() + state.scroll_x();
+    let caret_y = state.caret_y() + state.scroll_y();
     match overflow {
       crate::node::node_kind::TextInputOverflow::Scroll => {
         let caret_width = 1.0;

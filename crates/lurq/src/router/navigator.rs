@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
-use super::handle::RouterHandle;
+use super::{Query, handle::RouterHandle};
 use crate::core::signal::Signal;
 
 #[derive(Clone)]
@@ -15,6 +15,27 @@ impl Navigator {
 
   pub fn replace(&self, path: impl Into<String>) {
     self.handle.replace(path);
+  }
+
+  /// Navigate to `path`, attaching in-memory `state` to the new history entry.
+  /// Read it back at the destination with [`Navigator::state`] or `ctx.route_state`.
+  pub fn push_with_state<S: Any + Send + Sync>(&self, path: impl Into<String>, state: S) {
+    self.handle.push_with_state(path, state);
+  }
+
+  /// Like [`Navigator::replace`], but attaches in-memory `state` to the entry.
+  pub fn replace_with_state<S: Any + Send + Sync>(&self, path: impl Into<String>, state: S) {
+    self.handle.replace_with_state(path, state);
+  }
+
+  /// Parsed query string of the current location.
+  pub fn query(&self) -> Query {
+    Query::from_path(&self.handle.path().get_untracked())
+  }
+
+  /// In-memory state attached to the current location, downcast to `T`.
+  pub fn state<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+    self.handle.current_state()?.downcast::<T>().ok()
   }
 
   pub fn back(&self) -> bool {

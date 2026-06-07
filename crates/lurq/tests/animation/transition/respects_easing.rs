@@ -26,7 +26,7 @@ fn linear_easing_produces_proportional_interpolation() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
 

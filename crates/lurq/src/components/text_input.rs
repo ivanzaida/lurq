@@ -1,5 +1,9 @@
 pub use crate::node::node_kind::TextInputOverflow;
-use crate::{core::Signal, impl_into_node, layout::text_style::TextStyle};
+use crate::{
+  core::Signal,
+  impl_into_node,
+  layout::text_style::{TextAlign, TextStyle},
+};
 
 impl_into_node!(TextInput);
 
@@ -22,6 +26,11 @@ impl TextInput {
     self
   }
 
+  pub fn text_align(mut self, align: impl Into<TextAlign>) -> Self {
+    self.node = self.node.text_input_align(align);
+    self
+  }
+
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.node = self.node.placeholder(placeholder);
     self
@@ -34,6 +43,21 @@ impl TextInput {
 
   pub fn overflow(mut self, overflow: TextInputOverflow) -> Self {
     self.node = self.node.text_input_overflow(overflow);
+    self
+  }
+
+  pub fn mask(mut self) -> Self {
+    self.node = self.node.text_input_mask();
+    self
+  }
+
+  pub fn mask_char(mut self, mask: char) -> Self {
+    self.node = self.node.text_input_mask_char(mask);
+    self
+  }
+
+  pub fn unmask(mut self) -> Self {
+    self.node = self.node.text_input_unmask();
     self
   }
 

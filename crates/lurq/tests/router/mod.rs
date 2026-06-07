@@ -31,6 +31,16 @@ mod params {
   mod parsed;
 }
 
+mod query {
+  mod reads_params;
+  mod route_matching;
+}
+
+mod state {
+  mod push_with_state;
+  mod persists_across_history;
+}
+
 mod link {
   mod click_navigates;
 }

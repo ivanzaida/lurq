@@ -1,7 +1,7 @@
 use crate::{
   app::theme::TypographyStyle,
   impl_into_node,
-  layout::text_style::TextStyle,
+  layout::text_style::{TextAlign, TextStyle},
   node::{TextColor, TextTransformMode},
 };
 
@@ -33,6 +33,11 @@ impl Text {
 
   pub fn variant(mut self, style: impl Into<TypographyStyle>) -> Self {
     self.node = self.node.text_variant(style);
+    self
+  }
+
+  pub fn text_align(mut self, align: impl Into<TextAlign>) -> Self {
+    self.node = self.node.text_align(align);
     self
   }
 

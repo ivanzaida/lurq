@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::node::{TextColor, color::Color};
+use crate::{
+  layout::Alignment,
+  node::{TextColor, color::Color},
+};
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
@@ -17,6 +20,7 @@ pub struct TextStyle {
   pub line_height: f32,
   pub weight: FontWeight,
   pub style: FontStyle,
+  pub text_align: TextAlign,
   pub color: Color,
   pub caret_color: Option<TextColor>,
 }
@@ -29,6 +33,7 @@ impl Default for TextStyle {
       line_height: DEFAULT_LINE_HEIGHT,
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
+      text_align: TextAlign::Left,
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
     }
@@ -82,6 +87,38 @@ impl FontStyle {
     match self {
       Self::Normal => cosmic_text::Style::Normal,
       Self::Italic => cosmic_text::Style::Italic,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum TextAlign {
+  #[default]
+  Left,
+  Center,
+  Right,
+  Justified,
+  End,
+}
+
+impl TextAlign {
+  pub(crate) fn to_cosmic(self) -> cosmic_text::Align {
+    match self {
+      Self::Left => cosmic_text::Align::Left,
+      Self::Center => cosmic_text::Align::Center,
+      Self::Right => cosmic_text::Align::Right,
+      Self::Justified => cosmic_text::Align::Justified,
+      Self::End => cosmic_text::Align::End,
+    }
+  }
+}
+
+impl From<Alignment> for TextAlign {
+  fn from(alignment: Alignment) -> Self {
+    match alignment {
+      Alignment::Start | Alignment::Stretch => Self::Left,
+      Alignment::Center => Self::Center,
+      Alignment::End => Self::Right,
     }
   }
 }

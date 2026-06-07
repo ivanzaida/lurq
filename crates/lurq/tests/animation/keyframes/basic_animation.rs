@@ -66,7 +66,7 @@ fn animation_with_color_keyframes() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_ne!(
@@ -91,7 +91,7 @@ fn animation_with_unregistered_keyframes_does_nothing() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_eq!(color, Color::from_hex("#ff0000"), "color should be unchanged");

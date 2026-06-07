@@ -134,6 +134,34 @@ fn text_produces_text_quad() {
 }
 
 #[test]
+fn text_align_accepts_layout_alignment_and_centers_glyphs() {
+  let mut left = rt();
+  let mut centered = rt();
+
+  left.set_root(lurq::components::Text::new("A").width(Dimension::Px(200.0)));
+  centered.set_root(
+    lurq::components::Text::new("A")
+      .width(Dimension::Px(200.0))
+      .text_align(Alignment::Center),
+  );
+
+  let left_snapshot = render_pass(&mut left);
+  let centered_snapshot = render_pass(&mut centered);
+  let left_glyph = left_snapshot.glyphs.first().expect("left text should render a glyph");
+  let centered_glyph = centered_snapshot
+    .glyphs
+    .first()
+    .expect("centered text should render a glyph");
+
+  assert!(
+    centered_glyph.x > left_glyph.x + 70.0,
+    "centered text glyph should move toward the middle of the text box; left={}, centered={}",
+    left_glyph.x,
+    centered_glyph.x
+  );
+}
+
+#[test]
 fn quads_absolute_positions_in_row() {
   let mut rt = rt();
   let node = lurq::components::Row::with(
@@ -241,7 +269,7 @@ fn offset_visuals_move_with_the_offset_and_clip_by_default() {
   let rect = quads
     .iter()
     .find(|quad| match &quad.content {
-      QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+      QuadContent::Rect { color, .. } => *color == Color::from_hex("#ff0000"),
       _ => false,
     })
     .expect("expected shifted child rect");
@@ -264,7 +292,7 @@ fn container_children_can_be_added_after_sizing() {
   let result = rt.pass_layout(Constraints::tight(Size::new(100.0, 100.0))).unwrap();
   let quads = rt.resolve_quads(&result);
   assert!(quads.iter().any(|quad| match &quad.content {
-    QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+    QuadContent::Rect { color, .. } => *color == Color::from_hex("#ff0000"),
     _ => false,
   }));
 }
@@ -282,7 +310,7 @@ fn container_props_can_be_set_after_sizing() {
   let child = quads
     .iter()
     .find(|quad| match &quad.content {
-      QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+      QuadContent::Rect { color, .. } => *color == Color::from_hex("#ff0000"),
       _ => false,
     })
     .unwrap();
@@ -401,7 +429,7 @@ fn transformed_padding_child_transforms_padding_offset() {
   let quads = rt.resolve_quads(&result);
   let child = quads
     .iter()
-    .find(|quad| matches!(&quad.content, QuadContent::Rect { color } if *color == Color::from_hex("#0000ff")))
+    .find(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#0000ff")))
     .expect("child quad");
 
   assert_close(child.x, 31.83);

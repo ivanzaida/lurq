@@ -163,6 +163,7 @@ fn parse_segments(raw: &str) -> Vec<Segment> {
 }
 
 pub(crate) fn normalize_segments(path: &str) -> Vec<&str> {
+  let path = path.split(['?', '#']).next().unwrap_or(path);
   let trimmed = path.trim_start_matches('/');
   if trimmed.is_empty() {
     return vec![];

@@ -31,7 +31,7 @@ fn completed_transition_holds_target_value() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_eq!(

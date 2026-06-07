@@ -137,7 +137,7 @@ fn background_resolves_palette_color() {
   let color = quads
     .iter()
     .find_map(|quad| match &quad.content {
-      QuadContent::Rect { color } => Some(*color),
+      QuadContent::Rect { color, .. } => Some(*color),
       _ => None,
     })
     .expect("rect quad should be emitted");

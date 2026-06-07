@@ -189,6 +189,9 @@ fn sd_rounded_box(p: vec2<f32>, half_size: vec2<f32>, r: vec2<f32>) -> f32 {
         }
         let pn = q / safe_r;
         let l = length(pn);
+        if (l <= 1e-6) {
+            return -min(safe_r.x, safe_r.y);
+        }
         let g = max(length(pn / safe_r), 1e-6);
         // Euclidean distance estimate = (length(pn) - 1) / |grad|, where
         // |grad| = length(pn / r) / length(pn). The factor of `l` in the

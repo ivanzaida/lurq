@@ -1235,6 +1235,7 @@ dependencies = [
  "paste",
  "pollster",
  "raw-window-handle",
+ "serde_json",
  "swash",
  "tiny-skia",
  "tokio",

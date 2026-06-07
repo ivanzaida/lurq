@@ -28,7 +28,7 @@ fn child_rect_inherits_parent_rotation() {
   let parent_quad = quads
     .iter()
     .find(|q| match &q.content {
-      QuadContent::Rect { color } => *color == Color::from_hex("#ff0000"),
+      QuadContent::Rect { color, .. } => *color == Color::from_hex("#ff0000"),
       _ => false,
     })
     .expect("parent rect");
@@ -36,7 +36,7 @@ fn child_rect_inherits_parent_rotation() {
   let child_quad = quads
     .iter()
     .find(|q| match &q.content {
-      QuadContent::Rect { color } => *color == Color::from_hex("#00ff00"),
+      QuadContent::Rect { color, .. } => *color == Color::from_hex("#00ff00"),
       _ => false,
     })
     .expect("child rect");
@@ -75,7 +75,7 @@ fn child_with_own_transform_composes_with_parent() {
   let child_quad = quads
     .iter()
     .find(|q| match &q.content {
-      QuadContent::Rect { color } => *color == Color::from_hex("#00ff00"),
+      QuadContent::Rect { color, .. } => *color == Color::from_hex("#00ff00"),
       _ => false,
     })
     .expect("child rect");

@@ -15,7 +15,7 @@ use crate::{
     Alignment, Offset, Size, StackAlignment,
     layout_kind::{FlexParams, FrameConstraints, LayoutKind, Overflow, Position},
     scrollbar::ScrollBarStyle,
-    text_style::TextStyle,
+    text_style::{TextAlign, TextStyle},
   },
   node::{
     BackgroundColor, TextColor, TextTransformMode,
@@ -27,7 +27,10 @@ use crate::{
     dimension::Dimension,
     gradient::Gradient,
     interaction_state::InteractionState,
-    node_kind::{CheckboxState, NodeKind, SliderState, TextInputState, TextState, TextStyleSource},
+    node_kind::{
+      CheckboxState, NodeKind, SelectChangeCallback, SelectState, SliderState, TextInputState, TextState,
+      TextStyleSource,
+    },
     padding::Padding,
     radius_value::RadiusValue,
     slider_style::SliderPartStyle,
@@ -382,6 +385,98 @@ impl Node {
       },
       vec![],
     )
+  }
+
+  pub fn select() -> Self {
+    let state = SelectState::new();
+    let toggle = state.clone();
+    let mut node = Self::row(0.0, Alignment::Center, vec![]);
+    node.node_kind = NodeKind::Select { state };
+    node.events.on_click = Some(std::sync::Arc::new(move |_| toggle.toggle_open()));
+    node
+  }
+
+  fn select_state(&self) -> Option<&SelectState> {
+    match &self.node_kind {
+      NodeKind::Select { state } => Some(state),
+      _ => None,
+    }
+  }
+
+  pub fn select_labels(self, labels: Vec<std::sync::Arc<str>>) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_labels(labels);
+    }
+    self
+  }
+
+  pub fn select_selected(self, selected: Vec<usize>) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_selected(selected);
+    }
+    self
+  }
+
+  pub fn select_multiple(self, multiple: bool) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_multiple(multiple);
+    }
+    self
+  }
+
+  pub fn select_placeholder(self, placeholder: Option<std::sync::Arc<str>>) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_placeholder(placeholder);
+    }
+    self
+  }
+
+  pub fn select_style(mut self, style: crate::node::SelectStyle) -> Self {
+    let trigger = style.resolved_trigger(false, false, false);
+    if let Some(padding) = trigger.padding.clone() {
+      self = self.padding_custom(padding);
+    }
+    if let Some(min_width) = trigger.min_width {
+      self = self.min_width(min_width);
+    }
+    if let Some(min_height) = trigger.min_height {
+      self = self.min_height(min_height);
+    }
+    if let Some(state) = self.select_state() {
+      state.set_style(style);
+    }
+    self
+  }
+
+  pub fn select_on_change(self, on_change: SelectChangeCallback) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_on_change(on_change);
+    }
+    self
+  }
+
+  /// Apply a `SelectPartStyle`'s box fields (background/border/radius/padding/
+  /// min size) to this node. Used by the runtime when building the popup menu.
+  pub(crate) fn apply_select_part(mut self, part: &crate::node::select_style::SelectPartStyle) -> Self {
+    if let Some(background) = &part.background {
+      self.color.set(Some(background.clone()));
+    }
+    if let Some(border) = &part.border {
+      self.border.set(Some(border.clone()));
+    }
+    if let Some(radius) = part.border_radius {
+      self.border_radius.set(Some(radius));
+    }
+    if let Some(padding) = &part.padding {
+      self = self.padding_custom(padding.clone());
+    }
+    if let Some(min_width) = part.min_width {
+      self = self.min_width(min_width);
+    }
+    if let Some(min_height) = part.min_height {
+      self = self.min_height(min_height);
+    }
+    self
   }
 
   #[cfg(feature = "image")]
@@ -914,6 +1009,14 @@ impl Node {
     self
   }
 
+  pub fn text_align(mut self, align: impl Into<TextAlign>) -> Self {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      style.set_text_align(align);
+      self.layout_cache.invalidate();
+    }
+    self
+  }
+
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.set_placeholder(placeholder);
     self
@@ -939,6 +1042,24 @@ impl Node {
     }
   }
 
+  pub fn text_input_mask(self) -> Self {
+    self.text_input_mask_char('*')
+  }
+
+  pub fn text_input_mask_char(self, mask: char) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_mask(Some(mask));
+    }
+    self
+  }
+
+  pub fn text_input_unmask(self) -> Self {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_mask(None);
+    }
+    self
+  }
+
   pub fn text_input_style(mut self, text_style: TextStyle) -> Self {
     self.set_text_input_style(text_style);
     self
@@ -947,6 +1068,7 @@ impl Node {
   fn set_text_input_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { style, .. } = &mut self.node_kind {
       *style = text_style;
+      self.layout_cache.invalidate();
     }
   }
 
@@ -955,9 +1077,37 @@ impl Node {
     self
   }
 
-  fn set_text_input_placeholder_style(&mut self, text_style: TextStyle) {
-    if let NodeKind::TextInput { placeholder_style, .. } = &mut self.node_kind {
+  fn set_text_input_placeholder_style(&mut self, mut text_style: TextStyle) {
+    if let NodeKind::TextInput {
+      style,
+      placeholder_style,
+      ..
+    } = &mut self.node_kind
+    {
+      text_style.text_align = style.text_align;
       *placeholder_style = Some(text_style);
+      self.layout_cache.invalidate();
+    }
+  }
+
+  pub fn text_input_align(mut self, align: impl Into<TextAlign>) -> Self {
+    self.set_text_input_align(align);
+    self
+  }
+
+  fn set_text_input_align(&mut self, align: impl Into<TextAlign>) {
+    if let NodeKind::TextInput {
+      style,
+      placeholder_style,
+      ..
+    } = &mut self.node_kind
+    {
+      let align = align.into();
+      style.text_align = align;
+      if let Some(placeholder_style) = placeholder_style {
+        placeholder_style.text_align = align;
+      }
+      self.layout_cache.invalidate();
     }
   }
 
@@ -1523,6 +1673,10 @@ impl Node {
       }
       (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);
+      }
+      (NodeKind::Select { state, .. }, NodeKind::Select { state: old_state, .. }) => {
+        state.copy_runtime_state_from(old_state);
+        self.element_ref = old.element_ref.clone();
       }
       _ => {}
     }

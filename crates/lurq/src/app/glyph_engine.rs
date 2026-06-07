@@ -6,6 +6,7 @@ use std::{
 
 use cosmic_text::{
   Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage,
+  Wrap,
 };
 use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
@@ -16,7 +17,7 @@ use crate::{
   layout::{
     Size,
     render_list::{GlyphAtlas, GlyphCmd},
-    text_style::{FontStyle, FontWeight, TextStyle},
+    text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
   },
   node::{text_selection::CaretPosition, transform::Transform2D},
 };
@@ -33,6 +34,8 @@ struct CacheKey {
   max_width_bits: u32,
   weight: u8,
   style: u8,
+  text_align: u8,
+  wrap: bool,
   raster_mode: u8,
 }
 
@@ -47,12 +50,14 @@ impl Hash for CacheKey {
     self.max_width_bits.hash(state);
     self.weight.hash(state);
     self.style.hash(state);
+    self.text_align.hash(state);
+    self.wrap.hash(state);
     self.raster_mode.hash(state);
   }
 }
 
 impl CacheKey {
-  fn new(text: &str, style: &TextStyle, max_width: f32) -> Self {
+  fn new(text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> Self {
     Self {
       text: text.to_owned(),
       font_family: style.font_family.clone(),
@@ -61,12 +66,14 @@ impl CacheKey {
       max_width_bits: max_width.to_bits(),
       weight: weight_to_u8(style.weight),
       style: style_to_u8(style.style),
+      text_align: text_align_to_u8(style.text_align),
+      wrap,
       raster_mode: 0,
     }
   }
 
-  fn new_for_raster(text: &str, style: &TextStyle, max_width: f32, snap_to_pixel: bool) -> Self {
-    let mut key = Self::new(text, style, max_width);
+  fn new_for_raster(text: &str, style: &TextStyle, max_width: f32, wrap: bool, snap_to_pixel: bool) -> Self {
+    let mut key = Self::new(text, style, max_width, wrap);
     key.raster_mode = if snap_to_pixel { 0 } else { 1 };
     key
   }
@@ -87,6 +94,23 @@ fn style_to_u8(s: FontStyle) -> u8 {
   match s {
     FontStyle::Normal => 0,
     FontStyle::Italic => 1,
+  }
+}
+
+fn text_align_to_u8(align: TextAlign) -> u8 {
+  match align {
+    TextAlign::Left => 0,
+    TextAlign::Center => 1,
+    TextAlign::Right => 2,
+    TextAlign::Justified => 3,
+    TextAlign::End => 4,
+  }
+}
+
+fn set_buffer_text(buffer: &mut Buffer, font_system: &mut FontSystem, text: &str, attrs: Attrs, text_align: TextAlign) {
+  buffer.set_text(font_system, text, attrs, Shaping::Advanced);
+  for line in &mut buffer.lines {
+    line.set_align(Some(text_align.to_cosmic()));
   }
 }
 
@@ -177,19 +201,26 @@ impl GlyphEngine {
   }
 
   pub(crate) fn measure_text(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
-    let key = CacheKey::new(text, style, max_width);
+    let wrap = max_width.is_finite();
+    let key = CacheKey::new(text, style, max_width, wrap);
     if let Some(&cached) = self.measure_cache.get(&key) {
       self.measure_hits += 1;
       return cached;
     }
     self.measure_misses += 1;
-    let size = self.shape_and_measure(text, style, max_width);
+    let size = self.shape_and_measure(text, style, max_width, wrap);
     self.measure_cache.insert(key, size);
     size
   }
 
-  pub(crate) fn caret_positions(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Vec<CaretPosition> {
-    let mut buffer = self.acquire_buffer(style, max_width);
+  pub(crate) fn caret_positions(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Vec<CaretPosition> {
+    let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
       Family::SansSerif
@@ -200,7 +231,7 @@ impl GlyphEngine {
       .family(family)
       .weight(style.weight.to_cosmic())
       .style(style.style.to_cosmic());
-    buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
     let mut line_offsets = Vec::with_capacity(buffer.lines.len());
@@ -265,9 +296,22 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
-    self.rasterize_text_with_snap(text, style, max_width, origin_x, origin_y, true)
+    self.rasterize_text_with_snap(text, style, max_width, max_width.is_finite(), origin_x, origin_y, true)
   }
 
+  pub(crate) fn rasterize_text_with_wrap(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+    origin_x: f32,
+    origin_y: f32,
+  ) -> Vec<GlyphCmd> {
+    self.rasterize_text_with_snap(text, style, max_width, wrap, origin_x, origin_y, true)
+  }
+
+  #[cfg(test)]
   pub(crate) fn rasterize_text_unsnapped(
     &mut self,
     text: &str,
@@ -276,7 +320,19 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
-    self.rasterize_text_with_snap(text, style, max_width, origin_x, origin_y, false)
+    self.rasterize_text_with_snap(text, style, max_width, max_width.is_finite(), origin_x, origin_y, false)
+  }
+
+  pub(crate) fn rasterize_text_unsnapped_with_wrap(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+    origin_x: f32,
+    origin_y: f32,
+  ) -> Vec<GlyphCmd> {
+    self.rasterize_text_with_snap(text, style, max_width, wrap, origin_x, origin_y, false)
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -285,12 +341,13 @@ impl GlyphEngine {
     text: &str,
     style: &TextStyle,
     max_width: f32,
+    wrap: bool,
     origin_x: f32,
     origin_y: f32,
     transform: Transform2D,
     transform_origin: [f32; 2],
   ) -> Vec<GlyphCmd> {
-    let mut buffer = self.acquire_buffer(style, max_width);
+    let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
       Family::SansSerif
@@ -301,7 +358,7 @@ impl GlyphEngine {
       .family(family)
       .weight(style.weight.to_cosmic())
       .style(style.style.to_cosmic());
-    buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
     let atlas_w = self.atlas_packer.width as f32;
@@ -363,11 +420,12 @@ impl GlyphEngine {
     text: &str,
     style: &TextStyle,
     max_width: f32,
+    wrap: bool,
     origin_x: f32,
     origin_y: f32,
     snap_to_pixel: bool,
   ) -> Vec<GlyphCmd> {
-    let key = CacheKey::new_for_raster(text, style, max_width, snap_to_pixel);
+    let key = CacheKey::new_for_raster(text, style, max_width, wrap, snap_to_pixel);
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
     if let Some(cached) = self.glyph_layout_cache.get(&key) {
@@ -375,7 +433,7 @@ impl GlyphEngine {
       return glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel);
     }
 
-    let mut buffer = self.acquire_buffer(style, max_width);
+    let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
       Family::SansSerif
@@ -386,7 +444,7 @@ impl GlyphEngine {
       .family(family)
       .weight(style.weight.to_cosmic())
       .style(style.style.to_cosmic());
-    buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
     let mut cached = Vec::new();
@@ -533,7 +591,7 @@ impl GlyphEngine {
     Some(packed)
   }
 
-  fn shape_and_measure(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
+  fn shape_and_measure(&mut self, text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> Size {
     let metrics = Metrics::new(style.font_size, style.font_size * style.line_height);
     let mut buffer = self
       .buffer_pool
@@ -541,6 +599,7 @@ impl GlyphEngine {
       .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
     buffer.set_metrics(&mut self.font_system, metrics);
     buffer.set_size(&mut self.font_system, Some(max_width), None);
+    buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
 
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
@@ -552,7 +611,7 @@ impl GlyphEngine {
       .family(family)
       .weight(style.weight.to_cosmic())
       .style(style.style.to_cosmic());
-    buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
     let mut width = 0.0_f32;
@@ -577,7 +636,7 @@ impl GlyphEngine {
     Size::new(width, height)
   }
 
-  fn acquire_buffer(&mut self, style: &TextStyle, max_width: f32) -> Buffer {
+  fn acquire_buffer(&mut self, style: &TextStyle, max_width: f32, wrap: bool) -> Buffer {
     let metrics = Metrics::new(style.font_size, style.font_size * style.line_height);
     let mut buffer = self
       .buffer_pool
@@ -585,6 +644,7 @@ impl GlyphEngine {
       .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
     buffer.set_metrics(&mut self.font_system, metrics);
     buffer.set_size(&mut self.font_system, Some(max_width), None);
+    buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
     buffer
   }
 
@@ -862,7 +922,7 @@ mod tests {
       font_size: 11.0,
       ..crate::layout::text_style::TextStyle::default()
     };
-    let mut buffer = engine.acquire_buffer(&style, 42.0);
+    let mut buffer = engine.acquire_buffer(&style, 42.0, true);
     let resolved = engine.resolve_family(&style);
     let attrs = Attrs::new()
       .family(Family::Name(&resolved))
@@ -952,7 +1012,7 @@ mod tests {
       weight: crate::layout::text_style::FontWeight::Medium,
       ..crate::layout::text_style::TextStyle::default()
     };
-    let mut buffer = engine.acquire_buffer(&style, 72.0);
+    let mut buffer = engine.acquire_buffer(&style, 72.0, true);
     let resolved = engine.resolve_family(&style);
     let attrs = Attrs::new()
       .family(Family::Name(&resolved))

@@ -4,7 +4,7 @@ use lurq::{
   core::Signal,
   layout::{
     Constraints, Size,
-    text_style::{FontWeight, TextStyle},
+    text_style::{FontWeight, TextAlign, TextStyle},
   },
   node::{Element, Style, color::Color, dimension::Dimension},
 };
@@ -102,6 +102,74 @@ fn placeholder_style_overrides_text_style_only_for_placeholder() {
   let text_snapshot = render_pass(&mut runtime);
   let text_glyph = text_snapshot.glyphs.first().expect("input value should render glyphs");
   assert_color_close(text_glyph.color, text_color);
+}
+
+#[test]
+fn text_align_centers_value_glyphs_in_single_line_input() {
+  let left_value = Signal::new("A".to_owned());
+  let centered_value = Signal::new("A".to_owned());
+  let mut left_runtime = Tree::new();
+  let mut centered_runtime = Tree::new();
+
+  left_runtime.set_root(TextInput::new(left_value).single_line().width(200.0).height(40.0));
+  centered_runtime.set_root(
+    TextInput::new(centered_value)
+      .single_line()
+      .width(200.0)
+      .height(40.0)
+      .text_align(TextAlign::Center),
+  );
+
+  let left = render_pass(&mut left_runtime);
+  let centered = render_pass(&mut centered_runtime);
+  let left_glyph = left.glyphs.first().expect("left input should render a glyph");
+  let centered_glyph = centered.glyphs.first().expect("centered input should render a glyph");
+
+  assert!(
+    centered_glyph.x > left_glyph.x + 70.0,
+    "centered glyph should move toward the middle of the input; left={}, centered={}",
+    left_glyph.x,
+    centered_glyph.x
+  );
+}
+
+#[test]
+fn text_align_centers_placeholder_glyphs_in_single_line_input() {
+  let left_value = Signal::new(String::new());
+  let centered_value = Signal::new(String::new());
+  let mut left_runtime = Tree::new();
+  let mut centered_runtime = Tree::new();
+
+  left_runtime.set_root(
+    TextInput::new(left_value)
+      .placeholder("Name")
+      .single_line()
+      .width(200.0)
+      .height(40.0),
+  );
+  centered_runtime.set_root(
+    TextInput::new(centered_value)
+      .placeholder("Name")
+      .single_line()
+      .width(200.0)
+      .height(40.0)
+      .text_align(TextAlign::Center),
+  );
+
+  let left = render_pass(&mut left_runtime);
+  let centered = render_pass(&mut centered_runtime);
+  let left_glyph = left.glyphs.first().expect("left placeholder should render a glyph");
+  let centered_glyph = centered
+    .glyphs
+    .first()
+    .expect("centered placeholder should render a glyph");
+
+  assert!(
+    centered_glyph.x > left_glyph.x + 50.0,
+    "centered placeholder should move toward the middle of the input; left={}, centered={}",
+    left_glyph.x,
+    centered_glyph.x
+  );
 }
 
 #[derive(Clone, Debug, lurq::DevtoolsInspectable)]

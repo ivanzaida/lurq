@@ -302,6 +302,21 @@ lurq::components::Text::new("Selectable text")
 
 Selectable text supports drag selection, double-click word selection, and triple-click line selection. `TextInput` has the same pointer selection gestures plus caret movement, undo/redo, and signal-backed edits.
 
+Align text within its own box with `TextAlign` or layout `Alignment`:
+
+```rust
+use lurq::layout::{Alignment, text_style::TextAlign};
+
+lurq::components::Text::new("No endpoints yet")
+  .width(lurq::node::dimension::Dimension::Pct(100.0))
+  .text_align(Alignment::Center);
+
+lurq::components::TextInput::new(endpoint.clone())
+  .placeholder("Connect to an endpoint to get started.")
+  .single_line()
+  .text_align(TextAlign::Center)
+```
+
 ### Transformed Text
 
 Text uses `TextTransformMode::Bitmap` by default. In this mode the glyphs are rasterized normally, then transformed during rendering. This keeps glyph placement in float screen space and is the right default for animated transforms because it does not create a new glyph atlas entry for every angle.

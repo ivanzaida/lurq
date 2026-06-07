@@ -8,7 +8,7 @@ use lurq::{
     layout_kind::Justify,
     text_style::{FontWeight, TextStyle},
   },
-  node::{CursorIcon, Element, color::Color, dimension::Dimension},
+  node::{CursorIcon, Element, SelectPartStyle, SelectStyle, color::Color, dimension::Dimension, padding::Padding},
 };
 
 use crate::style::{BORDER, DemoTheme, ThemePalette, text};
@@ -34,6 +34,10 @@ pub(crate) struct InputsDemo {
   volume: Signal<i32>,
   priority: Signal<i32>,
   styled_gain: Signal<i32>,
+  size: Signal<String>,
+  font_choice: Signal<String>,
+  tags: Signal<Vec<String>>,
+  langs: Signal<Vec<String>>,
 }
 
 impl Component for InputsDemo {
@@ -77,6 +81,10 @@ impl Component for InputsDemo {
       volume: ctx.signal(42),
       priority: ctx.signal(3),
       styled_gain: ctx.signal(68),
+      size: ctx.signal("md".to_owned()),
+      font_choice: ctx.signal("sans".to_owned()),
+      tags: ctx.signal(vec!["rust".to_owned()]),
+      langs: ctx.signal(Vec::new()),
     }
   }
 
@@ -116,6 +124,14 @@ impl Component for InputsDemo {
         self.volume.clone(),
         self.priority.clone(),
         self.styled_gain.clone(),
+        palette,
+      ))
+      .child(section_title("Selects", palette))
+      .child(selects_card(
+        self.size.clone(),
+        self.font_choice.clone(),
+        self.tags.clone(),
+        self.langs.clone(),
         palette,
       ))
       .child(summary_card(
@@ -616,6 +632,167 @@ fn styled_slider_row(label: &str, value: Signal<i32>, palette: ThemePalette) -> 
     )
     .width(FILL_WIDTH)
     .into()
+}
+
+fn selects_card(
+  size: Signal<String>,
+  font_choice: Signal<String>,
+  tags: Signal<Vec<String>>,
+  langs: Signal<Vec<String>>,
+  palette: ThemePalette,
+) -> Element {
+  card_frame(palette)
+    .spacing(16.0)
+    .child(
+      lurq::components::Row::new()
+        .spacing(18.0)
+        .align_items(Alignment::Start)
+        .child(field_stack("Single (default)", default_single_select(size.clone(), palette)).flex(1.0))
+        .child(field_stack("Single (styled)", styled_single_select(font_choice.clone())).flex(1.0))
+        .width(FILL_WIDTH),
+    )
+    .child(
+      lurq::components::Row::new()
+        .spacing(18.0)
+        .align_items(Alignment::Start)
+        .child(field_stack("Multi (default)", default_multi_select(tags.clone(), palette)).flex(1.0))
+        .child(field_stack("Multi (styled)", styled_multi_select(langs.clone())).flex(1.0))
+        .width(FILL_WIDTH),
+    )
+    .child(
+      lurq::components::Row::new()
+        .spacing(12.0)
+        .child(value_pill("size", display_text(&size.get()), palette))
+        .child(value_pill("font", display_text(&font_choice.get()), palette))
+        .child(value_pill("tags", &list_label(&tags.get()), palette))
+        .child(value_pill("langs", &list_label(&langs.get()), palette))
+        .width(FILL_WIDTH),
+    )
+    .padding(24.0)
+    .into()
+}
+
+fn size_options() -> [(String, &'static str); 4] {
+  [
+    ("sm", "Small"),
+    ("md", "Medium"),
+    ("lg", "Large"),
+    ("xl", "Extra Large"),
+  ]
+  .map(|(value, label)| (value.to_owned(), label))
+}
+
+fn font_options() -> [(String, &'static str); 3] {
+  [("sans", "Sans"), ("serif", "Serif"), ("mono", "Mono")].map(|(value, label)| (value.to_owned(), label))
+}
+
+fn language_options() -> [(String, &'static str); 4] {
+  [("rust", "Rust"), ("go", "Go"), ("ts", "TypeScript"), ("py", "Python")]
+    .map(|(value, label)| (value.to_owned(), label))
+}
+
+fn default_single_select(value: Signal<String>, palette: ThemePalette) -> Element {
+  lurq::components::Select::new(value)
+    .options(size_options())
+    .placeholder("Select size")
+    .width(FILL_WIDTH)
+    .style(default_select_style(palette))
+    .into()
+}
+
+fn default_multi_select(value: Signal<Vec<String>>, palette: ThemePalette) -> Element {
+  lurq::components::Select::multiple(value)
+    .options(language_options())
+    .placeholder("Select languages")
+    .width(FILL_WIDTH)
+    .style(default_select_style(palette))
+    .into()
+}
+
+fn styled_single_select(value: Signal<String>) -> Element {
+  lurq::components::Select::new(value)
+    .options(font_options())
+    .placeholder("Pick a font")
+    .width(FILL_WIDTH)
+    .style(dark_select_style())
+    .into()
+}
+
+fn styled_multi_select(value: Signal<Vec<String>>) -> Element {
+  lurq::components::Select::multiple(value)
+    .options(language_options())
+    .placeholder("Pick languages")
+    .width(FILL_WIDTH)
+    .style(dark_select_style())
+    .into()
+}
+
+fn default_select_style(palette: ThemePalette) -> SelectStyle {
+  SelectStyle::new()
+    .trigger(
+      SelectPartStyle::new()
+        .background("#ffffff")
+        .border_inside(1.0, Color::from_hex(palette.border))
+        .rounded(PANEL_RADIUS)
+        .padding(Padding::symmetric(10.0, 8.0))
+        .min_height(38.0),
+    )
+    .trigger_hovered(SelectPartStyle::new().border_inside(1.0, Color::from_hex(palette.primary)))
+    .menu(
+      SelectPartStyle::new()
+        .background("#ffffff")
+        .border_inside(1.0, Color::from_hex(palette.border))
+        .rounded(PANEL_RADIUS),
+    )
+    .option_hovered(SelectPartStyle::new().background(palette.bg))
+    .option_selected(SelectPartStyle::new().background(palette.surface_dark))
+}
+
+fn dark_select_style() -> SelectStyle {
+  let text_style = TextStyle {
+    font_size: 13.0,
+    weight: FontWeight::Medium,
+    color: Color::from_hex("#e5e7eb"),
+    ..TextStyle::default()
+  };
+  let placeholder_style = TextStyle {
+    font_size: 13.0,
+    weight: FontWeight::Medium,
+    color: Color::from_hex("#64748b"),
+    ..TextStyle::default()
+  };
+
+  SelectStyle::new()
+    .trigger(
+      SelectPartStyle::new()
+        .background("#101215")
+        .border_inside(1.0, Color::from_hex(BORDER))
+        .rounded(6.0)
+        .padding(Padding::symmetric(10.0, 8.0))
+        .text(text_style.clone())
+        .min_height(40.0),
+    )
+    .trigger_hovered(SelectPartStyle::new().border_inside(1.0, Color::from_hex("#38bdf8")))
+    .trigger_open(SelectPartStyle::new().border_inside(1.0, Color::from_hex("#38bdf8")))
+    .placeholder_text(placeholder_style)
+    .chevron_color(Color::from_hex("#38bdf8"))
+    .menu(
+      SelectPartStyle::new()
+        .background("#101215")
+        .border_inside(1.0, Color::from_hex(BORDER))
+        .rounded(6.0),
+    )
+    .option(SelectPartStyle::new().text(text_style))
+    .option_hovered(SelectPartStyle::new().background("#1e293b"))
+    .option_selected(SelectPartStyle::new().background("#0ea5e9"))
+}
+
+fn list_label(values: &[String]) -> String {
+  if values.is_empty() {
+    "<none>".to_owned()
+  } else {
+    values.join(", ")
+  }
 }
 
 fn summary_card(

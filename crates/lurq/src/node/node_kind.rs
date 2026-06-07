@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use crate::{
   app::theme::{ThemePalette, ThemeTypography, TypographyStyle},
   core::Signal,
-  layout::text_style::TextStyle,
+  layout::text_style::{TextAlign, TextStyle},
   node::{
-    CheckboxStyle, SliderPartStyle, TextColor, TextTransformMode,
+    CheckboxStyle, SelectStyle, SliderPartStyle, TextColor, TextTransformMode,
     text_selection::{
       CaretPosition, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
@@ -43,6 +43,9 @@ pub(crate) enum NodeKind {
   Slider {
     state: SliderState,
   },
+  Select {
+    state: SelectState,
+  },
   #[cfg(feature = "image")]
   Image {
     data: crate::images::ImageData,
@@ -65,6 +68,7 @@ pub(crate) enum NodeKind {
 pub(crate) struct TextStyleSource {
   base: TextStyleBase,
   color: Option<TextColor>,
+  text_align: Option<TextAlign>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -79,6 +83,7 @@ impl TextStyleSource {
     Self {
       base: TextStyleBase::Default,
       color: None,
+      text_align: None,
     }
   }
 
@@ -86,6 +91,7 @@ impl TextStyleSource {
     Self {
       base: TextStyleBase::Explicit(style),
       color: None,
+      text_align: None,
     }
   }
 
@@ -97,6 +103,10 @@ impl TextStyleSource {
     self.color = Some(color.into());
   }
 
+  pub(crate) fn set_text_align(&mut self, align: impl Into<TextAlign>) {
+    self.text_align = Some(align.into());
+  }
+
   pub(crate) fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
     let mut style = match &self.base {
       TextStyleBase::Default => typography.default_style().clone(),
@@ -105,6 +115,9 @@ impl TextStyleSource {
     };
     if let Some(color) = self.color.as_ref().and_then(|color| color.resolve(palette)) {
       style.color = color;
+    }
+    if let Some(text_align) = self.text_align {
+      style.text_align = text_align;
     }
     style
   }
@@ -268,6 +281,7 @@ struct TextInputInner {
   overflow: TextInputOverflow,
   min_rows: Option<usize>,
   max_rows: Option<usize>,
+  mask: Option<char>,
   focused: bool,
   undo_stack: Vec<TextInputSnapshot>,
   redo_stack: Vec<TextInputSnapshot>,
@@ -302,6 +316,7 @@ impl TextInputState {
         overflow: TextInputOverflow::default(),
         min_rows: None,
         max_rows: None,
+        mask: None,
         focused: false,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
@@ -336,10 +351,52 @@ impl TextInputState {
 
   pub(crate) fn rendered_text_for_layout(&self) -> String {
     let text = self.rendered_text().unwrap_or_default();
-    match self.overflow() {
+    let text = match self.overflow() {
       TextInputOverflow::Multiline => text,
       TextInputOverflow::Scroll => text.replace(['\r', '\n'], " "),
+    };
+    match self.mask() {
+      Some(mask) if !self.is_showing_placeholder() => mask_text(&text, mask),
+      _ => text,
     }
+  }
+
+  /// Text used to compute caret geometry. Masked the same way the rendered text
+  /// is, so caret x-coordinates line up with the displayed mask glyphs.
+  pub(crate) fn caret_source_text(&self) -> String {
+    let value = self.value();
+    match self.mask() {
+      Some(mask) => mask_text(&value, mask),
+      None => value,
+    }
+  }
+
+  /// Caret positions are computed over the masked string, so their `index` is a
+  /// byte offset into the mask — not the real value. Remap each back to the real
+  /// value's char boundaries so editing and hit-testing stay correct.
+  pub(crate) fn remap_caret_positions(&self, positions: &mut [CaretPosition]) {
+    let Some(mask) = self.mask() else {
+      return;
+    };
+    let mask_len = mask.len_utf8();
+    let value = self.value();
+    let boundaries: Vec<usize> = value
+      .char_indices()
+      .map(|(index, _)| index)
+      .chain(std::iter::once(value.len()))
+      .collect();
+    for position in positions.iter_mut() {
+      let char_index = position.index / mask_len;
+      position.index = boundaries.get(char_index).copied().unwrap_or(value.len());
+    }
+  }
+
+  pub(crate) fn set_mask(&self, mask: char) {
+    self.inner.lock().unwrap().mask = Some(mask);
+  }
+
+  pub(crate) fn mask(&self) -> Option<char> {
+    self.inner.lock().unwrap().mask
   }
 
   pub(crate) fn insert(&self, text: &str) {
@@ -832,6 +889,14 @@ impl TextInputState {
   }
 }
 
+fn mask_text(text: &str, mask: char) -> String {
+  let mut out = String::with_capacity(text.chars().count() * mask.len_utf8());
+  for _ in text.chars() {
+    out.push(mask);
+  }
+  out
+}
+
 fn push_limited(stack: &mut Vec<TextInputSnapshot>, snapshot: TextInputSnapshot) {
   if stack.last().is_some_and(|last| {
     last.value == snapshot.value && last.caret == snapshot.caret && last.selection_anchor == snapshot.selection_anchor
@@ -1268,5 +1333,172 @@ impl SliderState {
         height: thumb_height,
       },
     )
+  }
+}
+
+pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;
+
+#[derive(Clone)]
+pub(crate) struct SelectState {
+  inner: Arc<Mutex<SelectInner>>,
+}
+
+struct SelectInner {
+  // Per-render config, rebuilt by the generic `Select<T>` wrapper each render.
+  labels: Vec<Arc<str>>,
+  selected: Vec<usize>,
+  multiple: bool,
+  placeholder: Option<Arc<str>>,
+  style: SelectStyle,
+  on_change: Option<SelectChangeCallback>,
+  // Runtime state, preserved across re-renders via `copy_runtime_state_from`.
+  open: bool,
+  highlighted: Option<usize>,
+}
+
+impl SelectState {
+  pub(crate) fn new() -> Self {
+    Self {
+      inner: Arc::new(Mutex::new(SelectInner {
+        labels: Vec::new(),
+        selected: Vec::new(),
+        multiple: false,
+        placeholder: None,
+        style: SelectStyle::new(),
+        on_change: None,
+        open: false,
+        highlighted: None,
+      })),
+    }
+  }
+
+  pub(crate) fn set_labels(&self, labels: Vec<Arc<str>>) {
+    self.inner.lock().unwrap().labels = labels;
+  }
+
+  pub(crate) fn set_selected(&self, selected: Vec<usize>) {
+    self.inner.lock().unwrap().selected = selected;
+  }
+
+  pub(crate) fn set_multiple(&self, multiple: bool) {
+    self.inner.lock().unwrap().multiple = multiple;
+  }
+
+  pub(crate) fn set_placeholder(&self, placeholder: Option<Arc<str>>) {
+    self.inner.lock().unwrap().placeholder = placeholder;
+  }
+
+  pub(crate) fn set_style(&self, style: SelectStyle) {
+    self.inner.lock().unwrap().style = style;
+  }
+
+  pub(crate) fn set_on_change(&self, on_change: SelectChangeCallback) {
+    self.inner.lock().unwrap().on_change = Some(on_change);
+  }
+
+  pub(crate) fn labels(&self) -> Vec<Arc<str>> {
+    self.inner.lock().unwrap().labels.clone()
+  }
+
+  pub(crate) fn multiple(&self) -> bool {
+    self.inner.lock().unwrap().multiple
+  }
+
+  pub(crate) fn style(&self) -> SelectStyle {
+    self.inner.lock().unwrap().style.clone()
+  }
+
+  pub(crate) fn is_open(&self) -> bool {
+    self.inner.lock().unwrap().open
+  }
+
+  pub(crate) fn highlighted(&self) -> Option<usize> {
+    self.inner.lock().unwrap().highlighted
+  }
+
+  pub(crate) fn option_count(&self) -> usize {
+    self.inner.lock().unwrap().labels.len()
+  }
+
+  pub(crate) fn is_selected(&self, index: usize) -> bool {
+    self.inner.lock().unwrap().selected.contains(&index)
+  }
+
+  #[cfg(feature = "form")]
+  pub(crate) fn selected_labels(&self) -> Vec<Arc<str>> {
+    let inner = self.inner.lock().unwrap();
+    inner
+      .selected
+      .iter()
+      .filter_map(|index| inner.labels.get(*index).cloned())
+      .collect()
+  }
+
+  /// Open the menu if closed; otherwise commit the highlighted option.
+  pub(crate) fn activate(&self) {
+    if self.is_open() {
+      let highlighted = self.highlighted().unwrap_or(0);
+      self.commit(highlighted);
+    } else {
+      self.open_with_highlight();
+    }
+  }
+
+  pub(crate) fn set_open(&self, open: bool) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.open = open;
+    if !open {
+      inner.highlighted = None;
+    }
+  }
+
+  pub(crate) fn open_with_highlight(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.open = true;
+    inner.highlighted = Some(inner.selected.first().copied().unwrap_or(0));
+  }
+
+  pub(crate) fn toggle_open(&self) {
+    let open = self.inner.lock().unwrap().open;
+    self.set_open(!open);
+  }
+
+  pub(crate) fn move_highlight(&self, delta: i32) {
+    let mut inner = self.inner.lock().unwrap();
+    let count = inner.labels.len();
+    if count == 0 {
+      return;
+    }
+    let current = inner
+      .highlighted
+      .unwrap_or_else(|| if delta < 0 { 0 } else { count - 1 });
+    let next = (current as i32 + delta).rem_euclid(count as i32);
+    inner.highlighted = Some(next as usize);
+  }
+
+  /// Commit a click on option `index`: fire the change callback and, for
+  /// single-select, close the menu. Multi-select keeps the menu open.
+  pub(crate) fn commit(&self, index: usize) {
+    let (callback, multiple) = {
+      let inner = self.inner.lock().unwrap();
+      (inner.on_change.clone(), inner.multiple)
+    };
+    if let Some(callback) = callback {
+      callback(index);
+    }
+    if !multiple {
+      self.set_open(false);
+    }
+  }
+
+  pub(crate) fn copy_runtime_state_from(&self, old: &SelectState) {
+    let (open, highlighted) = {
+      let old_inner = old.inner.lock().unwrap();
+      (old_inner.open, old_inner.highlighted)
+    };
+    let mut inner = self.inner.lock().unwrap();
+    inner.open = open;
+    let count = inner.labels.len();
+    inner.highlighted = highlighted.and_then(|index| if count == 0 { None } else { Some(index.min(count - 1)) });
   }
 }

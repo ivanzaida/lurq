@@ -17,6 +17,7 @@ clipboard = ["dep:arboard"]
 form = []
 image = ["dep:image"]
 i18n = []
+serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
 render = ["dep:bytemuck"]
@@ -53,6 +54,7 @@ usvg = { version = "0.45", optional = true }
 lyon = { version = "1", optional = true }
 tiny-skia = { version = "0.11", optional = true }
 ureq = { version = "3.3.0", optional = true }
+serde_json = { version = "1", optional = true }
 tokio = { version = "1.52.3", optional = true, features = ["rt", "rt-multi-thread", "sync"] }
 lurq_macros = { version = "0.1.0", path = "../lurq_macros" }
 

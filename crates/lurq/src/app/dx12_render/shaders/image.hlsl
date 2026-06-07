@@ -51,6 +51,9 @@ float sd_rounded_box(float2 p, float2 half_size, float2 r)
     }
     float2 pn = q / safe_r;
     float l = length(pn);
+    if (l <= 1e-6) {
+      return -min(safe_r.x, safe_r.y);
+    }
     float g = max(length(pn / safe_r), 1e-6);
     return (l - 1.0) * l / g;
   }

@@ -1,7 +1,9 @@
-use lurq::{app::Tree, core::Signal};
+use lurq::{
+  app::{Tree, events::MouseButton},
+  core::Signal,
+};
 
 use crate::support::{pointer_click, run_pass};
-use lurq::app::events::MouseButton;
 
 /// Clicking the second *visual* row of a soft-wrapped multiline input must
 /// place the caret on that wrapped row, not back on the first row. Regression

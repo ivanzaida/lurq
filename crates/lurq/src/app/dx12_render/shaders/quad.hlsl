@@ -155,6 +155,10 @@ float sd_rounded_box(float2 p, float2 half_size, float2 radius)
     }
     float2 pn = q / safe_radius;
     float len_pn = length(pn);
+    if (len_pn <= 1e-6)
+    {
+      return -min(safe_radius.x, safe_radius.y);
+    }
     float gradient = max(length(pn / safe_radius), 1e-6);
     return (len_pn - 1.0) * len_pn / gradient;
   }

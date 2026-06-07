@@ -33,7 +33,7 @@ fn multiple_transitions_on_same_node() {
   assert!(!quads.is_empty());
 
   let color = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_ne!(color, Color::from_hex("#ff0000"), "color should be transitioning");

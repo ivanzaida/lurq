@@ -133,12 +133,13 @@ Typography roles are named by `TypographyStyle` and stored as public fields on `
 ```rust
 use lurq::{
   app::theme::TypographyStyle,
-  layout::text_style::{FontWeight, TextStyle},
+  layout::text_style::{FontWeight, TextAlign, TextStyle},
 };
 
 app.theme().set_typography_style(TypographyStyle::Heading, TextStyle {
   font_size: 28.0,
   weight: FontWeight::Bold,
+  text_align: TextAlign::Left,
   ..TextStyle::default()
 });
 ```
@@ -159,6 +160,8 @@ Available roles:
 | `Mono` | `mono` | body defaults with `monospace` family |
 
 `Text::new` uses `TypographyStyle::Body`. Use `.variant(...)` for themed text, and `Text::styled(...)` for a one-off style that should not follow a typography role.
+
+`TextStyle::text_align` supports `TextAlign::Left`, `Center`, `Right`, `Justified`, and `End`. `Text::text_align(...)` aligns text inside the text node's box, and `TextInput::text_align(...)` applies the same alignment to value and placeholder text inside the input content box. Both builders also accept layout `Alignment`.
 
 ```rust
 use lurq::{app::theme::TypographyStyle, components::Text};

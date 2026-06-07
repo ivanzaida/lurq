@@ -151,7 +151,7 @@ fn scrollbar_hovered_overrides_scrollbar_style() {
   let quads = rt.resolve_quads(&result);
 
   assert!(quads.iter().any(|quad| match &quad.content {
-    QuadContent::Rect { color } => *color == thumb_color,
+    QuadContent::Rect { color, .. } => *color == thumb_color,
     _ => false,
   }));
 }
@@ -177,7 +177,7 @@ fn horizontal_scrollbar_hovered_overrides_scrollbar_style() {
   let quads = rt.resolve_quads(&result);
 
   assert!(quads.iter().any(|quad| match &quad.content {
-    QuadContent::Rect { color } => *color == thumb_color,
+    QuadContent::Rect { color, .. } => *color == thumb_color,
     _ => false,
   }));
 }
@@ -200,7 +200,7 @@ fn scrollbar_auto_does_not_render_when_content_fits() {
   let quads = rt.resolve_quads(&result);
 
   assert!(!quads.iter().any(|quad| match &quad.content {
-    QuadContent::Rect { color } => *color == thumb_color,
+    QuadContent::Rect { color, .. } => *color == thumb_color,
     _ => false,
   }));
 }
@@ -227,7 +227,7 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
   let quads = rt.resolve_quads(&result);
 
   assert!(quads.iter().any(|quad| match &quad.content {
-    QuadContent::Rect { color } => *color == thumb_color && quad.width == 6.0,
+    QuadContent::Rect { color, .. } => *color == thumb_color && quad.width == 6.0,
     _ => false,
   }));
 }

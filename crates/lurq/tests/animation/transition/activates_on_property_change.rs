@@ -24,7 +24,7 @@ fn transition_activates_when_hovered_style_changes_color() {
   let quads = rt.resolve_quads(result);
   assert_eq!(quads.len(), 1);
   let color_before = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_eq!(color_before, Color::from_hex("#ff0000"));
@@ -37,7 +37,7 @@ fn transition_activates_when_hovered_style_changes_color() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color_at_start = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_eq!(
@@ -53,7 +53,7 @@ fn transition_activates_when_hovered_style_changes_color() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   let color_during = match &quads[0].content {
-    QuadContent::Rect { color } => *color,
+    QuadContent::Rect { color, .. } => *color,
     _ => panic!("expected rect"),
   };
   assert_ne!(

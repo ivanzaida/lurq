@@ -40,15 +40,15 @@ fn three_level_rotation_accumulates() {
 
   let red = quads
     .iter()
-    .find(|q| matches!(&q.content, QuadContent::Rect { color } if *color == Color::from_hex("#ff0000")))
+    .find(|q| matches!(&q.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#ff0000")))
     .expect("el1");
   let green = quads
     .iter()
-    .find(|q| matches!(&q.content, QuadContent::Rect { color } if *color == Color::from_hex("#00ff00")))
+    .find(|q| matches!(&q.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#00ff00")))
     .expect("el2");
   let blue = quads
     .iter()
-    .find(|q| matches!(&q.content, QuadContent::Rect { color } if *color == Color::from_hex("#0000ff")))
+    .find(|q| matches!(&q.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#0000ff")))
     .expect("el3");
 
   let rot90 = Transform2D::rotate_deg(90.0);
@@ -97,7 +97,7 @@ fn mixed_transform_types_accumulate() {
 
   let blue = quads
     .iter()
-    .find(|q| matches!(&q.content, QuadContent::Rect { color } if *color == Color::from_hex("#0000ff")))
+    .find(|q| matches!(&q.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#0000ff")))
     .expect("inner");
 
   let composed = Transform2D::scale(2.0, 2.0).then(&Transform2D::rotate_deg(45.0));
@@ -134,11 +134,11 @@ fn identity_parent_does_not_alter_child() {
 
   let red = quads
     .iter()
-    .find(|q| matches!(&q.content, QuadContent::Rect { color } if *color == Color::from_hex("#ff0000")))
+    .find(|q| matches!(&q.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#ff0000")))
     .expect("outer");
   let blue = quads
     .iter()
-    .find(|q| matches!(&q.content, QuadContent::Rect { color } if *color == Color::from_hex("#0000ff")))
+    .find(|q| matches!(&q.content, QuadContent::Rect { color, .. } if *color == Color::from_hex("#0000ff")))
     .expect("inner");
 
   assert_eq!(red.transform, Transform2D::IDENTITY);

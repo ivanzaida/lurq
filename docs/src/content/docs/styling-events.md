@@ -262,7 +262,39 @@ Checkbox::new(enabled)
 
 ### Text Input Editing
 
+Plain `Text` can align content inside its own box:
+
+```rust
+use lurq::{layout::Alignment, node::dimension::Dimension};
+
+Text::new("No endpoints yet")
+  .width(Dimension::Pct(100.0))
+  .text_align(Alignment::Center)
+```
+
 `TextInput` keeps editing state internally while the string value remains signal-owned. Clicking focuses the input and places the caret. Dragging selects a range; double-click selects a word; triple-click selects a line. Multiline inputs support vertical caret movement and per-row selection highlights.
+
+Single-line inputs can align value and placeholder text inside their content box:
+
+```rust
+use lurq::layout::text_style::TextAlign;
+
+TextInput::new(endpoint.clone())
+  .placeholder("Connect to an endpoint to get started.")
+  .single_line()
+  .text_align(TextAlign::Center)
+```
+
+Password inputs can hide their contents with `.mask()`, which renders `*` for each character instead of the typed text:
+
+```rust
+TextInput::new(password.clone())
+  .placeholder("Password")
+  .single_line()
+  .mask()
+```
+
+Masking only affects rendering. The signal value, clipboard copy/cut, and caret and selection behavior all operate on the real text.
 
 Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
 

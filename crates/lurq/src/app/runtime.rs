@@ -39,10 +39,11 @@ use crate::{
   },
   node::{
     Element, ElementRef, Node, TextTransformMode,
-    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders, ThemedBorderRadius},
     color::Color,
     cursor::CursorIcon,
     node_kind::{NodeKind, SliderState, TextInputOverflow, TextInputState, TextState},
+    radius_value::RadiusValue,
     transform::Transform2D,
   },
 };
@@ -961,7 +962,9 @@ impl Tree {
           let (x, y, w, h) = (quad.x * scale, quad.y * scale, quad.width * scale, quad.height * scale);
           let radii = scaled_radii(quad.border_radius, scale, w, h);
           let final_color = apply_opacity(*color, quad.opacity);
-          let gradient = gradient.as_ref().map(|gradient| apply_opacity_gradient(gradient, quad.opacity));
+          let gradient = gradient
+            .as_ref()
+            .map(|gradient| apply_opacity_gradient(gradient, quad.opacity));
           let xf = quad.transform.matrix_2x2();
           let xf_origin = quad
             .transform_origin
@@ -1010,11 +1013,12 @@ impl Tree {
         } => {
           let mut scaled_style = style.clone();
           scaled_style.font_size *= scale;
-          let max_width = if *wrap && quad.width > 0.0 {
-            quad.width * scale
-          } else {
-            f32::MAX
-          };
+          let max_width =
+            if (*wrap || style.text_align != crate::layout::text_style::TextAlign::Left) && quad.width > 0.0 {
+              quad.width * scale
+            } else {
+              f32::MAX
+            };
           let glyph_xf = quad.transform.matrix_2x2();
           let glyph_origin = quad
             .transform_origin
@@ -1024,14 +1028,20 @@ impl Tree {
               quad.y * scale + quad.height * scale * 0.5,
             ]);
           let mut glyph_cmds = if quad.transform.is_identity() {
-            app
-              .glyph_engine
-              .rasterize_text(text, &scaled_style, max_width, quad.x * scale, quad.y * scale)
+            app.glyph_engine.rasterize_text_with_wrap(
+              text,
+              &scaled_style,
+              max_width,
+              *wrap,
+              quad.x * scale,
+              quad.y * scale,
+            )
           } else if *transform_mode == TextTransformMode::Rasterized {
             app.glyph_engine.rasterize_text_with_baked_transform(
               text,
               &scaled_style,
               max_width,
+              *wrap,
               quad.x * scale,
               quad.y * scale,
               quad.transform,
@@ -1047,10 +1057,14 @@ impl Tree {
             };
             let raster_x = quad.x * scale * raster_scale;
             let raster_y = quad.y * scale * raster_scale;
-            let mut glyphs =
-              app
-                .glyph_engine
-                .rasterize_text_unsnapped(text, &scaled_style, raster_max_width, raster_x, raster_y);
+            let mut glyphs = app.glyph_engine.rasterize_text_unsnapped_with_wrap(
+              text,
+              &scaled_style,
+              raster_max_width,
+              *wrap,
+              raster_x,
+              raster_y,
+            );
             for glyph in &mut glyphs {
               glyph.x /= raster_scale;
               glyph.y /= raster_scale;
@@ -1327,6 +1341,8 @@ impl Tree {
 
     if handled {
       self.needs_redraw = true;
+    } else if self.dispatch_select_key(&key, &code) {
+      self.needs_redraw = true;
     } else if self.dispatch_text_input(&key, &code, shift, ctrl) {
       self.needs_redraw = true;
     } else {
@@ -1406,6 +1422,54 @@ impl Tree {
       matches!(node.map(Node::node_kind), Some(NodeKind::TextInput { state, .. }) if state.overflow() != TextInputOverflow::Multiline)
     };
     is_single_line && self.submit_nearest_form_for_node_id(focused)
+  }
+
+  fn dispatch_select_key(&mut self, key: &str, code: &str) -> bool {
+    let Some(focused) = self.focused_node else {
+      return false;
+    };
+    let Some(root) = &self.root else {
+      return false;
+    };
+    let Some(node) = find_node_by_id(root, focused) else {
+      return false;
+    };
+    let NodeKind::Select { state } = node.node_kind() else {
+      return false;
+    };
+
+    let down = matches!(key, "ArrowDown") || code == "ArrowDown";
+    let up = matches!(key, "ArrowUp") || code == "ArrowUp";
+    let activate = matches!(key, "Enter" | " ") || matches!(code, "Enter" | "Space");
+    let escape = matches!(key, "Escape") || code == "Escape";
+
+    if escape {
+      if state.is_open() {
+        state.set_open(false);
+        return true;
+      }
+      return false;
+    }
+    if !state.is_open() {
+      if down || up || activate {
+        state.open_with_highlight();
+        return true;
+      }
+      return false;
+    }
+    if down {
+      state.move_highlight(1);
+      return true;
+    }
+    if up {
+      state.move_highlight(-1);
+      return true;
+    }
+    if activate {
+      state.activate();
+      return true;
+    }
+    false
   }
 
   fn activate_focused_button(&mut self) -> bool {
@@ -1729,6 +1793,30 @@ impl Tree {
     } else {
       None
     };
+
+    if matches!(evt.kind, MouseEventKind::Down) {
+      // Focus the select trigger on press so keyboard navigation works.
+      if let Some((node, _)) = hits
+        .iter()
+        .find(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }))
+      {
+        pending_focus = Some(FocusTarget {
+          input_id: node.node_id(),
+          event_id: node.node_id(),
+        });
+        builtin_needs_redraw = true;
+      }
+
+      // Dismiss open selects when the press lands outside their menu and
+      // outside the open trigger (the trigger's own click toggles it).
+      let on_menu = hits.iter().any(|(node, _)| node.tag_name() == SELECT_MENU_TAG);
+      let on_open_trigger = hits
+        .iter()
+        .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { state } if state.is_open()));
+      if !on_menu && !on_open_trigger && close_all_open_selects(root) {
+        builtin_needs_redraw = true;
+      }
+    }
 
     if matches!(evt.kind, MouseEventKind::Click | MouseEventKind::Down) {
       if matches!(evt.kind, MouseEventKind::Down) {
@@ -2532,6 +2620,7 @@ impl Tree {
   fn update_layout(&mut self, app: &mut App) {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
+    let select_overlay_parts = self.detach_select_overlay();
     #[cfg(all(feature = "image", feature = "resources"))]
     self.resolve_resource_images(app);
     #[cfg(all(feature = "svg", feature = "resources"))]
@@ -2581,23 +2670,81 @@ impl Tree {
         .map(|ctx| ctx.theme().border_sizes().clone())
         .unwrap_or_else(|| app.theme().border_sizes().clone());
       let theme_changed = self.last_theme_version != theme_version;
-      let layout = self.layout_engine.compute(
+      let mut layout = self.layout_engine.compute(
         &mut app.glyph_engine,
         root,
         constraints,
-        palette,
+        palette.clone(),
         border_sizes,
         spacing,
         radii,
-        typography,
+        typography.clone(),
         theme_changed,
       );
+      self.sync_select_overlay_from_layout(select_overlay_parts, &layout);
+      if let Some(root) = self.root.as_ref()
+        && root.tag_name() == SELECT_OVERLAY_TAG
+      {
+        layout = self.layout_engine.compute(
+          &mut app.glyph_engine,
+          root,
+          constraints,
+          palette,
+          border_sizes,
+          spacing,
+          radii,
+          typography,
+          theme_changed,
+        );
+      }
       self.last_theme_version = theme_version;
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
       }
       self.last_layout = Some(layout);
     }
+  }
+
+  fn detach_select_overlay(&mut self) -> SelectOverlayReuse {
+    let Some(root) = self.root.take() else {
+      return SelectOverlayReuse {
+        old_host: None,
+        old_overlays: Vec::new(),
+      };
+    };
+    let parts = select_overlay_parts(root);
+    self.root = Some(parts.base);
+    SelectOverlayReuse {
+      old_host: parts.old_host,
+      old_overlays: parts.old_overlays,
+    }
+  }
+
+  fn sync_select_overlay_from_layout(&mut self, mut old_parts: SelectOverlayReuse, base_layout: &LayoutResult) {
+    let Some(base) = self.root.take() else {
+      return;
+    };
+    let viewport = self.viewport_logical();
+    let mut overlays = Vec::new();
+    collect_select_menus(&base, base_layout, 0.0, 0.0, viewport, &mut overlays);
+    if overlays.is_empty() {
+      self.root = Some(base);
+      return;
+    }
+    for (overlay, old_overlay) in overlays.iter_mut().zip(old_parts.old_overlays.iter_mut()) {
+      overlay.preserve_runtime_state_from(old_overlay);
+      overlay.preserve_ids_from(old_overlay);
+    }
+    let mut children = Vec::with_capacity(1 + overlays.len());
+    children.push(base);
+    children.extend(overlays);
+    let mut host = Node::stack(crate::layout::StackAlignment::TopStart, children);
+    host.set_tag_name(SELECT_OVERLAY_TAG);
+    if let Some(old_host) = old_parts.old_host.as_mut() {
+      host.preserve_ids_from(old_host);
+    }
+    host.assign_ids(&self.id_gen);
+    self.root = Some(host);
   }
 
   fn sync_dynamic_content(&mut self) {
@@ -2871,6 +3018,194 @@ fn modal_host_base(mut root: Node) -> Node {
   } else {
     root
   }
+}
+
+const SELECT_OVERLAY_TAG: &str = "__lurq_select_overlay_host";
+const SELECT_MENU_TAG: &str = "__lurq_select_menu";
+
+struct SelectOverlayParts {
+  base: Node,
+  old_host: Option<Node>,
+  old_overlays: Vec<Node>,
+}
+
+struct SelectOverlayReuse {
+  old_host: Option<Node>,
+  old_overlays: Vec<Node>,
+}
+
+/// Undo a previous select-overlay wrap so we can recompute it each pass while
+/// preserving ids for the synthetic overlay nodes across redraws.
+fn select_overlay_parts(mut root: Node) -> SelectOverlayParts {
+  if root.tag_name() == SELECT_OVERLAY_TAG && !root.children.is_empty() {
+    let mut children = std::mem::take(&mut root.children);
+    let base = children.remove(0);
+    let old_overlays = children;
+    SelectOverlayParts {
+      base,
+      old_host: Some(root),
+      old_overlays,
+    }
+  } else {
+    SelectOverlayParts {
+      base: root,
+      old_host: None,
+      old_overlays: Vec::new(),
+    }
+  }
+}
+
+/// Walk the tree and build a floating menu for every open select, anchored to
+/// the trigger's resolved layout rect.
+fn collect_select_menus(
+  node: &Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  viewport: Size,
+  out: &mut Vec<Node>,
+) {
+  if let NodeKind::Select { state } = node.node_kind()
+    && state.is_open()
+    && state.option_count() > 0
+  {
+    let bounds = ElementRect {
+      x: abs_x,
+      y: abs_y,
+      relative_x: abs_x,
+      relative_y: abs_y,
+      width: layout.size.width,
+      height: layout.size.height,
+    };
+    if bounds.width > 0.0 {
+      out.push(build_select_menu(state, bounds, viewport));
+    }
+  }
+  for (child_layout, child) in layout.children.iter().zip(node.children()) {
+    collect_select_menus(
+      child,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      viewport,
+      out,
+    );
+  }
+}
+
+const SELECT_OPTION_ROW_HEIGHT: f32 = 34.0;
+
+fn build_select_menu(
+  state: &crate::node::node_kind::SelectState,
+  bounds: crate::core::ElementRect,
+  viewport: Size,
+) -> Node {
+  use crate::node::dimension::Dimension;
+  let style = state.style();
+  let labels = state.labels();
+  let multiple = state.multiple();
+  let highlighted = state.highlighted();
+  let checkmark_color = style.checkmark_color;
+
+  let mut options = Vec::with_capacity(labels.len());
+  for (index, label) in labels.iter().enumerate() {
+    let selected = state.is_selected(index);
+    let active = highlighted == Some(index);
+    let mut part = style.resolved_option(active && !selected, selected);
+    apply_select_menu_edge_radius(&mut part, &style.menu, index, labels.len());
+    let text_style = part.text.clone();
+
+    let label_node = text_style
+      .as_ref()
+      .map(|style| Node::text_styled(label, style.clone()))
+      .unwrap_or_else(|| Node::text(label));
+    let mut row = if multiple {
+      let mut check_style = text_style.clone().unwrap_or_default();
+      if let Some(color) = checkmark_color {
+        check_style.color = color;
+      }
+      let mark = if selected { "\u{2713}" } else { " " };
+      let check_node = Node::text_styled(mark, check_style).width(Dimension::Px(16.0));
+      Node::row(6.0, crate::layout::Alignment::Center, vec![check_node, label_node])
+    } else {
+      Node::row(0.0, crate::layout::Alignment::Center, vec![label_node])
+    };
+
+    row = row.width(Dimension::Pct(100.0)).apply_select_part(&part);
+    if part.padding.is_none() {
+      row = row.padding_horizontal(10.0).padding_vertical(7.0);
+    }
+    let commit_state = state.clone();
+    row.events.on_click = Some(Arc::new(move |_| commit_state.commit(index)));
+    if let Some(hover) = style.resolved_option(true, selected).background {
+      row = row.hovered(move |s| s.background(hover));
+    }
+    options.push(row);
+  }
+
+  let list = Node::column(0.0, crate::layout::Alignment::Start, options).width(Dimension::Pct(100.0));
+  let mut menu = crate::node::dsl::scroll_vertical(list).apply_select_part(&style.menu);
+  menu.set_tag_name(SELECT_MENU_TAG);
+
+  // Estimate height to decide whether to drop down or flip up, then clamp the
+  // final rect inside the viewport so the menu is always visible/clickable.
+  let estimated = (labels.len() as f32 * SELECT_OPTION_ROW_HEIGHT).min(style.max_menu_height);
+  let below_y = bounds.y + bounds.height + style.menu_gap;
+  let space_below = (viewport.height - below_y).max(0.0);
+  let flip = estimated > space_below && bounds.y - style.menu_gap > space_below;
+  let raw_y = if flip {
+    bounds.y - style.menu_gap - estimated
+  } else {
+    below_y
+  };
+  let max_y = (viewport.height - estimated).max(0.0);
+  let y = raw_y.clamp(0.0, max_y);
+
+  let width = bounds.width.min(viewport.width.max(0.0));
+  let max_x = (viewport.width - width).max(0.0);
+  let x = bounds.x.clamp(0.0, max_x);
+
+  menu
+    .max_height(Dimension::Px(style.max_menu_height))
+    .absolute_positioned(x, y, Some(Dimension::Px(width)), None)
+}
+
+fn apply_select_menu_edge_radius(
+  part: &mut crate::node::select_style::SelectPartStyle,
+  menu: &crate::node::select_style::SelectPartStyle,
+  index: usize,
+  count: usize,
+) {
+  if count == 0 || part.border_radius.is_some() {
+    return;
+  }
+  let Some(menu_radius) = menu.border_radius else {
+    return;
+  };
+  let zero = RadiusValue::Px(0.0);
+  let first = index == 0;
+  let last = index + 1 == count;
+  part.border_radius = Some(ThemedBorderRadius::new(
+    if first { menu_radius.top_left } else { zero },
+    if first { menu_radius.top_right } else { zero },
+    if last { menu_radius.bottom_right } else { zero },
+    if last { menu_radius.bottom_left } else { zero },
+  ));
+}
+
+/// Close every open select; returns whether any were open.
+fn close_all_open_selects(node: &Node) -> bool {
+  let mut changed = false;
+  if let NodeKind::Select { state } = node.node_kind()
+    && state.is_open()
+  {
+    state.set_open(false);
+    changed = true;
+  }
+  for child in node.children() {
+    changed |= close_all_open_selects(child);
+  }
+  changed
 }
 
 fn scroll_axes(direction: ScrollDirection) -> &'static [ScrollAxis] {
@@ -3457,6 +3792,11 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
         }
       }
       NodeKind::Slider { state } => data.append(name, state.value().to_string()),
+      NodeKind::Select { state } => {
+        for label in state.selected_labels() {
+          data.append(name, label.to_string());
+        }
+      }
       _ => {}
     }
   }

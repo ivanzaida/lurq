@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use parking_lot::Mutex;
 
@@ -19,6 +19,7 @@ pub(crate) struct RouterInner {
 
 struct HistoryEntry {
   path: String,
+  state: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 pub(crate) struct HistoryStack {
@@ -60,8 +61,15 @@ impl RouterHandle {
   }
 
   pub fn push(&self, path: impl Into<String>) {
-    let path = path.into();
+    self.push_inner(path.into(), None);
+  }
 
+  pub fn push_with_state<S: Any + Send + Sync>(&self, path: impl Into<String>, state: S) {
+    let state: Arc<dyn Any + Send + Sync> = Arc::new(state);
+    self.push_inner(path.into(), Some(state));
+  }
+
+  fn push_inner(&self, path: String, state: Option<Arc<dyn Any + Send + Sync>>) {
     if self.inner.current_path.get_untracked() == path {
       return;
     }
@@ -70,52 +78,65 @@ impl RouterHandle {
       if redirect == self.inner.current_path.get_untracked() {
         return;
       }
-      self.navigate_internal(redirect);
+      self.navigate_internal(redirect, None);
       return;
     }
 
-    self.navigate_internal(path);
+    self.navigate_internal(path, state);
   }
 
-  fn navigate_internal(&self, path: String) {
+  fn navigate_internal(&self, path: String, state: Option<Arc<dyn Any + Send + Sync>>) {
     {
       let mut history = self.inner.history.lock();
       let cursor = history.cursor;
       if !history.entries.is_empty() {
         history.entries.truncate(cursor + 1);
       }
-      history.entries.push(HistoryEntry { path: path.clone() });
+      history.entries.push(HistoryEntry { path: path.clone(), state });
       history.cursor = history.entries.len() - 1;
     }
     self.inner.current_path.set(path);
   }
 
   pub fn replace(&self, path: impl Into<String>) {
-    let path = path.into();
+    self.replace_inner(path.into(), None);
+  }
 
+  pub fn replace_with_state<S: Any + Send + Sync>(&self, path: impl Into<String>, state: S) {
+    let state: Arc<dyn Any + Send + Sync> = Arc::new(state);
+    self.replace_inner(path.into(), Some(state));
+  }
+
+  fn replace_inner(&self, path: String, state: Option<Arc<dyn Any + Send + Sync>>) {
     if let Some(redirect) = self.check_guards(&path) {
       if redirect == self.inner.current_path.get_untracked() {
         return;
       }
-      self.replace_internal(redirect);
+      self.replace_internal(redirect, None);
       return;
     }
 
-    self.replace_internal(path);
+    self.replace_internal(path, state);
   }
 
-  fn replace_internal(&self, path: String) {
+  fn replace_internal(&self, path: String, state: Option<Arc<dyn Any + Send + Sync>>) {
     {
       let mut history = self.inner.history.lock();
       if history.entries.is_empty() {
-        history.entries.push(HistoryEntry { path: path.clone() });
+        history.entries.push(HistoryEntry { path: path.clone(), state });
         history.cursor = 0;
       } else {
         let cursor = history.cursor;
-        history.entries[cursor] = HistoryEntry { path: path.clone() };
+        history.entries[cursor] = HistoryEntry { path: path.clone(), state };
       }
     }
     self.inner.current_path.set(path);
+  }
+
+  /// In-memory state attached to the current history entry, if any.
+  pub(crate) fn current_state(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+    let history = self.inner.history.lock();
+    history.entries.get(history.cursor).and_then(|entry| entry.state.clone())
   }
 
   pub fn back(&self) -> bool {

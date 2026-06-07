@@ -48,6 +48,10 @@ impl LayoutCache {
     self.inner.borrow().as_ref().map(|cached| cached.constraints)
   }
 
+  pub(crate) fn has_cached_result(&self) -> bool {
+    self.inner.borrow().is_some()
+  }
+
   pub(crate) fn preserve_from(&self, old: &Self) {
     *self.inner.borrow_mut() = old.inner.borrow().clone();
     self.clear_dirty();

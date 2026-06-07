@@ -2,6 +2,7 @@ mod guard;
 mod handle;
 mod navigator;
 pub mod pattern;
+pub(crate) mod query;
 pub(crate) mod route_match;
 
 use std::sync::Arc;
@@ -10,6 +11,7 @@ pub use guard::GuardAction;
 pub use handle::RouterHandle;
 pub use navigator::Navigator;
 pub use pattern::Pattern;
+pub use query::Query;
 pub use route_match::{Params, RouteMatch};
 
 use crate::{app::ctx::Ctx, node::Element};
@@ -100,7 +102,8 @@ impl Routes {
 
   pub fn resolve(&self, path: &str) -> Vec<RouteMatch> {
     let segments = pattern::normalize_segments(path);
-    let path_arc: Arc<str> = Arc::from(path);
+    let path_only = path.split(['?', '#']).next().unwrap_or(path);
+    let path_arc: Arc<str> = Arc::from(path_only);
     let mut chain = Vec::new();
     let mut params = Params::default();
     resolve_defs(&self.defs, &segments, &path_arc, &mut params, &mut chain);

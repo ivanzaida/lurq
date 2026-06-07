@@ -1297,6 +1297,22 @@ impl Ctx {
       .unwrap_or_default()
   }
 
+  #[cfg(feature = "router")]
+  pub fn route_query(&mut self) -> crate::router::Query {
+    self
+      .use_context::<crate::router::Navigator>()
+      .map(|nav| crate::router::Query::from_path(&nav.path().get()))
+      .unwrap_or_default()
+  }
+
+  #[cfg(feature = "router")]
+  pub fn route_state<T: std::any::Any + Send + Sync>(&mut self) -> Option<std::sync::Arc<T>> {
+    let nav = self.use_context::<crate::router::Navigator>()?;
+    // Subscribe to navigations so this re-runs when the location (and its state) changes.
+    let _ = nav.path().get();
+    nav.state::<T>()
+  }
+
   pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
   where
     D: Clone + PartialEq + Send + Sync + 'static,

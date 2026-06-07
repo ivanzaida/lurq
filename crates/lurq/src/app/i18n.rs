@@ -114,6 +114,21 @@ impl I18n {
     self.bump_version(&mut inner);
   }
 
+  #[cfg(feature = "serde")]
+  pub fn add_resources_json(
+    &self,
+    locale: impl Into<Arc<str>>,
+    namespace: impl Into<Arc<str>>,
+    path: impl AsRef<std::path::Path>,
+  ) -> Result<(), LoadJsonError> {
+    let contents = std::fs::read_to_string(path)?;
+    let value: serde_json::Value = serde_json::from_str(&contents)?;
+    let mut entries = Vec::new();
+    flatten_json(&value, &mut String::new(), &mut entries);
+    self.add_resources(locale, namespace, entries);
+    Ok(())
+  }
+
   pub fn t(&self, key: &str) -> Arc<str> {
     self.t_ns(DEFAULT_NAMESPACE, key)
   }
@@ -170,6 +185,66 @@ impl I18nInner {
       namespace: Arc::from(namespace),
     };
     self.resources.get(&namespace)?.get(key).cloned()
+  }
+}
+
+#[cfg(feature = "serde")]
+fn flatten_json(value: &serde_json::Value, prefix: &mut String, out: &mut Vec<(String, String)>) {
+  match value {
+    serde_json::Value::Object(map) => {
+      for (key, child) in map {
+        let len = prefix.len();
+        if !prefix.is_empty() {
+          prefix.push('.');
+        }
+        prefix.push_str(key);
+        flatten_json(child, prefix, out);
+        prefix.truncate(len);
+      }
+    }
+    serde_json::Value::String(s) => out.push((prefix.clone(), s.clone())),
+    other => out.push((prefix.clone(), other.to_string())),
+  }
+}
+
+#[cfg(feature = "serde")]
+#[derive(Debug)]
+pub enum LoadJsonError {
+  Io(std::io::Error),
+  Parse(serde_json::Error),
+}
+
+#[cfg(feature = "serde")]
+impl std::fmt::Display for LoadJsonError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      LoadJsonError::Io(err) => write!(f, "failed to read i18n resource file: {err}"),
+      LoadJsonError::Parse(err) => write!(f, "failed to parse i18n resource JSON: {err}"),
+    }
+  }
+}
+
+#[cfg(feature = "serde")]
+impl std::error::Error for LoadJsonError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    match self {
+      LoadJsonError::Io(err) => Some(err),
+      LoadJsonError::Parse(err) => Some(err),
+    }
+  }
+}
+
+#[cfg(feature = "serde")]
+impl From<std::io::Error> for LoadJsonError {
+  fn from(err: std::io::Error) -> Self {
+    LoadJsonError::Io(err)
+  }
+}
+
+#[cfg(feature = "serde")]
+impl From<serde_json::Error> for LoadJsonError {
+  fn from(err: serde_json::Error) -> Self {
+    LoadJsonError::Parse(err)
   }
 }
 

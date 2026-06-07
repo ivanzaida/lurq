@@ -18,7 +18,7 @@ fn node_without_transition_changes_color_immediately() {
   let result = rt.last_layout().unwrap();
   let quads = rt.resolve_quads(result);
   assert_eq!(quads.len(), 1);
-  if let QuadContent::Rect { color } = &quads[0].content {
+  if let QuadContent::Rect { color, .. } = &quads[0].content {
     assert_eq!(*color, Color::from_hex("#ff0000"));
   } else {
     panic!("expected rect quad");

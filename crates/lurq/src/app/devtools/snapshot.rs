@@ -514,6 +514,7 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     NodeKind::TextInput { .. } => "TextInput",
     NodeKind::Checkbox { .. } => "Checkbox",
     NodeKind::Slider { .. } => "Slider",
+    NodeKind::Select { .. } => "Select",
     #[cfg(feature = "image")]
     NodeKind::Image { .. } => "Image",
     #[cfg(feature = "image")]
