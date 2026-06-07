@@ -568,6 +568,7 @@ pub struct Ctx {
   contexts_debug: Vec<ComponentContextDebug>,
   theme: Option<Theme>,
   window: Option<crate::app::window::Window>,
+  breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
   #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<NonNull<App>>,
@@ -949,6 +950,7 @@ impl Ctx {
       contexts_debug: Vec::new(),
       theme: None,
       window: None,
+      breakpoint: None,
       #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
@@ -981,6 +983,22 @@ impl Ctx {
 
   pub(crate) fn with_window(mut self, window: crate::app::window::Window) -> Self {
     self.window = Some(window);
+    self
+  }
+
+  /// Builds the reactive breakpoint memo from the current window and theme.
+  /// Must be called after `with_theme` and `with_window`. The memo recomputes on
+  /// window resize and theme changes but only notifies subscribers when the
+  /// resolved breakpoint actually changes, so `breakpoint()`/`responsive()`
+  /// re-render on threshold crossings, not on every resize tick.
+  pub(crate) fn with_breakpoint(mut self) -> Self {
+    if let (Some(window), Some(theme)) = (self.window.clone(), self.theme.clone()) {
+      self.breakpoint = Some(crate::core::Memo::new(move || {
+        window.track_access();
+        theme.track_access();
+        theme.breakpoints().resolve(window.info().logical_width())
+      }));
+    }
     self
   }
 
@@ -1506,6 +1524,21 @@ impl Ctx {
     window.info()
   }
 
+  /// Current viewport breakpoint, resolved from the window's logical width
+  /// against the theme's breakpoint thresholds. `None` is the base tier (below
+  /// the smallest breakpoint). Reading this subscribes the component to
+  /// breakpoint changes only — it re-renders when the resolved breakpoint
+  /// crosses a threshold, not on every resize.
+  pub fn breakpoint(&self) -> Option<crate::app::theme::Breakpoint> {
+    self.breakpoint.as_ref().and_then(|memo| memo.get())
+  }
+
+  /// Resolve a [`Responsive`](crate::responsive::Responsive) value for the
+  /// current breakpoint. Re-renders when the resolved breakpoint changes.
+  pub fn responsive<T: Clone>(&self, value: &crate::responsive::Responsive<T>) -> T {
+    value.resolve(self.breakpoint()).clone()
+  }
+
   pub fn app_ref(&self) -> &App {
     unsafe { self.app.expect("app ref not set").as_ref() }
   }
@@ -1702,6 +1735,7 @@ impl Ctx {
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.window = self.window.clone();
+    child_ctx.breakpoint = self.breakpoint.clone();
     child_ctx.app = self.app;
     #[cfg(feature = "tokio")]
     {
@@ -1772,6 +1806,7 @@ impl Ctx {
       group_ctx.batch = self.batch.clone();
       group_ctx.theme = self.theme.clone();
       group_ctx.window = self.window.clone();
+      group_ctx.breakpoint = self.breakpoint.clone();
       group_ctx.app = self.app;
       #[cfg(feature = "tokio")]
       {
@@ -1857,6 +1892,7 @@ impl Ctx {
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.window = self.window.clone();
+    child_ctx.breakpoint = self.breakpoint.clone();
     child_ctx.app = self.app;
     #[cfg(feature = "tokio")]
     {

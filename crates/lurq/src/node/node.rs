@@ -8,7 +8,7 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
-    theme::TypographyStyle,
+    theme::{CaretMode, TypographyStyle},
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
@@ -172,6 +172,7 @@ pub(crate) struct Node {
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
   pub(crate) caret_color: Guard<Option<TextColor>>,
+  pub(crate) caret_mode: Guard<Option<CaretMode>>,
   pub(crate) cursor: Option<CursorIcon>,
   #[cfg(feature = "image")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
@@ -242,6 +243,7 @@ impl Node {
       border_radius: Guard::new(None),
       border: Guard::new(None),
       caret_color: Guard::new(None),
+      caret_mode: Guard::new(None),
       cursor: None,
       #[cfg(feature = "image")]
       background_image: Guard::new(None),
@@ -612,6 +614,13 @@ impl Node {
     } else {
       self.caret_color.set(Some(color));
     }
+  }
+
+  pub(crate) fn text_input_caret_mode(mut self, mode: CaretMode) -> Self {
+    if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+      self.caret_mode.set(Some(mode));
+    }
+    self
   }
 
   pub fn corner_radius(mut self, radius: impl Into<RadiusValue>) -> Self {
@@ -1390,6 +1399,10 @@ impl Node {
     <Option<TextColor> as Clone>::clone(&self.caret_color)
   }
 
+  pub(crate) fn caret_mode_value(&self) -> Option<CaretMode> {
+    *self.caret_mode
+  }
+
   pub(crate) fn background_color(&self) -> Option<BackgroundColor> {
     if let Some(c) = self.animation_override_color() {
       return Some(BackgroundColor::Color(c));
@@ -1877,6 +1890,7 @@ impl Node {
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
       caret_color: self.caret_color.clone(),
+      caret_mode: self.caret_mode.clone(),
       cursor: self.cursor,
       #[cfg(feature = "image")]
       background_image: self.background_image.clone(),

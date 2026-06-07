@@ -26,6 +26,7 @@ use crate::{
     hit_test::{hit_test_tree, hit_test_tree_all},
     profiler::{FrameProfile, PerfMeterStats, ProfileScope, RuntimeMemoryProfile},
     render_engine::{RenderEngine, RenderEngineFactory},
+    theme::CaretMode,
   },
   core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
   layout::{
@@ -52,6 +53,7 @@ const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
+const TEXT_INPUT_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(530);
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
@@ -142,6 +144,8 @@ pub struct Tree {
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
   focused_event_path: Option<Vec<usize>>,
+  text_input_caret_blink_started_at: Instant,
+  text_input_caret_visible: bool,
   cursor: CursorIcon,
   click_tracker: ClickTracker,
   text_click_tracker: TextClickTracker,
@@ -301,6 +305,8 @@ impl Tree {
       focused_event_node: None,
       focused_path: None,
       focused_event_path: None,
+      text_input_caret_blink_started_at: Instant::now(),
+      text_input_caret_visible: true,
       cursor: CursorIcon::Default,
       click_tracker: ClickTracker::default(),
       text_click_tracker: TextClickTracker::default(),
@@ -736,7 +742,8 @@ impl Tree {
     self.clear_animation_runtime_state();
     let mut ctx = Ctx::new_root()
       .with_theme(app.theme().clone())
-      .with_window(self.window.clone());
+      .with_window(self.window.clone())
+      .with_breakpoint();
     #[cfg(feature = "i18n")]
     {
       ctx = ctx.with_i18n(app.i18n().clone());
@@ -879,10 +886,17 @@ impl Tree {
     }
     self.update_perf_overlay_stats();
 
-    self.flush_due_pending_click(Instant::now());
+    let now = Instant::now();
+    self.flush_due_pending_click(now);
 
     let layout_start = ProfileScope::maybe_start(profiling_enabled);
     self.update_layout(app);
+    let caret_mode = self
+      .root_ctx
+      .as_ref()
+      .map(|ctx| ctx.theme().caret_mode())
+      .unwrap_or_else(|| app.theme().caret_mode());
+    self.update_text_input_caret_blink(now, caret_mode);
     let layout_dur = ProfileScope::elapsed_or_default(&layout_start);
     let layout_recalculated = self.layout_engine.last_recalculated();
 
@@ -1343,6 +1357,8 @@ impl Tree {
       self.needs_redraw = true;
     } else if self.dispatch_select_key(&key, &code) {
       self.needs_redraw = true;
+    } else if self.blur_focused_text_input_on_key(&key, &code) {
+      self.needs_redraw = true;
     } else if self.dispatch_text_input(&key, &code, shift, ctrl) {
       self.needs_redraw = true;
     } else {
@@ -1783,6 +1799,7 @@ impl Tree {
     let mut builtin_needs_redraw = false;
     let mut pending_slider_drag = None;
     let mut pending_text_selection_drag = None;
+    let mut reset_text_input_caret_blink = false;
     #[cfg(feature = "form")]
     let pending_submit = if matches!(evt.kind, MouseEventKind::Click) {
       hits
@@ -1844,6 +1861,7 @@ impl Tree {
               input_id: node.node_id(),
               event_id: node.node_id(),
             });
+            reset_text_input_caret_blink = true;
             builtin_needs_redraw = true;
           }
         }
@@ -1927,6 +1945,7 @@ impl Tree {
             input_id: node.node_id(),
             event_id: node.node_id(),
           });
+          reset_text_input_caret_blink = true;
           builtin_needs_redraw = true;
         }
       } else if let Some((node, rect)) = hits
@@ -2141,6 +2160,9 @@ impl Tree {
       self.needs_redraw = true;
     }
     drop(hits);
+    if reset_text_input_caret_blink {
+      self.reset_text_input_caret_blink();
+    }
     if clear_active_after_dispatch {
       self.clear_active_path();
     }
@@ -2160,6 +2182,47 @@ impl Tree {
     if let Some(target) = pending_focus {
       self.focus_node(target);
     }
+  }
+
+  fn blur_focused_text_input_on_key(&mut self, key: &str, code: &str) -> bool {
+    let escape = matches!(key, "Escape") || code == "Escape";
+    let enter = matches!(key, "Enter") || code == "Enter";
+    if !escape && !enter {
+      return false;
+    }
+
+    let Some(focused) = self.focused_node else {
+      return false;
+    };
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let focused_path = self.focused_path.clone();
+    let node = focused_path
+      .as_deref()
+      .and_then(|path| find_node_by_path(root, path))
+      .or_else(|| find_node_by_id(root, focused));
+    let Some(NodeKind::TextInput { state, .. }) = node.map(Node::node_kind) else {
+      return false;
+    };
+
+    if enter {
+      if state.overflow() == TextInputOverflow::Multiline {
+        return false;
+      }
+      #[cfg(feature = "form")]
+      if focused_path
+        .as_deref()
+        .and_then(|path| nearest_form_path_for_path(root, path))
+        .is_some()
+      {
+        return false;
+      }
+    }
+
+    self.blur_focus();
+    self.clear_active_path();
+    true
   }
 
   fn dispatch_text_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool) -> bool {
@@ -2184,84 +2247,88 @@ impl Tree {
     let command = code;
     let logical = key;
 
-    match node.node_kind() {
-      NodeKind::TextInput { state, .. } => match (logical, command) {
-        ("a" | "A", _) | (_, "KeyA") if ctrl => state.select_all(),
-        ("c" | "C", _) | (_, "KeyC") if ctrl => {
-          let Some(selected) = state.selected_text() else {
-            return false;
-          };
-          return write_clipboard_text(&selected);
-        }
-        ("x" | "X", _) | (_, "KeyX") if ctrl => {
-          let Some(selected) = state.selected_text() else {
-            return false;
-          };
-          if !write_clipboard_text(&selected) {
-            return false;
+    let node_kind = node.node_kind().clone();
+    match node_kind {
+      NodeKind::TextInput { state, .. } => {
+        match (logical, command) {
+          ("a" | "A", _) | (_, "KeyA") if ctrl => state.select_all(),
+          ("c" | "C", _) | (_, "KeyC") if ctrl => {
+            let Some(selected) = state.selected_text() else {
+              return false;
+            };
+            return write_clipboard_text(&selected);
           }
-          let _ = state.cut_selection();
-        }
-        ("v" | "V", _) | (_, "KeyV") if ctrl => {
-          let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
-            return false;
-          };
-          state.insert(&text);
-        }
-        ("Insert", _) | (_, "Insert") if ctrl => {
-          let Some(selected) = state.selected_text() else {
-            return false;
-          };
-          return write_clipboard_text(&selected);
-        }
-        ("Insert", _) | (_, "Insert") if shift => {
-          let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
-            return false;
-          };
-          state.insert(&text);
-        }
-        ("Delete", _) | (_, "Delete") if shift => {
-          let Some(selected) = state.selected_text() else {
-            return false;
-          };
-          if !write_clipboard_text(&selected) {
-            return false;
+          ("x" | "X", _) | (_, "KeyX") if ctrl => {
+            let Some(selected) = state.selected_text() else {
+              return false;
+            };
+            if !write_clipboard_text(&selected) {
+              return false;
+            }
+            let _ = state.cut_selection();
           }
-          let _ = state.cut_selection();
-        }
-        ("z" | "Z", _) | (_, "KeyZ") if ctrl && shift => {
-          if !state.redo() {
-            return false;
+          ("v" | "V", _) | (_, "KeyV") if ctrl => {
+            let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
+              return false;
+            };
+            state.insert(&text);
           }
-        }
-        ("z" | "Z", _) | (_, "KeyZ") if ctrl => {
-          if !state.undo() {
-            return false;
+          ("Insert", _) | (_, "Insert") if ctrl => {
+            let Some(selected) = state.selected_text() else {
+              return false;
+            };
+            return write_clipboard_text(&selected);
           }
-        }
-        ("y" | "Y", _) | (_, "KeyY") if ctrl => {
-          if !state.redo() {
-            return false;
+          ("Insert", _) | (_, "Insert") if shift => {
+            let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
+              return false;
+            };
+            state.insert(&text);
           }
-        }
-        ("Enter", _) | (_, "Enter") => {
-          if !state.insert_newline() {
-            return false;
+          ("Delete", _) | (_, "Delete") if shift => {
+            let Some(selected) = state.selected_text() else {
+              return false;
+            };
+            if !write_clipboard_text(&selected) {
+              return false;
+            }
+            let _ = state.cut_selection();
           }
+          ("z" | "Z", _) | (_, "KeyZ") if ctrl && shift => {
+            if !state.redo() {
+              return false;
+            }
+          }
+          ("z" | "Z", _) | (_, "KeyZ") if ctrl => {
+            if !state.undo() {
+              return false;
+            }
+          }
+          ("y" | "Y", _) | (_, "KeyY") if ctrl => {
+            if !state.redo() {
+              return false;
+            }
+          }
+          ("Enter", _) | (_, "Enter") => {
+            if !state.insert_newline() {
+              return false;
+            }
+          }
+          ("Backspace", _) | (_, "Backspace") => state.backspace(),
+          ("Delete", _) | (_, "Delete") => state.delete(),
+          ("ArrowLeft", _) | (_, "ArrowLeft") if ctrl => state.move_word_left(shift),
+          ("ArrowRight", _) | (_, "ArrowRight") if ctrl => state.move_word_right(shift),
+          ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(shift),
+          ("ArrowRight", _) | (_, "ArrowRight") => state.move_right(shift),
+          ("ArrowUp", _) | (_, "ArrowUp") => state.move_up(shift),
+          ("ArrowDown", _) | (_, "ArrowDown") => state.move_down(shift),
+          ("Home", _) | (_, "Home") => state.move_home(shift),
+          ("End", _) | (_, "End") => state.move_end(shift),
+          _ if !ctrl && key.chars().count() == 1 => state.insert(key),
+          _ => return false,
         }
-        ("Backspace", _) | (_, "Backspace") => state.backspace(),
-        ("Delete", _) | (_, "Delete") => state.delete(),
-        ("ArrowLeft", _) | (_, "ArrowLeft") if ctrl => state.move_word_left(shift),
-        ("ArrowRight", _) | (_, "ArrowRight") if ctrl => state.move_word_right(shift),
-        ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(shift),
-        ("ArrowRight", _) | (_, "ArrowRight") => state.move_right(shift),
-        ("ArrowUp", _) | (_, "ArrowUp") => state.move_up(shift),
-        ("ArrowDown", _) | (_, "ArrowDown") => state.move_down(shift),
-        ("Home", _) | (_, "Home") => state.move_home(shift),
-        ("End", _) | (_, "End") => state.move_end(shift),
-        _ if !ctrl && key.chars().count() == 1 => state.insert(key),
-        _ => return false,
-      },
+        self.reset_text_input_caret_blink();
+      }
       NodeKind::Checkbox { state } => match (logical, command) {
         (" " | "Space", _) | (_, "Space") => state.toggle(),
         _ => return false,
@@ -2370,6 +2437,7 @@ impl Tree {
     if let Some(handler) = focus {
       handler();
     }
+    self.reset_text_input_caret_blink();
   }
 
   fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
@@ -2537,6 +2605,48 @@ impl Tree {
     }
   }
 
+  fn reset_text_input_caret_blink(&mut self) {
+    self.text_input_caret_blink_started_at = Instant::now();
+    self.set_text_input_caret_visible(true);
+  }
+
+  fn update_text_input_caret_blink(&mut self, now: Instant, theme_caret_mode: CaretMode) {
+    if !self.has_focused_blinking_text_input(theme_caret_mode) {
+      self.set_text_input_caret_visible(true);
+      return;
+    }
+
+    let interval_ms = TEXT_INPUT_CARET_BLINK_INTERVAL.as_millis().max(1);
+    let visible = (now.duration_since(self.text_input_caret_blink_started_at).as_millis() / interval_ms) % 2 == 0;
+    self.set_text_input_caret_visible(visible);
+  }
+
+  fn set_text_input_caret_visible(&mut self, visible: bool) {
+    if self.text_input_caret_visible != visible {
+      self.text_input_caret_visible = visible;
+      self.needs_redraw = true;
+    }
+    self.layout_engine.set_text_input_caret_visible(visible);
+  }
+
+  fn has_focused_blinking_text_input(&self, theme_caret_mode: CaretMode) -> bool {
+    let Some(focused) = self.focused_node else {
+      return false;
+    };
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    self
+      .focused_path
+      .as_deref()
+      .and_then(|path| find_node_by_path(root, path))
+      .or_else(|| find_node_by_id(root, focused))
+      .is_some_and(|node| {
+        matches!(node.node_kind(), NodeKind::TextInput { .. })
+          && node.caret_mode_value().unwrap_or(theme_caret_mode) == CaretMode::Blinking
+      })
+  }
+
   fn update_perf_overlay_stats(&mut self) {
     if !self.perf_overlay_enabled {
       return;
@@ -2664,6 +2774,11 @@ impl Tree {
         .as_ref()
         .map(|ctx| ctx.theme().radii().clone())
         .unwrap_or_else(|| app.theme().radii().clone());
+      let caret = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| *ctx.theme().caret())
+        .unwrap_or_else(|| *app.theme().caret());
       let border_sizes = self
         .root_ctx
         .as_ref()
@@ -2678,6 +2793,7 @@ impl Tree {
         border_sizes,
         spacing,
         radii,
+        caret,
         typography.clone(),
         theme_changed,
       );
@@ -2693,6 +2809,7 @@ impl Tree {
           border_sizes,
           spacing,
           radii,
+          caret,
           typography,
           theme_changed,
         );
@@ -2978,6 +3095,23 @@ impl Tree {
     self.focused_event_node = None;
     self.focused_path = None;
     self.focused_event_path = None;
+  }
+
+  fn blur_focus(&mut self) -> bool {
+    if self.focused_node.is_none() {
+      return false;
+    }
+    let blur = self
+      .focused_event_path
+      .as_deref()
+      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
+      .and_then(|node| node.events.on_blur.clone());
+    self.clear_focus();
+    if let Some(handler) = blur {
+      handler();
+    }
+    self.needs_redraw = true;
+    true
   }
 
   fn refresh_focus_ids(&mut self) {

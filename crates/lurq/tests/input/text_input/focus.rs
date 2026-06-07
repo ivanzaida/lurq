@@ -5,7 +5,8 @@ use std::sync::{
 
 use lurq::{
   app::{Tree, events::MouseButton},
-  core::Signal,
+  components::TextInput,
+  core::{ElementRef, Signal},
   node::color::Color,
 };
 
@@ -77,4 +78,71 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
   assert_eq!(first_focus.load(Ordering::SeqCst), 1);
   assert_eq!(first_blur.load(Ordering::SeqCst), 1);
   assert_eq!(second_focus.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn escape_blurs_text_input_outside_form() {
+  let blur = Arc::new(AtomicUsize::new(0));
+  let input_ref = ElementRef::new();
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    TextInput::new(Signal::new(String::new()))
+      .width(100.0)
+      .ref_element(input_ref.clone())
+      .on_blur({
+        let blur = blur.clone();
+        move || {
+          blur.fetch_add(1, Ordering::SeqCst);
+        }
+      }),
+  );
+  run_pass(&mut runtime);
+  let rect = input_ref.bounds();
+
+  runtime.mouse_down(rect.x + 10.0, rect.y + rect.height / 2.0, MouseButton::Left);
+  assert!(input_ref.active());
+  assert!(input_ref.focused());
+
+  runtime.key_down("Escape".to_owned(), "Escape".to_owned(), false, false, false);
+  runtime.key_down("A".to_owned(), "KeyA".to_owned(), false, false, false);
+
+  assert!(!input_ref.active());
+  assert!(!input_ref.focused());
+  assert_eq!(blur.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn enter_blurs_single_line_text_input_outside_form() {
+  let value = Signal::new(String::new());
+  let blur = Arc::new(AtomicUsize::new(0));
+  let input_ref = ElementRef::new();
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    TextInput::new(value.clone())
+      .single_line()
+      .width(100.0)
+      .ref_element(input_ref.clone())
+      .on_blur({
+        let blur = blur.clone();
+        move || {
+          blur.fetch_add(1, Ordering::SeqCst);
+        }
+      }),
+  );
+  run_pass(&mut runtime);
+  let rect = input_ref.bounds();
+
+  runtime.mouse_down(rect.x + 10.0, rect.y + rect.height / 2.0, MouseButton::Left);
+  assert!(input_ref.active());
+  assert!(input_ref.focused());
+
+  runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  runtime.key_down("A".to_owned(), "KeyA".to_owned(), false, false, false);
+
+  assert!(!input_ref.active());
+  assert!(!input_ref.focused());
+  assert_eq!(blur.load(Ordering::SeqCst), 1);
+  assert_eq!(value.get(), "");
 }

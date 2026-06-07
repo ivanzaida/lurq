@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use crate::{
   app::{
     glyph_engine::GlyphEngine,
-    theme::{ThemeBorderSizes, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
+    theme::{CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
   },
   layout::{
     Alignment, Constraints, Offset, Size, StackAlignment,
@@ -81,10 +81,12 @@ pub(crate) struct ResolvedPadding {
 
 pub(crate) struct LayoutEngine {
   last_recalculated: Cell<bool>,
+  text_input_caret_visible: Cell<bool>,
   palette: RefCell<ThemePalette>,
   border_sizes: RefCell<ThemeBorderSizes>,
   spacing: RefCell<ThemeSpacing>,
   radii: RefCell<ThemeRadii>,
+  caret: RefCell<ThemeCaret>,
   typography: RefCell<ThemeTypography>,
 }
 
@@ -335,10 +337,12 @@ impl LayoutEngine {
   pub(crate) fn new() -> Self {
     Self {
       last_recalculated: Cell::new(false),
+      text_input_caret_visible: Cell::new(true),
       palette: RefCell::new(ThemePalette::default()),
       border_sizes: RefCell::new(ThemeBorderSizes::default()),
       spacing: RefCell::new(ThemeSpacing::default()),
       radii: RefCell::new(ThemeRadii::default()),
+      caret: RefCell::new(ThemeCaret::default()),
       typography: RefCell::new(ThemeTypography::default()),
     }
   }
@@ -352,6 +356,7 @@ impl LayoutEngine {
     border_sizes: ThemeBorderSizes,
     spacing: ThemeSpacing,
     radii: ThemeRadii,
+    caret: ThemeCaret,
     typography: ThemeTypography,
     force_dirty: bool,
   ) -> LayoutResult {
@@ -360,6 +365,7 @@ impl LayoutEngine {
     *self.border_sizes.borrow_mut() = border_sizes;
     *self.spacing.borrow_mut() = spacing;
     *self.radii.borrow_mut() = radii;
+    *self.caret.borrow_mut() = caret;
     *self.typography.borrow_mut() = typography;
     Self::mark_layout_dirty(node, force_dirty);
     let result = self.layout_node(glyph_engine, node, constraints);
@@ -369,6 +375,17 @@ impl LayoutEngine {
 
   pub(crate) fn last_recalculated(&self) -> bool {
     self.last_recalculated.get()
+  }
+
+  pub(crate) fn set_text_input_caret_visible(&self, visible: bool) {
+    self.text_input_caret_visible.set(visible);
+  }
+
+  fn should_render_text_input_caret(&self, node: &Node) -> bool {
+    match node.caret_mode_value().unwrap_or_else(|| self.caret.borrow().mode()) {
+      CaretMode::Persistent => true,
+      CaretMode::Blinking => self.text_input_caret_visible.get(),
+    }
   }
 
   fn mark_layout_dirty(node: &Node, force_dirty: bool) -> bool {
@@ -724,7 +741,7 @@ impl LayoutEngine {
     }
 
     match node.node_kind() {
-      NodeKind::TextInput { state, style, .. } if state.is_focused() => {
+      NodeKind::TextInput { state, style, .. } if state.is_focused() && self.should_render_text_input_caret(node) => {
         let padding = self.resolved_padding_for_size(node, result.size);
         let content_width = (result.size.width - padding.left - padding.right).max(0.0);
         let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);

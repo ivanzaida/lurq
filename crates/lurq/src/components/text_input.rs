@@ -1,5 +1,6 @@
 pub use crate::node::node_kind::TextInputOverflow;
 use crate::{
+  app::theme::CaretMode,
   core::Signal,
   impl_into_node,
   layout::text_style::{TextAlign, TextStyle},
@@ -38,6 +39,11 @@ impl TextInput {
 
   pub fn caret_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
     self.node = self.node.caret_color(color);
+    self
+  }
+
+  pub fn caret_mode(mut self, mode: CaretMode) -> Self {
+    self.node = self.node.text_input_caret_mode(mode);
     self
   }
 

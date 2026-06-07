@@ -55,6 +55,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     border_radius: Guard::new(None),
     border: Guard::new(None),
     caret_color: Guard::new(None),
+    caret_mode: Guard::new(None),
     cursor: None,
     #[cfg(feature = "image")]
     background_image: Guard::new(None),

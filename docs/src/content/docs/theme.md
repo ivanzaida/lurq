@@ -60,6 +60,8 @@ The main theme accessors are:
 | `theme.spacing_value(key)` / `theme.set_spacing_value(key, value)` | Read or set one spacing role. |
 | `theme.border_sizes()` / `theme.set_border_sizes(...)` | Read or replace `ThemeBorderSizes`. |
 | `theme.border_size_value(key)` / `theme.set_border_size_value(key, value)` | Read or set one border-size role. |
+| `theme.breakpoints()` / `theme.set_breakpoints(...)` | Read or replace `ThemeBreakpoints`. |
+| `theme.breakpoint_value(key)` / `theme.set_breakpoint_value(key, value)` | Read or set one breakpoint threshold. |
 | `theme.form()` / `theme.set_form(...)` | Read or replace `FormTheme`; requires the `form` feature. |
 
 Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for one theme value:
@@ -248,6 +250,59 @@ Rect::new(100.0, 40.0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
   .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
 ```
+
+## Breakpoints
+
+Breakpoints are named viewport-width thresholds, stored as public fields on `ThemeBreakpoints` and keyed by `Breakpoint`. Thresholds are logical pixels and expected to be non-decreasing.
+
+| `Breakpoint` | `ThemeBreakpoints` field | Default |
+| --- | --- | --- |
+| `Sm` | `sm` | `640.0` |
+| `Md` | `md` | `768.0` |
+| `Lg` | `lg` | `1024.0` |
+| `Xl` | `xl` | `1280.0` |
+
+Configure thresholds through the theme, one role or all at once:
+
+```rust
+use lurq::app::theme::{Breakpoint, ThemeBreakpoints};
+
+app.theme().set_breakpoint_value(Breakpoint::Md, 820.0);
+
+app.theme().set_breakpoints(ThemeBreakpoints {
+  sm: 600.0,
+  md: 900.0,
+  lg: 1200.0,
+  xl: 1600.0,
+});
+```
+
+Inside components, read the current breakpoint with `ctx.breakpoint()`. It resolves the window's logical width against the theme thresholds and returns `Option<Breakpoint>`, where `None` is the base tier (narrower than `Sm`). Reading it subscribes the component to breakpoint changes only — it rerenders when the resolved breakpoint crosses a threshold, not on every resize.
+
+```rust
+use lurq::{app::theme::Breakpoint, components::{Column, Row}};
+
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  if ctx.breakpoint() >= Some(Breakpoint::Lg) {
+    Row::new().child(nav).child(content)
+  } else {
+    Column::new().child(nav).child(content)
+  }
+}
+```
+
+### Responsive Values
+
+`Responsive<T>` holds a base value plus per-breakpoint overrides. Resolution is mobile-first: for the current breakpoint it uses the value set there or, if unset, the nearest smaller breakpoint that is set, falling back to `base`. Resolve it with `ctx.responsive(...)`.
+
+```rust
+use lurq::responsive::Responsive;
+
+let columns = Responsive::new(1).md(2).lg(3).xl(4);
+let count = ctx.responsive(&columns); // 1 below md, 2 at md, 3 at lg, 4 at xl
+```
+
+Any `T` works, so the same pattern drives padding, font sizes, widths, or whole layout values. Like `ctx.breakpoint()`, `ctx.responsive(...)` only rerenders the component when the resolved breakpoint changes.
 
 ## Form Theme
 

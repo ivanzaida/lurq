@@ -10,6 +10,8 @@ use crate::{
 };
 
 mod border;
+mod breakpoints;
+mod caret;
 #[cfg(feature = "form")]
 mod form;
 mod palette;
@@ -18,6 +20,8 @@ mod spacing;
 mod typography;
 
 pub use border::{BorderSize, ThemeBorderSizes};
+pub use breakpoints::{Breakpoint, ThemeBreakpoints};
+pub use caret::{CaretMode, ThemeCaret};
 #[cfg(feature = "form")]
 pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
@@ -39,6 +43,8 @@ struct ThemeInner {
   border_sizes: ThemeBorderSizes,
   spacing: ThemeSpacing,
   radii: ThemeRadii,
+  breakpoints: ThemeBreakpoints,
+  caret: ThemeCaret,
   typography: ThemeTypography,
   #[cfg(feature = "form")]
   form: FormTheme,
@@ -66,6 +72,8 @@ impl Default for Theme {
         border_sizes: ThemeBorderSizes::default(),
         spacing: ThemeSpacing::default(),
         radii: ThemeRadii::default(),
+        breakpoints: ThemeBreakpoints::default(),
+        caret: ThemeCaret::default(),
         typography: ThemeTypography::default(),
         #[cfg(feature = "form")]
         form: FormTheme::default(),
@@ -183,6 +191,52 @@ impl Theme {
 
   pub fn radius_value(&self, size: impl Into<RadiusSize>) -> f32 {
     self.inner.read().unwrap().radii.get(size)
+  }
+
+  pub fn breakpoints(&self) -> ThemeRef<'_, ThemeBreakpoints> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.breakpoints,
+    }
+  }
+
+  pub fn set_breakpoints(&self, breakpoints: ThemeBreakpoints) {
+    let mut inner = self.inner.write().unwrap();
+    inner.breakpoints = breakpoints;
+    self.bump_version(&mut inner);
+  }
+
+  pub fn set_breakpoint_value(&self, breakpoint: Breakpoint, value: f32) {
+    let mut inner = self.inner.write().unwrap();
+    inner.breakpoints.set(breakpoint, value);
+    self.bump_version(&mut inner);
+  }
+
+  pub fn breakpoint_value(&self, breakpoint: Breakpoint) -> f32 {
+    self.inner.read().unwrap().breakpoints.get(breakpoint)
+  }
+
+  pub fn caret(&self) -> ThemeRef<'_, ThemeCaret> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.caret,
+    }
+  }
+
+  pub fn set_caret(&self, caret: ThemeCaret) {
+    let mut inner = self.inner.write().unwrap();
+    inner.caret = caret;
+    self.bump_version(&mut inner);
+  }
+
+  pub fn set_caret_mode(&self, mode: CaretMode) {
+    let mut inner = self.inner.write().unwrap();
+    inner.caret.set_mode(mode);
+    self.bump_version(&mut inner);
+  }
+
+  pub fn caret_mode(&self) -> CaretMode {
+    self.inner.read().unwrap().caret.mode()
   }
 
   pub fn typography(&self) -> ThemeRef<'_, ThemeTypography> {

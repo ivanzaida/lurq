@@ -1,5 +1,11 @@
+use std::{thread, time::Duration};
+
 use lurq::{
-  app::{App, Tree, events::MouseButton, theme::PaletteColor},
+  app::{
+    App, Tree,
+    events::MouseButton,
+    theme::{CaretMode, PaletteColor},
+  },
   core::Signal,
   layout::{quad::QuadContent, text_style::TextStyle},
   node::color::Color,
@@ -21,6 +27,73 @@ fn renders_caret_after_text_input_is_focused() {
   let snapshot = render_pass(&mut runtime);
 
   assert!(snapshot.rects.iter().any(|rect| rect.width == 1.0 && rect.height > 0.0));
+}
+
+#[test]
+fn focused_text_input_caret_blinks_and_resets_after_typing() {
+  let caret_color = Color::from_hex("#ff00ff");
+  let value = Signal::new("A".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::TextInput::new(value).caret_color(caret_color));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+  let visible = render_pass(&mut runtime);
+  assert!(has_caret(&visible, caret_color));
+
+  thread::sleep(Duration::from_millis(600));
+  let hidden = render_pass(&mut runtime);
+  assert!(!has_caret(&hidden, caret_color));
+
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+  let reset = render_pass(&mut runtime);
+  assert!(has_caret(&reset, caret_color));
+}
+
+#[test]
+fn caret_mode_uses_theme_and_text_input_override() {
+  let persistent_color = Color::from_hex("#ff00ff");
+  let override_color = Color::from_hex("#00ffff");
+  let mut persistent_app = App::new();
+  let mut override_app = App::new();
+  let mut persistent_runtime = Tree::new();
+  let mut override_runtime = Tree::new();
+
+  persistent_app.theme().set_caret_mode(CaretMode::Persistent);
+  override_app.theme().set_caret_mode(CaretMode::Persistent);
+
+  persistent_runtime
+    .set_root(lurq::components::TextInput::new(Signal::new("A".to_owned())).caret_color(persistent_color));
+  override_runtime.set_root(
+    lurq::components::TextInput::new(Signal::new("A".to_owned()))
+      .caret_color(override_color)
+      .caret_mode(CaretMode::Blinking),
+  );
+
+  focus_text_input(&mut persistent_runtime, &mut persistent_app);
+  focus_text_input(&mut override_runtime, &mut override_app);
+  assert!(has_caret_quad(
+    &mut persistent_runtime,
+    &mut persistent_app,
+    persistent_color
+  ));
+  assert!(has_caret_quad(&mut override_runtime, &mut override_app, override_color));
+
+  thread::sleep(Duration::from_millis(600));
+
+  assert!(has_caret_quad(
+    &mut persistent_runtime,
+    &mut persistent_app,
+    persistent_color
+  ));
+  assert!(!has_caret_quad(
+    &mut override_runtime,
+    &mut override_app,
+    override_color
+  ));
 }
 
 #[test]
@@ -305,4 +378,29 @@ fn focused_caret_y(runtime: &mut Tree) -> f32 {
     .find(|rect| rect.width == 1.0 && rect.height > 0.0)
     .expect("focused text input should render a caret")
     .y
+}
+
+fn focus_text_input(runtime: &mut Tree, app: &mut App) {
+  runtime.pass(app, &TestSurface);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+  pointer_click(runtime, x, y, MouseButton::Left);
+}
+
+fn has_caret_quad(runtime: &mut Tree, app: &mut App, color: Color) -> bool {
+  runtime.pass(app, &TestSurface);
+  runtime
+    .resolve_quads(runtime.last_layout().unwrap())
+    .iter()
+    .any(|quad| match quad.content {
+      QuadContent::Rect { color: rect_color, .. } => quad.width == 1.0 && quad.height > 0.0 && rect_color == color,
+      _ => false,
+    })
+}
+
+fn has_caret(snapshot: &crate::support::RenderSnapshot, color: Color) -> bool {
+  snapshot
+    .rects
+    .iter()
+    .any(|rect| rect.width == 1.0 && rect.height > 0.0 && rect.color == color)
 }
