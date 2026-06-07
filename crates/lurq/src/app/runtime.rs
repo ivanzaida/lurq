@@ -4572,6 +4572,27 @@ fn push_border_rect(
     return;
   }
 
+  if let Some(side) = single_stroke_side(stroke)
+    && border_radius_is_zero(border_radius)
+  {
+    push_single_side_border_rect(
+      rects,
+      order,
+      base_x,
+      base_y,
+      base_w,
+      base_h,
+      border,
+      side,
+      stroke[side],
+      opacity,
+      transform,
+      origin_abs,
+      clip,
+    );
+    return;
+  }
+
   let (mut x, mut y, mut w, mut h) = (base_x, base_y, base_w, base_h);
   match border.placement {
     BorderPlacement::Outside => {
@@ -4599,6 +4620,75 @@ fn push_border_rect(
     radii: scaled_radii(border_radius, scale, w, h),
     stroke,
     stroke_color: apply_opacity(border.color, opacity),
+    transform,
+    transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
+    clip,
+    gradient: None,
+  });
+}
+
+fn single_stroke_side(stroke: [f32; 4]) -> Option<usize> {
+  let mut side = None;
+  for (index, width) in stroke.iter().enumerate() {
+    if *width <= 0.0 {
+      continue;
+    }
+    if side.is_some() {
+      return None;
+    }
+    side = Some(index);
+  }
+  side
+}
+
+fn border_radius_is_zero(border_radius: Option<BorderRadius>) -> bool {
+  border_radius
+    .map(|radius| radius.to_array().iter().all(|value| *value <= 0.0))
+    .unwrap_or(true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_single_side_border_rect(
+  rects: &mut Vec<RectCmd>,
+  order: usize,
+  base_x: f32,
+  base_y: f32,
+  base_w: f32,
+  base_h: f32,
+  border: ResolvedBorder,
+  side: usize,
+  width: f32,
+  opacity: f32,
+  transform: [f32; 4],
+  origin_abs: [f32; 2],
+  clip: ClipRect,
+) {
+  let (x, y, w, h) = match (side, border.placement) {
+    (0, BorderPlacement::Outside) => (base_x, base_y - width, base_w, width),
+    (0, BorderPlacement::Center) => (base_x, base_y - width * 0.5, base_w, width),
+    (0, BorderPlacement::Inside) => (base_x, base_y, base_w, width),
+    (1, BorderPlacement::Outside) => (base_x + base_w, base_y, width, base_h),
+    (1, BorderPlacement::Center) => (base_x + base_w - width * 0.5, base_y, width, base_h),
+    (1, BorderPlacement::Inside) => (base_x + base_w - width, base_y, width, base_h),
+    (2, BorderPlacement::Outside) => (base_x, base_y + base_h, base_w, width),
+    (2, BorderPlacement::Center) => (base_x, base_y + base_h - width * 0.5, base_w, width),
+    (2, BorderPlacement::Inside) => (base_x, base_y + base_h - width, base_w, width),
+    (3, BorderPlacement::Outside) => (base_x - width, base_y, width, base_h),
+    (3, BorderPlacement::Center) => (base_x - width * 0.5, base_y, width, base_h),
+    (3, BorderPlacement::Inside) => (base_x, base_y, width, base_h),
+    _ => return,
+  };
+
+  rects.push(RectCmd {
+    order,
+    x,
+    y,
+    width: w,
+    height: h,
+    color: apply_opacity(border.color, opacity),
+    radii: [0.0; 4],
+    stroke: [0.0; 4],
+    stroke_color: TRANSPARENT_COLOR,
     transform,
     transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
     clip,
