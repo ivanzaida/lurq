@@ -1824,20 +1824,25 @@ impl LayoutEngine {
   }
 
   fn has_percent_main_frame(child: &Node, vertical: bool) -> bool {
-    let Some(frame) = child.state_frame() else {
-      return false;
-    };
+    let has_own_percent_frame = child.state_frame().is_some_and(|frame| {
+      let dimensions = if vertical {
+        [frame.height, frame.min_height, frame.max_height]
+      } else {
+        [frame.width, frame.min_width, frame.max_width]
+      };
 
-    let dimensions = if vertical {
-      [frame.height, frame.min_height, frame.max_height]
-    } else {
-      [frame.width, frame.min_width, frame.max_width]
-    };
+      dimensions
+        .into_iter()
+        .flatten()
+        .any(|dimension| matches!(dimension, Dimension::Pct(_)))
+    });
 
-    dimensions
-      .into_iter()
-      .flatten()
-      .any(|dimension| matches!(dimension, Dimension::Pct(_)))
+    has_own_percent_frame
+      || (matches!(child.layout_kind(), LayoutKind::LogicalModifier)
+        && child
+          .children()
+          .first()
+          .is_some_and(|child| Self::has_percent_main_frame(child, vertical)))
   }
 
   fn position_flex_line(

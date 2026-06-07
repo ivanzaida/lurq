@@ -1602,6 +1602,7 @@ impl Tree {
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
     hits.iter().any(|(node, _)| node.events.on_dblclick.is_some())
   }
 
@@ -1639,6 +1640,7 @@ impl Tree {
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
     hits.into_iter().map(|(node, _)| node.node_id()).collect()
   }
 
@@ -1807,6 +1809,7 @@ impl Tree {
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
     let mut pending_focus = None;
     let mut builtin_needs_redraw = false;
     let mut pending_slider_drag = None;
@@ -3858,6 +3861,33 @@ fn set_node_hovered(node: &Node, hovered: bool) {
   }
 }
 
+fn trim_hits_to_scrollbar_thumb(hits: &mut Vec<(&Node, crate::app::hit_test::HitRect)>, x: f32, y: f32) {
+  let Some(index) = hits
+    .iter()
+    .position(|(node, _)| scrollbar_thumb_axis_at(node, x, y).is_some())
+  else {
+    return;
+  };
+
+  if index > 0 {
+    hits.drain(..index);
+  }
+}
+
+fn scrollbar_thumb_axis_at(node: &Node, x: f32, y: f32) -> Option<ScrollAxis> {
+  let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() else {
+    return None;
+  };
+
+  let style = state.style();
+  scroll_axes(*direction).iter().copied().find(|axis| {
+    let Some((tx, ty, tw, th)) = state.thumb_rect_for_axis(*axis, &style) else {
+      return false;
+    };
+    x >= tx && x <= tx + tw && y >= ty && y <= ty + th
+  })
+}
+
 fn set_node_active(node: &Node, active: bool) {
   node.set_style_active(active);
   if let Some(ref state) = node.interaction {
@@ -4606,9 +4636,7 @@ fn push_border_rect(
     return;
   }
 
-  if let Some(side) = single_stroke_side(stroke)
-    && border_radius_is_zero(border_radius)
-  {
+  if let Some(side) = single_stroke_side(stroke) {
     push_single_side_border_rect(
       rects,
       order,
@@ -4673,12 +4701,6 @@ fn single_stroke_side(stroke: [f32; 4]) -> Option<usize> {
     side = Some(index);
   }
   side
-}
-
-fn border_radius_is_zero(border_radius: Option<BorderRadius>) -> bool {
-  border_radius
-    .map(|radius| radius.to_array().iter().all(|value| *value <= 0.0))
-    .unwrap_or(true)
 }
 
 #[allow(clippy::too_many_arguments)]

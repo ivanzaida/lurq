@@ -11,7 +11,7 @@ use lurq::{
     events::{MouseButton, ScrollPhase},
   },
   components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
-  core::Signal,
+  core::{ElementRef as CoreElementRef, Signal},
   layout::layout_kind::ScrollState,
   node::{Element, color::Color},
 };
@@ -116,6 +116,28 @@ fn scrollbar_drag_release_does_not_click_under_cursor() {
   runtime.mouse_up(10.0, 50.0, MouseButton::Left);
 
   assert_eq!(clicks.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn hovering_scrollbar_thumb_does_not_hover_content_underneath() {
+  let mut runtime = Tree::new();
+  let content_ref = CoreElementRef::new();
+
+  runtime.set_root(
+    ScrollVertical::new(
+      Rect::new(100.0, 400.0)
+        .background(CONTENT_COLOR)
+        .ref_element(content_ref.clone()),
+    )
+    .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_move(94.0, 10.0);
+  assert!(!content_ref.hovered());
+
+  runtime.mouse_move(10.0, 10.0);
+  assert!(content_ref.hovered());
 }
 
 #[test]
