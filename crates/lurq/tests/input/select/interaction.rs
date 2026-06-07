@@ -362,3 +362,36 @@ fn selected_edge_options_inherit_menu_corner_radius() {
     assert_eq!(selected_row.radii, expected_radii);
   }
 }
+
+#[test]
+fn overflowing_option_stays_ellipsized_on_hover() {
+  let long_label = "Speakers (High Definition Audio Device With Extra Long Name)";
+  let value = Signal::new("md".to_owned());
+  let mut tree = Tree::new();
+  tree.set_root(
+    Select::new(value)
+      .options([("md".to_owned(), "Medium"), ("long".to_owned(), long_label)])
+      .width(200.0)
+      .height(40.0),
+  );
+  run_pass(&mut tree);
+
+  let trigger = tree
+    .find_element(|el| el.tag_name() == "Select")
+    .expect("trigger present");
+  let (x, y) = trigger.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  let before_hover = render_pass(&mut tree);
+
+  let option = tree
+    .find_element(|el| el.text_content() == Some(long_label))
+    .expect("long option present");
+  let (x, y) = option.bounds().center();
+  tree.mouse_move(x, y);
+  let after_hover = render_pass(&mut tree);
+
+  assert_eq!(
+    after_hover.glyph_count, before_hover.glyph_count,
+    "hovering an overflowing option should not briefly render the full label"
+  );
+}

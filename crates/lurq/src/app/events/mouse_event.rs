@@ -15,6 +15,9 @@ pub struct MouseEvent {
   pub y: f32,
   pub button: MouseButton,
   pub kind: MouseEventKind,
+  pub shift: bool,
+  pub ctrl: bool,
+  pub alt: bool,
   pub target_id: NodeId,
 }
 

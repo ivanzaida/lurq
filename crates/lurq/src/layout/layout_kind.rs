@@ -41,9 +41,22 @@ pub struct ScrollState {
   inner: Arc<Mutex<ScrollStateInner>>,
 }
 
+#[derive(Clone, Copy)]
+enum PendingScroll {
+  Offset(f32),
+  Start,
+  End,
+  PreservePrependAnchor {
+    previous_content: f32,
+    previous_scroll: f32,
+  },
+}
+
 struct ScrollStateInner {
   scroll_x: f32,
   scroll_y: f32,
+  pending_scroll_x: Option<PendingScroll>,
+  pending_scroll_y: Option<PendingScroll>,
   max_scroll_x: f32,
   max_scroll_y: f32,
   content_width: f32,
@@ -70,6 +83,8 @@ impl ScrollState {
       inner: Arc::new(Mutex::new(ScrollStateInner {
         scroll_x: 0.0,
         scroll_y: 0.0,
+        pending_scroll_x: None,
+        pending_scroll_y: None,
         max_scroll_x: 0.0,
         max_scroll_y: 0.0,
         content_width: 0.0,
@@ -107,11 +122,83 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
-  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
-  pub(crate) fn set_scroll_pending(&self, x: f32, y: f32) {
+  /// Queue an absolute scroll offset to resolve after the next layout measurement.
+  pub fn set_scroll_pending(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
-    inner.scroll_x = x.max(0.0);
-    inner.scroll_y = y.max(0.0);
+    inner.pending_scroll_x = Some(PendingScroll::Offset(x.max(0.0)));
+    inner.pending_scroll_y = Some(PendingScroll::Offset(y.max(0.0)));
+    inner.scroll_dirty = true;
+  }
+
+  /// Queue a vertical scroll to the top after the next layout measurement.
+  pub fn scroll_to_top_pending(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_y = Some(PendingScroll::Start);
+    inner.scroll_dirty = true;
+  }
+
+  /// Queue a vertical scroll to the bottom after the next layout measurement.
+  pub fn scroll_to_bottom_pending(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_y = Some(PendingScroll::End);
+    inner.scroll_dirty = true;
+  }
+
+  /// Queue a horizontal scroll to the left edge after the next layout measurement.
+  pub fn scroll_to_left_pending(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_x = Some(PendingScroll::Start);
+    inner.scroll_dirty = true;
+  }
+
+  /// Queue a horizontal scroll to the right edge after the next layout measurement.
+  pub fn scroll_to_right_pending(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_x = Some(PendingScroll::End);
+    inner.scroll_dirty = true;
+  }
+
+  /// Queue a bottom scroll only when the current vertical offset is within `threshold` of the bottom.
+  pub fn stick_to_bottom_if_near_end(&self, threshold: f32) -> bool {
+    let mut inner = self.inner.lock().unwrap();
+    if inner.max_scroll_y - inner.scroll_y <= threshold.max(0.0) {
+      inner.pending_scroll_y = Some(PendingScroll::End);
+      inner.scroll_dirty = true;
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Queue a right-edge scroll only when the current horizontal offset is within `threshold` of the right edge.
+  pub fn stick_to_right_if_near_end(&self, threshold: f32) -> bool {
+    let mut inner = self.inner.lock().unwrap();
+    if inner.max_scroll_x - inner.scroll_x <= threshold.max(0.0) {
+      inner.pending_scroll_x = Some(PendingScroll::End);
+      inner.scroll_dirty = true;
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Preserve the current vertical viewport position when content is prepended before the next layout.
+  pub fn preserve_prepend_anchor_pending(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_y = Some(PendingScroll::PreservePrependAnchor {
+      previous_content: inner.content_height,
+      previous_scroll: inner.scroll_y,
+    });
+    inner.scroll_dirty = true;
+  }
+
+  /// Preserve the current horizontal viewport position when content is prepended before the next layout.
+  pub fn preserve_horizontal_prepend_anchor_pending(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_x = Some(PendingScroll::PreservePrependAnchor {
+      previous_content: inner.content_width,
+      previous_scroll: inner.scroll_x,
+    });
     inner.scroll_dirty = true;
   }
 
@@ -378,6 +465,12 @@ impl ScrollState {
     inner.viewport_height = viewport_h.max(0.0);
     inner.max_scroll_x = (content_w - inner.viewport_width).max(0.0);
     inner.max_scroll_y = (content_h - inner.viewport_height).max(0.0);
+    if let Some(pending) = inner.pending_scroll_x.take() {
+      inner.scroll_x = resolve_pending_scroll(pending, inner.content_width, inner.max_scroll_x);
+    }
+    if let Some(pending) = inner.pending_scroll_y.take() {
+      inner.scroll_y = resolve_pending_scroll(pending, inner.content_height, inner.max_scroll_y);
+    }
     inner.scroll_x = inner.scroll_x.clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = inner.scroll_y.clamp(0.0, inner.max_scroll_y);
   }
@@ -386,6 +479,18 @@ impl ScrollState {
     let mut inner = self.inner.lock().unwrap();
     inner.viewport_abs_x = x;
     inner.viewport_abs_y = y;
+  }
+}
+
+fn resolve_pending_scroll(pending: PendingScroll, content_size: f32, max_scroll: f32) -> f32 {
+  match pending {
+    PendingScroll::Offset(offset) => offset,
+    PendingScroll::Start => 0.0,
+    PendingScroll::End => max_scroll,
+    PendingScroll::PreservePrependAnchor {
+      previous_content,
+      previous_scroll,
+    } => previous_scroll + (content_size - previous_content),
   }
 }
 

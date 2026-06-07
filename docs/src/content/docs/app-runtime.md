@@ -80,10 +80,13 @@ WinitWindow::new(app, tree)
   .with_title("lurq app")
   .with_size(1200, 800)
   .with_min_size(800, 500)
+  .with_decorations(false)
   .run();
 ```
 
 The shell runs a steady redraw tick automatically. Use `on_tick` only for custom per-frame app work.
+
+Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, moving, resizing, and native platform window drag or resize requests for custom chrome. `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
 
 ## Frame And Redraw Flow
 
@@ -141,7 +144,6 @@ Use `find_element_mut` only for imperative layout overrides. Declarative compone
 The runtime has a built-in frame perf overlay.
 
 ```rust
-app.set_profiling_enabled(true);
 tree.draw_perf_overlay();
 ```
 

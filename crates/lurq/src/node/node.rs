@@ -1962,7 +1962,7 @@ impl Node {
     self.replace_component_slot_in(slot_id, &mut replacement)
   }
 
-  fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Node>) -> bool {
+  pub(crate) fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Node>) -> bool {
     if self.component_slot_id == Some(slot_id) {
       *self = replacement
         .take()

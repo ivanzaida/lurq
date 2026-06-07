@@ -1516,12 +1516,12 @@ impl Ctx {
     theme
   }
 
-  /// Current window geometry (position, resolved/logical size, scale factor).
+  /// Current window geometry/state plus platform window commands.
   /// Reading this subscribes the component to window resize/move/scale changes.
-  pub fn window(&self) -> crate::app::window::WindowInfo {
+  pub fn window(&self) -> crate::app::window::WindowHandle {
     let window = self.window.as_ref().expect("window not set");
     window.track_access();
-    window.info()
+    window.handle()
   }
 
   /// Current viewport breakpoint, resolved from the window's logical width
@@ -1665,6 +1665,34 @@ impl Ctx {
       .iter()
       .map(|entry| entry.node.clone_for_reuse())
       .collect()
+  }
+
+  /// Splice partial-render replacements into the live modal registry nodes.
+  ///
+  /// During a partial reactive update the modal-owning component does not
+  /// re-run, so its `modal` closure never repushes the modal subtree. Without
+  /// this, a dirty component mounted inside a modal re-renders but its new node
+  /// is never reflected in the modal layer. Returns the replacements that did
+  /// not match any modal entry so the caller can handle them elsewhere.
+  pub(crate) fn apply_modal_slot_replacements(&self, replacements: Vec<(u64, Node)>) -> Vec<(u64, Node)> {
+    let mut registry = self.modal_registry.lock();
+    let mut unmatched = Vec::new();
+    for (slot_id, replacement) in replacements {
+      let mut slot = Some(replacement);
+      let mut matched = false;
+      for entry in registry.iter_mut() {
+        if entry.node.replace_component_slot_in(slot_id, &mut slot) {
+          matched = true;
+          break;
+        }
+      }
+      if !matched {
+        if let Some(node) = slot {
+          unmatched.push((slot_id, node));
+        }
+      }
+    }
+    unmatched
   }
 
   // --- Component mounting ---

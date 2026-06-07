@@ -3,10 +3,14 @@ use std::time::{Duration, Instant};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use winit::{
   application::ApplicationHandler,
+  dpi::{PhysicalPosition, PhysicalSize, Position},
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
   keyboard::{Key, ModifiersState, NamedKey, PhysicalKey},
-  window::{CursorIcon as WinitCursorIcon, Window, WindowAttributes, WindowId},
+  window::{
+    CursorIcon as WinitCursorIcon, Fullscreen, ResizeDirection as WinitResizeDirection, Window, WindowAttributes,
+    WindowId,
+  },
 };
 
 use crate::{
@@ -14,11 +18,14 @@ use crate::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
     runtime::{SecondaryWindow, SecondaryWindowMetadata},
+    window::{WindowCommand, WindowResizeDirection},
   },
   node::CursorIcon,
 };
 
 type TickFn = Box<dyn FnMut(&mut Tree)>;
+type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
+type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
 const TICK_INTERVAL: Duration = Duration::from_millis(16);
 
 pub struct WinitWindow {
@@ -26,6 +33,8 @@ pub struct WinitWindow {
   tree: Tree,
   attrs: WindowAttributes,
   on_tick: Option<TickFn>,
+  on_position_changed: Option<PositionChangedFn>,
+  on_size_changed: Option<SizeChangedFn>,
 }
 
 impl WinitWindow {
@@ -35,6 +44,8 @@ impl WinitWindow {
       tree,
       attrs: WindowAttributes::default(),
       on_tick: None,
+      on_position_changed: None,
+      on_size_changed: None,
     }
   }
 
@@ -45,6 +56,13 @@ impl WinitWindow {
 
   pub fn with_size(mut self, width: u32, height: u32) -> Self {
     self.attrs = self.attrs.with_inner_size(winit::dpi::LogicalSize::new(width, height));
+    self
+  }
+
+  pub fn with_position(mut self, x: i32, y: i32) -> Self {
+    self.attrs = self
+      .attrs
+      .with_position(Position::Physical(PhysicalPosition::new(x, y)));
     self
   }
 
@@ -69,6 +87,7 @@ impl WinitWindow {
 
   pub fn with_decorations(mut self, decorations: bool) -> Self {
     self.attrs = self.attrs.with_decorations(decorations);
+    self.tree.window().set_decorated(decorations);
     self
   }
 
@@ -82,6 +101,22 @@ impl WinitWindow {
     F: FnMut(&mut Tree) + 'static,
   {
     self.on_tick = Some(Box::new(tick));
+    self
+  }
+
+  pub fn on_position_changed<F>(mut self, callback: F) -> Self
+  where
+    F: FnMut(i32, i32) + 'static,
+  {
+    self.on_position_changed = Some(Box::new(callback));
+    self
+  }
+
+  pub fn on_size_changed<F>(mut self, callback: F) -> Self
+  where
+    F: FnMut(u32, u32) + 'static,
+  {
+    self.on_size_changed = Some(Box::new(callback));
     self
   }
 
@@ -99,7 +134,14 @@ impl WinitWindow {
 
     let mut handler = WinitHandler {
       app: self.app,
-      main: ManagedWindow::new(tree, self.attrs, self.on_tick, true),
+      main: ManagedWindow::new(
+        tree,
+        self.attrs,
+        self.on_tick,
+        self.on_position_changed,
+        self.on_size_changed,
+        true,
+      ),
       secondaries,
     };
     event_loop.run_app(&mut handler).unwrap();
@@ -114,12 +156,21 @@ struct ManagedWindow {
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   on_tick: Option<TickFn>,
+  on_position_changed: Option<PositionChangedFn>,
+  on_size_changed: Option<SizeChangedFn>,
   redraw_pending: bool,
   close_exits: bool,
 }
 
 impl ManagedWindow {
-  fn new(tree: Tree, attrs: WindowAttributes, on_tick: Option<TickFn>, close_exits: bool) -> Self {
+  fn new(
+    tree: Tree,
+    attrs: WindowAttributes,
+    on_tick: Option<TickFn>,
+    on_position_changed: Option<PositionChangedFn>,
+    on_size_changed: Option<SizeChangedFn>,
+    close_exits: bool,
+  ) -> Self {
     Self {
       tree,
       window: None,
@@ -128,6 +179,8 @@ impl ManagedWindow {
       modifiers: ModifiersState::empty(),
       attrs: Some(attrs),
       on_tick,
+      on_position_changed,
+      on_size_changed,
       redraw_pending: false,
       close_exits,
     }
@@ -151,11 +204,96 @@ impl ManagedWindow {
     let size = window.inner_size();
     self.tree.set_scale_factor(window.scale_factor() as f32);
     self.tree.resize(size.width, size.height);
+    self.notify_size_changed(size.width, size.height);
     if let Ok(position) = window.outer_position() {
       self.tree.set_window_position(position.x, position.y);
+      self.notify_position_changed(position.x, position.y);
     }
     self.window = Some(window);
+    self.sync_window_state();
     self.request_redraw();
+  }
+
+  fn sync_window_state(&mut self) {
+    if let Some(window) = &self.window {
+      if let Some(minimized) = window.is_minimized() {
+        self.tree.window().set_minimized(minimized);
+      }
+      self.tree.window().set_maximized(window.is_maximized());
+      self.tree.window().set_full_screen(window.fullscreen().is_some());
+    }
+  }
+
+  fn apply_window_commands(&mut self, event_loop: &ActiveEventLoop) -> bool {
+    let commands = self.tree.window().take_commands();
+    if commands.is_empty() {
+      return false;
+    }
+
+    let mut closed = false;
+    for command in commands {
+      match command {
+        WindowCommand::Close => {
+          if self.close_exits {
+            event_loop.exit();
+          } else {
+            self.window = None;
+            self.redraw_pending = false;
+            closed = true;
+          }
+        }
+        WindowCommand::SetMinimized(minimized) => {
+          if let Some(window) = &self.window {
+            window.set_minimized(minimized);
+          }
+          self.tree.window().set_minimized(minimized);
+        }
+        WindowCommand::SetMaximized(maximized) => {
+          if let Some(window) = &self.window {
+            window.set_maximized(maximized);
+          }
+          self.tree.window().set_maximized(maximized);
+        }
+        WindowCommand::SetFullScreen(full_screen) => {
+          if let Some(window) = &self.window {
+            window.set_fullscreen(full_screen.then(|| Fullscreen::Borderless(None)));
+          }
+          self.tree.window().set_full_screen(full_screen);
+        }
+        WindowCommand::SetDecorated(decorated) => {
+          if let Some(window) = &self.window {
+            window.set_decorations(decorated);
+          }
+          self.tree.window().set_decorated(decorated);
+        }
+        WindowCommand::Move { x, y } => {
+          if let Some(window) = &self.window {
+            window.set_outer_position(PhysicalPosition::new(x, y));
+          }
+          self.tree.set_window_position(x, y);
+          self.notify_position_changed(x, y);
+        }
+        WindowCommand::Resize { width, height } => {
+          if let Some(window) = &self.window {
+            let _ = window.request_inner_size(PhysicalSize::new(width, height));
+          }
+          self.notify_size_changed(width, height);
+        }
+        WindowCommand::StartDrag => {
+          if let Some(window) = &self.window {
+            let _ = window.drag_window();
+          }
+        }
+        WindowCommand::StartResize(direction) => {
+          if let Some(window) = &self.window {
+            let _ = window.drag_resize_window(to_winit_resize_direction(direction));
+          }
+        }
+        WindowCommand::StopDrag => {}
+      }
+    }
+    self.sync_window_state();
+    closed
   }
 
   fn check_redraw(&mut self) {
@@ -211,6 +349,22 @@ impl ManagedWindow {
     self.check_redraw();
   }
 
+  fn notify_position_changed(&mut self, x: i32, y: i32) {
+    if let Some(callback) = &mut self.on_position_changed {
+      callback(x, y);
+    }
+  }
+
+  fn notify_size_changed(&mut self, width: u32, height: u32) {
+    if let Some(callback) = &mut self.on_size_changed {
+      let scale = self.tree.window().info().scale_factor.max(f32::EPSILON);
+      callback(
+        ((width as f32) / scale).round().max(1.0) as u32,
+        ((height as f32) / scale).round().max(1.0) as u32,
+      );
+    }
+  }
+
   fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
     self.tree.set_app_ref(app);
     match event {
@@ -232,15 +386,27 @@ impl ManagedWindow {
       }
       WindowEvent::Resized(size) => {
         self.tree.resize(size.width, size.height);
+        self.notify_size_changed(size.width, size.height);
+        self.sync_window_state();
+        self.request_redraw();
+      }
+      WindowEvent::Focused(focused) => {
+        self.tree.window().set_focused(focused);
         self.request_redraw();
       }
       WindowEvent::Moved(position) => {
         self.tree.set_window_position(position.x, position.y);
-        self.check_redraw();
+        self.notify_position_changed(position.x, position.y);
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
-        self.tree.mouse_move(position.x as f32, position.y as f32);
+        self.tree.mouse_move_with_modifiers(
+          position.x as f32,
+          position.y as f32,
+          self.modifiers.shift_key(),
+          self.modifiers.control_key(),
+          self.modifiers.alt_key(),
+        );
         self.apply_cursor();
         self.check_redraw();
       }
@@ -258,27 +424,50 @@ impl ManagedWindow {
         };
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
-          ElementState::Pressed => self.tree.mouse_down(x, y, btn),
-          ElementState::Released => self.tree.mouse_up(x, y, btn),
+          ElementState::Pressed => self.tree.mouse_down_with_modifiers(
+            x,
+            y,
+            btn,
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          ),
+          ElementState::Released => self.tree.mouse_up_with_modifiers(
+            x,
+            y,
+            btn,
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          ),
         }
+        self.apply_window_commands(event_loop);
         self.apply_cursor();
         self.check_redraw();
+        return false;
       }
       WindowEvent::ModifiersChanged(modifiers) => {
         self.modifiers = modifiers.state();
       }
       WindowEvent::KeyboardInput { event, .. } => {
-        if matches!(event.state, ElementState::Pressed) {
-          self.tree.key_down(
+        match event.state {
+          ElementState::Pressed => self.tree.key_down(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
-          );
-          self.apply_cursor();
-          self.check_redraw();
+          ),
+          ElementState::Released => self.tree.key_up(
+            key_to_string(&event),
+            physical_key_to_string(&event.physical_key),
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          ),
         }
+        self.apply_cursor();
+        self.check_redraw();
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
         let (mut dx, mut dy) = match delta {
@@ -301,10 +490,14 @@ impl ManagedWindow {
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {
-        return self.present_now(app);
+        let presented = self.present_now(app);
+        self.apply_window_commands(event_loop);
+        return presented;
       }
       _ => {}
     }
+    self.apply_window_commands(event_loop);
+    self.check_redraw();
     false
   }
 }
@@ -359,9 +552,89 @@ impl ManagedSecondaryWindow {
     let metadata = secondary_window_metadata(&window);
     tree.set_scale_factor(window.scale_factor() as f32);
     tree.resize(size.width, size.height);
+    if let Ok(position) = window.outer_position() {
+      tree.set_window_position(position.x, position.y);
+    }
     self.window = Some(window);
+    self.sync_window_state(tree);
     self.request_redraw();
     Some(metadata)
+  }
+
+  fn sync_window_state(&mut self, tree: &mut Tree) {
+    if let Some(window) = &self.window {
+      if let Some(minimized) = window.is_minimized() {
+        tree.window().set_minimized(minimized);
+      }
+      tree.window().set_maximized(window.is_maximized());
+      tree.window().set_full_screen(window.fullscreen().is_some());
+    }
+  }
+
+  fn apply_window_commands(&mut self, tree: &mut Tree) -> bool {
+    let commands = tree.window().take_commands();
+    if commands.is_empty() {
+      return false;
+    }
+
+    let mut closed = false;
+    for command in commands {
+      match command {
+        WindowCommand::Close => {
+          self.window = None;
+          self.redraw_pending = false;
+          closed = true;
+        }
+        WindowCommand::SetMinimized(minimized) => {
+          if let Some(window) = &self.window {
+            window.set_minimized(minimized);
+          }
+          tree.window().set_minimized(minimized);
+        }
+        WindowCommand::SetMaximized(maximized) => {
+          if let Some(window) = &self.window {
+            window.set_maximized(maximized);
+          }
+          tree.window().set_maximized(maximized);
+        }
+        WindowCommand::SetFullScreen(full_screen) => {
+          if let Some(window) = &self.window {
+            window.set_fullscreen(full_screen.then(|| Fullscreen::Borderless(None)));
+          }
+          tree.window().set_full_screen(full_screen);
+        }
+        WindowCommand::SetDecorated(decorated) => {
+          if let Some(window) = &self.window {
+            window.set_decorations(decorated);
+          }
+          tree.window().set_decorated(decorated);
+        }
+        WindowCommand::Move { x, y } => {
+          if let Some(window) = &self.window {
+            window.set_outer_position(PhysicalPosition::new(x, y));
+          }
+          tree.set_window_position(x, y);
+        }
+        WindowCommand::Resize { width, height } => {
+          if let Some(window) = &self.window {
+            let _ = window.request_inner_size(PhysicalSize::new(width, height));
+          }
+        }
+        WindowCommand::StartDrag => {
+          if let Some(window) = &self.window {
+            let _ = window.drag_window();
+          }
+        }
+        WindowCommand::StartResize(direction) => {
+          if let Some(window) = &self.window {
+            let _ = window.drag_resize_window(to_winit_resize_direction(direction));
+          }
+        }
+        WindowCommand::StopDrag => {}
+      }
+    }
+    self.sync_window_state(tree);
+    closed
   }
 
   fn check_redraw(&mut self, tree: &Tree) {
@@ -437,11 +710,25 @@ impl ManagedSecondaryWindow {
       }
       WindowEvent::Resized(size) => {
         tree.resize(size.width, size.height);
+        self.sync_window_state(tree);
         self.request_redraw();
+      }
+      WindowEvent::Focused(focused) => {
+        tree.window().set_focused(focused);
+        self.request_redraw();
+      }
+      WindowEvent::Moved(position) => {
+        tree.set_window_position(position.x, position.y);
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
-        tree.mouse_move(position.x as f32, position.y as f32);
+        tree.mouse_move_with_modifiers(
+          position.x as f32,
+          position.y as f32,
+          self.modifiers.shift_key(),
+          self.modifiers.control_key(),
+          self.modifiers.alt_key(),
+        );
         self.apply_cursor(tree);
         self.check_redraw(tree);
       }
@@ -459,27 +746,50 @@ impl ManagedSecondaryWindow {
         };
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
-          ElementState::Pressed => tree.mouse_down(x, y, btn),
-          ElementState::Released => tree.mouse_up(x, y, btn),
+          ElementState::Pressed => tree.mouse_down_with_modifiers(
+            x,
+            y,
+            btn,
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          ),
+          ElementState::Released => tree.mouse_up_with_modifiers(
+            x,
+            y,
+            btn,
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          ),
         }
+        self.apply_window_commands(tree);
         self.apply_cursor(tree);
         self.check_redraw(tree);
+        return false;
       }
       WindowEvent::ModifiersChanged(modifiers) => {
         self.modifiers = modifiers.state();
       }
       WindowEvent::KeyboardInput { event, .. } => {
-        if matches!(event.state, ElementState::Pressed) {
-          tree.key_down(
+        match event.state {
+          ElementState::Pressed => tree.key_down(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
-          );
-          self.apply_cursor(tree);
-          self.check_redraw(tree);
+          ),
+          ElementState::Released => tree.key_up(
+            key_to_string(&event),
+            physical_key_to_string(&event.physical_key),
+            self.modifiers.shift_key(),
+            self.modifiers.control_key(),
+            self.modifiers.alt_key(),
+          ),
         }
+        self.apply_cursor(tree);
+        self.check_redraw(tree);
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
         let (mut dx, mut dy) = match delta {
@@ -500,10 +810,14 @@ impl ManagedSecondaryWindow {
         self.check_redraw(tree);
       }
       WindowEvent::RedrawRequested => {
-        return self.present_now(app, tree);
+        let presented = self.present_now(app, tree);
+        self.apply_window_commands(tree);
+        return presented;
       }
       _ => {}
     }
+    self.apply_window_commands(tree);
+    self.check_redraw(tree);
     false
   }
 }
@@ -671,9 +985,11 @@ impl ApplicationHandler for WinitHandler {
 
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     self.main.tick();
+    self.main.apply_window_commands(event_loop);
     for secondary_window in &mut self.secondaries {
       if let Some(secondary) = self.main.tree.secondary_window_mut(secondary_window.index()) {
         secondary_window.tick(secondary.tree_mut());
+        secondary_window.apply_window_commands(secondary.tree_mut());
       }
     }
 
@@ -769,5 +1085,18 @@ fn to_winit_cursor(cursor: CursorIcon) -> WinitCursorIcon {
     CursorIcon::ZoomOut => WinitCursorIcon::ZoomOut,
     CursorIcon::DndAsk => WinitCursorIcon::DndAsk,
     CursorIcon::AllResize => WinitCursorIcon::AllResize,
+  }
+}
+
+fn to_winit_resize_direction(direction: WindowResizeDirection) -> WinitResizeDirection {
+  match direction {
+    WindowResizeDirection::East => WinitResizeDirection::East,
+    WindowResizeDirection::North => WinitResizeDirection::North,
+    WindowResizeDirection::NorthEast => WinitResizeDirection::NorthEast,
+    WindowResizeDirection::NorthWest => WinitResizeDirection::NorthWest,
+    WindowResizeDirection::South => WinitResizeDirection::South,
+    WindowResizeDirection::SouthEast => WinitResizeDirection::SouthEast,
+    WindowResizeDirection::SouthWest => WinitResizeDirection::SouthWest,
+    WindowResizeDirection::West => WinitResizeDirection::West,
   }
 }

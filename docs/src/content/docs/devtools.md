@@ -139,7 +139,7 @@ The perf overlay is separate from DevTools but feeds data that DevTools can show
 tree.draw_perf_overlay();
 ```
 
-The overlay samples FPS once per second and shows frame stage timings such as layout, resolve, glyph, acquire, upload, encode, submit, and present.
+The overlay enables the frame profiling it needs, samples FPS once per second, and shows frame stage timings such as layout, resolve, glyph, acquire, upload, encode, submit, and present.
 
 ## Common Issues
 

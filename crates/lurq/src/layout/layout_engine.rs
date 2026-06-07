@@ -1177,16 +1177,16 @@ impl LayoutEngine {
 
   fn prepare_cached_result(node: &Node, mut cached: LayoutResult) -> LayoutResult {
     if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-      if let Some(child) = cached.children.first_mut() {
-        child.offset.x = -state.scroll_x();
-        child.offset.y = -state.scroll_y();
-      }
       state.update_layout(
         cached.children.first().map(|c| c.result.size.width).unwrap_or(0.0),
         cached.children.first().map(|c| c.result.size.height).unwrap_or(0.0),
         cached.size.width,
         cached.size.height,
       );
+      if let Some(child) = cached.children.first_mut() {
+        child.offset.x = -state.scroll_x();
+        child.offset.y = -state.scroll_y();
+      }
     }
     cached
   }

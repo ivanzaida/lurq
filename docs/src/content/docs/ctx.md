@@ -260,6 +260,79 @@ brand.set(Color::from_hex("#2563eb"));
 
 Only call `theme()` from a context managed by runtime. A manually-created root context without a theme will panic.
 
+## Window
+
+```rust
+let window = ctx.window();
+
+let logical = window.logical_size();
+let minimized = window.is_minimized;
+let full_screen = window.is_full_screen;
+let decorated = window.is_decorated;
+```
+
+`ctx.window()` returns a reactive window handle. Reading it subscribes the component to window resize, move, scale, minimized, fullscreen, and decoration-state changes.
+
+The handle dereferences to `WindowInfo`, so geometry helpers such as `position()`, `resolved_size()`, `logical_size()`, `logical_width()`, and `logical_height()` are available directly.
+
+Window commands are queued and applied by the active platform shell:
+
+```rust
+let window = ctx.window();
+
+window.close();
+window.set_minimized(true);
+window.set_full_screen(true);
+window.set_decorations(false);
+window.resize(1280, 720);
+window.move_to(120, 80);
+window.start_drag();
+window.start_resize(WindowResizeDirection::SouthEast);
+window.stop_drag();
+```
+
+Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
+
+For custom title bars, call `window.start_drag()` from the press handler for the draggable region. Call `window.start_resize(direction)` from the press handler for custom edge or corner resize handles. The active platform shell uses its native window drag and resize APIs when available. `window.stop_drag()` ends custom drag state for shells that need it; on winit, the OS ends native drag and resize operations automatically on release.
+
+```rust
+use lurq::{
+  app::events::MouseButton,
+  components::{Stack, Text},
+};
+
+let window = ctx.window();
+
+Stack::new()
+  .height(36.0)
+  .child(Text::new("My App").padding_horizontal(12.0))
+  .on_mouse_down(move |event| {
+    if event.button == MouseButton::Left {
+      window.start_drag();
+    }
+  })
+```
+
+Native resize should be started immediately after the left mouse button press. For an undecorated window, render small edge and corner hit zones and call the matching direction:
+
+```rust
+use lurq::{
+  app::{events::MouseButton, WindowResizeDirection},
+  components::Rect,
+  node::CursorIcon,
+};
+
+let window = ctx.window();
+
+Rect::new(8.0, 8.0)
+  .cursor(CursorIcon::NwseResize)
+  .on_mouse_down(move |event| {
+    if event.button == MouseButton::Left {
+      window.start_resize(WindowResizeDirection::SouthEast);
+    }
+  })
+```
+
 ## Slot Children
 
 Parents pass slot children with `mount_with` or `mount_keyed_with`:

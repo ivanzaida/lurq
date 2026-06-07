@@ -80,6 +80,109 @@ fn horizontal_scroll_responds_to_wheel_delta_x() {
 }
 
 #[test]
+fn pending_scroll_to_bottom_resolves_before_first_paint() {
+  let mut runtime = Tree::new();
+  let state = ScrollState::new();
+  state.scroll_to_bottom_pending();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+
+  let content = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap();
+  assert_eq!(state.scroll_y(), 300.0);
+  assert_eq!(content.bounds().y, -300.0);
+}
+
+#[test]
+fn pending_scroll_to_right_resolves_before_first_paint() {
+  let mut runtime = Tree::new();
+  let state = ScrollState::new();
+  state.scroll_to_right_pending();
+
+  runtime.set_root(
+    ScrollHorizontal::new(Rect::new(400.0, 100.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+
+  let content = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap();
+  assert_eq!(state.scroll_x(), 300.0);
+  assert_eq!(content.bounds().x, -300.0);
+}
+
+#[test]
+fn stick_to_bottom_only_when_near_end() {
+  let mut runtime = Tree::new();
+  let state = ScrollState::new();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 300.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  run_pass(&mut runtime);
+  state.set_scroll(0.0, 196.0);
+
+  assert!(state.stick_to_bottom_if_near_end(8.0));
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  run_pass(&mut runtime);
+  assert_eq!(state.scroll_y(), 300.0);
+
+  state.set_scroll(0.0, 50.0);
+  assert!(!state.stick_to_bottom_if_near_end(8.0));
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 500.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  run_pass(&mut runtime);
+  assert_eq!(state.scroll_y(), 50.0);
+}
+
+#[test]
+fn preserve_prepend_anchor_compensates_added_content_height() {
+  let mut runtime = Tree::new();
+  let state = ScrollState::new();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 300.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  run_pass(&mut runtime);
+  state.set_scroll(0.0, 80.0);
+  state.preserve_prepend_anchor_pending();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 350.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  run_pass(&mut runtime);
+
+  let content = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap();
+  assert_eq!(state.scroll_y(), 130.0);
+  assert_eq!(content.bounds().y, -130.0);
+}
+
+#[test]
 fn horizontal_scrollbar_thumb_drags_content() {
   let mut runtime = Tree::new();
   runtime.set_root(ScrollHorizontal::new(Rect::new(400.0, 100.0).background(CONTENT_COLOR)).size(100.0, 100.0));

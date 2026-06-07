@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+  ops::Deref,
+  sync::{Arc, RwLock},
+};
 
 use crate::{core::Signal, layout::size::Size};
 
@@ -13,6 +16,11 @@ pub struct WindowInfo {
   pub resolved_width: f32,
   pub resolved_height: f32,
   pub scale_factor: f32,
+  pub is_minimized: bool,
+  pub is_maximized: bool,
+  pub is_full_screen: bool,
+  pub is_decorated: bool,
+  pub is_focused: bool,
 }
 
 impl WindowInfo {
@@ -38,6 +46,100 @@ impl WindowInfo {
   }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowResizeDirection {
+  East,
+  North,
+  NorthEast,
+  NorthWest,
+  South,
+  SouthEast,
+  SouthWest,
+  West,
+}
+
+#[derive(Clone)]
+pub struct WindowHandle {
+  info: WindowInfo,
+  window: Window,
+}
+
+impl WindowHandle {
+  pub fn info(&self) -> WindowInfo {
+    self.info
+  }
+
+  pub fn close(&self) {
+    self.window.push_command(WindowCommand::Close);
+  }
+
+  pub fn set_minimized(&self, minimized: bool) {
+    self.window.push_command(WindowCommand::SetMinimized(minimized));
+  }
+
+  pub fn set_maximized(&self, maximized: bool) {
+    self.window.push_command(WindowCommand::SetMaximized(maximized));
+  }
+
+  pub fn set_full_screen(&self, full_screen: bool) {
+    self.window.push_command(WindowCommand::SetFullScreen(full_screen));
+  }
+
+  pub fn set_decorated(&self, decorated: bool) {
+    self.window.push_command(WindowCommand::SetDecorated(decorated));
+  }
+
+  pub fn set_decorations(&self, decorations: bool) {
+    self.set_decorated(decorations);
+  }
+
+  pub fn r#move(&self, x: i32, y: i32) {
+    self.window.push_command(WindowCommand::Move { x, y });
+  }
+
+  pub fn move_to(&self, x: i32, y: i32) {
+    self.r#move(x, y);
+  }
+
+  pub fn resize(&self, width: u32, height: u32) {
+    self.window.push_command(WindowCommand::Resize { width, height });
+  }
+
+  pub fn start_drag(&self) {
+    self.window.push_command(WindowCommand::StartDrag);
+  }
+
+  pub fn start_resize(&self, direction: WindowResizeDirection) {
+    self.window.push_command(WindowCommand::StartResize(direction));
+  }
+
+  pub fn stop_drag(&self) {
+    self.window.push_command(WindowCommand::StopDrag);
+  }
+}
+
+impl Deref for WindowHandle {
+  type Target = WindowInfo;
+
+  fn deref(&self) -> &Self::Target {
+    &self.info
+  }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WindowCommand {
+  Close,
+  SetMinimized(bool),
+  SetMaximized(bool),
+  SetFullScreen(bool),
+  SetDecorated(bool),
+  Move { x: i32, y: i32 },
+  Resize { width: u32, height: u32 },
+  StartDrag,
+  StartResize(WindowResizeDirection),
+  StopDrag,
+}
+
 /// Reactive, per-window geometry handle held by the `Tree` and injected into
 /// its root `Ctx`. Reads through `ctx.window()` subscribe to changes via the
 /// version signal; the shell pushes resize/scale/move updates here.
@@ -50,6 +152,7 @@ pub struct Window {
 struct WindowInner {
   info: WindowInfo,
   version: u64,
+  commands: Vec<WindowCommand>,
 }
 
 impl Default for Window {
@@ -68,8 +171,14 @@ impl Window {
           resolved_width: 0.0,
           resolved_height: 0.0,
           scale_factor: 1.0,
+          is_minimized: false,
+          is_maximized: false,
+          is_full_screen: false,
+          is_decorated: true,
+          is_focused: true,
         },
         version: 0,
+        commands: Vec::new(),
       })),
       version_signal: Signal::new(0),
     }
@@ -81,6 +190,22 @@ impl Window {
 
   pub(crate) fn info(&self) -> WindowInfo {
     self.inner.read().unwrap().info
+  }
+
+  pub(crate) fn handle(&self) -> WindowHandle {
+    WindowHandle {
+      info: self.info(),
+      window: self.clone(),
+    }
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn take_commands(&self) -> Vec<WindowCommand> {
+    std::mem::take(&mut self.inner.write().unwrap().commands)
+  }
+
+  fn push_command(&self, command: WindowCommand) {
+    self.inner.write().unwrap().commands.push(command);
   }
 
   pub fn version(&self) -> u64 {
@@ -120,6 +245,71 @@ impl Window {
       }
       inner.info.x = x;
       inner.info.y = y;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_minimized(&self, minimized: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.is_minimized == minimized {
+        return;
+      }
+      inner.info.is_minimized = minimized;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_maximized(&self, maximized: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.is_maximized == maximized {
+        return;
+      }
+      inner.info.is_maximized = maximized;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_full_screen(&self, full_screen: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.is_full_screen == full_screen {
+        return;
+      }
+      inner.info.is_full_screen = full_screen;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_decorated(&self, decorated: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.is_decorated == decorated {
+        return;
+      }
+      inner.info.is_decorated = decorated;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_focused(&self, focused: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.is_focused == focused {
+        return;
+      }
+      inner.info.is_focused = focused;
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);

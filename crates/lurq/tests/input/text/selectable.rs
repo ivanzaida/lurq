@@ -46,6 +46,152 @@ fn selectable_text_drag_renders_selection() {
 }
 
 #[test]
+fn selecting_another_selectable_text_clears_previous_selection() {
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::Column::new()
+      .spacing(8.0)
+      .child(lurq::components::Text::new("first selectable text").selectable(true))
+      .child(lurq::components::Text::new("second selectable text").selectable(true)),
+  );
+  run_pass(&mut runtime);
+
+  let first = runtime
+    .find_element(|node| node.text_content() == Some("first selectable text"))
+    .unwrap()
+    .bounds();
+  let first_y = first.y + first.height / 2.0;
+  runtime.mouse_down(first.x, first_y, MouseButton::Left);
+  runtime.mouse_move(first.x + first.width, first_y);
+  runtime.mouse_up(first.x + first.width, first_y, MouseButton::Left);
+
+  assert_eq!(selection_rect_count(&mut runtime), 1);
+
+  let second = runtime
+    .find_element(|node| node.text_content() == Some("second selectable text"))
+    .unwrap()
+    .bounds();
+  let second_y = second.y + second.height / 2.0;
+  runtime.mouse_down(second.x, second_y, MouseButton::Left);
+  runtime.mouse_move(second.x + second.width, second_y);
+  runtime.mouse_up(second.x + second.width, second_y, MouseButton::Left);
+
+  assert_eq!(selection_rect_count(&mut runtime), 1);
+}
+
+#[test]
+fn dragging_between_selectable_text_nodes_selects_one_range() {
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::Column::new()
+      .spacing(8.0)
+      .child(lurq::components::Text::new("first selectable text").selectable(true))
+      .child(lurq::components::Text::new("second selectable text").selectable(true)),
+  );
+  run_pass(&mut runtime);
+
+  let first = runtime
+    .find_element(|node| node.text_content() == Some("first selectable text"))
+    .unwrap()
+    .bounds();
+  let second = runtime
+    .find_element(|node| node.text_content() == Some("second selectable text"))
+    .unwrap()
+    .bounds();
+
+  let first_y = first.y + first.height / 2.0;
+  let second_y = second.y + second.height / 2.0;
+  runtime.mouse_down(first.x + 10.0, first_y, MouseButton::Left);
+  runtime.mouse_move(second.x + second.width, second_y);
+  runtime.mouse_up(second.x + second.width, second_y, MouseButton::Left);
+
+  assert_eq!(selection_rect_count(&mut runtime), 2);
+}
+
+#[test]
+fn escape_clears_selectable_text_selection() {
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::Text::new("Hello world").selectable(true));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  runtime.mouse_down(rect.x, y, MouseButton::Left);
+  runtime.mouse_move(rect.x + rect.width, y);
+  runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
+  assert_eq!(selection_rect_count(&mut runtime), 1);
+
+  runtime.key_down("Escape".to_owned(), "Escape".to_owned(), false, false, false);
+
+  assert_eq!(selection_rect_count(&mut runtime), 0);
+}
+
+#[test]
+fn clicking_outside_selectable_text_clears_selection() {
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::Column::new()
+      .child(lurq::components::Text::new("Hello world").selectable(true))
+      .width(240.0)
+      .height(120.0),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime
+    .find_element(|node| node.text_content() == Some("Hello world"))
+    .unwrap()
+    .bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  runtime.mouse_down(rect.x, y, MouseButton::Left);
+  runtime.mouse_move(rect.x + rect.width, y);
+  runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
+  assert_eq!(selection_rect_count(&mut runtime), 1);
+
+  pointer_click(&mut runtime, 220.0, 100.0);
+
+  assert_eq!(selection_rect_count(&mut runtime), 0);
+}
+
+#[test]
+fn ctrl_selecting_another_selectable_text_preserves_previous_selection() {
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::Column::new()
+      .spacing(8.0)
+      .child(lurq::components::Text::new("first selectable text").selectable(true))
+      .child(lurq::components::Text::new("second selectable text").selectable(true)),
+  );
+  run_pass(&mut runtime);
+
+  let first = runtime
+    .find_element(|node| node.text_content() == Some("first selectable text"))
+    .unwrap()
+    .bounds();
+  let first_y = first.y + first.height / 2.0;
+  runtime.mouse_down(first.x, first_y, MouseButton::Left);
+  runtime.mouse_move(first.x + first.width, first_y);
+  runtime.mouse_up(first.x + first.width, first_y, MouseButton::Left);
+
+  assert_eq!(selection_rect_count(&mut runtime), 1);
+
+  let second = runtime
+    .find_element(|node| node.text_content() == Some("second selectable text"))
+    .unwrap()
+    .bounds();
+  let second_y = second.y + second.height / 2.0;
+  runtime.mouse_down_with_modifiers(second.x, second_y, MouseButton::Left, false, true, false);
+  runtime.mouse_move_with_modifiers(second.x + second.width, second_y, false, true, false);
+  runtime.mouse_up_with_modifiers(second.x + second.width, second_y, MouseButton::Left, false, true, false);
+
+  assert_eq!(selection_rect_count(&mut runtime), 2);
+}
+
+#[test]
 fn transformed_selectable_text_drag_uses_visual_coordinates() {
   let mut runtime = Tree::new();
   let transform = Transform2D::rotate_deg(-8.0).then(&Transform2D::scale(1.1, 1.1));

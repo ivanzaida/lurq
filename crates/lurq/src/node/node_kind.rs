@@ -173,36 +173,39 @@ impl TextState {
     self.inner.lock().unwrap().selectable
   }
 
-  pub(crate) fn begin_selection_at_point(&self, value: &str, x: f32, y: f32) {
-    if !self.selectable() {
-      return;
-    }
-    let caret = self.closest_caret_to_point(value, x, y);
-    let mut inner = self.inner.lock().unwrap();
-    inner.caret = caret;
-    inner.selection_anchor = Some(caret);
-  }
-
   pub(crate) fn update_selection_to_point(&self, value: &str, x: f32, y: f32) {
     if !self.selectable() {
       return;
     }
-    let caret = self.closest_caret_to_point(value, x, y);
+    let caret = self.caret_index_at_point(value, x, y);
     self.inner.lock().unwrap().caret = caret;
   }
 
   pub(crate) fn clear_selection_at_point(&self, value: &str, x: f32, y: f32) {
-    let caret = self.closest_caret_to_point(value, x, y);
+    let caret = self.caret_index_at_point(value, x, y);
     let mut inner = self.inner.lock().unwrap();
     inner.caret = caret;
     inner.selection_anchor = None;
+  }
+
+  pub(crate) fn clear_selection(&self) {
+    self.inner.lock().unwrap().selection_anchor = None;
+  }
+
+  pub(crate) fn set_selection_indices(&self, value: &str, anchor: usize, caret: usize) {
+    if !self.selectable() {
+      return;
+    }
+    let mut inner = self.inner.lock().unwrap();
+    inner.selection_anchor = Some(clamp_to_char_boundary(value, anchor));
+    inner.caret = clamp_to_char_boundary(value, caret);
   }
 
   pub(crate) fn select_word_at_point(&self, value: &str, x: f32, y: f32) {
     if !self.selectable() {
       return;
     }
-    let caret = self.closest_caret_to_point(value, x, y);
+    let caret = self.caret_index_at_point(value, x, y);
     let (start, end) = word_selection_bounds(value, caret);
     let mut inner = self.inner.lock().unwrap();
     inner.selection_anchor = Some(start);
@@ -213,7 +216,7 @@ impl TextState {
     if !self.selectable() {
       return;
     }
-    let caret = self.closest_caret_to_point(value, x, y);
+    let caret = self.caret_index_at_point(value, x, y);
     let (start, end) = line_bounds(value, caret);
     let mut inner = self.inner.lock().unwrap();
     inner.selection_anchor = Some(start);
@@ -263,19 +266,18 @@ impl TextState {
     let len = value.len();
     let mut inner = self.inner.lock().unwrap();
     inner.selectable = selectable;
+    inner.display_text = old_inner.display_text.clone();
     if selectable {
       inner.caret = old_inner.caret.min(len);
       inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));
       inner.caret_positions = old_inner.caret_positions.clone();
-      inner.display_text = old_inner.display_text.clone();
     } else {
       inner.caret = 0;
       inner.selection_anchor = None;
-      inner.display_text = None;
     }
   }
 
-  fn closest_caret_to_point(&self, value: &str, x: f32, y: f32) -> usize {
+  pub(crate) fn caret_index_at_point(&self, value: &str, x: f32, y: f32) -> usize {
     let inner = self.inner.lock().unwrap();
     clamp_to_char_boundary(value, closest_caret_to_point(&inner.caret_positions, x, y))
   }

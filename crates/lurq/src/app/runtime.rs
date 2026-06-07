@@ -23,7 +23,7 @@ use crate::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
     },
-    hit_test::{hit_test_tree, hit_test_tree_all},
+    hit_test::{HitRect, hit_test_tree, hit_test_tree_all},
     profiler::{FrameProfile, PerfMeterStats, ProfileScope, RuntimeMemoryProfile},
     render_engine::{RenderEngine, RenderEngineFactory},
     theme::CaretMode,
@@ -793,8 +793,11 @@ impl Tree {
       return;
     }
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
+      let mut old_modal_layer = ModalLayerReuse::default();
       let mut old_root = self.root.take().map(|old| {
-        let old = modal_host_base(old);
+        let parts = modal_host_parts(old);
+        old_modal_layer = parts.old_layer;
+        let old = parts.base;
         reset_element_ref_flags_recursive(&old);
         old
       });
@@ -810,7 +813,7 @@ impl Tree {
         old.free_ids(&self.id_gen);
       }
       self.root = Some(node);
-      self.sync_modal_layer();
+      self.sync_modal_layer_reusing(old_modal_layer);
       if let Some(root) = &mut self.root {
         root.assign_ids(&self.id_gen);
       }
@@ -830,9 +833,11 @@ impl Tree {
     self.clear_animation_runtime_state();
     let mut node = element.into().node;
     if let Some(old) = old_root.as_mut() {
-      node.preserve_runtime_state_from(old);
-      node.preserve_ids_from(old);
-      old.free_ids(&self.id_gen);
+      let mut parts = modal_host_parts(std::mem::take(old));
+      node.preserve_runtime_state_from(&parts.base);
+      node.preserve_ids_from(&mut parts.base);
+      parts.base.free_ids(&self.id_gen);
+      parts.old_layer.free_ids(&self.id_gen);
     }
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
@@ -878,7 +883,7 @@ impl Tree {
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
     self.set_app_ref(app);
-    let profiling_enabled = app.profiling_enabled;
+    let profiling_enabled = app.profiling_enabled || self.perf_overlay_enabled;
     let frame_start = ProfileScope::maybe_start(profiling_enabled);
     let scale = self.scale_factor();
     if profiling_enabled {
@@ -1265,7 +1270,17 @@ impl Tree {
   }
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
-    self.dispatch_mouse(x, y, MouseButton::Left, MouseEventKind::Move);
+    self.mouse_move_with_modifiers(x, y, false, false, false);
+  }
+
+  pub fn mouse_move_with_modifiers(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool) {
+    self.dispatch_mouse(
+      x,
+      y,
+      MouseButton::Left,
+      MouseEventKind::Move,
+      MouseModifiers { shift, ctrl, alt },
+    );
     self.apply_reactive_updates_after_event();
   }
 
@@ -1275,21 +1290,31 @@ impl Tree {
   }
 
   pub fn mouse_down(&mut self, x: f32, y: f32, button: MouseButton) {
+    self.mouse_down_with_modifiers(x, y, button, false, false, false);
+  }
+
+  pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
+    let modifiers = MouseModifiers { shift, ctrl, alt };
     self.click_press = Some(ClickPress {
       position: (x, y),
       button,
       target_ids: self.hit_target_ids_at(x, y),
     });
-    self.dispatch_mouse(x, y, button, MouseEventKind::Down);
+    self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
     self.apply_reactive_updates_after_event();
   }
 
   pub fn mouse_up(&mut self, x: f32, y: f32, button: MouseButton) {
-    self.dispatch_mouse(x, y, button, MouseEventKind::Up);
-    self.synthesize_click(x, y, button);
+    self.mouse_up_with_modifiers(x, y, button, false, false, false);
   }
 
-  fn synthesize_click(&mut self, x: f32, y: f32, button: MouseButton) {
+  pub fn mouse_up_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
+    let modifiers = MouseModifiers { shift, ctrl, alt };
+    self.dispatch_mouse(x, y, button, MouseEventKind::Up, modifiers);
+    self.synthesize_click(x, y, button, modifiers);
+  }
+
+  fn synthesize_click(&mut self, x: f32, y: f32, button: MouseButton, modifiers: MouseModifiers) {
     let now = Instant::now();
     let position = (x, y);
 
@@ -1300,26 +1325,47 @@ impl Tree {
       return;
     }
 
-    if !self.take_matching_click_press(position, button) {
+    let Some(click_target) = self.take_matching_click_press(position, button) else {
       self.apply_reactive_updates_after_event();
       return;
-    }
+    };
 
-    if self.click_tracker.pending_matches(now, position, button) {
-      self.click_tracker.take_pending();
-      self.dispatch_mouse(x, y, button, MouseEventKind::DoubleClick);
-      self.apply_reactive_updates_after_event();
-      return;
+    if let ClickDispatchTarget::Node(click_target_id) = click_target {
+      if self
+        .click_tracker
+        .pending_matches(now, position, button, click_target_id)
+      {
+        self.click_tracker.take_pending();
+        self.dispatch_mouse_with_click_target(
+          x,
+          y,
+          button,
+          MouseEventKind::DoubleClick,
+          modifiers,
+          Some(click_target_id),
+        );
+        self.apply_reactive_updates_after_event();
+        return;
+      }
     }
 
     self.flush_pending_click();
 
-    if self.click_target_has_dblclick_handler(x, y) {
-      self.click_tracker.set_pending(now, position, button);
-      self.needs_redraw = true;
-    } else {
-      self.dispatch_mouse(x, y, button, MouseEventKind::Click);
-      self.apply_reactive_updates_after_event();
+    match click_target {
+      ClickDispatchTarget::Node(click_target_id) if self.click_target_has_dblclick_handler(click_target_id) => {
+        self
+          .click_tracker
+          .set_pending(now, position, button, modifiers, click_target_id);
+        self.needs_redraw = true;
+      }
+      ClickDispatchTarget::Node(click_target_id) => {
+        self.dispatch_mouse_with_click_target(x, y, button, MouseEventKind::Click, modifiers, Some(click_target_id));
+        self.apply_reactive_updates_after_event();
+      }
+      ClickDispatchTarget::CurrentHit => {
+        self.dispatch_mouse_with_click_target(x, y, button, MouseEventKind::Click, modifiers, None);
+        self.apply_reactive_updates_after_event();
+      }
     }
   }
 
@@ -1364,12 +1410,16 @@ impl Tree {
       self.needs_redraw = true;
     } else if self.dispatch_select_key(&key, &code) {
       self.needs_redraw = true;
-    } else if self.blur_focused_text_input_on_key(&key, &code) {
-      self.needs_redraw = true;
-    } else if self.dispatch_text_input(&key, &code, shift, ctrl) {
-      self.needs_redraw = true;
     } else {
-      self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl);
+      let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
+      let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
+      if blurred_text_input || cleared_text_selection {
+        self.needs_redraw = true;
+      } else if self.dispatch_text_input(&key, &code, shift, ctrl) {
+        self.needs_redraw = true;
+      } else {
+        self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl);
+      }
     }
 
     let mut evt = KeyboardEvent {
@@ -1386,6 +1436,35 @@ impl Tree {
     };
     fire_keyboard_recursive(root, &mut evt);
     self.apply_reactive_updates_after_event();
+  }
+
+  pub fn key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
+    self.rebuild_if_dirty();
+    let mut evt = KeyboardEvent {
+      key,
+      code,
+      shift,
+      ctrl,
+      alt,
+      target_id: NodeId::UNASSIGNED,
+    };
+    let root = match &self.root {
+      Some(r) => r,
+      None => return,
+    };
+    fire_keyboard_up_recursive(root, &mut evt);
+    self.apply_reactive_updates_after_event();
+  }
+
+  fn clear_selectable_text_selection_on_key(&mut self, key: &str, code: &str) -> bool {
+    if !matches!(key, "Escape") && code != "Escape" {
+      return false;
+    }
+
+    let Some(root) = &self.root else {
+      return false;
+    };
+    clear_selectable_text_selections(root)
   }
 
   #[cfg(feature = "form")]
@@ -1523,6 +1602,9 @@ impl Tree {
         y: 0.0,
         button: MouseButton::Left,
         kind: MouseEventKind::Click,
+        shift: false,
+        ctrl: false,
+        alt: false,
         target_id: focused,
       });
     }
@@ -1580,46 +1662,62 @@ impl Tree {
       return;
     };
 
-    self.dispatch_mouse(click.position.0, click.position.1, click.button, MouseEventKind::Click);
+    self.dispatch_mouse_with_click_target(
+      click.position.0,
+      click.position.1,
+      click.button,
+      MouseEventKind::Click,
+      click.modifiers,
+      Some(click.target_id),
+    );
     self.apply_reactive_updates_after_event();
   }
 
-  fn click_target_has_dblclick_handler(&mut self, x: f32, y: f32) -> bool {
-    let scale = self.scale_factor();
-    let lx = x / scale;
-    let ly = y / scale;
-
+  fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
     self.rebuild_if_dirty();
-
-    let root = match &self.root {
-      Some(r) => r,
-      None => return false,
-    };
-    let result = match &self.last_layout {
-      Some(r) => r,
-      None => return false,
-    };
-
-    let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
-    trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
-    hits.iter().any(|(node, _)| node.events.on_dblclick.is_some())
+    self
+      .root
+      .as_ref()
+      .and_then(|root| find_node_by_id(root, target_id))
+      .is_some_and(|node| node.events.on_dblclick.is_some())
   }
 
-  fn take_matching_click_press(&mut self, position: (f32, f32), button: MouseButton) -> bool {
+  fn take_matching_click_press(&mut self, position: (f32, f32), button: MouseButton) -> Option<ClickDispatchTarget> {
     let Some(press) = self.click_press.take() else {
-      return false;
+      return None;
     };
 
     if press.button != button {
-      return false;
+      return None;
     }
 
-    if distance_squared(press.position, position) > DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE {
-      return false;
+    let release_target_ids = self.hit_target_ids_at(position.0, position.1);
+    for (press_index, target_id) in press.target_ids.iter().copied().enumerate() {
+      let Some(release_index) = release_target_ids
+        .iter()
+        .position(|release_id| *release_id == target_id)
+      else {
+        continue;
+      };
+
+      if press_index > 0
+        && release_index > 0
+        && distance_squared(press.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+      {
+        return Some(ClickDispatchTarget::CurrentHit);
+      }
+
+      return Some(ClickDispatchTarget::Node(target_id));
     }
 
-    press.target_ids == self.hit_target_ids_at(position.0, position.1)
+    if press.target_ids.is_empty()
+      && release_target_ids.is_empty()
+      && distance_squared(press.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+    {
+      return Some(ClickDispatchTarget::CurrentHit);
+    }
+
+    None
   }
 
   fn hit_target_ids_at(&mut self, x: f32, y: f32) -> Vec<NodeId> {
@@ -1664,12 +1762,27 @@ impl Tree {
       && distance_squared(suppressed.position, position) <= SUPPRESSED_CLICK_DISTANCE * SUPPRESSED_CLICK_DISTANCE
   }
 
-  fn dispatch_mouse(&mut self, x: f32, y: f32, button: MouseButton, kind: MouseEventKind) {
+  fn dispatch_mouse(&mut self, x: f32, y: f32, button: MouseButton, kind: MouseEventKind, modifiers: MouseModifiers) {
+    self.dispatch_mouse_with_click_target(x, y, button, kind, modifiers, None);
+  }
+
+  fn dispatch_mouse_with_click_target(
+    &mut self,
+    x: f32,
+    y: f32,
+    button: MouseButton,
+    kind: MouseEventKind,
+    modifiers: MouseModifiers,
+    click_target: Option<NodeId>,
+  ) {
     let mut evt = MouseEvent {
       x,
       y,
       button,
       kind,
+      shift: modifiers.shift,
+      ctrl: modifiers.ctrl,
+      alt: modifiers.alt,
       target_id: NodeId::UNASSIGNED,
     };
     let scale = self.scale_factor();
@@ -1724,13 +1837,21 @@ impl Tree {
     if let Some(drag) = self.dragging_text_selection.clone() {
       match evt.kind {
         MouseEventKind::Move => {
-          drag.update(lx, ly);
+          if let (Some(root), Some(result)) = (&self.root, &self.last_layout) {
+            drag.update_with_tree(root, result, lx, ly);
+          } else {
+            drag.update(lx, ly);
+          }
           self.needs_redraw = true;
           return;
         }
         MouseEventKind::Up => {
-          drag.update(lx, ly);
-          let has_selection = drag.has_selection();
+          if let (Some(root), Some(result)) = (&self.root, &self.last_layout) {
+            drag.update_with_tree(root, result, lx, ly);
+          } else {
+            drag.update(lx, ly);
+          }
+          let has_selection = drag.has_selection(self.root.as_ref());
           self.dragging_text_selection = None;
           self.clear_active_path();
           if has_selection {
@@ -1810,6 +1931,14 @@ impl Tree {
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
     trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
+    if matches!(evt.kind, MouseEventKind::Click | MouseEventKind::DoubleClick)
+      && let Some(click_target) = click_target
+    {
+      let Some(target_index) = hits.iter().position(|(node, _)| node.node_id() == click_target) else {
+        return;
+      };
+      hits.drain(..target_index);
+    }
     let mut pending_focus = None;
     let mut builtin_needs_redraw = false;
     let mut pending_slider_drag = None;
@@ -1873,6 +2002,9 @@ impl Tree {
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
+            if !evt.shift && !evt.ctrl {
+              clear_selectable_text_selections(root);
+            }
             let padding = self
               .layout_engine
               .resolved_padding_for_size(node, Size::new(rect.width, rect.height));
@@ -1904,11 +2036,21 @@ impl Tree {
         {
           if let NodeKind::Text { state, .. } = node.node_kind() {
             let value = node.text_content().unwrap_or_default().to_owned();
-            state.begin_selection_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y);
+            let preserve_existing = evt.shift || evt.ctrl;
+            if !preserve_existing {
+              clear_selectable_text_selections_except(root, Some(node.node_id()));
+            }
+            let text_x = rect.local_x - rect.x;
+            let text_y = rect.local_y - rect.y;
+            let anchor = state.caret_index_at_point(&value, text_x, text_y);
+            state.set_selection_indices(&value, anchor, anchor);
             pending_text_selection_drag = Some(TextSelectionDrag {
               kind: TextSelectionDragKind::Text {
+                start_id: node.node_id(),
+                anchor,
                 state: state.clone(),
                 value,
+                preserve_existing,
               },
               x: rect.x,
               y: rect.y,
@@ -1916,6 +2058,17 @@ impl Tree {
             });
             builtin_needs_redraw = true;
           }
+        }
+
+        if pending_text_selection_drag.is_none()
+          && !evt.shift
+          && !evt.ctrl
+          && !hits
+            .iter()
+            .any(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
+          && clear_selectable_text_selections(root)
+        {
+          builtin_needs_redraw = true;
         }
 
         if pending_text_selection_drag.is_none()
@@ -1943,6 +2096,7 @@ impl Tree {
               state: state.clone(),
               x: drag_x,
               width: drag_width,
+              on_finish: node.events.on_blur.clone(),
             };
             drag.update(lx);
             pending_slider_drag = Some(drag);
@@ -1989,6 +2143,9 @@ impl Tree {
           let text_click_count = self
             .text_click_tracker
             .record(Instant::now(), (evt.x, evt.y), button, node.node_id());
+          if !evt.shift && !evt.ctrl {
+            clear_selectable_text_selections_except(root, Some(node.node_id()));
+          }
           match text_click_count {
             1 => state.clear_selection_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
             2 => state.select_word_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
@@ -2403,7 +2560,10 @@ impl Tree {
     let Some(root) = &self.root else {
       return false;
     };
-    let Some(selected) = selected_selectable_text(root) else {
+    let Some(layout) = &self.last_layout else {
+      return false;
+    };
+    let Some(selected) = selected_selectable_text(root, layout) else {
       return false;
     };
     write_clipboard_text(&selected)
@@ -2746,28 +2906,59 @@ impl Tree {
       return;
     }
 
+    let leftovers = match &self.root_ctx {
+      Some(ctx) => ctx.apply_modal_slot_replacements(replacements),
+      None => replacements,
+    };
+
     if let Some(root) = &mut self.root {
-      for (slot_id, replacement) in replacements {
-        replace_live_component_slot(root, slot_id, replacement, &self.id_gen);
+      for (slot_id, replacement) in leftovers {
+        let mut slot = Some(replacement);
+        if replace_live_component_slot_in(root, slot_id, &mut slot, &self.id_gen) {}
       }
     }
 
     self.sync_modal_layer();
+    if let Some(root) = &mut self.root {
+      root.assign_ids(&self.id_gen);
+    }
     self.needs_redraw = true;
     self.refresh_interaction_state();
   }
 
   fn sync_modal_layer(&mut self) {
-    let modals = self.root_ctx.as_ref().map(Ctx::modal_nodes).unwrap_or_default();
+    let mut select_overlay_reuse = self.detach_select_overlay();
+    select_overlay_reuse.free_ids(&self.id_gen);
+
     let Some(root) = self.root.take() else {
       return;
     };
 
-    let base = modal_host_base(root);
+    let parts = modal_host_parts(root);
+    self.root = Some(parts.base);
+    self.sync_modal_layer_reusing(parts.old_layer);
+  }
+
+  fn sync_modal_layer_reusing(&mut self, mut reuse: ModalLayerReuse) {
+    let mut modals = self.root_ctx.as_ref().map(Ctx::modal_nodes).unwrap_or_default();
+    let Some(base) = self.root.take() else {
+      reuse.free_ids(&self.id_gen);
+      return;
+    };
 
     if modals.is_empty() {
+      reuse.free_ids(&self.id_gen);
       self.root = Some(base);
       return;
+    }
+
+    for (modal, old_modal) in modals.iter_mut().zip(reuse.old_modals.iter_mut()) {
+      reset_element_ref_flags_recursive(old_modal);
+      modal.preserve_runtime_state_from(old_modal);
+      modal.preserve_ids_from(old_modal);
+    }
+    for old_modal in &mut reuse.old_modals {
+      old_modal.free_ids(&self.id_gen);
     }
 
     let mut children = Vec::with_capacity(1 + modals.len());
@@ -2775,6 +2966,11 @@ impl Tree {
     children.extend(modals);
     let mut host = Node::stack(crate::layout::StackAlignment::TopStart, children);
     host.set_tag_name(MODAL_HOST_TAG);
+    if let Some(old_host) = &mut reuse.old_host {
+      reset_element_ref_flags_recursive(old_host);
+      host.preserve_ids_from(old_host);
+      old_host.free_ids(&self.id_gen);
+    }
     self.root = Some(host);
   }
 
@@ -2901,12 +3097,14 @@ impl Tree {
 
   fn sync_select_overlay_from_layout(&mut self, mut old_parts: SelectOverlayReuse, base_layout: &LayoutResult) {
     let Some(base) = self.root.take() else {
+      old_parts.free_ids(&self.id_gen);
       return;
     };
     let viewport = self.viewport_logical();
     let mut overlays = Vec::new();
     collect_select_menus(&base, base_layout, 0.0, 0.0, viewport, &mut overlays);
     if overlays.is_empty() {
+      old_parts.free_ids(&self.id_gen);
       self.root = Some(base);
       return;
     }
@@ -2922,6 +3120,7 @@ impl Tree {
     if let Some(old_host) = old_parts.old_host.as_mut() {
       host.preserve_ids_from(old_host);
     }
+    old_parts.free_ids(&self.id_gen);
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
   }
@@ -3226,11 +3425,44 @@ impl Tree {
   }
 }
 
-fn modal_host_base(mut root: Node) -> Node {
+#[derive(Default)]
+struct ModalLayerReuse {
+  old_host: Option<Node>,
+  old_modals: Vec<Node>,
+}
+
+impl ModalLayerReuse {
+  fn free_ids(&mut self, id_gen: &IdGenerator) {
+    if let Some(old_host) = &mut self.old_host {
+      old_host.free_ids(id_gen);
+    }
+    for old_modal in &mut self.old_modals {
+      old_modal.free_ids(id_gen);
+    }
+  }
+}
+
+struct ModalHostParts {
+  base: Node,
+  old_layer: ModalLayerReuse,
+}
+
+fn modal_host_parts(mut root: Node) -> ModalHostParts {
   if root.tag_name() == MODAL_HOST_TAG && !root.children.is_empty() {
-    root.children.remove(0)
+    let mut children = std::mem::take(&mut root.children);
+    let base = children.remove(0);
+    ModalHostParts {
+      base,
+      old_layer: ModalLayerReuse {
+        old_host: Some(root),
+        old_modals: children,
+      },
+    }
   } else {
-    root
+    ModalHostParts {
+      base: root,
+      old_layer: ModalLayerReuse::default(),
+    }
   }
 }
 
@@ -3246,6 +3478,17 @@ struct SelectOverlayParts {
 struct SelectOverlayReuse {
   old_host: Option<Node>,
   old_overlays: Vec<Node>,
+}
+
+impl SelectOverlayReuse {
+  fn free_ids(&mut self, id_gen: &IdGenerator) {
+    if let Some(old_host) = &mut self.old_host {
+      old_host.free_ids(id_gen);
+    }
+    for old_overlay in &mut self.old_overlays {
+      old_overlay.free_ids(id_gen);
+    }
+  }
 }
 
 /// Undo a previous select-overlay wrap so we can recompute it each pass while
@@ -3455,6 +3698,7 @@ struct SliderDrag {
   state: SliderState,
   x: f32,
   width: f32,
+  on_finish: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl SliderDrag {
@@ -3470,6 +3714,9 @@ impl SliderDrag {
 
   fn finish(&self) {
     self.state.clear_drag_ratio();
+    if let Some(on_finish) = &self.on_finish {
+      on_finish();
+    }
   }
 }
 
@@ -3484,7 +3731,13 @@ struct TextSelectionDrag {
 #[derive(Clone)]
 enum TextSelectionDragKind {
   Input(TextInputState),
-  Text { state: TextState, value: String },
+  Text {
+    start_id: NodeId,
+    anchor: usize,
+    state: TextState,
+    value: String,
+    preserve_existing: bool,
+  },
 }
 
 impl TextSelectionDrag {
@@ -3492,16 +3745,50 @@ impl TextSelectionDrag {
     let (local_x, local_y) = self.local_point(x, y);
     match &self.kind {
       TextSelectionDragKind::Input(state) => state.update_selection_to_point(local_x - self.x, local_y - self.y),
-      TextSelectionDragKind::Text { state, value } => {
+      TextSelectionDragKind::Text { state, value, .. } => {
         state.update_selection_to_point(value, local_x - self.x, local_y - self.y)
       }
     }
   }
 
-  fn has_selection(&self) -> bool {
+  fn update_with_tree(&self, root: &Node, layout: &LayoutResult, x: f32, y: f32) {
+    match &self.kind {
+      TextSelectionDragKind::Input(_) => self.update(x, y),
+      TextSelectionDragKind::Text {
+        start_id,
+        anchor,
+        preserve_existing,
+        ..
+      } if !preserve_existing => {
+        if let Some((node, rect)) = selectable_text_endpoint(root, layout, x, y)
+          && let NodeKind::Text { state, .. } = node.node_kind()
+        {
+          let value = node.text_content().unwrap_or_default();
+          let caret = state.caret_index_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y);
+          set_selectable_text_range(root, *start_id, *anchor, node.node_id(), caret);
+        } else {
+          self.update(x, y);
+        }
+      }
+      TextSelectionDragKind::Text { .. } => self.update(x, y),
+    }
+  }
+
+  fn has_selection(&self, root: Option<&Node>) -> bool {
     match &self.kind {
       TextSelectionDragKind::Input(state) => state.has_selection(),
-      TextSelectionDragKind::Text { state, value } => state.has_selection(value),
+      TextSelectionDragKind::Text {
+        state,
+        value,
+        preserve_existing,
+        ..
+      } => {
+        if !preserve_existing && let Some(root) = root {
+          has_selected_selectable_text(root)
+        } else {
+          state.has_selection(value)
+        }
+      }
     }
   }
 
@@ -3567,9 +3854,10 @@ impl ClickTracker {
     self.pending_click.is_some()
   }
 
-  fn pending_matches(&self, now: Instant, position: (f32, f32), button: MouseButton) -> bool {
+  fn pending_matches(&self, now: Instant, position: (f32, f32), button: MouseButton, target_id: NodeId) -> bool {
     self.pending_click.is_some_and(|pending| {
       pending.button == button
+        && pending.target_id == target_id
         && now.duration_since(pending.time) <= DOUBLE_CLICK_INTERVAL
         && distance_squared(pending.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
     })
@@ -3581,11 +3869,20 @@ impl ClickTracker {
       .is_some_and(|pending| now.duration_since(pending.time) > DOUBLE_CLICK_INTERVAL)
   }
 
-  fn set_pending(&mut self, now: Instant, position: (f32, f32), button: MouseButton) {
+  fn set_pending(
+    &mut self,
+    now: Instant,
+    position: (f32, f32),
+    button: MouseButton,
+    modifiers: MouseModifiers,
+    target_id: NodeId,
+  ) {
     self.pending_click = Some(PendingClick {
       time: now,
       position,
       button,
+      modifiers,
+      target_id,
     });
   }
 
@@ -3599,12 +3896,27 @@ struct PendingClick {
   time: Instant,
   position: (f32, f32),
   button: MouseButton,
+  modifiers: MouseModifiers,
+  target_id: NodeId,
 }
 
 struct ClickPress {
   position: (f32, f32),
   button: MouseButton,
   target_ids: Vec<NodeId>,
+}
+
+#[derive(Clone, Copy)]
+enum ClickDispatchTarget {
+  Node(NodeId),
+  CurrentHit,
+}
+
+#[derive(Clone, Copy, Default)]
+struct MouseModifiers {
+  shift: bool,
+  ctrl: bool,
+  alt: bool,
 }
 
 #[derive(Default)]
@@ -3922,11 +4234,6 @@ fn reset_element_ref_flags_recursive(node: &Node) {
   }
 }
 
-fn replace_live_component_slot(node: &mut Node, slot_id: u64, replacement: Node, id_gen: &IdGenerator) -> bool {
-  let mut replacement = Some(replacement);
-  replace_live_component_slot_in(node, slot_id, &mut replacement, id_gen)
-}
-
 fn replace_live_component_slot_in(
   node: &mut Node,
   slot_id: u64,
@@ -4158,21 +4465,272 @@ fn dispatch_builtin_pointer(
   None
 }
 
-fn selected_selectable_text(node: &Node) -> Option<String> {
+const SELECTED_TEXT_LINE_EPSILON: f32 = 1.0;
+
+struct SelectedTextFragment {
+  x: f32,
+  end_x: f32,
+  y: f32,
+  text: String,
+}
+
+fn selected_selectable_text(node: &Node, layout: &LayoutResult) -> Option<String> {
+  let mut fragments = Vec::new();
+  collect_selected_selectable_text(node, layout, 0.0, 0.0, &mut fragments);
+  if fragments.is_empty() {
+    return None;
+  }
+
+  fragments.sort_by(|a, b| {
+    if (a.y - b.y).abs() <= SELECTED_TEXT_LINE_EPSILON {
+      a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
+    } else {
+      a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)
+    }
+  });
+
+  let mut selected = String::new();
+  let mut previous_y: Option<f32> = None;
+  let mut previous_end_x: Option<f32> = None;
+  for fragment in fragments {
+    if let Some(y) = previous_y
+      && (fragment.y - y).abs() > SELECTED_TEXT_LINE_EPSILON
+    {
+      selected.push('\n');
+    } else if let Some(end_x) = previous_end_x
+      && fragment.x - end_x > SELECTED_TEXT_LINE_EPSILON
+      && !selected.chars().last().is_some_and(char::is_whitespace)
+      && !fragment.text.chars().next().is_some_and(char::is_whitespace)
+    {
+      selected.push(' ');
+    }
+    selected.push_str(&fragment.text);
+    previous_y = Some(fragment.y);
+    previous_end_x = Some(fragment.end_x);
+  }
+
+  Some(selected)
+}
+
+fn has_selected_selectable_text(node: &Node) -> bool {
   if let NodeKind::Text { state, .. } = node.node_kind() {
     let value = node.text_content().unwrap_or_default();
-    if let Some(selected) = state.selected_text(value) {
-      return Some(selected);
+    if state.selected_text(value).is_some() {
+      return true;
     }
   }
 
   for child in node.children() {
-    if let Some(selected) = selected_selectable_text(child) {
-      return Some(selected);
+    if has_selected_selectable_text(child) {
+      return true;
     }
   }
 
-  None
+  false
+}
+
+fn collect_selected_selectable_text(
+  node: &Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  fragments: &mut Vec<SelectedTextFragment>,
+) {
+  if let NodeKind::Text { state, .. } = node.node_kind() {
+    let value = node.text_content().unwrap_or_default();
+    if let Some(text) = state.selected_text(value) {
+      let ranges = state.selection_ranges(value);
+      let x = ranges
+        .iter()
+        .map(|range| abs_x + range.x)
+        .reduce(f32::min)
+        .unwrap_or(abs_x);
+      let y = ranges.first().map(|range| abs_y + range.y).unwrap_or(abs_y);
+      let end_x = ranges
+        .iter()
+        .map(|range| abs_x + range.x + range.width)
+        .reduce(f32::max)
+        .unwrap_or(abs_x + layout.size.width);
+      fragments.push(SelectedTextFragment { x, end_x, y, text });
+    }
+  }
+
+  for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
+    collect_selected_selectable_text(
+      child_node,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      fragments,
+    );
+  }
+}
+
+fn selectable_text_endpoint<'a>(
+  root: &'a Node,
+  layout: &'a LayoutResult,
+  x: f32,
+  y: f32,
+) -> Option<(&'a Node, HitRect)> {
+  let mut hits = Vec::new();
+  hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+  if let Some(hit) = hits
+    .into_iter()
+    .find(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
+  {
+    return Some(hit);
+  }
+
+  nearest_selectable_text(root, layout, 0.0, 0.0, x, y).map(|(_, node, rect)| (node, rect))
+}
+
+fn nearest_selectable_text<'a>(
+  node: &'a Node,
+  layout: &'a LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  x: f32,
+  y: f32,
+) -> Option<(f32, &'a Node, HitRect)> {
+  let mut best: Option<(f32, &'a Node, HitRect)> = None;
+
+  for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
+    if let Some(candidate) = nearest_selectable_text(
+      child_node,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      x,
+      y,
+    ) {
+      if best
+        .as_ref()
+        .is_none_or(|(best_distance, ..)| candidate.0 < *best_distance)
+      {
+        best = Some(candidate);
+      }
+    }
+  }
+
+  if matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()) {
+    let dx = if x < abs_x {
+      abs_x - x
+    } else if x > abs_x + layout.size.width {
+      x - (abs_x + layout.size.width)
+    } else {
+      0.0
+    };
+    let dy = if y < abs_y {
+      abs_y - y
+    } else if y > abs_y + layout.size.height {
+      y - (abs_y + layout.size.height)
+    } else {
+      0.0
+    };
+    let distance = dy * dy * 1024.0 + dx * dx;
+    let rect = HitRect {
+      x: abs_x,
+      y: abs_y,
+      width: layout.size.width,
+      height: layout.size.height,
+      local_x: x,
+      local_y: y,
+      transform: Transform2D::IDENTITY,
+    };
+    if best
+      .as_ref()
+      .is_none_or(|(best_distance, ..)| distance < *best_distance)
+    {
+      best = Some((distance, node, rect));
+    }
+  }
+
+  best
+}
+
+struct SelectableTextRangeNode {
+  id: NodeId,
+  state: TextState,
+  value: String,
+}
+
+fn set_selectable_text_range(root: &Node, start_id: NodeId, anchor: usize, end_id: NodeId, caret: usize) {
+  let mut nodes = Vec::new();
+  collect_selectable_text_range_nodes(root, &mut nodes);
+
+  let Some(start_index) = nodes.iter().position(|node| node.id == start_id) else {
+    return;
+  };
+  let Some(end_index) = nodes.iter().position(|node| node.id == end_id) else {
+    return;
+  };
+
+  let range_start = start_index.min(end_index);
+  let range_end = start_index.max(end_index);
+  let forward = start_index <= end_index;
+
+  for (index, node) in nodes.iter().enumerate() {
+    let len = node.value.len();
+    if index < range_start || index > range_end {
+      node.state.clear_selection();
+    } else if start_index == end_index {
+      node.state.set_selection_indices(&node.value, anchor, caret);
+    } else if forward {
+      if index == start_index {
+        node.state.set_selection_indices(&node.value, anchor, len);
+      } else if index == end_index {
+        node.state.set_selection_indices(&node.value, 0, caret);
+      } else {
+        node.state.set_selection_indices(&node.value, 0, len);
+      }
+    } else if index == start_index {
+      node.state.set_selection_indices(&node.value, anchor, 0);
+    } else if index == end_index {
+      node.state.set_selection_indices(&node.value, len, caret);
+    } else {
+      node.state.set_selection_indices(&node.value, 0, len);
+    }
+  }
+}
+
+fn collect_selectable_text_range_nodes(node: &Node, nodes: &mut Vec<SelectableTextRangeNode>) {
+  if let NodeKind::Text { state, .. } = node.node_kind()
+    && state.selectable()
+  {
+    nodes.push(SelectableTextRangeNode {
+      id: node.node_id(),
+      state: state.clone(),
+      value: node.text_content().unwrap_or_default().to_owned(),
+    });
+  }
+
+  for child in node.children() {
+    collect_selectable_text_range_nodes(child, nodes);
+  }
+}
+
+fn clear_selectable_text_selections(node: &Node) -> bool {
+  clear_selectable_text_selections_except(node, None)
+}
+
+fn clear_selectable_text_selections_except(node: &Node, except: Option<NodeId>) -> bool {
+  let is_except = except.is_some_and(|except| except == node.node_id());
+  let mut cleared = false;
+
+  if !is_except
+    && let NodeKind::Text { state, .. } = node.node_kind()
+    && state.selectable()
+    && state.has_selection(node.text_content().unwrap_or_default())
+  {
+    state.clear_selection();
+    cleared = true;
+  }
+
+  for child in node.children() {
+    cleared |= clear_selectable_text_selections_except(child, except);
+  }
+
+  cleared
 }
 
 fn find_slider_by_y_recursive<'a>(
@@ -4217,6 +4775,16 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
   }
   for child in node.children() {
     fire_keyboard_recursive(child, evt);
+  }
+}
+
+fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) {
+  evt.target_id = node.node_id();
+  if let Some(ref handler) = node.events.on_key_up {
+    handler(evt);
+  }
+  for child in node.children() {
+    fire_keyboard_up_recursive(child, evt);
   }
 }
 
