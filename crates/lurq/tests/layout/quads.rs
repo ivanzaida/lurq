@@ -1,5 +1,6 @@
 use lurq::{
   app::Tree,
+  components::TextOverflow,
   layout::{
     Alignment, Constraints, Size, StackAlignment, layout_kind::FrameConstraints, quad::QuadContent,
     text_style::TextStyle,
@@ -130,6 +131,51 @@ fn text_produces_text_quad() {
     assert_eq!(text, "hello");
   } else {
     panic!("expected text quad");
+  }
+}
+
+#[test]
+fn text_overflow_clip_keeps_full_quad_text() {
+  let mut rt = rt();
+  let text = "connect-to-production-cluster";
+  rt.set_root(
+    lurq::components::Text::new(text)
+      .width(Dimension::Px(48.0))
+      .text_overflow(TextOverflow::Clip),
+  );
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  match &quads[0].content {
+    QuadContent::Text { text: quad_text, .. } => assert_eq!(quad_text, text),
+    _ => panic!("expected text quad"),
+  }
+}
+
+#[test]
+fn text_overflow_elipsis_truncates_quad_text_to_fit_width() {
+  let mut rt = rt();
+  let text = "connect-to-production-cluster";
+  rt.set_root(
+    lurq::components::Text::new(text)
+      .width(Dimension::Px(48.0))
+      .text_overflow(TextOverflow::Elipsis),
+  );
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert!(result.size.width <= 48.0);
+  match &quads[0].content {
+    QuadContent::Text {
+      text: quad_text, wrap, ..
+    } => {
+      assert!(quad_text.ends_with('…'), "expected ellipsis text, got {quad_text:?}");
+      assert!(quad_text.len() < text.len());
+      assert!(!wrap);
+    }
+    _ => panic!("expected text quad"),
   }
 }
 

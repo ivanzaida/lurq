@@ -7,7 +7,7 @@ use crate::{
   node::{
     dimension::Dimension,
     node::{EventHandlers, Node},
-    node_kind::NodeKind,
+    node_kind::{NodeKind, TextOverflow},
     padding::Padding,
     spacing_value::SpacingValue,
   },
@@ -48,6 +48,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     node_kind: NodeKind::Empty,
     text_content: Guard::new(None),
     text_wrap: DEFAULT_SCROLL_TEXT_WRAP,
+    text_overflow: TextOverflow::default(),
     overflow: crate::layout::layout_kind::Overflow::Hidden,
     intrinsic_size: None,
     color: Guard::new(None),

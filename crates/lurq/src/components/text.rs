@@ -1,3 +1,4 @@
+pub use crate::node::node_kind::TextOverflow;
 use crate::{
   app::theme::TypographyStyle,
   impl_into_node,
@@ -38,6 +39,11 @@ impl Text {
 
   pub fn text_align(mut self, align: impl Into<TextAlign>) -> Self {
     self.node = self.node.text_align(align);
+    self
+  }
+
+  pub fn text_overflow(mut self, overflow: TextOverflow) -> Self {
+    self.node = self.node.text_overflow(overflow);
     self
   }
 

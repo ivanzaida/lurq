@@ -317,6 +317,16 @@ lurq::components::TextInput::new(endpoint.clone())
   .text_align(TextAlign::Center)
 ```
 
+Use text overflow when a fixed-width label should stay on one line:
+
+```rust
+use lurq::components::TextOverflow;
+
+lurq::components::Text::new("Connected to production cluster")
+  .width(lurq::node::dimension::Dimension::Px(180.0))
+  .text_overflow(TextOverflow::Elipsis)
+```
+
 ### Transformed Text
 
 Text uses `TextTransformMode::Bitmap` by default. In this mode the glyphs are rasterized normally, then transformed during rendering. This keeps glyph placement in float screen space and is the right default for animated transforms because it does not create a new glyph atlas entry for every angle.

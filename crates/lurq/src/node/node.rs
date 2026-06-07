@@ -28,7 +28,7 @@ use crate::{
     gradient::Gradient,
     interaction_state::InteractionState,
     node_kind::{
-      CheckboxState, NodeKind, SelectChangeCallback, SelectState, SliderState, TextInputState, TextState,
+      CheckboxState, NodeKind, SelectChangeCallback, SelectState, SliderState, TextInputState, TextOverflow, TextState,
       TextStyleSource,
     },
     padding::Padding,
@@ -165,6 +165,7 @@ pub(crate) struct Node {
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
   pub(crate) text_wrap: bool,
+  pub(crate) text_overflow: TextOverflow,
   pub(crate) overflow: Overflow,
   pub(crate) intrinsic_size: Option<Size>,
   pub(crate) color: Guard<Option<BackgroundColor>>,
@@ -236,6 +237,7 @@ impl Node {
       debug_attrs: Vec::new(),
       text_content: Guard::new(None),
       text_wrap: DEFAULT_TEXT_WRAP,
+      text_overflow: TextOverflow::default(),
       overflow: Overflow::Hidden,
       intrinsic_size: None,
       color: Guard::new(None),
@@ -280,6 +282,12 @@ impl Node {
 
   pub fn text_wrap(mut self, wrap: bool) -> Self {
     self.text_wrap = wrap;
+    self.layout_cache.invalidate();
+    self
+  }
+
+  pub fn text_overflow(mut self, overflow: TextOverflow) -> Self {
+    self.text_overflow = overflow;
     self.layout_cache.invalidate();
     self
   }
@@ -1737,6 +1745,7 @@ impl Node {
       && self.align_self == old.align_self
       && self.flex == old.flex
       && self.text_wrap == old.text_wrap
+      && self.text_overflow == old.text_overflow
       && self.overflow == old.overflow
       && self.intrinsic_size == old.intrinsic_size
       && self.animation_overrides.is_empty()
@@ -1883,6 +1892,7 @@ impl Node {
       node_kind: self.node_kind.clone(),
       text_content: self.text_content.clone(),
       text_wrap: self.text_wrap,
+      text_overflow: self.text_overflow,
       overflow: self.overflow,
       intrinsic_size: self.intrinsic_size,
       color: self.color.clone(),

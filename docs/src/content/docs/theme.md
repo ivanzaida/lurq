@@ -165,11 +165,17 @@ Available roles:
 
 `TextStyle::text_align` supports `TextAlign::Left`, `Center`, `Right`, `Justified`, and `End`. `Text::text_align(...)` aligns text inside the text node's box, and `TextInput::text_align(...)` applies the same alignment to value and placeholder text inside the input content box. Both builders also accept layout `Alignment`.
 
+`Text::text_overflow(...)` accepts `TextOverflow::Clip` or `TextOverflow::Elipsis`. `Clip` is the default. `Elipsis` renders a single-line text quad with `…` when the text is wider than its available width.
+
 ```rust
-use lurq::{app::theme::TypographyStyle, components::Text};
+use lurq::{
+  app::theme::TypographyStyle,
+  components::{Text, TextOverflow},
+};
 
 Text::new("Headline").variant(TypographyStyle::Heading);
 Text::new("Caption").variant(TypographyStyle::Caption);
+Text::new("Long endpoint name").text_overflow(TextOverflow::Elipsis);
 ```
 
 `ThemeFonts` remains as a compatibility shape with `body`, `heading`, and `mono`. Converting it into `ThemeTypography` only fills those three roles and leaves the rest at defaults.

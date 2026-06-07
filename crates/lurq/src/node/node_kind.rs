@@ -24,6 +24,13 @@ pub enum TextInputOverflow {
   Scroll,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextOverflow {
+  #[default]
+  Clip,
+  Elipsis,
+}
+
 #[derive(Clone)]
 pub(crate) enum NodeKind {
   Empty,
@@ -133,6 +140,7 @@ struct TextInner {
   caret: usize,
   selection_anchor: Option<usize>,
   caret_positions: Vec<CaretPosition>,
+  display_text: Option<String>,
 }
 
 impl TextState {
@@ -147,6 +155,7 @@ impl TextState {
           x: 0.0,
           y: 0.0,
         }],
+        display_text: None,
       })),
     }
   }
@@ -237,6 +246,14 @@ impl TextState {
     self.inner.lock().unwrap().caret_positions = positions;
   }
 
+  pub(crate) fn set_display_text(&self, display_text: Option<String>) {
+    self.inner.lock().unwrap().display_text = display_text;
+  }
+
+  pub(crate) fn display_text(&self) -> Option<String> {
+    self.inner.lock().unwrap().display_text.clone()
+  }
+
   pub(crate) fn copy_runtime_state_from(&self, old: &Self, value: &str) {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
@@ -250,9 +267,11 @@ impl TextState {
       inner.caret = old_inner.caret.min(len);
       inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));
       inner.caret_positions = old_inner.caret_positions.clone();
+      inner.display_text = old_inner.display_text.clone();
     } else {
       inner.caret = 0;
       inner.selection_anchor = None;
+      inner.display_text = None;
     }
   }
 

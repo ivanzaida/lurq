@@ -22,7 +22,7 @@ use crate::{
     color::Color,
     dimension::Dimension,
     node::Node,
-    node_kind::{NodeKind, SliderPartRect, TextInputOverflow, TextInputState},
+    node_kind::{NodeKind, SliderPartRect, TextInputOverflow, TextInputState, TextOverflow},
     padding::Padding,
     slider_style::SliderPartStyle,
     transform::Transform2D,
@@ -488,11 +488,15 @@ impl LayoutEngine {
     let has_visual = background_color.is_some() || background_gradient.is_some() || resolved_border.is_some();
     let content = match node.node_kind() {
       NodeKind::Text {
-        style, transform_mode, ..
+        state,
+        style,
+        transform_mode,
       } => QuadContent::Text {
-        text: node.text_content().unwrap_or_default().to_owned(),
+        text: state
+          .display_text()
+          .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
         style: style.resolve(&self.typography.borrow(), &self.palette.borrow()),
-        wrap: node.text_wrap,
+        wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
@@ -1221,7 +1225,15 @@ impl LayoutEngine {
       NodeKind::Text { state, style, .. } => {
         let content = node.text_content().unwrap_or_default();
         let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
-        return self.layout_text_node(glyph_engine, content, state, &style, constraints, node.text_wrap);
+        return self.layout_text_node(
+          glyph_engine,
+          content,
+          state,
+          &style,
+          constraints,
+          node.text_wrap,
+          node.text_overflow,
+        );
       }
       NodeKind::TextInput {
         state,
@@ -1370,14 +1382,69 @@ impl LayoutEngine {
     style: &TextStyle,
     constraints: Constraints,
     wrap: bool,
+    overflow: TextOverflow,
   ) -> LayoutResult {
-    let max_width = if wrap && constraints.max_width.is_finite() {
+    let effective_wrap = wrap && overflow == TextOverflow::Clip;
+    let display_text = match overflow {
+      TextOverflow::Clip => None,
+      TextOverflow::Elipsis => self.ellipsize_text(glyph_engine, text, style, constraints.max_width),
+    };
+    state.set_display_text(display_text.clone());
+    let layout_text = display_text.as_deref().unwrap_or(text);
+    let max_width = if effective_wrap && constraints.max_width.is_finite() {
       constraints.max_width
     } else {
       f32::MAX
     };
-    state.set_caret_positions(glyph_engine.caret_positions(text, style, max_width, wrap));
-    self.layout_text(glyph_engine, text, style, constraints, wrap)
+    state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
+    self.layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
+  }
+
+  fn text_width(&self, glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> f32 {
+    glyph_engine.measure_text(text, style, f32::MAX).width
+  }
+
+  fn ellipsize_text(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+  ) -> Option<String> {
+    if text.is_empty() || !max_width.is_finite() {
+      return None;
+    }
+    if max_width <= 0.0 {
+      return Some(String::new());
+    }
+    if self.text_width(glyph_engine, text, style) <= max_width {
+      return None;
+    }
+
+    const ELLIPSIS: &str = "…";
+    let ellipsis_width = self.text_width(glyph_engine, ELLIPSIS, style);
+    if ellipsis_width > max_width {
+      return Some(String::new());
+    }
+
+    let boundaries: Vec<usize> = text
+      .char_indices()
+      .map(|(index, _)| index)
+      .chain(std::iter::once(text.len()))
+      .collect();
+    let mut low = 0usize;
+    let mut high = boundaries.len() - 1;
+    while low < high {
+      let mid = (low + high).div_ceil(2);
+      let candidate = format!("{}{}", &text[..boundaries[mid]], ELLIPSIS);
+      if self.text_width(glyph_engine, &candidate, style) <= max_width {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    Some(format!("{}{}", &text[..boundaries[low]], ELLIPSIS))
   }
 
   fn layout_text_input(
