@@ -109,15 +109,11 @@ impl Theme {
   }
 
   pub fn set_palette(&self, palette: ThemePalette) {
-    let mut inner = self.inner.write().unwrap();
-    inner.palette = palette;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.palette = palette);
   }
 
   pub fn set_palette_color(&self, palette_color: impl Into<PaletteColor>, color: Color) {
-    let mut inner = self.inner.write().unwrap();
-    inner.palette.set(palette_color, color);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.palette.set(palette_color, color));
   }
 
   pub fn palette_color(&self, palette_color: impl Into<PaletteColor>) -> Color {
@@ -132,15 +128,11 @@ impl Theme {
   }
 
   pub fn set_border_sizes(&self, border_sizes: ThemeBorderSizes) {
-    let mut inner = self.inner.write().unwrap();
-    inner.border_sizes = border_sizes;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.border_sizes = border_sizes);
   }
 
   pub fn set_border_size_value(&self, size: impl Into<BorderSize>, value: f32) {
-    let mut inner = self.inner.write().unwrap();
-    inner.border_sizes.set(size, value);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.border_sizes.set(size, value));
   }
 
   pub fn border_size_value(&self, size: impl Into<BorderSize>) -> f32 {
@@ -155,15 +147,11 @@ impl Theme {
   }
 
   pub fn set_spacing(&self, spacing: ThemeSpacing) {
-    let mut inner = self.inner.write().unwrap();
-    inner.spacing = spacing;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.spacing = spacing);
   }
 
   pub fn set_spacing_value(&self, size: impl Into<SpacingSize>, value: impl Into<Dimension>) {
-    let mut inner = self.inner.write().unwrap();
-    inner.spacing.set(size, value);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.spacing.set(size, value));
   }
 
   pub fn spacing_value(&self, size: impl Into<SpacingSize>) -> Dimension {
@@ -178,15 +166,11 @@ impl Theme {
   }
 
   pub fn set_radii(&self, radii: ThemeRadii) {
-    let mut inner = self.inner.write().unwrap();
-    inner.radii = radii;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.radii = radii);
   }
 
   pub fn set_radius_value(&self, size: impl Into<RadiusSize>, value: f32) {
-    let mut inner = self.inner.write().unwrap();
-    inner.radii.set(size, value);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.radii.set(size, value));
   }
 
   pub fn radius_value(&self, size: impl Into<RadiusSize>) -> f32 {
@@ -201,15 +185,11 @@ impl Theme {
   }
 
   pub fn set_breakpoints(&self, breakpoints: ThemeBreakpoints) {
-    let mut inner = self.inner.write().unwrap();
-    inner.breakpoints = breakpoints;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.breakpoints = breakpoints);
   }
 
   pub fn set_breakpoint_value(&self, breakpoint: Breakpoint, value: f32) {
-    let mut inner = self.inner.write().unwrap();
-    inner.breakpoints.set(breakpoint, value);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.breakpoints.set(breakpoint, value));
   }
 
   pub fn breakpoint_value(&self, breakpoint: Breakpoint) -> f32 {
@@ -224,15 +204,11 @@ impl Theme {
   }
 
   pub fn set_caret(&self, caret: ThemeCaret) {
-    let mut inner = self.inner.write().unwrap();
-    inner.caret = caret;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.caret = caret);
   }
 
   pub fn set_caret_mode(&self, mode: CaretMode) {
-    let mut inner = self.inner.write().unwrap();
-    inner.caret.set_mode(mode);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.caret.set_mode(mode));
   }
 
   pub fn caret_mode(&self) -> CaretMode {
@@ -247,15 +223,11 @@ impl Theme {
   }
 
   pub fn set_typography(&self, typography: ThemeTypography) {
-    let mut inner = self.inner.write().unwrap();
-    inner.typography = typography;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.typography = typography);
   }
 
   pub fn set_typography_style(&self, typography_style: impl Into<TypographyStyle>, style: TextStyle) {
-    let mut inner = self.inner.write().unwrap();
-    inner.typography.set(typography_style, style);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.typography.set(typography_style, style));
   }
 
   pub fn default_text_style(&self) -> TextStyle {
@@ -263,9 +235,7 @@ impl Theme {
   }
 
   pub fn set_default_text_style(&self, style: TextStyle) {
-    let mut inner = self.inner.write().unwrap();
-    inner.typography.set_default_style(style);
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.typography.set_default_style(style));
   }
 
   pub fn typography_style(&self, typography_style: impl Into<TypographyStyle>) -> TextStyle {
@@ -290,9 +260,7 @@ impl Theme {
 
   #[cfg(feature = "form")]
   pub fn set_form(&self, form: FormTheme) {
-    let mut inner = self.inner.write().unwrap();
-    inner.form = form;
-    self.bump_version(&mut inner);
+    self.mutate_inner(|inner| inner.form = form);
   }
 
   pub(crate) fn version(&self) -> u64 {
@@ -303,9 +271,14 @@ impl Theme {
     let _ = self.version_signal.get();
   }
 
-  fn bump_version(&self, inner: &mut ThemeInner) {
-    inner.version = inner.version.wrapping_add(1);
-    self.version_signal.set(inner.version);
+  fn mutate_inner(&self, f: impl FnOnce(&mut ThemeInner)) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      f(&mut inner);
+      inner.version = inner.version.wrapping_add(1);
+      inner.version
+    };
+    self.version_signal.set(version);
   }
 }
 

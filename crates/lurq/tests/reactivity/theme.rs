@@ -9,7 +9,7 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     theme::{
-      BorderSize, PaletteColor, RadiusSize, SpacingSize, Theme, ThemeBorderSizes, ThemePalette, ThemeRadii,
+      BorderSize, Breakpoint, PaletteColor, RadiusSize, SpacingSize, Theme, ThemeBorderSizes, ThemePalette, ThemeRadii,
       ThemeSpacing, ThemeTypography, TypographyStyle,
     },
   },
@@ -288,6 +288,10 @@ struct ThemeSubscriberChild {
   renders: Arc<AtomicUsize>,
 }
 
+struct BreakpointSubscriber {
+  renders: Arc<AtomicUsize>,
+}
+
 impl Component for ThemeSubscriberRoot {
   type Props = Shared<AtomicUsize>;
 
@@ -316,6 +320,22 @@ impl Component for ThemeSubscriberChild {
   }
 }
 
+impl Component for BreakpointSubscriber {
+  type Props = Shared<AtomicUsize>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      renders: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    self.renders.fetch_add(1, Ordering::Relaxed);
+    let breakpoint = ctx.breakpoint().map(|breakpoint| breakpoint.as_str()).unwrap_or("base");
+    lurq::components::Text::new(breakpoint)
+  }
+}
+
 #[test]
 fn theme_change_rerenders_subscriber_components() {
   let renders = Arc::new(AtomicUsize::new(0));
@@ -334,6 +354,24 @@ fn theme_change_rerenders_subscriber_components() {
 
   assert_eq!(renders.load(Ordering::Relaxed), 2);
   assert!(tree.find_element(|el| el.text_content() == Some("font=22")).is_some());
+}
+
+#[test]
+fn theme_breakpoint_change_recomputes_without_reentering_theme_lock() {
+  let renders = Arc::new(AtomicUsize::new(0));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<BreakpointSubscriber>(&mut app, Shared(renders.clone()));
+
+  run_pass(&mut tree);
+  assert_eq!(renders.load(Ordering::Relaxed), 1);
+  assert!(tree.find_element(|el| el.text_content() == Some("md")).is_some());
+
+  app.theme().set_breakpoint_value(Breakpoint::Md, 900.0);
+  run_pass(&mut tree);
+
+  assert_eq!(renders.load(Ordering::Relaxed), 2);
+  assert!(tree.find_element(|el| el.text_content() == Some("sm")).is_some());
 }
 
 #[test]
