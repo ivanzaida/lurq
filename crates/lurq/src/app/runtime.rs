@@ -3301,7 +3301,11 @@ fn build_select_menu(
     let label_node = text_style
       .as_ref()
       .map(|style| Node::text_styled(label, style.clone()))
-      .unwrap_or_else(|| Node::text(label));
+      .unwrap_or_else(|| Node::text(label))
+      .text_wrap(false)
+      .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+      .min_width(0.0)
+      .flex(1.0);
     let mut row = if multiple {
       let mut check_style = text_style.clone().unwrap_or_default();
       if let Some(color) = checkmark_color {

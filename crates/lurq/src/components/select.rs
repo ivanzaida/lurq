@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::{
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify, text_style::TextStyle},
-  node::{Element, Node, SelectStyle, node_kind::SelectChangeCallback},
+  node::{
+    Element, Node, SelectStyle,
+    node_kind::{SelectChangeCallback, TextOverflow},
+  },
 };
 
 enum Binding<T>
@@ -210,6 +213,8 @@ fn default_trigger(state: SelectTriggerState, style: &SelectStyle) -> Node {
     _ => Node::text(&text),
   }
   .text_wrap(false)
+  .text_overflow(TextOverflow::Elipsis)
+  .min_width(0.0)
   .flex(1.0);
 
   let mut chevron_style = trigger.text.unwrap_or_else(TextStyle::default);
