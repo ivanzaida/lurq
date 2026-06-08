@@ -11,6 +11,11 @@ use std::{
 use image::{AnimationDecoder, ImageFormat, codecs};
 use parking_lot::{Mutex, RwLock};
 
+#[cfg(target_os = "macos")]
+use core_foundation_sys::base::{CFRelease, CFRetain};
+#[cfg(target_os = "macos")]
+use core_video_sys::pixel_buffer::CVPixelBufferRef;
+
 pub enum ImageKind {
   Bytes(ImageData),
   Native(NativeImageData),
@@ -64,6 +69,8 @@ const MAX_STREAMING_RECYCLED_BUFFERS: usize = 3;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeImageBackend {
   Dx12Nv12,
+  #[cfg(target_os = "macos")]
+  MacosCvPixelBufferNv12,
 }
 
 #[derive(Clone)]
@@ -82,6 +89,58 @@ pub struct NativeImageData {
 pub struct Dx12Nv12Image {
   pub y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
   pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+}
+
+#[cfg(target_os = "macos")]
+pub struct MacosCvPixelBuffer {
+  ptr: CVPixelBufferRef,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for MacosCvPixelBuffer {}
+
+#[cfg(target_os = "macos")]
+unsafe impl Sync for MacosCvPixelBuffer {}
+
+#[cfg(target_os = "macos")]
+impl MacosCvPixelBuffer {
+  /// # Safety
+  ///
+  /// `ptr` must be a valid `CVPixelBufferRef`. This function retains it, and
+  /// the wrapper releases it when dropped.
+  pub unsafe fn retain(ptr: CVPixelBufferRef) -> Self {
+    assert!(!ptr.is_null());
+    unsafe {
+      CFRetain(ptr.cast());
+    }
+    Self { ptr }
+  }
+
+  pub fn as_ptr(&self) -> CVPixelBufferRef {
+    self.ptr
+  }
+}
+
+#[cfg(target_os = "macos")]
+impl Clone for MacosCvPixelBuffer {
+  fn clone(&self) -> Self {
+    unsafe { Self::retain(self.ptr) }
+  }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MacosCvPixelBuffer {
+  fn drop(&mut self) {
+    unsafe {
+      CFRelease(self.ptr.cast());
+    }
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+pub struct MacosCvPixelBufferNv12Image {
+  pub pixel_buffer: MacosCvPixelBuffer,
 }
 
 #[derive(Clone)]
@@ -532,6 +591,19 @@ impl NativeImageData {
       ImagePixelFormat::Nv12,
       NativeImageBackend::Dx12Nv12,
       Dx12Nv12Image { y_texture, uv_texture },
+    )
+  }
+}
+
+#[cfg(target_os = "macos")]
+impl NativeImageData {
+  pub fn from_macos_cv_pixel_buffer_nv12(width: u32, height: u32, pixel_buffer: MacosCvPixelBuffer) -> Self {
+    Self::new(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::MacosCvPixelBufferNv12,
+      MacosCvPixelBufferNv12Image { pixel_buffer },
     )
   }
 }

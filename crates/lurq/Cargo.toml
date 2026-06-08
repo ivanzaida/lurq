@@ -21,7 +21,7 @@ serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
 render = ["dep:bytemuck"]
-wgpu = ["render", "dep:wgpu", "dep:pollster"]
+wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:metal", "dep:wgpu-hal"]
 dx12 = ["render", "dep:windows"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
@@ -59,7 +59,11 @@ tokio = { version = "1.52.3", optional = true, features = ["rt", "rt-multi-threa
 lurq_macros = { version = "0.1.0", path = "../lurq_macros" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8"
+core-video-sys = "0.1"
+metal = { version = "0.31", optional = true }
 objc2 = "0.6"
+wgpu-hal = { version = "24", features = ["metal"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

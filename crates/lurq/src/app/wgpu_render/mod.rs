@@ -1,5 +1,16 @@
 mod vertex;
 
+#[cfg(all(feature = "image", target_os = "macos"))]
+use std::ffi::c_void;
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
+#[cfg(all(feature = "image", target_os = "macos"))]
+use core_foundation_sys::dictionary::CFDictionaryRef;
+#[cfg(all(feature = "image", target_os = "macos"))]
+use core_video_sys::pixel_buffer::CVPixelBufferRef;
+#[cfg(all(feature = "image", target_os = "macos"))]
+use metal::foreign_types::ForeignType;
 use raw_window_handle::{DisplayHandle, WindowHandle};
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
@@ -29,11 +40,65 @@ enum CachedImageTexture {
     uv_view: wgpu::TextureView,
     y_texture: wgpu::Texture,
     uv_texture: wgpu::Texture,
+    #[cfg(target_os = "macos")]
+    _macos_native: Option<MacosNativeNv12Texture>,
     width: u32,
     height: u32,
     frame_index: usize,
     version: u64,
   },
+}
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+struct MacosNativeNv12Texture {
+  _native: crate::images::NativeImageData,
+  _y_cv_texture: CvMetalTexture,
+  _uv_cv_texture: CvMetalTexture,
+}
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+struct CvMetalTexture {
+  ptr: CVMetalTextureRef,
+}
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+impl Drop for CvMetalTexture {
+  fn drop(&mut self) {
+    unsafe {
+      CFRelease(self.ptr.cast());
+    }
+  }
+}
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+type CVMetalTextureCacheRef = *mut c_void;
+#[cfg(all(feature = "image", target_os = "macos"))]
+type CVMetalTextureRef = *mut c_void;
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+#[link(name = "CoreVideo", kind = "framework")]
+unsafe extern "C" {
+  fn CVMetalTextureCacheCreate(
+    allocator: CFAllocatorRef,
+    cache_attributes: CFDictionaryRef,
+    metal_device: *mut c_void,
+    texture_attributes: CFDictionaryRef,
+    cache_out: *mut CVMetalTextureCacheRef,
+  ) -> OSStatus;
+
+  fn CVMetalTextureCacheCreateTextureFromImage(
+    allocator: CFAllocatorRef,
+    texture_cache: CVMetalTextureCacheRef,
+    source_image: CVPixelBufferRef,
+    texture_attributes: CFDictionaryRef,
+    pixel_format: metal::MTLPixelFormat,
+    width: usize,
+    height: usize,
+    plane_index: usize,
+    texture_out: *mut CVMetalTextureRef,
+  ) -> OSStatus;
+
+  fn CVMetalTextureGetTexture(image: CVMetalTextureRef) -> *mut c_void;
 }
 
 #[cfg(feature = "image")]
@@ -1429,6 +1494,14 @@ fn create_nv12_cached_image_texture(
   if image.image_width == 0 || image.image_height == 0 || image.image_width % 2 != 0 || image.image_height % 2 != 0 {
     return None;
   }
+  #[cfg(target_os = "macos")]
+  if matches!(
+    image.native.as_ref().map(crate::images::NativeImageData::backend),
+    Some(crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
+  ) {
+    return create_macos_native_nv12_cached_image_texture(device, nv12_image_bgl, image_sampler, globals_buffer, image);
+  }
+
   let y_texture = device.create_texture(&wgpu::TextureDescriptor {
     label: Some("lurq_nv12_y"),
     size: wgpu::Extent3d {
@@ -1490,11 +1563,186 @@ fn create_nv12_cached_image_texture(
     uv_view,
     y_texture,
     uv_texture,
+    #[cfg(target_os = "macos")]
+    _macos_native: None,
     width: image.image_width,
     height: image.image_height,
     frame_index: image.frame_index,
     version: image.version,
   })
+}
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+fn create_macos_native_nv12_cached_image_texture(
+  device: &wgpu::Device,
+  nv12_image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  image: &crate::images::ImageCmd,
+) -> Option<CachedImageTexture> {
+  let native = image.native.as_ref()?.clone();
+  let payload = native.payload::<crate::images::MacosCvPixelBufferNv12Image>()?;
+  let (y_texture, y_cv_texture) = create_macos_native_plane_texture(
+    device,
+    payload.pixel_buffer.as_ptr(),
+    image.image_width,
+    image.image_height,
+    0,
+    metal::MTLPixelFormat::R8Unorm,
+    wgpu::TextureFormat::R8Unorm,
+    "lurq_macos_nv12_y",
+  )?;
+  let (uv_texture, uv_cv_texture) = create_macos_native_plane_texture(
+    device,
+    payload.pixel_buffer.as_ptr(),
+    image.image_width / 2,
+    image.image_height / 2,
+    1,
+    metal::MTLPixelFormat::RG8Unorm,
+    wgpu::TextureFormat::Rg8Unorm,
+    "lurq_macos_nv12_uv",
+  )?;
+  let y_view = y_texture.create_view(&Default::default());
+  let uv_view = uv_texture.create_view(&Default::default());
+  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_macos_nv12_img_bg"),
+    layout: nv12_image_bgl,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals_buffer.as_entire_binding(),
+      },
+      wgpu::BindGroupEntry {
+        binding: 1,
+        resource: wgpu::BindingResource::TextureView(&y_view),
+      },
+      wgpu::BindGroupEntry {
+        binding: 2,
+        resource: wgpu::BindingResource::TextureView(&uv_view),
+      },
+      wgpu::BindGroupEntry {
+        binding: 3,
+        resource: wgpu::BindingResource::Sampler(image_sampler),
+      },
+    ],
+  });
+  Some(CachedImageTexture::Nv12 {
+    bind_group,
+    y_view,
+    uv_view,
+    y_texture,
+    uv_texture,
+    _macos_native: Some(MacosNativeNv12Texture {
+      _native: native,
+      _y_cv_texture: y_cv_texture,
+      _uv_cv_texture: uv_cv_texture,
+    }),
+    width: image.image_width,
+    height: image.image_height,
+    frame_index: image.frame_index,
+    version: image.version,
+  })
+}
+
+#[cfg(all(feature = "image", target_os = "macos"))]
+fn create_macos_native_plane_texture(
+  device: &wgpu::Device,
+  pixel_buffer: CVPixelBufferRef,
+  width: u32,
+  height: u32,
+  plane_index: usize,
+  metal_format: metal::MTLPixelFormat,
+  wgpu_format: wgpu::TextureFormat,
+  label: &'static str,
+) -> Option<(wgpu::Texture, CvMetalTexture)> {
+  let mut raw_device = None;
+  unsafe {
+    device.as_hal::<wgpu_hal::api::Metal, _, _>(|hal_device| {
+      raw_device = hal_device.map(|device| device.raw_device().lock().clone());
+    });
+  }
+  let raw_device = raw_device?;
+
+  let mut cache = std::ptr::null_mut();
+  let status = unsafe {
+    CVMetalTextureCacheCreate(
+      kCFAllocatorDefault,
+      std::ptr::null(),
+      raw_device.as_ptr().cast(),
+      std::ptr::null(),
+      &mut cache,
+    )
+  };
+  if status != 0 || cache.is_null() {
+    return None;
+  }
+
+  let mut cv_texture = std::ptr::null_mut();
+  let status = unsafe {
+    CVMetalTextureCacheCreateTextureFromImage(
+      kCFAllocatorDefault,
+      cache,
+      pixel_buffer,
+      std::ptr::null(),
+      metal_format,
+      width as usize,
+      height as usize,
+      plane_index,
+      &mut cv_texture,
+    )
+  };
+  unsafe {
+    CFRelease(cache.cast());
+  }
+  if status != 0 || cv_texture.is_null() {
+    return None;
+  }
+
+  let metal_texture_ptr = unsafe { CVMetalTextureGetTexture(cv_texture) };
+  if metal_texture_ptr.is_null() {
+    unsafe {
+      CFRelease(cv_texture.cast());
+    }
+    return None;
+  }
+  let metal_texture = unsafe {
+    core_foundation_sys::base::CFRetain(metal_texture_ptr.cast::<c_void>().cast::<std::ffi::c_void>());
+    metal::Texture::from_ptr(metal_texture_ptr.cast())
+  };
+  let hal_texture = unsafe {
+    wgpu_hal::metal::Device::texture_from_raw(
+      metal_texture,
+      wgpu_format,
+      metal::MTLTextureType::D2,
+      1,
+      1,
+      wgpu_hal::CopyExtent {
+        width,
+        height,
+        depth: 1,
+      },
+    )
+  };
+  let texture = unsafe {
+    device.create_texture_from_hal::<wgpu_hal::api::Metal>(
+      hal_texture,
+      &wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+          width,
+          height,
+          depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu_format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+      },
+    )
+  };
+  Some((texture, CvMetalTexture { ptr: cv_texture }))
 }
 
 #[cfg(feature = "image")]
