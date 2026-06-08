@@ -1,4 +1,5 @@
 use std::{
+  any::Any,
   io::Cursor,
   sync::{
     Arc,
@@ -12,6 +13,7 @@ use parking_lot::{Mutex, RwLock};
 
 pub enum ImageKind {
   Bytes(ImageData),
+  Native(NativeImageData),
   #[cfg(feature = "resources")]
   Resource(Arc<str>),
 }
@@ -49,9 +51,38 @@ impl From<ImageData> for ImageKind {
   }
 }
 
+impl From<NativeImageData> for ImageKind {
+  fn from(value: NativeImageData) -> Self {
+    Self::Native(value)
+  }
+}
+
 static NEXT_IMAGE_ID: AtomicU64 = AtomicU64::new(1);
 const MIN_ANIMATION_FRAME_MS: u64 = 10;
 const MAX_STREAMING_RECYCLED_BUFFERS: usize = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeImageBackend {
+  Dx12Nv12,
+}
+
+#[derive(Clone)]
+pub struct NativeImageData {
+  id: u64,
+  width: u32,
+  height: u32,
+  format: ImagePixelFormat,
+  backend: NativeImageBackend,
+  payload: Arc<dyn Any + Send + Sync>,
+  version: Arc<AtomicU64>,
+}
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+#[derive(Clone)]
+pub struct Dx12Nv12Image {
+  pub y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+  pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+}
 
 #[derive(Clone)]
 pub struct ImageData {
@@ -63,6 +94,7 @@ pub struct ImageData {
   total_duration_ms: u64,
   started_at: Instant,
   streaming: Option<Arc<StreamingImageInner>>,
+  native: Option<NativeImageData>,
 }
 
 #[derive(Clone)]
@@ -85,6 +117,7 @@ pub struct StreamingImage {
 
 pub(crate) struct ImageFrameData {
   pub data: Arc<Vec<u8>>,
+  pub native: Option<NativeImageData>,
   pub width: u32,
   pub height: u32,
   pub format: ImagePixelFormat,
@@ -107,6 +140,7 @@ impl ImageData {
       total_duration_ms: 0,
       started_at: Instant::now(),
       streaming: None,
+      native: None,
     }
   }
 
@@ -136,6 +170,7 @@ impl ImageData {
         version: AtomicU64::new(0),
         continuous_redraw: AtomicBool::new(continuous_redraw),
       })),
+      native: None,
     }
   }
 
@@ -205,6 +240,7 @@ impl ImageData {
       total_duration_ms,
       started_at: Instant::now(),
       streaming: None,
+      native: None,
     })
   }
 
@@ -219,13 +255,16 @@ impl ImageData {
 
   pub fn data(&self) -> &[u8] {
     assert!(
-      self.streaming.is_none(),
+      self.streaming.is_none() && self.native.is_none(),
       "streaming images expose their latest pixels through data_arc()"
     );
     &self.frames[0].data
   }
 
   pub fn data_arc(&self) -> Arc<Vec<u8>> {
+    if self.native.is_some() {
+      return Arc::new(Vec::new());
+    }
     if let Some(streaming) = &self.streaming {
       return Arc::clone(&streaming.data.read());
     }
@@ -250,6 +289,10 @@ impl ImageData {
 
   pub fn is_streaming(&self) -> bool {
     self.streaming.is_some()
+  }
+
+  pub fn is_native(&self) -> bool {
+    self.native.is_some()
   }
 
   pub fn requires_continuous_redraw(&self) -> bool {
@@ -356,11 +399,24 @@ impl ImageData {
     if let Some(streaming) = &self.streaming {
       return ImageFrameData {
         data: Arc::clone(&streaming.data.read()),
+        native: None,
         width: self.width,
         height: self.height,
         format: self.format,
         frame_index: 0,
         version: streaming.version.load(Ordering::Acquire),
+      };
+    }
+
+    if let Some(native) = &self.native {
+      return ImageFrameData {
+        data: Arc::new(Vec::new()),
+        native: Some(native.clone()),
+        width: self.width,
+        height: self.height,
+        format: self.format,
+        frame_index: 0,
+        version: native.version(),
       };
     }
 
@@ -386,12 +442,97 @@ impl ImageData {
 
     ImageFrameData {
       data: Arc::clone(&frame.data),
+      native: None,
       width: self.width,
       height: self.height,
       format: self.format,
       frame_index,
       version: frame_index as u64,
     }
+  }
+}
+
+impl NativeImageData {
+  pub fn new<T: Any + Send + Sync>(
+    width: u32,
+    height: u32,
+    format: ImagePixelFormat,
+    backend: NativeImageBackend,
+    payload: T,
+  ) -> Self {
+    Self {
+      id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
+      width,
+      height,
+      format,
+      backend,
+      payload: Arc::new(payload),
+      version: Arc::new(AtomicU64::new(0)),
+    }
+  }
+
+  pub fn image_data(&self) -> ImageData {
+    ImageData {
+      id: self.id,
+      width: self.width,
+      height: self.height,
+      format: self.format,
+      frames: Arc::new(Vec::new()),
+      total_duration_ms: 0,
+      started_at: Instant::now(),
+      streaming: None,
+      native: Some(self.clone()),
+    }
+  }
+
+  pub fn id(&self) -> u64 {
+    self.id
+  }
+
+  pub fn width(&self) -> u32 {
+    self.width
+  }
+
+  pub fn height(&self) -> u32 {
+    self.height
+  }
+
+  pub fn format(&self) -> ImagePixelFormat {
+    self.format
+  }
+
+  pub fn backend(&self) -> NativeImageBackend {
+    self.backend
+  }
+
+  pub fn payload<T: Any + Send + Sync>(&self) -> Option<&T> {
+    self.payload.downcast_ref()
+  }
+
+  pub fn version(&self) -> u64 {
+    self.version.load(Ordering::Acquire)
+  }
+
+  pub fn bump_version(&self) {
+    self.version.fetch_add(1, Ordering::Release);
+  }
+}
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+impl NativeImageData {
+  pub fn from_dx12_nv12(
+    width: u32,
+    height: u32,
+    y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+    uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+  ) -> Self {
+    Self::new(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::Dx12Nv12,
+      Dx12Nv12Image { y_texture, uv_texture },
+    )
   }
 }
 

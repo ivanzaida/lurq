@@ -136,6 +136,9 @@ impl CheckboxStyle {
       crate::images::ImageKind::Bytes(data) => {
         self.indicator_image = Some(data);
       }
+      crate::images::ImageKind::Native(data) => {
+        self.indicator_image = Some(data.image_data());
+      }
       #[cfg(feature = "resources")]
       crate::images::ImageKind::Resource(path) => {
         self.indicator_resource_image = Some(path);

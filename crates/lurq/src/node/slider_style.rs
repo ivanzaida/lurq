@@ -116,6 +116,9 @@ impl SliderPartStyle {
       crate::images::ImageKind::Bytes(data) => {
         self.background_image = Some(data);
       }
+      crate::images::ImageKind::Native(data) => {
+        self.background_image = Some(data.image_data());
+      }
       #[cfg(feature = "resources")]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);

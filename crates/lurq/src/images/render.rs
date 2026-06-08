@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::ImagePixelFormat;
+use super::{ImagePixelFormat, NativeImageData};
 use crate::layout::quad::ClipRect;
 
 pub struct ImageCmd {
@@ -13,6 +13,7 @@ pub struct ImageCmd {
   pub frame_index: usize,
   pub version: u64,
   pub data: Arc<Vec<u8>>,
+  pub native: Option<NativeImageData>,
   pub image_width: u32,
   pub image_height: u32,
   pub image_format: ImagePixelFormat,

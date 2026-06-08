@@ -2,7 +2,12 @@
 
 #[cfg(feature = "image")]
 use std::collections::HashMap;
-use std::{ffi::c_void, mem::ManuallyDrop, ptr};
+use std::{
+  ffi::c_void,
+  mem::ManuallyDrop,
+  ptr,
+  sync::{Arc, Mutex},
+};
 
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
 #[cfg(feature = "svg")]
@@ -27,29 +32,30 @@ use windows::{
         D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE,
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
         D3D12_FENCE_FLAG_NONE, D3D12_FILL_MODE_SOLID, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_GPU_DESCRIPTOR_HANDLE,
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT,
-        D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED, D3D12_INDEX_BUFFER_VIEW,
-        D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-        D3D12_INPUT_ELEMENT_DESC, D3D12_INPUT_LAYOUT_DESC, D3D12_LOGIC_OP_NOOP, D3D12_MEMORY_POOL_UNKNOWN,
-        D3D12_PIPELINE_STATE_FLAG_NONE, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-        D3D12_RANGE, D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC, D3D12_RENDER_TARGET_VIEW_DESC,
-        D3D12_RENDER_TARGET_VIEW_DESC_0, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0,
-        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
-        D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER,
-        D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PRESENT,
-        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATES, D3D12_RESOURCE_TRANSITION_BARRIER,
-        D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
-        D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER_TYPE_SRV,
-        D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
-        D3D12_RTV_DIMENSION_TEXTURE2D, D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC,
-        D3D12_SHADER_RESOURCE_VIEW_DESC_0, D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D,
-        D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_RTV, D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
-        D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-        D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN,
-        D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT, D3D12CreateDevice, D3D12SerializeRootSignature,
-        ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue, ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence,
-        ID3D12GraphicsCommandList, ID3D12PipelineState, ID3D12Resource, ID3D12RootSignature,
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_PROPERTIES,
+        D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+        D3D12_INDEX_BUFFER_VIEW, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, D3D12_INPUT_ELEMENT_DESC, D3D12_INPUT_LAYOUT_DESC,
+        D3D12_LOGIC_OP_NOOP, D3D12_MEMORY_POOL_UNKNOWN, D3D12_PIPELINE_STATE_FLAG_NONE,
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_RANGE, D3D12_RASTERIZER_DESC,
+        D3D12_RENDER_TARGET_BLEND_DESC, D3D12_RENDER_TARGET_VIEW_DESC, D3D12_RENDER_TARGET_VIEW_DESC_0,
+        D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+        D3D12_RESOURCE_BARRIER_FLAG_NONE, D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC,
+        D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_NONE,
+        D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATES,
+        D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER,
+        D3D12_ROOT_PARAMETER_0, D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+        D3D12_ROOT_PARAMETER_TYPE_SRV, D3D12_ROOT_SIGNATURE_DESC,
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_RTV_DIMENSION_TEXTURE2D,
+        D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
+        D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_RTV,
+        D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+        D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+        D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT,
+        D3D12CreateDevice, D3D12SerializeRootSignature, ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue,
+        ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList, ID3D12PipelineState,
+        ID3D12Resource, ID3D12RootSignature,
       },
       Dxgi::{
         Common::{
@@ -64,7 +70,7 @@ use windows::{
     },
     System::Threading::{CreateEventW, INFINITE, WaitForSingleObject},
   },
-  core::{Error, Interface, PCSTR, Result},
+  core::{Error, Interface, PCSTR, PCWSTR, Result},
 };
 
 #[cfg(feature = "image")]
@@ -86,7 +92,7 @@ use crate::{
 const FRAME_COUNT: usize = 2;
 const SRV_DESCRIPTOR_COUNT: u32 = 1024;
 const GLYPH_ATLAS_SRV_INDEX: usize = 0;
-const FRAME_UPLOAD_ARENA_BYTES: usize = 16 * 1024 * 1024;
+const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
@@ -96,7 +102,26 @@ pub struct Dx12RenderEngine {
   height: u32,
   last_profile: RenderProfile,
   profiling_enabled: bool,
+  video_surfaces: Option<Dx12VideoSurfaceAllocator>,
 }
+
+#[derive(Clone, Default)]
+pub struct Dx12VideoSurfaceAllocator {
+  device: Arc<Mutex<Option<ID3D12Device>>>,
+}
+
+pub struct Dx12Nv12Surface {
+  native: crate::images::NativeImageData,
+  _y_texture: ID3D12Resource,
+  _uv_texture: ID3D12Resource,
+  y_shared_handle: HANDLE,
+  uv_shared_handle: HANDLE,
+  y_allocation_size: u64,
+  uv_allocation_size: u64,
+}
+
+unsafe impl Send for Dx12Nv12Surface {}
+unsafe impl Sync for Dx12Nv12Surface {}
 
 impl Default for Dx12RenderEngine {
   fn default() -> Self {
@@ -112,6 +137,14 @@ impl Dx12RenderEngine {
       height: 600,
       last_profile: RenderProfile::default(),
       profiling_enabled: false,
+      video_surfaces: None,
+    }
+  }
+
+  pub fn with_video_surface_allocator(video_surfaces: Dx12VideoSurfaceAllocator) -> Self {
+    Self {
+      video_surfaces: Some(video_surfaces),
+      ..Self::new()
     }
   }
 
@@ -122,8 +155,87 @@ impl Dx12RenderEngine {
 
     let hwnd = hwnd_from_window(window)?;
     let state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1))? };
+    if let Some(video_surfaces) = &self.video_surfaces {
+      video_surfaces.set_device(Some(state.device.clone()));
+    }
     self.state = Some(state);
     Ok(())
+  }
+}
+
+impl Dx12VideoSurfaceAllocator {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn create_nv12_surface(&self, width: u32, height: u32) -> Result<Option<Dx12Nv12Surface>> {
+    if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
+      return Err(Error::from_win32());
+    }
+    let device = self
+      .device
+      .lock()
+      .expect("dx12 video surface allocator lock poisoned")
+      .clone();
+    let Some(device) = device else {
+      return Ok(None);
+    };
+
+    unsafe {
+      let (y_texture, y_shared_handle, y_allocation_size) =
+        create_shared_texture(&device, width, height, DXGI_FORMAT_R8_UNORM)?;
+      let (uv_texture, uv_shared_handle, uv_allocation_size) =
+        create_shared_texture(&device, width / 2, height / 2, DXGI_FORMAT_R8G8_UNORM)?;
+      let native = crate::images::NativeImageData::from_dx12_nv12(width, height, y_texture.clone(), uv_texture.clone());
+      Ok(Some(Dx12Nv12Surface {
+        native,
+        _y_texture: y_texture,
+        _uv_texture: uv_texture,
+        y_shared_handle,
+        uv_shared_handle,
+        y_allocation_size,
+        uv_allocation_size,
+      }))
+    }
+  }
+
+  fn set_device(&self, device: Option<ID3D12Device>) {
+    *self.device.lock().expect("dx12 video surface allocator lock poisoned") = device;
+  }
+}
+
+impl Dx12Nv12Surface {
+  pub fn image_data(&self) -> crate::images::ImageData {
+    self.native.image_data()
+  }
+
+  pub fn native_image_data(&self) -> crate::images::NativeImageData {
+    self.native.clone()
+  }
+
+  pub fn y_shared_handle_raw(&self) -> isize {
+    self.y_shared_handle.0 as isize
+  }
+
+  pub fn uv_shared_handle_raw(&self) -> isize {
+    self.uv_shared_handle.0 as isize
+  }
+
+  pub fn y_allocation_size(&self) -> u64 {
+    self.y_allocation_size
+  }
+
+  pub fn uv_allocation_size(&self) -> u64 {
+    self.uv_allocation_size
+  }
+}
+
+impl Drop for Dx12Nv12Surface {
+  fn drop(&mut self) {
+    unsafe {
+      let _ = CloseHandle(self.y_shared_handle);
+      let _ = CloseHandle(self.uv_shared_handle);
+    }
   }
 }
 
@@ -166,6 +278,9 @@ impl RenderEngine for Dx12RenderEngine {
   }
 
   fn release_window_surface(&mut self) {
+    if let Some(video_surfaces) = &self.video_surfaces {
+      video_surfaces.set_device(None);
+    }
     self.state = None;
   }
 
@@ -269,6 +384,14 @@ enum CachedImageTexture {
     frame_index: usize,
     version: u64,
   },
+  NativeNv12 {
+    _y_texture: ID3D12Resource,
+    _uv_texture: ID3D12Resource,
+    descriptor_index: usize,
+    width: u32,
+    height: u32,
+    version: u64,
+  },
 }
 
 struct CpuDescriptorHeap {
@@ -342,8 +465,10 @@ struct UploadBuffer {
   size_in_bytes: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct UploadSlice {
+  resource: ID3D12Resource,
+  offset: u64,
   gpu_address: u64,
   size_in_bytes: u32,
 }
@@ -463,6 +588,47 @@ impl UploadArena {
     ptr::copy_nonoverlapping(data.as_ptr(), self.mapped.add(start), data.len());
     self.offset = end;
     Some(UploadSlice {
+      resource: self._resource.clone(),
+      offset: start as u64,
+      gpu_address: self.gpu_address + start as u64,
+      size_in_bytes: padded_size as u32,
+    })
+  }
+
+  unsafe fn upload_rows(
+    &mut self,
+    data: &[u8],
+    row_bytes: usize,
+    row_pitch: usize,
+    height: usize,
+    alignment: usize,
+  ) -> Option<UploadSlice> {
+    let alignment = alignment.max(1);
+    let start = align_up(self.offset, alignment);
+    let upload_size = row_pitch.checked_mul(height)?;
+    let padded_size = align_up(upload_size.max(1), alignment);
+    let end = start.checked_add(padded_size)?;
+    if end > self.capacity {
+      return None;
+    }
+
+    for row in 0..height {
+      let src_start = row * row_bytes;
+      if src_start >= data.len() {
+        break;
+      }
+      let src_end = (src_start + row_bytes).min(data.len());
+      let dst_start = start + row * row_pitch;
+      ptr::copy_nonoverlapping(
+        data[src_start..src_end].as_ptr(),
+        self.mapped.add(dst_start),
+        src_end - src_start,
+      );
+    }
+    self.offset = end;
+    Some(UploadSlice {
+      resource: self._resource.clone(),
+      offset: start as u64,
       gpu_address: self.gpu_address + start as u64,
       size_in_bytes: padded_size as u32,
     })
@@ -1395,6 +1561,50 @@ unsafe fn create_r8_texture(device: &ID3D12Device, width: u32, height: u32) -> R
 }
 
 #[cfg(feature = "image")]
+unsafe fn create_shared_texture(
+  device: &ID3D12Device,
+  width: u32,
+  height: u32,
+  format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
+) -> Result<(ID3D12Resource, HANDLE, u64)> {
+  const GENERIC_ALL: u32 = 0x10000000;
+  let heap_properties = D3D12_HEAP_PROPERTIES {
+    Type: D3D12_HEAP_TYPE_DEFAULT,
+    CPUPageProperty: D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    MemoryPoolPreference: D3D12_MEMORY_POOL_UNKNOWN,
+    CreationNodeMask: 1,
+    VisibleNodeMask: 1,
+  };
+  let desc = D3D12_RESOURCE_DESC {
+    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+    Alignment: 0,
+    Width: width as u64,
+    Height: height,
+    DepthOrArraySize: 1,
+    MipLevels: 1,
+    Format: format,
+    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+    Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+    Flags: D3D12_RESOURCE_FLAG_NONE,
+  };
+  let allocation_size = device
+    .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
+    .SizeInBytes;
+  let mut resource = None;
+  device.CreateCommittedResource(
+    &heap_properties,
+    D3D12_HEAP_FLAG_SHARED,
+    &desc,
+    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+    None,
+    &mut resource,
+  )?;
+  let resource: ID3D12Resource = resource.ok_or_else(Error::from_win32)?;
+  let shared_handle = device.CreateSharedHandle(&resource, None, GENERIC_ALL, PCWSTR::null())?;
+  Ok((resource, shared_handle, allocation_size))
+}
+
+#[cfg(feature = "image")]
 unsafe fn create_r8g8_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
   let heap_properties = D3D12_HEAP_PROPERTIES {
     Type: D3D12_HEAP_TYPE_DEFAULT,
@@ -1788,12 +1998,40 @@ impl Dx12State {
     let padded_size = align_up(data.len().max(1), alignment.max(1));
     let upload = UploadBuffer::from_bytes_padded(&self.device, data, padded_size)?;
     let slice = UploadSlice {
+      resource: upload._resource.clone(),
+      offset: 0,
       gpu_address: upload.gpu_address,
-
       size_in_bytes: upload.size_in_bytes,
     };
     self.frame_uploads[self.frame_index].push(upload);
     Ok(slice)
+  }
+
+  unsafe fn upload_frame_rows(
+    &mut self,
+    data: &[u8],
+    row_bytes: usize,
+    row_pitch: usize,
+    height: usize,
+    alignment: usize,
+  ) -> Result<UploadSlice> {
+    if let Some(slice) = self.frame_arenas[self.frame_index].upload_rows(data, row_bytes, row_pitch, height, alignment)
+    {
+      return Ok(slice);
+    }
+
+    let upload_size = row_pitch * height;
+    let mut upload_bytes = vec![0u8; upload_size];
+    for row in 0..height {
+      let src_start = row * row_bytes;
+      if src_start >= data.len() {
+        break;
+      }
+      let src_end = (src_start + row_bytes).min(data.len());
+      let dst_start = row * row_pitch;
+      upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&data[src_start..src_end]);
+    }
+    self.upload_frame_bytes(&upload_bytes, alignment)
   }
 
   unsafe fn upload_frame_pod_slice<T: bytemuck::Pod>(&mut self, data: &[T], alignment: usize) -> Result<UploadSlice> {
@@ -2189,6 +2427,10 @@ impl Dx12State {
 
   #[cfg(feature = "image")]
   unsafe fn ensure_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
+    if image.native.is_some() {
+      return self.ensure_native_image_texture(image);
+    }
+
     if let Some(cached) = self.image_textures.get(&image.image_id) {
       match cached {
         CachedImageTexture::Rgba {
@@ -2364,6 +2606,103 @@ impl Dx12State {
   }
 
   #[cfg(feature = "image")]
+  unsafe fn ensure_native_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
+    let Some(native) = &image.native else {
+      return Err(Error::from_win32());
+    };
+    match native.backend() {
+      crate::images::NativeImageBackend::Dx12Nv12 => {}
+    }
+    if image.image_format != crate::images::ImagePixelFormat::Nv12
+      || image.image_width % 2 != 0
+      || image.image_height % 2 != 0
+    {
+      return Err(Error::from_win32());
+    }
+
+    if let Some(cached) = self.image_textures.get(&image.image_id) {
+      match cached {
+        CachedImageTexture::NativeNv12 {
+          descriptor_index,
+          width,
+          height,
+          version,
+          ..
+        } if *width == image.image_width && *height == image.image_height => {
+          let descriptor_index = *descriptor_index;
+          if *version != image.version {
+            if let Some(CachedImageTexture::NativeNv12 { version, .. }) = self.image_textures.get_mut(&image.image_id) {
+              *version = image.version;
+            }
+          }
+          return Ok(descriptor_index);
+        }
+        _ => {
+          self.image_textures.remove(&image.image_id);
+        }
+      }
+    }
+
+    let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
+      return Err(Error::from_win32());
+    };
+    if self.next_srv_index + 2 > SRV_DESCRIPTOR_COUNT as usize {
+      return Err(Error::from_win32());
+    }
+
+    let descriptor_index = self.next_srv_index;
+    self.next_srv_index += 2;
+    let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: DXGI_FORMAT_R8_UNORM,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
+    };
+    let uv_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: DXGI_FORMAT_R8G8_UNORM,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
+    };
+    self.device.CreateShaderResourceView(
+      &dx12.y_texture,
+      Some(&y_srv_desc),
+      self.srv_heap.cpu_handle(descriptor_index),
+    );
+    self.device.CreateShaderResourceView(
+      &dx12.uv_texture,
+      Some(&uv_srv_desc),
+      self.srv_heap.cpu_handle(descriptor_index + 1),
+    );
+    self.image_textures.insert(
+      image.image_id,
+      CachedImageTexture::NativeNv12 {
+        _y_texture: dx12.y_texture.clone(),
+        _uv_texture: dx12.uv_texture.clone(),
+        descriptor_index,
+        width: image.image_width,
+        height: image.image_height,
+        version: image.version,
+      },
+    );
+    Ok(descriptor_index)
+  }
+
+  #[cfg(feature = "image")]
   unsafe fn upload_image_texture(
     &mut self,
     texture: &ID3D12Resource,
@@ -2430,21 +2769,10 @@ impl Dx12State {
     }
 
     let row_pitch = align_up(row_bytes, 256);
-    let upload = if row_pitch == row_bytes {
-      UploadBuffer::from_bytes(&self.device, data)?
+    let upload = if row_pitch == row_bytes && data.len() >= row_bytes * height as usize {
+      self.upload_frame_bytes(data, 512)?
     } else {
-      let upload_size = row_pitch * height as usize;
-      let mut upload_bytes = vec![0u8; upload_size];
-      for row in 0..height as usize {
-        let src_start = row * row_bytes;
-        if src_start >= data.len() {
-          break;
-        }
-        let src_end = (src_start + row_bytes).min(data.len());
-        let dst_start = row * row_pitch;
-        upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&data[src_start..src_end]);
-      }
-      UploadBuffer::from_bytes(&self.device, &upload_bytes)?
+      self.upload_frame_rows(data, row_bytes, row_pitch, height as usize, 512)?
     };
     let mut dst = D3D12_TEXTURE_COPY_LOCATION {
       pResource: ManuallyDrop::new(Some(texture.to_owned())),
@@ -2452,11 +2780,11 @@ impl Dx12State {
       Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
     };
     let mut src = D3D12_TEXTURE_COPY_LOCATION {
-      pResource: ManuallyDrop::new(Some(upload._resource.clone())),
+      pResource: ManuallyDrop::new(Some(upload.resource.clone())),
       Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
       Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
         PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
-          Offset: 0,
+          Offset: upload.offset,
           Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
             Format: format,
             Width: width,
@@ -2475,7 +2803,6 @@ impl Dx12State {
       D3D12_RESOURCE_STATE_COPY_DEST,
       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
     );
-    self.frame_uploads[self.frame_index].push(upload);
     Ok(())
   }
 
