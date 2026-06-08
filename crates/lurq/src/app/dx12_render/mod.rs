@@ -370,9 +370,11 @@ impl UploadBuffer {
     let read_range = D3D12_RANGE { Begin: 0, End: 0 };
     let mut mapped: *mut c_void = ptr::null_mut();
     resource.Map(0, Some(&read_range), Some(&mut mapped))?;
-    ptr::write_bytes(mapped.cast::<u8>(), 0, padded_size);
     if !data.is_empty() {
       ptr::copy_nonoverlapping(data.as_ptr(), mapped.cast::<u8>(), data.len());
+    }
+    if padded_size > data.len() {
+      ptr::write_bytes(mapped.cast::<u8>().add(data.len()), 0, padded_size - data.len());
     }
     let written_range = D3D12_RANGE {
       Begin: 0,

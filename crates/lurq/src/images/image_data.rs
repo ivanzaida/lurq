@@ -443,6 +443,7 @@ mod tests {
     let held = image.frame_at(image.started_at).data;
     image.set_streaming_rgba(vec![0, 255, 0, 255]);
 
+    assert!(image.take_streaming_rgba_buffer().is_some());
     assert!(image.take_streaming_rgba_buffer().is_none());
     drop(held);
 
