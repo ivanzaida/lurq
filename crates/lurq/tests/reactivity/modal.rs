@@ -2,13 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
-  components::{Column, Rect, Row, Select, Text},
+  components::{Column, Rect, Row, Select, Slider, Text},
   core::Signal,
   layout::{Alignment, Constraints, Size, layout_result::LayoutResult},
   node::Element,
 };
 
-use crate::support::{pointer_click, run_pass};
+use crate::support::{pointer_click, render_pass, run_pass};
 
 fn pass_layout(tree: &mut Tree, constraints: Constraints) -> LayoutResult {
   tree.set_layout_constraints_override(Some(constraints));
@@ -334,4 +334,221 @@ fn select_inside_modal_opens_and_commits() {
 
   let selected = signals.lock().unwrap().value.as_ref().unwrap().get();
   assert_eq!(selected, "lg");
+}
+
+#[derive(Default)]
+struct ForEachModalSignals {
+  open: Option<Signal<bool>>,
+  value: Option<Signal<i32>>,
+}
+
+struct RootWithForEachSliderModal {
+  open: Signal<bool>,
+  value: Signal<i32>,
+}
+
+impl Component for RootWithForEachSliderModal {
+  type Props = Shared<Mutex<ForEachModalSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let open = ctx.signal(false);
+    let value = ctx.signal(50);
+    let props = ctx.props::<Self::Props>().clone();
+    {
+      let mut signals = props.0.lock().unwrap();
+      signals.open = Some(open.clone());
+      signals.value = Some(value.clone());
+    }
+    Self { open, value }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let open = self.open.clone();
+    let value = self.value.clone();
+    let rows = ctx.for_each(
+      [1_u64],
+      |id| *id,
+      move |ctx, id| {
+        let open = open.clone();
+        let value = value.clone();
+        ctx.modal(open, move |_| {
+          let current = value.get();
+          Column::new()
+            .width(200.0)
+            .height(80.0)
+            .child(Text::new(&format!("{current}%")))
+            .child(Slider::new(value).range(0, 100).width(120.0).height(20.0))
+        });
+        Text::new(&format!("row-{id}")).into()
+      },
+    );
+    Column::new().with_children(rows)
+  }
+}
+
+#[test]
+fn for_each_owned_modal_slider_updates_without_growing_modal_hosts() {
+  let signals = Arc::new(Mutex::new(ForEachModalSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithForEachSliderModal>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  for value in 0..80 {
+    signals.lock().unwrap().value.as_ref().unwrap().set(value);
+    run_pass(&mut tree);
+
+    let root = tree.root().unwrap();
+    assert_eq!(root.tag_name(), "__lurq_modal_host");
+    assert_eq!(root.children().len(), 2);
+  }
+}
+
+#[derive(Default)]
+struct LocalModalSliderSignals {
+  open: Option<Signal<bool>>,
+  value: Option<Signal<i32>>,
+}
+
+struct RootWithLocalSliderModal {
+  open: Signal<bool>,
+}
+
+impl Component for RootWithLocalSliderModal {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let open = ctx.signal(false);
+    ctx.props::<Self::Props>().0.lock().unwrap().open = Some(open.clone());
+    Self { open }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    ctx.modal(self.open.clone(), move |ctx| ctx.mount::<LocalModalSlider>(props));
+    Text::new("base")
+  }
+}
+
+struct LocalModalSlider {
+  value: Signal<i32>,
+}
+
+impl Component for LocalModalSlider {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let value = ctx.signal(0);
+    ctx.props::<Self::Props>().0.lock().unwrap().value = Some(value.clone());
+    Self { value }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let value = self.value.clone();
+    Column::new()
+      .width(180.0)
+      .height(80.0)
+      .child(Text::new(&format!("{}%", value.get())))
+      .child(Slider::new(value).range(0, 100).width(100.0).height(20.0))
+  }
+}
+
+#[test]
+fn local_slider_inside_modal_rerenders_while_dragging() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithLocalSliderModal>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("modal slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  tree.mouse_down(rect.x, y, MouseButton::Left);
+  tree.mouse_move(rect.x + 75.0, y);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value > 0);
+  render_pass(&mut tree);
+  assert!(
+    tree
+      .find_element(|node| node.text_content() == Some(&format!("{dragged_value}%")))
+      .is_some(),
+    "modal subtree should show the dragged slider value before mouse-up"
+  );
+
+  tree.mouse_up(rect.x + 75.0, y, MouseButton::Left);
+}
+
+struct LocalModalNestedSlider;
+
+impl Component for LocalModalNestedSlider {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.mount::<LocalModalSlider>(ctx.props::<Self::Props>().clone())
+  }
+}
+
+struct RootWithNestedLocalSliderModal {
+  open: Signal<bool>,
+}
+
+impl Component for RootWithNestedLocalSliderModal {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let open = ctx.signal(false);
+    ctx.props::<Self::Props>().0.lock().unwrap().open = Some(open.clone());
+    Self { open }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    ctx.modal(self.open.clone(), move |ctx| ctx.mount::<LocalModalNestedSlider>(props));
+    Text::new("base")
+  }
+}
+
+#[test]
+fn nested_local_slider_inside_modal_rerenders_while_dragging() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithNestedLocalSliderModal>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("modal slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  tree.mouse_down(rect.x, y, MouseButton::Left);
+  tree.mouse_move(rect.x + 75.0, y);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value > 0);
+  render_pass(&mut tree);
+  assert!(
+    tree
+      .find_element(|node| node.text_content() == Some(&format!("{dragged_value}%")))
+      .is_some(),
+    "nested modal subtree should show the dragged slider value before mouse-up"
+  );
+
+  tree.mouse_up(rect.x + 75.0, y, MouseButton::Left);
 }

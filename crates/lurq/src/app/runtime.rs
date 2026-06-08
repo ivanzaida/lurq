@@ -209,6 +209,29 @@ impl SecondaryWindow {
     }
   }
 
+  fn new_closed(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
+    let mut window = Self::new(title, width, height, tree);
+    window.open = false;
+    window
+  }
+
+  fn open(&mut self) -> bool {
+    if self.open {
+      return false;
+    }
+    self.open = true;
+    true
+  }
+
+  fn close(&mut self) -> bool {
+    if !self.open {
+      return false;
+    }
+    self.open = false;
+    self.set_metadata(SecondaryWindowMetadata::default());
+    true
+  }
+
   pub(crate) fn title(&self) -> &str {
     &self.title
   }
@@ -544,14 +567,14 @@ impl Tree {
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn close_secondary_window(&mut self, index: usize) -> bool {
+    let render_engine_factory = self.render_engine_factory.clone();
     let Some(window) = self.secondary_windows.get_mut(index) else {
       return false;
     };
-    if !window.open {
+    if !window.close() {
       return false;
     }
-    window.open = false;
-    window.set_metadata(SecondaryWindowMetadata::default());
+    window.tree.render_engine = render_engine_factory.map(|factory| (factory)());
 
     #[cfg(feature = "devtools")]
     if self
@@ -576,6 +599,7 @@ impl Tree {
     {
       return self.apply_devtools_requests();
     }
+
     #[cfg(not(feature = "devtools"))]
     false
   }
@@ -610,11 +634,68 @@ impl Tree {
   pub fn mount_devtools(&mut self, app: &mut App) {
     let mut devtools = Tree::new();
     devtools.mount_root::<DevTools>(app, self.devtools_props(DevToolsSnapshot::from_tree(self)));
-    let index = self.push_secondary_window(SecondaryWindow::new("lurq DevTools", 1440, 900, devtools));
+    let index = self.push_secondary_window(SecondaryWindow::new_closed("lurq DevTools", 1440, 900, devtools));
     self.devtools = Some(DevToolsWindow {
       secondary_index: index,
       metadata: SecondaryWindowMetadata::default(),
     });
+  }
+
+  #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn open_devtools(&mut self) -> bool {
+    let Some(index) = self.devtools.as_ref().map(|devtools| devtools.secondary_index) else {
+      return false;
+    };
+    let opened = self.secondary_windows.get_mut(index).is_some_and(SecondaryWindow::open);
+    if opened {
+      self.sync_devtools_now();
+    }
+    opened
+  }
+
+  #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn close_devtools(&mut self) -> bool {
+    let Some(index) = self.devtools.as_ref().map(|devtools| devtools.secondary_index) else {
+      return false;
+    };
+    if !self.secondary_windows.get(index).is_some_and(|window| window.open) {
+      return false;
+    }
+    self.close_secondary_window(index);
+    true
+  }
+
+  #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn toggle_devtools(&mut self) -> bool {
+    let Some(index) = self.devtools.as_ref().map(|devtools| devtools.secondary_index) else {
+      return false;
+    };
+    if self.secondary_windows.get(index).is_some_and(|window| window.open) {
+      self.close_devtools()
+    } else {
+      self.open_devtools()
+    }
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn open_devtools(&mut self) -> bool {
+    false
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn close_devtools(&mut self) -> bool {
+    false
+  }
+
+  #[cfg(not(feature = "devtools"))]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn toggle_devtools(&mut self) -> bool {
+    false
   }
 
   #[cfg(feature = "devtools")]
@@ -1330,7 +1411,9 @@ impl Tree {
       return;
     };
 
-    if let ClickDispatchTarget::Node(click_target_id) = click_target {
+    if button == MouseButton::Left
+      && let ClickDispatchTarget::Node(click_target_id) = click_target
+    {
       if self
         .click_tracker
         .pending_matches(now, position, button, click_target_id)
@@ -1352,7 +1435,9 @@ impl Tree {
     self.flush_pending_click();
 
     match click_target {
-      ClickDispatchTarget::Node(click_target_id) if self.click_target_has_dblclick_handler(click_target_id) => {
+      ClickDispatchTarget::Node(click_target_id)
+        if button == MouseButton::Left && self.click_target_has_dblclick_handler(click_target_id) =>
+      {
         self
           .click_tracker
           .set_pending(now, position, button, modifiers, click_target_id);
@@ -1820,6 +1905,7 @@ impl Tree {
         MouseEventKind::Move => {
           drag.update(lx);
           self.needs_redraw = true;
+          self.apply_reactive_updates_after_event();
           return;
         }
         MouseEventKind::Up => {
@@ -1827,7 +1913,9 @@ impl Tree {
           drag.finish();
           self.dragging_slider = None;
           self.clear_active_path();
+          self.suppress_click((evt.x, evt.y), button);
           self.needs_redraw = true;
+          self.apply_reactive_updates_after_event();
           return;
         }
         _ => {}
@@ -1945,8 +2033,11 @@ impl Tree {
     let mut pending_text_selection_drag = None;
     let mut reset_text_input_caret_blink = false;
     let mut blur_focused_select = false;
+    let is_left_button = evt.button == MouseButton::Left;
+    let is_left_click = matches!(evt.kind, MouseEventKind::Click) && is_left_button;
+    let is_left_down = matches!(evt.kind, MouseEventKind::Down) && is_left_button;
     #[cfg(feature = "form")]
-    let pending_submit = if matches!(evt.kind, MouseEventKind::Click) {
+    let pending_submit = if is_left_click {
       hits
         .iter()
         .find(|(node, _)| node.button_kind_value() == Some(ButtonKind::Submit))
@@ -1956,7 +2047,7 @@ impl Tree {
       None
     };
 
-    if matches!(evt.kind, MouseEventKind::Down) {
+    if is_left_down {
       // Focus the select trigger on press so keyboard navigation works.
       if let Some((node, _)) = hits
         .iter()
@@ -1995,8 +2086,8 @@ impl Tree {
       }
     }
 
-    if matches!(evt.kind, MouseEventKind::Click | MouseEventKind::Down) {
-      if matches!(evt.kind, MouseEventKind::Down) {
+    if is_left_click || is_left_down {
+      if is_left_down {
         if let Some((node, rect)) = hits
           .iter()
           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
@@ -2154,11 +2245,11 @@ impl Tree {
           builtin_needs_redraw = true;
         }
       }
-      if let Some(target) = dispatch_builtin_pointer(&hits, lx, matches!(evt.kind, MouseEventKind::Click)) {
+      if let Some(target) = dispatch_builtin_pointer(&hits, lx, is_left_click) {
         pending_focus = Some(target);
         builtin_needs_redraw = true;
       }
-      if hits.is_empty() && matches!(evt.kind, MouseEventKind::Click) {
+      if hits.is_empty() && is_left_click {
         if let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly) {
           if let NodeKind::Slider { state } = node.node_kind() {
             let (track_rect, thumb_rect) = state.part_rects(
@@ -2171,6 +2262,7 @@ impl Tree {
             );
             let ratio = state.pointer_ratio(lx, track_rect, thumb_rect);
             state.set_from_ratio(ratio);
+            state.clear_drag_ratio();
             pending_focus = Some(FocusTarget {
               input_id: node.node_id(),
               event_id: node.node_id(),
@@ -2194,7 +2286,7 @@ impl Tree {
           };
           let on_axis_thumb = lx >= tx && lx <= tx + tw && ly >= ty && ly <= ty + th;
           on_thumb |= on_axis_thumb;
-          if on_axis_thumb && matches!(evt.kind, MouseEventKind::Down) && pressed_axis.is_none() {
+          if on_axis_thumb && is_left_down && pressed_axis.is_none() {
             pressed_axis = Some(axis);
           }
         }
@@ -2263,12 +2355,21 @@ impl Tree {
       evt.target_id = node.node_id();
       match evt.kind {
         MouseEventKind::Click => {
-          if let Some(ref handler) = node.events.on_click {
+          if evt.button == MouseButton::Left
+            && let Some(ref handler) = node.events.on_click
+          {
             handler(&evt);
+          }
+          for (button, handler) in &node.events.on_mouse_click {
+            if *button == evt.button {
+              handler(&evt);
+            }
           }
         }
         MouseEventKind::DoubleClick => {
-          if let Some(ref handler) = node.events.on_dblclick {
+          if evt.button == MouseButton::Left
+            && let Some(ref handler) = node.events.on_dblclick
+          {
             handler(&evt);
           }
         }
@@ -4453,6 +4554,7 @@ fn dispatch_builtin_pointer(
         );
         let ratio = state.pointer_ratio(x, track_rect, thumb_rect);
         state.set_from_ratio(ratio);
+        state.clear_drag_ratio();
         return Some(FocusTarget {
           input_id: node.node_id(),
           event_id: event_id.unwrap_or_else(|| node.node_id()),

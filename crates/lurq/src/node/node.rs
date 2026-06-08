@@ -7,7 +7,7 @@ use crate::app::ctx::{
 use crate::{
   animation::{Animation, Transition},
   app::{
-    events::{DragEvent, DropEvent, KeyboardEvent, MouseEvent, ScrollEvent},
+    events::{DragEvent, DropEvent, KeyboardEvent, MouseButton, MouseEvent, ScrollEvent},
     theme::{CaretMode, TypographyStyle},
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
@@ -117,6 +117,7 @@ impl Default for BackgroundSize {
 #[derive(Default, Clone)]
 pub struct EventHandlers {
   pub on_click: Option<Callback<MouseEvent>>,
+  pub on_mouse_click: Vec<(MouseButton, Callback<MouseEvent>)>,
   pub on_dblclick: Option<Callback<MouseEvent>>,
   pub on_mouse_down: Option<Callback<MouseEvent>>,
   pub on_mouse_up: Option<Callback<MouseEvent>>,
@@ -807,6 +808,11 @@ impl Node {
 
   pub fn on_click(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
     self.events.on_click = Some(Arc::new(f));
+    self
+  }
+
+  pub fn on_mouse_click(mut self, button: MouseButton, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
+    self.events.on_mouse_click.push((button, Arc::new(f)));
     self
   }
 

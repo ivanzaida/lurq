@@ -400,6 +400,15 @@ macro_rules! impl_into_node {
         self
       }
 
+      pub fn on_mouse_click(
+        mut self,
+        button: $crate::app::events::MouseButton,
+        f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static,
+      ) -> Self {
+        self.node = self.node.on_mouse_click(button, f);
+        self
+      }
+
       pub fn on_dblclick(mut self, f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static) -> Self {
         self.node = self.node.on_dblclick(f);
         self

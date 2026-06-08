@@ -76,6 +76,76 @@ fn release_near_press_clicks_same_target() {
 }
 
 #[test]
+fn non_left_buttons_do_not_fire_on_click() {
+  let clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(Rect::new(100.0, 40.0).background("#22c55e").on_click({
+    let clicks = clicks.clone();
+    move |_| clicks.update(|count| *count += 1)
+  }));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  for button in [MouseButton::Right, MouseButton::Middle, MouseButton::Other(4)] {
+    runtime.mouse_down(x, y, button);
+    runtime.mouse_up(x, y, button);
+  }
+
+  assert_eq!(clicks.get(), 0);
+}
+
+#[test]
+fn on_mouse_click_fires_only_for_matching_button() {
+  let clicks = Signal::new(0);
+  let left_mouse_clicks = Signal::new(0);
+  let right_mouse_clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Rect::new(100.0, 40.0)
+      .background("#22c55e")
+      .on_click({
+        let clicks = clicks.clone();
+        move |_| clicks.update(|count| *count += 1)
+      })
+      .on_mouse_click(MouseButton::Left, {
+        let left_mouse_clicks = left_mouse_clicks.clone();
+        move |_| left_mouse_clicks.update(|count| *count += 1)
+      })
+      .on_mouse_click(MouseButton::Right, {
+        let right_mouse_clicks = right_mouse_clicks.clone();
+        move |_| right_mouse_clicks.update(|count| *count += 1)
+      }),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let (x, y) = rect.center();
+
+  runtime.mouse_down(x, y, MouseButton::Left);
+  runtime.mouse_up(x, y, MouseButton::Left);
+
+  assert_eq!(clicks.get(), 1);
+  assert_eq!(left_mouse_clicks.get(), 1);
+  assert_eq!(right_mouse_clicks.get(), 0);
+
+  runtime.mouse_down(x, y, MouseButton::Right);
+  runtime.mouse_up(x, y, MouseButton::Right);
+
+  assert_eq!(clicks.get(), 1);
+  assert_eq!(left_mouse_clicks.get(), 1);
+  assert_eq!(right_mouse_clicks.get(), 1);
+
+  runtime.mouse_down(x, y, MouseButton::Middle);
+  runtime.mouse_up(x, y, MouseButton::Middle);
+
+  assert_eq!(clicks.get(), 1);
+  assert_eq!(left_mouse_clicks.get(), 1);
+  assert_eq!(right_mouse_clicks.get(), 1);
+}
+
+#[test]
 fn child_press_parent_release_clicks_parent() {
   let parent_clicks = Signal::new(0);
   let child_clicks = Signal::new(0);

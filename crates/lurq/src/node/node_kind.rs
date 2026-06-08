@@ -1109,6 +1109,7 @@ struct SliderInner {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SliderLayoutSignature {
+  visual_ratio_bits: u32,
   track_width: Option<f32>,
   track_height: Option<f32>,
   track_hovered_width: Option<f32>,
@@ -1200,9 +1201,11 @@ impl SliderState {
 
   pub(crate) fn visual_ratio(&self) -> f32 {
     let inner = self.inner.lock().unwrap();
+    let value_ratio = slider_ratio_for_value(self.value_f32(), inner.min, inner.max);
     inner
       .drag_ratio
-      .unwrap_or_else(|| slider_ratio_for_value(self.value_f32(), inner.min, inner.max))
+      .filter(|ratio| slider_drag_ratio_matches_value(*ratio, value_ratio, inner.min, inner.max, inner.step))
+      .unwrap_or(value_ratio)
   }
 
   pub(crate) fn set_range(&self, min: i32, max: i32) {
@@ -1260,7 +1263,8 @@ impl SliderState {
   }
 
   pub(crate) fn nudge(&self, delta: i32) {
-    let inner = self.inner.lock().unwrap();
+    let mut inner = self.inner.lock().unwrap();
+    inner.drag_ratio = None;
     let current = self.value_f32();
     let next = snap_slider_value(current + delta as f32 * inner.step, inner.min, inner.max, inner.step);
     drop(inner);
@@ -1316,12 +1320,21 @@ impl SliderState {
     let old_inner = old.inner.lock().unwrap();
     let mut inner = self.inner.lock().unwrap();
     inner.hovered = old_inner.hovered;
-    inner.drag_ratio = old_inner.drag_ratio;
+    inner.drag_ratio = old_inner.drag_ratio.filter(|ratio| {
+      let current = slider_ratio_for_value(self.value_f32(), inner.min, inner.max);
+      slider_drag_ratio_matches_value(*ratio, current, inner.min, inner.max, inner.step)
+    });
   }
 
   pub(crate) fn layout_signature(&self) -> SliderLayoutSignature {
     let inner = self.inner.lock().unwrap();
+    let value_ratio = slider_ratio_for_value(self.value_f32(), inner.min, inner.max);
+    let visual_ratio = inner
+      .drag_ratio
+      .filter(|ratio| slider_drag_ratio_matches_value(*ratio, value_ratio, inner.min, inner.max, inner.step))
+      .unwrap_or(value_ratio);
     SliderLayoutSignature {
+      visual_ratio_bits: visual_ratio.to_bits(),
       track_width: inner.track_style.width,
       track_height: inner.track_style.height,
       track_hovered_width: inner.track_hovered_style.as_ref().and_then(|style| style.width),
@@ -1450,6 +1463,16 @@ fn slider_ratio_for_value(value: f32, min: f32, max: f32) -> f32 {
     return 0.0;
   }
   ((value - min) / (max - min)).clamp(0.0, 1.0)
+}
+
+fn slider_drag_ratio_matches_value(ratio: f32, value_ratio: f32, min: f32, max: f32, step: f32) -> bool {
+  let range = (max - min).abs();
+  let tolerance = if range > f32::EPSILON {
+    (step.abs() / range * 0.75).max(0.001)
+  } else {
+    0.001
+  };
+  (ratio - value_ratio).abs() <= tolerance
 }
 
 fn snap_slider_value(value: f32, min: f32, max: f32, step: f32) -> f32 {

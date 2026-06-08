@@ -116,6 +116,18 @@ impl WindowHandle {
   pub fn stop_drag(&self) {
     self.window.push_command(WindowCommand::StopDrag);
   }
+
+  pub fn open_devtools(&self) {
+    self.window.push_command(WindowCommand::OpenDevtools);
+  }
+
+  pub fn close_devtools(&self) {
+    self.window.push_command(WindowCommand::CloseDevtools);
+  }
+
+  pub fn toggle_devtools(&self) {
+    self.window.push_command(WindowCommand::ToggleDevtools);
+  }
 }
 
 impl Deref for WindowHandle {
@@ -138,6 +150,9 @@ pub(crate) enum WindowCommand {
   StartDrag,
   StartResize(WindowResizeDirection),
   StopDrag,
+  OpenDevtools,
+  CloseDevtools,
+  ToggleDevtools,
 }
 
 /// Reactive, per-window geometry handle held by the `Tree` and injected into

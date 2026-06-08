@@ -47,5 +47,6 @@ mod slider {
   mod drag_updates_value;
   mod keyboard_update;
   mod renders_thumb;
+  mod suppresses_parent_click;
   mod updates_from_click;
 }

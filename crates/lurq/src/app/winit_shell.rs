@@ -290,6 +290,15 @@ impl ManagedWindow {
           }
         }
         WindowCommand::StopDrag => {}
+        WindowCommand::OpenDevtools => {
+          self.tree.open_devtools();
+        }
+        WindowCommand::CloseDevtools => {
+          self.tree.close_devtools();
+        }
+        WindowCommand::ToggleDevtools => {
+          self.tree.toggle_devtools();
+        }
       }
     }
     self.sync_window_state();
@@ -631,6 +640,15 @@ impl ManagedSecondaryWindow {
           }
         }
         WindowCommand::StopDrag => {}
+        WindowCommand::OpenDevtools => {
+          tree.open_devtools();
+        }
+        WindowCommand::CloseDevtools => {
+          tree.close_devtools();
+        }
+        WindowCommand::ToggleDevtools => {
+          tree.toggle_devtools();
+        }
       }
     }
     self.sync_window_state(tree);
@@ -845,6 +863,33 @@ struct WinitHandler {
 }
 
 impl WinitHandler {
+  fn sync_secondary_windows(&mut self, event_loop: &ActiveEventLoop) {
+    self
+      .secondaries
+      .retain(|secondary| self.main.tree.secondary_window(secondary.index()).is_some());
+
+    let count = self.main.tree.secondary_window_count();
+    for index in 0..count {
+      if self.secondaries.iter().any(|secondary| secondary.index() == index) {
+        continue;
+      }
+
+      let Some(secondary) = self.main.tree.secondary_window(index) else {
+        continue;
+      };
+      let mut managed = ManagedSecondaryWindow::new(index, secondary);
+      let metadata = self
+        .main
+        .tree
+        .secondary_window_mut(index)
+        .and_then(|secondary| managed.create_window(event_loop, secondary.tree_mut()));
+      if let Some(metadata) = metadata {
+        self.main.tree.set_secondary_window_metadata(index, metadata);
+      }
+      self.secondaries.push(managed);
+    }
+  }
+
   fn check_secondary_redraw(&mut self) {
     for secondary_window in &mut self.secondaries {
       let index = secondary_window.index();
@@ -884,10 +929,11 @@ impl WinitHandler {
     self.present_dirty_secondaries();
   }
 
-  fn apply_secondary_window_requests(&mut self) {
+  fn apply_secondary_window_requests(&mut self, event_loop: &ActiveEventLoop) {
     if self.main.tree.apply_secondary_window_requests() {
       self.main.request_redraw();
     }
+    self.sync_secondary_windows(event_loop);
     self.check_secondary_redraw();
     self.present_dirty_windows();
   }
@@ -935,17 +981,7 @@ impl WinitHandler {
 impl ApplicationHandler for WinitHandler {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop);
-    for secondary_window in &mut self.secondaries {
-      let index = secondary_window.index();
-      let metadata = self
-        .main
-        .tree
-        .secondary_window_mut(index)
-        .and_then(|secondary| secondary_window.create_window(event_loop, secondary.tree_mut()));
-      if let Some(metadata) = metadata {
-        self.main.tree.set_secondary_window_metadata(index, metadata);
-      }
-    }
+    self.sync_secondary_windows(event_loop);
   }
 
   fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
@@ -954,6 +990,7 @@ impl ApplicationHandler for WinitHandler {
         return;
       }
       let presented = self.main.handle_event(&mut self.app, event_loop, event);
+      self.apply_secondary_window_requests(event_loop);
       if presented {
         self.check_secondary_redraw();
         self.present_dirty_secondaries();
@@ -978,7 +1015,7 @@ impl ApplicationHandler for WinitHandler {
         }
         self.secondaries.remove(position);
       } else {
-        self.apply_secondary_window_requests();
+        self.apply_secondary_window_requests(event_loop);
       }
     }
   }
@@ -986,12 +1023,14 @@ impl ApplicationHandler for WinitHandler {
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     self.main.tick();
     self.main.apply_window_commands(event_loop);
+    self.apply_secondary_window_requests(event_loop);
     for secondary_window in &mut self.secondaries {
       if let Some(secondary) = self.main.tree.secondary_window_mut(secondary_window.index()) {
         secondary_window.tick(secondary.tree_mut());
         secondary_window.apply_window_commands(secondary.tree_mut());
       }
     }
+    self.sync_secondary_windows(event_loop);
 
     let secondary_has_tick = self.secondaries.iter().any(|secondary_window| {
       self
