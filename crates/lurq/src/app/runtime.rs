@@ -3779,7 +3779,11 @@ fn build_select_menu(
       row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
     }
     let commit_state = state.clone();
-    row.events.on_click = Some(Arc::new(move |_| commit_state.commit(index)));
+    row.events.on_mouse_down = Some(Arc::new(move |event| {
+      if event.button == MouseButton::Left {
+        commit_state.commit(index);
+      }
+    }));
     if let Some(hover) = style.resolved_option(true, selected).background {
       row = row.hovered(move |s| s.background(hover));
     }
