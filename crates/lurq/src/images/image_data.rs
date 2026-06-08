@@ -107,10 +107,7 @@ impl ImageData {
       id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
       width,
       height,
-      frames: Arc::new(vec![ImageFrame {
-        data: Arc::clone(&data),
-        duration_ms: 0,
-      }]),
+      frames: Arc::new(Vec::new()),
       total_duration_ms: 0,
       started_at: Instant::now(),
       streaming: Some(Arc::new(StreamingImageInner {

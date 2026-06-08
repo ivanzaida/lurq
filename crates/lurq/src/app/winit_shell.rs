@@ -2,7 +2,9 @@ use std::time::{Duration, Instant};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 #[cfg(windows)]
-use winit::platform::windows::{Color as WinitWindowsColor, WindowAttributesExtWindows, WindowExtWindows};
+use winit::platform::windows::{
+  Color as WinitWindowsColor, CornerPreference as WinitCornerPreference, WindowAttributesExtWindows, WindowExtWindows,
+};
 use winit::{
   application::ApplicationHandler,
   dpi::{PhysicalPosition, PhysicalSize, Position},
@@ -20,7 +22,7 @@ use crate::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
     runtime::{SecondaryWindow, SecondaryWindowMetadata},
-    window::{WindowCommand, WindowIcon, WindowResizeDirection},
+    window::{WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection},
   },
   node::{CursorIcon, color::Color},
 };
@@ -101,6 +103,19 @@ impl WinitWindow {
   pub fn with_icon(mut self, icon: impl Into<Option<WindowIcon>>) -> Self {
     self.attrs = self.attrs.with_window_icon(icon.into().and_then(to_winit_icon));
     self
+  }
+
+  pub fn with_corner_radius(mut self, radius: WindowCornerRadius) -> Self {
+    self.attrs = with_corner_radius(self.attrs, radius);
+    self
+  }
+
+  pub fn with_rounded_corners(self, rounded: bool) -> Self {
+    self.with_corner_radius(if rounded {
+      WindowCornerRadius::Rounded
+    } else {
+      WindowCornerRadius::None
+    })
   }
 
   pub fn with_transparent(mut self, transparent: bool) -> Self {
@@ -286,6 +301,11 @@ impl ManagedWindow {
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
             window.set_window_icon(icon.and_then(to_winit_icon));
+          }
+        }
+        WindowCommand::SetCornerRadius(radius) => {
+          if let Some(window) = &self.window {
+            set_corner_radius(window, radius);
           }
         }
         WindowCommand::Move { x, y } => {
@@ -658,6 +678,11 @@ impl ManagedSecondaryWindow {
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
             window.set_window_icon(icon.and_then(to_winit_icon));
+          }
+        }
+        WindowCommand::SetCornerRadius(radius) => {
+          if let Some(window) = &self.window {
+            set_corner_radius(window, radius);
           }
         }
         WindowCommand::Move { x, y } => {
@@ -1213,6 +1238,37 @@ fn set_title_bar_color(window: &Window, color: Option<Color>) {
 #[cfg(windows)]
 fn to_winit_windows_color(color: Color) -> WinitWindowsColor {
   WinitWindowsColor::from_rgb(color.r(), color.g(), color.b())
+}
+
+#[cfg(windows)]
+fn with_corner_radius(attrs: WindowAttributes, radius: WindowCornerRadius) -> WindowAttributes {
+  attrs.with_corner_preference(to_winit_corner_preference(radius))
+}
+
+#[cfg(not(windows))]
+fn with_corner_radius(attrs: WindowAttributes, radius: WindowCornerRadius) -> WindowAttributes {
+  let _ = radius;
+  attrs
+}
+
+#[cfg(windows)]
+fn set_corner_radius(window: &Window, radius: WindowCornerRadius) {
+  window.set_corner_preference(to_winit_corner_preference(radius));
+}
+
+#[cfg(not(windows))]
+fn set_corner_radius(window: &Window, radius: WindowCornerRadius) {
+  let _ = (window, radius);
+}
+
+#[cfg(windows)]
+fn to_winit_corner_preference(radius: WindowCornerRadius) -> WinitCornerPreference {
+  match radius {
+    WindowCornerRadius::Default => WinitCornerPreference::Default,
+    WindowCornerRadius::None => WinitCornerPreference::DoNotRound,
+    WindowCornerRadius::Rounded => WinitCornerPreference::Round,
+    WindowCornerRadius::RoundedSmall => WinitCornerPreference::RoundSmall,
+  }
 }
 
 fn to_winit_resize_direction(direction: WindowResizeDirection) -> WinitResizeDirection {

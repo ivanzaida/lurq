@@ -82,13 +82,14 @@ WinitWindow::new(app, tree)
   .with_min_size(800, 500)
   .with_title_bar_color(lurq::node::color::Color::from_hex("#101215"))
   .with_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1))
+  .with_corner_radius(lurq::app::WindowCornerRadius::RoundedSmall)
   .with_decorations(false)
   .run();
 ```
 
 The shell runs a steady redraw tick automatically. Use `on_tick` only for custom per-frame app work.
 
-Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, native title bar color, window icon, moving, resizing, and native platform window drag or resize requests for custom chrome. `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
+Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, native title bar color, native corner preference, window icon, moving, resizing, and native platform window drag or resize requests for custom chrome. `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
 
 ## Frame And Redraw Flow
 

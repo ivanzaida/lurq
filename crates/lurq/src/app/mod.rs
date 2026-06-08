@@ -22,4 +22,4 @@ pub mod winit_shell;
 
 pub use app_state::App;
 pub use runtime::Tree;
-pub use window::{Window, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};
+pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};

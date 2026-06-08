@@ -58,6 +58,14 @@ pub enum WindowResizeDirection {
   West,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowCornerRadius {
+  Default,
+  None,
+  Rounded,
+  RoundedSmall,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowIcon {
   rgba: Vec<u8>,
@@ -145,6 +153,22 @@ impl WindowHandle {
     self.set_icon(None);
   }
 
+  pub fn set_corner_radius(&self, radius: WindowCornerRadius) {
+    self.window.push_command(WindowCommand::SetCornerRadius(radius));
+  }
+
+  pub fn set_rounded_corners(&self, rounded: bool) {
+    self.set_corner_radius(if rounded {
+      WindowCornerRadius::Rounded
+    } else {
+      WindowCornerRadius::None
+    });
+  }
+
+  pub fn reset_corner_radius(&self) {
+    self.set_corner_radius(WindowCornerRadius::Default);
+  }
+
   pub fn r#move(&self, x: i32, y: i32) {
     self.window.push_command(WindowCommand::Move { x, y });
   }
@@ -199,6 +223,7 @@ pub(crate) enum WindowCommand {
   SetDecorated(bool),
   SetTitleBarColor(Option<Color>),
   SetIcon(Option<WindowIcon>),
+  SetCornerRadius(WindowCornerRadius),
   Move { x: i32, y: i32 },
   Resize { width: u32, height: u32 },
   StartDrag,
@@ -418,16 +443,20 @@ mod tests {
 
     handle.set_title_bar_color(color);
     handle.set_icon(icon.clone());
+    handle.set_corner_radius(WindowCornerRadius::RoundedSmall);
     handle.clear_title_bar_color();
     handle.clear_icon();
+    handle.reset_corner_radius();
 
     assert_eq!(
       window.take_commands(),
       vec![
         WindowCommand::SetTitleBarColor(Some(color)),
         WindowCommand::SetIcon(Some(icon)),
+        WindowCommand::SetCornerRadius(WindowCornerRadius::RoundedSmall),
         WindowCommand::SetTitleBarColor(None),
         WindowCommand::SetIcon(None),
+        WindowCommand::SetCornerRadius(WindowCornerRadius::Default),
       ]
     );
   }
