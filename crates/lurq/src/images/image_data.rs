@@ -426,4 +426,29 @@ mod tests {
     assert_eq!(&frame.data[..], &[0, 128, 0, 255]);
     assert_eq!(frame.version, 1);
   }
+
+  #[test]
+  fn streaming_rgba_recycles_released_buffers() {
+    let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
+    image.set_streaming_rgba(vec![255, 0, 0, 255]);
+    image.set_streaming_rgba(vec![0, 255, 0, 255]);
+
+    let recycled = image.take_streaming_rgba_buffer().unwrap();
+
+    assert!(recycled.capacity() >= 4);
+    assert!(recycled.is_empty());
+  }
+
+  #[test]
+  fn streaming_rgba_keeps_buffers_until_renderer_releases_them() {
+    let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
+    image.set_streaming_rgba(vec![255, 0, 0, 255]);
+    let held = image.frame_at(image.started_at).data;
+    image.set_streaming_rgba(vec![0, 255, 0, 255]);
+
+    assert!(image.take_streaming_rgba_buffer().is_none());
+    drop(held);
+
+    assert!(image.take_streaming_rgba_buffer().is_some());
+  }
 }

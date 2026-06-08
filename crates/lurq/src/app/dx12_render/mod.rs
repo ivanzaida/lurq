@@ -2172,19 +2172,22 @@ impl Dx12State {
 
     let row_bytes = image.image_width as usize * 4;
     let row_pitch = align_up(row_bytes, 256);
-    let upload_size = row_pitch * image.image_height as usize;
-    let mut upload_bytes = vec![0u8; upload_size];
-    for row in 0..image.image_height as usize {
-      let src_start = row * row_bytes;
-      if src_start >= image.data.len() {
-        break;
+    let upload = if row_pitch == row_bytes {
+      UploadBuffer::from_bytes(&self.device, image.data.as_slice())?
+    } else {
+      let upload_size = row_pitch * image.image_height as usize;
+      let mut upload_bytes = vec![0u8; upload_size];
+      for row in 0..image.image_height as usize {
+        let src_start = row * row_bytes;
+        if src_start >= image.data.len() {
+          break;
+        }
+        let src_end = (src_start + row_bytes).min(image.data.len());
+        let dst_start = row * row_pitch;
+        upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&image.data[src_start..src_end]);
       }
-      let src_end = (src_start + row_bytes).min(image.data.len());
-      let dst_start = row * row_pitch;
-      upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&image.data[src_start..src_end]);
-    }
-
-    let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
+      UploadBuffer::from_bytes(&self.device, &upload_bytes)?
+    };
     let mut dst = D3D12_TEXTURE_COPY_LOCATION {
       pResource: ManuallyDrop::new(Some(texture.to_owned())),
       Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
