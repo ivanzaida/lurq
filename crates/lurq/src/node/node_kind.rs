@@ -257,7 +257,7 @@ impl TextState {
     self.inner.lock().unwrap().display_text.clone()
   }
 
-  pub(crate) fn copy_runtime_state_from(&self, old: &Self, value: &str) {
+  pub(crate) fn copy_runtime_state_from(&self, old: &Self, value: &str, preserve_display_text: bool) {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
     }
@@ -266,7 +266,11 @@ impl TextState {
     let len = value.len();
     let mut inner = self.inner.lock().unwrap();
     inner.selectable = selectable;
-    inner.display_text = None;
+    inner.display_text = if preserve_display_text {
+      old_inner.display_text.clone()
+    } else {
+      None
+    };
     if selectable {
       inner.caret = old_inner.caret.min(len);
       inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));

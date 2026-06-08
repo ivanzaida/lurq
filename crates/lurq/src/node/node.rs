@@ -1714,13 +1714,18 @@ impl Node {
 
   pub(crate) fn preserve_runtime_state_from(&mut self, old: &Node) {
     self.clear_unchanged_guard_flags_from(old);
-    if self.layout_signature_matches(old) {
+    let layout_signature_matches = self.layout_signature_matches(old);
+    if layout_signature_matches {
       self.layout_cache.preserve_from(&old.layout_cache);
     }
 
     match (&self.node_kind, &old.node_kind) {
       (NodeKind::Text { state, .. }, NodeKind::Text { state: old_state, .. }) => {
-        state.copy_runtime_state_from(old_state, self.text_content().unwrap_or_default());
+        state.copy_runtime_state_from(
+          old_state,
+          self.text_content().unwrap_or_default(),
+          layout_signature_matches,
+        );
       }
       (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);

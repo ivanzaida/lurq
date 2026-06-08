@@ -25,7 +25,7 @@ fn image_command_carries_structural_order() {
 }
 
 #[test]
-fn left_border_emits_only_left_stroke() {
+fn left_border_emits_single_left_rect() {
   let mut runtime = Tree::new();
   runtime.set_root(
     Rect::new(20.0, 10.0)
@@ -36,8 +36,12 @@ fn left_border_emits_only_left_stroke() {
   let snapshot = render_pass(&mut runtime);
 
   assert_eq!(snapshot.rects.len(), 2);
-  assert_eq!(snapshot.rects[1].stroke, [0.0, 0.0, 0.0, 2.0]);
-  assert_eq!(snapshot.rects[1].stroke_color, Color::from_hex("#8b5cf6"));
+  assert_eq!(snapshot.rects[1].x, 0.0);
+  assert_eq!(snapshot.rects[1].y, 0.0);
+  assert_eq!(snapshot.rects[1].width, 2.0);
+  assert_eq!(snapshot.rects[1].height, 10.0);
+  assert_eq!(snapshot.rects[1].color, Color::from_hex("#8b5cf6"));
+  assert_eq!(snapshot.rects[1].stroke, [0.0; 4]);
 }
 
 #[test]
