@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.8"
+lurq = "0.9"
 ```
 
 Enable the runtime/rendering features you need:
 
 ```toml
 [dependencies]
-lurq = { version = "0.8", features = ["winit", "wgpu"] }
+lurq = { version = "0.9", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:
