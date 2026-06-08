@@ -67,6 +67,23 @@ let pixels = vec![255; 64 * 64 * 4];
 let image = ImageData::from_rgba(pixels, 64, 64);
 ```
 
+Streaming RGBA uses a stable image identity and uploads new pixels when the buffer version changes:
+
+```rust
+use lurq::{components::Image, images::StreamingImage};
+
+let stream = StreamingImage::new_rgba(vec![0; 64 * 64 * 4], 64, 64);
+
+stream.update_rgba(|pixels| {
+  pixels[0] = 255;
+  pixels[1] = 128;
+  pixels[2] = 0;
+  pixels[3] = 255;
+});
+
+Image::new(stream.image_data())
+```
+
 ## Resource Images
 
 With `image` and `resources`, let the runtime load files relative to the resource root.

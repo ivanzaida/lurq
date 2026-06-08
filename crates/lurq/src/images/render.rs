@@ -10,6 +10,7 @@ pub struct ImageCmd {
   pub height: f32,
   pub image_id: u64,
   pub frame_index: usize,
+  pub version: u64,
   pub data: Arc<Vec<u8>>,
   pub image_width: u32,
   pub image_height: u32,

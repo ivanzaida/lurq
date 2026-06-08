@@ -8,6 +8,7 @@ use std::{
 };
 
 use image::{AnimationDecoder, ImageFormat, codecs};
+use parking_lot::RwLock;
 
 pub enum ImageKind {
   Bytes(ImageData),
@@ -53,6 +54,7 @@ pub struct ImageData {
   frames: Arc<Vec<ImageFrame>>,
   total_duration_ms: u64,
   started_at: Instant,
+  streaming: Option<Arc<StreamingImageInner>>,
 }
 
 #[derive(Clone)]
@@ -61,11 +63,22 @@ struct ImageFrame {
   duration_ms: u64,
 }
 
+struct StreamingImageInner {
+  data: RwLock<Arc<Vec<u8>>>,
+  version: AtomicU64,
+}
+
+#[derive(Clone)]
+pub struct StreamingImage {
+  image: ImageData,
+}
+
 pub(crate) struct ImageFrameData {
   pub data: Arc<Vec<u8>>,
   pub width: u32,
   pub height: u32,
   pub frame_index: usize,
+  pub version: u64,
 }
 
 impl ImageData {
@@ -81,6 +94,27 @@ impl ImageData {
       }]),
       total_duration_ms: 0,
       started_at: Instant::now(),
+      streaming: None,
+    }
+  }
+
+  pub fn streaming_rgba(data: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(data.len(), (width * height * 4) as usize);
+    let data = Arc::new(data);
+    Self {
+      id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
+      width,
+      height,
+      frames: Arc::new(vec![ImageFrame {
+        data: Arc::clone(&data),
+        duration_ms: 0,
+      }]),
+      total_duration_ms: 0,
+      started_at: Instant::now(),
+      streaming: Some(Arc::new(StreamingImageInner {
+        data: RwLock::new(data),
+        version: AtomicU64::new(0),
+      })),
     }
   }
 
@@ -148,6 +182,7 @@ impl ImageData {
       frames: Arc::new(frames),
       total_duration_ms,
       started_at: Instant::now(),
+      streaming: None,
     })
   }
 
@@ -161,10 +196,17 @@ impl ImageData {
   }
 
   pub fn data(&self) -> &[u8] {
+    assert!(
+      self.streaming.is_none(),
+      "streaming images expose their latest pixels through data_arc()"
+    );
     &self.frames[0].data
   }
 
   pub fn data_arc(&self) -> Arc<Vec<u8>> {
+    if let Some(streaming) = &self.streaming {
+      return Arc::clone(&streaming.data.read());
+    }
     Arc::clone(&self.frames[0].data)
   }
 
@@ -180,7 +222,48 @@ impl ImageData {
     self.frames.len() > 1 && self.total_duration_ms > 0
   }
 
+  pub fn is_streaming(&self) -> bool {
+    self.streaming.is_some()
+  }
+
+  pub fn version(&self) -> u64 {
+    self
+      .streaming
+      .as_ref()
+      .map_or(0, |streaming| streaming.version.load(Ordering::Acquire))
+  }
+
+  pub fn set_streaming_rgba(&self, data: Vec<u8>) {
+    assert_eq!(data.len(), (self.width * self.height * 4) as usize);
+    let Some(streaming) = &self.streaming else {
+      panic!("set_streaming_rgba requires ImageData::streaming_rgba");
+    };
+    *streaming.data.write() = Arc::new(data);
+    streaming.version.fetch_add(1, Ordering::Release);
+  }
+
+  pub fn update_streaming_rgba(&self, update: impl FnOnce(&mut [u8])) {
+    let Some(streaming) = &self.streaming else {
+      panic!("update_streaming_rgba requires ImageData::streaming_rgba");
+    };
+    let mut data = streaming.data.read().as_ref().clone();
+    update(&mut data);
+    assert_eq!(data.len(), (self.width * self.height * 4) as usize);
+    *streaming.data.write() = Arc::new(data);
+    streaming.version.fetch_add(1, Ordering::Release);
+  }
+
   pub(crate) fn frame_at(&self, now: Instant) -> ImageFrameData {
+    if let Some(streaming) = &self.streaming {
+      return ImageFrameData {
+        data: Arc::clone(&streaming.data.read()),
+        width: self.width,
+        height: self.height,
+        frame_index: 0,
+        version: streaming.version.load(Ordering::Acquire),
+      };
+    }
+
     let frame_index = if self.is_animated() {
       let elapsed_ms = now
         .saturating_duration_since(self.started_at)
@@ -206,7 +289,32 @@ impl ImageData {
       width: self.width,
       height: self.height,
       frame_index,
+      version: frame_index as u64,
     }
+  }
+}
+
+impl StreamingImage {
+  pub fn new_rgba(data: Vec<u8>, width: u32, height: u32) -> Self {
+    Self {
+      image: ImageData::streaming_rgba(data, width, height),
+    }
+  }
+
+  pub fn image_data(&self) -> ImageData {
+    self.image.clone()
+  }
+
+  pub fn set_rgba(&self, data: Vec<u8>) {
+    self.image.set_streaming_rgba(data);
+  }
+
+  pub fn update_rgba(&self, update: impl FnOnce(&mut [u8])) {
+    self.image.update_streaming_rgba(update);
+  }
+
+  pub fn version(&self) -> u64 {
+    self.image.version()
   }
 }
 
@@ -250,5 +358,36 @@ mod tests {
       1
     );
     assert_eq!(image.id(), image_id);
+  }
+
+  #[test]
+  fn streaming_rgba_updates_shared_clones_with_stable_image_id() {
+    let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
+    let clone = image.clone();
+    let image_id = image.id();
+
+    let initial = clone.frame_at(image.started_at);
+    assert_eq!(&initial.data[..], &[0, 0, 0, 255]);
+    assert_eq!(initial.version, 0);
+
+    image.set_streaming_rgba(vec![255, 0, 0, 255]);
+    let updated = clone.frame_at(image.started_at);
+
+    assert_eq!(clone.id(), image_id);
+    assert_eq!(&updated.data[..], &[255, 0, 0, 255]);
+    assert_eq!(updated.version, 1);
+  }
+
+  #[test]
+  fn streaming_rgba_update_mutates_pixels_and_bumps_version() {
+    let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
+
+    image.update_streaming_rgba(|pixels| {
+      pixels[1] = 128;
+    });
+
+    let frame = image.frame_at(image.started_at);
+    assert_eq!(&frame.data[..], &[0, 128, 0, 255]);
+    assert_eq!(frame.version, 1);
   }
 }

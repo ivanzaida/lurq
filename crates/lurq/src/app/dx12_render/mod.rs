@@ -253,6 +253,7 @@ struct CachedImageTexture {
   _texture: ID3D12Resource,
   descriptor_index: usize,
   frame_index: usize,
+  version: u64,
 }
 
 struct CpuDescriptorHeap {
@@ -2109,11 +2110,13 @@ impl Dx12State {
     if let Some(cached) = self.image_textures.get(&image.image_id) {
       let descriptor_index = cached.descriptor_index;
       let frame_index = cached.frame_index;
+      let version = cached.version;
       let texture = cached._texture.clone();
-      if frame_index != image.frame_index {
+      if frame_index != image.frame_index || version != image.version {
         self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)?;
         if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
           cached.frame_index = image.frame_index;
+          cached.version = image.version;
         }
       }
       return Ok(descriptor_index);
@@ -2150,6 +2153,7 @@ impl Dx12State {
         _texture: texture,
         descriptor_index,
         frame_index: image.frame_index,
+        version: image.version,
       },
     );
     Ok(descriptor_index)

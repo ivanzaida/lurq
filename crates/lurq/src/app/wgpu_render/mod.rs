@@ -18,6 +18,7 @@ struct CachedImageTexture {
   view: wgpu::TextureView,
   texture: wgpu::Texture,
   frame_index: usize,
+  version: u64,
 }
 
 pub struct WgpuRenderEngine {
@@ -1026,10 +1027,11 @@ impl RenderEngine for WgpuRenderEngine {
                 view,
                 bind_group,
                 frame_index: img.frame_index,
+                version: img.version,
               }
             });
 
-            if cached.frame_index != img.frame_index {
+            if cached.frame_index != img.frame_index || cached.version != img.version {
               queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                   texture: &cached.texture,
@@ -1050,6 +1052,7 @@ impl RenderEngine for WgpuRenderEngine {
                 },
               );
               cached.frame_index = img.frame_index;
+              cached.version = img.version;
             }
 
             if !set_scissor(&mut pass, img.clip, vw, vh) {
