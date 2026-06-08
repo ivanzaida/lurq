@@ -1504,6 +1504,10 @@ impl Tree {
   }
 
   pub fn key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
+    self.key_down_with_meta(key, code, shift, ctrl, alt, false);
+  }
+
+  pub fn key_down_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
     let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
       #[cfg(feature = "form")]
@@ -1544,10 +1548,10 @@ impl Tree {
       let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
       if blurred_text_input || cleared_text_selection {
         self.needs_redraw = true;
-      } else if self.dispatch_text_input(&key, &code, shift, ctrl) {
+      } else if self.dispatch_text_input(&key, &code, shift, ctrl, alt, meta) {
         self.needs_redraw = true;
       } else {
-        self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl);
+        self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
       }
     }
 
@@ -1557,6 +1561,7 @@ impl Tree {
       shift,
       ctrl,
       alt,
+      meta,
       target_id: NodeId::UNASSIGNED,
     };
     let root = match &self.root {
@@ -1568,6 +1573,10 @@ impl Tree {
   }
 
   pub fn key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
+    self.key_up_with_meta(key, code, shift, ctrl, alt, false);
+  }
+
+  pub fn key_up_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
     let mut evt = KeyboardEvent {
       key,
@@ -1575,6 +1584,7 @@ impl Tree {
       shift,
       ctrl,
       alt,
+      meta,
       target_id: NodeId::UNASSIGNED,
     };
     let root = match &self.root {
@@ -2607,7 +2617,7 @@ impl Tree {
     true
   }
 
-  fn dispatch_text_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool) -> bool {
+  fn dispatch_text_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, alt: bool, meta: bool) -> bool {
     let focused = match self.focused_node {
       Some(id) => id,
       None => return false,
@@ -2628,19 +2638,21 @@ impl Tree {
 
     let command = code;
     let logical = key;
+    let shortcut = Self::platform_shortcut_modifier(ctrl, meta);
+    let word_navigation = Self::platform_word_navigation_modifier(ctrl, alt);
 
     let node_kind = node.node_kind().clone();
     match node_kind {
       NodeKind::TextInput { state, .. } => {
         match (logical, command) {
-          ("a" | "A", _) | (_, "KeyA") if ctrl => state.select_all(),
-          ("c" | "C", _) | (_, "KeyC") if ctrl => {
+          ("a" | "A", _) | (_, "KeyA") if shortcut => state.select_all(),
+          ("c" | "C", _) | (_, "KeyC") if shortcut => {
             let Some(selected) = state.selected_text() else {
               return false;
             };
             return write_clipboard_text(&selected);
           }
-          ("x" | "X", _) | (_, "KeyX") if ctrl => {
+          ("x" | "X", _) | (_, "KeyX") if shortcut => {
             let Some(selected) = state.selected_text() else {
               return false;
             };
@@ -2649,7 +2661,7 @@ impl Tree {
             }
             let _ = state.cut_selection();
           }
-          ("v" | "V", _) | (_, "KeyV") if ctrl => {
+          ("v" | "V", _) | (_, "KeyV") if shortcut => {
             let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
               return false;
             };
@@ -2676,17 +2688,17 @@ impl Tree {
             }
             let _ = state.cut_selection();
           }
-          ("z" | "Z", _) | (_, "KeyZ") if ctrl && shift => {
+          ("z" | "Z", _) | (_, "KeyZ") if shortcut && shift => {
             if !state.redo() {
               return false;
             }
           }
-          ("z" | "Z", _) | (_, "KeyZ") if ctrl => {
+          ("z" | "Z", _) | (_, "KeyZ") if shortcut => {
             if !state.undo() {
               return false;
             }
           }
-          ("y" | "Y", _) | (_, "KeyY") if ctrl => {
+          ("y" | "Y", _) | (_, "KeyY") if shortcut => {
             if !state.redo() {
               return false;
             }
@@ -2698,15 +2710,15 @@ impl Tree {
           }
           ("Backspace", _) | (_, "Backspace") => state.backspace(),
           ("Delete", _) | (_, "Delete") => state.delete(),
-          ("ArrowLeft", _) | (_, "ArrowLeft") if ctrl => state.move_word_left(shift),
-          ("ArrowRight", _) | (_, "ArrowRight") if ctrl => state.move_word_right(shift),
+          ("ArrowLeft", _) | (_, "ArrowLeft") if word_navigation => state.move_word_left(shift),
+          ("ArrowRight", _) | (_, "ArrowRight") if word_navigation => state.move_word_right(shift),
           ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(shift),
           ("ArrowRight", _) | (_, "ArrowRight") => state.move_right(shift),
           ("ArrowUp", _) | (_, "ArrowUp") => state.move_up(shift),
           ("ArrowDown", _) | (_, "ArrowDown") => state.move_down(shift),
           ("Home", _) | (_, "Home") => state.move_home(shift),
           ("End", _) | (_, "End") => state.move_end(shift),
-          _ if !ctrl && key.chars().count() == 1 => state.insert(key),
+          _ if !ctrl && !meta && key.chars().count() == 1 => state.insert(key),
           _ => return false,
         }
         self.reset_text_input_caret_blink();
@@ -2726,12 +2738,13 @@ impl Tree {
     true
   }
 
-  fn dispatch_selectable_text_clipboard(&mut self, key: &str, code: &str, shift: bool, ctrl: bool) -> bool {
+  fn dispatch_selectable_text_clipboard(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, meta: bool) -> bool {
     let command = code;
     let logical = key;
+    let shortcut = Self::platform_shortcut_modifier(ctrl, meta);
     if !matches!(
       (logical, command),
-      ("c" | "C", _) | (_, "KeyC") if ctrl
+      ("c" | "C", _) | (_, "KeyC") if shortcut
     ) && !matches!(
       (logical, command),
       ("Insert", _) | (_, "Insert") if ctrl && !shift
@@ -2749,6 +2762,14 @@ impl Tree {
       return false;
     };
     write_clipboard_text(&selected)
+  }
+
+  fn platform_shortcut_modifier(ctrl: bool, meta: bool) -> bool {
+    if cfg!(target_os = "macos") { meta } else { ctrl }
+  }
+
+  fn platform_word_navigation_modifier(ctrl: bool, alt: bool) -> bool {
+    if cfg!(target_os = "macos") { alt } else { ctrl }
   }
 
   fn drop_target_at(&self, x: f32, y: f32) -> Option<(NodeId, DropCallback)> {

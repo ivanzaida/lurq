@@ -512,19 +512,21 @@ impl ManagedWindow {
       }
       WindowEvent::KeyboardInput { event, .. } => {
         match event.state {
-          ElementState::Pressed => self.tree.key_down(
+          ElementState::Pressed => self.tree.key_down_with_meta(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
-          ElementState::Released => self.tree.key_up(
+          ElementState::Released => self.tree.key_up_with_meta(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
         }
         self.apply_cursor();
@@ -867,19 +869,21 @@ impl ManagedSecondaryWindow {
       }
       WindowEvent::KeyboardInput { event, .. } => {
         match event.state {
-          ElementState::Pressed => tree.key_down(
+          ElementState::Pressed => tree.key_down_with_meta(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
-          ElementState::Released => tree.key_up(
+          ElementState::Released => tree.key_up_with_meta(
             key_to_string(&event),
             physical_key_to_string(&event.physical_key),
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
         }
         self.apply_cursor(tree);
