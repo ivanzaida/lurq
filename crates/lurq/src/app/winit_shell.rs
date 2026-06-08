@@ -36,6 +36,7 @@ pub struct WinitWindow {
   app: App,
   tree: Tree,
   attrs: WindowAttributes,
+  corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
@@ -47,6 +48,7 @@ impl WinitWindow {
       app,
       tree,
       attrs: WindowAttributes::default(),
+      corner_radius: None,
       on_tick: None,
       on_position_changed: None,
       on_size_changed: None,
@@ -107,6 +109,7 @@ impl WinitWindow {
 
   pub fn with_corner_radius(mut self, radius: WindowCornerRadius) -> Self {
     self.attrs = with_corner_radius(self.attrs, radius);
+    self.corner_radius = Some(radius);
     self
   }
 
@@ -164,6 +167,7 @@ impl WinitWindow {
       main: ManagedWindow::new(
         tree,
         self.attrs,
+        self.corner_radius,
         self.on_tick,
         self.on_position_changed,
         self.on_size_changed,
@@ -182,6 +186,7 @@ struct ManagedWindow {
   cursor: CursorIcon,
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
+  corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
@@ -193,6 +198,7 @@ impl ManagedWindow {
   fn new(
     tree: Tree,
     attrs: WindowAttributes,
+    corner_radius: Option<WindowCornerRadius>,
     on_tick: Option<TickFn>,
     on_position_changed: Option<PositionChangedFn>,
     on_size_changed: Option<SizeChangedFn>,
@@ -205,6 +211,7 @@ impl ManagedWindow {
       cursor: CursorIcon::Default,
       modifiers: ModifiersState::empty(),
       attrs: Some(attrs),
+      corner_radius,
       on_tick,
       on_position_changed,
       on_size_changed,
@@ -228,6 +235,9 @@ impl ManagedWindow {
 
     let attrs = self.attrs.take().unwrap_or_default();
     let window = event_loop.create_window(attrs).unwrap();
+    if let Some(radius) = self.corner_radius {
+      set_corner_radius(&window, radius);
+    }
     let size = window.inner_size();
     self.tree.set_scale_factor(window.scale_factor() as f32);
     self.tree.resize(size.width, size.height);
@@ -1256,7 +1266,40 @@ fn set_corner_radius(window: &Window, radius: WindowCornerRadius) {
   window.set_corner_preference(to_winit_corner_preference(radius));
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn set_corner_radius(window: &Window, radius: WindowCornerRadius) {
+  let Ok(handle) = window.window_handle() else {
+    return;
+  };
+
+  let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+    return;
+  };
+
+  let radius = to_macos_corner_radius(radius);
+  unsafe {
+    use objc2::{msg_send, runtime::AnyObject};
+
+    let view = handle.ns_view.as_ptr().cast::<AnyObject>();
+    let wants_layer: bool = msg_send![view, wantsLayer];
+    if !wants_layer {
+      if radius.is_none() {
+        return;
+      }
+      let _: () = msg_send![view, setWantsLayer: true];
+    }
+
+    let layer: *mut AnyObject = msg_send![view, layer];
+    if layer.is_null() {
+      return;
+    }
+
+    let _: () = msg_send![layer, setCornerRadius: radius.unwrap_or(0.0)];
+    let _: () = msg_send![layer, setMasksToBounds: radius.is_some()];
+  }
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn set_corner_radius(window: &Window, radius: WindowCornerRadius) {
   let _ = (window, radius);
 }
@@ -1268,6 +1311,16 @@ fn to_winit_corner_preference(radius: WindowCornerRadius) -> WinitCornerPreferen
     WindowCornerRadius::None => WinitCornerPreference::DoNotRound,
     WindowCornerRadius::Rounded => WinitCornerPreference::Round,
     WindowCornerRadius::RoundedSmall => WinitCornerPreference::RoundSmall,
+  }
+}
+
+#[cfg(target_os = "macos")]
+fn to_macos_corner_radius(radius: WindowCornerRadius) -> Option<f64> {
+  match radius {
+    WindowCornerRadius::Default => None,
+    WindowCornerRadius::None => Some(0.0),
+    WindowCornerRadius::Rounded => Some(10.0),
+    WindowCornerRadius::RoundedSmall => Some(4.0),
   }
 }
 

@@ -296,7 +296,7 @@ window.stop_drag();
 
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
 
-`set_icon` accepts a `WindowIcon` built from RGBA pixels. `set_title_bar_color` and `set_corner_radius` customize native window chrome where the platform supports it; with the winit shell these map to Windows title background color and corner preference APIs and are no-ops on unsupported platforms. Use `clear_icon()`, `clear_title_bar_color()`, and `reset_corner_radius()` to return those settings to the platform default.
+`set_icon` accepts a `WindowIcon` built from RGBA pixels. `set_title_bar_color` and `set_corner_radius` customize native window chrome where the platform supports it; with the winit shell, title bar color maps to the Windows title background API, while corner radius maps to the Windows corner preference API and macOS AppKit content-view layer clipping. Unsupported platforms no-op. Use `clear_icon()`, `clear_title_bar_color()`, and `reset_corner_radius()` to return those settings to the platform default.
 
 For custom title bars, call `window.start_drag()` from the press handler for the draggable region. Call `window.start_resize(direction)` from the press handler for custom edge or corner resize handles. The active platform shell uses its native window drag and resize APIs when available. `window.stop_drag()` ends custom drag state for shells that need it; on winit, the OS ends native drag and resize operations automatically on release.
 
