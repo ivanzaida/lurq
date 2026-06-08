@@ -44,7 +44,7 @@ app.set_resource_root(std::path::PathBuf::from("assets"));
 
 ```rust
 let mut tree = lurq::app::Tree::new();
-tree.mount_root::<RootComponent>(app.theme().clone(), RootProps::default());
+tree.mount_root::<RootComponent>(&mut app, RootProps::default());
 ```
 
 For static UI without a component root:
@@ -80,13 +80,15 @@ WinitWindow::new(app, tree)
   .with_title("lurq app")
   .with_size(1200, 800)
   .with_min_size(800, 500)
+  .with_title_bar_color(lurq::node::color::Color::from_hex("#101215"))
+  .with_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1))
   .with_decorations(false)
   .run();
 ```
 
 The shell runs a steady redraw tick automatically. Use `on_tick` only for custom per-frame app work.
 
-Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, moving, resizing, and native platform window drag or resize requests for custom chrome. `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
+Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, native title bar color, window icon, moving, resizing, and native platform window drag or resize requests for custom chrome. `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
 
 ## Frame And Redraw Flow
 
@@ -162,7 +164,7 @@ With `devtools` enabled:
 ```rust
 lurq::app::devtools::load_fonts(&mut app);
 app.set_profiling_enabled(true);
-tree.mount_devtools(app.theme().clone());
+tree.mount_devtools(&mut app);
 ```
 
 DevTools is represented as a secondary tree. The shell does not need special inspector logic; it only manages secondary windows and renders each tree.

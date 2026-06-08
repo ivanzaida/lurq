@@ -284,6 +284,8 @@ window.close();
 window.set_minimized(true);
 window.set_full_screen(true);
 window.set_decorations(false);
+window.set_title_bar_color(lurq::node::color::Color::from_hex("#101215"));
+window.set_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1));
 window.resize(1280, 720);
 window.move_to(120, 80);
 window.start_drag();
@@ -292,6 +294,8 @@ window.stop_drag();
 ```
 
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
+
+`set_icon` accepts a `WindowIcon` built from RGBA pixels. `set_title_bar_color` customizes the native title bar where the platform supports it; with the winit shell this maps to the Windows title background color and is a no-op on unsupported platforms. Use `clear_icon()` and `clear_title_bar_color()` to return those settings to the platform default.
 
 For custom title bars, call `window.start_drag()` from the press handler for the draggable region. Call `window.start_resize(direction)` from the press handler for custom edge or corner resize handles. The active platform shell uses its native window drag and resize APIs when available. `window.stop_drag()` ends custom drag state for shells that need it; on winit, the OS ends native drag and resize operations automatically on release.
 

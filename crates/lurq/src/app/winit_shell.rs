@@ -1,6 +1,8 @@
 use std::time::{Duration, Instant};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
+#[cfg(windows)]
+use winit::platform::windows::{Color as WinitWindowsColor, WindowAttributesExtWindows, WindowExtWindows};
 use winit::{
   application::ApplicationHandler,
   dpi::{PhysicalPosition, PhysicalSize, Position},
@@ -8,8 +10,8 @@ use winit::{
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
   keyboard::{Key, ModifiersState, NamedKey, PhysicalKey},
   window::{
-    CursorIcon as WinitCursorIcon, Fullscreen, ResizeDirection as WinitResizeDirection, Window, WindowAttributes,
-    WindowId,
+    CursorIcon as WinitCursorIcon, Fullscreen, Icon as WinitIcon, ResizeDirection as WinitResizeDirection, Window,
+    WindowAttributes, WindowId,
   },
 };
 
@@ -18,9 +20,9 @@ use crate::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
     runtime::{SecondaryWindow, SecondaryWindowMetadata},
-    window::{WindowCommand, WindowResizeDirection},
+    window::{WindowCommand, WindowIcon, WindowResizeDirection},
   },
-  node::CursorIcon,
+  node::{CursorIcon, color::Color},
 };
 
 type TickFn = Box<dyn FnMut(&mut Tree)>;
@@ -88,6 +90,16 @@ impl WinitWindow {
   pub fn with_decorations(mut self, decorations: bool) -> Self {
     self.attrs = self.attrs.with_decorations(decorations);
     self.tree.window().set_decorated(decorations);
+    self
+  }
+
+  pub fn with_title_bar_color(mut self, color: impl Into<Option<Color>>) -> Self {
+    self.attrs = with_title_bar_color(self.attrs, color.into());
+    self
+  }
+
+  pub fn with_icon(mut self, icon: impl Into<Option<WindowIcon>>) -> Self {
+    self.attrs = self.attrs.with_window_icon(icon.into().and_then(to_winit_icon));
     self
   }
 
@@ -265,6 +277,16 @@ impl ManagedWindow {
             window.set_decorations(decorated);
           }
           self.tree.window().set_decorated(decorated);
+        }
+        WindowCommand::SetTitleBarColor(color) => {
+          if let Some(window) = &self.window {
+            set_title_bar_color(window, color);
+          }
+        }
+        WindowCommand::SetIcon(icon) => {
+          if let Some(window) = &self.window {
+            window.set_window_icon(icon.and_then(to_winit_icon));
+          }
         }
         WindowCommand::Move { x, y } => {
           if let Some(window) = &self.window {
@@ -627,6 +649,16 @@ impl ManagedSecondaryWindow {
             window.set_decorations(decorated);
           }
           tree.window().set_decorated(decorated);
+        }
+        WindowCommand::SetTitleBarColor(color) => {
+          if let Some(window) = &self.window {
+            set_title_bar_color(window, color);
+          }
+        }
+        WindowCommand::SetIcon(icon) => {
+          if let Some(window) = &self.window {
+            window.set_window_icon(icon.and_then(to_winit_icon));
+          }
         }
         WindowCommand::Move { x, y } => {
           if let Some(window) = &self.window {
@@ -1150,6 +1182,37 @@ fn to_winit_cursor(cursor: CursorIcon) -> WinitCursorIcon {
     CursorIcon::DndAsk => WinitCursorIcon::DndAsk,
     CursorIcon::AllResize => WinitCursorIcon::AllResize,
   }
+}
+
+fn to_winit_icon(icon: WindowIcon) -> Option<WinitIcon> {
+  let (rgba, width, height) = icon.into_rgba();
+  WinitIcon::from_rgba(rgba, width, height).ok()
+}
+
+#[cfg(windows)]
+fn with_title_bar_color(attrs: WindowAttributes, color: Option<Color>) -> WindowAttributes {
+  attrs.with_title_background_color(color.map(to_winit_windows_color))
+}
+
+#[cfg(not(windows))]
+fn with_title_bar_color(attrs: WindowAttributes, color: Option<Color>) -> WindowAttributes {
+  let _ = color;
+  attrs
+}
+
+#[cfg(windows)]
+fn set_title_bar_color(window: &Window, color: Option<Color>) {
+  window.set_title_background_color(color.map(to_winit_windows_color));
+}
+
+#[cfg(not(windows))]
+fn set_title_bar_color(window: &Window, color: Option<Color>) {
+  let _ = (window, color);
+}
+
+#[cfg(windows)]
+fn to_winit_windows_color(color: Color) -> WinitWindowsColor {
+  WinitWindowsColor::from_rgb(color.r(), color.g(), color.b())
 }
 
 fn to_winit_resize_direction(direction: WindowResizeDirection) -> WinitResizeDirection {

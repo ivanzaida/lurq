@@ -21,8 +21,8 @@ lurq::app::devtools::load_fonts(&mut app);
 app.set_profiling_enabled(true);
 
 tree.set_render_engine_factory(|| Box::new(lurq::app::wgpu_render::WgpuRenderEngine::new()));
-tree.mount_root::<Root>(app.theme().clone(), RootProps);
-tree.mount_devtools(app.theme().clone());
+tree.mount_root::<Root>(&mut app, RootProps);
+tree.mount_devtools(&mut app);
 ```
 
 The winit shell sees DevTools as a secondary window. It does not need inspector-specific code.

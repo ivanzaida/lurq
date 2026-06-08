@@ -31,7 +31,7 @@ tree.set_root(lurq::components::Text::new("static"));
 Component root:
 
 ```rust
-tree.mount_root::<RootComponent>(app.theme().clone(), RootProps);
+tree.mount_root::<RootComponent>(&mut app, RootProps);
 ```
 
 Root props can be updated without replacing the component type:

@@ -8,7 +8,7 @@ use std::{
 };
 
 use image::{AnimationDecoder, ImageFormat, codecs};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 pub enum ImageKind {
   Bytes(ImageData),
@@ -45,6 +45,7 @@ impl From<ImageData> for ImageKind {
 
 static NEXT_IMAGE_ID: AtomicU64 = AtomicU64::new(1);
 const MIN_ANIMATION_FRAME_MS: u64 = 10;
+const MAX_STREAMING_RECYCLED_BUFFERS: usize = 3;
 
 #[derive(Clone)]
 pub struct ImageData {
@@ -65,6 +66,7 @@ struct ImageFrame {
 
 struct StreamingImageInner {
   data: RwLock<Arc<Vec<u8>>>,
+  recycled: Mutex<Vec<Arc<Vec<u8>>>>,
   version: AtomicU64,
 }
 
@@ -113,6 +115,7 @@ impl ImageData {
       started_at: Instant::now(),
       streaming: Some(Arc::new(StreamingImageInner {
         data: RwLock::new(data),
+        recycled: Mutex::new(Vec::new()),
         version: AtomicU64::new(0),
       })),
     }
@@ -238,8 +241,37 @@ impl ImageData {
     let Some(streaming) = &self.streaming else {
       panic!("set_streaming_rgba requires ImageData::streaming_rgba");
     };
-    *streaming.data.write() = Arc::new(data);
+    let old = std::mem::replace(&mut *streaming.data.write(), Arc::new(data));
+    let mut recycled = streaming.recycled.lock();
+    recycled.push(old);
+    if recycled.len() > MAX_STREAMING_RECYCLED_BUFFERS {
+      recycled.remove(0);
+    }
     streaming.version.fetch_add(1, Ordering::Release);
+  }
+
+  pub fn take_streaming_rgba_buffer(&self) -> Option<Vec<u8>> {
+    let Some(streaming) = &self.streaming else {
+      panic!("take_streaming_rgba_buffer requires ImageData::streaming_rgba");
+    };
+    let expected_len = (self.width * self.height * 4) as usize;
+    let mut recycled = streaming.recycled.lock();
+    let mut pending = Vec::new();
+    while let Some(candidate) = recycled.pop() {
+      match Arc::try_unwrap(candidate) {
+        Ok(mut data) if data.capacity() >= expected_len => {
+          data.clear();
+          recycled.extend(pending);
+          return Some(data);
+        }
+        Ok(_) => {}
+        Err(candidate) => {
+          pending.push(candidate);
+        }
+      }
+    }
+    recycled.extend(pending);
+    None
   }
 
   pub fn update_streaming_rgba(&self, update: impl FnOnce(&mut [u8])) {
@@ -307,6 +339,10 @@ impl StreamingImage {
 
   pub fn set_rgba(&self, data: Vec<u8>) {
     self.image.set_streaming_rgba(data);
+  }
+
+  pub fn take_rgba_buffer(&self) -> Option<Vec<u8>> {
+    self.image.take_streaming_rgba_buffer()
   }
 
   pub fn update_rgba(&self, update: impl FnOnce(&mut [u8])) {

@@ -113,6 +113,6 @@ Text::new("Save")
 
 ## DevTools Is Just Another Tree
 
-With the `devtools` feature, `Tree::mount_devtools(theme)` creates a secondary tree that renders with the same render engine factory. The main tree periodically syncs a snapshot into the DevTools tree during `pass()`.
+With the `devtools` feature, `Tree::mount_devtools(&mut app)` creates a secondary tree that renders with the same render engine factory. The main tree periodically syncs a snapshot into the DevTools tree during `pass()`.
 
 This means DevTools should follow the same layout/render/event rules as any other `lurq` UI. It also means debug metadata is feature-gated so production builds do not store signal values, prop trees, or profiler detail unless `devtools` is enabled.

@@ -198,6 +198,7 @@ pub(crate) struct DevToolsWindow {
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
 impl SecondaryWindow {
+  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn new(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
     Self {
       title: title.into(),
@@ -209,12 +210,14 @@ impl SecondaryWindow {
     }
   }
 
+  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn new_closed(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
     let mut window = Self::new(title, width, height, tree);
     window.open = false;
     window
   }
 
+  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn open(&mut self) -> bool {
     if self.open {
       return false;
@@ -524,7 +527,7 @@ impl Tree {
     self.secondary_windows.get_mut(index).filter(|window| window.open)
   }
 
-  #[cfg_attr(not(any(feature = "winit", feature = "devtools")), allow(dead_code))]
+  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn push_secondary_window(&mut self, mut window: SecondaryWindow) -> usize {
     let index = self.secondary_windows.len();
     self.apply_render_engine_factory_to_secondary(&mut window);
@@ -532,7 +535,7 @@ impl Tree {
     index
   }
 
-  #[cfg_attr(not(any(feature = "winit", feature = "devtools")), allow(dead_code))]
+  #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn apply_render_engine_factory_to_secondary(&self, window: &mut SecondaryWindow) {
     if window.open
       && window.tree.render_engine.is_none()

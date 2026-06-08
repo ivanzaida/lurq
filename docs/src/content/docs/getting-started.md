@@ -60,7 +60,7 @@ Most apps wire three objects:
 ```rust
 use lurq::{
   app::{
-    App, Tree,
+    App, Tree, WindowIcon,
     component::Component,
     ctx::Ctx,
     wgpu_render::WgpuRenderEngine,
@@ -95,15 +95,16 @@ impl Component for Counter {
 }
 
 fn main() {
-  let app = App::new();
+  let mut app = App::new();
   let mut tree = Tree::new();
 
   tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
-  tree.mount_root::<Counter>(app.theme().clone(), ());
+  tree.mount_root::<Counter>(&mut app, ());
 
   WinitWindow::new(app, tree)
     .with_title("lurq counter")
     .with_size(800, 600)
+    .with_icon(WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1))
     .run();
 }
 ```

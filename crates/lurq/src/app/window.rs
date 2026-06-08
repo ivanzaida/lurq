@@ -3,7 +3,7 @@ use std::{
   sync::{Arc, RwLock},
 };
 
-use crate::{core::Signal, layout::size::Size};
+use crate::{core::Signal, layout::size::Size, node::color::Color};
 
 /// A snapshot of the window's geometry, returned by `ctx.window()`.
 ///
@@ -58,6 +58,42 @@ pub enum WindowResizeDirection {
   West,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowIcon {
+  rgba: Vec<u8>,
+  width: u32,
+  height: u32,
+}
+
+impl WindowIcon {
+  pub fn from_rgba(rgba: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(rgba.len(), (width * height * 4) as usize);
+    Self { rgba, width, height }
+  }
+
+  #[cfg(feature = "image")]
+  pub fn from_image_data(image: &crate::images::ImageData) -> Self {
+    Self::from_rgba((*image.data_arc()).clone(), image.width(), image.height())
+  }
+
+  pub fn rgba(&self) -> &[u8] {
+    &self.rgba
+  }
+
+  pub fn width(&self) -> u32 {
+    self.width
+  }
+
+  pub fn height(&self) -> u32 {
+    self.height
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn into_rgba(self) -> (Vec<u8>, u32, u32) {
+    (self.rgba, self.width, self.height)
+  }
+}
+
 #[derive(Clone)]
 pub struct WindowHandle {
   info: WindowInfo,
@@ -91,6 +127,22 @@ impl WindowHandle {
 
   pub fn set_decorations(&self, decorations: bool) {
     self.set_decorated(decorations);
+  }
+
+  pub fn set_title_bar_color(&self, color: impl Into<Option<Color>>) {
+    self.window.push_command(WindowCommand::SetTitleBarColor(color.into()));
+  }
+
+  pub fn clear_title_bar_color(&self) {
+    self.set_title_bar_color(None);
+  }
+
+  pub fn set_icon(&self, icon: impl Into<Option<WindowIcon>>) {
+    self.window.push_command(WindowCommand::SetIcon(icon.into()));
+  }
+
+  pub fn clear_icon(&self) {
+    self.set_icon(None);
   }
 
   pub fn r#move(&self, x: i32, y: i32) {
@@ -138,13 +190,15 @@ impl Deref for WindowHandle {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum WindowCommand {
   Close,
   SetMinimized(bool),
   SetMaximized(bool),
   SetFullScreen(bool),
   SetDecorated(bool),
+  SetTitleBarColor(Option<Color>),
+  SetIcon(Option<WindowIcon>),
   Move { x: i32, y: i32 },
   Resize { width: u32, height: u32 },
   StartDrag,
@@ -333,5 +387,48 @@ impl Window {
   fn bump_version(inner: &mut WindowInner) -> u64 {
     inner.version = inner.version.wrapping_add(1);
     inner.version
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn window_icon_from_rgba_stores_dimensions_and_pixels() {
+    let icon = WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1);
+
+    assert_eq!(icon.width(), 1);
+    assert_eq!(icon.height(), 1);
+    assert_eq!(icon.rgba(), &[255, 0, 0, 255]);
+  }
+
+  #[test]
+  #[should_panic]
+  fn window_icon_from_rgba_rejects_wrong_pixel_count() {
+    WindowIcon::from_rgba(vec![255, 0, 0], 1, 1);
+  }
+
+  #[test]
+  fn window_handle_queues_title_bar_and_icon_commands() {
+    let window = Window::new();
+    let handle = window.handle();
+    let color = Color::from_hex("#101215");
+    let icon = WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1);
+
+    handle.set_title_bar_color(color);
+    handle.set_icon(icon.clone());
+    handle.clear_title_bar_color();
+    handle.clear_icon();
+
+    assert_eq!(
+      window.take_commands(),
+      vec![
+        WindowCommand::SetTitleBarColor(Some(color)),
+        WindowCommand::SetIcon(Some(icon)),
+        WindowCommand::SetTitleBarColor(None),
+        WindowCommand::SetIcon(None),
+      ]
+    );
   }
 }
