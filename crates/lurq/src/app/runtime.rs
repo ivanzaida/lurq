@@ -1232,7 +1232,7 @@ impl Tree {
         #[cfg(feature = "image")]
         QuadContent::Image { data, uv_min, uv_max } => {
           let frame = data.frame_at(image_frame_time);
-          if data.is_animated() || data.is_streaming() {
+          if data.requires_continuous_redraw() {
             self.needs_redraw = true;
           }
           let image_transform = quad.transform.matrix_2x2();
@@ -1264,6 +1264,7 @@ impl Tree {
             data: frame.data,
             image_width: frame.width,
             image_height: frame.height,
+            image_format: frame.format,
             uv_min: *uv_min,
             uv_max: *uv_max,
             radii,
@@ -1294,6 +1295,7 @@ impl Tree {
             data: raster.data,
             image_width: raster.width,
             image_height: raster.height,
+            image_format: crate::images::ImagePixelFormat::Rgba8,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],
             radii: [0.0; 4],

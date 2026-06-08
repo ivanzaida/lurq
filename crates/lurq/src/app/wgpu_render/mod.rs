@@ -969,6 +969,9 @@ impl RenderEngine for WgpuRenderEngine {
             use vertex::ImageInstance;
 
             let img = &list.images[index];
+            if img.image_format != crate::images::ImagePixelFormat::Rgba8 {
+              continue;
+            }
             let cached = self.image_texture_cache.entry(img.image_id).or_insert_with(|| {
               let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("lurq_img"),

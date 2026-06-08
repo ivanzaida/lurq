@@ -2,7 +2,7 @@ use std::{
   io::Cursor,
   sync::{
     Arc,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
   },
   time::Instant,
 };
@@ -14,6 +14,12 @@ pub enum ImageKind {
   Bytes(ImageData),
   #[cfg(feature = "resources")]
   Resource(Arc<str>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImagePixelFormat {
+  Rgba8,
+  Nv12,
 }
 
 #[cfg(feature = "resources")]
@@ -52,6 +58,7 @@ pub struct ImageData {
   id: u64,
   width: u32,
   height: u32,
+  format: ImagePixelFormat,
   frames: Arc<Vec<ImageFrame>>,
   total_duration_ms: u64,
   started_at: Instant,
@@ -68,6 +75,7 @@ struct StreamingImageInner {
   data: RwLock<Arc<Vec<u8>>>,
   recycled: Mutex<Vec<Arc<Vec<u8>>>>,
   version: AtomicU64,
+  continuous_redraw: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -79,6 +87,7 @@ pub(crate) struct ImageFrameData {
   pub data: Arc<Vec<u8>>,
   pub width: u32,
   pub height: u32,
+  pub format: ImagePixelFormat,
   pub frame_index: usize,
   pub version: u64,
 }
@@ -90,6 +99,7 @@ impl ImageData {
       id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
       width,
       height,
+      format: ImagePixelFormat::Rgba8,
       frames: Arc::new(vec![ImageFrame {
         data: Arc::new(data),
         duration_ms: 0,
@@ -102,11 +112,21 @@ impl ImageData {
 
   pub fn streaming_rgba(data: Vec<u8>, width: u32, height: u32) -> Self {
     assert_eq!(data.len(), (width * height * 4) as usize);
+    Self::streaming(data, width, height, ImagePixelFormat::Rgba8, true)
+  }
+
+  pub fn streaming_nv12(data: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(data.len(), nv12_len(width, height));
+    Self::streaming(data, width, height, ImagePixelFormat::Nv12, true)
+  }
+
+  fn streaming(data: Vec<u8>, width: u32, height: u32, format: ImagePixelFormat, continuous_redraw: bool) -> Self {
     let data = Arc::new(data);
     Self {
       id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
       width,
       height,
+      format,
       frames: Arc::new(Vec::new()),
       total_duration_ms: 0,
       started_at: Instant::now(),
@@ -114,6 +134,7 @@ impl ImageData {
         data: RwLock::new(data),
         recycled: Mutex::new(Vec::new()),
         version: AtomicU64::new(0),
+        continuous_redraw: AtomicBool::new(continuous_redraw),
       })),
     }
   }
@@ -179,6 +200,7 @@ impl ImageData {
       id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
       width,
       height,
+      format: ImagePixelFormat::Rgba8,
       frames: Arc::new(frames),
       total_duration_ms,
       started_at: Instant::now(),
@@ -218,12 +240,24 @@ impl ImageData {
     self.height
   }
 
+  pub fn format(&self) -> ImagePixelFormat {
+    self.format
+  }
+
   pub fn is_animated(&self) -> bool {
     self.frames.len() > 1 && self.total_duration_ms > 0
   }
 
   pub fn is_streaming(&self) -> bool {
     self.streaming.is_some()
+  }
+
+  pub fn requires_continuous_redraw(&self) -> bool {
+    self.is_animated()
+      || self
+        .streaming
+        .as_ref()
+        .is_some_and(|streaming| streaming.continuous_redraw.load(Ordering::Acquire))
   }
 
   pub fn version(&self) -> u64 {
@@ -234,9 +268,20 @@ impl ImageData {
   }
 
   pub fn set_streaming_rgba(&self, data: Vec<u8>) {
+    assert_eq!(self.format, ImagePixelFormat::Rgba8);
     assert_eq!(data.len(), (self.width * self.height * 4) as usize);
+    self.set_streaming_data(data);
+  }
+
+  pub fn set_streaming_nv12(&self, data: Vec<u8>) {
+    assert_eq!(self.format, ImagePixelFormat::Nv12);
+    assert_eq!(data.len(), nv12_len(self.width, self.height));
+    self.set_streaming_data(data);
+  }
+
+  fn set_streaming_data(&self, data: Vec<u8>) {
     let Some(streaming) = &self.streaming else {
-      panic!("set_streaming_rgba requires ImageData::streaming_rgba");
+      panic!("set_streaming_data requires a streaming ImageData");
     };
     let old = std::mem::replace(&mut *streaming.data.write(), Arc::new(data));
     let mut recycled = streaming.recycled.lock();
@@ -248,10 +293,19 @@ impl ImageData {
   }
 
   pub fn take_streaming_rgba_buffer(&self) -> Option<Vec<u8>> {
+    assert_eq!(self.format, ImagePixelFormat::Rgba8);
+    self.take_streaming_buffer((self.width * self.height * 4) as usize)
+  }
+
+  pub fn take_streaming_nv12_buffer(&self) -> Option<Vec<u8>> {
+    assert_eq!(self.format, ImagePixelFormat::Nv12);
+    self.take_streaming_buffer(nv12_len(self.width, self.height))
+  }
+
+  fn take_streaming_buffer(&self, expected_len: usize) -> Option<Vec<u8>> {
     let Some(streaming) = &self.streaming else {
-      panic!("take_streaming_rgba_buffer requires ImageData::streaming_rgba");
+      panic!("take_streaming_buffer requires a streaming ImageData");
     };
-    let expected_len = (self.width * self.height * 4) as usize;
     let mut recycled = streaming.recycled.lock();
     let mut pending = Vec::new();
     while let Some(candidate) = recycled.pop() {
@@ -275,11 +329,27 @@ impl ImageData {
     let Some(streaming) = &self.streaming else {
       panic!("update_streaming_rgba requires ImageData::streaming_rgba");
     };
-    let mut data = streaming.data.read().as_ref().clone();
+    let expected_len = (self.width * self.height * 4) as usize;
+
+    {
+      let mut current = streaming.data.write();
+      if let Some(data) = Arc::get_mut(&mut *current) {
+        assert_eq!(data.len(), expected_len);
+        update(data);
+        streaming.version.fetch_add(1, Ordering::Release);
+        return;
+      }
+    }
+
+    let current = Arc::clone(&streaming.data.read());
+    assert_eq!(current.len(), expected_len);
+    let mut data = self
+      .take_streaming_rgba_buffer()
+      .unwrap_or_else(|| Vec::with_capacity(expected_len));
+    data.clear();
+    data.extend_from_slice(&current);
     update(&mut data);
-    assert_eq!(data.len(), (self.width * self.height * 4) as usize);
-    *streaming.data.write() = Arc::new(data);
-    streaming.version.fetch_add(1, Ordering::Release);
+    self.set_streaming_rgba(data);
   }
 
   pub(crate) fn frame_at(&self, now: Instant) -> ImageFrameData {
@@ -288,6 +358,7 @@ impl ImageData {
         data: Arc::clone(&streaming.data.read()),
         width: self.width,
         height: self.height,
+        format: self.format,
         frame_index: 0,
         version: streaming.version.load(Ordering::Acquire),
       };
@@ -317,6 +388,7 @@ impl ImageData {
       data: Arc::clone(&frame.data),
       width: self.width,
       height: self.height,
+      format: self.format,
       frame_index,
       version: frame_index as u64,
     }
@@ -330,6 +402,19 @@ impl StreamingImage {
     }
   }
 
+  pub fn new_rgba_manual_redraw(data: Vec<u8>, width: u32, height: u32) -> Self {
+    Self {
+      image: ImageData::streaming(data, width, height, ImagePixelFormat::Rgba8, false),
+    }
+  }
+
+  pub fn new_nv12_manual_redraw(data: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(data.len(), nv12_len(width, height));
+    Self {
+      image: ImageData::streaming(data, width, height, ImagePixelFormat::Nv12, false),
+    }
+  }
+
   pub fn image_data(&self) -> ImageData {
     self.image.clone()
   }
@@ -338,8 +423,16 @@ impl StreamingImage {
     self.image.set_streaming_rgba(data);
   }
 
+  pub fn set_nv12(&self, data: Vec<u8>) {
+    self.image.set_streaming_nv12(data);
+  }
+
   pub fn take_rgba_buffer(&self) -> Option<Vec<u8>> {
     self.image.take_streaming_rgba_buffer()
+  }
+
+  pub fn take_nv12_buffer(&self) -> Option<Vec<u8>> {
+    self.image.take_streaming_nv12_buffer()
   }
 
   pub fn update_rgba(&self, update: impl FnOnce(&mut [u8])) {
@@ -360,13 +453,18 @@ fn delay_ms(delay: image::Delay) -> u64 {
   ms.max(MIN_ANIMATION_FRAME_MS)
 }
 
+fn nv12_len(width: u32, height: u32) -> usize {
+  assert!(width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0);
+  (width * height + width * height / 2) as usize
+}
+
 #[cfg(test)]
 mod tests {
   use std::time::Duration;
 
   use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
 
-  use super::ImageData;
+  use super::{ImageData, StreamingImage};
 
   #[test]
   fn gif_decoding_preserves_animation_with_stable_image_id() {
@@ -425,6 +523,25 @@ mod tests {
   }
 
   #[test]
+  fn streaming_rgba_update_reuses_unique_current_buffer() {
+    let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
+    image.set_streaming_rgba(vec![255, 0, 0, 255]);
+    let current_ptr = {
+      let frame = image.frame_at(image.started_at);
+      frame.data.as_ptr()
+    };
+
+    image.update_streaming_rgba(|pixels| {
+      pixels[1] = 128;
+    });
+
+    let frame = image.frame_at(image.started_at);
+    assert_eq!(frame.data.as_ptr(), current_ptr);
+    assert_eq!(&frame.data[..], &[255, 128, 0, 255]);
+    assert_eq!(frame.version, 2);
+  }
+
+  #[test]
   fn streaming_rgba_recycles_released_buffers() {
     let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
     image.set_streaming_rgba(vec![255, 0, 0, 255]);
@@ -448,5 +565,13 @@ mod tests {
     drop(held);
 
     assert!(image.take_streaming_rgba_buffer().is_some());
+  }
+
+  #[test]
+  fn manual_redraw_streaming_rgba_does_not_request_continuous_redraw() {
+    let image = StreamingImage::new_rgba_manual_redraw(vec![0, 0, 0, 255], 1, 1).image_data();
+
+    assert!(image.is_streaming());
+    assert!(!image.requires_continuous_redraw());
   }
 }

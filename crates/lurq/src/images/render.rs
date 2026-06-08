@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::ImagePixelFormat;
 use crate::layout::quad::ClipRect;
 
 pub struct ImageCmd {
@@ -14,6 +15,7 @@ pub struct ImageCmd {
   pub data: Arc<Vec<u8>>,
   pub image_width: u32,
   pub image_height: u32,
+  pub image_format: ImagePixelFormat,
   pub uv_min: [f32; 2],
   pub uv_max: [f32; 2],
   pub radii: [f32; 4],

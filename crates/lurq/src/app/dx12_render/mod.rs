@@ -53,9 +53,9 @@ use windows::{
       },
       Dxgi::{
         Common::{
-          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-          DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT,
-          DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
+          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
+          DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
+          DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
         DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
@@ -191,6 +191,8 @@ struct Dx12State {
   glyph_pipeline: GlyphPipeline,
   #[cfg(feature = "image")]
   image_pipeline: ImagePipeline,
+  #[cfg(feature = "image")]
+  nv12_image_pipeline: ImagePipeline,
   #[cfg(feature = "svg")]
   svg_pipeline: SvgPipeline,
   glyph_atlas: Option<GlyphAtlasTexture>,
@@ -249,11 +251,24 @@ struct GlyphAtlasTexture {
 }
 
 #[cfg(feature = "image")]
-struct CachedImageTexture {
-  _texture: ID3D12Resource,
-  descriptor_index: usize,
-  frame_index: usize,
-  version: u64,
+enum CachedImageTexture {
+  Rgba {
+    _texture: ID3D12Resource,
+    descriptor_index: usize,
+    width: u32,
+    height: u32,
+    frame_index: usize,
+    version: u64,
+  },
+  Nv12 {
+    _y_texture: ID3D12Resource,
+    _uv_texture: ID3D12Resource,
+    descriptor_index: usize,
+    width: u32,
+    height: u32,
+    frame_index: usize,
+    version: u64,
+  },
 }
 
 struct CpuDescriptorHeap {
@@ -637,9 +652,25 @@ impl GlyphPipeline {
 #[cfg(feature = "image")]
 impl ImagePipeline {
   unsafe fn new(device: &ID3D12Device, format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT) -> Result<Self> {
-    let root_signature = create_glyph_root_signature(device)?;
-    let vs = compile_shader(include_bytes!("shaders/image.hlsl"), b"vs_main\0", b"vs_5_0\0")?;
-    let ps = compile_shader(include_bytes!("shaders/image.hlsl"), b"ps_main\0", b"ps_5_0\0")?;
+    Self::new_with_shader(device, format, include_bytes!("shaders/image.hlsl"), 1)
+  }
+
+  unsafe fn new_nv12(
+    device: &ID3D12Device,
+    format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
+  ) -> Result<Self> {
+    Self::new_with_shader(device, format, include_bytes!("shaders/image_nv12.hlsl"), 2)
+  }
+
+  unsafe fn new_with_shader(
+    device: &ID3D12Device,
+    format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
+    shader: &'static [u8],
+    srv_descriptors: u32,
+  ) -> Result<Self> {
+    let root_signature = create_image_root_signature(device, srv_descriptors)?;
+    let vs = compile_shader(shader, b"vs_main\0", b"vs_5_0\0")?;
+    let ps = compile_shader(shader, b"ps_main\0", b"ps_5_0\0")?;
     let input_elements = image_input_elements();
     let mut rtv_formats = [DXGI_FORMAT_UNKNOWN; 8];
     rtv_formats[0] = format;
@@ -881,9 +912,13 @@ unsafe fn create_rect_root_signature(device: &ID3D12Device) -> Result<ID3D12Root
 }
 
 unsafe fn create_glyph_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature> {
+  create_image_root_signature(device, 1)
+}
+
+unsafe fn create_image_root_signature(device: &ID3D12Device, srv_descriptors: u32) -> Result<ID3D12RootSignature> {
   let srv_range = D3D12_DESCRIPTOR_RANGE {
     RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-    NumDescriptors: 1,
+    NumDescriptors: srv_descriptors,
     BaseShaderRegister: 0,
     RegisterSpace: 0,
     OffsetInDescriptorsFromTableStart: D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
@@ -941,7 +976,7 @@ unsafe fn create_glyph_root_signature(device: &ID3D12Device) -> Result<ID3D12Roo
     Error::new(
       err.code(),
       format!(
-        "failed to serialize dx12 glyph root signature{}",
+        "failed to serialize dx12 image root signature{}",
         blob_message(errors.as_ref())
       ),
     )
@@ -1360,6 +1395,39 @@ unsafe fn create_r8_texture(device: &ID3D12Device, width: u32, height: u32) -> R
 }
 
 #[cfg(feature = "image")]
+unsafe fn create_r8g8_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
+  let heap_properties = D3D12_HEAP_PROPERTIES {
+    Type: D3D12_HEAP_TYPE_DEFAULT,
+    CPUPageProperty: D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    MemoryPoolPreference: D3D12_MEMORY_POOL_UNKNOWN,
+    CreationNodeMask: 1,
+    VisibleNodeMask: 1,
+  };
+  let desc = D3D12_RESOURCE_DESC {
+    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+    Alignment: 0,
+    Width: width as u64,
+    Height: height,
+    DepthOrArraySize: 1,
+    MipLevels: 1,
+    Format: DXGI_FORMAT_R8G8_UNORM,
+    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+    Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+    Flags: D3D12_RESOURCE_FLAG_NONE,
+  };
+  let mut resource = None;
+  device.CreateCommittedResource(
+    &heap_properties,
+    D3D12_HEAP_FLAG_NONE,
+    &desc,
+    D3D12_RESOURCE_STATE_COPY_DEST,
+    None,
+    &mut resource,
+  )?;
+  resource.ok_or_else(Error::from_win32)
+}
+
+#[cfg(feature = "image")]
 unsafe fn create_rgba_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
   let heap_properties = D3D12_HEAP_PROPERTIES {
     Type: D3D12_HEAP_TYPE_DEFAULT,
@@ -1566,6 +1634,8 @@ impl Dx12State {
     let glyph_pipeline = GlyphPipeline::new(&device, RENDER_TARGET_FORMAT)?;
     #[cfg(feature = "image")]
     let image_pipeline = ImagePipeline::new(&device, RENDER_TARGET_FORMAT)?;
+    #[cfg(feature = "image")]
+    let nv12_image_pipeline = ImagePipeline::new_nv12(&device, RENDER_TARGET_FORMAT)?;
     #[cfg(feature = "svg")]
     let svg_pipeline = SvgPipeline::new(&device, RENDER_TARGET_FORMAT)?;
 
@@ -1601,6 +1671,8 @@ impl Dx12State {
       glyph_pipeline,
       #[cfg(feature = "image")]
       image_pipeline,
+      #[cfg(feature = "image")]
+      nv12_image_pipeline,
       #[cfg(feature = "svg")]
       svg_pipeline,
       glyph_atlas: None,
@@ -1911,6 +1983,16 @@ impl Dx12State {
       return Ok(());
     };
     let descriptor_index = self.ensure_image_texture(image)?;
+    let (pipeline_state, root_signature) = match image.image_format {
+      crate::images::ImagePixelFormat::Rgba8 => (
+        self.image_pipeline.pipeline_state.clone(),
+        self.image_pipeline.root_signature.clone(),
+      ),
+      crate::images::ImagePixelFormat::Nv12 => (
+        self.nv12_image_pipeline.pipeline_state.clone(),
+        self.nv12_image_pipeline.root_signature.clone(),
+      ),
+    };
 
     let instance = ImageInstance {
       pos: [image.x, image.y],
@@ -1929,10 +2011,8 @@ impl Dx12State {
 
     let descriptor_heaps = [Some(self.srv_heap.heap.clone()), Some(self.sampler_heap.heap.clone())];
     self.command_list.SetDescriptorHeaps(&descriptor_heaps);
-    self.command_list.SetPipelineState(&self.image_pipeline.pipeline_state);
-    self
-      .command_list
-      .SetGraphicsRootSignature(&self.image_pipeline.root_signature);
+    self.command_list.SetPipelineState(&pipeline_state);
+    self.command_list.SetGraphicsRootSignature(&root_signature);
     self
       .command_list
       .SetGraphicsRootConstantBufferView(0, globals_upload.gpu_address);
@@ -2110,54 +2190,176 @@ impl Dx12State {
   #[cfg(feature = "image")]
   unsafe fn ensure_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
     if let Some(cached) = self.image_textures.get(&image.image_id) {
-      let descriptor_index = cached.descriptor_index;
-      let frame_index = cached.frame_index;
-      let version = cached.version;
-      let texture = cached._texture.clone();
-      if frame_index != image.frame_index || version != image.version {
-        self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)?;
-        if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
-          cached.frame_index = image.frame_index;
-          cached.version = image.version;
+      match cached {
+        CachedImageTexture::Rgba {
+          _texture,
+          descriptor_index,
+          width,
+          height,
+          frame_index,
+          version,
+        } if image.image_format == crate::images::ImagePixelFormat::Rgba8
+          && *width == image.image_width
+          && *height == image.image_height =>
+        {
+          let descriptor_index = *descriptor_index;
+          let frame_index = *frame_index;
+          let version = *version;
+          let texture = _texture.clone();
+          if frame_index != image.frame_index || version != image.version {
+            self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)?;
+            if let Some(CachedImageTexture::Rgba {
+              frame_index, version, ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *frame_index = image.frame_index;
+              *version = image.version;
+            }
+          }
+          return Ok(descriptor_index);
+        }
+        CachedImageTexture::Nv12 {
+          _y_texture,
+          _uv_texture,
+          descriptor_index,
+          width,
+          height,
+          frame_index,
+          version,
+        } if image.image_format == crate::images::ImagePixelFormat::Nv12
+          && *width == image.image_width
+          && *height == image.image_height =>
+        {
+          let descriptor_index = *descriptor_index;
+          let frame_index = *frame_index;
+          let version = *version;
+          let y_texture = _y_texture.clone();
+          let uv_texture = _uv_texture.clone();
+          if frame_index != image.frame_index || version != image.version {
+            self.upload_nv12_image_textures(
+              &y_texture,
+              &uv_texture,
+              image,
+              D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            )?;
+            if let Some(CachedImageTexture::Nv12 {
+              frame_index, version, ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *frame_index = image.frame_index;
+              *version = image.version;
+            }
+          }
+          return Ok(descriptor_index);
+        }
+        _ => {
+          self.image_textures.remove(&image.image_id);
         }
       }
-      return Ok(descriptor_index);
     }
-    if self.next_srv_index >= SRV_DESCRIPTOR_COUNT as usize {
+    let descriptors_needed = match image.image_format {
+      crate::images::ImagePixelFormat::Rgba8 => 1,
+      crate::images::ImagePixelFormat::Nv12 => 2,
+    };
+    if self.next_srv_index + descriptors_needed > SRV_DESCRIPTOR_COUNT as usize {
       return Err(Error::from_win32());
     }
 
     let descriptor_index = self.next_srv_index;
-    self.next_srv_index += 1;
-    let texture = create_rgba_texture(&self.device, image.image_width, image.image_height)?;
-    let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-      Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-        Texture2D: D3D12_TEX2D_SRV {
-          MostDetailedMip: 0,
-          MipLevels: 1,
-          PlaneSlice: 0,
-          ResourceMinLODClamp: 0.0,
-        },
-      },
-    };
-    self
-      .device
-      .CreateShaderResourceView(&texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
+    self.next_srv_index += descriptors_needed;
+    match image.image_format {
+      crate::images::ImagePixelFormat::Rgba8 => {
+        let texture = create_rgba_texture(&self.device, image.image_width, image.image_height)?;
+        let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+          Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_SRV {
+              MostDetailedMip: 0,
+              MipLevels: 1,
+              PlaneSlice: 0,
+              ResourceMinLODClamp: 0.0,
+            },
+          },
+        };
+        self
+          .device
+          .CreateShaderResourceView(&texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
 
-    self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST)?;
+        self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST)?;
 
-    self.image_textures.insert(
-      image.image_id,
-      CachedImageTexture {
-        _texture: texture,
-        descriptor_index,
-        frame_index: image.frame_index,
-        version: image.version,
-      },
-    );
+        self.image_textures.insert(
+          image.image_id,
+          CachedImageTexture::Rgba {
+            _texture: texture,
+            descriptor_index,
+            width: image.image_width,
+            height: image.image_height,
+            frame_index: image.frame_index,
+            version: image.version,
+          },
+        );
+      }
+      crate::images::ImagePixelFormat::Nv12 => {
+        if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
+          return Err(Error::from_win32());
+        }
+        let y_texture = create_r8_texture(&self.device, image.image_width, image.image_height)?;
+        let uv_texture = create_r8g8_texture(&self.device, image.image_width / 2, image.image_height / 2)?;
+        let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+          Format: DXGI_FORMAT_R8_UNORM,
+          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_SRV {
+              MostDetailedMip: 0,
+              MipLevels: 1,
+              PlaneSlice: 0,
+              ResourceMinLODClamp: 0.0,
+            },
+          },
+        };
+        let uv_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+          Format: DXGI_FORMAT_R8G8_UNORM,
+          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_SRV {
+              MostDetailedMip: 0,
+              MipLevels: 1,
+              PlaneSlice: 0,
+              ResourceMinLODClamp: 0.0,
+            },
+          },
+        };
+        self.device.CreateShaderResourceView(
+          &y_texture,
+          Some(&y_srv_desc),
+          self.srv_heap.cpu_handle(descriptor_index),
+        );
+        self.device.CreateShaderResourceView(
+          &uv_texture,
+          Some(&uv_srv_desc),
+          self.srv_heap.cpu_handle(descriptor_index + 1),
+        );
+
+        self.upload_nv12_image_textures(&y_texture, &uv_texture, image, D3D12_RESOURCE_STATE_COPY_DEST)?;
+
+        self.image_textures.insert(
+          image.image_id,
+          CachedImageTexture::Nv12 {
+            _y_texture: y_texture,
+            _uv_texture: uv_texture,
+            descriptor_index,
+            width: image.image_width,
+            height: image.image_height,
+            frame_index: image.frame_index,
+            version: image.version,
+          },
+        );
+      }
+    }
     Ok(descriptor_index)
   }
 
@@ -2168,25 +2370,79 @@ impl Dx12State {
     image: &crate::images::ImageCmd,
     before_state: D3D12_RESOURCE_STATES,
   ) -> Result<()> {
+    self.upload_texture_rows(
+      texture,
+      image.data.as_slice(),
+      image.image_width,
+      image.image_height,
+      image.image_width as usize * 4,
+      DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+      before_state,
+    )
+  }
+
+  #[cfg(feature = "image")]
+  unsafe fn upload_nv12_image_textures(
+    &mut self,
+    y_texture: &ID3D12Resource,
+    uv_texture: &ID3D12Resource,
+    image: &crate::images::ImageCmd,
+    before_state: D3D12_RESOURCE_STATES,
+  ) -> Result<()> {
+    let y_len = image.image_width as usize * image.image_height as usize;
+    let uv_len = y_len / 2;
+    if image.data.len() < y_len + uv_len {
+      return Err(Error::from_win32());
+    }
+    self.upload_texture_rows(
+      y_texture,
+      &image.data[..y_len],
+      image.image_width,
+      image.image_height,
+      image.image_width as usize,
+      DXGI_FORMAT_R8_UNORM,
+      before_state,
+    )?;
+    self.upload_texture_rows(
+      uv_texture,
+      &image.data[y_len..y_len + uv_len],
+      image.image_width / 2,
+      image.image_height / 2,
+      image.image_width as usize,
+      DXGI_FORMAT_R8G8_UNORM,
+      before_state,
+    )
+  }
+
+  #[cfg(feature = "image")]
+  unsafe fn upload_texture_rows(
+    &mut self,
+    texture: &ID3D12Resource,
+    data: &[u8],
+    width: u32,
+    height: u32,
+    row_bytes: usize,
+    format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
+    before_state: D3D12_RESOURCE_STATES,
+  ) -> Result<()> {
     if before_state != D3D12_RESOURCE_STATE_COPY_DEST {
       self.transition_resource(texture, before_state, D3D12_RESOURCE_STATE_COPY_DEST);
     }
 
-    let row_bytes = image.image_width as usize * 4;
     let row_pitch = align_up(row_bytes, 256);
     let upload = if row_pitch == row_bytes {
-      UploadBuffer::from_bytes(&self.device, image.data.as_slice())?
+      UploadBuffer::from_bytes(&self.device, data)?
     } else {
-      let upload_size = row_pitch * image.image_height as usize;
+      let upload_size = row_pitch * height as usize;
       let mut upload_bytes = vec![0u8; upload_size];
-      for row in 0..image.image_height as usize {
+      for row in 0..height as usize {
         let src_start = row * row_bytes;
-        if src_start >= image.data.len() {
+        if src_start >= data.len() {
           break;
         }
-        let src_end = (src_start + row_bytes).min(image.data.len());
+        let src_end = (src_start + row_bytes).min(data.len());
         let dst_start = row * row_pitch;
-        upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&image.data[src_start..src_end]);
+        upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&data[src_start..src_end]);
       }
       UploadBuffer::from_bytes(&self.device, &upload_bytes)?
     };
@@ -2202,9 +2458,9 @@ impl Dx12State {
         PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
           Offset: 0,
           Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
-            Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-            Width: image.image_width,
-            Height: image.image_height,
+            Format: format,
+            Width: width,
+            Height: height,
             Depth: 1,
             RowPitch: row_pitch as u32,
           },
@@ -2414,6 +2670,8 @@ mod tests {
       {
         compile_shader(include_bytes!("shaders/image.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
+        compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
+        compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
       }
       #[cfg(feature = "svg")]
       {
