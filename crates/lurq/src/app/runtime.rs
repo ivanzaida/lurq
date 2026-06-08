@@ -369,8 +369,22 @@ impl Tree {
   }
 
   pub fn set_scale_factor(&mut self, scale: f32) {
+    if self.scale_factor == scale {
+      self.window.set_scale_factor(scale);
+      return;
+    }
+
     self.scale_factor = scale;
     self.window.set_scale_factor(scale);
+    self.invalidate_viewport_layout();
+  }
+
+  fn invalidate_viewport_layout(&mut self) {
+    self.last_layout = None;
+    if let Some(root) = self.root.as_ref() {
+      root.layout_cache.invalidate();
+    }
+    self.needs_redraw = true;
   }
 
   /// The reactive window handle for this tree's window. The shell pushes
@@ -983,6 +997,7 @@ impl Tree {
     if let Some(engine) = &mut self.render_engine {
       engine.resize(width, height);
     }
+    self.invalidate_viewport_layout();
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
