@@ -791,6 +791,11 @@ fn load_platform_fonts(font_system: &mut FontSystem) {
       let _ = font_system.db_mut().load_font_file(file);
     }
   }
+
+  #[cfg(not(target_os = "windows"))]
+  {
+    let _ = font_system;
+  }
 }
 
 pub(crate) struct AtlasPacker {
