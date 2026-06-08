@@ -31,6 +31,10 @@ impl<T> PartialEq for Shared<T> {
   }
 }
 
+impl<T> lurq::app::component::DevtoolsInspectable for Shared<T> {
+  fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+}
+
 // A self-contained switch: the knob (second child) is pushed horizontally by a
 // spacer rect whose *width* depends on the switch's own signal.
 struct Switch {

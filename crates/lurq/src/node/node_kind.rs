@@ -266,7 +266,7 @@ impl TextState {
     let len = value.len();
     let mut inner = self.inner.lock().unwrap();
     inner.selectable = selectable;
-    inner.display_text = old_inner.display_text.clone();
+    inner.display_text = None;
     if selectable {
       inner.caret = old_inner.caret.min(len);
       inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));

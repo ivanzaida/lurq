@@ -14,9 +14,9 @@ use crate::{
 
 #[cfg(feature = "image")]
 struct CachedImageTexture {
-  texture: wgpu::Texture,
-  view: wgpu::TextureView,
   bind_group: wgpu::BindGroup,
+  view: wgpu::TextureView,
+  texture: wgpu::Texture,
   frame_index: usize,
 }
 
@@ -35,6 +35,7 @@ pub struct WgpuRenderEngine {
   svg_bgl: Option<wgpu::BindGroupLayout>,
   surface: Option<wgpu::Surface<'static>>,
   surface_config: Option<wgpu::SurfaceConfiguration>,
+  surface_format: Option<wgpu::TextureFormat>,
   quad_bgl: Option<wgpu::BindGroupLayout>,
   glyph_bgl: Option<wgpu::BindGroupLayout>,
   #[cfg(feature = "image")]
@@ -86,6 +87,7 @@ impl WgpuRenderEngine {
       svg_bgl: None,
       surface: None,
       surface_config: None,
+      surface_format: None,
       quad_bgl: None,
       glyph_bgl: None,
       #[cfg(feature = "image")]
@@ -112,14 +114,96 @@ impl WgpuRenderEngine {
     }
   }
 
+  fn release_gpu_resources(&mut self) {
+    if let Some(device) = &self.device {
+      let _ = device.poll(wgpu::Maintain::Poll);
+    }
+
+    #[cfg(feature = "image")]
+    self.image_texture_cache.clear();
+
+    self.quad_bind_group = None;
+    self.glyph_bind_group = None;
+    #[cfg(feature = "image")]
+    {
+      self.image_sampler = None;
+      self.image_bgl = None;
+      self.image_pipeline = None;
+    }
+    #[cfg(feature = "svg")]
+    {
+      self.svg_bgl = None;
+      self.svg_pipeline = None;
+    }
+
+    self.vertex_buffer = None;
+    self.index_buffer = None;
+    self.globals_buffer = None;
+    self.gradient_buffer = None;
+    self.atlas_view = None;
+    self.atlas_texture = None;
+    self.atlas_sampler = None;
+
+    self.quad_pipeline = None;
+    self.glyph_pipeline = None;
+    self.quad_bgl = None;
+    self.glyph_bgl = None;
+
+    self.surface_config = None;
+    self.surface = None;
+    self.surface_format = None;
+    self.queue = None;
+    self.device = None;
+    self.adapter = None;
+  }
+
+  fn create_surface(&self, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> wgpu::Surface<'static> {
+    let surface_target =
+      unsafe { wgpu::SurfaceTargetUnsafe::from_window(&WindowDisplayPair { window, display }) }.unwrap();
+    unsafe { self.instance.create_surface_unsafe(surface_target) }.unwrap()
+  }
+
+  fn configure_surface(
+    &mut self,
+    surface: wgpu::Surface<'static>,
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+  ) -> wgpu::TextureFormat {
+    let caps = surface.get_capabilities(adapter);
+    let format = self
+      .surface_format
+      .filter(|format| caps.formats.contains(format))
+      .or_else(|| caps.formats.iter().copied().find(wgpu::TextureFormat::is_srgb))
+      .unwrap_or(caps.formats[0]);
+
+    let config = wgpu::SurfaceConfiguration {
+      usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+      format,
+      width: self.width.max(1),
+      height: self.height.max(1),
+      present_mode: wgpu::PresentMode::Fifo,
+      alpha_mode: caps.alpha_modes[0],
+      view_formats: vec![],
+      desired_maximum_frame_latency: 2,
+    };
+    surface.configure(device, &config);
+    self.surface = Some(surface);
+    self.surface_config = Some(config);
+    self.surface_format = Some(format);
+    format
+  }
+
   fn ensure_initialized(&mut self, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
-    if self.device.is_some() {
+    if self.device.is_some() && self.surface.is_some() {
       return;
     }
 
-    let surface_target =
-      unsafe { wgpu::SurfaceTargetUnsafe::from_window(&WindowDisplayPair { window, display }) }.unwrap();
-    let surface = unsafe { self.instance.create_surface_unsafe(surface_target) }.unwrap();
+    let surface = self.create_surface(window, display);
+
+    if let (Some(adapter), Some(device)) = (self.adapter.clone(), self.device.clone()) {
+      self.configure_surface(surface, &adapter, &device);
+      return;
+    }
 
     let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
       power_preference: wgpu::PowerPreference::default(),
@@ -137,25 +221,8 @@ impl WgpuRenderEngine {
     ))
     .expect("failed to create device");
 
-    let caps = surface.get_capabilities(&adapter);
-    let format = caps
-      .formats
-      .iter()
-      .copied()
-      .find(wgpu::TextureFormat::is_srgb)
-      .unwrap_or(caps.formats[0]);
-
-    let config = wgpu::SurfaceConfiguration {
-      usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-      format,
-      width: self.width.max(1),
-      height: self.height.max(1),
-      present_mode: wgpu::PresentMode::Fifo,
-      alpha_mode: caps.alpha_modes[0],
-      view_formats: vec![],
-      desired_maximum_frame_latency: 2,
-    };
-    surface.configure(&device, &config);
+    let format = self.configure_surface(surface, &adapter, &device);
+    let config = self.surface_config.as_ref().unwrap();
 
     // --- Quad pipeline ---
     let quad_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -506,8 +573,6 @@ impl WgpuRenderEngine {
       self.svg_pipeline = Some(svg_pipeline);
       self.svg_bgl = Some(svg_bgl);
     }
-    self.surface = Some(surface);
-    self.surface_config = Some(config);
     self.quad_bgl = Some(quad_bgl);
     self.glyph_bgl = Some(glyph_bgl);
     #[cfg(feature = "image")]
@@ -524,6 +589,12 @@ impl WgpuRenderEngine {
     self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
     self.index_buffer = Some(index_buffer);
+  }
+}
+
+impl Drop for WgpuRenderEngine {
+  fn drop(&mut self) {
+    self.release_gpu_resources();
   }
 }
 
@@ -1111,6 +1182,14 @@ impl RenderEngine for WgpuRenderEngine {
         total: ProfileScope::elapsed_or_default(&total_start),
       };
     }
+  }
+
+  fn release_window_surface(&mut self) {
+    if let Some(device) = &self.device {
+      let _ = device.poll(wgpu::Maintain::Poll);
+    }
+    self.surface_config = None;
+    self.surface = None;
   }
 
   fn set_profiling_enabled(&mut self, enabled: bool) {

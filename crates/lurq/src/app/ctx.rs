@@ -2123,7 +2123,9 @@ impl Ctx {
         let nested_replacements = slot.ctx.refresh_dirty_subtrees();
         if let Some(rendered) = &mut slot.rendered {
           for (slot_id, replacement) in nested_replacements {
-            rendered.replace_component_slot(slot_id, replacement);
+            if !rendered.replace_component_slot(slot_id, replacement.clone_for_reuse()) {
+              replacements.push((slot_id, replacement));
+            }
           }
         } else {
           replacements.extend(nested_replacements);

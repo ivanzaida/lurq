@@ -519,6 +519,7 @@ struct ManagedSecondaryWindow {
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   redraw_pending: bool,
+  close_requested: bool,
 }
 
 impl ManagedSecondaryWindow {
@@ -535,6 +536,7 @@ impl ManagedSecondaryWindow {
           .with_inner_size(winit::dpi::LogicalSize::new(secondary.width(), secondary.height())),
       ),
       redraw_pending: false,
+      close_requested: false,
     }
   }
 
@@ -544,6 +546,15 @@ impl ManagedSecondaryWindow {
 
   fn window_id(&self) -> Option<WindowId> {
     self.window.as_ref().map(Window::id)
+  }
+
+  fn request_close(&mut self) {
+    self.redraw_pending = false;
+    self.close_requested = true;
+  }
+
+  fn close_requested(&self) -> bool {
+    self.close_requested
   }
 
   fn has_tick(&self, tree: Option<&Tree>) -> bool {
@@ -590,8 +601,7 @@ impl ManagedSecondaryWindow {
     for command in commands {
       match command {
         WindowCommand::Close => {
-          self.window = None;
-          self.redraw_pending = false;
+          self.request_close();
           closed = true;
         }
         WindowCommand::SetMinimized(minimized) => {
@@ -715,8 +725,7 @@ impl ManagedSecondaryWindow {
     tree.set_app_ref(app);
     match event {
       WindowEvent::CloseRequested => {
-        self.window = None;
-        self.redraw_pending = false;
+        self.request_close();
       }
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
         tree.set_scale_factor(scale_factor as f32);
@@ -863,6 +872,14 @@ struct WinitHandler {
 }
 
 impl WinitHandler {
+  fn close_secondary_at_position(&mut self, position: usize) {
+    let index = self.secondaries[position].index();
+    if self.main.tree.close_secondary_window(index) {
+      self.main.request_redraw();
+    }
+    self.secondaries.remove(position);
+  }
+
   fn sync_secondary_windows(&mut self, event_loop: &ActiveEventLoop) {
     self
       .secondaries
@@ -883,6 +900,7 @@ impl WinitHandler {
         .tree
         .secondary_window_mut(index)
         .and_then(|secondary| managed.create_window(event_loop, secondary.tree_mut()));
+      self.main.tree.ensure_secondary_window_render_engine(index);
       if let Some(metadata) = metadata {
         self.main.tree.set_secondary_window_metadata(index, metadata);
       }
@@ -1007,13 +1025,10 @@ impl ApplicationHandler for WinitHandler {
       let mut closed = false;
       if let Some(secondary) = self.main.tree.secondary_window_mut(index) {
         self.secondaries[position].handle_event(&mut self.app, event_loop, event, secondary.tree_mut());
-        closed = self.secondaries[position].window.is_none();
+        closed = self.secondaries[position].close_requested();
       }
       if closed {
-        if self.main.tree.close_secondary_window(index) {
-          self.main.request_redraw();
-        }
-        self.secondaries.remove(position);
+        self.close_secondary_at_position(position);
       } else {
         self.apply_secondary_window_requests(event_loop);
       }
@@ -1024,10 +1039,20 @@ impl ApplicationHandler for WinitHandler {
     self.main.tick();
     self.main.apply_window_commands(event_loop);
     self.apply_secondary_window_requests(event_loop);
-    for secondary_window in &mut self.secondaries {
-      if let Some(secondary) = self.main.tree.secondary_window_mut(secondary_window.index()) {
+    let mut position = 0;
+    while position < self.secondaries.len() {
+      let secondary_index = self.secondaries[position].index();
+      let mut closed = false;
+      if let Some(secondary) = self.main.tree.secondary_window_mut(secondary_index) {
+        let secondary_window = &mut self.secondaries[position];
         secondary_window.tick(secondary.tree_mut());
-        secondary_window.apply_window_commands(secondary.tree_mut());
+        closed = secondary_window.apply_window_commands(secondary.tree_mut());
+      }
+
+      if closed {
+        self.close_secondary_at_position(position);
+      } else {
+        position += 1;
       }
     }
     self.sync_secondary_windows(event_loop);

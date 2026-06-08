@@ -165,6 +165,10 @@ impl RenderEngine for Dx12RenderEngine {
     }
   }
 
+  fn release_window_surface(&mut self) {
+    self.state = None;
+  }
+
   fn set_profiling_enabled(&mut self, enabled: bool) {
     self.profiling_enabled = enabled;
   }

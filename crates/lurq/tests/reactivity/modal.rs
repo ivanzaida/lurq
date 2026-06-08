@@ -4,8 +4,8 @@ use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{Column, Rect, Row, Select, Slider, Text},
   core::Signal,
-  layout::{Alignment, Constraints, Size, layout_result::LayoutResult},
-  node::Element,
+  layout::{Alignment, Constraints, Size, StackAlignment, layout_result::LayoutResult, quad::QuadContent},
+  node::{Element, color::Color},
 };
 
 use crate::support::{pointer_click, render_pass, run_pass};
@@ -16,6 +16,18 @@ fn pass_layout(tree: &mut Tree, constraints: Constraints) -> LayoutResult {
   let result = tree.last_layout().cloned();
   tree.set_layout_constraints_override(None);
   result.unwrap()
+}
+
+fn rendered_text_quads(tree: &Tree) -> Vec<String> {
+  let layout = tree.last_layout().expect("tree should have a layout");
+  tree
+    .resolve_quads(layout)
+    .into_iter()
+    .filter_map(|quad| match quad.content {
+      QuadContent::Text { text, .. } => Some(text),
+      _ => None,
+    })
+    .collect()
 }
 
 struct Shared<T>(Arc<T>);
@@ -410,6 +422,7 @@ fn for_each_owned_modal_slider_updates_without_growing_modal_hosts() {
 struct LocalModalSliderSignals {
   open: Option<Signal<bool>>,
   value: Option<Signal<i32>>,
+  initial_value: i32,
 }
 
 struct RootWithLocalSliderModal {
@@ -440,7 +453,8 @@ impl Component for LocalModalSlider {
   type Props = Shared<Mutex<LocalModalSliderSignals>>;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let value = ctx.signal(0);
+    let initial_value = ctx.props::<Self::Props>().0.lock().unwrap().initial_value;
+    let value = ctx.signal(initial_value);
     ctx.props::<Self::Props>().0.lock().unwrap().value = Some(value.clone());
     Self { value }
   }
@@ -551,4 +565,415 @@ fn nested_local_slider_inside_modal_rerenders_while_dragging() {
   );
 
   tree.mouse_up(rect.x + 75.0, y, MouseButton::Left);
+}
+
+struct LocalModalPercentSlider {
+  value: Signal<i32>,
+}
+
+impl Component for LocalModalPercentSlider {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let initial_value = ctx.props::<Self::Props>().0.lock().unwrap().initial_value;
+    let value = ctx.signal(initial_value);
+    ctx.props::<Self::Props>().0.lock().unwrap().value = Some(value.clone());
+    Self { value }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let value = self.value.clone();
+    let current = value.get().clamp(0, 100);
+
+    Column::new()
+      .width(180.0)
+      .height(80.0)
+      .child(Text::new(&format!("{current}%")))
+      .child(
+        lurq::components::Stack::new()
+          .stack_align(StackAlignment::CenterStart)
+          .width(100.0)
+          .height(20.0)
+          .child(Rect::new(100.0, 4.0).background("#111827"))
+          .child(Rect::new(current as f32, 4.0).background("#38bdf8"))
+          .child(
+            Slider::new(value)
+              .range(0, 100)
+              .width(100.0)
+              .height(20.0)
+              .track(|style| style.size(100.0, 4.0).background("#00000000"))
+              .thumb(|style| style.size(10.0, 10.0).background("#f97316")),
+          ),
+      )
+  }
+}
+
+struct LocalModalNestedPercentSlider;
+
+impl Component for LocalModalNestedPercentSlider {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.mount::<LocalModalPercentSlider>(ctx.props::<Self::Props>().clone())
+  }
+}
+
+struct RootWithNestedLocalPercentSliderModal {
+  open: Signal<bool>,
+}
+
+impl Component for RootWithNestedLocalPercentSliderModal {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let open = ctx.signal(false);
+    ctx.props::<Self::Props>().0.lock().unwrap().open = Some(open.clone());
+    Self { open }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    ctx.modal(self.open.clone(), move |ctx| {
+      ctx.mount::<LocalModalNestedPercentSlider>(props)
+    });
+    Text::new("base")
+  }
+}
+
+#[test]
+fn nested_percent_slider_inside_modal_rerenders_fill_while_dragging() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithNestedLocalPercentSliderModal>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("modal slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  tree.mouse_down(rect.x, y, MouseButton::Left);
+  tree.mouse_move(rect.x + 75.0, y);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value > 0);
+  let snapshot = render_pass(&mut tree);
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("custom fill should render");
+
+  assert_eq!(fill.width.round() as i32, dragged_value);
+  let thumb = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#f97316"))
+    .expect("slider thumb should render");
+  assert!(
+    ((thumb.x + thumb.width / 2.0) - (rect.x + 75.0)).abs() <= 1.0,
+    "thumb should track pointer while dragging; thumb_center={}, pointer={}",
+    thumb.x + thumb.width / 2.0,
+    rect.x + 75.0
+  );
+  assert!(
+    tree
+      .find_element(|node| node.text_content() == Some(&format!("{dragged_value}%")))
+      .is_some(),
+    "nested modal percent slider should show the dragged value before mouse-up"
+  );
+
+  tree.mouse_up(rect.x + 75.0, y, MouseButton::Left);
+  let snapshot = render_pass(&mut tree);
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("custom fill should render after mouse-up");
+  assert_eq!(fill.width.round() as i32, dragged_value);
+}
+
+#[test]
+fn nested_percent_slider_inside_modal_rerenders_fill_when_dragging_left() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals {
+    initial_value: 74,
+    ..LocalModalSliderSignals::default()
+  }));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithNestedLocalPercentSliderModal>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("modal slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+  let start_x = rect.x + rect.width * 0.74;
+  let drag_x = rect.x + rect.width * 0.35;
+
+  tree.mouse_down(start_x, y, MouseButton::Left);
+  tree.mouse_move(drag_x, y);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value < 74, "drag should lower the signal value");
+  let snapshot = render_pass(&mut tree);
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("custom fill should render");
+
+  assert_eq!(
+    fill.width.round() as i32,
+    dragged_value,
+    "custom fill should rerender from the old initial value during left drag"
+  );
+  assert!(
+    tree
+      .find_element(|node| node.text_content() == Some(&format!("{dragged_value}%")))
+      .is_some(),
+    "nested modal percent slider should show the lowered value during left drag"
+  );
+
+  tree.mouse_up(drag_x, y, MouseButton::Left);
+}
+
+#[test]
+fn context_menu_percent_slider_thumb_matches_lowered_value_after_drag() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals {
+    initial_value: 74,
+    ..LocalModalSliderSignals::default()
+  }));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithContextMenuPercentSlider>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("context menu slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+  let start_x = rect.x + rect.width * 0.74;
+  let drag_x = rect.x + rect.width * 0.35;
+
+  tree.mouse_down(start_x, y, MouseButton::Left);
+  tree.mouse_move(drag_x, y);
+  tree.mouse_up(drag_x, y, MouseButton::Left);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value < 74, "drag should lower the signal value");
+  let snapshot = render_pass(&mut tree);
+  let thumb = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#f97316"))
+    .expect("slider thumb should render");
+  let thumb_center = thumb.x + thumb.width / 2.0;
+  let expected_center = rect.x + thumb.width / 2.0 + (dragged_value as f32 / 100.0) * (rect.width - thumb.width);
+
+  assert!(
+    (thumb_center - expected_center).abs() <= 1.0,
+    "thumb should match lowered signal value after drag; thumb_center={thumb_center}, expected={expected_center}, value={dragged_value}"
+  );
+}
+
+#[test]
+fn context_menu_percent_slider_thumb_matches_value_after_track_click() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals {
+    initial_value: 74,
+    ..LocalModalSliderSignals::default()
+  }));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithContextMenuPercentSlider>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("context menu slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+  let click_x = rect.x + rect.width * 0.36;
+
+  tree.mouse_down(click_x, y, MouseButton::Left);
+  tree.mouse_up(click_x, y, MouseButton::Left);
+
+  let clicked_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(clicked_value < 74, "track click should lower the signal value");
+  let snapshot = render_pass(&mut tree);
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("custom fill should render");
+  let thumb = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#f97316"))
+    .expect("slider thumb should render");
+  let thumb_center = thumb.x + thumb.width / 2.0;
+  let expected_center = rect.x + thumb.width / 2.0 + (clicked_value as f32 / 100.0) * (rect.width - thumb.width);
+
+  assert_eq!(fill.width.round() as i32, clicked_value);
+  assert!(
+    (thumb_center - expected_center).abs() <= 1.0,
+    "thumb should match lowered signal value after track click; thumb_center={thumb_center}, expected={expected_center}, value={clicked_value}"
+  );
+}
+
+struct RootWithContextMenuPercentSlider {
+  open: Signal<bool>,
+}
+
+impl Component for RootWithContextMenuPercentSlider {
+  type Props = Shared<Mutex<LocalModalSliderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let open = ctx.signal(false);
+    ctx.props::<Self::Props>().0.lock().unwrap().open = Some(open.clone());
+    Self { open }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    ctx.modal(self.open.clone(), move |ctx| {
+      lurq::components::Stack::new()
+        .width(500.0)
+        .height(400.0)
+        .child(Rect::new(500.0, 400.0).background("#00000000"))
+        .child(
+          Row::new()
+            .absolute(40.0, 30.0, 180.0, 80.0)
+            .child(ctx.mount::<LocalModalNestedPercentSlider>(props)),
+        )
+    });
+    Text::new("base")
+  }
+}
+
+#[test]
+fn context_menu_percent_slider_rerenders_fill_when_dragging_left() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals {
+    initial_value: 74,
+    ..LocalModalSliderSignals::default()
+  }));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithContextMenuPercentSlider>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("context menu slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+  let start_x = rect.x + rect.width * 0.74;
+  let drag_x = rect.x + rect.width * 0.35;
+
+  tree.mouse_down(start_x, y, MouseButton::Left);
+  tree.mouse_move(drag_x, y);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value < 74, "drag should lower the signal value");
+  let snapshot = render_pass(&mut tree);
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("custom fill should render");
+
+  assert_eq!(
+    fill.width.round() as i32,
+    dragged_value,
+    "context menu fill should rerender from the old initial value during left drag"
+  );
+  assert!(
+    tree
+      .find_element(|node| node.text_content() == Some(&format!("{dragged_value}%")))
+      .is_some(),
+    "context menu percent slider should show the lowered value during left drag"
+  );
+  let rendered_texts = rendered_text_quads(&tree);
+  assert!(
+    rendered_texts.iter().any(|text| text == &format!("{dragged_value}%")),
+    "context menu percent slider should render the lowered value during left drag; rendered_texts={rendered_texts:?}"
+  );
+
+  tree.mouse_up(drag_x, y, MouseButton::Left);
+}
+
+#[test]
+fn context_menu_percent_slider_rerenders_fill_when_dragging_after_mouse_down_frame() {
+  let signals = Arc::new(Mutex::new(LocalModalSliderSignals {
+    initial_value: 91,
+    ..LocalModalSliderSignals::default()
+  }));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithContextMenuPercentSlider>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let slider = tree
+    .find_element(|node| node.tag_name() == "Slider")
+    .expect("context menu slider should be laid out");
+  let rect = slider.bounds();
+  let y = rect.y + rect.height / 2.0;
+  let start_x = rect.x + rect.width * 0.91;
+  let drag_x = rect.x + rect.width * 0.35;
+
+  tree.mouse_down(start_x, y, MouseButton::Left);
+  let _ = render_pass(&mut tree);
+  tree.mouse_move(drag_x, y);
+
+  let dragged_value = signals.lock().unwrap().value.as_ref().unwrap().get();
+  assert!(dragged_value < 91, "drag should lower the signal value");
+  let snapshot = render_pass(&mut tree);
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("custom fill should render");
+  let thumb = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#f97316"))
+    .expect("slider thumb should render");
+  let rendered_texts = rendered_text_quads(&tree);
+
+  assert_eq!(
+    fill.width.round() as i32,
+    dragged_value,
+    "context menu fill should rerender after an intervening mouse-down frame"
+  );
+  assert!(
+    rendered_texts.iter().any(|text| text == &format!("{dragged_value}%")),
+    "context menu percent slider should render the dragged value after an intervening mouse-down frame; rendered_texts={rendered_texts:?}"
+  );
+  assert!(
+    ((thumb.x + thumb.width / 2.0) - drag_x).abs() <= 1.0,
+    "thumb should track pointer after intervening frame; thumb_center={}, pointer={drag_x}",
+    thumb.x + thumb.width / 2.0,
+  );
+
+  tree.mouse_up(drag_x, y, MouseButton::Left);
 }

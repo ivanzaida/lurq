@@ -534,7 +534,8 @@ impl Tree {
 
   #[cfg_attr(not(any(feature = "winit", feature = "devtools")), allow(dead_code))]
   fn apply_render_engine_factory_to_secondary(&self, window: &mut SecondaryWindow) {
-    if window.tree.render_engine.is_none()
+    if window.open
+      && window.tree.render_engine.is_none()
       && let Some(factory) = &self.render_engine_factory
     {
       window.tree.render_engine = Some((factory)());
@@ -546,6 +547,21 @@ impl Tree {
       return;
     };
     for window in &mut self.secondary_windows {
+      if window.open {
+        window.tree.render_engine = Some((factory)());
+      }
+    }
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn ensure_secondary_window_render_engine(&mut self, index: usize) {
+    let Some(factory) = self.render_engine_factory.clone() else {
+      return;
+    };
+    let Some(window) = self.secondary_windows.get_mut(index) else {
+      return;
+    };
+    if window.open && window.tree.render_engine.is_none() {
       window.tree.render_engine = Some((factory)());
     }
   }
@@ -567,14 +583,15 @@ impl Tree {
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn close_secondary_window(&mut self, index: usize) -> bool {
-    let render_engine_factory = self.render_engine_factory.clone();
     let Some(window) = self.secondary_windows.get_mut(index) else {
       return false;
     };
     if !window.close() {
       return false;
     }
-    window.tree.render_engine = render_engine_factory.map(|factory| (factory)());
+    if let Some(engine) = &mut window.tree.render_engine {
+      engine.release_window_surface();
+    }
 
     #[cfg(feature = "devtools")]
     if self
@@ -647,11 +664,14 @@ impl Tree {
     let Some(index) = self.devtools.as_ref().map(|devtools| devtools.secondary_index) else {
       return false;
     };
-    let opened = self.secondary_windows.get_mut(index).is_some_and(SecondaryWindow::open);
-    if opened {
-      self.sync_devtools_now();
+    let Some(window) = self.secondary_windows.get_mut(index) else {
+      return false;
+    };
+    if !window.open() {
+      return false;
     }
-    opened
+    self.sync_devtools_now();
+    true
   }
 
   #[cfg(feature = "devtools")]
@@ -1899,8 +1919,15 @@ impl Tree {
     if let Some(mut drag) = self.dragging_slider.clone() {
       if let Some(state) = self.current_slider_state(drag.target_id) {
         drag.state = state;
-        self.dragging_slider = Some(drag.clone());
+      } else if let Some(rebound) = self.current_slider_drag_at_y(ly) {
+        drag = rebound;
+      } else {
+        self.dragging_slider = None;
+        self.clear_active_path();
+        self.needs_redraw = true;
+        return;
       }
+      self.dragging_slider = Some(drag.clone());
       match evt.kind {
         MouseEventKind::Move => {
           drag.update(lx);
@@ -2483,6 +2510,36 @@ impl Tree {
       NodeKind::Slider { state } => Some(state.clone()),
       _ => None,
     }
+  }
+
+  fn current_slider_drag_at_y(&self, y: f32) -> Option<SliderDrag> {
+    let root = self.root.as_ref()?;
+    let result = self.last_layout.as_ref()?;
+    let (node, rect) = find_slider_by_y_recursive(root, result, 0.0, 0.0, y)?;
+    let NodeKind::Slider { state } = node.node_kind() else {
+      return None;
+    };
+    let (track_rect, thumb_rect) = state.part_rects(
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
+      node.is_style_hovered(),
+      DEFAULT_SLIDER_THUMB_MIN_SIZE,
+    );
+    let travel_width = track_rect.width - thumb_rect.width;
+    let (drag_x, drag_width) = if travel_width > 0.0 {
+      (track_rect.x + thumb_rect.width * 0.5, travel_width)
+    } else {
+      (track_rect.x, track_rect.width)
+    };
+    Some(SliderDrag {
+      target_id: node.node_id(),
+      state: state.clone(),
+      x: drag_x,
+      width: drag_width,
+      on_finish: node.events.on_blur.clone(),
+    })
   }
 
   fn blur_focused_text_input_on_key(&mut self, key: &str, code: &str) -> bool {

@@ -585,6 +585,10 @@ mod tests {
       contexts: Vec::new(),
       shape: Vec::new(),
       effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
       children,
     }
   }
