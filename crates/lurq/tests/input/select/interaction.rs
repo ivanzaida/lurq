@@ -1,5 +1,8 @@
 use lurq::{
-  app::{Tree, events::MouseButton},
+  app::{
+    Tree,
+    events::{MouseButton, ScrollPhase},
+  },
   components::{Column, Rect, Select, Text},
   core::{ElementRef, Signal},
   node::{SelectPartStyle, SelectStyle, color::Color},
@@ -167,6 +170,35 @@ fn single_select_commits_when_redrawn_between_option_down_and_up() {
 }
 
 #[test]
+fn single_select_commits_on_option_mouse_down() {
+  let value = Signal::new("md".to_owned());
+  let mut tree = Tree::new();
+  tree.set_root(Select::new(value.clone()).options(options()).width(200.0).height(40.0));
+  run_pass(&mut tree);
+
+  let bounds = tree
+    .find_element(|el| el.tag_name() == "Select")
+    .expect("trigger present")
+    .bounds();
+  let (tx, ty) = bounds.center();
+  pointer_click(&mut tree, tx, ty, MouseButton::Left);
+  run_pass(&mut tree);
+
+  let large = tree
+    .find_element(|el| el.text_content() == Some("Large"))
+    .expect("Large option");
+  let (lx, ly) = large.bounds().center();
+  tree.mouse_down(lx, ly, MouseButton::Left);
+  run_pass(&mut tree);
+
+  assert_eq!(
+    value.get(),
+    "lg",
+    "pressing an option should commit even if the following mouse-up is missed"
+  );
+}
+
+#[test]
 fn select_inside_scroll_opens_and_commits() {
   use lurq::components::{Column, Rect, ScrollVertical};
   let value = Signal::new("md".to_owned());
@@ -201,6 +233,46 @@ fn select_inside_scroll_opens_and_commits() {
   run_pass(&mut tree);
   eprintln!("scroll value after click: {}", value.get());
   assert_eq!(value.get(), "lg", "commit works for select inside scroll");
+}
+
+#[test]
+fn scrolled_select_menu_commits_clicked_option() {
+  let value = Signal::new("item-00".to_owned());
+  let options = (0..20)
+    .map(|index| (format!("item-{index:02}"), format!("Option {index:02}")))
+    .collect::<Vec<_>>();
+  let mut tree = Tree::new();
+  tree.set_root(
+    Select::new(value.clone())
+      .options(options)
+      .width(200.0)
+      .height(40.0)
+      .style(SelectStyle::new().max_menu_height(120.0)),
+  );
+  run_pass(&mut tree);
+
+  let trigger = tree
+    .find_element(|el| el.tag_name() == "Select")
+    .expect("trigger present");
+  let (tx, ty) = trigger.bounds().center();
+  pointer_click(&mut tree, tx, ty, MouseButton::Left);
+  run_pass(&mut tree);
+
+  tree.scroll(tx, ty + 70.0, 0.0, -900.0, ScrollPhase::Scroll);
+  run_pass(&mut tree);
+
+  let option = tree
+    .find_element(|el| el.text_content() == Some("Option 19"))
+    .expect("last option should be laid out after scrolling menu");
+  let (ox, oy) = option.bounds().center();
+  pointer_click(&mut tree, ox, oy, MouseButton::Left);
+  run_pass(&mut tree);
+
+  assert_eq!(
+    value.get(),
+    "item-19",
+    "clicking an option after scrolling the select menu commits its value"
+  );
 }
 
 #[test]
