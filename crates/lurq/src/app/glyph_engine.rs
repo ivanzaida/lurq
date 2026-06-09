@@ -220,7 +220,7 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> Vec<CaretPosition> {
-    let mut buffer = self.acquire_buffer(style, max_width, wrap);
+    let mut buffer = self.acquire_buffer(style, max_width, effective_text_wrap(max_width, wrap));
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
       Family::SansSerif
@@ -450,6 +450,7 @@ impl GlyphEngine {
     snap_to_pixel: bool,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let wrap = effective_text_wrap(max_width, wrap);
     let key = CacheKey::new_for_raster(text, style, max_width, wrap, snap_to_pixel);
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
@@ -664,6 +665,7 @@ impl GlyphEngine {
 
   fn acquire_buffer(&mut self, style: &TextStyle, max_width: f32, wrap: bool) -> Buffer {
     let metrics = Metrics::new(style.font_size, style.font_size * style.line_height);
+    let wrap = effective_text_wrap(max_width, wrap);
     let mut buffer = self
       .buffer_pool
       .pop()
@@ -756,6 +758,10 @@ fn swash_transform_from_screen(transform: Transform2D) -> SwashTransform {
 
 fn is_bounded_text_width(max_width: f32) -> bool {
   max_width.is_finite() && max_width < f32::MAX
+}
+
+fn effective_text_wrap(max_width: f32, wrap: bool) -> bool {
+  wrap && is_bounded_text_width(max_width)
 }
 
 fn text_buffer_width(max_width: f32) -> Option<f32> {
@@ -1165,5 +1171,22 @@ mod tests {
     assert!(!is_bounded_text_width(f32::MAX));
     assert!(!is_bounded_text_width(f32::INFINITY));
     assert!(is_bounded_text_width(320.0));
+  }
+
+  #[test]
+  fn max_float_raster_width_does_not_wrap_text() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 13.0,
+      line_height: 1.17,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let glyphs = engine.rasterize_text("0.1.8 -> 0.10.10", &style, f32::MAX, 0.0, 0.0);
+    let max_y = glyphs.iter().map(|glyph| glyph.y).fold(0.0_f32, f32::max);
+
+    assert!(
+      max_y < style.font_size * style.line_height,
+      "unbounded rasterization should stay on one line, max glyph y was {max_y}"
+    );
   }
 }

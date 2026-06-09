@@ -141,6 +141,7 @@ struct TextInner {
   selection_anchor: Option<usize>,
   caret_positions: Vec<CaretPosition>,
   display_text: Option<String>,
+  render_wrap: bool,
 }
 
 impl TextState {
@@ -156,6 +157,7 @@ impl TextState {
           y: 0.0,
         }],
         display_text: None,
+        render_wrap: false,
       })),
     }
   }
@@ -257,6 +259,14 @@ impl TextState {
     self.inner.lock().unwrap().display_text.clone()
   }
 
+  pub(crate) fn set_render_wrap(&self, wrap: bool) {
+    self.inner.lock().unwrap().render_wrap = wrap;
+  }
+
+  pub(crate) fn render_wrap(&self) -> bool {
+    self.inner.lock().unwrap().render_wrap
+  }
+
   pub(crate) fn copy_runtime_state_from(&self, old: &Self, value: &str, preserve_display_text: bool) {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
@@ -271,6 +281,7 @@ impl TextState {
     } else {
       None
     };
+    inner.render_wrap = old_inner.render_wrap;
     if selectable {
       inner.caret = old_inner.caret.min(len);
       inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));

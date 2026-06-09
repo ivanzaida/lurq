@@ -1,6 +1,6 @@
 use lurq::{
   app::Tree,
-  layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
+  layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints, quad::QuadContent},
 };
 
 use super::PassLayoutExt;
@@ -181,4 +181,35 @@ fn row_default_wrapping_text_uses_intrinsic_width_without_child_constraint() {
     version.size.height,
     badge.size.height
   );
+}
+
+#[test]
+fn row_default_wrapping_text_emits_unwrapped_quad_when_layout_is_unbounded() {
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .width(lurq::node::dimension::Dimension::Pct(100.0))
+    .align_items(Alignment::Center)
+    .spacing(12.0)
+    .child(
+      lurq::components::Row::new()
+        .align_items(Alignment::Center)
+        .spacing(7.0)
+        .padding_vertical(5.0)
+        .padding_horizontal(9.0)
+        .child(lurq::components::Text::new("STARTUP UPDATE")),
+    )
+    .child(lurq::components::Text::new("0.1.8 -> 99.99.99"));
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::tight(Size::new(180.0, 80.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let version = quads
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, wrap, .. } if text == "0.1.8 -> 99.99.99" => Some(wrap),
+      _ => None,
+    })
+    .expect("version text quad should be emitted");
+
+  assert!(!version, "unbounded row text should render without soft-wrap");
 }

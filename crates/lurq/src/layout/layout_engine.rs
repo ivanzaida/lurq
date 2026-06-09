@@ -71,6 +71,10 @@ fn text_input_vertical_offset(state: &TextInputState, height: f32) -> f32 {
   }
 }
 
+fn bounded_text_width(width: f32) -> bool {
+  width.is_finite() && width < f32::MAX
+}
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ResolvedPadding {
   pub(crate) left: f32,
@@ -516,7 +520,7 @@ impl LayoutEngine {
           .display_text()
           .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
         style: style.resolve(&self.typography.borrow(), &self.palette.borrow()),
-        wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
+        wrap: state.render_wrap(),
         transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
@@ -1407,7 +1411,7 @@ impl LayoutEngine {
     constraints: Constraints,
     wrap: bool,
   ) -> LayoutResult {
-    let max_width = if wrap && constraints.max_width.is_finite() {
+    let max_width = if wrap && bounded_text_width(constraints.max_width) {
       constraints.max_width
     } else {
       f32::MAX
@@ -1441,11 +1445,9 @@ impl LayoutEngine {
     };
     state.set_display_text(display_text.clone());
     let layout_text = display_text.as_deref().unwrap_or(text);
-    let max_width = if effective_wrap && constraints.max_width.is_finite() {
-      constraints.max_width
-    } else {
-      f32::MAX
-    };
+    let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
+    state.set_render_wrap(render_wrap);
+    let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
     state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
     self.layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
   }
