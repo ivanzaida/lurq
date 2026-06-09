@@ -131,6 +131,20 @@ impl I18n {
     Ok(())
   }
 
+  #[cfg(feature = "serde")]
+  pub fn add_json(
+    &self,
+    locale: impl Into<Arc<str>>,
+    namespace: impl Into<Arc<str>>,
+    contents: impl Into<String>,
+  ) -> Result<(), LoadJsonError> {
+    let value: serde_json::Value = serde_json::from_str(&contents.into())?;
+    let mut entries = Vec::new();
+    flatten_json(&value, &mut String::new(), &mut entries);
+    self.add_resources(locale, namespace, entries);
+    Ok(())
+  }
+
   pub fn t(&self, key: &str) -> Arc<str> {
     self.t_ns(DEFAULT_NAMESPACE, key)
   }

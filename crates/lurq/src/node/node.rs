@@ -413,7 +413,11 @@ impl Node {
     let toggle = state.clone();
     let mut node = Self::row(0.0, Alignment::Center, vec![]);
     node.node_kind = NodeKind::Select { state };
-    node.events.on_click = Some(std::sync::Arc::new(move |_| toggle.toggle_open()));
+    node.events.on_mouse_down = Some(std::sync::Arc::new(move |event| {
+      if event.button == MouseButton::Left {
+        toggle.toggle_open();
+      }
+    }));
     node
   }
 
@@ -1785,6 +1789,7 @@ impl Node {
       && self.offset == old.offset
       && self.align_self == old.align_self
       && self.flex == old.flex
+      && self.text_content.as_ref() == old.text_content.as_ref()
       && self.text_wrap == old.text_wrap
       && self.text_overflow == old.text_overflow
       && self.overflow == old.overflow
@@ -2109,4 +2114,25 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
     base.max_height = overlay.max_height;
   }
   base
+}
+
+#[cfg(test)]
+mod tests {
+  use super::Node;
+
+  #[test]
+  fn changed_text_content_does_not_match_layout_cache_signature() {
+    let old = Node::text("Hi");
+    let new = Node::text("Vitayu vitayu vitayu");
+
+    assert!(!new.layout_signature_matches(&old));
+  }
+
+  #[test]
+  fn unchanged_text_content_matches_layout_cache_signature() {
+    let old = Node::text("Hi");
+    let new = Node::text("Hi");
+
+    assert!(new.layout_signature_matches(&old));
+  }
 }
