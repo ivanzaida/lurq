@@ -296,10 +296,21 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
-    self.rasterize_text_with_snap(text, style, max_width, max_width.is_finite(), origin_x, origin_y, true)
+    let mut glyphs = Vec::new();
+    self.rasterize_text_with_snap_into(
+      text,
+      style,
+      max_width,
+      max_width.is_finite(),
+      origin_x,
+      origin_y,
+      true,
+      &mut glyphs,
+    );
+    glyphs
   }
 
-  pub(crate) fn rasterize_text_with_wrap(
+  pub(crate) fn rasterize_text_with_wrap_into(
     &mut self,
     text: &str,
     style: &TextStyle,
@@ -307,8 +318,9 @@ impl GlyphEngine {
     wrap: bool,
     origin_x: f32,
     origin_y: f32,
-  ) -> Vec<GlyphCmd> {
-    self.rasterize_text_with_snap(text, style, max_width, wrap, origin_x, origin_y, true)
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, true, out);
   }
 
   #[cfg(test)]
@@ -320,10 +332,21 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
-    self.rasterize_text_with_snap(text, style, max_width, max_width.is_finite(), origin_x, origin_y, false)
+    let mut glyphs = Vec::new();
+    self.rasterize_text_with_snap_into(
+      text,
+      style,
+      max_width,
+      max_width.is_finite(),
+      origin_x,
+      origin_y,
+      false,
+      &mut glyphs,
+    );
+    glyphs
   }
 
-  pub(crate) fn rasterize_text_unsnapped_with_wrap(
+  pub(crate) fn rasterize_text_unsnapped_with_wrap_into(
     &mut self,
     text: &str,
     style: &TextStyle,
@@ -331,12 +354,13 @@ impl GlyphEngine {
     wrap: bool,
     origin_x: f32,
     origin_y: f32,
-  ) -> Vec<GlyphCmd> {
-    self.rasterize_text_with_snap(text, style, max_width, wrap, origin_x, origin_y, false)
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, false, out);
   }
 
   #[allow(clippy::too_many_arguments)]
-  pub(crate) fn rasterize_text_with_baked_transform(
+  pub(crate) fn rasterize_text_with_baked_transform_into(
     &mut self,
     text: &str,
     style: &TextStyle,
@@ -346,7 +370,8 @@ impl GlyphEngine {
     origin_y: f32,
     transform: Transform2D,
     transform_origin: [f32; 2],
-  ) -> Vec<GlyphCmd> {
+    out: &mut Vec<GlyphCmd>,
+  ) {
     let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
@@ -365,7 +390,6 @@ impl GlyphEngine {
     let atlas_h = self.atlas_packer.height as f32;
     let color = style.color.to_linear_f32_array();
     let swash_transform = swash_transform_from_screen(transform);
-    let mut glyph_cmds = Vec::new();
 
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
@@ -391,7 +415,7 @@ impl GlyphEngine {
           continue;
         };
 
-        glyph_cmds.push(GlyphCmd {
+        out.push(GlyphCmd {
           order: 0,
           x: transformed_origin_x + packed.left as f32,
           y: transformed_origin_y - packed.top as f32,
@@ -412,10 +436,10 @@ impl GlyphEngine {
     }
 
     self.buffer_pool.push(buffer);
-    glyph_cmds
   }
 
-  fn rasterize_text_with_snap(
+  #[allow(clippy::too_many_arguments)]
+  fn rasterize_text_with_snap_into(
     &mut self,
     text: &str,
     style: &TextStyle,
@@ -424,13 +448,15 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
     snap_to_pixel: bool,
-  ) -> Vec<GlyphCmd> {
+    out: &mut Vec<GlyphCmd>,
+  ) {
     let key = CacheKey::new_for_raster(text, style, max_width, wrap, snap_to_pixel);
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
     if let Some(cached) = self.glyph_layout_cache.get(&key) {
       self.glyph_hits += cached.len();
-      return glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel);
+      append_glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel, out);
+      return;
     }
 
     let mut buffer = self.acquire_buffer(style, max_width, wrap);
@@ -499,7 +525,7 @@ impl GlyphEngine {
     self.glyph_layout_cache.insert(key, cached.clone());
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
-    glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel)
+    append_glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel, out);
   }
 
   pub(crate) fn atlas(&self) -> GlyphAtlas {
@@ -728,7 +754,7 @@ fn swash_transform_from_screen(transform: Transform2D) -> SwashTransform {
   SwashTransform::new(transform.a, -transform.b, -transform.c, transform.d, 0.0, 0.0)
 }
 
-fn glyph_cmds_from_cached(
+fn append_glyph_cmds_from_cached(
   cached: &[CachedGlyph],
   origin_x: f32,
   origin_y: f32,
@@ -736,32 +762,31 @@ fn glyph_cmds_from_cached(
   atlas_w: f32,
   atlas_h: f32,
   snap_to_pixel: bool,
-) -> Vec<GlyphCmd> {
+  out: &mut Vec<GlyphCmd>,
+) {
   let color = style.color.to_linear_f32_array();
-  cached
-    .iter()
-    .map(|glyph| {
-      let x = origin_x + glyph.x;
-      let y = origin_y + glyph.y;
-      GlyphCmd {
-        order: 0,
-        x: if snap_to_pixel { x.round() } else { x },
-        y: if snap_to_pixel { y.round() } else { y },
-        width: glyph.width as f32,
-        height: glyph.height as f32,
-        color,
-        uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
-        uv_max: [
-          (glyph.atlas_x + glyph.width) as f32 / atlas_w,
-          (glyph.atlas_y + glyph.height) as f32 / atlas_h,
-        ],
-        transform: [1.0, 0.0, 0.0, 1.0],
-        transform_origin: [0.0, 0.0],
-        sharpness: 1.0,
-        clip: crate::layout::quad::ClipRect::default(),
-      }
-    })
-    .collect()
+  out.reserve(cached.len());
+  for glyph in cached {
+    let x = origin_x + glyph.x;
+    let y = origin_y + glyph.y;
+    out.push(GlyphCmd {
+      order: 0,
+      x: if snap_to_pixel { x.round() } else { x },
+      y: if snap_to_pixel { y.round() } else { y },
+      width: glyph.width as f32,
+      height: glyph.height as f32,
+      color,
+      uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
+      uv_max: [
+        (glyph.atlas_x + glyph.width) as f32 / atlas_w,
+        (glyph.atlas_y + glyph.height) as f32 / atlas_h,
+      ],
+      transform: [1.0, 0.0, 0.0, 1.0],
+      transform_origin: [0.0, 0.0],
+      sharpness: 1.0,
+      clip: crate::layout::quad::ClipRect::default(),
+    });
+  }
 }
 
 fn glyph_coverage_mask(image: &SwashImage) -> Vec<u8> {

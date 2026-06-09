@@ -169,6 +169,13 @@ pub struct Tree {
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
   last_theme_version: u64,
+  quad_scratch: Vec<Quad>,
+  render_rects: Vec<RectCmd>,
+  render_glyphs: Vec<GlyphCmd>,
+  #[cfg(feature = "image")]
+  render_images: Vec<crate::images::ImageCmd>,
+  #[cfg(feature = "svg")]
+  render_svgs: Vec<crate::svg::SvgCmd>,
 }
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -356,6 +363,13 @@ impl Tree {
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       last_theme_version: u64::MAX,
+      quad_scratch: Vec::new(),
+      render_rects: Vec::new(),
+      render_glyphs: Vec::new(),
+      #[cfg(feature = "image")]
+      render_images: Vec::new(),
+      #[cfg(feature = "svg")]
+      render_svgs: Vec::new(),
     };
     tree
       .window
@@ -1050,9 +1064,11 @@ impl Tree {
       active: true,
       border_radius: None,
     };
-    let quads = self
+    let mut quads = std::mem::take(&mut self.quad_scratch);
+    quads.clear();
+    self
       .layout_engine
-      .resolve_quads_with_viewport(root, &result, viewport_clip);
+      .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
     let quad_dur = ProfileScope::elapsed_or_default(&quad_start);
     let quad_count = quads.len();
     #[cfg(feature = "devtools")]
@@ -1061,16 +1077,32 @@ impl Tree {
     self.last_layout = Some(result);
 
     let glyph_start = ProfileScope::maybe_start(profiling_enabled);
-    let mut rects = Vec::with_capacity(quad_count);
-    let mut glyphs = Vec::with_capacity(quad_count * 4);
+    let mut rects = std::mem::take(&mut self.render_rects);
+    rects.clear();
+    rects.reserve(quad_count);
+    let mut glyphs = std::mem::take(&mut self.render_glyphs);
+    glyphs.clear();
+    glyphs.reserve(quad_count * 4);
     #[cfg(feature = "image")]
-    let mut images = Vec::new();
+    let mut images = {
+      let mut images = std::mem::take(&mut self.render_images);
+      images.clear();
+      images
+    };
     #[cfg(feature = "image")]
     let image_frame_time = std::time::Instant::now();
     #[cfg(all(feature = "svg", feature = "image"))]
-    let svgs = Vec::new();
+    let svgs = {
+      let mut svgs = std::mem::take(&mut self.render_svgs);
+      svgs.clear();
+      svgs
+    };
     #[cfg(all(feature = "svg", not(feature = "image")))]
-    let mut svgs = Vec::new();
+    let mut svgs = {
+      let mut svgs = std::mem::take(&mut self.render_svgs);
+      svgs.clear();
+      svgs
+    };
 
     for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
@@ -1156,6 +1188,7 @@ impl Tree {
           wrap,
           transform_mode,
         } => {
+          let glyph_start = glyphs.len();
           let mut scaled_style = style.clone();
           scaled_style.font_size *= scale;
           let max_width =
@@ -1172,17 +1205,18 @@ impl Tree {
               quad.x * scale + quad.width * scale * 0.5,
               quad.y * scale + quad.height * scale * 0.5,
             ]);
-          let mut glyph_cmds = if quad.transform.is_identity() {
-            app.glyph_engine.rasterize_text_with_wrap(
+          if quad.transform.is_identity() {
+            app.glyph_engine.rasterize_text_with_wrap_into(
               text,
               &scaled_style,
               max_width,
               *wrap,
               quad.x * scale,
               quad.y * scale,
-            )
+              &mut glyphs,
+            );
           } else if *transform_mode == TextTransformMode::Rasterized {
-            app.glyph_engine.rasterize_text_with_baked_transform(
+            app.glyph_engine.rasterize_text_with_baked_transform_into(
               text,
               &scaled_style,
               max_width,
@@ -1191,7 +1225,8 @@ impl Tree {
               quad.y * scale,
               quad.transform,
               glyph_origin,
-            )
+              &mut glyphs,
+            );
           } else {
             let raster_scale = transformed_text_raster_scale(quad.transform);
             scaled_style.font_size *= raster_scale;
@@ -1202,24 +1237,25 @@ impl Tree {
             };
             let raster_x = quad.x * scale * raster_scale;
             let raster_y = quad.y * scale * raster_scale;
-            let mut glyphs = app.glyph_engine.rasterize_text_unsnapped_with_wrap(
+            let unsnapped_start = glyphs.len();
+            app.glyph_engine.rasterize_text_unsnapped_with_wrap_into(
               text,
               &scaled_style,
               raster_max_width,
               *wrap,
               raster_x,
               raster_y,
+              &mut glyphs,
             );
-            for glyph in &mut glyphs {
+            for glyph in &mut glyphs[unsnapped_start..] {
               glyph.x /= raster_scale;
               glyph.y /= raster_scale;
               glyph.width /= raster_scale;
               glyph.height /= raster_scale;
             }
-            glyphs
-          };
+          }
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
-          for g in &mut glyph_cmds {
+          for g in &mut glyphs[glyph_start..] {
             g.order = order;
             g.clip = glyph_clip;
             if !quad.transform.is_identity() && *transform_mode == TextTransformMode::Bitmap {
@@ -1227,7 +1263,6 @@ impl Tree {
               g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
             }
           }
-          glyphs.extend(glyph_cmds);
         }
         #[cfg(feature = "image")]
         QuadContent::Image { data, uv_min, uv_max } => {
@@ -1326,6 +1361,9 @@ impl Tree {
       }
     }
 
+    quads.clear();
+    self.quad_scratch = quads;
+
     #[cfg(feature = "devtools")]
     push_devtools_overlay(
       &mut rects,
@@ -1388,6 +1426,31 @@ impl Tree {
         text_measure_cache_misses: app.glyph_engine.measure_misses,
         memory: self.memory_profile_with_glyph(app.glyph_engine.estimated_memory_bytes()),
       };
+    }
+
+    let RenderList {
+      clear_color: _,
+      mut rects,
+      mut glyphs,
+      #[cfg(feature = "image")]
+      mut images,
+      #[cfg(feature = "svg")]
+      mut svgs,
+      atlas: _,
+    } = list;
+    rects.clear();
+    glyphs.clear();
+    self.render_rects = rects;
+    self.render_glyphs = glyphs;
+    #[cfg(feature = "image")]
+    {
+      images.clear();
+      self.render_images = images;
+    }
+    #[cfg(feature = "svg")]
+    {
+      svgs.clear();
+      self.render_svgs = svgs;
     }
     self.frame_count += 1;
     #[cfg(feature = "devtools")]

@@ -451,6 +451,17 @@ impl LayoutEngine {
     viewport: ClipRect,
   ) -> Vec<Quad> {
     let mut quads = Vec::new();
+    self.resolve_quads_with_viewport_into(node, result, viewport, &mut quads);
+    quads
+  }
+
+  pub(crate) fn resolve_quads_with_viewport_into(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    viewport: ClipRect,
+    quads: &mut Vec<Quad>,
+  ) {
     let root_offset = node.offset_position().unwrap_or_default();
     self.collect_quads(
       node,
@@ -461,9 +472,8 @@ impl LayoutEngine {
       0.0,
       Transform2D::IDENTITY,
       viewport,
-      &mut quads,
+      quads,
     );
-    quads
   }
 
   fn collect_quads(
