@@ -228,12 +228,18 @@ impl ManagedWindow {
     true
   }
 
-  fn create_window(&mut self, event_loop: &ActiveEventLoop) {
+  fn create_window(&mut self, event_loop: &ActiveEventLoop, app: &mut App) {
     if self.window.is_some() {
       return;
     }
 
     let attrs = self.attrs.take().unwrap_or_default();
+    let show_after_first_present = attrs.visible;
+    let attrs = if show_after_first_present {
+      attrs.with_visible(false)
+    } else {
+      attrs
+    };
     let window = event_loop.create_window(attrs).unwrap();
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
@@ -248,7 +254,15 @@ impl ManagedWindow {
     }
     self.window = Some(window);
     self.sync_window_state();
-    self.request_redraw();
+    let presented = show_after_first_present && self.present_now(app);
+    if show_after_first_present {
+      if let Some(window) = &self.window {
+        window.set_visible(true);
+      }
+    }
+    if !presented {
+      self.request_redraw();
+    }
   }
 
   fn sync_window_state(&mut self) {
@@ -377,9 +391,11 @@ impl ManagedWindow {
       self.tree.resize(size.width, size.height);
       self.redraw_pending = false;
       self.tree.clear_needs_redraw();
+      let frame_count = self.tree.frame_count();
       self.tree.pass(app, w);
+      let presented = self.tree.frame_count() != frame_count;
       self.check_redraw();
-      return true;
+      return presented;
     }
     false
   }
@@ -615,12 +631,23 @@ impl ManagedSecondaryWindow {
     tree.is_some()
   }
 
-  fn create_window(&mut self, event_loop: &ActiveEventLoop, tree: &mut Tree) -> Option<SecondaryWindowMetadata> {
+  fn create_window(
+    &mut self,
+    event_loop: &ActiveEventLoop,
+    app: &mut App,
+    tree: &mut Tree,
+  ) -> Option<SecondaryWindowMetadata> {
     if self.window.is_some() {
       return None;
     }
 
     let attrs = self.attrs.take().unwrap_or_default();
+    let show_after_first_present = attrs.visible;
+    let attrs = if show_after_first_present {
+      attrs.with_visible(false)
+    } else {
+      attrs
+    };
     let window = event_loop.create_window(attrs).unwrap();
     let size = window.inner_size();
     let metadata = secondary_window_metadata(&window);
@@ -631,7 +658,15 @@ impl ManagedSecondaryWindow {
     }
     self.window = Some(window);
     self.sync_window_state(tree);
-    self.request_redraw();
+    let presented = show_after_first_present && self.present_now(app, tree);
+    if show_after_first_present {
+      if let Some(window) = &self.window {
+        window.set_visible(true);
+      }
+    }
+    if !presented {
+      self.request_redraw();
+    }
     Some(metadata)
   }
 
@@ -754,9 +789,11 @@ impl ManagedSecondaryWindow {
       tree.resize(size.width, size.height);
       self.redraw_pending = false;
       tree.clear_needs_redraw();
+      let frame_count = tree.frame_count();
       tree.pass(app, w);
+      let presented = tree.frame_count() != frame_count;
       self.check_redraw(tree);
-      return true;
+      return presented;
     }
     false
   }
@@ -966,12 +1003,12 @@ impl WinitHandler {
         continue;
       };
       let mut managed = ManagedSecondaryWindow::new(index, secondary);
+      self.main.tree.ensure_secondary_window_render_engine(index);
       let metadata = self
         .main
         .tree
         .secondary_window_mut(index)
-        .and_then(|secondary| managed.create_window(event_loop, secondary.tree_mut()));
-      self.main.tree.ensure_secondary_window_render_engine(index);
+        .and_then(|secondary| managed.create_window(event_loop, &mut self.app, secondary.tree_mut()));
       if let Some(metadata) = metadata {
         self.main.tree.set_secondary_window_metadata(index, metadata);
       }
@@ -1069,7 +1106,7 @@ impl WinitHandler {
 
 impl ApplicationHandler for WinitHandler {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    self.main.create_window(event_loop);
+    self.main.create_window(event_loop, &mut self.app);
     self.sync_secondary_windows(event_loop);
   }
 
