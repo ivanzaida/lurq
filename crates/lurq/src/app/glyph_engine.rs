@@ -201,7 +201,7 @@ impl GlyphEngine {
   }
 
   pub(crate) fn measure_text(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
-    let wrap = max_width.is_finite();
+    let wrap = is_bounded_text_width(max_width);
     let key = CacheKey::new(text, style, max_width, wrap);
     if let Some(&cached) = self.measure_cache.get(&key) {
       self.measure_hits += 1;
@@ -624,7 +624,7 @@ impl GlyphEngine {
       .pop()
       .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
     buffer.set_metrics(&mut self.font_system, metrics);
-    buffer.set_size(&mut self.font_system, Some(max_width), None);
+    buffer.set_size(&mut self.font_system, text_buffer_width(max_width), None);
     buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
 
     let resolved = self.resolve_family(style);
@@ -669,7 +669,7 @@ impl GlyphEngine {
       .pop()
       .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
     buffer.set_metrics(&mut self.font_system, metrics);
-    buffer.set_size(&mut self.font_system, Some(max_width), None);
+    buffer.set_size(&mut self.font_system, text_buffer_width(max_width), None);
     buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
     buffer
   }
@@ -752,6 +752,14 @@ impl TransformedGlyphKey {
 
 fn swash_transform_from_screen(transform: Transform2D) -> SwashTransform {
   SwashTransform::new(transform.a, -transform.b, -transform.c, transform.d, 0.0, 0.0)
+}
+
+fn is_bounded_text_width(max_width: f32) -> bool {
+  max_width.is_finite() && max_width < f32::MAX
+}
+
+fn text_buffer_width(max_width: f32) -> Option<f32> {
+  is_bounded_text_width(max_width).then_some(max_width)
 }
 
 fn append_glyph_cmds_from_cached(
@@ -911,7 +919,10 @@ impl AtlasPacker {
 mod tests {
   use cosmic_text::{Attrs, Family, Shaping};
 
-  use super::{AtlasPacker, GLYPH_ATLAS_PADDING, GlyphEngine, glyph_coverage_mask, swash_transform_from_screen};
+  use super::{
+    AtlasPacker, GLYPH_ATLAS_PADDING, GlyphEngine, glyph_coverage_mask, is_bounded_text_width,
+    swash_transform_from_screen,
+  };
   use crate::node::transform::Transform2D;
 
   #[test]
@@ -1147,5 +1158,12 @@ mod tests {
         transparent_padding
       );
     }
+  }
+
+  #[test]
+  fn max_float_text_width_is_unbounded() {
+    assert!(!is_bounded_text_width(f32::MAX));
+    assert!(!is_bounded_text_width(f32::INFINITY));
+    assert!(is_bounded_text_width(320.0));
   }
 }

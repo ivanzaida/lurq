@@ -147,3 +147,38 @@ fn row_single_child() {
   assert_eq!(result.size.height, 50.0);
   assert_eq!(result.children[0].offset.x, 0.0);
 }
+
+#[test]
+fn row_default_wrapping_text_uses_intrinsic_width_without_child_constraint() {
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .width(lurq::node::dimension::Dimension::Pct(100.0))
+    .align_items(Alignment::Center)
+    .spacing(12.0)
+    .child(
+      lurq::components::Row::new()
+        .align_items(Alignment::Center)
+        .spacing(7.0)
+        .padding_vertical(5.0)
+        .padding_horizontal(9.0)
+        .child(lurq::components::Text::new("STARTUP UPDATE")),
+    )
+    .child(lurq::components::Text::new("0.10.9 -> 0.10.10"));
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::tight(Size::new(180.0, 80.0))).unwrap();
+  let badge = &result.children[0].result;
+  let version = &result.children[1].result;
+
+  assert_eq!(result.size.width, 180.0);
+  assert!(
+    version.size.width > result.size.width - badge.size.width - 12.0,
+    "text should keep its intrinsic width when row does not constrain the child"
+  );
+  assert!(
+    version.size.height <= badge.size.height,
+    "unconstrained text in a row should not soft-wrap to a taller line: version={}, badge={}",
+    version.size.height,
+    badge.size.height
+  );
+}
