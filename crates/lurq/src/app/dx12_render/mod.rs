@@ -129,6 +129,8 @@ pub struct Dx12Nv12Surface {
   uv_shared_handle: Option<HANDLE>,
   y_allocation_size: u64,
   uv_allocation_size: u64,
+  adapter_luid_low: u32,
+  adapter_luid_high: i32,
   owns_shared_handles: bool,
   packed_nv12: bool,
 }
@@ -195,6 +197,7 @@ impl Dx12VideoSurfaceAllocator {
     };
 
     unsafe {
+      let (adapter_luid_low, adapter_luid_high) = device_adapter_luid_parts(&device);
       let (y_texture, y_shared_handle, y_allocation_size) =
         create_shared_texture(&device, width, height, DXGI_FORMAT_R8_UNORM)?;
       let (uv_texture, uv_shared_handle, uv_allocation_size) =
@@ -208,6 +211,8 @@ impl Dx12VideoSurfaceAllocator {
         uv_shared_handle: Some(uv_shared_handle),
         y_allocation_size,
         uv_allocation_size,
+        adapter_luid_low,
+        adapter_luid_high,
         owns_shared_handles: true,
         packed_nv12: false,
       }))
@@ -233,6 +238,7 @@ impl Dx12VideoSurfaceAllocator {
     };
 
     unsafe {
+      let (adapter_luid_low, adapter_luid_high) = device_adapter_luid_parts(&device);
       let mut texture = None;
       device.OpenSharedHandle(HANDLE(shared_handle_raw as *mut c_void), &mut texture)?;
       let texture: ID3D12Resource = texture.ok_or_else(Error::from_win32)?;
@@ -252,6 +258,8 @@ impl Dx12VideoSurfaceAllocator {
         uv_shared_handle: None,
         y_allocation_size: allocation_size,
         uv_allocation_size: allocation_size,
+        adapter_luid_low,
+        adapter_luid_high,
         owns_shared_handles: false,
         packed_nv12: true,
       }))
@@ -284,6 +292,7 @@ impl Dx12VideoSurfaceAllocator {
     };
 
     unsafe {
+      let (adapter_luid_low, adapter_luid_high) = device_adapter_luid_parts(&device);
       let mut y_texture = None;
       device.OpenSharedHandle(HANDLE(y_shared_handle_raw as *mut c_void), &mut y_texture)?;
       let y_texture: ID3D12Resource = y_texture.ok_or_else(Error::from_win32)?;
@@ -315,6 +324,8 @@ impl Dx12VideoSurfaceAllocator {
         uv_shared_handle: Some(HANDLE(uv_shared_handle_raw as *mut c_void)),
         y_allocation_size,
         uv_allocation_size,
+        adapter_luid_low,
+        adapter_luid_high,
         owns_shared_handles: false,
         packed_nv12: false,
       }))
@@ -349,6 +360,14 @@ impl Dx12Nv12Surface {
 
   pub fn uv_allocation_size(&self) -> u64 {
     self.uv_allocation_size
+  }
+
+  pub fn adapter_luid_low(&self) -> u32 {
+    self.adapter_luid_low
+  }
+
+  pub fn adapter_luid_high(&self) -> i32 {
+    self.adapter_luid_high
   }
 
   pub fn is_packed_nv12(&self) -> bool {
@@ -1734,6 +1753,12 @@ unsafe fn create_shared_texture(
   let resource: ID3D12Resource = resource.ok_or_else(Error::from_win32)?;
   let shared_handle = device.CreateSharedHandle(&resource, None, GENERIC_ALL, PCWSTR::null())?;
   Ok((resource, shared_handle, allocation_size))
+}
+
+#[cfg(feature = "image")]
+unsafe fn device_adapter_luid_parts(device: &ID3D12Device) -> (u32, i32) {
+  let luid = device.GetAdapterLuid();
+  (luid.LowPart, luid.HighPart)
 }
 
 #[cfg(feature = "image")]
