@@ -49,7 +49,7 @@ use windows::{
         D3D12_RENDER_TARGET_VIEW_DESC, D3D12_RENDER_TARGET_VIEW_DESC_0, D3D12_RESOURCE_BARRIER,
         D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
         D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATES, D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATES, D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET,
         D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER,
@@ -517,7 +517,8 @@ enum CachedImageTexture {
   NativeNv12 {
     _y_texture: ID3D12Resource,
     _uv_texture: ID3D12Resource,
-    keyed_mutex: Option<IDXGIKeyedMutex>,
+    y_keyed_mutex: Option<IDXGIKeyedMutex>,
+    uv_keyed_mutex: Option<IDXGIKeyedMutex>,
     descriptor_index: usize,
     width: u32,
     height: u32,
@@ -1716,7 +1717,7 @@ unsafe fn create_shared_texture(
     Format: format,
     SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
     Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-    Flags: D3D12_RESOURCE_FLAG_NONE,
+    Flags: D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
   };
   let allocation_size = device
     .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
@@ -2352,22 +2353,24 @@ impl Dx12State {
       return Ok(());
     };
     let descriptor_index = self.ensure_image_texture(image)?;
-    let keyed_mutex = match self.image_textures.get(&image.image_id) {
+    let native_nv12_mutexes = match self.image_textures.get(&image.image_id) {
       Some(CachedImageTexture::NativeNv12 {
-        keyed_mutex: Some(mutex),
+        y_keyed_mutex,
+        uv_keyed_mutex,
         ..
-      }) => Some(mutex.clone()),
+      }) => Some((y_keyed_mutex.clone(), uv_keyed_mutex.clone())),
       _ => None,
     };
     let native_nv12_resources = match self.image_textures.get(&image.image_id) {
       Some(CachedImageTexture::NativeNv12 {
         _y_texture,
         _uv_texture,
-        keyed_mutex,
+        y_keyed_mutex,
+        uv_keyed_mutex,
         ..
       }) => Some((
         _y_texture.clone(),
-        if keyed_mutex.is_some() {
+        if y_keyed_mutex.is_some() && uv_keyed_mutex.is_none() {
           None
         } else {
           Some(_uv_texture.clone())
@@ -2375,19 +2378,26 @@ impl Dx12State {
       )),
       _ => None,
     };
-    let keyed_mutex_acquired = keyed_mutex
+    let y_keyed_mutex_acquired = native_nv12_mutexes
       .as_ref()
+      .and_then(|(mutex, _)| mutex.as_ref())
+      .is_some_and(|mutex| mutex.AcquireSync(1, 5).is_ok());
+    let uv_keyed_mutex_acquired = native_nv12_mutexes
+      .as_ref()
+      .and_then(|(_, mutex)| mutex.as_ref())
       .is_some_and(|mutex| mutex.AcquireSync(1, 5).is_ok());
     if native_nv12_resources.is_some() {
       let draw_count = DX12_NATIVE_IMAGE_DRAW_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
       if draw_count == 1 || draw_count % 120 == 0 {
         dx12_native_image_log(format_args!(
-          "draw #{} image={} version={} keyed={} acquired={} descriptor={}",
+          "draw #{} image={} version={} y_keyed={} y_acquired={} uv_keyed={} uv_acquired={} descriptor={}",
           draw_count,
           image.image_id,
           image.version,
-          keyed_mutex.is_some(),
-          keyed_mutex_acquired,
+          native_nv12_mutexes.as_ref().and_then(|(mutex, _)| mutex.as_ref()).is_some(),
+          y_keyed_mutex_acquired,
+          native_nv12_mutexes.as_ref().and_then(|(_, mutex)| mutex.as_ref()).is_some(),
+          uv_keyed_mutex_acquired,
           descriptor_index
         ));
       }
@@ -2452,7 +2462,14 @@ impl Dx12State {
     self
       .command_list
       .DrawIndexedInstanced(QuadVertex::INDICES.len() as u32, 1, 0, 0, 0);
-    if keyed_mutex_acquired && let Some(mutex) = keyed_mutex {
+    if uv_keyed_mutex_acquired
+      && let Some((_, Some(mutex))) = native_nv12_mutexes.as_ref()
+    {
+      let _ = mutex.ReleaseSync(0);
+    }
+    if y_keyed_mutex_acquired
+      && let Some((Some(mutex), _)) = native_nv12_mutexes.as_ref()
+    {
       let _ = mutex.ReleaseSync(0);
     }
     if let Some((y_texture, uv_texture)) = &native_nv12_resources {
@@ -2879,18 +2896,21 @@ impl Dx12State {
             if let Some(CachedImageTexture::NativeNv12 {
               _y_texture,
               _uv_texture,
-              keyed_mutex,
+              y_keyed_mutex,
+              uv_keyed_mutex,
               version,
               ..
             }) = self.image_textures.get_mut(&image.image_id)
             {
               *_y_texture = dx12.y_texture.clone();
               *_uv_texture = dx12.uv_texture.clone();
-              *keyed_mutex = if dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1 {
+              let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
+              *y_keyed_mutex = if packed_nv12 {
                 dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
               } else {
                 None
               };
+              *uv_keyed_mutex = None;
               *version = image.version;
             }
           }
@@ -2957,17 +2977,20 @@ impl Dx12State {
       Some(&uv_srv_desc),
       self.srv_heap.cpu_handle(descriptor_index + 1),
     );
-    let keyed_mutex = if dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1 {
+    let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
+    let y_keyed_mutex = if packed_nv12 {
       dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
     } else {
       None
     };
+    let uv_keyed_mutex = None;
     self.image_textures.insert(
       image.image_id,
       CachedImageTexture::NativeNv12 {
         _y_texture: dx12.y_texture.clone(),
         _uv_texture: dx12.uv_texture.clone(),
-        keyed_mutex,
+        y_keyed_mutex,
+        uv_keyed_mutex,
         descriptor_index,
         width: image.image_width,
         height: image.image_height,
