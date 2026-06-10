@@ -6,72 +6,74 @@ use std::{
   ffi::c_void,
   mem::ManuallyDrop,
   ptr,
-  sync::{Arc, Mutex},
+  sync::{
+    atomic::{AtomicU64, Ordering}, Arc,
+    Mutex,
+  },
 };
 
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
 #[cfg(feature = "svg")]
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_UINT;
 use windows::{
+  core::{Error, Interface, Result, PCSTR, PCWSTR},
   Win32::{
     Foundation::{CloseHandle, FALSE, HANDLE, HWND, RECT, TRUE, WAIT_OBJECT_0},
     Graphics::{
       Direct3D::{
-        D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-        Fxc::{D3DCOMPILE_DEBUG, D3DCOMPILE_ENABLE_STRICTNESS, D3DCOMPILE_SKIP_OPTIMIZATION, D3DCompile},
-        ID3DBlob,
+        Fxc::{D3DCompile, D3DCOMPILE_DEBUG, D3DCOMPILE_ENABLE_STRICTNESS, D3DCOMPILE_SKIP_OPTIMIZATION}, ID3DBlob,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
       },
       Direct3D12::{
-        D3D_ROOT_SIGNATURE_VERSION_1, D3D12_BLEND_DESC, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_ONE, D3D12_BLEND_OP_ADD,
-        D3D12_BLEND_SRC_ALPHA, D3D12_COLOR_WRITE_ENABLE_ALL, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC,
-        D3D12_COMMAND_QUEUE_FLAG_NONE, D3D12_COMPARISON_FUNC_ALWAYS, D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF,
-        D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_CPU_PAGE_PROPERTY_UNKNOWN, D3D12_CULL_MODE_NONE,
-        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING, D3D12_DEPTH_STENCIL_DESC, D3D12_DEPTH_WRITE_MASK_ZERO,
-        D3D12_DESCRIPTOR_HEAP_DESC, D3D12_DESCRIPTOR_HEAP_FLAG_NONE, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
-        D3D12_DESCRIPTOR_HEAP_FLAGS, D3D12_DESCRIPTOR_HEAP_TYPE, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-        D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE,
-        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-        D3D12_FENCE_FLAG_NONE, D3D12_FILL_MODE_SOLID, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_GPU_DESCRIPTOR_HANDLE,
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_PROPERTIES,
-        D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
-        D3D12_INDEX_BUFFER_VIEW, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
-        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, D3D12_INPUT_ELEMENT_DESC, D3D12_INPUT_LAYOUT_DESC,
-        D3D12_LOGIC_OP_NOOP, D3D12_MEMORY_POOL_UNKNOWN, D3D12_PIPELINE_STATE_FLAG_NONE,
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_RANGE, D3D12_RASTERIZER_DESC,
-        D3D12_RENDER_TARGET_BLEND_DESC, D3D12_RENDER_TARGET_VIEW_DESC, D3D12_RENDER_TARGET_VIEW_DESC_0,
-        D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-        D3D12_RESOURCE_BARRIER_FLAG_NONE, D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC,
-        D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_NONE,
-        D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATES,
-        D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER,
-        D3D12_ROOT_PARAMETER_0, D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
-        D3D12_ROOT_PARAMETER_TYPE_SRV, D3D12_ROOT_SIGNATURE_DESC,
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_RTV_DIMENSION_TEXTURE2D,
-        D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
-        D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_RTV,
-        D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
-        D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-        D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT,
         D3D12CreateDevice, D3D12SerializeRootSignature, ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue,
-        ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList, ID3D12PipelineState,
-        ID3D12Resource, ID3D12RootSignature,
+        ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList,
+        ID3D12PipelineState, ID3D12Resource, ID3D12RootSignature,
+        D3D12_BLEND_DESC, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_ONE,
+        D3D12_BLEND_OP_ADD, D3D12_BLEND_SRC_ALPHA, D3D12_COLOR_WRITE_ENABLE_ALL,
+        D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC, D3D12_COMMAND_QUEUE_FLAG_NONE,
+        D3D12_COMPARISON_FUNC_ALWAYS, D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF, D3D12_CPU_DESCRIPTOR_HANDLE,
+        D3D12_CPU_PAGE_PROPERTY_UNKNOWN, D3D12_CULL_MODE_NONE, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+        D3D12_DEPTH_STENCIL_DESC, D3D12_DEPTH_WRITE_MASK_ZERO, D3D12_DESCRIPTOR_HEAP_DESC,
+        D3D12_DESCRIPTOR_HEAP_FLAGS, D3D12_DESCRIPTOR_HEAP_FLAG_NONE, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, D3D12_DESCRIPTOR_HEAP_TYPE,
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE,
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+        D3D12_FENCE_FLAG_NONE, D3D12_FILL_MODE_SOLID,
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_GRAPHICS_PIPELINE_STATE_DESC,
+        D3D12_HEAP_FLAG_NONE, D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_PROPERTIES,
+        D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED, D3D12_INDEX_BUFFER_VIEW,
+        D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, D3D12_INPUT_ELEMENT_DESC,
+        D3D12_INPUT_LAYOUT_DESC, D3D12_LOGIC_OP_NOOP, D3D12_MEMORY_POOL_UNKNOWN,
+        D3D12_PIPELINE_STATE_FLAG_NONE, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+        D3D12_RANGE, D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC,
+        D3D12_RENDER_TARGET_VIEW_DESC, D3D12_RENDER_TARGET_VIEW_DESC_0, D3D12_RESOURCE_BARRIER,
+        D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
+        D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATES, D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_ROOT_DESCRIPTOR, D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER,
+        D3D12_ROOT_PARAMETER_0, D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER_TYPE_SRV,
+        D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_RTV_DIMENSION_TEXTURE2D, D3D12_SAMPLER_DESC,
+        D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC,
+        D3D12_SHADER_RESOURCE_VIEW_DESC_0, D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT,
+        D3D12_TEX2D_RTV, D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+        D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW,
+        D3D12_VIEWPORT, D3D_ROOT_SIGNATURE_VERSION_1,
       },
       Dxgi::{
         Common::{
-          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_NV12, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
-          DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
-          DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
+          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_NV12, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32G32B32A32_FLOAT,
+          DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+          DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
-        CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
-        DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
-        DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIOutput, IDXGISwapChain3,
-        IDXGIKeyedMutex,
+        CreateDXGIFactory2, IDXGIAdapter1, IDXGIFactory4, IDXGIKeyedMutex,
+        IDXGIOutput, IDXGISwapChain3, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG,
+        DXGI_CREATE_FACTORY_FLAGS, DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT,
       },
     },
-    System::Threading::{CreateEventW, INFINITE, WaitForSingleObject},
+    System::Threading::{CreateEventW, WaitForSingleObject, INFINITE},
   },
-  core::{Error, Interface, PCSTR, PCWSTR, Result},
 };
 
 #[cfg(feature = "image")]
@@ -96,6 +98,14 @@ const GLYPH_ATLAS_SRV_INDEX: usize = 0;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+
+#[cfg(feature = "image")]
+static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "image")]
+fn dx12_native_image_log(message: impl std::fmt::Display) {
+  tracing::debug!("[dx12/native-image] {message}");
+}
 
 pub struct Dx12RenderEngine {
   state: Option<Dx12State>,
@@ -224,10 +234,7 @@ impl Dx12VideoSurfaceAllocator {
 
     unsafe {
       let mut texture = None;
-      device.OpenSharedHandle(
-        HANDLE(shared_handle_raw as *mut c_void),
-        &mut texture,
-      )?;
+      device.OpenSharedHandle(HANDLE(shared_handle_raw as *mut c_void), &mut texture)?;
       let texture: ID3D12Resource = texture.ok_or_else(Error::from_win32)?;
       let desc = texture.GetDesc();
       if desc.Format != DXGI_FORMAT_NV12 || desc.Width != u64::from(width) || desc.Height != height {
@@ -290,7 +297,7 @@ impl Drop for Dx12Nv12Surface {
   fn drop(&mut self) {
     if self.owns_shared_handles {
       unsafe {
-      let _ = CloseHandle(self.y_shared_handle);
+        let _ = CloseHandle(self.y_shared_handle);
         if let Some(uv_shared_handle) = self.uv_shared_handle {
           let _ = CloseHandle(uv_shared_handle);
         }
@@ -2289,9 +2296,53 @@ impl Dx12State {
       }) => Some(mutex.clone()),
       _ => None,
     };
+    let native_nv12_resources = match self.image_textures.get(&image.image_id) {
+      Some(CachedImageTexture::NativeNv12 {
+        _y_texture,
+        _uv_texture,
+        keyed_mutex,
+        ..
+      }) => Some((
+        _y_texture.clone(),
+        if keyed_mutex.is_some() {
+          None
+        } else {
+          Some(_uv_texture.clone())
+        },
+      )),
+      _ => None,
+    };
     let keyed_mutex_acquired = keyed_mutex
       .as_ref()
       .is_some_and(|mutex| mutex.AcquireSync(1, 5).is_ok());
+    if native_nv12_resources.is_some() {
+      let draw_count = DX12_NATIVE_IMAGE_DRAW_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+      if draw_count == 1 || draw_count % 120 == 0 {
+        dx12_native_image_log(format_args!(
+          "draw #{} image={} version={} keyed={} acquired={} descriptor={}",
+          draw_count,
+          image.image_id,
+          image.version,
+          keyed_mutex.is_some(),
+          keyed_mutex_acquired,
+          descriptor_index
+        ));
+      }
+    }
+    if let Some((y_texture, uv_texture)) = &native_nv12_resources {
+      self.transition_resource(
+        y_texture,
+        D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+      );
+      if let Some(uv_texture) = uv_texture {
+        self.transition_resource(
+          uv_texture,
+          D3D12_RESOURCE_STATE_COMMON,
+          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        );
+      }
+    }
     let (pipeline_state, root_signature) = match image.image_format {
       crate::images::ImagePixelFormat::Rgba8 => (
         self.image_pipeline.pipeline_state.clone(),
@@ -2340,6 +2391,20 @@ impl Dx12State {
       .DrawIndexedInstanced(QuadVertex::INDICES.len() as u32, 1, 0, 0, 0);
     if keyed_mutex_acquired && let Some(mutex) = keyed_mutex {
       let _ = mutex.ReleaseSync(0);
+    }
+    if let Some((y_texture, uv_texture)) = &native_nv12_resources {
+      self.transition_resource(
+        y_texture,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_COMMON,
+      );
+      if let Some(uv_texture) = uv_texture {
+        self.transition_resource(
+          uv_texture,
+          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+          D3D12_RESOURCE_STATE_COMMON,
+        );
+      }
     }
 
     Ok(())
@@ -2705,7 +2770,64 @@ impl Dx12State {
         } if *width == image.image_width && *height == image.image_height => {
           let descriptor_index = *descriptor_index;
           if *version != image.version {
-            if let Some(CachedImageTexture::NativeNv12 { version, .. }) = self.image_textures.get_mut(&image.image_id) {
+            let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
+              return Err(Error::from_win32());
+            };
+            dx12_native_image_log(format_args!(
+              "refresh SRV image={} version={} previous_version={} descriptor={} y_plane={} uv_plane={}",
+              image.image_id, image.version, *version, descriptor_index, dx12.y_plane_slice, dx12.uv_plane_slice
+            ));
+            let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+              Format: DXGI_FORMAT_R8_UNORM,
+              ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+              Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+              Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+                Texture2D: D3D12_TEX2D_SRV {
+                  MostDetailedMip: 0,
+                  MipLevels: 1,
+                  PlaneSlice: dx12.y_plane_slice,
+                  ResourceMinLODClamp: 0.0,
+                },
+              },
+            };
+            let uv_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+              Format: DXGI_FORMAT_R8G8_UNORM,
+              ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+              Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+              Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+                Texture2D: D3D12_TEX2D_SRV {
+                  MostDetailedMip: 0,
+                  MipLevels: 1,
+                  PlaneSlice: dx12.uv_plane_slice,
+                  ResourceMinLODClamp: 0.0,
+                },
+              },
+            };
+            self.device.CreateShaderResourceView(
+              &dx12.y_texture,
+              Some(&y_srv_desc),
+              self.srv_heap.cpu_handle(descriptor_index),
+            );
+            self.device.CreateShaderResourceView(
+              &dx12.uv_texture,
+              Some(&uv_srv_desc),
+              self.srv_heap.cpu_handle(descriptor_index + 1),
+            );
+            if let Some(CachedImageTexture::NativeNv12 {
+              _y_texture,
+              _uv_texture,
+              keyed_mutex,
+              version,
+              ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *_y_texture = dx12.y_texture.clone();
+              *_uv_texture = dx12.uv_texture.clone();
+              *keyed_mutex = if dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1 {
+                dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
+              } else {
+                None
+              };
               *version = image.version;
             }
           }
@@ -2726,6 +2848,16 @@ impl Dx12State {
 
     let descriptor_index = self.next_srv_index;
     self.next_srv_index += 2;
+    dx12_native_image_log(format_args!(
+      "create SRV image={} version={} descriptor={} size={}x{} y_plane={} uv_plane={}",
+      image.image_id,
+      image.version,
+      descriptor_index,
+      image.image_width,
+      image.image_height,
+      dx12.y_plane_slice,
+      dx12.uv_plane_slice
+    ));
     let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
       Format: DXGI_FORMAT_R8_UNORM,
       ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,

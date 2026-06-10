@@ -4,3 +4,4 @@ members = ["crates/lurq", "crates/demo", "crates/lurq_macros"]
 
 [workspace.dependencies]
 parking_lot = "0.12.5"
+tracing = "0.1"
