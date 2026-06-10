@@ -16,34 +16,34 @@ impl Row {
   }
 
   pub fn child(mut self, child: impl Into<Element>) -> Self {
-    self.node = self.node.child(child.into().node);
+    self.update_node(|node| crate::node::NodeUpdate::child(node, child.into().node));
     self
   }
 
   pub fn with_children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
-    self.node = self
-      .node
-      .with_children(children.into_iter().map(|child| child.into().node));
+    self.update_node(|node| {
+      crate::node::NodeUpdate::with_children(node, children.into_iter().map(|child| child.into().node))
+    });
     self
   }
 
   pub fn spacing(mut self, spacing: impl Into<crate::node::SpacingValue>) -> Self {
-    self.node = self.node.spacing(spacing);
+    self.update_node(|node| crate::node::NodeUpdate::spacing(node, spacing));
     self
   }
 
   pub fn align_items(mut self, align: Alignment) -> Self {
-    self.node = self.node.align_items(align);
+    self.update_node(|node| crate::node::NodeUpdate::align_items(node, align));
     self
   }
 
   pub fn justify(mut self, justify: crate::layout::layout_kind::Justify) -> Self {
-    self.node = self.node.justify(justify);
+    self.update_node(|node| crate::node::NodeUpdate::justify(node, justify));
     self
   }
 
   pub fn wrap(mut self) -> Self {
-    self.node = self.node.wrap();
+    self.update_node(|node| crate::node::NodeUpdate::wrap(node));
     self
   }
 }

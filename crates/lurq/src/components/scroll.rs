@@ -10,7 +10,7 @@ impl ScrollVertical {
   }
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
-    self.node = self.node.with_scroll_state(existing);
+    self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self
   }
 }
@@ -27,7 +27,7 @@ impl ScrollHorizontal {
   }
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
-    self.node = self.node.with_scroll_state(existing);
+    self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self
   }
 }
@@ -44,7 +44,7 @@ impl ScrollBoth {
   }
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
-    self.node = self.node.with_scroll_state(existing);
+    self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self
   }
 }

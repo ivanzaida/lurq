@@ -18,42 +18,42 @@ impl Text {
   }
 
   pub fn nowrap(mut self) -> Self {
-    self.node = self.node.text_wrap(false);
+    self.update_node(|node| crate::node::NodeUpdate::text_wrap(node, false));
     self
   }
 
   pub fn selectable(mut self, selectable: bool) -> Self {
-    self.node = self.node.selectable(selectable);
+    self.update_node(|node| crate::node::NodeUpdate::selectable(node, selectable));
     self
   }
 
   pub fn text_transform_mode(mut self, mode: TextTransformMode) -> Self {
-    self.node = self.node.text_transform_mode(mode);
+    self.update_node(|node| crate::node::NodeUpdate::text_transform_mode(node, mode));
     self
   }
 
   pub fn variant(mut self, style: impl Into<TypographyStyle>) -> Self {
-    self.node = self.node.text_variant(style);
+    self.update_node(|node| crate::node::NodeUpdate::text_variant(node, style));
     self
   }
 
   pub fn text_align(mut self, align: impl Into<TextAlign>) -> Self {
-    self.node = self.node.text_align(align);
+    self.update_node(|node| crate::node::NodeUpdate::text_align(node, align));
     self
   }
 
   pub fn text_overflow(mut self, overflow: TextOverflow) -> Self {
-    self.node = self.node.text_overflow(overflow);
+    self.update_node(|node| crate::node::NodeUpdate::text_overflow(node, overflow));
     self
   }
 
   pub fn color(mut self, color: impl Into<TextColor>) -> Self {
-    self.node = self.node.text_color(color);
+    self.update_node(|node| crate::node::NodeUpdate::text_color(node, color));
     self
   }
 
   pub fn caret_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
-    self.node = self.node.caret_color(color);
+    self.update_node(|node| crate::node::NodeUpdate::caret_color(node, color));
     self
   }
 }

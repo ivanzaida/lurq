@@ -27,7 +27,7 @@ where
   T: SignalValue,
   Vec<T>: SignalValue,
 {
-  node: Node,
+  node: Box<Node>,
   binding: Binding<T>,
   options: Vec<(T, Arc<str>)>,
   placeholder: Option<Arc<str>>,
@@ -51,7 +51,7 @@ where
 {
   pub fn new(value: Signal<T>) -> Self {
     Self {
-      node: Node::select().focusable(true),
+      node: Box::new(Node::select().focusable(true)),
       binding: Binding::Single(value),
       options: Vec::new(),
       placeholder: None,
@@ -62,7 +62,7 @@ where
 
   pub fn multiple(value: Signal<Vec<T>>) -> Self {
     Self {
-      node: Node::select().focusable(true),
+      node: Box::new(Node::select().focusable(true)),
       binding: Binding::Multiple(value),
       options: Vec::new(),
       placeholder: None,
@@ -103,28 +103,32 @@ where
   }
 
   pub fn width(mut self, width: impl Into<crate::node::dimension::Dimension>) -> Self {
-    self.node = self.node.width(width);
+    self.update_node(|node| crate::node::NodeUpdate::width(node, width));
     self
   }
 
+  fn update_node(&mut self, f: impl FnOnce(&mut Node)) {
+    f(&mut *self.node);
+  }
+
   pub fn height(mut self, height: impl Into<crate::node::dimension::Dimension>) -> Self {
-    self.node = self.node.height(height);
+    self.update_node(|node| crate::node::NodeUpdate::height(node, height));
     self
   }
 
   pub fn tab_index(mut self, tab_index: i32) -> Self {
-    self.node = self.node.tab_index(tab_index);
+    self.update_node(|node| crate::node::NodeUpdate::tab_index(node, tab_index));
     self
   }
 
   pub fn ref_element(mut self, element_ref: impl Into<ElementRef>) -> Self {
-    self.node = self.node.ref_element(element_ref);
+    self.update_node(|node| crate::node::NodeUpdate::ref_element(node, element_ref));
     self
   }
 
   #[cfg(feature = "form")]
   pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
-    self.node = self.node.name(name);
+    self.update_node(|node| crate::node::NodeUpdate::name(node, name));
     self
   }
 
@@ -188,8 +192,7 @@ where
       .map(|render| render(trigger_state.clone()).node)
       .unwrap_or_else(|| default_trigger(trigger_state, &self.style));
 
-    self
-      .node
+    (*self.node)
       .with_tag_name(Arc::from("Select"))
       .with_children([trigger])
       .select_labels(labels)

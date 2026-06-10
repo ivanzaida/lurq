@@ -12,19 +12,19 @@ impl Stack {
   }
 
   pub fn child(mut self, child: impl Into<Element>) -> Self {
-    self.node = self.node.child(child.into().node);
+    self.update_node(|node| crate::node::NodeUpdate::child(node, child.into().node));
     self
   }
 
   pub fn with_children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
-    self.node = self
-      .node
-      .with_children(children.into_iter().map(|child| child.into().node));
+    self.update_node(|node| {
+      crate::node::NodeUpdate::with_children(node, children.into_iter().map(|child| child.into().node))
+    });
     self
   }
 
   pub fn stack_align(mut self, align: StackAlignment) -> Self {
-    self.node = self.node.stack_align(align);
+    self.update_node(|node| crate::node::NodeUpdate::stack_align(node, align));
     self
   }
 }

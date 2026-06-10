@@ -40,7 +40,7 @@ impl Link {
   }
 
   pub fn child(mut self, child: impl Into<Element>) -> Self {
-    self.node = self.node.child(child.into().node);
+    self.update_node(|node| crate::node::NodeUpdate::child(node, child.into().node));
     self
   }
 }

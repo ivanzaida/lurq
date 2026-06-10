@@ -98,7 +98,9 @@ fn locale_change_remeasures_translated_text_layout() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mut app = App::new();
   app.i18n().add_resource("en", "translation", "hello", "Hi");
-  app.i18n().add_resource("uk", "translation", "hello", "Vitayu vitayu vitayu");
+  app
+    .i18n()
+    .add_resource("uk", "translation", "hello", "Vitayu vitayu vitayu");
 
   let mut tree = Tree::new();
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 100.0))));
@@ -122,7 +124,9 @@ fn nested_locale_change_remeasures_translated_text_layout() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mut app = App::new();
   app.i18n().add_resource("en", "translation", "hello", "Hi");
-  app.i18n().add_resource("uk", "translation", "hello", "Vitayu vitayu vitayu");
+  app
+    .i18n()
+    .add_resource("uk", "translation", "hello", "Vitayu vitayu vitayu");
 
   let mut tree = Tree::new();
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 100.0))));

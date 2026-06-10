@@ -43,6 +43,144 @@ use crate::{
 type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
+
+#[allow(private_bounds)]
+pub(crate) trait NodeUpdate {
+  fn child(&mut self, child: Node);
+  fn with_children(&mut self, children: impl IntoIterator<Item = Node>);
+  fn spacing(&mut self, spacing: impl Into<SpacingValue>);
+  fn align_items(&mut self, align: Alignment);
+  fn justify(&mut self, justify: crate::layout::layout_kind::Justify);
+  fn wrap(&mut self);
+  fn stack_align(&mut self, align: StackAlignment);
+  fn size(&mut self, width: impl Into<Dimension>, height: impl Into<Dimension>);
+  fn width(&mut self, width: impl Into<Dimension>);
+  fn height(&mut self, height: impl Into<Dimension>);
+  fn min_width(&mut self, width: impl Into<Dimension>);
+  fn max_width(&mut self, width: impl Into<Dimension>);
+  fn min_height(&mut self, height: impl Into<Dimension>);
+  fn max_height(&mut self, height: impl Into<Dimension>);
+  fn min_size(&mut self, width: impl Into<Dimension>, height: impl Into<Dimension>);
+  fn max_size(&mut self, width: impl Into<Dimension>, height: impl Into<Dimension>);
+  fn padding_left(&mut self, val: impl Into<SpacingValue>);
+  fn padding_right(&mut self, val: impl Into<SpacingValue>);
+  fn padding_top(&mut self, val: impl Into<SpacingValue>);
+  fn padding_bottom(&mut self, val: impl Into<SpacingValue>);
+  fn padding_horizontal(&mut self, val: impl Into<SpacingValue>);
+  fn padding_vertical(&mut self, val: impl Into<SpacingValue>);
+  fn padding(&mut self, padding: impl Into<Padding>);
+  fn padding_custom(&mut self, padding: Padding);
+  fn frame(&mut self, frame: FrameConstraints);
+  fn offset(&mut self, x: f32, y: f32);
+  fn relative(&mut self, x: f32, y: f32);
+  fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
+  fn absolute_position(&mut self, x: f32, y: f32);
+  fn align(&mut self, alignment: Alignment);
+  fn flex(&mut self, factor: f32);
+  fn flex_shrink(&mut self, factor: f32);
+  fn flex_full(&mut self, grow: f32, shrink: f32, basis: Option<f32>);
+  fn background(&mut self, color: impl Into<BackgroundColor>);
+  fn background_gradient(&mut self, gradient: impl Into<Gradient>);
+  fn caret_color(&mut self, color: impl Into<TextColor>);
+  fn text_input_caret_mode(&mut self, mode: CaretMode);
+  fn corner_radius(&mut self, radius: impl Into<RadiusValue>);
+  fn corner_radius_custom(&mut self, radius: BorderRadius);
+  fn corner_radius_top_left(&mut self, radius: impl Into<RadiusValue>);
+  fn corner_radius_top_right(&mut self, radius: impl Into<RadiusValue>);
+  fn corner_radius_bottom_right(&mut self, radius: impl Into<RadiusValue>);
+  fn corner_radius_bottom_left(&mut self, radius: impl Into<RadiusValue>);
+  fn rounded(&mut self, radius: impl Into<RadiusValue>);
+  fn border_inside(&mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>);
+  fn border_outside(&mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>);
+  fn border_center(&mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>);
+  fn border(&mut self, border: Border);
+  fn border_custom(&mut self, border: Borders);
+  fn border_top(&mut self, border: Border);
+  fn border_right(&mut self, border: Border);
+  fn border_bottom(&mut self, border: Border);
+  fn border_left(&mut self, border: Border);
+  fn cursor(&mut self, cursor: CursorIcon);
+  #[cfg(feature = "image")]
+  fn background_image(&mut self, data: impl Into<crate::images::ImageKind>);
+  #[cfg(feature = "image")]
+  fn background_size(&mut self, size: BackgroundSize);
+  #[cfg(feature = "image")]
+  fn background_cover(&mut self);
+  #[cfg(feature = "image")]
+  fn background_contain(&mut self);
+  fn hovered_style(&mut self, style: Style);
+  fn active_style(&mut self, style: Style);
+  fn focused_style(&mut self, style: Style);
+  fn hovered(&mut self, f: impl FnOnce(Style) -> Style);
+  fn active(&mut self, f: impl FnOnce(Style) -> Style);
+  fn focused(&mut self, f: impl FnOnce(Style) -> Style);
+  fn on_click(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
+  fn on_mouse_click(&mut self, button: MouseButton, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
+  fn on_dblclick(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
+  fn on_mouse_down(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
+  fn on_mouse_up(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
+  fn on_mouse_move(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
+  fn on_drag_start(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static);
+  fn on_drag_move(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static);
+  fn on_drag_end(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static);
+  fn on_drop(&mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static);
+  fn on_mouse_enter(&mut self, f: impl Fn() + Send + Sync + 'static);
+  fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static);
+  fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
+  fn on_key_up(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
+  fn on_focus(&mut self, f: impl Fn() + Send + Sync + 'static);
+  fn on_blur(&mut self, f: impl Fn() + Send + Sync + 'static);
+  fn on_scroll(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static);
+  fn on_scroll_start(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static);
+  fn on_scroll_end(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static);
+  fn opacity(&mut self, value: f32);
+  fn transform(&mut self, t: Transform2D);
+  fn transition(&mut self, spec: Transition);
+  fn animation(&mut self, spec: Animation);
+  fn scrollbar(&mut self, style: ScrollBarStyle);
+  fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static);
+  fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>);
+  fn interactive(&mut self, state: InteractionState);
+  fn focusable(&mut self, focusable: bool);
+  fn tab_index(&mut self, tab_index: i32);
+  fn button_kind(&mut self, kind: ButtonKind);
+  #[cfg(feature = "form")]
+  fn name(&mut self, name: impl Into<Arc<str>>);
+  fn text_wrap(&mut self, wrap: bool);
+  fn text_overflow(&mut self, overflow: TextOverflow);
+  fn selectable(&mut self, selectable: bool);
+  fn text_transform_mode(&mut self, mode: TextTransformMode);
+  fn text_variant(&mut self, typography_style: impl Into<TypographyStyle>);
+  fn text_color(&mut self, color: impl Into<TextColor>);
+  fn text_align(&mut self, align: impl Into<TextAlign>);
+  fn placeholder(&mut self, placeholder: &str);
+  fn text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow);
+  fn text_input_mask(&mut self);
+  fn text_input_mask_char(&mut self, mask: char);
+  fn text_input_unmask(&mut self);
+  fn text_input_style(&mut self, text_style: TextStyle);
+  fn text_input_placeholder_style(&mut self, text_style: TextStyle);
+  fn text_input_align(&mut self, align: impl Into<TextAlign>);
+  fn text_input_rows(&mut self, min_rows: usize, max_rows: usize);
+  fn text_input_min_rows(&mut self, min_rows: usize);
+  fn text_input_max_rows(&mut self, max_rows: usize);
+  fn text_input_rows_exact(&mut self, rows: usize);
+  fn range(&mut self, min: i32, max: i32);
+  fn range_f32(&mut self, min: f32, max: f32);
+  fn slider_step(&mut self, step: f32);
+  fn slider_track_style(&mut self, style: SliderPartStyle);
+  fn slider_track_hovered_style(&mut self, style: SliderPartStyle);
+  fn slider_thumb_style(&mut self, style: SliderPartStyle);
+  fn slider_thumb_hovered_style(&mut self, style: SliderPartStyle);
+  fn checkbox_box_style(&mut self, style: CheckboxStyle);
+  fn checkbox_checked_box_style(&mut self, style: CheckboxStyle);
+  fn checkbox_box_hovered_style(&mut self, style: CheckboxStyle);
+  fn checkbox_checked_box_hovered_style(&mut self, style: CheckboxStyle);
+  fn clip(&mut self);
+  fn overflow_visible(&mut self);
+  fn intrinsic(&mut self, width: f32, height: f32);
+  fn with_scroll_state(&mut self, existing: crate::layout::layout_kind::ScrollState);
+}
 #[cfg(feature = "form")]
 type FormSubmitCallback = Arc<dyn Fn(FormData) + Send + Sync>;
 const DEFAULT_TEXT_WRAP: bool = true;
@@ -209,6 +347,694 @@ impl Default for Node {
   }
 }
 
+impl NodeUpdate for Node {
+  fn child(&mut self, child: Node) {
+    self.children.push(child);
+  }
+
+  fn with_children(&mut self, children: impl IntoIterator<Item = Node>) {
+    self.children.extend(children);
+  }
+
+  fn spacing(&mut self, spacing: impl Into<SpacingValue>) {
+    let spacing = spacing.into();
+    match &mut self.layout_kind {
+      LayoutKind::Row { spacing: s, .. } | LayoutKind::Column { spacing: s, .. } => *s = spacing,
+      _ => {}
+    }
+  }
+
+  fn align_items(&mut self, align: Alignment) {
+    match &mut self.layout_kind {
+      LayoutKind::Row { align: a, .. } | LayoutKind::Column { align: a, .. } => *a = align,
+      _ => {}
+    }
+  }
+
+  fn justify(&mut self, justify: crate::layout::layout_kind::Justify) {
+    match &mut self.layout_kind {
+      LayoutKind::Row { justify: j, .. } | LayoutKind::Column { justify: j, .. } => *j = justify,
+      _ => {}
+    }
+  }
+
+  fn wrap(&mut self) {
+    match &mut self.layout_kind {
+      LayoutKind::Row { wrap, .. } | LayoutKind::Column { wrap, .. } => {
+        *wrap = crate::layout::layout_kind::FlexWrap::Wrap
+      }
+      _ => {}
+    }
+  }
+
+  fn stack_align(&mut self, align: StackAlignment) {
+    if let LayoutKind::Stack { align: a } = &mut self.layout_kind {
+      *a = align;
+    }
+  }
+
+  fn size(&mut self, width: impl Into<Dimension>, height: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        width: Some(width.into()),
+        height: Some(height.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn width(&mut self, width: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        width: Some(width.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn height(&mut self, height: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        height: Some(height.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn min_width(&mut self, width: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        min_width: Some(width.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn max_width(&mut self, width: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        max_width: Some(width.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn min_height(&mut self, height: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        min_height: Some(height.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn max_height(&mut self, height: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        max_height: Some(height.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn min_size(&mut self, width: impl Into<Dimension>, height: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        min_width: Some(width.into()),
+        min_height: Some(height.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn max_size(&mut self, width: impl Into<Dimension>, height: impl Into<Dimension>) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        max_width: Some(width.into()),
+        max_height: Some(height.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn padding_left(&mut self, val: impl Into<SpacingValue>) {
+    NodeUpdate::padding(self, Padding::new().left(val.into()));
+  }
+
+  fn padding_right(&mut self, val: impl Into<SpacingValue>) {
+    NodeUpdate::padding(self, Padding::new().right(val.into()));
+  }
+
+  fn padding_top(&mut self, val: impl Into<SpacingValue>) {
+    NodeUpdate::padding(self, Padding::new().top(val.into()));
+  }
+
+  fn padding_bottom(&mut self, val: impl Into<SpacingValue>) {
+    NodeUpdate::padding(self, Padding::new().bottom(val.into()));
+  }
+
+  fn padding_horizontal(&mut self, val: impl Into<SpacingValue>) {
+    NodeUpdate::padding(self, Padding::horizontal(val.into()));
+  }
+
+  fn padding_vertical(&mut self, val: impl Into<SpacingValue>) {
+    NodeUpdate::padding(self, Padding::vertical(val.into()));
+  }
+
+  fn padding(&mut self, padding: impl Into<Padding>) {
+    let padding = padding.into();
+    self.padding.merge_from(&padding);
+    self.layout_cache.invalidate();
+  }
+
+  fn padding_custom(&mut self, padding: Padding) {
+    NodeUpdate::padding(self, padding);
+  }
+
+  fn frame(&mut self, frame: FrameConstraints) {
+    self.frame = merge_frame(self.frame, frame);
+    self.layout_cache.invalidate();
+  }
+
+  fn offset(&mut self, x: f32, y: f32) {
+    self.offset = Some(Offset::new(x, y));
+    self.layout_cache.invalidate();
+  }
+
+  fn relative(&mut self, x: f32, y: f32) {
+    NodeUpdate::offset(self, x, y);
+  }
+
+  fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>) {
+    self.position = Position::Absolute {
+      x,
+      y,
+      width: Some(width.into()),
+      height: Some(height.into()),
+    };
+    self.layout_cache.invalidate();
+  }
+
+  fn absolute_position(&mut self, x: f32, y: f32) {
+    self.position = Position::Absolute {
+      x,
+      y,
+      width: None,
+      height: None,
+    };
+    self.layout_cache.invalidate();
+  }
+
+  fn align(&mut self, alignment: Alignment) {
+    self.align_self = Some(alignment);
+    self.layout_cache.invalidate();
+  }
+
+  fn flex(&mut self, factor: f32) {
+    self.flex = Some(FlexParams::grow(factor));
+    self.layout_cache.invalidate();
+  }
+
+  fn flex_shrink(&mut self, factor: f32) {
+    self.flex = Some(FlexParams {
+      grow: 0.0,
+      shrink: factor,
+      basis: None,
+    });
+    self.layout_cache.invalidate();
+  }
+
+  fn flex_full(&mut self, grow: f32, shrink: f32, basis: Option<f32>) {
+    self.flex = Some(FlexParams { grow, shrink, basis });
+    self.layout_cache.invalidate();
+  }
+
+  fn background(&mut self, color: impl Into<BackgroundColor>) {
+    self.color.set(Some(color.into()));
+  }
+
+  fn background_gradient(&mut self, gradient: impl Into<Gradient>) {
+    self.gradient.set(Some(gradient.into()));
+  }
+
+  fn caret_color(&mut self, color: impl Into<TextColor>) {
+    self.set_caret_color(color.into());
+  }
+
+  fn text_input_caret_mode(&mut self, mode: CaretMode) {
+    if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+      self.caret_mode.set(Some(mode));
+    }
+  }
+
+  fn corner_radius(&mut self, radius: impl Into<RadiusValue>) {
+    self.border_radius.set(Some(ThemedBorderRadius::all(radius)));
+  }
+
+  fn corner_radius_custom(&mut self, radius: BorderRadius) {
+    self.border_radius.set(Some(radius.into()));
+  }
+
+  fn corner_radius_top_left(&mut self, radius: impl Into<RadiusValue>) {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.top_left = radius.into();
+    self.border_radius.set(Some(border_radius));
+  }
+
+  fn corner_radius_top_right(&mut self, radius: impl Into<RadiusValue>) {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.top_right = radius.into();
+    self.border_radius.set(Some(border_radius));
+  }
+
+  fn corner_radius_bottom_right(&mut self, radius: impl Into<RadiusValue>) {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.bottom_right = radius.into();
+    self.border_radius.set(Some(border_radius));
+  }
+
+  fn corner_radius_bottom_left(&mut self, radius: impl Into<RadiusValue>) {
+    let mut border_radius = (*self.border_radius).unwrap_or_default();
+    border_radius.bottom_left = radius.into();
+    self.border_radius.set(Some(border_radius));
+  }
+
+  fn rounded(&mut self, radius: impl Into<RadiusValue>) {
+    NodeUpdate::corner_radius(self, radius);
+  }
+
+  fn border_inside(&mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) {
+    self.border.set(Some(Borders::all(Border::inside(width, color))));
+  }
+
+  fn border_outside(&mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) {
+    self.border.set(Some(Borders::all(Border::outside(width, color))));
+  }
+
+  fn border_center(&mut self, width: impl Into<BorderSizeValue>, color: impl Into<BackgroundColor>) {
+    self.border.set(Some(Borders::all(Border::center(width, color))));
+  }
+
+  fn border(&mut self, border: Border) {
+    self.border.set(Some(Borders::all(border)));
+  }
+
+  fn border_custom(&mut self, border: Borders) {
+    self.border.set(Some(border));
+  }
+
+  fn border_top(&mut self, border: Border) {
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
+    borders.top = Some(border);
+    self.border.set(Some(borders));
+  }
+
+  fn border_right(&mut self, border: Border) {
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
+    borders.right = Some(border);
+    self.border.set(Some(borders));
+  }
+
+  fn border_bottom(&mut self, border: Border) {
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
+    borders.bottom = Some(border);
+    self.border.set(Some(borders));
+  }
+
+  fn border_left(&mut self, border: Border) {
+    let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
+    borders.left = Some(border);
+    self.border.set(Some(borders));
+  }
+
+  fn cursor(&mut self, cursor: CursorIcon) {
+    self.cursor = Some(cursor);
+  }
+
+  #[cfg(feature = "image")]
+  fn background_image(&mut self, data: impl Into<crate::images::ImageKind>) {
+    match data.into() {
+      crate::images::ImageKind::Bytes(data) => self.background_image.set(Some(data)),
+      crate::images::ImageKind::Native(data) => self.background_image.set(Some(data.image_data())),
+      #[cfg(feature = "resources")]
+      crate::images::ImageKind::Resource(path) => self.background_resource_image = Some(path),
+    }
+  }
+
+  #[cfg(feature = "image")]
+  fn background_size(&mut self, size: BackgroundSize) {
+    self.background_size = size;
+  }
+
+  #[cfg(feature = "image")]
+  fn background_cover(&mut self) {
+    self.background_size = BackgroundSize::Cover;
+  }
+
+  #[cfg(feature = "image")]
+  fn background_contain(&mut self) {
+    self.background_size = BackgroundSize::Contain;
+  }
+
+  fn hovered_style(&mut self, style: Style) {
+    self.state_styles.hovered = Some(style);
+  }
+
+  fn active_style(&mut self, style: Style) {
+    self.state_styles.active = Some(style);
+  }
+
+  fn focused_style(&mut self, style: Style) {
+    self.state_styles.focused = Some(style);
+  }
+
+  fn hovered(&mut self, f: impl FnOnce(Style) -> Style) {
+    NodeUpdate::hovered_style(self, f(Style::new()));
+  }
+
+  fn active(&mut self, f: impl FnOnce(Style) -> Style) {
+    NodeUpdate::active_style(self, f(Style::new()));
+  }
+
+  fn focused(&mut self, f: impl FnOnce(Style) -> Style) {
+    NodeUpdate::focused_style(self, f(Style::new()));
+  }
+
+  fn on_click(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
+    self.events.on_click = Some(Arc::new(f));
+  }
+
+  fn on_mouse_click(&mut self, button: MouseButton, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
+    self.events.on_mouse_click.push((button, Arc::new(f)));
+  }
+
+  fn on_dblclick(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
+    self.events.on_dblclick = Some(Arc::new(f));
+  }
+
+  fn on_mouse_down(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
+    self.events.on_mouse_down = Some(Arc::new(f));
+  }
+
+  fn on_mouse_up(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
+    self.events.on_mouse_up = Some(Arc::new(f));
+  }
+
+  fn on_mouse_move(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
+    self.events.on_mouse_move = Some(Arc::new(f));
+  }
+
+  fn on_drag_start(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) {
+    self.events.on_drag_start = Some(Arc::new(f));
+  }
+
+  fn on_drag_move(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) {
+    self.events.on_drag_move = Some(Arc::new(f));
+  }
+
+  fn on_drag_end(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) {
+    self.events.on_drag_end = Some(Arc::new(f));
+  }
+
+  fn on_drop(&mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static) {
+    self.events.on_drop = Some(Arc::new(f));
+  }
+
+  fn on_mouse_enter(&mut self, f: impl Fn() + Send + Sync + 'static) {
+    self.events.on_mouse_enter = Some(Arc::new(f));
+  }
+
+  fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static) {
+    self.events.on_mouse_leave = Some(Arc::new(f));
+  }
+
+  fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) {
+    self.events.on_key_down = Some(Arc::new(f));
+  }
+
+  fn on_key_up(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) {
+    self.events.on_key_up = Some(Arc::new(f));
+  }
+
+  fn on_focus(&mut self, f: impl Fn() + Send + Sync + 'static) {
+    self.events.on_focus = Some(Arc::new(f));
+  }
+
+  fn on_blur(&mut self, f: impl Fn() + Send + Sync + 'static) {
+    self.events.on_blur = Some(Arc::new(f));
+  }
+
+  fn on_scroll(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) {
+    self.events.on_scroll = Some(Arc::new(f));
+  }
+
+  fn on_scroll_start(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) {
+    self.events.on_scroll_start = Some(Arc::new(f));
+  }
+
+  fn on_scroll_end(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) {
+    self.events.on_scroll_end = Some(Arc::new(f));
+  }
+
+  fn opacity(&mut self, value: f32) {
+    self.set_opacity(value);
+  }
+
+  fn transform(&mut self, t: Transform2D) {
+    self.transform = t;
+  }
+
+  fn transition(&mut self, spec: Transition) {
+    self.push_transition(spec);
+  }
+
+  fn animation(&mut self, spec: Animation) {
+    self.set_animation(spec);
+  }
+
+  fn scrollbar(&mut self, style: ScrollBarStyle) {
+    self.scrollbar_style.set(Some(style));
+  }
+
+  fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) {
+    self.scrollbar_hovered_style = Some(Arc::new(f));
+  }
+
+  fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>) {
+    self.element_ref = Some(element_ref.into());
+  }
+
+  fn interactive(&mut self, state: InteractionState) {
+    self.interaction = Some(state);
+  }
+
+  fn focusable(&mut self, focusable: bool) {
+    self.focusable = focusable;
+  }
+
+  fn tab_index(&mut self, tab_index: i32) {
+    self.tab_index = Some(tab_index);
+  }
+
+  fn button_kind(&mut self, kind: ButtonKind) {
+    self.button_kind = Some(kind);
+    self.focusable = true;
+  }
+
+  #[cfg(feature = "form")]
+  fn name(&mut self, name: impl Into<Arc<str>>) {
+    self.form_name = Some(name.into());
+  }
+
+  fn text_wrap(&mut self, wrap: bool) {
+    self.text_wrap = wrap;
+    self.layout_cache.invalidate();
+  }
+
+  fn text_overflow(&mut self, overflow: TextOverflow) {
+    self.text_overflow = overflow;
+    self.layout_cache.invalidate();
+  }
+
+  fn selectable(&mut self, selectable: bool) {
+    if let NodeKind::Text { state, .. } = &self.node_kind {
+      state.set_selectable(selectable);
+    }
+  }
+
+  fn text_transform_mode(&mut self, mode: TextTransformMode) {
+    if let NodeKind::Text { transform_mode, .. } = &mut self.node_kind {
+      *transform_mode = mode;
+    }
+  }
+
+  fn text_variant(&mut self, typography_style: impl Into<TypographyStyle>) {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      style.set_variant(typography_style);
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn text_color(&mut self, color: impl Into<TextColor>) {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      style.set_color(color);
+    }
+  }
+
+  fn text_align(&mut self, align: impl Into<TextAlign>) {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      style.set_text_align(align);
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn placeholder(&mut self, placeholder: &str) {
+    self.set_placeholder(placeholder);
+  }
+
+  fn text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow) {
+    self.set_text_input_overflow(overflow);
+  }
+
+  fn text_input_mask(&mut self) {
+    NodeUpdate::text_input_mask_char(self, '*');
+  }
+
+  fn text_input_mask_char(&mut self, mask: char) {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_mask(Some(mask));
+    }
+  }
+
+  fn text_input_unmask(&mut self) {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_mask(None);
+    }
+  }
+
+  fn text_input_style(&mut self, text_style: TextStyle) {
+    self.set_text_input_style(text_style);
+  }
+
+  fn text_input_placeholder_style(&mut self, text_style: TextStyle) {
+    self.set_text_input_placeholder_style(text_style);
+  }
+
+  fn text_input_align(&mut self, align: impl Into<TextAlign>) {
+    self.set_text_input_align(align);
+  }
+
+  fn text_input_rows(&mut self, min_rows: usize, max_rows: usize) {
+    self.set_text_input_rows(min_rows, max_rows);
+  }
+
+  fn text_input_min_rows(&mut self, min_rows: usize) {
+    self.set_text_input_min_rows(min_rows);
+  }
+
+  fn text_input_max_rows(&mut self, max_rows: usize) {
+    self.set_text_input_max_rows(max_rows);
+  }
+
+  fn text_input_rows_exact(&mut self, rows: usize) {
+    self.set_text_input_rows_exact(rows);
+  }
+
+  fn range(&mut self, min: i32, max: i32) {
+    if let Some(state) = self.slider_state() {
+      state.set_range(min, max);
+    }
+  }
+
+  fn range_f32(&mut self, min: f32, max: f32) {
+    if let Some(state) = self.slider_state() {
+      state.set_range_f32(min, max);
+    }
+  }
+
+  fn slider_step(&mut self, step: f32) {
+    if let Some(state) = self.slider_state() {
+      state.set_step(step);
+    }
+  }
+
+  fn slider_track_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_track_style(style);
+    }
+  }
+
+  fn slider_track_hovered_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_track_hovered_style(style);
+    }
+  }
+
+  fn slider_thumb_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_thumb_style(style);
+    }
+  }
+
+  fn slider_thumb_hovered_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_thumb_hovered_style(style);
+    }
+  }
+
+  fn checkbox_box_style(&mut self, style: CheckboxStyle) {
+    if let Some(state) = self.checkbox_state() {
+      state.set_style(style);
+    }
+  }
+
+  fn checkbox_checked_box_style(&mut self, style: CheckboxStyle) {
+    if let Some(state) = self.checkbox_state() {
+      state.set_checked_style(style);
+    }
+  }
+
+  fn checkbox_box_hovered_style(&mut self, style: CheckboxStyle) {
+    if let Some(state) = self.checkbox_state() {
+      state.set_hovered_style(style);
+    }
+  }
+
+  fn checkbox_checked_box_hovered_style(&mut self, style: CheckboxStyle) {
+    if let Some(state) = self.checkbox_state() {
+      state.set_checked_hovered_style(style);
+    }
+  }
+
+  fn clip(&mut self) {
+    self.set_overflow_through_logical(Overflow::Hidden);
+  }
+
+  fn overflow_visible(&mut self) {
+    self.set_overflow_through_logical(Overflow::Visible);
+  }
+
+  fn intrinsic(&mut self, width: f32, height: f32) {
+    self.intrinsic_size = Some(Size::new(width, height));
+  }
+
+  fn with_scroll_state(&mut self, existing: crate::layout::layout_kind::ScrollState) {
+    if let LayoutKind::ScrollModifier { state, .. } = &mut self.layout_kind {
+      *state = existing;
+    }
+  }
+}
+
+#[allow(dead_code)]
 impl Node {
   fn from_parts(layout_kind: LayoutKind, node_kind: NodeKind, children: Vec<Node>) -> Self {
     Self {

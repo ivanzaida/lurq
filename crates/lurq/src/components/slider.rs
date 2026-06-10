@@ -12,57 +12,57 @@ impl Slider {
   }
 
   pub fn range(mut self, min: i32, max: i32) -> Self {
-    self.node = self.node.range(min, max);
+    self.update_node(|node| crate::node::NodeUpdate::range(node, min, max));
     self
   }
 
   pub fn range_f32(mut self, min: f32, max: f32) -> Self {
-    self.node = self.node.range_f32(min, max);
+    self.update_node(|node| crate::node::NodeUpdate::range_f32(node, min, max));
     self
   }
 
   pub fn step(mut self, step: f32) -> Self {
-    self.node = self.node.slider_step(step);
+    self.update_node(|node| crate::node::NodeUpdate::slider_step(node, step));
     self
   }
 
   pub fn track_style(mut self, style: SliderPartStyle) -> Self {
-    self.node = self.node.slider_track_style(style);
+    self.update_node(|node| crate::node::NodeUpdate::slider_track_style(node, style));
     self
   }
 
   pub fn track(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
-    self.node = self.node.slider_track_style(f(SliderPartStyle::new()));
+    self.update_node(|node| crate::node::NodeUpdate::slider_track_style(node, f(SliderPartStyle::new())));
     self
   }
 
   pub fn track_hovered_style(mut self, style: SliderPartStyle) -> Self {
-    self.node = self.node.slider_track_hovered_style(style);
+    self.update_node(|node| crate::node::NodeUpdate::slider_track_hovered_style(node, style));
     self
   }
 
   pub fn track_hovered(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
-    self.node = self.node.slider_track_hovered_style(f(SliderPartStyle::new()));
+    self.update_node(|node| crate::node::NodeUpdate::slider_track_hovered_style(node, f(SliderPartStyle::new())));
     self
   }
 
   pub fn thumb_style(mut self, style: SliderPartStyle) -> Self {
-    self.node = self.node.slider_thumb_style(style);
+    self.update_node(|node| crate::node::NodeUpdate::slider_thumb_style(node, style));
     self
   }
 
   pub fn thumb(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
-    self.node = self.node.slider_thumb_style(f(SliderPartStyle::new()));
+    self.update_node(|node| crate::node::NodeUpdate::slider_thumb_style(node, f(SliderPartStyle::new())));
     self
   }
 
   pub fn thumb_hovered_style(mut self, style: SliderPartStyle) -> Self {
-    self.node = self.node.slider_thumb_hovered_style(style);
+    self.update_node(|node| crate::node::NodeUpdate::slider_thumb_hovered_style(node, style));
     self
   }
 
   pub fn thumb_hovered(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
-    self.node = self.node.slider_thumb_hovered_style(f(SliderPartStyle::new()));
+    self.update_node(|node| crate::node::NodeUpdate::slider_thumb_hovered_style(node, f(SliderPartStyle::new())));
     self
   }
 }

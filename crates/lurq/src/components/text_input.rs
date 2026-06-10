@@ -18,87 +18,87 @@ impl TextInput {
   }
 
   pub fn text_style(mut self, style: TextStyle) -> Self {
-    self.node = self.node.text_input_style(style);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_style(node, style));
     self
   }
 
   pub fn placeholder_style(mut self, style: TextStyle) -> Self {
-    self.node = self.node.text_input_placeholder_style(style);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_placeholder_style(node, style));
     self
   }
 
   pub fn text_align(mut self, align: impl Into<TextAlign>) -> Self {
-    self.node = self.node.text_input_align(align);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_align(node, align));
     self
   }
 
   pub fn placeholder(mut self, placeholder: &str) -> Self {
-    self.node = self.node.placeholder(placeholder);
+    self.update_node(|node| crate::node::NodeUpdate::placeholder(node, placeholder));
     self
   }
 
   pub fn caret_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
-    self.node = self.node.caret_color(color);
+    self.update_node(|node| crate::node::NodeUpdate::caret_color(node, color));
     self
   }
 
   pub fn caret_mode(mut self, mode: CaretMode) -> Self {
-    self.node = self.node.text_input_caret_mode(mode);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_caret_mode(node, mode));
     self
   }
 
   pub fn overflow(mut self, overflow: TextInputOverflow) -> Self {
-    self.node = self.node.text_input_overflow(overflow);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_overflow(node, overflow));
     self
   }
 
   pub fn mask(mut self) -> Self {
-    self.node = self.node.text_input_mask();
+    self.update_node(|node| crate::node::NodeUpdate::text_input_mask(node));
     self
   }
 
   pub fn mask_char(mut self, mask: char) -> Self {
-    self.node = self.node.text_input_mask_char(mask);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_mask_char(node, mask));
     self
   }
 
   pub fn unmask(mut self) -> Self {
-    self.node = self.node.text_input_unmask();
+    self.update_node(|node| crate::node::NodeUpdate::text_input_unmask(node));
     self
   }
 
   pub fn single_line(mut self) -> Self {
-    self.node = self.node.text_input_overflow(TextInputOverflow::Scroll);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_overflow(node, TextInputOverflow::Scroll));
     self
   }
 
   pub fn multiline(mut self) -> Self {
-    self.node = self.node.text_input_overflow(TextInputOverflow::Multiline);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_overflow(node, TextInputOverflow::Multiline));
     self
   }
 
   pub fn textarea(mut self) -> Self {
-    self.node = self.node.text_input_rows(2, 6);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_rows(node, 2, 6));
     self
   }
 
   pub fn rows(mut self, min_rows: usize, max_rows: usize) -> Self {
-    self.node = self.node.text_input_rows(min_rows, max_rows);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_rows(node, min_rows, max_rows));
     self
   }
 
   pub fn min_rows(mut self, min_rows: usize) -> Self {
-    self.node = self.node.text_input_min_rows(min_rows);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_min_rows(node, min_rows));
     self
   }
 
   pub fn max_rows(mut self, max_rows: usize) -> Self {
-    self.node = self.node.text_input_max_rows(max_rows);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_max_rows(node, max_rows));
     self
   }
 
   pub fn rows_exact(mut self, rows: usize) -> Self {
-    self.node = self.node.text_input_rows_exact(rows);
+    self.update_node(|node| crate::node::NodeUpdate::text_input_rows_exact(node, rows));
     self
   }
 }

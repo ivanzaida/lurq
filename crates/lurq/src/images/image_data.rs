@@ -8,13 +8,12 @@ use std::{
   time::Instant,
 };
 
-use image::{AnimationDecoder, ImageFormat, codecs};
-use parking_lot::{Mutex, RwLock};
-
 #[cfg(target_os = "macos")]
 use core_foundation_sys::base::{CFRelease, CFRetain};
 #[cfg(target_os = "macos")]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
+use image::{AnimationDecoder, ImageFormat, codecs};
+use parking_lot::{Mutex, RwLock};
 
 pub enum ImageKind {
   Bytes(ImageData),

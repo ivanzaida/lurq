@@ -98,6 +98,7 @@ pub fn scroll_both(child: Node) -> Node {
   make_scroll(child, ScrollDirection::Both)
 }
 
+#[allow(dead_code)]
 impl Node {
   pub fn child(mut self, child: Node) -> Self {
     self.push_child(child);
