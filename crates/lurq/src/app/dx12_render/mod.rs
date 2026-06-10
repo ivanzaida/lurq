@@ -66,6 +66,7 @@ use windows::{
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
         DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
         DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIOutput, IDXGISwapChain3,
+        IDXGIKeyedMutex,
       },
     },
     System::Threading::{CreateEventW, INFINITE, WaitForSingleObject},
@@ -446,6 +447,7 @@ enum CachedImageTexture {
   NativeNv12 {
     _y_texture: ID3D12Resource,
     _uv_texture: ID3D12Resource,
+    keyed_mutex: Option<IDXGIKeyedMutex>,
     descriptor_index: usize,
     width: u32,
     height: u32,
@@ -2280,6 +2282,16 @@ impl Dx12State {
       return Ok(());
     };
     let descriptor_index = self.ensure_image_texture(image)?;
+    let keyed_mutex = match self.image_textures.get(&image.image_id) {
+      Some(CachedImageTexture::NativeNv12 {
+        keyed_mutex: Some(mutex),
+        ..
+      }) => Some(mutex.clone()),
+      _ => None,
+    };
+    let keyed_mutex_acquired = keyed_mutex
+      .as_ref()
+      .is_some_and(|mutex| mutex.AcquireSync(1, 5).is_ok());
     let (pipeline_state, root_signature) = match image.image_format {
       crate::images::ImagePixelFormat::Rgba8 => (
         self.image_pipeline.pipeline_state.clone(),
@@ -2326,6 +2338,9 @@ impl Dx12State {
     self
       .command_list
       .DrawIndexedInstanced(QuadVertex::INDICES.len() as u32, 1, 0, 0, 0);
+    if keyed_mutex_acquired && let Some(mutex) = keyed_mutex {
+      let _ = mutex.ReleaseSync(0);
+    }
 
     Ok(())
   }
@@ -2747,11 +2762,17 @@ impl Dx12State {
       Some(&uv_srv_desc),
       self.srv_heap.cpu_handle(descriptor_index + 1),
     );
+    let keyed_mutex = if dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1 {
+      dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
+    } else {
+      None
+    };
     self.image_textures.insert(
       image.image_id,
       CachedImageTexture::NativeNv12 {
         _y_texture: dx12.y_texture.clone(),
         _uv_texture: dx12.uv_texture.clone(),
+        keyed_mutex,
         descriptor_index,
         width: image.image_width,
         height: image.image_height,
