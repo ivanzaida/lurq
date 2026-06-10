@@ -59,7 +59,7 @@ use windows::{
       },
       Dxgi::{
         Common::{
-          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
+          DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_NV12, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
           DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
           DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
@@ -115,9 +115,11 @@ pub struct Dx12Nv12Surface {
   _y_texture: ID3D12Resource,
   _uv_texture: ID3D12Resource,
   y_shared_handle: HANDLE,
-  uv_shared_handle: HANDLE,
+  uv_shared_handle: Option<HANDLE>,
   y_allocation_size: u64,
   uv_allocation_size: u64,
+  owns_shared_handles: bool,
+  packed_nv12: bool,
 }
 
 unsafe impl Send for Dx12Nv12Surface {}
@@ -192,9 +194,58 @@ impl Dx12VideoSurfaceAllocator {
         _y_texture: y_texture,
         _uv_texture: uv_texture,
         y_shared_handle,
-        uv_shared_handle,
+        uv_shared_handle: Some(uv_shared_handle),
         y_allocation_size,
         uv_allocation_size,
+        owns_shared_handles: true,
+        packed_nv12: false,
+      }))
+    }
+  }
+
+  pub fn open_shared_nv12_surface(
+    &self,
+    width: u32,
+    height: u32,
+    shared_handle_raw: isize,
+  ) -> Result<Option<Dx12Nv12Surface>> {
+    if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 || shared_handle_raw == 0 {
+      return Err(Error::from_win32());
+    }
+    let device = self
+      .device
+      .lock()
+      .expect("dx12 video surface allocator lock poisoned")
+      .clone();
+    let Some(device) = device else {
+      return Ok(None);
+    };
+
+    unsafe {
+      let mut texture = None;
+      device.OpenSharedHandle(
+        HANDLE(shared_handle_raw as *mut c_void),
+        &mut texture,
+      )?;
+      let texture: ID3D12Resource = texture.ok_or_else(Error::from_win32)?;
+      let desc = texture.GetDesc();
+      if desc.Format != DXGI_FORMAT_NV12 || desc.Width != u64::from(width) || desc.Height != height {
+        return Err(Error::from_win32());
+      }
+      let allocation_size = device
+        .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
+        .SizeInBytes;
+      let native = crate::images::NativeImageData::from_dx12_nv12_texture(width, height, texture.clone());
+      Ok(Some(Dx12Nv12Surface {
+        native,
+        _y_texture: texture.clone(),
+        _uv_texture: texture,
+        y_shared_handle: HANDLE(shared_handle_raw as *mut c_void),
+        uv_shared_handle: None,
+        y_allocation_size: allocation_size,
+        uv_allocation_size: allocation_size,
+        owns_shared_handles: false,
+        packed_nv12: true,
       }))
     }
   }
@@ -218,7 +269,7 @@ impl Dx12Nv12Surface {
   }
 
   pub fn uv_shared_handle_raw(&self) -> isize {
-    self.uv_shared_handle.0 as isize
+    self.uv_shared_handle.unwrap_or(self.y_shared_handle).0 as isize
   }
 
   pub fn y_allocation_size(&self) -> u64 {
@@ -228,13 +279,21 @@ impl Dx12Nv12Surface {
   pub fn uv_allocation_size(&self) -> u64 {
     self.uv_allocation_size
   }
+
+  pub fn is_packed_nv12(&self) -> bool {
+    self.packed_nv12
+  }
 }
 
 impl Drop for Dx12Nv12Surface {
   fn drop(&mut self) {
-    unsafe {
+    if self.owns_shared_handles {
+      unsafe {
       let _ = CloseHandle(self.y_shared_handle);
-      let _ = CloseHandle(self.uv_shared_handle);
+        if let Some(uv_shared_handle) = self.uv_shared_handle {
+          let _ = CloseHandle(uv_shared_handle);
+        }
+      }
     }
   }
 }
@@ -2660,7 +2719,7 @@ impl Dx12State {
         Texture2D: D3D12_TEX2D_SRV {
           MostDetailedMip: 0,
           MipLevels: 1,
-          PlaneSlice: 0,
+          PlaneSlice: dx12.y_plane_slice,
           ResourceMinLODClamp: 0.0,
         },
       },
@@ -2673,7 +2732,7 @@ impl Dx12State {
         Texture2D: D3D12_TEX2D_SRV {
           MostDetailedMip: 0,
           MipLevels: 1,
-          PlaneSlice: 0,
+          PlaneSlice: dx12.uv_plane_slice,
           ResourceMinLODClamp: 0.0,
         },
       },
