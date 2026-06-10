@@ -2,9 +2,9 @@ use lurq::router::Params;
 
 #[test]
 fn get_parsed_returns_typed_value() {
-  let params = Params::from_pairs([("id", "42"), ("score", "3.14")]);
+  let params = Params::from_pairs([("id", "42"), ("score", "3.15")]);
   assert_eq!(params.get_parsed::<u64>("id"), Some(42));
-  assert_eq!(params.get_parsed::<f64>("score"), Some(3.14));
+  assert_eq!(params.get_parsed::<f64>("score"), Some(3.15));
 }
 
 #[test]
