@@ -89,6 +89,8 @@ pub struct NativeImageData {
 pub struct Dx12Nv12Image {
   pub y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
   pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+  pub y_plane_slice: u32,
+  pub uv_plane_slice: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -590,7 +592,31 @@ impl NativeImageData {
       height,
       ImagePixelFormat::Nv12,
       NativeImageBackend::Dx12Nv12,
-      Dx12Nv12Image { y_texture, uv_texture },
+      Dx12Nv12Image {
+        y_texture,
+        uv_texture,
+        y_plane_slice: 0,
+        uv_plane_slice: 0,
+      },
+    )
+  }
+
+  pub fn from_dx12_nv12_texture(
+    width: u32,
+    height: u32,
+    texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+  ) -> Self {
+    Self::new(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::Dx12Nv12,
+      Dx12Nv12Image {
+        y_texture: texture.clone(),
+        uv_texture: texture,
+        y_plane_slice: 0,
+        uv_plane_slice: 1,
+      },
     )
   }
 }
