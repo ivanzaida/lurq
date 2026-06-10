@@ -6,3 +6,4 @@ publish = false
 
 [dependencies]
 lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools", "clipboard", "form", "router"] }
+tracing.workspace = true

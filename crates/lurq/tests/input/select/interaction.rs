@@ -25,7 +25,7 @@ fn single_select_opens_and_commits() {
     .find_element(|el| el.tag_name() == "Select")
     .expect("trigger present");
   let bounds = trigger.bounds();
-  eprintln!("trigger bounds: {bounds:?}");
+  tracing::debug!("trigger bounds: {bounds:?}");
   assert!(bounds.width > 0.0, "trigger laid out");
 
   let (tx, ty) = bounds.center();
@@ -33,16 +33,16 @@ fn single_select_opens_and_commits() {
   run_pass(&mut tree);
 
   let large = tree.find_element(|el| el.text_content() == Some("Large"));
-  eprintln!("'Large' option present after open: {}", large.is_some());
+  tracing::debug!("'Large' option present after open: {}", large.is_some());
   assert!(large.is_some(), "menu options render when open");
 
   let large_bounds = large.unwrap().bounds();
-  eprintln!("'Large' bounds: {large_bounds:?}");
+  tracing::debug!("'Large' bounds: {large_bounds:?}");
   let (lx, ly) = large_bounds.center();
   pointer_click(&mut tree, lx, ly, MouseButton::Left);
   run_pass(&mut tree);
 
-  eprintln!("value after click: {}", value.get());
+  tracing::debug!("value after click: {}", value.get());
   assert_eq!(value.get(), "lg", "clicking an option commits its value");
 }
 
@@ -218,20 +218,20 @@ fn select_inside_scroll_opens_and_commits() {
     .find_element(|el| el.tag_name() == "Select")
     .expect("trigger present")
     .bounds();
-  eprintln!("scroll trigger bounds: {bounds:?}");
+  tracing::debug!("scroll trigger bounds: {bounds:?}");
   let (tx, ty) = bounds.center();
   pointer_click(&mut tree, tx, ty, MouseButton::Left);
   run_pass(&mut tree);
 
   let large = tree.find_element(|el| el.text_content() == Some("Large"));
-  eprintln!("'Large' present (in scroll): {}", large.is_some());
+  tracing::debug!("'Large' present (in scroll): {}", large.is_some());
   assert!(large.is_some(), "menu renders for select inside scroll");
   let lb = large.unwrap().bounds();
-  eprintln!("'Large' bounds (in scroll): {lb:?}");
+  tracing::debug!("'Large' bounds (in scroll): {lb:?}");
   let (lx, ly) = lb.center();
   pointer_click(&mut tree, lx, ly, MouseButton::Left);
   run_pass(&mut tree);
-  eprintln!("scroll value after click: {}", value.get());
+  tracing::debug!("scroll value after click: {}", value.get());
   assert_eq!(value.get(), "lg", "commit works for select inside scroll");
 }
 
@@ -302,18 +302,18 @@ fn multi_select_toggles_values() {
   pointer_click(&mut tree, sx, sy, MouseButton::Left);
   run_pass(&mut tree);
 
-  eprintln!("multi value after first click: {:?}", value.get());
+  tracing::debug!("multi value after first click: {:?}", value.get());
   assert_eq!(value.get(), vec!["sm".to_owned()], "multi-select adds the value");
 
   // Menu must stay open for multi-select so a second option can be picked
   // without reopening.
   let large = tree.find_element(|el| el.text_content() == Some("Large"));
-  eprintln!("menu still open after first multi pick: {}", large.is_some());
+  tracing::debug!("menu still open after first multi pick: {}", large.is_some());
   assert!(large.is_some(), "multi-select menu stays open after a pick");
   let (lx, ly) = large.unwrap().bounds().center();
   pointer_click(&mut tree, lx, ly, MouseButton::Left);
   run_pass(&mut tree);
-  eprintln!("multi value after second click: {:?}", value.get());
+  tracing::debug!("multi value after second click: {:?}", value.get());
   assert_eq!(
     value.get(),
     vec!["sm".to_owned(), "lg".to_owned()],

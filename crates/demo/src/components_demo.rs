@@ -99,7 +99,7 @@ impl Component for KeyedListItem {
   }
 
   fn on_mounted(&self) {
-    println!(
+    tracing::info!(
       ":mounting item with key={}, count={}",
       self.name,
       self.mount_count.get()

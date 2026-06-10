@@ -258,6 +258,69 @@ impl Dx12VideoSurfaceAllocator {
     }
   }
 
+  pub fn open_shared_nv12_planes_surface(
+    &self,
+    width: u32,
+    height: u32,
+    y_shared_handle_raw: isize,
+    uv_shared_handle_raw: isize,
+  ) -> Result<Option<Dx12Nv12Surface>> {
+    if width == 0
+      || height == 0
+      || width % 2 != 0
+      || height % 2 != 0
+      || y_shared_handle_raw == 0
+      || uv_shared_handle_raw == 0
+    {
+      return Err(Error::from_win32());
+    }
+    let device = self
+      .device
+      .lock()
+      .expect("dx12 video surface allocator lock poisoned")
+      .clone();
+    let Some(device) = device else {
+      return Ok(None);
+    };
+
+    unsafe {
+      let mut y_texture = None;
+      device.OpenSharedHandle(HANDLE(y_shared_handle_raw as *mut c_void), &mut y_texture)?;
+      let y_texture: ID3D12Resource = y_texture.ok_or_else(Error::from_win32)?;
+      let y_desc = y_texture.GetDesc();
+      if y_desc.Format != DXGI_FORMAT_R8_UNORM || y_desc.Width != u64::from(width) || y_desc.Height != height {
+        return Err(Error::from_win32());
+      }
+
+      let mut uv_texture = None;
+      device.OpenSharedHandle(HANDLE(uv_shared_handle_raw as *mut c_void), &mut uv_texture)?;
+      let uv_texture: ID3D12Resource = uv_texture.ok_or_else(Error::from_win32)?;
+      let uv_desc = uv_texture.GetDesc();
+      if uv_desc.Format != DXGI_FORMAT_R8G8_UNORM || uv_desc.Width != u64::from(width / 2) || uv_desc.Height != height / 2 {
+        return Err(Error::from_win32());
+      }
+
+      let y_allocation_size = device
+        .GetResourceAllocationInfo(0, std::slice::from_ref(&y_desc))
+        .SizeInBytes;
+      let uv_allocation_size = device
+        .GetResourceAllocationInfo(0, std::slice::from_ref(&uv_desc))
+        .SizeInBytes;
+      let native = crate::images::NativeImageData::from_dx12_nv12(width, height, y_texture.clone(), uv_texture.clone());
+      Ok(Some(Dx12Nv12Surface {
+        native,
+        _y_texture: y_texture,
+        _uv_texture: uv_texture,
+        y_shared_handle: HANDLE(y_shared_handle_raw as *mut c_void),
+        uv_shared_handle: Some(HANDLE(uv_shared_handle_raw as *mut c_void)),
+        y_allocation_size,
+        uv_allocation_size,
+        owns_shared_handles: false,
+        packed_nv12: false,
+      }))
+    }
+  }
+
   fn set_device(&self, device: Option<ID3D12Device>) {
     *self.device.lock().expect("dx12 video surface allocator lock poisoned") = device;
   }
@@ -1663,7 +1726,7 @@ unsafe fn create_shared_texture(
     &heap_properties,
     D3D12_HEAP_FLAG_SHARED,
     &desc,
-    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+    D3D12_RESOURCE_STATE_COMMON,
     None,
     &mut resource,
   )?;
