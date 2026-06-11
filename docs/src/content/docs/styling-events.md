@@ -133,6 +133,20 @@ Rect::new(100.0, 40.0)
 
 `MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`.
 
+Use `ctx.on_click_outside` with an element ref when a component needs to react to clicks outside one of its own nodes:
+
+```rust
+let menu_ref = ctx.element_ref();
+let open = self.open.clone();
+ctx.on_click_outside(menu_ref.clone(), move |_| open.set(false));
+
+Column::new()
+  .ref_element(menu_ref)
+  .child(Text::new("Menu"))
+```
+
+The hook listens for left clicks outside the referenced element's measured bounds. It is removed automatically when the component stops calling it during render.
+
 ## Keyboard And Focus
 
 Keyboard events go to the focused node.

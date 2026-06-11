@@ -2160,6 +2160,29 @@ impl Tree {
     let is_left_button = evt.button == MouseButton::Left;
     let is_left_click = matches!(evt.kind, MouseEventKind::Click) && is_left_button;
     let is_left_down = matches!(evt.kind, MouseEventKind::Down) && is_left_button;
+    let click_outside_dispatch = if is_left_click {
+      let event = MouseEvent {
+        x: evt.x,
+        y: evt.y,
+        button: evt.button,
+        kind: evt.kind,
+        shift: evt.shift,
+        ctrl: evt.ctrl,
+        alt: evt.alt,
+        target_id: hits
+          .first()
+          .map(|(node, _)| node.node_id())
+          .unwrap_or(NodeId::UNASSIGNED),
+      };
+      let callbacks = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.click_outside_callbacks_at(lx, ly))
+        .unwrap_or_default();
+      Some((event, callbacks))
+    } else {
+      None
+    };
     #[cfg(feature = "form")]
     let pending_submit = if is_left_click {
       hits
@@ -2518,6 +2541,11 @@ impl Tree {
     if let Some((handler, data)) = pending_submit {
       handler(data);
       self.needs_redraw = true;
+    }
+    if let Some((event, callbacks)) = click_outside_dispatch {
+      for callback in callbacks {
+        callback(&event);
+      }
     }
 
     let current_ids: Vec<NodeId> = hits.iter().map(|(n, _)| n.node_id()).collect();

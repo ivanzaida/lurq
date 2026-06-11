@@ -388,6 +388,20 @@ let focused = element_ref.focused();
 
 Use element refs when code outside normal layout traversal needs an element's measured rect or current interaction flags.
 
+Element refs can also scope outside-click hooks:
+
+```rust
+let panel_ref = ctx.element_ref();
+ctx.on_click_outside(panel_ref.clone(), |_| {
+  println!("clicked outside the panel");
+});
+
+lurq::components::Rect::new(240.0, 160.0)
+  .ref_element(panel_ref)
+```
+
+`on_click_outside` fires on left clicks whose pointer position is outside the referenced element's measured bounds. The hook is render-scoped: if the component stops calling it, the listener is removed on the next render.
+
 Mutable element refs use the same handle type as `Tree::find_element_mut`:
 
 ```rust
@@ -558,7 +572,7 @@ ctx.modal(self.open.clone(), |ctx| {
 let modal_ctx = ctx.modal_context();
 ```
 
-`ctx.modal` renders content above the tree when the signal is `true`. Inside the modal closure, `ctx.modal_context()` returns a `ModalContext` with `.open()`, `.close()`, and `.is_open()`. See [Modals](./modals/) for full details.
+`ctx.modal` renders content above the tree when the signal is `true`. Inside the modal closure, `ctx.modal_context()` returns a `ModalContext` with `.open()`, `.close()`, and `.is_open()`. Multiple open modals are stacked by open order, so the newest modal renders on top, and `Escape` key events are routed only to the top modal subtree. See [Modals](./modals/) for full details.
 
 ## Render Lifecycle Methods
 

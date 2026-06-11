@@ -1,10 +1,155 @@
 use lurq::{
-  app::{Tree, events::MouseButton},
-  components::{Column, Rect, Stack},
-  core::Signal,
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::Ctx,
+    events::{MouseButton, MouseEventKind},
+  },
+  components::{Column, Rect, Row, Stack},
+  core::{ElementRef, Signal},
+  node::{Element, color::Color},
 };
 
 use crate::support::run_pass;
+
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct Shared<T>(std::sync::Arc<T>);
+
+impl<T> PartialEq for Shared<T> {
+  fn eq(&self, other: &Self) -> bool {
+    std::sync::Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl<T> std::fmt::Debug for Shared<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Shared")
+      .field(&(std::sync::Arc::as_ptr(&self.0) as usize))
+      .finish()
+  }
+}
+
+#[derive(Default)]
+struct OutsideClickState {
+  enabled: Option<Signal<bool>>,
+  outside_clicks: u32,
+}
+
+struct OutsideClickRoot {
+  enabled: Signal<bool>,
+  panel_ref: ElementRef,
+  state: std::sync::Arc<std::sync::Mutex<OutsideClickState>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct OutsideClickEventSnapshot {
+  x: f32,
+  y: f32,
+  button: MouseButton,
+  is_click: bool,
+  target_assigned: bool,
+}
+
+#[derive(Default)]
+struct MultiOutsideClickState {
+  first_clicks: u32,
+  second_clicks: u32,
+  last_event: Option<OutsideClickEventSnapshot>,
+}
+
+struct MultiOutsideClickRoot {
+  first_ref: ElementRef,
+  second_ref: ElementRef,
+  state: std::sync::Arc<std::sync::Mutex<MultiOutsideClickState>>,
+}
+
+impl Component for OutsideClickRoot {
+  type Props = Shared<std::sync::Mutex<OutsideClickState>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let enabled = ctx.signal(true);
+    let state = ctx.props::<Self::Props>().0.clone();
+    state.lock().unwrap().enabled = Some(enabled.clone());
+    Self {
+      enabled,
+      panel_ref: ElementRef::new(),
+      state,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    if self.enabled.get() {
+      let state = self.state.clone();
+      ctx.on_click_outside(self.panel_ref.clone(), move |_| {
+        state.lock().unwrap().outside_clicks += 1;
+      });
+    }
+
+    Column::new()
+      .child(
+        Rect::new(100.0, 40.0)
+          .background("#22c55e")
+          .ref_element(self.panel_ref.clone()),
+      )
+      .child(Rect::new(100.0, 40.0).background("#ef4444"))
+  }
+}
+
+impl Component for MultiOutsideClickRoot {
+  type Props = Shared<std::sync::Mutex<MultiOutsideClickState>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      first_ref: ElementRef::new(),
+      second_ref: ElementRef::new(),
+      state: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let state = self.state.clone();
+    ctx.on_click_outside(self.first_ref.clone(), move |event| {
+      let mut state = state.lock().unwrap();
+      state.first_clicks += 1;
+      state.last_event = Some(OutsideClickEventSnapshot {
+        x: event.x,
+        y: event.y,
+        button: event.button,
+        is_click: matches!(event.kind, MouseEventKind::Click),
+        target_assigned: event.target_id.is_assigned(),
+      });
+    });
+
+    let state = self.state.clone();
+    ctx.on_click_outside(self.second_ref.clone(), move |event| {
+      let mut state = state.lock().unwrap();
+      state.second_clicks += 1;
+      state.last_event = Some(OutsideClickEventSnapshot {
+        x: event.x,
+        y: event.y,
+        button: event.button,
+        is_click: matches!(event.kind, MouseEventKind::Click),
+        target_assigned: event.target_id.is_assigned(),
+      });
+    });
+
+    Column::new()
+      .child(
+        Row::new()
+          .child(
+            Rect::new(100.0, 40.0)
+              .background("#22c55e")
+              .ref_element(self.first_ref.clone()),
+          )
+          .child(
+            Rect::new(100.0, 40.0)
+              .background("#38bdf8")
+              .ref_element(self.second_ref.clone()),
+          ),
+      )
+      .child(Rect::new(200.0, 40.0).background("#ef4444"))
+  }
+}
 
 #[test]
 fn release_over_click_target_does_not_click_when_press_started_elsewhere() {
@@ -143,6 +288,93 @@ fn on_mouse_click_fires_only_for_matching_button() {
   assert_eq!(clicks.get(), 1);
   assert_eq!(left_mouse_clicks.get(), 1);
   assert_eq!(right_mouse_clicks.get(), 1);
+}
+
+#[test]
+fn ctx_on_click_outside_fires_for_left_clicks_outside_ref() {
+  let state = std::sync::Arc::new(std::sync::Mutex::new(OutsideClickState::default()));
+  let mut app = App::new();
+  let mut runtime = Tree::new();
+  runtime.mount_root::<OutsideClickRoot>(&mut app, Shared(state.clone()));
+  run_pass(&mut runtime);
+
+  let panel = runtime
+    .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
+    .unwrap()
+    .bounds();
+  let outside = runtime
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+
+  let (inside_x, inside_y) = panel.center();
+  runtime.mouse_down(inside_x, inside_y, MouseButton::Left);
+  runtime.mouse_up(inside_x, inside_y, MouseButton::Left);
+  assert_eq!(state.lock().unwrap().outside_clicks, 0);
+
+  let (outside_x, outside_y) = outside.center();
+  runtime.mouse_down(outside_x, outside_y, MouseButton::Right);
+  runtime.mouse_up(outside_x, outside_y, MouseButton::Right);
+  assert_eq!(state.lock().unwrap().outside_clicks, 0);
+
+  runtime.mouse_down(outside_x, outside_y, MouseButton::Left);
+  runtime.mouse_up(outside_x, outside_y, MouseButton::Left);
+  assert_eq!(state.lock().unwrap().outside_clicks, 1);
+
+  state.lock().unwrap().enabled.as_ref().unwrap().set(false);
+  run_pass(&mut runtime);
+
+  runtime.mouse_down(outside_x, outside_y, MouseButton::Left);
+  runtime.mouse_up(outside_x, outside_y, MouseButton::Left);
+  assert_eq!(state.lock().unwrap().outside_clicks, 1);
+}
+
+#[test]
+fn ctx_on_click_outside_handles_multiple_hooks_and_event_fields() {
+  let state = std::sync::Arc::new(std::sync::Mutex::new(MultiOutsideClickState::default()));
+  let mut app = App::new();
+  let mut runtime = Tree::new();
+  runtime.mount_root::<MultiOutsideClickRoot>(&mut app, Shared(state.clone()));
+  run_pass(&mut runtime);
+
+  let first = runtime
+    .find_element(|el| el.color() == Some(Color::from_hex("#22c55e")))
+    .unwrap()
+    .bounds();
+  let outside = runtime
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+
+  let (first_x, first_y) = first.center();
+  runtime.mouse_down(first_x, first_y, MouseButton::Left);
+  runtime.mouse_up(first_x, first_y, MouseButton::Left);
+  {
+    let state = state.lock().unwrap();
+    assert_eq!(state.first_clicks, 0);
+    assert_eq!(state.second_clicks, 1);
+    let event = state.last_event.expect("second hook should receive click event");
+    assert_eq!(event.x, first_x);
+    assert_eq!(event.y, first_y);
+    assert_eq!(event.button, MouseButton::Left);
+    assert!(event.is_click);
+    assert!(event.target_assigned);
+  }
+
+  let (outside_x, outside_y) = outside.center();
+  runtime.mouse_down(outside_x, outside_y, MouseButton::Left);
+  runtime.mouse_up(outside_x, outside_y, MouseButton::Left);
+  {
+    let state = state.lock().unwrap();
+    assert_eq!(state.first_clicks, 1);
+    assert_eq!(state.second_clicks, 2);
+    let event = state.last_event.expect("outside click should receive click event");
+    assert_eq!(event.x, outside_x);
+    assert_eq!(event.y, outside_y);
+    assert_eq!(event.button, MouseButton::Left);
+    assert!(event.is_click);
+    assert!(event.target_assigned);
+  }
 }
 
 #[test]

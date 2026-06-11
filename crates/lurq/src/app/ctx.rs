@@ -24,7 +24,7 @@ use parking_lot::Mutex;
 use super::component::{ComponentInfo, DevtoolsInspectable};
 #[cfg(feature = "i18n")]
 use super::i18n::I18n;
-use super::{app_state::App, component::Component, theme::Theme};
+use super::{app_state::App, component::Component, events::MouseEvent, theme::Theme};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
@@ -82,6 +82,15 @@ struct ModalEntry {
   cursor: usize,
   order: u64,
   node: Node,
+}
+
+pub(crate) type ClickOutsideCallback = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
+
+struct ClickOutsideEntry {
+  scope_id: u64,
+  cursor: usize,
+  element_ref: ElementRef,
+  callback: ClickOutsideCallback,
 }
 
 #[derive(Clone)]
@@ -593,6 +602,9 @@ pub struct Ctx {
   timers: Vec<Timer>,
   future_slots: Vec<FutureSlot>,
   element_refs: Vec<ElementRefMut>,
+  click_outside_registry: Arc<Mutex<Vec<ClickOutsideEntry>>>,
+  click_outside_cursor: usize,
+  click_outside_active_cursors: Vec<usize>,
   rendering: bool,
 }
 
@@ -977,6 +989,9 @@ impl Ctx {
       timers: Vec::new(),
       future_slots: Vec::new(),
       element_refs: Vec::new(),
+      click_outside_registry: Arc::new(Mutex::new(Vec::new())),
+      click_outside_cursor: 0,
+      click_outside_active_cursors: Vec::new(),
       rendering: false,
     }
   }
@@ -1624,6 +1639,49 @@ impl Ctx {
     crate::node::interaction_state::InteractionState::new()
   }
 
+  pub fn on_click_outside(
+    &mut self,
+    element_ref: impl Into<ElementRef>,
+    f: impl Fn(&MouseEvent) + Send + Sync + 'static,
+  ) {
+    if !self.rendering {
+      return;
+    }
+
+    let cursor = self.click_outside_cursor;
+    self.click_outside_cursor += 1;
+    self.click_outside_active_cursors.push(cursor);
+
+    let element_ref = element_ref.into();
+    let callback: ClickOutsideCallback = Arc::new(f);
+    let mut registry = self.click_outside_registry.lock();
+    if let Some(entry) = registry
+      .iter_mut()
+      .find(|entry| entry.scope_id == self.modal_scope_id && entry.cursor == cursor)
+    {
+      entry.element_ref = element_ref;
+      entry.callback = callback;
+      return;
+    }
+
+    registry.push(ClickOutsideEntry {
+      scope_id: self.modal_scope_id,
+      cursor,
+      element_ref,
+      callback,
+    });
+  }
+
+  pub(crate) fn click_outside_callbacks_at(&self, x: f32, y: f32) -> Vec<ClickOutsideCallback> {
+    self
+      .click_outside_registry
+      .lock()
+      .iter()
+      .filter(|entry| element_ref_is_click_outside(&entry.element_ref, x, y))
+      .map(|entry| entry.callback.clone())
+      .collect()
+  }
+
   pub fn modal<R>(&mut self, open: Signal<bool>, render: impl FnOnce(&mut Ctx) -> R)
   where
     R: Into<Element>,
@@ -1782,6 +1840,7 @@ impl Ctx {
     child_ctx.modal_registry = self.modal_registry.clone();
     child_ctx.modal_order = self.modal_order.clone();
     child_ctx.modal_context = self.modal_context.clone();
+    child_ctx.click_outside_registry = self.click_outside_registry.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
@@ -1854,6 +1913,7 @@ impl Ctx {
       group_ctx.modal_registry = self.modal_registry.clone();
       group_ctx.modal_order = self.modal_order.clone();
       group_ctx.modal_context = self.modal_context.clone();
+      group_ctx.click_outside_registry = self.click_outside_registry.clone();
       #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
@@ -1941,6 +2001,7 @@ impl Ctx {
     child_ctx.modal_registry = self.modal_registry.clone();
     child_ctx.modal_order = self.modal_order.clone();
     child_ctx.modal_context = self.modal_context.clone();
+    child_ctx.click_outside_registry = self.click_outside_registry.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
@@ -1995,6 +2056,8 @@ impl Ctx {
     self.modal_cursor = 0;
     self.modal_active_cursors.clear();
     self.element_ref_cursor = 0;
+    self.click_outside_cursor = 0;
+    self.click_outside_active_cursors.clear();
     self.future_cursor = 0;
     self.render_watch_handles.clear();
     tracking::start_tracking();
@@ -2024,6 +2087,10 @@ impl Ctx {
       .modal_registry
       .lock()
       .retain(|entry| entry.scope_id != self.modal_scope_id);
+    self
+      .click_outside_registry
+      .lock()
+      .retain(|entry| entry.scope_id != self.modal_scope_id);
     for slot in &mut self.children {
       slot.ctx.clear_modal_entries_recursive();
     }
@@ -2034,6 +2101,9 @@ impl Ctx {
       .modal_registry
       .lock()
       .retain(|entry| entry.scope_id != self.modal_scope_id || self.modal_active_cursors.contains(&entry.cursor));
+    self.click_outside_registry.lock().retain(|entry| {
+      entry.scope_id != self.modal_scope_id || self.click_outside_active_cursors.contains(&entry.cursor)
+    });
 
     for slot in &self.children[self.child_cursor..] {
       slot.component.on_unmounted();
@@ -2179,12 +2249,22 @@ impl Ctx {
       + self.timers.capacity() * std::mem::size_of::<Timer>()
       + self.future_slots.capacity() * std::mem::size_of::<FutureSlot>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
+      + self.click_outside_active_cursors.capacity() * std::mem::size_of::<usize>()
       + self
         .children
         .iter()
         .map(ChildSlot::estimated_memory_bytes)
         .sum::<usize>()
   }
+}
+
+fn element_ref_is_click_outside(element_ref: &ElementRef, x: f32, y: f32) -> bool {
+  if !element_ref.is_attached() {
+    return false;
+  }
+
+  let rect = element_ref.bounds();
+  x < rect.x || x > rect.x + rect.width || y < rect.y || y > rect.y + rect.height
 }
 
 struct ForEachSlot;
