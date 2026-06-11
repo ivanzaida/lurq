@@ -50,6 +50,7 @@ const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
 const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
 const DEFAULT_CARET_COLOR: Color = Color::new(15, 23, 42, 255);
+const SCROLL_CULL_OVERSCAN: f32 = 96.0;
 
 fn text_input_display_style<'a>(
   state: &crate::node::node_kind::TextInputState,
@@ -386,6 +387,7 @@ impl LayoutEngine {
     result
   }
 
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn last_recalculated(&self) -> bool {
     self.last_recalculated.get()
   }
@@ -476,6 +478,7 @@ impl LayoutEngine {
       0.0,
       Transform2D::IDENTITY,
       viewport,
+      viewport,
       quads,
     );
   }
@@ -490,6 +493,7 @@ impl LayoutEngine {
     parent_y: f32,
     inherited_transform: Transform2D,
     clip: ClipRect,
+    cull_clip: ClipRect,
     quads: &mut Vec<Quad>,
   ) {
     if let Some(ref element_ref) = node.element_ref {
@@ -958,7 +962,7 @@ impl LayoutEngine {
       _ => {}
     }
 
-    let child_clip = if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+    let (child_clip, child_cull_clip) = if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
       let viewport_clip = intersect_clip(
         clip,
         ClipRect {
@@ -970,7 +974,10 @@ impl LayoutEngine {
           border_radius: node.get_border_radius(&self.radii.borrow()),
         },
       );
-      inset_clip_for_border(viewport_clip, resolved_border)
+      let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
+      let cull_viewport_clip = intersect_clip(cull_clip, expand_clip(viewport_clip, SCROLL_CULL_OVERSCAN));
+      let child_cull_clip = inset_clip_for_border(cull_viewport_clip, resolved_border);
+      (child_clip, child_cull_clip)
     } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
       let overflow_clip = intersect_clip(
         clip,
@@ -983,9 +990,12 @@ impl LayoutEngine {
           border_radius: node.get_border_radius(&self.radii.borrow()),
         },
       );
-      inset_clip_for_border(overflow_clip, resolved_border)
+      let child_clip = inset_clip_for_border(overflow_clip, resolved_border);
+      let cull_overflow_clip = intersect_clip(cull_clip, overflow_clip);
+      let child_cull_clip = inset_clip_for_border(cull_overflow_clip, resolved_border);
+      (child_clip, child_cull_clip)
     } else {
-      clip
+      (clip, cull_clip)
     };
 
     for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
@@ -997,7 +1007,7 @@ impl LayoutEngine {
         child_abs_x,
         child_abs_y,
         transform,
-        child_clip,
+        child_cull_clip,
       ) {
         continue;
       }
@@ -1011,6 +1021,7 @@ impl LayoutEngine {
         abs_y,
         transform,
         child_clip,
+        child_cull_clip,
         quads,
       );
     }
@@ -2588,6 +2599,21 @@ fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
     height: (y2 - y1).max(0.0),
     active: true,
     border_radius: intersected_clip_radius(parent, child, x1, y1, x2, y2),
+  }
+}
+
+fn expand_clip(clip: ClipRect, amount: f32) -> ClipRect {
+  if !clip.active || amount <= 0.0 {
+    return clip;
+  }
+
+  ClipRect {
+    x: clip.x - amount,
+    y: clip.y - amount,
+    width: clip.width + amount * 2.0,
+    height: clip.height + amount * 2.0,
+    active: true,
+    border_radius: clip.border_radius,
   }
 }
 

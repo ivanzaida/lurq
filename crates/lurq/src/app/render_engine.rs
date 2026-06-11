@@ -8,8 +8,6 @@ pub trait RenderEngine {
 
   fn release_window_surface(&mut self) {}
 
-  fn set_profiling_enabled(&mut self, _enabled: bool) {}
-
   fn last_profile(&self) -> Option<RenderProfile> {
     None
   }

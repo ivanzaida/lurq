@@ -24,7 +24,9 @@ use crate::{
       ScrollPhase,
     },
     hit_test::{HitRect, hit_test_tree, hit_test_tree_all},
-    profiler::{FrameProfile, PerfMeterStats, ProfileScope, RuntimeMemoryProfile},
+    profiler::{
+      FrameProfile, PerfMeterStats, RuntimeMemoryProfile, profile_elapsed, profile_if, profile_scope, profile_value,
+    },
     render_engine::{RenderEngine, RenderEngineFactory},
     theme::CaretMode,
   },
@@ -412,6 +414,7 @@ impl Tree {
     self.window.set_position(x, y);
   }
 
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn memory_profile_with_glyph(&self, glyph_engine_bytes: usize) -> RuntimeMemoryProfile {
     let runtime_struct_bytes = std::mem::size_of::<Self>();
     let root_tree_bytes = self.root.as_ref().map(Node::estimated_memory_bytes).unwrap_or(0);
@@ -468,6 +471,10 @@ impl Tree {
     &self.last_profile
   }
 
+  pub fn profile(&self) -> &FrameProfile {
+    &self.last_profile
+  }
+
   pub fn draw_perf_overlay(&mut self) {
     if self.perf_overlay_enabled {
       return;
@@ -517,8 +524,15 @@ impl Tree {
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
-  pub(crate) fn has_active_timeline(&self) -> bool {
-    self.transition_engine.has_active || self.animation_engine.has_active
+  pub(crate) fn has_active_tick_sources(&self) -> bool {
+    self.perf_overlay_enabled
+      || self.has_active_input_interaction()
+      || self.click_tracker.has_pending()
+      || self.has_focused_blinking_text_input(CaretMode::Blinking)
+      || self
+        .root_ctx
+        .as_ref()
+        .is_some_and(|ctx| ctx.has_active_timers() || ctx.has_active_futures())
   }
 
   pub fn frame_count(&self) -> u64 {
@@ -835,7 +849,7 @@ impl Tree {
     self.devtools_state.last_sync = now;
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   fn has_active_input_interaction(&self) -> bool {
     self.dragging_scroll.is_some()
       || self.dragging_slider.is_some()
@@ -1016,10 +1030,9 @@ impl Tree {
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
     self.set_app_ref(app);
-    let profiling_enabled = app.profiling_enabled || self.perf_overlay_enabled;
-    let frame_start = ProfileScope::maybe_start(profiling_enabled);
+    let _frame_start = profile_scope!();
     let scale = self.scale_factor();
-    if profiling_enabled {
+    profile_if! {
       app.glyph_engine.reset_stats();
     }
     self.update_perf_overlay_stats();
@@ -1027,7 +1040,7 @@ impl Tree {
     let now = Instant::now();
     self.flush_due_pending_click(now);
 
-    let layout_start = ProfileScope::maybe_start(profiling_enabled);
+    let _layout_start = profile_scope!();
     self.update_layout(app);
     let caret_mode = self
       .root_ctx
@@ -1035,8 +1048,8 @@ impl Tree {
       .map(|ctx| ctx.theme().caret_mode())
       .unwrap_or_else(|| app.theme().caret_mode());
     self.update_text_input_caret_blink(now, caret_mode);
-    let layout_dur = ProfileScope::elapsed_or_default(&layout_start);
-    let layout_recalculated = self.layout_engine.last_recalculated();
+    let _layout_dur = profile_elapsed!(_layout_start);
+    let _layout_recalculated: bool = profile_value!(self.layout_engine.last_recalculated());
 
     let root = match &self.root {
       Some(r) => r,
@@ -1055,7 +1068,7 @@ impl Tree {
       None => return,
     };
 
-    let quad_start = ProfileScope::maybe_start(profiling_enabled);
+    let _quad_start = profile_scope!();
     let viewport_clip = ClipRect {
       x: 0.0,
       y: 0.0,
@@ -1069,14 +1082,14 @@ impl Tree {
     self
       .layout_engine
       .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
-    let quad_dur = ProfileScope::elapsed_or_default(&quad_start);
+    let _quad_dur = profile_elapsed!(_quad_start);
     let quad_count = quads.len();
     #[cfg(feature = "devtools")]
     let devtools_overlay = self.devtools_overlay_target(root, &result);
 
     self.last_layout = Some(result);
 
-    let glyph_start = ProfileScope::maybe_start(profiling_enabled);
+    let _glyph_start = profile_scope!();
     let mut rects = std::mem::take(&mut self.render_rects);
     rects.clear();
     rects.reserve(quad_count);
@@ -1127,9 +1140,14 @@ impl Tree {
       let scaled_y = quad.y * scale;
       let scaled_width = quad.width * scale;
       let scaled_height = quad.height * scale;
+      let cull_clip = if matches!(&quad.content, QuadContent::Text { .. }) {
+        expand_text_clip_for_culling(scaled_clip)
+      } else {
+        scaled_clip
+      };
       if quad.transform.is_identity()
-        && scaled_clip.active
-        && !rect_intersects_clip(scaled_x, scaled_y, scaled_width, scaled_height, scaled_clip)
+        && cull_clip.active
+        && !rect_intersects_clip(scaled_x, scaled_y, scaled_width, scaled_height, cull_clip)
       {
         continue;
       }
@@ -1384,9 +1402,9 @@ impl Tree {
       self.viewport_physical,
     );
 
-    let glyph_dur = ProfileScope::elapsed_or_default(&glyph_start);
-    let rect_count = rects.len();
-    let glyph_count = glyphs.len();
+    let _glyph_dur = profile_elapsed!(_glyph_start);
+    let _rect_count: usize = profile_value!(rects.len());
+    let _glyph_count: usize = profile_value!(glyphs.len());
 
     let list = RenderList {
       clear_color,
@@ -1399,27 +1417,26 @@ impl Tree {
       atlas: app.glyph_engine.atlas(),
     };
 
-    let gpu_start = ProfileScope::maybe_start(profiling_enabled);
+    let _gpu_start = profile_scope!();
     let Some(render_engine) = &mut self.render_engine else {
       return;
     };
-    render_engine.set_profiling_enabled(profiling_enabled);
     render_engine.render(&list, window, display);
-    let gpu_dur = ProfileScope::elapsed_or_default(&gpu_start);
+    let _gpu_dur = profile_elapsed!(_gpu_start);
 
-    if profiling_enabled {
+    profile_if! {
       let render_profile = render_engine.last_profile().unwrap_or_default();
       self.last_profile = FrameProfile {
-        layout: layout_dur,
-        layout_recalculated,
-        quad_resolve: quad_dur,
-        glyph_rasterize: glyph_dur,
-        gpu_submit: gpu_dur,
+        layout: _layout_dur,
+        layout_recalculated: _layout_recalculated,
+        quad_resolve: _quad_dur,
+        glyph_rasterize: _glyph_dur,
+        gpu_submit: _gpu_dur,
         render: render_profile,
-        total: ProfileScope::elapsed_or_default(&frame_start),
+        total: profile_elapsed!(_frame_start),
         quad_count,
-        rect_count,
-        glyph_count,
+        rect_count: _rect_count,
+        glyph_count: _glyph_count,
         glyph_cache_hits: app.glyph_engine.glyph_hits,
         glyph_cache_misses: app.glyph_engine.glyph_misses,
         text_measure_cache_hits: app.glyph_engine.measure_hits,
@@ -5657,10 +5674,26 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
   }
 }
 
+fn expand_text_clip_for_culling(clip: ClipRect) -> ClipRect {
+  if !clip.active {
+    return clip;
+  }
+
+  const TEXT_CULL_OVERSCAN_PX: f32 = 96.0;
+  ClipRect {
+    x: clip.x - TEXT_CULL_OVERSCAN_PX,
+    y: clip.y - TEXT_CULL_OVERSCAN_PX,
+    width: clip.width + TEXT_CULL_OVERSCAN_PX * 2.0,
+    height: clip.height + TEXT_CULL_OVERSCAN_PX * 2.0,
+    active: true,
+    border_radius: clip.border_radius,
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use crate::{
-    app::runtime::{expand_text_clip_for_rasterization, transformed_text_raster_scale},
+    app::runtime::{expand_text_clip_for_culling, expand_text_clip_for_rasterization, transformed_text_raster_scale},
     layout::quad::ClipRect,
     node::transform::Transform2D,
   };
@@ -5692,6 +5725,26 @@ mod tests {
     let expanded = expand_text_clip_for_rasterization(clip);
 
     assert!(!expanded.active);
+  }
+
+  #[test]
+  fn text_cull_clip_expands_for_scroll_prewarm() {
+    let clip = ClipRect {
+      x: 10.0,
+      y: 20.0,
+      width: 30.0,
+      height: 40.0,
+      active: true,
+      border_radius: None,
+    };
+
+    let expanded = expand_text_clip_for_culling(clip);
+
+    assert_eq!(expanded.x, -86.0);
+    assert_eq!(expanded.y, -76.0);
+    assert_eq!(expanded.width, 222.0);
+    assert_eq!(expanded.height, 232.0);
+    assert!(expanded.active);
   }
 
   #[test]

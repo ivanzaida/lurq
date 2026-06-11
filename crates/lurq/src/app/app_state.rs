@@ -11,7 +11,6 @@ pub struct App {
   pub(crate) theme: Theme,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
-  pub(crate) profiling_enabled: bool,
   pub(crate) scale_override: Option<f32>,
   #[cfg(feature = "tokio")]
   pub(crate) tokio_handle: Option<tokio::runtime::Handle>,
@@ -36,7 +35,6 @@ impl App {
       theme: Theme::new(),
       #[cfg(feature = "i18n")]
       i18n: I18n::new(),
-      profiling_enabled: false,
       scale_override: None,
       #[cfg(feature = "tokio")]
       tokio_handle: None,
@@ -47,14 +45,6 @@ impl App {
       #[cfg(all(feature = "svg", feature = "resources"))]
       svg_resource_cache: std::collections::HashMap::new(),
     }
-  }
-
-  pub fn profiling_enabled(&self) -> bool {
-    self.profiling_enabled
-  }
-
-  pub fn set_profiling_enabled(&mut self, enabled: bool) {
-    self.profiling_enabled = enabled;
   }
 
   pub fn set_scale_override(&mut self, scale: Option<f32>) {

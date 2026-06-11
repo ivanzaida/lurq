@@ -193,6 +193,7 @@ impl GlyphEngine {
     self.transformed_atlas_entries.clear();
   }
 
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn reset_stats(&mut self) {
     self.measure_hits = 0;
     self.measure_misses = 0;
@@ -684,6 +685,7 @@ impl GlyphEngine {
       .unwrap_or_else(|| style.font_family.clone())
   }
 
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     let alias_heap = self
       .font_aliases

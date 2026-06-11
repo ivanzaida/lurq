@@ -1,4 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "perf_profile")]
+use std::time::Instant;
 
 #[derive(Clone, Default)]
 pub struct FrameProfile {
@@ -71,13 +73,16 @@ impl std::fmt::Display for FrameProfile {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render={:.2}ms encode={:.2}ms present={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
+      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render={:.2}ms acquire={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms present={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
       self.total.as_secs_f64() * 1000.0,
       self.layout.as_secs_f64() * 1000.0,
       self.quad_resolve.as_secs_f64() * 1000.0,
       self.glyph_rasterize.as_secs_f64() * 1000.0,
       self.gpu_submit.as_secs_f64() * 1000.0,
+      self.render.acquire.as_secs_f64() * 1000.0,
+      (self.render.globals_upload + self.render.atlas_upload).as_secs_f64() * 1000.0,
       self.render.encode.as_secs_f64() * 1000.0,
+      self.render.submit.as_secs_f64() * 1000.0,
       self.render.present.as_secs_f64() * 1000.0,
       self.rect_count,
       self.glyph_count,
@@ -124,24 +129,84 @@ impl std::fmt::Display for RuntimeMemoryProfile {
   }
 }
 
+#[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
 pub(crate) struct ProfileScope {
+  #[cfg(feature = "perf_profile")]
   start: Instant,
 }
 
 impl ProfileScope {
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn start() -> Self {
-    Self { start: Instant::now() }
+    Self {
+      #[cfg(feature = "perf_profile")]
+      start: Instant::now(),
+    }
   }
 
-  pub(crate) fn maybe_start(enabled: bool) -> Option<Self> {
-    enabled.then(Self::start)
-  }
-
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn elapsed(&self) -> Duration {
-    self.start.elapsed()
-  }
-
-  pub(crate) fn elapsed_or_default(scope: &Option<Self>) -> Duration {
-    scope.as_ref().map(Self::elapsed).unwrap_or_default()
+    #[cfg(feature = "perf_profile")]
+    {
+      self.start.elapsed()
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      Duration::default()
+    }
   }
 }
+
+macro_rules! profile_scope {
+  () => {{
+    #[cfg(feature = "perf_profile")]
+    {
+      $crate::app::profiler::ProfileScope::start()
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      ()
+    }
+  }};
+}
+
+macro_rules! profile_elapsed {
+  ($scope:expr) => {{
+    #[cfg(feature = "perf_profile")]
+    {
+      $scope.elapsed()
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      let _ = &$scope;
+      std::time::Duration::default()
+    }
+  }};
+}
+
+macro_rules! profile_if {
+  ($($body:tt)*) => {
+    #[cfg(feature = "perf_profile")]
+    {
+      $($body)*
+    }
+  };
+}
+
+macro_rules! profile_value {
+  ($value:expr) => {{
+    #[cfg(feature = "perf_profile")]
+    {
+      $value
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      Default::default()
+    }
+  }};
+}
+
+pub(crate) use profile_elapsed;
+pub(crate) use profile_if;
+pub(crate) use profile_scope;
+pub(crate) use profile_value;

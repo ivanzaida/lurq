@@ -689,6 +689,7 @@ impl ComponentSignalDebug {
     self.subscriber_count.load(Ordering::Relaxed)
   }
 
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     let history = self.history.lock();
     self.value.lock().as_ref().map(|value| value.len()).unwrap_or(0)
@@ -727,6 +728,7 @@ impl ComponentMemoDebug {
 
 #[cfg(feature = "devtools")]
 impl ComponentValueChangeDebug {
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   fn estimated_memory_bytes(&self) -> usize {
     self.timestamp.capacity() + self.from_value.capacity() + self.to_value.capacity()
   }
@@ -2148,6 +2150,17 @@ impl Ctx {
       return true;
     }
     self.children.iter().any(|slot| slot.ctx.any_dirty())
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn has_active_timers(&self) -> bool {
+    self.timers.iter().any(Timer::is_active) || self.children.iter().any(|slot| slot.ctx.has_active_timers())
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn has_active_futures(&self) -> bool {
+    self.future_slots.iter().any(|slot| slot.task.is_active())
+      || self.children.iter().any(|slot| slot.ctx.has_active_futures())
   }
 
   pub(crate) fn tick_timers(&mut self, now: Instant) -> bool {

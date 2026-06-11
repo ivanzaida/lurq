@@ -27,7 +27,8 @@ use crate::{
   node::{CursorIcon, color::Color},
 };
 
-type TickFn = Box<dyn FnMut(&mut Tree)>;
+type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
+type FrameFn = Box<dyn FnMut(&Tree, Duration)>;
 type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
 type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
 const TICK_INTERVAL: Duration = Duration::from_millis(16);
@@ -38,6 +39,7 @@ pub struct WinitWindow {
   attrs: WindowAttributes,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
+  on_frame: Option<FrameFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
 }
@@ -50,6 +52,7 @@ impl WinitWindow {
       attrs: WindowAttributes::default(),
       corner_radius: None,
       on_tick: None,
+      on_frame: None,
       on_position_changed: None,
       on_size_changed: None,
     }
@@ -128,9 +131,17 @@ impl WinitWindow {
 
   pub fn on_tick<F>(mut self, tick: F) -> Self
   where
-    F: FnMut(&mut Tree) + 'static,
+    F: FnMut(&mut Tree, Duration) + 'static,
   {
     self.on_tick = Some(Box::new(tick));
+    self
+  }
+
+  pub fn on_frame<F>(mut self, frame: F) -> Self
+  where
+    F: FnMut(&Tree, Duration) + 'static,
+  {
+    self.on_frame = Some(Box::new(frame));
     self
   }
 
@@ -169,6 +180,7 @@ impl WinitWindow {
         self.attrs,
         self.corner_radius,
         self.on_tick,
+        self.on_frame,
         self.on_position_changed,
         self.on_size_changed,
         true,
@@ -188,10 +200,13 @@ struct ManagedWindow {
   attrs: Option<WindowAttributes>,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
+  on_frame: Option<FrameFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
   redraw_pending: bool,
   close_exits: bool,
+  last_tick: Instant,
+  last_frame: Instant,
 }
 
 impl ManagedWindow {
@@ -200,6 +215,7 @@ impl ManagedWindow {
     attrs: WindowAttributes,
     corner_radius: Option<WindowCornerRadius>,
     on_tick: Option<TickFn>,
+    on_frame: Option<FrameFn>,
     on_position_changed: Option<PositionChangedFn>,
     on_size_changed: Option<SizeChangedFn>,
     close_exits: bool,
@@ -213,10 +229,13 @@ impl ManagedWindow {
       attrs: Some(attrs),
       corner_radius,
       on_tick,
+      on_frame,
       on_position_changed,
       on_size_changed,
       redraw_pending: false,
       close_exits,
+      last_tick: Instant::now(),
+      last_frame: Instant::now(),
     }
   }
 
@@ -225,7 +244,7 @@ impl ManagedWindow {
   }
 
   fn has_tick(&self) -> bool {
-    true
+    self.on_tick.is_some() || self.tree.has_active_tick_sources()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop, app: &mut App) {
@@ -378,6 +397,9 @@ impl ManagedWindow {
   }
 
   fn request_redraw(&mut self) {
+    if self.redraw_pending {
+      return;
+    }
     if let Some(w) = &self.window {
       self.redraw_pending = true;
       w.request_redraw();
@@ -394,6 +416,14 @@ impl ManagedWindow {
       let frame_count = self.tree.frame_count();
       self.tree.pass(app, w);
       let presented = self.tree.frame_count() != frame_count;
+      if presented {
+        let now = Instant::now();
+        let delta = now.duration_since(self.last_frame);
+        self.last_frame = now;
+        if let Some(frame) = &mut self.on_frame {
+          frame(&self.tree, delta);
+        }
+      }
       self.check_redraw();
       return presented;
     }
@@ -413,14 +443,17 @@ impl ManagedWindow {
   }
 
   fn tick(&mut self) {
+    let now = Instant::now();
+    let delta = now.duration_since(self.last_tick);
+    self.last_tick = now;
+
     if let Some(tick) = &mut self.on_tick {
-      tick(&mut self.tree);
+      tick(&mut self.tree, delta);
     }
     self.tree.tick_timers();
     self.tree.tick_futures();
-    self.tree.request_redraw();
     self.tree.tick_perf_overlay();
-    if self.tree.perf_overlay_enabled() || self.tree.has_active_timeline() {
+    if self.tree.perf_overlay_enabled() {
       self.tree.request_redraw();
     }
     self.check_redraw();
@@ -628,7 +661,7 @@ impl ManagedSecondaryWindow {
   }
 
   fn has_tick(&self, tree: Option<&Tree>) -> bool {
-    tree.is_some()
+    tree.is_some_and(Tree::has_active_tick_sources)
   }
 
   fn create_window(
@@ -776,6 +809,9 @@ impl ManagedSecondaryWindow {
   }
 
   fn request_redraw(&mut self) {
+    if self.redraw_pending {
+      return;
+    }
     if let Some(w) = &self.window {
       self.redraw_pending = true;
       w.request_redraw();
@@ -813,9 +849,8 @@ impl ManagedSecondaryWindow {
   fn tick(&mut self, tree: &mut Tree) {
     tree.tick_timers();
     tree.tick_futures();
-    tree.request_redraw();
     tree.tick_perf_overlay();
-    if tree.perf_overlay_enabled() || tree.has_active_timeline() {
+    if tree.perf_overlay_enabled() {
       tree.request_redraw();
     }
     self.check_redraw(tree);
@@ -1025,12 +1060,6 @@ impl WinitHandler {
     }
   }
 
-  fn present_dirty_main(&mut self) {
-    if self.main.tree.needs_redraw() {
-      self.main.present_now(&mut self.app);
-    }
-  }
-
   fn present_dirty_secondaries(&mut self) {
     for position in 0..self.secondaries.len() {
       let index = self.secondaries[position].index();
@@ -1050,18 +1079,12 @@ impl WinitHandler {
     }
   }
 
-  fn present_dirty_windows(&mut self) {
-    self.present_dirty_main();
-    self.present_dirty_secondaries();
-  }
-
   fn apply_secondary_window_requests(&mut self, event_loop: &ActiveEventLoop) {
     if self.main.tree.apply_secondary_window_requests() {
       self.main.request_redraw();
     }
     self.sync_secondary_windows(event_loop);
     self.check_secondary_redraw();
-    self.present_dirty_windows();
   }
 
   fn handle_secondary_pick_event(&mut self, event: &WindowEvent) -> bool {
@@ -1087,7 +1110,6 @@ impl WinitHandler {
         self.main.tree.pick_secondary_node_at(x, y);
         self.main.request_redraw();
         self.check_secondary_redraw();
-        self.present_dirty_windows();
         true
       }
       WindowEvent::KeyboardInput { event, .. }
@@ -1096,7 +1118,6 @@ impl WinitHandler {
       {
         self.main.tree.cancel_secondary_pick();
         self.check_secondary_redraw();
-        self.present_dirty_windows();
         true
       }
       _ => false,

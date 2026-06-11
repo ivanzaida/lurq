@@ -30,6 +30,7 @@ use lurq::{
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
   router::{RouterHandle, Routes},
 };
+use std::io::Write;
 
 use crate::{
   animation_demo::animation_content,
@@ -309,12 +310,28 @@ fn main() {
   let mut tree = Tree::new();
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
   lurq::app::devtools::load_fonts(&mut app);
-  app.set_profiling_enabled(true);
   let renderer = set_selected_render_engine(&mut tree);
   animation_demo::register_keyframes(&mut tree);
   tree.mount_root::<DemoApp>(&mut app, DemoProps);
   tree.mount_devtools(&mut app);
   let title = format!("lurq demo ({renderer})");
-  let window = WinitWindow::new(app, tree).with_title(&title);
+  let profile_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("../..")
+    .join("target")
+    .join("perf_profile.log");
+  let profile_file = std::fs::File::create(&profile_path).expect("create perf profile log");
+  let mut profile_writer = std::io::BufWriter::new(profile_file);
+  eprintln!("writing perf profile to {}", profile_path.display());
+  let window = WinitWindow::new(app, tree)
+    .with_title(&title)
+    .on_frame(move |t, delta| {
+      let prof = t.profile();
+      writeln!(
+        profile_writer,
+        "Profile for frame delta={:.2}ms {prof}",
+        delta.as_secs_f64() * 1000.0
+      )
+      .expect("write perf profile frame");
+    });
   window.run();
 }

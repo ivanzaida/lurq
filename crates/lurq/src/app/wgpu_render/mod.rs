@@ -12,16 +12,85 @@ use core_video_sys::pixel_buffer::CVPixelBufferRef;
 #[cfg(all(feature = "image", target_os = "macos"))]
 use metal::foreign_types::ForeignType;
 use raw_window_handle::{DisplayHandle, WindowHandle};
+#[cfg(feature = "image")]
+use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 
 use crate::{
   app::{
-    profiler::{ProfileScope, RenderProfile},
+    profiler::{RenderProfile, profile_elapsed, profile_if, profile_scope},
     render_engine::RenderEngine,
   },
   layout::render_list::RenderList,
 };
+
+struct DynamicBuffer {
+  buffer: Option<wgpu::Buffer>,
+  capacity: wgpu::BufferAddress,
+  usage: wgpu::BufferUsages,
+  label: &'static str,
+}
+
+impl DynamicBuffer {
+  fn new(label: &'static str, usage: wgpu::BufferUsages) -> Self {
+    Self {
+      buffer: None,
+      capacity: 0,
+      usage,
+      label,
+    }
+  }
+
+  fn clear(&mut self) {
+    self.buffer = None;
+    self.capacity = 0;
+  }
+
+  fn write<T: bytemuck::Pod>(
+    &mut self,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    data: &[T],
+  ) -> Option<&wgpu::Buffer> {
+    if data.is_empty() {
+      return None;
+    }
+
+    let bytes = bytemuck::cast_slice(data);
+    let required = bytes.len() as wgpu::BufferAddress;
+    if self.capacity < required {
+      self.capacity = required.next_power_of_two().max(256);
+      self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(self.label),
+        size: self.capacity,
+        usage: self.usage | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+      }));
+    }
+
+    let buffer = self.buffer.as_ref().unwrap();
+    queue.write_buffer(buffer, 0, bytes);
+    Some(buffer)
+  }
+}
+
+struct PreparedDraw {
+  start: usize,
+  count: usize,
+}
+
+enum OrderedDraw {
+  Rect(usize),
+  Glyph {
+    start: usize,
+    count: usize,
+  },
+  #[cfg(feature = "image")]
+  Image(usize),
+  #[cfg(feature = "svg")]
+  Svg(usize),
+}
 
 #[cfg(feature = "image")]
 enum CachedImageTexture {
@@ -149,17 +218,29 @@ pub struct WgpuRenderEngine {
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
   globals_buffer: Option<wgpu::Buffer>,
   gradient_buffer: Option<wgpu::Buffer>,
+  gradient_buffer_capacity: wgpu::BufferAddress,
   atlas_texture: Option<wgpu::Texture>,
   atlas_view: Option<wgpu::TextureView>,
   atlas_sampler: Option<wgpu::Sampler>,
   atlas_size: (u32, u32),
   atlas_version: u64,
+  #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
-  profiling_enabled: bool,
   quad_bind_group: Option<wgpu::BindGroup>,
   glyph_bind_group: Option<wgpu::BindGroup>,
   vertex_buffer: Option<wgpu::Buffer>,
   index_buffer: Option<wgpu::Buffer>,
+  rect_instance_buffer: DynamicBuffer,
+  glyph_instance_buffer: DynamicBuffer,
+  #[cfg(feature = "image")]
+  image_instance_buffer: DynamicBuffer,
+  scratch_rect_instances: Vec<QuadInstance>,
+  scratch_rect_draws: Vec<PreparedDraw>,
+  scratch_gradient_data: Vec<[f32; 4]>,
+  scratch_glyph_instances: Vec<GlyphInstance>,
+  #[cfg(feature = "image")]
+  scratch_image_instances: Vec<ImageInstance>,
+  scratch_ordered_draws: Vec<(usize, OrderedDraw)>,
   width: u32,
   height: u32,
 }
@@ -205,17 +286,29 @@ impl WgpuRenderEngine {
       image_texture_cache: std::collections::HashMap::new(),
       globals_buffer: None,
       gradient_buffer: None,
+      gradient_buffer_capacity: 0,
       atlas_texture: None,
       atlas_view: None,
       atlas_sampler: None,
       atlas_size: (0, 0),
       atlas_version: 0,
+      #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
-      profiling_enabled: false,
       quad_bind_group: None,
       glyph_bind_group: None,
       vertex_buffer: None,
       index_buffer: None,
+      rect_instance_buffer: DynamicBuffer::new("lurq_ordered_rect_instances", wgpu::BufferUsages::VERTEX),
+      glyph_instance_buffer: DynamicBuffer::new("lurq_ordered_glyph_instances", wgpu::BufferUsages::VERTEX),
+      #[cfg(feature = "image")]
+      image_instance_buffer: DynamicBuffer::new("lurq_image_instances", wgpu::BufferUsages::VERTEX),
+      scratch_rect_instances: Vec::new(),
+      scratch_rect_draws: Vec::new(),
+      scratch_gradient_data: Vec::new(),
+      scratch_glyph_instances: Vec::new(),
+      #[cfg(feature = "image")]
+      scratch_image_instances: Vec::new(),
+      scratch_ordered_draws: Vec::new(),
       width: 800,
       height: 600,
     }
@@ -247,8 +340,13 @@ impl WgpuRenderEngine {
 
     self.vertex_buffer = None;
     self.index_buffer = None;
+    self.rect_instance_buffer.clear();
+    self.glyph_instance_buffer.clear();
+    #[cfg(feature = "image")]
+    self.image_instance_buffer.clear();
     self.globals_buffer = None;
     self.gradient_buffer = None;
+    self.gradient_buffer_capacity = 0;
     self.atlas_view = None;
     self.atlas_texture = None;
     self.atlas_sampler = None;
@@ -293,7 +391,7 @@ impl WgpuRenderEngine {
       present_mode: wgpu::PresentMode::Fifo,
       alpha_mode: caps.alpha_modes[0],
       view_formats: vec![],
-      desired_maximum_frame_latency: 2,
+      desired_maximum_frame_latency: 1,
     };
     surface.configure(device, &config);
     self.surface = Some(surface);
@@ -714,8 +812,9 @@ impl WgpuRenderEngine {
     let gradient_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("lurq_gradients"),
       contents: bytemuck::cast_slice(&gradient_data),
-      usage: wgpu::BufferUsages::STORAGE,
+      usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     });
+    let gradient_buffer_capacity = std::mem::size_of_val(&gradient_data) as wgpu::BufferAddress;
 
     let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
       label: Some("lurq_atlas_sampler"),
@@ -780,6 +879,7 @@ impl WgpuRenderEngine {
     }
     self.globals_buffer = Some(globals_buffer);
     self.gradient_buffer = Some(gradient_buffer);
+    self.gradient_buffer_capacity = gradient_buffer_capacity;
     self.atlas_sampler = Some(atlas_sampler);
     self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
@@ -805,11 +905,10 @@ impl RenderEngine for WgpuRenderEngine {
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
-    let profiling_enabled = self.profiling_enabled;
-    let total_start = ProfileScope::maybe_start(profiling_enabled);
-    let init_start = ProfileScope::maybe_start(profiling_enabled);
+    let _total_start = profile_scope!();
+    let _init_start = profile_scope!();
     self.ensure_initialized(window, display);
-    let init_dur = ProfileScope::elapsed_or_default(&init_start);
+    let _init_dur = profile_elapsed!(_init_start);
 
     let device = self.device.as_ref().unwrap();
     let queue = self.queue.as_ref().unwrap();
@@ -818,15 +917,15 @@ impl RenderEngine for WgpuRenderEngine {
     let vtx_buf = self.vertex_buffer.as_ref().unwrap();
     let idx_buf = self.index_buffer.as_ref().unwrap();
 
-    let acquire_start = ProfileScope::maybe_start(profiling_enabled);
+    let _acquire_start = profile_scope!();
     let output = match surface.get_current_texture() {
       Ok(t) => t,
       Err(_) => {
-        if profiling_enabled {
+        profile_if! {
           self.last_profile = RenderProfile {
-            init: init_dur,
-            acquire: ProfileScope::elapsed_or_default(&acquire_start),
-            total: ProfileScope::elapsed_or_default(&total_start),
+            init: _init_dur,
+            acquire: profile_elapsed!(_acquire_start),
+            total: profile_elapsed!(_total_start),
             ..RenderProfile::default()
           };
         }
@@ -834,7 +933,7 @@ impl RenderEngine for WgpuRenderEngine {
       }
     };
     let view = output.texture.create_view(&Default::default());
-    let acquire_dur = ProfileScope::elapsed_or_default(&acquire_start);
+    let _acquire_dur = profile_elapsed!(_acquire_start);
 
     let vw = config.width as f32;
     let vh = config.height as f32;
@@ -847,12 +946,12 @@ impl RenderEngine for WgpuRenderEngine {
       clip_radii_v: [0.0; 4],
       clip_active: [0.0; 4],
     };
-    let globals_start = ProfileScope::maybe_start(profiling_enabled);
+    let _globals_start = profile_scope!();
     queue.write_buffer(globals_buffer, 0, bytemuck::bytes_of(&globals));
-    let globals_dur = ProfileScope::elapsed_or_default(&globals_start);
+    let _globals_dur = profile_elapsed!(_globals_start);
 
     // Atlas — recreate texture only if size changed
-    let atlas_start = ProfileScope::maybe_start(profiling_enabled);
+    let _atlas_start = profile_scope!();
     let atlas = &list.atlas;
     let atlas_recreated = self.atlas_size != (atlas.width, atlas.height);
     if atlas_recreated {
@@ -916,24 +1015,21 @@ impl RenderEngine for WgpuRenderEngine {
       );
       self.atlas_version = atlas.version;
     }
-    let atlas_dur = ProfileScope::elapsed_or_default(&atlas_start);
+    let _atlas_dur = profile_elapsed!(_atlas_start);
 
-    let encode_start = ProfileScope::maybe_start(profiling_enabled);
-    struct PreparedDraw {
-      start: usize,
-      count: usize,
-    }
+    let _encode_start = profile_scope!();
 
-    let mut rect_instances = Vec::new();
-    let mut rect_draws = Vec::with_capacity(list.rects.len());
-    let mut gradient_data: Vec<[f32; 4]> = Vec::new();
+    self.scratch_rect_instances.clear();
+    self.scratch_rect_draws.clear();
+    self.scratch_rect_draws.reserve(list.rects.len());
+    self.scratch_gradient_data.clear();
     for r in &list.rects {
-      let start = rect_instances.len();
+      let start = self.scratch_rect_instances.len();
       let gradient_offset = match &r.gradient {
-        Some(gradient) => crate::layout::render_list::encode_gradient(&mut gradient_data, gradient),
+        Some(gradient) => crate::layout::render_list::encode_gradient(&mut self.scratch_gradient_data, gradient),
         None => -1.0,
       };
-      rect_instances.push(QuadInstance {
+      self.scratch_rect_instances.push(QuadInstance {
         pos: [r.x, r.y],
         size: [r.width, r.height],
         color: r.color.to_linear_f32_array(),
@@ -947,7 +1043,7 @@ impl RenderEngine for WgpuRenderEngine {
         gradient_offset,
       });
       if r.stroke.iter().any(|s| *s > 0.0) {
-        rect_instances.push(QuadInstance {
+        self.scratch_rect_instances.push(QuadInstance {
           pos: [r.x, r.y],
           size: [r.width, r.height],
           color: r.stroke_color.to_linear_f32_array(),
@@ -961,49 +1057,56 @@ impl RenderEngine for WgpuRenderEngine {
           gradient_offset: -1.0,
         });
       }
-      rect_draws.push(PreparedDraw {
+      self.scratch_rect_draws.push(PreparedDraw {
         start,
-        count: rect_instances.len() - start,
+        count: self.scratch_rect_instances.len() - start,
       });
     }
-    let rect_instance_buf = (!rect_instances.is_empty()).then(|| {
-      device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("lurq_ordered_rect_instances"),
-        contents: bytemuck::cast_slice(&rect_instances),
-        usage: wgpu::BufferUsages::VERTEX,
-      })
-    });
+    let rect_instance_buf = self
+      .rect_instance_buffer
+      .write(device, queue, &self.scratch_rect_instances);
 
     // Storage buffers must be non-empty; a single zeroed vec4 is enough when
     // no rect uses a gradient (their `gradient_offset` is -1 and the shader
     // never reads it).
-    if gradient_data.is_empty() {
-      gradient_data.push([0.0; 4]);
+    if self.scratch_gradient_data.is_empty() {
+      self.scratch_gradient_data.push([0.0; 4]);
     }
-    let gradient_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("lurq_gradients_frame"),
-      contents: bytemuck::cast_slice(&gradient_data),
-      usage: wgpu::BufferUsages::STORAGE,
-    });
-    let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-      label: Some("lurq_quad_bg_frame"),
-      layout: self.quad_bgl.as_ref().unwrap(),
-      entries: &[
-        wgpu::BindGroupEntry {
-          binding: 0,
-          resource: self.globals_buffer.as_ref().unwrap().as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-          binding: 1,
-          resource: gradient_buf.as_entire_binding(),
-        },
-      ],
-    });
+    let gradient_bytes = bytemuck::cast_slice(&self.scratch_gradient_data);
+    let required_gradient_capacity = gradient_bytes.len() as wgpu::BufferAddress;
+    if self.gradient_buffer_capacity < required_gradient_capacity {
+      self.gradient_buffer_capacity = required_gradient_capacity.next_power_of_two().max(256);
+      let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("lurq_gradients"),
+        size: self.gradient_buffer_capacity,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+      });
+      let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("lurq_quad_bg"),
+        layout: self.quad_bgl.as_ref().unwrap(),
+        entries: &[
+          wgpu::BindGroupEntry {
+            binding: 0,
+            resource: self.globals_buffer.as_ref().unwrap().as_entire_binding(),
+          },
+          wgpu::BindGroupEntry {
+            binding: 1,
+            resource: gradient_buffer.as_entire_binding(),
+          },
+        ],
+      });
+      self.gradient_buffer = Some(gradient_buffer);
+      self.quad_bind_group = Some(quad_bind_group);
+    }
+    let gradient_buf = self.gradient_buffer.as_ref().unwrap();
+    queue.write_buffer(gradient_buf, 0, gradient_bytes);
 
-    let glyph_instances: Vec<GlyphInstance> = list
-      .glyphs
-      .iter()
-      .map(|g| GlyphInstance {
+    self.scratch_glyph_instances.clear();
+    self.scratch_glyph_instances.reserve(list.glyphs.len());
+    self
+      .scratch_glyph_instances
+      .extend(list.glyphs.iter().map(|g| GlyphInstance {
         pos: [g.x, g.y],
         size: [g.width, g.height],
         color: g.color,
@@ -1012,15 +1115,31 @@ impl RenderEngine for WgpuRenderEngine {
         transform: g.transform,
         xf_origin: g.transform_origin,
         sharpness: g.sharpness,
-      })
-      .collect();
-    let glyph_instance_buf = (!glyph_instances.is_empty()).then(|| {
-      device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("lurq_ordered_glyph_instances"),
-        contents: bytemuck::cast_slice(&glyph_instances),
-        usage: wgpu::BufferUsages::VERTEX,
-      })
-    });
+      }));
+    let glyph_instance_buf = self
+      .glyph_instance_buffer
+      .write(device, queue, &self.scratch_glyph_instances);
+
+    #[cfg(feature = "image")]
+    let image_instance_buf = {
+      self.scratch_image_instances.clear();
+      self.scratch_image_instances.reserve(list.images.len());
+      self
+        .scratch_image_instances
+        .extend(list.images.iter().map(|img| ImageInstance {
+          pos: [img.x, img.y],
+          size: [img.width, img.height],
+          opacity: [1.0, 0.0, 0.0, 0.0],
+          transform: img.transform,
+          xf_origin: img.transform_origin,
+          uv_min: img.uv_min,
+          uv_max: img.uv_max,
+          radii: img.radii,
+        }));
+      self
+        .image_instance_buffer
+        .write(device, queue, &self.scratch_image_instances)
+    };
 
     let mut encoder = device.create_command_encoder(&Default::default());
 
@@ -1039,21 +1158,33 @@ impl RenderEngine for WgpuRenderEngine {
         ..Default::default()
       });
 
-      enum OrderedDraw {
-        Rect(usize),
-        Glyph {
-          start: usize,
-          count: usize,
-        },
-        #[cfg(feature = "image")]
-        Image(usize),
-        #[cfg(feature = "svg")]
-        Svg(usize),
-      }
-
-      let mut ordered_draws: Vec<(usize, OrderedDraw)> = Vec::new();
+      self.scratch_ordered_draws.clear();
+      self.scratch_ordered_draws.reserve(
+        list.rects.len()
+          + list.glyphs.len()
+          + {
+            #[cfg(feature = "image")]
+            {
+              list.images.len()
+            }
+            #[cfg(not(feature = "image"))]
+            {
+              0
+            }
+          }
+          + {
+            #[cfg(feature = "svg")]
+            {
+              list.svgs.len()
+            }
+            #[cfg(not(feature = "svg"))]
+            {
+              0
+            }
+          },
+      );
       for (index, rect) in list.rects.iter().enumerate() {
-        ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
+        self.scratch_ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
       }
       let mut glyph_start = 0;
       while glyph_start < list.glyphs.len() {
@@ -1066,7 +1197,7 @@ impl RenderEngine for WgpuRenderEngine {
         {
           glyph_end += 1;
         }
-        ordered_draws.push((
+        self.scratch_ordered_draws.push((
           order,
           OrderedDraw::Glyph {
             start: glyph_start,
@@ -1077,22 +1208,24 @@ impl RenderEngine for WgpuRenderEngine {
       }
       #[cfg(feature = "image")]
       for (index, image) in list.images.iter().enumerate() {
-        ordered_draws.push((image.order, OrderedDraw::Image(index)));
+        self
+          .scratch_ordered_draws
+          .push((image.order, OrderedDraw::Image(index)));
       }
       #[cfg(feature = "svg")]
       for (index, svg) in list.svgs.iter().enumerate() {
-        ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
+        self.scratch_ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
       }
-      ordered_draws.sort_by_key(|(order, _)| *order);
+      self.scratch_ordered_draws.sort_by_key(|(order, _)| *order);
 
-      for (_, draw) in ordered_draws {
+      for (_, draw) in &self.scratch_ordered_draws {
         match draw {
           OrderedDraw::Rect(index) => {
-            let r = &list.rects[index];
+            let r = &list.rects[*index];
             if !set_scissor(&mut pass, r.clip, vw, vh) {
               continue;
             }
-            let prepared = &rect_draws[index];
+            let prepared = &self.scratch_rect_draws[*index];
             let start = (prepared.start * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             let end = ((prepared.start + prepared.count) * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
@@ -1114,20 +1247,20 @@ impl RenderEngine for WgpuRenderEngine {
               });
               pass.set_bind_group(0, &clip_bind_group, &[]);
             } else {
-              pass.set_bind_group(0, &quad_bind_group, &[]);
+              pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
             }
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
-            pass.set_vertex_buffer(1, rect_instance_buf.as_ref().unwrap().slice(start..end));
+            pass.set_vertex_buffer(1, rect_instance_buf.unwrap().slice(start..end));
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..6, 0, 0..prepared.count as u32);
           }
           OrderedDraw::Glyph { start, count } => {
-            let glyph_slice = &list.glyphs[start..start + count];
+            let glyph_slice = &list.glyphs[*start..*start + *count];
             if glyph_slice.is_empty() || !set_scissor(&mut pass, glyph_slice[0].clip, vw, vh) {
               continue;
             }
-            let start_byte = (start * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
-            let end_byte = ((start + count) * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
+            let start_byte = (*start * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
+            let end_byte = ((*start + *count) * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
             pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
             if rounded_clip_needs_shader(glyph_slice[0].clip) {
               let clip_globals = globals_buffer_for_clip(device, glyph_slice[0].clip, vw, vh);
@@ -1154,15 +1287,13 @@ impl RenderEngine for WgpuRenderEngine {
               pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
             }
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
-            pass.set_vertex_buffer(1, glyph_instance_buf.as_ref().unwrap().slice(start_byte..end_byte));
+            pass.set_vertex_buffer(1, glyph_instance_buf.unwrap().slice(start_byte..end_byte));
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..6, 0, 0..count as u32);
+            pass.draw_indexed(0..6, 0, 0..*count as u32);
           }
           #[cfg(feature = "image")]
           OrderedDraw::Image(index) => {
-            use vertex::ImageInstance;
-
-            let img = &list.images[index];
+            let img = &list.images[*index];
             let image_bgl = self.image_bgl.as_ref().unwrap().clone();
             let nv12_image_bgl = self.nv12_image_bgl.as_ref().unwrap().clone();
             let image_sampler = self.image_sampler.as_ref().unwrap().clone();
@@ -1234,21 +1365,6 @@ impl RenderEngine for WgpuRenderEngine {
               continue;
             }
 
-            let instance = ImageInstance {
-              pos: [img.x, img.y],
-              size: [img.width, img.height],
-              opacity: [1.0, 0.0, 0.0, 0.0],
-              transform: img.transform,
-              xf_origin: img.transform_origin,
-              uv_min: img.uv_min,
-              uv_max: img.uv_max,
-              radii: img.radii,
-            };
-            let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-              label: Some("lurq_ii"),
-              contents: bytemuck::cast_slice(&[instance]),
-              usage: wgpu::BufferUsages::VERTEX,
-            });
             match cached {
               CachedImageTexture::Rgba { bind_group, view, .. } => {
                 pass.set_pipeline(&image_pipeline);
@@ -1314,8 +1430,16 @@ impl RenderEngine for WgpuRenderEngine {
                 }
               }
             }
+            let image_instance_stride = std::mem::size_of::<ImageInstance>() as wgpu::BufferAddress;
+            let image_instance_start = *index as wgpu::BufferAddress * image_instance_stride;
+            let image_instance_end = image_instance_start + image_instance_stride;
             pass.set_vertex_buffer(0, vtx_buf.slice(..));
-            pass.set_vertex_buffer(1, instance_buf.slice(..));
+            pass.set_vertex_buffer(
+              1,
+              image_instance_buf
+                .unwrap()
+                .slice(image_instance_start..image_instance_end),
+            );
             pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..6, 0, 0..1);
           }
@@ -1323,7 +1447,7 @@ impl RenderEngine for WgpuRenderEngine {
           OrderedDraw::Svg(index) => {
             use vertex::SvgVertexGpu;
 
-            let svg_cmd = &list.svgs[index];
+            let svg_cmd = &list.svgs[*index];
             if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
               continue;
             }
@@ -1378,26 +1502,26 @@ impl RenderEngine for WgpuRenderEngine {
         }
       }
     }
-    let encode_dur = ProfileScope::elapsed_or_default(&encode_start);
+    let _encode_dur = profile_elapsed!(_encode_start);
 
-    let submit_start = ProfileScope::maybe_start(profiling_enabled);
+    let _submit_start = profile_scope!();
     queue.submit(std::iter::once(encoder.finish()));
-    let submit_dur = ProfileScope::elapsed_or_default(&submit_start);
+    let _submit_dur = profile_elapsed!(_submit_start);
 
-    let present_start = ProfileScope::maybe_start(profiling_enabled);
+    let _present_start = profile_scope!();
     output.present();
-    let present_dur = ProfileScope::elapsed_or_default(&present_start);
+    let _present_dur = profile_elapsed!(_present_start);
 
-    if profiling_enabled {
+    profile_if! {
       self.last_profile = RenderProfile {
-        init: init_dur,
-        acquire: acquire_dur,
-        globals_upload: globals_dur,
-        atlas_upload: atlas_dur,
-        encode: encode_dur,
-        submit: submit_dur,
-        present: present_dur,
-        total: ProfileScope::elapsed_or_default(&total_start),
+        init: _init_dur,
+        acquire: _acquire_dur,
+        globals_upload: _globals_dur,
+        atlas_upload: _atlas_dur,
+        encode: _encode_dur,
+        submit: _submit_dur,
+        present: _present_dur,
+        total: profile_elapsed!(_total_start),
       };
     }
   }
@@ -1410,12 +1534,15 @@ impl RenderEngine for WgpuRenderEngine {
     self.surface = None;
   }
 
-  fn set_profiling_enabled(&mut self, enabled: bool) {
-    self.profiling_enabled = enabled;
-  }
-
   fn last_profile(&self) -> Option<RenderProfile> {
-    Some(self.last_profile)
+    #[cfg(feature = "perf_profile")]
+    {
+      Some(self.last_profile)
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      None
+    }
   }
 }
 

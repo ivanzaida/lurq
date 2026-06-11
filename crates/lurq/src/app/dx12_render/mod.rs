@@ -83,7 +83,7 @@ use crate::render::gpu::ImageInstance;
 use crate::render::gpu::SvgVertexGpu;
 use crate::{
   app::{
-    profiler::{ProfileScope, RenderProfile},
+    profiler::{RenderProfile, profile_elapsed, profile_if, profile_scope},
     render_engine::RenderEngine,
   },
   layout::{
@@ -112,8 +112,8 @@ pub struct Dx12RenderEngine {
   state: Option<Dx12State>,
   width: u32,
   height: u32,
+  #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
-  profiling_enabled: bool,
   video_surfaces: Option<Dx12VideoSurfaceAllocator>,
 }
 
@@ -151,8 +151,8 @@ impl Dx12RenderEngine {
       state: None,
       width: 800,
       height: 600,
+      #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
-      profiling_enabled: false,
       video_surfaces: None,
     }
   }
@@ -399,13 +399,12 @@ impl RenderEngine for Dx12RenderEngine {
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
-    let profiling_enabled = self.profiling_enabled;
-    let total_start = ProfileScope::maybe_start(profiling_enabled);
-    let init_start = ProfileScope::maybe_start(profiling_enabled);
+    let _total_start = profile_scope!();
+    let _init_start = profile_scope!();
     self
       .ensure_initialized(window)
       .expect("failed to initialize native dx12 renderer");
-    let init_dur = ProfileScope::elapsed_or_default(&init_start);
+    let _init_dur = profile_elapsed!(_init_start);
 
     let state = self.state.as_mut().unwrap();
     if state.width != self.width || state.height != self.height {
@@ -415,17 +414,13 @@ impl RenderEngine for Dx12RenderEngine {
           .expect("failed to resize native dx12 swapchain");
       }
     }
-    let render_profile = unsafe {
-      state
-        .render(list, profiling_enabled)
-        .expect("failed to render native dx12 frame")
-    };
+    let _render_profile = unsafe { state.render(list).expect("failed to render native dx12 frame") };
 
-    if profiling_enabled {
+    profile_if! {
       self.last_profile = RenderProfile {
-        init: init_dur,
-        total: ProfileScope::elapsed_or_default(&total_start),
-        ..render_profile
+        init: _init_dur,
+        total: profile_elapsed!(_total_start),
+        .._render_profile
       };
     }
   }
@@ -437,12 +432,15 @@ impl RenderEngine for Dx12RenderEngine {
     self.state = None;
   }
 
-  fn set_profiling_enabled(&mut self, enabled: bool) {
-    self.profiling_enabled = enabled;
-  }
-
   fn last_profile(&self) -> Option<RenderProfile> {
-    Some(self.last_profile)
+    #[cfg(feature = "perf_profile")]
+    {
+      Some(self.last_profile)
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      None
+    }
   }
 }
 
@@ -2090,9 +2088,9 @@ impl Dx12State {
     Ok(())
   }
 
-  unsafe fn render(&mut self, list: &RenderList, profiling_enabled: bool) -> Result<RenderProfile> {
-    let total_start = ProfileScope::maybe_start(profiling_enabled);
-    let acquire_start = ProfileScope::maybe_start(profiling_enabled);
+  unsafe fn render(&mut self, list: &RenderList) -> Result<RenderProfile> {
+    let _total_start = profile_scope!();
+    let _acquire_start = profile_scope!();
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     self.wait_for_frame(self.frame_index)?;
     self.frame_uploads[self.frame_index].clear();
@@ -2100,9 +2098,9 @@ impl Dx12State {
     let allocator = &self.command_allocators[self.frame_index];
     allocator.Reset()?;
     self.command_list.Reset(allocator, None::<&ID3D12PipelineState>)?;
-    let acquire_dur = ProfileScope::elapsed_or_default(&acquire_start);
+    let _acquire_dur = profile_elapsed!(_acquire_start);
 
-    let encode_start = ProfileScope::maybe_start(profiling_enabled);
+    let _encode_start = profile_scope!();
     let target = self.current_render_target();
     self.transition_resource(
       &target,
@@ -2115,9 +2113,9 @@ impl Dx12State {
       .command_list
       .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
 
-    let atlas_start = ProfileScope::maybe_start(profiling_enabled);
+    let _atlas_start = profile_scope!();
     self.update_glyph_atlas(list)?;
-    let atlas_dur = ProfileScope::elapsed_or_default(&atlas_start);
+    let _atlas_dur = profile_elapsed!(_atlas_start);
     self.draw_ordered(list)?;
 
     self.transition_resource(
@@ -2127,26 +2125,26 @@ impl Dx12State {
     );
 
     self.command_list.Close()?;
-    let encode_dur = ProfileScope::elapsed_or_default(&encode_start);
+    let _encode_dur = profile_elapsed!(_encode_start);
 
-    let submit_start = ProfileScope::maybe_start(profiling_enabled);
+    let _submit_start = profile_scope!();
     let command_list: ID3D12CommandList = self.command_list.cast()?;
     self.command_queue.ExecuteCommandLists(&[Some(command_list)]);
     self.signal_current_frame()?;
-    let submit_dur = ProfileScope::elapsed_or_default(&submit_start);
+    let _submit_dur = profile_elapsed!(_submit_start);
 
-    let present_start = ProfileScope::maybe_start(profiling_enabled);
+    let _present_start = profile_scope!();
     self.swapchain.Present(1, Default::default()).ok()?;
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
-    let present_dur = ProfileScope::elapsed_or_default(&present_start);
+    let _present_dur = profile_elapsed!(_present_start);
 
     Ok(RenderProfile {
-      acquire: acquire_dur,
-      atlas_upload: atlas_dur,
-      encode: encode_dur,
-      submit: submit_dur,
-      present: present_dur,
-      total: ProfileScope::elapsed_or_default(&total_start),
+      acquire: _acquire_dur,
+      atlas_upload: _atlas_dur,
+      encode: _encode_dur,
+      submit: _submit_dur,
+      present: _present_dur,
+      total: profile_elapsed!(_total_start),
       ..RenderProfile::default()
     })
   }

@@ -26,6 +26,7 @@ dx12 = ["render", "dep:windows"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
 devtools = []
+perf_profile = []
 router = []
 
 [dependencies]
