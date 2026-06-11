@@ -31,7 +31,6 @@ type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
 type FrameFn = Box<dyn FnMut(&Tree, Duration)>;
 type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
 type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
-const TICK_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 
 pub struct WinitWindow {
   app: App,
@@ -278,6 +277,8 @@ impl ManagedWindow {
       if let Some(window) = &self.window {
         window.set_visible(true);
       }
+      self.tree.request_redraw();
+      self.check_redraw();
     }
     if !presented {
       self.request_redraw();
@@ -412,7 +413,6 @@ impl ManagedWindow {
       self.tree.set_scale_factor(w.scale_factor() as f32);
       self.tree.resize(size.width, size.height);
       self.redraw_pending = false;
-      self.tree.clear_needs_redraw();
       let frame_count = self.tree.frame_count();
       self.tree.pass(app, w);
       let presented = self.tree.frame_count() != frame_count;
@@ -453,16 +453,13 @@ impl ManagedWindow {
     self.tree.tick_timers();
     self.tree.tick_futures();
     self.tree.tick_perf_overlay();
+    if self.tree.has_active_timeline() {
+      self.tree.request_redraw();
+    }
     if self.tree.perf_overlay_enabled() {
       self.tree.request_redraw();
     }
-    if !self.should_defer_timeline_redraw(now) {
-      self.check_redraw();
-    }
-  }
-
-  fn should_defer_timeline_redraw(&self, now: Instant) -> bool {
-    self.tree.needs_redraw() && self.tree.has_active_timeline() && now.duration_since(self.last_frame) < TICK_INTERVAL
+    self.check_redraw();
   }
 
   fn notify_position_changed(&mut self, x: i32, y: i32) {
@@ -628,7 +625,6 @@ struct ManagedSecondaryWindow {
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   redraw_pending: bool,
-  last_frame: Instant,
   close_requested: bool,
 }
 
@@ -646,7 +642,6 @@ impl ManagedSecondaryWindow {
           .with_inner_size(winit::dpi::LogicalSize::new(secondary.width(), secondary.height())),
       ),
       redraw_pending: false,
-      last_frame: Instant::now(),
       close_requested: false,
     }
   }
@@ -832,16 +827,10 @@ impl ManagedSecondaryWindow {
       tree.set_scale_factor(w.scale_factor() as f32);
       tree.resize(size.width, size.height);
       self.redraw_pending = false;
-      tree.clear_needs_redraw();
       let frame_count = tree.frame_count();
       tree.pass(app, w);
       let presented = tree.frame_count() != frame_count;
-      if presented {
-        self.last_frame = Instant::now();
-      }
-      if !self.should_defer_timeline_redraw(tree, Instant::now()) {
-        self.check_redraw(tree);
-      }
+      self.check_redraw(tree);
       return presented;
     }
     false
@@ -863,16 +852,13 @@ impl ManagedSecondaryWindow {
     tree.tick_timers();
     tree.tick_futures();
     tree.tick_perf_overlay();
+    if tree.has_active_timeline() {
+      tree.request_redraw();
+    }
     if tree.perf_overlay_enabled() {
       tree.request_redraw();
     }
-    if !self.should_defer_timeline_redraw(tree, Instant::now()) {
-      self.check_redraw(tree);
-    }
-  }
-
-  fn should_defer_timeline_redraw(&self, tree: &Tree, now: Instant) -> bool {
-    tree.needs_redraw() && tree.has_active_timeline() && now.duration_since(self.last_frame) < TICK_INTERVAL
+    self.check_redraw(tree);
   }
 
   fn handle_event(
@@ -1212,9 +1198,10 @@ impl ApplicationHandler for WinitHandler {
         .secondary_window(secondary_window.index())
         .is_some_and(|secondary| secondary_window.has_tick(Some(secondary.tree())))
     });
+    let redraw_pending = self.main.redraw_pending || self.secondaries.iter().any(|secondary| secondary.redraw_pending);
 
-    if self.main.has_tick() || secondary_has_tick {
-      event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + TICK_INTERVAL));
+    if (self.main.has_tick() || secondary_has_tick) && !redraw_pending {
+      event_loop.set_control_flow(ControlFlow::Poll);
     } else {
       event_loop.set_control_flow(ControlFlow::Wait);
     }

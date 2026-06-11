@@ -1068,33 +1068,39 @@ impl CheckboxState {
   }
 
   #[cfg(all(feature = "image", feature = "resources"))]
-  pub(crate) fn resolve_resource_images(&self, mut resolve: impl FnMut(&Arc<str>) -> Option<crate::images::ImageData>) {
+  pub(crate) fn resolve_resource_images(
+    &self,
+    mut resolve: impl FnMut(&Arc<str>) -> Option<crate::images::ImageData>,
+  ) -> bool {
     fn resolve_style(
       style: &mut CheckboxStyle,
       resolve: &mut impl FnMut(&Arc<str>) -> Option<crate::images::ImageData>,
-    ) {
+    ) -> bool {
       let Some(key) = style.indicator_resource_image.clone() else {
-        return;
+        return false;
       };
       let Some(img) = resolve(&key) else {
-        return;
+        return false;
       };
       if style.indicator_image.as_ref().map(crate::images::ImageData::id) != Some(img.id()) {
         style.indicator_image = Some(img);
+        return true;
       }
+      false
     }
 
     let mut inner = self.inner.lock().unwrap();
-    resolve_style(&mut inner.style, &mut resolve);
+    let mut changed = resolve_style(&mut inner.style, &mut resolve);
     if let Some(style) = &mut inner.checked_style {
-      resolve_style(style, &mut resolve);
+      changed |= resolve_style(style, &mut resolve);
     }
     if let Some(style) = &mut inner.hovered_style {
-      resolve_style(style, &mut resolve);
+      changed |= resolve_style(style, &mut resolve);
     }
     if let Some(style) = &mut inner.checked_hovered_style {
-      resolve_style(style, &mut resolve);
+      changed |= resolve_style(style, &mut resolve);
     }
+    changed
   }
 }
 
@@ -1398,31 +1404,34 @@ impl SliderState {
   pub(crate) fn resolve_resource_images(
     &self,
     mut resolve: impl FnMut(&std::sync::Arc<str>) -> Option<crate::images::ImageData>,
-  ) {
+  ) -> bool {
     fn resolve_style(
       style: &mut SliderPartStyle,
       resolve: &mut impl FnMut(&std::sync::Arc<str>) -> Option<crate::images::ImageData>,
-    ) {
+    ) -> bool {
       let Some(key) = style.background_resource_image.clone() else {
-        return;
+        return false;
       };
       let Some(img) = resolve(&key) else {
-        return;
+        return false;
       };
       if style.background_image.as_ref().map(crate::images::ImageData::id) != Some(img.id()) {
         style.background_image = Some(img);
+        return true;
       }
+      false
     }
 
     let mut inner = self.inner.lock().unwrap();
-    resolve_style(&mut inner.track_style, &mut resolve);
+    let mut changed = resolve_style(&mut inner.track_style, &mut resolve);
     if let Some(style) = &mut inner.track_hovered_style {
-      resolve_style(style, &mut resolve);
+      changed |= resolve_style(style, &mut resolve);
     }
-    resolve_style(&mut inner.thumb_style, &mut resolve);
+    changed |= resolve_style(&mut inner.thumb_style, &mut resolve);
     if let Some(style) = &mut inner.thumb_hovered_style {
-      resolve_style(style, &mut resolve);
+      changed |= resolve_style(style, &mut resolve);
     }
+    changed
   }
 
   pub(crate) fn part_rects(

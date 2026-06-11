@@ -2,6 +2,7 @@ mod animation_demo;
 mod components_demo;
 mod context_demo;
 mod dnd_demo;
+mod dynamic_demo;
 mod events_demo;
 mod inputs_demo;
 mod layout_demo;
@@ -66,7 +67,7 @@ impl Component for DemoApp {
     let theme = ctx.signal(DemoTheme::Dark);
     let modal_open = ctx.signal(false);
     let router = ctx.router(demo_routes(theme.clone(), modal_open.clone()));
-    router.replace("/");
+    router.replace("/dynamic-images");
 
     Self { router }
   }
@@ -86,6 +87,8 @@ fn demo_routes(theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Routes {
     move |routes| {
       routes
         .route("/", |_ctx| layout_content())
+        .route("/dynamic-keyframes", |_ctx| dynamic_demo::dynamic_keyframes_content())
+        .route("/dynamic-images", |_ctx| dynamic_demo::dynamic_images_content())
         .route("/sizing", |_ctx| sizing_content())
         .route("/position", |ctx| ctx.mount::<PositioningDemo>(()))
         .route("/dnd", |ctx| ctx.mount::<DndDemo>(()))

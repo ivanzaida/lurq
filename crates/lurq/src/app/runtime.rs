@@ -347,7 +347,7 @@ impl Tree {
       text_click_tracker: TextClickTracker::default(),
       click_press: None,
       suppressed_click: None,
-      needs_redraw: false,
+      needs_redraw: true,
       perf_overlay_enabled: false,
       perf_overlay_stats: PerfMeterStats::default(),
       perf_overlay_last_sample: Instant::now(),
@@ -1034,6 +1034,11 @@ impl Tree {
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
+    if !self.needs_redraw {
+      return;
+    }
+    self.needs_redraw = false;
+
     self.set_app_ref(app);
     let _frame_start = profile_scope!();
     let scale = self.scale_factor();
@@ -3204,7 +3209,12 @@ impl Tree {
         quad_resolve_ms: ms(profile.quad_resolve),
         glyph_ms: ms(profile.glyph_rasterize),
         render_acquire_ms: ms(profile.render.acquire),
-        render_upload_ms: ms(profile.render.globals_upload + profile.render.atlas_upload),
+        render_upload_ms: ms(
+          profile.render.globals_upload
+            + profile.render.atlas_upload
+            + profile.render.buffer_upload
+            + profile.render.image_upload,
+        ),
         render_encode_ms: ms(profile.render.encode),
         render_submit_ms: ms(profile.render.submit),
         render_present_ms: ms(profile.render.present),
@@ -3302,18 +3312,19 @@ impl Tree {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
-    self.resolve_resource_images(app);
+    let image_resources_changed = self.resolve_resource_images(app);
+    #[cfg(not(all(feature = "image", feature = "resources")))]
+    let image_resources_changed = false;
     #[cfg(all(feature = "svg", feature = "resources"))]
-    self.resolve_resource_svgs(app);
+    let svg_resources_changed = self.resolve_resource_svgs(app);
+    #[cfg(not(all(feature = "svg", feature = "resources")))]
+    let svg_resources_changed = false;
 
     let mut animation_layout_changed = false;
     if let Some(root) = self.root.as_mut() {
       let now = Instant::now();
       animation_layout_changed |= self.transition_engine.tick(root, now);
       animation_layout_changed |= self.animation_engine.tick(root, now);
-      if self.transition_engine.has_active || self.animation_engine.has_active {
-        self.needs_redraw = true;
-      }
     }
 
     if let Some(root) = self.root.as_ref() {
@@ -3328,6 +3339,8 @@ impl Tree {
       let theme_changed = self.last_theme_version != theme_version;
       let has_select_overlay_host = root.tag_name() == SELECT_OVERLAY_TAG;
       if !animation_layout_changed
+        && !image_resources_changed
+        && !svg_resources_changed
         && !theme_changed
         && !has_select_overlay_host
         && self.last_layout.is_some()
@@ -3476,9 +3489,15 @@ impl Tree {
   }
 
   #[cfg(all(feature = "image", feature = "resources"))]
-  fn resolve_resource_images(&mut self, app: &mut App) {
+  fn resolve_resource_images(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
-      Self::resolve_resource_images_recursive(root, &app.resource_loader, &mut app.image_resource_cache);
+      let changed = Self::resolve_resource_images_recursive(root, &app.resource_loader, &mut app.image_resource_cache);
+      if changed {
+        self.needs_redraw = true;
+      }
+      changed
+    } else {
+      false
     }
   }
 
@@ -3504,16 +3523,21 @@ impl Tree {
         let current_id = node.background_image.as_ref().map(crate::images::ImageData::id);
         if current_id != Some(img.id()) {
           node.background_image.set(Some(img));
+          layout_dirty = true;
         }
       }
     }
 
     match node.node_kind() {
       NodeKind::Checkbox { state } => {
-        state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache));
+        if state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache)) {
+          layout_dirty = true;
+        }
       }
       NodeKind::Slider { state } => {
-        state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache));
+        if state.resolve_resource_images(|key| Self::resolve_image_resource(key, loader, image_cache)) {
+          layout_dirty = true;
+        }
       }
       _ => {}
     }
@@ -3551,9 +3575,15 @@ impl Tree {
   }
 
   #[cfg(all(feature = "svg", feature = "resources"))]
-  fn resolve_resource_svgs(&mut self, app: &mut App) {
+  fn resolve_resource_svgs(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
-      Self::resolve_resource_svgs_recursive(root, &app.resource_loader, &mut app.svg_resource_cache);
+      let changed = Self::resolve_resource_svgs_recursive(root, &app.resource_loader, &mut app.svg_resource_cache);
+      if changed {
+        self.needs_redraw = true;
+      }
+      changed
+    } else {
+      false
     }
   }
 

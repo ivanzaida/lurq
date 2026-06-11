@@ -12,6 +12,7 @@ use core_video_sys::pixel_buffer::CVPixelBufferRef;
 #[cfg(all(feature = "image", target_os = "macos"))]
 use metal::foreign_types::ForeignType;
 use raw_window_handle::{DisplayHandle, WindowHandle};
+use std::time::Duration;
 #[cfg(feature = "image")]
 use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
@@ -30,6 +31,24 @@ struct DynamicBuffer {
   capacity: wgpu::BufferAddress,
   usage: wgpu::BufferUsages,
   label: &'static str,
+  last_bytes: Vec<u8>,
+}
+
+fn changed_byte_range(previous: &[u8], next: &[u8]) -> Option<(usize, usize)> {
+  if previous.len() != next.len() {
+    return Some((0, next.len()));
+  }
+
+  let start = previous.iter().zip(next).position(|(a, b)| a != b)?;
+  let end = previous
+    .iter()
+    .zip(next)
+    .rposition(|(a, b)| a != b)
+    .map(|index| index + 1)
+    .unwrap_or(start + 1);
+  let aligned_start = start & !3;
+  let aligned_end = (end + 3).min(next.len()) & !3;
+  Some((aligned_start, aligned_end.max(aligned_start + 4).min(next.len())))
 }
 
 impl DynamicBuffer {
@@ -39,12 +58,14 @@ impl DynamicBuffer {
       capacity: 0,
       usage,
       label,
+      last_bytes: Vec::new(),
     }
   }
 
   fn clear(&mut self) {
     self.buffer = None;
     self.capacity = 0;
+    self.last_bytes.clear();
   }
 
   fn write<T: bytemuck::Pod>(
@@ -59,6 +80,7 @@ impl DynamicBuffer {
 
     let bytes = bytemuck::cast_slice(data);
     let required = bytes.len() as wgpu::BufferAddress;
+    let mut recreated = false;
     if self.capacity < required {
       self.capacity = required.next_power_of_two().max(256);
       self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
@@ -67,10 +89,19 @@ impl DynamicBuffer {
         usage: self.usage | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
       }));
+      recreated = true;
     }
 
     let buffer = self.buffer.as_ref().unwrap();
-    queue.write_buffer(buffer, 0, bytes);
+    if recreated {
+      queue.write_buffer(buffer, 0, bytes);
+      self.last_bytes.clear();
+      self.last_bytes.extend_from_slice(bytes);
+    } else if let Some((start, end)) = changed_byte_range(&self.last_bytes, bytes) {
+      queue.write_buffer(buffer, start as wgpu::BufferAddress, &bytes[start..end]);
+      self.last_bytes.clear();
+      self.last_bytes.extend_from_slice(bytes);
+    }
     Some(buffer)
   }
 }
@@ -219,6 +250,8 @@ pub struct WgpuRenderEngine {
   globals_buffer: Option<wgpu::Buffer>,
   gradient_buffer: Option<wgpu::Buffer>,
   gradient_buffer_capacity: wgpu::BufferAddress,
+  last_globals_bytes: Vec<u8>,
+  last_gradient_bytes: Vec<u8>,
   atlas_texture: Option<wgpu::Texture>,
   atlas_view: Option<wgpu::TextureView>,
   atlas_sampler: Option<wgpu::Sampler>,
@@ -287,6 +320,8 @@ impl WgpuRenderEngine {
       globals_buffer: None,
       gradient_buffer: None,
       gradient_buffer_capacity: 0,
+      last_globals_bytes: Vec::new(),
+      last_gradient_bytes: Vec::new(),
       atlas_texture: None,
       atlas_view: None,
       atlas_sampler: None,
@@ -347,6 +382,8 @@ impl WgpuRenderEngine {
     self.globals_buffer = None;
     self.gradient_buffer = None;
     self.gradient_buffer_capacity = 0;
+    self.last_globals_bytes.clear();
+    self.last_gradient_bytes.clear();
     self.atlas_view = None;
     self.atlas_texture = None;
     self.atlas_sampler = None;
@@ -947,7 +984,12 @@ impl RenderEngine for WgpuRenderEngine {
       clip_active: [0.0; 4],
     };
     let _globals_start = profile_scope!();
-    queue.write_buffer(globals_buffer, 0, bytemuck::bytes_of(&globals));
+    let globals_bytes = bytemuck::bytes_of(&globals);
+    if self.last_globals_bytes.as_slice() != globals_bytes {
+      queue.write_buffer(globals_buffer, 0, globals_bytes);
+      self.last_globals_bytes.clear();
+      self.last_globals_bytes.extend_from_slice(globals_bytes);
+    }
     let _globals_dur = profile_elapsed!(_globals_start);
 
     // Atlas — recreate texture only if size changed
@@ -1018,6 +1060,8 @@ impl RenderEngine for WgpuRenderEngine {
     let _atlas_dur = profile_elapsed!(_atlas_start);
 
     let _encode_start = profile_scope!();
+    let mut _buffer_upload_dur = Duration::default();
+    let mut _image_texture_upload_dur = Duration::default();
 
     self.scratch_rect_instances.clear();
     self.scratch_rect_draws.clear();
@@ -1062,9 +1106,11 @@ impl RenderEngine for WgpuRenderEngine {
         count: self.scratch_rect_instances.len() - start,
       });
     }
+    let _rect_upload_start = profile_scope!();
     let rect_instance_buf = self
       .rect_instance_buffer
       .write(device, queue, &self.scratch_rect_instances);
+    _buffer_upload_dur += profile_elapsed!(_rect_upload_start);
 
     // Storage buffers must be non-empty; a single zeroed vec4 is enough when
     // no rect uses a gradient (their `gradient_offset` is -1 and the shader
@@ -1074,6 +1120,7 @@ impl RenderEngine for WgpuRenderEngine {
     }
     let gradient_bytes = bytemuck::cast_slice(&self.scratch_gradient_data);
     let required_gradient_capacity = gradient_bytes.len() as wgpu::BufferAddress;
+    let mut gradient_recreated = false;
     if self.gradient_buffer_capacity < required_gradient_capacity {
       self.gradient_buffer_capacity = required_gradient_capacity.next_power_of_two().max(256);
       let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1098,9 +1145,16 @@ impl RenderEngine for WgpuRenderEngine {
       });
       self.gradient_buffer = Some(gradient_buffer);
       self.quad_bind_group = Some(quad_bind_group);
+      gradient_recreated = true;
     }
     let gradient_buf = self.gradient_buffer.as_ref().unwrap();
-    queue.write_buffer(gradient_buf, 0, gradient_bytes);
+    let _gradient_upload_start = profile_scope!();
+    if gradient_recreated || self.last_gradient_bytes.as_slice() != gradient_bytes {
+      queue.write_buffer(gradient_buf, 0, gradient_bytes);
+      self.last_gradient_bytes.clear();
+      self.last_gradient_bytes.extend_from_slice(gradient_bytes);
+    }
+    _buffer_upload_dur += profile_elapsed!(_gradient_upload_start);
 
     self.scratch_glyph_instances.clear();
     self.scratch_glyph_instances.reserve(list.glyphs.len());
@@ -1116,10 +1170,14 @@ impl RenderEngine for WgpuRenderEngine {
         xf_origin: g.transform_origin,
         sharpness: g.sharpness,
       }));
+    let _glyph_upload_start = profile_scope!();
     let glyph_instance_buf = self
       .glyph_instance_buffer
       .write(device, queue, &self.scratch_glyph_instances);
+    _buffer_upload_dur += profile_elapsed!(_glyph_upload_start);
 
+    #[cfg(feature = "image")]
+    let _image_upload_start = profile_scope!();
     #[cfg(feature = "image")]
     let image_instance_buf = {
       self.scratch_image_instances.clear();
@@ -1140,6 +1198,10 @@ impl RenderEngine for WgpuRenderEngine {
         .image_instance_buffer
         .write(device, queue, &self.scratch_image_instances)
     };
+    #[cfg(feature = "image")]
+    {
+      _buffer_upload_dur += profile_elapsed!(_image_upload_start);
+    }
 
     let mut encoder = device.create_command_encoder(&Default::default());
 
@@ -1309,6 +1371,7 @@ impl RenderEngine for WgpuRenderEngine {
             }
 
             if !self.image_texture_cache.contains_key(&img.image_id) {
+              let _image_texture_upload_start = profile_scope!();
               let cached = match img.image_format {
                 crate::images::ImagePixelFormat::Rgba8 => Some(create_rgba_cached_image_texture(
                   device,
@@ -1322,6 +1385,7 @@ impl RenderEngine for WgpuRenderEngine {
                   create_nv12_cached_image_texture(device, queue, &nv12_image_bgl, &image_sampler, globals_buffer, img)
                 }
               };
+              _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
               let Some(cached) = cached else {
                 continue;
               };
@@ -1339,7 +1403,9 @@ impl RenderEngine for WgpuRenderEngine {
                 ..
               } => {
                 if *frame_index != img.frame_index || *version != img.version {
+                  let _image_texture_upload_start = profile_scope!();
                   write_rgba_image_texture(queue, texture, img);
+                  _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
                   *frame_index = img.frame_index;
                   *version = img.version;
                 }
@@ -1352,9 +1418,12 @@ impl RenderEngine for WgpuRenderEngine {
                 ..
               } => {
                 if *frame_index != img.frame_index || *version != img.version {
+                  let _image_texture_upload_start = profile_scope!();
                   if !write_nv12_image_textures(queue, y_texture, uv_texture, img) {
+                    _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
                     continue;
                   }
+                  _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
                   *frame_index = img.frame_index;
                   *version = img.version;
                 }
@@ -1518,6 +1587,8 @@ impl RenderEngine for WgpuRenderEngine {
         acquire: _acquire_dur,
         globals_upload: _globals_dur,
         atlas_upload: _atlas_dur,
+        buffer_upload: _buffer_upload_dur,
+        image_upload: _image_texture_upload_dur,
         encode: _encode_dur,
         submit: _submit_dur,
         present: _present_dur,

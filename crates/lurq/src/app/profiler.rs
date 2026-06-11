@@ -43,6 +43,8 @@ pub struct RenderProfile {
   pub acquire: Duration,
   pub globals_upload: Duration,
   pub atlas_upload: Duration,
+  pub buffer_upload: Duration,
+  pub image_upload: Duration,
   pub encode: Duration,
   pub submit: Duration,
   pub present: Duration,
@@ -80,7 +82,9 @@ impl std::fmt::Display for FrameProfile {
       self.glyph_rasterize.as_secs_f64() * 1000.0,
       self.gpu_submit.as_secs_f64() * 1000.0,
       self.render.acquire.as_secs_f64() * 1000.0,
-      (self.render.globals_upload + self.render.atlas_upload).as_secs_f64() * 1000.0,
+      (self.render.globals_upload + self.render.atlas_upload + self.render.buffer_upload + self.render.image_upload)
+        .as_secs_f64()
+        * 1000.0,
       self.render.encode.as_secs_f64() * 1000.0,
       self.render.submit.as_secs_f64() * 1000.0,
       self.render.present.as_secs_f64() * 1000.0,
