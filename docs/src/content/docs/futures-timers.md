@@ -106,7 +106,7 @@ When using the `form` feature, `FormProps::submit_action(action)` wires a `Futur
 Enable the `tokio` feature to run futures on a real async runtime instead of polling them manually each frame.
 
 ```toml
-lurq = { version = "0.10.7", features = ["tokio"] }
+lurq = { version = "0.12.0", features = ["tokio"] }
 ```
 
 Pass a tokio handle when creating the `App`:
