@@ -564,6 +564,9 @@ fn start_future_task<T, E>(
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
+  subtree_dirty: Arc<AtomicBool>,
+  dirty_child_slots: Arc<Mutex<Vec<u64>>>,
+  ancestor_dirty_slots: Vec<DirtyAncestor>,
   batch: Arc<BatchState>,
   props: Option<Box<dyn Any + Send>>,
   #[cfg(feature = "devtools")]
@@ -606,6 +609,13 @@ pub struct Ctx {
   click_outside_cursor: usize,
   click_outside_active_cursors: Vec<usize>,
   rendering: bool,
+}
+
+#[derive(Clone)]
+struct DirtyAncestor {
+  subtree_dirty: Arc<AtomicBool>,
+  dirty_child_slots: Arc<Mutex<Vec<u64>>>,
+  child_slot_id: u64,
 }
 
 #[cfg(feature = "devtools")]
@@ -953,6 +963,9 @@ impl Ctx {
   pub(crate) fn new() -> Self {
     Self {
       dirty: Arc::new(AtomicBool::new(true)),
+      subtree_dirty: Arc::new(AtomicBool::new(true)),
+      dirty_child_slots: Arc::new(Mutex::new(Vec::new())),
+      ancestor_dirty_slots: Vec::new(),
       batch: Arc::new(BatchState::default()),
       props: None,
       #[cfg(feature = "devtools")]
@@ -1054,8 +1067,59 @@ impl Ctx {
     self.dirty.load(Ordering::Relaxed)
   }
 
+  fn mark_dirty_targets(
+    batch: &BatchState,
+    dirty: &Arc<AtomicBool>,
+    subtree_dirty: &Arc<AtomicBool>,
+    ancestor_dirty_slots: &[DirtyAncestor],
+  ) {
+    batch.mark_dirty(dirty);
+    batch.mark_dirty(subtree_dirty);
+    for ancestor in ancestor_dirty_slots {
+      batch.mark_dirty(&ancestor.subtree_dirty);
+      Self::mark_dirty_child_slot(&ancestor.dirty_child_slots, ancestor.child_slot_id);
+    }
+  }
+
+  fn mark_self_dirty(&self) {
+    self.dirty.store(true, Ordering::Relaxed);
+    self.subtree_dirty.store(true, Ordering::Relaxed);
+    for ancestor in &self.ancestor_dirty_slots {
+      ancestor.subtree_dirty.store(true, Ordering::Relaxed);
+      Self::mark_dirty_child_slot(&ancestor.dirty_child_slots, ancestor.child_slot_id);
+    }
+  }
+
+  fn mark_dirty_child_slot(dirty_child_slots: &Mutex<Vec<u64>>, slot_id: u64) {
+    let mut dirty_child_slots = dirty_child_slots.lock();
+    if !dirty_child_slots.contains(&slot_id) {
+      dirty_child_slots.push(slot_id);
+    }
+  }
+
+  fn inherit_dirty_ancestors_from(&mut self, parent: &Ctx, slot_id: u64) {
+    self.ancestor_dirty_slots = parent.ancestor_dirty_slots.clone();
+    self.ancestor_dirty_slots.push(DirtyAncestor {
+      subtree_dirty: parent.subtree_dirty.clone(),
+      dirty_child_slots: parent.dirty_child_slots.clone(),
+      child_slot_id: slot_id,
+    });
+  }
+
+  fn update_subtree_dirty_from_children(&self) {
+    let dirty = self.is_dirty() || !self.dirty_child_slots.lock().is_empty();
+    self.subtree_dirty.store(dirty, Ordering::Relaxed);
+  }
+
+  fn take_dirty_child_slot_ids(&self) -> Vec<u64> {
+    let mut dirty_child_slots = self.dirty_child_slots.lock();
+    std::mem::take(&mut *dirty_child_slots)
+  }
+
   pub(crate) fn clear_dirty(&self) {
     self.dirty.store(false, Ordering::Relaxed);
+    self.subtree_dirty.store(false, Ordering::Relaxed);
+    self.dirty_child_slots.lock().clear();
   }
 
   pub fn batch<R>(&self, f: impl FnOnce() -> R) -> R {
@@ -1097,7 +1161,7 @@ impl Ctx {
       return false;
     }
     self.set_props(props);
-    self.dirty.store(true, Ordering::Relaxed);
+    self.mark_self_dirty();
     true
   }
 
@@ -1107,7 +1171,7 @@ impl Ctx {
       return false;
     }
     self.set_props(props);
-    self.dirty.store(true, Ordering::Relaxed);
+    self.mark_self_dirty();
     true
   }
 
@@ -1158,9 +1222,11 @@ impl Ctx {
       update_debug_value_history(&debug_value, &debug_history, format_debug_value(value));
     });
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     let handle = sig.watch(move || {
-      batch.mark_dirty(&dirty);
+      Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     self.watch_handles.push(Box::new(debug_handle));
     self.watch_handles.push(Box::new(handle));
@@ -1171,9 +1237,11 @@ impl Ctx {
   pub fn signal<T: SignalValue + Send + Sync + 'static>(&mut self, initial: T) -> Signal<T> {
     let sig = Signal::new(initial);
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     let handle = sig.watch(move || {
-      batch.mark_dirty(&dirty);
+      Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     self.watch_handles.push(Box::new(handle));
     sig
@@ -1235,11 +1303,13 @@ impl Ctx {
   #[cfg(feature = "form")]
   pub fn form(&mut self, options: crate::components::FormOptions) -> crate::components::FormHandle {
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     crate::components::FormHandle::with_dirty(
       options,
       Arc::new(move || {
-        batch.mark_dirty(&dirty);
+        Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
       }),
     )
   }
@@ -1462,9 +1532,11 @@ impl Ctx {
   pub fn store<T: SignalValue + Clone + Send + Sync + 'static>(&mut self, initial: T) -> Store<T> {
     let store = Store::new(initial);
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     let handle = store.signal().watch(move || {
-      batch.mark_dirty(&dirty);
+      Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     self.watch_handles.push(Box::new(handle));
     store
@@ -1493,9 +1565,11 @@ impl Ctx {
     let ctx = ReactiveContext::new(value);
     self.context_map.provide(ctx.clone());
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     ctx.subscribe(move || {
-      batch.mark_dirty(&dirty);
+      Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     ctx
   }
@@ -1508,9 +1582,11 @@ impl Ctx {
     );
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     ctx.subscribe(move || {
-      batch.mark_dirty(&dirty);
+      Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     Some(ctx)
   }
@@ -1829,7 +1905,9 @@ impl Ctx {
       return Element::from_node(slot.rendered.as_ref().unwrap().clone_for_reuse());
     }
 
+    let slot_id = next_component_slot_id();
     let mut child_ctx = Ctx::new();
+    child_ctx.inherit_dirty_ancestors_from(self, slot_id);
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.window = self.window.clone();
@@ -1850,7 +1928,6 @@ impl Ctx {
     child_ctx.context_map = self.context_map.clone();
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
-    let slot_id = next_component_slot_id();
     child_ctx.modal_scope_id = slot_id;
     let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
@@ -1902,7 +1979,9 @@ impl Ctx {
       .is_some_and(|slot| slot.key.is_none() && slot.component.type_name() == ForEachSlot::TYPE_NAME);
 
     if !can_reuse_group {
+      let slot_id = next_component_slot_id();
       let mut group_ctx = Ctx::new();
+      group_ctx.inherit_dirty_ancestors_from(self, slot_id);
       group_ctx.batch = self.batch.clone();
       group_ctx.theme = self.theme.clone();
       group_ctx.window = self.window.clone();
@@ -1921,7 +2000,6 @@ impl Ctx {
         group_ctx.i18n = self.i18n.clone();
       }
       group_ctx.context_map = self.context_map.clone();
-      let slot_id = next_component_slot_id();
       group_ctx.modal_scope_id = slot_id;
       let slot = ChildSlot {
         id: slot_id,
@@ -1990,7 +2068,9 @@ impl Ctx {
       return element;
     }
 
+    let slot_id = next_component_slot_id();
     let mut child_ctx = Ctx::new();
+    child_ctx.inherit_dirty_ancestors_from(self, slot_id);
     child_ctx.batch = self.batch.clone();
     child_ctx.theme = self.theme.clone();
     child_ctx.window = self.window.clone();
@@ -2009,7 +2089,6 @@ impl Ctx {
       child_ctx.i18n = self.i18n.clone();
     }
     child_ctx.context_map = self.context_map.clone();
-    let slot_id = next_component_slot_id();
     child_ctx.modal_scope_id = slot_id;
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);
@@ -2130,14 +2209,18 @@ impl Ctx {
     self.rendering = false;
     let deps = tracking::stop_tracking();
     let dirty = self.dirty.clone();
+    let subtree_dirty = self.subtree_dirty.clone();
+    let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
     let batch = self.batch.clone();
     self.render_watch_handles = deps
       .into_iter()
       .map(|dep| {
         let dirty = dirty.clone();
+        let subtree_dirty = subtree_dirty.clone();
+        let ancestor_dirty_slots = ancestor_dirty_slots.clone();
         let batch = batch.clone();
         let handle = (dep.subscribe_fn)(Arc::new(move || {
-          batch.mark_dirty(&dirty);
+          Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
         }));
         Box::new(handle) as Box<dyn Any + Send + Sync>
       })
@@ -2146,10 +2229,7 @@ impl Ctx {
   }
 
   pub(crate) fn any_dirty(&self) -> bool {
-    if self.is_dirty() {
-      return true;
-    }
-    self.children.iter().any(|slot| slot.ctx.any_dirty())
+    self.subtree_dirty.load(Ordering::Relaxed)
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -2193,8 +2273,13 @@ impl Ctx {
 
   pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Node)> {
     let mut replacements = Vec::new();
+    let dirty_child_slot_ids = self.take_dirty_child_slot_ids();
 
-    for slot in &mut self.children {
+    for dirty_slot_id in dirty_child_slot_ids {
+      let Some(index) = self.children.iter().position(|slot| slot.id == dirty_slot_id) else {
+        continue;
+      };
+      let slot = &mut self.children[index];
       if !slot.ctx.any_dirty() {
         continue;
       }
@@ -2240,6 +2325,7 @@ impl Ctx {
       }
     }
 
+    self.update_subtree_dirty_from_children();
     replacements
   }
 
@@ -2337,9 +2423,45 @@ mod tests {
     ctx.batch(|| {
       signal.set(1);
       assert!(!ctx.is_dirty());
+      assert!(!ctx.any_dirty());
     });
 
     assert!(ctx.is_dirty());
+    assert!(ctx.any_dirty());
+  }
+
+  #[test]
+  fn descendant_dirty_marks_ancestor_subtrees_without_marking_ancestors_dirty() {
+    let root = Ctx::new_root();
+    let mut child = Ctx::new();
+    child.inherit_dirty_ancestors_from(&root, 10);
+    let mut grandchild = Ctx::new();
+    grandchild.inherit_dirty_ancestors_from(&child, 20);
+
+    root.clear_dirty();
+    child.clear_dirty();
+    grandchild.clear_dirty();
+
+    grandchild.mark_self_dirty();
+
+    assert!(!root.is_dirty());
+    assert!(!child.is_dirty());
+    assert!(grandchild.is_dirty());
+    assert!(root.any_dirty());
+    assert!(child.any_dirty());
+    assert!(grandchild.any_dirty());
+    assert_eq!(*root.dirty_child_slots.lock(), vec![10]);
+    assert_eq!(*child.dirty_child_slots.lock(), vec![20]);
+
+    grandchild.clear_dirty();
+    let _ = child.take_dirty_child_slot_ids();
+    let _ = root.take_dirty_child_slot_ids();
+    child.update_subtree_dirty_from_children();
+    root.update_subtree_dirty_from_children();
+
+    assert!(!root.any_dirty());
+    assert!(!child.any_dirty());
+    assert!(!grandchild.any_dirty());
   }
 
   #[cfg(feature = "devtools")]
