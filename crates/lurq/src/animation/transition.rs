@@ -143,11 +143,12 @@ impl TransitionEngine {
     self.has_active = false;
   }
 
-  pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) {
+  pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
     clear_overrides(root);
     self.has_active = false;
-    self.tick_recursive(root, now);
+    let needs_layout = self.tick_recursive(root, now);
     self.has_active = !self.active.is_empty();
+    needs_layout
   }
 
   fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {

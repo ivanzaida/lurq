@@ -526,6 +526,7 @@ impl Tree {
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_tick_sources(&self) -> bool {
     self.perf_overlay_enabled
+      || self.has_active_timeline()
       || self.has_active_input_interaction()
       || self.click_tracker.has_pending()
       || self.has_focused_blinking_text_input(CaretMode::Blinking)
@@ -533,6 +534,10 @@ impl Tree {
         .root_ctx
         .as_ref()
         .is_some_and(|ctx| ctx.has_active_timers() || ctx.has_active_futures())
+  }
+
+  pub(crate) fn has_active_timeline(&self) -> bool {
+    self.transition_engine.has_active || self.animation_engine.has_active
   }
 
   pub fn frame_count(&self) -> u64 {
@@ -3015,6 +3020,10 @@ impl Tree {
 
         let (overflow_dx, overflow_dy) = state.scroll_by_with_overflow(dx, dy);
         if overflow_dx != dx || overflow_dy != dy {
+          node.layout_cache.mark_local_dirty();
+          for (hit_node, _) in &hits {
+            hit_node.layout_cache.mark_descendant_dirty();
+          }
           self.needs_redraw = true;
           handled = true;
         }
@@ -3292,20 +3301,44 @@ impl Tree {
   fn update_layout(&mut self, app: &mut App) {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
-    let select_overlay_parts = self.detach_select_overlay();
     #[cfg(all(feature = "image", feature = "resources"))]
     self.resolve_resource_images(app);
     #[cfg(all(feature = "svg", feature = "resources"))]
     self.resolve_resource_svgs(app);
 
+    let mut animation_layout_changed = false;
     if let Some(root) = self.root.as_mut() {
       let now = Instant::now();
-      self.transition_engine.tick(root, now);
-      self.animation_engine.tick(root, now);
+      animation_layout_changed |= self.transition_engine.tick(root, now);
+      animation_layout_changed |= self.animation_engine.tick(root, now);
       if self.transition_engine.has_active || self.animation_engine.has_active {
         self.needs_redraw = true;
       }
     }
+
+    if let Some(root) = self.root.as_ref() {
+      let constraints = self
+        .layout_constraints_override
+        .unwrap_or_else(|| Constraints::tight(self.viewport_logical()));
+      let theme_version = self
+        .root_ctx
+        .as_ref()
+        .map(|ctx| ctx.theme().version())
+        .unwrap_or_else(|| app.theme().version());
+      let theme_changed = self.last_theme_version != theme_version;
+      let has_select_overlay_host = root.tag_name() == SELECT_OVERLAY_TAG;
+      if !animation_layout_changed
+        && !theme_changed
+        && !has_select_overlay_host
+        && self.last_layout.is_some()
+        && root.layout_cache.get(constraints).is_some()
+      {
+        self.last_theme_version = theme_version;
+        return;
+      }
+    }
+
+    let select_overlay_parts = self.detach_select_overlay();
 
     if let Some(root) = self.root.as_ref() {
       let constraints = self

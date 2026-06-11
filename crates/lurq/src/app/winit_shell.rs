@@ -31,7 +31,7 @@ type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
 type FrameFn = Box<dyn FnMut(&Tree, Duration)>;
 type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
 type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
-const TICK_INTERVAL: Duration = Duration::from_millis(16);
+const TICK_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 
 pub struct WinitWindow {
   app: App,
@@ -456,7 +456,13 @@ impl ManagedWindow {
     if self.tree.perf_overlay_enabled() {
       self.tree.request_redraw();
     }
-    self.check_redraw();
+    if !self.should_defer_timeline_redraw(now) {
+      self.check_redraw();
+    }
+  }
+
+  fn should_defer_timeline_redraw(&self, now: Instant) -> bool {
+    self.tree.needs_redraw() && self.tree.has_active_timeline() && now.duration_since(self.last_frame) < TICK_INTERVAL
   }
 
   fn notify_position_changed(&mut self, x: i32, y: i32) {
@@ -622,6 +628,7 @@ struct ManagedSecondaryWindow {
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
   redraw_pending: bool,
+  last_frame: Instant,
   close_requested: bool,
 }
 
@@ -639,6 +646,7 @@ impl ManagedSecondaryWindow {
           .with_inner_size(winit::dpi::LogicalSize::new(secondary.width(), secondary.height())),
       ),
       redraw_pending: false,
+      last_frame: Instant::now(),
       close_requested: false,
     }
   }
@@ -828,7 +836,12 @@ impl ManagedSecondaryWindow {
       let frame_count = tree.frame_count();
       tree.pass(app, w);
       let presented = tree.frame_count() != frame_count;
-      self.check_redraw(tree);
+      if presented {
+        self.last_frame = Instant::now();
+      }
+      if !self.should_defer_timeline_redraw(tree, Instant::now()) {
+        self.check_redraw(tree);
+      }
       return presented;
     }
     false
@@ -853,7 +866,13 @@ impl ManagedSecondaryWindow {
     if tree.perf_overlay_enabled() {
       tree.request_redraw();
     }
-    self.check_redraw(tree);
+    if !self.should_defer_timeline_redraw(tree, Instant::now()) {
+      self.check_redraw(tree);
+    }
+  }
+
+  fn should_defer_timeline_redraw(&self, tree: &Tree, now: Instant) -> bool {
+    tree.needs_redraw() && tree.has_active_timeline() && now.duration_since(self.last_frame) < TICK_INTERVAL
   }
 
   fn handle_event(
