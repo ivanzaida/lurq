@@ -2559,8 +2559,11 @@ impl Node {
   pub(crate) fn clear_guards(&self) {
     self.text_content.clear_changed();
     self.color.clear_changed();
+    self.gradient.clear_changed();
     self.border_radius.clear_changed();
     self.border.clear_changed();
+    self.caret_color.clear_changed();
+    self.caret_mode.clear_changed();
     #[cfg(feature = "image")]
     self.background_image.clear_changed();
     self.scrollbar_style.clear_changed();
@@ -2634,11 +2637,20 @@ impl Node {
     if self.color.as_ref() == old.color.as_ref() {
       self.color.clear_changed();
     }
+    if self.gradient.as_ref() == old.gradient.as_ref() {
+      self.gradient.clear_changed();
+    }
     if self.border_radius.as_ref() == old.border_radius.as_ref() {
       self.border_radius.clear_changed();
     }
     if self.border.as_ref() == old.border.as_ref() {
       self.border.clear_changed();
+    }
+    if self.caret_color.as_ref() == old.caret_color.as_ref() {
+      self.caret_color.clear_changed();
+    }
+    if self.caret_mode.as_ref() == old.caret_mode.as_ref() {
+      self.caret_mode.clear_changed();
     }
   }
 

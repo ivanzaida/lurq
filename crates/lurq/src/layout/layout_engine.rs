@@ -504,6 +504,65 @@ impl LayoutEngine {
     cull_clip: ClipRect,
     quads: &mut Vec<Quad>,
   ) {
+    if node_is_plain_logical_wrapper(node) {
+      if let Some(ref element_ref) = node.element_ref {
+        element_ref.update(
+          abs_x,
+          abs_y,
+          abs_x - parent_x,
+          abs_y - parent_y,
+          result.size.width,
+          result.size.height,
+        );
+      }
+
+      let (child_clip, child_cull_clip) = if node.overflow == Overflow::Hidden && inherited_transform.is_identity() {
+        let overflow_clip = intersect_clip(
+          clip,
+          ClipRect {
+            x: abs_x,
+            y: abs_y,
+            width: result.size.width,
+            height: result.size.height,
+            active: true,
+            border_radius: None,
+          },
+        );
+        (overflow_clip, intersect_clip(cull_clip, overflow_clip))
+      } else {
+        (clip, cull_clip)
+      };
+
+      for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
+        let child_abs_x = abs_x + child_layout.offset.x;
+        let child_abs_y = abs_y + child_layout.offset.y;
+        if clipped_subtree_is_hidden(
+          child_node,
+          &child_layout.result,
+          child_abs_x,
+          child_abs_y,
+          inherited_transform,
+          child_cull_clip,
+        ) {
+          continue;
+        }
+
+        self.collect_quads(
+          child_node,
+          &child_layout.result,
+          child_abs_x,
+          child_abs_y,
+          abs_x,
+          abs_y,
+          inherited_transform,
+          child_clip,
+          child_cull_clip,
+          quads,
+        );
+      }
+      return;
+    }
+
     if let Some(ref element_ref) = node.element_ref {
       element_ref.update(
         abs_x,
@@ -1530,7 +1589,9 @@ impl LayoutEngine {
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
     state.set_render_wrap(render_wrap);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
+    if state.selectable() {
+      state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
+    }
     self.layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
   }
 
@@ -2847,6 +2908,35 @@ fn clipped_subtree_is_hidden(
   }
 
   !rect_intersects_clip(abs_x, abs_y, result.size.width, result.size.height, clip)
+}
+
+fn node_is_plain_logical_wrapper(node: &Node) -> bool {
+  matches!(node.layout_kind(), LayoutKind::LogicalModifier)
+    && matches!(node.node_kind(), NodeKind::Empty)
+    && node.color.as_ref().is_none()
+    && node.gradient.as_ref().is_none()
+    && node.border_radius.as_ref().is_none()
+    && node.border.as_ref().is_none()
+    && node.caret_color.as_ref().is_none()
+    && node.caret_mode.as_ref().is_none()
+    && node.scrollbar_style.as_ref().is_none()
+    && node.state_styles.hovered.is_none()
+    && node.state_styles.active.is_none()
+    && node.state_styles.focused.is_none()
+    && node.opacity == DEFAULT_QUAD_OPACITY
+    && node.animation_overrides.is_empty()
+    && node.effective_transform().is_identity()
+    && node.intrinsic_size.is_none()
+    && {
+      #[cfg(feature = "image")]
+      {
+        node.background_image.as_ref().is_none()
+      }
+      #[cfg(not(feature = "image"))]
+      {
+        true
+      }
+    }
 }
 
 fn hidden_overflow_creates_clip(has_visual: bool, transform: Transform2D) -> bool {
