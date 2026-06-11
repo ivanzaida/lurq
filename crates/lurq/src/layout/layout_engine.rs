@@ -1215,7 +1215,7 @@ impl LayoutEngine {
           Some(&child_overrides),
         ));
       }
-      cached.children[index].result = repaired;
+      cached.children[index].result = repaired.into();
     }
 
     let prepared = Self::prepare_cached_result(node, cached);
@@ -2035,7 +2035,7 @@ impl LayoutEngine {
       main_cursor += child_main + if i < (n as usize - 1) { gap } else { 0.0 };
       child_layouts.push(ChildLayout {
         offset,
-        result: result.clone(),
+        result: result.clone().into(),
       });
     }
 
@@ -2110,7 +2110,8 @@ impl LayoutEngine {
       result: LayoutResult {
         size: Size::default(),
         children: vec![],
-      },
+      }
+      .into(),
     });
     let mut cross_cursor = 0.0_f32;
     let mut max_main_used = 0.0_f32;
@@ -2183,7 +2184,10 @@ impl LayoutEngine {
         };
         let offset = Self::apply_relative_position(&children[idx], offset);
         main_cursor += child_main + if j < (n as usize - 1) { gap } else { 0.0 };
-        all_layouts[idx] = ChildLayout { offset, result };
+        all_layouts[idx] = ChildLayout {
+          offset,
+          result: result.into(),
+        };
       }
 
       cross_cursor += line_cross + spacing;
@@ -2263,7 +2267,10 @@ impl LayoutEngine {
             Self::apply_relative_position(child, child_align.resolve_offset(size, result.size))
           }
         };
-        ChildLayout { offset, result }
+        ChildLayout {
+          offset,
+          result: result.into(),
+        }
       })
       .collect();
 
@@ -2530,7 +2537,7 @@ impl LayoutEngine {
       size,
       children: vec![ChildLayout {
         offset: Offset::new(-state.scroll_x(), -state.scroll_y()),
-        result: child_result,
+        result: child_result.into(),
       }],
     }
   }
@@ -2555,7 +2562,7 @@ impl LayoutEngine {
       size,
       children: vec![ChildLayout {
         offset: Offset::default(),
-        result: child_result,
+        result: child_result.into(),
       }],
     }
   }

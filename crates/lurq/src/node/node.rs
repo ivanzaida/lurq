@@ -3040,14 +3040,16 @@ mod tests {
             result: LayoutResult {
               size: Size::new(50.0, 20.0),
               children: Vec::new(),
-            },
+            }
+            .into(),
           },
           ChildLayout {
             offset: Offset::new(50.0, 0.0),
             result: LayoutResult {
               size: Size::new(50.0, 20.0),
               children: Vec::new(),
-            },
+            }
+            .into(),
           },
         ],
       },
