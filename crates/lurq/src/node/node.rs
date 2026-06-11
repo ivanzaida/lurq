@@ -2573,8 +2573,8 @@ impl Node {
 
   pub(crate) fn preserve_runtime_state_from(&mut self, old: &Node) {
     self.clear_unchanged_guard_flags_from(old);
-    let layout_signature_matches = self.layout_signature_matches(old);
-    if layout_signature_matches {
+    let own_layout_signature_matches = self.own_layout_signature_matches(old);
+    if own_layout_signature_matches && self.children.len() == old.children.len() {
       self.layout_cache.preserve_from(&old.layout_cache);
     }
 
@@ -2583,7 +2583,7 @@ impl Node {
         state.copy_runtime_state_from(
           old_state,
           self.text_content().unwrap_or_default(),
-          layout_signature_matches,
+          own_layout_signature_matches,
         );
       }
       (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
@@ -2633,6 +2633,16 @@ impl Node {
   }
 
   fn layout_signature_matches(&self, old: &Node) -> bool {
+    self.own_layout_signature_matches(old)
+      && self.children.len() == old.children.len()
+      && self
+        .children
+        .iter()
+        .zip(old.children.iter())
+        .all(|(child, old_child)| child.layout_signature_matches(old_child))
+  }
+
+  fn own_layout_signature_matches(&self, old: &Node) -> bool {
     self.layout_kind_matches_for_cache(old)
       && self.node_kind_matches_for_cache(old)
       && self.frame == old.frame
@@ -2648,12 +2658,6 @@ impl Node {
       && self.intrinsic_size == old.intrinsic_size
       && self.animation_overrides.is_empty()
       && old.animation_overrides.is_empty()
-      && self.children.len() == old.children.len()
-      && self
-        .children
-        .iter()
-        .zip(old.children.iter())
-        .all(|(child, old_child)| child.layout_signature_matches(old_child))
   }
 
   fn layout_kind_matches_for_cache(&self, old: &Node) -> bool {
@@ -2975,6 +2979,13 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
 #[cfg(test)]
 mod tests {
   use super::Node;
+  use crate::{
+    core::Signal,
+    layout::{
+      Alignment, Constraints, Offset, Size,
+      layout_result::{ChildLayout, LayoutResult},
+    },
+  };
 
   #[test]
   fn changed_text_content_does_not_match_layout_cache_signature() {
@@ -2990,5 +3001,56 @@ mod tests {
     let new = Node::text("Hi");
 
     assert!(new.layout_signature_matches(&old));
+  }
+
+  #[test]
+  fn changed_slider_value_matches_layout_cache_signature() {
+    let old_value = Signal::new(10);
+    let new_value = Signal::new(20);
+    let old = Node::slider(old_value);
+    let new = Node::slider(new_value);
+
+    assert!(new.layout_signature_matches(&old));
+  }
+
+  #[test]
+  fn parent_layout_cache_survives_changed_child_text() {
+    let old = Node::row(
+      0.0,
+      Alignment::Start,
+      vec![Node::text("Value: 1"), Node::text("Stable")],
+    );
+    old.layout_cache.store(
+      Constraints::loose(Size::new(400.0, 400.0)),
+      LayoutResult {
+        size: Size::new(100.0, 20.0),
+        children: vec![
+          ChildLayout {
+            offset: Offset::default(),
+            result: LayoutResult {
+              size: Size::new(50.0, 20.0),
+              children: Vec::new(),
+            },
+          },
+          ChildLayout {
+            offset: Offset::new(50.0, 0.0),
+            result: LayoutResult {
+              size: Size::new(50.0, 20.0),
+              children: Vec::new(),
+            },
+          },
+        ],
+      },
+    );
+    let mut new = Node::row(
+      0.0,
+      Alignment::Start,
+      vec![Node::text("Value: 2"), Node::text("Stable")],
+    );
+
+    new.preserve_runtime_state_from(&old);
+
+    assert!(new.layout_cache.has_cached_result());
+    assert!(!new.children[0].layout_cache.has_cached_result());
   }
 }

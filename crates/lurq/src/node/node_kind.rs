@@ -1215,7 +1215,6 @@ struct SliderInner {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SliderLayoutSignature {
-  visual_ratio_bits: u32,
   track_width: Option<f32>,
   track_height: Option<f32>,
   track_hovered_width: Option<f32>,
@@ -1434,13 +1433,7 @@ impl SliderState {
 
   pub(crate) fn layout_signature(&self) -> SliderLayoutSignature {
     let inner = self.inner.lock().unwrap();
-    let value_ratio = slider_ratio_for_value(self.value_f32(), inner.min, inner.max);
-    let visual_ratio = inner
-      .drag_ratio
-      .filter(|ratio| slider_drag_ratio_matches_value(*ratio, value_ratio, inner.min, inner.max, inner.step))
-      .unwrap_or(value_ratio);
     SliderLayoutSignature {
-      visual_ratio_bits: visual_ratio.to_bits(),
       track_width: inner.track_style.width,
       track_height: inner.track_style.height,
       track_hovered_width: inner.track_hovered_style.as_ref().and_then(|style| style.width),
