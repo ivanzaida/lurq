@@ -2589,6 +2589,9 @@ impl Node {
     let own_layout_signature_matches = self.own_layout_signature_matches(old);
     if own_layout_signature_matches && self.children.len() == old.children.len() {
       self.layout_cache.preserve_from(&old.layout_cache);
+      if !self.child_layout_signatures_match(old) {
+        self.layout_cache.mark_descendant_dirty();
+      }
     }
 
     match (&self.node_kind, &old.node_kind) {
@@ -2657,11 +2660,15 @@ impl Node {
   fn layout_signature_matches(&self, old: &Node) -> bool {
     self.own_layout_signature_matches(old)
       && self.children.len() == old.children.len()
-      && self
-        .children
-        .iter()
-        .zip(old.children.iter())
-        .all(|(child, old_child)| child.layout_signature_matches(old_child))
+      && self.child_layout_signatures_match(old)
+  }
+
+  fn child_layout_signatures_match(&self, old: &Node) -> bool {
+    self
+      .children
+      .iter()
+      .zip(old.children.iter())
+      .all(|(child, old_child)| child.layout_signature_matches(old_child))
   }
 
   fn own_layout_signature_matches(&self, old: &Node) -> bool {
@@ -3076,5 +3083,54 @@ mod tests {
 
     assert!(new.layout_cache.has_cached_result());
     assert!(!new.children[0].layout_cache.has_cached_result());
+  }
+
+  #[test]
+  fn preserved_parent_cache_is_dirty_when_child_signature_changes() {
+    let old = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![Node::row(
+        0.0,
+        Alignment::Start,
+        vec![Node::text("Old")],
+      )],
+    );
+    old.layout_cache.store(
+      Constraints::loose(Size::new(400.0, 400.0)),
+      LayoutResult {
+        size: Size::new(100.0, 20.0),
+        children: vec![ChildLayout {
+          offset: Offset::default(),
+          result: LayoutResult {
+            size: Size::new(100.0, 20.0),
+            children: vec![ChildLayout {
+              offset: Offset::default(),
+              result: LayoutResult {
+                size: Size::new(30.0, 20.0),
+                children: Vec::new(),
+              }
+              .into(),
+            }],
+          }
+          .into(),
+        }],
+      },
+    );
+
+    let mut new = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![Node::row(
+        0.0,
+        Alignment::Start,
+        vec![Node::text("Different")],
+      )],
+    );
+
+    new.preserve_runtime_state_from(&old);
+
+    assert!(new.layout_cache.has_cached_result());
+    assert!(new.layout_cache.is_descendant_dirty());
   }
 }
