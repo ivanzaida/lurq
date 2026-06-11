@@ -124,11 +124,19 @@ enum OrderedDraw {
 }
 
 #[cfg(feature = "image")]
+struct CachedRgbaFrame {
+  bind_group: wgpu::BindGroup,
+  view: wgpu::TextureView,
+  texture: wgpu::Texture,
+}
+
+#[cfg(feature = "image")]
 enum CachedImageTexture {
   Rgba {
     bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
     texture: wgpu::Texture,
+    animation_frames: Option<Vec<CachedRgbaFrame>>,
     width: u32,
     height: u32,
     frame_index: usize,
@@ -205,10 +213,16 @@ unsafe extern "C" {
 impl CachedImageTexture {
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
-      Self::Rgba { width, height, .. } => {
+      Self::Rgba {
+        width,
+        height,
+        animation_frames,
+        ..
+      } => {
         image.image_format == crate::images::ImagePixelFormat::Rgba8
           && *width == image.image_width
           && *height == image.image_height
+          && animation_frames.as_ref().map(Vec::len) == image.animation_frames.as_ref().map(|frames| frames.len())
       }
       Self::Nv12 { width, height, .. } => {
         image.image_format == crate::images::ImagePixelFormat::Nv12
@@ -1398,11 +1412,15 @@ impl RenderEngine for WgpuRenderEngine {
             match cached {
               CachedImageTexture::Rgba {
                 texture,
+                animation_frames,
                 frame_index,
                 version,
                 ..
               } => {
-                if *frame_index != img.frame_index || *version != img.version {
+                if animation_frames.is_some() {
+                  *frame_index = img.frame_index;
+                  *version = img.version;
+                } else if *frame_index != img.frame_index || *version != img.version {
                   let _image_texture_upload_start = profile_scope!();
                   write_rgba_image_texture(queue, texture, img);
                   _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
@@ -1435,7 +1453,17 @@ impl RenderEngine for WgpuRenderEngine {
             }
 
             match cached {
-              CachedImageTexture::Rgba { bind_group, view, .. } => {
+              CachedImageTexture::Rgba {
+                bind_group,
+                view,
+                animation_frames,
+                ..
+              } => {
+                let (bind_group, view) = animation_frames
+                  .as_ref()
+                  .and_then(|frames| frames.get(img.frame_index))
+                  .map(|frame| (&frame.bind_group, &frame.view))
+                  .unwrap_or((bind_group, view));
                 pass.set_pipeline(&image_pipeline);
                 if rounded_clip_needs_shader(img.clip) {
                   let clip_globals = globals_buffer_for_clip(device, img.clip, vw, vh);
@@ -1635,11 +1663,64 @@ fn create_rgba_cached_image_texture(
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
 ) -> CachedImageTexture {
+  let frame = create_rgba_frame_texture(
+    device,
+    queue,
+    image_bgl,
+    image_sampler,
+    globals_buffer,
+    image.image_width,
+    image.image_height,
+    &image.data,
+  );
+  let animation_frames = image.animation_frames.as_ref().and_then(|frames| {
+    (frames.len() > 1).then(|| {
+      frames
+        .iter()
+        .map(|frame| {
+          create_rgba_frame_texture(
+            device,
+            queue,
+            image_bgl,
+            image_sampler,
+            globals_buffer,
+            image.image_width,
+            image.image_height,
+            frame,
+          )
+        })
+        .collect()
+    })
+  });
+
+  CachedImageTexture::Rgba {
+    bind_group: frame.bind_group,
+    view: frame.view,
+    texture: frame.texture,
+    animation_frames,
+    width: image.image_width,
+    height: image.image_height,
+    frame_index: image.frame_index,
+    version: image.version,
+  }
+}
+
+#[cfg(feature = "image")]
+fn create_rgba_frame_texture(
+  device: &wgpu::Device,
+  queue: &wgpu::Queue,
+  image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  width: u32,
+  height: u32,
+  data: &[u8],
+) -> CachedRgbaFrame {
   let texture = device.create_texture(&wgpu::TextureDescriptor {
     label: Some("lurq_img"),
     size: wgpu::Extent3d {
-      width: image.image_width,
-      height: image.image_height,
+      width,
+      height,
       depth_or_array_layers: 1,
     },
     mip_level_count: 1,
@@ -1649,7 +1730,7 @@ fn create_rgba_cached_image_texture(
     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
     view_formats: &[],
   });
-  write_rgba_image_texture(queue, &texture, image);
+  write_rgba_texture_data(queue, &texture, width, height, data);
   let view = texture.create_view(&Default::default());
   let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
     label: Some("lurq_img_bg"),
@@ -1669,14 +1750,10 @@ fn create_rgba_cached_image_texture(
       },
     ],
   });
-  CachedImageTexture::Rgba {
+  CachedRgbaFrame {
     bind_group,
     view,
     texture,
-    width: image.image_width,
-    height: image.image_height,
-    frame_index: image.frame_index,
-    version: image.version,
   }
 }
 
@@ -1945,6 +2022,11 @@ fn create_macos_native_plane_texture(
 
 #[cfg(feature = "image")]
 fn write_rgba_image_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, image: &crate::images::ImageCmd) {
+  write_rgba_texture_data(queue, texture, image.image_width, image.image_height, &image.data);
+}
+
+#[cfg(feature = "image")]
+fn write_rgba_texture_data(queue: &wgpu::Queue, texture: &wgpu::Texture, width: u32, height: u32, data: &[u8]) {
   queue.write_texture(
     wgpu::TexelCopyTextureInfo {
       texture,
@@ -1952,15 +2034,15 @@ fn write_rgba_image_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, image:
       origin: wgpu::Origin3d::ZERO,
       aspect: wgpu::TextureAspect::All,
     },
-    &image.data,
+    data,
     wgpu::TexelCopyBufferLayout {
       offset: 0,
-      bytes_per_row: Some(image.image_width * 4),
-      rows_per_image: Some(image.image_height),
+      bytes_per_row: Some(width * 4),
+      rows_per_image: Some(height),
     },
     wgpu::Extent3d {
-      width: image.image_width,
-      height: image.image_height,
+      width,
+      height,
       depth_or_array_layers: 1,
     },
   );

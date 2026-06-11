@@ -151,6 +151,7 @@ pub struct ImageData {
   height: u32,
   format: ImagePixelFormat,
   frames: Arc<Vec<ImageFrame>>,
+  animation_frame_data: Option<Arc<Vec<Arc<Vec<u8>>>>>,
   total_duration_ms: u64,
   started_at: Instant,
   streaming: Option<Arc<StreamingImageInner>>,
@@ -177,6 +178,7 @@ pub struct StreamingImage {
 
 pub(crate) struct ImageFrameData {
   pub data: Arc<Vec<u8>>,
+  pub animation_frames: Option<Arc<Vec<Arc<Vec<u8>>>>>,
   pub native: Option<NativeImageData>,
   pub width: u32,
   pub height: u32,
@@ -198,6 +200,7 @@ impl ImageData {
         data: Arc::new(data),
         duration_ms: 0,
       }]),
+      animation_frame_data: None,
       total_duration_ms: 0,
       started_at: Instant::now(),
       streaming: None,
@@ -223,6 +226,7 @@ impl ImageData {
       height,
       format,
       frames: Arc::new(Vec::new()),
+      animation_frame_data: None,
       total_duration_ms: 0,
       started_at: Instant::now(),
       streaming: Some(Arc::new(StreamingImageInner {
@@ -280,7 +284,7 @@ impl ImageData {
     }
 
     let mut total_duration_ms = 0_u64;
-    let frames = frames
+    let frames: Vec<_> = frames
       .into_iter()
       .map(|frame| {
         let duration_ms = delay_ms(frame.delay());
@@ -291,6 +295,7 @@ impl ImageData {
         }
       })
       .collect();
+    let animation_frame_data = Arc::new(frames.iter().map(|frame| Arc::clone(&frame.data)).collect());
 
     Ok(Self {
       id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
@@ -298,6 +303,7 @@ impl ImageData {
       height,
       format: ImagePixelFormat::Rgba8,
       frames: Arc::new(frames),
+      animation_frame_data: Some(animation_frame_data),
       total_duration_ms,
       started_at: Instant::now(),
       streaming: None,
@@ -460,6 +466,7 @@ impl ImageData {
     if let Some(streaming) = &self.streaming {
       return ImageFrameData {
         data: Arc::clone(&streaming.data.read()),
+        animation_frames: None,
         native: None,
         width: self.width,
         height: self.height,
@@ -473,6 +480,7 @@ impl ImageData {
     if let Some(native) = &self.native {
       return ImageFrameData {
         data: Arc::new(Vec::new()),
+        animation_frames: None,
         native: Some(native.clone()),
         width: self.width,
         height: self.height,
@@ -509,6 +517,7 @@ impl ImageData {
 
     ImageFrameData {
       data: Arc::clone(&frame.data),
+      animation_frames: self.animation_frame_data.clone(),
       native: None,
       width: self.width,
       height: self.height,
@@ -546,6 +555,7 @@ impl NativeImageData {
       height: self.height,
       format: self.format,
       frames: Arc::new(Vec::new()),
+      animation_frame_data: None,
       total_duration_ms: 0,
       started_at: Instant::now(),
       streaming: None,

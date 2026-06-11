@@ -13,6 +13,7 @@ pub struct ImageCmd {
   pub frame_index: usize,
   pub version: u64,
   pub data: Arc<Vec<u8>>,
+  pub animation_frames: Option<Arc<Vec<Arc<Vec<u8>>>>>,
   pub native: Option<NativeImageData>,
   pub image_width: u32,
   pub image_height: u32,
