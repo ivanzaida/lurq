@@ -77,6 +77,12 @@ impl CacheKey {
     key.raster_mode = if snap_to_pixel { 0 } else { 1 };
     key
   }
+
+  fn new_for_baked_transform(text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> Self {
+    let mut key = Self::new(text, style, max_width, wrap);
+    key.raster_mode = 2;
+    key
+  }
 }
 
 fn weight_to_u8(w: FontWeight) -> u8 {
@@ -121,6 +127,7 @@ pub(crate) struct GlyphEngine {
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<CacheKey, Size>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
+  transformed_glyph_layout_cache: HashMap<CacheKey, Vec<CachedTransformedGlyph>>,
   atlas_packer: AtlasPacker,
   atlas_entries: HashMap<GlyphCacheKey, PackedGlyph>,
   transformed_atlas_entries: HashMap<TransformedGlyphKey, PackedGlyph>,
@@ -143,6 +150,7 @@ impl GlyphEngine {
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
       glyph_layout_cache: HashMap::new(),
+      transformed_glyph_layout_cache: HashMap::new(),
       atlas_packer: AtlasPacker::new(),
       atlas_entries: HashMap::new(),
       transformed_atlas_entries: HashMap::new(),
@@ -185,6 +193,7 @@ impl GlyphEngine {
   fn clear_text_caches(&mut self) {
     self.measure_cache.clear();
     self.glyph_layout_cache.clear();
+    self.transformed_glyph_layout_cache.clear();
   }
 
   fn clear_atlas(&mut self) {
@@ -373,6 +382,23 @@ impl GlyphEngine {
     transform_origin: [f32; 2],
     out: &mut Vec<GlyphCmd>,
   ) {
+    let wrap = effective_text_wrap(max_width, wrap);
+    let key = CacheKey::new_for_baked_transform(text, style, max_width, wrap);
+    let swash_transform = swash_transform_from_screen(transform);
+    if let Some(cached) = self.transformed_glyph_layout_cache.get(&key).cloned() {
+      self.append_baked_transformed_glyph_cmds_from_cached(
+        &cached,
+        origin_x,
+        origin_y,
+        style,
+        transform,
+        transform_origin,
+        swash_transform,
+        out,
+      );
+      return;
+    }
+
     let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
     let family = if resolved.is_empty() {
@@ -387,24 +413,11 @@ impl GlyphEngine {
     set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
-    let atlas_w = self.atlas_packer.width as f32;
-    let atlas_h = self.atlas_packer.height as f32;
-    let color = style.color.to_linear_f32_array();
-    let swash_transform = swash_transform_from_screen(transform);
-
+    let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
         let x_offset = glyph.font_size * glyph.x_offset;
         let y_offset = glyph.font_size * glyph.y_offset;
-        let glyph_origin_x = origin_x + glyph.x + x_offset;
-        let glyph_origin_y = origin_y + run.line_y + glyph.y - y_offset;
-        let transformed_origin_x = transform_origin[0]
-          + transform.a * (glyph_origin_x - transform_origin[0])
-          + transform.c * (glyph_origin_y - transform_origin[1]);
-        let transformed_origin_y = transform_origin[1]
-          + transform.b * (glyph_origin_x - transform_origin[0])
-          + transform.d * (glyph_origin_y - transform_origin[1]);
-
         let (cache_key, ..) = GlyphCacheKey::new(
           glyph.font_id,
           glyph.glyph_id,
@@ -412,31 +425,29 @@ impl GlyphEngine {
           (0.0, 0.0),
           glyph.cache_key_flags,
         );
-        let Some(packed) = self.get_or_pack_transformed_glyph(cache_key, swash_transform) else {
-          continue;
-        };
-
-        out.push(GlyphCmd {
-          order: 0,
-          x: transformed_origin_x + packed.left as f32,
-          y: transformed_origin_y - packed.top as f32,
-          width: packed.width as f32,
-          height: packed.height as f32,
-          color,
-          uv_min: [packed.x as f32 / atlas_w, packed.y as f32 / atlas_h],
-          uv_max: [
-            (packed.x + packed.width) as f32 / atlas_w,
-            (packed.y + packed.height) as f32 / atlas_h,
-          ],
-          transform: [1.0, 0.0, 0.0, 1.0],
-          transform_origin: [0.0, 0.0],
-          sharpness: 1.0,
-          clip: crate::layout::quad::ClipRect::default(),
+        cached.push(CachedTransformedGlyph {
+          x: glyph.x + x_offset,
+          y: run.line_y + glyph.y - y_offset,
+          cache_key,
         });
       }
     }
 
     self.buffer_pool.push(buffer);
+    if self.transformed_glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.transformed_glyph_layout_cache.clear();
+    }
+    self.transformed_glyph_layout_cache.insert(key, cached.clone());
+    self.append_baked_transformed_glyph_cmds_from_cached(
+      &cached,
+      origin_x,
+      origin_y,
+      style,
+      transform,
+      transform_origin,
+      swash_transform,
+      out,
+    );
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -528,6 +539,50 @@ impl GlyphEngine {
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
     append_glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel, out);
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn append_baked_transformed_glyph_cmds_from_cached(
+    &mut self,
+    cached: &[CachedTransformedGlyph],
+    origin_x: f32,
+    origin_y: f32,
+    style: &TextStyle,
+    transform: Transform2D,
+    transform_origin: [f32; 2],
+    swash_transform: SwashTransform,
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    let color = style.color.to_linear_f32_array();
+    out.reserve(cached.len());
+
+    for glyph in cached {
+      let Some(packed) = self.get_or_pack_transformed_glyph(glyph.cache_key, swash_transform) else {
+        continue;
+      };
+      let (transformed_origin_x, transformed_origin_y) =
+        transformed_glyph_origin(origin_x, origin_y, glyph.x, glyph.y, transform, transform_origin);
+
+      out.push(GlyphCmd {
+        order: 0,
+        x: transformed_origin_x + packed.left as f32,
+        y: transformed_origin_y - packed.top as f32,
+        width: packed.width as f32,
+        height: packed.height as f32,
+        color,
+        uv_min: [packed.x as f32 / atlas_w, packed.y as f32 / atlas_h],
+        uv_max: [
+          (packed.x + packed.width) as f32 / atlas_w,
+          (packed.y + packed.height) as f32 / atlas_h,
+        ],
+        transform: [1.0, 0.0, 0.0, 1.0],
+        transform_origin: [0.0, 0.0],
+        sharpness: 1.0,
+        clip: crate::layout::quad::ClipRect::default(),
+      });
+    }
   }
 
   pub(crate) fn atlas(&self) -> GlyphAtlas {
@@ -702,6 +757,11 @@ impl GlyphEngine {
       .values()
       .map(|glyphs| glyphs.capacity() * std::mem::size_of::<CachedGlyph>())
       .sum::<usize>();
+    let transformed_glyph_layout_cache_bytes = self
+      .transformed_glyph_layout_cache
+      .values()
+      .map(|glyphs| glyphs.capacity() * std::mem::size_of::<CachedTransformedGlyph>())
+      .sum::<usize>();
 
     std::mem::size_of::<Self>()
       + self.font_aliases.capacity() * std::mem::size_of::<(String, String)>()
@@ -710,6 +770,8 @@ impl GlyphEngine {
       + measure_key_heap
       + self.glyph_layout_cache.capacity() * std::mem::size_of::<(CacheKey, Vec<CachedGlyph>)>()
       + glyph_layout_cache_bytes
+      + self.transformed_glyph_layout_cache.capacity() * std::mem::size_of::<(CacheKey, Vec<CachedTransformedGlyph>)>()
+      + transformed_glyph_layout_cache_bytes
       + self.buffer_pool.capacity() * std::mem::size_of::<Buffer>()
   }
 }
@@ -732,6 +794,13 @@ struct CachedGlyph {
   atlas_y: u32,
   width: u32,
   height: u32,
+}
+
+#[derive(Clone, Copy)]
+struct CachedTransformedGlyph {
+  x: f32,
+  y: f32,
+  cache_key: GlyphCacheKey,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -803,6 +872,27 @@ fn append_glyph_cmds_from_cached(
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transformed_glyph_origin(
+  origin_x: f32,
+  origin_y: f32,
+  glyph_x: f32,
+  glyph_y: f32,
+  transform: Transform2D,
+  transform_origin: [f32; 2],
+) -> (f32, f32) {
+  let glyph_origin_x = origin_x + glyph_x;
+  let glyph_origin_y = origin_y + glyph_y;
+  (
+    transform_origin[0]
+      + transform.a * (glyph_origin_x - transform_origin[0])
+      + transform.c * (glyph_origin_y - transform_origin[1]),
+    transform_origin[1]
+      + transform.b * (glyph_origin_x - transform_origin[0])
+      + transform.d * (glyph_origin_y - transform_origin[1]),
+  )
 }
 
 fn glyph_coverage_mask(image: &SwashImage) -> Vec<u8> {
