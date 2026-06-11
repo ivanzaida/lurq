@@ -2307,21 +2307,13 @@ impl Ctx {
         let nested_replacements = slot.ctx.refresh_dirty_subtrees();
         if let Some(rendered) = &mut slot.rendered {
           for (slot_id, replacement) in nested_replacements {
-            let mut replacement = Some(replacement);
-            if !rendered.replace_component_slot_in(slot_id, &mut replacement) {
-              replacements.push((
-                slot_id,
-                replacement.expect("component replacement should remain when no slot was replaced"),
-              ));
-            }
+            let mut cached_replacement = Some(replacement.clone_for_reuse());
+            let _ = rendered.replace_component_slot_in(slot_id, &mut cached_replacement);
+            replacements.push((slot_id, replacement));
           }
         } else {
           replacements.extend(nested_replacements);
         }
-      }
-
-      if let Some(rendered) = &slot.rendered {
-        replacements.push((slot.id, rendered.clone_for_reuse()));
       }
     }
 
