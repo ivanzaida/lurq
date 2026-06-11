@@ -67,7 +67,7 @@ impl Component for DemoApp {
     let theme = ctx.signal(DemoTheme::Dark);
     let modal_open = ctx.signal(false);
     let router = ctx.router(demo_routes(theme.clone(), modal_open.clone()));
-    router.replace("/dynamic-images");
+    router.replace("/dynamic-keyframes");
 
     Self { router }
   }
