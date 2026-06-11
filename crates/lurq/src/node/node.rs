@@ -2413,6 +2413,32 @@ impl Node {
     self.style_state.take_layout_dirty()
   }
 
+  pub(crate) fn has_style_layout_dirty(&self) -> bool {
+    self.style_state.has_layout_dirty()
+  }
+
+  pub(crate) fn has_render_dirty(&self) -> bool {
+    self.text_content.is_changed()
+      || self.color.is_changed()
+      || self.gradient.is_changed()
+      || self.border_radius.is_changed()
+      || self.border.is_changed()
+      || self.caret_color.is_changed()
+      || self.caret_mode.is_changed()
+      || self.scrollbar_style.is_changed()
+      || {
+        #[cfg(feature = "image")]
+        {
+          self.background_image.is_changed()
+        }
+        #[cfg(not(feature = "image"))]
+        {
+          false
+        }
+      }
+      || self.children.iter().any(Node::has_render_dirty)
+  }
+
   pub(crate) fn is_style_hovered(&self) -> bool {
     self.style_state.is_hovered()
   }

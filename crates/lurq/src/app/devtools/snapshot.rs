@@ -1,3 +1,4 @@
+#[cfg(feature = "perf_profile")]
 use std::time::Duration;
 
 use crate::{
@@ -5,7 +6,6 @@ use crate::{
     ctx::{
       ComponentContextDebug, ComponentEffectDebug, ComponentMemoDebug, ComponentSignalDebug, DevtoolsInspectableDebug,
     },
-    profiler::FrameProfile,
     runtime::Tree,
   },
   core::NodeId,
@@ -26,6 +26,9 @@ use crate::{
     style::Style,
   },
 };
+
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::FrameProfile;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevToolsSnapshot {
@@ -112,7 +115,16 @@ impl DevToolsSnapshot {
       root: tree
         .root()
         .map(|root| snapshot_node(root, tree.last_layout(), 0.0, 0.0, 0.0, 0.0)),
-      frame: FrameProfileSnapshot::from_profile(tree.last_profile()),
+      frame: {
+        #[cfg(feature = "perf_profile")]
+        {
+          FrameProfileSnapshot::from_profile(tree.last_profile())
+        }
+        #[cfg(not(feature = "perf_profile"))]
+        {
+          FrameProfileSnapshot::default()
+        }
+      },
     }
   }
 
@@ -137,6 +149,7 @@ impl DevToolsSnapshot {
 }
 
 impl FrameProfileSnapshot {
+  #[cfg(feature = "perf_profile")]
   pub fn from_profile(profile: &FrameProfile) -> Self {
     Self {
       fps: if profile.total.is_zero() {
@@ -677,6 +690,7 @@ fn count_nodes(node: &DevToolsNode) -> usize {
   1 + node.children.iter().map(count_nodes).sum::<usize>()
 }
 
+#[cfg(feature = "perf_profile")]
 fn ms(duration: Duration) -> f32 {
   duration.as_secs_f32() * 1000.0
 }

@@ -5,7 +5,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
 
 #[cfg(feature = "devtools")]
 use crate::app::devtools::{
@@ -24,9 +24,7 @@ use crate::{
       ScrollPhase,
     },
     hit_test::{HitRect, hit_test_tree, hit_test_tree_all},
-    profiler::{
-      FrameProfile, PerfMeterStats, RuntimeMemoryProfile, profile_elapsed, profile_if, profile_scope, profile_value,
-    },
+    profile_support::{PerfMeterStats, profile_elapsed, profile_if, profile_scope, profile_value},
     render_engine::{RenderEngine, RenderEngineFactory},
     theme::CaretMode,
   },
@@ -50,6 +48,9 @@ use crate::{
     transform::Transform2D,
   },
 };
+
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::{FrameProfile, RuntimeMemoryProfile};
 
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
@@ -123,6 +124,12 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   }
 }
 
+struct CachedRenderList {
+  list: RenderList,
+  #[cfg(feature = "image")]
+  image_sources: Vec<Option<crate::images::ImageData>>,
+}
+
 pub struct Tree {
   id_gen: IdGenerator,
   layout_engine: LayoutEngine,
@@ -155,6 +162,7 @@ pub struct Tree {
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   scheduled_redraw_at: Option<Instant>,
+  scheduled_redraw_due: bool,
   perf_overlay_enabled: bool,
   perf_overlay_stats: PerfMeterStats,
   perf_overlay_last_sample: Instant,
@@ -168,7 +176,12 @@ pub struct Tree {
   #[cfg(feature = "devtools")]
   debug_overlay_node_path: Option<Vec<usize>>,
   frame_count: u64,
+  #[cfg(feature = "perf_profile")]
   last_profile: FrameProfile,
+  #[cfg(feature = "perf_profile")]
+  last_memory_profile: RuntimeMemoryProfile,
+  #[cfg(feature = "perf_profile")]
+  last_memory_profile_sample: Option<Instant>,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
   last_theme_version: u64,
@@ -179,6 +192,7 @@ pub struct Tree {
   render_images: Vec<crate::images::ImageCmd>,
   #[cfg(feature = "svg")]
   render_svgs: Vec<crate::svg::SvgCmd>,
+  cached_render_list: Option<CachedRenderList>,
 }
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -350,6 +364,7 @@ impl Tree {
       suppressed_click: None,
       needs_redraw: true,
       scheduled_redraw_at: None,
+      scheduled_redraw_due: false,
       perf_overlay_enabled: false,
       perf_overlay_stats: PerfMeterStats::default(),
       perf_overlay_last_sample: Instant::now(),
@@ -363,7 +378,12 @@ impl Tree {
       #[cfg(feature = "devtools")]
       debug_overlay_node_path: None,
       frame_count: 0,
+      #[cfg(feature = "perf_profile")]
       last_profile: FrameProfile::default(),
+      #[cfg(feature = "perf_profile")]
+      last_memory_profile: RuntimeMemoryProfile::default(),
+      #[cfg(feature = "perf_profile")]
+      last_memory_profile_sample: None,
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       last_theme_version: u64::MAX,
@@ -374,6 +394,7 @@ impl Tree {
       render_images: Vec::new(),
       #[cfg(feature = "svg")]
       render_svgs: Vec::new(),
+      cached_render_list: None,
     };
     tree
       .window
@@ -399,6 +420,7 @@ impl Tree {
 
   fn invalidate_viewport_layout(&mut self) {
     self.last_layout = None;
+    self.cached_render_list = None;
     if let Some(root) = self.root.as_ref() {
       root.layout_cache.invalidate();
     }
@@ -416,7 +438,7 @@ impl Tree {
     self.window.set_position(x, y);
   }
 
-  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
+  #[cfg(feature = "perf_profile")]
   pub(crate) fn memory_profile_with_glyph(&self, glyph_engine_bytes: usize) -> RuntimeMemoryProfile {
     let runtime_struct_bytes = std::mem::size_of::<Self>();
     let root_tree_bytes = self.root.as_ref().map(Node::estimated_memory_bytes).unwrap_or(0);
@@ -469,10 +491,28 @@ impl Tree {
     }
   }
 
+  #[cfg(feature = "perf_profile")]
+  fn cached_memory_profile(&mut self, app: &App) -> RuntimeMemoryProfile {
+    let now = Instant::now();
+    let should_sample = match self.last_memory_profile_sample {
+      Some(last_sample) => now.duration_since(last_sample) >= PERF_SAMPLE_INTERVAL,
+      None => true,
+    };
+
+    if should_sample {
+      self.last_memory_profile = self.memory_profile_with_glyph(app.glyph_engine.estimated_memory_bytes());
+      self.last_memory_profile_sample = Some(now);
+    }
+
+    self.last_memory_profile
+  }
+
+  #[cfg(feature = "perf_profile")]
   pub fn last_profile(&self) -> &FrameProfile {
     &self.last_profile
   }
 
+  #[cfg(feature = "perf_profile")]
   pub fn profile(&self) -> &FrameProfile {
     &self.last_profile
   }
@@ -506,6 +546,7 @@ impl Tree {
   pub(crate) fn tick_scheduled_redraw(&mut self, now: Instant) {
     if self.scheduled_redraw_at.is_some_and(|at| now >= at) {
       self.scheduled_redraw_at = None;
+      self.scheduled_redraw_due = true;
       self.needs_redraw = true;
     }
   }
@@ -795,6 +836,14 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
+  fn devtools_is_open(&self) -> bool {
+    let Some(index) = self.devtools.as_ref().map(|devtools| devtools.secondary_index) else {
+      return false;
+    };
+    self.secondary_window(index).is_some()
+  }
+
+  #[cfg(feature = "devtools")]
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn devtools_pick_mode(&self) -> bool {
     *self.devtools_state.pick_mode.lock().unwrap()
@@ -847,7 +896,7 @@ impl Tree {
 
   #[cfg(feature = "devtools")]
   fn sync_devtools_inner(&mut self, force: bool) {
-    if self.devtools.is_none() {
+    if !self.devtools_is_open() {
       return;
     }
 
@@ -938,6 +987,7 @@ impl Tree {
     self.root_component = Some(Box::new(wrapper));
     self.root_ctx = Some(ctx);
     self.last_layout = None;
+    self.cached_render_list = None;
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
@@ -1015,6 +1065,7 @@ impl Tree {
     self.root_component = None;
     self.root_ctx = None;
     self.last_layout = None;
+    self.cached_render_list = None;
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.active_drag = None;
@@ -1054,7 +1105,13 @@ impl Tree {
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
-    if !self.needs_redraw {
+    self.tick_scheduled_redraw(Instant::now());
+    let theme_version = self
+      .root_ctx
+      .as_ref()
+      .map(|ctx| ctx.theme().version())
+      .unwrap_or_else(|| app.theme().version());
+    if !self.needs_redraw && !self.has_active_tick_sources() && self.last_theme_version == theme_version {
       return;
     }
     self.needs_redraw = false;
@@ -1072,7 +1129,7 @@ impl Tree {
     self.flush_due_pending_click(now);
 
     let _layout_start = profile_scope!();
-    self.update_layout(app);
+    let layout_updated = self.update_layout(app);
     let caret_mode = self
       .root_ctx
       .as_ref()
@@ -1080,19 +1137,31 @@ impl Tree {
       .unwrap_or_else(|| app.theme().caret_mode());
     self.update_text_input_caret_blink(now, caret_mode);
     let _layout_dur = profile_elapsed!(_layout_start);
-    let _layout_recalculated: bool = profile_value!(self.layout_engine.last_recalculated());
+    let _layout_recalculated: bool = profile_value!(layout_updated && self.layout_engine.last_recalculated());
+
+    if self.root.is_none() {
+      return;
+    }
+    if self.render_engine.is_none() {
+      return;
+    }
+    let clear_color = self
+      .root
+      .as_ref()
+      .and_then(Node::color)
+      .unwrap_or(DEFAULT_CLEAR_COLOR);
+
+    let window = surface.window_handle().unwrap();
+    let display = surface.display_handle().unwrap();
+
+    if !layout_updated && self.try_render_cached_render_list(app, clear_color, window, display) {
+      return;
+    }
 
     let root = match &self.root {
       Some(r) => r,
       None => return,
     };
-    if self.render_engine.is_none() {
-      return;
-    }
-    let clear_color = root.color().unwrap_or(DEFAULT_CLEAR_COLOR);
-
-    let window = surface.window_handle().unwrap();
-    let display = surface.display_handle().unwrap();
 
     let result = match self.last_layout.take() {
       Some(result) => result,
@@ -1135,6 +1204,8 @@ impl Tree {
     };
     #[cfg(feature = "image")]
     let image_frame_time = std::time::Instant::now();
+    #[cfg(feature = "image")]
+    let mut image_sources = Vec::new();
     #[cfg(all(feature = "svg", feature = "image"))]
     let svgs = {
       let mut svgs = std::mem::take(&mut self.render_svgs);
@@ -1362,6 +1433,7 @@ impl Tree {
             transform_origin: image_transform_origin,
             clip: scaled_clip,
           });
+          image_sources.push(Some(data.clone()));
         }
         #[cfg(all(feature = "svg", feature = "image"))]
         QuadContent::Svg { data } => {
@@ -1395,6 +1467,7 @@ impl Tree {
             transform_origin: image_transform_origin,
             clip: scaled_clip,
           });
+          image_sources.push(None);
         }
         #[cfg(all(feature = "svg", not(feature = "image")))]
         QuadContent::Svg { data } => {
@@ -1478,10 +1551,29 @@ impl Tree {
         glyph_cache_misses: app.glyph_engine.glyph_misses,
         text_measure_cache_hits: app.glyph_engine.measure_hits,
         text_measure_cache_misses: app.glyph_engine.measure_misses,
-        memory: self.memory_profile_with_glyph(app.glyph_engine.estimated_memory_bytes()),
+        memory: self.cached_memory_profile(app),
       };
     }
 
+    #[cfg(feature = "image")]
+    let should_cache_render_list = self.should_store_cached_render_list(&list, &image_sources);
+    #[cfg(not(feature = "image"))]
+    let should_cache_render_list = false;
+
+    if should_cache_render_list {
+      self.cached_render_list = Some(CachedRenderList {
+        list,
+        #[cfg(feature = "image")]
+        image_sources,
+      });
+      self.scheduled_redraw_due = false;
+      self.frame_count += 1;
+      #[cfg(feature = "devtools")]
+      self.sync_devtools();
+      return;
+    }
+
+    self.cached_render_list = None;
     let RenderList {
       clear_color: _,
       mut rects,
@@ -1506,6 +1598,7 @@ impl Tree {
       svgs.clear();
       self.render_svgs = svgs;
     }
+    self.scheduled_redraw_due = false;
     self.frame_count += 1;
     #[cfg(feature = "devtools")]
     self.sync_devtools();
@@ -3114,11 +3207,115 @@ impl Tree {
   pub fn set_layout_constraints_override(&mut self, constraints: Option<Constraints>) {
     self.layout_constraints_override = constraints;
     self.last_layout = None;
+    self.cached_render_list = None;
   }
 
   #[doc(hidden)]
   pub fn last_layout(&self) -> Option<&LayoutResult> {
     self.last_layout.as_ref()
+  }
+
+  fn can_reuse_cached_render_list(&self) -> bool {
+    if !self.scheduled_redraw_due || self.perf_overlay_enabled {
+      return false;
+    }
+    #[cfg(feature = "devtools")]
+    if self.devtools_is_open() || self.debug_overlay_node_path.is_some() {
+      return false;
+    }
+    self.root.as_ref().is_some_and(|root| !root.has_render_dirty())
+  }
+
+  #[cfg(feature = "image")]
+  fn should_store_cached_render_list(
+    &self,
+    _list: &RenderList,
+    image_sources: &[Option<crate::images::ImageData>],
+  ) -> bool {
+    if self.perf_overlay_enabled {
+      return false;
+    }
+    #[cfg(feature = "devtools")]
+    if self.devtools_is_open() || self.debug_overlay_node_path.is_some() {
+      return false;
+    }
+    image_sources
+      .iter()
+      .any(|source| source.as_ref().is_some_and(crate::images::ImageData::is_animated))
+  }
+
+  fn try_render_cached_render_list(
+    &mut self,
+    app: &mut App,
+    clear_color: Color,
+    window: WindowHandle<'_>,
+    display: DisplayHandle<'_>,
+  ) -> bool {
+    if !self.can_reuse_cached_render_list() {
+      return false;
+    }
+    let Some(mut cached) = self.cached_render_list.take() else {
+      return false;
+    };
+
+    self.needs_redraw = false;
+    cached.list.clear_color = clear_color;
+    #[cfg(feature = "image")]
+    self.refresh_cached_image_frames(&mut cached, Instant::now());
+    cached.list.atlas = app.glyph_engine.atlas();
+
+    let _gpu_start = profile_scope!();
+    let Some(render_engine) = &mut self.render_engine else {
+      self.cached_render_list = Some(cached);
+      return false;
+    };
+    render_engine.render(&cached.list, window, display);
+    let _gpu_dur = profile_elapsed!(_gpu_start);
+
+    profile_if! {
+      let render_profile = render_engine.last_profile().unwrap_or_default();
+      self.last_profile = FrameProfile {
+        gpu_submit: _gpu_dur,
+        render: render_profile,
+        total: _gpu_dur,
+        rect_count: cached.list.rects.len(),
+        glyph_count: cached.list.glyphs.len(),
+        memory: self.cached_memory_profile(app),
+        ..FrameProfile::default()
+      };
+    }
+
+    self.cached_render_list = Some(cached);
+    self.scheduled_redraw_due = false;
+    self.frame_count += 1;
+    #[cfg(feature = "devtools")]
+    self.sync_devtools();
+    true
+  }
+
+  #[cfg(feature = "image")]
+  fn refresh_cached_image_frames(&mut self, cached: &mut CachedRenderList, now: Instant) {
+    for (image, source) in cached.list.images.iter_mut().zip(cached.image_sources.iter()) {
+      let Some(source) = source else {
+        continue;
+      };
+      let frame = source.frame_at(now);
+      if let Some(next_frame_at) = frame.next_frame_at {
+        if next_frame_at <= now {
+          self.needs_redraw = true;
+        } else {
+          self.request_redraw_at(next_frame_at);
+        }
+      }
+      image.frame_index = frame.frame_index;
+      image.version = frame.version;
+      image.data = frame.data;
+      image.animation_frames = frame.animation_frames;
+      image.native = frame.native;
+      image.image_width = frame.width;
+      image.image_height = frame.height;
+      image.image_format = frame.format;
+    }
   }
 
   #[cfg(feature = "devtools")]
@@ -3228,21 +3425,33 @@ impl Tree {
     let now = Instant::now();
     let elapsed = now.duration_since(self.perf_overlay_last_sample);
     if elapsed >= PERF_SAMPLE_INTERVAL {
-      let profile = &self.last_profile;
       self.perf_overlay_stats = PerfMeterStats {
         fps: (self.perf_overlay_frames_since_sample as f32 / elapsed.as_secs_f32()).round() as u32,
-        total_ms: ms(profile.total),
-        layout_ms: ms(profile.layout),
-        quad_resolve_ms: ms(profile.quad_resolve),
-        glyph_ms: ms(profile.glyph_rasterize),
-        render_cpu_ms: ms(profile.render.active_total()),
-        render_acquire_ms: ms(profile.render.acquire),
-        render_upload_ms: ms(profile.render.upload_total()),
-        render_encode_ms: ms(profile.render.encode),
-        render_submit_ms: ms(profile.render.submit),
-        render_present_ms: ms(profile.render.present),
-        quad_count: profile.quad_count,
-        glyph_count: profile.glyph_count,
+        #[cfg(feature = "perf_profile")]
+        total_ms: ms(self.last_profile.total),
+        #[cfg(feature = "perf_profile")]
+        layout_ms: ms(self.last_profile.layout),
+        #[cfg(feature = "perf_profile")]
+        quad_resolve_ms: ms(self.last_profile.quad_resolve),
+        #[cfg(feature = "perf_profile")]
+        glyph_ms: ms(self.last_profile.glyph_rasterize),
+        #[cfg(feature = "perf_profile")]
+        render_cpu_ms: ms(self.last_profile.render.active_total()),
+        #[cfg(feature = "perf_profile")]
+        render_acquire_ms: ms(self.last_profile.render.acquire),
+        #[cfg(feature = "perf_profile")]
+        render_upload_ms: ms(self.last_profile.render.upload_total()),
+        #[cfg(feature = "perf_profile")]
+        render_encode_ms: ms(self.last_profile.render.encode),
+        #[cfg(feature = "perf_profile")]
+        render_submit_ms: ms(self.last_profile.render.submit),
+        #[cfg(feature = "perf_profile")]
+        render_present_ms: ms(self.last_profile.render.present),
+        #[cfg(feature = "perf_profile")]
+        quad_count: self.last_profile.quad_count,
+        #[cfg(feature = "perf_profile")]
+        glyph_count: self.last_profile.glyph_count,
+        ..PerfMeterStats::default()
       };
       self.perf_overlay_frames_since_sample = 0;
       self.perf_overlay_last_sample = now;
@@ -3331,7 +3540,7 @@ impl Tree {
     self.animation_engine.register_keyframes(keyframes);
   }
 
-  fn update_layout(&mut self, app: &mut App) {
+  fn update_layout(&mut self, app: &mut App) -> bool {
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
@@ -3349,6 +3558,9 @@ impl Tree {
       animation_layout_changed |= self.transition_engine.tick(root, now);
       animation_layout_changed |= self.animation_engine.tick(root, now);
     }
+    if self.has_active_timeline() {
+      self.needs_redraw = true;
+    }
 
     if let Some(root) = self.root.as_ref() {
       let constraints = self
@@ -3361,16 +3573,22 @@ impl Tree {
         .unwrap_or_else(|| app.theme().version());
       let theme_changed = self.last_theme_version != theme_version;
       let has_select_overlay_host = root.tag_name() == SELECT_OVERLAY_TAG;
+      let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
+      let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
+      let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
       if !animation_layout_changed
         && !image_resources_changed
         && !svg_resources_changed
         && !theme_changed
         && !has_select_overlay_host
+        && !has_dirty_element_ref
+        && !has_pending_layout_dirty
+        && !has_runtime_layout_state
         && self.last_layout.is_some()
-        && root.layout_cache.get(constraints).is_some()
+        && root.layout_cache.contains(constraints)
       {
         self.last_theme_version = theme_version;
-        return;
+        return false;
       }
     }
 
@@ -3457,7 +3675,9 @@ impl Tree {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
       }
       self.last_layout = Some(layout);
+      return true;
     }
+    false
   }
 
   fn detach_select_overlay(&mut self) -> SelectOverlayReuse {
@@ -4671,6 +4891,21 @@ fn has_dirty_element_ref_recursive(node: &Node) -> bool {
     || node.children().iter().any(has_dirty_element_ref_recursive)
 }
 
+fn has_runtime_layout_state_recursive(node: &Node) -> bool {
+  let local = match node.node_kind() {
+    NodeKind::TextInput { .. } => true,
+    NodeKind::Select { state } => state.is_open(),
+    _ => false,
+  };
+  local || node.children().iter().any(has_runtime_layout_state_recursive)
+}
+
+fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
+  let local = node.has_style_layout_dirty()
+    || matches!(node.layout_kind(), LayoutKind::ScrollModifier { state, .. } if state.has_scroll_dirty());
+  local || node.children().iter().any(has_pending_layout_dirty_recursive)
+}
+
 fn update_element_refs_recursive(
   node: &mut Node,
   layout: &LayoutResult,
@@ -5208,6 +5443,7 @@ fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) {
   }
 }
 
+#[cfg(feature = "perf_profile")]
 fn ms(duration: Duration) -> f32 {
   duration.as_secs_f32() * 1000.0
 }

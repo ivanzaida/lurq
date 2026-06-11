@@ -10,6 +10,9 @@ pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;
 #[cfg(feature = "i18n")]
 pub mod i18n;
+pub(crate) mod profile_support;
+pub(crate) mod profile_types;
+#[cfg(feature = "perf_profile")]
 pub mod profiler;
 pub mod render_engine;
 pub mod runtime;

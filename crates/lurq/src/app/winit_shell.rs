@@ -28,7 +28,7 @@ use crate::{
 };
 
 type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
-type FrameFn = Box<dyn FnMut(&Tree, Duration)>;
+type PaintFn = Box<dyn FnMut(&Tree, Duration)>;
 type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
 type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
 
@@ -38,7 +38,7 @@ pub struct WinitWindow {
   attrs: WindowAttributes,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
-  on_frame: Option<FrameFn>,
+  on_paint: Option<PaintFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
 }
@@ -51,7 +51,7 @@ impl WinitWindow {
       attrs: WindowAttributes::default(),
       corner_radius: None,
       on_tick: None,
-      on_frame: None,
+      on_paint: None,
       on_position_changed: None,
       on_size_changed: None,
     }
@@ -128,6 +128,7 @@ impl WinitWindow {
     self
   }
 
+  /// Runs during event-loop ticking before paint and may mutate the tree.
   pub fn on_tick<F>(mut self, tick: F) -> Self
   where
     F: FnMut(&mut Tree, Duration) + 'static,
@@ -136,12 +137,21 @@ impl WinitWindow {
     self
   }
 
-  pub fn on_frame<F>(mut self, frame: F) -> Self
+  /// Runs after a frame is presented. Use this for paint profiling.
+  pub fn on_paint<F>(mut self, paint: F) -> Self
   where
     F: FnMut(&Tree, Duration) + 'static,
   {
-    self.on_frame = Some(Box::new(frame));
+    self.on_paint = Some(Box::new(paint));
     self
+  }
+
+  #[deprecated(note = "use on_paint for callbacks after a frame is presented")]
+  pub fn on_frame<F>(self, frame: F) -> Self
+  where
+    F: FnMut(&Tree, Duration) + 'static,
+  {
+    self.on_paint(frame)
   }
 
   pub fn on_position_changed<F>(mut self, callback: F) -> Self
@@ -179,7 +189,7 @@ impl WinitWindow {
         self.attrs,
         self.corner_radius,
         self.on_tick,
-        self.on_frame,
+        self.on_paint,
         self.on_position_changed,
         self.on_size_changed,
         true,
@@ -199,13 +209,13 @@ struct ManagedWindow {
   attrs: Option<WindowAttributes>,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
-  on_frame: Option<FrameFn>,
+  on_paint: Option<PaintFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
   redraw_pending: bool,
   close_exits: bool,
   last_tick: Instant,
-  last_frame: Instant,
+  last_paint: Instant,
 }
 
 impl ManagedWindow {
@@ -214,7 +224,7 @@ impl ManagedWindow {
     attrs: WindowAttributes,
     corner_radius: Option<WindowCornerRadius>,
     on_tick: Option<TickFn>,
-    on_frame: Option<FrameFn>,
+    on_paint: Option<PaintFn>,
     on_position_changed: Option<PositionChangedFn>,
     on_size_changed: Option<SizeChangedFn>,
     close_exits: bool,
@@ -228,13 +238,13 @@ impl ManagedWindow {
       attrs: Some(attrs),
       corner_radius,
       on_tick,
-      on_frame,
+      on_paint,
       on_position_changed,
       on_size_changed,
       redraw_pending: false,
       close_exits,
       last_tick: Instant::now(),
-      last_frame: Instant::now(),
+      last_paint: Instant::now(),
     }
   }
 
@@ -418,10 +428,10 @@ impl ManagedWindow {
       let presented = self.tree.frame_count() != frame_count;
       if presented {
         let now = Instant::now();
-        let delta = now.duration_since(self.last_frame);
-        self.last_frame = now;
-        if let Some(frame) = &mut self.on_frame {
-          frame(&self.tree, delta);
+        let delta = now.duration_since(self.last_paint);
+        self.last_paint = now;
+        if let Some(paint) = &mut self.on_paint {
+          paint(&self.tree, delta);
         }
       }
       self.check_redraw();

@@ -46,6 +46,10 @@ impl InteractionState {
     self.inner.lock().unwrap().layout_dirty = true;
   }
 
+  pub(crate) fn has_layout_dirty(&self) -> bool {
+    self.inner.lock().unwrap().layout_dirty
+  }
+
   pub(crate) fn take_layout_dirty(&self) -> bool {
     let mut inner = self.inner.lock().unwrap();
     let dirty = inner.layout_dirty;

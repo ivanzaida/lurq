@@ -30,6 +30,17 @@ impl LayoutCache {
     self.get_cached(constraints)
   }
 
+  pub(crate) fn contains(&self, constraints: Constraints) -> bool {
+    if self.is_dirty() {
+      return false;
+    }
+    self
+      .inner
+      .borrow()
+      .as_ref()
+      .is_some_and(|cached| cached.constraints == constraints)
+  }
+
   pub(crate) fn get_dirty(&self, constraints: Constraints) -> Option<LayoutResult> {
     self.get_cached(constraints)
   }

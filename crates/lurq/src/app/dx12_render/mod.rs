@@ -77,13 +77,15 @@ use windows::{
   core::{Error, Interface, PCSTR, PCWSTR, Result},
 };
 
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::RenderProfile;
 #[cfg(feature = "image")]
 use crate::render::gpu::ImageInstance;
 #[cfg(feature = "svg")]
 use crate::render::gpu::SvgVertexGpu;
 use crate::{
   app::{
-    profiler::{RenderProfile, profile_elapsed, profile_if, profile_scope},
+    profile_support::{profile_elapsed, profile_if, profile_scope},
     render_engine::RenderEngine,
   },
   layout::{
@@ -432,15 +434,9 @@ impl RenderEngine for Dx12RenderEngine {
     self.state = None;
   }
 
+  #[cfg(feature = "perf_profile")]
   fn last_profile(&self) -> Option<RenderProfile> {
-    #[cfg(feature = "perf_profile")]
-    {
-      Some(self.last_profile)
-    }
-    #[cfg(not(feature = "perf_profile"))]
-    {
-      None
-    }
+    Some(self.last_profile)
   }
 }
 

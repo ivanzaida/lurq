@@ -35,6 +35,7 @@ impl HasDisplayHandle for TestSurface {
 
 pub fn run_pass(tree: &mut Tree) {
   let mut app = App::new();
+  tree.request_redraw();
   tree.pass(&mut app, &TestSurface);
 }
 
@@ -98,6 +99,7 @@ pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
       capture: render_capture.clone(),
     })
   });
+  tree.request_redraw();
   let mut app = App::new();
   tree.pass(&mut app, &TestSurface);
   capture.lock().unwrap().clone().unwrap_or_else(empty_snapshot)

@@ -443,6 +443,10 @@ impl ScrollState {
     dirty
   }
 
+  pub(crate) fn has_scroll_dirty(&self) -> bool {
+    self.inner.lock().unwrap().scroll_dirty
+  }
+
   pub(crate) fn update_layout(&self, content_w: f32, content_h: f32, viewport_w: f32, viewport_h: f32) {
     self.update_layout_with_container(content_w, content_h, viewport_w, viewport_h, viewport_w, viewport_h);
   }

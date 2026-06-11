@@ -2237,6 +2237,7 @@ impl Ctx {
     replacements
   }
 
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
       + self
@@ -2301,6 +2302,7 @@ impl AnyComponent for ForEachSlot {
 }
 
 impl ChildSlot {
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
   fn estimated_memory_bytes(&self) -> usize {
     self.key.as_ref().map(|key| key.capacity()).unwrap_or(0)
       + std::mem::size_of::<Box<dyn AnyComponent>>()

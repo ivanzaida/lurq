@@ -4,6 +4,7 @@ use std::{
   sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
+    OnceLock,
   },
   time::{Duration, Instant},
 };
@@ -62,8 +63,13 @@ impl From<NativeImageData> for ImageKind {
 }
 
 static NEXT_IMAGE_ID: AtomicU64 = AtomicU64::new(1);
+static ANIMATION_EPOCH: OnceLock<Instant> = OnceLock::new();
 const MIN_ANIMATION_FRAME_MS: u64 = 10;
 const MAX_STREAMING_RECYCLED_BUFFERS: usize = 3;
+
+fn animation_epoch() -> Instant {
+  *ANIMATION_EPOCH.get_or_init(Instant::now)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeImageBackend {
@@ -153,7 +159,6 @@ pub struct ImageData {
   frames: Arc<Vec<ImageFrame>>,
   animation_frame_data: Option<Arc<Vec<Arc<Vec<u8>>>>>,
   total_duration_ms: u64,
-  started_at: Instant,
   streaming: Option<Arc<StreamingImageInner>>,
   native: Option<NativeImageData>,
 }
@@ -202,7 +207,6 @@ impl ImageData {
       }]),
       animation_frame_data: None,
       total_duration_ms: 0,
-      started_at: Instant::now(),
       streaming: None,
       native: None,
     }
@@ -228,7 +232,6 @@ impl ImageData {
       frames: Arc::new(Vec::new()),
       animation_frame_data: None,
       total_duration_ms: 0,
-      started_at: Instant::now(),
       streaming: Some(Arc::new(StreamingImageInner {
         data: RwLock::new(data),
         recycled: Mutex::new(Vec::new()),
@@ -305,7 +308,6 @@ impl ImageData {
       frames: Arc::new(frames),
       animation_frame_data: Some(animation_frame_data),
       total_duration_ms,
-      started_at: Instant::now(),
       streaming: None,
       native: None,
     })
@@ -494,7 +496,7 @@ impl ImageData {
     let mut next_frame_at = None;
     let frame_index = if self.is_animated() {
       let elapsed_ms = now
-        .saturating_duration_since(self.started_at)
+        .saturating_duration_since(animation_epoch())
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
       let position_ms = elapsed_ms % self.total_duration_ms;
@@ -557,7 +559,6 @@ impl NativeImageData {
       frames: Arc::new(Vec::new()),
       animation_frame_data: None,
       total_duration_ms: 0,
-      started_at: Instant::now(),
       streaming: None,
       native: Some(self.clone()),
     }
@@ -716,11 +717,11 @@ fn nv12_len(width: u32, height: u32) -> usize {
 
 #[cfg(test)]
 mod tests {
-  use std::time::Duration;
+  use std::time::{Duration, Instant};
 
   use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
 
-  use super::{ImageData, StreamingImage};
+  use super::{ImageData, StreamingImage, animation_epoch};
 
   #[test]
   fn gif_decoding_preserves_animation_with_stable_image_id() {
@@ -737,13 +738,11 @@ mod tests {
 
     let image = ImageData::from_bytes(&bytes).unwrap();
     let image_id = image.id();
+    let epoch = animation_epoch();
 
     assert!(image.is_animated());
-    assert_eq!(image.frame_at(image.started_at).frame_index, 0);
-    assert_eq!(
-      image.frame_at(image.started_at + Duration::from_millis(25)).frame_index,
-      1
-    );
+    assert_eq!(image.frame_at(epoch).frame_index, 0);
+    assert_eq!(image.frame_at(epoch + Duration::from_millis(25)).frame_index, 1);
     assert_eq!(image.id(), image_id);
   }
 
@@ -761,10 +760,36 @@ mod tests {
     }
 
     let image = ImageData::from_bytes(&bytes).unwrap();
-    let frame = image.frame_at(image.started_at + Duration::from_millis(5));
+    let epoch = animation_epoch();
+    let frame = image.frame_at(epoch + Duration::from_millis(5));
 
     assert_eq!(frame.frame_index, 0);
-    assert_eq!(frame.next_frame_at, Some(image.started_at + Duration::from_millis(20)));
+    assert_eq!(frame.next_frame_at, Some(epoch + Duration::from_millis(20)));
+  }
+
+  #[test]
+  fn separately_decoded_animated_images_share_frame_clock() {
+    let mut bytes = Vec::new();
+    {
+      let red = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+      let blue = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 255, 255]));
+      let frames = vec![
+        Frame::from_parts(red, 0, 0, Delay::from_numer_denom_ms(100, 1)),
+        Frame::from_parts(blue, 0, 0, Delay::from_numer_denom_ms(100, 1)),
+      ];
+      GifEncoder::new(&mut bytes).encode_frames(frames).unwrap();
+    }
+
+    let image = ImageData::from_bytes(&bytes).unwrap();
+    let later_decoded_image = ImageData::from_bytes(&bytes).unwrap();
+
+    let now = animation_epoch() + Duration::from_millis(125);
+    let frame = image.frame_at(now);
+    let later_decoded_frame = later_decoded_image.frame_at(now);
+
+    assert_eq!(frame.frame_index, 1);
+    assert_eq!(later_decoded_frame.frame_index, frame.frame_index);
+    assert_eq!(later_decoded_frame.next_frame_at, frame.next_frame_at);
   }
 
   #[test]
@@ -772,13 +797,14 @@ mod tests {
     let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
     let clone = image.clone();
     let image_id = image.id();
+    let now = Instant::now();
 
-    let initial = clone.frame_at(image.started_at);
+    let initial = clone.frame_at(now);
     assert_eq!(&initial.data[..], &[0, 0, 0, 255]);
     assert_eq!(initial.version, 0);
 
     image.set_streaming_rgba(vec![255, 0, 0, 255]);
-    let updated = clone.frame_at(image.started_at);
+    let updated = clone.frame_at(now);
 
     assert_eq!(clone.id(), image_id);
     assert_eq!(&updated.data[..], &[255, 0, 0, 255]);
@@ -793,7 +819,7 @@ mod tests {
       pixels[1] = 128;
     });
 
-    let frame = image.frame_at(image.started_at);
+    let frame = image.frame_at(Instant::now());
     assert_eq!(&frame.data[..], &[0, 128, 0, 255]);
     assert_eq!(frame.version, 1);
   }
@@ -803,7 +829,7 @@ mod tests {
     let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
     image.set_streaming_rgba(vec![255, 0, 0, 255]);
     let current_ptr = {
-      let frame = image.frame_at(image.started_at);
+      let frame = image.frame_at(Instant::now());
       frame.data.as_ptr()
     };
 
@@ -811,7 +837,7 @@ mod tests {
       pixels[1] = 128;
     });
 
-    let frame = image.frame_at(image.started_at);
+    let frame = image.frame_at(Instant::now());
     assert_eq!(frame.data.as_ptr(), current_ptr);
     assert_eq!(&frame.data[..], &[255, 128, 0, 255]);
     assert_eq!(frame.version, 2);
@@ -833,7 +859,7 @@ mod tests {
   fn streaming_rgba_keeps_buffers_until_renderer_releases_them() {
     let image = ImageData::streaming_rgba(vec![0, 0, 0, 255], 1, 1);
     image.set_streaming_rgba(vec![255, 0, 0, 255]);
-    let held = image.frame_at(image.started_at).data;
+    let held = image.frame_at(Instant::now()).data;
     image.set_streaming_rgba(vec![0, 255, 0, 255]);
 
     assert!(image.take_streaming_rgba_buffer().is_some());

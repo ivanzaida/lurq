@@ -18,9 +18,11 @@ use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::RenderProfile;
 use crate::{
   app::{
-    profiler::{RenderProfile, profile_elapsed, profile_if, profile_scope},
+    profile_support::{profile_elapsed, profile_if, profile_scope},
     render_engine::RenderEngine,
   },
   layout::render_list::RenderList,
@@ -38,8 +40,11 @@ fn changed_byte_range(previous: &[u8], next: &[u8]) -> Option<(usize, usize)> {
   if previous.len() != next.len() {
     return Some((0, next.len()));
   }
+  if previous == next {
+    return None;
+  }
 
-  let start = previous.iter().zip(next).position(|(a, b)| a != b)?;
+  let start = previous.iter().zip(next).position(|(a, b)| a != b).unwrap_or(0);
   let end = previous
     .iter()
     .zip(next)
@@ -121,6 +126,32 @@ enum OrderedDraw {
   Image(usize),
   #[cfg(feature = "svg")]
   Svg(usize),
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ActivePipeline {
+  Quad,
+  Glyph,
+  #[cfg(feature = "image")]
+  Image,
+  #[cfg(feature = "image")]
+  Nv12Image,
+  #[cfg(feature = "svg")]
+  Svg,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ActiveVertexBuffer {
+  CommonQuad,
+  #[cfg(feature = "svg")]
+  Svg,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ActiveIndexBuffer {
+  CommonU16,
+  #[cfg(feature = "svg")]
+  SvgU32,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -1336,6 +1367,10 @@ impl RenderEngine for WgpuRenderEngine {
       }
       self.scratch_ordered_draws.sort_by_key(|(order, _)| *order);
 
+      let mut active_pipeline = None;
+      let mut active_vertex_buffer = None;
+      let mut active_index_buffer = None;
+
       for (_, draw) in &self.scratch_ordered_draws {
         match draw {
           OrderedDraw::Rect(index) => {
@@ -1346,7 +1381,10 @@ impl RenderEngine for WgpuRenderEngine {
             let prepared = &self.scratch_rect_draws[*index];
             let start = (prepared.start * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
             let end = ((prepared.start + prepared.count) * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
-            pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
+            if active_pipeline != Some(ActivePipeline::Quad) {
+              pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
+              active_pipeline = Some(ActivePipeline::Quad);
+            }
             if rounded_clip_needs_shader(r.clip) {
               let (clip_key, clip_globals) =
                 globals_buffer_for_clip(&mut self.clip_globals_cache, device, r.clip, vw, vh);
@@ -1370,9 +1408,15 @@ impl RenderEngine for WgpuRenderEngine {
             } else {
               pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
             }
-            pass.set_vertex_buffer(0, vtx_buf.slice(..));
+            if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
+              pass.set_vertex_buffer(0, vtx_buf.slice(..));
+              active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
+            }
             pass.set_vertex_buffer(1, rect_instance_buf.unwrap().slice(start..end));
-            pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+            if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
+              pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+              active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
+            }
             pass.draw_indexed(0..6, 0, 0..prepared.count as u32);
           }
           OrderedDraw::Glyph { start, count } => {
@@ -1382,7 +1426,10 @@ impl RenderEngine for WgpuRenderEngine {
             }
             let start_byte = (*start * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
             let end_byte = ((*start + *count) * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
-            pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
+            if active_pipeline != Some(ActivePipeline::Glyph) {
+              pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
+              active_pipeline = Some(ActivePipeline::Glyph);
+            }
             if rounded_clip_needs_shader(glyph_slice[0].clip) {
               let (clip_key, clip_globals) =
                 globals_buffer_for_clip(&mut self.clip_globals_cache, device, glyph_slice[0].clip, vw, vh);
@@ -1410,9 +1457,15 @@ impl RenderEngine for WgpuRenderEngine {
             } else {
               pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
             }
-            pass.set_vertex_buffer(0, vtx_buf.slice(..));
+            if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
+              pass.set_vertex_buffer(0, vtx_buf.slice(..));
+              active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
+            }
             pass.set_vertex_buffer(1, glyph_instance_buf.unwrap().slice(start_byte..end_byte));
-            pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+            if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
+              pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+              active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
+            }
             pass.draw_indexed(0..6, 0, 0..*count as u32);
           }
           #[cfg(feature = "image")]
@@ -1514,7 +1567,10 @@ impl RenderEngine for WgpuRenderEngine {
                   .and_then(|frames| frames.get(img.frame_index))
                   .map(|frame| (&frame.bind_group, &frame.view))
                   .unwrap_or((bind_group, view));
-                pass.set_pipeline(&image_pipeline);
+                if active_pipeline != Some(ActivePipeline::Image) {
+                  pass.set_pipeline(&image_pipeline);
+                  active_pipeline = Some(ActivePipeline::Image);
+                }
                 if rounded_clip_needs_shader(img.clip) {
                   let (clip_key, clip_globals) =
                     globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
@@ -1555,7 +1611,10 @@ impl RenderEngine for WgpuRenderEngine {
                 uv_view,
                 ..
               } => {
-                pass.set_pipeline(&nv12_image_pipeline);
+                if active_pipeline != Some(ActivePipeline::Nv12Image) {
+                  pass.set_pipeline(&nv12_image_pipeline);
+                  active_pipeline = Some(ActivePipeline::Nv12Image);
+                }
                 if rounded_clip_needs_shader(img.clip) {
                   let (clip_key, clip_globals) =
                     globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
@@ -1598,14 +1657,20 @@ impl RenderEngine for WgpuRenderEngine {
             let image_instance_stride = std::mem::size_of::<ImageInstance>() as wgpu::BufferAddress;
             let image_instance_start = *index as wgpu::BufferAddress * image_instance_stride;
             let image_instance_end = image_instance_start + image_instance_stride;
-            pass.set_vertex_buffer(0, vtx_buf.slice(..));
+            if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
+              pass.set_vertex_buffer(0, vtx_buf.slice(..));
+              active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
+            }
             pass.set_vertex_buffer(
               1,
               image_instance_buf
                 .unwrap()
                 .slice(image_instance_start..image_instance_end),
             );
-            pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+            if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
+              pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+              active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
+            }
             pass.draw_indexed(0..6, 0, 0..1);
           }
           #[cfg(feature = "svg")]
@@ -1658,10 +1723,15 @@ impl RenderEngine for WgpuRenderEngine {
               usage: wgpu::BufferUsages::INDEX,
             });
 
-            pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
+            if active_pipeline != Some(ActivePipeline::Svg) {
+              pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
+              active_pipeline = Some(ActivePipeline::Svg);
+            }
             pass.set_bind_group(0, &svg_bg, &[]);
             pass.set_vertex_buffer(0, vb.slice(..));
+            active_vertex_buffer = Some(ActiveVertexBuffer::Svg);
             pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            active_index_buffer = Some(ActiveIndexBuffer::SvgU32);
             pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
           }
         }
@@ -1701,15 +1771,9 @@ impl RenderEngine for WgpuRenderEngine {
     self.surface = None;
   }
 
+  #[cfg(feature = "perf_profile")]
   fn last_profile(&self) -> Option<RenderProfile> {
-    #[cfg(feature = "perf_profile")]
-    {
-      Some(self.last_profile)
-    }
-    #[cfg(not(feature = "perf_profile"))]
-    {
-      None
-    }
+    Some(self.last_profile)
   }
 }
 

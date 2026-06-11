@@ -353,7 +353,10 @@ impl Component for AppMutWriter {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    ctx.app_ref_mut().set_profiling_enabled(true);
+    ctx.app_ref_mut().theme().set_default_text_style(TextStyle {
+      font_size: 42.0,
+      ..TextStyle::default()
+    });
     lurq::components::Text::new("updated")
   }
 }
@@ -384,12 +387,12 @@ fn ctx_app_ref_reads_app() {
 #[test]
 fn ctx_app_ref_mut_mutates_app() {
   let mut app = App::new();
-  assert!(!app.profiling_enabled());
+  assert_ne!(app.theme().default_text_style().font_size, 42.0);
 
   let mut rt = Tree::new();
   rt.mount_root::<AppMutWriter>(&mut app, ());
 
-  assert!(app.profiling_enabled());
+  assert_eq!(app.theme().default_text_style().font_size, 42.0);
 }
 
 #[test]

@@ -11,6 +11,24 @@ fn pointer_click(runtime: &mut Tree, x: f32, y: f32) {
   runtime.mouse_up(x, y, MouseButton::Left);
 }
 
+fn shortcut_key_down(runtime: &mut Tree, key: &str, code: &str, shift: bool) {
+  let (ctrl, meta) = if cfg!(target_os = "macos") {
+    (false, true)
+  } else {
+    (true, false)
+  };
+  runtime.key_down_with_meta(key.to_owned(), code.to_owned(), shift, ctrl, false, meta);
+}
+
+fn word_nav_key_down(runtime: &mut Tree, key: &str, code: &str, shift: bool) {
+  let (ctrl, alt) = if cfg!(target_os = "macos") {
+    (false, true)
+  } else {
+    (true, false)
+  };
+  runtime.key_down(key.to_owned(), code.to_owned(), shift, ctrl, alt);
+}
+
 #[test]
 fn typing_into_focused_text_input_appends_to_existing_value() {
   let value = Signal::new("A".to_owned());
@@ -92,7 +110,7 @@ fn ctrl_arrow_left_moves_caret_to_previous_word() {
 
   pointer_click(&mut runtime, x, y);
   runtime.key_down("End".to_owned(), "End".to_owned(), false, false, false);
-  runtime.key_down("ArrowLeft".to_owned(), "ArrowLeft".to_owned(), false, true, false);
+  word_nav_key_down(&mut runtime, "ArrowLeft", "ArrowLeft", false);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "Hello Xworld");
@@ -213,7 +231,7 @@ fn ctrl_a_selects_all_text_for_replacement() {
   let (x, y) = rect.center();
 
   pointer_click(&mut runtime, x, y);
-  runtime.key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
+  shortcut_key_down(&mut runtime, "a", "KeyA", false);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "X");
@@ -231,7 +249,7 @@ fn ctrl_z_undoes_last_text_input_edit() {
 
   pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
-  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
+  shortcut_key_down(&mut runtime, "z", "KeyZ", false);
 
   assert_eq!(value.get(), "A");
 }
@@ -248,12 +266,12 @@ fn ctrl_y_and_ctrl_shift_z_redo_text_input_edits() {
 
   pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
-  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
-  runtime.key_down("y".to_owned(), "KeyY".to_owned(), false, true, false);
+  shortcut_key_down(&mut runtime, "z", "KeyZ", false);
+  shortcut_key_down(&mut runtime, "y", "KeyY", false);
   assert_eq!(value.get(), "AB");
 
-  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
-  runtime.key_down("Z".to_owned(), "KeyZ".to_owned(), true, true, false);
+  shortcut_key_down(&mut runtime, "z", "KeyZ", false);
+  shortcut_key_down(&mut runtime, "Z", "KeyZ", true);
   assert_eq!(value.get(), "AB");
 }
 
@@ -269,9 +287,9 @@ fn new_text_input_edit_clears_redo_history() {
 
   pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
-  runtime.key_down("z".to_owned(), "KeyZ".to_owned(), false, true, false);
+  shortcut_key_down(&mut runtime, "z", "KeyZ", false);
   runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
-  runtime.key_down("y".to_owned(), "KeyY".to_owned(), false, true, false);
+  shortcut_key_down(&mut runtime, "y", "KeyY", false);
 
   assert_eq!(value.get(), "AC");
 }
@@ -330,7 +348,7 @@ fn multiline_selection_renders_a_rect_for_each_selected_row() {
   let (x, y) = rect.center();
 
   pointer_click(&mut runtime, x, y);
-  runtime.key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
+  shortcut_key_down(&mut runtime, "a", "KeyA", false);
 
   let snapshot = render_pass(&mut runtime);
   let selection_rects = snapshot
