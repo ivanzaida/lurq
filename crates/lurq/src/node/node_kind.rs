@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+  Arc, Mutex,
+  atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
   app::theme::{ThemePalette, ThemeTypography, TypographyStyle},
@@ -302,6 +305,7 @@ impl TextState {
 pub(crate) struct TextInputState {
   value: Signal<String>,
   inner: Arc<Mutex<TextInputInner>>,
+  layout_dirty: Arc<AtomicBool>,
 }
 
 struct TextInputInner {
@@ -328,6 +332,15 @@ struct TextInputSnapshot {
   value: String,
   caret: usize,
   selection_anchor: Option<usize>,
+}
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct TextInputLayoutSignature {
+  placeholder: Option<String>,
+  overflow: TextInputOverflow,
+  min_rows: Option<usize>,
+  max_rows: Option<usize>,
+  mask: Option<char>,
 }
 
 impl TextInputState {
@@ -357,6 +370,7 @@ impl TextInputState {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
       })),
+      layout_dirty: Arc::new(AtomicBool::new(false)),
     }
   }
 
@@ -366,6 +380,7 @@ impl TextInputState {
 
   pub(crate) fn set_placeholder(&self, placeholder: impl Into<String>) {
     self.inner.lock().unwrap().placeholder = Some(placeholder.into());
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn placeholder(&self) -> Option<String> {
@@ -429,6 +444,7 @@ impl TextInputState {
 
   pub(crate) fn set_mask(&self, mask: Option<char>) {
     self.inner.lock().unwrap().mask = mask;
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn mask(&self) -> Option<char> {
@@ -452,6 +468,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.caret = caret;
     inner.selection_anchor = None;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn insert_newline(&self) -> bool {
@@ -484,6 +502,7 @@ impl TextInputState {
       }
     });
     self.inner.lock().unwrap().caret = caret;
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn delete(&self) {
@@ -506,6 +525,7 @@ impl TextInputState {
       value.replace_range(caret..next, "");
     });
     self.inner.lock().unwrap().caret = caret;
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_left(&self, selecting: bool) {
@@ -523,6 +543,8 @@ impl TextInputState {
       inner.caret = previous_char_boundary(&value, clamp_to_char_boundary(&value, inner.caret));
       inner.selection_anchor = None;
     }
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_right(&self, selecting: bool) {
@@ -540,6 +562,8 @@ impl TextInputState {
       inner.caret = next_char_boundary(&value, clamp_to_char_boundary(&value, inner.caret));
       inner.selection_anchor = None;
     }
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_up(&self, selecting: bool) {
@@ -549,6 +573,8 @@ impl TextInputState {
     let (line_start, _) = line_bounds(&value, caret);
     if line_start == 0 {
       move_inner_to(&mut inner, 0, selecting);
+      drop(inner);
+      self.mark_layout_dirty();
       return;
     }
 
@@ -557,6 +583,8 @@ impl TextInputState {
     let (previous_line_start, previous_line_end) = line_bounds(&value, previous_line_end);
     let target = closest_caret_in_range(&inner.caret_positions, previous_line_start, previous_line_end, target_x);
     move_inner_to(&mut inner, target, selecting);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_down(&self, selecting: bool) {
@@ -566,6 +594,8 @@ impl TextInputState {
     let (_, line_end) = line_bounds(&value, caret);
     if line_end >= value.len() {
       move_inner_to(&mut inner, value.len(), selecting);
+      drop(inner);
+      self.mark_layout_dirty();
       return;
     }
 
@@ -574,6 +604,8 @@ impl TextInputState {
     let (_, next_line_end) = line_bounds(&value, next_line_start);
     let target = closest_caret_in_range(&inner.caret_positions, next_line_start, next_line_end, target_x);
     move_inner_to(&mut inner, target, selecting);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_word_left(&self, selecting: bool) {
@@ -581,6 +613,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     let target = previous_word_boundary(&value, inner.caret);
     move_inner_to(&mut inner, target, selecting);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_word_right(&self, selecting: bool) {
@@ -588,6 +622,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     let target = next_word_boundary(&value, inner.caret);
     move_inner_to(&mut inner, target, selecting);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_home(&self, selecting: bool) {
@@ -599,6 +635,8 @@ impl TextInputState {
     if !selecting {
       inner.selection_anchor = None;
     }
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn move_end(&self, selecting: bool) {
@@ -611,6 +649,8 @@ impl TextInputState {
     if !selecting {
       inner.selection_anchor = None;
     }
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn select_all(&self) {
@@ -618,6 +658,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.selection_anchor = Some(0);
     inner.caret = len;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn selected_text(&self) -> Option<String> {
@@ -641,6 +683,7 @@ impl TextInputState {
     };
     self.push_redo_snapshot(current);
     self.restore_snapshot(snapshot);
+    self.mark_layout_dirty();
     true
   }
 
@@ -651,6 +694,7 @@ impl TextInputState {
     };
     self.push_undo_snapshot_value(current);
     self.restore_snapshot(snapshot);
+    self.mark_layout_dirty();
     true
   }
 
@@ -659,11 +703,14 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.caret = caret;
     inner.selection_anchor = Some(caret);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn update_selection_to_point(&self, x: f32, y: f32) {
     let caret = self.closest_caret_to_point(x, y);
     self.inner.lock().unwrap().caret = caret;
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn set_caret_from_point(&self, x: f32, y: f32) {
@@ -671,6 +718,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.caret = caret;
     inner.selection_anchor = None;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn select_word_at_point(&self, x: f32, y: f32) {
@@ -680,6 +729,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.selection_anchor = Some(start);
     inner.caret = end;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn select_line_at_point(&self, x: f32, y: f32) {
@@ -689,6 +740,8 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.selection_anchor = Some(start);
     inner.caret = end;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn copy_runtime_state_from(&self, old: &Self) {
@@ -710,6 +763,7 @@ impl TextInputState {
     let old_focused = old_inner.focused;
     let old_undo_stack = old_inner.undo_stack.clone();
     let old_redo_stack = old_inner.redo_stack.clone();
+    let layout_dirty = self.layout_dirty.load(Ordering::Relaxed) || old.layout_dirty.load(Ordering::Relaxed);
     let len = self.value().len();
     let mut inner = self.inner.lock().unwrap();
     inner.caret = old_caret.min(len);
@@ -726,6 +780,7 @@ impl TextInputState {
     inner.focused = old_focused;
     inner.undo_stack = old_undo_stack;
     inner.redo_stack = old_redo_stack;
+    self.layout_dirty.store(layout_dirty, Ordering::Relaxed);
   }
 
   pub(crate) fn sync_caret_metrics_to_position(&self, line_height: f32) {
@@ -782,6 +837,7 @@ impl TextInputState {
 
   pub(crate) fn set_overflow(&self, overflow: TextInputOverflow) {
     self.inner.lock().unwrap().overflow = overflow;
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn overflow(&self) -> TextInputOverflow {
@@ -795,6 +851,8 @@ impl TextInputState {
     inner.overflow = TextInputOverflow::Multiline;
     inner.min_rows = Some(min_rows);
     inner.max_rows = Some(max_rows);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn set_min_rows(&self, min_rows: usize) {
@@ -807,6 +865,8 @@ impl TextInputState {
     {
       inner.max_rows = Some(min_rows);
     }
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn set_max_rows(&self, max_rows: usize) {
@@ -819,6 +879,8 @@ impl TextInputState {
     {
       inner.min_rows = Some(max_rows);
     }
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn set_rows_exact(&self, rows: usize) {
@@ -827,6 +889,8 @@ impl TextInputState {
     inner.overflow = TextInputOverflow::Multiline;
     inner.min_rows = Some(rows);
     inner.max_rows = Some(rows);
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn row_limits(&self) -> (Option<usize>, Option<usize>) {
@@ -875,7 +939,28 @@ impl TextInputState {
     let mut inner = self.inner.lock().unwrap();
     inner.caret = start;
     inner.selection_anchor = None;
+    drop(inner);
+    self.mark_layout_dirty();
     Some(start)
+  }
+
+  pub(crate) fn layout_signature(&self) -> TextInputLayoutSignature {
+    let inner = self.inner.lock().unwrap();
+    TextInputLayoutSignature {
+      placeholder: inner.placeholder.clone(),
+      overflow: inner.overflow,
+      min_rows: inner.min_rows,
+      max_rows: inner.max_rows,
+      mask: inner.mask,
+    }
+  }
+
+  pub(crate) fn take_layout_dirty(&self) -> bool {
+    self.layout_dirty.swap(false, Ordering::Relaxed)
+  }
+
+  fn mark_layout_dirty(&self) {
+    self.layout_dirty.store(true, Ordering::Relaxed);
   }
 
   pub(crate) fn has_selection(&self) -> bool {

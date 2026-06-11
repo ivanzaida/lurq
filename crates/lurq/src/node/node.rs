@@ -2717,16 +2717,20 @@ impl Node {
       ) => style == old_style && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
       (
         NodeKind::TextInput {
+          state,
           style,
           placeholder_style,
-          ..
         },
         NodeKind::TextInput {
+          state: old_state,
           style: old_style,
           placeholder_style: old_placeholder_style,
-          ..
         },
-      ) => style == old_style && placeholder_style == old_placeholder_style,
+      ) => {
+        style == old_style
+          && placeholder_style == old_placeholder_style
+          && state.layout_signature() == old_state.layout_signature()
+      }
       (NodeKind::Checkbox { state }, NodeKind::Checkbox { state: old_state }) => {
         state.layout_signature() == old_state.layout_signature()
       }

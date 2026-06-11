@@ -408,10 +408,12 @@ impl LayoutEngine {
     // cache invalidated by a layout-affecting change (e.g. a reconciled subtree
     // patched in via a component slot replacement). It must be laid out, and its
     // ancestors must recompute to reposition it, so propagate dirtiness upward.
-    let mut local_dirty = force_dirty
-      || node.text_content.is_changed()
-      || matches!(node.node_kind(), NodeKind::TextInput { .. })
-      || !node.layout_cache.has_cached_result();
+    let text_input_dirty = match node.node_kind() {
+      NodeKind::TextInput { state, .. } => state.take_layout_dirty(),
+      _ => false,
+    };
+    let mut local_dirty =
+      force_dirty || node.text_content.is_changed() || text_input_dirty || !node.layout_cache.has_cached_result();
 
     if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind()
       && state.take_scroll_dirty()
@@ -2748,6 +2750,7 @@ fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect)
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::{app::glyph_engine::GlyphEngine, core::Signal, node::Node};
 
   #[test]
   fn clipped_subtree_culling_keeps_partially_visible_rects() {
@@ -2762,5 +2765,85 @@ mod tests {
 
     assert!(rect_intersects_clip(90.0, 90.0, 20.0, 20.0, clip));
     assert!(!rect_intersects_clip(120.0, 0.0, 20.0, 20.0, clip));
+  }
+
+  #[test]
+  fn unchanged_text_input_reuses_cached_layout() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let node = Node::text_input(Signal::new("Hello".to_owned()));
+    let constraints = Constraints::loose(Size::new(400.0, 400.0));
+
+    engine.compute(
+      &mut glyph_engine,
+      &node,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+    assert!(engine.last_recalculated());
+
+    engine.compute(
+      &mut glyph_engine,
+      &node,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+    assert!(!engine.last_recalculated());
+  }
+
+  #[test]
+  fn moved_text_input_caret_invalidates_cached_layout() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let node = Node::text_input(Signal::new("Hello".to_owned()));
+    let constraints = Constraints::loose(Size::new(400.0, 400.0));
+
+    engine.compute(
+      &mut glyph_engine,
+      &node,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    let NodeKind::TextInput { state, .. } = node.node_kind() else {
+      panic!("expected text input node");
+    };
+    state.move_left(false);
+
+    engine.compute(
+      &mut glyph_engine,
+      &node,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+    assert!(engine.last_recalculated());
   }
 }
