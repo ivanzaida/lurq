@@ -2216,12 +2216,18 @@ impl Ctx {
           element.node.preserve_runtime_state_from(old);
         }
         slot.rendered = Some(element.node.clone_for_reuse());
+        replacements.push((slot.id, element.node));
+        continue;
       } else {
         let nested_replacements = slot.ctx.refresh_dirty_subtrees();
         if let Some(rendered) = &mut slot.rendered {
           for (slot_id, replacement) in nested_replacements {
-            if !rendered.replace_component_slot(slot_id, replacement.clone_for_reuse()) {
-              replacements.push((slot_id, replacement));
+            let mut replacement = Some(replacement);
+            if !rendered.replace_component_slot_in(slot_id, &mut replacement) {
+              replacements.push((
+                slot_id,
+                replacement.expect("component replacement should remain when no slot was replaced"),
+              ));
             }
           }
         } else {
