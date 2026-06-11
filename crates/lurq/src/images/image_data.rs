@@ -5,7 +5,7 @@ use std::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
-  time::Instant,
+  time::{Duration, Instant},
 };
 
 #[cfg(target_os = "macos")]
@@ -183,6 +183,7 @@ pub(crate) struct ImageFrameData {
   pub format: ImagePixelFormat,
   pub frame_index: usize,
   pub version: u64,
+  pub next_frame_at: Option<Instant>,
 }
 
 impl ImageData {
@@ -465,6 +466,7 @@ impl ImageData {
         format: self.format,
         frame_index: 0,
         version: streaming.version.load(Ordering::Acquire),
+        next_frame_at: streaming.continuous_redraw.load(Ordering::Acquire).then_some(now),
       };
     }
 
@@ -477,9 +479,11 @@ impl ImageData {
         format: self.format,
         frame_index: 0,
         version: native.version(),
+        next_frame_at: None,
       };
     }
 
+    let mut next_frame_at = None;
     let frame_index = if self.is_animated() {
       let elapsed_ms = now
         .saturating_duration_since(self.started_at)
@@ -487,14 +491,17 @@ impl ImageData {
         .min(u128::from(u64::MAX)) as u64;
       let position_ms = elapsed_ms % self.total_duration_ms;
       let mut cursor_ms = 0_u64;
-      self
+      let frame_index = self
         .frames
         .iter()
         .position(|frame| {
           cursor_ms += frame.duration_ms;
           position_ms < cursor_ms
         })
-        .unwrap_or(0)
+        .unwrap_or(0);
+      let remaining_ms = cursor_ms.saturating_sub(position_ms);
+      next_frame_at = now.checked_add(Duration::from_millis(remaining_ms));
+      frame_index
     } else {
       0
     };
@@ -508,6 +515,7 @@ impl ImageData {
       format: self.format,
       frame_index,
       version: frame_index as u64,
+      next_frame_at,
     }
   }
 }
@@ -727,6 +735,26 @@ mod tests {
       1
     );
     assert_eq!(image.id(), image_id);
+  }
+
+  #[test]
+  fn animated_frame_reports_next_frame_time() {
+    let mut bytes = Vec::new();
+    {
+      let red = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+      let blue = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 255, 255]));
+      let frames = vec![
+        Frame::from_parts(red, 0, 0, Delay::from_numer_denom_ms(20, 1)),
+        Frame::from_parts(blue, 0, 0, Delay::from_numer_denom_ms(20, 1)),
+      ];
+      GifEncoder::new(&mut bytes).encode_frames(frames).unwrap();
+    }
+
+    let image = ImageData::from_bytes(&bytes).unwrap();
+    let frame = image.frame_at(image.started_at + Duration::from_millis(5));
+
+    assert_eq!(frame.frame_index, 0);
+    assert_eq!(frame.next_frame_at, Some(image.started_at + Duration::from_millis(20)));
   }
 
   #[test]

@@ -154,6 +154,7 @@ pub struct Tree {
   click_press: Option<ClickPress>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
+  scheduled_redraw_at: Option<Instant>,
   perf_overlay_enabled: bool,
   perf_overlay_stats: PerfMeterStats,
   perf_overlay_last_sample: Instant,
@@ -348,6 +349,7 @@ impl Tree {
       click_press: None,
       suppressed_click: None,
       needs_redraw: true,
+      scheduled_redraw_at: None,
       perf_overlay_enabled: false,
       perf_overlay_stats: PerfMeterStats::default(),
       perf_overlay_last_sample: Instant::now(),
@@ -488,6 +490,24 @@ impl Tree {
 
   pub fn request_redraw(&mut self) {
     self.needs_redraw = true;
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn request_redraw_at(&mut self, at: Instant) {
+    self.scheduled_redraw_at = Some(self.scheduled_redraw_at.map_or(at, |current| current.min(at)));
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn next_scheduled_redraw(&self) -> Option<Instant> {
+    self.scheduled_redraw_at
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn tick_scheduled_redraw(&mut self, now: Instant) {
+    if self.scheduled_redraw_at.is_some_and(|at| now >= at) {
+      self.scheduled_redraw_at = None;
+      self.needs_redraw = true;
+    }
   }
 
   pub fn tick_timers(&mut self) {
@@ -1038,6 +1058,7 @@ impl Tree {
       return;
     }
     self.needs_redraw = false;
+    self.scheduled_redraw_at = None;
 
     self.set_app_ref(app);
     let _frame_start = profile_scope!();
@@ -1295,8 +1316,12 @@ impl Tree {
         #[cfg(feature = "image")]
         QuadContent::Image { data, uv_min, uv_max } => {
           let frame = data.frame_at(image_frame_time);
-          if data.requires_continuous_redraw() {
-            self.needs_redraw = true;
+          if let Some(next_frame_at) = frame.next_frame_at {
+            if next_frame_at <= image_frame_time {
+              self.needs_redraw = true;
+            } else {
+              self.request_redraw_at(next_frame_at);
+            }
           }
           let image_transform = quad.transform.matrix_2x2();
           let image_transform_origin = quad

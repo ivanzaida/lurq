@@ -453,6 +453,7 @@ impl ManagedWindow {
     self.tree.tick_timers();
     self.tree.tick_futures();
     self.tree.tick_perf_overlay();
+    self.tree.tick_scheduled_redraw(now);
     if self.tree.has_active_timeline() {
       self.tree.request_redraw();
     }
@@ -849,9 +850,11 @@ impl ManagedSecondaryWindow {
   }
 
   fn tick(&mut self, tree: &mut Tree) {
+    let now = Instant::now();
     tree.tick_timers();
     tree.tick_futures();
     tree.tick_perf_overlay();
+    tree.tick_scheduled_redraw(now);
     if tree.has_active_timeline() {
       tree.request_redraw();
     }
@@ -1199,9 +1202,23 @@ impl ApplicationHandler for WinitHandler {
         .is_some_and(|secondary| secondary_window.has_tick(Some(secondary.tree())))
     });
     let redraw_pending = self.main.redraw_pending || self.secondaries.iter().any(|secondary| secondary.redraw_pending);
+    let next_scheduled_redraw = self
+      .secondaries
+      .iter()
+      .filter_map(|secondary_window| {
+        self
+          .main
+          .tree
+          .secondary_window(secondary_window.index())
+          .and_then(|secondary| secondary.tree().next_scheduled_redraw())
+      })
+      .chain(self.main.tree.next_scheduled_redraw())
+      .min();
 
     if (self.main.has_tick() || secondary_has_tick) && !redraw_pending {
       event_loop.set_control_flow(ControlFlow::Poll);
+    } else if let Some(next_redraw) = next_scheduled_redraw.filter(|_| !redraw_pending) {
+      event_loop.set_control_flow(ControlFlow::WaitUntil(next_redraw));
     } else {
       event_loop.set_control_flow(ControlFlow::Wait);
     }
