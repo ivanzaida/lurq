@@ -77,8 +77,6 @@ use windows::{
   core::{Error, Interface, PCSTR, PCWSTR, Result},
 };
 
-#[cfg(feature = "perf_profile")]
-use crate::app::profile_types::RenderProfile;
 #[cfg(feature = "image")]
 use crate::render::gpu::ImageInstance;
 #[cfg(feature = "svg")]
@@ -86,6 +84,7 @@ use crate::render::gpu::SvgVertexGpu;
 use crate::{
   app::{
     profile_support::{profile_elapsed, profile_if, profile_scope},
+    profile_types::RenderProfile,
     render_engine::RenderEngine,
   },
   layout::{
