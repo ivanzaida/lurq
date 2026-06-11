@@ -149,14 +149,9 @@ impl FrameProfileSnapshot {
       layout_recalculated: profile.layout_recalculated,
       quad_ms: ms(profile.quad_resolve),
       glyph_ms: ms(profile.glyph_rasterize),
-      render_ms: ms(profile.gpu_submit),
+      render_ms: ms(profile.render.active_total()),
       acquire_ms: ms(profile.render.acquire),
-      upload_ms: ms(
-        profile.render.globals_upload
-          + profile.render.atlas_upload
-          + profile.render.buffer_upload
-          + profile.render.image_upload,
-      ),
+      upload_ms: ms(profile.render.upload_total()),
       encode_ms: ms(profile.render.encode),
       submit_ms: ms(profile.render.submit),
       present_ms: ms(profile.render.present),

@@ -3235,13 +3235,9 @@ impl Tree {
         layout_ms: ms(profile.layout),
         quad_resolve_ms: ms(profile.quad_resolve),
         glyph_ms: ms(profile.glyph_rasterize),
+        render_cpu_ms: ms(profile.render.active_total()),
         render_acquire_ms: ms(profile.render.acquire),
-        render_upload_ms: ms(
-          profile.render.globals_upload
-            + profile.render.atlas_upload
-            + profile.render.buffer_upload
-            + profile.render.image_upload,
-        ),
+        render_upload_ms: ms(profile.render.upload_total()),
         render_encode_ms: ms(profile.render.encode),
         render_submit_ms: ms(profile.render.submit),
         render_present_ms: ms(profile.render.present),
@@ -5386,7 +5382,7 @@ fn push_perf_meter(
   };
 
   let panel_w = 160.0 * scale;
-  let panel_h = 198.0 * scale;
+  let panel_h = 213.0 * scale;
   let margin_top = 12.0 * scale;
   let margin_right = 16.0 * scale;
   let padding_x = 8.0 * scale;
@@ -5422,10 +5418,11 @@ fn push_perf_meter(
     ),
     ("glyph", format!("{:.2} ms", stats.glyph_ms), FontWeight::Normal),
     (
-      "acquire",
-      format!("{:.2} ms", stats.render_acquire_ms),
+      "render cpu",
+      format!("{:.2} ms", stats.render_cpu_ms),
       FontWeight::Normal,
     ),
+    ("wait", format!("{:.2} ms", stats.render_acquire_ms), FontWeight::Normal),
     (
       "upload",
       format!("{:.2} ms", stats.render_upload_ms),

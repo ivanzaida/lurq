@@ -364,7 +364,12 @@ fn perf_stats_section(frame: FrameProfileSnapshot) -> Element {
     ("layout", format_ms(frame.layout_ms), duration_color(frame.layout_ms)),
     ("resolve", format_ms(frame.quad_ms), duration_color(frame.quad_ms)),
     ("glyph", format_ms(frame.glyph_ms), duration_color(frame.glyph_ms)),
-    ("acquire", format_ms(frame.acquire_ms), duration_color(frame.acquire_ms)),
+    (
+      "render cpu",
+      format_ms(frame.render_ms),
+      duration_color(frame.render_ms),
+    ),
+    ("wait", format_ms(frame.acquire_ms), duration_color(frame.acquire_ms)),
     ("upload", format_ms(frame.upload_ms), duration_color(frame.upload_ms)),
     ("encode", format_ms(frame.encode_ms), duration_color(frame.encode_ms)),
     ("submit", format_ms(frame.submit_ms), duration_color(frame.submit_ms)),

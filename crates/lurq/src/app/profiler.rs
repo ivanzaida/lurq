@@ -28,6 +28,7 @@ pub struct PerfMeterStats {
   pub layout_ms: f32,
   pub quad_resolve_ms: f32,
   pub glyph_ms: f32,
+  pub render_cpu_ms: f32,
   pub render_acquire_ms: f32,
   pub render_upload_ms: f32,
   pub render_encode_ms: f32,
@@ -49,6 +50,16 @@ pub struct RenderProfile {
   pub submit: Duration,
   pub present: Duration,
   pub total: Duration,
+}
+
+impl RenderProfile {
+  pub fn upload_total(self) -> Duration {
+    self.globals_upload + self.atlas_upload + self.buffer_upload + self.image_upload
+  }
+
+  pub fn active_total(self) -> Duration {
+    self.total.saturating_sub(self.acquire)
+  }
 }
 
 impl FrameProfile {
@@ -75,16 +86,14 @@ impl std::fmt::Display for FrameProfile {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render={:.2}ms acquire={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms present={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
+      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render_cpu={:.2}ms wait={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms present={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
       self.total.as_secs_f64() * 1000.0,
       self.layout.as_secs_f64() * 1000.0,
       self.quad_resolve.as_secs_f64() * 1000.0,
       self.glyph_rasterize.as_secs_f64() * 1000.0,
-      self.gpu_submit.as_secs_f64() * 1000.0,
+      self.render.active_total().as_secs_f64() * 1000.0,
       self.render.acquire.as_secs_f64() * 1000.0,
-      (self.render.globals_upload + self.render.atlas_upload + self.render.buffer_upload + self.render.image_upload)
-        .as_secs_f64()
-        * 1000.0,
+      self.render.upload_total().as_secs_f64() * 1000.0,
       self.render.encode.as_secs_f64() * 1000.0,
       self.render.submit.as_secs_f64() * 1000.0,
       self.render.present.as_secs_f64() * 1000.0,
