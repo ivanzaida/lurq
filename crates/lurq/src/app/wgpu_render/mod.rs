@@ -127,6 +127,22 @@ enum OrderedDraw {
 struct ClipGlobalsKey([u32; 20]);
 
 #[cfg(feature = "image")]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum ImageClipFormat {
+  Rgba,
+  Nv12,
+}
+
+#[cfg(feature = "image")]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct ImageClipBindGroupKey {
+  image_id: u64,
+  frame_index: usize,
+  clip: ClipGlobalsKey,
+  format: ImageClipFormat,
+}
+
+#[cfg(feature = "image")]
 struct CachedRgbaFrame {
   bind_group: wgpu::BindGroup,
   view: wgpu::TextureView,
@@ -264,6 +280,8 @@ pub struct WgpuRenderEngine {
   image_sampler: Option<wgpu::Sampler>,
   #[cfg(feature = "image")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
+  #[cfg(feature = "image")]
+  image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
   clip_globals_cache: std::collections::HashMap<ClipGlobalsKey, wgpu::Buffer>,
   quad_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
@@ -337,6 +355,8 @@ impl WgpuRenderEngine {
       image_sampler: None,
       #[cfg(feature = "image")]
       image_texture_cache: std::collections::HashMap::new(),
+      #[cfg(feature = "image")]
+      image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
       clip_globals_cache: std::collections::HashMap::new(),
       quad_clip_bind_groups: std::collections::HashMap::new(),
@@ -378,7 +398,10 @@ impl WgpuRenderEngine {
     }
 
     #[cfg(feature = "image")]
-    self.image_texture_cache.clear();
+    {
+      self.image_texture_cache.clear();
+      self.image_clip_bind_groups.clear();
+    }
     self.clip_globals_cache.clear();
     self.quad_clip_bind_groups.clear();
     self.glyph_clip_bind_groups.clear();
@@ -963,6 +986,8 @@ impl RenderEngine for WgpuRenderEngine {
     self.clip_globals_cache.clear();
     self.quad_clip_bind_groups.clear();
     self.glyph_clip_bind_groups.clear();
+    #[cfg(feature = "image")]
+    self.image_clip_bind_groups.clear();
     if let (Some(config), Some(device), Some(surface)) = (&mut self.surface_config, &self.device, &self.surface) {
       config.width = self.width;
       config.height = self.height;
@@ -1405,6 +1430,7 @@ impl RenderEngine for WgpuRenderEngine {
               .is_some_and(|cached| cached.is_compatible(img))
             {
               self.image_texture_cache.remove(&img.image_id);
+              self.image_clip_bind_groups.clear();
             }
 
             if !self.image_texture_cache.contains_key(&img.image_id) {
@@ -1427,6 +1453,7 @@ impl RenderEngine for WgpuRenderEngine {
                 continue;
               };
               self.image_texture_cache.insert(img.image_id, cached);
+              self.image_clip_bind_groups.clear();
             }
 
             let Some(cached) = self.image_texture_cache.get_mut(&img.image_id) else {
@@ -1489,27 +1516,35 @@ impl RenderEngine for WgpuRenderEngine {
                   .unwrap_or((bind_group, view));
                 pass.set_pipeline(&image_pipeline);
                 if rounded_clip_needs_shader(img.clip) {
-                  let (_, clip_globals) =
+                  let (clip_key, clip_globals) =
                     globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
-                  let clip_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("lurq_image_clip_bg"),
-                    layout: &image_bgl,
-                    entries: &[
-                      wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: clip_globals.as_entire_binding(),
-                      },
-                      wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(view),
-                      },
-                      wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&image_sampler),
-                      },
-                    ],
+                  let bind_key = ImageClipBindGroupKey {
+                    image_id: img.image_id,
+                    frame_index: img.frame_index,
+                    clip: clip_key,
+                    format: ImageClipFormat::Rgba,
+                  };
+                  let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                      label: Some("lurq_image_clip_bg"),
+                      layout: &image_bgl,
+                      entries: &[
+                        wgpu::BindGroupEntry {
+                          binding: 0,
+                          resource: clip_globals.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 1,
+                          resource: wgpu::BindingResource::TextureView(view),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 2,
+                          resource: wgpu::BindingResource::Sampler(&image_sampler),
+                        },
+                      ],
+                    })
                   });
-                  pass.set_bind_group(0, &clip_bind_group, &[]);
+                  pass.set_bind_group(0, &*clip_bind_group, &[]);
                 } else {
                   pass.set_bind_group(0, &*bind_group, &[]);
                 }
@@ -1522,31 +1557,39 @@ impl RenderEngine for WgpuRenderEngine {
               } => {
                 pass.set_pipeline(&nv12_image_pipeline);
                 if rounded_clip_needs_shader(img.clip) {
-                  let (_, clip_globals) =
+                  let (clip_key, clip_globals) =
                     globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
-                  let clip_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("lurq_nv12_image_clip_bg"),
-                    layout: &nv12_image_bgl,
-                    entries: &[
-                      wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: clip_globals.as_entire_binding(),
-                      },
-                      wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(y_view),
-                      },
-                      wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(uv_view),
-                      },
-                      wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&image_sampler),
-                      },
-                    ],
+                  let bind_key = ImageClipBindGroupKey {
+                    image_id: img.image_id,
+                    frame_index: img.frame_index,
+                    clip: clip_key,
+                    format: ImageClipFormat::Nv12,
+                  };
+                  let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                      label: Some("lurq_nv12_image_clip_bg"),
+                      layout: &nv12_image_bgl,
+                      entries: &[
+                        wgpu::BindGroupEntry {
+                          binding: 0,
+                          resource: clip_globals.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 1,
+                          resource: wgpu::BindingResource::TextureView(y_view),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 2,
+                          resource: wgpu::BindingResource::TextureView(uv_view),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 3,
+                          resource: wgpu::BindingResource::Sampler(&image_sampler),
+                        },
+                      ],
+                    })
                   });
-                  pass.set_bind_group(0, &clip_bind_group, &[]);
+                  pass.set_bind_group(0, &*clip_bind_group, &[]);
                 } else {
                   pass.set_bind_group(0, &*bind_group, &[]);
                 }
