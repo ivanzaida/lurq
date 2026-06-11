@@ -379,7 +379,13 @@ impl TextInputState {
   }
 
   pub(crate) fn set_placeholder(&self, placeholder: impl Into<String>) {
-    self.inner.lock().unwrap().placeholder = Some(placeholder.into());
+    let placeholder = placeholder.into();
+    let mut inner = self.inner.lock().unwrap();
+    if inner.placeholder.as_deref() == Some(placeholder.as_str()) {
+      return;
+    }
+    inner.placeholder = Some(placeholder);
+    drop(inner);
     self.mark_layout_dirty();
   }
 
@@ -443,7 +449,12 @@ impl TextInputState {
   }
 
   pub(crate) fn set_mask(&self, mask: Option<char>) {
-    self.inner.lock().unwrap().mask = mask;
+    let mut inner = self.inner.lock().unwrap();
+    if inner.mask == mask {
+      return;
+    }
+    inner.mask = mask;
+    drop(inner);
     self.mark_layout_dirty();
   }
 
@@ -744,7 +755,7 @@ impl TextInputState {
     self.mark_layout_dirty();
   }
 
-  pub(crate) fn copy_runtime_state_from(&self, old: &Self) {
+  pub(crate) fn copy_runtime_state_from(&self, old: &Self, layout_signature_matches: bool) {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
     }
@@ -763,7 +774,11 @@ impl TextInputState {
     let old_focused = old_inner.focused;
     let old_undo_stack = old_inner.undo_stack.clone();
     let old_redo_stack = old_inner.redo_stack.clone();
-    let layout_dirty = self.layout_dirty.load(Ordering::Relaxed) || old.layout_dirty.load(Ordering::Relaxed);
+    let layout_dirty = if layout_signature_matches {
+      old.layout_dirty.load(Ordering::Relaxed)
+    } else {
+      self.layout_dirty.load(Ordering::Relaxed) || old.layout_dirty.load(Ordering::Relaxed)
+    };
     let len = self.value().len();
     let mut inner = self.inner.lock().unwrap();
     inner.caret = old_caret.min(len);
@@ -836,7 +851,12 @@ impl TextInputState {
   }
 
   pub(crate) fn set_overflow(&self, overflow: TextInputOverflow) {
-    self.inner.lock().unwrap().overflow = overflow;
+    let mut inner = self.inner.lock().unwrap();
+    if inner.overflow == overflow {
+      return;
+    }
+    inner.overflow = overflow;
+    drop(inner);
     self.mark_layout_dirty();
   }
 
@@ -848,6 +868,12 @@ impl TextInputState {
     let min_rows = min_rows.max(1);
     let max_rows = max_rows.max(min_rows);
     let mut inner = self.inner.lock().unwrap();
+    if inner.overflow == TextInputOverflow::Multiline
+      && inner.min_rows == Some(min_rows)
+      && inner.max_rows == Some(max_rows)
+    {
+      return;
+    }
     inner.overflow = TextInputOverflow::Multiline;
     inner.min_rows = Some(min_rows);
     inner.max_rows = Some(max_rows);
@@ -858,13 +884,16 @@ impl TextInputState {
   pub(crate) fn set_min_rows(&self, min_rows: usize) {
     let min_rows = min_rows.max(1);
     let mut inner = self.inner.lock().unwrap();
+    let next_max_rows = inner.max_rows.map(|max_rows| max_rows.max(min_rows));
+    if inner.overflow == TextInputOverflow::Multiline
+      && inner.min_rows == Some(min_rows)
+      && inner.max_rows == next_max_rows
+    {
+      return;
+    }
     inner.overflow = TextInputOverflow::Multiline;
     inner.min_rows = Some(min_rows);
-    if let Some(max_rows) = inner.max_rows
-      && max_rows < min_rows
-    {
-      inner.max_rows = Some(min_rows);
-    }
+    inner.max_rows = next_max_rows;
     drop(inner);
     self.mark_layout_dirty();
   }
@@ -872,13 +901,16 @@ impl TextInputState {
   pub(crate) fn set_max_rows(&self, max_rows: usize) {
     let max_rows = max_rows.max(1);
     let mut inner = self.inner.lock().unwrap();
+    let next_min_rows = inner.min_rows.map(|min_rows| min_rows.min(max_rows));
+    if inner.overflow == TextInputOverflow::Multiline
+      && inner.max_rows == Some(max_rows)
+      && inner.min_rows == next_min_rows
+    {
+      return;
+    }
     inner.overflow = TextInputOverflow::Multiline;
     inner.max_rows = Some(max_rows);
-    if let Some(min_rows) = inner.min_rows
-      && min_rows > max_rows
-    {
-      inner.min_rows = Some(max_rows);
-    }
+    inner.min_rows = next_min_rows;
     drop(inner);
     self.mark_layout_dirty();
   }
@@ -886,6 +918,12 @@ impl TextInputState {
   pub(crate) fn set_rows_exact(&self, rows: usize) {
     let rows = rows.max(1);
     let mut inner = self.inner.lock().unwrap();
+    if inner.overflow == TextInputOverflow::Multiline
+      && inner.min_rows == Some(rows)
+      && inner.max_rows == Some(rows)
+    {
+      return;
+    }
     inner.overflow = TextInputOverflow::Multiline;
     inner.min_rows = Some(rows);
     inner.max_rows = Some(rows);

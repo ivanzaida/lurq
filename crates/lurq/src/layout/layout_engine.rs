@@ -84,6 +84,12 @@ pub(crate) struct ResolvedPadding {
   pub(crate) bottom: f32,
 }
 
+#[derive(Clone)]
+struct ChildLayoutOverride {
+  constraints: Constraints,
+  result: LayoutResult,
+}
+
 pub(crate) struct LayoutEngine {
   last_recalculated: Cell<bool>,
   text_input_caret_visible: Cell<bool>,
@@ -1145,7 +1151,7 @@ impl LayoutEngine {
       return cached;
     }
 
-    self.layout_node_uncached(glyph_engine, node, constraints)
+    self.layout_node_uncached_with_child_overrides(glyph_engine, node, constraints, None)
   }
 
   fn layout_node_from_cache(
@@ -1167,14 +1173,14 @@ impl LayoutEngine {
 
     // A descendant changed, but this node may still be able to keep its own
     // geometry. Patch dirty child results into the cached tree and only force
-    // this parent to relayout if an immediate child's size or parent-owned
-    // offset changed.
+    // this parent to relayout if the child no longer fits the cached parent or
+    // the parent layout kind needs to reposition siblings around the new size.
     let mut cached = node.layout_cache.get_dirty(constraints)?;
     if cached.children.len() != node.children().len() {
       return None;
     }
 
-    let mut child_size_changed = false;
+    let mut child_overrides = vec![None; cached.children.len()];
     for (index, child) in node.children().iter().enumerate() {
       if !child.layout_cache.is_dirty() {
         continue;
@@ -1182,24 +1188,54 @@ impl LayoutEngine {
 
       let child_constraints = child.layout_cache.constraints()?;
       let repaired = self.layout_node(glyph_engine, child, child_constraints);
-      if repaired.size != cached.children[index].result.size {
-        child_size_changed = true;
-      }
+      let original_offset = cached.children[index].offset;
+      child_overrides[index] = Some(ChildLayoutOverride {
+        constraints: child_constraints,
+        result: repaired.clone(),
+      });
       if let Some(rect) = child.element_override_rect()
-        && (rect.relative_x != cached.children[index].offset.x || rect.relative_y != cached.children[index].offset.y)
+        && (rect.relative_x != original_offset.x || rect.relative_y != original_offset.y)
       {
-        child_size_changed = true;
+        return Some(self.layout_node_uncached_with_child_overrides(
+          glyph_engine,
+          node,
+          constraints,
+          Some(&child_overrides),
+        ));
+      }
+      let size_changed = repaired.size != cached.children[index].result.size;
+      if size_changed
+        && (!Self::layout_kind_can_patch_child_size_change(node.layout_kind())
+          || !Self::child_fits_cached_parent(original_offset, repaired.size, cached.size))
+      {
+        return Some(self.layout_node_uncached_with_child_overrides(
+          glyph_engine,
+          node,
+          constraints,
+          Some(&child_overrides),
+        ));
       }
       cached.children[index].result = repaired;
-    }
-
-    if child_size_changed {
-      return None;
     }
 
     let prepared = Self::prepare_cached_result(node, cached);
     node.layout_cache.store(constraints, prepared.clone());
     Some(prepared)
+  }
+
+  fn child_fits_cached_parent(offset: Offset, child_size: Size, parent_size: Size) -> bool {
+    const EPSILON: f32 = 0.5;
+    offset.x >= -EPSILON
+      && offset.y >= -EPSILON
+      && offset.x + child_size.width <= parent_size.width + EPSILON
+      && offset.y + child_size.height <= parent_size.height + EPSILON
+  }
+
+  fn layout_kind_can_patch_child_size_change(layout_kind: &LayoutKind) -> bool {
+    matches!(
+      layout_kind,
+      LayoutKind::Stack { .. } | LayoutKind::LogicalModifier | LayoutKind::ScrollModifier { .. }
+    )
   }
 
   fn prepare_cached_result(node: &Node, mut cached: LayoutResult) -> LayoutResult {
@@ -1218,33 +1254,46 @@ impl LayoutEngine {
     cached
   }
 
-  fn layout_node_uncached(
+  fn layout_node_uncached_with_child_overrides(
     &self,
     glyph_engine: &mut GlyphEngine,
     node: &Node,
     constraints: Constraints,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
     self.last_recalculated.set(true);
-    let mut result = self.layout_node_box(glyph_engine, node, constraints);
+    let mut result = self.layout_node_box(glyph_engine, node, constraints, child_overrides);
     Self::apply_runtime_rect(node, &mut result);
     node.layout_cache.store(constraints, result.clone());
     result
   }
 
-  fn layout_node_box(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+  fn layout_node_box(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+  ) -> LayoutResult {
     let frame = node.effective_frame(FrameConstraints::default());
     let padding = node.effective_padding(&Padding::default());
     let frame_is_flat = frame != FrameConstraints::default();
     let padding_is_flat = padding != Padding::default();
 
     if frame_is_flat || padding_is_flat {
-      return self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding);
+      return self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides);
     }
 
-    self.layout_node_content(glyph_engine, node, constraints)
+    self.layout_node_content(glyph_engine, node, constraints, child_overrides)
   }
 
-  fn layout_node_content(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+  fn layout_node_content(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+  ) -> LayoutResult {
     match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints),
       LayoutKind::Row {
@@ -1254,7 +1303,17 @@ impl LayoutEngine {
         wrap,
       } => {
         let spacing = spacing.resolve(&self.spacing.borrow(), constraints.max_width);
-        self.layout_flex(glyph_engine, node, constraints, spacing, *align, *justify, *wrap, false)
+        self.layout_flex(
+          glyph_engine,
+          node,
+          constraints,
+          spacing,
+          *align,
+          *justify,
+          *wrap,
+          false,
+          child_overrides,
+        )
       }
       LayoutKind::Column {
         spacing,
@@ -1263,12 +1322,22 @@ impl LayoutEngine {
         wrap,
       } => {
         let spacing = spacing.resolve(&self.spacing.borrow(), constraints.max_height);
-        self.layout_flex(glyph_engine, node, constraints, spacing, *align, *justify, *wrap, true)
+        self.layout_flex(
+          glyph_engine,
+          node,
+          constraints,
+          spacing,
+          *align,
+          *justify,
+          *wrap,
+          true,
+          child_overrides,
+        )
       }
-      LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align),
-      LayoutKind::LogicalModifier => self.layout_passthrough(glyph_engine, node, constraints),
+      LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align, child_overrides),
+      LayoutKind::LogicalModifier => self.layout_passthrough(glyph_engine, node, constraints, child_overrides),
       LayoutKind::ScrollModifier { state, direction } => {
-        self.layout_scroll(glyph_engine, node, constraints, state, *direction)
+        self.layout_scroll(glyph_engine, node, constraints, state, *direction, child_overrides)
       }
     }
   }
@@ -1606,6 +1675,7 @@ impl LayoutEngine {
     justify: Justify,
     wrap: FlexWrap,
     vertical: bool,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
     let children = node.children();
     if children.is_empty() {
@@ -1616,7 +1686,16 @@ impl LayoutEngine {
     }
 
     if wrap == FlexWrap::Wrap {
-      return self.layout_flex_wrap(glyph_engine, node, constraints, spacing, align, justify, vertical);
+      return self.layout_flex_wrap(
+        glyph_engine,
+        node,
+        constraints,
+        spacing,
+        align,
+        justify,
+        vertical,
+        child_overrides,
+      );
     }
 
     let total_spacing = spacing * (children.len() as f32 - 1.0).max(0.0);
@@ -1640,7 +1719,13 @@ impl LayoutEngine {
         flex_params_list.push(params);
         if params.grow == 0.0 && params.basis.is_none() {
           let child_constraints = Self::non_flex_child_constraints(child, constraints, vertical);
-          non_flex_results.push(Some(self.layout_node(glyph_engine, child, child_constraints)));
+          non_flex_results.push(Some(self.layout_child_node(
+            glyph_engine,
+            child_overrides,
+            non_flex_results.len(),
+            child,
+            child_constraints,
+          )));
         } else {
           non_flex_results.push(None);
         }
@@ -1651,7 +1736,13 @@ impl LayoutEngine {
           basis: None,
         });
         let child_constraints = Self::non_flex_child_constraints(child, constraints, vertical);
-        non_flex_results.push(Some(self.layout_node(glyph_engine, child, child_constraints)));
+        non_flex_results.push(Some(self.layout_child_node(
+          glyph_engine,
+          child_overrides,
+          non_flex_results.len(),
+          child,
+          child_constraints,
+        )));
       }
     }
 
@@ -1690,7 +1781,7 @@ impl LayoutEngine {
             max_height: constraints.max_height,
           }
         };
-        results.push(self.layout_node(glyph_engine, child, child_constraints));
+        results.push(self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints));
       }
     }
 
@@ -1807,7 +1898,7 @@ impl LayoutEngine {
               max_height: container_cross,
             }
           };
-          results[i] = self.layout_node(glyph_engine, child, stretch_constraints);
+          results[i] = self.layout_child_node(glyph_engine, child_overrides, i, child, stretch_constraints);
         }
       }
     }
@@ -1960,6 +2051,7 @@ impl LayoutEngine {
     align: Alignment,
     justify: Justify,
     vertical: bool,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
     let children = node.children();
     let max_main = if vertical {
@@ -1970,7 +2062,8 @@ impl LayoutEngine {
 
     let mut child_results: Vec<Option<LayoutResult>> = children
       .iter()
-      .map(|child| {
+      .enumerate()
+      .map(|(index, child)| {
         let c = if vertical {
           Constraints {
             min_width: constraints.min_width,
@@ -1986,7 +2079,7 @@ impl LayoutEngine {
             max_height: constraints.max_height,
           }
         };
-        Some(self.layout_node(glyph_engine, child, c))
+        Some(self.layout_child_node(glyph_engine, child_overrides, index, child, c))
       })
       .collect();
 
@@ -2115,12 +2208,14 @@ impl LayoutEngine {
     node: &Node,
     constraints: Constraints,
     align: StackAlignment,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
     let children = node.children();
     let child_constraints = constraints.loosen_width().loosen_height();
     let results: Vec<LayoutResult> = children
       .iter()
-      .map(|child| match child.position() {
+      .enumerate()
+      .map(|(index, child)| match child.position() {
         Position::Absolute { width, height, .. } => {
           let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
           let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
@@ -2130,7 +2225,7 @@ impl LayoutEngine {
             min_height: resolved_height.unwrap_or(0.0),
             max_height: resolved_height.unwrap_or(child_constraints.max_height),
           };
-          let mut result = self.layout_node(glyph_engine, child, positioned_constraints);
+          let mut result = self.layout_child_node(glyph_engine, child_overrides, index, child, positioned_constraints);
           if let Some(width) = resolved_width {
             result.size.width = width;
           }
@@ -2139,7 +2234,7 @@ impl LayoutEngine {
           }
           result
         }
-        _ => self.layout_node(glyph_engine, child, child_constraints),
+        _ => self.layout_child_node(glyph_engine, child_overrides, index, child, child_constraints),
       })
       .collect();
 
@@ -2207,6 +2302,7 @@ impl LayoutEngine {
     constraints: Constraints,
     frame: &FrameConstraints,
     padding: &Padding,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
     let outer_constraints = self.frame_constraints_for_node(node, constraints, frame);
     let parent_w = outer_constraints.max_width;
@@ -2226,7 +2322,7 @@ impl LayoutEngine {
       max_height: (outer_constraints.max_height - v_pad).max(0.0),
     };
 
-    let mut result = self.layout_node_content(glyph_engine, node, inner_constraints);
+    let mut result = self.layout_node_content(glyph_engine, node, inner_constraints, child_overrides);
     result.size = outer_constraints.constrain(Size::new(result.size.width + h_pad, result.size.height + v_pad));
 
     if left != 0.0 || top != 0.0 {
@@ -2369,14 +2465,17 @@ impl LayoutEngine {
     constraints: Constraints,
     state: &ScrollState,
     direction: ScrollDirection,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
     let child = &node.children()[0];
     let style = node.scrollbar_style(self.scrollbar.borrow().clone());
 
     let mut reserve_vertical = false;
     let mut reserve_horizontal = false;
-    let mut child_result = self.layout_node(
+    let mut child_result = self.layout_child_node(
       glyph_engine,
+      child_overrides,
+      0,
       child,
       scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height),
     );
@@ -2384,8 +2483,10 @@ impl LayoutEngine {
 
     for _ in 0..3 {
       let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
-      child_result = self.layout_node(
+      child_result = self.layout_child_node(
         glyph_engine,
+        child_overrides,
+        0,
         child,
         scroll_child_constraints(direction, constraints, viewport.width, viewport.height),
       );
@@ -2434,14 +2535,20 @@ impl LayoutEngine {
     }
   }
 
-  fn layout_passthrough(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
+  fn layout_passthrough(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+  ) -> LayoutResult {
     let Some(child) = node.children().first() else {
       return LayoutResult {
         size: Size::new(0.0, 0.0),
         children: Vec::new(),
       };
     };
-    let child_result = self.layout_node(glyph_engine, child, constraints);
+    let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, constraints);
     let size = child_result.size;
 
     LayoutResult {
@@ -2451,6 +2558,23 @@ impl LayoutEngine {
         result: child_result,
       }],
     }
+  }
+
+  fn layout_child_node(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+    index: usize,
+    child: &Node,
+    constraints: Constraints,
+  ) -> LayoutResult {
+    if let Some(Some(child_override)) = child_overrides.and_then(|overrides| overrides.get(index)) {
+      if child_override.constraints == constraints {
+        return child_override.result.clone();
+      }
+    }
+
+    self.layout_node(glyph_engine, child, constraints)
   }
 }
 
@@ -2845,5 +2969,188 @@ mod tests {
       false,
     );
     assert!(engine.last_recalculated());
+  }
+
+  #[test]
+  fn unchanged_rebuilt_text_input_setters_reuse_cached_layout() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::loose(Size::new(400.0, 400.0));
+    let value = Signal::new(String::new());
+    let old = Node::text_input(value.clone())
+      .placeholder("Display name")
+      .text_input_overflow(TextInputOverflow::Scroll);
+
+    engine.compute(
+      &mut glyph_engine,
+      &old,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    let mut new = Node::text_input(value)
+      .placeholder("Display name")
+      .text_input_overflow(TextInputOverflow::Scroll);
+    new.preserve_runtime_state_from(&old);
+
+    engine.compute(
+      &mut glyph_engine,
+      &new,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    assert!(!engine.last_recalculated());
+  }
+
+  #[test]
+  fn dirty_child_that_still_fits_patches_cached_parent_layout() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::tight(Size::new(200.0, 40.0));
+    let old = Node::stack(StackAlignment::TopStart, vec![Node::text("1")]);
+
+    engine.compute(
+      &mut glyph_engine,
+      &old,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    let mut new = Node::stack(StackAlignment::TopStart, vec![Node::text("22")]);
+    new.preserve_runtime_state_from(&old);
+
+    let result = engine.compute(
+      &mut glyph_engine,
+      &new,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    assert!(new.layout_cache.has_cached_result());
+    assert_eq!(result.size.width, 200.0);
+    assert_eq!(result.size.height, 40.0);
+    assert!(result.children[0].result.size.width > 0.0);
+    assert!(result.children[0].result.size.width <= result.size.width);
+  }
+
+  #[test]
+  fn dirty_child_that_no_longer_fits_relayouts_parent() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::tight(Size::new(20.0, 20.0));
+    let old = Node::stack(StackAlignment::TopStart, vec![Node::text("1")]);
+
+    engine.compute(
+      &mut glyph_engine,
+      &old,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    let mut new = Node::stack(StackAlignment::TopStart, vec![Node::text("this is too wide")]);
+    new.preserve_runtime_state_from(&old);
+
+    engine.compute(
+      &mut glyph_engine,
+      &new,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    assert!(engine.last_recalculated());
+  }
+
+  #[test]
+  fn row_child_size_change_reflows_sibling_offsets() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::loose(Size::new(400.0, 40.0));
+    let old = Node::row(
+      8.0,
+      Alignment::Start,
+      vec![Node::text("1"), Node::text("tail")],
+    );
+
+    engine.compute(
+      &mut glyph_engine,
+      &old,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    let mut new = Node::row(
+      8.0,
+      Alignment::Start,
+      vec![Node::text("longer label"), Node::text("tail")],
+    );
+    new.preserve_runtime_state_from(&old);
+
+    let result = engine.compute(
+      &mut glyph_engine,
+      &new,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    let first = &result.children[0];
+    let second = &result.children[1];
+    assert!(second.offset.x >= first.offset.x + first.result.size.width + 8.0);
   }
 }

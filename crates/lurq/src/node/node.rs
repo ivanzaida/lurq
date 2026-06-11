@@ -1890,8 +1890,9 @@ impl Node {
 
   fn set_placeholder(&mut self, placeholder: &str) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      let placeholder_changed = state.placeholder().as_deref() != Some(placeholder);
       state.set_placeholder(placeholder);
-      if state.value().is_empty() {
+      if placeholder_changed && state.value().is_empty() {
         self.text_content.set(Some(placeholder.to_owned()));
       }
     }
@@ -1933,6 +1934,9 @@ impl Node {
 
   fn set_text_input_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { style, .. } = &mut self.node_kind {
+      if *style == text_style {
+        return;
+      }
       *style = text_style;
       self.layout_cache.invalidate();
     }
@@ -1951,6 +1955,9 @@ impl Node {
     } = &mut self.node_kind
     {
       text_style.text_align = style.text_align;
+      if placeholder_style.as_ref() == Some(&text_style) {
+        return;
+      }
       *placeholder_style = Some(text_style);
       self.layout_cache.invalidate();
     }
@@ -1969,6 +1976,9 @@ impl Node {
     } = &mut self.node_kind
     {
       let align = align.into();
+      if style.text_align == align && placeholder_style.as_ref().is_none_or(|style| style.text_align == align) {
+        return;
+      }
       style.text_align = align;
       if let Some(placeholder_style) = placeholder_style {
         placeholder_style.text_align = align;
@@ -2587,7 +2597,7 @@ impl Node {
         );
       }
       (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
-        state.copy_runtime_state_from(old_state);
+        state.copy_runtime_state_from(old_state, own_layout_signature_matches);
       }
       (NodeKind::Select { state, .. }, NodeKind::Select { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);
