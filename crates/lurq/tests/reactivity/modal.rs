@@ -144,6 +144,133 @@ fn ctx_modal_removes_modal_when_declaring_component_stops_rendering_it() {
 }
 
 #[derive(Default)]
+struct ModalOrderSignals {
+  stream_open: Option<Signal<bool>>,
+  settings_open: Option<Signal<bool>>,
+}
+
+struct RootWithOrderedModals {
+  stream_open: Signal<bool>,
+  settings_open: Signal<bool>,
+}
+
+impl Component for RootWithOrderedModals {
+  type Props = Shared<Mutex<ModalOrderSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let stream_open = ctx.signal(false);
+    let settings_open = ctx.signal(false);
+    let mut props = ctx.props::<Self::Props>().0.lock().unwrap();
+    props.stream_open = Some(stream_open.clone());
+    props.settings_open = Some(settings_open.clone());
+    Self {
+      stream_open,
+      settings_open,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.modal(self.settings_open.clone(), |_| Text::new("settings"));
+    ctx.modal(self.stream_open.clone(), |_| Text::new("stream"));
+    Text::new("root")
+  }
+}
+
+#[test]
+fn later_opened_modal_renders_above_existing_modal() {
+  let signals = Arc::new(Mutex::new(ModalOrderSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithOrderedModals>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().stream_open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+  signals.lock().unwrap().settings_open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let root = tree.root().unwrap();
+  let texts: Vec<_> = root
+    .children()
+    .into_iter()
+    .map(|child| child.text_content().unwrap_or(""))
+    .collect();
+  assert_eq!(texts, vec!["root", "stream", "settings"]);
+}
+
+#[derive(Default)]
+struct ModalEscapeSignals {
+  bottom_open: Option<Signal<bool>>,
+  top_open: Option<Signal<bool>>,
+  events: Vec<&'static str>,
+}
+
+struct RootWithEscapeModals {
+  bottom_open: Signal<bool>,
+  top_open: Signal<bool>,
+}
+
+impl Component for RootWithEscapeModals {
+  type Props = Shared<Mutex<ModalEscapeSignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let bottom_open = ctx.signal(false);
+    let top_open = ctx.signal(false);
+    let mut props = ctx.props::<Self::Props>().0.lock().unwrap();
+    props.bottom_open = Some(bottom_open.clone());
+    props.top_open = Some(top_open.clone());
+    Self { bottom_open, top_open }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    let top_open = self.top_open.clone();
+    ctx.modal(self.top_open.clone(), move |_| {
+      let props = props.clone();
+      Rect::new(10.0, 10.0).on_key_down(move |event| {
+        if event.key == "Escape" || event.code == "Escape" {
+          props.0.lock().unwrap().events.push("top");
+          top_open.set(false);
+        }
+      })
+    });
+
+    let props = ctx.props::<Self::Props>().clone();
+    let bottom_open = self.bottom_open.clone();
+    ctx.modal(self.bottom_open.clone(), move |_| {
+      let props = props.clone();
+      Rect::new(10.0, 10.0).on_key_down(move |event| {
+        if event.key == "Escape" || event.code == "Escape" {
+          props.0.lock().unwrap().events.push("bottom");
+          bottom_open.set(false);
+        }
+      })
+    });
+
+    Text::new("root")
+  }
+}
+
+#[test]
+fn escape_key_dispatches_only_to_top_modal() {
+  let signals = Arc::new(Mutex::new(ModalEscapeSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithEscapeModals>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().bottom_open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+  signals.lock().unwrap().top_open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  tree.key_down("Escape".to_owned(), "Escape".to_owned(), false, false, false);
+
+  let signals = signals.lock().unwrap();
+  assert_eq!(signals.events, vec!["top"]);
+  assert!(signals.bottom_open.as_ref().unwrap().get());
+  assert!(!signals.top_open.as_ref().unwrap().get());
+}
+
+#[derive(Default)]
 struct ModalSignals {
   open: Option<Signal<bool>>,
   enabled: Option<Signal<bool>>,

@@ -5039,7 +5039,18 @@ fn find_slider_by_y_recursive<'a>(
   None
 }
 
+fn keyboard_event_is_escape(evt: &KeyboardEvent) -> bool {
+  matches!(evt.key.as_str(), "Escape") || evt.code == "Escape"
+}
+
 fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
+  if node.tag_name() == MODAL_HOST_TAG && keyboard_event_is_escape(evt) {
+    if let Some(top_modal) = node.children().last() {
+      fire_keyboard_recursive(top_modal, evt);
+    }
+    return;
+  }
+
   evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_down {
     handler(evt);
@@ -5050,6 +5061,13 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
 }
 
 fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) {
+  if node.tag_name() == MODAL_HOST_TAG && keyboard_event_is_escape(evt) {
+    if let Some(top_modal) = node.children().last() {
+      fire_keyboard_up_recursive(top_modal, evt);
+    }
+    return;
+  }
+
   evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_up {
     handler(evt);

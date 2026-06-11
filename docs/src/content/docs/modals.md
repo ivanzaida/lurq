@@ -61,4 +61,6 @@ Inside the modal render closure, `ctx.modal_context()` returns a `ModalContext` 
 - When the signal is `false`, the modal closure does not run and no nodes are rendered.
 - When the signal is `true`, the modal content is inserted into a `__lurq_modal_host` node that wraps the root, placing the modal above all other content.
 - Setting the signal back to `false` removes the modal on the next render pass.
-- Multiple modals can be declared from different components. Each gets its own slot in the modal host.
+- Multiple modals can be declared from the same component or different components. Each declaration keeps a stable slot while it is rendered.
+- When more than one modal is open, the modal opened most recently renders above the older modals.
+- When stacked modals are open, `Escape` key events are dispatched only to the top modal subtree.

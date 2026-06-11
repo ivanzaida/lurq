@@ -80,6 +80,7 @@ pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
 struct ModalEntry {
   scope_id: u64,
   cursor: usize,
+  order: u64,
   node: Node,
 }
 
@@ -579,8 +580,10 @@ pub struct Ctx {
   children: Vec<ChildSlot>,
   child_cursor: usize,
   modal_registry: Arc<Mutex<Vec<ModalEntry>>>,
+  modal_order: Arc<AtomicU64>,
   modal_scope_id: u64,
   modal_cursor: usize,
+  modal_active_cursors: Vec<usize>,
   modal_context: Option<ModalContext>,
   element_ref_cursor: usize,
   future_cursor: usize,
@@ -961,8 +964,10 @@ impl Ctx {
       children: Vec::new(),
       child_cursor: 0,
       modal_registry: Arc::new(Mutex::new(Vec::new())),
+      modal_order: Arc::new(AtomicU64::new(1)),
       modal_scope_id: 0,
       modal_cursor: 0,
+      modal_active_cursors: Vec::new(),
       modal_context: None,
       element_ref_cursor: 0,
       future_cursor: 0,
@@ -1623,6 +1628,9 @@ impl Ctx {
   where
     R: Into<Element>,
   {
+    let cursor = self.modal_cursor;
+    self.modal_cursor += 1;
+
     if !open.get() {
       return;
     }
@@ -1630,16 +1638,15 @@ impl Ctx {
     let previous = self.modal_context.replace(ModalContext { open });
     let modal = render(self).into();
     self.modal_context = previous;
-    self.push_modal(modal);
+    self.push_modal(cursor, modal);
   }
 
   pub fn modal_context(&self) -> Option<&ModalContext> {
     self.modal_context.as_ref()
   }
 
-  fn push_modal(&mut self, modal: impl Into<Element>) {
-    let cursor = self.modal_cursor;
-    self.modal_cursor += 1;
+  fn push_modal(&mut self, cursor: usize, modal: impl Into<Element>) {
+    self.modal_active_cursors.push(cursor);
     let modal = modal.into().node;
 
     let mut registry = self.modal_registry.lock();
@@ -1654,17 +1661,20 @@ impl Ctx {
     registry.push(ModalEntry {
       scope_id: self.modal_scope_id,
       cursor,
+      order: self.modal_order.fetch_add(1, Ordering::Relaxed),
       node: modal,
     });
   }
 
   pub(crate) fn modal_nodes(&self) -> Vec<Node> {
-    self
+    let mut entries: Vec<_> = self
       .modal_registry
       .lock()
       .iter()
-      .map(|entry| entry.node.clone_for_reuse())
-      .collect()
+      .map(|entry| (entry.order, entry.node.clone_for_reuse()))
+      .collect();
+    entries.sort_by_key(|(order, _)| *order);
+    entries.into_iter().map(|(_, node)| node).collect()
   }
 
   /// Splice partial-render replacements into the live modal registry nodes.
@@ -1770,6 +1780,7 @@ impl Ctx {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
     }
     child_ctx.modal_registry = self.modal_registry.clone();
+    child_ctx.modal_order = self.modal_order.clone();
     child_ctx.modal_context = self.modal_context.clone();
     #[cfg(feature = "i18n")]
     {
@@ -1841,6 +1852,7 @@ impl Ctx {
         group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
       }
       group_ctx.modal_registry = self.modal_registry.clone();
+      group_ctx.modal_order = self.modal_order.clone();
       group_ctx.modal_context = self.modal_context.clone();
       #[cfg(feature = "i18n")]
       {
@@ -1927,6 +1939,7 @@ impl Ctx {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
     }
     child_ctx.modal_registry = self.modal_registry.clone();
+    child_ctx.modal_order = self.modal_order.clone();
     child_ctx.modal_context = self.modal_context.clone();
     #[cfg(feature = "i18n")]
     {
@@ -1980,6 +1993,7 @@ impl Ctx {
   pub fn begin_render(&mut self) {
     self.child_cursor = 0;
     self.modal_cursor = 0;
+    self.modal_active_cursors.clear();
     self.element_ref_cursor = 0;
     self.future_cursor = 0;
     self.render_watch_handles.clear();
@@ -2019,7 +2033,7 @@ impl Ctx {
     self
       .modal_registry
       .lock()
-      .retain(|entry| entry.scope_id != self.modal_scope_id || entry.cursor < self.modal_cursor);
+      .retain(|entry| entry.scope_id != self.modal_scope_id || self.modal_active_cursors.contains(&entry.cursor));
 
     for slot in &self.children[self.child_cursor..] {
       slot.component.on_unmounted();
