@@ -1890,8 +1890,9 @@ impl Node {
 
   fn set_placeholder(&mut self, placeholder: &str) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      let placeholder_changed = state.placeholder().as_deref() != Some(placeholder);
       state.set_placeholder(placeholder);
-      if state.value().is_empty() {
+      if placeholder_changed && state.value().is_empty() {
         self.text_content.set(Some(placeholder.to_owned()));
       }
     }
@@ -1933,6 +1934,9 @@ impl Node {
 
   fn set_text_input_style(&mut self, text_style: TextStyle) {
     if let NodeKind::TextInput { style, .. } = &mut self.node_kind {
+      if *style == text_style {
+        return;
+      }
       *style = text_style;
       self.layout_cache.invalidate();
     }
@@ -1951,6 +1955,9 @@ impl Node {
     } = &mut self.node_kind
     {
       text_style.text_align = style.text_align;
+      if placeholder_style.as_ref() == Some(&text_style) {
+        return;
+      }
       *placeholder_style = Some(text_style);
       self.layout_cache.invalidate();
     }
@@ -1969,6 +1976,9 @@ impl Node {
     } = &mut self.node_kind
     {
       let align = align.into();
+      if style.text_align == align && placeholder_style.as_ref().is_none_or(|style| style.text_align == align) {
+        return;
+      }
       style.text_align = align;
       if let Some(placeholder_style) = placeholder_style {
         placeholder_style.text_align = align;
@@ -2549,8 +2559,11 @@ impl Node {
   pub(crate) fn clear_guards(&self) {
     self.text_content.clear_changed();
     self.color.clear_changed();
+    self.gradient.clear_changed();
     self.border_radius.clear_changed();
     self.border.clear_changed();
+    self.caret_color.clear_changed();
+    self.caret_mode.clear_changed();
     #[cfg(feature = "image")]
     self.background_image.clear_changed();
     self.scrollbar_style.clear_changed();
@@ -2573,9 +2586,12 @@ impl Node {
 
   pub(crate) fn preserve_runtime_state_from(&mut self, old: &Node) {
     self.clear_unchanged_guard_flags_from(old);
-    let layout_signature_matches = self.layout_signature_matches(old);
-    if layout_signature_matches {
+    let own_layout_signature_matches = self.own_layout_signature_matches(old);
+    if own_layout_signature_matches && self.children.len() == old.children.len() {
       self.layout_cache.preserve_from(&old.layout_cache);
+      if !self.child_layout_signatures_match(old) {
+        self.layout_cache.mark_descendant_dirty();
+      }
     }
 
     match (&self.node_kind, &old.node_kind) {
@@ -2583,11 +2599,11 @@ impl Node {
         state.copy_runtime_state_from(
           old_state,
           self.text_content().unwrap_or_default(),
-          layout_signature_matches,
+          own_layout_signature_matches,
         );
       }
       (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
-        state.copy_runtime_state_from(old_state);
+        state.copy_runtime_state_from(old_state, own_layout_signature_matches);
       }
       (NodeKind::Select { state, .. }, NodeKind::Select { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);
@@ -2624,15 +2640,38 @@ impl Node {
     if self.color.as_ref() == old.color.as_ref() {
       self.color.clear_changed();
     }
+    if self.gradient.as_ref() == old.gradient.as_ref() {
+      self.gradient.clear_changed();
+    }
     if self.border_radius.as_ref() == old.border_radius.as_ref() {
       self.border_radius.clear_changed();
     }
     if self.border.as_ref() == old.border.as_ref() {
       self.border.clear_changed();
     }
+    if self.caret_color.as_ref() == old.caret_color.as_ref() {
+      self.caret_color.clear_changed();
+    }
+    if self.caret_mode.as_ref() == old.caret_mode.as_ref() {
+      self.caret_mode.clear_changed();
+    }
   }
 
   fn layout_signature_matches(&self, old: &Node) -> bool {
+    self.own_layout_signature_matches(old)
+      && self.children.len() == old.children.len()
+      && self.child_layout_signatures_match(old)
+  }
+
+  fn child_layout_signatures_match(&self, old: &Node) -> bool {
+    self
+      .children
+      .iter()
+      .zip(old.children.iter())
+      .all(|(child, old_child)| child.layout_signature_matches(old_child))
+  }
+
+  fn own_layout_signature_matches(&self, old: &Node) -> bool {
     self.layout_kind_matches_for_cache(old)
       && self.node_kind_matches_for_cache(old)
       && self.frame == old.frame
@@ -2648,12 +2687,6 @@ impl Node {
       && self.intrinsic_size == old.intrinsic_size
       && self.animation_overrides.is_empty()
       && old.animation_overrides.is_empty()
-      && self.children.len() == old.children.len()
-      && self
-        .children
-        .iter()
-        .zip(old.children.iter())
-        .all(|(child, old_child)| child.layout_signature_matches(old_child))
   }
 
   fn layout_kind_matches_for_cache(&self, old: &Node) -> bool {
@@ -2717,16 +2750,20 @@ impl Node {
       ) => style == old_style && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
       (
         NodeKind::TextInput {
+          state,
           style,
           placeholder_style,
-          ..
         },
         NodeKind::TextInput {
+          state: old_state,
           style: old_style,
           placeholder_style: old_placeholder_style,
-          ..
         },
-      ) => style == old_style && placeholder_style == old_placeholder_style,
+      ) => {
+        style == old_style
+          && placeholder_style == old_placeholder_style
+          && state.layout_signature() == old_state.layout_signature()
+      }
       (NodeKind::Checkbox { state }, NodeKind::Checkbox { state: old_state }) => {
         state.layout_signature() == old_state.layout_signature()
       }
@@ -2971,6 +3008,13 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
 #[cfg(test)]
 mod tests {
   use super::Node;
+  use crate::{
+    core::Signal,
+    layout::{
+      Alignment, Constraints, Offset, Size,
+      layout_result::{ChildLayout, LayoutResult},
+    },
+  };
 
   #[test]
   fn changed_text_content_does_not_match_layout_cache_signature() {
@@ -2986,5 +3030,107 @@ mod tests {
     let new = Node::text("Hi");
 
     assert!(new.layout_signature_matches(&old));
+  }
+
+  #[test]
+  fn changed_slider_value_matches_layout_cache_signature() {
+    let old_value = Signal::new(10);
+    let new_value = Signal::new(20);
+    let old = Node::slider(old_value);
+    let new = Node::slider(new_value);
+
+    assert!(new.layout_signature_matches(&old));
+  }
+
+  #[test]
+  fn parent_layout_cache_survives_changed_child_text() {
+    let old = Node::row(
+      0.0,
+      Alignment::Start,
+      vec![Node::text("Value: 1"), Node::text("Stable")],
+    );
+    old.layout_cache.store(
+      Constraints::loose(Size::new(400.0, 400.0)),
+      LayoutResult {
+        size: Size::new(100.0, 20.0),
+        children: vec![
+          ChildLayout {
+            offset: Offset::default(),
+            result: LayoutResult {
+              size: Size::new(50.0, 20.0),
+              children: Vec::new(),
+            }
+            .into(),
+          },
+          ChildLayout {
+            offset: Offset::new(50.0, 0.0),
+            result: LayoutResult {
+              size: Size::new(50.0, 20.0),
+              children: Vec::new(),
+            }
+            .into(),
+          },
+        ],
+      },
+    );
+    let mut new = Node::row(
+      0.0,
+      Alignment::Start,
+      vec![Node::text("Value: 2"), Node::text("Stable")],
+    );
+
+    new.preserve_runtime_state_from(&old);
+
+    assert!(new.layout_cache.has_cached_result());
+    assert!(!new.children[0].layout_cache.has_cached_result());
+  }
+
+  #[test]
+  fn preserved_parent_cache_is_dirty_when_child_signature_changes() {
+    let old = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![Node::row(
+        0.0,
+        Alignment::Start,
+        vec![Node::text("Old")],
+      )],
+    );
+    old.layout_cache.store(
+      Constraints::loose(Size::new(400.0, 400.0)),
+      LayoutResult {
+        size: Size::new(100.0, 20.0),
+        children: vec![ChildLayout {
+          offset: Offset::default(),
+          result: LayoutResult {
+            size: Size::new(100.0, 20.0),
+            children: vec![ChildLayout {
+              offset: Offset::default(),
+              result: LayoutResult {
+                size: Size::new(30.0, 20.0),
+                children: Vec::new(),
+              }
+              .into(),
+            }],
+          }
+          .into(),
+        }],
+      },
+    );
+
+    let mut new = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![Node::row(
+        0.0,
+        Alignment::Start,
+        vec![Node::text("Different")],
+      )],
+    );
+
+    new.preserve_runtime_state_from(&old);
+
+    assert!(new.layout_cache.has_cached_result());
+    assert!(new.layout_cache.is_descendant_dirty());
   }
 }

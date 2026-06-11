@@ -67,6 +67,10 @@ State changes mark the owning context dirty:
 
 Before layout, rendering, hit testing, or element lookup, `Tree` rebuilds dirty component subtrees. Clean component subtrees keep their previous retained output.
 
+Dirty tracking does not happen at individual element-builder calls. If a component rerenders, all plain elements built by that component's `render` function are rebuilt as fresh `Node` descriptions. Runtime state, node IDs, and layout caches are then preserved where the new and old nodes match.
+
+Mounted child components are different: each mount has a retained component slot. A dirty parent still calls the mount site, but the child component's `render` is skipped when its identity, props, context, slot children, and own dirty state are unchanged. In that case the slot returns the previous rendered output cloned for reuse.
+
 ## Prop Reconciliation
 
 Mounted components are reused when identity matches.

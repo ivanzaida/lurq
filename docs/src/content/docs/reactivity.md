@@ -28,6 +28,10 @@ let current = signal.get_untracked();
 
 When a signal created with `ctx.signal(...)` changes, the owning component context is marked dirty. The next pass rerenders that component subtree.
 
+Signal ownership is component-scoped. If one component owns `a: Signal<T>` and `b: Signal<U>` and reads `a` during `render`, changing `a` rerenders that component. Plain elements created in that render, including elements bound to `b`, are rebuilt as new `Node` descriptions and then reconciled against the previous retained tree.
+
+Mounted child components form their own retained slots. During a parent rerender, `ctx.mount::<Child>(props)` reuses the existing slot when the component type/key still match. If the child props, context, slot children, and the child's own dirty state are unchanged, the child's `render` method is skipped and its previous rendered output is cloned for reuse.
+
 ## DevTools Type Bound
 
 Without the `devtools` feature, any `T` can be a signal value.

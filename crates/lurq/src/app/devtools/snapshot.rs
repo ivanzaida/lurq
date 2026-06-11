@@ -225,7 +225,7 @@ fn snapshot_node(
         let child_layout = layout.and_then(|layout| layout.children.get(index));
         let (result, x, y, rx, ry) = match child_layout {
           Some(child) => (
-            Some(&child.result),
+            Some(child.result.as_ref()),
             abs_x + child.offset.x,
             abs_y + child.offset.y,
             child.offset.x,

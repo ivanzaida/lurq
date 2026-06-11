@@ -158,6 +158,12 @@ let profile = tree.last_profile();
 
 The profile records high-level timings such as layout, resolve, glyph, upload, encode, submit, present, and memory counters used by DevTools.
 
+## Performance Notes
+
+Current text-page scroll profiles show that baked transformed text no longer spends frame time reshaping text after `GlyphEngine` hits `transformed_glyph_layout_cache`. The remaining CPU target is transformed glyph atlas lookup and packing in `GlyphEngine::get_or_pack_transformed_glyph`, with occasional normal text cache misses when newly visible text enters the viewport.
+
+The next optimization pass should reduce per-frame transformed glyph work. Likely directions are caching transformed glyph command templates per stable text layout and transform, or tracking visible text runs so scroll frames mostly update origins and clips instead of visiting every transformed glyph through the atlas path.
+
 ## DevTools Window
 
 With `devtools` enabled:
