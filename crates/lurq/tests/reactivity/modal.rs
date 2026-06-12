@@ -276,13 +276,11 @@ impl Component for RootWithStateModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    Column::new()
-      .child(Text::new("root"))
-      .child(
-        Modal::new(ctx.mount::<StateModalPanel>(props))
-          .open(self.open.clone())
-          .target(ModalRoot),
-      )
+    Column::new().child(Text::new("root")).child(
+      Modal::new(ctx.mount::<StateModalPanel>(props))
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 
@@ -314,20 +312,12 @@ fn modal_partial_update_preserves_live_node_ids() {
   signals.lock().unwrap().open.as_ref().unwrap().set(true);
   run_pass(&mut tree);
 
-  assert!(
-    rendered_text_quads(&tree)
-      .iter()
-      .any(|text| text == "modal-off")
-  );
+  assert!(rendered_text_quads(&tree).iter().any(|text| text == "modal-off"));
 
   signals.lock().unwrap().enabled.as_ref().unwrap().set(true);
   run_pass(&mut tree);
 
-  assert!(
-    rendered_text_quads(&tree)
-      .iter()
-      .any(|text| text == "modal-on")
-  );
+  assert!(rendered_text_quads(&tree).iter().any(|text| text == "modal-on"));
 }
 
 struct RootWithLayoutModal {
@@ -345,13 +335,11 @@ impl Component for RootWithLayoutModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    Column::new()
-      .child(Text::new("root"))
-      .child(
-        Modal::new(ctx.mount::<LayoutModalPanel>(props))
-          .open(self.open.clone())
-          .target(ModalRoot),
-      )
+    Column::new().child(Text::new("root")).child(
+      Modal::new(ctx.mount::<LayoutModalPanel>(props))
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 
@@ -998,11 +986,9 @@ impl Component for RootWithContextMenuPercentSlider {
           .child(ctx.mount::<LocalModalNestedPercentSlider>(props)),
       );
 
-    Column::new().child(Text::new("base")).child(
-      Modal::new(content)
-        .open(self.open.clone())
-        .target(ModalRoot),
-    )
+    Column::new()
+      .child(Text::new("base"))
+      .child(Modal::new(content).open(self.open.clone()).target(ModalRoot))
   }
 }
 

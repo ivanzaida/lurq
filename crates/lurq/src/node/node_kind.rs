@@ -918,10 +918,7 @@ impl TextInputState {
   pub(crate) fn set_rows_exact(&self, rows: usize) {
     let rows = rows.max(1);
     let mut inner = self.inner.lock().unwrap();
-    if inner.overflow == TextInputOverflow::Multiline
-      && inner.min_rows == Some(rows)
-      && inner.max_rows == Some(rows)
-    {
+    if inner.overflow == TextInputOverflow::Multiline && inner.min_rows == Some(rows) && inner.max_rows == Some(rows) {
       return;
     }
     inner.overflow = TextInputOverflow::Multiline;

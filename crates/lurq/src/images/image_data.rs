@@ -2,9 +2,8 @@ use std::{
   any::Any,
   io::Cursor,
   sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
-    OnceLock,
   },
   time::{Duration, Instant},
 };

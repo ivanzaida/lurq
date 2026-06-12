@@ -1,6 +1,8 @@
 #[cfg(feature = "perf_profile")]
 use std::time::Duration;
 
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::FrameProfile;
 use crate::{
   app::{
     ctx::{
@@ -26,9 +28,6 @@ use crate::{
     style::Style,
   },
 };
-
-#[cfg(feature = "perf_profile")]
-use crate::app::profile_types::FrameProfile;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevToolsSnapshot {

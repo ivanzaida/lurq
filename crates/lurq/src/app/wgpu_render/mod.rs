@@ -2,6 +2,7 @@ mod vertex;
 
 #[cfg(all(feature = "image", target_os = "macos"))]
 use std::ffi::c_void;
+use std::time::Duration;
 
 #[cfg(all(feature = "image", target_os = "macos"))]
 use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
@@ -12,7 +13,6 @@ use core_video_sys::pixel_buffer::CVPixelBufferRef;
 #[cfg(all(feature = "image", target_os = "macos"))]
 use metal::foreign_types::ForeignType;
 use raw_window_handle::{DisplayHandle, WindowHandle};
-use std::time::Duration;
 #[cfg(feature = "image")]
 use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};

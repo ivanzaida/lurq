@@ -5227,7 +5227,7 @@ fn replace_live_component_slot_everywhere(
     node.free_ids(id_gen);
     replacement.assign_ids(id_gen);
     *node = replacement;
-    replaced = true;
+    return true;
   }
 
   for child in &mut node.children {
@@ -5240,6 +5240,10 @@ fn replace_live_component_slot_everywhere(
 
   if let Some(spec) = node.overlay_declaration.as_mut() {
     replaced |= replace_live_component_slot_everywhere(&mut spec.node, slot_id, replacement, id_gen);
+  }
+
+  if replaced {
+    node.layout_cache.mark_descendant_dirty();
   }
 
   replaced

@@ -2377,9 +2377,10 @@ impl Ctx {
   }
 
   pub(crate) fn end_render(&mut self) {
-    self.click_outside_registry.lock().retain(|entry| {
-      entry.scope_id != self.scope_id || self.click_outside_active_cursors.contains(&entry.cursor)
-    });
+    self
+      .click_outside_registry
+      .lock()
+      .retain(|entry| entry.scope_id != self.scope_id || self.click_outside_active_cursors.contains(&entry.cursor));
 
     for slot in &self.children[self.child_cursor..] {
       slot.component.on_unmounted();
