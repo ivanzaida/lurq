@@ -3651,9 +3651,13 @@ impl Tree {
     #[cfg(not(all(feature = "svg", feature = "resources")))]
     let svg_resources_changed = false;
 
+    let now = Instant::now();
+    let had_overlay_host = self
+      .root
+      .as_ref()
+      .is_some_and(|root| root.has_synthetic_role(SyntheticNodeRole::OverlayHost));
     let mut animation_layout_changed = false;
-    if let Some(root) = self.root.as_mut() {
-      let now = Instant::now();
+    if !had_overlay_host && let Some(root) = self.root.as_mut() {
       animation_layout_changed |= self.transition_engine.tick(root, now);
       animation_layout_changed |= self.animation_engine.tick(root, now);
     }
@@ -3692,6 +3696,14 @@ impl Tree {
     }
 
     let overlay_parts = self.detach_overlay_host();
+
+    if had_overlay_host && let Some(root) = self.root.as_mut() {
+      self.transition_engine.tick(root, now);
+      self.animation_engine.tick(root, now);
+      if self.has_active_timeline() {
+        self.needs_redraw = true;
+      }
+    }
 
     if let Some(root) = self.root.as_ref() {
       let constraints = self
@@ -3765,6 +3777,7 @@ impl Tree {
         typography.clone(),
         theme_changed,
       );
+      self.tick_overlay_subtrees(now);
       if let Some(root) = self.root.as_ref()
         && root.has_synthetic_role(SyntheticNodeRole::OverlayHost)
       {
@@ -3790,6 +3803,23 @@ impl Tree {
       return true;
     }
     false
+  }
+
+  fn tick_overlay_subtrees(&mut self, now: Instant) {
+    let Some(root) = self.root.as_mut() else {
+      return;
+    };
+    if !root.has_synthetic_role(SyntheticNodeRole::OverlayHost) {
+      return;
+    }
+
+    for child in root.children.iter_mut().skip(1) {
+      self.transition_engine.tick_preserving_active_state(child, now);
+      self.animation_engine.tick_preserving_active_state(child, now);
+    }
+    if self.has_active_timeline() {
+      self.needs_redraw = true;
+    }
   }
 
   fn detach_overlay_host(&mut self) -> OverlayHostReuse {
@@ -3906,33 +3936,56 @@ impl Tree {
       return;
     }
 
-    for (overlay, old_overlay) in overlays.iter_mut().zip(old_parts.old_overlays.iter_mut()) {
-      reset_element_ref_flags_recursive(old_overlay);
-      overlay.preserve_runtime_state_from(old_overlay);
-      overlay.preserve_ids_from(old_overlay);
+    let mut old_overlay_index = 0;
+    for overlay in &mut overlays {
+      preserve_overlay_reuse(overlay, &mut old_parts, old_overlay_index);
+      old_overlay_index += 1;
     }
 
-    let mut nested_select_menus = Vec::new();
-    for overlay in &overlays {
-      if overlay.has_synthetic_role(SyntheticNodeRole::SelectMenu) {
-        continue;
+    let mut overlay_index = 0;
+    while overlay_index < overlays.len() {
+      let nested_overlays = if overlays[overlay_index].has_synthetic_role(SyntheticNodeRole::SelectMenu) {
+        Vec::new()
+      } else {
+        let overlay = &overlays[overlay_index];
+        let overlay_layout = self.layout_engine.compute(
+          glyph_engine,
+          overlay,
+          constraints,
+          palette.clone(),
+          border_sizes,
+          spacing,
+          radii,
+          caret,
+          scrollbar.clone(),
+          typography.clone(),
+          theme_changed,
+        );
+        collect_overlay_children_from_layout(
+          overlay,
+          &overlay_layout,
+          viewport,
+          glyph_engine,
+          &self.layout_engine,
+          constraints,
+          palette.clone(),
+          border_sizes,
+          spacing,
+          radii,
+          caret,
+          scrollbar.clone(),
+          typography.clone(),
+          theme_changed,
+        )
+      };
+
+      for mut nested_overlay in nested_overlays {
+        preserve_overlay_reuse(&mut nested_overlay, &mut old_parts, old_overlay_index);
+        old_overlay_index += 1;
+        overlays.push(nested_overlay);
       }
-      let overlay_layout = self.layout_engine.compute(
-        glyph_engine,
-        overlay,
-        constraints,
-        palette.clone(),
-        border_sizes,
-        spacing,
-        radii,
-        caret,
-        scrollbar.clone(),
-        typography.clone(),
-        theme_changed,
-      );
-      collect_select_menus(overlay, &overlay_layout, 0.0, 0.0, viewport, &mut nested_select_menus);
+      overlay_index += 1;
     }
-    overlays.extend(nested_select_menus);
 
     let mut children = Vec::with_capacity(1 + overlays.len());
     children.push(base);
@@ -3948,6 +4001,7 @@ impl Tree {
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
     self.overlay_dismiss_entries = dismiss_entries;
+    self.refresh_interaction_state();
   }
 
   fn sync_dynamic_content(&mut self) {
@@ -4310,6 +4364,76 @@ fn overlay_host_parts(mut root: Node) -> OverlayHostParts {
       old_overlays: Vec::new(),
     }
   }
+}
+
+fn preserve_overlay_reuse(overlay: &mut Node, old_parts: &mut OverlayHostReuse, index: usize) {
+  let Some(old_overlay) = old_parts.old_overlays.get_mut(index) else {
+    return;
+  };
+  reset_element_ref_flags_recursive(old_overlay);
+  overlay.preserve_runtime_state_from(old_overlay);
+  overlay.preserve_ids_from(old_overlay);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_overlay_children_from_layout(
+  overlay: &Node,
+  overlay_layout: &LayoutResult,
+  viewport: Size,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  layout_engine: &LayoutEngine,
+  constraints: Constraints,
+  palette: crate::app::theme::ThemePalette,
+  border_sizes: crate::app::theme::ThemeBorderSizes,
+  spacing: crate::app::theme::ThemeSpacing,
+  radii: crate::app::theme::ThemeRadii,
+  caret: crate::app::theme::ThemeCaret,
+  scrollbar: crate::layout::scrollbar::ScrollBarStyle,
+  typography: crate::app::theme::ThemeTypography,
+  theme_changed: bool,
+) -> Vec<Node> {
+  let mut overlays = Vec::new();
+  collect_select_menus(overlay, overlay_layout, 0.0, 0.0, viewport, &mut overlays);
+
+  let mut specs = Vec::new();
+  collect_declared_overlays(overlay, &mut specs);
+  for spec in specs {
+    let Some(anchor) = find_anchor_rect(overlay, overlay_layout, 0.0, 0.0, 0.0, 0.0, &spec.anchor) else {
+      continue;
+    };
+    if anchor.width <= 0.0 || anchor.height <= 0.0 {
+      continue;
+    }
+    let (node, _) = build_overlay_node(
+      spec,
+      anchor,
+      viewport,
+      glyph_engine,
+      layout_engine,
+      constraints,
+      palette.clone(),
+      border_sizes,
+      spacing,
+      radii,
+      caret,
+      scrollbar.clone(),
+      typography.clone(),
+      theme_changed,
+    );
+    overlays.push(node);
+  }
+
+  let mut modal_specs = Vec::new();
+  collect_declared_modals(overlay, overlay_layout, 0.0, 0.0, 0.0, 0.0, &mut modal_specs);
+  for collected in modal_specs {
+    let target = match modal_target_rect(&collected.spec, overlay, overlay_layout, collected.parent, viewport) {
+      Some(target) if target.width > 0.0 && target.height > 0.0 => target,
+      _ => continue,
+    };
+    overlays.push(build_modal_node(collected.spec, target));
+  }
+
+  overlays
 }
 
 fn collect_declared_overlays(node: &Node, out: &mut Vec<OverlaySpec>) {

@@ -1,4 +1,5 @@
 use lurq::{
+  animation::Transition,
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{
     CollisionStrategy, Column, Modal, Overlay, Parent, Placement, Popup, Rect, Root, ScrollVertical, Stack,
@@ -229,6 +230,146 @@ impl Component for RoundedPanelOverlayRoot {
         .placement(Placement::TopStart)
         .collision(CollisionStrategy::None),
       )
+  }
+}
+
+struct HoverOverlayRoot {
+  anchor: ElementRef,
+}
+
+impl Component for HoverOverlayRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Stack::new()
+      .size(240.0, 180.0)
+      .child(
+        Rect::new(100.0, 40.0)
+          .background("#22c55e")
+          .absolute_position(20.0, 20.0)
+          .ref_element(self.anchor.clone()),
+      )
+      .child(
+        Overlay::new(
+          Rect::new(100.0, 40.0)
+            .background("#ef4444")
+            .hovered(|style| style.background("#38bdf8")),
+        )
+        .anchor(self.anchor.clone())
+        .placement(Placement::BottomStart)
+        .collision(CollisionStrategy::None),
+      )
+  }
+}
+
+struct TransitionOverlayRoot {
+  anchor: ElementRef,
+}
+
+impl Component for TransitionOverlayRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Stack::new()
+      .size(240.0, 180.0)
+      .child(
+        Rect::new(100.0, 40.0)
+          .background("#22c55e")
+          .absolute_position(20.0, 20.0)
+          .ref_element(self.anchor.clone()),
+      )
+      .child(
+        Overlay::new(
+          Rect::new(100.0, 40.0)
+            .background("#ef4444")
+            .transition(Transition::background_color().duration_ms(1000).linear())
+            .hovered(|style| style.background("#38bdf8")),
+        )
+        .anchor(self.anchor.clone())
+        .placement(Placement::BottomStart)
+        .collision(CollisionStrategy::None),
+      )
+  }
+}
+
+struct DeepOverlayRoot {
+  first_anchor: ElementRef,
+  second_anchor: ElementRef,
+  third_anchor: ElementRef,
+}
+
+impl Component for DeepOverlayRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      first_anchor: ElementRef::new(),
+      second_anchor: ElementRef::new(),
+      third_anchor: ElementRef::new(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let deepest = Overlay::new(
+      Rect::new(80.0, 30.0)
+        .background("#ef4444")
+        .hovered(|style| style.background("#38bdf8")),
+    )
+    .anchor(self.third_anchor.clone())
+    .placement(Placement::BottomStart)
+    .collision(CollisionStrategy::None);
+
+    let middle = Overlay::new(
+      Stack::new()
+        .size(140.0, 90.0)
+        .child(
+          Rect::new(80.0, 24.0)
+            .background("#a855f7")
+            .absolute_position(10.0, 10.0)
+            .ref_element(self.third_anchor.clone()),
+        )
+        .child(deepest),
+    )
+    .anchor(self.second_anchor.clone())
+    .placement(Placement::BottomStart)
+    .collision(CollisionStrategy::None);
+
+    let first = Overlay::new(
+      Stack::new()
+        .size(160.0, 110.0)
+        .child(
+          Rect::new(90.0, 26.0)
+            .background("#f97316")
+            .absolute_position(10.0, 10.0)
+            .ref_element(self.second_anchor.clone()),
+        )
+        .child(middle),
+    )
+    .anchor(self.first_anchor.clone())
+    .placement(Placement::BottomStart)
+    .collision(CollisionStrategy::None);
+
+    Stack::new()
+      .size(320.0, 260.0)
+      .child(
+        Rect::new(100.0, 30.0)
+          .background("#22c55e")
+          .absolute_position(20.0, 20.0)
+          .ref_element(self.first_anchor.clone()),
+      )
+      .child(first)
   }
 }
 
@@ -546,6 +687,86 @@ fn rounded_overlay_panel(rects: &[RectSnapshot]) -> RectSnapshot {
     .iter()
     .find(|rect| rect.color == Color::from_hex("#101419") && rect.radii == [8.0, 8.0, 8.0, 8.0])
     .expect("rounded overlay panel should render with its radius on the first pass")
+}
+
+#[test]
+fn overlay_hover_style_survives_host_rebuild() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<HoverOverlayRoot>(&mut app, ());
+  run_pass(&mut tree);
+
+  let overlay = tree
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+  tree.mouse_move(overlay.x + overlay.width * 0.5, overlay.y + overlay.height * 0.5);
+
+  let snapshot = render_pass(&mut tree);
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.color == Color::from_hex("#38bdf8")),
+    "overlay hover style should be visible after the overlay host is rebuilt"
+  );
+}
+
+#[test]
+fn overlay_transition_survives_host_rebuild() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<TransitionOverlayRoot>(&mut app, ());
+  run_pass(&mut tree);
+
+  let overlay = tree
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+  tree.mouse_move(overlay.x + overlay.width * 0.5, overlay.y + overlay.height * 0.5);
+  render_pass(&mut tree);
+
+  std::thread::sleep(std::time::Duration::from_millis(50));
+  let snapshot = render_pass(&mut tree);
+  let color = snapshot
+    .rects
+    .iter()
+    .find(|rect| {
+      rect.width == overlay.width && rect.height == overlay.height && rect.color != Color::from_hex("#22c55e")
+    })
+    .map(|rect| rect.color)
+    .expect("transitioning overlay rect should render");
+
+  assert_ne!(color, Color::from_hex("#ef4444"), "overlay transition should progress");
+  assert_ne!(
+    color,
+    Color::from_hex("#38bdf8"),
+    "overlay transition should not jump directly to the hovered target"
+  );
+}
+
+#[test]
+fn overlays_expand_and_preserve_hover_at_arbitrary_depth() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<DeepOverlayRoot>(&mut app, ());
+  run_pass(&mut tree);
+
+  let deepest = tree
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .expect("deeply nested overlay should render")
+    .bounds();
+  let (x, y) = deepest.center();
+  tree.mouse_move(x, y);
+
+  let snapshot = render_pass(&mut tree);
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.color == Color::from_hex("#38bdf8")),
+    "deeply nested overlay hover should survive overlay host rebuild"
+  );
 }
 
 #[test]

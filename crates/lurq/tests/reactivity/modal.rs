@@ -5,7 +5,7 @@ use lurq::{
   components::{Column, Modal, Rect, Root as ModalRoot, Row, Select, Slider, Text},
   core::Signal,
   layout::{Alignment, Constraints, Size, StackAlignment, layout_result::LayoutResult, quad::QuadContent},
-  node::{Element, color::Color},
+  node::{Element, SelectPartStyle, SelectStyle, color::Color},
 };
 
 use crate::support::{pointer_click, render_pass, run_pass};
@@ -422,6 +422,11 @@ impl Component for RootWithSelectModal {
               .into_iter()
               .map(|(value, label)| (value.to_owned(), label)),
           )
+          .style(
+            SelectStyle::new()
+              .option_hovered(SelectPartStyle::new().background("#38bdf8"))
+              .option_selected(SelectPartStyle::new().background("#0ea5e9")),
+          )
           .width(200.0)
           .height(40.0),
       )
@@ -457,6 +462,50 @@ fn select_inside_modal_opens_and_commits() {
 
   let selected = signals.lock().unwrap().value.as_ref().unwrap().get();
   assert_eq!(selected, "lg");
+}
+
+#[test]
+fn select_inside_modal_option_hover_follows_mouse_after_overlay_rebuild() {
+  let signals = Arc::new(Mutex::new(SelectModalSignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RootWithSelectModal>(&mut app, Shared(signals.clone()));
+
+  signals.lock().unwrap().open.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let select = tree
+    .find_element(|el| el.tag_name() == "Select")
+    .expect("modal select should render");
+  let (x, y) = select.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+
+  let small = tree
+    .find_element(|el| el.text_content() == Some("Small"))
+    .expect("small option should render")
+    .bounds();
+  let (x, y) = small.center();
+  tree.mouse_move(x, y);
+  render_pass(&mut tree);
+
+  let large = tree
+    .find_element(|el| el.text_content() == Some("Large"))
+    .expect("large option should render")
+    .bounds();
+  let (x, y) = large.center();
+  tree.mouse_move(x, y);
+  let snapshot = render_pass(&mut tree);
+
+  let hovered = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#38bdf8"))
+    .expect("hovered option row should render");
+  assert!(
+    hovered.y <= large.y && large.y < hovered.y + hovered.height,
+    "hovered option row should follow the current mouse target"
+  );
 }
 
 #[derive(Default)]
