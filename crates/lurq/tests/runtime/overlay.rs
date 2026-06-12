@@ -1,11 +1,13 @@
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
-  components::{CollisionStrategy, Column, Modal, Overlay, Parent, Placement, Popup, Rect, Root, Stack},
+  components::{
+    CollisionStrategy, Column, Modal, Overlay, Parent, Placement, Popup, Rect, Root, ScrollVertical, Stack,
+  },
   core::{ElementRef, Signal},
   node::{Element, color::Color, dimension::Dimension},
 };
 
-use crate::support::{pointer_click, run_pass};
+use crate::support::{RectSnapshot, pointer_click, render_pass, run_pass};
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(std::sync::Arc<T>);
@@ -176,6 +178,57 @@ impl Component for StaticPopupRoot {
           .ref_element(self.anchor.clone()),
       )
       .child(Popup::new(self.anchor.clone(), Rect::new(50.0, 20.0).background("#ef4444")).open_when(true))
+  }
+}
+
+struct RoundedPanelOverlayRoot {
+  anchor: ElementRef,
+}
+
+impl Component for RoundedPanelOverlayRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let list = Column::new()
+      .child(Rect::new(Dimension::full(), 34.0).background("#1f2937"))
+      .child(Rect::new(Dimension::full(), 34.0).background("#111827"))
+      .child(Rect::new(Dimension::full(), 34.0).background("#111827"));
+
+    let panel = Column::new()
+      .width(Dimension::full())
+      .background("#101419")
+      .rounded(8.0)
+      .clip()
+      .border_inside(1.0, "#30343a")
+      .child(Rect::new(Dimension::full(), 28.0).background("#151a20"))
+      .child(ScrollVertical::new(list).height(70.0));
+
+    Stack::new()
+      .size(260.0, 220.0)
+      .child(
+        Rect::new(180.0, 40.0)
+          .background("#22c55e")
+          .absolute_position(30.0, 150.0)
+          .ref_element(self.anchor.clone()),
+      )
+      .child(
+        Overlay::new(
+          Column::new()
+            .width(180.0)
+            .height(118.0)
+            .padding_bottom(14.0)
+            .child(panel),
+        )
+        .anchor(self.anchor.clone())
+        .placement(Placement::TopStart)
+        .collision(CollisionStrategy::None),
+      )
   }
 }
 
@@ -467,6 +520,32 @@ fn static_popup_dismiss_options_do_not_close_without_signal() {
       .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
       .is_some()
   );
+}
+
+#[test]
+fn rounded_overlay_panel_geometry_is_stable_on_first_render() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<RoundedPanelOverlayRoot>(&mut app, ());
+
+  let first = render_pass(&mut tree);
+  let second = render_pass(&mut tree);
+  let first_panel = rounded_overlay_panel(&first.rects);
+  let second_panel = rounded_overlay_panel(&second.rects);
+
+  assert_eq!(first_panel.x, second_panel.x);
+  assert_eq!(first_panel.y, second_panel.y);
+  assert_eq!(first_panel.width, second_panel.width);
+  assert_eq!(first_panel.height, second_panel.height);
+  assert_eq!(first_panel.radii, [8.0, 8.0, 8.0, 8.0]);
+  assert_eq!(second_panel.radii, [8.0, 8.0, 8.0, 8.0]);
+}
+
+fn rounded_overlay_panel(rects: &[RectSnapshot]) -> RectSnapshot {
+  *rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex("#101419") && rect.radii == [8.0, 8.0, 8.0, 8.0])
+    .expect("rounded overlay panel should render with its radius on the first pass")
 }
 
 #[test]

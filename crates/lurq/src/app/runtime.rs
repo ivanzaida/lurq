@@ -4348,9 +4348,10 @@ fn build_overlay_node(
     constraints.max_width.min(viewport.width).max(0.0),
     constraints.max_height.min(viewport.height).max(0.0),
   ));
+  let measure_node = node.clone_for_reuse();
   let measured = layout_engine.compute(
     glyph_engine,
-    &node,
+    &measure_node,
     measure_constraints,
     palette,
     border_sizes,
@@ -4393,8 +4394,8 @@ fn build_overlay_node(
     node.absolute_positioned(
       x,
       y,
-      spec.match_anchor_width.then_some(Dimension::Px(anchor.width)),
-      None,
+      Some(Dimension::Px(overlay_size.width)),
+      Some(Dimension::Px(overlay_size.height)),
     ),
     bounds,
   )
