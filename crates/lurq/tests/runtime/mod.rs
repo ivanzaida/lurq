@@ -17,6 +17,7 @@ mod futures {
 }
 mod mouse_leave;
 mod overlay;
+mod pass_report;
 mod perf_overlay;
 #[cfg(feature = "image")]
 mod render_order;

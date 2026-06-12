@@ -104,6 +104,20 @@ Runtime window commands requested through `ctx.window()` are applied by the wini
 
 The shell observes `needs_redraw`, requests a redraw, then calls `Tree::pass(app, window)`.
 
+`Tree::pass(...)` returns a `PassReport` describing whether the pass was required, whether it rendered, whether it reused a cached render list, whether layout updated or recalculated, and which runtime reasons contributed to the pass. `WinitWindow::on_paint` receives the same report after a presented frame:
+
+```rust
+WinitWindow::new(app, tree)
+  .on_paint(|tree, delta, report| {
+    if report.layout_recalculated {
+      eprintln!("layout recalculated after {:?}", delta);
+    }
+
+    let _ = tree.frame_count();
+  })
+  .run();
+```
+
 ## Input Dispatch
 
 Pointer input is resolved against the latest layout and hit-tested in visual coordinates. The runtime tracks hover, active, focus, drag, scroll, cursor, text selection, and text click counts across retained nodes.

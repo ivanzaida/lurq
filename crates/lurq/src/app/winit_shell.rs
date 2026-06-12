@@ -21,14 +21,14 @@ use crate::{
   app::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
-    runtime::{SecondaryWindow, SecondaryWindowMetadata},
+    runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata},
     window::{WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection},
   },
   node::{CursorIcon, color::Color},
 };
 
 type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
-type PaintFn = Box<dyn FnMut(&Tree, Duration)>;
+type PaintFn = Box<dyn FnMut(&Tree, Duration, PassReport)>;
 type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
 type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
 
@@ -140,7 +140,7 @@ impl WinitWindow {
   /// Runs after a frame is presented. Use this for paint profiling.
   pub fn on_paint<F>(mut self, paint: F) -> Self
   where
-    F: FnMut(&Tree, Duration) + 'static,
+    F: FnMut(&Tree, Duration, PassReport) + 'static,
   {
     self.on_paint = Some(Box::new(paint));
     self
@@ -149,7 +149,7 @@ impl WinitWindow {
   #[deprecated(note = "use on_paint for callbacks after a frame is presented")]
   pub fn on_frame<F>(self, frame: F) -> Self
   where
-    F: FnMut(&Tree, Duration) + 'static,
+    F: FnMut(&Tree, Duration, PassReport) + 'static,
   {
     self.on_paint(frame)
   }
@@ -423,15 +423,14 @@ impl ManagedWindow {
       self.tree.set_scale_factor(w.scale_factor() as f32);
       self.tree.resize(size.width, size.height);
       self.redraw_pending = false;
-      let frame_count = self.tree.frame_count();
-      self.tree.pass(app, w);
-      let presented = self.tree.frame_count() != frame_count;
+      let report = self.tree.pass(app, w);
+      let presented = report.rendered;
       if presented {
         let now = Instant::now();
         let delta = now.duration_since(self.last_paint);
         self.last_paint = now;
         if let Some(paint) = &mut self.on_paint {
-          paint(&self.tree, delta);
+          paint(&self.tree, delta, report);
         }
       }
       self.check_redraw();
@@ -838,9 +837,7 @@ impl ManagedSecondaryWindow {
       tree.set_scale_factor(w.scale_factor() as f32);
       tree.resize(size.width, size.height);
       self.redraw_pending = false;
-      let frame_count = tree.frame_count();
-      tree.pass(app, w);
-      let presented = tree.frame_count() != frame_count;
+      let presented = tree.pass(app, w).rendered;
       self.check_redraw(tree);
       return presented;
     }

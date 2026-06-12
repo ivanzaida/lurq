@@ -312,12 +312,14 @@ fn main() {
   // eprintln!("writing perf profile to {}", profile_path.display());
   let window = WinitWindow::new(app, tree)
     .with_title(&title);
-    // .on_paint(move |t, delta| {
+    // .on_paint(move |t, delta, report| {
     //   let prof = t.profile();
     //   writeln!(
     //     profile_writer,
-    //     "Profile for frame delta={:.2}ms {prof}",
-    //     delta.as_secs_f64() * 1000.0
+    //     "Profile for frame delta={:.2}ms rendered={} layout_recalc={} {prof}",
+    //     delta.as_secs_f64() * 1000.0,
+    //     report.rendered,
+    //     report.layout_recalculated
     //   )
     //   .expect("write perf profile frame");
     // });

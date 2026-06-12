@@ -131,6 +131,73 @@ struct CachedRenderList {
   image_sources: Vec<Option<crate::images::ImageData>>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PassReasons {
+  pub redraw_requested: bool,
+  pub scheduled_redraw: bool,
+  pub timer_run: bool,
+  pub timer_active: bool,
+  pub future_completed: bool,
+  pub future_active: bool,
+  pub timeline_active: bool,
+  pub perf_overlay: bool,
+  pub pending_click: bool,
+  pub input_interaction: bool,
+  pub text_input_caret: bool,
+  pub theme_changed: bool,
+  pub component_dirty: bool,
+  pub element_ref_dirty: bool,
+  pub layout_dirty: bool,
+}
+
+impl PassReasons {
+  pub fn any(self) -> bool {
+    self.redraw_requested
+      || self.scheduled_redraw
+      || self.timer_run
+      || self.timer_active
+      || self.future_completed
+      || self.future_active
+      || self.timeline_active
+      || self.perf_overlay
+      || self.pending_click
+      || self.input_interaction
+      || self.text_input_caret
+      || self.theme_changed
+      || self.component_dirty
+      || self.element_ref_dirty
+      || self.layout_dirty
+  }
+
+  fn merge(&mut self, other: Self) {
+    self.redraw_requested |= other.redraw_requested;
+    self.scheduled_redraw |= other.scheduled_redraw;
+    self.timer_run |= other.timer_run;
+    self.timer_active |= other.timer_active;
+    self.future_completed |= other.future_completed;
+    self.future_active |= other.future_active;
+    self.timeline_active |= other.timeline_active;
+    self.perf_overlay |= other.perf_overlay;
+    self.pending_click |= other.pending_click;
+    self.input_interaction |= other.input_interaction;
+    self.text_input_caret |= other.text_input_caret;
+    self.theme_changed |= other.theme_changed;
+    self.component_dirty |= other.component_dirty;
+    self.element_ref_dirty |= other.element_ref_dirty;
+    self.layout_dirty |= other.layout_dirty;
+  }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PassReport {
+  pub required: bool,
+  pub rendered: bool,
+  pub used_cached_render_list: bool,
+  pub layout_updated: bool,
+  pub layout_recalculated: bool,
+  pub reasons: PassReasons,
+}
+
 pub struct Tree {
   id_gen: IdGenerator,
   layout_engine: LayoutEngine,
@@ -162,6 +229,7 @@ pub struct Tree {
   click_press: Option<ClickPress>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
+  pending_pass_reasons: PassReasons,
   scheduled_redraw_at: Option<Instant>,
   scheduled_redraw_due: bool,
   perf_overlay_enabled: bool,
@@ -373,6 +441,7 @@ impl Tree {
       click_press: None,
       suppressed_click: None,
       needs_redraw: true,
+      pending_pass_reasons: PassReasons::default(),
       scheduled_redraw_at: None,
       scheduled_redraw_due: false,
       perf_overlay_enabled: false,
@@ -436,6 +505,7 @@ impl Tree {
       root.layout_cache.invalidate();
     }
     self.needs_redraw = true;
+    self.pending_pass_reasons.layout_dirty = true;
   }
 
   /// The reactive window handle for this tree's window. The shell pushes
@@ -537,10 +607,12 @@ impl Tree {
     self.perf_overlay_last_seen_frame = self.frame_count;
     self.perf_overlay_frames_since_sample = 0;
     self.needs_redraw = true;
+    self.pending_pass_reasons.perf_overlay = true;
   }
 
   pub fn request_redraw(&mut self) {
     self.needs_redraw = true;
+    self.pending_pass_reasons.redraw_requested = true;
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -559,6 +631,7 @@ impl Tree {
       self.scheduled_redraw_at = None;
       self.scheduled_redraw_due = true;
       self.needs_redraw = true;
+      self.pending_pass_reasons.scheduled_redraw = true;
     }
   }
 
@@ -570,6 +643,7 @@ impl Tree {
     let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now));
     if fired {
       self.needs_redraw = true;
+      self.pending_pass_reasons.timer_run = true;
       self.apply_reactive_updates_after_event();
     }
   }
@@ -578,6 +652,7 @@ impl Tree {
     let completed = self.root_ctx.as_mut().is_some_and(Ctx::tick_futures);
     if completed {
       self.needs_redraw = true;
+      self.pending_pass_reasons.future_completed = true;
       self.apply_reactive_updates_after_event();
     }
   }
@@ -592,6 +667,7 @@ impl Tree {
     if self.perf_overlay_enabled && Instant::now().duration_since(self.perf_overlay_last_sample) >= PERF_SAMPLE_INTERVAL
     {
       self.needs_redraw = true;
+      self.pending_pass_reasons.perf_overlay = true;
     }
   }
 
@@ -1107,16 +1183,31 @@ impl Tree {
     self.invalidate_viewport_layout();
   }
 
-  pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) {
+  pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
     self.tick_scheduled_redraw(Instant::now());
     let theme_version = self
       .root_ctx
       .as_ref()
       .map(|ctx| ctx.theme().version())
       .unwrap_or_else(|| app.theme().version());
+    let caret_mode = self
+      .root_ctx
+      .as_ref()
+      .map(|ctx| ctx.theme().caret_mode())
+      .unwrap_or_else(|| app.theme().caret_mode());
+    let mut reasons = self.pending_pass_reasons;
+    reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
+    let required = self.needs_redraw || self.has_active_tick_sources() || self.last_theme_version != theme_version;
+    let mut report = PassReport {
+      required,
+      reasons,
+      ..PassReport::default()
+    };
     if !self.needs_redraw && !self.has_active_tick_sources() && self.last_theme_version == theme_version {
-      return;
+      self.pending_pass_reasons = PassReasons::default();
+      return report;
     }
+    self.pending_pass_reasons = PassReasons::default();
     self.needs_redraw = false;
     self.scheduled_redraw_at = None;
 
@@ -1133,20 +1224,17 @@ impl Tree {
 
     let _layout_start = profile_scope!();
     let layout_updated = self.update_layout(app);
-    let caret_mode = self
-      .root_ctx
-      .as_ref()
-      .map(|ctx| ctx.theme().caret_mode())
-      .unwrap_or_else(|| app.theme().caret_mode());
     self.update_text_input_caret_blink(now, caret_mode);
     let _layout_dur = profile_elapsed!(_layout_start);
     let _layout_recalculated: bool = profile_value!(layout_updated && self.layout_engine.last_recalculated());
+    report.layout_updated = layout_updated;
+    report.layout_recalculated = layout_updated && self.layout_engine.last_recalculated();
 
     if self.root.is_none() {
-      return;
+      return report;
     }
     if self.render_engine.is_none() {
-      return;
+      return report;
     }
     let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
 
@@ -1154,17 +1242,19 @@ impl Tree {
     let display = surface.display_handle().unwrap();
 
     if !layout_updated && self.try_render_cached_render_list(app, clear_color, window, display) {
-      return;
+      report.rendered = true;
+      report.used_cached_render_list = true;
+      return report;
     }
 
     let root = match &self.root {
       Some(r) => r,
-      None => return,
+      None => return report,
     };
 
     let result = match self.last_layout.take() {
       Some(result) => result,
-      None => return,
+      None => return report,
     };
 
     let _quad_start = profile_scope!();
@@ -1528,9 +1618,10 @@ impl Tree {
 
     let _gpu_start = profile_scope!();
     let Some(render_engine) = &mut self.render_engine else {
-      return;
+      return report;
     };
     render_engine.render(&list, window, display);
+    report.rendered = true;
     let _gpu_dur = profile_elapsed!(_gpu_start);
 
     profile_if! {
@@ -1569,7 +1660,7 @@ impl Tree {
       self.frame_count += 1;
       #[cfg(feature = "devtools")]
       self.sync_devtools();
-      return;
+      return report;
     }
 
     self.cached_render_list = None;
@@ -1601,6 +1692,7 @@ impl Tree {
     self.frame_count += 1;
     #[cfg(feature = "devtools")]
     self.sync_devtools();
+    report
   }
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
@@ -2020,12 +2112,35 @@ impl Tree {
       || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
+  fn collect_pass_reasons(&self, theme_version: u64, caret_mode: CaretMode) -> PassReasons {
+    let root = self.root.as_ref();
+    let root_ctx = self.root_ctx.as_ref();
+
+    PassReasons {
+      redraw_requested: self.needs_redraw,
+      scheduled_redraw: self.scheduled_redraw_due,
+      timer_active: root_ctx.is_some_and(Ctx::has_active_timers),
+      future_active: root_ctx.is_some_and(Ctx::has_active_futures),
+      timeline_active: self.has_active_timeline(),
+      perf_overlay: self.perf_overlay_enabled,
+      pending_click: self.click_tracker.has_pending(),
+      input_interaction: self.has_active_input_interaction(),
+      text_input_caret: self.has_focused_blinking_text_input(caret_mode),
+      theme_changed: self.last_theme_version != theme_version,
+      component_dirty: root_ctx.is_some_and(Ctx::any_dirty),
+      element_ref_dirty: root.is_some_and(has_dirty_element_ref_recursive),
+      layout_dirty: root.is_some_and(has_pending_layout_dirty_recursive),
+      ..PassReasons::default()
+    }
+  }
+
   pub fn cursor(&self) -> CursorIcon {
     self.cursor
   }
 
   pub fn clear_needs_redraw(&mut self) {
     self.needs_redraw = false;
+    self.pending_pass_reasons = PassReasons::default();
   }
 
   fn flush_due_pending_click(&mut self, now: Instant) {

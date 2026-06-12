@@ -24,5 +24,5 @@ pub mod window;
 pub mod winit_shell;
 
 pub use app_state::App;
-pub use runtime::Tree;
+pub use runtime::{PassReasons, PassReport, Tree};
 pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};
