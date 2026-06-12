@@ -39,6 +39,12 @@ impl Element {
   pub fn node_id(&self) -> crate::core::NodeId {
     self.node.node_id()
   }
+
+  pub fn key(mut self, key: impl Into<std::sync::Arc<str>>) -> Self {
+    let key = key.into();
+    self.node.set_component_key(Some(&key));
+    self
+  }
 }
 
 impl Default for Element {

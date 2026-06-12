@@ -1153,6 +1153,11 @@ impl Node {
     self
   }
 
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.component_key = Some(key.into());
+    self
+  }
+
   pub fn new() -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::Empty, vec![])
   }

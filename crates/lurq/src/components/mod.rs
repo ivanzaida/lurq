@@ -94,6 +94,12 @@ macro_rules! impl_into_node {
         self.node.node_id()
       }
 
+      pub fn key(mut self, key: impl Into<std::sync::Arc<str>>) -> Self {
+        let key = key.into();
+        self.update_node(|node| node.set_component_key(Some(&key)));
+        self
+      }
+
       pub fn background(mut self, color: impl Into<$crate::node::BackgroundColor>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background(node, color));
         self

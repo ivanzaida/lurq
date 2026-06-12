@@ -1,10 +1,15 @@
-use std::cell::{Cell, RefCell};
+use std::{
+  cell::{Cell, RefCell},
+  sync::Arc,
+};
 
 use crate::{
   app::{
+    ctx::{ModalSpec, OverlaySpec},
     glyph_engine::GlyphEngine,
     theme::{CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
   },
+  core::{ElementRect, ElementRef},
   layout::{
     Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
@@ -22,7 +27,7 @@ use crate::{
     color::Color,
     dimension::Dimension,
     node::Node,
-    node_kind::{NodeKind, SliderPartRect, TextInputOverflow, TextInputState, TextOverflow},
+    node_kind::{NodeKind, SelectState, SliderPartRect, TextInputOverflow, TextInputState, TextOverflow},
     padding::Padding,
     slider_style::SliderPartStyle,
     transform::Transform2D,
@@ -88,6 +93,73 @@ pub(crate) struct ResolvedPadding {
 struct ChildLayoutOverride {
   constraints: Constraints,
   result: LayoutResult,
+}
+
+#[derive(Default)]
+pub(crate) struct OverlayLayoutIndex {
+  pub(crate) elements: Vec<ElementLayoutRecord>,
+  pub(crate) overlays: Vec<OverlayLayoutRecord>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ElementLayoutRecord {
+  pub(crate) element_ref: ElementRef,
+  pub(crate) rect: ElementRect,
+}
+
+pub(crate) enum OverlayLayoutRecord {
+  SelectMenu {
+    reuse_key: Option<Arc<str>>,
+    state: SelectState,
+    bounds: ElementRect,
+  },
+  Overlay {
+    reuse_key: Option<Arc<str>>,
+    spec: OverlaySpec,
+  },
+  Modal {
+    reuse_key: Option<Arc<str>>,
+    spec: ModalSpec,
+    parent: ElementRect,
+  },
+}
+
+impl Clone for OverlayLayoutIndex {
+  fn clone(&self) -> Self {
+    Self {
+      elements: self.elements.clone(),
+      overlays: self.overlays.clone(),
+    }
+  }
+}
+
+impl Clone for OverlayLayoutRecord {
+  fn clone(&self) -> Self {
+    match self {
+      Self::SelectMenu {
+        reuse_key,
+        state,
+        bounds,
+      } => Self::SelectMenu {
+        reuse_key: reuse_key.clone(),
+        state: state.clone(),
+        bounds: *bounds,
+      },
+      Self::Overlay { reuse_key, spec } => Self::Overlay {
+        reuse_key: reuse_key.clone(),
+        spec: spec.clone_for_reuse(),
+      },
+      Self::Modal {
+        reuse_key,
+        spec,
+        parent,
+      } => Self::Modal {
+        reuse_key: reuse_key.clone(),
+        spec: spec.clone_for_reuse(),
+        parent: *parent,
+      },
+    }
+  }
 }
 
 pub(crate) struct LayoutEngine {
@@ -379,6 +451,68 @@ impl LayoutEngine {
     typography: ThemeTypography,
     force_dirty: bool,
   ) -> LayoutResult {
+    self.compute_inner(
+      glyph_engine,
+      node,
+      constraints,
+      palette,
+      border_sizes,
+      spacing,
+      radii,
+      caret,
+      scrollbar,
+      typography,
+      force_dirty,
+    )
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  pub(crate) fn compute_with_overlay_index(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    palette: ThemePalette,
+    border_sizes: ThemeBorderSizes,
+    spacing: ThemeSpacing,
+    radii: ThemeRadii,
+    caret: ThemeCaret,
+    scrollbar: ScrollBarStyle,
+    typography: ThemeTypography,
+    force_dirty: bool,
+  ) -> (LayoutResult, OverlayLayoutIndex) {
+    let result = self.compute_inner(
+      glyph_engine,
+      node,
+      constraints,
+      palette,
+      border_sizes,
+      spacing,
+      radii,
+      caret,
+      scrollbar,
+      typography,
+      force_dirty,
+    );
+    let index = Self::collect_overlay_index(node, &result);
+    (result, index)
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn compute_inner(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+    palette: ThemePalette,
+    border_sizes: ThemeBorderSizes,
+    spacing: ThemeSpacing,
+    radii: ThemeRadii,
+    caret: ThemeCaret,
+    scrollbar: ScrollBarStyle,
+    typography: ThemeTypography,
+    force_dirty: bool,
+  ) -> LayoutResult {
     self.last_recalculated.set(false);
     *self.palette.borrow_mut() = palette;
     *self.border_sizes.borrow_mut() = border_sizes;
@@ -391,6 +525,84 @@ impl LayoutEngine {
     let result = self.layout_node(glyph_engine, node, constraints);
     node.clear_guards();
     result
+  }
+
+  fn collect_overlay_index(node: &Node, layout: &LayoutResult) -> OverlayLayoutIndex {
+    let mut index = OverlayLayoutIndex::default();
+    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, &mut index);
+    index
+  }
+
+  fn collect_overlay_index_recursive(
+    node: &Node,
+    layout: &LayoutResult,
+    abs_x: f32,
+    abs_y: f32,
+    parent_x: f32,
+    parent_y: f32,
+    index: &mut OverlayLayoutIndex,
+  ) {
+    let rect = ElementRect {
+      x: abs_x,
+      y: abs_y,
+      relative_x: abs_x - parent_x,
+      relative_y: abs_y - parent_y,
+      width: layout.size.width,
+      height: layout.size.height,
+    };
+
+    if let Some(element_ref) = node.element_ref.as_ref() {
+      index.elements.push(ElementLayoutRecord {
+        element_ref: element_ref.clone(),
+        rect,
+      });
+    }
+
+    if let NodeKind::Select { state } = node.node_kind()
+      && state.is_open()
+    {
+      index.overlays.push(OverlayLayoutRecord::SelectMenu {
+        reuse_key: node
+          .node_id()
+          .is_assigned()
+          .then(|| Arc::<str>::from(format!("select:{}", node.node_id().value()))),
+        state: state.clone(),
+        bounds: rect,
+      });
+    }
+
+    if let Some(spec) = node.overlay_declaration() {
+      index.overlays.push(OverlayLayoutRecord::Overlay {
+        reuse_key: spec
+          .node
+          .component_key()
+          .map(|key| Arc::<str>::from(format!("overlay:{key}"))),
+        spec: spec.clone_for_reuse(),
+      });
+    }
+
+    for (child_layout, child) in layout.children.iter().zip(node.children()) {
+      if let Some(spec) = child.modal_declaration() {
+        index.overlays.push(OverlayLayoutRecord::Modal {
+          reuse_key: spec
+            .node
+            .component_key()
+            .map(|key| Arc::<str>::from(format!("modal:{key}"))),
+          spec: spec.clone_for_reuse(),
+          parent: rect,
+        });
+      }
+
+      Self::collect_overlay_index_recursive(
+        child,
+        &child_layout.result,
+        abs_x + child_layout.offset.x,
+        abs_y + child_layout.offset.y,
+        abs_x,
+        abs_y,
+        index,
+      );
+    }
   }
 
   #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]

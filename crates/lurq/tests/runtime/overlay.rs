@@ -304,6 +304,63 @@ impl Component for TransitionOverlayRoot {
   }
 }
 
+#[derive(Default)]
+struct KeyedOverlaySignals {
+  flipped: Option<Signal<bool>>,
+}
+
+struct KeyedOverlayRoot {
+  first_anchor: ElementRef,
+  second_anchor: ElementRef,
+  flipped: Signal<bool>,
+}
+
+impl Component for KeyedOverlayRoot {
+  type Props = Shared<std::sync::Mutex<KeyedOverlaySignals>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let flipped = ctx.signal(false);
+    ctx.props::<Self::Props>().0.lock().unwrap().flipped = Some(flipped.clone());
+    Self {
+      first_anchor: ElementRef::new(),
+      second_anchor: ElementRef::new(),
+      flipped,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let red = Overlay::new(Rect::new(80.0, 30.0).background("#ef4444").key("red"))
+      .anchor(self.first_anchor.clone())
+      .placement(Placement::BottomStart)
+      .collision(CollisionStrategy::None);
+    let blue = Overlay::new(Rect::new(80.0, 30.0).background("#38bdf8").key("blue"))
+      .anchor(self.second_anchor.clone())
+      .placement(Placement::BottomStart)
+      .collision(CollisionStrategy::None);
+
+    let base = Stack::new()
+      .size(300.0, 140.0)
+      .child(
+        Rect::new(80.0, 30.0)
+          .background("#22c55e")
+          .absolute_position(20.0, 20.0)
+          .ref_element(self.first_anchor.clone()),
+      )
+      .child(
+        Rect::new(80.0, 30.0)
+          .background("#a855f7")
+          .absolute_position(140.0, 20.0)
+          .ref_element(self.second_anchor.clone()),
+      );
+
+    if self.flipped.get() {
+      base.child(blue).child(red)
+    } else {
+      base.child(red).child(blue)
+    }
+  }
+}
+
 struct DeepOverlayRoot {
   first_anchor: ElementRef,
   second_anchor: ElementRef,
@@ -743,6 +800,43 @@ fn overlay_transition_survives_host_rebuild() {
     Color::from_hex("#38bdf8"),
     "overlay transition should not jump directly to the hovered target"
   );
+}
+
+#[test]
+fn keyed_overlays_preserve_ids_when_declaration_order_changes() {
+  let signals = std::sync::Arc::new(std::sync::Mutex::new(KeyedOverlaySignals::default()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<KeyedOverlayRoot>(&mut app, Shared(signals.clone()));
+  run_pass(&mut tree);
+
+  let red_before =
+    node_id_for_color(tree.root().unwrap(), Color::from_hex("#ef4444")).expect("red overlay should render");
+  let blue_before =
+    node_id_for_color(tree.root().unwrap(), Color::from_hex("#38bdf8")).expect("blue overlay should render");
+
+  signals.lock().unwrap().flipped.as_ref().unwrap().set(true);
+  run_pass(&mut tree);
+
+  let red_after =
+    node_id_for_color(tree.root().unwrap(), Color::from_hex("#ef4444")).expect("red overlay should still render");
+  let blue_after =
+    node_id_for_color(tree.root().unwrap(), Color::from_hex("#38bdf8")).expect("blue overlay should still render");
+
+  assert_eq!(red_after, red_before);
+  assert_eq!(blue_after, blue_before);
+}
+
+fn node_id_for_color(root: lurq::node::ElementRef<'_>, color: Color) -> Option<lurq::core::NodeId> {
+  if root.color() == Some(color) {
+    return Some(root.node_id());
+  }
+  for child in root.children() {
+    if let Some(id) = node_id_for_color(child, color) {
+      return Some(id);
+    }
+  }
+  None
 }
 
 #[test]

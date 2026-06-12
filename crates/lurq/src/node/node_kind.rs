@@ -1703,10 +1703,6 @@ impl SelectState {
     self.inner.lock().unwrap().highlighted
   }
 
-  pub(crate) fn option_count(&self) -> usize {
-    self.inner.lock().unwrap().labels.len()
-  }
-
   pub(crate) fn is_selected(&self, index: usize) -> bool {
     self.inner.lock().unwrap().selected.contains(&index)
   }
