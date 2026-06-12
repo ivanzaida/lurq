@@ -23,6 +23,10 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     tag_name,
     component_slot_id: None,
     component_key: None,
+    overlay_declaration: None,
+    modal_declaration: None,
+    layout_neutral: false,
+    synthetic_role: None,
     #[cfg(feature = "devtools")]
     component_props_debug: None,
     #[cfg(feature = "devtools")]
@@ -58,6 +62,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     caret_color: Guard::new(None),
     caret_mode: Guard::new(None),
     cursor: None,
+    hit_test: crate::node::HitTestBehavior::default(),
     #[cfg(feature = "image")]
     background_image: Guard::new(None),
     #[cfg(feature = "image")]

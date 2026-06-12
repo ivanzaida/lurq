@@ -113,6 +113,10 @@ impl ElementRef {
     inner.attached = true;
   }
 
+  pub(crate) fn same_handle(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.inner, &other.inner)
+  }
+
   pub(crate) fn override_rect(&self) -> Option<ElementRect> {
     self.inner.read().unwrap().override_rect
   }

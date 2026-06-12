@@ -139,6 +139,8 @@ pub(crate) trait NodeUpdate {
   fn animation(&mut self, spec: Animation);
   fn scrollbar(&mut self, style: ScrollBarStyle);
   fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static);
+  fn hit_test(&mut self, behavior: HitTestBehavior);
+  fn pointer_events_none(&mut self);
   fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>);
   fn interactive(&mut self, state: InteractionState);
   fn focusable(&mut self, focusable: bool);
@@ -252,6 +254,20 @@ impl Default for BackgroundSize {
   }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HitTestBehavior {
+  #[default]
+  Auto,
+  None,
+  ContentOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SyntheticNodeRole {
+  OverlayHost,
+  SelectMenu,
+}
+
 #[derive(Default, Clone)]
 pub struct EventHandlers {
   pub on_click: Option<Callback<MouseEvent>>,
@@ -282,6 +298,10 @@ pub(crate) struct Node {
   pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
   pub(crate) component_key: Option<Arc<str>>,
+  pub(crate) overlay_declaration: Option<Box<crate::app::ctx::OverlaySpec>>,
+  pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
+  pub(crate) layout_neutral: bool,
+  pub(crate) synthetic_role: Option<SyntheticNodeRole>,
   #[cfg(feature = "devtools")]
   pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
   #[cfg(feature = "devtools")]
@@ -314,6 +334,7 @@ pub(crate) struct Node {
   pub(crate) caret_color: Guard<Option<TextColor>>,
   pub(crate) caret_mode: Guard<Option<CaretMode>>,
   pub(crate) cursor: Option<CursorIcon>,
+  pub(crate) hit_test: HitTestBehavior,
   #[cfg(feature = "image")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
   #[cfg(feature = "image")]
@@ -829,6 +850,14 @@ impl NodeUpdate for Node {
     self.scrollbar_hovered_style = Some(Arc::new(f));
   }
 
+  fn hit_test(&mut self, behavior: HitTestBehavior) {
+    self.hit_test = behavior;
+  }
+
+  fn pointer_events_none(&mut self) {
+    self.hit_test = HitTestBehavior::None;
+  }
+
   fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>) {
     self.element_ref = Some(element_ref.into());
   }
@@ -1050,6 +1079,10 @@ impl Node {
       tag_name: Arc::from("Node"),
       component_slot_id: None,
       component_key: None,
+      overlay_declaration: None,
+      modal_declaration: None,
+      layout_neutral: false,
+      synthetic_role: None,
       #[cfg(feature = "devtools")]
       component_props_debug: None,
       #[cfg(feature = "devtools")]
@@ -1074,6 +1107,7 @@ impl Node {
       caret_color: Guard::new(None),
       caret_mode: Guard::new(None),
       cursor: None,
+      hit_test: HitTestBehavior::default(),
       #[cfg(feature = "image")]
       background_image: Guard::new(None),
       #[cfg(feature = "image")]
@@ -1776,6 +1810,16 @@ impl Node {
     self
   }
 
+  pub fn hit_test(mut self, behavior: HitTestBehavior) -> Self {
+    self.hit_test = behavior;
+    self
+  }
+
+  pub fn pointer_events_none(mut self) -> Self {
+    self.hit_test = HitTestBehavior::None;
+    self
+  }
+
   pub fn ref_element(mut self, element_ref: impl Into<CoreElementRef>) -> Self {
     self.element_ref = Some(element_ref.into());
     self
@@ -2177,6 +2221,38 @@ impl Node {
     self.component_key.as_deref()
   }
 
+  pub(crate) fn set_overlay_declaration(&mut self, spec: crate::app::ctx::OverlaySpec) {
+    self.overlay_declaration = Some(Box::new(spec));
+  }
+
+  pub(crate) fn set_modal_declaration(&mut self, spec: crate::app::ctx::ModalSpec) {
+    self.modal_declaration = Some(Box::new(spec));
+  }
+
+  pub(crate) fn set_layout_neutral(&mut self, layout_neutral: bool) {
+    self.layout_neutral = layout_neutral;
+  }
+
+  pub(crate) fn overlay_declaration(&self) -> Option<&crate::app::ctx::OverlaySpec> {
+    self.overlay_declaration.as_deref()
+  }
+
+  pub(crate) fn modal_declaration(&self) -> Option<&crate::app::ctx::ModalSpec> {
+    self.modal_declaration.as_deref()
+  }
+
+  pub(crate) fn is_overlay_declaration(&self) -> bool {
+    self.layout_neutral || self.overlay_declaration.is_some() || self.modal_declaration.is_some()
+  }
+
+  pub(crate) fn set_synthetic_role(&mut self, role: SyntheticNodeRole) {
+    self.synthetic_role = Some(role);
+  }
+
+  pub(crate) fn has_synthetic_role(&self, role: SyntheticNodeRole) -> bool {
+    self.synthetic_role == Some(role)
+  }
+
   pub(crate) fn set_component_key(&mut self, key: Option<&str>) {
     self.component_key = key.map(Arc::from);
   }
@@ -2393,6 +2469,10 @@ impl Node {
         _ => None,
       })
       .unwrap_or(self.transform)
+  }
+
+  pub(crate) fn hit_test_behavior(&self) -> HitTestBehavior {
+    self.hit_test
   }
 
   fn animation_override_color(&self) -> Option<Color> {
@@ -2805,6 +2885,16 @@ impl Node {
       tag_name: self.tag_name.clone(),
       component_slot_id: self.component_slot_id,
       component_key: self.component_key.clone(),
+      overlay_declaration: self
+        .overlay_declaration
+        .as_ref()
+        .map(|spec| Box::new(spec.clone_for_reuse())),
+      modal_declaration: self
+        .modal_declaration
+        .as_ref()
+        .map(|spec| Box::new(spec.clone_for_reuse())),
+      layout_neutral: self.layout_neutral,
+      synthetic_role: self.synthetic_role,
       #[cfg(feature = "devtools")]
       component_props_debug: self.component_props_debug.clone(),
       #[cfg(feature = "devtools")]
@@ -2837,6 +2927,7 @@ impl Node {
       caret_color: self.caret_color.clone(),
       caret_mode: self.caret_mode.clone(),
       cursor: self.cursor,
+      hit_test: self.hit_test,
       #[cfg(feature = "image")]
       background_image: self.background_image.clone(),
       #[cfg(feature = "image")]
@@ -2882,6 +2973,18 @@ impl Node {
       if child.replace_component_slot_in(slot_id, replacement) {
         return true;
       }
+    }
+
+    if let Some(spec) = self.modal_declaration.as_mut()
+      && spec.node.replace_component_slot_in(slot_id, replacement)
+    {
+      return true;
+    }
+
+    if let Some(spec) = self.overlay_declaration.as_mut()
+      && spec.node.replace_component_slot_in(slot_id, replacement)
+    {
+      return true;
     }
 
     false
@@ -3090,11 +3193,7 @@ mod tests {
     let old = Node::column(
       0.0,
       Alignment::Start,
-      vec![Node::row(
-        0.0,
-        Alignment::Start,
-        vec![Node::text("Old")],
-      )],
+      vec![Node::row(0.0, Alignment::Start, vec![Node::text("Old")])],
     );
     old.layout_cache.store(
       Constraints::loose(Size::new(400.0, 400.0)),
@@ -3121,11 +3220,7 @@ mod tests {
     let mut new = Node::column(
       0.0,
       Alignment::Start,
-      vec![Node::row(
-        0.0,
-        Alignment::Start,
-        vec![Node::text("Different")],
-      )],
+      vec![Node::row(0.0, Alignment::Start, vec![Node::text("Different")])],
     );
 
     new.preserve_runtime_state_from(&old);

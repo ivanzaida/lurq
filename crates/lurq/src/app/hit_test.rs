@@ -3,7 +3,7 @@ use crate::{
     layout_kind::{LayoutKind, Overflow},
     layout_result::LayoutResult,
   },
-  node::{node::Node, transform::Transform2D},
+  node::{HitTestBehavior, node::Node, transform::Transform2D},
 };
 
 pub struct HitRect {
@@ -57,6 +57,11 @@ fn hit_test_tree_with_transform<'a>(
   occlude_stack_siblings: bool,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
+  let behavior = node.hit_test_behavior();
+  if behavior == HitTestBehavior::None {
+    return;
+  }
+
   let rect = HitRect {
     x: abs_x,
     y: abs_y,
@@ -129,7 +134,7 @@ fn hit_test_tree_with_transform<'a>(
     }
   }
 
-  if inside {
+  if inside && behavior == HitTestBehavior::Auto {
     hits.push((node, rect));
   }
 }

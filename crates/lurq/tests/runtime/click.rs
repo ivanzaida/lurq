@@ -7,7 +7,7 @@ use lurq::{
   },
   components::{Column, Rect, Row, Stack},
   core::{ElementRef, Signal},
-  node::{Element, color::Color},
+  node::{Element, HitTestBehavior, color::Color},
 };
 
 use crate::support::run_pass;
@@ -454,6 +454,86 @@ fn stack_top_child_occludes_lower_sibling_clicks() {
   runtime.mouse_down(75.0, 75.0, MouseButton::Left);
   runtime.mouse_up(75.0, 75.0, MouseButton::Left);
 
+  assert_eq!(lower_clicks.get(), 1);
+}
+
+#[test]
+fn content_only_stack_child_does_not_occlude_lower_sibling_when_empty() {
+  let lower_clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Stack::new()
+      .child(Rect::new(100.0, 100.0).background("#111827").on_click({
+        let lower_clicks = lower_clicks.clone();
+        move |_| lower_clicks.update(|count| *count += 1)
+      }))
+      .child(Stack::new().size(100.0, 100.0).hit_test(HitTestBehavior::ContentOnly)),
+  );
+  run_pass(&mut runtime);
+
+  runtime.mouse_down(25.0, 25.0, MouseButton::Left);
+  runtime.mouse_up(25.0, 25.0, MouseButton::Left);
+
+  assert_eq!(lower_clicks.get(), 1);
+}
+
+#[test]
+fn child_of_content_only_wrapper_receives_click_and_occludes_lower_sibling() {
+  let lower_clicks = Signal::new(0);
+  let child_clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Stack::new()
+      .child(Rect::new(100.0, 100.0).background("#111827").on_click({
+        let lower_clicks = lower_clicks.clone();
+        move |_| lower_clicks.update(|count| *count += 1)
+      }))
+      .child(
+        Stack::new()
+          .size(100.0, 100.0)
+          .hit_test(HitTestBehavior::ContentOnly)
+          .child(Rect::new(40.0, 40.0).background("#ffffff").on_click({
+            let child_clicks = child_clicks.clone();
+            move |_| child_clicks.update(|count| *count += 1)
+          })),
+      ),
+  );
+  run_pass(&mut runtime);
+
+  runtime.mouse_down(20.0, 20.0, MouseButton::Left);
+  runtime.mouse_up(20.0, 20.0, MouseButton::Left);
+
+  assert_eq!(child_clicks.get(), 1);
+  assert_eq!(lower_clicks.get(), 0);
+}
+
+#[test]
+fn pointer_events_none_ignores_node_and_children() {
+  let lower_clicks = Signal::new(0);
+  let child_clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Stack::new()
+      .child(Rect::new(100.0, 100.0).background("#111827").on_click({
+        let lower_clicks = lower_clicks.clone();
+        move |_| lower_clicks.update(|count| *count += 1)
+      }))
+      .child(Stack::new().size(100.0, 100.0).pointer_events_none().child(
+        Rect::new(40.0, 40.0).background("#ffffff").on_click({
+          let child_clicks = child_clicks.clone();
+          move |_| child_clicks.update(|count| *count += 1)
+        }),
+      )),
+  );
+  run_pass(&mut runtime);
+
+  runtime.mouse_down(20.0, 20.0, MouseButton::Left);
+  runtime.mouse_up(20.0, 20.0, MouseButton::Left);
+
+  assert_eq!(child_clicks.get(), 0);
   assert_eq!(lower_clicks.get(), 1);
 }
 

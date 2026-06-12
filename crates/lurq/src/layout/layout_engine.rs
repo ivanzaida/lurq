@@ -1759,7 +1759,8 @@ impl LayoutEngine {
       );
     }
 
-    let total_spacing = spacing * (children.len() as f32 - 1.0).max(0.0);
+    let layout_child_count = children.iter().filter(|child| !child.is_overlay_declaration()).count();
+    let total_spacing = spacing * (layout_child_count as f32 - 1.0).max(0.0);
     let max_main = if vertical {
       constraints.max_height
     } else {
@@ -1772,6 +1773,19 @@ impl LayoutEngine {
     let mut flex_params_list: Vec<FlexParams> = Vec::with_capacity(children.len());
 
     for child in children {
+      if child.is_overlay_declaration() {
+        flex_params_list.push(FlexParams {
+          grow: 0.0,
+          shrink: 0.0,
+          basis: None,
+        });
+        non_flex_results.push(Some(LayoutResult {
+          size: Size::default(),
+          children: Vec::new(),
+        }));
+        continue;
+      }
+
       let flex_params = child.state_flex();
 
       if let Some(params) = flex_params {
@@ -1849,7 +1863,9 @@ impl LayoutEngine {
     if shrink_total > 0.0 {
       let total_children_main: f32 = results
         .iter()
-        .map(|r| if vertical { r.size.height } else { r.size.width })
+        .zip(children.iter())
+        .filter(|(_, child)| !child.is_overlay_declaration())
+        .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
         .sum();
       let overflow = total_children_main + total_spacing - max_main;
       if overflow > 0.0 {
@@ -1922,12 +1938,16 @@ impl LayoutEngine {
 
     let max_cross: f32 = results
       .iter()
-      .map(|r| if vertical { r.size.width } else { r.size.height })
+      .zip(children.iter())
+      .filter(|(_, child)| !child.is_overlay_declaration())
+      .map(|(r, _)| if vertical { r.size.width } else { r.size.height })
       .fold(0.0_f32, f32::max);
 
     let total_main: f32 = results
       .iter()
-      .map(|r| if vertical { r.size.height } else { r.size.width })
+      .zip(children.iter())
+      .filter(|(_, child)| !child.is_overlay_declaration())
+      .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
       .sum::<f32>()
       + total_spacing;
 
@@ -1941,6 +1961,9 @@ impl LayoutEngine {
 
     if matches!(align, Alignment::Stretch) {
       for (i, child) in children.iter().enumerate() {
+        if child.is_overlay_declaration() {
+          continue;
+        }
         let r = &results[i];
         let child_cross = if vertical { r.size.width } else { r.size.height };
         if child_cross < container_cross {
@@ -2044,10 +2067,13 @@ impl LayoutEngine {
     };
     let children_main: f32 = results
       .iter()
-      .map(|r| if vertical { r.size.height } else { r.size.width })
+      .zip(children.iter())
+      .filter(|(_, child)| !child.is_overlay_declaration())
+      .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
       .sum();
     let free_space = (container_main - children_main).max(0.0);
-    let n = results.len() as f32;
+    let layout_child_count = children.iter().filter(|child| !child.is_overlay_declaration()).count();
+    let n = layout_child_count as f32;
 
     let (leading, gap) = match justify {
       Justify::Start => (0.0, spacing),
@@ -2061,19 +2087,28 @@ impl LayoutEngine {
         }
       }
       Justify::SpaceAround => {
-        let g = free_space / n;
+        let g = if n > 0.0 { free_space / n } else { 0.0 };
         (g / 2.0, g)
       }
       Justify::SpaceEvenly => {
-        let g = free_space / (n + 1.0);
+        let g = if n > 0.0 { free_space / (n + 1.0) } else { 0.0 };
         (g, g)
       }
     };
 
     let mut child_layouts = Vec::with_capacity(results.len());
     let mut main_cursor = leading;
+    let mut positioned_layout_children = 0usize;
 
     for (i, result) in results.iter().enumerate() {
+      if children[i].is_overlay_declaration() {
+        child_layouts.push(ChildLayout {
+          offset: Offset::default(),
+          result: result.clone().into(),
+        });
+        continue;
+      }
+
       let child_main = if vertical {
         result.size.height
       } else {
@@ -2093,7 +2128,13 @@ impl LayoutEngine {
       };
       let offset = Self::apply_relative_position(&children[i], offset);
 
-      main_cursor += child_main + if i < (n as usize - 1) { gap } else { 0.0 };
+      positioned_layout_children += 1;
+      main_cursor += child_main
+        + if positioned_layout_children < layout_child_count {
+          gap
+        } else {
+          0.0
+        };
       child_layouts.push(ChildLayout {
         offset,
         result: result.clone().into(),
@@ -3205,11 +3246,7 @@ mod tests {
     let engine = LayoutEngine::new();
     let mut glyph_engine = GlyphEngine::new();
     let constraints = Constraints::loose(Size::new(400.0, 40.0));
-    let old = Node::row(
-      8.0,
-      Alignment::Start,
-      vec![Node::text("1"), Node::text("tail")],
-    );
+    let old = Node::row(8.0, Alignment::Start, vec![Node::text("1"), Node::text("tail")]);
 
     engine.compute(
       &mut glyph_engine,

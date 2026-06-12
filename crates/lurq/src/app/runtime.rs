@@ -11,6 +11,8 @@ use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, Window
 use crate::app::devtools::{
   DevTools, DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsProps, DevToolsSnapshot,
 };
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::{FrameProfile, RuntimeMemoryProfile};
 #[cfg(feature = "form")]
 use crate::node::ButtonKind;
 use crate::{
@@ -18,7 +20,7 @@ use crate::{
   app::{
     app_state::App,
     component::Component,
-    ctx::{Ctx, component_tag_name},
+    ctx::{CollisionStrategy, Ctx, ModalSpec, ModalTarget, OverlaySpec, Placement, component_tag_name},
     events::{
       DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
       ScrollPhase,
@@ -28,7 +30,9 @@ use crate::{
     render_engine::{RenderEngine, RenderEngineFactory},
     theme::CaretMode,
   },
-  core::{ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId},
+  core::{
+    ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId, Signal,
+  },
   layout::{
     Constraints, Size,
     layout_engine::LayoutEngine,
@@ -39,18 +43,16 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{
-    Element, ElementRef, Node, TextTransformMode,
+    Element, ElementRef, HitTestBehavior, Node, SyntheticNodeRole, TextTransformMode,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders, ThemedBorderRadius},
     color::Color,
     cursor::CursorIcon,
+    dimension::Dimension,
     node_kind::{NodeKind, SliderState, TextInputOverflow, TextInputState, TextState},
     radius_value::RadiusValue,
     transform::Transform2D,
   },
 };
-
-#[cfg(feature = "perf_profile")]
-use crate::app::profile_types::{FrameProfile, RuntimeMemoryProfile};
 
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
@@ -61,7 +63,6 @@ const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
-const MODAL_HOST_TAG: &str = "__lurq_modal_host";
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
@@ -193,6 +194,15 @@ pub struct Tree {
   #[cfg(feature = "svg")]
   render_svgs: Vec<crate::svg::SvgCmd>,
   cached_render_list: Option<CachedRenderList>,
+  overlay_dismiss_entries: Vec<OverlayDismissEntry>,
+}
+
+struct OverlayDismissEntry {
+  anchor: OwnedElementRef,
+  bounds: ElementRect,
+  open: Signal<bool>,
+  dismiss_on_outside_click: bool,
+  dismiss_on_escape: bool,
 }
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -395,6 +405,7 @@ impl Tree {
       #[cfg(feature = "svg")]
       render_svgs: Vec::new(),
       cached_render_list: None,
+      overlay_dismiss_entries: Vec::new(),
     };
     tree
       .window
@@ -980,7 +991,6 @@ impl Tree {
     set_component_debug_metadata(&mut node, &ctx);
     wrapper.on_mounted();
     self.root = Some(node);
-    self.sync_modal_layer();
     if let Some(root) = &mut self.root {
       root.assign_ids(&self.id_gen);
     }
@@ -1014,11 +1024,7 @@ impl Tree {
       return;
     }
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
-      let mut old_modal_layer = ModalLayerReuse::default();
       let mut old_root = self.root.take().map(|old| {
-        let parts = modal_host_parts(old);
-        old_modal_layer = parts.old_layer;
-        let old = parts.base;
         reset_element_ref_flags_recursive(&old);
         old
       });
@@ -1034,7 +1040,6 @@ impl Tree {
         old.free_ids(&self.id_gen);
       }
       self.root = Some(node);
-      self.sync_modal_layer_reusing(old_modal_layer);
       if let Some(root) = &mut self.root {
         root.assign_ids(&self.id_gen);
       }
@@ -1054,11 +1059,9 @@ impl Tree {
     self.clear_animation_runtime_state();
     let mut node = element.into().node;
     if let Some(old) = old_root.as_mut() {
-      let mut parts = modal_host_parts(std::mem::take(old));
-      node.preserve_runtime_state_from(&parts.base);
-      node.preserve_ids_from(&mut parts.base);
-      parts.base.free_ids(&self.id_gen);
-      parts.old_layer.free_ids(&self.id_gen);
+      node.preserve_runtime_state_from(old);
+      node.preserve_ids_from(old);
+      old.free_ids(&self.id_gen);
     }
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
@@ -1145,11 +1148,7 @@ impl Tree {
     if self.render_engine.is_none() {
       return;
     }
-    let clear_color = self
-      .root
-      .as_ref()
-      .and_then(Node::color)
-      .unwrap_or(DEFAULT_CLEAR_COLOR);
+    let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
 
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
@@ -1753,6 +1752,8 @@ impl Tree {
       self.needs_redraw = true;
     } else if self.dispatch_select_key(&key, &code) {
       self.needs_redraw = true;
+    } else if self.dismiss_top_overlay_on_escape(&key, &code) {
+      self.needs_redraw = true;
     } else {
       let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
       let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
@@ -1803,6 +1804,35 @@ impl Tree {
     };
     fire_keyboard_up_recursive(root, &mut evt);
     self.apply_reactive_updates_after_event();
+  }
+
+  fn overlay_dismiss_signals_at(&self, x: f32, y: f32) -> Vec<Signal<bool>> {
+    self
+      .overlay_dismiss_entries
+      .iter()
+      .filter(|entry| entry.dismiss_on_outside_click)
+      .filter(|entry| !point_in_element_rect(x, y, entry.anchor.bounds()))
+      .filter(|entry| !point_in_element_rect(x, y, entry.bounds))
+      .map(|entry| entry.open.clone())
+      .collect()
+  }
+
+  fn dismiss_top_overlay_on_escape(&mut self, key: &str, code: &str) -> bool {
+    if !matches!(key, "Escape") && code != "Escape" {
+      return false;
+    }
+
+    let Some(entry) = self
+      .overlay_dismiss_entries
+      .iter()
+      .rev()
+      .find(|entry| entry.dismiss_on_escape)
+    else {
+      return false;
+    };
+
+    entry.open.set(false);
+    true
   }
 
   fn clear_selectable_text_selection_on_key(&mut self, key: &str, code: &str) -> bool {
@@ -2275,6 +2305,13 @@ impl Tree {
       }
     }
 
+    if matches!(evt.kind, MouseEventKind::Click) && button == MouseButton::Left {
+      for open in self.overlay_dismiss_signals_at(lx, ly) {
+        open.set(false);
+        self.needs_redraw = true;
+      }
+    }
+
     let root = match &self.root {
       Some(r) => r,
       None => return,
@@ -2356,7 +2393,9 @@ impl Tree {
 
       // Dismiss open selects when the press lands outside their menu and
       // outside the open trigger (the trigger's own click toggles it).
-      let on_menu = hits.iter().any(|(node, _)| node.tag_name() == SELECT_MENU_TAG);
+      let on_menu = hits
+        .iter()
+        .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu));
       let on_select = hits
         .iter()
         .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }));
@@ -3468,72 +3507,17 @@ impl Tree {
       return;
     }
 
-    let leftovers = match &self.root_ctx {
-      Some(ctx) => ctx.apply_modal_slot_replacements(replacements),
-      None => replacements,
-    };
-
     if let Some(root) = &mut self.root {
-      for (slot_id, replacement) in leftovers {
-        let mut slot = Some(replacement);
-        if replace_live_component_slot_in(root, slot_id, &mut slot, &self.id_gen) {}
+      for (slot_id, replacement) in replacements {
+        replace_live_component_slot_everywhere(root, slot_id, &replacement, &self.id_gen);
       }
     }
 
-    self.sync_modal_layer();
     if let Some(root) = &mut self.root {
       root.assign_ids(&self.id_gen);
     }
     self.needs_redraw = true;
     self.refresh_interaction_state();
-  }
-
-  fn sync_modal_layer(&mut self) {
-    let mut select_overlay_reuse = self.detach_select_overlay();
-    select_overlay_reuse.free_ids(&self.id_gen);
-
-    let Some(root) = self.root.take() else {
-      return;
-    };
-
-    let parts = modal_host_parts(root);
-    self.root = Some(parts.base);
-    self.sync_modal_layer_reusing(parts.old_layer);
-  }
-
-  fn sync_modal_layer_reusing(&mut self, mut reuse: ModalLayerReuse) {
-    let mut modals = self.root_ctx.as_ref().map(Ctx::modal_nodes).unwrap_or_default();
-    let Some(base) = self.root.take() else {
-      reuse.free_ids(&self.id_gen);
-      return;
-    };
-
-    if modals.is_empty() {
-      reuse.free_ids(&self.id_gen);
-      self.root = Some(base);
-      return;
-    }
-
-    for (modal, old_modal) in modals.iter_mut().zip(reuse.old_modals.iter_mut()) {
-      reset_element_ref_flags_recursive(old_modal);
-      modal.preserve_runtime_state_from(old_modal);
-      modal.preserve_ids_from(old_modal);
-    }
-    for old_modal in &mut reuse.old_modals {
-      old_modal.free_ids(&self.id_gen);
-    }
-
-    let mut children = Vec::with_capacity(1 + modals.len());
-    children.push(base);
-    children.extend(modals);
-    let mut host = Node::stack(crate::layout::StackAlignment::TopStart, children);
-    host.set_tag_name(MODAL_HOST_TAG);
-    if let Some(old_host) = &mut reuse.old_host {
-      reset_element_ref_flags_recursive(old_host);
-      host.preserve_ids_from(old_host);
-      old_host.free_ids(&self.id_gen);
-    }
-    self.root = Some(host);
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
@@ -3572,7 +3556,7 @@ impl Tree {
         .map(|ctx| ctx.theme().version())
         .unwrap_or_else(|| app.theme().version());
       let theme_changed = self.last_theme_version != theme_version;
-      let has_select_overlay_host = root.tag_name() == SELECT_OVERLAY_TAG;
+      let has_overlay_host = root.has_synthetic_role(SyntheticNodeRole::OverlayHost);
       let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
       let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
       let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
@@ -3580,7 +3564,7 @@ impl Tree {
         && !image_resources_changed
         && !svg_resources_changed
         && !theme_changed
-        && !has_select_overlay_host
+        && !has_overlay_host
         && !has_dirty_element_ref
         && !has_pending_layout_dirty
         && !has_runtime_layout_state
@@ -3592,7 +3576,7 @@ impl Tree {
       }
     }
 
-    let select_overlay_parts = self.detach_select_overlay();
+    let overlay_parts = self.detach_overlay_host();
 
     if let Some(root) = self.root.as_ref() {
       let constraints = self
@@ -3652,21 +3636,34 @@ impl Tree {
         typography.clone(),
         theme_changed,
       );
-      self.sync_select_overlay_from_layout(select_overlay_parts, &layout);
+      self.sync_overlay_host_from_layout(
+        overlay_parts,
+        &mut app.glyph_engine,
+        &layout,
+        constraints,
+        palette.clone(),
+        border_sizes,
+        spacing,
+        radii,
+        caret,
+        scrollbar.clone(),
+        typography.clone(),
+        theme_changed,
+      );
       if let Some(root) = self.root.as_ref()
-        && root.tag_name() == SELECT_OVERLAY_TAG
+        && root.has_synthetic_role(SyntheticNodeRole::OverlayHost)
       {
         layout = self.layout_engine.compute(
           &mut app.glyph_engine,
           root,
           constraints,
-          palette,
+          palette.clone(),
           border_sizes,
           spacing,
           radii,
           caret,
-          scrollbar,
-          typography,
+          scrollbar.clone(),
+          typography.clone(),
           theme_changed,
         );
       }
@@ -3680,49 +3677,162 @@ impl Tree {
     false
   }
 
-  fn detach_select_overlay(&mut self) -> SelectOverlayReuse {
+  fn detach_overlay_host(&mut self) -> OverlayHostReuse {
     let Some(root) = self.root.take() else {
-      return SelectOverlayReuse {
+      return OverlayHostReuse {
         old_host: None,
         old_overlays: Vec::new(),
       };
     };
-    let parts = select_overlay_parts(root);
+    let parts = overlay_host_parts(root);
     self.root = Some(parts.base);
-    SelectOverlayReuse {
+    OverlayHostReuse {
       old_host: parts.old_host,
       old_overlays: parts.old_overlays,
     }
   }
 
-  fn sync_select_overlay_from_layout(&mut self, mut old_parts: SelectOverlayReuse, base_layout: &LayoutResult) {
+  #[allow(clippy::too_many_arguments)]
+  fn sync_overlay_host_from_layout(
+    &mut self,
+    mut old_parts: OverlayHostReuse,
+    glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+    base_layout: &LayoutResult,
+    constraints: Constraints,
+    palette: crate::app::theme::ThemePalette,
+    border_sizes: crate::app::theme::ThemeBorderSizes,
+    spacing: crate::app::theme::ThemeSpacing,
+    radii: crate::app::theme::ThemeRadii,
+    caret: crate::app::theme::ThemeCaret,
+    scrollbar: crate::layout::scrollbar::ScrollBarStyle,
+    typography: crate::app::theme::ThemeTypography,
+    theme_changed: bool,
+  ) {
     let Some(base) = self.root.take() else {
       old_parts.free_ids(&self.id_gen);
+      self.overlay_dismiss_entries.clear();
       return;
     };
+
     let viewport = self.viewport_logical();
+    let mut specs = Vec::new();
+    collect_declared_overlays(&base, &mut specs);
+    let mut modal_specs = Vec::new();
+    collect_declared_modals(&base, base_layout, 0.0, 0.0, 0.0, 0.0, &mut modal_specs);
     let mut overlays = Vec::new();
+    let mut dismiss_entries = Vec::new();
     collect_select_menus(&base, base_layout, 0.0, 0.0, viewport, &mut overlays);
+    for spec in specs {
+      let Some(anchor) = find_anchor_rect(&base, base_layout, 0.0, 0.0, 0.0, 0.0, &spec.anchor) else {
+        continue;
+      };
+      if anchor.width <= 0.0 || anchor.height <= 0.0 {
+        continue;
+      }
+      let dismiss_anchor = spec.anchor.clone();
+      let dismiss_signal = spec.open_signal.clone();
+      let dismiss_on_outside_click = spec.dismiss_on_outside_click;
+      let dismiss_on_escape = spec.dismiss_on_escape;
+      let (overlay, bounds) = build_overlay_node(
+        spec,
+        anchor,
+        viewport,
+        glyph_engine,
+        &self.layout_engine,
+        constraints,
+        palette.clone(),
+        border_sizes,
+        spacing,
+        radii,
+        caret,
+        scrollbar.clone(),
+        typography.clone(),
+        theme_changed,
+      );
+      if let Some(open) = dismiss_signal
+        && (dismiss_on_outside_click || dismiss_on_escape)
+      {
+        dismiss_entries.push(OverlayDismissEntry {
+          anchor: dismiss_anchor,
+          bounds,
+          open,
+          dismiss_on_outside_click,
+          dismiss_on_escape,
+        });
+      }
+      overlays.push(overlay);
+    }
+    for collected in modal_specs {
+      let target = match modal_target_rect(&collected.spec, &base, base_layout, collected.parent, viewport) {
+        Some(target) if target.width > 0.0 && target.height > 0.0 => target,
+        _ => continue,
+      };
+      let dismiss_signal = collected.spec.open_signal.clone();
+      let dismiss_on_escape = collected.spec.dismiss_on_escape;
+      let modal = build_modal_node(collected.spec, target);
+      if let Some(open) = dismiss_signal
+        && dismiss_on_escape
+      {
+        dismiss_entries.push(OverlayDismissEntry {
+          anchor: OwnedElementRef::new(),
+          bounds: target,
+          open,
+          dismiss_on_outside_click: false,
+          dismiss_on_escape,
+        });
+      }
+      overlays.push(modal);
+    }
+
     if overlays.is_empty() {
       old_parts.free_ids(&self.id_gen);
       self.root = Some(base);
+      self.overlay_dismiss_entries.clear();
       return;
     }
+
     for (overlay, old_overlay) in overlays.iter_mut().zip(old_parts.old_overlays.iter_mut()) {
+      reset_element_ref_flags_recursive(old_overlay);
       overlay.preserve_runtime_state_from(old_overlay);
       overlay.preserve_ids_from(old_overlay);
     }
+
+    let mut nested_select_menus = Vec::new();
+    for overlay in &overlays {
+      if overlay.has_synthetic_role(SyntheticNodeRole::SelectMenu) {
+        continue;
+      }
+      let overlay_layout = self.layout_engine.compute(
+        glyph_engine,
+        overlay,
+        constraints,
+        palette.clone(),
+        border_sizes,
+        spacing,
+        radii,
+        caret,
+        scrollbar.clone(),
+        typography.clone(),
+        theme_changed,
+      );
+      collect_select_menus(overlay, &overlay_layout, 0.0, 0.0, viewport, &mut nested_select_menus);
+    }
+    overlays.extend(nested_select_menus);
+
     let mut children = Vec::with_capacity(1 + overlays.len());
     children.push(base);
     children.extend(overlays);
     let mut host = Node::stack(crate::layout::StackAlignment::TopStart, children);
-    host.set_tag_name(SELECT_OVERLAY_TAG);
+    host.set_tag_name("OverlayHost");
+    host.set_synthetic_role(SyntheticNodeRole::OverlayHost);
     if let Some(old_host) = old_parts.old_host.as_mut() {
+      reset_element_ref_flags_recursive(old_host);
       host.preserve_ids_from(old_host);
     }
     old_parts.free_ids(&self.id_gen);
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
+    self.overlay_dismiss_entries = dismiss_entries;
   }
 
   fn sync_dynamic_content(&mut self) {
@@ -4042,62 +4152,23 @@ impl Tree {
   }
 }
 
-#[derive(Default)]
-struct ModalLayerReuse {
-  old_host: Option<Node>,
-  old_modals: Vec<Node>,
-}
-
-impl ModalLayerReuse {
-  fn free_ids(&mut self, id_gen: &IdGenerator) {
-    if let Some(old_host) = &mut self.old_host {
-      old_host.free_ids(id_gen);
-    }
-    for old_modal in &mut self.old_modals {
-      old_modal.free_ids(id_gen);
-    }
-  }
-}
-
-struct ModalHostParts {
-  base: Node,
-  old_layer: ModalLayerReuse,
-}
-
-fn modal_host_parts(mut root: Node) -> ModalHostParts {
-  if root.tag_name() == MODAL_HOST_TAG && !root.children.is_empty() {
-    let mut children = std::mem::take(&mut root.children);
-    let base = children.remove(0);
-    ModalHostParts {
-      base,
-      old_layer: ModalLayerReuse {
-        old_host: Some(root),
-        old_modals: children,
-      },
-    }
-  } else {
-    ModalHostParts {
-      base: root,
-      old_layer: ModalLayerReuse::default(),
-    }
-  }
-}
-
-const SELECT_OVERLAY_TAG: &str = "__lurq_select_overlay_host";
-const SELECT_MENU_TAG: &str = "__lurq_select_menu";
-
-struct SelectOverlayParts {
+struct OverlayHostParts {
   base: Node,
   old_host: Option<Node>,
   old_overlays: Vec<Node>,
 }
 
-struct SelectOverlayReuse {
+struct OverlayHostReuse {
   old_host: Option<Node>,
   old_overlays: Vec<Node>,
 }
 
-impl SelectOverlayReuse {
+struct CollectedModalSpec {
+  spec: ModalSpec,
+  parent: ElementRect,
+}
+
+impl OverlayHostReuse {
   fn free_ids(&mut self, id_gen: &IdGenerator) {
     if let Some(old_host) = &mut self.old_host {
       old_host.free_ids(id_gen);
@@ -4108,25 +4179,311 @@ impl SelectOverlayReuse {
   }
 }
 
-/// Undo a previous select-overlay wrap so we can recompute it each pass while
-/// preserving ids for the synthetic overlay nodes across redraws.
-fn select_overlay_parts(mut root: Node) -> SelectOverlayParts {
-  if root.tag_name() == SELECT_OVERLAY_TAG && !root.children.is_empty() {
+fn overlay_host_parts(mut root: Node) -> OverlayHostParts {
+  if root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && !root.children.is_empty() {
     let mut children = std::mem::take(&mut root.children);
     let base = children.remove(0);
-    let old_overlays = children;
-    SelectOverlayParts {
+    OverlayHostParts {
       base,
       old_host: Some(root),
-      old_overlays,
+      old_overlays: children,
     }
   } else {
-    SelectOverlayParts {
+    OverlayHostParts {
       base: root,
       old_host: None,
       old_overlays: Vec::new(),
     }
   }
+}
+
+fn collect_declared_overlays(node: &Node, out: &mut Vec<OverlaySpec>) {
+  if let Some(spec) = node.overlay_declaration() {
+    out.push(spec.clone_for_reuse());
+  }
+
+  for child in node.children() {
+    collect_declared_overlays(child, out);
+  }
+}
+
+fn collect_declared_modals(
+  node: &Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  parent_x: f32,
+  parent_y: f32,
+  out: &mut Vec<CollectedModalSpec>,
+) {
+  let node_rect = ElementRect {
+    x: abs_x,
+    y: abs_y,
+    relative_x: abs_x - parent_x,
+    relative_y: abs_y - parent_y,
+    width: layout.size.width,
+    height: layout.size.height,
+  };
+
+  for (child_layout, child) in layout.children.iter().zip(node.children()) {
+    if let Some(spec) = child.modal_declaration() {
+      out.push(CollectedModalSpec {
+        spec: spec.clone_for_reuse(),
+        parent: node_rect,
+      });
+    }
+
+    collect_declared_modals(
+      child,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      abs_x,
+      abs_y,
+      out,
+    );
+  }
+}
+
+fn find_anchor_rect(
+  node: &Node,
+  layout: &LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  parent_x: f32,
+  parent_y: f32,
+  anchor: &OwnedElementRef,
+) -> Option<ElementRect> {
+  if node
+    .element_ref
+    .as_ref()
+    .is_some_and(|element_ref| element_ref.same_handle(anchor))
+  {
+    return Some(ElementRect {
+      x: abs_x,
+      y: abs_y,
+      relative_x: abs_x - parent_x,
+      relative_y: abs_y - parent_y,
+      width: layout.size.width,
+      height: layout.size.height,
+    });
+  }
+
+  for (child_layout, child) in layout.children.iter().zip(node.children()) {
+    if let Some(found) = find_anchor_rect(
+      child,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      abs_x,
+      abs_y,
+      anchor,
+    ) {
+      return Some(found);
+    }
+  }
+
+  None
+}
+
+fn modal_target_rect(
+  spec: &ModalSpec,
+  base: &Node,
+  base_layout: &LayoutResult,
+  parent: ElementRect,
+  viewport: Size,
+) -> Option<ElementRect> {
+  match &spec.target {
+    ModalTarget::Parent => Some(parent),
+    ModalTarget::Root => Some(ElementRect {
+      x: 0.0,
+      y: 0.0,
+      relative_x: 0.0,
+      relative_y: 0.0,
+      width: viewport.width,
+      height: viewport.height,
+    }),
+    ModalTarget::Element(target) => find_anchor_rect(base, base_layout, 0.0, 0.0, 0.0, 0.0, target),
+  }
+}
+
+fn build_modal_node(spec: ModalSpec, target: ElementRect) -> Node {
+  let content = spec.node;
+  let mut modal = Node::stack(crate::layout::StackAlignment::TopStart, vec![content]).absolute_positioned(
+    target.x,
+    target.y,
+    Some(Dimension::Px(target.width)),
+    Some(Dimension::Px(target.height)),
+  );
+  modal.set_tag_name("Modal");
+  modal
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_overlay_node(
+  spec: OverlaySpec,
+  anchor: ElementRect,
+  viewport: Size,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  layout_engine: &LayoutEngine,
+  constraints: Constraints,
+  palette: crate::app::theme::ThemePalette,
+  border_sizes: crate::app::theme::ThemeBorderSizes,
+  spacing: crate::app::theme::ThemeSpacing,
+  radii: crate::app::theme::ThemeRadii,
+  caret: crate::app::theme::ThemeCaret,
+  scrollbar: crate::layout::scrollbar::ScrollBarStyle,
+  typography: crate::app::theme::ThemeTypography,
+  theme_changed: bool,
+) -> (Node, ElementRect) {
+  let mut node = spec.node;
+  if spec.match_anchor_width {
+    node = node.width(Dimension::Px(anchor.width));
+  }
+  if spec.hit_test != HitTestBehavior::Auto {
+    node = node.hit_test(spec.hit_test);
+  }
+
+  let measure_constraints = Constraints::loose(Size::new(
+    constraints.max_width.min(viewport.width).max(0.0),
+    constraints.max_height.min(viewport.height).max(0.0),
+  ));
+  let measured = layout_engine.compute(
+    glyph_engine,
+    &node,
+    measure_constraints,
+    palette,
+    border_sizes,
+    spacing,
+    radii,
+    caret,
+    scrollbar,
+    typography,
+    theme_changed,
+  );
+  let overlay_size = measured.size;
+  let placement = resolve_overlay_collision(
+    spec.placement,
+    anchor,
+    overlay_size,
+    viewport,
+    spec.offset_x,
+    spec.offset_y,
+    spec.collision,
+  );
+  let (x, y) = overlay_position(anchor, overlay_size, placement, spec.offset_x, spec.offset_y);
+  let (x, y) = if matches!(
+    spec.collision,
+    CollisionStrategy::Clamp | CollisionStrategy::FlipThenClamp
+  ) {
+    clamp_overlay_position(x, y, overlay_size, viewport)
+  } else {
+    (x, y)
+  };
+
+  let bounds = ElementRect {
+    x,
+    y,
+    relative_x: x,
+    relative_y: y,
+    width: overlay_size.width,
+    height: overlay_size.height,
+  };
+  (
+    node.absolute_positioned(
+      x,
+      y,
+      spec.match_anchor_width.then_some(Dimension::Px(anchor.width)),
+      None,
+    ),
+    bounds,
+  )
+}
+
+fn resolve_overlay_collision(
+  placement: Placement,
+  anchor: ElementRect,
+  overlay: Size,
+  viewport: Size,
+  offset_x: f32,
+  offset_y: f32,
+  collision: CollisionStrategy,
+) -> Placement {
+  if !matches!(collision, CollisionStrategy::Flip | CollisionStrategy::FlipThenClamp) {
+    return placement;
+  }
+
+  let (x, y) = overlay_position(anchor, overlay, placement, offset_x, offset_y);
+  match placement {
+    Placement::TopStart | Placement::Top | Placement::TopEnd if y < 0.0 => opposite_placement(placement),
+    Placement::BottomStart | Placement::Bottom | Placement::BottomEnd if y + overlay.height > viewport.height => {
+      opposite_placement(placement)
+    }
+    Placement::LeftStart | Placement::Left | Placement::LeftEnd if x < 0.0 => opposite_placement(placement),
+    Placement::RightStart | Placement::Right | Placement::RightEnd if x + overlay.width > viewport.width => {
+      opposite_placement(placement)
+    }
+    _ => placement,
+  }
+}
+
+fn opposite_placement(placement: Placement) -> Placement {
+  match placement {
+    Placement::TopStart => Placement::BottomStart,
+    Placement::Top => Placement::Bottom,
+    Placement::TopEnd => Placement::BottomEnd,
+    Placement::BottomStart => Placement::TopStart,
+    Placement::Bottom => Placement::Top,
+    Placement::BottomEnd => Placement::TopEnd,
+    Placement::LeftStart => Placement::RightStart,
+    Placement::Left => Placement::Right,
+    Placement::LeftEnd => Placement::RightEnd,
+    Placement::RightStart => Placement::LeftStart,
+    Placement::Right => Placement::Left,
+    Placement::RightEnd => Placement::LeftEnd,
+  }
+}
+
+fn overlay_position(
+  anchor: ElementRect,
+  overlay: Size,
+  placement: Placement,
+  offset_x: f32,
+  offset_y: f32,
+) -> (f32, f32) {
+  let left = anchor.x;
+  let right = anchor.x + anchor.width;
+  let top = anchor.y;
+  let bottom = anchor.y + anchor.height;
+  let center_x = anchor.x + anchor.width * 0.5;
+  let center_y = anchor.y + anchor.height * 0.5;
+
+  match placement {
+    Placement::TopStart => (left + offset_x, top - overlay.height - offset_y),
+    Placement::Top => (
+      center_x - overlay.width * 0.5 + offset_x,
+      top - overlay.height - offset_y,
+    ),
+    Placement::TopEnd => (right - overlay.width + offset_x, top - overlay.height - offset_y),
+    Placement::BottomStart => (left + offset_x, bottom + offset_y),
+    Placement::Bottom => (center_x - overlay.width * 0.5 + offset_x, bottom + offset_y),
+    Placement::BottomEnd => (right - overlay.width + offset_x, bottom + offset_y),
+    Placement::LeftStart => (left - overlay.width - offset_x, top + offset_y),
+    Placement::Left => (
+      left - overlay.width - offset_x,
+      center_y - overlay.height * 0.5 + offset_y,
+    ),
+    Placement::LeftEnd => (left - overlay.width - offset_x, bottom - overlay.height + offset_y),
+    Placement::RightStart => (right + offset_x, top + offset_y),
+    Placement::Right => (right + offset_x, center_y - overlay.height * 0.5 + offset_y),
+    Placement::RightEnd => (right + offset_x, bottom - overlay.height + offset_y),
+  }
+}
+
+fn clamp_overlay_position(x: f32, y: f32, overlay: Size, viewport: Size) -> (f32, f32) {
+  let max_x = (viewport.width - overlay.width).max(0.0);
+  let max_y = (viewport.height - overlay.height).max(0.0);
+  (x.clamp(0.0, max_x), y.clamp(0.0, max_y))
 }
 
 /// Walk the tree and build a floating menu for every open select, anchored to
@@ -4227,25 +4584,25 @@ fn build_select_menu(
 
   let list = Node::column(0.0, crate::layout::Alignment::Start, options).width(Dimension::Pct(100.0));
   let mut menu = crate::node::dsl::scroll_vertical(list).apply_select_part(&style.menu);
-  menu.set_tag_name(SELECT_MENU_TAG);
+  menu.set_tag_name("SelectMenu");
+  menu.set_synthetic_role(SyntheticNodeRole::SelectMenu);
 
-  // Estimate height to decide whether to drop down or flip up, then clamp the
-  // final rect inside the viewport so the menu is always visible/clickable.
+  // Estimate height before final layout, then use the shared popup placement
+  // helpers so selects behave like other anchored overlays.
   let estimated = (labels.len() as f32 * SELECT_OPTION_ROW_HEIGHT).min(style.max_menu_height);
-  let below_y = bounds.y + bounds.height + style.menu_gap;
-  let space_below = (viewport.height - below_y).max(0.0);
-  let flip = estimated > space_below && bounds.y - style.menu_gap > space_below;
-  let raw_y = if flip {
-    bounds.y - style.menu_gap - estimated
-  } else {
-    below_y
-  };
-  let max_y = (viewport.height - estimated).max(0.0);
-  let y = raw_y.clamp(0.0, max_y);
-
   let width = bounds.width.min(viewport.width.max(0.0));
-  let max_x = (viewport.width - width).max(0.0);
-  let x = bounds.x.clamp(0.0, max_x);
+  let overlay_size = Size::new(width, estimated);
+  let placement = resolve_overlay_collision(
+    Placement::BottomStart,
+    bounds,
+    overlay_size,
+    viewport,
+    0.0,
+    style.menu_gap,
+    CollisionStrategy::FlipThenClamp,
+  );
+  let (x, y) = overlay_position(bounds, overlay_size, placement, 0.0, style.menu_gap);
+  let (x, y) = clamp_overlay_position(x, y, overlay_size, viewport);
 
   menu
     .max_height(Dimension::Px(style.max_menu_height))
@@ -4855,32 +5212,37 @@ fn reset_element_ref_flags_recursive(node: &Node) {
   }
 }
 
-fn replace_live_component_slot_in(
+fn replace_live_component_slot_everywhere(
   node: &mut Node,
   slot_id: u64,
-  replacement: &mut Option<Node>,
+  replacement: &Node,
   id_gen: &IdGenerator,
 ) -> bool {
+  let mut replaced = false;
   if node.component_slot_id() == Some(slot_id) {
-    let mut replacement = replacement
-      .take()
-      .expect("component replacement should be available when matching slot is found");
+    let mut replacement = replacement.clone_for_reuse();
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
     replacement.preserve_ids_from(node);
     node.free_ids(id_gen);
     replacement.assign_ids(id_gen);
     *node = replacement;
-    return true;
+    replaced = true;
   }
 
   for child in &mut node.children {
-    if replace_live_component_slot_in(child, slot_id, replacement, id_gen) {
-      return true;
-    }
+    replaced |= replace_live_component_slot_everywhere(child, slot_id, replacement, id_gen);
   }
 
-  false
+  if let Some(spec) = node.modal_declaration.as_mut() {
+    replaced |= replace_live_component_slot_everywhere(&mut spec.node, slot_id, replacement, id_gen);
+  }
+
+  if let Some(spec) = node.overlay_declaration.as_mut() {
+    replaced |= replace_live_component_slot_everywhere(&mut spec.node, slot_id, replacement, id_gen);
+  }
+
+  replaced
 }
 
 fn has_dirty_element_ref_recursive(node: &Node) -> bool {
@@ -5405,18 +5767,11 @@ fn find_slider_by_y_recursive<'a>(
   None
 }
 
-fn keyboard_event_is_escape(evt: &KeyboardEvent) -> bool {
-  matches!(evt.key.as_str(), "Escape") || evt.code == "Escape"
+fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {
+  x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
 fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
-  if node.tag_name() == MODAL_HOST_TAG && keyboard_event_is_escape(evt) {
-    if let Some(top_modal) = node.children().last() {
-      fire_keyboard_recursive(top_modal, evt);
-    }
-    return;
-  }
-
   evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_down {
     handler(evt);
@@ -5427,13 +5782,6 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
 }
 
 fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) {
-  if node.tag_name() == MODAL_HOST_TAG && keyboard_event_is_escape(evt) {
-    if let Some(top_modal) = node.children().last() {
-      fire_keyboard_up_recursive(top_modal, evt);
-    }
-    return;
-  }
-
   evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_up {
     handler(evt);

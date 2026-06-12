@@ -20,7 +20,7 @@ mod visual_demo;
 use lurq::app::dx12_render::Dx12RenderEngine;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::{Column, Outlet, Rect, Router, Row, Stack},
+  components::{Column, Modal, Outlet, Rect, Root, Router, Row, Stack},
   core::Signal,
   layout::{
     Alignment, StackAlignment,
@@ -117,8 +117,6 @@ fn demo_shell(ctx: &mut Ctx, theme: Signal<DemoTheme>, modal_open: Signal<bool>)
   let palette = theme.palette();
   let selected_tab = DemoTab::from_path(&ctx.route_path());
 
-  ctx.modal(modal_open.clone(), |ctx| ctx.mount::<DemoModal>(theme));
-
   Row::new()
     .align_items(Alignment::Stretch)
     .child(
@@ -154,6 +152,11 @@ fn demo_shell(ctx: &mut Ctx, theme: Signal<DemoTheme>, modal_open: Signal<bool>)
         .flex(1.0),
     )
     .background(palette.bg)
+    .child(
+      Modal::new(demo_modal(theme, modal_open.clone()))
+        .open(modal_open)
+        .target(Root),
+    )
     .into()
 }
 
@@ -177,24 +180,7 @@ fn demo_toolbar(selected_tab: DemoTab, theme: DemoTheme, modal_open: Signal<bool
     .into()
 }
 
-struct DemoModal;
-
-impl Component for DemoModal {
-  type Props = DemoTheme;
-
-  fn create(_: &mut Ctx) -> Self {
-    Self
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    demo_modal(
-      ctx.props::<Self::Props>().to_owned(),
-      ctx.modal_context().unwrap().clone(),
-    )
-  }
-}
-
-fn demo_modal(theme: DemoTheme, modal: lurq::app::ctx::ModalContext) -> Element {
+fn demo_modal(theme: DemoTheme, modal_open: Signal<bool>) -> Element {
   let palette = theme.palette();
 
   Stack::new()
@@ -204,8 +190,8 @@ fn demo_modal(theme: DemoTheme, modal: lurq::app::ctx::ModalContext) -> Element 
         .background("#000000")
         .opacity(0.58)
         .on_click({
-          let modal = modal.clone();
-          move |_| modal.close()
+          let modal_open = modal_open.clone();
+          move |_| modal_open.set(false)
         }),
     )
     .child(
@@ -214,7 +200,7 @@ fn demo_modal(theme: DemoTheme, modal: lurq::app::ctx::ModalContext) -> Element 
         .child(style::text("Demo modal", 22.0, FontWeight::Bold, palette.text))
         .child(
           style::text(
-            "This panel is declared from the demo root with ctx.modal and rendered above the app content.",
+            "This panel is declared as a render-flow Modal and rendered above the app content.",
             13.0,
             FontWeight::Medium,
             palette.text_muted,
@@ -224,7 +210,7 @@ fn demo_modal(theme: DemoTheme, modal: lurq::app::ctx::ModalContext) -> Element 
         .child(
           Row::new()
             .justify(Justify::End)
-            .child(demo_button("Close", palette.primary, move || modal.close())),
+            .child(demo_button("Close", palette.primary, move || modal_open.set(false))),
         )
         .width(420.0)
         .padding(24.0)

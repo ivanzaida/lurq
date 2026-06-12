@@ -16,6 +16,7 @@ mod futures {
   mod tokio_future_uses_runtime;
 }
 mod mouse_leave;
+mod overlay;
 mod perf_overlay;
 #[cfg(feature = "image")]
 mod render_order;

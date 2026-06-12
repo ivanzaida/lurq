@@ -10,6 +10,7 @@ description: Documentation for the lurq Rust UI toolkit.
 The docs are organized around the questions that come up while building:
 
 - [Getting Started](./getting-started/) shows the feature flags, demo command, and the smallest app shape.
+- [Migration To v0.13](./migration-v0-13/) covers replacing legacy modal APIs, popup workarounds, and overlay host assertions.
 - [Mental Model](./mental-model/) explains how `App`, `Tree`, components, elements, layout, input, and render passes fit together.
 - [Components](./components/) covers props, mounting, keyed children, slots, and lifecycle.
 - [Reactivity](./reactivity/) covers signals, stores, memos, effects, refs, contexts, and debug inspectability.
@@ -21,7 +22,7 @@ The docs are organized around the questions that come up while building:
 - [Routing](./routing/) covers declarative routes, nested layouts, links, params, guards, and history navigation.
 - [Futures And Timers](./futures-timers/) covers async data fetching, dependency-driven re-execution, future actions, tokio integration, timeouts, and intervals.
 - [Internationalization](./i18n/) covers translation resources, locale switching, interpolation, namespaces, and reactive re-rendering.
-- [Modals](./modals/) covers declaring modal overlays, `ModalContext`, and controlling visibility.
+- [Modals](./modals/) covers render-flow modal overlays, targets, and controlling visibility.
 - [App Runtime](./app-runtime/) covers `App`, `Tree`, render engine factories, windows, profiling, and frame flow.
 - [DevTools](./devtools/) covers enabling the devtools feature, mounting the secondary window, inspecting components, and profiling renders.
 

@@ -37,8 +37,8 @@ pub use element::{Element, ElementChildren, ElementRef};
 pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;
-pub use node::{BackgroundSize, ButtonKind};
-pub(crate) use node::{Node, NodeUpdate};
+pub use node::{BackgroundSize, ButtonKind, HitTestBehavior};
+pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole};
 pub use radius_value::RadiusValue;
 pub use select_style::{SelectPartStyle, SelectStyle};
 pub use slider_style::SliderPartStyle;

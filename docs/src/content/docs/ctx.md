@@ -565,14 +565,12 @@ Translation lookups are reactive — components re-render when the locale change
 ## Modals
 
 ```rust
-ctx.modal(self.open.clone(), |ctx| {
-  lurq::components::Text::new("Modal content")
-});
-
-let modal_ctx = ctx.modal_context();
+lurq::components::Modal::new(lurq::components::Text::new("Modal content"))
+  .open(self.open.clone())
+  .target(lurq::components::Root);
 ```
 
-`ctx.modal` renders content above the tree when the signal is `true`. Inside the modal closure, `ctx.modal_context()` returns a `ModalContext` with `.open()`, `.close()`, and `.is_open()`. Multiple open modals are stacked by open order, so the newest modal renders on top, and `Escape` key events are routed only to the top modal subtree. See [Modals](./modals/) for full details.
+Modals are render-flow components. Use `Modal::new(...).open(signal)` and choose a target with `Parent`, `Root`, or an `ElementRef`. See [Modals](./modals/) for full details.
 
 ## Render Lifecycle Methods
 

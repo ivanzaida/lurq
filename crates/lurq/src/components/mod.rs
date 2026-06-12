@@ -12,6 +12,7 @@ mod image;
 mod link;
 #[cfg(feature = "router")]
 mod outlet;
+mod popup;
 mod rect;
 #[cfg(feature = "router")]
 mod router_component;
@@ -49,6 +50,7 @@ pub use image::Image;
 pub use link::Link;
 #[cfg(feature = "router")]
 pub use outlet::Outlet;
+pub use popup::{Popover, Popup};
 pub use rect::Rect;
 #[cfg(feature = "router")]
 pub use router_component::{Router, RouterProps};
@@ -63,6 +65,8 @@ pub use stack::Stack;
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow};
+
+pub use crate::app::ctx::{CollisionStrategy, Modal, ModalTarget, OpenState, Overlay, Parent, Placement, Root};
 
 #[macro_export]
 macro_rules! impl_into_node {
@@ -511,6 +515,16 @@ macro_rules! impl_into_node {
         + 'static,
       ) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::scrollbar_hovered(node, f));
+        self
+      }
+
+      pub fn hit_test(mut self, behavior: $crate::node::HitTestBehavior) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::hit_test(node, behavior));
+        self
+      }
+
+      pub fn pointer_events_none(mut self) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::pointer_events_none(node));
         self
       }
 

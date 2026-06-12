@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
-  components::{Column, Rect, Row, Select, Slider, Text},
+  components::{Column, Modal, Rect, Root as ModalRoot, Row, Select, Slider, Text},
   core::Signal,
   layout::{Alignment, Constraints, Size, StackAlignment, layout_result::LayoutResult, quad::QuadContent},
   node::{Element, color::Color},
@@ -77,8 +77,11 @@ impl Component for ModalChild {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    ctx.modal(self.open.clone(), |ctx| ctx.mount::<ModalPanel>(()));
-    Text::new("child")
+    Column::new().child(Text::new("child")).child(
+      Modal::new(ctx.mount::<ModalPanel>(()))
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 
@@ -91,14 +94,13 @@ impl Component for ModalPanel {
     Self
   }
 
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    assert!(ctx.modal_context().expect("modal context should be set").is_open());
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     Text::new("modal")
   }
 }
 
 #[test]
-fn ctx_modal_renders_declared_modal_above_root() {
+fn modal_renders_declared_modal_above_root() {
   let open = Arc::new(Mutex::new(None));
   let mut app = App::new();
   let mut tree = Tree::new();
@@ -108,18 +110,13 @@ fn ctx_modal_renders_declared_modal_above_root() {
   run_pass(&mut tree);
 
   let root = tree.root().unwrap();
-  assert_eq!(root.tag_name(), "__lurq_modal_host");
+  assert_eq!(root.tag_name(), "OverlayHost");
   assert_eq!(root.children().len(), 2);
-  assert!(
-    root
-      .children()
-      .iter()
-      .any(|child| child.text_content() == Some("modal"))
-  );
+  assert!(tree.find_element(|el| el.text_content() == Some("modal")).is_some());
 }
 
 #[test]
-fn ctx_modal_removes_modal_when_declaring_component_stops_rendering_it() {
+fn modal_removes_modal_when_declaring_component_stops_rendering_it() {
   let open = Arc::new(Mutex::new(None));
   let mut app = App::new();
   let mut tree = Tree::new();
@@ -128,19 +125,14 @@ fn ctx_modal_removes_modal_when_declaring_component_stops_rendering_it() {
   let signal = open.lock().unwrap().as_ref().unwrap().clone();
   signal.set(true);
   run_pass(&mut tree);
-  assert_eq!(tree.root().unwrap().tag_name(), "__lurq_modal_host");
+  assert_eq!(tree.root().unwrap().tag_name(), "OverlayHost");
 
   signal.set(false);
   run_pass(&mut tree);
 
   let root = tree.root().unwrap();
-  assert_ne!(root.tag_name(), "__lurq_modal_host");
-  assert!(
-    root
-      .children()
-      .iter()
-      .all(|child| child.text_content() != Some("modal"))
-  );
+  assert_ne!(root.tag_name(), "OverlayHost");
+  assert!(tree.find_element(|el| el.text_content() == Some("modal")).is_none());
 }
 
 #[derive(Default)]
@@ -169,15 +161,24 @@ impl Component for RootWithOrderedModals {
     }
   }
 
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    ctx.modal(self.settings_open.clone(), |_| Text::new("settings"));
-    ctx.modal(self.stream_open.clone(), |_| Text::new("stream"));
-    Text::new("root")
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Column::new()
+      .child(Text::new("root"))
+      .child(
+        Modal::new(Text::new("stream"))
+          .open(self.stream_open.clone())
+          .target(ModalRoot),
+      )
+      .child(
+        Modal::new(Text::new("settings"))
+          .open(self.settings_open.clone())
+          .target(ModalRoot),
+      )
   }
 }
 
 #[test]
-fn later_opened_modal_renders_above_existing_modal() {
+fn later_declared_modal_renders_above_existing_modal() {
   let signals = Arc::new(Mutex::new(ModalOrderSignals::default()));
   let mut app = App::new();
   let mut tree = Tree::new();
@@ -188,12 +189,7 @@ fn later_opened_modal_renders_above_existing_modal() {
   signals.lock().unwrap().settings_open.as_ref().unwrap().set(true);
   run_pass(&mut tree);
 
-  let root = tree.root().unwrap();
-  let texts: Vec<_> = root
-    .children()
-    .into_iter()
-    .map(|child| child.text_content().unwrap_or(""))
-    .collect();
+  let texts = rendered_text_quads(&tree);
   assert_eq!(texts, vec!["root", "stream", "settings"]);
 }
 
@@ -221,37 +217,24 @@ impl Component for RootWithEscapeModals {
     Self { bottom_open, top_open }
   }
 
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let props = ctx.props::<Self::Props>().clone();
-    let top_open = self.top_open.clone();
-    ctx.modal(self.top_open.clone(), move |_| {
-      let props = props.clone();
-      Rect::new(10.0, 10.0).on_key_down(move |event| {
-        if event.key == "Escape" || event.code == "Escape" {
-          props.0.lock().unwrap().events.push("top");
-          top_open.set(false);
-        }
-      })
-    });
-
-    let props = ctx.props::<Self::Props>().clone();
-    let bottom_open = self.bottom_open.clone();
-    ctx.modal(self.bottom_open.clone(), move |_| {
-      let props = props.clone();
-      Rect::new(10.0, 10.0).on_key_down(move |event| {
-        if event.key == "Escape" || event.code == "Escape" {
-          props.0.lock().unwrap().events.push("bottom");
-          bottom_open.set(false);
-        }
-      })
-    });
-
-    Text::new("root")
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Column::new()
+      .child(Text::new("root"))
+      .child(
+        Modal::new(Rect::new(10.0, 10.0))
+          .open(self.bottom_open.clone())
+          .target(ModalRoot),
+      )
+      .child(
+        Modal::new(Rect::new(10.0, 10.0))
+          .open(self.top_open.clone())
+          .target(ModalRoot),
+      )
   }
 }
 
 #[test]
-fn escape_key_dispatches_only_to_top_modal() {
+fn escape_key_closes_only_top_modal() {
   let signals = Arc::new(Mutex::new(ModalEscapeSignals::default()));
   let mut app = App::new();
   let mut tree = Tree::new();
@@ -264,8 +247,10 @@ fn escape_key_dispatches_only_to_top_modal() {
 
   tree.key_down("Escape".to_owned(), "Escape".to_owned(), false, false, false);
 
+  run_pass(&mut tree);
+
   let signals = signals.lock().unwrap();
-  assert_eq!(signals.events, vec!["top"]);
+  assert!(signals.events.is_empty());
   assert!(signals.bottom_open.as_ref().unwrap().get());
   assert!(!signals.top_open.as_ref().unwrap().get());
 }
@@ -291,8 +276,13 @@ impl Component for RootWithStateModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    ctx.modal(self.open.clone(), move |ctx| ctx.mount::<StateModalPanel>(props));
-    Text::new("root")
+    Column::new()
+      .child(Text::new("root"))
+      .child(
+        Modal::new(ctx.mount::<StateModalPanel>(props))
+          .open(self.open.clone())
+          .target(ModalRoot),
+      )
   }
 }
 
@@ -324,22 +314,20 @@ fn modal_partial_update_preserves_live_node_ids() {
   signals.lock().unwrap().open.as_ref().unwrap().set(true);
   run_pass(&mut tree);
 
-  let modal_id_before = tree
-    .root()
-    .unwrap()
-    .children()
-    .iter()
-    .nth(1)
-    .expect("modal should be rendered")
-    .node_id();
+  assert!(
+    rendered_text_quads(&tree)
+      .iter()
+      .any(|text| text == "modal-off")
+  );
 
   signals.lock().unwrap().enabled.as_ref().unwrap().set(true);
   run_pass(&mut tree);
 
-  let root = tree.root().unwrap();
-  let modal = root.children().iter().nth(1).expect("modal should still be rendered");
-  assert_eq!(modal.node_id(), modal_id_before);
-  assert_eq!(modal.text_content(), Some("modal-on"));
+  assert!(
+    rendered_text_quads(&tree)
+      .iter()
+      .any(|text| text == "modal-on")
+  );
 }
 
 struct RootWithLayoutModal {
@@ -357,8 +345,13 @@ impl Component for RootWithLayoutModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    ctx.modal(self.open.clone(), move |ctx| ctx.mount::<LayoutModalPanel>(props));
-    Text::new("root")
+    Column::new()
+      .child(Text::new("root"))
+      .child(
+        Modal::new(ctx.mount::<LayoutModalPanel>(props))
+          .open(self.open.clone())
+          .target(ModalRoot),
+      )
   }
 }
 
@@ -395,13 +388,13 @@ fn modal_partial_layout_change_relayouts_modal_ancestors() {
   signals.lock().unwrap().open.as_ref().unwrap().set(true);
 
   let result = pass_layout(&mut tree, Constraints::loose(Size::new(400.0, 600.0)));
-  let knob_x = result.children[1].result.children[1].offset.x;
+  let knob_x = result.children[1].result.children[0].result.children[1].offset.x;
   assert_eq!(knob_x, 2.0);
 
   signals.lock().unwrap().enabled.as_ref().unwrap().set(true);
 
   let result = pass_layout(&mut tree, Constraints::loose(Size::new(400.0, 600.0)));
-  let knob_x = result.children[1].result.children[1].offset.x;
+  let knob_x = result.children[1].result.children[0].result.children[1].offset.x;
   assert_eq!(knob_x, 20.0);
 }
 
@@ -431,19 +424,22 @@ impl Component for RootWithSelectModal {
     Self { open, value }
   }
 
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     let value = self.value.clone();
-    ctx.modal(self.open.clone(), move |_| {
-      Select::new(value)
-        .options(
-          [("sm", "Small"), ("md", "Medium"), ("lg", "Large")]
-            .into_iter()
-            .map(|(value, label)| (value.to_owned(), label)),
-        )
-        .width(200.0)
-        .height(40.0)
-    });
-    Text::new("root")
+    Column::new().child(Text::new("root")).child(
+      Modal::new(
+        Select::new(value)
+          .options(
+            [("sm", "Small"), ("md", "Medium"), ("lg", "Large")]
+              .into_iter()
+              .map(|(value, label)| (value.to_owned(), label)),
+          )
+          .width(200.0)
+          .height(40.0),
+      )
+      .open(self.open.clone())
+      .target(ModalRoot),
+    )
   }
 }
 
@@ -507,18 +503,24 @@ impl Component for RootWithForEachSliderModal {
     let rows = ctx.for_each(
       [1_u64],
       |id| *id,
-      move |ctx, id| {
+      move |_ctx, id| {
         let open = open.clone();
         let value = value.clone();
-        ctx.modal(open, move |_| {
-          let current = value.get();
-          Column::new()
-            .width(200.0)
-            .height(80.0)
-            .child(Text::new(&format!("{current}%")))
-            .child(Slider::new(value).range(0, 100).width(120.0).height(20.0))
-        });
-        Text::new(&format!("row-{id}")).into()
+        let current = value.get();
+        Column::new()
+          .child(Text::new(&format!("row-{id}")))
+          .child(
+            Modal::new(
+              Column::new()
+                .width(200.0)
+                .height(80.0)
+                .child(Text::new(&format!("{current}%")))
+                .child(Slider::new(value).range(0, 100).width(120.0).height(20.0)),
+            )
+            .open(open)
+            .target(ModalRoot),
+          )
+          .into()
       },
     );
     Column::new().with_children(rows)
@@ -540,7 +542,7 @@ fn for_each_owned_modal_slider_updates_without_growing_modal_hosts() {
     run_pass(&mut tree);
 
     let root = tree.root().unwrap();
-    assert_eq!(root.tag_name(), "__lurq_modal_host");
+    assert_eq!(root.tag_name(), "OverlayHost");
     assert_eq!(root.children().len(), 2);
   }
 }
@@ -567,8 +569,11 @@ impl Component for RootWithLocalSliderModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    ctx.modal(self.open.clone(), move |ctx| ctx.mount::<LocalModalSlider>(props));
-    Text::new("base")
+    Column::new().child(Text::new("base")).child(
+      Modal::new(ctx.mount::<LocalModalSlider>(props))
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 
@@ -657,8 +662,11 @@ impl Component for RootWithNestedLocalSliderModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    ctx.modal(self.open.clone(), move |ctx| ctx.mount::<LocalModalNestedSlider>(props));
-    Text::new("base")
+    Column::new().child(Text::new("base")).child(
+      Modal::new(ctx.mount::<LocalModalNestedSlider>(props))
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 
@@ -764,10 +772,11 @@ impl Component for RootWithNestedLocalPercentSliderModal {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    ctx.modal(self.open.clone(), move |ctx| {
-      ctx.mount::<LocalModalNestedPercentSlider>(props)
-    });
-    Text::new("base")
+    Column::new().child(Text::new("base")).child(
+      Modal::new(ctx.mount::<LocalModalNestedPercentSlider>(props))
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 
@@ -979,18 +988,21 @@ impl Component for RootWithContextMenuPercentSlider {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    ctx.modal(self.open.clone(), move |ctx| {
-      lurq::components::Stack::new()
-        .width(500.0)
-        .height(400.0)
-        .child(Rect::new(500.0, 400.0).background("#00000000"))
-        .child(
-          Row::new()
-            .absolute(40.0, 30.0, 180.0, 80.0)
-            .child(ctx.mount::<LocalModalNestedPercentSlider>(props)),
-        )
-    });
-    Text::new("base")
+    let content = lurq::components::Stack::new()
+      .width(500.0)
+      .height(400.0)
+      .child(Rect::new(500.0, 400.0).background("#00000000"))
+      .child(
+        Row::new()
+          .absolute(40.0, 30.0, 180.0, 80.0)
+          .child(ctx.mount::<LocalModalNestedPercentSlider>(props)),
+      );
+
+    Column::new().child(Text::new("base")).child(
+      Modal::new(content)
+        .open(self.open.clone())
+        .target(ModalRoot),
+    )
   }
 }
 

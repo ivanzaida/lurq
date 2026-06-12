@@ -34,7 +34,7 @@ use crate::{
     signal::{Signal, SignalValue},
     tracking,
   },
-  node::{Element, Node},
+  node::{Element, HitTestBehavior, Node},
 };
 
 static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
@@ -77,13 +77,6 @@ pub(crate) fn component_tag_name<C: 'static>() -> Arc<str> {
   Arc::from(base.rsplit("::").next().unwrap_or(base))
 }
 
-struct ModalEntry {
-  scope_id: u64,
-  cursor: usize,
-  order: u64,
-  node: Node,
-}
-
 pub(crate) type ClickOutsideCallback = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 
 struct ClickOutsideEntry {
@@ -94,25 +87,337 @@ struct ClickOutsideEntry {
 }
 
 #[derive(Clone)]
-pub struct ModalContext {
-  open: Signal<bool>,
+pub enum OpenState {
+  Static(bool),
+  Signal(Signal<bool>),
 }
 
-impl ModalContext {
-  pub fn open(&self) {
-    self.open.set(true);
-  }
-
-  pub fn close(&self) {
-    self.open.set(false);
-  }
-
+impl OpenState {
   pub fn is_open(&self) -> bool {
-    self.open.get()
+    match self {
+      Self::Static(open) => *open,
+      Self::Signal(open) => open.get(),
+    }
   }
 
-  pub fn signal(&self) -> Signal<bool> {
-    self.open.clone()
+  pub(crate) fn signal(&self) -> Option<Signal<bool>> {
+    match self {
+      Self::Static(_) => None,
+      Self::Signal(open) => Some(open.clone()),
+    }
+  }
+}
+
+impl From<bool> for OpenState {
+  fn from(value: bool) -> Self {
+    Self::Static(value)
+  }
+}
+
+impl From<Signal<bool>> for OpenState {
+  fn from(value: Signal<bool>) -> Self {
+    Self::Signal(value)
+  }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placement {
+  TopStart,
+  Top,
+  TopEnd,
+  BottomStart,
+  Bottom,
+  BottomEnd,
+  LeftStart,
+  Left,
+  LeftEnd,
+  RightStart,
+  Right,
+  RightEnd,
+}
+
+impl Default for Placement {
+  fn default() -> Self {
+    Self::BottomStart
+  }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollisionStrategy {
+  None,
+  Clamp,
+  Flip,
+  FlipThenClamp,
+}
+
+impl Default for CollisionStrategy {
+  fn default() -> Self {
+    Self::FlipThenClamp
+  }
+}
+
+pub(crate) struct OverlaySpec {
+  pub(crate) anchor: ElementRef,
+  pub(crate) node: Node,
+  pub(crate) placement: Placement,
+  pub(crate) offset_x: f32,
+  pub(crate) offset_y: f32,
+  pub(crate) match_anchor_width: bool,
+  pub(crate) collision: CollisionStrategy,
+  pub(crate) hit_test: HitTestBehavior,
+  pub(crate) open_signal: Option<Signal<bool>>,
+  pub(crate) dismiss_on_outside_click: bool,
+  pub(crate) dismiss_on_escape: bool,
+}
+
+#[derive(Clone)]
+pub enum ModalTarget {
+  Parent,
+  Root,
+  Element(ElementRef),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Parent;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Root;
+
+impl From<Parent> for ModalTarget {
+  fn from(_: Parent) -> Self {
+    Self::Parent
+  }
+}
+
+impl From<Root> for ModalTarget {
+  fn from(_: Root) -> Self {
+    Self::Root
+  }
+}
+
+impl From<ElementRef> for ModalTarget {
+  fn from(value: ElementRef) -> Self {
+    Self::Element(value)
+  }
+}
+
+impl From<ElementRefMut> for ModalTarget {
+  fn from(value: ElementRefMut) -> Self {
+    Self::Element(value.into())
+  }
+}
+
+pub(crate) struct ModalSpec {
+  pub(crate) target: ModalTarget,
+  pub(crate) node: Node,
+  pub(crate) open_signal: Option<Signal<bool>>,
+  pub(crate) dismiss_on_escape: bool,
+}
+
+impl ModalSpec {
+  pub(crate) fn clone_for_reuse(&self) -> Self {
+    Self {
+      target: self.target.clone(),
+      node: self.node.clone_for_reuse(),
+      open_signal: self.open_signal.clone(),
+      dismiss_on_escape: self.dismiss_on_escape,
+    }
+  }
+}
+
+impl OverlaySpec {
+  pub(crate) fn clone_for_reuse(&self) -> Self {
+    Self {
+      anchor: self.anchor.clone(),
+      node: self.node.clone_for_reuse(),
+      placement: self.placement,
+      offset_x: self.offset_x,
+      offset_y: self.offset_y,
+      match_anchor_width: self.match_anchor_width,
+      collision: self.collision,
+      hit_test: self.hit_test,
+      open_signal: self.open_signal.clone(),
+      dismiss_on_outside_click: self.dismiss_on_outside_click,
+      dismiss_on_escape: self.dismiss_on_escape,
+    }
+  }
+}
+
+pub struct Modal {
+  node: Node,
+  open: OpenState,
+  target: ModalTarget,
+  dismiss_on_escape: bool,
+}
+
+impl Modal {
+  pub fn new(content: impl Into<Element>) -> Self {
+    Self {
+      node: content.into().node,
+      open: OpenState::Static(true),
+      target: ModalTarget::Parent,
+      dismiss_on_escape: true,
+    }
+  }
+
+  pub fn open(mut self, open: impl Into<OpenState>) -> Self {
+    self.open = open.into();
+    self
+  }
+
+  pub fn open_when(mut self, open: bool) -> Self {
+    self.open = OpenState::Static(open);
+    self
+  }
+
+  pub fn target(mut self, target: impl Into<ModalTarget>) -> Self {
+    self.target = target.into();
+    self
+  }
+
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  fn into_spec(self) -> Option<ModalSpec> {
+    if !self.open.is_open() {
+      return None;
+    }
+
+    Some(ModalSpec {
+      target: self.target,
+      node: self.node,
+      open_signal: self.open.signal(),
+      dismiss_on_escape: self.dismiss_on_escape,
+    })
+  }
+}
+
+impl From<Modal> for Element {
+  fn from(modal: Modal) -> Self {
+    let mut node = Node::logical();
+    node.set_layout_neutral(true);
+    if let Some(spec) = modal.into_spec() {
+      node.set_modal_declaration(spec);
+    }
+    Element::from_node(node)
+  }
+}
+
+pub struct Overlay {
+  anchor: Option<ElementRef>,
+  node: Node,
+  open: OpenState,
+  placement: Placement,
+  offset_x: f32,
+  offset_y: f32,
+  match_anchor_width: bool,
+  collision: CollisionStrategy,
+  hit_test: HitTestBehavior,
+  dismiss_on_outside_click: bool,
+  dismiss_on_escape: bool,
+}
+
+impl Overlay {
+  pub fn new(content: impl Into<Element>) -> Self {
+    Self {
+      anchor: None,
+      node: content.into().node,
+      open: OpenState::Static(true),
+      placement: Placement::default(),
+      offset_x: 0.0,
+      offset_y: 0.0,
+      match_anchor_width: false,
+      collision: CollisionStrategy::default(),
+      hit_test: HitTestBehavior::Auto,
+      dismiss_on_outside_click: false,
+      dismiss_on_escape: false,
+    }
+  }
+
+  pub fn anchor(mut self, anchor: impl Into<ElementRef>) -> Self {
+    self.anchor = Some(anchor.into());
+    self
+  }
+
+  pub fn open(mut self, open: impl Into<OpenState>) -> Self {
+    self.open = open.into();
+    self
+  }
+
+  pub fn open_when(mut self, open: bool) -> Self {
+    self.open = OpenState::Static(open);
+    self
+  }
+
+  pub fn placement(mut self, placement: Placement) -> Self {
+    self.placement = placement;
+    self
+  }
+
+  pub fn offset(mut self, x: f32, y: f32) -> Self {
+    self.offset_x = x;
+    self.offset_y = y;
+    self
+  }
+
+  pub fn match_anchor_width(mut self, match_anchor_width: bool) -> Self {
+    self.match_anchor_width = match_anchor_width;
+    self
+  }
+
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = collision;
+    self
+  }
+
+  pub fn hit_test(mut self, behavior: HitTestBehavior) -> Self {
+    self.hit_test = behavior;
+    self
+  }
+
+  pub fn dismiss_on_outside_click(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_click = dismiss;
+    self
+  }
+
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  fn into_spec(self) -> Option<OverlaySpec> {
+    if !self.open.is_open() {
+      return None;
+    }
+
+    let open_signal = self.open.signal();
+
+    Some(OverlaySpec {
+      anchor: self.anchor?,
+      node: self.node,
+      placement: self.placement,
+      offset_x: self.offset_x,
+      offset_y: self.offset_y,
+      match_anchor_width: self.match_anchor_width,
+      collision: self.collision,
+      hit_test: self.hit_test,
+      open_signal,
+      dismiss_on_outside_click: self.dismiss_on_outside_click,
+      dismiss_on_escape: self.dismiss_on_escape,
+    })
+  }
+}
+
+impl From<Overlay> for Element {
+  fn from(overlay: Overlay) -> Self {
+    let mut node = Node::logical();
+    node.set_layout_neutral(true);
+    if let Some(spec) = overlay.into_spec() {
+      node.set_overlay_declaration(spec);
+    }
+    Element::from_node(node)
   }
 }
 
@@ -591,12 +896,7 @@ pub struct Ctx {
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
-  modal_registry: Arc<Mutex<Vec<ModalEntry>>>,
-  modal_order: Arc<AtomicU64>,
-  modal_scope_id: u64,
-  modal_cursor: usize,
-  modal_active_cursors: Vec<usize>,
-  modal_context: Option<ModalContext>,
+  scope_id: u64,
   element_ref_cursor: usize,
   future_cursor: usize,
   watch_handles: Vec<Box<dyn Any + Send + Sync>>,
@@ -990,12 +1290,7 @@ impl Ctx {
       slot_children: None,
       children: Vec::new(),
       child_cursor: 0,
-      modal_registry: Arc::new(Mutex::new(Vec::new())),
-      modal_order: Arc::new(AtomicU64::new(1)),
-      modal_scope_id: 0,
-      modal_cursor: 0,
-      modal_active_cursors: Vec::new(),
-      modal_context: None,
+      scope_id: 0,
       element_ref_cursor: 0,
       future_cursor: 0,
       watch_handles: Vec::new(),
@@ -1735,7 +2030,7 @@ impl Ctx {
     let mut registry = self.click_outside_registry.lock();
     if let Some(entry) = registry
       .iter_mut()
-      .find(|entry| entry.scope_id == self.modal_scope_id && entry.cursor == cursor)
+      .find(|entry| entry.scope_id == self.scope_id && entry.cursor == cursor)
     {
       entry.element_ref = element_ref;
       entry.callback = callback;
@@ -1743,7 +2038,7 @@ impl Ctx {
     }
 
     registry.push(ClickOutsideEntry {
-      scope_id: self.modal_scope_id,
+      scope_id: self.scope_id,
       cursor,
       element_ref,
       callback,
@@ -1758,87 +2053,6 @@ impl Ctx {
       .filter(|entry| element_ref_is_click_outside(&entry.element_ref, x, y))
       .map(|entry| entry.callback.clone())
       .collect()
-  }
-
-  pub fn modal<R>(&mut self, open: Signal<bool>, render: impl FnOnce(&mut Ctx) -> R)
-  where
-    R: Into<Element>,
-  {
-    let cursor = self.modal_cursor;
-    self.modal_cursor += 1;
-
-    if !open.get() {
-      return;
-    }
-
-    let previous = self.modal_context.replace(ModalContext { open });
-    let modal = render(self).into();
-    self.modal_context = previous;
-    self.push_modal(cursor, modal);
-  }
-
-  pub fn modal_context(&self) -> Option<&ModalContext> {
-    self.modal_context.as_ref()
-  }
-
-  fn push_modal(&mut self, cursor: usize, modal: impl Into<Element>) {
-    self.modal_active_cursors.push(cursor);
-    let modal = modal.into().node;
-
-    let mut registry = self.modal_registry.lock();
-    if let Some(entry) = registry
-      .iter_mut()
-      .find(|entry| entry.scope_id == self.modal_scope_id && entry.cursor == cursor)
-    {
-      entry.node = modal;
-      return;
-    }
-
-    registry.push(ModalEntry {
-      scope_id: self.modal_scope_id,
-      cursor,
-      order: self.modal_order.fetch_add(1, Ordering::Relaxed),
-      node: modal,
-    });
-  }
-
-  pub(crate) fn modal_nodes(&self) -> Vec<Node> {
-    let mut entries: Vec<_> = self
-      .modal_registry
-      .lock()
-      .iter()
-      .map(|entry| (entry.order, entry.node.clone_for_reuse()))
-      .collect();
-    entries.sort_by_key(|(order, _)| *order);
-    entries.into_iter().map(|(_, node)| node).collect()
-  }
-
-  /// Splice partial-render replacements into the live modal registry nodes.
-  ///
-  /// During a partial reactive update the modal-owning component does not
-  /// re-run, so its `modal` closure never repushes the modal subtree. Without
-  /// this, a dirty component mounted inside a modal re-renders but its new node
-  /// is never reflected in the modal layer. Returns the replacements that did
-  /// not match any modal entry so the caller can handle them elsewhere.
-  pub(crate) fn apply_modal_slot_replacements(&self, replacements: Vec<(u64, Node)>) -> Vec<(u64, Node)> {
-    let mut registry = self.modal_registry.lock();
-    let mut unmatched = Vec::new();
-    for (slot_id, replacement) in replacements {
-      let mut slot = Some(replacement);
-      let mut matched = false;
-      for entry in registry.iter_mut() {
-        if entry.node.replace_component_slot_in(slot_id, &mut slot) {
-          matched = true;
-          break;
-        }
-      }
-      if !matched {
-        if let Some(node) = slot {
-          unmatched.push((slot_id, node));
-        }
-      }
-    }
-    unmatched
   }
 
   // --- Component mounting ---
@@ -1917,9 +2131,6 @@ impl Ctx {
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
     }
-    child_ctx.modal_registry = self.modal_registry.clone();
-    child_ctx.modal_order = self.modal_order.clone();
-    child_ctx.modal_context = self.modal_context.clone();
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
     #[cfg(feature = "i18n")]
     {
@@ -1928,7 +2139,7 @@ impl Ctx {
     child_ctx.context_map = self.context_map.clone();
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
-    child_ctx.modal_scope_id = slot_id;
+    child_ctx.scope_id = slot_id;
     let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
     child_ctx.begin_render();
@@ -1991,16 +2202,13 @@ impl Ctx {
       {
         group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
       }
-      group_ctx.modal_registry = self.modal_registry.clone();
-      group_ctx.modal_order = self.modal_order.clone();
-      group_ctx.modal_context = self.modal_context.clone();
       group_ctx.click_outside_registry = self.click_outside_registry.clone();
       #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
       }
       group_ctx.context_map = self.context_map.clone();
-      group_ctx.modal_scope_id = slot_id;
+      group_ctx.scope_id = slot_id;
       let slot = ChildSlot {
         id: slot_id,
         key: None,
@@ -2080,16 +2288,13 @@ impl Ctx {
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
     }
-    child_ctx.modal_registry = self.modal_registry.clone();
-    child_ctx.modal_order = self.modal_order.clone();
-    child_ctx.modal_context = self.modal_context.clone();
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
     #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
     child_ctx.context_map = self.context_map.clone();
-    child_ctx.modal_scope_id = slot_id;
+    child_ctx.scope_id = slot_id;
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);
     child_ctx.end_render();
@@ -2134,8 +2339,6 @@ impl Ctx {
 
   pub fn begin_render(&mut self) {
     self.child_cursor = 0;
-    self.modal_cursor = 0;
-    self.modal_active_cursors.clear();
     self.element_ref_cursor = 0;
     self.click_outside_cursor = 0;
     self.click_outside_active_cursors.clear();
@@ -2165,25 +2368,17 @@ impl Ctx {
 
   fn clear_modal_entries_recursive(&mut self) {
     self
-      .modal_registry
-      .lock()
-      .retain(|entry| entry.scope_id != self.modal_scope_id);
-    self
       .click_outside_registry
       .lock()
-      .retain(|entry| entry.scope_id != self.modal_scope_id);
+      .retain(|entry| entry.scope_id != self.scope_id);
     for slot in &mut self.children {
       slot.ctx.clear_modal_entries_recursive();
     }
   }
 
   pub(crate) fn end_render(&mut self) {
-    self
-      .modal_registry
-      .lock()
-      .retain(|entry| entry.scope_id != self.modal_scope_id || self.modal_active_cursors.contains(&entry.cursor));
     self.click_outside_registry.lock().retain(|entry| {
-      entry.scope_id != self.modal_scope_id || self.click_outside_active_cursors.contains(&entry.cursor)
+      entry.scope_id != self.scope_id || self.click_outside_active_cursors.contains(&entry.cursor)
     });
 
     for slot in &self.children[self.child_cursor..] {
