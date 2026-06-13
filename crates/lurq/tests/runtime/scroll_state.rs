@@ -7,7 +7,7 @@ use lurq::{
   app::{
     Tree,
     component::Component,
-    ctx::Ctx,
+    ctx::{Ctx, Overlay, Placement},
     events::{MouseButton, ScrollPhase},
   },
   components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
@@ -119,6 +119,80 @@ fn pending_scroll_to_right_resolves_before_first_paint() {
     .unwrap();
   assert_eq!(state.scroll_x(), 300.0);
   assert_eq!(content.bounds().x, -300.0);
+}
+
+#[test]
+fn overlay_pending_scroll_updates_content_offset_after_measurement() {
+  let mut runtime = Tree::new();
+  let anchor = CoreElementRef::new();
+  let state = ScrollState::new();
+
+  runtime.set_root(
+    Column::new()
+      .child(Rect::new(100.0, 20.0).background("#22c55e").ref_element(anchor.clone()))
+      .child(
+        Overlay::new(
+          ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+            .with_scroll_state(state.clone())
+            .size(100.0, 100.0),
+        )
+        .anchor(anchor)
+        .placement(Placement::BottomStart),
+      ),
+  );
+
+  run_pass(&mut runtime);
+  let initial_y = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap()
+    .bounds()
+    .y;
+
+  state.set_scroll_pending(0.0, 200.0);
+  run_pass(&mut runtime);
+
+  let content = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap();
+  assert_eq!(state.scroll_y(), 200.0);
+  assert_eq!(content.bounds().y, initial_y - 200.0);
+}
+
+#[test]
+fn overlay_direct_scroll_updates_content_offset_after_reuse() {
+  let mut runtime = Tree::new();
+  let anchor = CoreElementRef::new();
+  let state = ScrollState::new();
+
+  runtime.set_root(
+    Column::new()
+      .child(Rect::new(100.0, 20.0).background("#22c55e").ref_element(anchor.clone()))
+      .child(
+        Overlay::new(
+          ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+            .with_scroll_state(state.clone())
+            .size(100.0, 100.0),
+        )
+        .anchor(anchor)
+        .placement(Placement::BottomStart),
+      ),
+  );
+
+  run_pass(&mut runtime);
+  let initial_y = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap()
+    .bounds()
+    .y;
+
+  state.scroll_by(0.0, 200.0);
+  run_pass(&mut runtime);
+
+  let content = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap();
+  assert_eq!(state.scroll_y(), 200.0);
+  assert_eq!(content.bounds().y, initial_y - 200.0);
 }
 
 #[test]

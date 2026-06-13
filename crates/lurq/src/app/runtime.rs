@@ -3892,15 +3892,22 @@ impl Tree {
         old_host: None,
         old_overlays: Vec::new(),
         old_overlay_used: Vec::new(),
+        old_overlay_layout_dirty: Vec::new(),
       };
     };
     let parts = overlay_host_parts(root);
+    let old_overlay_layout_dirty = parts
+      .old_overlays
+      .iter()
+      .map(has_pending_layout_dirty_recursive)
+      .collect();
     self.root = Some(parts.base);
     let old_overlay_used = vec![false; parts.old_overlays.len()];
     OverlayHostReuse {
       old_host: parts.old_host,
       old_overlays: parts.old_overlays,
       old_overlay_used,
+      old_overlay_layout_dirty,
     }
   }
 
@@ -4347,6 +4354,7 @@ struct OverlayHostReuse {
   old_host: Option<Node>,
   old_overlays: Vec<Node>,
   old_overlay_used: Vec<bool>,
+  old_overlay_layout_dirty: Vec<bool>,
 }
 
 impl OverlayHostReuse {
@@ -4424,12 +4432,16 @@ fn preserve_overlay_reuse_at(overlay: &mut Node, old_parts: &mut OverlayHostReus
   let Some(old_overlay) = old_parts.old_overlays.get_mut(index) else {
     return;
   };
+  let old_layout_dirty = old_parts.old_overlay_layout_dirty.get(index).copied().unwrap_or(false);
   if let Some(used) = old_parts.old_overlay_used.get_mut(index) {
     *used = true;
   }
   reset_element_ref_flags_recursive(old_overlay);
   overlay.preserve_runtime_state_from(old_overlay);
   overlay.preserve_ids_from(old_overlay);
+  if old_layout_dirty {
+    invalidate_layout_cache_recursive(overlay);
+  }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4610,6 +4622,7 @@ fn build_overlay_node(
     constraints.max_width.min(viewport.width).max(0.0),
     constraints.max_height.min(viewport.height).max(0.0),
   ));
+  let pending_runtime_layout_dirty = has_pending_layout_dirty_recursive(&node);
   let measure_node = node.clone_for_reuse();
   let measured = layout_engine.compute(
     glyph_engine,
@@ -4624,6 +4637,9 @@ fn build_overlay_node(
     typography,
     theme_changed,
   );
+  if pending_runtime_layout_dirty {
+    invalidate_layout_cache_recursive(&node);
+  }
   let overlay_size = measured.size;
   let placement = resolve_overlay_collision(
     spec.placement,
@@ -4661,6 +4677,19 @@ fn build_overlay_node(
     ),
     bounds,
   )
+}
+
+fn invalidate_layout_cache_recursive(node: &Node) {
+  node.layout_cache.invalidate();
+  for child in node.children() {
+    invalidate_layout_cache_recursive(child);
+  }
+  if let Some(spec) = node.modal_declaration() {
+    invalidate_layout_cache_recursive(&spec.node);
+  }
+  if let Some(spec) = node.overlay_declaration() {
+    invalidate_layout_cache_recursive(&spec.node);
+  }
 }
 
 fn resolve_overlay_collision(
