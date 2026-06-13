@@ -81,6 +81,34 @@ fn clicking_text_inputs_moves_focus_and_fires_focus_and_blur() {
 }
 
 #[test]
+fn mouse_down_prevent_default_blocks_text_input_focus() {
+  let input_ref = ElementRef::new();
+  let focus = Arc::new(AtomicUsize::new(0));
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    TextInput::new(Signal::new(String::new()))
+      .width(100.0)
+      .ref_element(input_ref.clone())
+      .on_mouse_down(|event| event.prevent_default())
+      .on_focus({
+        let focus = focus.clone();
+        move || {
+          focus.fetch_add(1, Ordering::SeqCst);
+        }
+      }),
+  );
+  run_pass(&mut runtime);
+  let rect = input_ref.bounds();
+
+  runtime.mouse_down(rect.x + 10.0, rect.y + rect.height / 2.0, MouseButton::Left);
+  runtime.mouse_up(rect.x + 10.0, rect.y + rect.height / 2.0, MouseButton::Left);
+
+  assert!(!input_ref.focused());
+  assert_eq!(focus.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn escape_blurs_text_input_outside_form() {
   let blur = Arc::new(AtomicUsize::new(0));
   let input_ref = ElementRef::new();

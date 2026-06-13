@@ -1814,28 +1814,6 @@ impl Tree {
   pub fn key_down_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
     let control = EventControl::new();
-    let mut capture_evt = KeyboardEvent {
-      key: key.clone(),
-      code: code.clone(),
-      shift,
-      ctrl,
-      alt,
-      meta,
-      target_id: NodeId::UNASSIGNED,
-      control: control.clone(),
-    };
-    let captured = self
-      .root
-      .as_ref()
-      .is_some_and(|root| fire_keyboard_capture_recursive(root, &mut capture_evt));
-    if captured {
-      capture_evt.prevent_default();
-      capture_evt.stop_propagation();
-      self.needs_redraw = true;
-      self.apply_reactive_updates_after_event();
-      return;
-    }
-
     let mut evt = KeyboardEvent {
       key: key.clone(),
       code: code.clone(),
@@ -1891,7 +1869,7 @@ impl Tree {
         let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
         if blurred_text_input || cleared_text_selection {
           self.needs_redraw = true;
-        } else if self.dispatch_text_input(&key, &code, shift, ctrl, alt, meta) {
+        } else if self.dispatch_text_input(&evt) {
           self.needs_redraw = true;
         } else {
           self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
@@ -2756,10 +2734,6 @@ impl Tree {
             2 => state.select_word_at_point(text_x, text_y),
             _ => state.select_line_at_point(text_x, text_y),
           }
-          pending_focus = Some(FocusTarget {
-            input_id: node.node_id(),
-            event_id: node.node_id(),
-          });
           reset_text_input_caret_blink = true;
           builtin_needs_redraw = true;
         }
@@ -3072,7 +3046,13 @@ impl Tree {
     true
   }
 
-  fn dispatch_text_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, alt: bool, meta: bool) -> bool {
+  fn dispatch_text_input(&mut self, evt: &KeyboardEvent) -> bool {
+    let key = evt.key.as_str();
+    let code = evt.code.as_str();
+    let shift = evt.shift;
+    let ctrl = evt.ctrl;
+    let alt = evt.alt;
+    let meta = evt.meta;
     let focused = match self.focused_node {
       Some(id) => id,
       None => return false,
@@ -3114,13 +3094,15 @@ impl Tree {
             if !write_clipboard_text(&selected) {
               return false;
             }
-            let _ = state.cut_selection();
+            let _ = state.cut_selection(evt);
           }
           ("v" | "V", _) | (_, "KeyV") if shortcut => {
             let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
               return false;
             };
-            state.insert(&text);
+            if !state.insert(&text, evt) {
+              return false;
+            }
           }
           ("Insert", _) | (_, "Insert") if ctrl => {
             let Some(selected) = state.selected_text() else {
@@ -3132,7 +3114,9 @@ impl Tree {
             let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
               return false;
             };
-            state.insert(&text);
+            if !state.insert(&text, evt) {
+              return false;
+            }
           }
           ("Delete", _) | (_, "Delete") if shift => {
             let Some(selected) = state.selected_text() else {
@@ -3141,30 +3125,38 @@ impl Tree {
             if !write_clipboard_text(&selected) {
               return false;
             }
-            let _ = state.cut_selection();
+            let _ = state.cut_selection(evt);
           }
           ("z" | "Z", _) | (_, "KeyZ") if shortcut && shift => {
-            if !state.redo() {
+            if !state.redo(evt) {
               return false;
             }
           }
           ("z" | "Z", _) | (_, "KeyZ") if shortcut => {
-            if !state.undo() {
+            if !state.undo(evt) {
               return false;
             }
           }
           ("y" | "Y", _) | (_, "KeyY") if shortcut => {
-            if !state.redo() {
+            if !state.redo(evt) {
               return false;
             }
           }
           ("Enter", _) | (_, "Enter") => {
-            if !state.insert_newline() {
+            if !state.insert_newline(evt) {
               return false;
             }
           }
-          ("Backspace", _) | (_, "Backspace") => state.backspace(),
-          ("Delete", _) | (_, "Delete") => state.delete(),
+          ("Backspace", _) | (_, "Backspace") => {
+            if !state.backspace(evt) {
+              return false;
+            }
+          }
+          ("Delete", _) | (_, "Delete") => {
+            if !state.delete(evt) {
+              return false;
+            }
+          }
           ("ArrowLeft", _) | (_, "ArrowLeft") if word_navigation => state.move_word_left(shift),
           ("ArrowRight", _) | (_, "ArrowRight") if word_navigation => state.move_word_right(shift),
           ("ArrowLeft", _) | (_, "ArrowLeft") => state.move_left(shift),
@@ -3173,7 +3165,11 @@ impl Tree {
           ("ArrowDown", _) | (_, "ArrowDown") => state.move_down(shift),
           ("Home", _) | (_, "Home") => state.move_home(shift),
           ("End", _) | (_, "End") => state.move_end(shift),
-          _ if !ctrl && !meta && key.chars().count() == 1 => state.insert(key),
+          _ if !ctrl && !meta && key.chars().count() == 1 => {
+            if !state.insert(key, evt) {
+              return false;
+            }
+          }
           _ => return false,
         }
         self.reset_text_input_caret_blink();
@@ -5660,12 +5656,7 @@ fn dispatch_builtin_pointer(
       });
     }
     match node.node_kind() {
-      NodeKind::TextInput { .. } => {
-        return Some(FocusTarget {
-          input_id: node.node_id(),
-          event_id: event_id.unwrap_or_else(|| node.node_id()),
-        });
-      }
+      NodeKind::TextInput { .. } => {}
       NodeKind::Checkbox { state } => {
         state.toggle();
         return Some(FocusTarget {
@@ -6017,26 +6008,6 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   }
   for child in node.children() {
     if fire_keyboard_recursive(child, evt) {
-      return true;
-    }
-  }
-  false
-}
-
-fn fire_keyboard_capture_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
-  evt.target_id = node.node_id();
-  if let Some(ref handler) = node.events.on_key_down_capture
-    && handler(evt)
-  {
-    evt.prevent_default();
-    evt.stop_propagation();
-    return true;
-  }
-  if evt.propagation_stopped() {
-    return true;
-  }
-  for child in node.children() {
-    if fire_keyboard_capture_recursive(child, evt) {
       return true;
     }
   }

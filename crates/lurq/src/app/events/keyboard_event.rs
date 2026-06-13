@@ -1,6 +1,7 @@
 use super::EventControl;
 use crate::core::NodeId;
 
+#[derive(Clone)]
 pub struct KeyboardEvent {
   pub key: String,
   pub code: String,

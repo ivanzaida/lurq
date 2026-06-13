@@ -131,20 +131,7 @@ Rect::new(100.0, 40.0)
   .on_mouse_leave(|| println!("leave"))
 ```
 
-`MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`. Mouse, keyboard, and scroll events also support propagation and default-action control:
-
-```rust
-Rect::new(100.0, 40.0)
-  .on_click(|event| {
-    event.stop_propagation();
-    event.prevent_default();
-  })
-```
-
-- `event.stop_propagation()` stops later handlers for the same dispatched event path.
-- `event.stop_immediate_propagation()` also stops later handlers on the current node.
-- `event.prevent_default()` blocks runtime defaults such as text editing, focused-button activation, form submit, overlay dismiss, and scroll movement where that event has a built-in default.
-- `event.default_prevented()` and `event.propagation_stopped()` expose the current control state.
+`MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
 
 Use `ctx.on_click_outside` with an element ref when a component needs to react to clicks outside one of its own nodes:
 
@@ -174,6 +161,17 @@ Text::new("Focusable")
 ```
 
 `KeyboardEvent` includes `key`, `code`, `shift`, `ctrl`, `alt`, and `target_id`.
+
+User `on_key_down` handlers run before built-in keyboard defaults, so they can block text editing, focused-button activation, select navigation, modal or popup Escape dismissal, and similar defaults:
+
+```rust
+TextInput::new(value)
+  .on_key_down(|event| {
+    if event.key == "Tab" {
+      event.prevent_default();
+    }
+  })
+```
 
 ## Text Selection
 
@@ -238,6 +236,51 @@ ScrollVertical::new(content)
 
 `ScrollEvent` includes `x`, `y`, `delta_x`, `delta_y`, `phase`, and `target_id`.
 
+Scroll handlers run before the default scroll movement. Call `prevent_default()` to observe a wheel/scroll event without moving the scroll container:
+
+```rust
+ScrollVertical::new(content)
+  .on_scroll(|event| {
+    event.prevent_default();
+  })
+```
+
+## Event Control
+
+`MouseEvent`, `KeyboardEvent`, and `ScrollEvent` share the same control methods:
+
+| Method | Effect |
+| --- | --- |
+| `event.prevent_default()` | Blocks runtime default behavior for that event. |
+| `event.default_prevented()` | Returns whether a handler already prevented the default. |
+| `event.stop_propagation()` | Stops later handlers for the same dispatched event path. |
+| `event.propagation_stopped()` | Returns whether propagation has been stopped. |
+| `event.stop_immediate_propagation()` | Stops later handlers on the current node and later nodes. |
+| `event.immediate_propagation_stopped()` | Returns whether immediate propagation has been stopped. |
+
+Propagation control and default-action control are separate. Use `stop_propagation()` when another handler should not see the event. Use `prevent_default()` when handlers may still run, but the runtime should not perform the event's built-in action.
+
+```rust
+Rect::new(100.0, 40.0)
+  .on_click(|event| {
+    event.stop_propagation();
+  })
+```
+
+Common defaults that can be prevented include:
+
+- focusing an input from mouse down,
+- text input editing from key down,
+- focused button activation from `Enter` or `Space`,
+- single-line text input submit or blur on `Enter`,
+- select keyboard navigation,
+- modal or popup Escape dismissal,
+- form submit from buttons or keyboard,
+- popup outside-click dismissal,
+- scroll container movement.
+
+Public capture-phase handlers are not part of the general event API yet. The current model keeps dispatch simple: handlers receive the event, can stop later dispatch with propagation methods, and can block runtime defaults with `prevent_default()`.
+
 ## Inputs
 
 Inputs are controlled by signals.
@@ -254,6 +297,18 @@ Column::new()
 ```
 
 Input updates write back to their signals, which rerenders the owning component.
+
+`TextInput::on_input` runs before a built-in text edit is applied. The event carries the input's `Signal<String>` as `event.value` and the key that caused the edit as `event.keyboard`. Mutate the signal directly for custom input behavior, and call `event.prevent_default()` to cancel the built-in edit for that action:
+
+```rust
+TextInput::new(command.clone())
+  .on_input(|event| {
+    if event.keyboard.key == "Tab" {
+      event.value.set("/play ".to_owned());
+      event.prevent_default();
+    }
+  })
+```
 
 ### Checkbox Styling
 

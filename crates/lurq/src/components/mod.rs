@@ -473,14 +473,6 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn on_key_down_capture(
-        mut self,
-        f: impl Fn(&$crate::app::events::KeyboardEvent) -> bool + Send + Sync + 'static,
-      ) -> Self {
-        self.update_node(|node| $crate::node::NodeUpdate::on_key_down_capture(node, f));
-        self
-      }
-
       pub fn on_key_down(mut self, f: impl Fn(&$crate::app::events::KeyboardEvent) + Send + Sync + 'static) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_key_down(node, f));
         self

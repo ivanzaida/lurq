@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use crate::{
-  app::theme::{ThemePalette, ThemeTypography, TypographyStyle},
+  app::{
+    events::{KeyboardEvent, TextInputEvent},
+    theme::{ThemePalette, ThemeTypography, TypographyStyle},
+  },
   core::Signal,
   layout::text_style::{TextAlign, TextStyle},
   node::{
@@ -19,6 +22,8 @@ use crate::{
 };
 
 const MAX_TEXT_INPUT_HISTORY: usize = 128;
+
+type TextInputCallback = Arc<dyn Fn(&TextInputEvent) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextInputOverflow {
@@ -305,6 +310,7 @@ impl TextState {
 pub(crate) struct TextInputState {
   value: Signal<String>,
   inner: Arc<Mutex<TextInputInner>>,
+  on_input: Arc<Mutex<Option<TextInputCallback>>>,
   layout_dirty: Arc<AtomicBool>,
 }
 
@@ -373,12 +379,17 @@ impl TextInputState {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
       })),
+      on_input: Arc::new(Mutex::new(None)),
       layout_dirty: Arc::new(AtomicBool::new(false)),
     }
   }
 
   pub(crate) fn value(&self) -> String {
     self.value.get_untracked()
+  }
+
+  pub(crate) fn set_on_input(&self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static) {
+    *self.on_input.lock().unwrap() = Some(Arc::new(f));
   }
 
   pub(crate) fn sync_external_value(&self) -> bool {
@@ -487,9 +498,12 @@ impl TextInputState {
     self.inner.lock().unwrap().mask
   }
 
-  pub(crate) fn insert(&self, text: &str) {
+  pub(crate) fn insert(&self, text: &str, keyboard: &KeyboardEvent) -> bool {
     if text.is_empty() {
-      return;
+      return false;
+    }
+    if !self.fire_input(keyboard) {
+      return true;
     }
 
     self.push_undo_snapshot();
@@ -506,26 +520,32 @@ impl TextInputState {
     inner.selection_anchor = None;
     drop(inner);
     self.mark_layout_dirty();
-  }
-
-  pub(crate) fn insert_newline(&self) -> bool {
-    if self.overflow() != TextInputOverflow::Multiline {
-      return false;
-    }
-    self.insert("\n");
     true
   }
 
-  pub(crate) fn backspace(&self) {
+  pub(crate) fn insert_newline(&self, keyboard: &KeyboardEvent) -> bool {
+    if self.overflow() != TextInputOverflow::Multiline {
+      return false;
+    }
+    self.insert("\n", keyboard)
+  }
+
+  pub(crate) fn backspace(&self, keyboard: &KeyboardEvent) -> bool {
     if self.has_selection() {
+      if !self.fire_input(keyboard) {
+        return true;
+      }
       self.push_undo_snapshot();
       self.delete_selection_if_present();
-      return;
+      return true;
     }
 
     let mut caret = self.inner.lock().unwrap().caret;
     if caret == 0 {
-      return;
+      return false;
+    }
+    if !self.fire_input(keyboard) {
+      return true;
     }
 
     self.push_undo_snapshot();
@@ -539,20 +559,27 @@ impl TextInputState {
     });
     self.inner.lock().unwrap().caret = caret;
     self.mark_layout_dirty();
+    true
   }
 
-  pub(crate) fn delete(&self) {
+  pub(crate) fn delete(&self, keyboard: &KeyboardEvent) -> bool {
     if self.has_selection() {
+      if !self.fire_input(keyboard) {
+        return true;
+      }
       self.push_undo_snapshot();
       self.delete_selection_if_present();
-      return;
+      return true;
     }
 
     let mut caret = self.inner.lock().unwrap().caret;
     let value = self.value();
     caret = clamp_to_char_boundary(&value, caret);
     if caret >= value.len() {
-      return;
+      return false;
+    }
+    if !self.fire_input(keyboard) {
+      return true;
     }
 
     self.push_undo_snapshot();
@@ -562,6 +589,7 @@ impl TextInputState {
     });
     self.inner.lock().unwrap().caret = caret;
     self.mark_layout_dirty();
+    true
   }
 
   pub(crate) fn move_left(&self, selecting: bool) {
@@ -705,29 +733,40 @@ impl TextInputState {
     Some(value[start..end].to_owned())
   }
 
-  pub(crate) fn cut_selection(&self) -> Option<String> {
+  pub(crate) fn cut_selection(&self, keyboard: &KeyboardEvent) -> Option<String> {
     let selected = self.selected_text()?;
+    if !self.fire_input(keyboard) {
+      return Some(selected);
+    }
     self.push_undo_snapshot();
     self.delete_selection_if_present();
     Some(selected)
   }
 
-  pub(crate) fn undo(&self) -> bool {
+  pub(crate) fn undo(&self, keyboard: &KeyboardEvent) -> bool {
     let current = self.snapshot();
     let Some(snapshot) = self.inner.lock().unwrap().undo_stack.pop() else {
       return false;
     };
+    if !self.fire_input(keyboard) {
+      self.push_undo_snapshot_value(snapshot);
+      return true;
+    }
     self.push_redo_snapshot(current);
     self.restore_snapshot(snapshot);
     self.mark_layout_dirty();
     true
   }
 
-  pub(crate) fn redo(&self) -> bool {
+  pub(crate) fn redo(&self, keyboard: &KeyboardEvent) -> bool {
     let current = self.snapshot();
     let Some(snapshot) = self.inner.lock().unwrap().redo_stack.pop() else {
       return false;
     };
+    if !self.fire_input(keyboard) {
+      self.push_redo_snapshot(snapshot);
+      return true;
+    }
     self.push_undo_snapshot_value(current);
     self.restore_snapshot(snapshot);
     self.mark_layout_dirty();
@@ -1023,6 +1062,18 @@ impl TextInputState {
 
   fn mark_layout_dirty(&self) {
     self.layout_dirty.store(true, Ordering::Relaxed);
+  }
+
+  fn fire_input(&self, keyboard: &KeyboardEvent) -> bool {
+    let handler = self.on_input.lock().unwrap().clone();
+    let Some(handler) = handler else {
+      return true;
+    };
+
+    let event = TextInputEvent::new(self.value.clone(), keyboard.clone());
+    handler(&event);
+    self.sync_external_value();
+    !event.default_prevented()
   }
 
   pub(crate) fn has_selection(&self) -> bool {

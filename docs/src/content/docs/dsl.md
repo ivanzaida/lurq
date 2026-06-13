@@ -190,6 +190,32 @@ lurq::components::Rect::new(100.0, 40.0)
   .on_key_down(|e| println!("key: {}", e.key))
 ```
 
+Mouse, keyboard, and scroll events can stop propagation and block built-in defaults:
+
+```rust
+lurq::components::TextInput::new(value)
+  .on_key_down(|e| {
+    if e.key == "Tab" {
+      e.prevent_default();
+      e.stop_propagation();
+    }
+  })
+```
+
+Use `prevent_default()` for runtime defaults such as text editing, focus, form submit, overlay dismissal, and scroll movement. Use `stop_propagation()` when later handlers should not receive the same event.
+
+`TextInput::on_input` is the text-edit hook. It runs before the built-in edit, passes the bound `Signal<String>` as `event.value`, and can cancel the built-in edit with `prevent_default()`:
+
+```rust
+lurq::components::TextInput::new(value)
+  .on_input(|event| {
+    if event.keyboard.key == "Tab" {
+      event.value.set("/play ".to_owned());
+      event.prevent_default();
+    }
+  })
+```
+
 ## Drag And Drop
 
 `DragContainer`, `Draggable`, and `DropZone` are components with explicit one-child `mount` helpers. Each requires exactly one child. `Draggable` and `DropZone` are blank wrappers. `DragContainer` uses its child as the drag surface and applies container policy; `DragContainerProps::new()` bounds descendant draggables to that surface.

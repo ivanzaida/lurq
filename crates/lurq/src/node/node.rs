@@ -7,7 +7,7 @@ use crate::app::ctx::{
 use crate::{
   animation::{Animation, Transition},
   app::{
-    events::{DragEvent, DropEvent, KeyboardEvent, MouseButton, MouseEvent, ScrollEvent},
+    events::{DragEvent, DropEvent, KeyboardEvent, MouseButton, MouseEvent, ScrollEvent, TextInputEvent},
     theme::{CaretMode, TypographyStyle},
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
@@ -41,7 +41,6 @@ use crate::{
 };
 
 type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
-type KeyboardCaptureCallback = Arc<dyn Fn(&KeyboardEvent) -> bool + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
 
@@ -127,7 +126,6 @@ pub(crate) trait NodeUpdate {
   fn on_drop(&mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static);
   fn on_mouse_enter(&mut self, f: impl Fn() + Send + Sync + 'static);
   fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static);
-  fn on_key_down_capture(&mut self, f: impl Fn(&KeyboardEvent) -> bool + Send + Sync + 'static);
   fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
   fn on_key_up(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
   fn on_focus(&mut self, f: impl Fn() + Send + Sync + 'static);
@@ -157,6 +155,7 @@ pub(crate) trait NodeUpdate {
   fn text_variant(&mut self, typography_style: impl Into<TypographyStyle>);
   fn text_color(&mut self, color: impl Into<TextColor>);
   fn text_align(&mut self, align: impl Into<TextAlign>);
+  fn on_input(&mut self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static);
   fn placeholder(&mut self, placeholder: &str);
   fn text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow);
   fn text_input_mask(&mut self);
@@ -284,7 +283,6 @@ pub struct EventHandlers {
   pub on_drop: Option<Callback<DropEvent>>,
   pub on_mouse_enter: Option<VoidCallback>,
   pub on_mouse_leave: Option<VoidCallback>,
-  pub on_key_down_capture: Option<KeyboardCaptureCallback>,
   pub on_key_down: Option<Callback<KeyboardEvent>>,
   pub on_key_up: Option<Callback<KeyboardEvent>>,
   pub on_focus: Option<VoidCallback>,
@@ -801,10 +799,6 @@ impl NodeUpdate for Node {
     self.events.on_mouse_leave = Some(Arc::new(f));
   }
 
-  fn on_key_down_capture(&mut self, f: impl Fn(&KeyboardEvent) -> bool + Send + Sync + 'static) {
-    self.events.on_key_down_capture = Some(Arc::new(f));
-  }
-
   fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) {
     self.events.on_key_down = Some(Arc::new(f));
   }
@@ -930,6 +924,12 @@ impl NodeUpdate for Node {
     if let NodeKind::Text { style, .. } = &mut self.node_kind {
       style.set_text_align(align);
       self.layout_cache.invalidate();
+    }
+  }
+
+  fn on_input(&mut self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static) {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_on_input(f);
     }
   }
 
@@ -1742,11 +1742,6 @@ impl Node {
 
   pub fn on_mouse_leave(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
     self.events.on_mouse_leave = Some(Arc::new(f));
-    self
-  }
-
-  pub fn on_key_down_capture(mut self, f: impl Fn(&KeyboardEvent) -> bool + Send + Sync + 'static) -> Self {
-    self.events.on_key_down_capture = Some(Arc::new(f));
     self
   }
 

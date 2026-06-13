@@ -1,6 +1,6 @@
 pub use crate::node::node_kind::TextInputOverflow;
 use crate::{
-  app::theme::CaretMode,
+  app::{events::TextInputEvent, theme::CaretMode},
   core::Signal,
   impl_into_node,
   layout::text_style::{TextAlign, TextStyle},
@@ -34,6 +34,11 @@ impl TextInput {
 
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::placeholder(node, placeholder));
+    self
+  }
+
+  pub fn on_input(mut self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::on_input(node, f));
     self
   }
 
