@@ -57,6 +57,21 @@ fn scroll_vertical_offset_applied() {
 }
 
 #[test]
+fn scroll_prevent_default_blocks_auto_scroll() {
+  let mut rt = rt();
+  let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(500.0))
+    .size(100.0, 100.0)
+    .on_scroll(|event| event.prevent_default());
+
+  rt.set_root(node);
+  run_pass(&mut rt);
+  rt.scroll(50.0, 50.0, 0.0, 60.0, lurq::app::events::ScrollPhase::Scroll);
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  assert_eq!(result.children[0].offset.y, 0.0);
+}
+
+#[test]
 fn scroll_horizontal_child_grows_unbounded() {
   let mut rt = rt();
   let node = lurq::components::ScrollHorizontal::new(lurq::components::Row::new().spacing(0.0).with_children(

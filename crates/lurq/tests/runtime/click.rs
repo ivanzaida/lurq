@@ -10,7 +10,7 @@ use lurq::{
   node::{Element, HitTestBehavior, color::Color},
 };
 
-use crate::support::run_pass;
+use crate::support::{pointer_click, run_pass};
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct Shared<T>(std::sync::Arc<T>);
@@ -559,4 +559,33 @@ fn rebuilt_descendant_at_same_position_receives_click() {
   runtime.mouse_up(x, y, MouseButton::Left);
 
   assert_eq!(clicks.get(), 1);
+}
+
+#[test]
+fn stop_propagation_prevents_parent_mouse_handler() {
+  let child_clicks = Signal::new(0);
+  let parent_clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Stack::new()
+      .size(100.0, 100.0)
+      .on_click({
+        let parent_clicks = parent_clicks.clone();
+        move |_| parent_clicks.update(|count| *count += 1)
+      })
+      .child(Rect::new(50.0, 50.0).background("#ffffff").on_click({
+        let child_clicks = child_clicks.clone();
+        move |event| {
+          child_clicks.update(|count| *count += 1);
+          event.stop_propagation();
+        }
+      })),
+  );
+  run_pass(&mut runtime);
+
+  pointer_click(&mut runtime, 25.0, 25.0, MouseButton::Left);
+
+  assert_eq!(child_clicks.get(), 1);
+  assert_eq!(parent_clicks.get(), 0);
 }

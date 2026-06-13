@@ -22,8 +22,8 @@ use crate::{
     component::Component,
     ctx::{CollisionStrategy, Ctx, ModalSpec, ModalTarget, OverlaySpec, Placement, component_tag_name},
     events::{
-      DragEvent, DropEvent, DropResult, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind, ScrollEvent,
-      ScrollPhase,
+      DragEvent, DropEvent, DropResult, EventControl, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind,
+      ScrollEvent, ScrollPhase,
     },
     hit_test::{HitRect, hit_test_tree, hit_test_tree_all},
     profile_support::{PerfMeterStats, profile_elapsed, profile_if, profile_scope, profile_value},
@@ -1813,6 +1813,7 @@ impl Tree {
 
   pub fn key_down_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
+    let control = EventControl::new();
     let mut capture_evt = KeyboardEvent {
       key: key.clone(),
       code: code.clone(),
@@ -1821,79 +1822,82 @@ impl Tree {
       alt,
       meta,
       target_id: NodeId::UNASSIGNED,
+      control: control.clone(),
     };
     let captured = self
       .root
       .as_ref()
       .is_some_and(|root| fire_keyboard_capture_recursive(root, &mut capture_evt));
     if captured {
+      capture_evt.prevent_default();
+      capture_evt.stop_propagation();
       self.needs_redraw = true;
       self.apply_reactive_updates_after_event();
       return;
     }
 
-    let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
-      #[cfg(feature = "form")]
-      {
-        self.focus_form_tab(shift)
-      }
-      #[cfg(not(feature = "form"))]
-      {
-        false
-      }
-    } else if matches!(
-      (key.as_str(), code.as_str()),
-      ("Enter" | " ", _) | (_, "Enter" | "Space")
-    ) && self.activate_focused_button()
-    {
-      true
-    } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
-      #[cfg(feature = "form")]
-      {
-        self.submit_focused_single_line_text_input()
-      }
-      #[cfg(not(feature = "form"))]
-      {
-        false
-      }
-    } {
-      true
-    } else {
-      false
-    };
-
-    if handled {
-      self.needs_redraw = true;
-    } else if self.dispatch_select_key(&key, &code) {
-      self.needs_redraw = true;
-    } else if self.dismiss_top_overlay_on_escape(&key, &code) {
-      self.needs_redraw = true;
-    } else {
-      let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
-      let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
-      if blurred_text_input || cleared_text_selection {
-        self.needs_redraw = true;
-      } else if self.dispatch_text_input(&key, &code, shift, ctrl, alt, meta) {
-        self.needs_redraw = true;
-      } else {
-        self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
-      }
-    }
-
     let mut evt = KeyboardEvent {
-      key,
-      code,
+      key: key.clone(),
+      code: code.clone(),
       shift,
       ctrl,
       alt,
       meta,
       target_id: NodeId::UNASSIGNED,
+      control,
     };
-    let root = match &self.root {
-      Some(r) => r,
-      None => return,
-    };
-    fire_keyboard_recursive(root, &mut evt);
+    if let Some(root) = &self.root {
+      fire_keyboard_recursive(root, &mut evt);
+    }
+    if !evt.default_prevented() {
+      let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
+        #[cfg(feature = "form")]
+        {
+          self.focus_form_tab(shift)
+        }
+        #[cfg(not(feature = "form"))]
+        {
+          false
+        }
+      } else if matches!(
+        (key.as_str(), code.as_str()),
+        ("Enter" | " ", _) | (_, "Enter" | "Space")
+      ) && self.activate_focused_button()
+      {
+        true
+      } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
+        #[cfg(feature = "form")]
+        {
+          self.submit_focused_single_line_text_input()
+        }
+        #[cfg(not(feature = "form"))]
+        {
+          false
+        }
+      } {
+        true
+      } else {
+        false
+      };
+
+      if handled {
+        self.needs_redraw = true;
+      } else if self.dispatch_select_key(&key, &code) {
+        self.needs_redraw = true;
+      } else if self.dismiss_top_overlay_on_escape(&key, &code) {
+        self.needs_redraw = true;
+      } else {
+        let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
+        let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
+        if blurred_text_input || cleared_text_selection {
+          self.needs_redraw = true;
+        } else if self.dispatch_text_input(&key, &code, shift, ctrl, alt, meta) {
+          self.needs_redraw = true;
+        } else {
+          self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
+        }
+      }
+    }
     self.apply_reactive_updates_after_event();
   }
 
@@ -1911,6 +1915,7 @@ impl Tree {
       alt,
       meta,
       target_id: NodeId::UNASSIGNED,
+      control: EventControl::new(),
     };
     let root = match &self.root {
       Some(r) => r,
@@ -2099,6 +2104,7 @@ impl Tree {
         ctrl: false,
         alt: false,
         target_id: focused,
+        control: EventControl::new(),
       });
     }
 
@@ -2300,6 +2306,7 @@ impl Tree {
       ctrl: modifiers.ctrl,
       alt: modifiers.alt,
       target_id: NodeId::UNASSIGNED,
+      control: EventControl::new(),
     };
     let scale = self.scale_factor();
     let lx = evt.x / scale;
@@ -2442,12 +2449,11 @@ impl Tree {
       }
     }
 
-    if matches!(evt.kind, MouseEventKind::Click) && button == MouseButton::Left {
-      for open in self.overlay_dismiss_signals_at(lx, ly) {
-        open.set(false);
-        self.needs_redraw = true;
-      }
-    }
+    let overlay_dismiss_signals = if matches!(evt.kind, MouseEventKind::Click) && button == MouseButton::Left {
+      self.overlay_dismiss_signals_at(lx, ly)
+    } else {
+      Vec::new()
+    };
 
     let root = match &self.root {
       Some(r) => r,
@@ -2494,6 +2500,7 @@ impl Tree {
           .first()
           .map(|(node, _)| node.node_id())
           .unwrap_or(NodeId::UNASSIGNED),
+        control: EventControl::new(),
       };
       let callbacks = self
         .root_ctx
@@ -2515,7 +2522,68 @@ impl Tree {
       None
     };
 
-    if is_left_down {
+    'mouse_dispatch: for (node, _rect) in &hits {
+      evt.target_id = node.node_id();
+      match evt.kind {
+        MouseEventKind::Click => {
+          if evt.button == MouseButton::Left
+            && let Some(ref handler) = node.events.on_click
+          {
+            handler(&evt);
+            if evt.immediate_propagation_stopped() {
+              break 'mouse_dispatch;
+            }
+          }
+          for (button, handler) in &node.events.on_mouse_click {
+            if *button == evt.button {
+              handler(&evt);
+              if evt.immediate_propagation_stopped() {
+                break 'mouse_dispatch;
+              }
+            }
+          }
+        }
+        MouseEventKind::DoubleClick => {
+          if evt.button == MouseButton::Left
+            && let Some(ref handler) = node.events.on_dblclick
+          {
+            handler(&evt);
+            if evt.immediate_propagation_stopped() {
+              break 'mouse_dispatch;
+            }
+          }
+        }
+        MouseEventKind::Down => {
+          if let Some(ref handler) = node.events.on_mouse_down {
+            handler(&evt);
+            if evt.immediate_propagation_stopped() {
+              break 'mouse_dispatch;
+            }
+          }
+        }
+        MouseEventKind::Up => {
+          if let Some(ref handler) = node.events.on_mouse_up {
+            handler(&evt);
+            if evt.immediate_propagation_stopped() {
+              break 'mouse_dispatch;
+            }
+          }
+        }
+        MouseEventKind::Move => {
+          if let Some(ref handler) = node.events.on_mouse_move {
+            handler(&evt);
+            if evt.immediate_propagation_stopped() {
+              break 'mouse_dispatch;
+            }
+          }
+        }
+      }
+      if evt.propagation_stopped() {
+        break;
+      }
+    }
+
+    if !evt.default_prevented() && is_left_down {
       // Focus the select trigger on press so keyboard navigation works.
       if let Some((node, _)) = hits
         .iter()
@@ -2556,7 +2624,7 @@ impl Tree {
       }
     }
 
-    if is_left_click || is_left_down {
+    if !evt.default_prevented() && (is_left_click || is_left_down) {
       if is_left_down {
         if let Some((node, rect)) = hits
           .iter()
@@ -2744,41 +2812,44 @@ impl Tree {
     }
 
     // Check scrollbar thumb hover/press
-    for (node, _) in &hits {
-      if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
-        let sb_style = state.style();
-        let mut on_thumb = false;
-        let mut pressed_axis = None;
+    if !evt.default_prevented() {
+      for (node, _) in &hits {
+        if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
+          let sb_style = state.style();
+          let mut on_thumb = false;
+          let mut pressed_axis = None;
 
-        for &axis in scroll_axes(*direction) {
-          let Some((tx, ty, tw, th)) = state.thumb_rect_for_axis(axis, &sb_style) else {
-            continue;
-          };
-          let on_axis_thumb = lx >= tx && lx <= tx + tw && ly >= ty && ly <= ty + th;
-          on_thumb |= on_axis_thumb;
-          if on_axis_thumb && is_left_down && pressed_axis.is_none() {
-            pressed_axis = Some(axis);
+          for &axis in scroll_axes(*direction) {
+            let Some((tx, ty, tw, th)) = state.thumb_rect_for_axis(axis, &sb_style) else {
+              continue;
+            };
+            let on_axis_thumb = lx >= tx && lx <= tx + tw && ly >= ty && ly <= ty + th;
+            on_thumb |= on_axis_thumb;
+            if on_axis_thumb && is_left_down && pressed_axis.is_none() {
+              pressed_axis = Some(axis);
+            }
           }
-        }
 
-        if on_thumb != state.is_thumb_hovered() {
-          state.set_thumb_hovered(on_thumb);
-          self.needs_redraw = true;
-        }
+          if on_thumb != state.is_thumb_hovered() {
+            state.set_thumb_hovered(on_thumb);
+            self.needs_redraw = true;
+          }
 
-        if let Some(axis) = pressed_axis {
-          state.begin_drag_axis(axis, lx, ly);
-          self.dragging_scroll = Some(ScrollDrag {
-            state: state.clone(),
-            axis,
-          });
-          self.needs_redraw = true;
-          return;
+          if let Some(axis) = pressed_axis {
+            state.begin_drag_axis(axis, lx, ly);
+            self.dragging_scroll = Some(ScrollDrag {
+              state: state.clone(),
+              axis,
+            });
+            self.needs_redraw = true;
+            return;
+          }
         }
       }
     }
 
-    let pending_drag = if matches!(evt.kind, MouseEventKind::Down)
+    let pending_drag = if !evt.default_prevented()
+      && matches!(evt.kind, MouseEventKind::Down)
       && pending_slider_drag.is_none()
       && pending_text_selection_drag.is_none()
     {
@@ -2820,52 +2891,22 @@ impl Tree {
       None
     };
 
-    // Normal event dispatch
-    for (node, _rect) in &hits {
-      evt.target_id = node.node_id();
-      match evt.kind {
-        MouseEventKind::Click => {
-          if evt.button == MouseButton::Left
-            && let Some(ref handler) = node.events.on_click
-          {
-            handler(&evt);
-          }
-          for (button, handler) in &node.events.on_mouse_click {
-            if *button == evt.button {
-              handler(&evt);
-            }
-          }
-        }
-        MouseEventKind::DoubleClick => {
-          if evt.button == MouseButton::Left
-            && let Some(ref handler) = node.events.on_dblclick
-          {
-            handler(&evt);
-          }
-        }
-        MouseEventKind::Down => {
-          if let Some(ref handler) = node.events.on_mouse_down {
-            handler(&evt);
-          }
-        }
-        MouseEventKind::Up => {
-          if let Some(ref handler) = node.events.on_mouse_up {
-            handler(&evt);
-          }
-        }
-        MouseEventKind::Move => {
-          if let Some(ref handler) = node.events.on_mouse_move {
-            handler(&evt);
-          }
-        }
-      }
-    }
     #[cfg(feature = "form")]
-    if let Some((handler, data)) = pending_submit {
+    if !evt.default_prevented()
+      && let Some((handler, data)) = pending_submit
+    {
       handler(data);
       self.needs_redraw = true;
     }
-    if let Some((event, callbacks)) = click_outside_dispatch {
+    if !evt.default_prevented() {
+      for open in overlay_dismiss_signals {
+        open.set(false);
+        self.needs_redraw = true;
+      }
+    }
+    if !evt.default_prevented()
+      && let Some((event, callbacks)) = click_outside_dispatch
+    {
       for callback in callbacks {
         callback(&event);
       }
@@ -3280,6 +3321,7 @@ impl Tree {
       delta_y,
       phase,
       target_id: NodeId::UNASSIGNED,
+      control: EventControl::new(),
     };
     let root = match &self.root {
       Some(r) => r,
@@ -3297,9 +3339,38 @@ impl Tree {
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
 
+    // Fire user handlers before the default auto-scroll so prevent_default
+    // can block native scroll behavior.
+    for (node, _) in &hits {
+      evt.target_id = node.node_id();
+      match evt.phase {
+        ScrollPhase::Start => {
+          if let Some(ref handler) = node.events.on_scroll_start {
+            handler(&evt);
+          }
+        }
+        ScrollPhase::Scroll => {
+          if let Some(ref handler) = node.events.on_scroll {
+            handler(&evt);
+          }
+        }
+        ScrollPhase::End => {
+          if let Some(ref handler) = node.events.on_scroll_end {
+            handler(&evt);
+          }
+        }
+      }
+      if evt.immediate_propagation_stopped() || evt.propagation_stopped() {
+        break;
+      }
+    }
+
+    if evt.default_prevented() {
+      return;
+    }
+
     // Auto-scroll from the innermost scroll container outward, preserving
     // any delta an edge-clamped child could not consume.
-    let mut handled = false;
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
     for (node, _) in &hits {
@@ -3326,7 +3397,6 @@ impl Tree {
             hit_node.layout_cache.mark_descendant_dirty();
           }
           self.needs_redraw = true;
-          handled = true;
         }
         if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
           remaining_dx = overflow_dx;
@@ -3339,30 +3409,6 @@ impl Tree {
         }
       }
     }
-
-    // Fire user handlers
-    for (node, _) in &hits {
-      evt.target_id = node.node_id();
-      match evt.phase {
-        ScrollPhase::Start => {
-          if let Some(ref handler) = node.events.on_scroll_start {
-            handler(&evt);
-          }
-        }
-        ScrollPhase::Scroll => {
-          if let Some(ref handler) = node.events.on_scroll {
-            handler(&evt);
-          }
-        }
-        ScrollPhase::End => {
-          if let Some(ref handler) = node.events.on_scroll_end {
-            handler(&evt);
-          }
-        }
-      }
-    }
-
-    let _ = handled;
   }
 
   pub fn resolve_quads(&self, result: &LayoutResult) -> Vec<Quad> {
@@ -5958,14 +6004,23 @@ fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {
   x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
-fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
+fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_down {
     handler(evt);
+    if evt.immediate_propagation_stopped() {
+      return true;
+    }
+  }
+  if evt.propagation_stopped() {
+    return true;
   }
   for child in node.children() {
-    fire_keyboard_recursive(child, evt);
+    if fire_keyboard_recursive(child, evt) {
+      return true;
+    }
   }
+  false
 }
 
 fn fire_keyboard_capture_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
@@ -5973,6 +6028,11 @@ fn fire_keyboard_capture_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool
   if let Some(ref handler) = node.events.on_key_down_capture
     && handler(evt)
   {
+    evt.prevent_default();
+    evt.stop_propagation();
+    return true;
+  }
+  if evt.propagation_stopped() {
     return true;
   }
   for child in node.children() {
@@ -5983,14 +6043,23 @@ fn fire_keyboard_capture_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool
   false
 }
 
-fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) {
+fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   evt.target_id = node.node_id();
   if let Some(ref handler) = node.events.on_key_up {
     handler(evt);
+    if evt.immediate_propagation_stopped() {
+      return true;
+    }
+  }
+  if evt.propagation_stopped() {
+    return true;
   }
   for child in node.children() {
-    fire_keyboard_up_recursive(child, evt);
+    if fire_keyboard_up_recursive(child, evt) {
+      return true;
+    }
   }
+  false
 }
 
 #[cfg(feature = "perf_profile")]

@@ -131,7 +131,20 @@ Rect::new(100.0, 40.0)
   .on_mouse_leave(|| println!("leave"))
 ```
 
-`MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`.
+`MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`. Mouse, keyboard, and scroll events also support propagation and default-action control:
+
+```rust
+Rect::new(100.0, 40.0)
+  .on_click(|event| {
+    event.stop_propagation();
+    event.prevent_default();
+  })
+```
+
+- `event.stop_propagation()` stops later handlers for the same dispatched event path.
+- `event.stop_immediate_propagation()` also stops later handlers on the current node.
+- `event.prevent_default()` blocks runtime defaults such as text editing, focused-button activation, form submit, overlay dismiss, and scroll movement where that event has a built-in default.
+- `event.default_prevented()` and `event.propagation_stopped()` expose the current control state.
 
 Use `ctx.on_click_outside` with an element ref when a component needs to react to clicks outside one of its own nodes:
 

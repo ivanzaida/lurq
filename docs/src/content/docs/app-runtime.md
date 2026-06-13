@@ -122,7 +122,7 @@ WinitWindow::new(app, tree)
 
 Pointer input is resolved against the latest layout and hit-tested in visual coordinates. The runtime tracks hover, active, focus, drag, scroll, cursor, text selection, and text click counts across retained nodes.
 
-Built-in text behavior runs before user keyboard handlers on focused text inputs. It handles caret movement, selection replacement, undo/redo, and clipboard shortcuts when the `clipboard` feature is enabled. If a key is not consumed by a text input, normal `on_key_down` handlers still receive the event.
+User keyboard handlers run before built-in keyboard defaults. Built-in text behavior handles caret movement, selection replacement, undo/redo, and clipboard shortcuts when the `clipboard` feature is enabled. Call `event.prevent_default()` from an `on_key_down` handler to block those built-in defaults for that key.
 
 ## Sizing And Scale
 

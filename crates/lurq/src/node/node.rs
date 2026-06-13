@@ -2671,6 +2671,7 @@ impl Node {
 
   pub(crate) fn sync_dynamic_content_recursive(&mut self) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.sync_external_value();
       let rendered = state.rendered_text();
       if self.text_content.as_ref() != rendered.as_ref() {
         self.text_content.set(rendered);

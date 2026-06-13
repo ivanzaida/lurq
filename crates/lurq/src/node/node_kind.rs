@@ -310,6 +310,7 @@ pub(crate) struct TextInputState {
 
 struct TextInputInner {
   placeholder: Option<String>,
+  last_value: String,
   caret: usize,
   selection_anchor: Option<usize>,
   caret_x: f32,
@@ -345,11 +346,13 @@ pub(crate) struct TextInputLayoutSignature {
 
 impl TextInputState {
   pub(crate) fn new(value: Signal<String>) -> Self {
-    let caret = value.get_untracked().len();
+    let initial_value = value.get_untracked();
+    let caret = initial_value.len();
     Self {
       value,
       inner: Arc::new(Mutex::new(TextInputInner {
         placeholder: None,
+        last_value: initial_value,
         caret,
         selection_anchor: None,
         caret_x: 0.0,
@@ -376,6 +379,28 @@ impl TextInputState {
 
   pub(crate) fn value(&self) -> String {
     self.value.get_untracked()
+  }
+
+  pub(crate) fn sync_external_value(&self) -> bool {
+    let value = self.value();
+    let mut inner = self.inner.lock().unwrap();
+    if inner.last_value == value {
+      return false;
+    }
+
+    let previous_len = inner.last_value.len();
+    if inner.selection_anchor.is_none() && inner.caret == previous_len {
+      inner.caret = value.len();
+    } else {
+      inner.caret = clamp_to_char_boundary(&value, inner.caret.min(value.len()));
+      inner.selection_anchor = inner
+        .selection_anchor
+        .map(|anchor| clamp_to_char_boundary(&value, anchor.min(value.len())));
+    }
+    inner.last_value = value;
+    drop(inner);
+    self.mark_layout_dirty();
+    true
   }
 
   pub(crate) fn set_placeholder(&self, placeholder: impl Into<String>) {
@@ -761,6 +786,7 @@ impl TextInputState {
     }
     let old_inner = old.inner.lock().unwrap();
     let old_caret = old_inner.caret;
+    let old_last_value = old_inner.last_value.clone();
     let old_selection_anchor = old_inner.selection_anchor;
     let old_caret_x = old_inner.caret_x;
     let old_caret_y = old_inner.caret_y;
@@ -781,6 +807,7 @@ impl TextInputState {
     };
     let len = self.value().len();
     let mut inner = self.inner.lock().unwrap();
+    inner.last_value = old_last_value;
     inner.caret = old_caret.min(len);
     inner.selection_anchor = old_selection_anchor.map(|anchor| anchor.min(len));
     inner.caret_x = old_caret_x;
