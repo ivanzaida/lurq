@@ -25,6 +25,30 @@ fn focused_text_input_appends_key_down_text_to_signal() {
 }
 
 #[test]
+fn key_down_capture_can_prevent_text_input_editing() {
+  let value = Signal::new(String::new());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::new(value.clone())
+      .placeholder("Name")
+      .on_key_down_capture(|event| event.key == "A"),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime
+    .find_element(|_| true)
+    .expect("text input should be layoutable")
+    .bounds();
+  let (x, y) = rect.center();
+
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+  runtime.key_down("A".to_owned(), "KeyA".to_owned(), false, false, false);
+  runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
+
+  assert_eq!(value.get(), "B");
+}
+
+#[test]
 fn displayed_text_updates_after_typing() {
   let value = Signal::new(String::new());
   let mut runtime = Tree::new();

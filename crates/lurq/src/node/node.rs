@@ -41,6 +41,7 @@ use crate::{
 };
 
 type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
+type KeyboardCaptureCallback = Arc<dyn Fn(&KeyboardEvent) -> bool + Send + Sync>;
 type VoidCallback = Arc<dyn Fn() + Send + Sync>;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
 
@@ -126,6 +127,7 @@ pub(crate) trait NodeUpdate {
   fn on_drop(&mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static);
   fn on_mouse_enter(&mut self, f: impl Fn() + Send + Sync + 'static);
   fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static);
+  fn on_key_down_capture(&mut self, f: impl Fn(&KeyboardEvent) -> bool + Send + Sync + 'static);
   fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
   fn on_key_up(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
   fn on_focus(&mut self, f: impl Fn() + Send + Sync + 'static);
@@ -282,6 +284,7 @@ pub struct EventHandlers {
   pub on_drop: Option<Callback<DropEvent>>,
   pub on_mouse_enter: Option<VoidCallback>,
   pub on_mouse_leave: Option<VoidCallback>,
+  pub on_key_down_capture: Option<KeyboardCaptureCallback>,
   pub on_key_down: Option<Callback<KeyboardEvent>>,
   pub on_key_up: Option<Callback<KeyboardEvent>>,
   pub on_focus: Option<VoidCallback>,
@@ -796,6 +799,10 @@ impl NodeUpdate for Node {
 
   fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static) {
     self.events.on_mouse_leave = Some(Arc::new(f));
+  }
+
+  fn on_key_down_capture(&mut self, f: impl Fn(&KeyboardEvent) -> bool + Send + Sync + 'static) {
+    self.events.on_key_down_capture = Some(Arc::new(f));
   }
 
   fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) {
@@ -1735,6 +1742,11 @@ impl Node {
 
   pub fn on_mouse_leave(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
     self.events.on_mouse_leave = Some(Arc::new(f));
+    self
+  }
+
+  pub fn on_key_down_capture(mut self, f: impl Fn(&KeyboardEvent) -> bool + Send + Sync + 'static) -> Self {
+    self.events.on_key_down_capture = Some(Arc::new(f));
     self
   }
 

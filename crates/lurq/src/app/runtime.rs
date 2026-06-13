@@ -1813,6 +1813,25 @@ impl Tree {
 
   pub fn key_down_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
+    let mut capture_evt = KeyboardEvent {
+      key: key.clone(),
+      code: code.clone(),
+      shift,
+      ctrl,
+      alt,
+      meta,
+      target_id: NodeId::UNASSIGNED,
+    };
+    let captured = self
+      .root
+      .as_ref()
+      .is_some_and(|root| fire_keyboard_capture_recursive(root, &mut capture_evt));
+    if captured {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
+      return;
+    }
+
     let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
       #[cfg(feature = "form")]
       {
@@ -5947,6 +5966,21 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) {
   for child in node.children() {
     fire_keyboard_recursive(child, evt);
   }
+}
+
+fn fire_keyboard_capture_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
+  evt.target_id = node.node_id();
+  if let Some(ref handler) = node.events.on_key_down_capture
+    && handler(evt)
+  {
+    return true;
+  }
+  for child in node.children() {
+    if fire_keyboard_capture_recursive(child, evt) {
+      return true;
+    }
+  }
+  false
 }
 
 fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) {
