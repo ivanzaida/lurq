@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools", "clipboard", "form", "router"] }
+lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools", "clipboard", "form", "router", "markdown"] }
 tracing.workspace = true

@@ -43,6 +43,11 @@ pub enum QuadContent {
     wrap: bool,
     transform_mode: TextTransformMode,
   },
+  RichText {
+    spans: Vec<RichTextSpan>,
+    wrap: bool,
+    transform_mode: TextTransformMode,
+  },
   #[cfg(feature = "image")]
   Image {
     data: crate::images::ImageData,
@@ -54,4 +59,10 @@ pub enum QuadContent {
     data: crate::svg::SvgData,
   },
   None,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct RichTextSpan {
+  pub text: String,
+  pub style: TextStyle,
 }

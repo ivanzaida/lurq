@@ -14,6 +14,8 @@ mod breakpoints;
 mod caret;
 #[cfg(feature = "form")]
 mod form;
+#[cfg(feature = "markdown")]
+mod markdown;
 mod palette;
 mod radius;
 mod spacing;
@@ -27,6 +29,8 @@ pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
   FormTheme,
 };
+#[cfg(feature = "markdown")]
+pub use markdown::{MarkdownBlockStyle, MarkdownInlineStyle, MarkdownTextStyle, ThemeMarkdown};
 pub use palette::{PaletteColor, ThemePalette};
 pub use radius::{RadiusSize, ThemeRadii};
 pub use spacing::{SpacingSize, ThemeSpacing};
@@ -47,6 +51,8 @@ struct ThemeInner {
   caret: ThemeCaret,
   scrollbar: ScrollBarStyle,
   typography: ThemeTypography,
+  #[cfg(feature = "markdown")]
+  markdown: ThemeMarkdown,
   #[cfg(feature = "form")]
   form: FormTheme,
   version: u64,
@@ -77,6 +83,8 @@ impl Default for Theme {
         caret: ThemeCaret::default(),
         scrollbar: ScrollBarStyle::default(),
         typography: ThemeTypography::default(),
+        #[cfg(feature = "markdown")]
+        markdown: ThemeMarkdown::default(),
         #[cfg(feature = "form")]
         form: FormTheme::default(),
         version: 0,
@@ -253,6 +261,19 @@ impl Theme {
 
   pub fn typography_style(&self, typography_style: impl Into<TypographyStyle>) -> TextStyle {
     self.inner.read().unwrap().typography.get(typography_style)
+  }
+
+  #[cfg(feature = "markdown")]
+  pub fn markdown(&self) -> ThemeRef<'_, ThemeMarkdown> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.markdown,
+    }
+  }
+
+  #[cfg(feature = "markdown")]
+  pub fn set_markdown(&self, markdown: ThemeMarkdown) {
+    self.mutate_inner(|inner| inner.markdown = markdown);
   }
 
   pub fn fonts(&self) -> ThemeFonts {

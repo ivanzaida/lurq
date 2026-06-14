@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.13.3"
+version = "0.13.4"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -17,6 +17,7 @@ clipboard = ["dep:arboard"]
 form = []
 image = ["dep:image"]
 i18n = []
+markdown = ["dep:pulldown-cmark"]
 serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
@@ -36,6 +37,7 @@ cosmic-text = "0.12"
 parking_lot.workspace = true
 paste = "1"
 pollster = { version = "0.4", optional = true }
+pulldown-cmark = { version = "0.13.4", default-features = false, optional = true }
 raw-window-handle = "0.6"
 swash = "0.1.19"
 wgpu = { version = "24", optional = true }

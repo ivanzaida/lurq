@@ -6,6 +6,7 @@ mod dynamic_demo;
 mod events_demo;
 mod inputs_demo;
 mod layout_demo;
+mod markdown_demo;
 mod positioning_demo;
 mod reactivity_demo;
 mod scroll_demo;
@@ -96,6 +97,7 @@ fn demo_routes(theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Routes {
         .route("/scroll", |_ctx| scroll_content())
         .route("/visual", |_ctx| visual_demo::visual_content())
         .route("/text", |_ctx| text_demo::text_content())
+        .route("/markdown", |ctx| markdown_demo::markdown_content(ctx))
         .route("/inputs", move |ctx| {
           ctx.mount::<inputs_demo::InputsDemo>(inputs_theme.get())
         })
@@ -310,18 +312,17 @@ fn main() {
   // let profile_file = std::fs::File::create(&profile_path).expect("create perf profile log");
   // let mut profile_writer = std::io::BufWriter::new(profile_file);
   // eprintln!("writing perf profile to {}", profile_path.display());
-  let window = WinitWindow::new(app, tree)
-    .with_title(&title);
-    // .on_paint(move |t, delta, report| {
-    //   let prof = t.profile();
-    //   writeln!(
-    //     profile_writer,
-    //     "Profile for frame delta={:.2}ms rendered={} layout_recalc={} {prof}",
-    //     delta.as_secs_f64() * 1000.0,
-    //     report.rendered,
-    //     report.layout_recalculated
-    //   )
-    //   .expect("write perf profile frame");
-    // });
+  let window = WinitWindow::new(app, tree).with_title(&title);
+  // .on_paint(move |t, delta, report| {
+  //   let prof = t.profile();
+  //   writeln!(
+  //     profile_writer,
+  //     "Profile for frame delta={:.2}ms rendered={} layout_recalc={} {prof}",
+  //     delta.as_secs_f64() * 1000.0,
+  //     report.rendered,
+  //     report.layout_recalculated
+  //   )
+  //   .expect("write perf profile frame");
+  // });
   window.run();
 }

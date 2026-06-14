@@ -798,12 +798,23 @@ impl LayoutEngine {
         state,
         style,
         transform_mode,
-      } => QuadContent::Text {
-        text: state
-          .display_text()
-          .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
-        style: style.resolve(&self.typography.borrow(), &self.palette.borrow()),
-        wrap: state.render_wrap(),
+      } => {
+        let resolved_style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
+        QuadContent::Text {
+          text: state
+            .display_text()
+            .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
+          style: resolved_style,
+          wrap: state.render_wrap(),
+          transform_mode: *transform_mode,
+        }
+      }
+      #[cfg(feature = "markdown")]
+      NodeKind::RichText {
+        spans, transform_mode, ..
+      } => QuadContent::RichText {
+        spans: spans.clone(),
+        wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
@@ -858,7 +869,7 @@ impl LayoutEngine {
     match &content {
       QuadContent::None => {}
       _ => {
-        if matches!(content, QuadContent::Text { .. }) && has_visual {
+        if matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. }) && has_visual {
           let (visual_x, visual_y, visual_transform, visual_transform_origin) =
             transformed_quad_frame(abs_x, abs_y, transform);
           quads.push(Quad {
@@ -884,6 +895,40 @@ impl LayoutEngine {
         {
           let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
+          let selection_clip = clip;
+          for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
+            let selection_x = abs_x + selection.x;
+            let selection_y = abs_y + selection.y;
+            let (selection_x, selection_y, selection_transform, selection_transform_origin) =
+              transformed_quad_frame(selection_x, selection_y, transform);
+            quads.push(Quad {
+              x: selection_x,
+              y: selection_y,
+              width: selection.width,
+              height: selection_height,
+              opacity,
+              transform: selection_transform,
+              transform_origin: selection_transform_origin,
+              content: QuadContent::Rect {
+                color: DEFAULT_TEXT_SELECTION_COLOR,
+                gradient: None,
+              },
+              border_radius: None,
+              border: None,
+              clip: selection_clip,
+            });
+          }
+        }
+        #[cfg(feature = "markdown")]
+        if let NodeKind::RichText { state, spans, .. } = node.node_kind()
+          && state.selectable()
+        {
+          let style = spans.first().map(|span| &span.style);
+          let selection_height = style
+            .map(|style| style.font_size * style.line_height)
+            .unwrap_or(16.0)
+            .min(result.size.height)
+            .max(1.0);
           let selection_clip = clip;
           for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
             let selection_x = abs_x + selection.x;
@@ -994,7 +1039,8 @@ impl LayoutEngine {
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
 
-        let content_uses_separate_visual_rect = matches!(content, QuadContent::Text { .. }) && has_visual;
+        let content_uses_separate_visual_rect =
+          matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. }) && has_visual;
         let (content_x, content_y, content_transform, content_transform_origin) =
           transformed_quad_frame(content_x, content_y, transform);
         quads.push(Quad {
@@ -1630,13 +1676,26 @@ impl LayoutEngine {
   fn layout_leaf(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
     match node.node_kind() {
       NodeKind::Text { state, style, .. } => {
-        let content = node.text_content().unwrap_or_default();
+        let source = node.text_content().unwrap_or_default();
         let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
+        let (content, force_display_text) = (source, false);
         return self.layout_text_node(
           glyph_engine,
           content,
           state,
           &style,
+          constraints,
+          node.text_wrap,
+          node.text_overflow,
+          force_display_text,
+        );
+      }
+      #[cfg(feature = "markdown")]
+      NodeKind::RichText { state, spans, .. } => {
+        return self.layout_rich_text_node(
+          glyph_engine,
+          spans,
+          state,
           constraints,
           node.text_wrap,
           node.text_overflow,
@@ -1790,14 +1849,19 @@ impl LayoutEngine {
     constraints: Constraints,
     wrap: bool,
     overflow: TextOverflow,
+    force_display_text: bool,
   ) -> LayoutResult {
     let effective_wrap = wrap && overflow == TextOverflow::Clip;
-    let display_text = match overflow {
+    let overflow_display_text = match overflow {
       TextOverflow::Clip => None,
       TextOverflow::Elipsis => self.ellipsize_text(glyph_engine, text, style, constraints.max_width),
     };
-    state.set_display_text(display_text.clone());
-    let layout_text = display_text.as_deref().unwrap_or(text);
+    let layout_text = overflow_display_text.as_deref().unwrap_or(text);
+    if force_display_text || overflow_display_text.is_some() {
+      state.set_display_text(Some(layout_text.to_owned()));
+    } else {
+      state.set_display_text(None);
+    }
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
     state.set_render_wrap(render_wrap);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
@@ -1805,6 +1869,39 @@ impl LayoutEngine {
       state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
     }
     self.layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
+  }
+
+  #[cfg(feature = "markdown")]
+  fn layout_rich_text_node(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    spans: &[crate::layout::quad::RichTextSpan],
+    state: &crate::node::node_kind::TextState,
+    constraints: Constraints,
+    wrap: bool,
+    overflow: TextOverflow,
+  ) -> LayoutResult {
+    let effective_wrap = wrap && overflow == TextOverflow::Clip;
+    let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
+    state.set_render_wrap(render_wrap);
+    let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
+    let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    state.set_display_text(Some(display_text.clone()));
+    if state.selectable()
+      && let Some(first) = spans.first()
+    {
+      state.set_caret_positions(glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
+    }
+    let measured = glyph_engine.measure_rich_text(spans, max_width);
+    let size = if effective_wrap {
+      constraints.constrain(measured)
+    } else {
+      Size::new(
+        measured.width.max(constraints.min_width),
+        measured.height.max(constraints.min_height),
+      )
+    };
+    LayoutResult { size, children: vec![] }
   }
 
   fn text_width(&self, glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> f32 {

@@ -47,6 +47,12 @@ pub(crate) enum NodeKind {
     style: TextStyleSource,
     transform_mode: TextTransformMode,
   },
+  #[cfg(feature = "markdown")]
+  RichText {
+    state: TextState,
+    spans: Vec<crate::layout::quad::RichTextSpan>,
+    transform_mode: TextTransformMode,
+  },
   TextInput {
     state: TextInputState,
     style: TextStyle,

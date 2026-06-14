@@ -11,6 +11,8 @@ pub mod core;
 #[cfg(feature = "image")]
 pub mod images;
 pub mod layout;
+#[cfg(feature = "markdown")]
+pub mod markdown;
 pub mod node;
 #[cfg(feature = "render")]
 pub(crate) mod render;

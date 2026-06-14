@@ -10,6 +10,8 @@ mod form;
 mod image;
 #[cfg(feature = "router")]
 mod link;
+#[cfg(feature = "markdown")]
+mod markdown;
 #[cfg(feature = "router")]
 mod outlet;
 mod popup;
@@ -48,6 +50,8 @@ pub use form::{
 pub use image::Image;
 #[cfg(feature = "router")]
 pub use link::Link;
+#[cfg(feature = "markdown")]
+pub use markdown::{Markdown, MarkdownProps};
 #[cfg(feature = "router")]
 pub use outlet::Outlet;
 pub use popup::{Popover, Popup};

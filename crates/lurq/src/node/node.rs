@@ -896,8 +896,11 @@ impl NodeUpdate for Node {
   }
 
   fn selectable(&mut self, selectable: bool) {
-    if let NodeKind::Text { state, .. } = &self.node_kind {
-      state.set_selectable(selectable);
+    match &self.node_kind {
+      NodeKind::Text { state, .. } => state.set_selectable(selectable),
+      #[cfg(feature = "markdown")]
+      NodeKind::RichText { state, .. } => state.set_selectable(selectable),
+      _ => {}
     }
   }
 
@@ -1198,6 +1201,21 @@ impl Node {
       vec![],
     );
     node.with_text_content(content)
+  }
+
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text(spans: Vec<crate::layout::quad::RichTextSpan>) -> Self {
+    let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::RichText {
+        state: TextState::new(),
+        spans,
+        transform_mode: TextTransformMode::default(),
+      },
+      vec![],
+    )
+    .with_text_content(&text)
   }
 
   pub fn text_input(value: Signal<String>) -> Self {
@@ -1903,10 +1921,25 @@ impl Node {
   }
 
   pub fn selectable(self, selectable: bool) -> Self {
-    if let NodeKind::Text { state, .. } = &self.node_kind {
-      state.set_selectable(selectable);
+    match &self.node_kind {
+      NodeKind::Text { state, .. } => state.set_selectable(selectable),
+      #[cfg(feature = "markdown")]
+      NodeKind::RichText { state, .. } => state.set_selectable(selectable),
+      _ => {}
     }
     self
+  }
+
+  #[cfg(feature = "markdown")]
+  pub(crate) fn selectable_recursive(&mut self, selectable: bool) {
+    match &self.node_kind {
+      NodeKind::Text { state, .. } => state.set_selectable(selectable),
+      NodeKind::RichText { state, .. } => state.set_selectable(selectable),
+      _ => {}
+    }
+    for child in &mut self.children {
+      child.selectable_recursive(selectable);
+    }
   }
 
   pub fn text_transform_mode(mut self, mode: TextTransformMode) -> Self {
@@ -2695,6 +2728,14 @@ impl Node {
           own_layout_signature_matches,
         );
       }
+      #[cfg(feature = "markdown")]
+      (NodeKind::RichText { state, .. }, NodeKind::RichText { state: old_state, .. }) => {
+        state.copy_runtime_state_from(
+          old_state,
+          self.text_content().unwrap_or_default(),
+          own_layout_signature_matches,
+        );
+      }
       (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state, own_layout_signature_matches);
       }
@@ -2841,6 +2882,19 @@ impl Node {
           transform_mode: old_transform_mode,
         },
       ) => style == old_style && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
+      #[cfg(feature = "markdown")]
+      (
+        NodeKind::RichText {
+          state,
+          spans,
+          transform_mode,
+        },
+        NodeKind::RichText {
+          state: old_state,
+          spans: old_spans,
+          transform_mode: old_transform_mode,
+        },
+      ) => spans == old_spans && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
       (
         NodeKind::TextInput {
           state,

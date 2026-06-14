@@ -5,8 +5,8 @@ use std::{
 };
 
 use cosmic_text::{
-  Attrs, Buffer, CacheKey as GlyphCacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage,
-  Wrap,
+  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, SwashCache,
+  SwashContent, SwashImage, Wrap,
 };
 use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
@@ -16,10 +16,11 @@ use swash::{
 use crate::{
   layout::{
     Size,
+    quad::RichTextSpan,
     render_list::{GlyphAtlas, GlyphCmd},
     text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
   },
-  node::{text_selection::CaretPosition, transform::Transform2D},
+  node::{color::Color, text_selection::CaretPosition, transform::Transform2D},
 };
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
@@ -223,6 +224,20 @@ impl GlyphEngine {
     size
   }
 
+  #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+  pub(crate) fn measure_rich_text(&mut self, spans: &[RichTextSpan], max_width: f32) -> Size {
+    let Some(first) = spans.first() else {
+      return Size::default();
+    };
+    let wrap = is_bounded_text_width(max_width);
+    let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
+    self.set_rich_buffer_text(&mut buffer, spans);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+    let size = measure_buffer(&buffer, first.style.font_size * first.style.line_height);
+    self.buffer_pool.push(buffer);
+    size
+  }
+
   pub(crate) fn caret_positions(
     &mut self,
     text: &str,
@@ -333,6 +348,18 @@ impl GlyphEngine {
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, true, out);
   }
 
+  pub(crate) fn rasterize_rich_text_with_wrap_into(
+    &mut self,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+    origin_x: f32,
+    origin_y: f32,
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    self.rasterize_rich_text_with_snap_into(spans, max_width, wrap, origin_x, origin_y, true, out);
+  }
+
   #[cfg(test)]
   pub(crate) fn rasterize_text_unsnapped(
     &mut self,
@@ -367,6 +394,18 @@ impl GlyphEngine {
     out: &mut Vec<GlyphCmd>,
   ) {
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, false, out);
+  }
+
+  pub(crate) fn rasterize_rich_text_unsnapped_with_wrap_into(
+    &mut self,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+    origin_x: f32,
+    origin_y: f32,
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    self.rasterize_rich_text_with_snap_into(spans, max_width, wrap, origin_x, origin_y, false, out);
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -448,6 +487,62 @@ impl GlyphEngine {
       swash_transform,
       out,
     );
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  pub(crate) fn rasterize_rich_text_with_baked_transform_into(
+    &mut self,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+    origin_x: f32,
+    origin_y: f32,
+    transform: Transform2D,
+    transform_origin: [f32; 2],
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    let Some(first) = spans.first() else {
+      return;
+    };
+    let wrap = effective_text_wrap(max_width, wrap);
+    let swash_transform = swash_transform_from_screen(transform);
+    let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
+    self.set_rich_buffer_text(&mut buffer, spans);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs.iter() {
+        let x_offset = glyph.font_size * glyph.x_offset;
+        let y_offset = glyph.font_size * glyph.y_offset;
+        let (cache_key, ..) = GlyphCacheKey::new(
+          glyph.font_id,
+          glyph.glyph_id,
+          glyph.font_size,
+          (0.0, 0.0),
+          glyph.cache_key_flags,
+        );
+        let Some(packed) = self.get_or_pack_transformed_glyph(cache_key, swash_transform) else {
+          continue;
+        };
+        let (transformed_origin_x, transformed_origin_y) = transformed_glyph_origin(
+          origin_x,
+          origin_y,
+          glyph.x + x_offset,
+          run.line_y + glyph.y - y_offset,
+          transform,
+          transform_origin,
+        );
+        self.push_glyph_cmd(
+          out,
+          transformed_origin_x + packed.left as f32,
+          transformed_origin_y - packed.top as f32,
+          packed,
+          glyph_color(glyph.color_opt, first.style.color),
+          false,
+        );
+      }
+    }
+    self.buffer_pool.push(buffer);
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -539,6 +634,69 @@ impl GlyphEngine {
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
     append_glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel, out);
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn rasterize_rich_text_with_snap_into(
+    &mut self,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+    origin_x: f32,
+    origin_y: f32,
+    snap_to_pixel: bool,
+    out: &mut Vec<GlyphCmd>,
+  ) {
+    let Some(first) = spans.first() else {
+      return;
+    };
+    let wrap = effective_text_wrap(max_width, wrap);
+    let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
+    self.set_rich_buffer_text(&mut buffer, spans);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs.iter() {
+        let default_color = first.style.color;
+        let color = glyph_color(glyph.color_opt, default_color);
+        if snap_to_pixel {
+          let physical = glyph.physical((0.0, run.line_y), 1.0);
+          let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
+            continue;
+          };
+          self.push_glyph_cmd(
+            out,
+            origin_x + (physical.x + packed.left) as f32,
+            origin_y + (physical.y - packed.top) as f32,
+            packed,
+            color,
+            true,
+          );
+        } else {
+          let x_offset = glyph.font_size * glyph.x_offset;
+          let y_offset = glyph.font_size * glyph.y_offset;
+          let (cache_key, ..) = GlyphCacheKey::new(
+            glyph.font_id,
+            glyph.glyph_id,
+            glyph.font_size,
+            (0.0, 0.0),
+            glyph.cache_key_flags,
+          );
+          let Some(packed) = self.get_or_pack_glyph(cache_key) else {
+            continue;
+          };
+          self.push_glyph_cmd(
+            out,
+            origin_x + glyph.x + x_offset + packed.left as f32,
+            origin_y + run.line_y + glyph.y - y_offset - packed.top as f32,
+            packed,
+            color,
+            false,
+          );
+        }
+      }
+    }
+    self.buffer_pool.push(buffer);
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -732,6 +890,58 @@ impl GlyphEngine {
     buffer
   }
 
+  fn set_rich_buffer_text(&mut self, buffer: &mut Buffer, spans: &[RichTextSpan]) {
+    let Some(first) = spans.first() else {
+      return;
+    };
+    let families: Vec<_> = spans.iter().map(|span| self.resolve_family(&span.style)).collect();
+    let rich_spans: Vec<_> = spans
+      .iter()
+      .zip(families.iter())
+      .map(|(span, family)| (span.text.as_str(), attrs_for_style(&span.style, family)))
+      .collect();
+    let default_family = self.resolve_family(&first.style);
+    buffer.set_rich_text(
+      &mut self.font_system,
+      rich_spans,
+      attrs_for_style(&first.style, &default_family),
+      Shaping::Advanced,
+    );
+    for line in &mut buffer.lines {
+      line.set_align(Some(first.style.text_align.to_cosmic()));
+    }
+  }
+
+  fn push_glyph_cmd(
+    &self,
+    out: &mut Vec<GlyphCmd>,
+    x: f32,
+    y: f32,
+    packed: PackedGlyph,
+    color: [f32; 4],
+    snap_to_pixel: bool,
+  ) {
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    out.push(GlyphCmd {
+      order: 0,
+      x: if snap_to_pixel { x.round() } else { x },
+      y: if snap_to_pixel { y.round() } else { y },
+      width: packed.width as f32,
+      height: packed.height as f32,
+      color,
+      uv_min: [packed.x as f32 / atlas_w, packed.y as f32 / atlas_h],
+      uv_max: [
+        (packed.x + packed.width) as f32 / atlas_w,
+        (packed.y + packed.height) as f32 / atlas_h,
+      ],
+      transform: [1.0, 0.0, 0.0, 1.0],
+      transform_origin: [0.0, 0.0],
+      sharpness: 1.0,
+      clip: crate::layout::quad::ClipRect::default(),
+    });
+  }
+
   fn resolve_family(&self, style: &TextStyle) -> std::sync::Arc<str> {
     self
       .font_aliases
@@ -837,6 +1047,54 @@ fn effective_text_wrap(max_width: f32, wrap: bool) -> bool {
 
 fn text_buffer_width(max_width: f32) -> Option<f32> {
   is_bounded_text_width(max_width).then_some(max_width)
+}
+
+fn attrs_for_style<'a>(style: &TextStyle, resolved_family: &'a str) -> Attrs<'a> {
+  let family = if resolved_family.is_empty() {
+    Family::SansSerif
+  } else {
+    Family::Name(resolved_family)
+  };
+  Attrs::new()
+    .family(family)
+    .weight(style.weight.to_cosmic())
+    .style(style.style.to_cosmic())
+    .color(CosmicColor::rgba(
+      style.color.r(),
+      style.color.g(),
+      style.color.b(),
+      style.color.a(),
+    ))
+}
+
+fn glyph_color(color: Option<CosmicColor>, default: Color) -> [f32; 4] {
+  color
+    .map(|color| Color::new(color.r(), color.g(), color.b(), color.a()).to_linear_f32_array())
+    .unwrap_or_else(|| default.to_linear_f32_array())
+}
+
+#[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+fn measure_buffer(buffer: &Buffer, fallback_line_height: f32) -> Size {
+  let mut width = 0.0_f32;
+  let mut first_line_y = 0.0_f32;
+  let mut last_line_y = 0.0_f32;
+  let mut last_line_height = fallback_line_height;
+  let mut has_runs = false;
+  for run in buffer.layout_runs() {
+    width = width.max(run.line_w);
+    if !has_runs {
+      first_line_y = run.line_y;
+      has_runs = true;
+    }
+    last_line_y = run.line_y;
+    last_line_height = run.line_height;
+  }
+  let height = if has_runs {
+    last_line_y - first_line_y + last_line_height
+  } else {
+    0.0
+  };
+  Size::new(width, height)
 }
 
 fn append_glyph_cmds_from_cached(

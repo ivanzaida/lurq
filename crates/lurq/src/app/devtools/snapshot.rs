@@ -523,6 +523,8 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
   match kind {
     NodeKind::Empty => "Empty",
     NodeKind::Text { .. } => "Text",
+    #[cfg(feature = "markdown")]
+    NodeKind::RichText { .. } => "RichText",
     NodeKind::TextInput { .. } => "TextInput",
     NodeKind::Checkbox { .. } => "Checkbox",
     NodeKind::Slider { .. } => "Slider",

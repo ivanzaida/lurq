@@ -1334,7 +1334,7 @@ impl Tree {
       let scaled_y = quad.y * scale;
       let scaled_width = quad.width * scale;
       let scaled_height = quad.height * scale;
-      let cull_clip = if matches!(&quad.content, QuadContent::Text { .. }) {
+      let cull_clip = if matches!(&quad.content, QuadContent::Text { .. } | QuadContent::RichText { .. }) {
         expand_text_clip_for_culling(scaled_clip)
       } else {
         scaled_clip
@@ -1453,6 +1453,91 @@ impl Tree {
             app.glyph_engine.rasterize_text_unsnapped_with_wrap_into(
               text,
               &scaled_style,
+              raster_max_width,
+              *wrap,
+              raster_x,
+              raster_y,
+              &mut glyphs,
+            );
+            for glyph in &mut glyphs[unsnapped_start..] {
+              glyph.x /= raster_scale;
+              glyph.y /= raster_scale;
+              glyph.width /= raster_scale;
+              glyph.height /= raster_scale;
+            }
+          }
+          let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
+          for g in &mut glyphs[glyph_start..] {
+            g.order = order;
+            g.clip = glyph_clip;
+            if !quad.transform.is_identity() && *transform_mode == TextTransformMode::Bitmap {
+              g.transform = glyph_xf;
+              g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
+            }
+          }
+        }
+        QuadContent::RichText {
+          spans,
+          wrap,
+          transform_mode,
+        } => {
+          let glyph_start = glyphs.len();
+          let mut scaled_spans = spans.clone();
+          for span in &mut scaled_spans {
+            span.style.font_size *= scale;
+          }
+          let align = scaled_spans
+            .first()
+            .map(|span| span.style.text_align)
+            .unwrap_or(crate::layout::text_style::TextAlign::Left);
+          let max_width = if (*wrap || align != crate::layout::text_style::TextAlign::Left) && quad.width > 0.0 {
+            quad.width * scale
+          } else {
+            f32::MAX
+          };
+          let glyph_xf = quad.transform.matrix_2x2();
+          let glyph_origin = quad
+            .transform_origin
+            .map(|[x, y]| [(quad.x + x) * scale, (quad.y + y) * scale])
+            .unwrap_or([
+              quad.x * scale + quad.width * scale * 0.5,
+              quad.y * scale + quad.height * scale * 0.5,
+            ]);
+          if quad.transform.is_identity() {
+            app.glyph_engine.rasterize_rich_text_with_wrap_into(
+              &scaled_spans,
+              max_width,
+              *wrap,
+              quad.x * scale,
+              quad.y * scale,
+              &mut glyphs,
+            );
+          } else if *transform_mode == TextTransformMode::Rasterized {
+            app.glyph_engine.rasterize_rich_text_with_baked_transform_into(
+              &scaled_spans,
+              max_width,
+              *wrap,
+              quad.x * scale,
+              quad.y * scale,
+              quad.transform,
+              glyph_origin,
+              &mut glyphs,
+            );
+          } else {
+            let raster_scale = transformed_text_raster_scale(quad.transform);
+            for span in &mut scaled_spans {
+              span.style.font_size *= raster_scale;
+            }
+            let raster_max_width = if max_width.is_finite() {
+              max_width * raster_scale
+            } else {
+              f32::MAX
+            };
+            let raster_x = quad.x * scale * raster_scale;
+            let raster_y = quad.y * scale * raster_scale;
+            let unsnapped_start = glyphs.len();
+            app.glyph_engine.rasterize_rich_text_unsnapped_with_wrap_into(
+              &scaled_spans,
               raster_max_width,
               *wrap,
               raster_x,
@@ -2637,12 +2722,9 @@ impl Tree {
         }
 
         if pending_text_selection_drag.is_none()
-          && let Some((node, rect)) = hits
-            .iter()
-            .find(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
+          && let Some((node, rect)) = hits.iter().find(|(node, _)| is_selectable_text_node(node))
         {
-          if let NodeKind::Text { state, .. } = node.node_kind() {
-            let value = node.text_content().unwrap_or_default().to_owned();
+          if let Some((state, value)) = selectable_text_state_and_value(node) {
             let preserve_existing = evt.shift || evt.ctrl;
             if !preserve_existing {
               clear_selectable_text_selections_except(root, Some(node.node_id()));
@@ -2655,7 +2737,7 @@ impl Tree {
               kind: TextSelectionDragKind::Text {
                 start_id: node.node_id(),
                 anchor,
-                state: state.clone(),
+                state,
                 value,
                 preserve_existing,
               },
@@ -2670,9 +2752,7 @@ impl Tree {
         if pending_text_selection_drag.is_none()
           && !evt.shift
           && !evt.ctrl
-          && !hits
-            .iter()
-            .any(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
+          && !hits.iter().any(|(node, _)| is_selectable_text_node(node))
           && clear_selectable_text_selections(root)
         {
           builtin_needs_redraw = true;
@@ -2737,12 +2817,8 @@ impl Tree {
           reset_text_input_caret_blink = true;
           builtin_needs_redraw = true;
         }
-      } else if let Some((node, rect)) = hits
-        .iter()
-        .find(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
-      {
-        if let NodeKind::Text { state, .. } = node.node_kind() {
-          let value = node.text_content().unwrap_or_default();
+      } else if let Some((node, rect)) = hits.iter().find(|(node, _)| is_selectable_text_node(node)) {
+        if let Some((state, value)) = selectable_text_state_and_value(node) {
           let text_click_count = self
             .text_click_tracker
             .record(Instant::now(), (evt.x, evt.y), button, node.node_id());
@@ -2750,9 +2826,9 @@ impl Tree {
             clear_selectable_text_selections_except(root, Some(node.node_id()));
           }
           match text_click_count {
-            1 => state.clear_selection_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
-            2 => state.select_word_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
-            _ => state.select_line_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y),
+            1 => state.clear_selection_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y),
+            2 => state.select_word_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y),
+            _ => state.select_line_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y),
           }
           builtin_needs_redraw = true;
         }
@@ -4583,12 +4659,14 @@ fn modal_target_rect_from_index(
 
 fn build_modal_node(spec: ModalSpec, target: ElementRect) -> Node {
   let content = spec.node;
-  let mut modal = Node::stack(crate::layout::StackAlignment::TopStart, vec![content]).absolute_positioned(
-    target.x,
-    target.y,
-    Some(Dimension::Px(target.width)),
-    Some(Dimension::Px(target.height)),
-  );
+  let mut modal = Node::stack(crate::layout::StackAlignment::TopStart, vec![content])
+    .hit_test(HitTestBehavior::ContentOnly)
+    .absolute_positioned(
+      target.x,
+      target.y,
+      Some(Dimension::Px(target.width)),
+      Some(Dimension::Px(target.height)),
+    );
   modal.set_tag_name("Modal");
   modal
 }
@@ -4993,10 +5071,9 @@ impl TextSelectionDrag {
         ..
       } if !preserve_existing => {
         if let Some((node, rect)) = selectable_text_endpoint(root, layout, x, y)
-          && let NodeKind::Text { state, .. } = node.node_kind()
+          && let Some((state, value)) = selectable_text_state_and_value(node)
         {
-          let value = node.text_content().unwrap_or_default();
-          let caret = state.caret_index_at_point(value, rect.local_x - rect.x, rect.local_y - rect.y);
+          let caret = state.caret_index_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y);
           set_selectable_text_range(root, *start_id, *anchor, node.node_id(), caret);
         } else {
           self.update(x, y);
@@ -5765,11 +5842,10 @@ fn selected_selectable_text(node: &Node, layout: &LayoutResult) -> Option<String
 }
 
 fn has_selected_selectable_text(node: &Node) -> bool {
-  if let NodeKind::Text { state, .. } = node.node_kind() {
-    let value = node.text_content().unwrap_or_default();
-    if state.selected_text(value).is_some() {
-      return true;
-    }
+  if let Some((state, value)) = selectable_text_state_and_value(node)
+    && state.selected_text(&value).is_some()
+  {
+    return true;
   }
 
   for child in node.children() {
@@ -5788,10 +5864,9 @@ fn collect_selected_selectable_text(
   abs_y: f32,
   fragments: &mut Vec<SelectedTextFragment>,
 ) {
-  if let NodeKind::Text { state, .. } = node.node_kind() {
-    let value = node.text_content().unwrap_or_default();
-    if let Some(text) = state.selected_text(value) {
-      let ranges = state.selection_ranges(value);
+  if let Some((state, value)) = selectable_text_state_and_value(node) {
+    if let Some(text) = state.selected_text(&value) {
+      let ranges = state.selection_ranges(&value);
       let x = ranges
         .iter()
         .map(|range| abs_x + range.x)
@@ -5826,10 +5901,7 @@ fn selectable_text_endpoint<'a>(
 ) -> Option<(&'a Node, HitRect)> {
   let mut hits = Vec::new();
   hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
-  if let Some(hit) = hits
-    .into_iter()
-    .find(|(node, _)| matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()))
-  {
+  if let Some(hit) = hits.into_iter().find(|(node, _)| is_selectable_text_node(node)) {
     return Some(hit);
   }
 
@@ -5864,7 +5936,7 @@ fn nearest_selectable_text<'a>(
     }
   }
 
-  if matches!(node.node_kind(), NodeKind::Text { state, .. } if state.selectable()) {
+  if is_selectable_text_node(node) {
     let dx = if x < abs_x {
       abs_x - x
     } else if x > abs_x + layout.size.width {
@@ -5946,13 +6018,11 @@ fn set_selectable_text_range(root: &Node, start_id: NodeId, anchor: usize, end_i
 }
 
 fn collect_selectable_text_range_nodes(node: &Node, nodes: &mut Vec<SelectableTextRangeNode>) {
-  if let NodeKind::Text { state, .. } = node.node_kind()
-    && state.selectable()
-  {
+  if let Some((state, value)) = selectable_text_state_and_value(node) {
     nodes.push(SelectableTextRangeNode {
       id: node.node_id(),
-      state: state.clone(),
-      value: node.text_content().unwrap_or_default().to_owned(),
+      state,
+      value,
     });
   }
 
@@ -5970,9 +6040,8 @@ fn clear_selectable_text_selections_except(node: &Node, except: Option<NodeId>) 
   let mut cleared = false;
 
   if !is_except
-    && let NodeKind::Text { state, .. } = node.node_kind()
-    && state.selectable()
-    && state.has_selection(node.text_content().unwrap_or_default())
+    && let Some((state, value)) = selectable_text_state_and_value(node)
+    && state.has_selection(&value)
   {
     state.clear_selection();
     cleared = true;
@@ -5983,6 +6052,23 @@ fn clear_selectable_text_selections_except(node: &Node, except: Option<NodeId>) 
   }
 
   cleared
+}
+
+fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
+  match node.node_kind() {
+    NodeKind::Text { state, .. } if state.selectable() => {
+      Some((state.clone(), node.text_content().unwrap_or_default().to_owned()))
+    }
+    #[cfg(feature = "markdown")]
+    NodeKind::RichText { state, .. } if state.selectable() => {
+      Some((state.clone(), node.text_content().unwrap_or_default().to_owned()))
+    }
+    _ => None,
+  }
+}
+
+fn is_selectable_text_node(node: &Node) -> bool {
+  selectable_text_state_and_value(node).is_some()
 }
 
 fn find_slider_by_y_recursive<'a>(
