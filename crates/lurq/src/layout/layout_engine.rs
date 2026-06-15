@@ -55,8 +55,6 @@ const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
 const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
 const DEFAULT_CARET_COLOR: Color = Color::new(15, 23, 42, 255);
-const SCROLL_CULL_OVERSCAN: f32 = 96.0;
-
 fn text_input_display_style<'a>(
   state: &crate::node::node_kind::TextInputState,
   style: &'a TextStyle,
@@ -699,6 +697,7 @@ impl LayoutEngine {
       Transform2D::IDENTITY,
       viewport,
       viewport,
+      true,
       quads,
     );
   }
@@ -714,6 +713,7 @@ impl LayoutEngine {
     inherited_transform: Transform2D,
     clip: ClipRect,
     cull_clip: ClipRect,
+    culling_enabled: bool,
     quads: &mut Vec<Quad>,
   ) {
     if node_is_plain_logical_wrapper(node) {
@@ -728,34 +728,42 @@ impl LayoutEngine {
         );
       }
 
-      let (child_clip, child_cull_clip) = if node.overflow == Overflow::Hidden && inherited_transform.is_identity() {
-        let overflow_clip = intersect_clip(
-          clip,
-          ClipRect {
-            x: abs_x,
-            y: abs_y,
-            width: result.size.width,
-            height: result.size.height,
-            active: true,
-            border_radius: None,
-          },
-        );
-        (overflow_clip, intersect_clip(cull_clip, overflow_clip))
-      } else {
-        (clip, cull_clip)
-      };
+      let (child_clip, child_cull_clip, child_culling_enabled) =
+        if node.overflow == Overflow::Hidden && inherited_transform.is_identity() {
+          let overflow_clip = intersect_clip(
+            clip,
+            ClipRect {
+              x: abs_x,
+              y: abs_y,
+              width: result.size.width,
+              height: result.size.height,
+              active: true,
+              border_radius: None,
+            },
+          );
+          let child_cull_clip = if culling_enabled {
+            intersect_clip(cull_clip, overflow_clip)
+          } else {
+            ClipRect::default()
+          };
+          (overflow_clip, child_cull_clip, culling_enabled)
+        } else {
+          (clip, cull_clip, culling_enabled)
+        };
 
       for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
         let child_abs_x = abs_x + child_layout.offset.x;
         let child_abs_y = abs_y + child_layout.offset.y;
-        if clipped_subtree_is_hidden(
-          child_node,
-          &child_layout.result,
-          child_abs_x,
-          child_abs_y,
-          inherited_transform,
-          child_cull_clip,
-        ) {
+        if child_culling_enabled
+          && clipped_subtree_is_hidden(
+            child_node,
+            &child_layout.result,
+            child_abs_x,
+            child_abs_y,
+            inherited_transform,
+            child_cull_clip,
+          )
+        {
           continue;
         }
 
@@ -769,6 +777,7 @@ impl LayoutEngine {
           inherited_transform,
           child_clip,
           child_cull_clip,
+          child_culling_enabled,
           quads,
         );
       }
@@ -1287,53 +1296,63 @@ impl LayoutEngine {
       _ => {}
     }
 
-    let (child_clip, child_cull_clip) = if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-      let viewport_clip = intersect_clip(
-        clip,
-        ClipRect {
-          x: abs_x,
-          y: abs_y,
-          width: state.viewport_width(),
-          height: state.viewport_height(),
-          active: true,
-          border_radius: node.get_border_radius(&self.radii.borrow()),
-        },
-      );
-      let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
-      let cull_viewport_clip = intersect_clip(cull_clip, expand_clip(viewport_clip, SCROLL_CULL_OVERSCAN));
-      let child_cull_clip = inset_clip_for_border(cull_viewport_clip, resolved_border);
-      (child_clip, child_cull_clip)
-    } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
-      let overflow_clip = intersect_clip(
-        clip,
-        ClipRect {
-          x: abs_x,
-          y: abs_y,
-          width: result.size.width,
-          height: result.size.height,
-          active: true,
-          border_radius: node.get_border_radius(&self.radii.borrow()),
-        },
-      );
-      let child_clip = inset_clip_for_border(overflow_clip, resolved_border);
-      let cull_overflow_clip = intersect_clip(cull_clip, overflow_clip);
-      let child_cull_clip = inset_clip_for_border(cull_overflow_clip, resolved_border);
-      (child_clip, child_cull_clip)
-    } else {
-      (clip, cull_clip)
-    };
+    let (child_clip, child_cull_clip, child_culling_enabled) =
+      if let LayoutKind::ScrollModifier { state, virtualized, .. } = node.layout_kind() {
+        let viewport_clip = intersect_clip(
+          clip,
+          ClipRect {
+            x: abs_x,
+            y: abs_y,
+            width: state.viewport_width(),
+            height: state.viewport_height(),
+            active: true,
+            border_radius: node.get_border_radius(&self.radii.borrow()),
+          },
+        );
+        let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
+        let child_cull_clip = if *virtualized {
+          inset_clip_for_border(intersect_clip(cull_clip, viewport_clip), resolved_border)
+        } else {
+          ClipRect::default()
+        };
+        (child_clip, child_cull_clip, *virtualized)
+      } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
+        let overflow_clip = intersect_clip(
+          clip,
+          ClipRect {
+            x: abs_x,
+            y: abs_y,
+            width: result.size.width,
+            height: result.size.height,
+            active: true,
+            border_radius: node.get_border_radius(&self.radii.borrow()),
+          },
+        );
+        let child_clip = inset_clip_for_border(overflow_clip, resolved_border);
+        let child_cull_clip = if culling_enabled {
+          let cull_overflow_clip = intersect_clip(cull_clip, overflow_clip);
+          inset_clip_for_border(cull_overflow_clip, resolved_border)
+        } else {
+          ClipRect::default()
+        };
+        (child_clip, child_cull_clip, culling_enabled)
+      } else {
+        (clip, cull_clip, culling_enabled)
+      };
 
     for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
       let child_abs_x = abs_x + child_layout.offset.x;
       let child_abs_y = abs_y + child_layout.offset.y;
-      if clipped_subtree_is_hidden(
-        child_node,
-        &child_layout.result,
-        child_abs_x,
-        child_abs_y,
-        transform,
-        child_cull_clip,
-      ) {
+      if child_culling_enabled
+        && clipped_subtree_is_hidden(
+          child_node,
+          &child_layout.result,
+          child_abs_x,
+          child_abs_y,
+          transform,
+          child_cull_clip,
+        )
+      {
         continue;
       }
 
@@ -1347,6 +1366,7 @@ impl LayoutEngine {
         transform,
         child_clip,
         child_cull_clip,
+        child_culling_enabled,
         quads,
       );
     }
@@ -1372,7 +1392,7 @@ impl LayoutEngine {
       });
     }
 
-    if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
+    if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
       state.set_viewport_position(abs_x, abs_y);
       let sb_style = node.scrollbar_style(self.scrollbar.borrow().clone());
       state.set_style(sb_style.clone());
@@ -1653,7 +1673,7 @@ impl LayoutEngine {
       }
       LayoutKind::Stack { align } => self.layout_stack(glyph_engine, node, constraints, *align, child_overrides),
       LayoutKind::LogicalModifier => self.layout_passthrough(glyph_engine, node, constraints, child_overrides),
-      LayoutKind::ScrollModifier { state, direction } => {
+      LayoutKind::ScrollModifier { state, direction, .. } => {
         self.layout_scroll(glyph_engine, node, constraints, state, *direction, child_overrides)
       }
     }
@@ -3143,21 +3163,6 @@ fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
     height: (y2 - y1).max(0.0),
     active: true,
     border_radius: intersected_clip_radius(parent, child, x1, y1, x2, y2),
-  }
-}
-
-fn expand_clip(clip: ClipRect, amount: f32) -> ClipRect {
-  if !clip.active || amount <= 0.0 {
-    return clip;
-  }
-
-  ClipRect {
-    x: clip.x - amount,
-    y: clip.y - amount,
-    width: clip.width + amount * 2.0,
-    height: clip.height + amount * 2.0,
-    active: true,
-    border_radius: clip.border_radius,
   }
 }
 

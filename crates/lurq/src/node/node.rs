@@ -139,6 +139,7 @@ pub(crate) trait NodeUpdate {
   fn animation(&mut self, spec: Animation);
   fn scrollbar(&mut self, style: ScrollBarStyle);
   fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static);
+  fn virtualized(&mut self, enabled: bool);
   fn hit_test(&mut self, behavior: HitTestBehavior);
   fn pointer_events_none(&mut self);
   fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>);
@@ -849,6 +850,12 @@ impl NodeUpdate for Node {
 
   fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) {
     self.scrollbar_hovered_style = Some(Arc::new(f));
+  }
+
+  fn virtualized(&mut self, enabled: bool) {
+    if let LayoutKind::ScrollModifier { virtualized, .. } = &mut self.layout_kind {
+      *virtualized = enabled;
+    }
   }
 
   fn hit_test(&mut self, behavior: HitTestBehavior) {
@@ -1840,6 +1847,13 @@ impl Node {
     self
   }
 
+  pub fn virtualized(mut self, enabled: bool) -> Self {
+    if let LayoutKind::ScrollModifier { virtualized, .. } = &mut self.layout_kind {
+      *virtualized = enabled;
+    }
+    self
+  }
+
   pub fn hit_test(mut self, behavior: HitTestBehavior) -> Self {
     self.hit_test = behavior;
     self
@@ -2750,10 +2764,11 @@ impl Node {
     }
 
     if let (
-      LayoutKind::ScrollModifier { state, direction },
+      LayoutKind::ScrollModifier { state, direction, .. },
       LayoutKind::ScrollModifier {
         state: old_state,
         direction: old_direction,
+        ..
       },
     ) = (&mut self.layout_kind, &old.layout_kind)
     {

@@ -13,6 +13,11 @@ impl ScrollVertical {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self
   }
+
+  pub fn virtualized(mut self, enabled: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::virtualized(node, enabled));
+    self
+  }
 }
 
 impl Default for ScrollVertical {
@@ -30,6 +35,11 @@ impl ScrollHorizontal {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self
   }
+
+  pub fn virtualized(mut self, enabled: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::virtualized(node, enabled));
+    self
+  }
 }
 
 impl Default for ScrollHorizontal {
@@ -45,6 +55,11 @@ impl ScrollBoth {
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
+    self
+  }
+
+  pub fn virtualized(mut self, enabled: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::virtualized(node, enabled));
     self
   }
 }

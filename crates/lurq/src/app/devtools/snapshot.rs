@@ -341,7 +341,7 @@ fn push_layout_rows(rows: &mut Vec<DevToolsShapeRow>, layout: &LayoutKind) {
       push_shape_row(rows, "align", stack_alignment_name(*align));
     }
     LayoutKind::LogicalModifier => {}
-    LayoutKind::ScrollModifier { state, direction } => {
+    LayoutKind::ScrollModifier { state, direction, .. } => {
       push_shape_row(rows, "direction", scroll_direction_name(*direction));
       push_shape_group(
         rows,

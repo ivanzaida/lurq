@@ -2864,7 +2864,7 @@ impl Tree {
     // Check scrollbar thumb hover/press
     if !evt.default_prevented() {
       for (node, _) in &hits {
-        if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
+        if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
           let sb_style = state.style();
           let mut on_thumb = false;
           let mut pressed_axis = None;
@@ -3446,7 +3446,7 @@ impl Tree {
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
     for (node, _) in &hits {
-      if let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() {
+      if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
         let dx = if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
           remaining_dx
         } else {
@@ -5496,7 +5496,7 @@ fn trim_hits_to_scrollbar_thumb(hits: &mut Vec<(&Node, crate::app::hit_test::Hit
 }
 
 fn scrollbar_thumb_axis_at(node: &Node, x: f32, y: f32) -> Option<ScrollAxis> {
-  let LayoutKind::ScrollModifier { state, direction } = node.layout_kind() else {
+  let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() else {
     return None;
   };
 

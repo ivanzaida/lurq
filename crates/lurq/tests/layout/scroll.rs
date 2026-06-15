@@ -305,3 +305,80 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
     _ => false,
   }));
 }
+
+#[test]
+fn virtual_scroll_culls_offscreen_child_quads_and_preserves_content_extent() {
+  let mut rt = rt();
+  let node = lurq::components::ScrollVertical::new(colored_scroll_rows())
+    .scrollbar(ScrollBarStyle::hidden())
+    .size(100.0, 100.0);
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert_eq!(result.children[0].result.size.height, 500.0);
+  assert_eq!(
+    scroll_row_colors(&quads),
+    vec![scroll_row_color(0), scroll_row_color(1)]
+  );
+}
+
+#[test]
+fn virtual_false_keeps_offscreen_child_quads() {
+  let mut rt = rt();
+  let node = lurq::components::ScrollVertical::new(colored_scroll_rows())
+    .virtualized(false)
+    .scrollbar(ScrollBarStyle::hidden())
+    .size(100.0, 100.0);
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert_eq!(result.children[0].result.size.height, 500.0);
+  assert_eq!(scroll_row_colors(&quads).len(), 10);
+}
+
+#[test]
+fn virtual_scroll_respects_scroll_offset() {
+  let mut rt = rt();
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  state.set_scroll_pending(0.0, 150.0);
+  let node = lurq::components::ScrollVertical::new(colored_scroll_rows())
+    .with_scroll_state(state.clone())
+    .virtualized(true)
+    .scrollbar(ScrollBarStyle::hidden())
+    .size(100.0, 100.0);
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+
+  assert_eq!(state.scroll_y(), 150.0);
+  assert_eq!(result.children[0].result.size.height, 500.0);
+  assert_eq!(
+    scroll_row_colors(&quads),
+    vec![scroll_row_color(3), scroll_row_color(4)]
+  );
+}
+
+fn colored_scroll_rows() -> lurq::components::Column {
+  lurq::components::Column::new()
+    .spacing(0.0)
+    .with_children((0..10).map(|index| lurq::components::Rect::new(100.0, 50.0).background(scroll_row_color(index))))
+}
+
+fn scroll_row_color(index: u8) -> Color {
+  Color::new(index, 32, 64, 255)
+}
+
+fn scroll_row_colors(quads: &[lurq::layout::quad::Quad]) -> Vec<Color> {
+  quads
+    .iter()
+    .filter_map(|quad| match &quad.content {
+      QuadContent::Rect { color, .. } if color.g() == 32 && color.b() == 64 => Some(*color),
+      _ => None,
+    })
+    .collect()
+}
