@@ -1,6 +1,6 @@
 use lurq::markdown::{
-  MarkdownBlock, MarkdownCodeBlockKind, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem, MarkdownTableRow,
-  parse_markdown,
+  MarkdownBlock, MarkdownCodeBlockKind, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem, MarkdownTableAlignment,
+  MarkdownTableRow, parse_markdown,
 };
 
 #[test]
@@ -86,11 +86,12 @@ fn parses_fenced_code_blocks() {
 
 #[test]
 fn parses_tables() {
-  let doc = parse_markdown("| Feature | Purpose |\n|---------|---------|\n| `winit` | Window shell |");
+  let doc = parse_markdown("| Feature | Purpose |\n|:--------|--------:|\n| `winit` | Window shell |");
 
   assert_eq!(
     doc.blocks,
     vec![MarkdownBlock::Table {
+      alignments: vec![MarkdownTableAlignment::Left, MarkdownTableAlignment::Right],
       rows: vec![
         MarkdownTableRow::new(
           true,
@@ -108,5 +109,47 @@ fn parses_tables() {
         ),
       ],
     }]
+  );
+}
+
+#[test]
+fn parses_math_and_footnotes() {
+  let doc = parse_markdown("Inline $x + y$ and ref[^1].\n\n$$\nx^2\n$$\n\n[^1]: footnote text");
+
+  assert_eq!(
+    doc.blocks,
+    vec![
+      MarkdownBlock::Paragraph(vec![
+        MarkdownInline::Text("Inline ".to_owned()),
+        MarkdownInline::Math("x + y".to_owned()),
+        MarkdownInline::Text(" and ref".to_owned()),
+        MarkdownInline::FootnoteReference("1".to_owned()),
+        MarkdownInline::Text(".".to_owned()),
+      ]),
+      MarkdownBlock::Math { text: "x^2".to_owned() },
+      MarkdownBlock::FootnoteDefinition {
+        label: "1".to_owned(),
+        blocks: vec![MarkdownBlock::Paragraph(vec![MarkdownInline::Text(
+          "footnote text".to_owned()
+        )])],
+      },
+    ]
+  );
+}
+
+#[test]
+fn parses_images() {
+  let doc = parse_markdown("![Alt **text**](assets/picture.png \"title\")");
+
+  assert_eq!(
+    doc.blocks,
+    vec![MarkdownBlock::Paragraph(vec![MarkdownInline::Image {
+      destination: "assets/picture.png".to_owned(),
+      title: "title".to_owned(),
+      alt: vec![
+        MarkdownInline::Text("Alt ".to_owned()),
+        MarkdownInline::Strong(vec![MarkdownInline::Text("text".to_owned())]),
+      ],
+    }])]
   );
 }

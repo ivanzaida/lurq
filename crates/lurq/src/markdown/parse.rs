@@ -1,8 +1,8 @@
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment as CmarkAlignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use super::{
   MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
-  MarkdownTableRow,
+  MarkdownTableAlignment, MarkdownTableRow,
 };
 
 pub fn parse_markdown(source: &str) -> MarkdownDocument {
@@ -27,12 +27,17 @@ enum Frame {
   BlockQuote {
     blocks: Vec<MarkdownBlock>,
   },
+  FootnoteDefinition {
+    label: String,
+    blocks: Vec<MarkdownBlock>,
+  },
   List {
     ordered: bool,
     start: Option<u64>,
     items: Vec<MarkdownListItem>,
   },
   Table {
+    alignments: Vec<MarkdownTableAlignment>,
     rows: Vec<MarkdownTableRow>,
   },
   TableHead {
@@ -88,6 +93,8 @@ impl MarkdownParser {
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_MATH);
 
     for event in Parser::new_ext(source, options) {
       self.push_event(event);
@@ -111,10 +118,8 @@ impl MarkdownParser {
       Event::HardBreak => self.push_inline(MarkdownInline::HardBreak),
       Event::Rule => self.push_block(MarkdownBlock::ThematicBreak),
       Event::TaskListMarker(checked) => self.push_inline(MarkdownInline::TaskListMarker(checked)),
-      Event::InlineMath(math) => self.push_inline(MarkdownInline::Text(math.to_string())),
-      Event::DisplayMath(math) => {
-        self.push_block(MarkdownBlock::Paragraph(vec![MarkdownInline::Text(math.to_string())]))
-      }
+      Event::InlineMath(math) => self.push_inline(MarkdownInline::Math(math.to_string())),
+      Event::DisplayMath(math) => self.push_display_math(&math),
     }
   }
 
@@ -126,12 +131,19 @@ impl MarkdownParser {
         inlines: Vec::new(),
       }),
       Tag::BlockQuote(_) => self.frames.push(Frame::BlockQuote { blocks: Vec::new() }),
+      Tag::FootnoteDefinition(label) => self.frames.push(Frame::FootnoteDefinition {
+        label: label.to_string(),
+        blocks: Vec::new(),
+      }),
       Tag::CodeBlock(kind) => self.frames.push(Frame::CodeBlock {
         kind: code_block_kind(kind),
         text: String::new(),
       }),
       Tag::HtmlBlock => self.frames.push(Frame::HtmlBlock { text: String::new() }),
-      Tag::Table(_) => self.frames.push(Frame::Table { rows: Vec::new() }),
+      Tag::Table(alignments) => self.frames.push(Frame::Table {
+        alignments: alignments.into_iter().map(table_alignment).collect(),
+        rows: Vec::new(),
+      }),
       Tag::TableHead => self.frames.push(Frame::TableHead {
         cells: Vec::new(),
         rows: Vec::new(),
@@ -166,6 +178,7 @@ impl MarkdownParser {
       TagEnd::Paragraph => self.close_paragraph(),
       TagEnd::Heading(_) => self.close_heading(),
       TagEnd::BlockQuote(_) => self.close_blockquote(),
+      TagEnd::FootnoteDefinition => self.close_footnote_definition(),
       TagEnd::CodeBlock => self.close_code_block(),
       TagEnd::HtmlBlock => self.close_html_block(),
       TagEnd::Table => self.close_table(),
@@ -185,6 +198,9 @@ impl MarkdownParser {
 
   fn close_paragraph(&mut self) {
     if let Some(Frame::Paragraph { inlines }) = self.frames.pop() {
+      if inlines.is_empty() {
+        return;
+      }
       self.push_block(MarkdownBlock::Paragraph(inlines));
     }
   }
@@ -201,6 +217,12 @@ impl MarkdownParser {
   fn close_blockquote(&mut self) {
     if let Some(Frame::BlockQuote { blocks }) = self.frames.pop() {
       self.push_block(MarkdownBlock::BlockQuote(blocks));
+    }
+  }
+
+  fn close_footnote_definition(&mut self) {
+    if let Some(Frame::FootnoteDefinition { label, blocks }) = self.frames.pop() {
+      self.push_block(MarkdownBlock::FootnoteDefinition { label, blocks });
     }
   }
 
@@ -223,14 +245,14 @@ impl MarkdownParser {
   }
 
   fn close_table(&mut self) {
-    if let Some(Frame::Table { rows }) = self.frames.pop() {
-      self.push_block(MarkdownBlock::Table { rows });
+    if let Some(Frame::Table { alignments, rows }) = self.frames.pop() {
+      self.push_block(MarkdownBlock::Table { alignments, rows });
     }
   }
 
   fn close_table_head(&mut self) {
     if let Some(Frame::TableHead { mut cells, mut rows }) = self.frames.pop()
-      && let Some(Frame::Table { rows: table_rows }) = self.frames.last_mut()
+      && let Some(Frame::Table { rows: table_rows, .. }) = self.frames.last_mut()
     {
       if !cells.is_empty() {
         rows.insert(0, MarkdownTableRow::new(true, std::mem::take(&mut cells)));
@@ -245,7 +267,7 @@ impl MarkdownParser {
     };
     match self.frames.last_mut() {
       Some(Frame::TableHead { rows, .. }) => rows.push(MarkdownTableRow::new(true, cells)),
-      Some(Frame::Table { rows }) => rows.push(MarkdownTableRow::new(false, cells)),
+      Some(Frame::Table { rows, .. }) => rows.push(MarkdownTableRow::new(false, cells)),
       _ => {}
     }
   }
@@ -331,11 +353,30 @@ impl MarkdownParser {
     }
   }
 
+  fn push_display_math(&mut self, text: &str) {
+    let text = text.trim_matches('\n');
+    let Some(Frame::Paragraph { inlines }) = self.frames.last() else {
+      self.push_block(MarkdownBlock::Math { text: text.to_owned() });
+      return;
+    };
+    if !inlines.is_empty() {
+      self.push_inline(MarkdownInline::Math(text.to_owned()));
+      return;
+    }
+
+    let empty_paragraph = self.frames.pop();
+    self.push_block(MarkdownBlock::Math { text: text.to_owned() });
+    if empty_paragraph.is_some() {
+      self.frames.push(Frame::Paragraph { inlines: Vec::new() });
+    }
+  }
+
   fn push_block(&mut self, block: MarkdownBlock) {
     match self.frames.last_mut() {
-      Some(Frame::Document { blocks }) | Some(Frame::BlockQuote { blocks }) | Some(Frame::Item { blocks }) => {
-        blocks.push(block);
-      }
+      Some(Frame::Document { blocks })
+      | Some(Frame::BlockQuote { blocks })
+      | Some(Frame::FootnoteDefinition { blocks, .. })
+      | Some(Frame::Item { blocks }) => blocks.push(block),
       _ => {}
     }
   }
@@ -350,9 +391,9 @@ impl MarkdownParser {
       | Some(Frame::Strikethrough { inlines })
       | Some(Frame::Link { inlines, .. })
       | Some(Frame::Image { inlines, .. }) => inlines.push(inline),
-      Some(Frame::Item { blocks }) | Some(Frame::BlockQuote { blocks }) => {
-        push_implicit_paragraph_inline(blocks, inline)
-      }
+      Some(Frame::Item { blocks })
+      | Some(Frame::BlockQuote { blocks })
+      | Some(Frame::FootnoteDefinition { blocks, .. }) => push_implicit_paragraph_inline(blocks, inline),
       _ => {}
     }
   }
@@ -388,5 +429,14 @@ fn code_block_kind(kind: CodeBlockKind<'_>) -> MarkdownCodeBlockKind {
         .map(str::to_owned);
       MarkdownCodeBlockKind::Fenced { language }
     }
+  }
+}
+
+fn table_alignment(alignment: CmarkAlignment) -> MarkdownTableAlignment {
+  match alignment {
+    CmarkAlignment::None => MarkdownTableAlignment::None,
+    CmarkAlignment::Left => MarkdownTableAlignment::Left,
+    CmarkAlignment::Center => MarkdownTableAlignment::Center,
+    CmarkAlignment::Right => MarkdownTableAlignment::Right,
   }
 }

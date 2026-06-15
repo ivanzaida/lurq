@@ -1,8 +1,11 @@
+use std::sync::{Arc, Mutex};
+
 use lurq::{
   app::{
     App, Tree,
     component::Component,
     ctx::Ctx,
+    events::MouseButton,
     theme::{MarkdownInlineStyle, ThemeMarkdown},
   },
   components::{Markdown, MarkdownProps, Text},
@@ -13,7 +16,7 @@ use lurq::{
   node::color::Color,
 };
 
-use crate::support::TestSurface;
+use crate::support::{TestSurface, pointer_click};
 
 struct MarkdownRoot;
 
@@ -101,7 +104,13 @@ fn markdown_component_renders_code_block_box() {
   assert!(quads.iter().any(|quad| {
     matches!(
       &quad.content,
-      QuadContent::Text { text, .. } if text == "fn main() {}"
+      QuadContent::RichText { spans, .. } if spans.iter().map(|span| span.text.as_str()).collect::<String>() == "fn main() {}"
+    )
+  }));
+  assert!(quads.iter().any(|quad| {
+    matches!(
+      &quad.content,
+      QuadContent::RichText { spans, .. } if spans.iter().any(|span| span.text == "fn" && span.style.color == Color::from_hex("#93c5fd"))
     )
   }));
 }
@@ -133,4 +142,90 @@ fn markdown_component_uses_theme_markdown_overrides() {
     .find(|span| span.text == "danger")
     .expect("strong span should be present");
   assert_eq!(strong.style.color, Color::from_hex("#dc2626"));
+}
+
+#[test]
+fn markdown_links_fire_click_callback() {
+  let clicked = Arc::new(Mutex::new(None));
+  let clicked_for_handler = clicked.clone();
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<MarkdownRoot>(
+    &mut app,
+    MarkdownProps::new("Read [docs](/docs)")
+      .on_link_click(move |link| *clicked_for_handler.lock().unwrap() = Some(link.destination().to_owned()))
+      .width(320.0),
+  );
+  tree.pass(&mut app, &TestSurface);
+
+  let link = tree
+    .find_element(|element| element.text_content() == Some("docs"))
+    .expect("link text should be rendered as its own clickable node");
+  let bounds = link.bounds();
+  pointer_click(
+    &mut tree,
+    bounds.x + bounds.width * 0.5,
+    bounds.y + bounds.height * 0.5,
+    MouseButton::Left,
+  );
+
+  assert_eq!(*clicked.lock().unwrap(), Some("/docs".to_owned()));
+}
+
+#[test]
+#[cfg(not(all(feature = "image", feature = "resources")))]
+fn markdown_image_falls_back_to_alt_text_without_resource_images() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<MarkdownRoot>(&mut app, MarkdownProps::new("![Alt **image**](demo.png)").width(320.0));
+  tree.pass(&mut app, &TestSurface);
+
+  let quads = tree.resolve_quads(tree.last_layout().expect("layout should be available"));
+  assert!(quads.iter().any(|quad| {
+    matches!(
+      &quad.content,
+      QuadContent::RichText { spans, .. } if spans.iter().map(|span| span.text.as_str()).collect::<Vec<_>>() == vec!["Alt ", "image"]
+    )
+  }));
+}
+
+#[test]
+fn markdown_math_renders_as_code_styled_text() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<MarkdownRoot>(&mut app, MarkdownProps::new("Inline $x + y$").width(320.0));
+  tree.pass(&mut app, &TestSurface);
+
+  let quads = tree.resolve_quads(tree.last_layout().expect("layout should be available"));
+  let spans = quads
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::RichText { spans, .. } => Some(spans),
+      _ => None,
+    })
+    .expect("math should render in rich text");
+  assert!(
+    spans
+      .iter()
+      .any(|span| span.text == "$x + y$" && &*span.style.font_family == "monospace")
+  );
+}
+
+#[test]
+fn markdown_html_renders_as_readable_text() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<MarkdownRoot>(
+    &mut app,
+    MarkdownProps::new("Hello <strong>raw &amp; safe</strong>").width(320.0),
+  );
+  tree.pass(&mut app, &TestSurface);
+
+  let quads = tree.resolve_quads(tree.last_layout().expect("layout should be available"));
+  assert!(quads.iter().any(|quad| {
+    matches!(
+      &quad.content,
+      QuadContent::RichText { spans, .. } if spans.iter().map(|span| span.text.as_str()).collect::<String>() == "Hello raw & safe"
+    )
+  }));
 }

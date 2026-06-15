@@ -4,7 +4,7 @@ mod rich_text;
 
 pub use ast::{
   MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
-  MarkdownTableRow,
+  MarkdownTableAlignment, MarkdownTableRow,
 };
 pub use parse::parse_markdown;
-pub(crate) use rich_text::markdown_inline_rich_text;
+pub(crate) use rich_text::{markdown_html_text, markdown_inline_rich_text};

@@ -22,10 +22,11 @@ fn push_inline_spans(
 ) {
   for inline in inlines {
     match inline {
-      MarkdownInline::Text(text) | MarkdownInline::Html(text) | MarkdownInline::FootnoteReference(text) => {
-        push_span(spans, text, base_style.clone())
-      }
+      MarkdownInline::Text(text) => push_span(spans, text, base_style.clone()),
+      MarkdownInline::Html(text) => push_span(spans, markdown_html_text(text), base_style.clone()),
+      MarkdownInline::FootnoteReference(text) => push_span(spans, format!("[^{text}]"), theme.link.apply(base_style)),
       MarkdownInline::Code(text) => push_span(spans, text, theme.inline_code.apply(base_style)),
+      MarkdownInline::Math(text) => push_span(spans, format!("${text}$"), theme.inline_code.apply(base_style)),
       MarkdownInline::Emphasis(children) => {
         let style = theme.emphasis.apply(base_style);
         push_inline_spans(spans, children, &style, theme);
@@ -50,6 +51,67 @@ fn push_inline_spans(
       }
     }
   }
+}
+
+pub(crate) fn markdown_html_text(html: &str) -> String {
+  let mut output = String::new();
+  let mut in_tag = false;
+  let mut chars = html.chars().peekable();
+  while let Some(ch) = chars.next() {
+    match ch {
+      '<' => {
+        let mut tag = String::new();
+        while let Some(next) = chars.peek().copied() {
+          if next == '>' {
+            break;
+          }
+          tag.push(next);
+          chars.next();
+        }
+        in_tag = true;
+        if tag.trim_start().starts_with("br") && !output.ends_with('\n') {
+          output.push('\n');
+        }
+      }
+      '>' if in_tag => in_tag = false,
+      '&' if !in_tag => {
+        let entity = read_html_entity(&mut chars);
+        match entity.as_deref() {
+          Some("amp") => output.push('&'),
+          Some("lt") => output.push('<'),
+          Some("gt") => output.push('>'),
+          Some("quot") => output.push('"'),
+          Some("apos") => output.push('\''),
+          Some("nbsp") => output.push(' '),
+          Some(other) => {
+            output.push('&');
+            output.push_str(other);
+            output.push(';');
+          }
+          None => output.push('&'),
+        }
+      }
+      _ if !in_tag => output.push(ch),
+      _ => {}
+    }
+  }
+  output
+}
+
+fn read_html_entity(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+  let mut entity = String::new();
+  while let Some(ch) = chars.peek().copied() {
+    if ch == ';' {
+      chars.next();
+      return Some(entity);
+    }
+    if entity.len() >= 12 || ch.is_whitespace() || ch == '<' || ch == '&' {
+      return None;
+    }
+    entity.push(ch);
+    chars.next();
+  }
+  None
 }
 
 fn push_span(spans: &mut Vec<RichTextSpan>, text: impl Into<String>, style: TextStyle) {

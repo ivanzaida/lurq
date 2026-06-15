@@ -38,11 +38,19 @@ pub enum MarkdownBlock {
     items: Vec<MarkdownListItem>,
   },
   Table {
+    alignments: Vec<MarkdownTableAlignment>,
     rows: Vec<MarkdownTableRow>,
   },
   CodeBlock {
     kind: MarkdownCodeBlockKind,
     text: String,
+  },
+  Math {
+    text: String,
+  },
+  FootnoteDefinition {
+    label: String,
+    blocks: Vec<MarkdownBlock>,
   },
   Html(String),
   ThematicBreak,
@@ -87,10 +95,20 @@ pub enum MarkdownCodeBlockKind {
   Fenced { language: Option<String> },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownTableAlignment {
+  #[default]
+  None,
+  Left,
+  Center,
+  Right,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum MarkdownInline {
   Text(String),
   Code(String),
+  Math(String),
   Emphasis(Vec<MarkdownInline>),
   Strong(Vec<MarkdownInline>),
   Strikethrough(Vec<MarkdownInline>),
