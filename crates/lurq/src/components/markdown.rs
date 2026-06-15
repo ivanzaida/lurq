@@ -49,6 +49,7 @@ impl MarkdownLink {
 pub struct MarkdownProps {
   source: Arc<str>,
   style: TextStyle,
+  theme: Option<ThemeMarkdown>,
   selectable: bool,
   width: Option<Dimension>,
   on_link_click: Option<MarkdownLinkCallback>,
@@ -58,6 +59,7 @@ impl PartialEq for MarkdownProps {
   fn eq(&self, other: &Self) -> bool {
     self.source == other.source
       && self.style == other.style
+      && self.theme == other.theme
       && self.selectable == other.selectable
       && self.width == other.width
       && same_link_callback(&self.on_link_click, &other.on_link_click)
@@ -69,6 +71,7 @@ impl MarkdownProps {
     Self {
       source: source.into(),
       style: TextStyle::default(),
+      theme: None,
       selectable: false,
       width: None,
       on_link_click: None,
@@ -81,6 +84,11 @@ impl MarkdownProps {
 
   pub fn style(mut self, style: TextStyle) -> Self {
     self.style = style;
+    self
+  }
+
+  pub fn theme(mut self, theme: ThemeMarkdown) -> Self {
+    self.theme = Some(theme);
     self
   }
 
@@ -152,7 +160,7 @@ impl Component for Markdown {
     if self.source.get_untracked() != props.source {
       self.source.set(props.source.clone());
     }
-    let theme = ctx.theme().markdown().clone();
+    let theme = props.theme.clone().unwrap_or_else(|| ctx.theme().markdown().clone());
     let document = self.document.get();
     let render_ctx = MarkdownRenderContext {
       on_link_click: props.on_link_click.clone(),
