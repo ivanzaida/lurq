@@ -175,6 +175,34 @@ The June 16, 2026 profile for the full README cold pass before whitespace-cluste
 
 This points the remaining cold-path work at rich text shaping and Swash glyph image generation. Atlas packing and command append are not currently the dominant costs.
 
+### Rich Shape Phase Profiling
+
+Split the rich text shape profile into buffer acquire, rich text setup, Cosmic shaping, measurement, and glyph extraction. The README profile showed that the expensive part of `rich_shape` was loading rich text into the Cosmic buffer, not shaping:
+
+```text
+rich_shape=2.20ms(acq=0.11 set=1.91[prep=0.00 buffer=1.90 align=0.00] cosmic=0.06 measure=0.00 extract=0.11)
+```
+
+This means optimizing local span preparation is not enough; the remaining cold setup cost is mostly inside the buffer text loading path.
+
+### Single-Span Rich Text Fast Path
+
+Rich text nodes with exactly one span now delegate measurement and rasterization to the plain text paths. This preserves visual behavior for single-style text blocks while avoiding the rich shaped-layout and rich glyph-layout caches entirely.
+
+The README profile before this delegation showed that most rich loads were single-span:
+
+```text
+rich_shape=2.19ms(... loads=59/55+4 spans=87 bytes=1792)
+```
+
+After delegating single-span rich text to the plain text path:
+
+```text
+text shape=0.88ms rich_shape=0.96ms(acq=0.00 set=0.88[prep=0.00 buffer=0.87 align=0.00] cosmic=0.02 measure=0.00 extract=0.05 loads=4/0+4 spans=32 bytes=853)
+```
+
+This removed 55 rich text loads from the README cold pass and reduced glyph-engine memory in the profile from about 170 KiB to about 112 KiB. The single-span work now appears in the plain `text shape` bucket, but total text setup still moves down modestly.
+
 ### Whitespace Cluster Raster Skip
 
 Rasterization now skips shaped glyph clusters whose source text is entirely whitespace before asking Swash for a glyph image. Whitespace still participates in shaping, wrapping, measurement, caret positions, and selection geometry; it just does not enter the atlas/raster path because it does not paint.
@@ -207,7 +235,7 @@ Markdown input stores rich text spans. It does not store shaped runs.
 
 ## Next Candidates
 
-1. Reduce cold rich text shaping cost, especially repeated Cosmic Text buffer setup and span conversion.
+1. Reduce successful Swash glyph image generation cost; after whitespace skipping, Swash requests match successful atlas packs.
 2. Decide whether WGPU should keep zero-copy atlas-slice dirty uploads or build compact per-rect row buffers like DX12.
 
 ## Updating This Page

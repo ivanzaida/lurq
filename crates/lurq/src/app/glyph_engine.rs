@@ -384,6 +384,9 @@ impl GlyphEngine {
     if spans.is_empty() {
       return Size::default();
     }
+    if let [span] = spans {
+      return self.measure_text(&span.text, &span.style, max_width);
+    }
     let wrap = is_bounded_text_width(max_width);
     let fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
     if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, max_width, wrap) {
@@ -674,6 +677,20 @@ impl GlyphEngine {
     let Some(first) = spans.first() else {
       return;
     };
+    if spans.len() == 1 {
+      self.rasterize_text_with_baked_transform_into(
+        &first.text,
+        &first.style,
+        max_width,
+        wrap,
+        origin_x,
+        origin_y,
+        transform,
+        transform_origin,
+        out,
+      );
+      return;
+    }
     let wrap = effective_text_wrap(max_width, wrap);
     let swash_transform = swash_transform_from_screen(transform);
     let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
@@ -838,6 +855,19 @@ impl GlyphEngine {
     let Some(first) = spans.first() else {
       return;
     };
+    if spans.len() == 1 {
+      self.rasterize_text_with_snap_into(
+        &first.text,
+        &first.style,
+        max_width,
+        wrap,
+        origin_x,
+        origin_y,
+        snap_to_pixel,
+        out,
+      );
+      return;
+    }
     let wrap = effective_text_wrap(max_width, wrap);
     let fingerprint = rich_text_raster_fingerprint(spans, max_width, wrap, snap_to_pixel);
     let atlas_w = self.atlas_packer.width as f32;
@@ -1225,11 +1255,40 @@ impl GlyphEngine {
     #[cfg(feature = "perf_profile")]
     let profile_start = Instant::now();
 
+    #[cfg(feature = "perf_profile")]
+    let phase_start = Instant::now();
     let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
-    self.set_rich_buffer_text(&mut buffer, spans);
-    buffer.shape_until_scroll(&mut self.font_system, false);
-    let size = measure_buffer(&buffer, first.style.font_size * first.style.line_height);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_acquire_buffer += phase_start.elapsed();
+    }
 
+    #[cfg(feature = "perf_profile")]
+    let phase_start = Instant::now();
+    self.set_rich_buffer_text(&mut buffer, spans);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_set_text += phase_start.elapsed();
+    }
+
+    #[cfg(feature = "perf_profile")]
+    let phase_start = Instant::now();
+    buffer.shape_until_scroll(&mut self.font_system, false);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_cosmic_shape += phase_start.elapsed();
+    }
+
+    #[cfg(feature = "perf_profile")]
+    let phase_start = Instant::now();
+    let size = measure_buffer(&buffer, first.style.font_size * first.style.line_height);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_measure += phase_start.elapsed();
+    }
+
+    #[cfg(feature = "perf_profile")]
+    let phase_start = Instant::now();
     let mut glyphs = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
@@ -1244,6 +1303,10 @@ impl GlyphEngine {
           color: glyph_color(glyph.color_opt, first.style.color),
         });
       }
+    }
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_extract += phase_start.elapsed();
     }
 
     self.buffer_pool.push(buffer);
@@ -1319,21 +1382,123 @@ impl GlyphEngine {
     let Some(first) = spans.first() else {
       return;
     };
-    let families: Vec<_> = spans.iter().map(|span| self.resolve_family(&span.style)).collect();
-    let rich_spans: Vec<_> = spans
-      .iter()
-      .zip(families.iter())
-      .map(|(span, family)| (span.text.as_str(), attrs_for_style(&span.style, family)))
-      .collect();
-    let default_family = self.resolve_family(&first.style);
-    buffer.set_rich_text(
-      &mut self.font_system,
-      rich_spans,
-      attrs_for_style(&first.style, &default_family),
-      Shaping::Advanced,
-    );
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_text_loads += 1;
+      self.profile.rich_loaded_spans += spans.len();
+      self.profile.rich_loaded_bytes += spans.iter().map(|span| span.text.len()).sum::<usize>();
+      if spans.len() == 1 {
+        self.profile.rich_single_span_loads += 1;
+      } else {
+        self.profile.rich_multi_span_loads += 1;
+      }
+    }
+
+    if spans.len() == 1 {
+      #[cfg(feature = "perf_profile")]
+      let phase_start = Instant::now();
+      if self.font_aliases.is_empty() {
+        let attrs = attrs_for_style(&first.style, first.style.font_family.as_ref());
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.rich_prepare_spans += phase_start.elapsed();
+        }
+
+        #[cfg(feature = "perf_profile")]
+        let phase_start = Instant::now();
+        set_buffer_text(
+          buffer,
+          &mut self.font_system,
+          &first.text,
+          attrs,
+          first.style.text_align,
+        );
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.rich_buffer_set_text += phase_start.elapsed();
+        }
+      } else {
+        let family = self.resolve_family(&first.style);
+        let attrs = attrs_for_style(&first.style, &family);
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.rich_prepare_spans += phase_start.elapsed();
+        }
+
+        #[cfg(feature = "perf_profile")]
+        let phase_start = Instant::now();
+        set_buffer_text(
+          buffer,
+          &mut self.font_system,
+          &first.text,
+          attrs,
+          first.style.text_align,
+        );
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.rich_buffer_set_text += phase_start.elapsed();
+        }
+      }
+      return;
+    }
+
+    if self.font_aliases.is_empty() {
+      #[cfg(feature = "perf_profile")]
+      let phase_start = Instant::now();
+      let rich_spans: Vec<_> = spans
+        .iter()
+        .map(|span| {
+          (
+            span.text.as_str(),
+            attrs_for_style(&span.style, span.style.font_family.as_ref()),
+          )
+        })
+        .collect();
+      let default_attrs = attrs_for_style(&first.style, first.style.font_family.as_ref());
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.rich_prepare_spans += phase_start.elapsed();
+      }
+
+      #[cfg(feature = "perf_profile")]
+      let phase_start = Instant::now();
+      buffer.set_rich_text(&mut self.font_system, rich_spans, default_attrs, Shaping::Advanced);
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.rich_buffer_set_text += phase_start.elapsed();
+      }
+    } else {
+      #[cfg(feature = "perf_profile")]
+      let phase_start = Instant::now();
+      let families: Vec<_> = spans.iter().map(|span| self.resolve_family(&span.style)).collect();
+      let rich_spans: Vec<_> = spans
+        .iter()
+        .zip(families.iter())
+        .map(|(span, family)| (span.text.as_str(), attrs_for_style(&span.style, family)))
+        .collect();
+      let default_family = self.resolve_family(&first.style);
+      let default_attrs = attrs_for_style(&first.style, &default_family);
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.rich_prepare_spans += phase_start.elapsed();
+      }
+
+      #[cfg(feature = "perf_profile")]
+      let phase_start = Instant::now();
+      buffer.set_rich_text(&mut self.font_system, rich_spans, default_attrs, Shaping::Advanced);
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.rich_buffer_set_text += phase_start.elapsed();
+      }
+    }
+    #[cfg(feature = "perf_profile")]
+    let phase_start = Instant::now();
     for line in &mut buffer.lines {
       line.set_align(Some(first.style.text_align.to_cosmic()));
+    }
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.rich_align_lines += phase_start.elapsed();
     }
   }
 
@@ -2296,10 +2461,16 @@ mod tests {
       font_size: 16.0,
       ..crate::layout::text_style::TextStyle::default()
     };
-    let spans = vec![crate::layout::quad::RichTextSpan {
-      text: "Measured rich text can be rasterized without shaping it again.".to_owned(),
-      style,
-    }];
+    let spans = vec![
+      crate::layout::quad::RichTextSpan {
+        text: "Measured rich text ".to_owned(),
+        style: style.clone(),
+      },
+      crate::layout::quad::RichTextSpan {
+        text: "can be rasterized without shaping it again.".to_owned(),
+        style,
+      },
+    ];
 
     let measured = engine.measure_rich_text(&spans, 260.0);
     assert!(measured.width > 0.0);
