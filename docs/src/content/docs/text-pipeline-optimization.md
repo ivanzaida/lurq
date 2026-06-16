@@ -25,6 +25,29 @@ The short command is useful for direction, but final claims should use the norma
 
 ## Current Results
 
+Full Criterion run from June 16, 2026 after the kept text/layout changes:
+
+| Case | Full run |
+| --- | ---: |
+| `parse_readme_markdown/all` | ~10.4 us |
+| `cold_readme_markdown_first_pass/all` | ~6.32 ms |
+| `warm_readme_markdown_cached_pass/all` | ~57.1 us |
+| `cold_readme_markdown_realistic_viewport/all` | ~5.15 ms |
+| `warm_readme_markdown_realistic_viewport/all` | ~29.0 us |
+| `cold_long_text_realistic_viewport/all` | ~3.44 ms |
+| `warm_long_text_realistic_viewport/all` | ~25.9 us |
+| `cold_flow_long_text_realistic_viewport/all` | ~27.1 ms |
+| `warm_flow_long_text_realistic_viewport/all` | ~25.3 us |
+| `remount_flow_long_text_same_app/all` | ~45.7 us |
+
+One-shot profile from the same run:
+
+```text
+realistic README: total=4.35ms, layout=1.68ms, glyphs=2.25ms, swash=1.76ms/238
+long text realistic: total=2.77ms, layout=0.01ms, glyphs=2.34ms, swash=0.94ms/178
+flow long text realistic: total=28.28ms, layout=22.27ms, glyphs=5.61ms, swash=0.97ms/178
+```
+
 Short-run results from June 16, 2026:
 
 | Case | Baseline | After rich text raster cache | After atlas snapshot reuse | After shared shaped layout | After borrowed key lookup | After display-text skip |
@@ -141,6 +164,8 @@ WGPU probe after coalescing:
 | mixed update | 76,469 B | 2 | 0 |
 
 WGPU uses the atlas slice directly with atlas-width row stride for dirty uploads, so its byte counter represents the source span passed to `queue.write_texture`. DX12 builds compact padded upload buffers per rect, so its byte counter is not directly comparable.
+
+After inspecting WGPU 24's queue path, the WGPU counter was changed to report the internally staged texture bytes: `align(rect.width, COPY_BYTES_PER_ROW_ALIGNMENT) * rect.height`. The renderer still passes atlas-width source slices to `queue.write_texture`, because WGPU already copies rows into an aligned staging buffer internally. Building an additional compact CPU buffer in lurq would reduce the source slice size but add a redundant packing copy before WGPU's own staging copy.
 
 ### Markdown Parse Baseline
 
@@ -312,6 +337,32 @@ The experiment was not kept. In short local runs it regressed cold README and lo
 
 Thread startup, extra collection passes, and reduced cache locality outweighed the parallel Swash work at the current glyph counts. A future parallel path likely needs persistent workers or a larger async raster queue instead of per-pass scoped thread spawning.
 
+### Outline-First Swash Rasterization Experiment
+
+Tried asking Swash for an outline image first and falling back to color outline/bitmap sources only when the outline path did not produce an image. The goal was to avoid probing color glyph sources on every successful normal-text glyph image.
+
+The experiment was not kept. A short run suggested `cold_long_text_realistic_viewport/all` might improve, but the full Criterion run did not confirm it:
+
+| Case | Full run with outline-first |
+| --- | ---: |
+| `cold_long_text_realistic_viewport/all` | ~3.67 ms, regressed in Criterion |
+| `warm_long_text_realistic_viewport/all` | ~26 us, regressed in Criterion |
+| README realistic cold profile | ~4.39 ms, within the existing direct-path range |
+
+The direct Swash source order was restored. Successful Swash generation remains the main visible-glyph cold cost, but this source-order tweak is not a reliable win.
+
+### Flow Text Exact Measurement
+
+The `cold_flow_long_text_realistic_viewport/all` case still spends most of its time in layout measurement:
+
+```text
+flow long text realistic: total=28.28ms, layout=22.27ms, text shape=22.24ms
+```
+
+This benchmark places one large `Text` node inside normal column flow. The vertical column layout gives non-flex children unbounded height so they can report exact content height. That is the correct contract for normal flow, especially when following siblings, scroll extents, hit testing, or selectable text may depend on the full height.
+
+The tight-constraint measurement skip handles fixed-size clipped text, but it should not be silently reused for normal flow. Reducing this case safely needs an explicit lazy/estimated layout model or an overflow rule that says exact child height is not needed.
+
 ### Empty Glyph Miss Cache Experiment
 
 Tried caching glyph cache keys that produced no Swash image or zero-sized placements. In the README profile this reduced Swash requests from 560 to 394, but did not reduce measured Swash time.
@@ -332,9 +383,10 @@ Markdown input stores rich text spans. It does not store shaped runs.
 
 ## Next Candidates
 
-1. Reduce successful Swash glyph image generation cost for normal visible text; after whitespace skipping, Swash requests mostly match successful atlas packs.
-2. Explore parallelizing visible glyph image generation and atlas preparation for cold text-heavy frames.
-3. Decide whether WGPU should keep zero-copy atlas-slice dirty uploads or build compact per-rect row buffers like DX12.
+1. Reduce successful Swash glyph image generation cost without changing glyph source priority or adding per-pass worker overhead.
+2. Explore a persistent-worker or queued raster path for cold text-heavy frames; per-pass scoped thread spawning regressed.
+3. Reduce exact full-height measurement cost for non-tight flow text with an explicit layout/overflow model.
+4. Run the full `text_pipeline` Criterion suite after the next kept optimization and replace short-run direction numbers with final local results.
 
 ## Updating This Page
 

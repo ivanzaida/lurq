@@ -5,7 +5,7 @@ use std::ffi::c_void;
 use std::time::Duration;
 
 #[cfg(all(feature = "image", target_os = "macos"))]
-use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
+use core_foundation_sys::base::{kCFAllocatorDefault, CFAllocatorRef, CFRelease, OSStatus};
 #[cfg(all(feature = "image", target_os = "macos"))]
 use core_foundation_sys::dictionary::CFDictionaryRef;
 #[cfg(all(feature = "image", target_os = "macos"))]
@@ -1127,7 +1127,7 @@ impl RenderEngine for WgpuRenderEngine {
     if atlas_recreated || self.atlas_version != atlas.version {
       let upload_full_atlas = atlas_recreated || atlas.dirty_rects.is_empty();
       if upload_full_atlas {
-        _atlas_upload_bytes = atlas.data.len();
+        _atlas_upload_bytes = wgpu_staged_texture_bytes(atlas.width, atlas.height);
         _atlas_upload_rects = 1;
         _atlas_full_uploads = 1;
         queue.write_texture(
@@ -1161,7 +1161,7 @@ impl RenderEngine for WgpuRenderEngine {
           if end > atlas.data.len() {
             continue;
           }
-          _atlas_upload_bytes += end - start;
+          _atlas_upload_bytes += wgpu_staged_texture_bytes(width, height);
           _atlas_upload_rects += 1;
           queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -2405,6 +2405,15 @@ fn scissor_rect(clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> Option
   }
 }
 
+fn wgpu_staged_texture_bytes(width: u32, height: u32) -> usize {
+  align_up_usize(width as usize, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize) * height as usize
+}
+
+fn align_up_usize(value: usize, alignment: usize) -> usize {
+  debug_assert!(alignment > 0);
+  value.div_ceil(alignment) * alignment
+}
+
 #[cfg(test)]
 mod tests {
   use crate::{app::render_engine::RenderEngine, layout::quad::ClipRect};
@@ -2436,6 +2445,13 @@ mod tests {
 
     assert_eq!(engine.width, 1440);
     assert_eq!(engine.height, 900);
+  }
+
+  #[test]
+  fn staged_texture_bytes_uses_wgpu_row_alignment() {
+    assert_eq!(super::wgpu_staged_texture_bytes(1, 3), 256 * 3);
+    assert_eq!(super::wgpu_staged_texture_bytes(256, 2), 256 * 2);
+    assert_eq!(super::wgpu_staged_texture_bytes(257, 2), 512 * 2);
   }
 }
 
