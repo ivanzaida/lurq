@@ -1,6 +1,8 @@
 extern crate self as lurq;
 
 pub use lurq_macros::DevtoolsInspectable;
+#[cfg(feature = "persistent_storage")]
+pub use lurq_macros::PersistentValue;
 
 pub mod animation;
 pub mod app;

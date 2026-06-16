@@ -145,6 +145,10 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
+  pub(crate) fn is_scroll_to_bottom_pending(&self) -> bool {
+    matches!(self.inner.lock().unwrap().pending_scroll_y, Some(PendingScroll::End))
+  }
+
   /// Queue a horizontal scroll to the left edge after the next layout measurement.
   pub fn scroll_to_left_pending(&self) {
     let mut inner = self.inner.lock().unwrap();

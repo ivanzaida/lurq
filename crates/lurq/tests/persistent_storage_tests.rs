@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx},
   node::Element,
+  persistent_storage::PersistentWrite,
 };
 
 fn temp_storage_path(name: &str) -> PathBuf {
@@ -45,6 +46,76 @@ fn persistent_value_type_mismatch_returns_none() {
 }
 
 #[test]
+fn app_bulk_roundtrips_values_in_key_order() {
+  let app = App::new();
+
+  app
+    .write_bulk([("first", 1_i32), ("second", 2_i32), ("third", 3_i32)])
+    .unwrap();
+
+  let values = app
+    .read_bulk_values::<i32, _, _>(["third", "missing", "first"])
+    .unwrap();
+
+  assert_eq!(values, vec![Some(3), None, Some(1)]);
+}
+
+#[test]
+fn app_bulk_writes_mixed_value_types() {
+  let app = App::new();
+
+  app
+    .write_bulk([
+      PersistentWrite::new("name", "Ada"),
+      PersistentWrite::new("launch_count", 12_u64),
+      PersistentWrite::new("compact", true),
+    ])
+    .unwrap();
+
+  assert_eq!(app.persistent_value::<String>("name"), Some("Ada".to_owned()));
+  assert_eq!(app.persistent_value::<u64>("launch_count"), Some(12));
+  assert_eq!(app.persistent_value::<bool>("compact"), Some(true));
+
+  let batch = app.read_bulk(["name", "launch_count", "compact"]).unwrap();
+
+  assert_eq!(batch.value::<String>("name"), Some("Ada".to_owned()));
+  assert_eq!(batch.value::<u64>("launch_count"), Some(12));
+  assert_eq!(batch.value::<bool>("compact"), Some(true));
+}
+
+#[derive(Debug, PartialEq, lurq::PersistentValue)]
+struct UserPrefs {
+  name: String,
+  launch_count: u64,
+  compact: bool,
+}
+
+#[test]
+fn app_roundtrips_derived_persistent_value_struct() {
+  let app = App::new();
+
+  app
+    .set_persistent_value(
+      "prefs",
+      UserPrefs {
+        name: "Ada".to_owned(),
+        launch_count: 12,
+        compact: true,
+      },
+    )
+    .unwrap();
+
+  assert_eq!(
+    app.persistent_value::<UserPrefs>("prefs"),
+    Some(UserPrefs {
+      name: "Ada".to_owned(),
+      launch_count: 12,
+      compact: true,
+    })
+  );
+}
+
+#[test]
 fn redb_storage_persists_across_app_instances() {
   let path = temp_storage_path("persists");
 
@@ -66,19 +137,52 @@ fn redb_storage_persists_across_app_instances() {
   let _ = std::fs::remove_file(path);
 }
 
+#[test]
+fn redb_bulk_storage_persists_across_app_instances() {
+  let path = temp_storage_path("bulk_persists");
+
+  {
+    let mut app = App::new();
+    app.set_persistent_storage_path(path.clone()).unwrap();
+    app
+      .write_bulk([("one", 1_u64), ("two", 2_u64), ("three", 3_u64)])
+      .unwrap();
+  }
+
+  {
+    let mut app = App::new();
+    app.set_persistent_storage_path(path.clone()).unwrap();
+
+    let values = app.read_bulk_values::<u64, _, _>(["three", "one", "missing"]).unwrap();
+
+    assert_eq!(values, vec![Some(3), Some(1), None]);
+  }
+
+  let _ = std::fs::remove_file(path);
+}
+
 struct PersistentRoot;
 
 impl Component for PersistentRoot {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
-    ctx.set_persistent_value("visits", 3_u64).unwrap();
+    ctx
+      .write_bulk([
+        PersistentWrite::new("visits", 3_u64),
+        PersistentWrite::new("opens", 5_u64),
+        PersistentWrite::new("label", "ready"),
+      ])
+      .unwrap();
     Self
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let visits = ctx.persistent_value::<u64>("visits").unwrap_or(0);
-    lurq::components::Text::new(&format!("{visits}"))
+    let values = ctx.read_bulk(["visits", "opens", "label"]).unwrap();
+    let visits = values.value::<u64>("visits").unwrap_or(0);
+    let opens = values.value::<u64>("opens").unwrap_or(0);
+    let label = values.value::<String>("label").unwrap_or_default();
+    lurq::components::Text::new(&format!("{visits}/{opens}/{label}"))
   }
 }
 
@@ -89,6 +193,8 @@ fn ctx_persistent_value_reads_and_writes_app_storage() {
 
   tree.mount_root::<PersistentRoot>(&mut app, ());
 
-  assert_eq!(tree.root().unwrap().text_content(), Some("3"));
+  assert_eq!(tree.root().unwrap().text_content(), Some("3/5/ready"));
   assert_eq!(app.persistent_value::<u64>("visits"), Some(3));
+  assert_eq!(app.persistent_value::<u64>("opens"), Some(5));
+  assert_eq!(app.persistent_value::<String>("label"), Some("ready".to_owned()));
 }

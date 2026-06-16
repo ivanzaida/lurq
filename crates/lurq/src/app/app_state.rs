@@ -134,4 +134,38 @@ impl App {
   ) -> Result<(), crate::persistent_storage::PersistentStorageError> {
     self.persistent_storage.set_value(key, value)
   }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn read_bulk<I, K>(
+    &self,
+    keys: I,
+  ) -> Result<crate::persistent_storage::PersistentReadBatch, crate::persistent_storage::PersistentStorageError>
+  where
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    self.persistent_storage.read_bulk(keys)
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn read_bulk_values<T, I, K>(
+    &self,
+    keys: I,
+  ) -> Result<Vec<Option<T>>, crate::persistent_storage::PersistentStorageError>
+  where
+    T: crate::persistent_storage::PersistentValue,
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    self.persistent_storage.read_bulk_values(keys)
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn write_bulk<I, E>(&self, entries: I) -> Result<(), crate::persistent_storage::PersistentStorageError>
+  where
+    I: IntoIterator<Item = E>,
+    E: crate::persistent_storage::IntoPersistentWrite,
+  {
+    self.persistent_storage.write_bulk(entries)
+  }
 }

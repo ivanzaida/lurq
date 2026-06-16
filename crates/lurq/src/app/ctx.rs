@@ -1957,6 +1957,40 @@ impl Ctx {
     self.app_ref().set_persistent_value(key, value)
   }
 
+  #[cfg(feature = "persistent_storage")]
+  pub fn read_bulk<I, K>(
+    &self,
+    keys: I,
+  ) -> Result<crate::persistent_storage::PersistentReadBatch, crate::persistent_storage::PersistentStorageError>
+  where
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    self.app_ref().read_bulk(keys)
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn read_bulk_values<T, I, K>(
+    &self,
+    keys: I,
+  ) -> Result<Vec<Option<T>>, crate::persistent_storage::PersistentStorageError>
+  where
+    T: crate::persistent_storage::PersistentValue,
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    self.app_ref().read_bulk_values(keys)
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn write_bulk<I, E>(&self, entries: I) -> Result<(), crate::persistent_storage::PersistentStorageError>
+  where
+    I: IntoIterator<Item = E>,
+    E: crate::persistent_storage::IntoPersistentWrite,
+  {
+    self.app_ref().write_bulk(entries)
+  }
+
   #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
     let i18n = self.i18n.as_ref().expect("i18n not set");
@@ -2270,9 +2304,16 @@ impl Ctx {
     CF: Fn(&mut Ctx, &T) -> R,
     R: Into<Element>,
   {
+    let total_start = Instant::now();
+    let track_start = Instant::now();
     state.track();
-    state.sync_measurements();
+    let track_elapsed = track_start.elapsed();
 
+    let sync_start = Instant::now();
+    state.sync_measurements();
+    let sync_elapsed = sync_start.elapsed();
+
+    let group_start = Instant::now();
     let cursor = self.child_cursor;
     self.child_cursor += 1;
 
@@ -2312,27 +2353,54 @@ impl Ctx {
       };
       self.set_child_slot(cursor, slot);
     }
+    let group_elapsed = group_start.elapsed();
 
+    let keys_start = Instant::now();
     let keys = items.iter().map(|item| key_fn(item).to_string()).collect::<Vec<_>>();
-    let valid_keys = keys.iter().cloned().collect::<HashSet<_>>();
-    state.prune_removed_keys(&valid_keys);
+    let keys_elapsed = keys_start.elapsed();
 
+    let valid_keys_start = Instant::now();
+    let valid_keys = keys.iter().cloned().collect::<HashSet<_>>();
+    let valid_keys_elapsed = valid_keys_start.elapsed();
+
+    let prune_start = Instant::now();
+    state.prune_removed_keys(&valid_keys);
+    let prune_elapsed = prune_start.elapsed();
+
+    let window_start = Instant::now();
     let window = state.window(&keys);
+    let window_elapsed = window_start.elapsed();
+    let window_start_index = window.start;
+    let window_end_index = window.end;
+    let top_spacer = window.top_spacer;
+    let bottom_spacer = window.bottom_spacer;
+
     let slot = &mut self.children[cursor];
+    let retain_start = Instant::now();
+    let window_keys = keys[window.start..window.end].iter().cloned().collect::<HashSet<_>>();
     slot.ctx.context_map = self.context_map.clone();
     slot.ctx.retain_unused_children = true;
-    slot.ctx.retain_keyed_child_slots(&valid_keys);
+    slot.ctx.retain_keyed_child_slots(&window_keys);
     slot.ctx.begin_render();
+    let retain_elapsed = retain_start.elapsed();
 
+    let render_start = Instant::now();
     let mut rows: Vec<Element> = Vec::new();
     if window.top_spacer > 0.0 {
       rows.push(Spacer::new().height(window.top_spacer).into());
     }
 
+    let mut cached_rows = 0usize;
+    let mut rendered_rows = 0usize;
     for index in window.start..window.end {
       let key = &keys[index];
       let row_ref = state.row_ref(key);
-      let row = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
+      let (row, cached) = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
+      if cached {
+        cached_rows += 1;
+      } else {
+        rendered_rows += 1;
+      }
       rows.push(Stack::new().ref_element(row_ref).child(row).into());
     }
 
@@ -2341,11 +2409,43 @@ impl Ctx {
     }
 
     slot.ctx.end_render();
+    let render_elapsed = render_start.elapsed();
+    let retained_slots = slot.ctx.children.len();
 
+    let finalize_start = Instant::now();
     let refresh_state = state.clone();
-    ScrollVertical::new(Column::new().spacing(0.0).with_children(rows))
+    let row_count = window_end_index.saturating_sub(window_start_index);
+    let result = ScrollVertical::new(Column::new().spacing(0.0).with_children(rows))
       .with_scroll_state(state.scroll_state())
-      .on_scroll(move |_| refresh_state.request_refresh())
+      .on_scroll(move |_| refresh_state.request_refresh());
+    let finalize_elapsed = finalize_start.elapsed();
+    let total_elapsed = total_start.elapsed();
+    tracing::info!(
+      target: "virtual-list-profile",
+      "[virtual-list-profile] items={} keys={} window={}..{} rows={} rendered_rows={} cached_rows={} retained_slots={} top_spacer={:.1} bottom_spacer={:.1} track_ms={:.3} sync_ms={:.3} group_ms={:.3} keys_ms={:.3} valid_keys_ms={:.3} prune_ms={:.3} window_ms={:.3} retain_ms={:.3} render_ms={:.3} finalize_ms={:.3} total_ms={:.3}",
+      items.len(),
+      keys.len(),
+      window_start_index,
+      window_end_index,
+      row_count,
+      rendered_rows,
+      cached_rows,
+      retained_slots,
+      top_spacer,
+      bottom_spacer,
+      track_elapsed.as_secs_f64() * 1000.0,
+      sync_elapsed.as_secs_f64() * 1000.0,
+      group_elapsed.as_secs_f64() * 1000.0,
+      keys_elapsed.as_secs_f64() * 1000.0,
+      valid_keys_elapsed.as_secs_f64() * 1000.0,
+      prune_elapsed.as_secs_f64() * 1000.0,
+      window_elapsed.as_secs_f64() * 1000.0,
+      retain_elapsed.as_secs_f64() * 1000.0,
+      render_elapsed.as_secs_f64() * 1000.0,
+      finalize_elapsed.as_secs_f64() * 1000.0,
+      total_elapsed.as_secs_f64() * 1000.0,
+    );
+    result
   }
 
   fn render_for_each_item<T, CF>(&mut self, key: String, item: T, component_fn: &CF) -> Element
@@ -2435,7 +2535,7 @@ impl Ctx {
     element
   }
 
-  fn render_virtual_list_item<T, CF, R>(&mut self, key: String, item: &T, component_fn: &CF) -> Element
+  fn render_virtual_list_item<T, CF, R>(&mut self, key: String, item: &T, component_fn: &CF) -> (Element, bool)
   where
     CF: Fn(&mut Ctx, &T) -> R,
     R: Into<Element>,
@@ -2463,6 +2563,11 @@ impl Ctx {
     if can_reuse {
       let slot = &mut self.children[cursor];
       slot.ctx.context_map = self.context_map.clone();
+      if !slot.ctx.any_dirty() {
+        if let Some(rendered) = slot.rendered.as_ref() {
+          return (Element::from_node(rendered.clone_for_reuse()), true);
+        }
+      }
       slot.ctx.begin_render();
       let mut element = component_fn(&mut slot.ctx, item).into();
       slot.ctx.end_render();
@@ -2475,7 +2580,7 @@ impl Ctx {
         &slot.ctx,
       );
       slot.rendered = Some(element.node.clone_for_reuse());
-      return element;
+      return (element, false);
     }
 
     let slot_id = next_component_slot_id();
@@ -2520,7 +2625,7 @@ impl Ctx {
 
     self.insert_child_slot(cursor, slot);
 
-    element
+    (element, false)
   }
 
   // --- Error boundary ---

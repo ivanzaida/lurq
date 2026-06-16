@@ -167,9 +167,20 @@ impl VirtualListState {
 
     let viewport_height = self.scroll_state.viewport_height();
     if viewport_height <= 0.0 {
+      let total_height = inner.total_height(keys);
+      if self.scroll_state.is_scroll_to_bottom_pending() {
+        let start = item_count.saturating_sub(inner.initial_visible_count);
+        let rendered_height = keys[start..].iter().map(|key| inner.height_for(key)).sum::<f32>();
+        return VirtualListWindow {
+          start,
+          end: item_count,
+          top_spacer: (total_height - rendered_height).max(0.0),
+          bottom_spacer: 0.0,
+        };
+      }
+
       let end = item_count.min(inner.initial_visible_count);
       let rendered_height = keys[..end].iter().map(|key| inner.height_for(key)).sum::<f32>();
-      let total_height = inner.total_height(keys);
       return VirtualListWindow {
         start: 0,
         end,

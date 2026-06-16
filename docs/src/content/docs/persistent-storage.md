@@ -59,6 +59,48 @@ impl Component for Preferences {
 
 `ctx.set_persistent_value(key, value)` returns `Result<(), PersistentStorageError>`.
 
+## Bulk Reads And Writes
+
+Use `write_bulk` and `read_bulk` when several values should be read or written together. Bulk calls use one in-memory lock or one `redb` transaction for the whole batch.
+
+```rust
+ctx.write_bulk([
+  ("left_panel_width", 280_u32),
+  ("right_panel_width", 360_u32),
+  ("bottom_panel_height", 180_u32),
+])?;
+
+let widths = ctx.read_bulk_values::<u32, _, _>([
+  "left_panel_width",
+  "right_panel_width",
+  "bottom_panel_height",
+])?;
+```
+
+`read_bulk_values` returns values in the same order as the keys. Missing keys and type mismatches are returned as `None`.
+
+For mixed value types, wrap entries with `PersistentWrite::new(...)` so every item in the batch has the same Rust type while each value still uses its own persistent encoding:
+
+```rust
+use lurq::persistent_storage::PersistentWrite;
+
+ctx.write_bulk([
+  PersistentWrite::new("name", "Ada"),
+  PersistentWrite::new("launch_count", 12_u64),
+  PersistentWrite::new("compact", true),
+])?;
+```
+
+Use `read_bulk` for mixed value types. It fetches all requested keys once and returns a batch that can decode each key as the expected type:
+
+```rust
+let values = ctx.read_bulk(["name", "launch_count", "compact"])?;
+
+let name = values.value::<String>("name");
+let launch_count = values.value::<u64>("launch_count");
+let compact = values.value::<bool>("compact");
+```
+
 ## Supported Types
 
 Persistent values are generic over supported scalar types:
@@ -86,6 +128,34 @@ Supported values include:
 - `f32` and `f64`
 
 If a key exists but was stored with a different type, reads return `None`.
+
+## Custom Types
+
+User-defined structs can derive `PersistentValue` when every field also supports persistent storage:
+
+```rust
+#[derive(Debug, PartialEq, lurq::PersistentValue)]
+struct UserPrefs {
+  name: String,
+  launch_count: u64,
+  compact: bool,
+}
+
+ctx.set_persistent_value(
+  "prefs",
+  UserPrefs {
+    name: "Ada".to_owned(),
+    launch_count: 12,
+    compact: true,
+  },
+)?;
+
+let prefs = ctx.persistent_value::<UserPrefs>("prefs");
+```
+
+The derive implements both read and write support for the struct. Named structs, tuple structs, and unit structs are supported. Enums are not supported by the derive yet.
+
+Derived structs are encoded as a typed binary record containing the Rust type name and each field's own persistent encoding. Renaming the type or changing field order/count is a storage format change for existing data.
 
 ## App-Level Access
 

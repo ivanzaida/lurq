@@ -27,6 +27,7 @@ const TYPE_F64: u8 = 14;
 const TYPE_I128: u8 = 15;
 const TYPE_U128: u8 = 16;
 const TYPE_CHAR: u8 = 17;
+const TYPE_STRUCT: u8 = 18;
 
 #[derive(Clone)]
 pub struct PersistentStorage {
@@ -60,6 +61,63 @@ pub trait PersistentValue: Sized {
 
 pub trait IntoPersistentValue {
   fn encode_persistent_value(self) -> Vec<u8>;
+}
+
+pub struct PersistentWrite {
+  key: String,
+  value: Vec<u8>,
+}
+
+impl PersistentWrite {
+  pub fn new<T: IntoPersistentValue>(key: impl AsRef<str>, value: T) -> Self {
+    Self {
+      key: key.as_ref().to_owned(),
+      value: value.encode_persistent_value(),
+    }
+  }
+}
+
+pub trait IntoPersistentWrite {
+  fn into_persistent_write(self) -> PersistentWrite;
+}
+
+impl IntoPersistentWrite for PersistentWrite {
+  fn into_persistent_write(self) -> PersistentWrite {
+    self
+  }
+}
+
+impl<K, T> IntoPersistentWrite for (K, T)
+where
+  K: AsRef<str>,
+  T: IntoPersistentValue,
+{
+  fn into_persistent_write(self) -> PersistentWrite {
+    PersistentWrite::new(self.0, self.1)
+  }
+}
+
+pub struct PersistentReadBatch {
+  values: HashMap<String, Vec<u8>>,
+}
+
+impl PersistentReadBatch {
+  pub fn value<T: PersistentValue>(&self, key: &str) -> Option<T> {
+    self.values.get(key).and_then(|bytes| T::decode_persistent_value(bytes))
+  }
+
+  pub fn values<T, I, K>(&self, keys: I) -> Vec<Option<T>>
+  where
+    T: PersistentValue,
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    keys.into_iter().map(|key| self.value(key.as_ref())).collect()
+  }
+
+  pub fn contains_key(&self, key: &str) -> bool {
+    self.values.contains_key(key)
+  }
 }
 
 impl Default for PersistentStorage {
@@ -102,6 +160,32 @@ impl PersistentStorage {
     Ok(T::decode_persistent_value(&bytes))
   }
 
+  pub fn read_bulk<I, K>(&self, keys: I) -> Result<PersistentReadBatch, PersistentStorageError>
+  where
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    let keys = keys.into_iter().map(|key| key.as_ref().to_owned()).collect::<Vec<_>>();
+    let values = self.raw_values(&keys)?;
+    Ok(PersistentReadBatch {
+      values: keys
+        .into_iter()
+        .zip(values)
+        .filter_map(|(key, value)| value.map(|value| (key, value)))
+        .collect(),
+    })
+  }
+
+  pub fn read_bulk_values<T, I, K>(&self, keys: I) -> Result<Vec<Option<T>>, PersistentStorageError>
+  where
+    T: PersistentValue,
+    I: IntoIterator<Item = K>,
+    K: AsRef<str>,
+  {
+    let keys = keys.into_iter().map(|key| key.as_ref().to_owned()).collect::<Vec<_>>();
+    Ok(self.read_bulk(&keys)?.values::<T, _, _>(&keys))
+  }
+
   pub fn set_value<T: IntoPersistentValue>(&self, key: &str, value: T) -> Result<(), PersistentStorageError> {
     let bytes = value.encode_persistent_value();
     match &self.backend {
@@ -114,6 +198,39 @@ impl PersistentStorage {
         {
           let mut table = txn.open_table(TABLE).map_err(backend_error)?;
           table.insert(key, bytes.as_slice()).map_err(backend_error)?;
+        }
+        txn.commit().map_err(backend_error)
+      }
+    }
+  }
+
+  pub fn write_bulk<I, E>(&self, entries: I) -> Result<(), PersistentStorageError>
+  where
+    I: IntoIterator<Item = E>,
+    E: IntoPersistentWrite,
+  {
+    let entries = entries
+      .into_iter()
+      .map(IntoPersistentWrite::into_persistent_write)
+      .collect::<Vec<_>>();
+
+    match &self.backend {
+      PersistentStorageBackend::Memory(values) => {
+        let mut values = values.write();
+        for entry in entries {
+          values.insert(entry.key, entry.value);
+        }
+        Ok(())
+      }
+      PersistentStorageBackend::Redb(db) => {
+        let txn = db.begin_write().map_err(backend_error)?;
+        {
+          let mut table = txn.open_table(TABLE).map_err(backend_error)?;
+          for entry in entries {
+            table
+              .insert(entry.key.as_str(), entry.value.as_slice())
+              .map_err(backend_error)?;
+          }
         }
         txn.commit().map_err(backend_error)
       }
@@ -161,6 +278,28 @@ impl PersistentStorage {
             .map_err(backend_error)?
             .map(|value| value.value().to_vec()),
         )
+      }
+    }
+  }
+
+  fn raw_values(&self, keys: &[String]) -> Result<Vec<Option<Vec<u8>>>, PersistentStorageError> {
+    match &self.backend {
+      PersistentStorageBackend::Memory(values) => {
+        let values = values.read();
+        Ok(keys.iter().map(|key| values.get(key).cloned()).collect())
+      }
+      PersistentStorageBackend::Redb(db) => {
+        let txn = db.begin_read().map_err(backend_error)?;
+        let table = txn.open_table(TABLE).map_err(backend_error)?;
+        keys
+          .iter()
+          .map(|key| {
+            table
+              .get(key.as_str())
+              .map_err(backend_error)
+              .map(|value| value.map(|value| value.value().to_vec()))
+          })
+          .collect()
       }
     }
   }
@@ -314,9 +453,93 @@ impl IntoPersistentValue for char {
   }
 }
 
+#[doc(hidden)]
+pub mod derive_support {
+  use super::{IntoPersistentValue, PersistentValue, TYPE_STRUCT};
+
+  pub fn begin_struct(type_name: &str, field_count: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.push(TYPE_STRUCT);
+    push_len_bytes(&mut bytes, type_name.as_bytes());
+    bytes.extend_from_slice(&(field_count as u32).to_le_bytes());
+    bytes
+  }
+
+  pub fn push_field<T: IntoPersistentValue>(bytes: &mut Vec<u8>, value: T) {
+    let field = value.encode_persistent_value();
+    push_len_bytes(bytes, &field);
+  }
+
+  fn push_len_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
+    bytes.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(value);
+  }
+
+  pub struct DecodeCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+    remaining_fields: usize,
+  }
+
+  impl<'a> DecodeCursor<'a> {
+    pub fn new(bytes: &'a [u8], expected_type: &str, expected_fields: usize) -> Option<Self> {
+      if bytes.first().copied()? != TYPE_STRUCT {
+        return None;
+      }
+      let mut cursor = Self {
+        bytes,
+        offset: 1,
+        remaining_fields: 0,
+      };
+      let stored_type = cursor.read_len_bytes()?;
+      if stored_type != expected_type.as_bytes() {
+        return None;
+      }
+      let stored_fields = cursor.read_u32()? as usize;
+      if stored_fields != expected_fields {
+        return None;
+      }
+      cursor.remaining_fields = stored_fields;
+      Some(cursor)
+    }
+
+    pub fn read_field<T: PersistentValue>(&mut self) -> Option<T> {
+      if self.remaining_fields == 0 {
+        return None;
+      }
+      let bytes = self.read_len_bytes()?;
+      self.remaining_fields -= 1;
+      T::decode_persistent_value(bytes)
+    }
+
+    pub fn finish(self) -> Option<()> {
+      if self.offset == self.bytes.len() && self.remaining_fields == 0 {
+        Some(())
+      } else {
+        None
+      }
+    }
+
+    fn read_u32(&mut self) -> Option<u32> {
+      let end = self.offset.checked_add(4)?;
+      let bytes = self.bytes.get(self.offset..end)?;
+      self.offset = end;
+      Some(u32::from_le_bytes(bytes.try_into().ok()?))
+    }
+
+    fn read_len_bytes(&mut self) -> Option<&'a [u8]> {
+      let len = self.read_u32()? as usize;
+      let end = self.offset.checked_add(len)?;
+      let bytes = self.bytes.get(self.offset..end)?;
+      self.offset = end;
+      Some(bytes)
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
-  use super::PersistentStorage;
+  use super::{PersistentStorage, PersistentWrite};
 
   #[test]
   fn memory_roundtrips_primitives() {
@@ -342,5 +565,56 @@ mod tests {
     storage.set_value("count", 42_i32).unwrap();
 
     assert_eq!(storage.value::<String>("count"), None);
+  }
+
+  #[test]
+  fn memory_bulk_roundtrips_values_in_key_order() {
+    let storage = PersistentStorage::memory();
+
+    storage
+      .write_bulk([("first", 1_u32), ("second", 2_u32), ("third", 3_u32)])
+      .unwrap();
+
+    let batch = storage.read_bulk(["third", "missing", "first"]).unwrap();
+    let values = batch.values::<u32, _, _>(["third", "missing", "first"]);
+
+    assert_eq!(values, vec![Some(3), None, Some(1)]);
+  }
+
+  #[test]
+  fn memory_bulk_writes_mixed_value_types() {
+    let storage = PersistentStorage::memory();
+
+    storage
+      .write_bulk([
+        PersistentWrite::new("name", "Ada"),
+        PersistentWrite::new("count", 2_u64),
+        PersistentWrite::new("enabled", true),
+      ])
+      .unwrap();
+
+    assert_eq!(storage.value::<String>("name"), Some("Ada".to_owned()));
+    assert_eq!(storage.value::<u64>("count"), Some(2));
+    assert_eq!(storage.value::<bool>("enabled"), Some(true));
+  }
+
+  #[test]
+  fn memory_bulk_reads_mixed_value_types() {
+    let storage = PersistentStorage::memory();
+
+    storage
+      .write_bulk([
+        PersistentWrite::new("name", "Ada"),
+        PersistentWrite::new("count", 2_u64),
+        PersistentWrite::new("enabled", true),
+      ])
+      .unwrap();
+
+    let batch = storage.read_bulk(["name", "count", "enabled", "missing"]).unwrap();
+
+    assert_eq!(batch.value::<String>("name"), Some("Ada".to_owned()));
+    assert_eq!(batch.value::<u64>("count"), Some(2));
+    assert_eq!(batch.value::<bool>("enabled"), Some(true));
+    assert_eq!(batch.value::<bool>("missing"), None);
   }
 }

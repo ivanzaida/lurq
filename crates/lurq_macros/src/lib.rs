@@ -1,7 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-  parse_macro_input, AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument, PathArguments, Type,
+  parse_macro_input, parse_quote, AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument,
+  PathArguments, Type,
 };
 
 #[proc_macro_derive(Accessors)]
@@ -114,6 +115,124 @@ pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
     }
   }
   .into()
+}
+
+#[proc_macro_derive(PersistentValue)]
+pub fn derive_persistent_value(input: TokenStream) -> TokenStream {
+  let input = parse_macro_input!(input as DeriveInput);
+
+  let struct_name = input.ident;
+  let mut generics = input.generics;
+
+  let fields = match input.data {
+    Data::Struct(data_struct) => data_struct.fields,
+    Data::Enum(_) | Data::Union(_) => {
+      return quote! {
+        compile_error!("PersistentValue can only be derived for structs.");
+      }
+      .into();
+    }
+  };
+
+  let field_tys = fields.iter().map(|field| field.ty.clone()).collect::<Vec<_>>();
+  {
+    let where_clause = generics.make_where_clause();
+    for field_ty in &field_tys {
+      where_clause.predicates.push(parse_quote! {
+        #field_ty: ::lurq::persistent_storage::PersistentValue + ::lurq::persistent_storage::IntoPersistentValue
+      });
+    }
+  }
+
+  let field_count = field_tys.len();
+  let encode_fields = persistent_encode_fields(&fields);
+  let decode_body = persistent_decode_body(&fields, &field_tys);
+
+  let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+  quote! {
+    impl #impl_generics ::lurq::persistent_storage::IntoPersistentValue for #struct_name #ty_generics #where_clause {
+      fn encode_persistent_value(self) -> ::std::vec::Vec<u8> {
+        let mut bytes = ::lurq::persistent_storage::derive_support::begin_struct(
+          ::std::any::type_name::<Self>(),
+          #field_count,
+        );
+        #encode_fields
+        bytes
+      }
+    }
+
+    impl #impl_generics ::lurq::persistent_storage::PersistentValue for #struct_name #ty_generics #where_clause {
+      fn decode_persistent_value(bytes: &[u8]) -> ::std::option::Option<Self> {
+        let mut cursor = ::lurq::persistent_storage::derive_support::DecodeCursor::new(
+          bytes,
+          ::std::any::type_name::<Self>(),
+          #field_count,
+        )?;
+        let value = #decode_body;
+        cursor.finish()?;
+        ::std::option::Option::Some(value)
+      }
+    }
+  }
+  .into()
+}
+
+fn persistent_encode_fields(fields: &Fields) -> proc_macro2::TokenStream {
+  match fields {
+    Fields::Named(fields) => {
+      let pushes = fields.named.iter().map(|field| {
+        let field_name = field.ident.as_ref().expect("named field should have an ident");
+        quote! {
+          ::lurq::persistent_storage::derive_support::push_field(&mut bytes, self.#field_name);
+        }
+      });
+      quote! {
+        #(#pushes)*
+      }
+    }
+    Fields::Unnamed(fields) => {
+      let pushes = fields.unnamed.iter().enumerate().map(|(index, _)| {
+        let field_index = syn::Index::from(index);
+        quote! {
+          ::lurq::persistent_storage::derive_support::push_field(&mut bytes, self.#field_index);
+        }
+      });
+      quote! {
+        #(#pushes)*
+      }
+    }
+    Fields::Unit => quote! {},
+  }
+}
+
+fn persistent_decode_body(fields: &Fields, field_tys: &[Type]) -> proc_macro2::TokenStream {
+  match fields {
+    Fields::Named(fields) => {
+      let entries = fields.named.iter().zip(field_tys.iter()).map(|(field, field_ty)| {
+        let field_name = field.ident.as_ref().expect("named field should have an ident");
+        quote! {
+          #field_name: cursor.read_field::<#field_ty>()?
+        }
+      });
+      quote! {
+        Self {
+          #(#entries),*
+        }
+      }
+    }
+    Fields::Unnamed(_) => {
+      let entries = field_tys.iter().map(|field_ty| {
+        quote! {
+          cursor.read_field::<#field_ty>()?
+        }
+      });
+      quote! {
+        Self(#(#entries),*)
+      }
+    }
+    Fields::Unit => quote! { Self },
+  }
 }
 
 fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStream {
