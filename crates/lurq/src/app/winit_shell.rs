@@ -295,14 +295,30 @@ impl ManagedWindow {
     }
   }
 
-  fn sync_window_state(&mut self) {
-    if let Some(window) = &self.window {
-      if let Some(minimized) = window.is_minimized() {
-        self.tree.window().set_minimized(minimized);
-      }
-      self.tree.window().set_maximized(window.is_maximized());
-      self.tree.window().set_full_screen(window.fullscreen().is_some());
+  fn sync_window_state(&mut self) -> bool {
+    let Some(window) = &self.window else {
+      return false;
+    };
+
+    let size = window.inner_size();
+    let minimized = window.is_minimized();
+    let maximized = window.is_maximized();
+    let full_screen = window.fullscreen().is_some();
+    let current = self.tree.window().info();
+    let size_changed =
+      current.resolved_width.round() as u32 != size.width || current.resolved_height.round() as u32 != size.height;
+
+    if size_changed {
+      self.tree.resize(size.width, size.height);
+      self.notify_size_changed(size.width, size.height);
     }
+    if let Some(minimized) = minimized {
+      self.tree.window().set_minimized(minimized);
+    }
+    self.tree.window().set_maximized(maximized);
+    self.tree.window().set_full_screen(full_screen);
+
+    size_changed
   }
 
   fn apply_window_commands(&mut self, event_loop: &ActiveEventLoop) -> bool {
@@ -397,7 +413,9 @@ impl ManagedWindow {
         }
       }
     }
-    self.sync_window_state();
+    if self.sync_window_state() {
+      self.request_redraw();
+    }
     closed
   }
 

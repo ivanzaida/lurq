@@ -1517,10 +1517,12 @@ impl LayoutEngine {
     constraints: Constraints,
   ) -> Option<LayoutResult> {
     if !node.layout_cache.is_dirty() {
-      return node
-        .layout_cache
-        .get(constraints)
-        .map(|cached| Self::prepare_cached_result(node, cached));
+      return node.layout_cache.get(constraints).and_then(|cached| {
+        if !Self::cached_result_matches_node_tree(node, &cached) {
+          return None;
+        }
+        Some(Self::prepare_cached_result(node, cached))
+      });
     }
 
     if node.layout_cache.is_local_dirty() || !node.layout_cache.is_descendant_dirty() {
@@ -1532,7 +1534,7 @@ impl LayoutEngine {
     // this parent to relayout if the child no longer fits the cached parent or
     // the parent layout kind needs to reposition siblings around the new size.
     let mut cached = node.layout_cache.get_dirty(constraints)?;
-    if cached.children.len() != node.children().len() {
+    if !Self::cached_result_matches_node_tree(node, &cached) {
       return None;
     }
 
@@ -1577,6 +1579,15 @@ impl LayoutEngine {
     let prepared = Self::prepare_cached_result(node, cached);
     node.layout_cache.store(constraints, prepared.clone());
     Some(prepared)
+  }
+
+  fn cached_result_matches_node_tree(node: &Node, result: &LayoutResult) -> bool {
+    result.children.len() == node.children().len()
+      && node
+        .children()
+        .iter()
+        .zip(&result.children)
+        .all(|(child, child_layout)| Self::cached_result_matches_node_tree(child, &child_layout.result))
   }
 
   fn child_fits_cached_parent(offset: Offset, child_size: Size, parent_size: Size) -> bool {

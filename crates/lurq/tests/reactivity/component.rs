@@ -326,10 +326,8 @@ impl Component for ManualKeyedMountLifecycleParent {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let mut column = lurq::components::Column::new();
     for key in self.items.get() {
-      column = column.child(ctx.mount_keyed::<LifecycleChild>(
-        key,
-        (Shared(self.mounted.clone()), Shared(self.unmounted.clone())),
-      ));
+      column = column
+        .child(ctx.mount_keyed::<LifecycleChild>(key, (Shared(self.mounted.clone()), Shared(self.unmounted.clone()))));
     }
     column
   }

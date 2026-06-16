@@ -3416,7 +3416,9 @@ impl Node {
   }
 
   fn own_layout_signature_matches(&self, old: &Node) -> bool {
-    self.layout_kind_matches_for_cache(old)
+    self.component_slot_id == old.component_slot_id
+      && self.component_key == old.component_key
+      && self.layout_kind_matches_for_cache(old)
       && self.node_kind_matches_for_cache(old)
       && self.frame == old.frame
       && self.padding == old.padding
@@ -3813,6 +3815,18 @@ mod tests {
   }
 
   #[test]
+  fn changed_component_key_does_not_match_layout_cache_signature() {
+    let mut old = Node::text("Hi");
+    old.set_component_slot_id(1);
+    old.set_component_key(Some("message-1"));
+    let mut new = Node::text("Hi");
+    new.set_component_slot_id(2);
+    new.set_component_key(Some("message-2"));
+
+    assert!(!new.layout_signature_matches(&old));
+  }
+
+  #[test]
   fn changed_slider_value_matches_layout_cache_signature() {
     let old_value = Signal::new(10);
     let new_value = Signal::new(20);
@@ -3899,6 +3913,38 @@ mod tests {
       Alignment::Start,
       vec![Node::row(0.0, Alignment::Start, vec![Node::text("Different")])],
     );
+
+    new.preserve_runtime_state_from(&old);
+
+    assert!(new.layout_cache.has_cached_result());
+    assert!(new.layout_cache.is_descendant_dirty());
+  }
+
+  #[test]
+  fn preserved_parent_cache_is_dirty_when_child_component_key_changes() {
+    let mut old_child = Node::row(0.0, Alignment::Start, vec![Node::text("Same text")]);
+    old_child.set_component_slot_id(1);
+    old_child.set_component_key(Some("message-1"));
+    let old = Node::column(0.0, Alignment::Start, vec![old_child]);
+    old.layout_cache.store(
+      Constraints::loose(Size::new(400.0, 400.0)),
+      LayoutResult {
+        size: Size::new(100.0, 20.0),
+        children: vec![ChildLayout {
+          offset: Offset::default(),
+          result: LayoutResult {
+            size: Size::new(100.0, 20.0),
+            children: Vec::new(),
+          }
+          .into(),
+        }],
+      },
+    );
+
+    let mut new_child = Node::row(0.0, Alignment::Start, vec![Node::text("Same text")]);
+    new_child.set_component_slot_id(2);
+    new_child.set_component_key(Some("message-2"));
+    let mut new = Node::column(0.0, Alignment::Start, vec![new_child]);
 
     new.preserve_runtime_state_from(&old);
 

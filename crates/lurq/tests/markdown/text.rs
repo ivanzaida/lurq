@@ -184,9 +184,8 @@ fn markdown_plain_text_keeps_intrinsic_height_in_chat_like_layout() {
   tree.set_layout_constraints_override(None);
 
   let root = tree.root().expect("root should be mounted");
-  let layout_height =
-    find_layout_height_for_text(root, &layout, "Queued: Нурминский - Щемит в душе тоска")
-      .expect("markdown text layout should be present");
+  let layout_height = find_layout_height_for_text(root, &layout, "Queued: Нурминский - Щемит в душе тоска")
+    .expect("markdown text layout should be present");
 
   assert!(
     layout_height <= 24.0,
@@ -238,7 +237,8 @@ fn markdown_plain_text_layout_shrinks_after_source_update() {
   tree.set_layout_constraints_override(None);
 
   let root = tree.root().expect("root should be mounted");
-  let layout_height = find_layout_height_for_text(root, &layout, short).expect("markdown text layout should be present");
+  let layout_height =
+    find_layout_height_for_text(root, &layout, short).expect("markdown text layout should be present");
 
   assert!(
     layout_height <= 24.0,
