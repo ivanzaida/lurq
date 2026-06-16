@@ -1419,14 +1419,16 @@ impl Tree {
               quad.x * scale + quad.width * scale * 0.5,
               quad.y * scale + quad.height * scale * 0.5,
             ]);
+          let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           if quad.transform.is_identity() {
-            app.glyph_engine.rasterize_text_with_wrap_into(
+            app.glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
               &scaled_style,
               max_width,
               *wrap,
               quad.x * scale,
               quad.y * scale,
+              glyph_clip,
               &mut glyphs,
             );
           } else if *transform_mode == TextTransformMode::Rasterized {
@@ -1468,7 +1470,6 @@ impl Tree {
               glyph.height /= raster_scale;
             }
           }
-          let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           for g in &mut glyphs[glyph_start..] {
             g.order = order;
             g.clip = glyph_clip;
@@ -1505,13 +1506,15 @@ impl Tree {
               quad.x * scale + quad.width * scale * 0.5,
               quad.y * scale + quad.height * scale * 0.5,
             ]);
+          let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           if quad.transform.is_identity() {
-            app.glyph_engine.rasterize_rich_text_with_wrap_into(
+            app.glyph_engine.rasterize_rich_text_with_wrap_clipped_into(
               &scaled_spans,
               max_width,
               *wrap,
               quad.x * scale,
               quad.y * scale,
+              glyph_clip,
               &mut glyphs,
             );
           } else if *transform_mode == TextTransformMode::Rasterized {
@@ -1553,7 +1556,6 @@ impl Tree {
               glyph.height /= raster_scale;
             }
           }
-          let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           for g in &mut glyphs[glyph_start..] {
             g.order = order;
             g.clip = glyph_clip;

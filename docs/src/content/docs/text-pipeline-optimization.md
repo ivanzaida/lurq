@@ -215,6 +215,59 @@ swash=2.57ms/386 atlas_pack=0.06ms/386
 
 The short Criterion run did not show a clear cold-frame timing win, but this removes known non-painting Swash calls without retaining miss-cache state.
 
+### Realistic Viewport Baseline
+
+Added full README benchmark cases with an 800 px viewport in addition to the tall 20,000 px viewport. The tall viewport keeps the whole document visible; the realistic viewport exercises viewport culling in the render-list path.
+
+Short-run results from June 16, 2026:
+
+| Case | Tall viewport | Realistic viewport |
+| --- | ---: | ---: |
+| cold full README | ~6.35 ms | ~5.27 ms |
+| warm full README | ~56 us | ~33 us |
+
+Profile comparison:
+
+```text
+tall:      1253 glyphs, swash=2.61ms/386, glyphs=3.38ms
+realistic:  568 glyphs, swash=1.84ms/238, glyphs=2.38ms
+```
+
+Viewport culling is already reducing raster work for document-sized content. The remaining realistic-viewport cold cost is still successful Swash glyph image generation for visible glyphs.
+
+### Mask And Atlas Copy Cleanup
+
+Changed glyph coverage extraction to borrow Swash mask bytes for `SwashContent::Mask` instead of cloning them, and changed atlas packing to copy each glyph row with `copy_from_slice` instead of a byte-by-byte inner loop.
+
+The README profile did not move meaningfully from this change; `atlas_pack` remained around 0.06 ms in the tall viewport profile. This confirms the current bottleneck is not mask cloning or atlas memory copy.
+
+### Clipped Identity Text Rasterization
+
+Identity-transform text rasterization now receives the active text clip and uses it while building glyph commands. Plain text and single-span rich text can skip layout runs that are fully outside the clip, and cached glyph command append filters glyph rects against the clip. Multi-span rich text still uses the existing full rich-text raster path.
+
+This did not materially change the README realistic-viewport benchmark because the README workload is already mostly helped by whole-quad viewport culling:
+
+```text
+realistic README: 568 glyphs, swash=1.79ms/238, glyphs=2.27ms
+```
+
+To cover the case this optimization targets, the benchmark now includes a single large wrapped `Text` node in an 800 px viewport. Before adding a clipped glyph-layout cache, this exposed a warm-redraw problem: clipped rasterization skipped offscreen lines, so it could not safely populate the normal full glyph-layout cache and had to reshape the large text node on every redraw.
+
+| Case | Before clipped cache | After clipped cache | After finite-height raster shape |
+| --- | ---: | ---: | ---: |
+| `cold_long_text_realistic_viewport/all` | ~49 ms | ~50 ms | ~28 ms |
+| `warm_long_text_realistic_viewport/all` | ~25 ms | ~22.6 us | ~23 us |
+
+Cold profile after finite-height raster shaping:
+
+```text
+long text realistic: 771 glyphs, swash=0.99ms/178, glyphs=4.06ms, text shape=22.18ms
+```
+
+The clipped raster path keeps Swash generation near the visible glyph set. The clipped glyph-layout cache then makes repeated stable redraws cheap by reusing the visible-line glyph layout for the same text/style/width and clip-relative rectangle.
+
+The raster path also sets a finite Cosmic buffer height from the active clip bottom before shaping, so top-of-document cold rasterization stops after the visible range instead of shaping the whole node again. This moved the cold long-text benchmark from about 50 ms to about 28 ms. Cold first render is now dominated by full-node layout measurement rather than rasterization.
+
 ### Empty Glyph Miss Cache Experiment
 
 Tried caching glyph cache keys that produced no Swash image or zero-sized placements. In the README profile this reduced Swash requests from 560 to 394, but did not reduce measured Swash time.
@@ -235,8 +288,9 @@ Markdown input stores rich text spans. It does not store shaped runs.
 
 ## Next Candidates
 
-1. Reduce successful Swash glyph image generation cost; after whitespace skipping, Swash requests match successful atlas packs.
-2. Decide whether WGPU should keep zero-copy atlas-slice dirty uploads or build compact per-rect row buffers like DX12.
+1. Reduce or amortize full-node layout measurement for very large wrapped text nodes; clipped rasterization has exposed measurement shaping as the dominant cold cost there.
+2. Reduce successful Swash glyph image generation cost for normal visible text; after whitespace skipping, Swash requests mostly match successful atlas packs.
+3. Decide whether WGPU should keep zero-copy atlas-slice dirty uploads or build compact per-rect row buffers like DX12.
 
 ## Updating This Page
 

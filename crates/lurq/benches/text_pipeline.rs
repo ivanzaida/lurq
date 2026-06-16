@@ -3,8 +3,8 @@ use std::num::NonZeroIsize;
 use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, render_engine::RenderEngine},
-  components::{Markdown, MarkdownProps},
-  layout::render_list::RenderList,
+  components::{Markdown, MarkdownProps, Text},
+  layout::{render_list::RenderList, text_style::TextStyle},
   markdown::parse_markdown,
   node::Element,
 };
@@ -14,7 +14,8 @@ use raw_window_handle::{
 
 const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../README.md"));
 const VIEWPORT_WIDTH: f32 = 1200.0;
-const VIEWPORT_HEIGHT: f32 = 20_000.0;
+const TALL_VIEWPORT_HEIGHT: f32 = 20_000.0;
+const REALISTIC_VIEWPORT_HEIGHT: f32 = 800.0;
 const MARKDOWN_WIDTH: f32 = 860.0;
 
 struct MarkdownRoot;
@@ -28,6 +29,20 @@ impl Component for MarkdownRoot {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     Markdown::mount(ctx, ctx.props::<Self::Props>().clone())
+  }
+}
+
+struct LongTextRoot;
+
+impl Component for LongTextRoot {
+  type Props = String;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    Text::styled(ctx.props::<Self::Props>(), TextStyle::default()).width(MARKDOWN_WIDTH)
   }
 }
 
@@ -58,8 +73,16 @@ impl RenderEngine for NoopRenderEngine {
 }
 
 fn tree() -> Tree {
+  tree_with_viewport_height(TALL_VIEWPORT_HEIGHT)
+}
+
+fn realistic_viewport_tree() -> Tree {
+  tree_with_viewport_height(REALISTIC_VIEWPORT_HEIGHT)
+}
+
+fn tree_with_viewport_height(height: f32) -> Tree {
   let mut tree = Tree::new();
-  tree.resize(VIEWPORT_WIDTH as u32, VIEWPORT_HEIGHT as u32);
+  tree.resize(VIEWPORT_WIDTH as u32, height as u32);
   tree.set_render_engine_factory(|| Box::new(NoopRenderEngine));
   tree
 }
@@ -80,6 +103,15 @@ fn readme_props(max_lines: usize) -> MarkdownProps {
   MarkdownProps::new(readme_source(max_lines)).width(MARKDOWN_WIDTH)
 }
 
+fn long_text_source() -> String {
+  let mut source = String::with_capacity(README.len() * 24);
+  for _ in 0..24 {
+    source.push_str(README);
+    source.push('\n');
+  }
+  source
+}
+
 #[cfg(feature = "perf_profile")]
 fn print_text_profile_once() {
   if std::env::var_os("LURQ_TEXT_PROFILE").is_none() {
@@ -90,7 +122,19 @@ fn print_text_profile_once() {
   let mut tree = tree();
   tree.mount_root::<MarkdownRoot>(&mut app, readme_props(usize::MAX));
   run_pass(&mut tree, &mut app);
-  eprintln!("[text_pipeline_profile] {}", tree.profile());
+  eprintln!("[text_pipeline_profile tall] {}", tree.profile());
+
+  let mut app = App::new();
+  let mut tree = realistic_viewport_tree();
+  tree.mount_root::<MarkdownRoot>(&mut app, readme_props(usize::MAX));
+  run_pass(&mut tree, &mut app);
+  eprintln!("[text_pipeline_profile realistic] {}", tree.profile());
+
+  let mut app = App::new();
+  let mut tree = realistic_viewport_tree();
+  tree.mount_root::<LongTextRoot>(&mut app, long_text_source());
+  run_pass(&mut tree, &mut app);
+  eprintln!("[text_pipeline_profile long_text_realistic] {}", tree.profile());
 }
 
 #[cfg(not(feature = "perf_profile"))]
@@ -151,6 +195,56 @@ fn bench_text_pipeline(c: &mut Criterion) {
       },
     );
   }
+
+  group.bench_function("cold_readme_markdown_realistic_viewport/all", |b| {
+    b.iter_batched(
+      || {
+        let mut app = App::new();
+        let mut tree = realistic_viewport_tree();
+        tree.mount_root::<MarkdownRoot>(&mut app, readme_props(usize::MAX));
+        (app, tree)
+      },
+      |(mut app, mut tree)| {
+        run_pass(&mut tree, &mut app);
+      },
+      BatchSize::SmallInput,
+    );
+  });
+
+  group.bench_function("warm_readme_markdown_realistic_viewport/all", |b| {
+    let mut app = App::new();
+    let mut tree = realistic_viewport_tree();
+    tree.mount_root::<MarkdownRoot>(&mut app, readme_props(usize::MAX));
+    run_pass(&mut tree, &mut app);
+    b.iter(|| {
+      run_pass(&mut tree, &mut app);
+    });
+  });
+
+  group.bench_function("cold_long_text_realistic_viewport/all", |b| {
+    b.iter_batched(
+      || {
+        let mut app = App::new();
+        let mut tree = realistic_viewport_tree();
+        tree.mount_root::<LongTextRoot>(&mut app, long_text_source());
+        (app, tree)
+      },
+      |(mut app, mut tree)| {
+        run_pass(&mut tree, &mut app);
+      },
+      BatchSize::SmallInput,
+    );
+  });
+
+  group.bench_function("warm_long_text_realistic_viewport/all", |b| {
+    let mut app = App::new();
+    let mut tree = realistic_viewport_tree();
+    tree.mount_root::<LongTextRoot>(&mut app, long_text_source());
+    run_pass(&mut tree, &mut app);
+    b.iter(|| {
+      run_pass(&mut tree, &mut app);
+    });
+  });
 
   group.finish();
 }
