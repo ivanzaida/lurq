@@ -1,3 +1,5 @@
+#[cfg(feature = "perf_profile")]
+use std::time::{Duration, Instant};
 use std::{
   cell::{Cell, RefCell},
   sync::Arc,
@@ -47,6 +49,20 @@ const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
 #[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
+#[cfg(feature = "perf_profile")]
+const SLOW_LAYOUT_NODE_THRESHOLD: Duration = Duration::from_millis(4);
+
+#[cfg(feature = "perf_profile")]
+fn layout_kind_profile_name(kind: &LayoutKind) -> &'static str {
+  match kind {
+    LayoutKind::Leaf => "leaf",
+    LayoutKind::Row { .. } => "row",
+    LayoutKind::Column { .. } => "column",
+    LayoutKind::Stack { .. } => "stack",
+    LayoutKind::LogicalModifier => "logical_modifier",
+    LayoutKind::ScrollModifier { .. } => "scroll_modifier",
+  }
+}
 
 const DEFAULT_CONTROL_SURFACE_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
@@ -631,11 +647,10 @@ impl LayoutEngine {
     let mut local_dirty =
       force_dirty || node.text_content.is_changed() || text_input_dirty || !node.layout_cache.has_cached_result();
 
-    if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind()
-      && state.take_scroll_dirty()
-    {
-      local_dirty = true;
-    }
+    let scroll_offset_dirty = matches!(
+      node.layout_kind(),
+      LayoutKind::ScrollModifier { state, .. } if state.take_scroll_dirty()
+    );
 
     if node
       .element_ref
@@ -657,11 +672,11 @@ impl LayoutEngine {
     if local_dirty {
       node.layout_cache.mark_local_dirty();
     }
-    if child_dirty {
+    if child_dirty || scroll_offset_dirty {
       node.layout_cache.mark_descendant_dirty();
     }
 
-    local_dirty || child_dirty
+    local_dirty || child_dirty || scroll_offset_dirty
   }
 
   pub(crate) fn resolve_quads(&self, node: &Node, result: &LayoutResult) -> Vec<Quad> {
@@ -1598,10 +1613,49 @@ impl LayoutEngine {
     constraints: Constraints,
     child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
+    #[cfg(feature = "perf_profile")]
+    let profile_start = Instant::now();
+    #[cfg(feature = "perf_profile")]
+    let profile_local_dirty = node.layout_cache.is_local_dirty();
+    #[cfg(feature = "perf_profile")]
+    let profile_descendant_dirty = node.layout_cache.is_descendant_dirty();
+    #[cfg(feature = "perf_profile")]
+    let profile_override_count = child_overrides
+      .map(|overrides| {
+        overrides
+          .iter()
+          .filter(|override_result| override_result.is_some())
+          .count()
+      })
+      .unwrap_or(0);
+
     self.last_recalculated.set(true);
     let mut result = self.layout_node_box(glyph_engine, node, constraints, child_overrides);
     Self::apply_runtime_rect(node, &mut result);
     node.layout_cache.store(constraints, result.clone());
+    #[cfg(feature = "perf_profile")]
+    {
+      let elapsed = profile_start.elapsed();
+      if elapsed >= SLOW_LAYOUT_NODE_THRESHOLD {
+        tracing::trace!(
+          target: "layout-profile",
+          "[layout-profile] kind={} tag={} children={} overrides={} local_dirty={} descendant_dirty={} constraints={:.1}..{:.1}x{:.1}..{:.1} size={:.1}x{:.1} ms={:.3}",
+          layout_kind_profile_name(node.layout_kind()),
+          node.tag_name(),
+          node.children().len(),
+          profile_override_count,
+          profile_local_dirty,
+          profile_descendant_dirty,
+          constraints.min_width,
+          constraints.max_width,
+          constraints.min_height,
+          constraints.max_height,
+          result.size.width,
+          result.size.height,
+          elapsed.as_secs_f64() * 1000.0,
+        );
+      }
+    }
     result
   }
 
@@ -1905,12 +1959,14 @@ impl LayoutEngine {
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
     state.set_render_wrap(render_wrap);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
-    state.set_display_text(Some(display_text.clone()));
-    if state.selectable()
-      && let Some(first) = spans.first()
-    {
-      state.set_caret_positions(glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
+    if state.selectable() {
+      let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+      state.set_display_text(Some(display_text.clone()));
+      if let Some(first) = spans.first() {
+        state.set_caret_positions(glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
+      }
+    } else {
+      state.set_display_text(None);
     }
     let measured = glyph_engine.measure_rich_text(spans, max_width);
     let size = if effective_wrap {
@@ -2907,6 +2963,34 @@ impl LayoutEngine {
   ) -> LayoutResult {
     let child = &node.children()[0];
     let style = node.scrollbar_style(self.scrollbar.borrow().clone());
+
+    if style.placement != ScrollBarPlacement::Reserved {
+      let child_result = self.layout_child_node(
+        glyph_engine,
+        child_overrides,
+        0,
+        child,
+        scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height),
+      );
+      let size = scroll_container_size(constraints, &child_result, &style, false, false);
+      let viewport = reserved_viewport(size, &style, false, false);
+      state.update_layout_with_container(
+        child_result.size.width,
+        child_result.size.height,
+        viewport.width,
+        viewport.height,
+        size.width,
+        size.height,
+      );
+
+      return LayoutResult {
+        size,
+        children: vec![ChildLayout {
+          offset: Offset::new(-state.scroll_x(), -state.scroll_y()),
+          result: child_result.into(),
+        }],
+      };
+    }
 
     let mut reserve_vertical = false;
     let mut reserve_horizontal = false;

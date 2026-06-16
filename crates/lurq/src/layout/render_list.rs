@@ -170,8 +170,17 @@ pub struct GlyphCmd {
 }
 
 pub struct GlyphAtlas {
-  pub data: Vec<u8>,
+  pub data: std::sync::Arc<[u8]>,
   pub width: u32,
   pub height: u32,
   pub version: u64,
+  pub dirty_rects: std::sync::Arc<[GlyphAtlasDirtyRect]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GlyphAtlasDirtyRect {
+  pub x: u32,
+  pub y: u32,
+  pub width: u32,
+  pub height: u32,
 }

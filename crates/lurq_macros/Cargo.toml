@@ -1,6 +1,6 @@
 [package]
 name = "lurq_macros"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Proc macros for the lurq UI toolkit."
 license = "MIT"

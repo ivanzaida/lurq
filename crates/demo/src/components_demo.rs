@@ -227,7 +227,7 @@ fn action_row(items: Signal<Vec<ListItem>>, next_item_index: Signal<u8>) -> Elem
     .into()
 }
 
-fn action_button(label: &str, on_click: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Element {
+fn action_button(label: &str, on_click: impl Fn(MouseEvent) + Send + Sync + 'static) -> Element {
   lurq::components::Row::new()
     .align_items(Alignment::Center)
     .justify(Justify::Center)
@@ -238,7 +238,7 @@ fn action_button(label: &str, on_click: impl Fn(&MouseEvent) + Send + Sync + 'st
     .cursor(CursorIcon::Pointer)
     .hovered(|style| style.background("#60a5fa"))
     .active(|style| style.background("#2563eb"))
-    .on_click(move |event| {
+    .on_click(move |event: MouseEvent| {
       if matches!(event.kind, MouseEventKind::Click) {
         on_click(event);
       }

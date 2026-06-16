@@ -1244,7 +1244,9 @@ impl Tree {
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
 
-    if !layout_updated && self.try_render_cached_render_list(app, clear_color, window, display) {
+    if !report.layout_recalculated
+      && self.try_render_cached_render_list(app, clear_color, window, display, report.reasons)
+    {
       report.rendered = true;
       report.used_cached_render_list = true;
       return report;
@@ -1710,6 +1712,9 @@ impl Tree {
     };
     render_engine.render(&list, window, display);
     report.rendered = true;
+    if let Some(root) = self.root.as_ref() {
+      root.clear_guards();
+    }
     let _gpu_dur = profile_elapsed!(_gpu_start);
 
     profile_if! {
@@ -1729,12 +1734,13 @@ impl Tree {
         glyph_cache_misses: app.glyph_engine.glyph_misses,
         text_measure_cache_hits: app.glyph_engine.measure_hits,
         text_measure_cache_misses: app.glyph_engine.measure_misses,
+        glyph_engine: app.glyph_engine.profile(),
         memory: self.cached_memory_profile(app),
       };
     }
 
     #[cfg(feature = "image")]
-    let should_cache_render_list = self.should_store_cached_render_list(&list, &image_sources);
+    let should_cache_render_list = self.should_store_cached_render_list();
     #[cfg(not(feature = "image"))]
     let should_cache_render_list = false;
 
@@ -2975,6 +2981,7 @@ impl Tree {
           continue;
         };
         set_node_hovered(node, false);
+        self.cached_render_list = None;
         self.needs_redraw = true;
         for handler in &node.events.on_mouse_leave {
           handler.call();
@@ -2986,6 +2993,7 @@ impl Tree {
       let id = node.node_id();
       if !self.hover_path.contains(&id) {
         set_node_hovered(node, true);
+        self.cached_render_list = None;
         self.needs_redraw = true;
         for handler in &node.events.on_mouse_enter {
           handler.call();
@@ -2999,10 +3007,12 @@ impl Tree {
       match evt.kind {
         MouseEventKind::Down => {
           set_node_active(node, true);
+          self.cached_render_list = None;
           self.needs_redraw = true;
         }
         MouseEventKind::Up | MouseEventKind::Click => {
           set_node_active(node, false);
+          self.cached_render_list = None;
           self.needs_redraw = true;
         }
         _ => {}
@@ -3353,6 +3363,7 @@ impl Tree {
       })
     {
       set_node_focused(node, false);
+      self.cached_render_list = None;
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(false);
       }
@@ -3369,15 +3380,18 @@ impl Tree {
       })
     {
       set_node_focused(node, false);
+      self.cached_render_list = None;
     }
     if let Some(node) = self.root.as_ref().and_then(|root| find_node_by_path(root, &input_path)) {
       set_node_focused(node, true);
+      self.cached_render_list = None;
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(true);
       }
     }
     if let Some(node) = self.root.as_ref().and_then(|root| find_node_by_path(root, &event_path)) {
       set_node_focused(node, true);
+      self.cached_render_list = None;
     }
 
     for handler in blur {
@@ -3526,8 +3540,24 @@ impl Tree {
     self.last_layout.as_ref()
   }
 
-  fn can_reuse_cached_render_list(&self) -> bool {
-    if !self.scheduled_redraw_due || self.perf_overlay_enabled {
+  fn can_reuse_cached_render_list(&self, reasons: PassReasons) -> bool {
+    if !reasons.scheduled_redraw || reasons.redraw_requested {
+      return false;
+    }
+    if reasons.timer_run
+      || reasons.future_completed
+      || reasons.timeline_active
+      || reasons.pending_click
+      || reasons.input_interaction
+      || reasons.text_input_caret
+      || reasons.theme_changed
+      || reasons.component_dirty
+      || reasons.element_ref_dirty
+      || reasons.layout_dirty
+    {
+      return false;
+    }
+    if self.perf_overlay_enabled {
       return false;
     }
     #[cfg(feature = "devtools")]
@@ -3538,11 +3568,7 @@ impl Tree {
   }
 
   #[cfg(feature = "image")]
-  fn should_store_cached_render_list(
-    &self,
-    _list: &RenderList,
-    image_sources: &[Option<crate::images::ImageData>],
-  ) -> bool {
+  fn should_store_cached_render_list(&self) -> bool {
     if self.perf_overlay_enabled {
       return false;
     }
@@ -3550,9 +3576,7 @@ impl Tree {
     if self.devtools_is_open() || self.debug_overlay_node_path.is_some() {
       return false;
     }
-    image_sources
-      .iter()
-      .any(|source| source.as_ref().is_some_and(crate::images::ImageData::is_animated))
+    true
   }
 
   fn try_render_cached_render_list(
@@ -3561,8 +3585,9 @@ impl Tree {
     clear_color: Color,
     window: WindowHandle<'_>,
     display: DisplayHandle<'_>,
+    reasons: PassReasons,
   ) -> bool {
-    if !self.can_reuse_cached_render_list() {
+    if !self.can_reuse_cached_render_list(reasons) {
       return false;
     }
     let Some(mut cached) = self.cached_render_list.take() else {
@@ -4280,6 +4305,7 @@ impl Tree {
       for node_id in active_path {
         if let Some(node) = find_node_by_id(root, node_id) {
           set_node_active(node, false);
+          self.cached_render_list = None;
           self.needs_redraw = true;
         }
       }
@@ -4297,6 +4323,7 @@ impl Tree {
       for node_id in hover_path {
         if let Some(node) = find_node_by_id(root, node_id) {
           set_node_hovered(node, false);
+          self.cached_render_list = None;
           for handler in &node.events.on_mouse_leave {
             handler.call();
           }
@@ -4323,6 +4350,7 @@ impl Tree {
     for node_id in &self.hover_path {
       if let Some(node) = find_node_by_id(root, *node_id) {
         set_node_hovered(node, true);
+        self.cached_render_list = None;
         hover_path.push(*node_id);
       }
     }
@@ -4332,6 +4360,7 @@ impl Tree {
     for node_id in &self.active_path {
       if let Some(node) = find_node_by_id(root, *node_id) {
         set_node_active(node, true);
+        self.cached_render_list = None;
         active_path.push(*node_id);
       }
     }
@@ -4359,6 +4388,7 @@ impl Tree {
       })
     {
       set_node_focused(node, false);
+      self.cached_render_list = None;
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(false);
       }
@@ -4375,6 +4405,7 @@ impl Tree {
       })
     {
       set_node_focused(node, false);
+      self.cached_render_list = None;
     }
     self.focused_node = None;
     self.focused_event_node = None;
@@ -4428,12 +4459,14 @@ impl Tree {
 
     if let Some(node) = find_node_by_path(root, &input_path) {
       set_node_focused(node, true);
+      self.cached_render_list = None;
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(true);
       }
     }
     if let Some(node) = find_node_by_path(root, &event_path) {
       set_node_focused(node, true);
+      self.cached_render_list = None;
     }
   }
 }
@@ -5619,7 +5652,8 @@ fn has_runtime_layout_state_recursive(node: &Node) -> bool {
 }
 
 fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
-  let local = node.has_style_layout_dirty()
+  let local = node.layout_cache.is_dirty()
+    || node.has_style_layout_dirty()
     || matches!(node.layout_kind(), LayoutKind::ScrollModifier { state, .. } if state.has_scroll_dirty());
   local || node.children().iter().any(has_pending_layout_dirty_recursive)
 }

@@ -8,6 +8,7 @@ use crate::style::{DemoTheme, text};
 
 #[derive(Clone, Copy, PartialEq, Eq, lurq::DevtoolsInspectable)]
 pub(crate) enum DemoTab {
+  AtlasUpload,
   DynamicKeyframes,
   DynamicImages,
   Layout,
@@ -30,6 +31,7 @@ pub(crate) enum DemoTab {
 impl DemoTab {
   pub(crate) fn label(self) -> &'static str {
     match self {
+      Self::AtlasUpload => "Atlas",
       Self::DynamicKeyframes => "Keyframes",
       Self::DynamicImages => "GIF/WebP",
       Self::Layout => "Layout",
@@ -52,6 +54,7 @@ impl DemoTab {
 
   pub(crate) fn path(self) -> &'static str {
     match self {
+      Self::AtlasUpload => "/atlas-upload",
       Self::DynamicKeyframes => "/dynamic-keyframes",
       Self::DynamicImages => "/dynamic-images",
       Self::Layout => "/",
@@ -74,6 +77,7 @@ impl DemoTab {
 
   pub(crate) fn from_path(path: &str) -> Self {
     match path {
+      "/atlas-upload" => Self::AtlasUpload,
       "/dynamic-keyframes" => Self::DynamicKeyframes,
       "/dynamic-images" => Self::DynamicImages,
       "/sizing" => Self::Sizing,
@@ -98,6 +102,7 @@ impl DemoTab {
 pub(crate) fn sidebar(ctx: &mut Ctx, selected: DemoTab, theme: DemoTheme) -> Element {
   let palette = theme.palette();
   let items = [
+    DemoTab::AtlasUpload,
     DemoTab::DynamicImages,
     DemoTab::DynamicKeyframes,
     DemoTab::Layout,

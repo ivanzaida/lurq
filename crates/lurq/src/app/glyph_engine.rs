@@ -1,12 +1,14 @@
+#[cfg(feature = "perf_profile")]
+use std::time::Instant;
 use std::{
-  collections::HashMap,
+  collections::{HashMap, hash_map::DefaultHasher},
   hash::{Hash, Hasher},
   path::Path,
 };
 
 use cosmic_text::{
-  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, SwashCache,
-  SwashContent, SwashImage, Wrap,
+  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Family, FontSystem, LayoutGlyph, Metrics, Shaping,
+  SwashCache, SwashContent, SwashImage, Wrap,
 };
 use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
@@ -14,10 +16,11 @@ use swash::{
 };
 
 use crate::{
+  app::profile_types::GlyphEngineProfile,
   layout::{
     Size,
     quad::RichTextSpan,
-    render_list::{GlyphAtlas, GlyphCmd},
+    render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
     text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
   },
   node::{color::Color, text_selection::CaretPosition, transform::Transform2D},
@@ -25,6 +28,9 @@ use crate::{
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
 const GLYPH_ATLAS_PADDING: u32 = 2;
+const DIRTY_RECT_MAX_HORIZONTAL_GAP: u32 = GLYPH_ATLAS_PADDING * 4;
+const DIRTY_RECT_MERGE_WASTE_NUMERATOR: u64 = 3;
+const DIRTY_RECT_MERGE_WASTE_DENOMINATOR: u64 = 2;
 
 #[derive(Clone, PartialEq)]
 struct CacheKey {
@@ -86,6 +92,129 @@ impl CacheKey {
   }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RichTextCacheKey {
+  spans: Vec<RichTextSpanCacheKey>,
+  max_width_bits: u32,
+  wrap: bool,
+  raster_mode: u8,
+}
+
+impl RichTextCacheKey {
+  fn new_for_raster(spans: &[RichTextSpan], max_width: f32, wrap: bool, snap_to_pixel: bool) -> Self {
+    Self {
+      spans: spans.iter().map(RichTextSpanCacheKey::new).collect(),
+      max_width_bits: max_width.to_bits(),
+      wrap,
+      raster_mode: if snap_to_pixel { 0 } else { 1 },
+    }
+  }
+
+  fn matches(&self, spans: &[RichTextSpan], max_width: f32, wrap: bool, snap_to_pixel: bool) -> bool {
+    self.max_width_bits == max_width.to_bits()
+      && self.wrap == wrap
+      && self.raster_mode == if snap_to_pixel { 0 } else { 1 }
+      && spans_match(&self.spans, spans)
+  }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RichTextShapeKey {
+  spans: Vec<RichTextSpanCacheKey>,
+  max_width_bits: u32,
+  wrap: bool,
+}
+
+impl RichTextShapeKey {
+  fn new(spans: &[RichTextSpan], max_width: f32, wrap: bool) -> Self {
+    Self {
+      spans: spans.iter().map(RichTextSpanCacheKey::new).collect(),
+      max_width_bits: max_width.to_bits(),
+      wrap,
+    }
+  }
+
+  fn matches(&self, spans: &[RichTextSpan], max_width: f32, wrap: bool) -> bool {
+    self.max_width_bits == max_width.to_bits() && self.wrap == wrap && spans_match(&self.spans, spans)
+  }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RichTextSpanCacheKey {
+  text: String,
+  font_family: std::sync::Arc<str>,
+  font_size_bits: u32,
+  line_height_bits: u32,
+  weight: u8,
+  style: u8,
+  text_align: u8,
+  color: [u8; 4],
+}
+
+impl RichTextSpanCacheKey {
+  fn new(span: &RichTextSpan) -> Self {
+    let style = &span.style;
+    Self {
+      text: span.text.clone(),
+      font_family: style.font_family.clone(),
+      font_size_bits: style.font_size.to_bits(),
+      line_height_bits: style.line_height.to_bits(),
+      weight: weight_to_u8(style.weight),
+      style: style_to_u8(style.style),
+      text_align: text_align_to_u8(style.text_align),
+      color: [style.color.r(), style.color.g(), style.color.b(), style.color.a()],
+    }
+  }
+
+  fn matches(&self, span: &RichTextSpan) -> bool {
+    let style = &span.style;
+    self.text == span.text
+      && self.font_family == style.font_family
+      && self.font_size_bits == style.font_size.to_bits()
+      && self.line_height_bits == style.line_height.to_bits()
+      && self.weight == weight_to_u8(style.weight)
+      && self.style == style_to_u8(style.style)
+      && self.text_align == text_align_to_u8(style.text_align)
+      && self.color == [style.color.r(), style.color.g(), style.color.b(), style.color.a()]
+  }
+}
+
+fn spans_match(cached: &[RichTextSpanCacheKey], spans: &[RichTextSpan]) -> bool {
+  cached.len() == spans.len() && cached.iter().zip(spans).all(|(cached, span)| cached.matches(span))
+}
+
+fn rich_text_shape_fingerprint(spans: &[RichTextSpan], max_width: f32, wrap: bool) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  max_width.to_bits().hash(&mut hasher);
+  wrap.hash(&mut hasher);
+  hash_rich_text_spans(spans, &mut hasher);
+  hasher.finish()
+}
+
+fn rich_text_raster_fingerprint(spans: &[RichTextSpan], max_width: f32, wrap: bool, snap_to_pixel: bool) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  max_width.to_bits().hash(&mut hasher);
+  wrap.hash(&mut hasher);
+  (if snap_to_pixel { 0u8 } else { 1u8 }).hash(&mut hasher);
+  hash_rich_text_spans(spans, &mut hasher);
+  hasher.finish()
+}
+
+fn hash_rich_text_spans(spans: &[RichTextSpan], hasher: &mut DefaultHasher) {
+  spans.len().hash(hasher);
+  for span in spans {
+    let style = &span.style;
+    span.text.hash(hasher);
+    style.font_family.hash(hasher);
+    style.font_size.to_bits().hash(hasher);
+    style.line_height.to_bits().hash(hasher);
+    weight_to_u8(style.weight).hash(hasher);
+    style_to_u8(style.style).hash(hasher);
+    text_align_to_u8(style.text_align).hash(hasher);
+    [style.color.r(), style.color.g(), style.color.b(), style.color.a()].hash(hasher);
+  }
+}
+
 fn weight_to_u8(w: FontWeight) -> u8 {
   match w {
     FontWeight::Thin => 0,
@@ -127,7 +256,9 @@ pub(crate) struct GlyphEngine {
   transformed_scale_context: ScaleContext,
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<CacheKey, Size>,
+  rich_shaped_layout_cache: HashMap<u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
+  rich_glyph_layout_cache: HashMap<u64, Vec<(RichTextCacheKey, Vec<CachedRichGlyph>)>>,
   transformed_glyph_layout_cache: HashMap<CacheKey, Vec<CachedTransformedGlyph>>,
   atlas_packer: AtlasPacker,
   atlas_entries: HashMap<GlyphCacheKey, PackedGlyph>,
@@ -137,6 +268,8 @@ pub(crate) struct GlyphEngine {
   pub(crate) measure_misses: usize,
   pub(crate) glyph_hits: usize,
   pub(crate) glyph_misses: usize,
+  #[cfg(feature = "perf_profile")]
+  profile: GlyphEngineProfile,
 }
 
 impl GlyphEngine {
@@ -150,7 +283,9 @@ impl GlyphEngine {
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
+      rich_shaped_layout_cache: HashMap::new(),
       glyph_layout_cache: HashMap::new(),
+      rich_glyph_layout_cache: HashMap::new(),
       transformed_glyph_layout_cache: HashMap::new(),
       atlas_packer: AtlasPacker::new(),
       atlas_entries: HashMap::new(),
@@ -160,6 +295,8 @@ impl GlyphEngine {
       measure_misses: 0,
       glyph_hits: 0,
       glyph_misses: 0,
+      #[cfg(feature = "perf_profile")]
+      profile: GlyphEngineProfile::default(),
     }
   }
 
@@ -193,7 +330,9 @@ impl GlyphEngine {
 
   fn clear_text_caches(&mut self) {
     self.measure_cache.clear();
+    self.rich_shaped_layout_cache.clear();
     self.glyph_layout_cache.clear();
+    self.rich_glyph_layout_cache.clear();
     self.transformed_glyph_layout_cache.clear();
   }
 
@@ -209,6 +348,22 @@ impl GlyphEngine {
     self.measure_misses = 0;
     self.glyph_hits = 0;
     self.glyph_misses = 0;
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile = GlyphEngineProfile::default();
+    }
+  }
+
+  #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
+  pub(crate) fn profile(&self) -> GlyphEngineProfile {
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      GlyphEngineProfile::default()
+    }
   }
 
   pub(crate) fn measure_text(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
@@ -226,15 +381,27 @@ impl GlyphEngine {
 
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
   pub(crate) fn measure_rich_text(&mut self, spans: &[RichTextSpan], max_width: f32) -> Size {
-    let Some(first) = spans.first() else {
+    if spans.is_empty() {
       return Size::default();
-    };
+    }
     let wrap = is_bounded_text_width(max_width);
-    let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
-    self.set_rich_buffer_text(&mut buffer, spans);
-    buffer.shape_until_scroll(&mut self.font_system, false);
-    let size = measure_buffer(&buffer, first.style.font_size * first.style.line_height);
-    self.buffer_pool.push(buffer);
+    let fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
+    if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, max_width, wrap) {
+      self.measure_hits += 1;
+      return cached.size;
+    }
+
+    self.measure_misses += 1;
+    let layout = self.shape_rich_text_layout(spans, max_width, wrap);
+    let size = layout.size;
+    if self.rich_shaped_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.rich_shaped_layout_cache.clear();
+    }
+    self
+      .rich_shaped_layout_cache
+      .entry(fingerprint)
+      .or_default()
+      .push((RichTextShapeKey::new(spans, max_width, wrap), layout));
     size
   }
 
@@ -455,6 +622,9 @@ impl GlyphEngine {
     let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
         let x_offset = glyph.font_size * glyph.x_offset;
         let y_offset = glyph.font_size * glyph.y_offset;
         let (cache_key, ..) = GlyphCacheKey::new(
@@ -476,7 +646,6 @@ impl GlyphEngine {
     if self.transformed_glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
       self.transformed_glyph_layout_cache.clear();
     }
-    self.transformed_glyph_layout_cache.insert(key, cached.clone());
     self.append_baked_transformed_glyph_cmds_from_cached(
       &cached,
       origin_x,
@@ -487,6 +656,7 @@ impl GlyphEngine {
       swash_transform,
       out,
     );
+    self.transformed_glyph_layout_cache.insert(key, cached);
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -512,6 +682,9 @@ impl GlyphEngine {
 
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
         let x_offset = glyph.font_size * glyph.x_offset;
         let y_offset = glyph.font_size * glyph.y_offset;
         let (cache_key, ..) = GlyphCacheKey::new(
@@ -563,7 +736,13 @@ impl GlyphEngine {
     let atlas_h = self.atlas_packer.height as f32;
     if let Some(cached) = self.glyph_layout_cache.get(&key) {
       self.glyph_hits += cached.len();
+      #[cfg(feature = "perf_profile")]
+      let append_start = Instant::now();
       append_glyph_cmds_from_cached(cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel, out);
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.append_cached += append_start.elapsed();
+      }
       return;
     }
 
@@ -584,6 +763,9 @@ impl GlyphEngine {
     let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
         let cached_glyph = if snap_to_pixel {
           let physical = glyph.physical((0.0, run.line_y), 1.0);
           let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
@@ -630,10 +812,16 @@ impl GlyphEngine {
     if self.glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
       self.glyph_layout_cache.clear();
     }
-    self.glyph_layout_cache.insert(key, cached.clone());
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
+    #[cfg(feature = "perf_profile")]
+    let append_start = Instant::now();
     append_glyph_cmds_from_cached(&cached, origin_x, origin_y, style, atlas_w, atlas_h, snap_to_pixel, out);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.append_cached += append_start.elapsed();
+    }
+    self.glyph_layout_cache.insert(key, cached);
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -651,27 +839,100 @@ impl GlyphEngine {
       return;
     };
     let wrap = effective_text_wrap(max_width, wrap);
+    let fingerprint = rich_text_raster_fingerprint(spans, max_width, wrap, snap_to_pixel);
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    if let Some(cached) = self.find_rich_glyph_layout(fingerprint, spans, max_width, wrap, snap_to_pixel) {
+      let hit_count = cached.len();
+      #[cfg(feature = "perf_profile")]
+      let append_start = Instant::now();
+      append_rich_glyph_cmds_from_cached(cached, origin_x, origin_y, atlas_w, atlas_h, snap_to_pixel, out);
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.append_cached += append_start.elapsed();
+      }
+      self.glyph_hits += hit_count;
+      return;
+    }
+
+    if snap_to_pixel {
+      let shape_fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
+      if let Some(shaped) = self.find_rich_shaped_layout(shape_fingerprint, spans, max_width, wrap) {
+        let cached = self.pack_rich_shaped_layout(&shaped);
+        if self.rich_glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+          self.rich_glyph_layout_cache.clear();
+        }
+        let atlas_w = self.atlas_packer.width as f32;
+        let atlas_h = self.atlas_packer.height as f32;
+        #[cfg(feature = "perf_profile")]
+        let append_start = Instant::now();
+        append_rich_glyph_cmds_from_cached(&cached, origin_x, origin_y, atlas_w, atlas_h, snap_to_pixel, out);
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.append_cached += append_start.elapsed();
+        }
+        self.rich_glyph_layout_cache.entry(fingerprint).or_default().push((
+          RichTextCacheKey::new_for_raster(spans, max_width, wrap, snap_to_pixel),
+          cached,
+        ));
+        return;
+      }
+
+      let shaped = self.shape_rich_text_layout(spans, max_width, wrap);
+      let cached = self.pack_rich_shaped_layout(&shaped);
+      if self.rich_shaped_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+        self.rich_shaped_layout_cache.clear();
+      }
+      self
+        .rich_shaped_layout_cache
+        .entry(shape_fingerprint)
+        .or_default()
+        .push((RichTextShapeKey::new(spans, max_width, wrap), shaped));
+      if self.rich_glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+        self.rich_glyph_layout_cache.clear();
+      }
+      let atlas_w = self.atlas_packer.width as f32;
+      let atlas_h = self.atlas_packer.height as f32;
+      #[cfg(feature = "perf_profile")]
+      let append_start = Instant::now();
+      append_rich_glyph_cmds_from_cached(&cached, origin_x, origin_y, atlas_w, atlas_h, snap_to_pixel, out);
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.append_cached += append_start.elapsed();
+      }
+      self.rich_glyph_layout_cache.entry(fingerprint).or_default().push((
+        RichTextCacheKey::new_for_raster(spans, max_width, wrap, snap_to_pixel),
+        cached,
+      ));
+      return;
+    }
+
     let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
     self.set_rich_buffer_text(&mut buffer, spans);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
+    let mut cached = Vec::new();
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
         let default_color = first.style.color;
         let color = glyph_color(glyph.color_opt, default_color);
-        if snap_to_pixel {
+        let cached_glyph = if snap_to_pixel {
           let physical = glyph.physical((0.0, run.line_y), 1.0);
           let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
             continue;
           };
-          self.push_glyph_cmd(
-            out,
-            origin_x + (physical.x + packed.left) as f32,
-            origin_y + (physical.y - packed.top) as f32,
-            packed,
-            color,
-            true,
-          );
+
+          CachedGlyph {
+            x: (physical.x + packed.left) as f32,
+            y: (physical.y - packed.top) as f32,
+            atlas_x: packed.x,
+            atlas_y: packed.y,
+            width: packed.width,
+            height: packed.height,
+          }
         } else {
           let x_offset = glyph.font_size * glyph.x_offset;
           let y_offset = glyph.font_size * glyph.y_offset;
@@ -685,18 +946,40 @@ impl GlyphEngine {
           let Some(packed) = self.get_or_pack_glyph(cache_key) else {
             continue;
           };
-          self.push_glyph_cmd(
-            out,
-            origin_x + glyph.x + x_offset + packed.left as f32,
-            origin_y + run.line_y + glyph.y - y_offset - packed.top as f32,
-            packed,
-            color,
-            false,
-          );
-        }
+
+          CachedGlyph {
+            x: glyph.x + x_offset + packed.left as f32,
+            y: run.line_y + glyph.y - y_offset - packed.top as f32,
+            atlas_x: packed.x,
+            atlas_y: packed.y,
+            width: packed.width,
+            height: packed.height,
+          }
+        };
+
+        cached.push(CachedRichGlyph {
+          glyph: cached_glyph,
+          color,
+        });
       }
     }
     self.buffer_pool.push(buffer);
+    if self.rich_glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.rich_glyph_layout_cache.clear();
+    }
+    let atlas_w = self.atlas_packer.width as f32;
+    let atlas_h = self.atlas_packer.height as f32;
+    #[cfg(feature = "perf_profile")]
+    let append_start = Instant::now();
+    append_rich_glyph_cmds_from_cached(&cached, origin_x, origin_y, atlas_w, atlas_h, snap_to_pixel, out);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.append_cached += append_start.elapsed();
+    }
+    self.rich_glyph_layout_cache.entry(fingerprint).or_default().push((
+      RichTextCacheKey::new_for_raster(spans, max_width, wrap, snap_to_pixel),
+      cached,
+    ));
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -743,7 +1026,7 @@ impl GlyphEngine {
     }
   }
 
-  pub(crate) fn atlas(&self) -> GlyphAtlas {
+  pub(crate) fn atlas(&mut self) -> GlyphAtlas {
     self.atlas_packer.to_atlas()
   }
 
@@ -753,7 +1036,18 @@ impl GlyphEngine {
       return Some(packed);
     }
 
-    let Some(image) = self.swash_cache.get_image(&mut self.font_system, cache_key) else {
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.swash_requests += 1;
+    }
+    #[cfg(feature = "perf_profile")]
+    let swash_start = Instant::now();
+    let image = self.swash_cache.get_image(&mut self.font_system, cache_key);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.swash_lookup += swash_start.elapsed();
+    }
+    let Some(image) = image else {
       self.glyph_misses += 1;
       return None;
     };
@@ -764,7 +1058,14 @@ impl GlyphEngine {
     let width = image.placement.width;
     let height = image.placement.height;
     let mask = glyph_coverage_mask(&image);
+    #[cfg(feature = "perf_profile")]
+    let atlas_pack_start = Instant::now();
     let (x, y, width, height) = self.atlas_packer.pack_pixels(&mask, width, height);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.atlas_pack += atlas_pack_start.elapsed();
+      self.profile.atlas_packs += 1;
+    }
     let packed = PackedGlyph {
       x,
       y,
@@ -802,6 +1103,12 @@ impl GlyphEngine {
     } else {
       transform
     };
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.swash_requests += 1;
+    }
+    #[cfg(feature = "perf_profile")]
+    let swash_start = Instant::now();
     let image = Render::new(&[
       Source::ColorOutline(0),
       Source::ColorBitmap(StrikeWith::BestFit),
@@ -810,15 +1117,27 @@ impl GlyphEngine {
     .format(Format::Alpha)
     .offset(offset)
     .transform(Some(transform))
-    .render(&mut scaler, cache_key.glyph_id)?;
+    .render(&mut scaler, cache_key.glyph_id);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.swash_lookup += swash_start.elapsed();
+    }
+    let image = image?;
     if image.placement.width == 0 || image.placement.height == 0 {
       return None;
     }
 
     let mask = glyph_coverage_mask(&image);
+    #[cfg(feature = "perf_profile")]
+    let atlas_pack_start = Instant::now();
     let (x, y, width, height) = self
       .atlas_packer
       .pack_pixels(&mask, image.placement.width, image.placement.height);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.atlas_pack += atlas_pack_start.elapsed();
+      self.profile.atlas_packs += 1;
+    }
     let packed = PackedGlyph {
       x,
       y,
@@ -833,6 +1152,8 @@ impl GlyphEngine {
   }
 
   fn shape_and_measure(&mut self, text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> Size {
+    #[cfg(feature = "perf_profile")]
+    let profile_start = Instant::now();
     let metrics = Metrics::new(style.font_size, style.font_size * style.line_height);
     let mut buffer = self
       .buffer_pool
@@ -874,6 +1195,10 @@ impl GlyphEngine {
     };
 
     self.buffer_pool.push(buffer);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.shape_text += profile_start.elapsed();
+    }
     Size::new(width, height)
   }
 
@@ -888,6 +1213,106 @@ impl GlyphEngine {
     buffer.set_size(&mut self.font_system, text_buffer_width(max_width), None);
     buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
     buffer
+  }
+
+  fn shape_rich_text_layout(&mut self, spans: &[RichTextSpan], max_width: f32, wrap: bool) -> CachedRichShapedLayout {
+    let Some(first) = spans.first() else {
+      return CachedRichShapedLayout {
+        size: Size::default(),
+        glyphs: Vec::<CachedRichShapedGlyph>::new().into(),
+      };
+    };
+    #[cfg(feature = "perf_profile")]
+    let profile_start = Instant::now();
+
+    let mut buffer = self.acquire_buffer(&first.style, max_width, wrap);
+    self.set_rich_buffer_text(&mut buffer, spans);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+    let size = measure_buffer(&buffer, first.style.font_size * first.style.line_height);
+
+    let mut glyphs = Vec::new();
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs.iter() {
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
+        let physical = glyph.physical((0.0, run.line_y), 1.0);
+        glyphs.push(CachedRichShapedGlyph {
+          x: physical.x as f32,
+          y: physical.y as f32,
+          cache_key: physical.cache_key,
+          color: glyph_color(glyph.color_opt, first.style.color),
+        });
+      }
+    }
+
+    self.buffer_pool.push(buffer);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.shape_rich_text += profile_start.elapsed();
+    }
+    CachedRichShapedLayout {
+      size,
+      glyphs: glyphs.into(),
+    }
+  }
+
+  fn pack_rich_shaped_layout(&mut self, layout: &CachedRichShapedLayout) -> Vec<CachedRichGlyph> {
+    #[cfg(feature = "perf_profile")]
+    let profile_start = Instant::now();
+    let mut cached = Vec::with_capacity(layout.glyphs.len());
+    for glyph in layout.glyphs.iter() {
+      let Some(packed) = self.get_or_pack_glyph(glyph.cache_key) else {
+        continue;
+      };
+      cached.push(CachedRichGlyph {
+        glyph: CachedGlyph {
+          x: glyph.x + packed.left as f32,
+          y: glyph.y - packed.top as f32,
+          atlas_x: packed.x,
+          atlas_y: packed.y,
+          width: packed.width,
+          height: packed.height,
+        },
+        color: glyph.color,
+      });
+    }
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.pack_rich_shaped += profile_start.elapsed();
+    }
+    cached
+  }
+
+  fn find_rich_shaped_layout(
+    &self,
+    fingerprint: u64,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+  ) -> Option<CachedRichShapedLayout> {
+    self
+      .rich_shaped_layout_cache
+      .get(&fingerprint)?
+      .iter()
+      .find(|(key, _)| key.matches(spans, max_width, wrap))
+      .map(|(_, layout)| layout.clone())
+  }
+
+  fn find_rich_glyph_layout(
+    &self,
+    fingerprint: u64,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+    snap_to_pixel: bool,
+  ) -> Option<&[CachedRichGlyph]> {
+    self
+      .rich_glyph_layout_cache
+      .get(&fingerprint)?
+      .iter()
+      .find(|(key, _)| key.matches(spans, max_width, wrap, snap_to_pixel))
+      .map(|(_, glyphs)| glyphs.as_slice())
   }
 
   fn set_rich_buffer_text(&mut self, buffer: &mut Buffer, spans: &[RichTextSpan]) {
@@ -962,10 +1387,34 @@ impl GlyphEngine {
       .keys()
       .map(|key| key.text.capacity() + key.font_family.len())
       .sum::<usize>();
+    let rich_shaped_key_heap = self
+      .rich_shaped_layout_cache
+      .values()
+      .flat_map(|bucket| bucket.iter().flat_map(|(key, _)| key.spans.iter()))
+      .map(|span| span.text.capacity() + span.font_family.len())
+      .sum::<usize>();
+    let rich_shaped_layout_cache_bytes = self
+      .rich_shaped_layout_cache
+      .values()
+      .flat_map(|bucket| bucket.iter().map(|(_, layout)| layout))
+      .map(|layout| layout.glyphs.len() * std::mem::size_of::<CachedRichShapedGlyph>())
+      .sum::<usize>();
     let glyph_layout_cache_bytes = self
       .glyph_layout_cache
       .values()
       .map(|glyphs| glyphs.capacity() * std::mem::size_of::<CachedGlyph>())
+      .sum::<usize>();
+    let rich_key_heap = self
+      .rich_glyph_layout_cache
+      .values()
+      .flat_map(|bucket| bucket.iter().flat_map(|(key, _)| key.spans.iter()))
+      .map(|span| span.text.capacity() + span.font_family.len())
+      .sum::<usize>();
+    let rich_glyph_layout_cache_bytes = self
+      .rich_glyph_layout_cache
+      .values()
+      .flat_map(|bucket| bucket.iter().map(|(_, glyphs)| glyphs))
+      .map(|glyphs| glyphs.capacity() * std::mem::size_of::<CachedRichGlyph>())
       .sum::<usize>();
     let transformed_glyph_layout_cache_bytes = self
       .transformed_glyph_layout_cache
@@ -978,10 +1427,30 @@ impl GlyphEngine {
       + alias_heap
       + self.measure_cache.capacity() * std::mem::size_of::<(CacheKey, Size)>()
       + measure_key_heap
+      + self.rich_shaped_layout_cache.capacity()
+        * std::mem::size_of::<(u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>)>()
+      + self
+        .rich_shaped_layout_cache
+        .values()
+        .map(|bucket| bucket.capacity() * std::mem::size_of::<(RichTextShapeKey, CachedRichShapedLayout)>())
+        .sum::<usize>()
+      + rich_shaped_key_heap
+      + rich_shaped_layout_cache_bytes
       + self.glyph_layout_cache.capacity() * std::mem::size_of::<(CacheKey, Vec<CachedGlyph>)>()
       + glyph_layout_cache_bytes
+      + self.rich_glyph_layout_cache.capacity()
+        * std::mem::size_of::<(u64, Vec<(RichTextCacheKey, Vec<CachedRichGlyph>)>)>()
+      + self
+        .rich_glyph_layout_cache
+        .values()
+        .map(|bucket| bucket.capacity() * std::mem::size_of::<(RichTextCacheKey, Vec<CachedRichGlyph>)>())
+        .sum::<usize>()
+      + rich_key_heap
+      + rich_glyph_layout_cache_bytes
       + self.transformed_glyph_layout_cache.capacity() * std::mem::size_of::<(CacheKey, Vec<CachedTransformedGlyph>)>()
       + transformed_glyph_layout_cache_bytes
+      + self.atlas_entries.capacity() * std::mem::size_of::<(GlyphCacheKey, PackedGlyph)>()
+      + self.transformed_atlas_entries.capacity() * std::mem::size_of::<(TransformedGlyphKey, PackedGlyph)>()
       + self.buffer_pool.capacity() * std::mem::size_of::<Buffer>()
   }
 }
@@ -1004,6 +1473,26 @@ struct CachedGlyph {
   atlas_y: u32,
   width: u32,
   height: u32,
+}
+
+#[derive(Clone)]
+struct CachedRichShapedLayout {
+  size: Size,
+  glyphs: std::sync::Arc<[CachedRichShapedGlyph]>,
+}
+
+#[derive(Clone, Copy)]
+struct CachedRichShapedGlyph {
+  x: f32,
+  y: f32,
+  cache_key: GlyphCacheKey,
+  color: [f32; 4],
+}
+
+#[derive(Clone, Copy)]
+struct CachedRichGlyph {
+  glyph: CachedGlyph,
+  color: [f32; 4],
 }
 
 #[derive(Clone, Copy)]
@@ -1073,6 +1562,12 @@ fn glyph_color(color: Option<CosmicColor>, default: Color) -> [f32; 4] {
     .unwrap_or_else(|| default.to_linear_f32_array())
 }
 
+fn glyph_cluster_is_whitespace(line_text: &str, glyph: &LayoutGlyph) -> bool {
+  line_text
+    .get(glyph.start..glyph.end)
+    .is_some_and(|cluster| cluster.chars().all(char::is_whitespace))
+}
+
 #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
 fn measure_buffer(buffer: &Buffer, fallback_line_height: f32) -> Size {
   let mut width = 0.0_f32;
@@ -1119,6 +1614,40 @@ fn append_glyph_cmds_from_cached(
       width: glyph.width as f32,
       height: glyph.height as f32,
       color,
+      uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
+      uv_max: [
+        (glyph.atlas_x + glyph.width) as f32 / atlas_w,
+        (glyph.atlas_y + glyph.height) as f32 / atlas_h,
+      ],
+      transform: [1.0, 0.0, 0.0, 1.0],
+      transform_origin: [0.0, 0.0],
+      sharpness: 1.0,
+      clip: crate::layout::quad::ClipRect::default(),
+    });
+  }
+}
+
+fn append_rich_glyph_cmds_from_cached(
+  cached: &[CachedRichGlyph],
+  origin_x: f32,
+  origin_y: f32,
+  atlas_w: f32,
+  atlas_h: f32,
+  snap_to_pixel: bool,
+  out: &mut Vec<GlyphCmd>,
+) {
+  out.reserve(cached.len());
+  for rich_glyph in cached {
+    let glyph = rich_glyph.glyph;
+    let x = origin_x + glyph.x;
+    let y = origin_y + glyph.y;
+    out.push(GlyphCmd {
+      order: 0,
+      x: if snap_to_pixel { x.round() } else { x },
+      y: if snap_to_pixel { y.round() } else { y },
+      width: glyph.width as f32,
+      height: glyph.height as f32,
+      color: rich_glyph.color,
       uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
       uv_max: [
         (glyph.atlas_x + glyph.width) as f32 / atlas_w,
@@ -1195,6 +1724,11 @@ pub(crate) struct AtlasPacker {
   cursor_y: u32,
   row_height: u32,
   version: u64,
+  dirty_rects: Vec<GlyphAtlasDirtyRect>,
+  snapshot_data: std::sync::Arc<[u8]>,
+  snapshot_width: u32,
+  snapshot_height: u32,
+  snapshot_version: u64,
 }
 
 impl AtlasPacker {
@@ -1209,6 +1743,11 @@ impl AtlasPacker {
       cursor_y: 0,
       row_height: 0,
       version: 0,
+      dirty_rects: Vec::new(),
+      snapshot_data: Vec::<u8>::new().into(),
+      snapshot_width: 0,
+      snapshot_height: 0,
+      snapshot_version: u64::MAX,
     }
   }
 
@@ -1257,18 +1796,102 @@ impl AtlasPacker {
     self.cursor_x += reserved_width;
     self.row_height = self.row_height.max(reserved_height);
     self.version += 1;
+    self.dirty_rects.push(GlyphAtlasDirtyRect {
+      x: x0,
+      y: y0,
+      width: reserved_width,
+      height: reserved_height,
+    });
 
     (x0, y0, reserved_width, reserved_height)
   }
 
-  pub(crate) fn to_atlas(&self) -> GlyphAtlas {
+  pub(crate) fn to_atlas(&mut self) -> GlyphAtlas {
+    if self.snapshot_version != self.version || self.snapshot_width != self.width || self.snapshot_height != self.height
+    {
+      self.snapshot_data = std::sync::Arc::from(self.data.clone());
+      self.snapshot_width = self.width;
+      self.snapshot_height = self.height;
+      self.snapshot_version = self.version;
+    }
+
     GlyphAtlas {
-      data: self.data.clone(),
+      data: self.snapshot_data.clone(),
       width: self.width,
       height: self.height,
       version: self.version,
+      dirty_rects: coalesce_dirty_rects(std::mem::take(&mut self.dirty_rects)).into(),
     }
   }
+}
+
+fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+  if rects.len() <= 1 {
+    return rects;
+  }
+
+  rects.sort_by_key(|rect| (rect.y, rect.x));
+  let mut merged: Vec<GlyphAtlasDirtyRect> = Vec::with_capacity(rects.len());
+  for rect in rects {
+    if rect.width == 0 || rect.height == 0 {
+      continue;
+    }
+
+    if let Some(last) = merged.last_mut() {
+      if should_merge_dirty_rects(*last, rect) {
+        *last = union_dirty_rect(*last, rect);
+        continue;
+      }
+    }
+
+    merged.push(rect);
+  }
+
+  merged
+}
+
+fn should_merge_dirty_rects(a: GlyphAtlasDirtyRect, b: GlyphAtlasDirtyRect) -> bool {
+  if a.y != b.y {
+    return false;
+  }
+
+  let gap = horizontal_gap(a, b);
+  if gap > DIRTY_RECT_MAX_HORIZONTAL_GAP {
+    return false;
+  }
+
+  let area_sum = dirty_rect_area(a) + dirty_rect_area(b);
+  let merged_area = dirty_rect_area(union_dirty_rect(a, b));
+  merged_area * DIRTY_RECT_MERGE_WASTE_DENOMINATOR <= area_sum * DIRTY_RECT_MERGE_WASTE_NUMERATOR
+}
+
+fn horizontal_gap(a: GlyphAtlasDirtyRect, b: GlyphAtlasDirtyRect) -> u32 {
+  let a_right = a.x.saturating_add(a.width);
+  let b_right = b.x.saturating_add(b.width);
+  if a_right < b.x {
+    b.x - a_right
+  } else if b_right < a.x {
+    a.x - b_right
+  } else {
+    0
+  }
+}
+
+fn union_dirty_rect(a: GlyphAtlasDirtyRect, b: GlyphAtlasDirtyRect) -> GlyphAtlasDirtyRect {
+  let x0 = a.x.min(b.x);
+  let y0 = a.y.min(b.y);
+  let x1 = a.x.saturating_add(a.width).max(b.x.saturating_add(b.width));
+  let y1 = a.y.saturating_add(a.height).max(b.y.saturating_add(b.height));
+  GlyphAtlasDirtyRect {
+    x: x0,
+    y: y0,
+    width: x1.saturating_sub(x0),
+    height: y1.saturating_sub(y0),
+  }
+}
+
+fn dirty_rect_area(rect: GlyphAtlasDirtyRect) -> u64 {
+  u64::from(rect.width) * u64::from(rect.height)
 }
 
 #[cfg(test)]
@@ -1276,8 +1899,8 @@ mod tests {
   use cosmic_text::{Attrs, Family, Shaping};
 
   use super::{
-    AtlasPacker, GLYPH_ATLAS_PADDING, GlyphEngine, glyph_coverage_mask, is_bounded_text_width,
-    swash_transform_from_screen,
+    AtlasPacker, GLYPH_ATLAS_PADDING, GlyphAtlasDirtyRect, GlyphEngine, coalesce_dirty_rects, glyph_coverage_mask,
+    is_bounded_text_width, swash_transform_from_screen,
   };
   use crate::node::transform::Transform2D;
 
@@ -1310,6 +1933,80 @@ mod tests {
     assert_eq!(packer.data[(p + 1) * stride + p], 30);
     assert_eq!(packer.data[(p + 1) * stride + p + 1], 40);
     assert_eq!(packer.data[(p + 2) * stride + p + 2], 0);
+  }
+
+  #[test]
+  fn atlas_snapshot_reuses_data_when_version_is_unchanged() {
+    let mut packer = AtlasPacker::new();
+    let first = packer.to_atlas();
+    let second = packer.to_atlas();
+
+    assert!(std::sync::Arc::ptr_eq(&first.data, &second.data));
+
+    packer.pack_pixels(&[255; 4], 2, 2);
+    let third = packer.to_atlas();
+
+    assert!(!std::sync::Arc::ptr_eq(&second.data, &third.data));
+    assert_eq!(third.dirty_rects.len(), 1);
+
+    let fourth = packer.to_atlas();
+    assert!(fourth.dirty_rects.is_empty());
+    assert!(std::sync::Arc::ptr_eq(&third.data, &fourth.data));
+  }
+
+  #[test]
+  fn dirty_rect_coalescing_merges_same_atlas_row() {
+    let rects = coalesce_dirty_rects(vec![
+      GlyphAtlasDirtyRect {
+        x: 0,
+        y: 12,
+        width: 8,
+        height: 10,
+      },
+      GlyphAtlasDirtyRect {
+        x: 8,
+        y: 12,
+        width: 7,
+        height: 10,
+      },
+      GlyphAtlasDirtyRect {
+        x: 15,
+        y: 12,
+        width: 9,
+        height: 10,
+      },
+    ]);
+
+    assert_eq!(rects.len(), 1);
+    assert_eq!(
+      rects[0],
+      GlyphAtlasDirtyRect {
+        x: 0,
+        y: 12,
+        width: 24,
+        height: 10,
+      }
+    );
+  }
+
+  #[test]
+  fn dirty_rect_coalescing_keeps_separate_atlas_rows() {
+    let rects = coalesce_dirty_rects(vec![
+      GlyphAtlasDirtyRect {
+        x: 0,
+        y: 12,
+        width: 20,
+        height: 10,
+      },
+      GlyphAtlasDirtyRect {
+        x: 0,
+        y: 22,
+        width: 20,
+        height: 10,
+      },
+    ]);
+
+    assert_eq!(rects.len(), 2);
   }
 
   #[test]
@@ -1387,6 +2084,21 @@ mod tests {
       glyphs.iter().any(|glyph| glyph.x.fract().abs() > 0.001),
       "transformed text should keep float layout glyph positions"
     );
+  }
+
+  #[test]
+  fn whitespace_only_text_does_not_pack_glyphs() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 16.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+
+    let glyphs = engine.rasterize_text(" \t  ", &style, 400.0, 0.0, 0.0);
+
+    assert!(glyphs.is_empty());
+    assert_eq!(engine.glyph_hits, 0);
+    assert_eq!(engine.glyph_misses, 0);
   }
 
   #[test]
@@ -1538,5 +2250,67 @@ mod tests {
       max_y < style.font_size * style.line_height,
       "unbounded rasterization should stay on one line, max glyph y was {max_y}"
     );
+  }
+
+  #[test]
+  fn rich_text_rasterization_reuses_layout_cache() {
+    let mut engine = GlyphEngine::new();
+    let base = crate::layout::text_style::TextStyle {
+      font_size: 16.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let mut accent = base.clone();
+    accent.color = crate::node::color::Color::from_hex("#2563eb");
+    let spans = vec![
+      crate::layout::quad::RichTextSpan {
+        text: "Hello ".to_owned(),
+        style: base,
+      },
+      crate::layout::quad::RichTextSpan {
+        text: "rich text cache".to_owned(),
+        style: accent,
+      },
+    ];
+
+    let mut first = Vec::new();
+    engine.rasterize_rich_text_with_wrap_into(&spans, 320.0, true, 0.0, 0.0, &mut first);
+    assert!(!first.is_empty());
+
+    engine.reset_stats();
+    let mut second = Vec::new();
+    engine.rasterize_rich_text_with_wrap_into(&spans, 320.0, true, 10.0, 20.0, &mut second);
+
+    assert_eq!(first.len(), second.len());
+    assert!(
+      engine.glyph_hits >= second.len(),
+      "second rich-text rasterization should hit the rich glyph layout cache"
+    );
+    assert_eq!(first[0].color, second[0].color);
+    assert_eq!(first.last().unwrap().color, second.last().unwrap().color);
+  }
+
+  #[test]
+  fn measured_rich_text_layout_feeds_rasterization() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 16.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let spans = vec![crate::layout::quad::RichTextSpan {
+      text: "Measured rich text can be rasterized without shaping it again.".to_owned(),
+      style,
+    }];
+
+    let measured = engine.measure_rich_text(&spans, 260.0);
+    assert!(measured.width > 0.0);
+    assert_eq!(engine.rich_shaped_layout_cache.len(), 1);
+
+    engine.reset_stats();
+    let mut glyphs = Vec::new();
+    engine.rasterize_rich_text_with_wrap_into(&spans, 260.0, true, 0.0, 0.0, &mut glyphs);
+
+    assert!(!glyphs.is_empty());
+    assert_eq!(engine.rich_shaped_layout_cache.len(), 1);
+    assert_eq!(engine.rich_glyph_layout_cache.len(), 1);
   }
 }

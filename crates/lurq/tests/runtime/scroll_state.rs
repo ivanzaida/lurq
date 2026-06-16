@@ -3,6 +3,10 @@ use std::sync::{
   atomic::{AtomicUsize, Ordering},
 };
 
+#[cfg(feature = "markdown")]
+use lurq::components::{Markdown, MarkdownProps};
+#[cfg(feature = "markdown")]
+use lurq::node::dimension::Dimension;
 use lurq::{
   app::{
     Tree,
@@ -19,6 +23,8 @@ use lurq::{
 use crate::support::{pointer_click, run_pass};
 
 const CONTENT_COLOR: Color = Color::new(255, 0, 255, 255);
+#[cfg(feature = "markdown")]
+const VIRTUAL_LIST_FOLLOWING_ROW_COLOR: Color = Color::new(0, 255, 255, 255);
 
 #[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
@@ -221,7 +227,6 @@ impl Component for VirtualListRoot {
     let props = ctx.props::<Self::Props>().clone();
     Self {
       state: VirtualListState::new(ctx)
-        .with_estimated_height(20.0)
         .with_overscan(0)
         .with_initial_visible_count(5),
       items: (0..100).collect(),
@@ -313,7 +318,6 @@ impl Component for VirtualListPruneRoot {
     *props.0.0.lock().unwrap() = Some(item_count.clone());
     Self {
       state: VirtualListState::new(ctx)
-        .with_estimated_height(20.0)
         .with_overscan(0)
         .with_initial_visible_count(5),
       item_count,
@@ -362,6 +366,54 @@ struct VirtualListPruneRow {
   drops: Arc<AtomicUsize>,
 }
 
+#[cfg(feature = "markdown")]
+struct VirtualListWrappedMarkdownRoot {
+  state: VirtualListState,
+  items: Vec<usize>,
+}
+
+#[cfg(feature = "markdown")]
+impl Component for VirtualListWrappedMarkdownRoot {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      state: VirtualListState::new(ctx)
+        .with_overscan(0)
+        .with_initial_visible_count(2),
+      items: vec![0, 1],
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx
+      .virtual_list(
+        &self.state,
+        &self.items,
+        |item| *item,
+        |ctx, item| -> Element {
+          match *item {
+            0 => Column::new()
+              .width(Dimension::Pct(100.0))
+              .padding_bottom(8.0)
+              .child(ctx.mount::<Markdown>(
+                MarkdownProps::new(
+                  "Queued  \n- *first wrapped item with enough words to take width*  \n- second wrapped item  \n- third wrapped item",
+                )
+                .width(Dimension::Pct(100.0)),
+              ))
+              .into(),
+            _ => Rect::new(100.0, 20.0)
+              .background(VIRTUAL_LIST_FOLLOWING_ROW_COLOR)
+              .into(),
+          }
+        },
+      )
+      .scrollbar(ScrollBarStyle::hidden())
+      .size(120.0, 120.0)
+  }
+}
+
 impl Component for VirtualListPruneRow {
   type Props = (
     Shared<AtomicUsize>,
@@ -401,7 +453,7 @@ impl Drop for VirtualListPruneRow {
 }
 
 #[test]
-fn virtual_list_renders_initial_estimated_window_only() {
+fn virtual_list_measures_all_rows_before_virtualizing() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mounts = Arc::new(AtomicUsize::new(0));
   let unmounts = Arc::new(AtomicUsize::new(0));
@@ -417,8 +469,8 @@ fn virtual_list_renders_initial_estimated_window_only() {
   );
   run_pass(&mut runtime);
 
-  assert_eq!(renders.load(Ordering::SeqCst), 5);
-  assert_eq!(mounts.load(Ordering::SeqCst), 5);
+  assert_eq!(renders.load(Ordering::SeqCst), 100);
+  assert_eq!(mounts.load(Ordering::SeqCst), 100);
   assert_eq!(unmounts.load(Ordering::SeqCst), 0);
 }
 
@@ -441,15 +493,33 @@ fn virtual_list_retains_keyed_rows_when_they_scroll_out_and_back_in() {
 
   runtime.scroll(10.0, 10.0, 0.0, -160.0, ScrollPhase::Scroll);
   run_pass(&mut runtime);
-  assert_eq!(renders.load(Ordering::SeqCst), 10);
-  assert_eq!(mounts.load(Ordering::SeqCst), 10);
+  assert_eq!(renders.load(Ordering::SeqCst), 100);
+  assert_eq!(mounts.load(Ordering::SeqCst), 100);
   assert_eq!(unmounts.load(Ordering::SeqCst), 0);
 
   runtime.scroll(10.0, 10.0, 0.0, 160.0, ScrollPhase::Scroll);
   run_pass(&mut runtime);
-  assert_eq!(renders.load(Ordering::SeqCst), 10);
-  assert_eq!(mounts.load(Ordering::SeqCst), 10);
+  assert_eq!(renders.load(Ordering::SeqCst), 100);
+  assert_eq!(mounts.load(Ordering::SeqCst), 100);
   assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(feature = "markdown")]
+#[test]
+fn virtual_list_measures_wrapped_markdown_before_positioning_next_row() {
+  let mut runtime = Tree::new();
+  runtime.mount_root::<VirtualListWrappedMarkdownRoot>(&mut lurq::app::App::new(), ());
+
+  run_pass(&mut runtime);
+  run_pass(&mut runtime);
+
+  let following = runtime
+    .find_element(|element| element.color() == Some(VIRTUAL_LIST_FOLLOWING_ROW_COLOR))
+    .unwrap();
+  assert!(
+    following.bounds().y > 70.0,
+    "following row should be positioned after the full wrapped markdown height"
+  );
 }
 
 #[test]

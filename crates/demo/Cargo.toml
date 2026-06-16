@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+default = []
+perf_profile = ["lurq/perf_profile"]
+
 [dependencies]
 lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools", "clipboard", "form", "router", "markdown"] }
 tracing.workspace = true

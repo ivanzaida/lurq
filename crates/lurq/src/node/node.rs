@@ -3318,9 +3318,33 @@ impl Node {
       }
     }
 
-    for (child, old_child) in self.children.iter_mut().zip(old.children.iter()) {
-      child.preserve_runtime_state_from(old_child);
+    for index in 0..self.children.len() {
+      let child_slot_id = self.children[index].component_slot_id;
+      let old_child = old
+        .children
+        .get(index)
+        .filter(|old_child| self.children[index].can_preserve_runtime_state_from(old_child))
+        .or_else(|| {
+          child_slot_id.and_then(|slot_id| {
+            old
+              .children
+              .iter()
+              .find(|old_child| old_child.component_slot_id == Some(slot_id))
+              .filter(|old_child| self.children[index].can_preserve_runtime_state_from(old_child))
+          })
+        });
+
+      if let Some(old_child) = old_child {
+        self.children[index].preserve_runtime_state_from(old_child);
+      }
     }
+  }
+
+  fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
+    std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
+      && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
+      && self.component_slot_id == old.component_slot_id
+      && self.component_key == old.component_key
   }
 
   fn clear_unchanged_guard_flags_from(&self, old: &Node) {

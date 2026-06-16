@@ -420,6 +420,10 @@ impl RenderEngine for Dx12RenderEngine {
       Ok(profile) => profile,
       Err(err) => {
         tracing::error!("failed to render native dx12 frame: {err:?}");
+        if let Some(video_surfaces) = &self.video_surfaces {
+          video_surfaces.set_device(None);
+        }
+        self.state = None;
         return;
       }
     };
@@ -516,6 +520,13 @@ struct GlyphAtlasTexture {
   height: u32,
   version: u64,
   state: D3D12_RESOURCE_STATES,
+}
+
+#[derive(Clone, Copy, Default)]
+struct GlyphAtlasUploadStats {
+  bytes: usize,
+  rects: usize,
+  full_uploads: usize,
 }
 
 #[cfg(feature = "image")]
@@ -2101,8 +2112,8 @@ impl Dx12State {
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
+    self.reset_frame_command_allocator()?;
     let allocator = &self.command_allocators[self.frame_index];
-    dx12_context(allocator.Reset(), "reset dx12 command allocator")?;
     dx12_context(
       self.command_list.Reset(allocator, None::<&ID3D12PipelineState>),
       "reset dx12 command list",
@@ -2110,28 +2121,13 @@ impl Dx12State {
     let _acquire_dur = profile_elapsed!(_acquire_start);
 
     let _encode_start = profile_scope!();
-    let target = self.current_render_target();
-    self.transition_resource(
-      &target,
-      D3D12_RESOURCE_STATE_PRESENT,
-      D3D12_RESOURCE_STATE_RENDER_TARGET,
-    );
-    let rtv = self.current_rtv_handle();
-    self.command_list.OMSetRenderTargets(1, Some(&rtv), FALSE, None);
-    self
-      .command_list
-      .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
-
-    let _atlas_start = profile_scope!();
-    dx12_context(self.update_glyph_atlas(list), "update dx12 glyph atlas")?;
-    let _atlas_dur = profile_elapsed!(_atlas_start);
-    dx12_context(self.draw_ordered(list), "draw dx12 render list")?;
-
-    self.transition_resource(
-      &target,
-      D3D12_RESOURCE_STATE_RENDER_TARGET,
-      D3D12_RESOURCE_STATE_PRESENT,
-    );
+    let (atlas_stats, _atlas_dur) = match self.encode_frame(list) {
+      Ok(result) => result,
+      Err(err) => {
+        let _ = self.command_list.Close();
+        return Err(err);
+      }
+    };
 
     dx12_context(self.command_list.Close(), "close dx12 command list")?;
     let _encode_dur = profile_elapsed!(_encode_start);
@@ -2153,12 +2149,42 @@ impl Dx12State {
     Ok(RenderProfile {
       acquire: _acquire_dur,
       atlas_upload: _atlas_dur,
+      glyph_atlas_upload_bytes: atlas_stats.bytes,
+      glyph_atlas_upload_rects: atlas_stats.rects,
+      glyph_atlas_full_uploads: atlas_stats.full_uploads,
       encode: _encode_dur,
       submit: _submit_dur,
       present: _present_dur,
       total: profile_elapsed!(_total_start),
       ..RenderProfile::default()
     })
+  }
+
+  unsafe fn encode_frame(&mut self, list: &RenderList) -> Result<(GlyphAtlasUploadStats, std::time::Duration)> {
+    let target = self.current_render_target();
+    self.transition_resource(
+      &target,
+      D3D12_RESOURCE_STATE_PRESENT,
+      D3D12_RESOURCE_STATE_RENDER_TARGET,
+    );
+    let rtv = self.current_rtv_handle();
+    self.command_list.OMSetRenderTargets(1, Some(&rtv), FALSE, None);
+    self
+      .command_list
+      .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
+
+    let _atlas_start = profile_scope!();
+    let atlas_stats = dx12_context(self.update_glyph_atlas(list), "update dx12 glyph atlas")?;
+    let atlas_dur = profile_elapsed!(_atlas_start);
+    dx12_context(self.draw_ordered(list), "draw dx12 render list")?;
+
+    self.transition_resource(
+      &target,
+      D3D12_RESOURCE_STATE_RENDER_TARGET,
+      D3D12_RESOURCE_STATE_PRESENT,
+    );
+
+    Ok((atlas_stats, atlas_dur))
   }
 
   unsafe fn upload_frame_bytes(&mut self, data: &[u8], alignment: usize) -> Result<UploadSlice> {
@@ -2580,10 +2606,10 @@ impl Dx12State {
     Ok(())
   }
 
-  unsafe fn update_glyph_atlas(&mut self, list: &RenderList) -> Result<()> {
+  unsafe fn update_glyph_atlas(&mut self, list: &RenderList) -> Result<GlyphAtlasUploadStats> {
     let atlas = &list.atlas;
     if list.glyphs.is_empty() || atlas.width == 0 || atlas.height == 0 {
-      return Ok(());
+      return Ok(GlyphAtlasUploadStats::default());
     }
 
     let recreate = self.glyph_atlas.as_ref().map_or(true, |texture| {
@@ -2623,66 +2649,121 @@ impl Dx12State {
       .as_ref()
       .map_or(false, |texture| texture.version != atlas.version);
     if !needs_upload {
-      return Ok(());
+      return Ok(GlyphAtlasUploadStats::default());
     }
 
+    let mut stats = GlyphAtlasUploadStats::default();
     let texture = self.glyph_atlas.as_ref().unwrap().texture.clone();
     let current_state = self.glyph_atlas.as_ref().unwrap().state;
     if current_state != D3D12_RESOURCE_STATE_COPY_DEST {
       self.transition_resource(&texture, current_state, D3D12_RESOURCE_STATE_COPY_DEST);
     }
 
-    let row_pitch = align_up(atlas.width as usize, 256);
-    let upload_size = row_pitch * atlas.height as usize;
-    let mut upload_bytes = vec![0u8; upload_size];
-    for row in 0..atlas.height as usize {
-      let src_start = row * atlas.width as usize;
-      if src_start >= atlas.data.len() {
-        break;
+    if recreate || atlas.dirty_rects.is_empty() {
+      let row_pitch = align_up(atlas.width as usize, 256);
+      let upload_size = row_pitch * atlas.height as usize;
+      let mut upload_bytes = vec![0u8; upload_size];
+      for row in 0..atlas.height as usize {
+        let src_start = row * atlas.width as usize;
+        if src_start >= atlas.data.len() {
+          break;
+        }
+        let src_end = (src_start + atlas.width as usize).min(atlas.data.len());
+        let dst_start = row * row_pitch;
+        upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&atlas.data[src_start..src_end]);
       }
-      let src_end = (src_start + atlas.width as usize).min(atlas.data.len());
-      let dst_start = row * row_pitch;
-      upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&atlas.data[src_start..src_end]);
-    }
 
-    let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
-    let mut dst = D3D12_TEXTURE_COPY_LOCATION {
-      pResource: ManuallyDrop::new(Some(texture.clone())),
-      Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-      Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
-    };
-    let mut src = D3D12_TEXTURE_COPY_LOCATION {
-      pResource: ManuallyDrop::new(Some(upload._resource.clone())),
-      Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-      Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-        PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
-          Offset: 0,
-          Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
-            Format: DXGI_FORMAT_R8_UNORM,
-            Width: atlas.width,
-            Height: atlas.height,
-            Depth: 1,
-            RowPitch: row_pitch as u32,
+      let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
+      let mut dst = D3D12_TEXTURE_COPY_LOCATION {
+        pResource: ManuallyDrop::new(Some(texture.clone())),
+        Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+        Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
+      };
+      let mut src = D3D12_TEXTURE_COPY_LOCATION {
+        pResource: ManuallyDrop::new(Some(upload._resource.clone())),
+        Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+        Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+          PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
+            Offset: 0,
+            Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
+              Format: DXGI_FORMAT_R8_UNORM,
+              Width: atlas.width,
+              Height: atlas.height,
+              Depth: 1,
+              RowPitch: row_pitch as u32,
+            },
           },
         },
-      },
-    };
-    self.command_list.CopyTextureRegion(&dst, 0, 0, 0, &src, None);
-    ManuallyDrop::drop(&mut dst.pResource);
-    ManuallyDrop::drop(&mut src.pResource);
+      };
+      self.command_list.CopyTextureRegion(&dst, 0, 0, 0, &src, None);
+      ManuallyDrop::drop(&mut dst.pResource);
+      ManuallyDrop::drop(&mut src.pResource);
+      stats.bytes += upload_size;
+      stats.rects += 1;
+      stats.full_uploads += 1;
+      self.frame_uploads[self.frame_index].push(upload);
+    } else {
+      for rect in atlas.dirty_rects.iter() {
+        if rect.width == 0 || rect.height == 0 || rect.x >= atlas.width || rect.y >= atlas.height {
+          continue;
+        }
+        let width = rect.width.min(atlas.width - rect.x);
+        let height = rect.height.min(atlas.height - rect.y);
+        let row_pitch = align_up(width as usize, 256);
+        let upload_size = row_pitch * height as usize;
+        let mut upload_bytes = vec![0u8; upload_size];
+        for row in 0..height as usize {
+          let src_start = ((rect.y as usize + row) * atlas.width as usize) + rect.x as usize;
+          let src_end = src_start + width as usize;
+          if src_end > atlas.data.len() {
+            continue;
+          }
+          let dst_start = row * row_pitch;
+          upload_bytes[dst_start..dst_start + width as usize].copy_from_slice(&atlas.data[src_start..src_end]);
+        }
+
+        let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
+        let mut dst = D3D12_TEXTURE_COPY_LOCATION {
+          pResource: ManuallyDrop::new(Some(texture.clone())),
+          Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+          Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
+        };
+        let mut src = D3D12_TEXTURE_COPY_LOCATION {
+          pResource: ManuallyDrop::new(Some(upload._resource.clone())),
+          Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+          Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+            PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
+              Offset: 0,
+              Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
+                Format: DXGI_FORMAT_R8_UNORM,
+                Width: width,
+                Height: height,
+                Depth: 1,
+                RowPitch: row_pitch as u32,
+              },
+            },
+          },
+        };
+        self.command_list.CopyTextureRegion(&dst, rect.x, rect.y, 0, &src, None);
+        ManuallyDrop::drop(&mut dst.pResource);
+        ManuallyDrop::drop(&mut src.pResource);
+        stats.bytes += upload_size;
+        stats.rects += 1;
+        self.frame_uploads[self.frame_index].push(upload);
+      }
+    }
     self.transition_resource(
       &texture,
       D3D12_RESOURCE_STATE_COPY_DEST,
       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
     );
-    self.frame_uploads[self.frame_index].push(upload);
 
     if let Some(glyph_atlas) = &mut self.glyph_atlas {
       glyph_atlas.version = atlas.version;
       glyph_atlas.state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     }
 
-    Ok(())
+    Ok(stats)
   }
 
   #[cfg(feature = "image")]
@@ -3194,6 +3275,16 @@ impl Dx12State {
     self.next_fence_value += 1;
     self.command_queue.Signal(&self.fence, fence_value)?;
     self.fence_values[self.frame_index] = fence_value;
+    Ok(())
+  }
+
+  unsafe fn reset_frame_command_allocator(&mut self) -> Result<()> {
+    let allocator = self.command_allocators[self.frame_index].clone();
+    if let Err(err) = allocator.Reset() {
+      tracing::warn!("dx12 command allocator reset failed; waiting for gpu before retry: {err:?}");
+      self.wait_for_gpu()?;
+      dx12_context(allocator.Reset(), "reset dx12 command allocator after gpu wait")?;
+    }
     Ok(())
   }
 

@@ -4,6 +4,7 @@ use lurq::{
   app::{
     component::Component,
     ctx::{Ctx, Timeout},
+    events::MouseEvent,
   },
   core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
@@ -124,12 +125,7 @@ fn card_frame() -> lurq::components::Column {
     .border_inside(1.0, Color::from_hex(BORDER))
 }
 
-fn btn(
-  label: &str,
-  color: &str,
-  width: f32,
-  handler: impl Fn(&lurq::app::events::MouseEvent) + Send + Sync + 'static,
-) -> Element {
+fn btn(label: &str, color: &str, width: f32, handler: impl Fn(MouseEvent) + Send + Sync + 'static) -> Element {
   lurq::components::Row::new()
     .align_items(Alignment::Center)
     .justify(Justify::Center)

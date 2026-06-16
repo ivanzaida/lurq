@@ -131,4 +131,6 @@ Benchmarks live in `crates/lurq/benches`:
 cargo bench -p lurq
 ```
 
-Current benches cover layout, tree build, and render-list generation. Use them when changing layout caching, smart relayout, retained-node reconciliation, or render command generation.
+Current benches cover layout, tree build, render-list generation, and the Markdown-backed text pipeline. Use them when changing layout caching, smart relayout, retained-node reconciliation, render command generation, or text rasterization.
+
+Text pipeline optimization notes and benchmark history live in [Text Pipeline Optimization](/lurq/text-pipeline-optimization/).

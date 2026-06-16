@@ -117,7 +117,7 @@ fn event_button(label: &str, fill: &str, handlers: ButtonHandlers) -> Element {
   button.into()
 }
 
-type MouseHandler = Box<dyn Fn(&MouseEvent) + Send + Sync>;
+type MouseHandler = Box<dyn Fn(MouseEvent) + Send + Sync>;
 
 #[derive(Default)]
 struct ButtonHandlers {
@@ -252,7 +252,7 @@ fn track_area(pointer: Signal<PointerState>, state: PointerState) -> Element {
     .cursor(CursorIcon::Crosshair)
     .on_mouse_move({
       let pointer = pointer.clone();
-      move |event| {
+      move |event: MouseEvent| {
         pointer.set(PointerState {
           x: event.x,
           y: event.y,

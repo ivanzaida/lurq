@@ -2,8 +2,10 @@ use std::cell::{Cell, RefCell};
 
 use crate::layout::{Constraints, layout_result::LayoutResult};
 
+const MAX_CACHED_LAYOUTS: usize = 2;
+
 pub struct LayoutCache {
-  inner: RefCell<Option<CachedLayout>>,
+  inner: RefCell<Vec<CachedLayout>>,
   local_dirty: Cell<bool>,
   descendant_dirty: Cell<bool>,
 }
@@ -17,7 +19,7 @@ struct CachedLayout {
 impl LayoutCache {
   pub fn new() -> Self {
     Self {
-      inner: RefCell::new(None),
+      inner: RefCell::new(Vec::new()),
       local_dirty: Cell::new(false),
       descendant_dirty: Cell::new(false),
     }
@@ -37,8 +39,8 @@ impl LayoutCache {
     self
       .inner
       .borrow()
-      .as_ref()
-      .is_some_and(|cached| cached.constraints == constraints)
+      .iter()
+      .any(|cached| cached.constraints == constraints)
   }
 
   pub(crate) fn get_dirty(&self, constraints: Constraints) -> Option<LayoutResult> {
@@ -47,7 +49,7 @@ impl LayoutCache {
 
   fn get_cached(&self, constraints: Constraints) -> Option<LayoutResult> {
     let borrow = self.inner.borrow();
-    if let Some(cached) = borrow.as_ref() {
+    for cached in borrow.iter() {
       if cached.constraints == constraints {
         return Some(cached.result.clone());
       }
@@ -56,11 +58,11 @@ impl LayoutCache {
   }
 
   pub(crate) fn constraints(&self) -> Option<Constraints> {
-    self.inner.borrow().as_ref().map(|cached| cached.constraints)
+    self.inner.borrow().first().map(|cached| cached.constraints)
   }
 
   pub(crate) fn has_cached_result(&self) -> bool {
-    self.inner.borrow().is_some()
+    !self.inner.borrow().is_empty()
   }
 
   pub(crate) fn preserve_from(&self, old: &Self) {
@@ -69,12 +71,17 @@ impl LayoutCache {
   }
 
   pub fn store(&self, constraints: Constraints, result: LayoutResult) {
-    *self.inner.borrow_mut() = Some(CachedLayout { constraints, result });
+    let mut borrow = self.inner.borrow_mut();
+    if let Some(index) = borrow.iter().position(|cached| cached.constraints == constraints) {
+      borrow.remove(index);
+    }
+    borrow.insert(0, CachedLayout { constraints, result });
+    borrow.truncate(MAX_CACHED_LAYOUTS);
     self.clear_dirty();
   }
 
   pub fn invalidate(&self) {
-    *self.inner.borrow_mut() = None;
+    self.inner.borrow_mut().clear();
     self.clear_dirty();
   }
 
@@ -106,10 +113,10 @@ impl LayoutCache {
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     let borrow = self.inner.borrow();
     let cached_bytes = borrow
-      .as_ref()
+      .iter()
       .map(|cached| std::mem::size_of::<CachedLayout>() + cached.result.estimated_memory_bytes())
-      .unwrap_or(0);
-    std::mem::size_of::<Self>() + cached_bytes
+      .sum::<usize>();
+    std::mem::size_of::<Self>() + borrow.capacity() * std::mem::size_of::<CachedLayout>() + cached_bytes
   }
 }
 

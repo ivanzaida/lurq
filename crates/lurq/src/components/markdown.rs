@@ -245,10 +245,35 @@ fn render_inline_flow(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
+  let mut hard_break_segments = inlines.split(|inline| matches!(inline, MarkdownInline::HardBreak));
+  let Some(first_segment) = hard_break_segments.next() else {
+    return render_inline_flow_row(inlines, style, theme, render_ctx);
+  };
+
+  let remaining_segments = hard_break_segments.collect::<Vec<_>>();
+  if remaining_segments.is_empty() {
+    return render_inline_flow_row(first_segment, style, theme, render_ctx);
+  }
+
+  let mut column = Column::new().spacing(0.0).min_width(0.0).width(FILL_WIDTH);
+  column = column.child(render_inline_flow_row(first_segment, style.clone(), theme, render_ctx));
+  for segment in remaining_segments {
+    column = column.child(render_inline_flow_row(segment, style.clone(), theme, render_ctx));
+  }
+  column.into()
+}
+
+fn render_inline_flow_row(
+  inlines: &[MarkdownInline],
+  style: TextStyle,
+  theme: &ThemeMarkdown,
+  render_ctx: &MarkdownRenderContext,
+) -> Element {
   let mut row = Row::new()
     .wrap()
     .spacing(0.0)
     .align_items(Alignment::Center)
+    .min_width(0.0)
     .width(FILL_WIDTH);
   let mut spans = Vec::new();
   push_inline_flow_children(&mut row, &mut spans, inlines, &style, theme, render_ctx);
@@ -280,6 +305,8 @@ fn push_inline_flow_children(
           text: Arc::from(text),
         };
         let node = Node::rich_text(markdown_inline_rich_text(children, &link_style, theme))
+          .max_width(FILL_WIDTH)
+          .min_width(0.0)
           .cursor(CursorIcon::Pointer)
           .on_click(link_click_handler(link, render_ctx));
         *row = take_row(row).child(Element::from_node(node));
@@ -313,7 +340,9 @@ fn flush_inline_spans(row: &mut Row, spans: &mut Vec<RichTextSpan>) {
   if spans.is_empty() {
     return;
   }
-  let node = Node::rich_text(std::mem::take(spans));
+  let node = Node::rich_text(std::mem::take(spans))
+    .max_width(FILL_WIDTH)
+    .min_width(0.0);
   *row = take_row(row).child(Element::from_node(node));
 }
 
@@ -432,7 +461,10 @@ fn render_blockquote(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
-  let mut body = Column::new().spacing(theme.nested_block_spacing).flex(1.0);
+  let mut body = Column::new()
+    .spacing(theme.nested_block_spacing)
+    .min_width(0.0)
+    .flex(1.0);
   for block in blocks {
     body = body.child(render_block(block, base_style, theme, render_ctx));
   }
@@ -475,7 +507,10 @@ fn render_list(
     } else {
       theme.unordered_list_marker_width
     };
-    let mut body = Column::new().spacing(theme.nested_block_spacing).flex(1.0);
+    let mut body = Column::new()
+      .spacing(theme.nested_block_spacing)
+      .min_width(0.0)
+      .flex(1.0);
     for block in &item.blocks {
       body = body.child(render_block(block, base_style, theme, render_ctx));
     }

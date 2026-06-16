@@ -18,7 +18,20 @@ pub struct FrameProfile {
   pub glyph_cache_misses: usize,
   pub text_measure_cache_hits: usize,
   pub text_measure_cache_misses: usize,
+  pub glyph_engine: GlyphEngineProfile,
   pub memory: RuntimeMemoryProfile,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct GlyphEngineProfile {
+  pub shape_text: Duration,
+  pub shape_rich_text: Duration,
+  pub pack_rich_shaped: Duration,
+  pub swash_lookup: Duration,
+  pub atlas_pack: Duration,
+  pub append_cached: Duration,
+  pub swash_requests: usize,
+  pub atlas_packs: usize,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -27,6 +40,9 @@ pub struct RenderProfile {
   pub acquire: Duration,
   pub globals_upload: Duration,
   pub atlas_upload: Duration,
+  pub glyph_atlas_upload_bytes: usize,
+  pub glyph_atlas_upload_rects: usize,
+  pub glyph_atlas_full_uploads: usize,
   pub buffer_upload: Duration,
   pub image_upload: Duration,
   pub encode: Duration,
@@ -69,7 +85,7 @@ impl std::fmt::Display for FrameProfile {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render_cpu={:.2}ms wait={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms present={:.2}ms | {} rects {} glyphs {} quads | measure hit={:.0}% glyph hit={:.0}% | {}",
+      "total={:.2}ms layout={:.2}ms quads={:.2}ms glyphs={:.2}ms render_cpu={:.2}ms wait={:.2}ms upload={:.2}ms encode={:.2}ms submit={:.2}ms present={:.2}ms | atlas={}B {} rects {} full | {} rects {} glyphs {} quads | text shape={:.2}ms rich_shape={:.2}ms rich_pack={:.2}ms swash={:.2}ms/{} atlas_pack={:.2}ms/{} append={:.2}ms | measure hit={:.0}% glyph hit={:.0}% | {}",
       self.total.as_secs_f64() * 1000.0,
       self.layout.as_secs_f64() * 1000.0,
       self.quad_resolve.as_secs_f64() * 1000.0,
@@ -80,9 +96,20 @@ impl std::fmt::Display for FrameProfile {
       self.render.encode.as_secs_f64() * 1000.0,
       self.render.submit.as_secs_f64() * 1000.0,
       self.render.present.as_secs_f64() * 1000.0,
+      self.render.glyph_atlas_upload_bytes,
+      self.render.glyph_atlas_upload_rects,
+      self.render.glyph_atlas_full_uploads,
       self.rect_count,
       self.glyph_count,
       self.quad_count,
+      self.glyph_engine.shape_text.as_secs_f64() * 1000.0,
+      self.glyph_engine.shape_rich_text.as_secs_f64() * 1000.0,
+      self.glyph_engine.pack_rich_shaped.as_secs_f64() * 1000.0,
+      self.glyph_engine.swash_lookup.as_secs_f64() * 1000.0,
+      self.glyph_engine.swash_requests,
+      self.glyph_engine.atlas_pack.as_secs_f64() * 1000.0,
+      self.glyph_engine.atlas_packs,
+      self.glyph_engine.append_cached.as_secs_f64() * 1000.0,
       self.text_measure_hit_rate() * 100.0,
       self.glyph_cache_hit_rate() * 100.0,
       self.memory,

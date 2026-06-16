@@ -24,7 +24,12 @@ use parking_lot::Mutex;
 use super::component::{ComponentInfo, DevtoolsInspectable};
 #[cfg(feature = "i18n")]
 use super::i18n::I18n;
-use super::{app_state::App, component::Component, events::MouseEvent, theme::Theme};
+use super::{
+  app_state::App,
+  component::Component,
+  events::{MouseEvent, ScrollEvent},
+  theme::Theme,
+};
 use crate::{
   components::{Column, ScrollVertical, Spacer, Stack, VirtualListState},
   core::{
@@ -35,7 +40,7 @@ use crate::{
     signal::{Signal, SignalValue},
     tracking,
   },
-  node::{Element, HitTestBehavior, Node},
+  node::{Element, HitTestBehavior, Node, dimension::Dimension},
 };
 
 static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
@@ -2287,10 +2292,10 @@ impl Ctx {
 
   /// Render a vertically scrolling, variable-height virtual list.
   ///
-  /// Only rows in the visible window plus overscan are rendered. Row heights are
-  /// estimated until a row is visible and measured, then cached by key. Keyed
-  /// row component slots are retained while offscreen so scrolling away and back
-  /// does not remount them.
+  /// Rows are first rendered in normal flow until every row has an exact
+  /// measured height. After that, only rows in the visible window plus overscan
+  /// are rendered. Keyed row component slots are retained while offscreen so
+  /// scrolling away and back does not remount them.
   pub fn virtual_list<T, K, KF, CF, R>(
     &mut self,
     state: &VirtualListState,
@@ -2377,23 +2382,27 @@ impl Ctx {
 
     let slot = &mut self.children[cursor];
     let retain_start = Instant::now();
-    let window_keys = keys[window.start..window.end].iter().cloned().collect::<HashSet<_>>();
     slot.ctx.context_map = self.context_map.clone();
     slot.ctx.retain_unused_children = true;
-    slot.ctx.retain_keyed_child_slots(&window_keys);
+    slot.ctx.retain_keyed_child_slots(&valid_keys);
     slot.ctx.begin_render();
     let retain_elapsed = retain_start.elapsed();
 
     let render_start = Instant::now();
-    let mut rows: Vec<Element> = Vec::new();
-    if window.top_spacer > 0.0 {
-      rows.push(Spacer::new().height(window.top_spacer).into());
+    let all_rows_measured = state.all_heights_measured(&keys);
+    struct VirtualRow {
+      row: Element,
+      row_ref: ElementRef,
+      y: f32,
     }
 
+    let mut virtual_rows: Vec<VirtualRow> = Vec::new();
     let mut cached_rows = 0usize;
     let mut rendered_rows = 0usize;
+    let mut row_y = window.top_spacer;
     for index in window.start..window.end {
       let key = &keys[index];
+      let row_height = state.height_for_key(key).unwrap_or(0.0);
       let row_ref = state.row_ref(key);
       let (row, cached) = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
       if cached {
@@ -2401,10 +2410,43 @@ impl Ctx {
       } else {
         rendered_rows += 1;
       }
-      rows.push(Stack::new().ref_element(row_ref).child(row).into());
+      virtual_rows.push(VirtualRow { row, row_ref, y: row_y });
+      row_y += row_height;
     }
 
-    if window.bottom_spacer > 0.0 {
+    let use_absolute_layout = all_rows_measured && rendered_rows == 0;
+    let mut rows: Vec<Element> = Vec::new();
+    if use_absolute_layout {
+      rows.push(
+        Spacer::new()
+          .width(Dimension::Pct(100.0))
+          .height(window.total_height)
+          .into(),
+      );
+    } else if window.top_spacer > 0.0 {
+      rows.push(Spacer::new().height(window.top_spacer).into());
+    }
+
+    for virtual_row in virtual_rows {
+      if use_absolute_layout {
+        rows.push(
+          Stack::new()
+            .ref_element(virtual_row.row_ref)
+            .absolute(0.0, virtual_row.y, Dimension::Pct(100.0), Dimension::Auto)
+            .child(virtual_row.row)
+            .into(),
+        );
+      } else {
+        rows.push(
+          Stack::new()
+            .ref_element(virtual_row.row_ref)
+            .child(virtual_row.row)
+            .into(),
+        );
+      }
+    }
+
+    if !use_absolute_layout && window.bottom_spacer > 0.0 {
       rows.push(Spacer::new().height(window.bottom_spacer).into());
     }
 
@@ -2415,19 +2457,43 @@ impl Ctx {
     let finalize_start = Instant::now();
     let refresh_state = state.clone();
     let row_count = window_end_index.saturating_sub(window_start_index);
-    let result = ScrollVertical::new(Column::new().spacing(0.0).with_children(rows))
+    let measuring_rows = !all_rows_measured;
+    if measuring_rows {
+      state.request_refresh();
+    }
+    let content: Element = if use_absolute_layout {
+      let stack = Stack::new().width(Dimension::Pct(100.0)).with_children(rows);
+      if measuring_rows {
+        stack.opacity(0.0).hit_test(HitTestBehavior::None).into()
+      } else {
+        stack.into()
+      }
+    } else {
+      let column = Column::new()
+        .width(Dimension::Pct(100.0))
+        .spacing(0.0)
+        .with_children(rows);
+      if measuring_rows {
+        column.opacity(0.0).hit_test(HitTestBehavior::None).into()
+      } else {
+        column.into()
+      }
+    };
+    let result = ScrollVertical::new(content)
       .with_scroll_state(state.scroll_state())
-      .on_scroll(move |_| refresh_state.request_refresh());
+      .on_scroll(move |event: ScrollEvent| refresh_state.request_scroll_refresh_if_needed(event.delta_y));
     let finalize_elapsed = finalize_start.elapsed();
     let total_elapsed = total_start.elapsed();
-    tracing::info!(
+    let layout_mode = if use_absolute_layout { "absolute" } else { "flow" };
+    tracing::trace!(
       target: "virtual-list-profile",
-      "[virtual-list-profile] items={} keys={} window={}..{} rows={} rendered_rows={} cached_rows={} retained_slots={} top_spacer={:.1} bottom_spacer={:.1} track_ms={:.3} sync_ms={:.3} group_ms={:.3} keys_ms={:.3} valid_keys_ms={:.3} prune_ms={:.3} window_ms={:.3} retain_ms={:.3} render_ms={:.3} finalize_ms={:.3} total_ms={:.3}",
+      "[virtual-list-profile] items={} keys={} window={}..{} rows={} mode={} rendered_rows={} cached_rows={} retained_slots={} top_spacer={:.1} bottom_spacer={:.1} track_ms={:.3} sync_ms={:.3} group_ms={:.3} keys_ms={:.3} valid_keys_ms={:.3} prune_ms={:.3} window_ms={:.3} retain_ms={:.3} render_ms={:.3} finalize_ms={:.3} total_ms={:.3}",
       items.len(),
       keys.len(),
       window_start_index,
       window_end_index,
       row_count,
+      layout_mode,
       rendered_rows,
       cached_rows,
       retained_slots,

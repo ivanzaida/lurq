@@ -1,4 +1,5 @@
 mod animation_demo;
+mod atlas_upload_demo;
 mod components_demo;
 mod context_demo;
 mod dnd_demo;
@@ -16,6 +17,9 @@ mod style;
 mod text_demo;
 mod transform_demo;
 mod visual_demo;
+
+#[cfg(feature = "perf_profile")]
+use std::io::Write;
 
 #[cfg(target_os = "windows")]
 use lurq::app::dx12_render::Dx12RenderEngine;
@@ -46,9 +50,12 @@ use crate::{
 
 const SIDEBAR_WIDTH: f32 = 200.0;
 const DEFAULT_RENDERER: &str = "wgpu";
+const DEFAULT_ROUTE: &str = "/dynamic-keyframes";
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
-struct DemoProps;
+struct DemoProps {
+  initial_route: String,
+}
 
 impl PartialEq for DemoProps {
   fn eq(&self, _other: &Self) -> bool {
@@ -67,7 +74,7 @@ impl Component for DemoApp {
     let theme = ctx.signal(DemoTheme::Dark);
     let modal_open = ctx.signal(false);
     let router = ctx.router(demo_routes(theme.clone(), modal_open.clone()));
-    router.replace("/dynamic-keyframes");
+    router.replace(&ctx.props::<DemoProps>().initial_route);
 
     Self { router }
   }
@@ -87,6 +94,9 @@ fn demo_routes(theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Routes {
     move |routes| {
       routes
         .route("/", |_ctx| layout_content())
+        .route("/atlas-upload", |ctx| {
+          ctx.mount::<atlas_upload_demo::AtlasUploadProbe>(atlas_upload_demo::AtlasUploadProbeProps)
+        })
         .route("/dynamic-keyframes", |_ctx| dynamic_demo::dynamic_keyframes_content())
         .route("/dynamic-images", |_ctx| dynamic_demo::dynamic_images_content())
         .route("/sizing", |_ctx| sizing_content())
@@ -240,8 +250,14 @@ fn demo_button(label: &str, fill: &'static str, on_click: impl Fn() + Send + Syn
     .into()
 }
 
-fn set_selected_render_engine(tree: &mut Tree) -> String {
-  let renderer = normalize_renderer_name(&selected_renderer_arg()).to_owned();
+struct DemoOptions {
+  renderer: String,
+  initial_route: String,
+  profile_log: Option<std::path::PathBuf>,
+}
+
+fn set_selected_render_engine(tree: &mut Tree, selected_renderer: &str) -> String {
+  let renderer = normalize_renderer_name(selected_renderer).to_owned();
   let renderer_for_factory = renderer.clone();
   tree.set_render_engine_factory(move || create_render_engine(&renderer_for_factory));
   renderer
@@ -263,22 +279,70 @@ fn normalize_renderer_name(renderer: &str) -> &'static str {
   }
 }
 
-fn selected_renderer_arg() -> String {
+fn demo_options() -> DemoOptions {
+  let mut renderer = DEFAULT_RENDERER.to_owned();
+  let mut initial_route = DEFAULT_ROUTE.to_owned();
+  let mut profile_log = None;
   let mut args = std::env::args().skip(1);
   while let Some(arg) = args.next() {
     if arg == "--renderer" {
-      return args
+      renderer = args
         .next()
         .unwrap_or_else(|| panic!("--renderer requires `wgpu` or `dx12`"))
         .to_ascii_lowercase();
+      continue;
     }
 
-    if let Some(renderer) = arg.strip_prefix("--renderer=") {
-      return renderer.to_ascii_lowercase();
+    if let Some(renderer_arg) = arg.strip_prefix("--renderer=") {
+      renderer = renderer_arg.to_ascii_lowercase();
+      continue;
+    }
+
+    if arg == "--route" {
+      initial_route = normalize_route(&args.next().unwrap_or_else(|| panic!("--route requires a path")));
+      continue;
+    }
+
+    if let Some(route) = arg.strip_prefix("--route=") {
+      initial_route = normalize_route(route);
+      continue;
+    }
+
+    if arg == "--atlas-upload-probe" {
+      initial_route = "/atlas-upload".to_owned();
+      continue;
+    }
+
+    if arg == "--profile-log" {
+      profile_log = Some(default_profile_log_path());
+      continue;
+    }
+
+    if let Some(path) = arg.strip_prefix("--profile-log=") {
+      profile_log = Some(std::path::PathBuf::from(path));
     }
   }
 
-  DEFAULT_RENDERER.to_owned()
+  DemoOptions {
+    renderer,
+    initial_route,
+    profile_log,
+  }
+}
+
+fn normalize_route(route: &str) -> String {
+  if route.starts_with('/') {
+    route.to_owned()
+  } else {
+    format!("/{route}")
+  }
+}
+
+fn default_profile_log_path() -> std::path::PathBuf {
+  std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("../..")
+    .join("target")
+    .join("perf_profile.log")
 }
 
 fn create_wgpu_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
@@ -296,33 +360,53 @@ fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine
 }
 
 fn main() {
+  let options = demo_options();
   let mut app = App::new();
   let mut tree = Tree::new();
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
   lurq::app::devtools::load_fonts(&mut app);
-  let renderer = set_selected_render_engine(&mut tree);
+  let renderer = set_selected_render_engine(&mut tree, &options.renderer);
   animation_demo::register_keyframes(&mut tree);
-  tree.mount_root::<DemoApp>(&mut app, DemoProps);
+  tree.mount_root::<DemoApp>(
+    &mut app,
+    DemoProps {
+      initial_route: options.initial_route,
+    },
+  );
   tree.mount_devtools(&mut app);
   let title = format!("lurq demo ({renderer})");
-  // let profile_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-  //   .join("../..")
-  //   .join("target")
-  //   .join("perf_profile.log");
-  // let profile_file = std::fs::File::create(&profile_path).expect("create perf profile log");
-  // let mut profile_writer = std::io::BufWriter::new(profile_file);
-  // eprintln!("writing perf profile to {}", profile_path.display());
-  let window = WinitWindow::new(app, tree).with_title(&title);
-  // .on_paint(move |t, delta, report| {
-  //   let prof = t.profile();
-  //   writeln!(
-  //     profile_writer,
-  //     "Profile for frame delta={:.2}ms rendered={} layout_recalc={} {prof}",
-  //     delta.as_secs_f64() * 1000.0,
-  //     report.rendered,
-  //     report.layout_recalculated
-  //   )
-  //   .expect("write perf profile frame");
-  // });
+  #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
+  let mut window = WinitWindow::new(app, tree).with_title(&title);
+  if let Some(profile_path) = options.profile_log {
+    #[cfg(feature = "perf_profile")]
+    {
+      if let Some(parent) = profile_path.parent() {
+        std::fs::create_dir_all(parent).expect("create perf profile directory");
+      }
+      let profile_file = std::fs::File::create(&profile_path).expect("create perf profile log");
+      let mut profile_writer = std::io::BufWriter::new(profile_file);
+      eprintln!("writing perf profile to {}", profile_path.display());
+      window = window.on_paint(move |t, delta, report| {
+        let prof = t.profile();
+        writeln!(
+          profile_writer,
+          "Profile for frame delta={:.2}ms rendered={} layout_recalc={} {prof}",
+          delta.as_secs_f64() * 1000.0,
+          report.rendered,
+          report.layout_recalculated
+        )
+        .expect("write perf profile frame");
+        profile_writer.flush().expect("flush perf profile frame");
+      });
+    }
+
+    #[cfg(not(feature = "perf_profile"))]
+    {
+      eprintln!(
+        "--profile-log requires `cargo run -p demo --features perf_profile`; ignoring {}",
+        profile_path.display()
+      );
+    }
+  }
   window.run();
 }

@@ -1079,6 +1079,9 @@ impl RenderEngine for WgpuRenderEngine {
 
     // Atlas — recreate texture only if size changed
     let _atlas_start = profile_scope!();
+    let mut _atlas_upload_bytes = 0usize;
+    let mut _atlas_upload_rects = 0usize;
+    let mut _atlas_full_uploads = 0usize;
     let atlas = &list.atlas;
     let atlas_recreated = self.atlas_size != (atlas.width, atlas.height);
     if atlas_recreated {
@@ -1122,25 +1125,69 @@ impl RenderEngine for WgpuRenderEngine {
       self.atlas_size = (atlas.width, atlas.height);
     }
     if atlas_recreated || self.atlas_version != atlas.version {
-      queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-          texture: self.atlas_texture.as_ref().unwrap(),
-          mip_level: 0,
-          origin: wgpu::Origin3d::ZERO,
-          aspect: wgpu::TextureAspect::All,
-        },
-        &atlas.data,
-        wgpu::TexelCopyBufferLayout {
-          offset: 0,
-          bytes_per_row: Some(atlas.width),
-          rows_per_image: Some(atlas.height),
-        },
-        wgpu::Extent3d {
-          width: atlas.width,
-          height: atlas.height,
-          depth_or_array_layers: 1,
-        },
-      );
+      let upload_full_atlas = atlas_recreated || atlas.dirty_rects.is_empty();
+      if upload_full_atlas {
+        _atlas_upload_bytes = atlas.data.len();
+        _atlas_upload_rects = 1;
+        _atlas_full_uploads = 1;
+        queue.write_texture(
+          wgpu::TexelCopyTextureInfo {
+            texture: self.atlas_texture.as_ref().unwrap(),
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+          },
+          &atlas.data,
+          wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(atlas.width),
+            rows_per_image: Some(atlas.height),
+          },
+          wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+          },
+        );
+      } else {
+        for rect in atlas.dirty_rects.iter() {
+          if rect.width == 0 || rect.height == 0 || rect.x >= atlas.width || rect.y >= atlas.height {
+            continue;
+          }
+          let width = rect.width.min(atlas.width - rect.x);
+          let height = rect.height.min(atlas.height - rect.y);
+          let start = (rect.y * atlas.width + rect.x) as usize;
+          let end = start + ((height - 1) * atlas.width + width) as usize;
+          if end > atlas.data.len() {
+            continue;
+          }
+          _atlas_upload_bytes += end - start;
+          _atlas_upload_rects += 1;
+          queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+              texture: self.atlas_texture.as_ref().unwrap(),
+              mip_level: 0,
+              origin: wgpu::Origin3d {
+                x: rect.x,
+                y: rect.y,
+                z: 0,
+              },
+              aspect: wgpu::TextureAspect::All,
+            },
+            &atlas.data[start..end],
+            wgpu::TexelCopyBufferLayout {
+              offset: 0,
+              bytes_per_row: Some(atlas.width),
+              rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+              width,
+              height,
+              depth_or_array_layers: 1,
+            },
+          );
+        }
+      }
       self.atlas_version = atlas.version;
     }
     let _atlas_dur = profile_elapsed!(_atlas_start);
@@ -1753,6 +1800,9 @@ impl RenderEngine for WgpuRenderEngine {
         acquire: _acquire_dur,
         globals_upload: _globals_dur,
         atlas_upload: _atlas_dur,
+        glyph_atlas_upload_bytes: _atlas_upload_bytes,
+        glyph_atlas_upload_rects: _atlas_upload_rects,
+        glyph_atlas_full_uploads: _atlas_full_uploads,
         buffer_upload: _buffer_upload_dur,
         image_upload: _image_texture_upload_dur,
         encode: _encode_dur,

@@ -192,7 +192,6 @@ impl Component for Chat {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       list: VirtualListState::new(ctx)
-        .with_estimated_height(72.0)
         .with_overscan(6)
         .with_initial_visible_count(16),
     }
@@ -215,7 +214,7 @@ impl Component for Chat {
 }
 ```
 
-Rows may have different heights. Unknown rows use `estimated_height` until they are rendered and measured, then the measured height is cached by row key. Pick an estimate close to the average row height to keep the scrollbar stable on the first pass.
+Rows may have different heights. The list renders rows in normal flow until every row height has been measured, then uses those exact measured heights for virtual scrolling.
 
 Use stable keys. Changing a key discards the cached height and retained row context for that item. Removed keys are pruned automatically.
 
