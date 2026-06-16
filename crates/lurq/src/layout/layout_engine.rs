@@ -95,6 +95,10 @@ fn bounded_text_width(width: f32) -> bool {
   width.is_finite() && width < f32::MAX
 }
 
+fn constraints_are_tight(constraints: Constraints) -> bool {
+  constraints.min_width == constraints.max_width && constraints.min_height == constraints.max_height
+}
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ResolvedPadding {
   pub(crate) left: f32,
@@ -1941,6 +1945,12 @@ impl LayoutEngine {
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
     if state.selectable() {
       state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
+    }
+    if !state.selectable() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
+      return LayoutResult {
+        size: Size::new(constraints.max_width, constraints.max_height),
+        children: vec![],
+      };
     }
     self.layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
   }

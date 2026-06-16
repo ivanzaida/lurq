@@ -3,7 +3,7 @@ use std::num::NonZeroIsize;
 use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, render_engine::RenderEngine},
-  components::{Markdown, MarkdownProps, Text},
+  components::{Column, Markdown, MarkdownProps, Text},
   layout::{render_list::RenderList, text_style::TextStyle},
   markdown::parse_markdown,
   node::Element,
@@ -43,6 +43,20 @@ impl Component for LongTextRoot {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     Text::styled(ctx.props::<Self::Props>(), TextStyle::default()).width(MARKDOWN_WIDTH)
+  }
+}
+
+struct FlowLongTextRoot;
+
+impl Component for FlowLongTextRoot {
+  type Props = String;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    Column::new().child(Text::styled(ctx.props::<Self::Props>(), TextStyle::default()).width(MARKDOWN_WIDTH))
   }
 }
 
@@ -135,6 +149,12 @@ fn print_text_profile_once() {
   tree.mount_root::<LongTextRoot>(&mut app, long_text_source());
   run_pass(&mut tree, &mut app);
   eprintln!("[text_pipeline_profile long_text_realistic] {}", tree.profile());
+
+  let mut app = App::new();
+  let mut tree = realistic_viewport_tree();
+  tree.mount_root::<FlowLongTextRoot>(&mut app, long_text_source());
+  run_pass(&mut tree, &mut app);
+  eprintln!("[text_pipeline_profile flow_long_text_realistic] {}", tree.profile());
 }
 
 #[cfg(not(feature = "perf_profile"))]
@@ -242,6 +262,41 @@ fn bench_text_pipeline(c: &mut Criterion) {
     tree.mount_root::<LongTextRoot>(&mut app, long_text_source());
     run_pass(&mut tree, &mut app);
     b.iter(|| {
+      run_pass(&mut tree, &mut app);
+    });
+  });
+
+  group.bench_function("cold_flow_long_text_realistic_viewport/all", |b| {
+    b.iter_batched(
+      || {
+        let mut app = App::new();
+        let mut tree = realistic_viewport_tree();
+        tree.mount_root::<FlowLongTextRoot>(&mut app, long_text_source());
+        (app, tree)
+      },
+      |(mut app, mut tree)| {
+        run_pass(&mut tree, &mut app);
+      },
+      BatchSize::SmallInput,
+    );
+  });
+
+  group.bench_function("warm_flow_long_text_realistic_viewport/all", |b| {
+    let mut app = App::new();
+    let mut tree = realistic_viewport_tree();
+    tree.mount_root::<FlowLongTextRoot>(&mut app, long_text_source());
+    run_pass(&mut tree, &mut app);
+    b.iter(|| {
+      run_pass(&mut tree, &mut app);
+    });
+  });
+
+  group.bench_function("remount_flow_long_text_same_app/all", |b| {
+    let mut app = App::new();
+    let source = long_text_source();
+    b.iter(|| {
+      let mut tree = realistic_viewport_tree();
+      tree.mount_root::<FlowLongTextRoot>(&mut app, source.clone());
       run_pass(&mut tree, &mut app);
     });
   });

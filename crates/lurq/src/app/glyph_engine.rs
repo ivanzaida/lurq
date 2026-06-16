@@ -2,14 +2,14 @@
 use std::time::Instant;
 use std::{
   borrow::Cow,
-  collections::{HashMap, hash_map::DefaultHasher},
+  collections::{hash_map::DefaultHasher, HashMap},
   hash::{Hash, Hasher},
   path::Path,
 };
 
 use cosmic_text::{
-  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Family, FontSystem, LayoutGlyph, Metrics, Shaping,
-  SwashCache, SwashContent, SwashImage, Wrap,
+  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Family, Font, FontSystem, LayoutGlyph, Metrics,
+  Shaping, SwashContent, SwashImage, Wrap,
 };
 use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
@@ -19,10 +19,10 @@ use swash::{
 use crate::{
   app::profile_types::GlyphEngineProfile,
   layout::{
-    Size,
     quad::{ClipRect, RichTextSpan},
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
     text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
+    Size,
   },
   node::{color::Color, text_selection::CaretPosition, transform::Transform2D},
 };
@@ -91,6 +91,57 @@ impl CacheKey {
     key.raster_mode = 2;
     key
   }
+
+  fn matches_measure(&self, text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> bool {
+    self.raster_mode == 0
+      && self.text == text
+      && self.font_family == style.font_family
+      && self.font_size_bits == style.font_size.to_bits()
+      && self.line_height_bits == style.line_height.to_bits()
+      && self.max_width_bits == max_width.to_bits()
+      && self.weight == weight_to_u8(style.weight)
+      && self.style == style_to_u8(style.style)
+      && self.text_align == text_align_to_u8(style.text_align)
+      && self.wrap == wrap
+  }
+}
+
+fn text_measure_fingerprint(text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  hash_sampled_text(text, &mut hasher);
+  style.font_family.hash(&mut hasher);
+  style.font_size.to_bits().hash(&mut hasher);
+  style.line_height.to_bits().hash(&mut hasher);
+  max_width.to_bits().hash(&mut hasher);
+  weight_to_u8(style.weight).hash(&mut hasher);
+  style_to_u8(style.style).hash(&mut hasher);
+  text_align_to_u8(style.text_align).hash(&mut hasher);
+  wrap.hash(&mut hasher);
+  hasher.finish()
+}
+
+fn hash_sampled_text<H: Hasher>(text: &str, hasher: &mut H) {
+  const SAMPLE: usize = 128;
+  text.len().hash(hasher);
+  if text.len() <= SAMPLE * 3 {
+    text.hash(hasher);
+    return;
+  }
+
+  hasher.write(&text.as_bytes()[..SAMPLE]);
+  let middle = text.len() / 2;
+  let middle_start = text_floor_char_boundary(text, middle.saturating_sub(SAMPLE / 2));
+  let middle_end = text_floor_char_boundary(text, (middle_start + SAMPLE).min(text.len()));
+  hasher.write(&text.as_bytes()[middle_start..middle_end]);
+  let tail_start = text_floor_char_boundary(text, text.len() - SAMPLE);
+  hasher.write(&text.as_bytes()[tail_start..]);
+}
+
+fn text_floor_char_boundary(text: &str, mut index: usize) -> usize {
+  while index > 0 && !text.is_char_boundary(index) {
+    index -= 1;
+  }
+  index
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -274,10 +325,10 @@ fn set_buffer_text(buffer: &mut Buffer, font_system: &mut FontSystem, text: &str
 
 pub(crate) struct GlyphEngine {
   font_system: FontSystem,
-  swash_cache: SwashCache,
+  swash_context: ScaleContext,
   transformed_scale_context: ScaleContext,
   font_aliases: HashMap<String, String>,
-  measure_cache: HashMap<CacheKey, Size>,
+  measure_cache: HashMap<u64, Vec<(CacheKey, Size)>>,
   rich_shaped_layout_cache: HashMap<u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
   clipped_glyph_layout_cache: HashMap<ClippedCacheKey, Vec<CachedGlyph>>,
@@ -302,7 +353,7 @@ impl GlyphEngine {
 
     Self {
       font_system,
-      swash_cache: SwashCache::new(),
+      swash_context: ScaleContext::new(),
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
@@ -393,14 +444,30 @@ impl GlyphEngine {
 
   pub(crate) fn measure_text(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
     let wrap = is_bounded_text_width(max_width);
-    let key = CacheKey::new(text, style, max_width, wrap);
-    if let Some(&cached) = self.measure_cache.get(&key) {
+    let fingerprint = text_measure_fingerprint(text, style, max_width, wrap);
+    if let Some(cached) = self
+      .measure_cache
+      .get(&fingerprint)
+      .and_then(|bucket| {
+        bucket
+          .iter()
+          .find(|(key, _)| key.matches_measure(text, style, max_width, wrap))
+      })
+      .map(|(_, size)| *size)
+    {
       self.measure_hits += 1;
       return cached;
     }
     self.measure_misses += 1;
     let size = self.shape_and_measure(text, style, max_width, wrap);
-    self.measure_cache.insert(key, size);
+    if self.measure_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.measure_cache.clear();
+    }
+    self
+      .measure_cache
+      .entry(fingerprint)
+      .or_default()
+      .push((CacheKey::new(text, style, max_width, wrap), size));
     size
   }
 
@@ -1198,13 +1265,14 @@ impl GlyphEngine {
       return Some(packed);
     }
 
+    let font = self.font_system.get_font(cache_key.font_id)?;
     #[cfg(feature = "perf_profile")]
     {
       self.profile.swash_requests += 1;
     }
     #[cfg(feature = "perf_profile")]
     let swash_start = Instant::now();
-    let image = self.swash_cache.get_image(&mut self.font_system, cache_key);
+    let image = render_glyph_image(&mut self.swash_context, &font, cache_key);
     #[cfg(feature = "perf_profile")]
     {
       self.profile.swash_lookup += swash_start.elapsed();
@@ -1682,8 +1750,14 @@ impl GlyphEngine {
       .sum::<usize>();
     let measure_key_heap = self
       .measure_cache
-      .keys()
+      .values()
+      .flat_map(|bucket| bucket.iter().map(|(key, _)| key))
       .map(|key| key.text.capacity() + key.font_family.len())
+      .sum::<usize>();
+    let measure_cache_bucket_bytes = self
+      .measure_cache
+      .values()
+      .map(|bucket| bucket.capacity() * std::mem::size_of::<(CacheKey, Size)>())
       .sum::<usize>();
     let rich_shaped_key_heap = self
       .rich_shaped_layout_cache
@@ -1733,7 +1807,8 @@ impl GlyphEngine {
     std::mem::size_of::<Self>()
       + self.font_aliases.capacity() * std::mem::size_of::<(String, String)>()
       + alias_heap
-      + self.measure_cache.capacity() * std::mem::size_of::<(CacheKey, Size)>()
+      + self.measure_cache.capacity() * std::mem::size_of::<(u64, Vec<(CacheKey, Size)>)>()
+      + measure_cache_bucket_bytes
       + measure_key_heap
       + self.rich_shaped_layout_cache.capacity()
         * std::mem::size_of::<(u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>)>()
@@ -1835,6 +1910,29 @@ impl TransformedGlyphKey {
 
 fn swash_transform_from_screen(transform: Transform2D) -> SwashTransform {
   SwashTransform::new(transform.a, -transform.b, -transform.c, transform.d, 0.0, 0.0)
+}
+
+fn render_glyph_image(context: &mut ScaleContext, font: &Font, cache_key: GlyphCacheKey) -> Option<SwashImage> {
+  let mut scaler = context
+    .builder(font.as_swash())
+    .size(f32::from_bits(cache_key.font_size_bits))
+    .hint(true)
+    .build();
+  let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
+  let transform = cache_key
+    .flags
+    .contains(cosmic_text::CacheKeyFlags::FAKE_ITALIC)
+    .then(|| SwashTransform::skew(Angle::from_degrees(14.0), Angle::from_degrees(0.0)));
+
+  Render::new(&[
+    Source::ColorOutline(0),
+    Source::ColorBitmap(StrikeWith::BestFit),
+    Source::Outline,
+  ])
+  .format(Format::Alpha)
+  .offset(offset)
+  .transform(transform)
+  .render(&mut scaler, cache_key.glyph_id)
 }
 
 fn is_bounded_text_width(max_width: f32) -> bool {
@@ -2236,10 +2334,11 @@ fn dirty_rect_area(rect: GlyphAtlasDirtyRect) -> u64 {
 #[cfg(test)]
 mod tests {
   use cosmic_text::{Attrs, Family, Shaping};
+  use swash::scale::ScaleContext;
 
   use super::{
-    AtlasPacker, GLYPH_ATLAS_PADDING, GlyphAtlasDirtyRect, GlyphEngine, coalesce_dirty_rects, glyph_coverage_mask,
-    is_bounded_text_width, swash_transform_from_screen,
+    coalesce_dirty_rects, glyph_coverage_mask, is_bounded_text_width, render_glyph_image, swash_transform_from_screen,
+    AtlasPacker, GlyphAtlasDirtyRect, GlyphEngine, GLYPH_ATLAS_PADDING,
   };
   use crate::{layout::quad::ClipRect, node::transform::Transform2D};
 
@@ -2370,11 +2469,12 @@ mod tests {
       .find(|(_, glyph)| glyph.start <= 2 && glyph.end >= 3)
       .expect("the y glyph should be present");
     let physical = y_glyph.1.physical((0.0, y_glyph.0), 1.0);
-    let image = engine
-      .swash_cache
-      .get_image(&mut engine.font_system, physical.cache_key)
-      .as_ref()
-      .expect("the y glyph should rasterize");
+    let font = engine
+      .font_system
+      .get_font(physical.cache_key.font_id)
+      .expect("the y glyph font should be available");
+    let mut context = ScaleContext::new();
+    let image = render_glyph_image(&mut context, &font, physical.cache_key).expect("the y glyph should rasterize");
     let mask = glyph_coverage_mask(&image);
     let width = image.placement.width as usize;
     let height = image.placement.height as usize;

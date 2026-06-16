@@ -253,20 +253,64 @@ realistic README: 568 glyphs, swash=1.79ms/238, glyphs=2.27ms
 
 To cover the case this optimization targets, the benchmark now includes a single large wrapped `Text` node in an 800 px viewport. Before adding a clipped glyph-layout cache, this exposed a warm-redraw problem: clipped rasterization skipped offscreen lines, so it could not safely populate the normal full glyph-layout cache and had to reshape the large text node on every redraw.
 
-| Case | Before clipped cache | After clipped cache | After finite-height raster shape |
-| --- | ---: | ---: | ---: |
-| `cold_long_text_realistic_viewport/all` | ~49 ms | ~50 ms | ~28 ms |
-| `warm_long_text_realistic_viewport/all` | ~25 ms | ~22.6 us | ~23 us |
+| Case | Before clipped cache | After clipped cache | After finite-height raster shape | After tight text layout skip |
+| --- | ---: | ---: | ---: | ---: |
+| `cold_long_text_realistic_viewport/all` | ~49 ms | ~50 ms | ~28 ms | ~3.4 ms |
+| `warm_long_text_realistic_viewport/all` | ~25 ms | ~22.6 us | ~23 us | ~27 us |
 
-Cold profile after finite-height raster shaping:
+Cold profile after tight text layout skip:
 
 ```text
-long text realistic: 771 glyphs, swash=0.99ms/178, glyphs=4.06ms, text shape=22.18ms
+long text realistic: total=3.17ms, layout=0.01ms, glyphs=2.44ms, swash=1.01ms/178
 ```
 
 The clipped raster path keeps Swash generation near the visible glyph set. The clipped glyph-layout cache then makes repeated stable redraws cheap by reusing the visible-line glyph layout for the same text/style/width and clip-relative rectangle.
 
 The raster path also sets a finite Cosmic buffer height from the active clip bottom before shaping, so top-of-document cold rasterization stops after the visible range instead of shaping the whole node again. This moved the cold long-text benchmark from about 50 ms to about 28 ms. Cold first render is now dominated by full-node layout measurement rather than rasterization.
+
+For non-selectable clipped text with fully tight width and height constraints, layout now skips intrinsic text measurement entirely and returns the fixed constraint size. Scroll content still receives unbounded height constraints, so this does not replace full measurement where the parent needs exact content height. In the single huge `Text` benchmark, this removes the remaining full-node measurement cost and moves the cold case to about 3.4 ms.
+
+### Borrowed Plain Text Measurement Lookup
+
+Added flow long-text benchmark cases that place the README text in normal column flow instead of tight viewport-sized constraints. This keeps exact height measurement on the path and gives a baseline for repeated mounts where measurement cache hits matter:
+
+| Case | Before | After borrowed measurement lookup |
+| --- | ---: | ---: |
+| `cold_flow_long_text_realistic_viewport/all` | ~28 ms | ~28 ms |
+| `warm_flow_long_text_realistic_viewport/all` | ~23 us | ~23 us |
+| `remount_flow_long_text_same_app/all` | ~50 us | ~36 us |
+
+The measurement cache now uses sampled-text fingerprint buckets with exact borrowed comparison on hits. Cache misses still store owned keys, so correctness does not depend on the fingerprint being collision-free. This does not change first-render cost because full text measurement still has to shape the node once, but it removes the large owned-key clone from repeated mount cache hits.
+
+### Uncached Swash Images For Atlas Misses
+
+Normal glyph rasterization now asks Swash for an uncached image when the glyph is missing from the atlas. The packed atlas entry remains the durable cache used by warm frames, so retaining a second copy of the same successful image in `SwashCache` does not help the normal text path.
+
+Short-run results:
+
+| Case | Before | After uncached Swash image |
+| --- | ---: | ---: |
+| `cold_long_text_realistic_viewport/all` | ~3.4 ms | ~3.5 ms |
+| `warm_long_text_realistic_viewport/all` | ~27 us | ~24 us |
+| `cold_flow_long_text_realistic_viewport/all` | ~28 ms | ~28 ms |
+| `remount_flow_long_text_same_app/all` | ~36 us | ~38 us |
+
+This keeps the hot-path cache model simpler without a clear regression in the focused long-text run: atlas entries are the cache for paintable glyphs, while Swash image caching is not used as a second layer for normal atlas-backed text.
+
+### Batch Glyph Raster Experiment
+
+Tried collecting unique missing glyph keys for each raster pass, resolving fonts on the main thread, rendering images in scoped worker threads with per-worker `ScaleContext`, and then packing the resulting masks into the atlas sequentially.
+
+The experiment was not kept. In short local runs it regressed cold README and long-text passes:
+
+| Case | Direct atlas miss path | Batch raster experiment |
+| --- | ---: | ---: |
+| `cold_readme_markdown_first_pass/all` | ~6 ms | ~10.4 ms |
+| `cold_readme_markdown_realistic_viewport/all` | ~5 ms | ~8.4 ms |
+| `cold_long_text_realistic_viewport/all` | ~3.5 ms | ~4.4 ms |
+| `cold_flow_long_text_realistic_viewport/all` | ~28 ms | ~27.7 ms, no useful win |
+
+Thread startup, extra collection passes, and reduced cache locality outweighed the parallel Swash work at the current glyph counts. A future parallel path likely needs persistent workers or a larger async raster queue instead of per-pass scoped thread spawning.
 
 ### Empty Glyph Miss Cache Experiment
 
@@ -288,8 +332,8 @@ Markdown input stores rich text spans. It does not store shaped runs.
 
 ## Next Candidates
 
-1. Reduce or amortize full-node layout measurement for very large wrapped text nodes; clipped rasterization has exposed measurement shaping as the dominant cold cost there.
-2. Reduce successful Swash glyph image generation cost for normal visible text; after whitespace skipping, Swash requests mostly match successful atlas packs.
+1. Reduce successful Swash glyph image generation cost for normal visible text; after whitespace skipping, Swash requests mostly match successful atlas packs.
+2. Explore parallelizing visible glyph image generation and atlas preparation for cold text-heavy frames.
 3. Decide whether WGPU should keep zero-copy atlas-slice dirty uploads or build compact per-rect row buffers like DX12.
 
 ## Updating This Page
