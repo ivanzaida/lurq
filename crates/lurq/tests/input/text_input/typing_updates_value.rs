@@ -1,5 +1,8 @@
 use lurq::{
-  app::{Tree, events::MouseButton},
+  app::{
+    Tree,
+    events::{KeyboardEvent, MouseButton, TextInputEvent},
+  },
   core::Signal,
 };
 
@@ -33,7 +36,7 @@ fn on_input_can_mutate_signal_before_builtin_text_editing() {
   runtime.set_root(
     lurq::components::TextInput::new(value.clone())
       .placeholder("Name")
-      .on_input(move |event| {
+      .on_input(move |event: TextInputEvent| {
         if event.keyboard.key == "A" {
           input_value.set("prefix".to_owned());
         }
@@ -60,7 +63,7 @@ fn key_down_prevent_default_blocks_text_input_editing() {
   runtime.set_root(
     lurq::components::TextInput::new(value.clone())
       .placeholder("Name")
-      .on_key_down(|event| {
+      .on_key_down(|event: KeyboardEvent| {
         if event.key == "A" {
           event.prevent_default();
         }
@@ -89,7 +92,7 @@ fn on_input_prevent_default_blocks_builtin_text_editing() {
   runtime.set_root(
     lurq::components::TextInput::new(value.clone())
       .placeholder("Name")
-      .on_input(move |event| {
+      .on_input(move |event: TextInputEvent| {
         if event.keyboard.key == "A" {
           input_value.set("blocked".to_owned());
           event.prevent_default();
@@ -118,7 +121,7 @@ fn external_value_change_keeps_end_caret_at_new_end() {
   runtime.set_root(
     lurq::components::TextInput::new(value.clone())
       .placeholder("Name")
-      .on_key_down(move |event| {
+      .on_key_down(move |event: KeyboardEvent| {
         if event.key == "Tab" {
           fill.set("/play ".to_owned());
           event.prevent_default();

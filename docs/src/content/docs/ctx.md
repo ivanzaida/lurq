@@ -302,7 +302,7 @@ For custom title bars, call `window.start_drag()` from the press handler for the
 
 ```rust
 use lurq::{
-  app::events::MouseButton,
+  app::events::{MouseButton, MouseEvent},
   components::{Stack, Text},
 };
 
@@ -311,7 +311,7 @@ let window = ctx.window();
 Stack::new()
   .height(36.0)
   .child(Text::new("My App").padding_horizontal(12.0))
-  .on_mouse_down(move |event| {
+  .on_mouse_down(move |event: MouseEvent| {
     if event.button == MouseButton::Left {
       window.start_drag();
     }
@@ -322,7 +322,10 @@ Native resize should be started immediately after the left mouse button press. F
 
 ```rust
 use lurq::{
-  app::{events::MouseButton, WindowResizeDirection},
+  app::{
+    events::{MouseButton, MouseEvent},
+    WindowResizeDirection,
+  },
   components::Rect,
   node::CursorIcon,
 };
@@ -331,7 +334,7 @@ let window = ctx.window();
 
 Rect::new(8.0, 8.0)
   .cursor(CursorIcon::NwseResize)
-  .on_mouse_down(move |event| {
+  .on_mouse_down(move |event: MouseEvent| {
     if event.button == MouseButton::Left {
       window.start_resize(WindowResizeDirection::SouthEast);
     }
@@ -472,6 +475,24 @@ lurq::components::Column::new().with_children(elements)
 ```
 
 `for_each` creates keyed child contexts for arbitrary render closures, not just `Component` implementations. It is useful when each list item needs its own local context for child mounts, effects, or refs.
+
+## Virtual List Helper
+
+```rust
+ctx.virtual_list(
+  &self.list,
+  self.messages.as_slice(),
+  |message| message.id,
+  |row_ctx, message| {
+    row_ctx.mount_keyed::<MessageRow>(&message.id.to_string(), message.clone())
+  },
+)
+.size(420.0, 640.0)
+```
+
+`virtual_list` renders a vertical `ScrollVertical` whose rows are culled to the visible window plus overscan. It is intended for long feeds and chat logs where rows may have different heights.
+
+Create a `VirtualListState` in `Component::create` and keep it on the component. The state stores the scroll position, estimated row height, measured row heights, and retained keyed row contexts. See [Components](./components/#virtual-lists) for the full pattern.
 
 ## Error Boundary
 

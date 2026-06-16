@@ -29,6 +29,7 @@ mod stack;
 mod svg;
 mod text;
 mod text_input;
+mod virtual_list;
 
 pub use button::Button;
 pub use checkbox::Checkbox;
@@ -69,6 +70,7 @@ pub use stack::Stack;
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow};
+pub use virtual_list::VirtualListState;
 
 pub use crate::app::ctx::{CollisionStrategy, Modal, ModalTarget, OpenState, Overlay, Parent, Placement, Root};
 
@@ -413,102 +415,201 @@ macro_rules! impl_into_node {
         self
       }
 
-      pub fn on_click(mut self, f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static) -> Self {
+      pub fn on_click(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_click(node, f));
+        self
+      }
+
+      pub fn off_click(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_click(node, f));
         self
       }
 
       pub fn on_mouse_click(
         mut self,
         button: $crate::app::events::MouseButton,
-        f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static,
+        f: impl $crate::node::IntoMouseEventHandler,
       ) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_click(node, button, f));
         self
       }
 
-      pub fn on_dblclick(mut self, f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_mouse_click(
+        mut self,
+        button: $crate::app::events::MouseButton,
+        f: impl $crate::node::IntoMouseEventHandler,
+      ) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_mouse_click(node, button, f));
+        self
+      }
+
+      pub fn on_dblclick(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_dblclick(node, f));
         self
       }
 
-      pub fn on_mouse_down(mut self, f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_dblclick(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_dblclick(node, f));
+        self
+      }
+
+      pub fn on_mouse_down(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_down(node, f));
         self
       }
 
-      pub fn on_mouse_up(mut self, f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_mouse_down(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_mouse_down(node, f));
+        self
+      }
+
+      pub fn on_mouse_up(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_up(node, f));
         self
       }
 
-      pub fn on_mouse_move(mut self, f: impl Fn(&$crate::app::events::MouseEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_mouse_up(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_mouse_up(node, f));
+        self
+      }
+
+      pub fn on_mouse_move(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_move(node, f));
         self
       }
 
-      pub fn on_drag_start(mut self, f: impl Fn(&$crate::app::events::DragEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_mouse_move(mut self, f: impl $crate::node::IntoMouseEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_mouse_move(node, f));
+        self
+      }
+
+      pub fn on_drag_start(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_drag_start(node, f));
         self
       }
 
-      pub fn on_drag_move(mut self, f: impl Fn(&$crate::app::events::DragEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_drag_start(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_drag_start(node, f));
+        self
+      }
+
+      pub fn on_drag_move(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_drag_move(node, f));
         self
       }
 
-      pub fn on_drag_end(mut self, f: impl Fn(&$crate::app::events::DragEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_drag_move(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_drag_move(node, f));
+        self
+      }
+
+      pub fn on_drag_end(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_drag_end(node, f));
         self
       }
 
-      pub fn on_drop(mut self, f: impl Fn(&$crate::app::events::DropEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_drag_end(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_drag_end(node, f));
+        self
+      }
+
+      pub fn on_drop(mut self, f: impl $crate::node::IntoDropEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_drop(node, f));
         self
       }
 
-      pub fn on_mouse_enter(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+      pub fn off_drop(mut self, f: impl $crate::node::IntoDropEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_drop(node, f));
+        self
+      }
+
+      pub fn on_mouse_enter(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_enter(node, f));
         self
       }
 
-      pub fn on_mouse_leave(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+      pub fn off_mouse_enter(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_mouse_enter(node, f));
+        self
+      }
+
+      pub fn on_mouse_leave(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_leave(node, f));
         self
       }
 
-      pub fn on_key_down(mut self, f: impl Fn(&$crate::app::events::KeyboardEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_mouse_leave(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_mouse_leave(node, f));
+        self
+      }
+
+      pub fn on_key_down(mut self, f: impl $crate::node::IntoKeyboardEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_key_down(node, f));
         self
       }
 
-      pub fn on_key_up(mut self, f: impl Fn(&$crate::app::events::KeyboardEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_key_down(mut self, f: impl $crate::node::IntoKeyboardEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_key_down(node, f));
+        self
+      }
+
+      pub fn on_key_up(mut self, f: impl $crate::node::IntoKeyboardEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_key_up(node, f));
         self
       }
 
-      pub fn on_focus(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+      pub fn off_key_up(mut self, f: impl $crate::node::IntoKeyboardEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_key_up(node, f));
+        self
+      }
+
+      pub fn on_focus(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_focus(node, f));
         self
       }
 
-      pub fn on_blur(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+      pub fn off_focus(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_focus(node, f));
+        self
+      }
+
+      pub fn on_blur(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_blur(node, f));
         self
       }
 
-      pub fn on_scroll(mut self, f: impl Fn(&$crate::app::events::ScrollEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_blur(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_blur(node, f));
+        self
+      }
+
+      pub fn on_scroll(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_scroll(node, f));
         self
       }
 
-      pub fn on_scroll_start(mut self, f: impl Fn(&$crate::app::events::ScrollEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_scroll(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_scroll(node, f));
+        self
+      }
+
+      pub fn on_scroll_start(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_scroll_start(node, f));
         self
       }
 
-      pub fn on_scroll_end(mut self, f: impl Fn(&$crate::app::events::ScrollEvent) + Send + Sync + 'static) -> Self {
+      pub fn off_scroll_start(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_scroll_start(node, f));
+        self
+      }
+
+      pub fn on_scroll_end(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_scroll_end(node, f));
+        self
+      }
+
+      pub fn off_scroll_end(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_scroll_end(node, f));
         self
       }
 

@@ -1,5 +1,5 @@
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
 };
 
@@ -10,15 +10,36 @@ use lurq::{
     ctx::{Ctx, Overlay, Placement},
     events::{MouseButton, ScrollPhase},
   },
-  components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
+  components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical, VirtualListState},
   core::{ElementRef as CoreElementRef, Signal},
-  layout::layout_kind::ScrollState,
+  layout::{layout_kind::ScrollState, scrollbar::ScrollBarStyle},
   node::{Element, color::Color},
 };
 
 use crate::support::{pointer_click, run_pass};
 
 const CONTENT_COLOR: Color = Color::new(255, 0, 255, 255);
+
+#[derive(lurq::DevtoolsInspectable)]
+struct Shared<T>(Arc<T>);
+
+impl<T> Clone for Shared<T> {
+  fn clone(&self) -> Self {
+    Self(self.0.clone())
+  }
+}
+
+impl<T> PartialEq for Shared<T> {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl<T> std::fmt::Debug for Shared<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Shared").field(&(Arc::as_ptr(&self.0) as usize)).finish()
+  }
+}
 
 struct ScrollRerender {
   ticks: Signal<u32>,
@@ -62,6 +83,421 @@ fn scroll_state_survives_signal_driven_rerender() {
     .find_element(|element| element.color() == Some(CONTENT_COLOR))
     .unwrap();
   assert_eq!(content.bounds().y, -60.0);
+}
+
+struct ScrollCullingCacheRoot {
+  culling: Signal<bool>,
+  scroll_state: ScrollState,
+  child_renders: Arc<AtomicUsize>,
+  child_mounts: Arc<AtomicUsize>,
+  child_unmounts: Arc<AtomicUsize>,
+}
+
+impl Component for ScrollCullingCacheRoot {
+  type Props = (
+    Shared<std::sync::Mutex<Option<Signal<bool>>>>,
+    Shared<ScrollState>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+  );
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    let culling = ctx.signal(true);
+    *props.0.0.lock().unwrap() = Some(culling.clone());
+    Self {
+      culling,
+      scroll_state: (*props.1.0).clone(),
+      child_renders: props.2.0,
+      child_mounts: props.3.0,
+      child_unmounts: props.4.0,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let child = ctx.mount::<ScrollCullingCacheChild>((
+      Shared(self.child_renders.clone()),
+      Shared(self.child_mounts.clone()),
+      Shared(self.child_unmounts.clone()),
+    ));
+    let content = Column::new().spacing(0.0).child(child).child(Rect::new(100.0, 400.0));
+
+    ScrollVertical::new(content)
+      .with_scroll_state(self.scroll_state.clone())
+      .culling(self.culling.get())
+      .size(100.0, 100.0)
+  }
+}
+
+struct ScrollCullingCacheChild {
+  renders: Arc<AtomicUsize>,
+  mounts: Arc<AtomicUsize>,
+  unmounts: Arc<AtomicUsize>,
+}
+
+impl Component for ScrollCullingCacheChild {
+  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>, Shared<AtomicUsize>);
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    Self {
+      renders: props.0.0,
+      mounts: props.1.0,
+      unmounts: props.2.0,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    self.renders.fetch_add(1, Ordering::SeqCst);
+    Rect::new(100.0, 50.0).background(CONTENT_COLOR)
+  }
+
+  fn on_mounted(&self) {
+    self.mounts.fetch_add(1, Ordering::SeqCst);
+  }
+
+  fn on_unmounted(&self) {
+    self.unmounts.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+#[test]
+fn scroll_culling_does_not_remount_or_rerender_cached_child_components() {
+  let culling = Arc::new(std::sync::Mutex::new(None));
+  let scroll_state = ScrollState::new();
+  let child_renders = Arc::new(AtomicUsize::new(0));
+  let child_mounts = Arc::new(AtomicUsize::new(0));
+  let child_unmounts = Arc::new(AtomicUsize::new(0));
+  let mut runtime = Tree::new();
+
+  runtime.mount_root::<ScrollCullingCacheRoot>(
+    &mut lurq::app::App::new(),
+    (
+      Shared(culling.clone()),
+      Shared(Arc::new(scroll_state.clone())),
+      Shared(child_renders.clone()),
+      Shared(child_mounts.clone()),
+      Shared(child_unmounts.clone()),
+    ),
+  );
+  run_pass(&mut runtime);
+
+  assert_eq!(child_renders.load(Ordering::SeqCst), 1);
+  assert_eq!(child_mounts.load(Ordering::SeqCst), 1);
+  assert_eq!(child_unmounts.load(Ordering::SeqCst), 0);
+
+  scroll_state.set_scroll_pending(0.0, 80.0);
+  run_pass(&mut runtime);
+  assert_eq!(child_renders.load(Ordering::SeqCst), 1);
+  assert_eq!(child_mounts.load(Ordering::SeqCst), 1);
+  assert_eq!(child_unmounts.load(Ordering::SeqCst), 0);
+
+  culling.lock().unwrap().as_ref().unwrap().set(false);
+  run_pass(&mut runtime);
+  assert_eq!(child_renders.load(Ordering::SeqCst), 1);
+  assert_eq!(child_mounts.load(Ordering::SeqCst), 1);
+  assert_eq!(child_unmounts.load(Ordering::SeqCst), 0);
+
+  culling.lock().unwrap().as_ref().unwrap().set(true);
+  run_pass(&mut runtime);
+  assert_eq!(child_renders.load(Ordering::SeqCst), 1);
+  assert_eq!(child_mounts.load(Ordering::SeqCst), 1);
+  assert_eq!(child_unmounts.load(Ordering::SeqCst), 0);
+}
+
+struct VirtualListRoot {
+  state: VirtualListState,
+  items: Vec<usize>,
+  renders: Arc<AtomicUsize>,
+  mounts: Arc<AtomicUsize>,
+  unmounts: Arc<AtomicUsize>,
+}
+
+impl Component for VirtualListRoot {
+  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>, Shared<AtomicUsize>);
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    Self {
+      state: VirtualListState::new(ctx)
+        .with_estimated_height(20.0)
+        .with_overscan(0)
+        .with_initial_visible_count(5),
+      items: (0..100).collect(),
+      renders: props.0.0,
+      mounts: props.1.0,
+      unmounts: props.2.0,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let renders = self.renders.clone();
+    let mounts = self.mounts.clone();
+    let unmounts = self.unmounts.clone();
+    ctx
+      .virtual_list(
+        &self.state,
+        &self.items,
+        |item| *item,
+        move |ctx, item| {
+          ctx.mount_keyed::<VirtualListRow>(
+            &item.to_string(),
+            (
+              Shared(renders.clone()),
+              Shared(mounts.clone()),
+              Shared(unmounts.clone()),
+            ),
+          )
+        },
+      )
+      .scrollbar(ScrollBarStyle::hidden())
+      .size(100.0, 100.0)
+  }
+}
+
+struct VirtualListRow {
+  renders: Arc<AtomicUsize>,
+  mounts: Arc<AtomicUsize>,
+  unmounts: Arc<AtomicUsize>,
+}
+
+impl Component for VirtualListRow {
+  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>, Shared<AtomicUsize>);
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    Self {
+      renders: props.0.0,
+      mounts: props.1.0,
+      unmounts: props.2.0,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    self.renders.fetch_add(1, Ordering::SeqCst);
+    Rect::new(100.0, 20.0).background(CONTENT_COLOR)
+  }
+
+  fn on_mounted(&self) {
+    self.mounts.fetch_add(1, Ordering::SeqCst);
+  }
+
+  fn on_unmounted(&self) {
+    self.unmounts.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+struct VirtualListPruneRoot {
+  state: VirtualListState,
+  item_count: Signal<usize>,
+  item_count_out: Arc<Mutex<Option<Signal<usize>>>>,
+  renders: Arc<AtomicUsize>,
+  mounts: Arc<AtomicUsize>,
+  unmounts: Arc<AtomicUsize>,
+  drops: Arc<AtomicUsize>,
+}
+
+impl Component for VirtualListPruneRoot {
+  type Props = (
+    Shared<Mutex<Option<Signal<usize>>>>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+  );
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    let item_count = ctx.signal(20);
+    *props.0.0.lock().unwrap() = Some(item_count.clone());
+    Self {
+      state: VirtualListState::new(ctx)
+        .with_estimated_height(20.0)
+        .with_overscan(0)
+        .with_initial_visible_count(5),
+      item_count,
+      item_count_out: props.0.0,
+      renders: props.1.0,
+      mounts: props.2.0,
+      unmounts: props.3.0,
+      drops: props.4.0,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    *self.item_count_out.lock().unwrap() = Some(self.item_count.clone());
+    let items = (0..self.item_count.get()).collect::<Vec<_>>();
+    let renders = self.renders.clone();
+    let mounts = self.mounts.clone();
+    let unmounts = self.unmounts.clone();
+    let drops = self.drops.clone();
+
+    ctx
+      .virtual_list(
+        &self.state,
+        &items,
+        |item| *item,
+        move |ctx, item| {
+          ctx.mount_keyed::<VirtualListPruneRow>(
+            &item.to_string(),
+            (
+              Shared(renders.clone()),
+              Shared(mounts.clone()),
+              Shared(unmounts.clone()),
+              Shared(drops.clone()),
+            ),
+          )
+        },
+      )
+      .scrollbar(ScrollBarStyle::hidden())
+      .size(100.0, 100.0)
+  }
+}
+
+struct VirtualListPruneRow {
+  renders: Arc<AtomicUsize>,
+  mounts: Arc<AtomicUsize>,
+  unmounts: Arc<AtomicUsize>,
+  drops: Arc<AtomicUsize>,
+}
+
+impl Component for VirtualListPruneRow {
+  type Props = (
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+  );
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    Self {
+      renders: props.0.0,
+      mounts: props.1.0,
+      unmounts: props.2.0,
+      drops: props.3.0,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    self.renders.fetch_add(1, Ordering::SeqCst);
+    Rect::new(100.0, 20.0).background(CONTENT_COLOR)
+  }
+
+  fn on_mounted(&self) {
+    self.mounts.fetch_add(1, Ordering::SeqCst);
+  }
+
+  fn on_unmounted(&self) {
+    self.unmounts.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+impl Drop for VirtualListPruneRow {
+  fn drop(&mut self) {
+    self.drops.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+#[test]
+fn virtual_list_renders_initial_estimated_window_only() {
+  let renders = Arc::new(AtomicUsize::new(0));
+  let mounts = Arc::new(AtomicUsize::new(0));
+  let unmounts = Arc::new(AtomicUsize::new(0));
+  let mut runtime = Tree::new();
+
+  runtime.mount_root::<VirtualListRoot>(
+    &mut lurq::app::App::new(),
+    (
+      Shared(renders.clone()),
+      Shared(mounts.clone()),
+      Shared(unmounts.clone()),
+    ),
+  );
+  run_pass(&mut runtime);
+
+  assert_eq!(renders.load(Ordering::SeqCst), 5);
+  assert_eq!(mounts.load(Ordering::SeqCst), 5);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn virtual_list_retains_keyed_rows_when_they_scroll_out_and_back_in() {
+  let renders = Arc::new(AtomicUsize::new(0));
+  let mounts = Arc::new(AtomicUsize::new(0));
+  let unmounts = Arc::new(AtomicUsize::new(0));
+  let mut runtime = Tree::new();
+
+  runtime.mount_root::<VirtualListRoot>(
+    &mut lurq::app::App::new(),
+    (
+      Shared(renders.clone()),
+      Shared(mounts.clone()),
+      Shared(unmounts.clone()),
+    ),
+  );
+  run_pass(&mut runtime);
+
+  runtime.scroll(10.0, 10.0, 0.0, -160.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(renders.load(Ordering::SeqCst), 10);
+  assert_eq!(mounts.load(Ordering::SeqCst), 10);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+
+  runtime.scroll(10.0, 10.0, 0.0, 160.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(renders.load(Ordering::SeqCst), 10);
+  assert_eq!(mounts.load(Ordering::SeqCst), 10);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn virtual_list_prunes_retained_rows_when_items_are_removed() {
+  let item_count = Arc::new(Mutex::new(None));
+  let renders = Arc::new(AtomicUsize::new(0));
+  let mounts = Arc::new(AtomicUsize::new(0));
+  let unmounts = Arc::new(AtomicUsize::new(0));
+  let drops = Arc::new(AtomicUsize::new(0));
+  let mut runtime = Tree::new();
+
+  runtime.mount_root::<VirtualListPruneRoot>(
+    &mut lurq::app::App::new(),
+    (
+      Shared(item_count.clone()),
+      Shared(renders.clone()),
+      Shared(mounts.clone()),
+      Shared(unmounts.clone()),
+      Shared(drops.clone()),
+    ),
+  );
+  run_pass(&mut runtime);
+
+  for _ in 0..3 {
+    runtime.scroll(10.0, 10.0, 0.0, -100.0, ScrollPhase::Scroll);
+    run_pass(&mut runtime);
+  }
+
+  assert_eq!(mounts.load(Ordering::SeqCst), 20);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+  assert_eq!(drops.load(Ordering::SeqCst), 0);
+
+  item_count.lock().unwrap().as_ref().unwrap().set(5);
+  run_pass(&mut runtime);
+
+  assert_eq!(unmounts.load(Ordering::SeqCst), 15);
+  assert_eq!(drops.load(Ordering::SeqCst), 15);
+
+  for _ in 0..5 {
+    runtime.scroll(10.0, 10.0, 0.0, 100.0, ScrollPhase::Scroll);
+    run_pass(&mut runtime);
+    runtime.scroll(10.0, 10.0, 0.0, -100.0, ScrollPhase::Scroll);
+    run_pass(&mut runtime);
+  }
+
+  assert_eq!(mounts.load(Ordering::SeqCst), 20);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 15);
+  assert_eq!(drops.load(Ordering::SeqCst), 15);
 }
 
 #[test]

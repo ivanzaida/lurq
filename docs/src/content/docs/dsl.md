@@ -179,22 +179,26 @@ lurq::components::Column::new()
 ## Events
 
 ```rust
+use lurq::app::events::{DragEvent, KeyboardEvent, MouseEvent};
+
 lurq::components::Rect::new(100.0, 40.0)
   .background("#3b82f6")
-  .on_click(|e| println!("clicked at {}, {}", e.x, e.y))
-  .on_drag_start(|e| println!("drag started at {}, {}", e.x, e.y))
-  .on_drag_move(|e| println!("drag delta: {}, {}", e.delta_x, e.delta_y))
-  .on_drag_end(|e| println!("drag ended at {}, {}", e.x, e.y))
+  .on_click(|e: MouseEvent| println!("clicked at {}, {}", e.x, e.y))
+  .on_drag_start(|e: DragEvent| println!("drag started at {}, {}", e.x, e.y))
+  .on_drag_move(|e: DragEvent| println!("drag delta: {}, {}", e.delta_x, e.delta_y))
+  .on_drag_end(|e: DragEvent| println!("drag ended at {}, {}", e.x, e.y))
   .on_mouse_enter(|| println!("hover in"))
   .on_mouse_leave(|| println!("hover out"))
-  .on_key_down(|e| println!("key: {}", e.key))
+  .on_key_down(|e: KeyboardEvent| println!("key: {}", e.key))
 ```
 
 Mouse, keyboard, and scroll events can stop propagation and block built-in defaults:
 
 ```rust
+use lurq::app::events::KeyboardEvent;
+
 lurq::components::TextInput::new(value)
-  .on_key_down(|e| {
+  .on_key_down(|e: KeyboardEvent| {
     if e.key == "Tab" {
       e.prevent_default();
       e.stop_propagation();
@@ -207,8 +211,10 @@ Use `prevent_default()` for runtime defaults such as text editing, focus, form s
 `TextInput::on_input` is the text-edit hook. It runs before the built-in edit, passes the bound `Signal<String>` as `event.value`, and can cancel the built-in edit with `prevent_default()`:
 
 ```rust
+use lurq::app::events::TextInputEvent;
+
 lurq::components::TextInput::new(value)
-  .on_input(|event| {
+  .on_input(|event: TextInputEvent| {
     if event.keyboard.key == "Tab" {
       event.value.set("/play ".to_owned());
       event.prevent_default();

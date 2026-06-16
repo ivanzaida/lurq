@@ -33,7 +33,7 @@ pub enum LayoutKind {
   ScrollModifier {
     state: ScrollState,
     direction: ScrollDirection,
-    virtualized: bool,
+    culling: bool,
   },
 }
 

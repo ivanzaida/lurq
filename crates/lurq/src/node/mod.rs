@@ -37,7 +37,11 @@ pub use element::{Element, ElementChildren, ElementRef};
 pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;
-pub use node::{BackgroundSize, ButtonKind, HitTestBehavior};
+pub use node::{
+  BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoDragEventHandler, IntoDropEventHandler,
+  IntoEventHandler, IntoKeyboardEventHandler, IntoMouseEventHandler, IntoScrollEventHandler, IntoTextInputEventHandler,
+  IntoVoidEventHandler, VoidEventHandler,
+};
 pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole};
 pub use radius_value::RadiusValue;
 pub use select_style::{SelectPartStyle, SelectStyle};

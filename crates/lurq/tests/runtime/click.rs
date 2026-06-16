@@ -3,11 +3,11 @@ use lurq::{
     App, Tree,
     component::Component,
     ctx::Ctx,
-    events::{MouseButton, MouseEventKind},
+    events::{MouseButton, MouseEvent, MouseEventKind},
   },
   components::{Column, Rect, Row, Stack},
   core::{ElementRef, Signal},
-  node::{Element, HitTestBehavior, color::Color},
+  node::{Element, EventHandler, HitTestBehavior, color::Color},
 };
 
 use crate::support::{pointer_click, run_pass};
@@ -27,6 +27,40 @@ impl<T> std::fmt::Debug for Shared<T> {
       .field(&(std::sync::Arc::as_ptr(&self.0) as usize))
       .finish()
   }
+}
+
+#[test]
+fn click_handlers_append_and_off_removes_the_exact_handler() {
+  let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  let first_calls = calls.clone();
+  let second_calls = calls.clone();
+  let first = EventHandler::new(move |_: &lurq::app::events::MouseEvent| {
+    first_calls.lock().unwrap().push("first");
+  });
+  let second = EventHandler::new(move |_: &lurq::app::events::MouseEvent| {
+    second_calls.lock().unwrap().push("second");
+  });
+
+  let mut runtime = Tree::new();
+  runtime.set_root(Rect::new(100.0, 100.0).on_click(first.clone()).on_click(second.clone()));
+
+  run_pass(&mut runtime);
+  pointer_click(&mut runtime, 10.0, 10.0, MouseButton::Left);
+
+  assert_eq!(*calls.lock().unwrap(), vec!["first", "second"]);
+
+  calls.lock().unwrap().clear();
+  runtime.set_root(
+    Rect::new(100.0, 100.0)
+      .on_click(first.clone())
+      .on_click(second.clone())
+      .off_click(first),
+  );
+
+  run_pass(&mut runtime);
+  pointer_click(&mut runtime, 10.0, 10.0, MouseButton::Left);
+
+  assert_eq!(*calls.lock().unwrap(), vec!["second"]);
 }
 
 #[derive(Default)]
@@ -576,7 +610,7 @@ fn stop_propagation_prevents_parent_mouse_handler() {
       })
       .child(Rect::new(50.0, 50.0).background("#ffffff").on_click({
         let child_clicks = child_clicks.clone();
-        move |event| {
+        move |event: MouseEvent| {
           child_clicks.update(|count| *count += 1);
           event.stop_propagation();
         }

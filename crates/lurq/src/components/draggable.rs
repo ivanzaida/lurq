@@ -117,17 +117,17 @@ impl Component for Draggable {
         move |event| {
           *drag_start_bounds.lock().unwrap() = Some(element_ref.bounds());
           if let Some(on_drag_start) = &on_drag_start {
-            on_drag_start(event);
+            on_drag_start(&event);
           }
         }
       })
       .on_drag_move({
         let element_ref = element_ref.clone();
         let on_drag_move = props.on_drag_move.clone();
-        move |event| {
+        move |event: DragEvent| {
           move_element(&element_ref, event.delta_x, event.delta_y);
           if let Some(on_drag_move) = &on_drag_move {
-            on_drag_move(event);
+            on_drag_move(&event);
           }
         }
       })
@@ -136,7 +136,7 @@ impl Component for Draggable {
         let element_ref = element_ref.clone();
         let drag_start_bounds = drag_start_bounds.clone();
         let drop_miss_behavior = props.drop_miss_behavior;
-        move |event| {
+        move |event: DragEvent| {
           if drop_miss_behavior == DropMissBehavior::RevertToDragStart && event.drop_result == Some(DropResult::Missed)
           {
             if let Some(bounds) = *drag_start_bounds.lock().unwrap() {
@@ -144,7 +144,7 @@ impl Component for Draggable {
             }
           }
           if let Some(on_drag_end) = &on_drag_end {
-            on_drag_end(event);
+            on_drag_end(&event);
           }
         }
       });

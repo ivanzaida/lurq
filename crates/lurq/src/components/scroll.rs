@@ -14,8 +14,8 @@ impl ScrollVertical {
     self
   }
 
-  pub fn virtualized(mut self, enabled: bool) -> Self {
-    self.update_node(|node| crate::node::NodeUpdate::virtualized(node, enabled));
+  pub fn culling(mut self, enabled: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::culling(node, enabled));
     self
   }
 }
@@ -36,8 +36,8 @@ impl ScrollHorizontal {
     self
   }
 
-  pub fn virtualized(mut self, enabled: bool) -> Self {
-    self.update_node(|node| crate::node::NodeUpdate::virtualized(node, enabled));
+  pub fn culling(mut self, enabled: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::culling(node, enabled));
     self
   }
 }
@@ -58,8 +58,8 @@ impl ScrollBoth {
     self
   }
 
-  pub fn virtualized(mut self, enabled: bool) -> Self {
-    self.update_node(|node| crate::node::NodeUpdate::virtualized(node, enabled));
+  pub fn culling(mut self, enabled: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::culling(node, enabled));
     self
   }
 }

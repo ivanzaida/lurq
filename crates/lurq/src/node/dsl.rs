@@ -42,7 +42,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,
-      virtualized: true,
+      culling: true,
     },
     frame: FrameConstraints::default(),
     padding: Padding::default(),

@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{Tree, events::MouseButton},
+  app::{
+    Tree,
+    events::{MouseButton, MouseEvent},
+  },
   components::TextInput,
   core::{ElementRef, Signal},
   node::color::Color,
@@ -90,7 +93,7 @@ fn mouse_down_prevent_default_blocks_text_input_focus() {
     TextInput::new(Signal::new(String::new()))
       .width(100.0)
       .ref_element(input_ref.clone())
-      .on_mouse_down(|event| event.prevent_default())
+      .on_mouse_down(|event: MouseEvent| event.prevent_default())
       .on_focus({
         let focus = focus.clone();
         move || {

@@ -324,7 +324,7 @@ fn take_row(row: &mut Row) -> Row {
 fn link_click_handler(
   link: MarkdownLink,
   render_ctx: &MarkdownRenderContext,
-) -> impl Fn(&crate::app::events::MouseEvent) + Send + Sync + 'static {
+) -> impl Fn(crate::app::events::MouseEvent) + Send + Sync + 'static {
   let on_link_click = render_ctx.on_link_click.clone();
   #[cfg(feature = "router")]
   let navigator = render_ctx.navigator.clone();

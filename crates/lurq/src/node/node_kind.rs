@@ -11,7 +11,7 @@ use crate::{
   core::Signal,
   layout::text_style::{TextAlign, TextStyle},
   node::{
-    CheckboxStyle, SelectStyle, SliderPartStyle, TextColor, TextTransformMode,
+    CheckboxStyle, EventHandler, IntoTextInputEventHandler, SelectStyle, SliderPartStyle, TextColor, TextTransformMode,
     text_selection::{
       CaretPosition, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
@@ -23,7 +23,7 @@ use crate::{
 
 const MAX_TEXT_INPUT_HISTORY: usize = 128;
 
-type TextInputCallback = Arc<dyn Fn(&TextInputEvent) + Send + Sync>;
+type TextInputCallback = EventHandler<TextInputEvent>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextInputOverflow {
@@ -316,7 +316,7 @@ impl TextState {
 pub(crate) struct TextInputState {
   value: Signal<String>,
   inner: Arc<Mutex<TextInputInner>>,
-  on_input: Arc<Mutex<Option<TextInputCallback>>>,
+  on_input: Arc<Mutex<Vec<TextInputCallback>>>,
   layout_dirty: Arc<AtomicBool>,
 }
 
@@ -385,7 +385,7 @@ impl TextInputState {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
       })),
-      on_input: Arc::new(Mutex::new(None)),
+      on_input: Arc::new(Mutex::new(Vec::new())),
       layout_dirty: Arc::new(AtomicBool::new(false)),
     }
   }
@@ -394,8 +394,17 @@ impl TextInputState {
     self.value.get_untracked()
   }
 
-  pub(crate) fn set_on_input(&self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static) {
-    *self.on_input.lock().unwrap() = Some(Arc::new(f));
+  pub(crate) fn set_on_input(&self, f: impl IntoTextInputEventHandler) {
+    self.on_input.lock().unwrap().push(f.into_event_handler());
+  }
+
+  pub(crate) fn clear_on_input(&self, f: impl IntoTextInputEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .on_input
+      .lock()
+      .unwrap()
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
   pub(crate) fn sync_external_value(&self) -> bool {
@@ -1071,13 +1080,15 @@ impl TextInputState {
   }
 
   fn fire_input(&self, keyboard: &KeyboardEvent) -> bool {
-    let handler = self.on_input.lock().unwrap().clone();
-    let Some(handler) = handler else {
+    let handlers = self.on_input.lock().unwrap().clone();
+    if handlers.is_empty() {
       return true;
-    };
+    }
 
     let event = TextInputEvent::new(self.value.clone(), keyboard.clone());
-    handler(&event);
+    for handler in handlers {
+      handler.call(&event);
+    }
     self.sync_external_value();
     !event.default_prevented()
   }

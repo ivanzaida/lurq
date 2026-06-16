@@ -121,17 +121,35 @@ Attach the state to an element with `.interactive(interaction)` if you need to o
 ## Mouse Events
 
 ```rust
+use lurq::app::events::MouseEvent;
+
 Rect::new(100.0, 40.0)
-  .on_mouse_down(|event| println!("down {:?}", event.button))
-  .on_mouse_up(|event| println!("up at {}, {}", event.x, event.y))
-  .on_click(|event| println!("click target {:?}", event.target_id))
-  .on_dblclick(|event| println!("double click {:?}", event.target_id))
-  .on_mouse_move(|event| println!("move {}, {}", event.x, event.y))
+  .on_mouse_down(|event: MouseEvent| println!("down {:?}", event.button))
+  .on_mouse_up(|event: MouseEvent| println!("up at {}, {}", event.x, event.y))
+  .on_click(|event: MouseEvent| println!("click target {:?}", event.target_id))
+  .on_dblclick(|event: MouseEvent| println!("double click {:?}", event.target_id))
+  .on_mouse_move(|event: MouseEvent| println!("move {}, {}", event.x, event.y))
   .on_mouse_enter(|| println!("enter"))
   .on_mouse_leave(|| println!("leave"))
 ```
 
 `MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
+
+Each `on_*` modifier appends a handler for that rendered node, so a node can have multiple handlers for the same event. Inline closures are render output: when the node is rendered again, the rendered handler list should replace the previous list.
+
+Use a stable `EventHandler` when you need to remove the exact handler later:
+
+```rust
+use lurq::{app::events::MouseEvent, node::EventHandler};
+
+let handler = EventHandler::new(|event: &MouseEvent| {
+  println!("click target {:?}", event.target_id);
+});
+
+let node = Rect::new(100.0, 40.0)
+  .on_click(handler.clone())
+  .off_click(handler);
+```
 
 Use `ctx.on_click_outside` with an element ref when a component needs to react to clicks outside one of its own nodes:
 
@@ -152,10 +170,12 @@ The hook listens for left clicks outside the referenced element's measured bound
 Keyboard events go to the focused node.
 
 ```rust
+use lurq::app::events::KeyboardEvent;
+
 Text::new("Focusable")
   .on_focus(|| println!("focused"))
   .on_blur(|| println!("blurred"))
-  .on_key_down(|event| {
+  .on_key_down(|event: KeyboardEvent| {
     println!("key={} code={} shift={}", event.key, event.code, event.shift);
   })
 ```
@@ -165,8 +185,10 @@ Text::new("Focusable")
 User `on_key_down` handlers run before built-in keyboard defaults, so they can block text editing, focused-button activation, select navigation, modal or popup Escape dismissal, and similar defaults:
 
 ```rust
+use lurq::app::events::KeyboardEvent;
+
 TextInput::new(value)
-  .on_key_down(|event| {
+  .on_key_down(|event: KeyboardEvent| {
     if event.key == "Tab" {
       event.prevent_default();
     }
@@ -191,7 +213,10 @@ With the `clipboard` feature enabled, `Ctrl+C` and `Ctrl+Insert` copy the curren
 Wrap content in one of the scroll components:
 
 ```rust
-use lurq::components::{Column, ScrollVertical, Text};
+use lurq::{
+  app::events::ScrollEvent,
+  components::{Column, ScrollVertical, Text},
+};
 
 ScrollVertical::new(
   Column::new()
@@ -199,7 +224,7 @@ ScrollVertical::new(
     .child(Text::new("Row 1"))
     .child(Text::new("Row 2")),
 )
-.on_scroll(|event| println!("delta: {}, {}", event.delta_x, event.delta_y))
+.on_scroll(|event: ScrollEvent| println!("delta: {}, {}", event.delta_x, event.delta_y))
 ```
 
 Set the default scrollbar style on the theme:
@@ -239,8 +264,10 @@ ScrollVertical::new(content)
 Scroll handlers run before the default scroll movement. Call `prevent_default()` to observe a wheel/scroll event without moving the scroll container:
 
 ```rust
+use lurq::app::events::ScrollEvent;
+
 ScrollVertical::new(content)
-  .on_scroll(|event| {
+  .on_scroll(|event: ScrollEvent| {
     event.prevent_default();
   })
 ```
@@ -261,8 +288,10 @@ ScrollVertical::new(content)
 Propagation control and default-action control are separate. Use `stop_propagation()` when another handler should not see the event. Use `prevent_default()` when handlers may still run, but the runtime should not perform the event's built-in action.
 
 ```rust
+use lurq::app::events::MouseEvent;
+
 Rect::new(100.0, 40.0)
-  .on_click(|event| {
+  .on_click(|event: MouseEvent| {
     event.stop_propagation();
   })
 ```
@@ -301,8 +330,10 @@ Input updates write back to their signals, which rerenders the owning component.
 `TextInput::on_input` runs before a built-in text edit is applied. The event carries the input's `Signal<String>` as `event.value` and the key that caused the edit as `event.keyboard`. Mutate the signal directly for custom input behavior, and call `event.prevent_default()` to cancel the built-in edit for that action:
 
 ```rust
+use lurq::app::events::TextInputEvent;
+
 TextInput::new(command.clone())
-  .on_input(|event| {
+  .on_input(|event: TextInputEvent| {
     if event.keyboard.key == "Tab" {
       event.value.set("/play ".to_owned());
       event.prevent_default();

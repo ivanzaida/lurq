@@ -1,5 +1,5 @@
 use lurq::{
-  app::{App, Tree},
+  app::{App, Tree, events::ScrollEvent},
   layout::{
     Constraints, Size,
     layout_kind::FrameConstraints,
@@ -61,7 +61,7 @@ fn scroll_prevent_default_blocks_auto_scroll() {
   let mut rt = rt();
   let node = lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(500.0))
     .size(100.0, 100.0)
-    .on_scroll(|event| event.prevent_default());
+    .on_scroll(|event: ScrollEvent| event.prevent_default());
 
   rt.set_root(node);
   run_pass(&mut rt);
@@ -307,7 +307,7 @@ fn scrollbar_renders_when_styled_before_width_and_fill() {
 }
 
 #[test]
-fn virtual_scroll_culls_offscreen_child_quads_and_preserves_content_extent() {
+fn scroll_culling_culls_offscreen_child_quads_and_preserves_content_extent() {
   let mut rt = rt();
   let node = lurq::components::ScrollVertical::new(colored_scroll_rows())
     .scrollbar(ScrollBarStyle::hidden())
@@ -325,10 +325,10 @@ fn virtual_scroll_culls_offscreen_child_quads_and_preserves_content_extent() {
 }
 
 #[test]
-fn virtual_false_keeps_offscreen_child_quads() {
+fn culling_false_keeps_offscreen_child_quads() {
   let mut rt = rt();
   let node = lurq::components::ScrollVertical::new(colored_scroll_rows())
-    .virtualized(false)
+    .culling(false)
     .scrollbar(ScrollBarStyle::hidden())
     .size(100.0, 100.0);
 
@@ -341,13 +341,13 @@ fn virtual_false_keeps_offscreen_child_quads() {
 }
 
 #[test]
-fn virtual_scroll_respects_scroll_offset() {
+fn scroll_culling_respects_scroll_offset() {
   let mut rt = rt();
   let state = lurq::layout::layout_kind::ScrollState::new();
   state.set_scroll_pending(0.0, 150.0);
   let node = lurq::components::ScrollVertical::new(colored_scroll_rows())
     .with_scroll_state(state.clone())
-    .virtualized(true)
+    .culling(true)
     .scrollbar(ScrollBarStyle::hidden())
     .size(100.0, 100.0);
 

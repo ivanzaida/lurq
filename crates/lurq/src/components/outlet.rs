@@ -27,8 +27,12 @@ impl Component for Outlet {
     };
 
     ctx.provide(OutletDepth(next_depth));
-
+    #[cfg(feature = "devtools")]
     let mut node = Node::logical();
+
+    #[cfg(not(feature = "devtools"))]
+    let node = Node::logical();
+
     #[cfg(feature = "devtools")]
     {
       node = node.debug_attr("path", child_match.path.clone());

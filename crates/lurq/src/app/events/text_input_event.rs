@@ -1,6 +1,7 @@
 use super::{EventControl, KeyboardEvent};
 use crate::core::Signal;
 
+#[derive(Clone)]
 pub struct TextInputEvent {
   pub value: Signal<String>,
   pub keyboard: KeyboardEvent,

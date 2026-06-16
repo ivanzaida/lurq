@@ -1,7 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{Tree, component::Component, ctx::Ctx, events::MouseButton},
+  app::{
+    Tree,
+    component::Component,
+    ctx::Ctx,
+    events::{DragEvent, MouseButton},
+  },
   components::{DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row},
   core::Signal,
   node::{Element, color::Color},
@@ -17,7 +22,7 @@ fn drag_move_continues_after_pointer_leaves_source_bounds() {
   let captured = moves.clone();
 
   let mut runtime = Tree::new();
-  runtime.set_root(Rect::new(100.0, 100.0).on_drag_move(move |event| {
+  runtime.set_root(Rect::new(100.0, 100.0).on_drag_move(move |event: DragEvent| {
     captured
       .lock()
       .unwrap()
@@ -37,7 +42,7 @@ fn drag_end_fires_even_when_pointer_is_released_outside_source_bounds() {
   let captured = ends.clone();
 
   let mut runtime = Tree::new();
-  runtime.set_root(Rect::new(100.0, 100.0).on_drag_end(move |event| {
+  runtime.set_root(Rect::new(100.0, 100.0).on_drag_end(move |event: DragEvent| {
     captured
       .lock()
       .unwrap()
@@ -57,7 +62,7 @@ fn drag_reports_incremental_and_total_deltas() {
   let captured = moves.clone();
 
   let mut runtime = Tree::new();
-  runtime.set_root(Rect::new(100.0, 100.0).on_drag_move(move |event| {
+  runtime.set_root(Rect::new(100.0, 100.0).on_drag_move(move |event: DragEvent| {
     captured
       .lock()
       .unwrap()
@@ -170,7 +175,7 @@ impl Component for DragRerender {
         })
         .on_drag_move({
           let moves = self.moves.clone();
-          move |event| moves.lock().unwrap().push(event.delta_x)
+          move |event: &DragEvent| moves.lock().unwrap().push(event.delta_x)
         }),
       Rect::new(50.0, 50.0).background(DRAG_COLOR).absolute_position(0.0, 0.0),
     );

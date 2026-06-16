@@ -163,6 +163,70 @@ ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
 ])
 ```
 
+## Virtual Lists
+
+Use `VirtualListState` with `ctx.virtual_list(...)` for long vertical feeds where rendering every row would be too expensive. The helper renders only the visible rows plus overscan while preserving scroll range with spacer elements.
+
+Keep `VirtualListState` on the component struct. It owns the scroll state, measured row heights, and retained row contexts.
+
+```rust
+use lurq::{
+  app::{component::Component, ctx::Ctx},
+  components::{Text, VirtualListState},
+  node::Element,
+};
+
+#[derive(Clone, PartialEq)]
+struct Message {
+  id: u64,
+  body: String,
+}
+
+struct Chat {
+  list: VirtualListState,
+}
+
+impl Component for Chat {
+  type Props = Vec<Message>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      list: VirtualListState::new(ctx)
+        .with_estimated_height(72.0)
+        .with_overscan(6)
+        .with_initial_visible_count(16),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let messages = ctx.props::<Self::Props>();
+
+    ctx.virtual_list(
+      &self.list,
+      messages,
+      |message| message.id,
+      |_row_ctx, message| {
+        Text::new(&message.body)
+          .padding(12.0)
+      },
+    )
+    .size(420.0, 640.0)
+  }
+}
+```
+
+Rows may have different heights. Unknown rows use `estimated_height` until they are rendered and measured, then the measured height is cached by row key. Pick an estimate close to the average row height to keep the scrollbar stable on the first pass.
+
+Use stable keys. Changing a key discards the cached height and retained row context for that item. Removed keys are pruned automatically.
+
+The row closure receives a row-local `Ctx`, so each row can mount child components, keep refs, or use effects just like a normal keyed list item:
+
+```rust
+ctx.virtual_list(&self.list, messages, |message| message.id, |row_ctx, message| {
+  row_ctx.mount_keyed::<MessageRow>(&message.id.to_string(), message.clone())
+})
+```
+
 ## Built-In DnD Components
 
 `DragContainer`, `Draggable`, and `DropZone` are real components. Use their `mount` helpers for the explicit one-child API.

@@ -251,6 +251,8 @@ lurq::components::ScrollVertical::new(
 
 Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during layout/rendering.
 
+For long vertical lists, use `VirtualListState` with `ctx.virtual_list(...)` instead of putting every row directly inside a scroll column. See [Virtual Lists](./components/#virtual-lists).
+
 ## Text
 
 Text is measured by the glyph engine and wraps within its width constraint.

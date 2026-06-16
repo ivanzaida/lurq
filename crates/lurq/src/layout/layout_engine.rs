@@ -1297,7 +1297,7 @@ impl LayoutEngine {
     }
 
     let (child_clip, child_cull_clip, child_culling_enabled) =
-      if let LayoutKind::ScrollModifier { state, virtualized, .. } = node.layout_kind() {
+      if let LayoutKind::ScrollModifier { state, culling, .. } = node.layout_kind() {
         let viewport_clip = intersect_clip(
           clip,
           ClipRect {
@@ -1310,12 +1310,12 @@ impl LayoutEngine {
           },
         );
         let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
-        let child_cull_clip = if *virtualized {
+        let child_cull_clip = if *culling {
           inset_clip_for_border(intersect_clip(cull_clip, viewport_clip), resolved_border)
         } else {
           ClipRect::default()
         };
-        (child_clip, child_cull_clip, *virtualized)
+        (child_clip, child_cull_clip, *culling)
       } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
         let overflow_clip = intersect_clip(
           clip,

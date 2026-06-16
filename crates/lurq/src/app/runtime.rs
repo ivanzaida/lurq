@@ -43,7 +43,7 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{
-    Element, ElementRef, HitTestBehavior, Node, SyntheticNodeRole, TextTransformMode,
+    Element, ElementRef, EventHandler, HitTestBehavior, Node, SyntheticNodeRole, TextTransformMode, VoidEventHandler,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders, ThemedBorderRadius},
     color::Color,
     cursor::CursorIcon,
@@ -2157,8 +2157,8 @@ impl Tree {
       (kind, node.events.on_click.clone())
     };
 
-    if let Some(handler) = click {
-      handler(&MouseEvent {
+    for handler in click {
+      handler.call(&MouseEvent {
         x: 0.0,
         y: 0.0,
         button: MouseButton::Left,
@@ -2264,7 +2264,7 @@ impl Tree {
       .root
       .as_ref()
       .and_then(|root| find_node_by_id(root, target_id))
-      .is_some_and(|node| node.events.on_dblclick.is_some())
+      .is_some_and(|node| !node.events.on_dblclick.is_empty())
   }
 
   fn take_matching_click_press(&mut self, position: (f32, f32), button: MouseButton) -> Option<ClickDispatchTarget> {
@@ -2463,15 +2463,15 @@ impl Tree {
     if self.active_drag.is_some() {
       match evt.kind {
         MouseEventKind::Move => {
-          let (event, handler) = {
+          let (event, handlers) = {
             let drag = self.active_drag.as_mut().unwrap();
             let event = drag.event(lx, ly, None);
             drag.last_x = lx;
             drag.last_y = ly;
             (event, drag.on_move.clone())
           };
-          if let Some(handler) = handler {
-            handler(&event);
+          for handler in handlers {
+            handler.call(&event);
           }
           self.needs_redraw = true;
           return;
@@ -2488,8 +2488,8 @@ impl Tree {
             .map(|(target_id, _)| DropResult::Accepted { target_id: *target_id })
             .unwrap_or(DropResult::Missed);
           let drag_event = drag.event(lx, ly, Some(drop_result));
-          if let Some((target_id, handler)) = drop_target {
-            handler(&DropEvent {
+          if let Some((target_id, handlers)) = drop_target {
+            let drop_event = DropEvent {
               x: lx,
               y: ly,
               start_x: drag.start_x,
@@ -2499,10 +2499,13 @@ impl Tree {
               button,
               source_id: drag.target_id,
               target_id,
-            });
+            };
+            for handler in handlers {
+              handler.call(&drop_event);
+            }
           }
-          if let Some(handler) = drag.on_end {
-            handler(&drag_event);
+          for handler in drag.on_end {
+            handler.call(&drag_event);
           }
           self.clear_active_path();
           self.needs_redraw = true;
@@ -2589,17 +2592,17 @@ impl Tree {
       evt.target_id = node.node_id();
       match evt.kind {
         MouseEventKind::Click => {
-          if evt.button == MouseButton::Left
-            && let Some(ref handler) = node.events.on_click
-          {
-            handler(&evt);
-            if evt.immediate_propagation_stopped() {
-              break 'mouse_dispatch;
+          if evt.button == MouseButton::Left {
+            for handler in &node.events.on_click {
+              handler.call(&evt);
+              if evt.immediate_propagation_stopped() {
+                break 'mouse_dispatch;
+              }
             }
           }
           for (button, handler) in &node.events.on_mouse_click {
             if *button == evt.button {
-              handler(&evt);
+              handler.call(&evt);
               if evt.immediate_propagation_stopped() {
                 break 'mouse_dispatch;
               }
@@ -2607,34 +2610,34 @@ impl Tree {
           }
         }
         MouseEventKind::DoubleClick => {
-          if evt.button == MouseButton::Left
-            && let Some(ref handler) = node.events.on_dblclick
-          {
-            handler(&evt);
-            if evt.immediate_propagation_stopped() {
-              break 'mouse_dispatch;
+          if evt.button == MouseButton::Left {
+            for handler in &node.events.on_dblclick {
+              handler.call(&evt);
+              if evt.immediate_propagation_stopped() {
+                break 'mouse_dispatch;
+              }
             }
           }
         }
         MouseEventKind::Down => {
-          if let Some(ref handler) = node.events.on_mouse_down {
-            handler(&evt);
+          for handler in &node.events.on_mouse_down {
+            handler.call(&evt);
             if evt.immediate_propagation_stopped() {
               break 'mouse_dispatch;
             }
           }
         }
         MouseEventKind::Up => {
-          if let Some(ref handler) = node.events.on_mouse_up {
-            handler(&evt);
+          for handler in &node.events.on_mouse_up {
+            handler.call(&evt);
             if evt.immediate_propagation_stopped() {
               break 'mouse_dispatch;
             }
           }
         }
         MouseEventKind::Move => {
-          if let Some(ref handler) = node.events.on_mouse_move {
-            handler(&evt);
+          for handler in &node.events.on_mouse_move {
+            handler.call(&evt);
             if evt.immediate_propagation_stopped() {
               break 'mouse_dispatch;
             }
@@ -2906,7 +2909,9 @@ impl Tree {
       hits
         .iter()
         .find(|(node, _)| {
-          node.events.on_drag_start.is_some() || node.events.on_drag_move.is_some() || node.events.on_drag_end.is_some()
+          !node.events.on_drag_start.is_empty()
+            || !node.events.on_drag_move.is_empty()
+            || !node.events.on_drag_end.is_empty()
         })
         .map(|(node, _)| {
           let event = DragEvent {
@@ -2971,8 +2976,8 @@ impl Tree {
         };
         set_node_hovered(node, false);
         self.needs_redraw = true;
-        if let Some(ref handler) = node.events.on_mouse_leave {
-          handler();
+        for handler in &node.events.on_mouse_leave {
+          handler.call();
         }
       }
     }
@@ -2982,8 +2987,8 @@ impl Tree {
       if !self.hover_path.contains(&id) {
         set_node_hovered(node, true);
         self.needs_redraw = true;
-        if let Some(ref handler) = node.events.on_mouse_enter {
-          handler();
+        for handler in &node.events.on_mouse_enter {
+          handler.call();
         }
       }
     }
@@ -3032,8 +3037,8 @@ impl Tree {
       self.dragging_text_selection = Some(drag);
     }
     if let Some((event, handler, drag)) = pending_drag {
-      if let Some(handler) = handler {
-        handler(&event);
+      for handler in handler {
+        handler.call(&event);
       }
       self.active_drag = Some(drag);
       self.needs_redraw = true;
@@ -3299,14 +3304,15 @@ impl Tree {
     if cfg!(target_os = "macos") { alt } else { ctrl }
   }
 
-  fn drop_target_at(&self, x: f32, y: f32) -> Option<(NodeId, DropCallback)> {
+  fn drop_target_at(&self, x: f32, y: f32) -> Option<(NodeId, Vec<DropCallback>)> {
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let mut hits = Vec::new();
     hit_test_tree_all(root, result, 0.0, 0.0, x, y, &mut hits);
     hits
       .into_iter()
-      .find_map(|(node, _)| node.events.on_drop.clone().map(|handler| (node.node_id(), handler)))
+      .find(|(node, _)| !node.events.on_drop.is_empty())
+      .map(|(node, _)| (node.node_id(), node.events.on_drop.clone()))
   }
 
   fn focus_node(&mut self, target: FocusTarget) {
@@ -3326,12 +3332,14 @@ impl Tree {
       .focused_event_path
       .as_deref()
       .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      .and_then(|node| node.events.on_blur.clone());
+      .map(|node| node.events.on_blur.clone())
+      .unwrap_or_default();
     let focus = self
       .root
       .as_ref()
       .and_then(|root| find_node_by_path(root, &event_path))
-      .and_then(|node| node.events.on_focus.clone());
+      .map(|node| node.events.on_focus.clone())
+      .unwrap_or_default();
 
     if let Some(node) = self
       .root
@@ -3372,15 +3380,15 @@ impl Tree {
       set_node_focused(node, true);
     }
 
-    if let Some(handler) = blur {
-      handler();
+    for handler in blur {
+      handler.call();
     }
     self.focused_node = Some(target.input_id);
     self.focused_event_node = Some(target.event_id);
     self.focused_path = Some(input_path);
     self.focused_event_path = Some(event_path);
-    if let Some(handler) = focus {
-      handler();
+    for handler in focus {
+      handler.call();
     }
     self.reset_text_input_caret_blink();
   }
@@ -3417,18 +3425,27 @@ impl Tree {
       evt.target_id = node.node_id();
       match evt.phase {
         ScrollPhase::Start => {
-          if let Some(ref handler) = node.events.on_scroll_start {
-            handler(&evt);
+          for handler in &node.events.on_scroll_start {
+            handler.call(&evt);
+            if evt.immediate_propagation_stopped() {
+              break;
+            }
           }
         }
         ScrollPhase::Scroll => {
-          if let Some(ref handler) = node.events.on_scroll {
-            handler(&evt);
+          for handler in &node.events.on_scroll {
+            handler.call(&evt);
+            if evt.immediate_propagation_stopped() {
+              break;
+            }
           }
         }
         ScrollPhase::End => {
-          if let Some(ref handler) = node.events.on_scroll_end {
-            handler(&evt);
+          for handler in &node.events.on_scroll_end {
+            handler.call(&evt);
+            if evt.immediate_propagation_stopped() {
+              break;
+            }
           }
         }
       }
@@ -4280,8 +4297,8 @@ impl Tree {
       for node_id in hover_path {
         if let Some(node) = find_node_by_id(root, node_id) {
           set_node_hovered(node, false);
-          if let Some(ref handler) = node.events.on_mouse_leave {
-            handler();
+          for handler in &node.events.on_mouse_leave {
+            handler.call();
           }
         }
       }
@@ -4379,10 +4396,11 @@ impl Tree {
           .as_deref()
           .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
       })
-      .and_then(|node| node.events.on_blur.clone());
+      .map(|node| node.events.on_blur.clone())
+      .unwrap_or_default();
     self.clear_focus();
-    if let Some(handler) = blur {
-      handler();
+    for handler in blur {
+      handler.call();
     }
     self.needs_redraw = true;
     true
@@ -4903,11 +4921,14 @@ fn build_select_menu(
       row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
     }
     let commit_state = state.clone();
-    row.events.on_mouse_down = Some(Arc::new(move |event| {
-      if event.button == MouseButton::Left {
-        commit_state.commit(index);
-      }
-    }));
+    row
+      .events
+      .on_mouse_down
+      .push(EventHandler::new(move |event: &MouseEvent| {
+        if event.button == MouseButton::Left {
+          commit_state.commit(index);
+        }
+      }));
     if let Some(hover) = style.resolved_option(true, selected).background {
       row = row.hovered(move |s| s.background(hover));
     }
@@ -5008,7 +5029,7 @@ struct SliderDrag {
   state: SliderState,
   x: f32,
   width: f32,
-  on_finish: Option<Arc<dyn Fn() + Send + Sync>>,
+  on_finish: Vec<VoidEventHandler>,
 }
 
 impl SliderDrag {
@@ -5024,8 +5045,8 @@ impl SliderDrag {
 
   fn finish(&self) {
     self.state.clear_drag_ratio();
-    if let Some(on_finish) = &self.on_finish {
-      on_finish();
+    for on_finish in &self.on_finish {
+      on_finish.call();
     }
   }
 }
@@ -5121,8 +5142,8 @@ fn text_input_vertical_offset(state: &TextInputState, height: f32) -> f32 {
   }
 }
 
-type DragCallback = Arc<dyn Fn(&DragEvent) + Send + Sync>;
-type DropCallback = Arc<dyn Fn(&DropEvent) + Send + Sync>;
+type DragCallback = EventHandler<DragEvent>;
+type DropCallback = EventHandler<DropEvent>;
 
 struct ActiveDrag {
   target_id: NodeId,
@@ -5131,8 +5152,8 @@ struct ActiveDrag {
   last_x: f32,
   last_y: f32,
   button: MouseButton,
-  on_move: Option<DragCallback>,
-  on_end: Option<DragCallback>,
+  on_move: Vec<DragCallback>,
+  on_end: Vec<DragCallback>,
 }
 
 impl ActiveDrag {
@@ -5699,7 +5720,7 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
 
 #[cfg(feature = "form")]
 fn collect_focus_candidates(node: &Node, focus_event_id: Option<NodeId>, candidates: &mut Vec<FocusCandidate>) {
-  let focus_event_id = if node.events.on_focus.is_some() || node.events.on_blur.is_some() {
+  let focus_event_id = if !node.events.on_focus.is_empty() || !node.events.on_blur.is_empty() {
     Some(node.node_id())
   } else {
     focus_event_id
@@ -5751,7 +5772,7 @@ fn dispatch_builtin_pointer(
 
   let event_id = hits
     .iter()
-    .find(|(node, _)| node.events.on_focus.is_some() || node.events.on_blur.is_some())
+    .find(|(node, _)| !node.events.on_focus.is_empty() || !node.events.on_blur.is_empty())
     .map(|(node, _)| node.node_id());
 
   for (node, rect) in hits {
@@ -6112,8 +6133,8 @@ fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {
 
 fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   evt.target_id = node.node_id();
-  if let Some(ref handler) = node.events.on_key_down {
-    handler(evt);
+  for handler in &node.events.on_key_down {
+    handler.call(evt);
     if evt.immediate_propagation_stopped() {
       return true;
     }
@@ -6131,8 +6152,8 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
 
 fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   evt.target_id = node.node_id();
-  if let Some(ref handler) = node.events.on_key_up {
-    handler(evt);
+  for handler in &node.events.on_key_up {
+    handler.call(evt);
     if evt.immediate_propagation_stopped() {
       return true;
     }

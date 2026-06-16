@@ -102,11 +102,13 @@ Layout is parent-down, child-up:
 Input is resolved against the latest layout. The tree tracks hover path, active path, focus, dragging, scroll state, and cursor. Event handlers are attached with node modifiers:
 
 ```rust
+use lurq::app::events::MouseEvent;
+
 Text::new("Save")
   .cursor(CursorIcon::Pointer)
   .hovered(|style| style.background("#334155"))
   .active(|style| style.background("#0f172a"))
-  .on_click(|event| {
+  .on_click(|event: MouseEvent| {
     println!("clicked at {}, {}", event.x, event.y);
   })
 ```

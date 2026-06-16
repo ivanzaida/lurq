@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicU64, Ordering},
+};
 
 #[cfg(feature = "devtools")]
 use crate::app::ctx::{
@@ -40,8 +43,218 @@ use crate::{
   },
 };
 
-type Callback<T> = Arc<dyn Fn(&T) + Send + Sync>;
-type VoidCallback = Arc<dyn Fn() + Send + Sync>;
+static EVENT_HANDLER_IDS: AtomicU64 = AtomicU64::new(1);
+
+pub struct EventHandler<T> {
+  id: u64,
+  callback: Arc<dyn Fn(*const T) + Send + Sync>,
+}
+
+impl<T> Clone for EventHandler<T> {
+  fn clone(&self) -> Self {
+    Self {
+      id: self.id,
+      callback: self.callback.clone(),
+    }
+  }
+}
+
+impl<T> EventHandler<T> {
+  pub fn new(f: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    Self {
+      id: EVENT_HANDLER_IDS.fetch_add(1, Ordering::Relaxed),
+      callback: Arc::new(move |event| {
+        // The pointer is produced from a live shared reference in `call` and
+        // is only used for the duration of this synchronous callback.
+        f(unsafe { &*event });
+      }),
+    }
+  }
+
+  pub fn from_event(f: impl Fn(T) + Send + Sync + 'static) -> Self
+  where
+    T: Clone + 'static,
+  {
+    Self::new(move |event| f(event.clone()))
+  }
+
+  pub(crate) fn call(&self, event: &T) {
+    (self.callback)(event);
+  }
+
+  pub(crate) fn same_handler(&self, other: &Self) -> bool {
+    self.id == other.id
+  }
+}
+
+pub trait IntoEventHandler<T> {
+  fn into_event_handler(self) -> EventHandler<T>;
+}
+
+impl<T> IntoEventHandler<T> for EventHandler<T> {
+  fn into_event_handler(self) -> EventHandler<T> {
+    self
+  }
+}
+
+pub trait IntoMouseEventHandler {
+  fn into_event_handler(self) -> EventHandler<MouseEvent>;
+}
+
+impl IntoMouseEventHandler for EventHandler<MouseEvent> {
+  fn into_event_handler(self) -> EventHandler<MouseEvent> {
+    self
+  }
+}
+
+impl<F> IntoMouseEventHandler for F
+where
+  F: Fn(MouseEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<MouseEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoDragEventHandler {
+  fn into_event_handler(self) -> EventHandler<DragEvent>;
+}
+
+impl IntoDragEventHandler for EventHandler<DragEvent> {
+  fn into_event_handler(self) -> EventHandler<DragEvent> {
+    self
+  }
+}
+
+impl<F> IntoDragEventHandler for F
+where
+  F: Fn(DragEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<DragEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoDropEventHandler {
+  fn into_event_handler(self) -> EventHandler<DropEvent>;
+}
+
+impl IntoDropEventHandler for EventHandler<DropEvent> {
+  fn into_event_handler(self) -> EventHandler<DropEvent> {
+    self
+  }
+}
+
+impl<F> IntoDropEventHandler for F
+where
+  F: Fn(DropEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<DropEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoKeyboardEventHandler {
+  fn into_event_handler(self) -> EventHandler<KeyboardEvent>;
+}
+
+impl IntoKeyboardEventHandler for EventHandler<KeyboardEvent> {
+  fn into_event_handler(self) -> EventHandler<KeyboardEvent> {
+    self
+  }
+}
+
+impl<F> IntoKeyboardEventHandler for F
+where
+  F: Fn(KeyboardEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<KeyboardEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoScrollEventHandler {
+  fn into_event_handler(self) -> EventHandler<ScrollEvent>;
+}
+
+impl IntoScrollEventHandler for EventHandler<ScrollEvent> {
+  fn into_event_handler(self) -> EventHandler<ScrollEvent> {
+    self
+  }
+}
+
+impl<F> IntoScrollEventHandler for F
+where
+  F: Fn(ScrollEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<ScrollEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoTextInputEventHandler {
+  fn into_event_handler(self) -> EventHandler<TextInputEvent>;
+}
+
+impl IntoTextInputEventHandler for EventHandler<TextInputEvent> {
+  fn into_event_handler(self) -> EventHandler<TextInputEvent> {
+    self
+  }
+}
+
+impl<F> IntoTextInputEventHandler for F
+where
+  F: Fn(TextInputEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<TextInputEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+#[derive(Clone)]
+pub struct VoidEventHandler {
+  id: u64,
+  callback: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl VoidEventHandler {
+  pub fn new(f: impl Fn() + Send + Sync + 'static) -> Self {
+    Self {
+      id: EVENT_HANDLER_IDS.fetch_add(1, Ordering::Relaxed),
+      callback: Arc::new(f),
+    }
+  }
+
+  pub(crate) fn call(&self) {
+    (self.callback)();
+  }
+
+  pub(crate) fn same_handler(&self, other: &Self) -> bool {
+    self.id == other.id
+  }
+}
+
+pub trait IntoVoidEventHandler {
+  fn into_void_event_handler(self) -> VoidEventHandler;
+}
+
+impl IntoVoidEventHandler for VoidEventHandler {
+  fn into_void_event_handler(self) -> VoidEventHandler {
+    self
+  }
+}
+
+impl<F> IntoVoidEventHandler for F
+where
+  F: Fn() + Send + Sync + 'static,
+{
+  fn into_void_event_handler(self) -> VoidEventHandler {
+    VoidEventHandler::new(self)
+  }
+}
+
+type Callback<T> = EventHandler<T>;
+type VoidCallback = VoidEventHandler;
 type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>;
 
 #[allow(private_bounds)]
@@ -114,32 +327,51 @@ pub(crate) trait NodeUpdate {
   fn hovered(&mut self, f: impl FnOnce(Style) -> Style);
   fn active(&mut self, f: impl FnOnce(Style) -> Style);
   fn focused(&mut self, f: impl FnOnce(Style) -> Style);
-  fn on_click(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
-  fn on_mouse_click(&mut self, button: MouseButton, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
-  fn on_dblclick(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
-  fn on_mouse_down(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
-  fn on_mouse_up(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
-  fn on_mouse_move(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static);
-  fn on_drag_start(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static);
-  fn on_drag_move(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static);
-  fn on_drag_end(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static);
-  fn on_drop(&mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static);
-  fn on_mouse_enter(&mut self, f: impl Fn() + Send + Sync + 'static);
-  fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static);
-  fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
-  fn on_key_up(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static);
-  fn on_focus(&mut self, f: impl Fn() + Send + Sync + 'static);
-  fn on_blur(&mut self, f: impl Fn() + Send + Sync + 'static);
-  fn on_scroll(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static);
-  fn on_scroll_start(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static);
-  fn on_scroll_end(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static);
+  fn on_click(&mut self, f: impl IntoMouseEventHandler);
+  fn off_click(&mut self, f: impl IntoMouseEventHandler);
+  fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
+  fn off_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
+  fn on_dblclick(&mut self, f: impl IntoMouseEventHandler);
+  fn off_dblclick(&mut self, f: impl IntoMouseEventHandler);
+  fn on_mouse_down(&mut self, f: impl IntoMouseEventHandler);
+  fn off_mouse_down(&mut self, f: impl IntoMouseEventHandler);
+  fn on_mouse_up(&mut self, f: impl IntoMouseEventHandler);
+  fn off_mouse_up(&mut self, f: impl IntoMouseEventHandler);
+  fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
+  fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
+  fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
+  fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
+  fn on_drag_move(&mut self, f: impl IntoDragEventHandler);
+  fn off_drag_move(&mut self, f: impl IntoDragEventHandler);
+  fn on_drag_end(&mut self, f: impl IntoDragEventHandler);
+  fn off_drag_end(&mut self, f: impl IntoDragEventHandler);
+  fn on_drop(&mut self, f: impl IntoDropEventHandler);
+  fn off_drop(&mut self, f: impl IntoDropEventHandler);
+  fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
+  fn off_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
+  fn on_mouse_leave(&mut self, f: impl IntoVoidEventHandler);
+  fn off_mouse_leave(&mut self, f: impl IntoVoidEventHandler);
+  fn on_key_down(&mut self, f: impl IntoKeyboardEventHandler);
+  fn off_key_down(&mut self, f: impl IntoKeyboardEventHandler);
+  fn on_key_up(&mut self, f: impl IntoKeyboardEventHandler);
+  fn off_key_up(&mut self, f: impl IntoKeyboardEventHandler);
+  fn on_focus(&mut self, f: impl IntoVoidEventHandler);
+  fn off_focus(&mut self, f: impl IntoVoidEventHandler);
+  fn on_blur(&mut self, f: impl IntoVoidEventHandler);
+  fn off_blur(&mut self, f: impl IntoVoidEventHandler);
+  fn on_scroll(&mut self, f: impl IntoScrollEventHandler);
+  fn off_scroll(&mut self, f: impl IntoScrollEventHandler);
+  fn on_scroll_start(&mut self, f: impl IntoScrollEventHandler);
+  fn off_scroll_start(&mut self, f: impl IntoScrollEventHandler);
+  fn on_scroll_end(&mut self, f: impl IntoScrollEventHandler);
+  fn off_scroll_end(&mut self, f: impl IntoScrollEventHandler);
   fn opacity(&mut self, value: f32);
   fn transform(&mut self, t: Transform2D);
   fn transition(&mut self, spec: Transition);
   fn animation(&mut self, spec: Animation);
   fn scrollbar(&mut self, style: ScrollBarStyle);
   fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static);
-  fn virtualized(&mut self, enabled: bool);
+  fn culling(&mut self, enabled: bool);
   fn hit_test(&mut self, behavior: HitTestBehavior);
   fn pointer_events_none(&mut self);
   fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>);
@@ -156,7 +388,8 @@ pub(crate) trait NodeUpdate {
   fn text_variant(&mut self, typography_style: impl Into<TypographyStyle>);
   fn text_color(&mut self, color: impl Into<TextColor>);
   fn text_align(&mut self, align: impl Into<TextAlign>);
-  fn on_input(&mut self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static);
+  fn on_input(&mut self, f: impl IntoTextInputEventHandler);
+  fn off_input(&mut self, f: impl IntoTextInputEventHandler);
   fn placeholder(&mut self, placeholder: &str);
   fn text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow);
   fn text_input_mask(&mut self);
@@ -272,27 +505,27 @@ pub(crate) enum SyntheticNodeRole {
 
 #[derive(Default, Clone)]
 pub struct EventHandlers {
-  pub on_click: Option<Callback<MouseEvent>>,
+  pub on_click: Vec<Callback<MouseEvent>>,
   pub on_mouse_click: Vec<(MouseButton, Callback<MouseEvent>)>,
-  pub on_dblclick: Option<Callback<MouseEvent>>,
-  pub on_mouse_down: Option<Callback<MouseEvent>>,
-  pub on_mouse_up: Option<Callback<MouseEvent>>,
-  pub on_mouse_move: Option<Callback<MouseEvent>>,
-  pub on_drag_start: Option<Callback<DragEvent>>,
-  pub on_drag_move: Option<Callback<DragEvent>>,
-  pub on_drag_end: Option<Callback<DragEvent>>,
-  pub on_drop: Option<Callback<DropEvent>>,
-  pub on_mouse_enter: Option<VoidCallback>,
-  pub on_mouse_leave: Option<VoidCallback>,
-  pub on_key_down: Option<Callback<KeyboardEvent>>,
-  pub on_key_up: Option<Callback<KeyboardEvent>>,
-  pub on_focus: Option<VoidCallback>,
-  pub on_blur: Option<VoidCallback>,
+  pub on_dblclick: Vec<Callback<MouseEvent>>,
+  pub on_mouse_down: Vec<Callback<MouseEvent>>,
+  pub on_mouse_up: Vec<Callback<MouseEvent>>,
+  pub on_mouse_move: Vec<Callback<MouseEvent>>,
+  pub on_drag_start: Vec<Callback<DragEvent>>,
+  pub on_drag_move: Vec<Callback<DragEvent>>,
+  pub on_drag_end: Vec<Callback<DragEvent>>,
+  pub on_drop: Vec<Callback<DropEvent>>,
+  pub on_mouse_enter: Vec<VoidCallback>,
+  pub on_mouse_leave: Vec<VoidCallback>,
+  pub on_key_down: Vec<Callback<KeyboardEvent>>,
+  pub on_key_up: Vec<Callback<KeyboardEvent>>,
+  pub on_focus: Vec<VoidCallback>,
+  pub on_blur: Vec<VoidCallback>,
   #[cfg(feature = "form")]
   pub on_submit: Option<FormSubmitCallback>,
-  pub on_scroll: Option<Callback<ScrollEvent>>,
-  pub on_scroll_start: Option<Callback<ScrollEvent>>,
-  pub on_scroll_end: Option<Callback<ScrollEvent>>,
+  pub on_scroll: Vec<Callback<ScrollEvent>>,
+  pub on_scroll_start: Vec<Callback<ScrollEvent>>,
+  pub on_scroll_end: Vec<Callback<ScrollEvent>>,
 }
 
 pub(crate) struct Node {
@@ -752,80 +985,220 @@ impl NodeUpdate for Node {
     NodeUpdate::focused_style(self, f(Style::new()));
   }
 
-  fn on_click(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
-    self.events.on_click = Some(Arc::new(f));
+  fn on_click(&mut self, f: impl IntoMouseEventHandler) {
+    self.events.on_click.push(f.into_event_handler());
   }
 
-  fn on_mouse_click(&mut self, button: MouseButton, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
-    self.events.on_mouse_click.push((button, Arc::new(f)));
+  fn off_click(&mut self, f: impl IntoMouseEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_click.retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_dblclick(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
-    self.events.on_dblclick = Some(Arc::new(f));
+  fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler) {
+    self.events.on_mouse_click.push((button, f.into_event_handler()));
   }
 
-  fn on_mouse_down(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
-    self.events.on_mouse_down = Some(Arc::new(f));
+  fn off_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_click
+      .retain(|(handler_button, existing)| *handler_button != button || !existing.same_handler(&handler));
   }
 
-  fn on_mouse_up(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
-    self.events.on_mouse_up = Some(Arc::new(f));
+  fn on_dblclick(&mut self, f: impl IntoMouseEventHandler) {
+    self.events.on_dblclick.push(f.into_event_handler());
   }
 
-  fn on_mouse_move(&mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) {
-    self.events.on_mouse_move = Some(Arc::new(f));
+  fn off_dblclick(&mut self, f: impl IntoMouseEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_dblclick
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_drag_start(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) {
-    self.events.on_drag_start = Some(Arc::new(f));
+  fn on_mouse_down(&mut self, f: impl IntoMouseEventHandler) {
+    self.events.on_mouse_down.push(f.into_event_handler());
   }
 
-  fn on_drag_move(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) {
-    self.events.on_drag_move = Some(Arc::new(f));
+  fn off_mouse_down(&mut self, f: impl IntoMouseEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_down
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_drag_end(&mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) {
-    self.events.on_drag_end = Some(Arc::new(f));
+  fn on_mouse_up(&mut self, f: impl IntoMouseEventHandler) {
+    self.events.on_mouse_up.push(f.into_event_handler());
   }
 
-  fn on_drop(&mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static) {
-    self.events.on_drop = Some(Arc::new(f));
+  fn off_mouse_up(&mut self, f: impl IntoMouseEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_up
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_mouse_enter(&mut self, f: impl Fn() + Send + Sync + 'static) {
-    self.events.on_mouse_enter = Some(Arc::new(f));
+  fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler) {
+    self.events.on_mouse_move.push(f.into_event_handler());
   }
 
-  fn on_mouse_leave(&mut self, f: impl Fn() + Send + Sync + 'static) {
-    self.events.on_mouse_leave = Some(Arc::new(f));
+  fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_move
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_key_down(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) {
-    self.events.on_key_down = Some(Arc::new(f));
+  fn on_drag_start(&mut self, f: impl IntoDragEventHandler) {
+    self.events.on_drag_start.push(f.into_event_handler());
   }
 
-  fn on_key_up(&mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) {
-    self.events.on_key_up = Some(Arc::new(f));
+  fn off_drag_start(&mut self, f: impl IntoDragEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_drag_start
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_focus(&mut self, f: impl Fn() + Send + Sync + 'static) {
-    self.events.on_focus = Some(Arc::new(f));
+  fn on_drag_move(&mut self, f: impl IntoDragEventHandler) {
+    self.events.on_drag_move.push(f.into_event_handler());
   }
 
-  fn on_blur(&mut self, f: impl Fn() + Send + Sync + 'static) {
-    self.events.on_blur = Some(Arc::new(f));
+  fn off_drag_move(&mut self, f: impl IntoDragEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_drag_move
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_scroll(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) {
-    self.events.on_scroll = Some(Arc::new(f));
+  fn on_drag_end(&mut self, f: impl IntoDragEventHandler) {
+    self.events.on_drag_end.push(f.into_event_handler());
   }
 
-  fn on_scroll_start(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) {
-    self.events.on_scroll_start = Some(Arc::new(f));
+  fn off_drag_end(&mut self, f: impl IntoDragEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_drag_end
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
-  fn on_scroll_end(&mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) {
-    self.events.on_scroll_end = Some(Arc::new(f));
+  fn on_drop(&mut self, f: impl IntoDropEventHandler) {
+    self.events.on_drop.push(f.into_event_handler());
+  }
+
+  fn off_drop(&mut self, f: impl IntoDropEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_drop.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler) {
+    self.events.on_mouse_enter.push(f.into_void_event_handler());
+  }
+
+  fn off_mouse_enter(&mut self, f: impl IntoVoidEventHandler) {
+    let handler = f.into_void_event_handler();
+    self
+      .events
+      .on_mouse_enter
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_mouse_leave(&mut self, f: impl IntoVoidEventHandler) {
+    self.events.on_mouse_leave.push(f.into_void_event_handler());
+  }
+
+  fn off_mouse_leave(&mut self, f: impl IntoVoidEventHandler) {
+    let handler = f.into_void_event_handler();
+    self
+      .events
+      .on_mouse_leave
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_key_down(&mut self, f: impl IntoKeyboardEventHandler) {
+    self.events.on_key_down.push(f.into_event_handler());
+  }
+
+  fn off_key_down(&mut self, f: impl IntoKeyboardEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_key_down
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_key_up(&mut self, f: impl IntoKeyboardEventHandler) {
+    self.events.on_key_up.push(f.into_event_handler());
+  }
+
+  fn off_key_up(&mut self, f: impl IntoKeyboardEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_key_up
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_focus(&mut self, f: impl IntoVoidEventHandler) {
+    self.events.on_focus.push(f.into_void_event_handler());
+  }
+
+  fn off_focus(&mut self, f: impl IntoVoidEventHandler) {
+    let handler = f.into_void_event_handler();
+    self.events.on_focus.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_blur(&mut self, f: impl IntoVoidEventHandler) {
+    self.events.on_blur.push(f.into_void_event_handler());
+  }
+
+  fn off_blur(&mut self, f: impl IntoVoidEventHandler) {
+    let handler = f.into_void_event_handler();
+    self.events.on_blur.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_scroll(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_scroll.push(f.into_event_handler());
+  }
+
+  fn off_scroll(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_scroll_start(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_scroll_start.push(f.into_event_handler());
+  }
+
+  fn off_scroll_start(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll_start
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_scroll_end(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_scroll_end.push(f.into_event_handler());
+  }
+
+  fn off_scroll_end(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll_end
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
   fn opacity(&mut self, value: f32) {
@@ -852,9 +1225,9 @@ impl NodeUpdate for Node {
     self.scrollbar_hovered_style = Some(Arc::new(f));
   }
 
-  fn virtualized(&mut self, enabled: bool) {
-    if let LayoutKind::ScrollModifier { virtualized, .. } = &mut self.layout_kind {
-      *virtualized = enabled;
+  fn culling(&mut self, enabled: bool) {
+    if let LayoutKind::ScrollModifier { culling, .. } = &mut self.layout_kind {
+      *culling = enabled;
     }
   }
 
@@ -937,9 +1310,15 @@ impl NodeUpdate for Node {
     }
   }
 
-  fn on_input(&mut self, f: impl Fn(&TextInputEvent) + Send + Sync + 'static) {
+  fn on_input(&mut self, f: impl IntoTextInputEventHandler) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_on_input(f);
+    }
+  }
+
+  fn off_input(&mut self, f: impl IntoTextInputEventHandler) {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.clear_on_input(f);
     }
   }
 
@@ -1310,11 +1689,14 @@ impl Node {
     let toggle = state.clone();
     let mut node = Self::row(0.0, Alignment::Center, vec![]);
     node.node_kind = NodeKind::Select { state };
-    node.events.on_mouse_down = Some(std::sync::Arc::new(move |event| {
-      if event.button == MouseButton::Left {
-        toggle.toggle_open();
-      }
-    }));
+    node
+      .events
+      .on_mouse_down
+      .push(EventHandler::new(move |event: &MouseEvent| {
+        if event.button == MouseButton::Left {
+          toggle.toggle_open();
+        }
+      }));
     node
   }
 
@@ -1710,98 +2092,257 @@ impl Node {
 
   // --- Event handlers ---
 
-  pub fn on_click(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_click = Some(Arc::new(f));
+  pub fn on_click(mut self, f: impl IntoMouseEventHandler) -> Self {
+    self.events.on_click.push(f.into_event_handler());
     self
   }
 
-  pub fn on_mouse_click(mut self, button: MouseButton, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_mouse_click.push((button, Arc::new(f)));
+  pub fn off_click(mut self, f: impl IntoMouseEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self.events.on_click.retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_dblclick(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_dblclick = Some(Arc::new(f));
+  pub fn on_mouse_click(mut self, button: MouseButton, f: impl IntoMouseEventHandler) -> Self {
+    self.events.on_mouse_click.push((button, f.into_event_handler()));
     self
   }
 
-  pub fn on_mouse_down(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_mouse_down = Some(Arc::new(f));
+  pub fn off_mouse_click(mut self, button: MouseButton, f: impl IntoMouseEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_click
+      .retain(|(handler_button, existing)| *handler_button != button || !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_mouse_up(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_mouse_up = Some(Arc::new(f));
+  pub fn on_dblclick(mut self, f: impl IntoMouseEventHandler) -> Self {
+    self.events.on_dblclick.push(f.into_event_handler());
     self
   }
 
-  pub fn on_mouse_move(mut self, f: impl Fn(&MouseEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_mouse_move = Some(Arc::new(f));
+  pub fn off_dblclick(mut self, f: impl IntoMouseEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_dblclick
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_drag_start(mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_drag_start = Some(Arc::new(f));
+  pub fn on_mouse_down(mut self, f: impl IntoMouseEventHandler) -> Self {
+    self.events.on_mouse_down.push(f.into_event_handler());
     self
   }
 
-  pub fn on_drag_move(mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_drag_move = Some(Arc::new(f));
+  pub fn off_mouse_down(mut self, f: impl IntoMouseEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_down
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_drag_end(mut self, f: impl Fn(&DragEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_drag_end = Some(Arc::new(f));
+  pub fn on_mouse_up(mut self, f: impl IntoMouseEventHandler) -> Self {
+    self.events.on_mouse_up.push(f.into_event_handler());
     self
   }
 
-  pub fn on_drop(mut self, f: impl Fn(&DropEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_drop = Some(Arc::new(f));
+  pub fn off_mouse_up(mut self, f: impl IntoMouseEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_up
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_mouse_enter(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
-    self.events.on_mouse_enter = Some(Arc::new(f));
+  pub fn on_mouse_move(mut self, f: impl IntoMouseEventHandler) -> Self {
+    self.events.on_mouse_move.push(f.into_event_handler());
     self
   }
 
-  pub fn on_mouse_leave(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
-    self.events.on_mouse_leave = Some(Arc::new(f));
+  pub fn off_mouse_move(mut self, f: impl IntoMouseEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_mouse_move
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_key_down(mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_key_down = Some(Arc::new(f));
+  pub fn on_drag_start(mut self, f: impl IntoDragEventHandler) -> Self {
+    self.events.on_drag_start.push(f.into_event_handler());
     self
   }
 
-  pub fn on_key_up(mut self, f: impl Fn(&KeyboardEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_key_up = Some(Arc::new(f));
+  pub fn off_drag_start(mut self, f: impl IntoDragEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_drag_start
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_focus(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
-    self.events.on_focus = Some(Arc::new(f));
+  pub fn on_drag_move(mut self, f: impl IntoDragEventHandler) -> Self {
+    self.events.on_drag_move.push(f.into_event_handler());
     self
   }
 
-  pub fn on_blur(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
-    self.events.on_blur = Some(Arc::new(f));
+  pub fn off_drag_move(mut self, f: impl IntoDragEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_drag_move
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_scroll(mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_scroll = Some(Arc::new(f));
+  pub fn on_drag_end(mut self, f: impl IntoDragEventHandler) -> Self {
+    self.events.on_drag_end.push(f.into_event_handler());
     self
   }
 
-  pub fn on_scroll_start(mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_scroll_start = Some(Arc::new(f));
+  pub fn off_drag_end(mut self, f: impl IntoDragEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_drag_end
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
-  pub fn on_scroll_end(mut self, f: impl Fn(&ScrollEvent) + Send + Sync + 'static) -> Self {
-    self.events.on_scroll_end = Some(Arc::new(f));
+  pub fn on_drop(mut self, f: impl IntoDropEventHandler) -> Self {
+    self.events.on_drop.push(f.into_event_handler());
+    self
+  }
+
+  pub fn off_drop(mut self, f: impl IntoDropEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self.events.on_drop.retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_mouse_enter(mut self, f: impl IntoVoidEventHandler) -> Self {
+    self.events.on_mouse_enter.push(f.into_void_event_handler());
+    self
+  }
+
+  pub fn off_mouse_enter(mut self, f: impl IntoVoidEventHandler) -> Self {
+    let handler = f.into_void_event_handler();
+    self
+      .events
+      .on_mouse_enter
+      .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_mouse_leave(mut self, f: impl IntoVoidEventHandler) -> Self {
+    self.events.on_mouse_leave.push(f.into_void_event_handler());
+    self
+  }
+
+  pub fn off_mouse_leave(mut self, f: impl IntoVoidEventHandler) -> Self {
+    let handler = f.into_void_event_handler();
+    self
+      .events
+      .on_mouse_leave
+      .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_key_down(mut self, f: impl IntoKeyboardEventHandler) -> Self {
+    self.events.on_key_down.push(f.into_event_handler());
+    self
+  }
+
+  pub fn off_key_down(mut self, f: impl IntoKeyboardEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_key_down
+      .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_key_up(mut self, f: impl IntoKeyboardEventHandler) -> Self {
+    self.events.on_key_up.push(f.into_event_handler());
+    self
+  }
+
+  pub fn off_key_up(mut self, f: impl IntoKeyboardEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_key_up
+      .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_focus(mut self, f: impl IntoVoidEventHandler) -> Self {
+    self.events.on_focus.push(f.into_void_event_handler());
+    self
+  }
+
+  pub fn off_focus(mut self, f: impl IntoVoidEventHandler) -> Self {
+    let handler = f.into_void_event_handler();
+    self.events.on_focus.retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_blur(mut self, f: impl IntoVoidEventHandler) -> Self {
+    self.events.on_blur.push(f.into_void_event_handler());
+    self
+  }
+
+  pub fn off_blur(mut self, f: impl IntoVoidEventHandler) -> Self {
+    let handler = f.into_void_event_handler();
+    self.events.on_blur.retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_scroll(mut self, f: impl IntoScrollEventHandler) -> Self {
+    self.events.on_scroll.push(f.into_event_handler());
+    self
+  }
+
+  pub fn off_scroll(mut self, f: impl IntoScrollEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll
+      .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_scroll_start(mut self, f: impl IntoScrollEventHandler) -> Self {
+    self.events.on_scroll_start.push(f.into_event_handler());
+    self
+  }
+
+  pub fn off_scroll_start(mut self, f: impl IntoScrollEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll_start
+      .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_scroll_end(mut self, f: impl IntoScrollEventHandler) -> Self {
+    self.events.on_scroll_end.push(f.into_event_handler());
+    self
+  }
+
+  pub fn off_scroll_end(mut self, f: impl IntoScrollEventHandler) -> Self {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll_end
+      .retain(|existing| !existing.same_handler(&handler));
     self
   }
 
@@ -1847,9 +2388,9 @@ impl Node {
     self
   }
 
-  pub fn virtualized(mut self, enabled: bool) -> Self {
-    if let LayoutKind::ScrollModifier { virtualized, .. } = &mut self.layout_kind {
-      *virtualized = enabled;
+  pub fn culling(mut self, enabled: bool) -> Self {
+    if let LayoutKind::ScrollModifier { culling, .. } = &mut self.layout_kind {
+      *culling = enabled;
     }
     self
   }

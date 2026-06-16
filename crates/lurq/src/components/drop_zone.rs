@@ -68,7 +68,7 @@ impl Component for DropZone {
     let mut child = explicit_child(ctx, &props);
 
     if let Some(on_drop) = props.on_drop {
-      child.node = child.node.on_drop(move |event| on_drop(event));
+      child.node = child.node.on_drop(move |event| on_drop(&event));
     }
 
     child

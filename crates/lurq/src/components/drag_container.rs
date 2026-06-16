@@ -8,7 +8,7 @@ use crate::{
   app::{component::Component, ctx::Ctx, events::DragEvent},
   core::{ElementRect, ElementRef},
   layout::layout_kind::Position,
-  node::{Element, Node},
+  node::{Element, EventHandler, Node},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
@@ -102,22 +102,22 @@ fn apply_container_bounds(node: &mut Node, container_ref: ElementRef) {
   let drag_extent = Arc::new(Mutex::new(None::<DragExtent>));
   let constrained_drag = Arc::new(Mutex::new(None::<ConstrainedDrag>));
 
-  let existing_start = node.events.on_drag_start.clone();
-  node.events.on_drag_start = Some(Arc::new({
+  let existing_start = std::mem::take(&mut node.events.on_drag_start);
+  node.events.on_drag_start.push(EventHandler::new({
     let drag_extent = drag_extent.clone();
     let constrained_drag = constrained_drag.clone();
     let container_ref = container_ref.clone();
     move |event: &DragEvent| {
       *drag_extent.lock().unwrap() = None;
       *constrained_drag.lock().unwrap() = Some(ConstrainedDrag::start(event, &container_ref));
-      if let Some(existing_start) = &existing_start {
-        existing_start(event);
+      for existing_start in &existing_start {
+        existing_start.call(event);
       }
     }
   }));
 
-  let existing = node.events.on_drag_move.clone();
-  node.events.on_drag_move = Some(Arc::new({
+  let existing = std::mem::take(&mut node.events.on_drag_move);
+  node.events.on_drag_move.push(EventHandler::new({
     let drag_extent = drag_extent.clone();
     let constrained_drag = constrained_drag.clone();
     move |event: &DragEvent| {
@@ -134,9 +134,9 @@ fn apply_container_bounds(node: &mut Node, container_ref: ElementRef) {
         })
       };
 
-      if let Some(existing) = &existing {
-        if let Some(adjusted_event) = adjusted_event {
-          existing(&adjusted_event);
+      if let Some(adjusted_event) = adjusted_event {
+        for existing in &existing {
+          existing.call(&adjusted_event);
         }
       }
 
@@ -144,18 +144,21 @@ fn apply_container_bounds(node: &mut Node, container_ref: ElementRef) {
     }
   }));
 
-  let existing_end = node.events.on_drag_end.clone();
-  node.events.on_drag_end = Some(Arc::new(move |event: &DragEvent| {
-    if let Some(existing_end) = &existing_end {
-      existing_end(event);
-    }
-    *drag_extent.lock().unwrap() = None;
-    *constrained_drag.lock().unwrap() = None;
-  }));
+  let existing_end = std::mem::take(&mut node.events.on_drag_end);
+  node
+    .events
+    .on_drag_end
+    .push(EventHandler::new(move |event: &DragEvent| {
+      for existing_end in &existing_end {
+        existing_end.call(event);
+      }
+      *drag_extent.lock().unwrap() = None;
+      *constrained_drag.lock().unwrap() = None;
+    }));
 }
 
 fn has_drag_handler(node: &Node) -> bool {
-  node.events.on_drag_start.is_some() || node.events.on_drag_move.is_some() || node.events.on_drag_end.is_some()
+  !node.events.on_drag_start.is_empty() || !node.events.on_drag_move.is_empty() || !node.events.on_drag_end.is_empty()
 }
 
 #[derive(Clone, Copy)]

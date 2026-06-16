@@ -163,7 +163,7 @@ fn render_form_button(
   button = button.hovered_style(state_style(style.background_hover, style.border_hover));
   button = button.active_style(state_style(style.background_active, style.border_active));
   if let Some(on_click) = on_click {
-    button = button.on_click(move |event| on_click(event));
+    button = button.on_click(move |event| on_click(&event));
   }
 
   button
