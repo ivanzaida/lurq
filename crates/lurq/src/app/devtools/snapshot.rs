@@ -127,6 +127,33 @@ impl DevToolsSnapshot {
     }
   }
 
+  pub(crate) fn from_tree_for_selection(tree: &Tree, selected_path: &[usize]) -> Self {
+    Self {
+      root: tree.root().map(|root| {
+        snapshot_node_for_selection(
+          root,
+          tree.last_layout(),
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          &mut Vec::new(),
+          selected_path,
+        )
+      }),
+      frame: {
+        #[cfg(feature = "perf_profile")]
+        {
+          FrameProfileSnapshot::from_profile(tree.last_profile())
+        }
+        #[cfg(not(feature = "perf_profile"))]
+        {
+          FrameProfileSnapshot::default()
+        }
+      },
+    }
+  }
+
   pub fn empty() -> Self {
     Self {
       root: None,
@@ -233,6 +260,87 @@ fn snapshot_node(
           None => (None, abs_x, abs_y, 0.0, 0.0),
         };
         snapshot_node(child, result, x, y, rx, ry)
+      })
+      .collect(),
+  }
+}
+
+fn snapshot_node_for_selection(
+  element: ElementRef<'_>,
+  layout: Option<&LayoutResult>,
+  abs_x: f32,
+  abs_y: f32,
+  rel_x: f32,
+  rel_y: f32,
+  path: &mut Vec<usize>,
+  selected_path: &[usize],
+) -> DevToolsNode {
+  let props_ref = element.component_props_debug();
+  let signals_ref = element.component_signals_debug();
+  let memos_ref = element.component_memos_debug();
+  let effects_ref = element.component_effects_debug();
+  let contexts_ref = element.component_contexts_debug();
+  let kind = if props_ref.is_some() || !signals_ref.is_empty() || !memos_ref.is_empty() || !contexts_ref.is_empty() {
+    DevToolsNodeKind::Component
+  } else {
+    DevToolsNodeKind::Element
+  };
+  let include_inspector_details = path.as_slice() == selected_path;
+
+  DevToolsNode {
+    id: element.node_id(),
+    tag: element.tag_name().to_owned(),
+    kind,
+    key: element.component_key().map(str::to_owned),
+    attrs: element
+      .debug_attrs()
+      .iter()
+      .map(|(name, value)| (name.to_string(), value.to_string()))
+      .collect(),
+    text: element.text_content().map(str::to_owned),
+    color: element.color().map(|color| color.to_hex()),
+    props: include_inspector_details.then(|| props_ref.cloned()).flatten(),
+    signals: signals_ref.to_vec(),
+    memos: memos_ref.to_vec(),
+    effects: effects_ref.to_vec(),
+    contexts: if include_inspector_details {
+      contexts_ref.to_vec()
+    } else {
+      Vec::new()
+    },
+    shape: if include_inspector_details {
+      shape_rows(element)
+    } else {
+      Vec::new()
+    },
+    layout_box: if include_inspector_details {
+      layout.map(|layout| layout_box(element.node, layout, abs_x, abs_y, rel_x, rel_y))
+    } else {
+      None
+    },
+    hovered: element.node.style_state.is_hovered(),
+    active: element.node.style_state.is_active(),
+    focused: element.node.style_state.is_focused(),
+    children: element
+      .children()
+      .into_iter()
+      .enumerate()
+      .map(|(index, child)| {
+        let child_layout = layout.and_then(|layout| layout.children.get(index));
+        let (result, x, y, rx, ry) = match child_layout {
+          Some(child) => (
+            Some(child.result.as_ref()),
+            abs_x + child.offset.x,
+            abs_y + child.offset.y,
+            child.offset.x,
+            child.offset.y,
+          ),
+          None => (None, abs_x, abs_y, 0.0, 0.0),
+        };
+        path.push(index);
+        let node = snapshot_node_for_selection(child, result, x, y, rx, ry, path, selected_path);
+        path.pop();
+        node
       })
       .collect(),
   }

@@ -9,7 +9,7 @@ use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, Window
 
 #[cfg(feature = "devtools")]
 use crate::app::devtools::{
-  DevTools, DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsProps, DevToolsSnapshot,
+  DevTools, DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsPathCallback, DevToolsProps, DevToolsSnapshot,
 };
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::{FrameProfile, RuntimeMemoryProfile};
@@ -372,8 +372,11 @@ struct DevToolsState {
   debug_overlay_path: Arc<Mutex<Option<Vec<usize>>>>,
   overlay_enabled: Arc<Mutex<bool>>,
   pick_mode: Arc<Mutex<bool>>,
+  selected_path: Arc<Mutex<Vec<usize>>>,
+  selected_path_dirty: Arc<Mutex<bool>>,
   picked_path: Option<Vec<usize>>,
   picked_revision: u64,
+  snapshot_revision: u64,
   last_sync: Instant,
   last_input_interaction: Instant,
 }
@@ -385,8 +388,11 @@ impl Default for DevToolsState {
       debug_overlay_path: Arc::new(Mutex::new(None)),
       overlay_enabled: Arc::new(Mutex::new(true)),
       pick_mode: Arc::new(Mutex::new(false)),
+      selected_path: Arc::new(Mutex::new(Vec::new())),
+      selected_path_dirty: Arc::new(Mutex::new(false)),
       picked_path: None,
       picked_revision: 0,
+      snapshot_revision: 0,
       last_sync: Instant::now() - DEVTOOLS_SYNC_INTERVAL,
       last_input_interaction: Instant::now() - DEVTOOLS_INTERACTION_SYNC_DELAY,
     }
@@ -404,6 +410,17 @@ fn devtools_debug_overlay_callback(debug_overlay_path: Arc<Mutex<Option<Vec<usiz
 fn devtools_bool_callback(value: Arc<Mutex<bool>>) -> DevToolsBoolCallback {
   Arc::new(move |enabled| {
     *value.lock().unwrap() = enabled;
+  })
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_selected_path_callback(
+  selected_path: Arc<Mutex<Vec<usize>>>,
+  selected_path_dirty: Arc<Mutex<bool>>,
+) -> DevToolsPathCallback {
+  Arc::new(move |path| {
+    *selected_path.lock().unwrap() = path;
+    *selected_path_dirty.lock().unwrap() = true;
   })
 }
 
@@ -853,7 +870,14 @@ impl Tree {
   #[cfg(feature = "devtools")]
   pub fn mount_devtools(&mut self, app: &mut App) {
     let mut devtools = Tree::new();
-    devtools.mount_root::<DevTools>(app, self.devtools_props(DevToolsSnapshot::from_tree(self)));
+    let selected_path = self.devtools_state.selected_path.lock().unwrap().clone();
+    devtools.mount_root::<DevTools>(
+      app,
+      self.devtools_props(
+        DevToolsSnapshot::from_tree_for_selection(self, &selected_path),
+        self.devtools_state.snapshot_revision,
+      ),
+    );
     let index = self.push_secondary_window(SecondaryWindow::new_closed("lurq DevTools", 1440, 900, devtools));
     self.devtools = Some(DevToolsWindow {
       secondary_index: index,
@@ -969,10 +993,22 @@ impl Tree {
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn apply_devtools_requests(&mut self) -> bool {
     let debug_overlay_path = self.devtools_state.debug_overlay_path.lock().unwrap().clone();
-    match debug_overlay_path {
+    let overlay_changed = match debug_overlay_path {
       Some(path) => self.draw_debug_overlay_over_node(path),
       None => self.clear_debug_overlay(),
+    };
+
+    let selected_path_dirty = {
+      let mut dirty = self.devtools_state.selected_path_dirty.lock().unwrap();
+      let was_dirty = *dirty;
+      *dirty = false;
+      was_dirty
+    };
+    if selected_path_dirty {
+      self.sync_devtools_now();
     }
+
+    overlay_changed
   }
 
   #[cfg(feature = "devtools")]
@@ -1007,11 +1043,17 @@ impl Tree {
       return;
     }
 
-    let props = self.devtools_props(DevToolsSnapshot::from_tree(self));
+    let snapshot_revision = self.devtools_state.snapshot_revision.saturating_add(1);
+    let selected_path = self.devtools_state.selected_path.lock().unwrap().clone();
+    let props = self.devtools_props(
+      DevToolsSnapshot::from_tree_for_selection(self, &selected_path),
+      snapshot_revision,
+    );
     let Some(devtools) = self.devtools_tree_mut() else {
       return;
     };
     devtools.update_root_props::<DevTools>(props);
+    self.devtools_state.snapshot_revision = snapshot_revision;
     self.devtools_state.last_sync = now;
   }
 
@@ -1024,9 +1066,10 @@ impl Tree {
   }
 
   #[cfg(feature = "devtools")]
-  fn devtools_props(&self, snapshot: DevToolsSnapshot) -> DevToolsProps {
+  fn devtools_props(&self, snapshot: DevToolsSnapshot, snapshot_revision: u64) -> DevToolsProps {
     DevToolsProps {
       snapshot,
+      snapshot_revision,
       #[cfg(feature = "persistent_storage")]
       persistent_storage_revision: self.devtools_persistent_storage_revision(),
       picked_path: self.devtools_state.picked_path.clone(),
@@ -1036,6 +1079,10 @@ impl Tree {
       )),
       on_overlay_enabled: Some(devtools_bool_callback(self.devtools_state.overlay_enabled.clone())),
       on_pick_inspected: Some(devtools_bool_callback(self.devtools_state.pick_mode.clone())),
+      on_selected_path: Some(devtools_selected_path_callback(
+        self.devtools_state.selected_path.clone(),
+        self.devtools_state.selected_path_dirty.clone(),
+      )),
     }
   }
 

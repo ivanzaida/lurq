@@ -3,7 +3,7 @@ use std::borrow::Cow;
 #[cfg(feature = "perf_profile")]
 use std::time::Instant;
 use std::{
-  collections::{hash_map::DefaultHasher, HashMap},
+  collections::{HashMap, hash_map::DefaultHasher},
   hash::{Hash, Hasher},
   path::Path,
 };
@@ -20,10 +20,10 @@ use swash::{
 use crate::{
   app::profile_types::GlyphEngineProfile,
   layout::{
+    Size,
     quad::{ClipRect, RichTextSpan},
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
     text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
-    Size,
   },
   node::{color::Color, text_selection::CaretPosition, transform::Transform2D},
 };
@@ -2447,9 +2447,9 @@ mod tests {
   use swash::scale::ScaleContext;
 
   use super::{
+    AtlasPacker, GLYPH_ATLAS_BYTES_PER_PIXEL, GLYPH_ATLAS_PADDING, GlyphAtlasDirtyRect, GlyphEngine,
     coalesce_dirty_rects, glyph_atlas_pixels, glyph_coverage_mask, is_bounded_text_width, render_glyph_image,
-    swash_transform_from_screen, AtlasPacker, GlyphAtlasDirtyRect, GlyphEngine, GLYPH_ATLAS_BYTES_PER_PIXEL,
-    GLYPH_ATLAS_PADDING,
+    swash_transform_from_screen,
   };
   use crate::{layout::quad::ClipRect, node::transform::Transform2D};
 

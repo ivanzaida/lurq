@@ -5,7 +5,7 @@ use std::ffi::c_void;
 use std::time::Duration;
 
 #[cfg(all(feature = "image", target_os = "macos"))]
-use core_foundation_sys::base::{kCFAllocatorDefault, CFAllocatorRef, CFRelease, OSStatus};
+use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
 #[cfg(all(feature = "image", target_os = "macos"))]
 use core_foundation_sys::dictionary::CFDictionaryRef;
 #[cfg(all(feature = "image", target_os = "macos"))]

@@ -28,6 +28,7 @@ static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
 
 pub type DevToolsDebugOverlayCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
 pub type DevToolsBoolCallback = Arc<dyn Fn(bool) + Send + Sync>;
+pub type DevToolsPathCallback = Arc<dyn Fn(Vec<usize>) + Send + Sync>;
 
 pub fn load_fonts(app: &mut crate::app::App) {
   app.load_font(LUCIDE_TTF.to_vec());
@@ -38,6 +39,8 @@ pub fn load_fonts(app: &mut crate::app::App) {
 pub struct DevToolsProps {
   #[devtools_ignore]
   pub snapshot: DevToolsSnapshot,
+  #[devtools_ignore]
+  pub snapshot_revision: u64,
   #[cfg(feature = "persistent_storage")]
   #[devtools_ignore]
   pub persistent_storage_revision: u64,
@@ -49,6 +52,8 @@ pub struct DevToolsProps {
   pub on_overlay_enabled: Option<DevToolsBoolCallback>,
   #[devtools_ignore]
   pub on_pick_inspected: Option<DevToolsBoolCallback>,
+  #[devtools_ignore]
+  pub on_selected_path: Option<DevToolsPathCallback>,
 }
 
 pub struct DevTools {
@@ -187,7 +192,7 @@ impl DevToolsTree {
 
 impl PartialEq for DevToolsProps {
   fn eq(&self, other: &Self) -> bool {
-    self.snapshot.root == other.snapshot.root && self.picked_revision == other.picked_revision && {
+    self.snapshot_revision == other.snapshot_revision && self.picked_revision == other.picked_revision && {
       #[cfg(feature = "persistent_storage")]
       {
         self.persistent_storage_revision == other.persistent_storage_revision
@@ -265,6 +270,9 @@ impl Component for DevTools {
         tree.expand_ancestors(&snapshot, &path, &mut collapsed_nodes);
         self.collapsed_nodes.set(collapsed_nodes.clone());
         self.selected_path.set(path.clone());
+        if let Some(on_selected_path) = &props.on_selected_path {
+          on_selected_path(path.clone());
+        }
         selected_path = path;
         tree.scroll_into(&snapshot, &selected_path, &collapsed_nodes);
       }
@@ -274,7 +282,7 @@ impl Component for DevTools {
 
     Column::new()
       .child(top_bar::top_bar(
-        snapshot.node_count(),
+        0,
         show_inspected_overlay,
         self.show_inspected_overlay.clone(),
         pick_inspected,
@@ -307,6 +315,7 @@ impl Component for DevTools {
           self.tree.scroll_state(),
           show_inspected_overlay,
           props.on_debug_overlay_path.clone(),
+          props.on_selected_path.clone(),
         ),
         DevToolsTab::Profiler => profiler::profiler_view(
           &snapshot,
@@ -349,6 +358,7 @@ fn components_view(
   tree_scroll: ScrollState,
   show_inspected_overlay: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  on_selected_path: Option<DevToolsPathCallback>,
 ) -> Element {
   Row::new()
     .child(tree_panel::tree_panel(
@@ -360,6 +370,7 @@ fn components_view(
       tree_scroll,
       show_inspected_overlay,
       on_debug_overlay_path,
+      on_selected_path,
     ))
     .child(inspector::inspector_panel(
       selected,
@@ -546,6 +557,23 @@ mod tests {
       Some("0".to_owned())
     );
     assert_eq!(snapshot.root.as_ref().map(|node| node.contexts.len()), Some(2));
+  }
+
+  #[test]
+  fn selected_snapshot_only_collects_inspector_details_for_selected_path() {
+    let mut app = App::new();
+    let mut tree = crate::app::Tree::new();
+    tree.mount_root::<SnapshotTestApp>(&mut app, ());
+
+    let snapshot = DevToolsSnapshot::from_tree_for_selection(&tree, &[0]);
+    let root = snapshot.root.as_ref().expect("root should be captured");
+    let selected = root.children.first().expect("selected child should be captured");
+
+    assert!(root.shape.is_empty());
+    assert!(root.props.is_none());
+    assert!(!root.signals.is_empty());
+    assert!(!selected.shape.is_empty());
+    assert!(selected.layout_box.is_none());
   }
 
   #[test]

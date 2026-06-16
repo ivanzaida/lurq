@@ -1,12 +1,13 @@
 use lurq::{
   app::{App, Tree, events::ScrollEvent},
+  components::{Column, Row, ScrollVertical, Spacer},
   layout::{
     Constraints, Size,
-    layout_kind::FrameConstraints,
+    layout_kind::{FrameConstraints, ScrollState},
     quad::QuadContent,
-    scrollbar::{ScrollBarStyle, ScrollBarVisibility},
+    scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
   },
-  node::{Element, color::Color},
+  node::{Element, color::Color, dimension::Dimension},
 };
 
 use super::PassLayoutExt;
@@ -132,6 +133,158 @@ fn scroll_container_without_frame_uses_parent_constraints() {
   assert_eq!(result.size.height, 100.0);
   // Child column is taller
   assert_eq!(result.children[0].result.size.height, 200.0);
+}
+
+#[test]
+fn flexed_scroll_with_zero_height_frame_uses_parent_flex_size() {
+  let mut rt = rt();
+  let scroll_state = ScrollState::new();
+  let scroll = ScrollVertical::new(Spacer::new().height(400.0))
+    .height(0.0)
+    .flex(1.0)
+    .with_scroll_state(scroll_state.clone())
+    .scrollbar(ScrollBarStyle {
+      placement: ScrollBarPlacement::Reserved,
+      ..Default::default()
+    });
+  let node = Column::new()
+    .width(100.0)
+    .height(200.0)
+    .child(scroll)
+    .child(Spacer::new().height(64.0));
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 400.0))).unwrap();
+
+  assert_eq!(result.children[0].result.size.height, 136.0);
+  assert_eq!(scroll_state.viewport_height(), 136.0);
+  assert_eq!(scroll_state.content_height(), 400.0);
+  assert!(scroll_state.content_height() > scroll_state.viewport_height());
+}
+
+#[test]
+fn flexed_scroll_with_zero_height_frame_consumes_wheel_scroll() {
+  let mut rt = rt();
+  let scroll_state = ScrollState::new();
+  let scroll = ScrollVertical::new(Spacer::new().height(400.0))
+    .height(0.0)
+    .flex(1.0)
+    .with_scroll_state(scroll_state.clone())
+    .scrollbar(ScrollBarStyle {
+      placement: ScrollBarPlacement::Reserved,
+      ..Default::default()
+    });
+  let node = Column::new()
+    .width(100.0)
+    .height(200.0)
+    .child(scroll)
+    .child(Spacer::new().height(64.0));
+
+  rt.set_root(node);
+  run_pass(&mut rt);
+  rt.scroll(10.0, 10.0, 0.0, -80.0, lurq::app::events::ScrollPhase::Scroll);
+
+  assert!(scroll_state.scroll_y() > 0.0);
+}
+
+#[test]
+fn flexed_scroll_with_zero_height_frame_keeps_scroll_metrics_after_cached_pass() {
+  let mut rt = rt();
+  let scroll_state = ScrollState::new();
+  let scroll = ScrollVertical::new(Spacer::new().height(400.0))
+    .height(0.0)
+    .flex(1.0)
+    .with_scroll_state(scroll_state.clone())
+    .scrollbar(ScrollBarStyle {
+      placement: ScrollBarPlacement::Reserved,
+      ..Default::default()
+    });
+  let node = Column::new()
+    .width(100.0)
+    .height(200.0)
+    .child(scroll)
+    .child(Spacer::new().height(64.0));
+
+  rt.set_root(node);
+  run_pass(&mut rt);
+  run_pass(&mut rt);
+
+  assert_eq!(scroll_state.viewport_height(), 136.0);
+  assert_eq!(scroll_state.content_height(), 400.0);
+  rt.scroll(10.0, 10.0, 0.0, -80.0, lurq::app::events::ScrollPhase::Scroll);
+  assert!(scroll_state.scroll_y() > 0.0);
+}
+
+#[test]
+fn flex_shrunk_scroll_state_uses_final_layout_size() {
+  let mut rt = rt();
+  let scroll_state = ScrollState::new();
+  let scroll = ScrollVertical::new(Spacer::new().width(689.0).height(1200.0))
+    .width(Dimension::Pct(100.0))
+    .height(464.0)
+    .flex_full(0.0, 1.0, Some(701.0))
+    .with_scroll_state(scroll_state.clone())
+    .scrollbar(ScrollBarStyle {
+      placement: ScrollBarPlacement::Reserved,
+      ..Default::default()
+    });
+  let node = Row::new()
+    .width(733.0)
+    .height(464.0)
+    .child(Spacer::new().width(701.0).height(1.0))
+    .child(scroll);
+
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(800.0, 600.0))).unwrap();
+
+  assert_eq!(result.children[1].result.size.width, 32.0);
+  assert_eq!(scroll_state.viewport_width(), 20.0);
+  assert_eq!(scroll_state.viewport_height(), 464.0);
+  assert!(scroll_state.content_height() > scroll_state.viewport_height());
+}
+
+#[test]
+fn scroll_stays_at_bottom_when_viewport_shrinks() {
+  let mut rt = rt();
+  let scroll_state = ScrollState::new();
+  let node = |height| {
+    ScrollVertical::new(Spacer::new().height(1000.0))
+      .width(100.0)
+      .height(height)
+      .with_scroll_state(scroll_state.clone())
+  };
+
+  rt.set_root(node(200.0));
+  run_pass(&mut rt);
+  scroll_state.scroll_to_bottom_pending();
+  run_pass(&mut rt);
+  assert_eq!(scroll_state.scroll_y(), 800.0);
+
+  rt.set_root(node(100.0));
+  run_pass(&mut rt);
+
+  assert_eq!(scroll_state.scroll_y(), 900.0);
+}
+
+#[test]
+fn scroll_resize_preserves_detached_offset() {
+  let mut rt = rt();
+  let scroll_state = ScrollState::new();
+  let node = |height| {
+    ScrollVertical::new(Spacer::new().height(1000.0))
+      .width(100.0)
+      .height(height)
+      .with_scroll_state(scroll_state.clone())
+  };
+
+  rt.set_root(node(200.0));
+  run_pass(&mut rt);
+  scroll_state.set_scroll(0.0, 500.0);
+
+  rt.set_root(node(100.0));
+  run_pass(&mut rt);
+
+  assert_eq!(scroll_state.scroll_y(), 500.0);
 }
 
 #[test]

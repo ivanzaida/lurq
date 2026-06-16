@@ -10,6 +10,7 @@ use crate::{
 
 const DEFAULT_FLEX_GROW: f32 = 1.0;
 const DEFAULT_FLEX_SHRINK: f32 = 0.0;
+const SCROLL_END_EPSILON: f32 = 2.0;
 
 #[derive(Clone)]
 pub enum LayoutKind {
@@ -465,10 +466,6 @@ impl ScrollState {
     self.inner.lock().unwrap().scroll_dirty
   }
 
-  pub(crate) fn update_layout(&self, content_w: f32, content_h: f32, viewport_w: f32, viewport_h: f32) {
-    self.update_layout_with_container(content_w, content_h, viewport_w, viewport_h, viewport_w, viewport_h);
-  }
-
   pub(crate) fn update_layout_with_container(
     &self,
     content_w: f32,
@@ -479,6 +476,11 @@ impl ScrollState {
     container_h: f32,
   ) {
     let mut inner = self.inner.lock().unwrap();
+    let was_at_right = inner.max_scroll_x > 0.0 && inner.max_scroll_x - inner.scroll_x <= SCROLL_END_EPSILON;
+    let was_at_bottom = inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON;
+    let pending_scroll_x = inner.pending_scroll_x.take();
+    let pending_scroll_y = inner.pending_scroll_y.take();
+
     inner.content_width = content_w;
     inner.content_height = content_h;
     inner.container_width = container_w;
@@ -487,11 +489,15 @@ impl ScrollState {
     inner.viewport_height = viewport_h.max(0.0);
     inner.max_scroll_x = (content_w - inner.viewport_width).max(0.0);
     inner.max_scroll_y = (content_h - inner.viewport_height).max(0.0);
-    if let Some(pending) = inner.pending_scroll_x.take() {
+    if let Some(pending) = pending_scroll_x {
       inner.scroll_x = resolve_pending_scroll(pending, inner.content_width, inner.max_scroll_x);
+    } else if was_at_right {
+      inner.scroll_x = inner.max_scroll_x;
     }
-    if let Some(pending) = inner.pending_scroll_y.take() {
+    if let Some(pending) = pending_scroll_y {
       inner.scroll_y = resolve_pending_scroll(pending, inner.content_height, inner.max_scroll_y);
+    } else if was_at_bottom {
+      inner.scroll_y = inner.max_scroll_y;
     }
     inner.scroll_x = inner.scroll_x.clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = inner.scroll_y.clamp(0.0, inner.max_scroll_y);

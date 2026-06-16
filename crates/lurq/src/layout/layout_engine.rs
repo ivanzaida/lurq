@@ -1521,7 +1521,7 @@ impl LayoutEngine {
         if !Self::cached_result_matches_node_tree(node, &cached) {
           return None;
         }
-        Some(Self::prepare_cached_result(node, cached))
+        Some(self.prepare_cached_result(node, cached))
       });
     }
 
@@ -1576,7 +1576,7 @@ impl LayoutEngine {
       cached.children[index].result = repaired.into();
     }
 
-    let prepared = Self::prepare_cached_result(node, cached);
+    let prepared = self.prepare_cached_result(node, cached);
     node.layout_cache.store(constraints, prepared.clone());
     Some(prepared)
   }
@@ -1605,20 +1605,62 @@ impl LayoutEngine {
     )
   }
 
-  fn prepare_cached_result(node: &Node, mut cached: LayoutResult) -> LayoutResult {
-    if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
-      state.update_layout(
-        cached.children.first().map(|c| c.result.size.width).unwrap_or(0.0),
-        cached.children.first().map(|c| c.result.size.height).unwrap_or(0.0),
-        cached.size.width,
-        cached.size.height,
+  fn prepare_cached_result(&self, node: &Node, mut cached: LayoutResult) -> LayoutResult {
+    self.prepare_layout_result_tree(node, &mut cached);
+    cached
+  }
+
+  fn prepare_layout_result_tree(&self, node: &Node, result: &mut LayoutResult) {
+    for (child_node, child_layout) in node.children().iter().zip(result.children.iter_mut()) {
+      self.prepare_layout_result_tree(child_node, Arc::make_mut(&mut child_layout.result));
+    }
+
+    if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
+      let content_width = result.children.first().map(|c| c.result.size.width).unwrap_or(0.0);
+      let content_height = result.children.first().map(|c| c.result.size.height).unwrap_or(0.0);
+      let style = node.scrollbar_style(self.scrollbar.borrow().clone());
+      let mut reserve_vertical = false;
+      let mut reserve_horizontal = false;
+
+      for _ in 0..3 {
+        let viewport = reserved_viewport(result.size, &style, reserve_vertical, reserve_horizontal);
+        let next_reserve_vertical = should_reserve_scrollbar(
+          &style,
+          *direction,
+          ScrollAxis::Vertical,
+          content_height,
+          viewport.height,
+        );
+        let next_reserve_horizontal = should_reserve_scrollbar(
+          &style,
+          *direction,
+          ScrollAxis::Horizontal,
+          content_width,
+          viewport.width,
+        );
+
+        if next_reserve_vertical == reserve_vertical && next_reserve_horizontal == reserve_horizontal {
+          break;
+        }
+
+        reserve_vertical = next_reserve_vertical;
+        reserve_horizontal = next_reserve_horizontal;
+      }
+
+      let viewport = reserved_viewport(result.size, &style, reserve_vertical, reserve_horizontal);
+      state.update_layout_with_container(
+        content_width,
+        content_height,
+        viewport.width,
+        viewport.height,
+        result.size.width,
+        result.size.height,
       );
-      if let Some(child) = cached.children.first_mut() {
+      if let Some(child) = result.children.first_mut() {
         child.offset.x = -state.scroll_x();
         child.offset.y = -state.scroll_y();
       }
     }
-    cached
   }
 
   fn layout_node_uncached_with_child_overrides(
@@ -1647,6 +1689,7 @@ impl LayoutEngine {
     self.last_recalculated.set(true);
     let mut result = self.layout_node_box(glyph_engine, node, constraints, child_overrides);
     Self::apply_runtime_rect(node, &mut result);
+    self.prepare_layout_result_tree(node, &mut result);
     node.layout_cache.store(constraints, result.clone());
     #[cfg(feature = "perf_profile")]
     {
@@ -2850,12 +2893,7 @@ impl LayoutEngine {
     result
   }
 
-  fn frame_constraints_for_node(
-    &self,
-    _node: &Node,
-    constraints: Constraints,
-    frame: &FrameConstraints,
-  ) -> Constraints {
+  fn frame_constraints_for_node(&self, node: &Node, constraints: Constraints, frame: &FrameConstraints) -> Constraints {
     let resolved_width = frame
       .width
       .and_then(|size| Self::resolve_dimension(size, constraints.max_width));
@@ -2875,34 +2913,46 @@ impl LayoutEngine {
       .max_height
       .and_then(|size| Self::resolve_dimension(size, constraints.max_height));
 
+    let flex_child = node.state_flex().is_some();
+    let tight_width = constraints.min_width == constraints.max_width;
+    let tight_height = constraints.min_height == constraints.max_height;
+
     let mut c = constraints;
     if let Some(w) = resolved_width {
-      let width = Self::clamp_resolved_dimension(w, resolved_min_width, resolved_max_width);
+      let width = if flex_child && tight_width {
+        constraints.max_width
+      } else {
+        Self::clamp_resolved_dimension(w, resolved_min_width, resolved_max_width)
+      };
       c.min_width = width;
       c.max_width = width;
     }
     if let Some(h) = resolved_height {
-      let height = Self::clamp_resolved_dimension(h, resolved_min_height, resolved_max_height);
+      let height = if flex_child && tight_height {
+        constraints.max_height
+      } else {
+        Self::clamp_resolved_dimension(h, resolved_min_height, resolved_max_height)
+      };
       c.min_height = height;
       c.max_height = height;
     }
 
     #[cfg(feature = "image")]
     if matches!(
-      _node.node_kind(),
+      node.node_kind(),
       NodeKind::Image { .. } | NodeKind::ResourceImage { .. }
     ) {
-      Self::apply_intrinsic_aspect_ratio(_node, &mut c, resolved_width, resolved_height);
+      Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
     #[cfg(all(feature = "svg", feature = "resources"))]
-    let is_svg_media = matches!(_node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
+    let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
     #[cfg(all(feature = "svg", not(feature = "resources")))]
-    let is_svg_media = matches!(_node.node_kind(), NodeKind::Svg { .. });
+    let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. });
 
     #[cfg(feature = "svg")]
     if is_svg_media {
-      Self::apply_intrinsic_aspect_ratio(_node, &mut c, resolved_width, resolved_height);
+      Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
     if resolved_width.is_none()

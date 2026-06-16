@@ -1,5 +1,5 @@
 use super::{
-  DevToolsDebugOverlayCallback, debug_overlay_path_for_selection,
+  DevToolsDebugOverlayCallback, DevToolsPathCallback, debug_overlay_path_for_selection,
   snapshot::{DevToolsNode, DevToolsSnapshot},
   style::{
     BLUE, BORDER, FILL, GREEN, MUTED, ORANGE, PRIMARY, SELECTED, SURFACE, SURFACE_2, badge, empty_state, icon,
@@ -20,6 +20,14 @@ use crate::{
 const TREE_PANEL_WIDTH: f32 = 380.0;
 const TREE_CONTENT_MIN_WIDTH: f32 = 640.0;
 pub(crate) const TREE_ROW_HEIGHT: f32 = 26.0;
+const TREE_OVERSCAN_ROWS: usize = 16;
+const TREE_INITIAL_ROWS: usize = 80;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TreeRowWindow {
+  start: usize,
+  end: usize,
+}
 
 pub(crate) fn tree_panel(
   snapshot: &DevToolsSnapshot,
@@ -30,30 +38,44 @@ pub(crate) fn tree_panel(
   scroll_state: ScrollState,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  on_selected_path: Option<DevToolsPathCallback>,
 ) -> Element {
   let mut rows = Vec::new();
+  let mut row_count = 0;
   if let Some(root) = &snapshot.root {
+    let row_window = tree_row_window(&scroll_state);
     collect_tree_rows(
       root,
       &mut Vec::new(),
       0,
+      row_window,
+      &mut row_count,
       &selected_path,
       selected,
       &collapsed_nodes,
       collapsed,
       overlay_enabled,
       on_debug_overlay_path,
+      on_selected_path,
       &mut rows,
     );
+
+    let top_spacer = row_window.start.min(row_count) as f32 * TREE_ROW_HEIGHT;
+    let rendered_rows = rows.len();
+    let bottom_rows = row_count.saturating_sub(row_window.start.min(row_count) + rendered_rows);
+    let bottom_spacer = bottom_rows as f32 * TREE_ROW_HEIGHT;
+    if top_spacer > 0.0 {
+      rows.insert(0, Spacer::new().height(top_spacer).into());
+    }
+    if bottom_spacer > 0.0 {
+      rows.push(Spacer::new().height(bottom_spacer).into());
+    }
   } else {
     rows.push(empty_state("No mounted root"));
   }
 
   Column::new()
-    .child(section_header(
-      "COMPONENT TREE",
-      &format!("{} components", snapshot.node_count()),
-    ))
+    .child(section_header("COMPONENT TREE", &format!("{row_count} components")))
     .child(
       ScrollBoth::new(Column::new().with_children(rows))
         .with_scroll_state(scroll_state)
@@ -68,30 +90,55 @@ pub(crate) fn tree_panel(
     .into()
 }
 
+fn tree_row_window(scroll_state: &ScrollState) -> TreeRowWindow {
+  let scroll_y = scroll_state.scroll_y().max(0.0);
+  let viewport_height = scroll_state.viewport_height();
+  let first_visible = (scroll_y / TREE_ROW_HEIGHT).floor().max(0.0) as usize;
+  let start = first_visible.saturating_sub(TREE_OVERSCAN_ROWS);
+  let visible_rows = if viewport_height > 0.0 {
+    (viewport_height / TREE_ROW_HEIGHT).ceil().max(1.0) as usize
+  } else {
+    TREE_INITIAL_ROWS
+  };
+  let end = first_visible
+    .saturating_add(visible_rows)
+    .saturating_add(TREE_OVERSCAN_ROWS);
+
+  TreeRowWindow { start, end }
+}
+
 fn collect_tree_rows(
   node: &DevToolsNode,
   path: &mut Vec<usize>,
   depth: usize,
+  row_window: TreeRowWindow,
+  row_count: &mut usize,
   selected_path: &[usize],
   selected: Signal<Vec<usize>>,
   collapsed_nodes: &[NodeId],
   collapsed: Signal<Vec<NodeId>>,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  on_selected_path: Option<DevToolsPathCallback>,
   rows: &mut Vec<Element>,
 ) {
   let is_collapsed = !node.children.is_empty() && collapsed_nodes.contains(&node.id);
-  rows.push(tree_row(
-    node,
-    path.clone(),
-    depth,
-    path.as_slice() == selected_path,
-    is_collapsed,
-    selected.clone(),
-    collapsed.clone(),
-    overlay_enabled,
-    on_debug_overlay_path.clone(),
-  ));
+  let row_index = *row_count;
+  *row_count += 1;
+  if row_index >= row_window.start && row_index < row_window.end {
+    rows.push(tree_row(
+      node,
+      path.clone(),
+      depth,
+      path.as_slice() == selected_path,
+      is_collapsed,
+      selected.clone(),
+      collapsed.clone(),
+      overlay_enabled,
+      on_debug_overlay_path.clone(),
+      on_selected_path.clone(),
+    ));
+  }
   if is_collapsed {
     return;
   }
@@ -102,12 +149,15 @@ fn collect_tree_rows(
       child,
       path,
       depth + 1,
+      row_window,
+      row_count,
       selected_path,
       selected.clone(),
       collapsed_nodes,
       collapsed.clone(),
       overlay_enabled,
       on_debug_overlay_path.clone(),
+      on_selected_path.clone(),
       rows,
     );
     path.pop();
@@ -124,6 +174,7 @@ fn tree_row(
   collapsed_nodes: Signal<Vec<NodeId>>,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
+  on_selected_path: Option<DevToolsPathCallback>,
 ) -> Element {
   let indent = 8.0 + depth as f32 * 16.0;
   let child_count = node.children.len();
@@ -188,6 +239,9 @@ fn tree_row(
     .cursor(CursorIcon::Pointer)
     .on_click(move |_| {
       selected_path.set(click_path.clone());
+      if let Some(on_selected_path) = &on_selected_path {
+        on_selected_path(click_path.clone());
+      }
       if let Some(on_debug_overlay_path) = &on_debug_overlay_path {
         on_debug_overlay_path(debug_overlay_path_for_selection(
           overlay_enabled,
@@ -312,20 +366,93 @@ mod tests {
     };
     let collapsed = Signal::new(vec![child_id]);
     let mut rows = Vec::new();
+    let mut row_count = 0;
 
     collect_tree_rows(
       &root,
       &mut Vec::new(),
       0,
+      TreeRowWindow { start: 0, end: 16 },
+      &mut row_count,
       &[],
       Signal::new(Vec::new()),
       &collapsed.get_untracked(),
       collapsed,
       true,
       None,
+      None,
       &mut rows,
     );
 
     assert_eq!(rows.len(), 2);
+    assert_eq!(row_count, 2);
+  }
+
+  #[test]
+  fn collect_tree_rows_only_builds_requested_window() {
+    let ids = IdGenerator::new();
+    let root = DevToolsNode {
+      id: ids.next(),
+      tag: "Root".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Component,
+      key: None,
+      attrs: Vec::new(),
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
+      children: (0..6)
+        .map(|index| DevToolsNode {
+          id: ids.next(),
+          tag: format!("Child{index}"),
+          kind: super::super::snapshot::DevToolsNodeKind::Element,
+          key: None,
+          attrs: Vec::new(),
+          text: None,
+          color: None,
+          props: None,
+          signals: Vec::new(),
+          memos: Vec::new(),
+          contexts: Vec::new(),
+          shape: Vec::new(),
+          effects: Vec::new(),
+          layout_box: None,
+          hovered: false,
+          active: false,
+          focused: false,
+          children: Vec::new(),
+        })
+        .collect(),
+    };
+    let collapsed = Signal::new(Vec::new());
+    let mut rows = Vec::new();
+    let mut row_count = 0;
+
+    collect_tree_rows(
+      &root,
+      &mut Vec::new(),
+      0,
+      TreeRowWindow { start: 2, end: 5 },
+      &mut row_count,
+      &[],
+      Signal::new(Vec::new()),
+      &collapsed.get_untracked(),
+      collapsed,
+      true,
+      None,
+      None,
+      &mut rows,
+    );
+
+    assert_eq!(row_count, 7);
+    assert_eq!(rows.len(), 3);
   }
 }
