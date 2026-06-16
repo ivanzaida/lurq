@@ -1476,7 +1476,7 @@ fn rect_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 12] {
   ]
 }
 
-fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
+fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 10] {
   [
     input_element(
       0,
@@ -1547,6 +1547,14 @@ fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
       DXGI_FORMAT_R32_FLOAT,
       1,
       72,
+      D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+      1,
+    ),
+    input_element(
+      9,
+      DXGI_FORMAT_R32_FLOAT,
+      1,
+      76,
       D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
       1,
     ),
@@ -1682,6 +1690,7 @@ fn glyph_instance(glyph: &GlyphCmd) -> GlyphInstance {
     transform: glyph.transform,
     xf_origin: glyph.transform_origin,
     sharpness: glyph.sharpness,
+    color_glyph: if glyph.color_glyph { 1.0 } else { 0.0 },
   }
 }
 
@@ -1816,7 +1825,6 @@ unsafe fn create_r8g8_texture(device: &ID3D12Device, width: u32, height: u32) ->
   resource.ok_or_else(Error::from_win32)
 }
 
-#[cfg(feature = "image")]
 unsafe fn create_rgba_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
   let heap_properties = D3D12_HEAP_PROPERTIES {
     Type: D3D12_HEAP_TYPE_DEFAULT,
@@ -2658,9 +2666,9 @@ impl Dx12State {
       texture.width != atlas.width || texture.height != atlas.height
     });
     if recreate {
-      let texture = create_r8_texture(&self.device, atlas.width, atlas.height)?;
+      let texture = create_rgba_texture(&self.device, atlas.width, atlas.height)?;
       let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-        Format: DXGI_FORMAT_R8_UNORM,
+        Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
         ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
         Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
         Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
@@ -2702,15 +2710,16 @@ impl Dx12State {
     }
 
     if recreate || atlas.dirty_rects.is_empty() {
-      let row_pitch = align_up(atlas.width as usize, 256);
+      let row_bytes = atlas.width as usize * 4;
+      let row_pitch = align_up(row_bytes, 256);
       let upload_size = row_pitch * atlas.height as usize;
       let mut upload_bytes = vec![0u8; upload_size];
       for row in 0..atlas.height as usize {
-        let src_start = row * atlas.width as usize;
+        let src_start = row * row_bytes;
         if src_start >= atlas.data.len() {
           break;
         }
-        let src_end = (src_start + atlas.width as usize).min(atlas.data.len());
+        let src_end = (src_start + row_bytes).min(atlas.data.len());
         let dst_start = row * row_pitch;
         upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&atlas.data[src_start..src_end]);
       }
@@ -2728,7 +2737,7 @@ impl Dx12State {
           PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
             Offset: 0,
             Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
-              Format: DXGI_FORMAT_R8_UNORM,
+              Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
               Width: atlas.width,
               Height: atlas.height,
               Depth: 1,
@@ -2751,17 +2760,20 @@ impl Dx12State {
         }
         let width = rect.width.min(atlas.width - rect.x);
         let height = rect.height.min(atlas.height - rect.y);
-        let row_pitch = align_up(width as usize, 256);
+        let row_bytes = width as usize * 4;
+        let atlas_row_bytes = atlas.width as usize * 4;
+        let rect_x_bytes = rect.x as usize * 4;
+        let row_pitch = align_up(row_bytes, 256);
         let upload_size = row_pitch * height as usize;
         let mut upload_bytes = vec![0u8; upload_size];
         for row in 0..height as usize {
-          let src_start = ((rect.y as usize + row) * atlas.width as usize) + rect.x as usize;
-          let src_end = src_start + width as usize;
+          let src_start = (rect.y as usize + row) * atlas_row_bytes + rect_x_bytes;
+          let src_end = src_start + row_bytes;
           if src_end > atlas.data.len() {
             continue;
           }
           let dst_start = row * row_pitch;
-          upload_bytes[dst_start..dst_start + width as usize].copy_from_slice(&atlas.data[src_start..src_end]);
+          upload_bytes[dst_start..dst_start + row_bytes].copy_from_slice(&atlas.data[src_start..src_end]);
         }
 
         let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
@@ -2777,7 +2789,7 @@ impl Dx12State {
             PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
               Offset: 0,
               Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
-                Format: DXGI_FORMAT_R8_UNORM,
+                Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
                 Width: width,
                 Height: height,
                 Depth: 1,

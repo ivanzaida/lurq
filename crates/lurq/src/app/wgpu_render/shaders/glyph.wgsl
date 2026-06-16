@@ -1,7 +1,6 @@
-// Glyph pipeline: instanced textured quads. The atlas is a single-
-// channel `R8Unorm` mask; each glyph quad samples it and multiplies by
-// the per-instance color (RGB + alpha). Premultiplied-alpha blending is
-// done by the pipeline blend state.
+// Glyph pipeline: instanced textured quads. The atlas stores RGBA pixels.
+// Monochrome glyphs use white RGB plus alpha coverage and are tinted by the
+// per-instance color. Color glyphs use their atlas RGB directly.
 
 // Per-clip-range uniform block; mirrors quad.wgsl's `Globals`. The
 // fragment stage uses `clip_*` to discard glyphs that fall outside
@@ -62,6 +61,7 @@ struct VsIn {
     @location(6) transform: vec4<f32>, // 2x2 matrix: a, b, c, d
     @location(7) xf_origin: vec2<f32>, // transform origin relative to rect top-left
     @location(8) sharpness: f32,
+    @location(9) color_glyph: f32,
 }
 
 struct VsOut {
@@ -69,6 +69,7 @@ struct VsOut {
     @location(0) color: vec4<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) sharpness: f32,
+    @location(3) color_glyph: f32,
 }
 
 @vertex
@@ -90,6 +91,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.color = in.color;
     out.uv = uv;
     out.sharpness = in.sharpness;
+    out.color_glyph = in.color_glyph;
     return out;
 }
 
@@ -114,7 +116,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // Instance colors arrive in linear space and are written to an sRGB
     // surface, matching the quad pipeline.
-    var coverage = textureSample(atlas, atlas_sampler, in.uv).r;
+    let sample = textureSample(atlas, atlas_sampler, in.uv);
+    if (in.color_glyph > 0.5) {
+        return vec4<f32>(sample.rgb, sample.a * in.color.a * clip_alpha);
+    }
+
+    var coverage = sample.a;
     coverage = clamp((coverage - 0.5) * max(in.sharpness, 1.0) + 0.5, 0.0, 1.0);
     return vec4<f32>(in.color.rgb, in.color.a * coverage * clip_alpha);
 }

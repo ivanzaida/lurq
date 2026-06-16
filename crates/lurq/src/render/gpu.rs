@@ -44,6 +44,7 @@ pub struct GlyphInstance {
   pub transform: [f32; 4],
   pub xf_origin: [f32; 2],
   pub sharpness: f32,
+  pub color_glyph: f32,
 }
 
 #[cfg(feature = "image")]

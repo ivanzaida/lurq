@@ -363,6 +363,26 @@ This benchmark places one large `Text` node inside normal column flow. The verti
 
 The tight-constraint measurement skip handles fixed-size clipped text, but it should not be silently reused for normal flow. Reducing this case safely needs an explicit lazy/estimated layout model or an overflow rule that says exact child height is not needed.
 
+### Color Glyph Atlas
+
+Changed the glyph atlas from an alpha-only `R8` texture to RGBA so Swash color glyphs, including emoji, keep their source pixels instead of being converted to an alpha mask and tinted with the current text color. Monochrome glyphs store white RGB plus alpha coverage and still use the text style color in the shader.
+
+This touches both render backends:
+
+- WGPU uses `Rgba8UnormSrgb` for the glyph atlas and reports staged upload bytes using RGBA row sizes.
+- DX12 uses `DXGI_FORMAT_R8G8B8A8_UNORM_SRGB` for the glyph atlas and copies RGBA dirty rect rows.
+
+Short-run CPU benchmark tradeoff after avoiding intermediate RGBA allocation per glyph:
+
+| Case | After RGBA atlas |
+| --- | ---: |
+| `cold_readme_markdown_realistic_viewport/all` | ~6.2 ms |
+| `warm_readme_markdown_realistic_viewport/all` | ~32-37 us |
+| `cold_long_text_realistic_viewport/all` | ~4.6 ms |
+| `warm_long_text_realistic_viewport/all` | ~25.7 us |
+
+The cold path is expectedly higher because atlas rows are now four bytes per pixel. The change fixes color glyph correctness; a future optimization could split monochrome and color glyphs into separate atlas formats if the extra cold cost matters.
+
 ### Empty Glyph Miss Cache Experiment
 
 Tried caching glyph cache keys that produced no Swash image or zero-sized placements. In the README profile this reduced Swash requests from 560 to 394, but did not reduce measured Swash time.

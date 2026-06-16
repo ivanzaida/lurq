@@ -1,7 +1,8 @@
+#[cfg(test)]
+use std::borrow::Cow;
 #[cfg(feature = "perf_profile")]
 use std::time::Instant;
 use std::{
-  borrow::Cow,
   collections::{hash_map::DefaultHasher, HashMap},
   hash::{Hash, Hasher},
   path::Path,
@@ -29,6 +30,7 @@ use crate::{
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
 const GLYPH_ATLAS_PADDING: u32 = 2;
+const GLYPH_ATLAS_BYTES_PER_PIXEL: usize = 4;
 const DIRTY_RECT_MAX_HORIZONTAL_GAP: u32 = GLYPH_ATLAS_PADDING * 4;
 const DIRTY_RECT_MERGE_WASTE_NUMERATOR: u64 = 3;
 const DIRTY_RECT_MERGE_WASTE_DENOMINATOR: u64 = 2;
@@ -977,6 +979,7 @@ impl GlyphEngine {
             atlas_y: packed.y,
             width: packed.width,
             height: packed.height,
+            is_color: packed.is_color,
           }
         } else {
           let x_offset = glyph.font_size * glyph.x_offset;
@@ -999,6 +1002,7 @@ impl GlyphEngine {
             atlas_y: packed.y,
             width: packed.width,
             height: packed.height,
+            is_color: packed.is_color,
           }
         };
 
@@ -1161,6 +1165,7 @@ impl GlyphEngine {
             atlas_y: packed.y,
             width: packed.width,
             height: packed.height,
+            is_color: packed.is_color,
           }
         } else {
           let x_offset = glyph.font_size * glyph.x_offset;
@@ -1183,6 +1188,7 @@ impl GlyphEngine {
             atlas_y: packed.y,
             width: packed.width,
             height: packed.height,
+            is_color: packed.is_color,
           }
         };
 
@@ -1250,6 +1256,7 @@ impl GlyphEngine {
         transform: [1.0, 0.0, 0.0, 1.0],
         transform_origin: [0.0, 0.0],
         sharpness: 1.0,
+        color_glyph: packed.is_color,
         clip: crate::layout::quad::ClipRect::default(),
       });
     }
@@ -1285,12 +1292,9 @@ impl GlyphEngine {
       return None;
     }
 
-    let width = image.placement.width;
-    let height = image.placement.height;
-    let mask = glyph_coverage_mask(&image);
     #[cfg(feature = "perf_profile")]
     let atlas_pack_start = Instant::now();
-    let (x, y, width, height) = self.atlas_packer.pack_pixels(mask.as_ref(), width, height);
+    let (x, y, width, height, is_color) = self.atlas_packer.pack_image(&image);
     #[cfg(feature = "perf_profile")]
     {
       self.profile.atlas_pack += atlas_pack_start.elapsed();
@@ -1303,6 +1307,7 @@ impl GlyphEngine {
       height,
       left: image.placement.left - GLYPH_ATLAS_PADDING as i32,
       top: image.placement.top + GLYPH_ATLAS_PADDING as i32,
+      is_color,
     };
     self.atlas_entries.insert(cache_key, packed);
     self.glyph_misses += 1;
@@ -1357,13 +1362,9 @@ impl GlyphEngine {
       return None;
     }
 
-    let mask = glyph_coverage_mask(&image);
     #[cfg(feature = "perf_profile")]
     let atlas_pack_start = Instant::now();
-    let (x, y, width, height) =
-      self
-        .atlas_packer
-        .pack_pixels(mask.as_ref(), image.placement.width, image.placement.height);
+    let (x, y, width, height, is_color) = self.atlas_packer.pack_image(&image);
     #[cfg(feature = "perf_profile")]
     {
       self.profile.atlas_pack += atlas_pack_start.elapsed();
@@ -1376,6 +1377,7 @@ impl GlyphEngine {
       height,
       left: image.placement.left - GLYPH_ATLAS_PADDING as i32,
       top: image.placement.top + GLYPH_ATLAS_PADDING as i32,
+      is_color,
     };
     self.transformed_atlas_entries.insert(key, packed);
     self.glyph_misses += 1;
@@ -1537,6 +1539,7 @@ impl GlyphEngine {
           atlas_y: packed.y,
           width: packed.width,
           height: packed.height,
+          is_color: packed.is_color,
         },
         color: glyph.color,
       });
@@ -1729,6 +1732,7 @@ impl GlyphEngine {
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
+      color_glyph: packed.is_color,
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
@@ -1849,6 +1853,7 @@ struct PackedGlyph {
   height: u32,
   left: i32,
   top: i32,
+  is_color: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1859,6 +1864,7 @@ struct CachedGlyph {
   atlas_y: u32,
   width: u32,
   height: u32,
+  is_color: bool,
 }
 
 #[derive(Clone)]
@@ -2035,6 +2041,7 @@ fn append_glyph_cmds_from_cached(
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
+      color_glyph: glyph.is_color,
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
@@ -2091,6 +2098,7 @@ fn append_rich_glyph_cmds_from_cached(
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
+      color_glyph: glyph.is_color,
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
@@ -2117,6 +2125,7 @@ fn transformed_glyph_origin(
   )
 }
 
+#[cfg(test)]
 fn glyph_coverage_mask(image: &SwashImage) -> Cow<'_, [u8]> {
   match image.content {
     SwashContent::Mask => Cow::Borrowed(&image.data),
@@ -2131,6 +2140,55 @@ fn glyph_coverage_mask(image: &SwashImage) -> Cow<'_, [u8]> {
         })
         .collect::<Vec<_>>(),
     ),
+  }
+}
+
+#[cfg(test)]
+fn glyph_atlas_pixels(image: &SwashImage) -> (Cow<'_, [u8]>, bool) {
+  match image.content {
+    SwashContent::Color => (Cow::Borrowed(&image.data), true),
+    SwashContent::Mask => (Cow::Owned(alpha_to_rgba(&image.data)), false),
+    SwashContent::SubpixelMask => {
+      let alpha = image
+        .data
+        .chunks_exact(3)
+        .map(|rgb| {
+          let coverage = rgb[0] as u16 + rgb[1] as u16 + rgb[2] as u16;
+          (coverage / 3) as u8
+        })
+        .collect::<Vec<_>>();
+      (Cow::Owned(alpha_to_rgba(&alpha)), false)
+    }
+  }
+}
+
+#[cfg(test)]
+fn alpha_to_rgba(alpha: &[u8]) -> Vec<u8> {
+  let mut rgba = Vec::with_capacity(alpha.len() * 4);
+  for coverage in alpha {
+    rgba.extend_from_slice(&[255, 255, 255, *coverage]);
+  }
+  rgba
+}
+
+fn write_alpha_row_as_rgba(data: &mut [u8], dst_start: usize, alpha: &[u8]) {
+  for (index, coverage) in alpha.iter().enumerate() {
+    let dst = dst_start + index * GLYPH_ATLAS_BYTES_PER_PIXEL;
+    if dst + 4 > data.len() {
+      break;
+    }
+    data[dst..dst + 4].copy_from_slice(&[255, 255, 255, *coverage]);
+  }
+}
+
+fn write_subpixel_row_as_rgba(data: &mut [u8], dst_start: usize, subpixel: &[u8]) {
+  for (index, rgb) in subpixel.chunks_exact(3).enumerate() {
+    let dst = dst_start + index * GLYPH_ATLAS_BYTES_PER_PIXEL;
+    if dst + 4 > data.len() {
+      break;
+    }
+    let coverage = (rgb[0] as u16 + rgb[1] as u16 + rgb[2] as u16) / 3;
+    data[dst..dst + 4].copy_from_slice(&[255, 255, 255, coverage as u8]);
   }
 }
 
@@ -2173,7 +2231,7 @@ impl AtlasPacker {
     let width = 1024;
     let height = 1024;
     Self {
-      data: vec![0u8; (width * height) as usize],
+      data: vec![0u8; (width * height) as usize * GLYPH_ATLAS_BYTES_PER_PIXEL],
       width,
       height,
       cursor_x: 0,
@@ -2198,7 +2256,65 @@ impl AtlasPacker {
     (u0, v0, u1, v1)
   }
 
+  #[cfg(test)]
   fn pack_pixels(&mut self, glyph_data: &[u8], gw: u32, gh: u32) -> (u32, u32, u32, u32) {
+    let (x0, y0, reserved_width, reserved_height) = self.reserve_pixels(gw, gh);
+    let padding = GLYPH_ATLAS_PADDING;
+
+    for row in 0..gh {
+      let src_start = (row * gw) as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+      let src_end = src_start + gw as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+      let dst_start = ((y0 + padding + row) * self.width + x0 + padding) as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+      let dst_end = dst_start + gw as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+      if src_end <= glyph_data.len() && dst_end <= self.data.len() {
+        self.data[dst_start..dst_end].copy_from_slice(&glyph_data[src_start..src_end]);
+      }
+    }
+
+    self.record_packed_rect(x0, y0, reserved_width, reserved_height);
+    (x0, y0, reserved_width, reserved_height)
+  }
+
+  fn pack_image(&mut self, image: &SwashImage) -> (u32, u32, u32, u32, bool) {
+    let gw = image.placement.width;
+    let gh = image.placement.height;
+    let (x0, y0, reserved_width, reserved_height) = self.reserve_pixels(gw, gh);
+    let padding = GLYPH_ATLAS_PADDING;
+    let is_color = matches!(image.content, SwashContent::Color);
+
+    for row in 0..gh {
+      let dst_start = ((y0 + padding + row) * self.width + x0 + padding) as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+      match image.content {
+        SwashContent::Color => {
+          let src_start = (row * gw) as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+          let src_end = src_start + gw as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+          let dst_end = dst_start + gw as usize * GLYPH_ATLAS_BYTES_PER_PIXEL;
+          if src_end <= image.data.len() && dst_end <= self.data.len() {
+            self.data[dst_start..dst_end].copy_from_slice(&image.data[src_start..src_end]);
+          }
+        }
+        SwashContent::Mask => {
+          let src_start = (row * gw) as usize;
+          let src_end = src_start + gw as usize;
+          if src_end <= image.data.len() {
+            write_alpha_row_as_rgba(&mut self.data, dst_start, &image.data[src_start..src_end]);
+          }
+        }
+        SwashContent::SubpixelMask => {
+          let src_start = (row * gw) as usize * 3;
+          let src_end = src_start + gw as usize * 3;
+          if src_end <= image.data.len() {
+            write_subpixel_row_as_rgba(&mut self.data, dst_start, &image.data[src_start..src_end]);
+          }
+        }
+      }
+    }
+
+    self.record_packed_rect(x0, y0, reserved_width, reserved_height);
+    (x0, y0, reserved_width, reserved_height, is_color)
+  }
+
+  fn reserve_pixels(&mut self, gw: u32, gh: u32) -> (u32, u32, u32, u32) {
     let padding = GLYPH_ATLAS_PADDING;
     let reserved_width = gw + padding * 2;
     let reserved_height = gh + padding * 2;
@@ -2211,7 +2327,9 @@ impl AtlasPacker {
 
     if self.cursor_y + reserved_height > self.height {
       let new_height = self.height * 2;
-      self.data.resize((self.width * new_height) as usize, 0);
+      self
+        .data
+        .resize((self.width * new_height) as usize * GLYPH_ATLAS_BYTES_PER_PIXEL, 0);
       self.height = new_height;
     }
 
@@ -2220,18 +2338,12 @@ impl AtlasPacker {
     let x0 = padded_x;
     let y0 = padded_y;
 
-    for row in 0..gh {
-      let src_start = (row * gw) as usize;
-      let src_end = src_start + gw as usize;
-      let dst_start = ((padded_y + padding + row) * self.width + padded_x + padding) as usize;
-      let dst_end = dst_start + gw as usize;
-      if src_end <= glyph_data.len() && dst_end <= self.data.len() {
-        self.data[dst_start..dst_end].copy_from_slice(&glyph_data[src_start..src_end]);
-      }
-    }
-
     self.cursor_x += reserved_width;
     self.row_height = self.row_height.max(reserved_height);
+    (x0, y0, reserved_width, reserved_height)
+  }
+
+  fn record_packed_rect(&mut self, x0: u32, y0: u32, reserved_width: u32, reserved_height: u32) {
     self.version += 1;
     self.dirty_rects.push(GlyphAtlasDirtyRect {
       x: x0,
@@ -2239,8 +2351,6 @@ impl AtlasPacker {
       width: reserved_width,
       height: reserved_height,
     });
-
-    (x0, y0, reserved_width, reserved_height)
   }
 
   pub(crate) fn to_atlas(&mut self) -> GlyphAtlas {
@@ -2333,20 +2443,21 @@ fn dirty_rect_area(rect: GlyphAtlasDirtyRect) -> u64 {
 
 #[cfg(test)]
 mod tests {
-  use cosmic_text::{Attrs, Family, Shaping};
+  use cosmic_text::{Attrs, Family, Placement, Shaping, SwashContent, SwashImage};
   use swash::scale::ScaleContext;
 
   use super::{
-    coalesce_dirty_rects, glyph_coverage_mask, is_bounded_text_width, render_glyph_image, swash_transform_from_screen,
-    AtlasPacker, GlyphAtlasDirtyRect, GlyphEngine, GLYPH_ATLAS_PADDING,
+    coalesce_dirty_rects, glyph_atlas_pixels, glyph_coverage_mask, is_bounded_text_width, render_glyph_image,
+    swash_transform_from_screen, AtlasPacker, GlyphAtlasDirtyRect, GlyphEngine, GLYPH_ATLAS_BYTES_PER_PIXEL,
+    GLYPH_ATLAS_PADDING,
   };
   use crate::{layout::quad::ClipRect, node::transform::Transform2D};
 
   #[test]
   fn atlas_packer_leaves_padding_between_glyph_regions() {
     let mut packer = AtlasPacker::new();
-    let (_, _, first_u1, _) = packer.pack(&[255; 4], 2, 2);
-    let (second_u0, ..) = packer.pack(&[255; 4], 2, 2);
+    let (_, _, first_u1, _) = packer.pack(&[255; 16], 2, 2);
+    let (second_u0, ..) = packer.pack(&[255; 16], 2, 2);
 
     let first_x1 = (first_u1 * packer.width as f32).round() as u32;
     let second_x0 = (second_u0 * packer.width as f32).round() as u32;
@@ -2357,20 +2468,73 @@ mod tests {
   #[test]
   fn atlas_packer_leaves_transparent_glyph_padding() {
     let mut packer = AtlasPacker::new();
-    let (x, y, width, height) = packer.pack_pixels(&[10, 20, 30, 40], 2, 2);
+    let pixels = [
+      10, 11, 12, 13, //
+      20, 21, 22, 23, //
+      30, 31, 32, 33, //
+      40, 41, 42, 43,
+    ];
+    let (x, y, width, height) = packer.pack_pixels(&pixels, 2, 2);
     let p = GLYPH_ATLAS_PADDING as usize;
     let stride = packer.width as usize;
+    let pixel = |x: usize, y: usize| (y * stride + x) * GLYPH_ATLAS_BYTES_PER_PIXEL;
 
     assert_eq!(
       (x, y, width, height),
       (0, 0, 2 + GLYPH_ATLAS_PADDING * 2, 2 + GLYPH_ATLAS_PADDING * 2)
     );
     assert_eq!(packer.data[0], 0);
-    assert_eq!(packer.data[p * stride + p], 10);
-    assert_eq!(packer.data[p * stride + p + 1], 20);
-    assert_eq!(packer.data[(p + 1) * stride + p], 30);
-    assert_eq!(packer.data[(p + 1) * stride + p + 1], 40);
-    assert_eq!(packer.data[(p + 2) * stride + p + 2], 0);
+    assert_eq!(&packer.data[pixel(p, p)..pixel(p, p) + 4], &[10, 11, 12, 13]);
+    assert_eq!(&packer.data[pixel(p + 1, p)..pixel(p + 1, p) + 4], &[20, 21, 22, 23]);
+    assert_eq!(&packer.data[pixel(p, p + 1)..pixel(p, p + 1) + 4], &[30, 31, 32, 33]);
+    assert_eq!(
+      &packer.data[pixel(p + 1, p + 1)..pixel(p + 1, p + 1) + 4],
+      &[40, 41, 42, 43]
+    );
+    assert_eq!(
+      &packer.data[pixel(p + 2, p + 2)..pixel(p + 2, p + 2) + 4],
+      &[0, 0, 0, 0]
+    );
+  }
+
+  #[test]
+  fn color_glyph_atlas_pixels_preserve_rgba() {
+    let image = SwashImage {
+      content: SwashContent::Color,
+      placement: Placement {
+        left: 0,
+        top: 0,
+        width: 1,
+        height: 1,
+      },
+      data: vec![12, 34, 56, 78],
+      ..SwashImage::default()
+    };
+
+    let (pixels, is_color) = glyph_atlas_pixels(&image);
+
+    assert!(is_color);
+    assert_eq!(pixels.as_ref(), &[12, 34, 56, 78]);
+  }
+
+  #[test]
+  fn mask_glyph_atlas_pixels_store_alpha_coverage() {
+    let image = SwashImage {
+      content: SwashContent::Mask,
+      placement: Placement {
+        left: 0,
+        top: 0,
+        width: 2,
+        height: 1,
+      },
+      data: vec![10, 240],
+      ..SwashImage::default()
+    };
+
+    let (pixels, is_color) = glyph_atlas_pixels(&image);
+
+    assert!(!is_color);
+    assert_eq!(pixels.as_ref(), &[255, 255, 255, 10, 255, 255, 255, 240]);
   }
 
   #[test]

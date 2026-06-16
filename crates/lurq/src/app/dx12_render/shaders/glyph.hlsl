@@ -7,7 +7,7 @@ cbuffer Globals : register(b0)
   float4 clip_active;
 };
 
-Texture2D<float> atlas_texture : register(t0);
+Texture2D<float4> atlas_texture : register(t0);
 SamplerState atlas_sampler : register(s0);
 
 struct VsIn
@@ -21,6 +21,7 @@ struct VsIn
   float4 transform : TEXCOORD6;
   float2 xf_origin : TEXCOORD7;
   float sharpness : TEXCOORD8;
+  float color_glyph : TEXCOORD9;
 };
 
 struct VsOut
@@ -29,6 +30,7 @@ struct VsOut
   float4 color : COLOR0;
   float2 uv : TEXCOORD0;
   float sharpness : TEXCOORD1;
+  float color_glyph : TEXCOORD2;
 };
 
 VsOut vs_main(VsIn input)
@@ -47,6 +49,7 @@ VsOut vs_main(VsIn input)
   output.color = input.color;
   output.uv = lerp(input.uv_min, input.uv_max, input.corner);
   output.sharpness = input.sharpness;
+  output.color_glyph = input.color_glyph;
   return output;
 }
 
@@ -103,7 +106,13 @@ float4 ps_main(VsOut input) : SV_TARGET
     discard;
   }
 
-  float coverage = atlas_texture.Sample(atlas_sampler, input.uv);
+  float4 sample = atlas_texture.Sample(atlas_sampler, input.uv);
+  if (input.color_glyph > 0.5)
+  {
+    return float4(sample.rgb, sample.a * input.color.a * clip_alpha_value);
+  }
+
+  float coverage = sample.a;
   coverage = saturate((coverage - 0.5) * max(input.sharpness, 1.0) + 0.5);
   return float4(input.color.rgb, input.color.a * coverage * clip_alpha_value);
 }

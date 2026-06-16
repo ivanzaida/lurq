@@ -166,6 +166,7 @@ pub struct GlyphCmd {
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
   pub sharpness: f32,
+  pub color_glyph: bool,
   pub clip: ClipRect,
 }
 

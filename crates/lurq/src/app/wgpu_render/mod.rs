@@ -1095,7 +1095,7 @@ impl RenderEngine for WgpuRenderEngine {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
       });
@@ -1127,7 +1127,7 @@ impl RenderEngine for WgpuRenderEngine {
     if atlas_recreated || self.atlas_version != atlas.version {
       let upload_full_atlas = atlas_recreated || atlas.dirty_rects.is_empty();
       if upload_full_atlas {
-        _atlas_upload_bytes = wgpu_staged_texture_bytes(atlas.width, atlas.height);
+        _atlas_upload_bytes = wgpu_staged_texture_bytes(atlas.width * 4, atlas.height);
         _atlas_upload_rects = 1;
         _atlas_full_uploads = 1;
         queue.write_texture(
@@ -1140,7 +1140,7 @@ impl RenderEngine for WgpuRenderEngine {
           &atlas.data,
           wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(atlas.width),
+            bytes_per_row: Some(atlas.width * 4),
             rows_per_image: Some(atlas.height),
           },
           wgpu::Extent3d {
@@ -1156,12 +1156,15 @@ impl RenderEngine for WgpuRenderEngine {
           }
           let width = rect.width.min(atlas.width - rect.x);
           let height = rect.height.min(atlas.height - rect.y);
-          let start = (rect.y * atlas.width + rect.x) as usize;
-          let end = start + ((height - 1) * atlas.width + width) as usize;
+          let row_bytes = atlas.width as usize * 4;
+          let rect_x_bytes = rect.x as usize * 4;
+          let width_bytes = width as usize * 4;
+          let start = rect.y as usize * row_bytes + rect_x_bytes;
+          let end = start + (height as usize - 1) * row_bytes + width_bytes;
           if end > atlas.data.len() {
             continue;
           }
-          _atlas_upload_bytes += wgpu_staged_texture_bytes(width, height);
+          _atlas_upload_bytes += wgpu_staged_texture_bytes(width * 4, height);
           _atlas_upload_rects += 1;
           queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -1177,7 +1180,7 @@ impl RenderEngine for WgpuRenderEngine {
             &atlas.data[start..end],
             wgpu::TexelCopyBufferLayout {
               offset: 0,
-              bytes_per_row: Some(atlas.width),
+              bytes_per_row: Some(atlas.width * 4),
               rows_per_image: Some(height),
             },
             wgpu::Extent3d {
@@ -1303,6 +1306,7 @@ impl RenderEngine for WgpuRenderEngine {
         transform: g.transform,
         xf_origin: g.transform_origin,
         sharpness: g.sharpness,
+        color_glyph: if g.color_glyph { 1.0 } else { 0.0 },
       }));
     let _glyph_upload_start = profile_scope!();
     let glyph_instance_buf = self
@@ -2405,8 +2409,8 @@ fn scissor_rect(clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> Option
   }
 }
 
-fn wgpu_staged_texture_bytes(width: u32, height: u32) -> usize {
-  align_up_usize(width as usize, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize) * height as usize
+fn wgpu_staged_texture_bytes(row_bytes: u32, height: u32) -> usize {
+  align_up_usize(row_bytes as usize, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize) * height as usize
 }
 
 fn align_up_usize(value: usize, alignment: usize) -> usize {
