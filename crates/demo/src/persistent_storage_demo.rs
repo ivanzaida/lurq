@@ -1,13 +1,9 @@
 use lurq::{
-  app::{
-    component::Component,
-    ctx::{CollisionStrategy, Ctx, Overlay, Placement},
-    events::MouseEvent,
-  },
-  components::{Checkbox, Column, Row, TextInput, TextOverflow},
-  core::{ElementRef, Signal},
+  app::{component::Component, ctx::Ctx, events::MouseEvent},
+  components::{Checkbox, Column, Row, Stack, TextInput, TextOverflow},
+  core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, HitTestBehavior, color::Color, dimension::Dimension},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
   persistent_storage::{PersistentStorage, PersistentStorageSnapshotEntry, PersistentWrite},
 };
 
@@ -307,17 +303,15 @@ fn snapshot_header() -> Element {
 }
 
 fn snapshot_row(
-  ctx: &mut Ctx,
+  _ctx: &mut Ctx,
   entry: PersistentStorageSnapshotEntry,
   active_type_tooltip: Signal<Option<String>>,
 ) -> Element {
-  let type_anchor = ctx.element_ref();
-  let tooltip_open = active_type_tooltip.get().as_deref() == Some(entry.full_type_name.as_str());
   Row::new()
     .spacing(8.0)
     .align_items(Alignment::Center)
     .child(single_line_cell(&entry.key, 2.2, FontWeight::Medium, TEXT))
-    .child(type_cell(&entry, type_anchor.clone(), active_type_tooltip))
+    .child(type_cell(&entry, active_type_tooltip))
     .child(wrapping_cell(&entry.value, 2.6, FontWeight::Medium, TEXT))
     .child(single_line_cell(
       &entry.byte_len.to_string(),
@@ -325,7 +319,6 @@ fn snapshot_row(
       FontWeight::Medium,
       TEXT_MUTED,
     ))
-    .child(type_tooltip_overlay(&entry, type_anchor, tooltip_open))
     .width(FILL_WIDTH)
     .min_height(28.0)
     .padding_vertical(4.0)
@@ -334,11 +327,7 @@ fn snapshot_row(
     .into()
 }
 
-fn type_cell(
-  entry: &PersistentStorageSnapshotEntry,
-  anchor: ElementRef,
-  active_type_tooltip: Signal<Option<String>>,
-) -> Element {
+fn type_cell(entry: &PersistentStorageSnapshotEntry, active_type_tooltip: Signal<Option<String>>) -> Element {
   let show_tooltip = entry.full_type_name != entry.type_name;
   let should_log = entry.key == PROFILE_KEY;
   let full_type_name = entry.full_type_name.clone();
@@ -346,7 +335,7 @@ fn type_cell(
   if show_tooltip && should_log {
     log_tooltip("demo", "render", &entry.type_name, &entry.full_type_name, is_active);
   }
-  let mut cell = Row::new()
+  let mut label = Row::new()
     .align_items(Alignment::Center)
     .child(
       text(&entry.type_name, 12.0, FontWeight::Medium, TEXT_MUTED)
@@ -355,13 +344,12 @@ fn type_cell(
         .nowrap()
         .text_overflow(TextOverflow::Elipsis),
     )
-    .ref_element(anchor.clone())
-    .flex(1.0)
-    .min_height(22.0)
+    .width(FILL_WIDTH)
+    .height(22.0)
     .hovered(|style| style.background("#273449"));
 
   if show_tooltip {
-    cell = cell
+    label = label
       .on_mouse_enter({
         let active_type_tooltip = active_type_tooltip.clone();
         let full_type_name = full_type_name.clone();
@@ -385,25 +373,18 @@ fn type_cell(
           }
           active_type_tooltip.set(None);
         }
-      })
+      });
+  }
+
+  let mut cell = Stack::new().child(label).flex(1.0).min_height(22.0).overflow_visible();
+  if show_tooltip && is_active {
+    if should_log {
+      log_tooltip("demo", "inline-tooltip", &entry.type_name, &entry.full_type_name, true);
+    }
+    cell = cell.child(type_tooltip(&entry.full_type_name).absolute_position(0.0, -36.0));
   }
 
   cell.into()
-}
-
-fn type_tooltip_overlay(entry: &PersistentStorageSnapshotEntry, anchor: ElementRef, open: bool) -> Element {
-  if entry.full_type_name == entry.type_name {
-    return Element::new();
-  }
-
-  Overlay::new(type_tooltip(&entry.full_type_name))
-    .anchor(anchor)
-    .open_when(open)
-    .placement(Placement::TopStart)
-    .offset(0.0, 6.0)
-    .collision(CollisionStrategy::FlipThenClamp)
-    .hit_test(HitTestBehavior::ContentOnly)
-    .into()
 }
 
 fn log_tooltip(scope: &str, event: &str, type_name: &str, full_type_name: &str, open: bool) {
@@ -421,7 +402,7 @@ fn log_tooltip(scope: &str, event: &str, type_name: &str, full_type_name: &str, 
   );
 }
 
-fn type_tooltip(full_type_name: &str) -> Element {
+fn type_tooltip(full_type_name: &str) -> Row {
   Row::new()
     .key("persistent-storage-type-tooltip")
     .child(
@@ -435,7 +416,6 @@ fn type_tooltip(full_type_name: &str) -> Element {
     .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .rounded(6.0)
-    .into()
 }
 
 fn single_line_cell(content: &str, flex: f32, weight: FontWeight, color: &str) -> Element {

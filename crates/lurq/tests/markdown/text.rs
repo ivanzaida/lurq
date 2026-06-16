@@ -8,12 +8,14 @@ use lurq::{
     events::MouseButton,
     theme::{MarkdownInlineStyle, ThemeMarkdown},
   },
-  components::{Markdown, MarkdownProps, Text},
+  components::{Column, Markdown, MarkdownProps, Row, ScrollVertical, Text},
   layout::{
+    Alignment, Constraints, Size,
+    layout_result::LayoutResult,
     quad::QuadContent,
     text_style::{FontStyle, FontWeight, TextStyle},
   },
-  node::color::Color,
+  node::{ElementRef, color::Color, dimension::Dimension},
 };
 
 use crate::support::{TestSurface, pointer_click};
@@ -75,6 +77,187 @@ fn text_without_markdown_renders_source_text() {
       QuadContent::Text { text, .. } if text == "Hello **bold**"
     )
   }));
+}
+
+struct ChatMarkdownRoot;
+
+impl Component for ChatMarkdownRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<lurq::node::Element> {
+    let messages = Column::new()
+      .width(Dimension::Pct(100.0))
+      .spacing(0.0)
+      .child(Row::new().width(Dimension::Pct(100.0)).height(24.0))
+      .child(chat_markdown_timeline_row(
+        ctx,
+        "Queued: Нурминский - Щемит в душе тоска",
+      ))
+      .child(chat_markdown_timeline_row(ctx, "Queued: Another short message"))
+      .child(Row::new().width(Dimension::Pct(100.0)).height(6.0));
+
+    Column::new()
+      .width(Dimension::Pct(100.0))
+      .height(Dimension::Pct(100.0))
+      .child(
+        ScrollVertical::new(messages)
+          .width(Dimension::Pct(100.0))
+          .height(Dimension::Pct(100.0))
+          .flex(1.0),
+      )
+  }
+}
+
+struct ChatMarkdownUpdateRoot;
+
+impl Component for ChatMarkdownUpdateRoot {
+  type Props = String;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<lurq::node::Element> {
+    let text = ctx.props::<Self::Props>().clone();
+    Column::new()
+      .width(Dimension::Pct(100.0))
+      .height(Dimension::Pct(100.0))
+      .child(chat_markdown_timeline_row(ctx, &text))
+  }
+}
+
+fn chat_markdown_timeline_row(ctx: &mut Ctx, text: &str) -> lurq::node::Element {
+  Column::new()
+    .width(Dimension::Pct(100.0))
+    .padding_horizontal(24.0)
+    .padding_bottom(18.0)
+    .child(chat_markdown_message(ctx, text))
+    .into()
+}
+
+fn chat_markdown_message(ctx: &mut Ctx, text: &str) -> lurq::node::Element {
+  let style = TextStyle {
+    font_size: 14.0,
+    line_height: 1.5,
+    color: Color::from_hex("#c7c2ba"),
+    ..TextStyle::default()
+  };
+
+  Row::new()
+    .width(Dimension::Pct(100.0))
+    .align_items(Alignment::Start)
+    .spacing(12.0)
+    .child(Text::new("MU").width(36.0).height(36.0))
+    .child(
+      Column::new()
+        .width(Dimension::Pct(100.0))
+        .min_width(0.0)
+        .flex(1.0)
+        .spacing(4.0)
+        .child(Row::new().child(Text::new("Music Bot")).child(Text::new("22:28")))
+        .child(
+          Column::new().width(Dimension::Pct(100.0)).min_width(0.0).clip().child(
+            ctx.mount::<Markdown>(
+              MarkdownProps::styled(text, style)
+                .width(Dimension::Pct(100.0))
+                .selectable(true),
+            ),
+          ),
+        ),
+    )
+    .into()
+}
+
+#[test]
+fn markdown_plain_text_keeps_intrinsic_height_in_chat_like_layout() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<ChatMarkdownRoot>(&mut app, ());
+
+  tree.set_layout_constraints_override(Some(Constraints::tight(Size::new(1000.0, 300.0))));
+  tree.pass(&mut app, &TestSurface);
+  let layout = tree.last_layout().cloned().expect("layout should be available");
+  tree.set_layout_constraints_override(None);
+
+  let root = tree.root().expect("root should be mounted");
+  let layout_height =
+    find_layout_height_for_text(root, &layout, "Queued: Нурминский - Щемит в душе тоска")
+      .expect("markdown text layout should be present");
+
+  assert!(
+    layout_height <= 24.0,
+    "single-line markdown text layout should stay near its 21px line height, got {layout_height}px"
+  );
+
+  let quads = tree.resolve_quads(&layout);
+  let text = quads
+    .iter()
+    .find(|quad| {
+      matches!(
+        &quad.content,
+        QuadContent::Text { text, .. } if text == "Queued: Нурминский - Щемит в душе тоска"
+      )
+    })
+    .expect("markdown text should be rendered");
+
+  assert!(
+    text.height <= 24.0,
+    "single-line markdown text should stay near its 21px line height, got {}px in root layout {}x{}",
+    text.height,
+    layout.size.width,
+    layout.size.height
+  );
+}
+
+#[test]
+fn markdown_plain_text_layout_shrinks_after_source_update() {
+  let mut app = App::new();
+
+  let short = "Queued: Нурминский - Щемит в душе тоска";
+  let long = [
+    "Queued: very long first line that should wrap several times in this chat-like layout",
+    "second line",
+    "third line",
+    "fourth line",
+    "fifth line",
+  ]
+  .join("\n");
+
+  let mut tree = Tree::new();
+  tree.mount_root::<ChatMarkdownUpdateRoot>(&mut app, long);
+  tree.set_layout_constraints_override(Some(Constraints::tight(Size::new(1000.0, 300.0))));
+  tree.pass(&mut app, &TestSurface);
+
+  tree.update_root_props::<ChatMarkdownUpdateRoot>(short.to_owned());
+  tree.pass(&mut app, &TestSurface);
+  let layout = tree.last_layout().cloned().expect("layout should be available");
+  tree.set_layout_constraints_override(None);
+
+  let root = tree.root().expect("root should be mounted");
+  let layout_height = find_layout_height_for_text(root, &layout, short).expect("markdown text layout should be present");
+
+  assert!(
+    layout_height <= 24.0,
+    "updated single-line markdown text layout should shrink to one line, got {layout_height}px"
+  );
+}
+
+fn find_layout_height_for_text(element: ElementRef<'_>, layout: &LayoutResult, text: &str) -> Option<f32> {
+  if element.text_content() == Some(text) {
+    return Some(layout.size.height);
+  }
+
+  for (child, child_layout) in element.children().into_iter().zip(layout.children.iter()) {
+    if let Some(height) = find_layout_height_for_text(child, &child_layout.result, text) {
+      return Some(height);
+    }
+  }
+
+  None
 }
 
 #[test]

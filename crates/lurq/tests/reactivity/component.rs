@@ -299,6 +299,42 @@ impl Component for KeyedForEachLifecycleParent {
   }
 }
 
+struct ManualKeyedMountLifecycleParent {
+  items: Signal<Vec<&'static str>>,
+  mounted: Arc<AtomicUsize>,
+  unmounted: Arc<AtomicUsize>,
+}
+
+impl Component for ManualKeyedMountLifecycleParent {
+  type Props = (
+    Shared<Mutex<Option<Signal<Vec<&'static str>>>>>,
+    Shared<AtomicUsize>,
+    Shared<AtomicUsize>,
+  );
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    let items = ctx.signal(vec!["a", "b", "c"]);
+    *props.0.0.lock().unwrap() = Some(items.clone());
+    Self {
+      items,
+      mounted: props.1.0,
+      unmounted: props.2.0,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let mut column = lurq::components::Column::new();
+    for key in self.items.get() {
+      column = column.child(ctx.mount_keyed::<LifecycleChild>(
+        key,
+        (Shared(self.mounted.clone()), Shared(self.unmounted.clone())),
+      ));
+    }
+    column
+  }
+}
+
 struct RootLifecycle {
   mounted: Arc<AtomicUsize>,
   unmounted: Arc<AtomicUsize>,
@@ -579,6 +615,34 @@ fn for_each_preserves_keyed_child_components_across_reorder() {
   run_pass(&mut rt);
 
   assert_eq!(mounted.load(Ordering::Relaxed), 3);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn mount_keyed_preserves_child_components_across_prepend() {
+  let items = Arc::new(Mutex::new(None));
+  let mounted = Arc::new(AtomicUsize::new(0));
+  let unmounted = Arc::new(AtomicUsize::new(0));
+
+  let mut rt = Tree::new();
+  rt.mount_root::<ManualKeyedMountLifecycleParent>(
+    &mut lurq::app::App::new(),
+    (
+      Shared(items.clone()),
+      Shared(mounted.clone()),
+      Shared(unmounted.clone()),
+    ),
+  );
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 3);
+  assert_eq!(unmounted.load(Ordering::Relaxed), 0);
+
+  items.lock().unwrap().as_ref().unwrap().update(|items| {
+    items.insert(0, "z");
+  });
+  run_pass(&mut rt);
+
+  assert_eq!(mounted.load(Ordering::Relaxed), 4);
   assert_eq!(unmounted.load(Ordering::Relaxed), 0);
 }
 

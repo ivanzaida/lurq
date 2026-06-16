@@ -232,6 +232,10 @@ fn render_inline_block(
     return render_markdown_image(image, &style, theme);
   }
 
+  if let [MarkdownInline::Text(text)] = inlines {
+    return Text::styled(text, style).width(FILL_WIDTH).into();
+  }
+
   if inline_requires_flow(inlines) {
     return render_inline_flow(inlines, style, theme, render_ctx);
   }

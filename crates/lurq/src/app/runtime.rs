@@ -98,6 +98,7 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
 
 trait AnyRootComponent: Send + Sync {
   fn render(&self, ctx: &mut Ctx) -> Element;
+  fn after_layout(&self);
   fn on_mounted(&self);
   fn on_unmounted(&self);
   fn tag_name(&self) -> Arc<str>;
@@ -110,6 +111,10 @@ struct RootComponentWrapper<C: Component> {
 impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
     self.component.render(ctx).into()
+  }
+
+  fn after_layout(&self) {
+    self.component.after_layout();
   }
 
   fn on_mounted(&self) {
@@ -2401,21 +2406,26 @@ impl Tree {
     if let Some(ref drag) = self.dragging_scroll.clone() {
       match evt.kind {
         MouseEventKind::Move => {
+          let previous_scroll_x = drag.state.scroll_x();
           let previous_scroll_y = drag.state.scroll_y();
           let previous_max_scroll_y = (drag.state.content_height() - drag.state.viewport_height()).max(0.0);
           drag.state.drag_to_axis(drag.axis, lx, ly, &drag.state.style());
-          self.dispatch_scroll_handlers_for_node(drag.target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll);
-          self.dispatch_scroll_reach_handlers_for_node(
-            drag.target_id,
-            evt.x,
-            evt.y,
-            0.0,
-            0.0,
-            ScrollPhase::Scroll,
-            previous_scroll_y,
-            previous_max_scroll_y,
-          );
-          self.needs_redraw = true;
+          let moved = drag.state.scroll_x() != previous_scroll_x || drag.state.scroll_y() != previous_scroll_y;
+          if moved {
+            self.dispatch_scroll_handlers_for_node(drag.target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll);
+            self.dispatch_scroll_reach_handlers_for_node(
+              drag.target_id,
+              evt.x,
+              evt.y,
+              0.0,
+              0.0,
+              ScrollPhase::Scroll,
+              previous_scroll_y,
+              previous_max_scroll_y,
+            );
+            self.needs_redraw = true;
+            self.apply_reactive_updates_after_event();
+          }
           return;
         }
         MouseEventKind::Up => {
@@ -3464,6 +3474,9 @@ impl Tree {
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    if !scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y) {
+      return;
+    }
 
     // Fire user handlers before the default auto-scroll so prevent_default
     // can block native scroll behavior.
@@ -4152,6 +4165,13 @@ impl Tree {
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
       }
+      if let (Some(component), Some(ctx)) = (&self.root_component, &self.root_ctx) {
+        component.after_layout();
+        ctx.after_layout_recursive();
+        if ctx.any_dirty() {
+          self.needs_redraw = true;
+        }
+      }
       self.last_layout = Some(layout);
       return true;
     }
@@ -4773,20 +4793,10 @@ fn build_overlays_from_layout_index(
         overlays.push(menu);
       }
       OverlayLayoutRecord::Overlay { reuse_key, spec } => {
-        let debug_storage_tooltip = spec.node.component_key() == Some("persistent-storage-type-tooltip");
-        if debug_storage_tooltip {
-          log_persistent_storage_tooltip_overlay("collected", None, None, None);
-        }
         let Some(anchor) = find_element_record(index, &spec.anchor) else {
-          if debug_storage_tooltip {
-            log_persistent_storage_tooltip_overlay("missing-anchor", None, None, None);
-          }
           continue;
         };
         if anchor.width <= 0.0 || anchor.height <= 0.0 {
-          if debug_storage_tooltip {
-            log_persistent_storage_tooltip_overlay("empty-anchor", Some(anchor), None, None);
-          }
           continue;
         }
         let dismiss_anchor = spec.anchor.clone();
@@ -4810,9 +4820,6 @@ fn build_overlays_from_layout_index(
           theme_changed,
         );
         set_overlay_reuse_key(&mut overlay, reuse_key.as_deref());
-        if debug_storage_tooltip {
-          log_persistent_storage_tooltip_overlay("built", Some(anchor), Some(bounds), None);
-        }
         if let Some(open) = dismiss_signal
           && (dismiss_on_outside_click || dismiss_on_escape)
         {
@@ -4924,7 +4931,6 @@ fn build_overlay_node(
   theme_changed: bool,
 ) -> (Node, ElementRect) {
   let mut node = spec.node;
-  let debug_storage_tooltip = node.component_key() == Some("persistent-storage-type-tooltip");
   if spec.match_anchor_width {
     node = node.width(Dimension::Px(anchor.width));
   }
@@ -4951,19 +4957,6 @@ fn build_overlay_node(
     typography,
     theme_changed,
   );
-  if debug_storage_tooltip {
-    eprintln!(
-      "[persistent-storage-tooltip] runtime=measure anchor=({}, {}, {}, {}) measured=({}, {}) viewport=({}, {})",
-      anchor.x,
-      anchor.y,
-      anchor.width,
-      anchor.height,
-      measured.size.width,
-      measured.size.height,
-      viewport.width,
-      viewport.height
-    );
-  }
   if pending_runtime_layout_dirty {
     invalidate_layout_cache_recursive(&node);
   }
@@ -4977,9 +4970,6 @@ fn build_overlay_node(
     spec.offset_y,
     spec.collision,
   );
-  if debug_storage_tooltip {
-    eprintln!("[persistent-storage-tooltip] runtime=placement placement={placement:?}");
-  }
   let (x, y) = overlay_position(anchor, overlay_size, placement, spec.offset_x, spec.offset_y);
   let (x, y) = if matches!(
     spec.collision,
@@ -5007,28 +4997,6 @@ fn build_overlay_node(
     ),
     bounds,
   )
-}
-
-fn log_persistent_storage_tooltip_overlay(
-  event: &str,
-  anchor: Option<ElementRect>,
-  bounds: Option<ElementRect>,
-  _placement: Option<Placement>,
-) {
-  tracing::info!(
-    target: "lurq::persistent_storage_tooltip",
-    event,
-    anchor_x = anchor.map(|rect| rect.x),
-    anchor_y = anchor.map(|rect| rect.y),
-    anchor_width = anchor.map(|rect| rect.width),
-    anchor_height = anchor.map(|rect| rect.height),
-    bounds_x = bounds.map(|rect| rect.x),
-    bounds_y = bounds.map(|rect| rect.y),
-    bounds_width = bounds.map(|rect| rect.width),
-    bounds_height = bounds.map(|rect| rect.height),
-    "persistent storage tooltip overlay runtime"
-  );
-  eprintln!("[persistent-storage-tooltip] runtime={event} anchor={anchor:?} bounds={bounds:?}");
 }
 
 fn invalidate_layout_cache_recursive(node: &Node) {
@@ -5271,6 +5239,58 @@ fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bo
       | (ScrollDirection::Vertical, ScrollAxis::Vertical)
       | (ScrollDirection::Both, _)
   )
+}
+
+fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32, delta_y: f32) -> bool {
+  let remaining_dx = -delta_x;
+  let remaining_dy = -delta_y;
+
+  if remaining_dx == 0.0 && remaining_dy == 0.0 {
+    return false;
+  }
+
+  for (node, _) in hits {
+    let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() else {
+      continue;
+    };
+
+    if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal)
+      && scroll_axis_delta_can_be_consumed(state, ScrollAxis::Horizontal, remaining_dx)
+    {
+      return true;
+    }
+
+    if scroll_direction_has_axis(*direction, ScrollAxis::Vertical)
+      && scroll_axis_delta_can_be_consumed(state, ScrollAxis::Vertical, remaining_dy)
+    {
+      return true;
+    }
+  }
+
+  false
+}
+
+fn scroll_axis_delta_can_be_consumed(state: &ScrollState, axis: ScrollAxis, delta: f32) -> bool {
+  if delta == 0.0 {
+    return false;
+  }
+
+  match axis {
+    ScrollAxis::Horizontal => {
+      let overflow = state.content_width() - state.viewport_width();
+      let max_scroll_x = overflow.max(0.0);
+      (overflow == 0.0 && delta > 0.0 && state.equal_overflow_scroll_probe_enabled())
+        || (overflow > 0.0 && delta > 0.0 && state.scroll_x() < max_scroll_x)
+        || (delta < 0.0 && state.scroll_x() > 0.0)
+    }
+    ScrollAxis::Vertical => {
+      let overflow = state.content_height() - state.viewport_height();
+      let max_scroll_y = overflow.max(0.0);
+      (overflow == 0.0 && delta > 0.0 && state.equal_overflow_scroll_probe_enabled())
+        || (overflow > 0.0 && delta > 0.0 && state.scroll_y() < max_scroll_y)
+        || (delta < 0.0 && state.scroll_y() > 0.0)
+    }
+  }
 }
 
 #[derive(Clone)]

@@ -7,9 +7,12 @@ description: Constraints, containers, modifiers, alignment, flex, scroll, and te
 
 ## Core Idea
 
-Layout is constraints-based and compositional. Public UI code builds typed components such as `Row`, `Column`, `Text`, and `Rect`, then converts them into the erased `Element` type at runtime/component boundaries. Internally, each `Element` wraps a crate-private node tree made of containers, leaves, and modifier nodes.
+Layout is constraints-based and compositional. Public UI code builds typed components such as `Row`, `Column`, `Text`,
+and `Rect`, then converts them into the erased `Element` type at runtime/component boundaries. Internally, each
+`Element` wraps a crate-private node tree made of containers, leaves, and modifier nodes.
 
-A plain empty component has no intrinsic size. Size, padding, alignment, offsets, visuals, and scroll behavior are added by wrapping the component in modifiers.
+A plain empty component has no intrinsic size. Size, padding, alignment, offsets, visuals, and scroll behavior are added
+by wrapping the component in modifiers.
 
 ## Modifiers
 
@@ -24,27 +27,28 @@ lurq::components::Rect::new(80.0, 40.0)
 
 Common modifiers:
 
-| Modifier | Purpose |
-|----------|---------|
-| `.size(width, height)` | Force width and height |
-| `.width(width)` | Force width |
-| `.height(height)` | Force height |
-| `.min_size(width, height)` / `.max_size(width, height)` | Set minimum or maximum width and height |
-| `.min_width(width)` / `.max_width(width)` | Set a width bound |
-| `.min_height(height)` / `.max_height(height)` | Set a height bound |
+| Modifier                                                                | Purpose                                                                |
+|-------------------------------------------------------------------------|------------------------------------------------------------------------|
+| `.size(width, height)`                                                  | Force width and height                                                 |
+| `.width(width)`                                                         | Force width                                                            |
+| `.height(height)`                                                       | Force height                                                           |
+| `.min_size(width, height)` / `.max_size(width, height)`                 | Set minimum or maximum width and height                                |
+| `.min_width(width)` / `.max_width(width)`                               | Set a width bound                                                      |
+| `.min_height(height)` / `.max_height(height)`                           | Set a height bound                                                     |
 | `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingSize` |
-| `.background(color)` | Fill the element background from a concrete color or `PaletteColor` |
-| `.rounded(radius)` | Set border radius from `f32` or `RadiusSize` |
-| `.border_inside(width, color)` | Draw an inside border from a concrete width or `BorderSize` |
-| `.offset(x, y)` | Shift visually without changing parent layout |
-| `.relative(x, y)` | Alias for `.offset(x, y)` |
-| `.absolute(x, y, width, height)` | Absolute stack positioning with forced size |
-| `.absolute_position(x, y)` | Absolute stack positioning with measured size |
-| `.transform(Transform2D)` | Apply a visual 2D transform around the element center |
-| `.align(Alignment)` | Override alignment within parent container |
-| `.flex(factor)` | Participate in row/column flex distribution |
+| `.background(color)`                                                    | Fill the element background from a concrete color or `PaletteColor`    |
+| `.rounded(radius)`                                                      | Set border radius from `f32` or `RadiusSize`                           |
+| `.border_inside(width, color)`                                          | Draw an inside border from a concrete width or `BorderSize`            |
+| `.offset(x, y)`                                                         | Shift visually without changing parent layout                          |
+| `.relative(x, y)`                                                       | Alias for `.offset(x, y)`                                              |
+| `.absolute(x, y, width, height)`                                        | Absolute stack positioning with forced size                            |
+| `.absolute_position(x, y)`                                              | Absolute stack positioning with measured size                          |
+| `.transform(Transform2D)`                                               | Apply a visual 2D transform around the element center                  |
+| `.align(Alignment)`                                                     | Override alignment within parent container                             |
+| `.flex(factor)`                                                         | Participate in row/column flex distribution                            |
 
-Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
+Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
+sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
 
 ```rust
 use lurq::node::dimension::Dimension;
@@ -79,7 +83,8 @@ Constraint kinds:
 - Loose: `min == 0`; child can choose any size up to max.
 - Unbounded: `max == f32::INFINITY`; used by scroll containers on the scroll axis.
 
-Application code normally does not call layout directly. Runtime computes layout when rendering, dispatching input, or looking up elements.
+Application code normally does not call layout directly. Runtime computes layout when rendering, dispatching input, or
+looking up elements.
 
 ## Containers
 
@@ -147,7 +152,8 @@ Absolute children do not contribute to stack size.
 lurq::components::Rect::new(50.0, 50.0).relative(10.0, 20.0)
 ```
 
-Relative positioning is an offset. It moves the child visually but the parent still reserves space as if the offset were zero. Siblings are not moved by the offset.
+Relative positioning is an offset. It moves the child visually but the parent still reserves space as if the offset were
+zero. Siblings are not moved by the offset.
 
 ## Absolute Positioning
 
@@ -249,9 +255,8 @@ lurq::components::ScrollVertical::new(
 .size(300.0, 180.0)
 ```
 
-Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during layout/rendering.
-
-For long vertical lists, use `VirtualListState` with `ctx.virtual_list(...)` instead of putting every row directly inside a scroll column. See [Virtual Lists](./components/#virtual-lists).
+Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during
+layout/rendering.
 
 ## Text
 
@@ -264,17 +269,26 @@ lurq::components::Text::styled("hello", TextStyle {
 })
 ```
 
-The glyph engine also records caret positions for text selection. `Text::selectable(true)` uses those positions for drag ranges, double-click word selection, and triple-click line selection. Wrapped or multiline selections render separate highlight rectangles for each selected row.
+The glyph engine also records caret positions for text selection. `Text::selectable(true)` uses those positions for drag
+ranges, double-click word selection, and triple-click line selection. Wrapped or multiline selections render separate
+highlight rectangles for each selected row.
 
-Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text selection and text input carets therefore follow transformed text, including text inside a transformed parent.
+Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text
+selection and text input carets therefore follow transformed text, including text inside a transformed parent.
 
-See [Animation And Transforms](../animation-transforms/) for transform composition, keyframe animation, and transition details.
+See [Animation And Transforms](../animation-transforms/) for transform composition, keyframe animation, and transition
+details.
 
 ### Text Transform Modes
 
-`TextTransformMode::Bitmap` is the default. It rasterizes glyphs in their normal orientation and transforms those glyph quads during rendering. This path preserves float placement and is best for animated transforms because changing the transform does not create a new glyph atlas entry for every angle.
+`TextTransformMode::Bitmap` is the default. It rasterizes glyphs in their normal orientation and transforms those glyph
+quads during rendering. This path preserves float placement and is best for animated transforms because changing the
+transform does not create a new glyph atlas entry for every angle.
 
-`TextTransformMode::Rasterized` is for static transformed text. It bakes the transform into the glyph mask, uses float screen-space placement for the baked mask, and emits identity-transform glyph quads. This produces sharper rotated edges than GPU-transforming the normal glyph bitmap, but the transform matrix is part of the glyph cache key, so continuously animated angles can grow the atlas.
+`TextTransformMode::Rasterized` is for static transformed text. It bakes the transform into the glyph mask, uses float
+screen-space placement for the baked mask, and emits identity-transform glyph quads. This produces sharper rotated edges
+than GPU-transforming the normal glyph bitmap, but the transform matrix is part of the glyph cache key, so continuously
+animated angles can grow the atlas.
 
 ```rust
 use lurq::node::{TextTransformMode, transform::Transform2D};

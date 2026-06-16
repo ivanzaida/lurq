@@ -103,6 +103,8 @@ const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT 
 
 #[cfg(feature = "image")]
 static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "image")]
+static DX12_IMAGE_MOD_NOT_FOUND_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(feature = "image")]
 fn dx12_native_image_log(message: impl std::fmt::Display) {
@@ -420,9 +422,9 @@ impl RenderEngine for Dx12RenderEngine {
       Ok(profile) => profile,
       Err(err) => {
         tracing::error!("failed to render native dx12 frame: {err:?}");
-        if (err.code().0 as u32) == 0x8007007E {
+        if is_error_mod_not_found(&err) {
           tracing::error!(
-            "dx12 render failed with ERROR_MOD_NOT_FOUND; this usually means a DirectX/GPU driver dependency was missing while encoding this frame"
+            "dx12 render failed with ERROR_MOD_NOT_FOUND; check the GPU driver, DirectX runtime, d3dcompiler_47.dll, and optional graphics debug tools"
           );
         }
         if let Some(video_surfaces) = &self.video_surfaces {
@@ -1963,6 +1965,10 @@ fn dx12_context<T>(result: Result<T>, stage: impl std::fmt::Display) -> Result<T
   result.map_err(|err| Error::new(err.code(), format!("{stage}: {}", err.message())))
 }
 
+fn is_error_mod_not_found(err: &Error) -> bool {
+  (err.code().0 as u32) == 0x8007007E
+}
+
 impl Dx12State {
   unsafe fn new(hwnd: HWND, width: u32, height: u32) -> Result<Self> {
     let factory = create_factory()?;
@@ -2326,16 +2332,30 @@ impl Dx12State {
           format_args!("draw dx12 glyph run start={start} count={count}"),
         )?,
         #[cfg(feature = "image")]
-        OrderedDraw::Image(index) => dx12_context(
-          self.draw_image(&list.images[index]),
-          format_args!(
-            "draw dx12 image #{} id={} format={:?} native={}",
-            index,
-            list.images[index].image_id,
-            list.images[index].image_format,
-            list.images[index].native.is_some()
-          ),
-        )?,
+        OrderedDraw::Image(index) => {
+          let image = &list.images[index];
+          let result = dx12_context(
+            self.draw_image(image),
+            format_args!(
+              "draw dx12 image #{} id={} format={:?} native={}",
+              index,
+              image.image_id,
+              image.image_format,
+              image.native.is_some()
+            ),
+          );
+          if let Err(err) = result {
+            if is_error_mod_not_found(&err) {
+              if !DX12_IMAGE_MOD_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
+                tracing::error!(
+                  "skipping dx12 image draws after ERROR_MOD_NOT_FOUND; continuing frame so non-image UI can render"
+                );
+              }
+              continue;
+            }
+            return Err(err);
+          }
+        }
         #[cfg(feature = "svg")]
         OrderedDraw::Svg(index) => {
           dx12_context(self.draw_svg(&list.svgs[index]), format_args!("draw dx12 svg #{index}"))?
@@ -2812,7 +2832,13 @@ impl Dx12State {
           let version = *version;
           let texture = _texture.clone();
           if frame_index != image.frame_index || version != image.version {
-            self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)?;
+            dx12_context(
+              self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+              format_args!(
+                "update cached rgba image texture id={} size={}x{}",
+                image.image_id, image.image_width, image.image_height
+              ),
+            )?;
             if let Some(CachedImageTexture::Rgba {
               frame_index, version, ..
             }) = self.image_textures.get_mut(&image.image_id)
@@ -2841,11 +2867,17 @@ impl Dx12State {
           let y_texture = _y_texture.clone();
           let uv_texture = _uv_texture.clone();
           if frame_index != image.frame_index || version != image.version {
-            self.upload_nv12_image_textures(
-              &y_texture,
-              &uv_texture,
-              image,
-              D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            dx12_context(
+              self.upload_nv12_image_textures(
+                &y_texture,
+                &uv_texture,
+                image,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+              ),
+              format_args!(
+                "update cached nv12 image texture id={} size={}x{}",
+                image.image_id, image.image_width, image.image_height
+              ),
             )?;
             if let Some(CachedImageTexture::Nv12 {
               frame_index, version, ..
@@ -2874,7 +2906,13 @@ impl Dx12State {
     self.next_srv_index += descriptors_needed;
     match image.image_format {
       crate::images::ImagePixelFormat::Rgba8 => {
-        let texture = create_rgba_texture(&self.device, image.image_width, image.image_height)?;
+        let texture = dx12_context(
+          create_rgba_texture(&self.device, image.image_width, image.image_height),
+          format_args!(
+            "create rgba image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
         let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
           Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
           ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
@@ -2892,7 +2930,13 @@ impl Dx12State {
           .device
           .CreateShaderResourceView(&texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
 
-        self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST)?;
+        dx12_context(
+          self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST),
+          format_args!(
+            "upload rgba image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
 
         self.image_textures.insert(
           image.image_id,
@@ -2910,8 +2954,22 @@ impl Dx12State {
         if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
           return Err(Error::from_win32());
         }
-        let y_texture = create_r8_texture(&self.device, image.image_width, image.image_height)?;
-        let uv_texture = create_r8g8_texture(&self.device, image.image_width / 2, image.image_height / 2)?;
+        let y_texture = dx12_context(
+          create_r8_texture(&self.device, image.image_width, image.image_height),
+          format_args!(
+            "create nv12 y image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
+        let uv_texture = dx12_context(
+          create_r8g8_texture(&self.device, image.image_width / 2, image.image_height / 2),
+          format_args!(
+            "create nv12 uv image texture id={} size={}x{}",
+            image.image_id,
+            image.image_width / 2,
+            image.image_height / 2
+          ),
+        )?;
         let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
           Format: DXGI_FORMAT_R8_UNORM,
           ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
@@ -2949,7 +3007,13 @@ impl Dx12State {
           self.srv_heap.cpu_handle(descriptor_index + 1),
         );
 
-        self.upload_nv12_image_textures(&y_texture, &uv_texture, image, D3D12_RESOURCE_STATE_COPY_DEST)?;
+        dx12_context(
+          self.upload_nv12_image_textures(&y_texture, &uv_texture, image, D3D12_RESOURCE_STATE_COPY_DEST),
+          format_args!(
+            "upload nv12 image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
 
         self.image_textures.insert(
           image.image_id,
@@ -3212,9 +3276,21 @@ impl Dx12State {
 
     let row_pitch = align_up(row_bytes, 256);
     let upload = if row_pitch == row_bytes && data.len() >= row_bytes * height as usize {
-      self.upload_frame_bytes(data, 512)?
+      dx12_context(
+        self.upload_frame_bytes(data, 512),
+        format_args!(
+          "stage image texture upload rows size={}x{} row_bytes={} row_pitch={}",
+          width, height, row_bytes, row_pitch
+        ),
+      )?
     } else {
-      self.upload_frame_rows(data, row_bytes, row_pitch, height as usize, 512)?
+      dx12_context(
+        self.upload_frame_rows(data, row_bytes, row_pitch, height as usize, 512),
+        format_args!(
+          "stage padded image texture upload rows size={}x{} row_bytes={} row_pitch={}",
+          width, height, row_bytes, row_pitch
+        ),
+      )?
     };
     let mut dst = D3D12_TEXTURE_COPY_LOCATION {
       pResource: ManuallyDrop::new(Some(texture.to_owned())),

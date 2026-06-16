@@ -76,6 +76,7 @@ struct ScrollStateInner {
   drag_start_scroll_y: f32,
   scrollbar_style: ScrollBarStyle,
   scroll_dirty: bool,
+  equal_overflow_scroll_probe_enabled: bool,
 }
 
 impl ScrollState {
@@ -104,6 +105,7 @@ impl ScrollState {
         drag_start_scroll_y: 0.0,
         scrollbar_style: ScrollBarStyle::default(),
         scroll_dirty: false,
+        equal_overflow_scroll_probe_enabled: false,
       })),
     }
   }
@@ -145,8 +147,8 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
-  pub(crate) fn is_scroll_to_bottom_pending(&self) -> bool {
-    matches!(self.inner.lock().unwrap().pending_scroll_y, Some(PendingScroll::End))
+  pub(crate) fn equal_overflow_scroll_probe_enabled(&self) -> bool {
+    self.inner.lock().unwrap().equal_overflow_scroll_probe_enabled
   }
 
   /// Queue a horizontal scroll to the left edge after the next layout measurement.
@@ -213,6 +215,13 @@ impl ScrollState {
 
   pub fn scroll_by_with_overflow(&self, dx: f32, dy: f32) -> (f32, f32) {
     let mut inner = self.inner.lock().unwrap();
+    if dx != 0.0 {
+      inner.pending_scroll_x = None;
+    }
+    if dy != 0.0 {
+      inner.pending_scroll_y = None;
+    }
+
     let old_x = inner.scroll_x;
     let old_y = inner.scroll_y;
     inner.scroll_x = (inner.scroll_x + dx).clamp(0.0, inner.max_scroll_x);
@@ -267,8 +276,12 @@ impl ScrollState {
     self.begin_drag_axis(ScrollAxis::Vertical, 0.0, mouse_y);
   }
 
-  pub fn begin_drag_axis(&self, _axis: ScrollAxis, mouse_x: f32, mouse_y: f32) {
+  pub fn begin_drag_axis(&self, axis: ScrollAxis, mouse_x: f32, mouse_y: f32) {
     let mut inner = self.inner.lock().unwrap();
+    match axis {
+      ScrollAxis::Horizontal => inner.pending_scroll_x = None,
+      ScrollAxis::Vertical => inner.pending_scroll_y = None,
+    }
     inner.dragging = true;
     inner.drag_start_x = mouse_x;
     inner.drag_start_y = mouse_y;

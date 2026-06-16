@@ -29,7 +29,7 @@ mod stack;
 mod svg;
 mod text;
 mod text_input;
-mod virtual_list;
+mod virtualized_list;
 
 pub use button::Button;
 pub use checkbox::Checkbox;
@@ -70,7 +70,7 @@ pub use stack::Stack;
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow};
-pub use virtual_list::VirtualListState;
+pub use virtualized_list::VirtualizedList;
 
 pub use crate::app::ctx::{CollisionStrategy, Modal, ModalTarget, OpenState, Overlay, Parent, Placement, Root};
 

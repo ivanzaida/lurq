@@ -1,12 +1,8 @@
 use std::sync::{
-  Arc, Mutex,
+  Arc,
   atomic::{AtomicUsize, Ordering},
 };
 
-#[cfg(feature = "markdown")]
-use lurq::components::{Markdown, MarkdownProps};
-#[cfg(feature = "markdown")]
-use lurq::node::dimension::Dimension;
 use lurq::{
   app::{
     Tree,
@@ -14,18 +10,15 @@ use lurq::{
     ctx::{Ctx, Overlay, Placement},
     events::{MouseButton, ScrollPhase},
   },
-  components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical, VirtualListState},
+  components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
   core::{ElementRef as CoreElementRef, Signal},
-  layout::{layout_kind::ScrollState, scrollbar::ScrollBarStyle},
+  layout::layout_kind::ScrollState,
   node::{Element, color::Color},
 };
 
 use crate::support::{pointer_click, run_pass};
 
 const CONTENT_COLOR: Color = Color::new(255, 0, 255, 255);
-#[cfg(feature = "markdown")]
-const VIRTUAL_LIST_FOLLOWING_ROW_COLOR: Color = Color::new(0, 255, 255, 255);
-
 #[derive(lurq::DevtoolsInspectable)]
 struct Shared<T>(Arc<T>);
 
@@ -212,7 +205,75 @@ fn scroll_reach_bottom_fires_once_when_crossing_into_bottom_edge() {
 }
 
 #[test]
-fn scrollbar_thumb_drag_defers_reactive_rerender_until_redraw_pass() {
+fn wheel_scroll_event_only_emits_when_scroll_delta_can_move_container() {
+  let mut runtime = Tree::new();
+  let state = ScrollState::new();
+  let scroll_events = Arc::new(AtomicUsize::new(0));
+  let scroll_count = scroll_events.clone();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .on_scroll(move |_| {
+        scroll_count.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+
+  runtime.scroll(10.0, 10.0, 0.0, 40.0, ScrollPhase::Scroll);
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 0);
+  assert_eq!(state.scroll_y(), 0.0);
+
+  runtime.scroll(10.0, 10.0, 0.0, -40.0, ScrollPhase::Scroll);
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 1);
+  assert_eq!(state.scroll_y(), 40.0);
+
+  scroll_events.store(0, Ordering::SeqCst);
+  state.set_scroll(0.0, 300.0);
+  runtime.scroll(10.0, 10.0, 0.0, -40.0, ScrollPhase::Scroll);
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 0);
+  assert_eq!(state.scroll_y(), 300.0);
+}
+
+#[test]
+fn wheel_scroll_event_does_not_emit_when_content_does_not_overflow() {
+  let mut runtime = Tree::new();
+  let scroll_events = Arc::new(AtomicUsize::new(0));
+  let scroll_count = scroll_events.clone();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 80.0).background(CONTENT_COLOR))
+      .on_scroll(move |_| {
+        scroll_count.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+  runtime.scroll(10.0, 10.0, 0.0, -40.0, ScrollPhase::Scroll);
+  runtime.scroll(10.0, 10.0, 0.0, 40.0, ScrollPhase::Scroll);
+
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 0);
+
+  let scroll_count = scroll_events.clone();
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 100.0).background(CONTENT_COLOR))
+      .on_scroll(move |_| {
+        scroll_count.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+  runtime.scroll(10.0, 10.0, 0.0, -40.0, ScrollPhase::Scroll);
+
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn scrollbar_thumb_drag_applies_reactive_scroll_updates_immediately() {
   let mut runtime = Tree::new();
   let renders = Arc::new(AtomicUsize::new(0));
   runtime.mount_root::<ScrollbarDragReactiveRoot>(&mut lurq::app::App::new(), Shared(renders.clone()));
@@ -222,12 +283,10 @@ fn scrollbar_thumb_drag_defers_reactive_rerender_until_redraw_pass() {
 
   runtime.mouse_down(94.0, 10.0, MouseButton::Left);
   runtime.mouse_move(94.0, 30.0);
-  runtime.mouse_move(94.0, 50.0);
-
-  assert_eq!(renders.load(Ordering::SeqCst), initial_renders);
-
-  run_pass(&mut runtime);
   assert_eq!(renders.load(Ordering::SeqCst), initial_renders + 1);
+
+  runtime.mouse_move(94.0, 50.0);
+  assert_eq!(renders.load(Ordering::SeqCst), initial_renders + 2);
 }
 
 struct ScrollCullingCacheRoot {
@@ -351,380 +410,6 @@ fn scroll_culling_does_not_remount_or_rerender_cached_child_components() {
   assert_eq!(child_unmounts.load(Ordering::SeqCst), 0);
 }
 
-struct VirtualListRoot {
-  state: VirtualListState,
-  items: Vec<usize>,
-  renders: Arc<AtomicUsize>,
-  mounts: Arc<AtomicUsize>,
-  unmounts: Arc<AtomicUsize>,
-}
-
-impl Component for VirtualListRoot {
-  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>, Shared<AtomicUsize>);
-
-  fn create(ctx: &mut Ctx) -> Self {
-    let props = ctx.props::<Self::Props>().clone();
-    Self {
-      state: VirtualListState::new(ctx)
-        .with_overscan(0)
-        .with_initial_visible_count(5),
-      items: (0..100).collect(),
-      renders: props.0.0,
-      mounts: props.1.0,
-      unmounts: props.2.0,
-    }
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let renders = self.renders.clone();
-    let mounts = self.mounts.clone();
-    let unmounts = self.unmounts.clone();
-    ctx
-      .virtual_list(
-        &self.state,
-        &self.items,
-        |item| *item,
-        move |ctx, item| {
-          ctx.mount_keyed::<VirtualListRow>(
-            &item.to_string(),
-            (
-              Shared(renders.clone()),
-              Shared(mounts.clone()),
-              Shared(unmounts.clone()),
-            ),
-          )
-        },
-      )
-      .scrollbar(ScrollBarStyle::hidden())
-      .size(100.0, 100.0)
-  }
-}
-
-struct VirtualListRow {
-  renders: Arc<AtomicUsize>,
-  mounts: Arc<AtomicUsize>,
-  unmounts: Arc<AtomicUsize>,
-}
-
-impl Component for VirtualListRow {
-  type Props = (Shared<AtomicUsize>, Shared<AtomicUsize>, Shared<AtomicUsize>);
-
-  fn create(ctx: &mut Ctx) -> Self {
-    let props = ctx.props::<Self::Props>().clone();
-    Self {
-      renders: props.0.0,
-      mounts: props.1.0,
-      unmounts: props.2.0,
-    }
-  }
-
-  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
-    self.renders.fetch_add(1, Ordering::SeqCst);
-    Rect::new(100.0, 20.0).background(CONTENT_COLOR)
-  }
-
-  fn on_mounted(&self) {
-    self.mounts.fetch_add(1, Ordering::SeqCst);
-  }
-
-  fn on_unmounted(&self) {
-    self.unmounts.fetch_add(1, Ordering::SeqCst);
-  }
-}
-
-struct VirtualListPruneRoot {
-  state: VirtualListState,
-  item_count: Signal<usize>,
-  item_count_out: Arc<Mutex<Option<Signal<usize>>>>,
-  renders: Arc<AtomicUsize>,
-  mounts: Arc<AtomicUsize>,
-  unmounts: Arc<AtomicUsize>,
-  drops: Arc<AtomicUsize>,
-}
-
-impl Component for VirtualListPruneRoot {
-  type Props = (
-    Shared<Mutex<Option<Signal<usize>>>>,
-    Shared<AtomicUsize>,
-    Shared<AtomicUsize>,
-    Shared<AtomicUsize>,
-    Shared<AtomicUsize>,
-  );
-
-  fn create(ctx: &mut Ctx) -> Self {
-    let props = ctx.props::<Self::Props>().clone();
-    let item_count = ctx.signal(20);
-    *props.0.0.lock().unwrap() = Some(item_count.clone());
-    Self {
-      state: VirtualListState::new(ctx)
-        .with_overscan(0)
-        .with_initial_visible_count(5),
-      item_count,
-      item_count_out: props.0.0,
-      renders: props.1.0,
-      mounts: props.2.0,
-      unmounts: props.3.0,
-      drops: props.4.0,
-    }
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    *self.item_count_out.lock().unwrap() = Some(self.item_count.clone());
-    let items = (0..self.item_count.get()).collect::<Vec<_>>();
-    let renders = self.renders.clone();
-    let mounts = self.mounts.clone();
-    let unmounts = self.unmounts.clone();
-    let drops = self.drops.clone();
-
-    ctx
-      .virtual_list(
-        &self.state,
-        &items,
-        |item| *item,
-        move |ctx, item| {
-          ctx.mount_keyed::<VirtualListPruneRow>(
-            &item.to_string(),
-            (
-              Shared(renders.clone()),
-              Shared(mounts.clone()),
-              Shared(unmounts.clone()),
-              Shared(drops.clone()),
-            ),
-          )
-        },
-      )
-      .scrollbar(ScrollBarStyle::hidden())
-      .size(100.0, 100.0)
-  }
-}
-
-struct VirtualListPruneRow {
-  renders: Arc<AtomicUsize>,
-  mounts: Arc<AtomicUsize>,
-  unmounts: Arc<AtomicUsize>,
-  drops: Arc<AtomicUsize>,
-}
-
-#[cfg(feature = "markdown")]
-struct VirtualListWrappedMarkdownRoot {
-  state: VirtualListState,
-  items: Vec<usize>,
-}
-
-#[cfg(feature = "markdown")]
-impl Component for VirtualListWrappedMarkdownRoot {
-  type Props = ();
-
-  fn create(ctx: &mut Ctx) -> Self {
-    Self {
-      state: VirtualListState::new(ctx)
-        .with_overscan(0)
-        .with_initial_visible_count(2),
-      items: vec![0, 1],
-    }
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    ctx
-      .virtual_list(
-        &self.state,
-        &self.items,
-        |item| *item,
-        |ctx, item| -> Element {
-          match *item {
-            0 => Column::new()
-              .width(Dimension::Pct(100.0))
-              .padding_bottom(8.0)
-              .child(ctx.mount::<Markdown>(
-                MarkdownProps::new(
-                  "Queued  \n- *first wrapped item with enough words to take width*  \n- second wrapped item  \n- third wrapped item",
-                )
-                .width(Dimension::Pct(100.0)),
-              ))
-              .into(),
-            _ => Rect::new(100.0, 20.0)
-              .background(VIRTUAL_LIST_FOLLOWING_ROW_COLOR)
-              .into(),
-          }
-        },
-      )
-      .scrollbar(ScrollBarStyle::hidden())
-      .size(120.0, 120.0)
-  }
-}
-
-impl Component for VirtualListPruneRow {
-  type Props = (
-    Shared<AtomicUsize>,
-    Shared<AtomicUsize>,
-    Shared<AtomicUsize>,
-    Shared<AtomicUsize>,
-  );
-
-  fn create(ctx: &mut Ctx) -> Self {
-    let props = ctx.props::<Self::Props>().clone();
-    Self {
-      renders: props.0.0,
-      mounts: props.1.0,
-      unmounts: props.2.0,
-      drops: props.3.0,
-    }
-  }
-
-  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
-    self.renders.fetch_add(1, Ordering::SeqCst);
-    Rect::new(100.0, 20.0).background(CONTENT_COLOR)
-  }
-
-  fn on_mounted(&self) {
-    self.mounts.fetch_add(1, Ordering::SeqCst);
-  }
-
-  fn on_unmounted(&self) {
-    self.unmounts.fetch_add(1, Ordering::SeqCst);
-  }
-}
-
-impl Drop for VirtualListPruneRow {
-  fn drop(&mut self) {
-    self.drops.fetch_add(1, Ordering::SeqCst);
-  }
-}
-
-#[test]
-fn virtual_list_measures_rows_in_bounded_batches_before_virtualizing() {
-  let renders = Arc::new(AtomicUsize::new(0));
-  let mounts = Arc::new(AtomicUsize::new(0));
-  let unmounts = Arc::new(AtomicUsize::new(0));
-  let mut runtime = Tree::new();
-
-  runtime.mount_root::<VirtualListRoot>(
-    &mut lurq::app::App::new(),
-    (
-      Shared(renders.clone()),
-      Shared(mounts.clone()),
-      Shared(unmounts.clone()),
-    ),
-  );
-  run_pass(&mut runtime);
-
-  assert_eq!(renders.load(Ordering::SeqCst), 5);
-  assert_eq!(mounts.load(Ordering::SeqCst), 5);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
-
-  runtime.tick_timers();
-  run_pass(&mut runtime);
-  assert_eq!(renders.load(Ordering::SeqCst), 69);
-  assert_eq!(mounts.load(Ordering::SeqCst), 69);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
-
-  runtime.tick_timers();
-  run_pass(&mut runtime);
-  assert_eq!(renders.load(Ordering::SeqCst), 100);
-  assert_eq!(mounts.load(Ordering::SeqCst), 100);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
-}
-
-#[test]
-fn virtual_list_retains_keyed_rows_when_they_scroll_out_and_back_in() {
-  let renders = Arc::new(AtomicUsize::new(0));
-  let mounts = Arc::new(AtomicUsize::new(0));
-  let unmounts = Arc::new(AtomicUsize::new(0));
-  let mut runtime = Tree::new();
-
-  runtime.mount_root::<VirtualListRoot>(
-    &mut lurq::app::App::new(),
-    (
-      Shared(renders.clone()),
-      Shared(mounts.clone()),
-      Shared(unmounts.clone()),
-    ),
-  );
-  run_pass(&mut runtime);
-  runtime.tick_timers();
-  run_pass(&mut runtime);
-  runtime.tick_timers();
-  run_pass(&mut runtime);
-
-  runtime.scroll(10.0, 10.0, 0.0, -160.0, ScrollPhase::Scroll);
-  run_pass(&mut runtime);
-  assert_eq!(renders.load(Ordering::SeqCst), 100);
-  assert_eq!(mounts.load(Ordering::SeqCst), 100);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
-
-  runtime.scroll(10.0, 10.0, 0.0, 160.0, ScrollPhase::Scroll);
-  run_pass(&mut runtime);
-  assert_eq!(renders.load(Ordering::SeqCst), 100);
-  assert_eq!(mounts.load(Ordering::SeqCst), 100);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
-}
-
-#[cfg(feature = "markdown")]
-#[test]
-fn virtual_list_measures_wrapped_markdown_before_positioning_next_row() {
-  let mut runtime = Tree::new();
-  runtime.mount_root::<VirtualListWrappedMarkdownRoot>(&mut lurq::app::App::new(), ());
-
-  run_pass(&mut runtime);
-  run_pass(&mut runtime);
-
-  let following = runtime
-    .find_element(|element| element.color() == Some(VIRTUAL_LIST_FOLLOWING_ROW_COLOR))
-    .unwrap();
-  assert!(
-    following.bounds().y > 70.0,
-    "following row should be positioned after the full wrapped markdown height"
-  );
-}
-
-#[test]
-fn virtual_list_prunes_retained_rows_when_items_are_removed() {
-  let item_count = Arc::new(Mutex::new(None));
-  let renders = Arc::new(AtomicUsize::new(0));
-  let mounts = Arc::new(AtomicUsize::new(0));
-  let unmounts = Arc::new(AtomicUsize::new(0));
-  let drops = Arc::new(AtomicUsize::new(0));
-  let mut runtime = Tree::new();
-
-  runtime.mount_root::<VirtualListPruneRoot>(
-    &mut lurq::app::App::new(),
-    (
-      Shared(item_count.clone()),
-      Shared(renders.clone()),
-      Shared(mounts.clone()),
-      Shared(unmounts.clone()),
-      Shared(drops.clone()),
-    ),
-  );
-  run_pass(&mut runtime);
-
-  for _ in 0..3 {
-    runtime.scroll(10.0, 10.0, 0.0, -100.0, ScrollPhase::Scroll);
-    run_pass(&mut runtime);
-  }
-
-  assert_eq!(mounts.load(Ordering::SeqCst), 20);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
-  assert_eq!(drops.load(Ordering::SeqCst), 0);
-
-  item_count.lock().unwrap().as_ref().unwrap().set(5);
-  run_pass(&mut runtime);
-
-  assert_eq!(unmounts.load(Ordering::SeqCst), 15);
-  assert_eq!(drops.load(Ordering::SeqCst), 15);
-
-  for _ in 0..5 {
-    runtime.scroll(10.0, 10.0, 0.0, 100.0, ScrollPhase::Scroll);
-    run_pass(&mut runtime);
-    runtime.scroll(10.0, 10.0, 0.0, -100.0, ScrollPhase::Scroll);
-    run_pass(&mut runtime);
-  }
-
-  assert_eq!(mounts.load(Ordering::SeqCst), 20);
-  assert_eq!(unmounts.load(Ordering::SeqCst), 15);
-  assert_eq!(drops.load(Ordering::SeqCst), 15);
-}
-
 #[test]
 fn horizontal_scroll_responds_to_wheel_delta_x() {
   let mut runtime = Tree::new();
@@ -759,6 +444,32 @@ fn pending_scroll_to_bottom_resolves_before_first_paint() {
     .unwrap();
   assert_eq!(state.scroll_y(), 300.0);
   assert_eq!(content.bounds().y, -300.0);
+}
+
+#[test]
+fn wheel_scroll_cancels_pending_scroll_to_bottom() {
+  let mut runtime = Tree::new();
+  let state = ScrollState::new();
+  state.scroll_to_bottom_pending();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+  assert_eq!(state.scroll_y(), 300.0);
+
+  state.scroll_to_bottom_pending();
+  runtime.scroll(10.0, 10.0, 0.0, 120.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+
+  let content = runtime
+    .find_element(|element| element.color() == Some(CONTENT_COLOR))
+    .unwrap();
+  assert_eq!(state.scroll_y(), 180.0);
+  assert_eq!(content.bounds().y, -180.0);
 }
 
 #[test]

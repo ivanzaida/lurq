@@ -24,14 +24,8 @@ use parking_lot::Mutex;
 use super::component::{ComponentInfo, DevtoolsInspectable};
 #[cfg(feature = "i18n")]
 use super::i18n::I18n;
-use super::{
-  app_state::App,
-  component::Component,
-  events::{MouseEvent, ScrollEvent},
-  theme::Theme,
-};
+use super::{app_state::App, component::Component, events::MouseEvent, theme::Theme};
 use crate::{
-  components::{Column, ScrollVertical, Spacer, Stack, VirtualListState},
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
     cell_ref::Ref,
@@ -40,7 +34,7 @@ use crate::{
     signal::{Signal, SignalValue},
     tracking,
   },
-  node::{Element, HitTestBehavior, Node, dimension::Dimension},
+  node::{Element, HitTestBehavior, Node},
 };
 
 static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
@@ -914,7 +908,6 @@ pub struct Ctx {
   click_outside_registry: Arc<Mutex<Vec<ClickOutsideEntry>>>,
   click_outside_cursor: usize,
   click_outside_active_cursors: Vec<usize>,
-  retain_unused_children: bool,
   rendering: bool,
 }
 
@@ -1230,6 +1223,7 @@ struct ChildSlot {
 
 trait AnyComponent: Send + Sync + 'static {
   fn render(&self, ctx: &mut Ctx) -> Element;
+  fn after_layout(&self);
   fn on_mounted(&self);
   fn on_unmounted(&self);
   fn type_name(&self) -> &'static str;
@@ -1243,6 +1237,10 @@ struct ComponentWrapper<C: Component> {
 impl<C: Component> AnyComponent for ComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
     self.component.render(ctx).into()
+  }
+
+  fn after_layout(&self) {
+    self.component.after_layout();
   }
 
   fn on_mounted(&self) {
@@ -1309,7 +1307,6 @@ impl Ctx {
       click_outside_registry: Arc::new(Mutex::new(Vec::new())),
       click_outside_cursor: 0,
       click_outside_active_cursors: Vec::new(),
-      retain_unused_children: false,
       rendering: false,
     }
   }
@@ -2139,6 +2136,18 @@ impl Ctx {
     self.child_cursor += 1;
 
     let type_name = std::any::type_name::<C>();
+
+    if let Some(key) = key
+      && let Some(found) = self.children[cursor..]
+        .iter()
+        .position(|slot| slot.key.as_deref() == Some(key) && slot.component.type_name() == type_name)
+        .map(|offset| cursor + offset)
+      && found != cursor
+    {
+      let slot = self.children.remove(found);
+      self.children.insert(cursor, slot);
+    }
+
     let can_reuse = self.children.get(cursor).is_some_and(|slot| {
       let key_match = match key {
         Some(k) => slot.key.as_deref() == Some(k),
@@ -2219,7 +2228,11 @@ impl Ctx {
       mounted: false,
     };
 
-    self.set_child_slot(cursor, slot);
+    if key.is_some() {
+      self.insert_child_slot(cursor, slot);
+    } else {
+      self.set_child_slot(cursor, slot);
+    }
 
     element
   }
@@ -2288,278 +2301,6 @@ impl Ctx {
       .collect();
     slot.ctx.end_render();
     elements
-  }
-
-  /// Render a vertically scrolling, variable-height virtual list.
-  ///
-  /// Rows are first rendered in normal flow until every row has an exact
-  /// measured height. After that, only rows in the visible window plus overscan
-  /// are rendered. Keyed row component slots are retained while offscreen so
-  /// scrolling away and back does not remount them.
-  pub fn virtual_list<T, K, KF, CF, R>(
-    &mut self,
-    state: &VirtualListState,
-    items: &[T],
-    key_fn: KF,
-    row_fn: CF,
-  ) -> ScrollVertical
-  where
-    K: std::fmt::Display,
-    KF: Fn(&T) -> K,
-    CF: Fn(&mut Ctx, &T) -> R,
-    R: Into<Element>,
-  {
-    let total_start = Instant::now();
-    let track_start = Instant::now();
-    state.track();
-    let track_elapsed = track_start.elapsed();
-
-    let sync_start = Instant::now();
-    state.sync_measurements();
-    let sync_elapsed = sync_start.elapsed();
-
-    let group_start = Instant::now();
-    let cursor = self.child_cursor;
-    self.child_cursor += 1;
-
-    let can_reuse_group = self
-      .children
-      .get(cursor)
-      .is_some_and(|slot| slot.key.is_none() && slot.component.type_name() == VirtualListSlot::TYPE_NAME);
-
-    if !can_reuse_group {
-      let slot_id = next_component_slot_id();
-      let mut group_ctx = Ctx::new();
-      group_ctx.inherit_dirty_ancestors_from(self, slot_id);
-      group_ctx.batch = self.batch.clone();
-      group_ctx.theme = self.theme.clone();
-      group_ctx.window = self.window.clone();
-      group_ctx.breakpoint = self.breakpoint.clone();
-      group_ctx.app = self.app;
-      group_ctx.retain_unused_children = true;
-      #[cfg(feature = "tokio")]
-      {
-        group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
-      }
-      group_ctx.click_outside_registry = self.click_outside_registry.clone();
-      #[cfg(feature = "i18n")]
-      {
-        group_ctx.i18n = self.i18n.clone();
-      }
-      group_ctx.context_map = self.context_map.clone();
-      group_ctx.scope_id = slot_id;
-      let slot = ChildSlot {
-        id: slot_id,
-        key: None,
-        component: Box::new(VirtualListSlot),
-        ctx: group_ctx,
-        rendered: None,
-        mounted: false,
-      };
-      self.set_child_slot(cursor, slot);
-    }
-    let group_elapsed = group_start.elapsed();
-
-    let keys_start = Instant::now();
-    let keys = items.iter().map(|item| key_fn(item).to_string()).collect::<Vec<_>>();
-    let keys_elapsed = keys_start.elapsed();
-
-    let valid_keys_start = Instant::now();
-    let valid_keys = keys.iter().cloned().collect::<HashSet<_>>();
-    let valid_keys_elapsed = valid_keys_start.elapsed();
-
-    let prune_start = Instant::now();
-    state.prune_removed_keys(&valid_keys);
-    let prune_elapsed = prune_start.elapsed();
-
-    let window_start = Instant::now();
-    let window = state.window(&keys);
-    let window_elapsed = window_start.elapsed();
-    let window_start_index = window.start;
-    let window_end_index = window.end;
-    let top_spacer = window.top_spacer;
-    let bottom_spacer = window.bottom_spacer;
-
-    let slot = &mut self.children[cursor];
-    let retain_start = Instant::now();
-    slot.ctx.context_map = self.context_map.clone();
-    slot.ctx.retain_unused_children = true;
-    slot.ctx.retain_keyed_child_slots(&valid_keys);
-    slot.ctx.begin_render();
-    let retain_elapsed = retain_start.elapsed();
-
-    let render_start = Instant::now();
-    let all_rows_measured = state.all_heights_measured(&keys);
-    let measured_count = state.measured_count(&keys);
-    let has_any_measured_rows = measured_count > 0;
-    struct VirtualRow {
-      row: Element,
-      row_ref: ElementRef,
-      y: f32,
-    }
-
-    let mut virtual_rows: Vec<VirtualRow> = Vec::new();
-    let mut cached_rows = 0usize;
-    let mut rendered_rows = 0usize;
-    let mut measuring_visible_rows = false;
-    let mut row_y = window.top_spacer;
-    for index in window.start..window.end {
-      let key = &keys[index];
-      let row_height = state.height_for_key(key);
-      if has_any_measured_rows && row_height.is_none() {
-        continue;
-      }
-      if row_height.is_none() {
-        measuring_visible_rows = true;
-      }
-      let row_ref = state.row_ref(key);
-      let (row, cached) = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
-      if cached {
-        cached_rows += 1;
-      } else {
-        rendered_rows += 1;
-      }
-      virtual_rows.push(VirtualRow { row, row_ref, y: row_y });
-      row_y += row_height.unwrap_or(0.0);
-    }
-
-    let use_absolute_layout = if all_rows_measured {
-      rendered_rows == 0
-    } else {
-      has_any_measured_rows
-    };
-    let mut rows: Vec<Element> = Vec::new();
-    if use_absolute_layout {
-      rows.push(
-        Spacer::new()
-          .width(Dimension::Pct(100.0))
-          .height(window.total_height)
-          .into(),
-      );
-    } else if window.top_spacer > 0.0 {
-      rows.push(Spacer::new().height(window.top_spacer).into());
-    }
-
-    for virtual_row in virtual_rows {
-      if use_absolute_layout {
-        rows.push(
-          Stack::new()
-            .ref_element(virtual_row.row_ref)
-            .absolute(0.0, virtual_row.y, Dimension::Pct(100.0), Dimension::Auto)
-            .child(virtual_row.row)
-            .into(),
-        );
-      } else {
-        rows.push(
-          Stack::new()
-            .ref_element(virtual_row.row_ref)
-            .child(virtual_row.row)
-            .into(),
-        );
-      }
-    }
-
-    if !use_absolute_layout && window.bottom_spacer > 0.0 {
-      rows.push(Spacer::new().height(window.bottom_spacer).into());
-    }
-
-    let measurement_indices = if has_any_measured_rows && !all_rows_measured {
-      state.measurement_indices(&keys, window.start, window.end)
-    } else {
-      Vec::new()
-    };
-    let mut measurement_rows: Vec<Element> = Vec::new();
-    let mut measurement_row_count = 0usize;
-    for index in measurement_indices {
-      let key = &keys[index];
-      let row_ref = state.row_ref(key);
-      let (row, cached) = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
-      if cached {
-        cached_rows += 1;
-      } else {
-        rendered_rows += 1;
-      }
-      measurement_row_count += 1;
-      measurement_rows.push(
-        Stack::new()
-          .ref_element(row_ref)
-          .width(Dimension::Pct(100.0))
-          .child(row)
-          .into(),
-      );
-    }
-
-    slot.ctx.end_render();
-    let render_elapsed = render_start.elapsed();
-    let retained_slots = slot.ctx.children.len();
-
-    let finalize_start = Instant::now();
-    let refresh_state = state.clone();
-    let row_count = window_end_index.saturating_sub(window_start_index);
-    let measuring_rows = measuring_visible_rows || measurement_row_count > 0;
-    if measuring_rows {
-      state.request_measurement_refresh();
-    }
-    let visible_content: Element = if use_absolute_layout {
-      let stack = Stack::new().width(Dimension::Pct(100.0)).with_children(rows);
-      stack.into()
-    } else {
-      Column::new()
-        .width(Dimension::Pct(100.0))
-        .spacing(0.0)
-        .with_children(rows)
-        .into()
-    };
-    let content: Element = if measurement_rows.is_empty() {
-      visible_content
-    } else {
-      Stack::new()
-        .width(Dimension::Pct(100.0))
-        .child(visible_content)
-        .child(
-          Column::new()
-            .width(Dimension::Pct(100.0))
-            .spacing(0.0)
-            .with_children(measurement_rows)
-            .absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Auto)
-            .opacity(0.0)
-            .hit_test(HitTestBehavior::None),
-        )
-        .into()
-    };
-    let result = ScrollVertical::new(content)
-      .with_scroll_state(state.scroll_state())
-      .on_scroll(move |event: ScrollEvent| refresh_state.request_scroll_refresh_if_needed(event.delta_y));
-    let finalize_elapsed = finalize_start.elapsed();
-    let total_elapsed = total_start.elapsed();
-    let layout_mode = if use_absolute_layout { "absolute" } else { "flow" };
-    tracing::trace!(
-      target: "virtual-list-profile",
-      "[virtual-list-profile] items={} keys={} window={}..{} rows={} mode={} rendered_rows={} cached_rows={} retained_slots={} top_spacer={:.1} bottom_spacer={:.1} track_ms={:.3} sync_ms={:.3} group_ms={:.3} keys_ms={:.3} valid_keys_ms={:.3} prune_ms={:.3} window_ms={:.3} retain_ms={:.3} render_ms={:.3} finalize_ms={:.3} total_ms={:.3}",
-      items.len(),
-      keys.len(),
-      window_start_index,
-      window_end_index,
-      row_count,
-      layout_mode,
-      rendered_rows,
-      cached_rows,
-      retained_slots,
-      top_spacer,
-      bottom_spacer,
-      track_elapsed.as_secs_f64() * 1000.0,
-      sync_elapsed.as_secs_f64() * 1000.0,
-      group_elapsed.as_secs_f64() * 1000.0,
-      keys_elapsed.as_secs_f64() * 1000.0,
-      valid_keys_elapsed.as_secs_f64() * 1000.0,
-      prune_elapsed.as_secs_f64() * 1000.0,
-      window_elapsed.as_secs_f64() * 1000.0,
-      retain_elapsed.as_secs_f64() * 1000.0,
-      render_elapsed.as_secs_f64() * 1000.0,
-      finalize_elapsed.as_secs_f64() * 1000.0,
-      total_elapsed.as_secs_f64() * 1000.0,
-    );
-    result
   }
 
   fn render_for_each_item<T, CF>(&mut self, key: String, item: T, component_fn: &CF) -> Element
@@ -2649,99 +2390,6 @@ impl Ctx {
     element
   }
 
-  fn render_virtual_list_item<T, CF, R>(&mut self, key: String, item: &T, component_fn: &CF) -> (Element, bool)
-  where
-    CF: Fn(&mut Ctx, &T) -> R,
-    R: Into<Element>,
-  {
-    let cursor = self.child_cursor;
-    self.child_cursor += 1;
-
-    if let Some(found) = self.children[cursor..]
-      .iter()
-      .position(|slot| {
-        slot.key.as_deref() == Some(key.as_str()) && slot.component.type_name() == VirtualListItemSlot::TYPE_NAME
-      })
-      .map(|offset| cursor + offset)
-    {
-      if found != cursor {
-        let slot = self.children.remove(found);
-        self.children.insert(cursor, slot);
-      }
-    }
-
-    let can_reuse = self.children.get(cursor).is_some_and(|slot| {
-      slot.key.as_deref() == Some(key.as_str()) && slot.component.type_name() == VirtualListItemSlot::TYPE_NAME
-    });
-
-    if can_reuse {
-      let slot = &mut self.children[cursor];
-      slot.ctx.context_map = self.context_map.clone();
-      if !slot.ctx.any_dirty() {
-        if let Some(rendered) = slot.rendered.as_ref() {
-          return (Element::from_node(rendered.clone_for_reuse()), true);
-        }
-      }
-      slot.ctx.begin_render();
-      let mut element = component_fn(&mut slot.ctx, item).into();
-      slot.ctx.end_render();
-      element.node = attach_component_metadata(
-        element.node,
-        slot.component.tag_name(),
-        slot.id,
-        slot.key.as_deref(),
-        #[cfg(feature = "devtools")]
-        &slot.ctx,
-      );
-      slot.rendered = Some(element.node.clone_for_reuse());
-      return (element, false);
-    }
-
-    let slot_id = next_component_slot_id();
-    let mut child_ctx = Ctx::new();
-    child_ctx.inherit_dirty_ancestors_from(self, slot_id);
-    child_ctx.batch = self.batch.clone();
-    child_ctx.theme = self.theme.clone();
-    child_ctx.window = self.window.clone();
-    child_ctx.breakpoint = self.breakpoint.clone();
-    child_ctx.app = self.app;
-    #[cfg(feature = "tokio")]
-    {
-      child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
-    }
-    child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
-    {
-      child_ctx.i18n = self.i18n.clone();
-    }
-    child_ctx.context_map = self.context_map.clone();
-    child_ctx.scope_id = slot_id;
-    child_ctx.begin_render();
-    let mut element = component_fn(&mut child_ctx, item).into();
-    child_ctx.end_render();
-    element.node = attach_component_metadata(
-      element.node,
-      Arc::from(VirtualListItemSlot::TYPE_NAME),
-      slot_id,
-      Some(key.as_str()),
-      #[cfg(feature = "devtools")]
-      &child_ctx,
-    );
-
-    let slot = ChildSlot {
-      id: slot_id,
-      key: Some(key),
-      component: Box::new(VirtualListItemSlot),
-      ctx: child_ctx,
-      rendered: Some(element.node.clone_for_reuse()),
-      mounted: false,
-    };
-
-    self.insert_child_slot(cursor, slot);
-
-    (element, false)
-  }
-
   // --- Error boundary ---
 
   pub fn error_boundary(
@@ -2787,24 +2435,6 @@ impl Ctx {
     }
   }
 
-  fn retain_keyed_child_slots(&mut self, valid_keys: &HashSet<String>) {
-    let mut index = 0;
-    while index < self.children.len() {
-      let keep = self.children[index]
-        .key
-        .as_ref()
-        .is_some_and(|key| valid_keys.contains(key));
-      if keep {
-        index += 1;
-        continue;
-      }
-
-      let mut slot = self.children.remove(index);
-      slot.ctx.clear_modal_entries_recursive();
-      slot.component.on_unmounted();
-    }
-  }
-
   fn clear_modal_entries_recursive(&mut self) {
     self
       .click_outside_registry
@@ -2821,15 +2451,13 @@ impl Ctx {
       .lock()
       .retain(|entry| entry.scope_id != self.scope_id || self.click_outside_active_cursors.contains(&entry.cursor));
 
-    if !self.retain_unused_children {
-      for slot in &self.children[self.child_cursor..] {
-        slot.component.on_unmounted();
-      }
-      for slot in &mut self.children[self.child_cursor..] {
-        slot.ctx.clear_modal_entries_recursive();
-      }
-      self.children.truncate(self.child_cursor);
+    for slot in &self.children[self.child_cursor..] {
+      slot.component.on_unmounted();
     }
+    for slot in &mut self.children[self.child_cursor..] {
+      slot.ctx.clear_modal_entries_recursive();
+    }
+    self.children.truncate(self.child_cursor);
 
     for slot in &mut self.children {
       if !slot.mounted {
@@ -2867,6 +2495,13 @@ impl Ctx {
 
   pub(crate) fn any_dirty(&self) -> bool {
     self.subtree_dirty.load(Ordering::Relaxed)
+  }
+
+  pub(crate) fn after_layout_recursive(&self) {
+    for slot in &self.children {
+      slot.component.after_layout();
+      slot.ctx.after_layout_recursive();
+    }
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -3008,22 +2643,11 @@ impl ForEachSlot {
   const TYPE_NAME: &'static str = "ForEachSlot";
 }
 
-struct VirtualListSlot;
-
-impl VirtualListSlot {
-  const TYPE_NAME: &'static str = "VirtualListSlot";
-}
-
-struct VirtualListItemSlot;
-
-impl VirtualListItemSlot {
-  const TYPE_NAME: &'static str = "VirtualListItemSlot";
-}
-
 impl AnyComponent for ForEachSlot {
   fn render(&self, _ctx: &mut Ctx) -> Element {
     Element::new()
   }
+  fn after_layout(&self) {}
   fn on_mounted(&self) {}
   fn on_unmounted(&self) {}
   fn type_name(&self) -> &'static str {
@@ -3031,34 +2655,6 @@ impl AnyComponent for ForEachSlot {
   }
   fn tag_name(&self) -> Arc<str> {
     Arc::from("ForEachSlot")
-  }
-}
-
-impl AnyComponent for VirtualListSlot {
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::new()
-  }
-  fn on_mounted(&self) {}
-  fn on_unmounted(&self) {}
-  fn type_name(&self) -> &'static str {
-    Self::TYPE_NAME
-  }
-  fn tag_name(&self) -> Arc<str> {
-    Arc::from("VirtualListSlot")
-  }
-}
-
-impl AnyComponent for VirtualListItemSlot {
-  fn render(&self, _ctx: &mut Ctx) -> Element {
-    Element::new()
-  }
-  fn on_mounted(&self) {}
-  fn on_unmounted(&self) {}
-  fn type_name(&self) -> &'static str {
-    Self::TYPE_NAME
-  }
-  fn tag_name(&self) -> Arc<str> {
-    Arc::from("VirtualListItemSlot")
   }
 }
 

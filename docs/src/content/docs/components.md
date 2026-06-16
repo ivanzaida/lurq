@@ -7,9 +7,11 @@ description: Component structure, props, mounting, state, effects, and lifecycle
 
 ## Overview
 
-Components are structs that implement `Component`. They hold persistent state and return an `Element` tree from `render`.
+Components are structs that implement `Component`. They hold persistent state and return an `Element` tree from
+`render`.
 
-See [Ctx](./ctx/) for the full `Ctx` API used inside `create` and `render`, and [Reactivity](./reactivity/) for signals, stores, memos, effects, and contexts.
+See [Ctx](./ctx/) for the full `Ctx` API used inside `create` and `render`, and [Reactivity](./reactivity/) for signals,
+stores, memos, effects, and contexts.
 
 ```rust
 use lurq::{
@@ -77,16 +79,17 @@ pub trait Component: Send + Sync + 'static {
 }
 ```
 
-| Method | Called | Purpose |
-|--------|--------|---------|
-| `create` | Once, when the component is mounted | Initialize persistent state |
-| `render` | On mount and when the component is dirty | Return the current element tree |
-| `on_mounted` | After first render | Setup hooks that need a mounted component |
-| `on_unmounted` | Before the component is removed | Cleanup |
+| Method         | Called                                   | Purpose                                   |
+|----------------|------------------------------------------|-------------------------------------------|
+| `create`       | Once, when the component is mounted      | Initialize persistent state               |
+| `render`       | On mount and when the component is dirty | Return the current element tree           |
+| `on_mounted`   | After first render                       | Setup hooks that need a mounted component |
+| `on_unmounted` | Before the component is removed          | Cleanup                                   |
 
 ## Props
 
-Components receive props through the `Props` associated type. The current props are stored on the component context and can be read with `ctx.props::<Self::Props>()`.
+Components receive props through the `Props` associated type. The current props are stored on the component context and
+can be read with `ctx.props::<Self::Props>()`.
 
 ```rust
 struct Greeting {
@@ -112,7 +115,8 @@ impl Component for Greeting {
 }
 ```
 
-Use `()` for components with no props. Reused components rerender when their props compare unequal, so custom props must implement `PartialEq`.
+Use `()` for components with no props. Reused components rerender when their props compare unequal, so custom props must
+implement `PartialEq`.
 
 When the `devtools` feature is enabled, props must also implement `DevtoolsInspectable`.
 
@@ -139,7 +143,8 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 ### Unkeyed Mounts
 
-`ctx.mount::<C>(props)` matches children by position and component type. If the same component type stays at the same slot, its instance is reused. The child rerenders when its props change or its own context is dirty.
+`ctx.mount::<C>(props)` matches children by position and component type. If the same component type stays at the same
+slot, its instance is reused. The child rerenders when its props change or its own context is dirty.
 
 ### Keyed Mounts
 
@@ -147,9 +152,9 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 ```rust
 lurq::components::Column::new().with_children(
-  self.items.get().iter().map(|item| {
-    ctx.mount_keyed::<TodoItem>(&item.id, item.clone())
-  })
+self .items.get().iter().map( | item| {
+ctx.mount_keyed::< TodoItem > ( & item.id, item.clone())
+})
 )
 ```
 
@@ -163,76 +168,16 @@ ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
 ])
 ```
 
-## Virtual Lists
-
-Use `VirtualListState` with `ctx.virtual_list(...)` for long vertical feeds where rendering every row would be too expensive. The helper renders only the visible rows plus overscan while preserving scroll range with spacer elements.
-
-Keep `VirtualListState` on the component struct. It owns the scroll state, measured row heights, and retained row contexts.
-
-```rust
-use lurq::{
-  app::{component::Component, ctx::Ctx},
-  components::{Text, VirtualListState},
-  node::Element,
-};
-
-#[derive(Clone, PartialEq)]
-struct Message {
-  id: u64,
-  body: String,
-}
-
-struct Chat {
-  list: VirtualListState,
-}
-
-impl Component for Chat {
-  type Props = Vec<Message>;
-
-  fn create(ctx: &mut Ctx) -> Self {
-    Self {
-      list: VirtualListState::new(ctx)
-        .with_overscan(6)
-        .with_initial_visible_count(16),
-    }
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let messages = ctx.props::<Self::Props>();
-
-    ctx.virtual_list(
-      &self.list,
-      messages,
-      |message| message.id,
-      |_row_ctx, message| {
-        Text::new(&message.body)
-          .padding(12.0)
-      },
-    )
-    .size(420.0, 640.0)
-  }
-}
-```
-
-Rows may have different heights. The list renders rows in normal flow until every row height has been measured, then uses those exact measured heights for virtual scrolling.
-
-Use stable keys. Changing a key discards the cached height and retained row context for that item. Removed keys are pruned automatically.
-
-The row closure receives a row-local `Ctx`, so each row can mount child components, keep refs, or use effects just like a normal keyed list item:
-
-```rust
-ctx.virtual_list(&self.list, messages, |message| message.id, |row_ctx, message| {
-  row_ctx.mount_keyed::<MessageRow>(&message.id.to_string(), message.clone())
-})
-```
-
 ## Built-In DnD Components
 
-`DragContainer`, `Draggable`, and `DropZone` are real components. Use their `mount` helpers for the explicit one-child API.
+`DragContainer`, `Draggable`, and `DropZone` are real components. Use their `mount` helpers for the explicit one-child
+API.
 
-`Draggable` and `DropZone` are blank behavior wrappers. Each requires exactly one slot child and leaves layout, sizing, and initial positioning to that child.
+`Draggable` and `DropZone` are blank behavior wrappers. Each requires exactly one slot child and leaves layout, sizing,
+and initial positioning to that child.
 
-`DragContainer` requires exactly one slot child as the drag surface. By default, `DragContainerProps::new()` bounds descendant draggables to that surface.
+`DragContainer` requires exactly one slot child as the drag surface. By default, `DragContainerProps::new()` bounds
+descendant draggables to that surface.
 
 ```rust
 use lurq::components::{DragContainer, DragContainerProps, Draggable, DraggableProps, Rect, Stack};
@@ -278,7 +223,9 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 }
 ```
 
-Use `DraggableProps::on_drag_start`, `on_drag_move`, and `on_drag_end` for high-level draggable callbacks. Low-level node handlers with the same names remain available for custom behavior. The runtime keeps the active drag captured across rerenders and dispatches `on_drop` to the hit `DropZone` on release.
+Use `DraggableProps::on_drag_start`, `on_drag_move`, and `on_drag_end` for high-level draggable callbacks. Low-level
+node handlers with the same names remain available for custom behavior. The runtime keeps the active drag captured
+across rerenders and dispatches `on_drop` to the hit `DropZone` on release.
 
 ## State
 
@@ -290,19 +237,20 @@ let count = ctx.signal(0);
 count.get();                    // tracked read
 count.get_untracked();          // untracked read
 count.set(42);                  // replace
-count.update(|n| *n += 1);      // mutate in place
-count.with(|n| format!("{n}")); // tracked borrow
+count.update( | n| * n += 1);      // mutate in place
+count.with( | n| format!("{n}")); // tracked borrow
 ```
 
-Writing to a signal marks the owning component dirty. Runtime rebuilds dirty component output before layout, rendering, event dispatch, and element lookup.
+Writing to a signal marks the owning component dirty. Runtime rebuilds dirty component output before layout, rendering,
+event dispatch, and element lookup.
 
 ### Memo
 
 ```rust
 let count = ctx.signal(0);
 let doubled = ctx.memo({
-  let count = count.clone();
-  move || count.get() * 2
+let count = count.clone();
+move | | count.get() * 2
 });
 
 let value = doubled.get();
@@ -313,7 +261,7 @@ A memo tracks signals read during computation and updates dependents only when i
 ### Ref
 
 ```rust
-let handle = ctx.create_ref::<Option<u64>>(None);
+let handle = ctx.create_ref::<Option<u64> > (None);
 
 handle.set(Some(123));
 let current = handle.get();
@@ -328,8 +276,8 @@ Use stores and lenses for structured reactive state.
 ```rust
 let user = ctx.store(User { name: "Ada".into(), age: 36 });
 let name = user.lens(
-  |u| u.name.clone(),
-  |u, name| u.name = name,
+| u| u.name.clone(),
+| u, name| u.name = name,
 );
 name.set("Grace".into());
 ```
@@ -340,16 +288,16 @@ name.set("Grace".into());
 let count = ctx.signal(0);
 
 ctx.on_effect({
-  let count = count.clone();
-  move || println!("count = {}", count.get())
+let count = count.clone();
+move | | println ! ("count = {}", count.get())
 });
 ```
 
 Effects run immediately and rerun when any tracked signal read inside the effect changes.
 
 ```rust
-ctx.watch(&count, |value| {
-  println!("count changed to {value}");
+ctx.watch( & count, | value| {
+println ! ("count changed to {value}");
 });
 ```
 
@@ -394,10 +342,10 @@ impl Component for MyComponent {
 ## Batch Updates
 
 ```rust
-ctx.batch(|| {
-  signal_a.set(1);
-  signal_b.set(2);
-  signal_c.set(3);
+ctx.batch(| | {
+signal_a.set(1);
+signal_b.set(2);
+signal_c.set(3);
 });
 ```
 
