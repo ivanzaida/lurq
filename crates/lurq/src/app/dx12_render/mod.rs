@@ -402,20 +402,27 @@ impl RenderEngine for Dx12RenderEngine {
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
-    self
-      .ensure_initialized(window)
-      .expect("failed to initialize native dx12 renderer");
+    if let Err(err) = self.ensure_initialized(window) {
+      tracing::error!("failed to initialize native dx12 renderer: {err:?}");
+      return;
+    }
     let _init_dur = profile_elapsed!(_init_start);
 
     let state = self.state.as_mut().unwrap();
     if state.width != self.width || state.height != self.height {
-      unsafe {
-        state
-          .resize(self.width, self.height)
-          .expect("failed to resize native dx12 swapchain");
+      if let Err(err) = unsafe { state.resize(self.width, self.height) } {
+        tracing::error!("failed to resize native dx12 swapchain: {err:?}");
+        self.state = None;
+        return;
       }
     }
-    let _render_profile = unsafe { state.render(list).expect("failed to render native dx12 frame") };
+    let _render_profile = match unsafe { state.render(list) } {
+      Ok(profile) => profile,
+      Err(err) => {
+        tracing::error!("failed to render native dx12 frame: {err:?}");
+        return;
+      }
+    };
 
     profile_if! {
       self.last_profile = RenderProfile {
@@ -1936,6 +1943,10 @@ fn align_up(value: usize, alignment: usize) -> usize {
   (value + alignment - 1) & !(alignment - 1)
 }
 
+fn dx12_context<T>(result: Result<T>, stage: &'static str) -> Result<T> {
+  result.map_err(|err| Error::new(err.code(), format!("{stage}: {}", err.message())))
+}
+
 impl Dx12State {
   unsafe fn new(hwnd: HWND, width: u32, height: u32) -> Result<Self> {
     let factory = create_factory()?;
@@ -2087,12 +2098,15 @@ impl Dx12State {
     let _total_start = profile_scope!();
     let _acquire_start = profile_scope!();
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
-    self.wait_for_frame(self.frame_index)?;
+    dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
     let allocator = &self.command_allocators[self.frame_index];
-    allocator.Reset()?;
-    self.command_list.Reset(allocator, None::<&ID3D12PipelineState>)?;
+    dx12_context(allocator.Reset(), "reset dx12 command allocator")?;
+    dx12_context(
+      self.command_list.Reset(allocator, None::<&ID3D12PipelineState>),
+      "reset dx12 command list",
+    )?;
     let _acquire_dur = profile_elapsed!(_acquire_start);
 
     let _encode_start = profile_scope!();
@@ -2109,9 +2123,9 @@ impl Dx12State {
       .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
 
     let _atlas_start = profile_scope!();
-    self.update_glyph_atlas(list)?;
+    dx12_context(self.update_glyph_atlas(list), "update dx12 glyph atlas")?;
     let _atlas_dur = profile_elapsed!(_atlas_start);
-    self.draw_ordered(list)?;
+    dx12_context(self.draw_ordered(list), "draw dx12 render list")?;
 
     self.transition_resource(
       &target,
@@ -2119,17 +2133,20 @@ impl Dx12State {
       D3D12_RESOURCE_STATE_PRESENT,
     );
 
-    self.command_list.Close()?;
+    dx12_context(self.command_list.Close(), "close dx12 command list")?;
     let _encode_dur = profile_elapsed!(_encode_start);
 
     let _submit_start = profile_scope!();
-    let command_list: ID3D12CommandList = self.command_list.cast()?;
+    let command_list: ID3D12CommandList = dx12_context(self.command_list.cast(), "cast dx12 command list")?;
     self.command_queue.ExecuteCommandLists(&[Some(command_list)]);
-    self.signal_current_frame()?;
+    dx12_context(self.signal_current_frame(), "signal dx12 frame fence")?;
     let _submit_dur = profile_elapsed!(_submit_start);
 
     let _present_start = profile_scope!();
-    self.swapchain.Present(1, Default::default()).ok()?;
+    dx12_context(
+      self.swapchain.Present(1, Default::default()).ok(),
+      "present dx12 swapchain",
+    )?;
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     let _present_dur = profile_elapsed!(_present_start);
 

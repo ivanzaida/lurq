@@ -14,6 +14,8 @@ pub mod layout;
 #[cfg(feature = "markdown")]
 pub mod markdown;
 pub mod node;
+#[cfg(feature = "persistent_storage")]
+pub mod persistent_storage;
 #[cfg(feature = "render")]
 pub(crate) mod render;
 pub mod responsive;

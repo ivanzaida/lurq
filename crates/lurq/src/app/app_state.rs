@@ -1,5 +1,5 @@
 use std::path::Path;
-#[cfg(feature = "resources")]
+#[cfg(any(feature = "persistent_storage", feature = "resources"))]
 use std::path::PathBuf;
 
 #[cfg(feature = "i18n")]
@@ -16,6 +16,8 @@ pub struct App {
   pub(crate) tokio_handle: Option<tokio::runtime::Handle>,
   #[cfg(feature = "resources")]
   pub(crate) resource_loader: crate::resources::ResourceLoader,
+  #[cfg(feature = "persistent_storage")]
+  pub(crate) persistent_storage: crate::persistent_storage::PersistentStorage,
   #[cfg(all(feature = "image", feature = "resources"))]
   pub(crate) image_resource_cache: std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>,
   #[cfg(all(feature = "svg", feature = "resources"))]
@@ -40,6 +42,8 @@ impl App {
       tokio_handle: None,
       #[cfg(feature = "resources")]
       resource_loader: crate::resources::ResourceLoader::new(),
+      #[cfg(feature = "persistent_storage")]
+      persistent_storage: crate::persistent_storage::PersistentStorage::memory(),
       #[cfg(all(feature = "image", feature = "resources"))]
       image_resource_cache: std::collections::HashMap::new(),
       #[cfg(all(feature = "svg", feature = "resources"))]
@@ -101,5 +105,33 @@ impl App {
   #[cfg(feature = "resources")]
   pub fn set_resource_root(&mut self, root: PathBuf) {
     self.resource_loader.set_root(root);
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn persistent_storage(&self) -> &crate::persistent_storage::PersistentStorage {
+    &self.persistent_storage
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn set_persistent_storage_path(
+    &mut self,
+    path: impl Into<PathBuf>,
+  ) -> Result<(), crate::persistent_storage::PersistentStorageError> {
+    self.persistent_storage = crate::persistent_storage::PersistentStorage::open(path.into())?;
+    Ok(())
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn persistent_value<T: crate::persistent_storage::PersistentValue>(&self, key: &str) -> Option<T> {
+    self.persistent_storage.value(key)
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn set_persistent_value<T: crate::persistent_storage::IntoPersistentValue>(
+    &self,
+    key: &str,
+    value: T,
+  ) -> Result<(), crate::persistent_storage::PersistentStorageError> {
+    self.persistent_storage.set_value(key, value)
   }
 }

@@ -1943,6 +1943,20 @@ impl Ctx {
     unsafe { self.app.expect("app ref not set").as_mut() }
   }
 
+  #[cfg(feature = "persistent_storage")]
+  pub fn persistent_value<T: crate::persistent_storage::PersistentValue>(&self, key: &str) -> Option<T> {
+    self.app_ref().persistent_value(key)
+  }
+
+  #[cfg(feature = "persistent_storage")]
+  pub fn set_persistent_value<T: crate::persistent_storage::IntoPersistentValue>(
+    &self,
+    key: &str,
+    value: T,
+  ) -> Result<(), crate::persistent_storage::PersistentStorageError> {
+    self.app_ref().set_persistent_value(key, value)
+  }
+
   #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
     let i18n = self.i18n.as_ref().expect("i18n not set");
