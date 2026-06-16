@@ -58,6 +58,7 @@ pub(crate) fn top_bar(
       DevToolsTab::Profiler,
       active_tab_signal.clone(),
     ))
+    .child(storage_tab(active_tab, active_tab_signal.clone()))
     .child(tab(
       "zap",
       "Signals",
@@ -75,7 +76,9 @@ pub(crate) fn top_bar(
         profiler_last_recorded_signature_signal,
       ),
       DevToolsTab::Signals => signals_actions(signals_recording, signals_recording_store),
-      _ => Row::new()
+      #[cfg(feature = "persistent_storage")]
+      DevToolsTab::PersistentStorage => Row::new().align_items(Alignment::Center).into(),
+      DevToolsTab::Components => Row::new()
         .align_items(Alignment::Center)
         .child(pick_toggle(pick_enabled, pick_enabled_signal, on_pick_inspected))
         .child(Spacer::new().width(8.0))
@@ -99,6 +102,22 @@ pub(crate) fn top_bar(
     .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
     .into()
+}
+
+#[cfg(feature = "persistent_storage")]
+fn storage_tab(active_tab: DevToolsTab, active_tab_signal: Signal<DevToolsTab>) -> Element {
+  tab(
+    "box",
+    "Storage",
+    active_tab == DevToolsTab::PersistentStorage,
+    DevToolsTab::PersistentStorage,
+    active_tab_signal,
+  )
+}
+
+#[cfg(not(feature = "persistent_storage"))]
+fn storage_tab(_active_tab: DevToolsTab, _active_tab_signal: Signal<DevToolsTab>) -> Element {
+  Element::new()
 }
 
 fn signals_actions(recording: bool, recording_store: Store<signals::SignalsRecordingState>) -> Element {

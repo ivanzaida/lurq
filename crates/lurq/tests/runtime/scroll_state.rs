@@ -91,6 +91,145 @@ fn scroll_state_survives_signal_driven_rerender() {
   assert_eq!(content.bounds().y, -60.0);
 }
 
+struct ScrollbarDragReactiveRoot {
+  ticks: Signal<u32>,
+  renders: Arc<AtomicUsize>,
+}
+
+impl Component for ScrollbarDragReactiveRoot {
+  type Props = Shared<AtomicUsize>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      ticks: ctx.signal(0),
+      renders: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    self.renders.fetch_add(1, Ordering::SeqCst);
+    let _ = self.ticks.get();
+    let ticks = self.ticks.clone();
+
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .on_scroll(move |_| ticks.update(|ticks| *ticks += 1))
+      .size(100.0, 100.0)
+  }
+}
+
+struct ScrollReachTopRoot {
+  reached: Arc<AtomicUsize>,
+}
+
+struct ScrollReachBottomRoot {
+  reached: Arc<AtomicUsize>,
+}
+
+impl Component for ScrollReachBottomRoot {
+  type Props = Shared<AtomicUsize>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      reached: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let reached = self.reached.clone();
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .on_scroll_reach_bottom(move |_| {
+        reached.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0)
+  }
+}
+
+impl Component for ScrollReachTopRoot {
+  type Props = Shared<AtomicUsize>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      reached: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let reached = self.reached.clone();
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .on_scroll_reach_top(move |_| {
+        reached.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0)
+  }
+}
+
+#[test]
+fn scroll_reach_top_fires_once_when_crossing_into_top_edge() {
+  let mut runtime = Tree::new();
+  let reached = Arc::new(AtomicUsize::new(0));
+  runtime.mount_root::<ScrollReachTopRoot>(&mut lurq::app::App::new(), Shared(reached.clone()));
+
+  run_pass(&mut runtime);
+  runtime.scroll(10.0, 10.0, 0.0, -160.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 0);
+
+  runtime.scroll(10.0, 10.0, 0.0, 240.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 1);
+
+  runtime.scroll(10.0, 10.0, 0.0, 40.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 1);
+
+  runtime.scroll(10.0, 10.0, 0.0, -80.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  runtime.scroll(10.0, 10.0, 0.0, 120.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn scroll_reach_bottom_fires_once_when_crossing_into_bottom_edge() {
+  let mut runtime = Tree::new();
+  let reached = Arc::new(AtomicUsize::new(0));
+  runtime.mount_root::<ScrollReachBottomRoot>(&mut lurq::app::App::new(), Shared(reached.clone()));
+
+  run_pass(&mut runtime);
+  runtime.scroll(10.0, 10.0, 0.0, -360.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 1);
+
+  runtime.scroll(10.0, 10.0, 0.0, -40.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 1);
+
+  runtime.scroll(10.0, 10.0, 0.0, 80.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  runtime.scroll(10.0, 10.0, 0.0, -120.0, ScrollPhase::Scroll);
+  run_pass(&mut runtime);
+  assert_eq!(reached.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn scrollbar_thumb_drag_defers_reactive_rerender_until_redraw_pass() {
+  let mut runtime = Tree::new();
+  let renders = Arc::new(AtomicUsize::new(0));
+  runtime.mount_root::<ScrollbarDragReactiveRoot>(&mut lurq::app::App::new(), Shared(renders.clone()));
+
+  run_pass(&mut runtime);
+  let initial_renders = renders.load(Ordering::SeqCst);
+
+  runtime.mouse_down(94.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(94.0, 30.0);
+  runtime.mouse_move(94.0, 50.0);
+
+  assert_eq!(renders.load(Ordering::SeqCst), initial_renders);
+
+  run_pass(&mut runtime);
+  assert_eq!(renders.load(Ordering::SeqCst), initial_renders + 1);
+}
+
 struct ScrollCullingCacheRoot {
   culling: Signal<bool>,
   scroll_state: ScrollState,
@@ -453,7 +592,7 @@ impl Drop for VirtualListPruneRow {
 }
 
 #[test]
-fn virtual_list_measures_all_rows_before_virtualizing() {
+fn virtual_list_measures_rows_in_bounded_batches_before_virtualizing() {
   let renders = Arc::new(AtomicUsize::new(0));
   let mounts = Arc::new(AtomicUsize::new(0));
   let unmounts = Arc::new(AtomicUsize::new(0));
@@ -469,6 +608,18 @@ fn virtual_list_measures_all_rows_before_virtualizing() {
   );
   run_pass(&mut runtime);
 
+  assert_eq!(renders.load(Ordering::SeqCst), 5);
+  assert_eq!(mounts.load(Ordering::SeqCst), 5);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+
+  runtime.tick_timers();
+  run_pass(&mut runtime);
+  assert_eq!(renders.load(Ordering::SeqCst), 69);
+  assert_eq!(mounts.load(Ordering::SeqCst), 69);
+  assert_eq!(unmounts.load(Ordering::SeqCst), 0);
+
+  runtime.tick_timers();
+  run_pass(&mut runtime);
   assert_eq!(renders.load(Ordering::SeqCst), 100);
   assert_eq!(mounts.load(Ordering::SeqCst), 100);
   assert_eq!(unmounts.load(Ordering::SeqCst), 0);
@@ -489,6 +640,10 @@ fn virtual_list_retains_keyed_rows_when_they_scroll_out_and_back_in() {
       Shared(unmounts.clone()),
     ),
   );
+  run_pass(&mut runtime);
+  runtime.tick_timers();
+  run_pass(&mut runtime);
+  runtime.tick_timers();
   run_pass(&mut runtime);
 
   runtime.scroll(10.0, 10.0, 0.0, -160.0, ScrollPhase::Scroll);
@@ -799,6 +954,27 @@ fn scrollbar_drag_release_does_not_click_under_cursor() {
   runtime.mouse_up(10.0, 50.0, MouseButton::Left);
 
   assert_eq!(clicks.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn scrollbar_thumb_drag_emits_scroll_event() {
+  let mut runtime = Tree::new();
+  let scroll_events = Arc::new(AtomicUsize::new(0));
+  let scroll_count = scroll_events.clone();
+
+  runtime.set_root(
+    ScrollVertical::new(Rect::new(100.0, 400.0).background(CONTENT_COLOR))
+      .on_scroll(move |_| {
+        scroll_count.fetch_add(1, Ordering::SeqCst);
+      })
+      .size(100.0, 100.0),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(94.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(94.0, 50.0);
+
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 1);
 }
 
 #[test]

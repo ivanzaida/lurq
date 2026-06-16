@@ -116,6 +116,35 @@ fn app_roundtrips_derived_persistent_value_struct() {
 }
 
 #[test]
+fn app_snapshot_shows_derived_persistent_value_struct_fields() {
+  let app = App::new();
+
+  app
+    .set_persistent_value(
+      "prefs",
+      UserPrefs {
+        name: "Ada".to_owned(),
+        launch_count: 12,
+        compact: true,
+      },
+    )
+    .unwrap();
+
+  let snapshot = app.persistent_storage().snapshot().unwrap();
+  let prefs = snapshot
+    .iter()
+    .find(|entry| entry.key == "prefs")
+    .expect("prefs snapshot entry");
+
+  assert_eq!(prefs.type_name, "UserPrefs");
+  assert!(prefs.full_type_name.ends_with("UserPrefs"));
+  assert_eq!(
+    prefs.value,
+    "UserPrefs { name: \"Ada\", launch_count: 12, compact: true }"
+  );
+}
+
+#[test]
 fn redb_storage_persists_across_app_instances() {
   let path = temp_storage_path("persists");
 

@@ -420,6 +420,11 @@ impl RenderEngine for Dx12RenderEngine {
       Ok(profile) => profile,
       Err(err) => {
         tracing::error!("failed to render native dx12 frame: {err:?}");
+        if (err.code().0 as u32) == 0x8007007E {
+          tracing::error!(
+            "dx12 render failed with ERROR_MOD_NOT_FOUND; this usually means a DirectX/GPU driver dependency was missing while encoding this frame"
+          );
+        }
         if let Some(video_surfaces) = &self.video_surfaces {
           video_surfaces.set_device(None);
         }
@@ -1954,7 +1959,7 @@ fn align_up(value: usize, alignment: usize) -> usize {
   (value + alignment - 1) & !(alignment - 1)
 }
 
-fn dx12_context<T>(result: Result<T>, stage: &'static str) -> Result<T> {
+fn dx12_context<T>(result: Result<T>, stage: impl std::fmt::Display) -> Result<T> {
   result.map_err(|err| Error::new(err.code(), format!("{stage}: {}", err.message())))
 }
 
@@ -2312,12 +2317,29 @@ impl Dx12State {
 
     for (_, draw) in ordered_draws {
       match draw {
-        OrderedDraw::Rect(index) => self.draw_rect(&list.rects[index])?,
-        OrderedDraw::Glyph { start, count } => self.draw_glyphs(&list.glyphs[start..start + count])?,
+        OrderedDraw::Rect(index) => dx12_context(
+          self.draw_rect(&list.rects[index]),
+          format_args!("draw dx12 rect #{index}"),
+        )?,
+        OrderedDraw::Glyph { start, count } => dx12_context(
+          self.draw_glyphs(&list.glyphs[start..start + count]),
+          format_args!("draw dx12 glyph run start={start} count={count}"),
+        )?,
         #[cfg(feature = "image")]
-        OrderedDraw::Image(index) => self.draw_image(&list.images[index])?,
+        OrderedDraw::Image(index) => dx12_context(
+          self.draw_image(&list.images[index]),
+          format_args!(
+            "draw dx12 image #{} id={} format={:?} native={}",
+            index,
+            list.images[index].image_id,
+            list.images[index].image_format,
+            list.images[index].native.is_some()
+          ),
+        )?,
         #[cfg(feature = "svg")]
-        OrderedDraw::Svg(index) => self.draw_svg(&list.svgs[index])?,
+        OrderedDraw::Svg(index) => {
+          dx12_context(self.draw_svg(&list.svgs[index]), format_args!("draw dx12 svg #{index}"))?
+        }
       }
     }
 

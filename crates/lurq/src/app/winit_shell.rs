@@ -10,7 +10,7 @@ use winit::{
   dpi::{PhysicalPosition, PhysicalSize, Position},
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-  keyboard::{Key, ModifiersState, NamedKey, PhysicalKey},
+  keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
   window::{
     CursorIcon as WinitCursorIcon, Fullscreen, Icon as WinitIcon, ResizeDirection as WinitResizeDirection, Window,
     WindowAttributes, WindowId,
@@ -573,6 +573,12 @@ impl ManagedWindow {
         self.modifiers = modifiers.state();
       }
       WindowEvent::KeyboardInput { event, .. } => {
+        if is_open_devtools_shortcut(&event, self.modifiers) {
+          self.tree.open_devtools();
+          self.apply_cursor();
+          self.check_redraw();
+          return false;
+        }
         match event.state {
           ElementState::Pressed => self.tree.key_down_with_meta(
             key_to_string(&event),
@@ -1165,6 +1171,11 @@ impl ApplicationHandler for WinitHandler {
       .iter()
       .position(|secondary| secondary.window_id() == Some(id))
     {
+      if is_open_devtools_window_event(&event, self.secondaries[position].modifiers) {
+        self.main.tree.open_devtools();
+        self.apply_secondary_window_requests(event_loop);
+        return;
+      }
       let index = self.secondaries[position].index();
       let mut closed = false;
       if let Some(secondary) = self.main.tree.secondary_window_mut(index) {
@@ -1244,6 +1255,19 @@ fn key_to_string(event: &winit::event::KeyEvent) -> String {
     Key::Dead(None) => String::new(),
     Key::Unidentified(_) => event.text.as_ref().map(ToString::to_string).unwrap_or_default(),
   }
+}
+
+fn is_open_devtools_shortcut(event: &winit::event::KeyEvent, modifiers: ModifiersState) -> bool {
+  event.state == ElementState::Pressed
+    && modifiers.control_key()
+    && modifiers.shift_key()
+    && !modifiers.alt_key()
+    && !modifiers.super_key()
+    && matches!(event.physical_key, PhysicalKey::Code(KeyCode::F12))
+}
+
+fn is_open_devtools_window_event(event: &WindowEvent, modifiers: ModifiersState) -> bool {
+  matches!(event, WindowEvent::KeyboardInput { event, .. } if is_open_devtools_shortcut(event, modifiers))
 }
 
 fn named_key_to_string(key: NamedKey) -> &'static str {

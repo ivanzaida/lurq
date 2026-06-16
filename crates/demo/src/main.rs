@@ -8,6 +8,7 @@ mod events_demo;
 mod inputs_demo;
 mod layout_demo;
 mod markdown_demo;
+mod persistent_storage_demo;
 mod positioning_demo;
 mod reactivity_demo;
 mod scroll_demo;
@@ -108,6 +109,9 @@ fn demo_routes(theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Routes {
         .route("/visual", |_ctx| visual_demo::visual_content())
         .route("/text", |_ctx| text_demo::text_content())
         .route("/markdown", |ctx| markdown_demo::markdown_content(ctx))
+        .route("/persistent-storage", |ctx| {
+          ctx.mount::<persistent_storage_demo::PersistentStorageDemo>(())
+        })
         .route("/inputs", move |ctx| {
           ctx.mount::<inputs_demo::InputsDemo>(inputs_theme.get())
         })
@@ -345,6 +349,13 @@ fn default_profile_log_path() -> std::path::PathBuf {
     .join("perf_profile.log")
 }
 
+fn default_persistent_storage_path() -> std::path::PathBuf {
+  std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("../..")
+    .join("target")
+    .join("demo-persistent-storage.redb")
+}
+
 fn create_wgpu_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine> {
   Box::new(WgpuRenderEngine::new())
 }
@@ -364,6 +375,9 @@ fn main() {
   let mut app = App::new();
   let mut tree = Tree::new();
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
+  app
+    .set_persistent_storage_path(default_persistent_storage_path())
+    .expect("open demo persistent storage");
   lurq::app::devtools::load_fonts(&mut app);
   let renderer = set_selected_render_engine(&mut tree, &options.renderer);
   animation_demo::register_keyframes(&mut tree);

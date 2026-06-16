@@ -46,6 +46,25 @@ fn selectable_text_drag_renders_selection() {
 }
 
 #[test]
+fn selectable_text_drag_can_start_just_outside_text_bounds() {
+  let mut runtime = Tree::new();
+
+  runtime.set_root(lurq::components::Text::new("Hello world").selectable(true));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let start_x = rect.x + rect.width + 96.0;
+  let start_y = rect.y + rect.height + 4.0;
+  let end_x = rect.x;
+  let end_y = rect.y + rect.height / 2.0;
+
+  runtime.mouse_down(start_x, start_y, MouseButton::Left);
+  runtime.mouse_move(end_x, end_y);
+  runtime.mouse_up(end_x, end_y, MouseButton::Left);
+
+  assert!(selection_rect_count(&mut runtime) > 0);
+}
+
+#[test]
 fn selecting_another_selectable_text_clears_previous_selection() {
   let mut runtime = Tree::new();
 

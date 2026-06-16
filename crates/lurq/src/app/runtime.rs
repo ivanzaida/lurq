@@ -1022,6 +1022,8 @@ impl Tree {
   fn devtools_props(&self, snapshot: DevToolsSnapshot) -> DevToolsProps {
     DevToolsProps {
       snapshot,
+      #[cfg(feature = "persistent_storage")]
+      persistent_storage_revision: self.devtools_persistent_storage_revision(),
       picked_path: self.devtools_state.picked_path.clone(),
       picked_revision: self.devtools_state.picked_revision,
       on_debug_overlay_path: Some(devtools_debug_overlay_callback(
@@ -1030,6 +1032,15 @@ impl Tree {
       on_overlay_enabled: Some(devtools_bool_callback(self.devtools_state.overlay_enabled.clone())),
       on_pick_inspected: Some(devtools_bool_callback(self.devtools_state.pick_mode.clone())),
     }
+  }
+
+  #[cfg(all(feature = "devtools", feature = "persistent_storage"))]
+  fn devtools_persistent_storage_revision(&self) -> u64 {
+    self
+      .root_ctx
+      .as_ref()
+      .map(|ctx| ctx.app_ref().persistent_storage().revision())
+      .unwrap_or_default()
   }
 
   fn clear_animation_runtime_state(&mut self) {
@@ -1796,6 +1807,7 @@ impl Tree {
   }
 
   pub fn mouse_move_with_modifiers(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool) {
+    let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(
       x,
       y,
@@ -1803,7 +1815,9 @@ impl Tree {
       MouseEventKind::Move,
       MouseModifiers { shift, ctrl, alt },
     );
-    self.apply_reactive_updates_after_event();
+    if !active_scrollbar_drag {
+      self.apply_reactive_updates_after_event();
+    }
   }
 
   pub fn mouse_leave_window(&mut self) {
@@ -2383,27 +2397,42 @@ impl Tree {
     let lx = evt.x / scale;
     let ly = evt.y / scale;
 
-    self.rebuild_if_dirty();
-
     // Handle active scrollbar drag
     if let Some(ref drag) = self.dragging_scroll.clone() {
       match evt.kind {
         MouseEventKind::Move => {
+          let previous_scroll_y = drag.state.scroll_y();
+          let previous_max_scroll_y = (drag.state.content_height() - drag.state.viewport_height()).max(0.0);
           drag.state.drag_to_axis(drag.axis, lx, ly, &drag.state.style());
+          self.dispatch_scroll_handlers_for_node(drag.target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll);
+          self.dispatch_scroll_reach_handlers_for_node(
+            drag.target_id,
+            evt.x,
+            evt.y,
+            0.0,
+            0.0,
+            ScrollPhase::Scroll,
+            previous_scroll_y,
+            previous_max_scroll_y,
+          );
           self.needs_redraw = true;
           return;
         }
         MouseEventKind::Up => {
           drag.state.end_drag();
+          self.dispatch_scroll_handlers_for_node(drag.target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::End);
           self.dragging_scroll = None;
           self.clear_active_path();
           self.suppress_click((evt.x, evt.y), button);
           self.needs_redraw = true;
+          self.apply_reactive_updates_after_event();
           return;
         }
         _ => {}
       }
     }
+
+    self.rebuild_if_dirty();
 
     if let Some(mut drag) = self.dragging_slider.clone() {
       if let Some(state) = self.current_slider_state(drag.target_id) {
@@ -2733,7 +2762,7 @@ impl Tree {
         }
 
         if pending_text_selection_drag.is_none()
-          && let Some((node, rect)) = hits.iter().find(|(node, _)| is_selectable_text_node(node))
+          && let Some((node, rect)) = selectable_text_drag_start_endpoint(root, result, lx, ly)
         {
           if let Some((state, value)) = selectable_text_state_and_value(node) {
             let preserve_existing = evt.shift || evt.ctrl;
@@ -2899,6 +2928,7 @@ impl Tree {
           if let Some(axis) = pressed_axis {
             state.begin_drag_axis(axis, lx, ly);
             self.dragging_scroll = Some(ScrollDrag {
+              target_id: node.node_id(),
               state: state.clone(),
               axis,
             });
@@ -3478,6 +3508,7 @@ impl Tree {
     // any delta an edge-clamped child could not consume.
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
+    let mut pending_scroll_reach = Vec::new();
     for (node, _) in &hits {
       if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
         let dx = if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
@@ -3495,6 +3526,8 @@ impl Tree {
           continue;
         }
 
+        let previous_scroll_y = state.scroll_y();
+        let previous_max_scroll_y = (state.content_height() - state.viewport_height()).max(0.0);
         let (overflow_dx, overflow_dy) = state.scroll_by_with_overflow(dx, dy);
         if overflow_dx != dx || overflow_dy != dy {
           node.layout_cache.mark_local_dirty();
@@ -3503,6 +3536,16 @@ impl Tree {
           }
           self.needs_redraw = true;
         }
+        pending_scroll_reach.push((
+          node.node_id(),
+          evt.x,
+          evt.y,
+          evt.delta_x,
+          evt.delta_y,
+          evt.phase,
+          previous_scroll_y,
+          previous_max_scroll_y,
+        ));
         if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
           remaining_dx = overflow_dx;
         }
@@ -3510,6 +3553,132 @@ impl Tree {
           remaining_dy = overflow_dy;
         }
         if remaining_dx == 0.0 && remaining_dy == 0.0 {
+          break;
+        }
+      }
+    }
+    for (target_id, x, y, delta_x, delta_y, phase, previous_scroll_y, previous_max_scroll_y) in pending_scroll_reach {
+      self.dispatch_scroll_reach_handlers_for_node(
+        target_id,
+        x,
+        y,
+        delta_x,
+        delta_y,
+        phase,
+        previous_scroll_y,
+        previous_max_scroll_y,
+      );
+    }
+  }
+
+  fn dispatch_scroll_handlers_for_node(
+    &mut self,
+    target_id: NodeId,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+  ) {
+    let Some(root) = &self.root else {
+      return;
+    };
+    let Some(node) = find_node_by_id(root, target_id) else {
+      return;
+    };
+    let evt = ScrollEvent {
+      x,
+      y,
+      delta_x,
+      delta_y,
+      phase,
+      target_id,
+      control: EventControl::new(),
+    };
+
+    match evt.phase {
+      ScrollPhase::Start => {
+        for handler in &node.events.on_scroll_start {
+          handler.call(&evt);
+          if evt.immediate_propagation_stopped() {
+            break;
+          }
+        }
+      }
+      ScrollPhase::Scroll => {
+        for handler in &node.events.on_scroll {
+          handler.call(&evt);
+          if evt.immediate_propagation_stopped() {
+            break;
+          }
+        }
+      }
+      ScrollPhase::End => {
+        for handler in &node.events.on_scroll_end {
+          handler.call(&evt);
+          if evt.immediate_propagation_stopped() {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  fn dispatch_scroll_reach_handlers_for_node(
+    &self,
+    target_id: NodeId,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+    previous_scroll_y: f32,
+    previous_max_scroll_y: f32,
+  ) {
+    let Some(root) = &self.root else {
+      return;
+    };
+    let Some(node) = find_node_by_id(root, target_id) else {
+      return;
+    };
+    let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() else {
+      return;
+    };
+
+    let next_scroll_y = state.scroll_y();
+    let next_max_scroll_y = (state.content_height() - state.viewport_height()).max(0.0);
+    let reached_top = previous_scroll_y > 2.0 && next_scroll_y <= 2.0;
+    let reached_bottom = next_max_scroll_y > 0.0
+      && previous_scroll_y < previous_max_scroll_y - 2.0
+      && next_scroll_y >= next_max_scroll_y - 2.0;
+
+    if !reached_top && !reached_bottom {
+      return;
+    }
+
+    let evt = ScrollEvent {
+      x,
+      y,
+      delta_x,
+      delta_y,
+      phase,
+      target_id,
+      control: EventControl::new(),
+    };
+
+    if reached_top {
+      for handler in &node.events.on_scroll_reach_top {
+        handler.call(&evt);
+        if evt.immediate_propagation_stopped() {
+          break;
+        }
+      }
+    }
+
+    if reached_bottom {
+      for handler in &node.events.on_scroll_reach_bottom {
+        handler.call(&evt);
+        if evt.immediate_propagation_stopped() {
           break;
         }
       }
@@ -4604,10 +4773,20 @@ fn build_overlays_from_layout_index(
         overlays.push(menu);
       }
       OverlayLayoutRecord::Overlay { reuse_key, spec } => {
+        let debug_storage_tooltip = spec.node.component_key() == Some("persistent-storage-type-tooltip");
+        if debug_storage_tooltip {
+          log_persistent_storage_tooltip_overlay("collected", None, None, None);
+        }
         let Some(anchor) = find_element_record(index, &spec.anchor) else {
+          if debug_storage_tooltip {
+            log_persistent_storage_tooltip_overlay("missing-anchor", None, None, None);
+          }
           continue;
         };
         if anchor.width <= 0.0 || anchor.height <= 0.0 {
+          if debug_storage_tooltip {
+            log_persistent_storage_tooltip_overlay("empty-anchor", Some(anchor), None, None);
+          }
           continue;
         }
         let dismiss_anchor = spec.anchor.clone();
@@ -4631,6 +4810,9 @@ fn build_overlays_from_layout_index(
           theme_changed,
         );
         set_overlay_reuse_key(&mut overlay, reuse_key.as_deref());
+        if debug_storage_tooltip {
+          log_persistent_storage_tooltip_overlay("built", Some(anchor), Some(bounds), None);
+        }
         if let Some(open) = dismiss_signal
           && (dismiss_on_outside_click || dismiss_on_escape)
         {
@@ -4742,6 +4924,7 @@ fn build_overlay_node(
   theme_changed: bool,
 ) -> (Node, ElementRect) {
   let mut node = spec.node;
+  let debug_storage_tooltip = node.component_key() == Some("persistent-storage-type-tooltip");
   if spec.match_anchor_width {
     node = node.width(Dimension::Px(anchor.width));
   }
@@ -4768,6 +4951,19 @@ fn build_overlay_node(
     typography,
     theme_changed,
   );
+  if debug_storage_tooltip {
+    eprintln!(
+      "[persistent-storage-tooltip] runtime=measure anchor=({}, {}, {}, {}) measured=({}, {}) viewport=({}, {})",
+      anchor.x,
+      anchor.y,
+      anchor.width,
+      anchor.height,
+      measured.size.width,
+      measured.size.height,
+      viewport.width,
+      viewport.height
+    );
+  }
   if pending_runtime_layout_dirty {
     invalidate_layout_cache_recursive(&node);
   }
@@ -4781,6 +4977,9 @@ fn build_overlay_node(
     spec.offset_y,
     spec.collision,
   );
+  if debug_storage_tooltip {
+    eprintln!("[persistent-storage-tooltip] runtime=placement placement={placement:?}");
+  }
   let (x, y) = overlay_position(anchor, overlay_size, placement, spec.offset_x, spec.offset_y);
   let (x, y) = if matches!(
     spec.collision,
@@ -4808,6 +5007,28 @@ fn build_overlay_node(
     ),
     bounds,
   )
+}
+
+fn log_persistent_storage_tooltip_overlay(
+  event: &str,
+  anchor: Option<ElementRect>,
+  bounds: Option<ElementRect>,
+  _placement: Option<Placement>,
+) {
+  tracing::info!(
+    target: "lurq::persistent_storage_tooltip",
+    event,
+    anchor_x = anchor.map(|rect| rect.x),
+    anchor_y = anchor.map(|rect| rect.y),
+    anchor_width = anchor.map(|rect| rect.width),
+    anchor_height = anchor.map(|rect| rect.height),
+    bounds_x = bounds.map(|rect| rect.x),
+    bounds_y = bounds.map(|rect| rect.y),
+    bounds_width = bounds.map(|rect| rect.width),
+    bounds_height = bounds.map(|rect| rect.height),
+    "persistent storage tooltip overlay runtime"
+  );
+  eprintln!("[persistent-storage-tooltip] runtime={event} anchor={anchor:?} bounds={bounds:?}");
 }
 
 fn invalidate_layout_cache_recursive(node: &Node) {
@@ -5054,6 +5275,7 @@ fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bo
 
 #[derive(Clone)]
 struct ScrollDrag {
+  target_id: NodeId,
   state: ScrollState,
   axis: ScrollAxis,
 }
@@ -5963,6 +6185,31 @@ fn selectable_text_endpoint<'a>(
   }
 
   nearest_selectable_text(root, layout, 0.0, 0.0, x, y).map(|(_, node, rect)| (node, rect))
+}
+
+fn selectable_text_drag_start_endpoint<'a>(
+  root: &'a Node,
+  layout: &'a LayoutResult,
+  x: f32,
+  y: f32,
+) -> Option<(&'a Node, HitRect)> {
+  let mut hits = Vec::new();
+  hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+  if let Some(hit) = hits.into_iter().find(|(node, _)| is_selectable_text_node(node)) {
+    return Some(hit);
+  }
+
+  let (_, node, rect) = nearest_selectable_text(root, layout, 0.0, 0.0, x, y)?;
+  let vertical_slop = (rect.height * 0.75).max(8.0);
+  let outside_y = if y < rect.y {
+    rect.y - y
+  } else if y > rect.y + rect.height {
+    y - (rect.y + rect.height)
+  } else {
+    0.0
+  };
+
+  (outside_y <= vertical_slop).then_some((node, rect))
 }
 
 fn nearest_selectable_text<'a>(

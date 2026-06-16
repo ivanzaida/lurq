@@ -2390,6 +2390,8 @@ impl Ctx {
 
     let render_start = Instant::now();
     let all_rows_measured = state.all_heights_measured(&keys);
+    let measured_count = state.measured_count(&keys);
+    let has_any_measured_rows = measured_count > 0;
     struct VirtualRow {
       row: Element,
       row_ref: ElementRef,
@@ -2399,10 +2401,17 @@ impl Ctx {
     let mut virtual_rows: Vec<VirtualRow> = Vec::new();
     let mut cached_rows = 0usize;
     let mut rendered_rows = 0usize;
+    let mut measuring_visible_rows = false;
     let mut row_y = window.top_spacer;
     for index in window.start..window.end {
       let key = &keys[index];
-      let row_height = state.height_for_key(key).unwrap_or(0.0);
+      let row_height = state.height_for_key(key);
+      if has_any_measured_rows && row_height.is_none() {
+        continue;
+      }
+      if row_height.is_none() {
+        measuring_visible_rows = true;
+      }
       let row_ref = state.row_ref(key);
       let (row, cached) = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
       if cached {
@@ -2411,10 +2420,14 @@ impl Ctx {
         rendered_rows += 1;
       }
       virtual_rows.push(VirtualRow { row, row_ref, y: row_y });
-      row_y += row_height;
+      row_y += row_height.unwrap_or(0.0);
     }
 
-    let use_absolute_layout = all_rows_measured && rendered_rows == 0;
+    let use_absolute_layout = if all_rows_measured {
+      rendered_rows == 0
+    } else {
+      has_any_measured_rows
+    };
     let mut rows: Vec<Element> = Vec::new();
     if use_absolute_layout {
       rows.push(
@@ -2450,6 +2463,32 @@ impl Ctx {
       rows.push(Spacer::new().height(window.bottom_spacer).into());
     }
 
+    let measurement_indices = if has_any_measured_rows && !all_rows_measured {
+      state.measurement_indices(&keys, window.start, window.end)
+    } else {
+      Vec::new()
+    };
+    let mut measurement_rows: Vec<Element> = Vec::new();
+    let mut measurement_row_count = 0usize;
+    for index in measurement_indices {
+      let key = &keys[index];
+      let row_ref = state.row_ref(key);
+      let (row, cached) = slot.ctx.render_virtual_list_item(key.clone(), &items[index], &row_fn);
+      if cached {
+        cached_rows += 1;
+      } else {
+        rendered_rows += 1;
+      }
+      measurement_row_count += 1;
+      measurement_rows.push(
+        Stack::new()
+          .ref_element(row_ref)
+          .width(Dimension::Pct(100.0))
+          .child(row)
+          .into(),
+      );
+    }
+
     slot.ctx.end_render();
     let render_elapsed = render_start.elapsed();
     let retained_slots = slot.ctx.children.len();
@@ -2457,27 +2496,36 @@ impl Ctx {
     let finalize_start = Instant::now();
     let refresh_state = state.clone();
     let row_count = window_end_index.saturating_sub(window_start_index);
-    let measuring_rows = !all_rows_measured;
+    let measuring_rows = measuring_visible_rows || measurement_row_count > 0;
     if measuring_rows {
-      state.request_refresh();
+      state.request_measurement_refresh();
     }
-    let content: Element = if use_absolute_layout {
+    let visible_content: Element = if use_absolute_layout {
       let stack = Stack::new().width(Dimension::Pct(100.0)).with_children(rows);
-      if measuring_rows {
-        stack.opacity(0.0).hit_test(HitTestBehavior::None).into()
-      } else {
-        stack.into()
-      }
+      stack.into()
     } else {
-      let column = Column::new()
+      Column::new()
         .width(Dimension::Pct(100.0))
         .spacing(0.0)
-        .with_children(rows);
-      if measuring_rows {
-        column.opacity(0.0).hit_test(HitTestBehavior::None).into()
-      } else {
-        column.into()
-      }
+        .with_children(rows)
+        .into()
+    };
+    let content: Element = if measurement_rows.is_empty() {
+      visible_content
+    } else {
+      Stack::new()
+        .width(Dimension::Pct(100.0))
+        .child(visible_content)
+        .child(
+          Column::new()
+            .width(Dimension::Pct(100.0))
+            .spacing(0.0)
+            .with_children(measurement_rows)
+            .absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Auto)
+            .opacity(0.0)
+            .hit_test(HitTestBehavior::None),
+        )
+        .into()
     };
     let result = ScrollVertical::new(content)
       .with_scroll_state(state.scroll_state())

@@ -365,6 +365,10 @@ pub(crate) trait NodeUpdate {
   fn off_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_end(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll_end(&mut self, f: impl IntoScrollEventHandler);
+  fn on_scroll_reach_top(&mut self, f: impl IntoScrollEventHandler);
+  fn off_scroll_reach_top(&mut self, f: impl IntoScrollEventHandler);
+  fn on_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler);
+  fn off_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler);
   fn opacity(&mut self, value: f32);
   fn transform(&mut self, t: Transform2D);
   fn transition(&mut self, spec: Transition);
@@ -526,6 +530,8 @@ pub struct EventHandlers {
   pub on_scroll: Vec<Callback<ScrollEvent>>,
   pub on_scroll_start: Vec<Callback<ScrollEvent>>,
   pub on_scroll_end: Vec<Callback<ScrollEvent>>,
+  pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
+  pub on_scroll_reach_bottom: Vec<Callback<ScrollEvent>>,
 }
 
 pub(crate) struct Node {
@@ -1198,6 +1204,30 @@ impl NodeUpdate for Node {
     self
       .events
       .on_scroll_end
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_scroll_reach_top(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_scroll_reach_top.push(f.into_event_handler());
+  }
+
+  fn off_scroll_reach_top(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll_reach_top
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_scroll_reach_bottom.push(f.into_event_handler());
+  }
+
+  fn off_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_scroll_reach_bottom
       .retain(|existing| !existing.same_handler(&handler));
   }
 

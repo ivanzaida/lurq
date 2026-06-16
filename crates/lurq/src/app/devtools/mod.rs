@@ -1,4 +1,6 @@
 mod inspector;
+#[cfg(feature = "persistent_storage")]
+mod persistent_storage_panel;
 mod profiler;
 mod signals;
 mod snapshot;
@@ -36,6 +38,9 @@ pub fn load_fonts(app: &mut crate::app::App) {
 pub struct DevToolsProps {
   #[devtools_ignore]
   pub snapshot: DevToolsSnapshot,
+  #[cfg(feature = "persistent_storage")]
+  #[devtools_ignore]
+  pub persistent_storage_revision: u64,
   pub picked_path: Option<Vec<usize>>,
   pub picked_revision: u64,
   #[devtools_ignore]
@@ -59,6 +64,8 @@ pub struct DevTools {
   profiler_last_recorded_signature: Signal<u64>,
   signals_recording: Store<signals::SignalsRecordingState>,
   selected_signal: Signal<Option<String>>,
+  #[cfg(feature = "persistent_storage")]
+  persistent_storage_type_tooltip: Signal<Option<String>>,
   tree: DevToolsTree,
   last_picked_revision: AtomicU64,
 }
@@ -68,6 +75,8 @@ pub(crate) enum DevToolsTab {
   Components,
   Profiler,
   Signals,
+  #[cfg(feature = "persistent_storage")]
+  PersistentStorage,
 }
 
 struct DevToolsTree {
@@ -178,7 +187,16 @@ impl DevToolsTree {
 
 impl PartialEq for DevToolsProps {
   fn eq(&self, other: &Self) -> bool {
-    self.snapshot.root == other.snapshot.root && self.picked_revision == other.picked_revision
+    self.snapshot.root == other.snapshot.root && self.picked_revision == other.picked_revision && {
+      #[cfg(feature = "persistent_storage")]
+      {
+        self.persistent_storage_revision == other.persistent_storage_revision
+      }
+      #[cfg(not(feature = "persistent_storage"))]
+      {
+        true
+      }
+    }
   }
 }
 
@@ -199,6 +217,8 @@ impl Component for DevTools {
       profiler_last_recorded_signature: ctx.signal(profiler::EMPTY_FRAME_SIGNATURE),
       signals_recording: ctx.store(signals::SignalsRecordingState::default()),
       selected_signal: ctx.signal(None),
+      #[cfg(feature = "persistent_storage")]
+      persistent_storage_type_tooltip: ctx.signal(None),
       tree: DevToolsTree::new(),
       last_picked_revision: AtomicU64::new(0),
     }
@@ -207,6 +227,8 @@ impl Component for DevTools {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<DevToolsProps>().clone();
     let snapshot = props.snapshot;
+    #[cfg(feature = "persistent_storage")]
+    let persistent_storage_snapshot = ctx.app_ref().persistent_storage().snapshot();
     let mut selected_path = self.selected_path.get();
     let mut collapsed_nodes = self.collapsed_nodes.get();
     let show_inspected_overlay = self.show_inspected_overlay.get();
@@ -299,6 +321,15 @@ impl Component for DevTools {
           self.selected_signal.clone(),
           &signals_recording,
         ),
+        #[cfg(feature = "persistent_storage")]
+        DevToolsTab::PersistentStorage => match persistent_storage_snapshot {
+          Ok(entries) => persistent_storage_panel::persistent_storage_view(
+            ctx,
+            &entries,
+            self.persistent_storage_type_tooltip.clone(),
+          ),
+          Err(error) => persistent_storage_panel::persistent_storage_error_view(&error.to_string()),
+        },
       })
       .width(style::FILL)
       .height(style::FILL)

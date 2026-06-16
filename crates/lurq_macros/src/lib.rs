@@ -85,11 +85,11 @@ pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
         };
         quote! {
           #pattern => {
-            buffer.push(::lurq::app::component::ComponentInfo::with_value(
+            formatter.field_value(
               "variant",
               ::std::any::type_name::<Self>(),
               #variant_label,
-            ));
+            );
           }
         }
       });
@@ -109,7 +109,8 @@ pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
 
   quote! {
     impl #impl_generics ::lurq::app::component::DevtoolsInspectable for #struct_name #ty_generics #where_clause {
-      fn write_info(&self, buffer: &mut ::std::vec::Vec<::lurq::app::component::ComponentInfo>) {
+      fn inspect(&self, formatter: &mut ::lurq::app::component::DevtoolsFormatter<'_>) {
+        let _ = &mut *formatter;
         #write_info
       }
     }
@@ -146,6 +147,7 @@ pub fn derive_persistent_value(input: TokenStream) -> TokenStream {
 
   let field_count = field_tys.len();
   let encode_fields = persistent_encode_fields(&fields);
+  let field_labels = persistent_field_labels(&fields);
   let decode_body = persistent_decode_body(&fields, &field_tys);
 
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -158,6 +160,7 @@ pub fn derive_persistent_value(input: TokenStream) -> TokenStream {
           #field_count,
         );
         #encode_fields
+        #field_labels
         bytes
       }
     }
@@ -206,6 +209,30 @@ fn persistent_encode_fields(fields: &Fields) -> proc_macro2::TokenStream {
   }
 }
 
+fn persistent_field_labels(fields: &Fields) -> proc_macro2::TokenStream {
+  let labels = match fields {
+    Fields::Named(fields) => fields
+      .named
+      .iter()
+      .map(|field| {
+        field
+          .ident
+          .as_ref()
+          .expect("named field should have an ident")
+          .to_string()
+      })
+      .collect::<Vec<_>>(),
+    Fields::Unnamed(fields) => (0..fields.unnamed.len())
+      .map(|index| index.to_string())
+      .collect::<Vec<_>>(),
+    Fields::Unit => Vec::new(),
+  };
+
+  quote! {
+    ::lurq::persistent_storage::derive_support::push_field_names(&mut bytes, &[#(#labels),*]);
+  }
+}
+
 fn persistent_decode_body(fields: &Fields, field_tys: &[Type]) -> proc_macro2::TokenStream {
   match fields {
     Fields::Named(fields) => {
@@ -249,26 +276,26 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
           let value = devtools_value_expr(&field_ty, quote! { &self.#field_name });
           if let Some(value) = value {
             quote! {
-              buffer.push(::lurq::app::component::ComponentInfo::with_value(
+              debug_struct.field_value(
                 #field_label,
                 ::std::any::type_name::<#field_ty>(),
                 #value,
-              ));
+              );
             }
           } else {
             quote! {
-              let mut children = ::std::vec::Vec::new();
-              ::lurq::app::component::DevtoolsInspectable::write_info(&self.#field_name, &mut children);
-              buffer.push(::lurq::app::component::ComponentInfo::with_children(
+              debug_struct.field_as(
                 #field_label,
                 ::std::any::type_name::<#field_ty>(),
-                children,
-              ));
+                &self.#field_name,
+              );
             }
           }
         });
       quote! {
+        let mut debug_struct = formatter.debug_struct(::std::any::type_name::<Self>());
         #(#entries)*
+        debug_struct.finish();
       }
     }
     Fields::Unnamed(fields) => {
@@ -278,32 +305,29 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
         .enumerate()
         .filter(|(_, field)| !has_devtools_ignore(field))
         .map(|(index, field)| {
-          let field_label = index.to_string();
           let field_ty = field.ty;
           let field_index = syn::Index::from(index);
           let value = devtools_value_expr(&field_ty, quote! { &self.#field_index });
           if let Some(value) = value {
             quote! {
-              buffer.push(::lurq::app::component::ComponentInfo::with_value(
-                #field_label,
+              debug_tuple.field_value(
                 ::std::any::type_name::<#field_ty>(),
                 #value,
-              ));
+              );
             }
           } else {
             quote! {
-              let mut children = ::std::vec::Vec::new();
-              ::lurq::app::component::DevtoolsInspectable::write_info(&self.#field_index, &mut children);
-              buffer.push(::lurq::app::component::ComponentInfo::with_children(
-                #field_label,
+              debug_tuple.field_as(
                 ::std::any::type_name::<#field_ty>(),
-                children,
-              ));
+                &self.#field_index,
+              );
             }
           }
         });
       quote! {
+        let mut debug_tuple = formatter.debug_tuple(::std::any::type_name::<Self>());
         #(#entries)*
+        debug_tuple.finish();
       }
     }
     Fields::Unit => quote! {},

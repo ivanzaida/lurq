@@ -1,12 +1,13 @@
 use std::{
   collections::{HashMap, HashSet},
   sync::Arc,
+  time::Duration,
 };
 
 use parking_lot::Mutex;
 
 use crate::{
-  app::ctx::Ctx,
+  app::ctx::{Ctx, Timeout},
   core::{ElementRef, Signal},
   layout::layout_kind::ScrollState,
 };
@@ -14,6 +15,7 @@ use crate::{
 const DEFAULT_OVERSCAN: usize = 4;
 const DEFAULT_WINDOW_STRIDE: usize = 4;
 const DEFAULT_INITIAL_VISIBLE_COUNT: usize = 20;
+const DEFAULT_MEASUREMENT_BATCH: usize = 64;
 const MEASURE_EPSILON: f32 = 0.5;
 const VIEWPORT_WIDTH_EPSILON: f32 = 0.5;
 
@@ -28,6 +30,7 @@ pub struct VirtualListState {
   inner: Arc<Mutex<VirtualListStateInner>>,
   scroll_state: ScrollState,
   revision: Signal<u64>,
+  measurement_refresh: Timeout,
 }
 
 #[derive(Default)]
@@ -35,6 +38,7 @@ struct VirtualListStateInner {
   overscan: usize,
   window_stride: usize,
   initial_visible_count: usize,
+  measurement_batch: usize,
   active_window: Option<VirtualListActiveWindow>,
   measured_viewport_width: Option<f32>,
   heights: HashMap<String, f32>,
@@ -57,20 +61,26 @@ pub(crate) struct VirtualListWindow {
 
 impl VirtualListState {
   pub fn new(ctx: &mut Ctx) -> Self {
-    let state = Self {
+    let revision = ctx.signal(0_u64);
+    let refresh_revision = revision.clone();
+    let measurement_refresh = ctx.create_timeout(Duration::ZERO, move || {
+      refresh_revision.update(|revision| *revision = revision.wrapping_add(1));
+    });
+    Self {
       inner: Arc::new(Mutex::new(VirtualListStateInner {
         overscan: DEFAULT_OVERSCAN,
         window_stride: DEFAULT_WINDOW_STRIDE,
         initial_visible_count: DEFAULT_INITIAL_VISIBLE_COUNT,
+        measurement_batch: DEFAULT_MEASUREMENT_BATCH,
         active_window: None,
         measured_viewport_width: None,
         heights: HashMap::new(),
         refs: HashMap::new(),
       })),
       scroll_state: ScrollState::new(),
-      revision: ctx.signal(0),
-    };
-    state
+      revision,
+      measurement_refresh,
+    }
   }
 
   pub fn with_overscan(self, rows: usize) -> Self {
@@ -109,6 +119,12 @@ impl VirtualListState {
 
   pub fn request_refresh(&self) {
     self.revision.update(|revision| *revision = revision.wrapping_add(1));
+  }
+
+  pub(crate) fn request_measurement_refresh(&self) {
+    if !self.measurement_refresh.is_active() {
+      self.measurement_refresh.start();
+    }
   }
 
   pub(crate) fn request_scroll_refresh_if_needed(&self, delta_y: f32) {
@@ -189,6 +205,14 @@ impl VirtualListState {
     self.inner.lock().all_heights_measured(keys)
   }
 
+  pub(crate) fn measured_count(&self, keys: &[String]) -> usize {
+    self.inner.lock().measured_count(keys)
+  }
+
+  pub(crate) fn measurement_indices(&self, keys: &[String], visible_start: usize, visible_end: usize) -> Vec<usize> {
+    self.inner.lock().measurement_indices(keys, visible_start, visible_end)
+  }
+
   pub(crate) fn prune_removed_keys(&self, keys: &HashSet<String>) {
     let mut inner = self.inner.lock();
     inner.heights.retain(|key, _| keys.contains(key));
@@ -211,11 +235,11 @@ impl VirtualListState {
 
     inner.sync_viewport_width(self.scroll_state.viewport_width());
 
-    if !inner.all_heights_measured(keys) {
+    if inner.measured_count(keys) == 0 {
       inner.active_window = None;
       return VirtualListWindow {
         start: 0,
-        end: item_count,
+        end: item_count.min(inner.initial_visible_count),
         top_spacer: 0.0,
         bottom_spacer: 0.0,
         total_height: 0.0,
@@ -229,7 +253,7 @@ impl VirtualListState {
         let start = item_count.saturating_sub(inner.initial_visible_count);
         let rendered_height = keys[start..]
           .iter()
-          .map(|key| inner.measured_height_for(key))
+          .map(|key| inner.height_for(key).unwrap_or(0.0))
           .sum::<f32>();
         return inner.make_window(
           start,
@@ -243,7 +267,7 @@ impl VirtualListState {
       let end = item_count.min(inner.initial_visible_count);
       let rendered_height = keys[..end]
         .iter()
-        .map(|key| inner.measured_height_for(key))
+        .map(|key| inner.height_for(key).unwrap_or(0.0))
         .sum::<f32>();
       return inner.make_window(0, end, 0.0, rendered_height, total_height);
     }
@@ -253,7 +277,7 @@ impl VirtualListState {
     let mut cursor_y = 0.0;
     let mut first_visible = 0;
     for (index, key) in keys.iter().enumerate() {
-      let height = inner.measured_height_for(key);
+      let height = inner.height_for(key).unwrap_or(0.0);
       if cursor_y + height > scroll_y {
         first_visible = index;
         break;
@@ -265,7 +289,7 @@ impl VirtualListState {
     let mut end = first_visible;
     let mut end_y = cursor_y;
     while end < item_count && end_y < viewport_end {
-      end_y += inner.measured_height_for(&keys[end]);
+      end_y += inner.height_for(&keys[end]).unwrap_or(0.0);
       end += 1;
     }
 
@@ -277,11 +301,11 @@ impl VirtualListState {
 
     let top_spacer = keys[..start]
       .iter()
-      .map(|key| inner.measured_height_for(key))
+      .map(|key| inner.height_for(key).unwrap_or(0.0))
       .sum::<f32>();
     let rendered_height = keys[start..end]
       .iter()
-      .map(|key| inner.measured_height_for(key))
+      .map(|key| inner.height_for(key).unwrap_or(0.0))
       .sum::<f32>();
     let total_height = inner.total_height(keys);
 
@@ -330,17 +354,41 @@ impl VirtualListStateInner {
     self.heights.get(key).copied().map(|height| height.max(1.0))
   }
 
-  fn measured_height_for(&self, key: &str) -> f32 {
-    self
-      .height_for(key)
-      .expect("virtual list row height should be measured before exact virtualization")
-  }
-
   fn total_height(&self, keys: &[String]) -> f32 {
-    keys.iter().map(|key| self.measured_height_for(key)).sum()
+    keys.iter().map(|key| self.height_for(key).unwrap_or(0.0)).sum()
   }
 
   fn all_heights_measured(&self, keys: &[String]) -> bool {
     keys.iter().all(|key| self.heights.contains_key(key))
+  }
+
+  fn measured_count(&self, keys: &[String]) -> usize {
+    keys.iter().filter(|key| self.heights.contains_key(*key)).count()
+  }
+
+  fn measurement_indices(&self, keys: &[String], visible_start: usize, visible_end: usize) -> Vec<usize> {
+    let mut indices = Vec::new();
+    let mut seen = HashSet::new();
+    let limit = self.measurement_batch.max(1);
+
+    for index in visible_start..visible_end.min(keys.len()) {
+      if !self.heights.contains_key(&keys[index]) && seen.insert(index) {
+        indices.push(index);
+        if indices.len() >= limit {
+          return indices;
+        }
+      }
+    }
+
+    for (index, key) in keys.iter().enumerate() {
+      if !self.heights.contains_key(key) && seen.insert(index) {
+        indices.push(index);
+        if indices.len() >= limit {
+          break;
+        }
+      }
+    }
+
+    indices
   }
 }

@@ -2,11 +2,14 @@ use std::{
   collections::HashMap,
   fmt::{Display, Formatter},
   path::Path,
-  sync::Arc,
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
 };
 
 use parking_lot::RwLock;
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
 const TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("persistent_values");
 
@@ -28,10 +31,12 @@ const TYPE_I128: u8 = 15;
 const TYPE_U128: u8 = 16;
 const TYPE_CHAR: u8 = 17;
 const TYPE_STRUCT: u8 = 18;
+const STRUCT_FIELD_NAMES_MARKER: &[u8] = b"LURQ_STRUCT_FIELDS_V1";
 
 #[derive(Clone)]
 pub struct PersistentStorage {
   backend: PersistentStorageBackend,
+  revision: Arc<AtomicU64>,
 }
 
 #[derive(Clone)]
@@ -101,6 +106,15 @@ pub struct PersistentReadBatch {
   values: HashMap<String, Vec<u8>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PersistentStorageSnapshotEntry {
+  pub key: String,
+  pub type_name: String,
+  pub full_type_name: String,
+  pub value: String,
+  pub byte_len: usize,
+}
+
 impl PersistentReadBatch {
   pub fn value<T: PersistentValue>(&self, key: &str) -> Option<T> {
     self.values.get(key).and_then(|bytes| T::decode_persistent_value(bytes))
@@ -130,6 +144,7 @@ impl PersistentStorage {
   pub fn memory() -> Self {
     Self {
       backend: PersistentStorageBackend::Memory(Arc::new(RwLock::new(HashMap::new()))),
+      revision: Arc::new(AtomicU64::new(0)),
     }
   }
 
@@ -144,9 +159,14 @@ impl PersistentStorage {
     let db = Database::create(path).map_err(backend_error)?;
     let storage = Self {
       backend: PersistentStorageBackend::Redb(Arc::new(db)),
+      revision: Arc::new(AtomicU64::new(0)),
     };
     storage.ensure_table()?;
     Ok(storage)
+  }
+
+  pub fn revision(&self) -> u64 {
+    self.revision.load(Ordering::Relaxed)
   }
 
   pub fn value<T: PersistentValue>(&self, key: &str) -> Option<T> {
@@ -191,6 +211,7 @@ impl PersistentStorage {
     match &self.backend {
       PersistentStorageBackend::Memory(values) => {
         values.write().insert(key.to_owned(), bytes);
+        self.bump_revision();
         Ok(())
       }
       PersistentStorageBackend::Redb(db) => {
@@ -199,7 +220,9 @@ impl PersistentStorage {
           let mut table = txn.open_table(TABLE).map_err(backend_error)?;
           table.insert(key, bytes.as_slice()).map_err(backend_error)?;
         }
-        txn.commit().map_err(backend_error)
+        txn.commit().map_err(backend_error)?;
+        self.bump_revision();
+        Ok(())
       }
     }
   }
@@ -220,6 +243,7 @@ impl PersistentStorage {
         for entry in entries {
           values.insert(entry.key, entry.value);
         }
+        self.bump_revision();
         Ok(())
       }
       PersistentStorageBackend::Redb(db) => {
@@ -232,7 +256,9 @@ impl PersistentStorage {
               .map_err(backend_error)?;
           }
         }
-        txn.commit().map_err(backend_error)
+        txn.commit().map_err(backend_error)?;
+        self.bump_revision();
+        Ok(())
       }
     }
   }
@@ -241,6 +267,7 @@ impl PersistentStorage {
     match &self.backend {
       PersistentStorageBackend::Memory(values) => {
         values.write().remove(key);
+        self.bump_revision();
         Ok(())
       }
       PersistentStorageBackend::Redb(db) => {
@@ -249,9 +276,17 @@ impl PersistentStorage {
           let mut table = txn.open_table(TABLE).map_err(backend_error)?;
           table.remove(key).map_err(backend_error)?;
         }
-        txn.commit().map_err(backend_error)
+        txn.commit().map_err(backend_error)?;
+        self.bump_revision();
+        Ok(())
       }
     }
+  }
+
+  pub fn snapshot(&self) -> Result<Vec<PersistentStorageSnapshotEntry>, PersistentStorageError> {
+    self
+      .raw_snapshot()
+      .map(|entries| entries.into_iter().map(snapshot_entry).collect())
   }
 
   fn ensure_table(&self) -> Result<(), PersistentStorageError> {
@@ -303,6 +338,32 @@ impl PersistentStorage {
       }
     }
   }
+
+  fn raw_snapshot(&self) -> Result<Vec<(String, Vec<u8>)>, PersistentStorageError> {
+    let mut entries = match &self.backend {
+      PersistentStorageBackend::Memory(values) => values
+        .read()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Vec<_>>(),
+      PersistentStorageBackend::Redb(db) => {
+        let txn = db.begin_read().map_err(backend_error)?;
+        let table = txn.open_table(TABLE).map_err(backend_error)?;
+        let mut entries = Vec::new();
+        for entry in table.iter().map_err(backend_error)? {
+          let (key, value) = entry.map_err(backend_error)?;
+          entries.push((key.value().to_owned(), value.value().to_vec()));
+        }
+        entries
+      }
+    };
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(entries)
+  }
+
+  fn bump_revision(&self) {
+    self.revision.fetch_add(1, Ordering::Relaxed);
+  }
 }
 
 fn backend_error(error: impl Display) -> PersistentStorageError {
@@ -322,6 +383,157 @@ fn fixed<const N: usize>(bytes: &[u8], tag: u8) -> Option<[u8; N]> {
     return None;
   }
   bytes.get(1..)?.try_into().ok()
+}
+
+fn snapshot_entry((key, value): (String, Vec<u8>)) -> PersistentStorageSnapshotEntry {
+  let byte_len = value.len();
+  let (type_name, full_type_name, value) = describe_persistent_value(&value);
+  PersistentStorageSnapshotEntry {
+    key,
+    type_name,
+    full_type_name,
+    value,
+    byte_len,
+  }
+}
+
+fn describe_persistent_value(bytes: &[u8]) -> (String, String, String) {
+  match bytes.first().copied() {
+    Some(TYPE_BOOL) => describe_as::<bool>("bool", bytes),
+    Some(TYPE_STRING) => describe_string(bytes),
+    Some(TYPE_I8) => describe_as::<i8>("i8", bytes),
+    Some(TYPE_I16) => describe_as::<i16>("i16", bytes),
+    Some(TYPE_I32) => describe_as::<i32>("i32", bytes),
+    Some(TYPE_I64) => describe_as::<i64>("i64", bytes),
+    Some(TYPE_ISIZE) => describe_as::<isize>("isize", bytes),
+    Some(TYPE_U8) => describe_as::<u8>("u8", bytes),
+    Some(TYPE_U16) => describe_as::<u16>("u16", bytes),
+    Some(TYPE_U32) => describe_as::<u32>("u32", bytes),
+    Some(TYPE_U64) => describe_as::<u64>("u64", bytes),
+    Some(TYPE_USIZE) => describe_as::<usize>("usize", bytes),
+    Some(TYPE_F32) => describe_as::<f32>("f32", bytes),
+    Some(TYPE_F64) => describe_as::<f64>("f64", bytes),
+    Some(TYPE_I128) => describe_as::<i128>("i128", bytes),
+    Some(TYPE_U128) => describe_as::<u128>("u128", bytes),
+    Some(TYPE_CHAR) => describe_char(bytes),
+    Some(TYPE_STRUCT) => {
+      describe_struct(bytes).unwrap_or_else(|| ("struct".to_owned(), "struct".to_owned(), "<invalid>".to_owned()))
+    }
+    Some(tag) => (
+      "raw".to_owned(),
+      "raw".to_owned(),
+      format!("{} bytes, tag {}", bytes.len(), tag),
+    ),
+    None => ("raw".to_owned(), "raw".to_owned(), "empty".to_owned()),
+  }
+}
+
+fn describe_as<T>(type_name: &str, bytes: &[u8]) -> (String, String, String)
+where
+  T: PersistentValue + Display,
+{
+  (
+    type_name.to_owned(),
+    type_name.to_owned(),
+    T::decode_persistent_value(bytes)
+      .map(|value| value.to_string())
+      .unwrap_or_else(|| "<invalid>".to_owned()),
+  )
+}
+
+fn describe_string(bytes: &[u8]) -> (String, String, String) {
+  (
+    "String".to_owned(),
+    "String".to_owned(),
+    String::decode_persistent_value(bytes)
+      .map(|value| format!("{value:?}"))
+      .unwrap_or_else(|| "<invalid utf-8>".to_owned()),
+  )
+}
+
+fn describe_char(bytes: &[u8]) -> (String, String, String) {
+  (
+    "char".to_owned(),
+    "char".to_owned(),
+    char::decode_persistent_value(bytes)
+      .map(|value| format!("{value:?}"))
+      .unwrap_or_else(|| "<invalid>".to_owned()),
+  )
+}
+
+fn describe_struct(bytes: &[u8]) -> Option<(String, String, String)> {
+  let mut offset = 1;
+  let type_name = read_len_bytes(bytes, &mut offset)?;
+  let type_name = String::from_utf8(type_name.to_vec()).ok()?;
+  let field_count = read_u32(bytes, &mut offset)?;
+  let mut fields = Vec::with_capacity(field_count as usize);
+  for index in 0..field_count {
+    let field = read_len_bytes(bytes, &mut offset)?;
+    let (_, _, value) = describe_persistent_value(field);
+    fields.push((index, value));
+  }
+
+  let labels = read_optional_struct_field_names(bytes, &mut offset, field_count as usize)?;
+  if offset != bytes.len() {
+    return None;
+  }
+
+  let labels = labels.unwrap_or_else(|| {
+    (0..field_count)
+      .map(|index| format!("field{index}"))
+      .collect::<Vec<_>>()
+  });
+  let fields = fields
+    .into_iter()
+    .zip(labels)
+    .map(|((_, value), label)| format!("{label}: {value}"))
+    .collect::<Vec<_>>()
+    .join(", ");
+  let short_type = type_name.rsplit("::").next().unwrap_or(&type_name).to_owned();
+
+  Some((short_type.clone(), type_name, format!("{short_type} {{ {fields} }}")))
+}
+
+fn read_optional_struct_field_names(
+  bytes: &[u8],
+  offset: &mut usize,
+  field_count: usize,
+) -> Option<Option<Vec<String>>> {
+  if *offset == bytes.len() {
+    return Some(None);
+  }
+
+  if !bytes.get(*offset..)?.starts_with(STRUCT_FIELD_NAMES_MARKER) {
+    return None;
+  }
+  *offset += STRUCT_FIELD_NAMES_MARKER.len();
+
+  let stored_field_count = read_u32(bytes, offset)? as usize;
+  if stored_field_count != field_count {
+    return None;
+  }
+
+  let mut names = Vec::with_capacity(field_count);
+  for _ in 0..field_count {
+    let name = read_len_bytes(bytes, offset)?;
+    names.push(String::from_utf8(name.to_vec()).ok()?);
+  }
+  Some(Some(names))
+}
+
+fn read_u32(bytes: &[u8], offset: &mut usize) -> Option<u32> {
+  let end = offset.checked_add(4)?;
+  let value = u32::from_le_bytes(bytes.get(*offset..end)?.try_into().ok()?);
+  *offset = end;
+  Some(value)
+}
+
+fn read_len_bytes<'a>(bytes: &'a [u8], offset: &mut usize) -> Option<&'a [u8]> {
+  let len = read_u32(bytes, offset)? as usize;
+  let end = offset.checked_add(len)?;
+  let value = bytes.get(*offset..end)?;
+  *offset = end;
+  Some(value)
 }
 
 impl PersistentValue for bool {
@@ -455,7 +667,9 @@ impl IntoPersistentValue for char {
 
 #[doc(hidden)]
 pub mod derive_support {
-  use super::{IntoPersistentValue, PersistentValue, TYPE_STRUCT};
+  use super::{
+    IntoPersistentValue, PersistentValue, STRUCT_FIELD_NAMES_MARKER, TYPE_STRUCT, read_optional_struct_field_names,
+  };
 
   pub fn begin_struct(type_name: &str, field_count: usize) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -470,6 +684,14 @@ pub mod derive_support {
     push_len_bytes(bytes, &field);
   }
 
+  pub fn push_field_names(bytes: &mut Vec<u8>, names: &[&str]) {
+    bytes.extend_from_slice(STRUCT_FIELD_NAMES_MARKER);
+    bytes.extend_from_slice(&(names.len() as u32).to_le_bytes());
+    for name in names {
+      push_len_bytes(bytes, name.as_bytes());
+    }
+  }
+
   fn push_len_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
     bytes.extend_from_slice(&(value.len() as u32).to_le_bytes());
     bytes.extend_from_slice(value);
@@ -478,6 +700,7 @@ pub mod derive_support {
   pub struct DecodeCursor<'a> {
     bytes: &'a [u8],
     offset: usize,
+    field_count: usize,
     remaining_fields: usize,
   }
 
@@ -489,6 +712,7 @@ pub mod derive_support {
       let mut cursor = Self {
         bytes,
         offset: 1,
+        field_count: 0,
         remaining_fields: 0,
       };
       let stored_type = cursor.read_len_bytes()?;
@@ -499,6 +723,7 @@ pub mod derive_support {
       if stored_fields != expected_fields {
         return None;
       }
+      cursor.field_count = stored_fields;
       cursor.remaining_fields = stored_fields;
       Some(cursor)
     }
@@ -512,8 +737,12 @@ pub mod derive_support {
       T::decode_persistent_value(bytes)
     }
 
-    pub fn finish(self) -> Option<()> {
-      if self.offset == self.bytes.len() && self.remaining_fields == 0 {
+    pub fn finish(mut self) -> Option<()> {
+      if self.remaining_fields != 0 {
+        return None;
+      }
+      read_optional_struct_field_names(self.bytes, &mut self.offset, self.field_count)?;
+      if self.offset == self.bytes.len() {
         Some(())
       } else {
         None
@@ -616,5 +845,29 @@ mod tests {
     assert_eq!(batch.value::<u64>("count"), Some(2));
     assert_eq!(batch.value::<bool>("enabled"), Some(true));
     assert_eq!(batch.value::<bool>("missing"), None);
+  }
+
+  #[test]
+  fn snapshot_lists_keys_sorted_with_decoded_values() {
+    let storage = PersistentStorage::memory();
+
+    storage.set_value("name", "Ada").unwrap();
+    storage.set_value("count", 42_u32).unwrap();
+    storage.set_value("enabled", true).unwrap();
+
+    let snapshot = storage.snapshot().unwrap();
+
+    assert_eq!(
+      snapshot
+        .iter()
+        .map(|entry| (entry.key.as_str(), entry.type_name.as_str(), entry.value.as_str()))
+        .collect::<Vec<_>>(),
+      vec![
+        ("count", "u32", "42"),
+        ("enabled", "bool", "true"),
+        ("name", "String", "\"Ada\""),
+      ]
+    );
+    assert_eq!(storage.revision(), 3);
   }
 }

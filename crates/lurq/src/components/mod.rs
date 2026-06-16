@@ -613,6 +613,26 @@ macro_rules! impl_into_node {
         self
       }
 
+      pub fn on_scroll_reach_top(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_scroll_reach_top(node, f));
+        self
+      }
+
+      pub fn off_scroll_reach_top(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_scroll_reach_top(node, f));
+        self
+      }
+
+      pub fn on_scroll_reach_bottom(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_scroll_reach_bottom(node, f));
+        self
+      }
+
+      pub fn off_scroll_reach_bottom(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_scroll_reach_bottom(node, f));
+        self
+      }
+
       pub fn scrollbar(mut self, style: $crate::layout::scrollbar::ScrollBarStyle) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::scrollbar(node, style));
         self
