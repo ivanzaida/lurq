@@ -1,13 +1,13 @@
-use super::style::{badge, icon, text, BORDER, FILL, MUTED, ORANGE, SURFACE, SURFACE_2, TEXT};
+use super::style::{BORDER, FILL, MUTED, ORANGE, SURFACE, SURFACE_2, TEXT, badge, icon, text};
 use crate::{
   app::ctx::{CollisionStrategy, Ctx, Overlay, Placement},
   components::{Column, Rect, Row, ScrollVertical, Spacer, Text, TextOverflow},
   core::{ElementRef, Signal},
   layout::{
-    text_style::{FontWeight, TextStyle},
     Alignment,
+    text_style::{FontWeight, TextStyle},
   },
-  node::{border::Border, color::Color, dimension::Dimension, Element, HitTestBehavior},
+  node::{Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension},
   persistent_storage::PersistentStorageSnapshotEntry,
 };
 
@@ -137,13 +137,7 @@ fn type_cell(
   let full_type_name = entry.full_type_name.clone();
   let is_active = active_type_tooltip.get().as_deref() == Some(entry.full_type_name.as_str());
   if show_tooltip && should_log {
-    log_tooltip(
-      "devtools",
-      "render",
-      &entry.type_name,
-      &entry.full_type_name,
-      is_active,
-    );
+    log_tooltip("devtools", "render", &entry.type_name, &entry.full_type_name, is_active);
   }
   let mut cell = Row::new()
     .align_items(Alignment::Center)
@@ -183,8 +177,7 @@ fn type_cell(
           }
           active_type_tooltip.set(None);
         }
-      })
-      ;
+      });
   }
 
   cell.into()

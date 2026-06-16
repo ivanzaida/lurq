@@ -5,7 +5,7 @@ use lurq::{
     events::MouseEvent,
   },
   components::{Checkbox, Column, Row, TextInput, TextOverflow},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, HitTestBehavior, color::Color, dimension::Dimension},
   persistent_storage::{PersistentStorage, PersistentStorageSnapshotEntry, PersistentWrite},
@@ -311,11 +311,13 @@ fn snapshot_row(
   entry: PersistentStorageSnapshotEntry,
   active_type_tooltip: Signal<Option<String>>,
 ) -> Element {
+  let type_anchor = ctx.element_ref();
+  let tooltip_open = active_type_tooltip.get().as_deref() == Some(entry.full_type_name.as_str());
   Row::new()
     .spacing(8.0)
     .align_items(Alignment::Center)
     .child(single_line_cell(&entry.key, 2.2, FontWeight::Medium, TEXT))
-    .child(type_cell(ctx, &entry, active_type_tooltip))
+    .child(type_cell(&entry, type_anchor.clone(), active_type_tooltip))
     .child(wrapping_cell(&entry.value, 2.6, FontWeight::Medium, TEXT))
     .child(single_line_cell(
       &entry.byte_len.to_string(),
@@ -323,6 +325,7 @@ fn snapshot_row(
       FontWeight::Medium,
       TEXT_MUTED,
     ))
+    .child(type_tooltip_overlay(&entry, type_anchor, tooltip_open))
     .width(FILL_WIDTH)
     .min_height(28.0)
     .padding_vertical(4.0)
@@ -332,17 +335,16 @@ fn snapshot_row(
 }
 
 fn type_cell(
-  ctx: &mut Ctx,
   entry: &PersistentStorageSnapshotEntry,
+  anchor: ElementRef,
   active_type_tooltip: Signal<Option<String>>,
 ) -> Element {
-  let anchor = ctx.element_ref();
   let show_tooltip = entry.full_type_name != entry.type_name;
   let should_log = entry.key == PROFILE_KEY;
-  let tooltip_open = active_type_tooltip.get().as_deref() == Some(entry.full_type_name.as_str());
   let full_type_name = entry.full_type_name.clone();
+  let is_active = active_type_tooltip.get().as_deref() == Some(entry.full_type_name.as_str());
   if show_tooltip && should_log {
-    log_tooltip("demo", "render", &entry.type_name, &entry.full_type_name, tooltip_open);
+    log_tooltip("demo", "render", &entry.type_name, &entry.full_type_name, is_active);
   }
   let mut cell = Row::new()
     .align_items(Alignment::Center)
@@ -384,18 +386,24 @@ fn type_cell(
           active_type_tooltip.set(None);
         }
       })
-      .child(
-        Overlay::new(type_tooltip(&entry.full_type_name))
-          .anchor(anchor.clone())
-          .open_when(tooltip_open)
-          .placement(Placement::TopStart)
-          .offset(0.0, 6.0)
-          .collision(CollisionStrategy::FlipThenClamp)
-          .hit_test(HitTestBehavior::ContentOnly),
-      );
   }
 
   cell.into()
+}
+
+fn type_tooltip_overlay(entry: &PersistentStorageSnapshotEntry, anchor: ElementRef, open: bool) -> Element {
+  if entry.full_type_name == entry.type_name {
+    return Element::new();
+  }
+
+  Overlay::new(type_tooltip(&entry.full_type_name))
+    .anchor(anchor)
+    .open_when(open)
+    .placement(Placement::TopStart)
+    .offset(0.0, 6.0)
+    .collision(CollisionStrategy::FlipThenClamp)
+    .hit_test(HitTestBehavior::ContentOnly)
+    .into()
 }
 
 fn log_tooltip(scope: &str, event: &str, type_name: &str, full_type_name: &str, open: bool) {
