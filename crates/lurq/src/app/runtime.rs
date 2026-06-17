@@ -1,4 +1,6 @@
 #[cfg(feature = "devtools")]
+use std::path::PathBuf;
+#[cfg(feature = "devtools")]
 use std::sync::Mutex;
 use std::{
   sync::Arc,
@@ -374,11 +376,18 @@ struct DevToolsState {
   pick_mode: Arc<Mutex<bool>>,
   selected_path: Arc<Mutex<Vec<usize>>>,
   selected_path_dirty: Arc<Mutex<bool>>,
+  screenshot_request: Arc<Mutex<Option<DevToolsScreenshotRequest>>>,
   picked_path: Option<Vec<usize>>,
   picked_revision: u64,
   snapshot_revision: u64,
   last_sync: Instant,
   last_input_interaction: Instant,
+}
+
+#[cfg(feature = "devtools")]
+struct DevToolsScreenshotRequest {
+  node_path: Vec<usize>,
+  output_path: PathBuf,
 }
 
 #[cfg(feature = "devtools")]
@@ -390,6 +399,7 @@ impl Default for DevToolsState {
       pick_mode: Arc::new(Mutex::new(false)),
       selected_path: Arc::new(Mutex::new(Vec::new())),
       selected_path_dirty: Arc::new(Mutex::new(false)),
+      screenshot_request: Arc::new(Mutex::new(None)),
       picked_path: None,
       picked_revision: 0,
       snapshot_revision: 0,
@@ -421,6 +431,30 @@ fn devtools_selected_path_callback(
   Arc::new(move |path| {
     *selected_path.lock().unwrap() = path;
     *selected_path_dirty.lock().unwrap() = true;
+  })
+}
+
+#[cfg(feature = "devtools")]
+fn devtools_save_node_screenshot_callback(
+  screenshot_request: Arc<Mutex<Option<DevToolsScreenshotRequest>>>,
+) -> DevToolsPathCallback {
+  Arc::new(move |node_path| {
+    let Some(mut output_path) = rfd::FileDialog::new()
+      .add_filter("PNG image", &["png"])
+      .set_file_name("lurq-node.png")
+      .save_file()
+    else {
+      return;
+    };
+
+    match output_path.extension().and_then(|extension| extension.to_str()) {
+      Some(extension) if extension.eq_ignore_ascii_case("png") => {}
+      _ => {
+        output_path.set_extension("png");
+      }
+    }
+
+    *screenshot_request.lock().unwrap() = Some(DevToolsScreenshotRequest { node_path, output_path });
   })
 }
 
@@ -1008,7 +1042,12 @@ impl Tree {
       self.sync_devtools_now();
     }
 
-    overlay_changed
+    let screenshot_requested = self.devtools_state.screenshot_request.lock().unwrap().is_some();
+    if screenshot_requested {
+      self.needs_redraw = true;
+    }
+
+    overlay_changed || screenshot_requested
   }
 
   #[cfg(feature = "devtools")]
@@ -1082,6 +1121,9 @@ impl Tree {
       on_selected_path: Some(devtools_selected_path_callback(
         self.devtools_state.selected_path.clone(),
         self.devtools_state.selected_path_dirty.clone(),
+      )),
+      on_save_node_screenshot: Some(devtools_save_node_screenshot_callback(
+        self.devtools_state.screenshot_request.clone(),
       )),
     }
   }
@@ -1735,6 +1777,11 @@ impl Tree {
 
     quads.clear();
     self.quad_scratch = quads;
+
+    #[cfg(all(feature = "devtools", feature = "image"))]
+    self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
+    #[cfg(all(feature = "devtools", not(feature = "image")))]
+    self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
 
     #[cfg(feature = "devtools")]
     push_devtools_overlay(
@@ -5726,6 +5773,84 @@ impl Tree {
     let path = self.debug_overlay_node_path.as_deref()?;
     devtools_overlay_target_at_path(root, layout, path, 0.0, 0.0)
   }
+
+  #[cfg(feature = "image")]
+  fn save_pending_devtools_screenshot(
+    &mut self,
+    clear_color: Color,
+    rects: &[RectCmd],
+    glyphs: &[GlyphCmd],
+    images: &[crate::images::ImageCmd],
+    atlas: &crate::layout::render_list::GlyphAtlas,
+  ) {
+    let Some(request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
+      return;
+    };
+
+    let Some(bounds) = self.devtools_screenshot_bounds(&request.node_path) else {
+      tracing::warn!("could not resolve selected devtools node path for screenshot");
+      return;
+    };
+
+    if let Err(error) =
+      save_devtools_screenshot(&request.output_path, bounds, clear_color, rects, glyphs, images, atlas)
+    {
+      tracing::warn!(
+        "failed to save devtools node screenshot to {}: {error}",
+        request.output_path.display()
+      );
+    }
+  }
+
+  #[cfg(not(feature = "image"))]
+  fn save_pending_devtools_screenshot(
+    &mut self,
+    clear_color: Color,
+    rects: &[RectCmd],
+    glyphs: &[GlyphCmd],
+    atlas: &crate::layout::render_list::GlyphAtlas,
+  ) {
+    let Some(request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
+      return;
+    };
+
+    let Some(bounds) = self.devtools_screenshot_bounds(&request.node_path) else {
+      tracing::warn!("could not resolve selected devtools node path for screenshot");
+      return;
+    };
+
+    if let Err(error) = save_devtools_screenshot(&request.output_path, bounds, clear_color, rects, glyphs, atlas) {
+      tracing::warn!(
+        "failed to save devtools node screenshot to {}: {error}",
+        request.output_path.display()
+      );
+    }
+  }
+
+  fn devtools_screenshot_bounds(&self, path: &[usize]) -> Option<DevtoolsScreenshotBounds> {
+    let root = self.root.as_ref()?;
+    let layout = self.last_layout.as_ref()?;
+    let target = devtools_overlay_target_at_path(root, layout, path, 0.0, 0.0)?.outer;
+    let scale = self.scale_factor();
+    let left = (target.x * scale).floor().max(0.0);
+    let top = (target.y * scale).floor().max(0.0);
+    let right = ((target.x + target.width) * scale)
+      .ceil()
+      .min(self.viewport_physical.width.max(0.0));
+    let bottom = ((target.y + target.height) * scale)
+      .ceil()
+      .min(self.viewport_physical.height.max(0.0));
+    if right <= left || bottom <= top {
+      return None;
+    }
+
+    Some(DevtoolsScreenshotBounds {
+      x: left as u32,
+      y: top as u32,
+      width: (right - left).max(1.0) as u32,
+      height: (bottom - top).max(1.0) as u32,
+    })
+  }
 }
 
 #[cfg(feature = "devtools")]
@@ -5766,6 +5891,308 @@ fn devtools_overlay_target_at_path(
   };
 
   Some(DevtoolsOverlayTarget { outer, inner })
+}
+
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy)]
+struct DevtoolsScreenshotBounds {
+  x: u32,
+  y: u32,
+  width: u32,
+  height: u32,
+}
+
+#[cfg(feature = "devtools")]
+enum DevtoolsScreenshotDraw {
+  Rect(usize),
+  Glyph(usize),
+  #[cfg(feature = "image")]
+  Image(usize),
+}
+
+#[cfg(feature = "devtools")]
+fn save_devtools_screenshot(
+  output_path: &std::path::Path,
+  bounds: DevtoolsScreenshotBounds,
+  clear_color: Color,
+  rects: &[RectCmd],
+  glyphs: &[GlyphCmd],
+  #[cfg(feature = "image")] images: &[crate::images::ImageCmd],
+  atlas: &crate::layout::render_list::GlyphAtlas,
+) -> Result<(), image::ImageError> {
+  let mut pixels = vec![0_u8; bounds.width as usize * bounds.height as usize * 4];
+  for pixel in pixels.chunks_exact_mut(4) {
+    pixel[0] = clear_color.r();
+    pixel[1] = clear_color.g();
+    pixel[2] = clear_color.b();
+    pixel[3] = clear_color.a();
+  }
+
+  let draw_capacity = rects.len() + glyphs.len() + {
+    #[cfg(feature = "image")]
+    {
+      images.len()
+    }
+    #[cfg(not(feature = "image"))]
+    {
+      0
+    }
+  };
+  let mut draws = Vec::with_capacity(draw_capacity);
+  draws.extend(
+    rects
+      .iter()
+      .enumerate()
+      .map(|(index, rect)| (rect.order, DevtoolsScreenshotDraw::Rect(index))),
+  );
+  draws.extend(
+    glyphs
+      .iter()
+      .enumerate()
+      .map(|(index, glyph)| (glyph.order, DevtoolsScreenshotDraw::Glyph(index))),
+  );
+  #[cfg(feature = "image")]
+  draws.extend(
+    images
+      .iter()
+      .enumerate()
+      .map(|(index, image)| (image.order, DevtoolsScreenshotDraw::Image(index))),
+  );
+  draws.sort_by_key(|(order, _)| *order);
+
+  for (_, draw) in draws {
+    match draw {
+      DevtoolsScreenshotDraw::Rect(index) => draw_screenshot_rect(&mut pixels, bounds, &rects[index]),
+      DevtoolsScreenshotDraw::Glyph(index) => draw_screenshot_glyph(&mut pixels, bounds, &glyphs[index], atlas),
+      #[cfg(feature = "image")]
+      DevtoolsScreenshotDraw::Image(index) => draw_screenshot_image(&mut pixels, bounds, &images[index]),
+    }
+  }
+
+  image::save_buffer_with_format(
+    output_path,
+    &pixels,
+    bounds.width,
+    bounds.height,
+    image::ColorType::Rgba8,
+    image::ImageFormat::Png,
+  )
+}
+
+#[cfg(feature = "devtools")]
+fn draw_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: &RectCmd) {
+  let Some(draw) = screenshot_draw_rect(bounds, rect.x, rect.y, rect.width, rect.height, rect.clip) else {
+    return;
+  };
+  let fill = [rect.color.r(), rect.color.g(), rect.color.b(), rect.color.a()];
+  fill_screenshot_rect(pixels, bounds, draw, fill);
+
+  let stroke = [
+    rect.stroke_color.r(),
+    rect.stroke_color.g(),
+    rect.stroke_color.b(),
+    rect.stroke_color.a(),
+  ];
+  if rect.stroke.iter().any(|width| *width > 0.0) && stroke[3] > 0 {
+    draw_screenshot_stroke(pixels, bounds, rect, stroke);
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn draw_screenshot_glyph(
+  pixels: &mut [u8],
+  bounds: DevtoolsScreenshotBounds,
+  glyph: &GlyphCmd,
+  atlas: &crate::layout::render_list::GlyphAtlas,
+) {
+  if atlas.width == 0 || atlas.height == 0 {
+    return;
+  }
+  let Some(draw) = screenshot_draw_rect(bounds, glyph.x, glyph.y, glyph.width, glyph.height, glyph.clip) else {
+    return;
+  };
+
+  let atlas_x0 = (glyph.uv_min[0] * atlas.width as f32).round() as i32;
+  let atlas_y0 = (glyph.uv_min[1] * atlas.height as f32).round() as i32;
+  let atlas_x1 = (glyph.uv_max[0] * atlas.width as f32).round() as i32;
+  let atlas_y1 = (glyph.uv_max[1] * atlas.height as f32).round() as i32;
+  let atlas_w = (atlas_x1 - atlas_x0).max(1);
+  let atlas_h = (atlas_y1 - atlas_y0).max(1);
+  let color = [
+    (glyph.color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+    (glyph.color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+    (glyph.color[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+    (glyph.color[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+  ];
+
+  for py in draw.y0..draw.y1 {
+    for px in draw.x0..draw.x1 {
+      let world_x = bounds.x as f32 + px as f32 + 0.5;
+      let world_y = bounds.y as f32 + py as f32 + 0.5;
+      let u = ((world_x - glyph.x) / glyph.width.max(1.0)).clamp(0.0, 1.0);
+      let v = ((world_y - glyph.y) / glyph.height.max(1.0)).clamp(0.0, 1.0);
+      let sx = (atlas_x0 + (u * atlas_w as f32).floor() as i32).clamp(0, atlas.width as i32 - 1);
+      let sy = (atlas_y0 + (v * atlas_h as f32).floor() as i32).clamp(0, atlas.height as i32 - 1);
+      let source_index = (sy as u32 * atlas.width + sx as u32) as usize * 4;
+      if source_index + 3 >= atlas.data.len() {
+        continue;
+      }
+      let source = &atlas.data[source_index..source_index + 4];
+      let rgba = if glyph.color_glyph {
+        [
+          source[0],
+          source[1],
+          source[2],
+          ((source[3] as u16 * color[3] as u16) / 255) as u8,
+        ]
+      } else {
+        [
+          color[0],
+          color[1],
+          color[2],
+          ((source[3] as u16 * color[3] as u16) / 255) as u8,
+        ]
+      };
+      blend_screenshot_pixel(pixels, bounds.width, px, py, rgba);
+    }
+  }
+}
+
+#[cfg(all(feature = "devtools", feature = "image"))]
+fn draw_screenshot_image(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, image: &crate::images::ImageCmd) {
+  if image.image_format != crate::images::ImagePixelFormat::Rgba8 || image.image_width == 0 || image.image_height == 0 {
+    return;
+  }
+  let Some(draw) = screenshot_draw_rect(bounds, image.x, image.y, image.width, image.height, image.clip) else {
+    return;
+  };
+
+  for py in draw.y0..draw.y1 {
+    for px in draw.x0..draw.x1 {
+      let world_x = bounds.x as f32 + px as f32 + 0.5;
+      let world_y = bounds.y as f32 + py as f32 + 0.5;
+      let local_u = ((world_x - image.x) / image.width.max(1.0)).clamp(0.0, 1.0);
+      let local_v = ((world_y - image.y) / image.height.max(1.0)).clamp(0.0, 1.0);
+      let u = image.uv_min[0] + (image.uv_max[0] - image.uv_min[0]) * local_u;
+      let v = image.uv_min[1] + (image.uv_max[1] - image.uv_min[1]) * local_v;
+      let sx = (u * image.image_width as f32)
+        .floor()
+        .clamp(0.0, image.image_width.saturating_sub(1) as f32) as u32;
+      let sy = (v * image.image_height as f32)
+        .floor()
+        .clamp(0.0, image.image_height.saturating_sub(1) as f32) as u32;
+      let source_index = (sy * image.image_width + sx) as usize * 4;
+      if source_index + 3 >= image.data.len() {
+        continue;
+      }
+      blend_screenshot_pixel(
+        pixels,
+        bounds.width,
+        px,
+        py,
+        [
+          image.data[source_index],
+          image.data[source_index + 1],
+          image.data[source_index + 2],
+          image.data[source_index + 3],
+        ],
+      );
+    }
+  }
+}
+
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy)]
+struct ScreenshotDrawRect {
+  x0: u32,
+  y0: u32,
+  x1: u32,
+  y1: u32,
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_draw_rect(
+  bounds: DevtoolsScreenshotBounds,
+  x: f32,
+  y: f32,
+  width: f32,
+  height: f32,
+  clip: ClipRect,
+) -> Option<ScreenshotDrawRect> {
+  let mut left = x.floor().max(bounds.x as f32);
+  let mut top = y.floor().max(bounds.y as f32);
+  let mut right = (x + width).ceil().min((bounds.x + bounds.width) as f32);
+  let mut bottom = (y + height).ceil().min((bounds.y + bounds.height) as f32);
+  if clip.active {
+    left = left.max(clip.x);
+    top = top.max(clip.y);
+    right = right.min(clip.x + clip.width);
+    bottom = bottom.min(clip.y + clip.height);
+  }
+  if right <= left || bottom <= top {
+    return None;
+  }
+  Some(ScreenshotDrawRect {
+    x0: (left as u32).saturating_sub(bounds.x),
+    y0: (top as u32).saturating_sub(bounds.y),
+    x1: (right as u32).saturating_sub(bounds.x).min(bounds.width),
+    y1: (bottom as u32).saturating_sub(bounds.y).min(bounds.height),
+  })
+}
+
+#[cfg(feature = "devtools")]
+fn fill_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: ScreenshotDrawRect, color: [u8; 4]) {
+  if color[3] == 0 {
+    return;
+  }
+  for py in rect.y0..rect.y1 {
+    for px in rect.x0..rect.x1 {
+      blend_screenshot_pixel(pixels, bounds.width, px, py, color);
+    }
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: &RectCmd, color: [u8; 4]) {
+  let top = rect.stroke[0].max(0.0);
+  let right = rect.stroke[1].max(0.0);
+  let bottom = rect.stroke[2].max(0.0);
+  let left = rect.stroke[3].max(0.0);
+  for (x, y, width, height) in [
+    (rect.x, rect.y, rect.width, top),
+    (rect.x + rect.width - right, rect.y, right, rect.height),
+    (rect.x, rect.y + rect.height - bottom, rect.width, bottom),
+    (rect.x, rect.y, left, rect.height),
+  ] {
+    if let Some(draw) = screenshot_draw_rect(bounds, x, y, width, height, rect.clip) {
+      fill_screenshot_rect(pixels, bounds, draw, color);
+    }
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+  let source_alpha = source[3] as f32 / 255.0;
+  if source_alpha <= 0.0 {
+    return;
+  }
+  let index = (y * width + x) as usize * 4;
+  if index + 3 >= pixels.len() {
+    return;
+  }
+  let dest_alpha = pixels[index + 3] as f32 / 255.0;
+  let out_alpha = source_alpha + dest_alpha * (1.0 - source_alpha);
+  if out_alpha <= 0.0 {
+    pixels[index..index + 4].copy_from_slice(&[0, 0, 0, 0]);
+    return;
+  }
+  for channel in 0..3 {
+    let source_channel = source[channel] as f32 / 255.0;
+    let dest_channel = pixels[index + channel] as f32 / 255.0;
+    let out = (source_channel * source_alpha + dest_channel * dest_alpha * (1.0 - source_alpha)) / out_alpha;
+    pixels[index + channel] = (out.clamp(0.0, 1.0) * 255.0).round() as u8;
+  }
+  pixels[index + 3] = (out_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
 }
 
 fn find_path_by_id(node: &Node, id: NodeId) -> Option<Vec<usize>> {

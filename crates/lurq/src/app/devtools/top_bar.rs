@@ -1,5 +1,6 @@
 use super::{
-  DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsTab, debug_overlay_path_for_selection, profiler, signals,
+  DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsPathCallback, DevToolsTab,
+  debug_overlay_path_for_selection, profiler, signals,
   style::{
     BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text, toolbar_button,
     toolbar_icon_button, toolbar_input,
@@ -23,6 +24,7 @@ pub(crate) fn top_bar(
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
   on_overlay_enabled: Option<DevToolsBoolCallback>,
   on_pick_inspected: Option<DevToolsBoolCallback>,
+  on_save_node_screenshot: Option<DevToolsPathCallback>,
   active_tab: DevToolsTab,
   active_tab_signal: Signal<DevToolsTab>,
   profiler_recording: bool,
@@ -85,11 +87,13 @@ pub(crate) fn top_bar(
         .child(overlay_toggle(
           overlay_enabled,
           overlay_enabled_signal,
-          selected_path,
+          selected_path.clone(),
           has_selection,
           on_debug_overlay_path,
           on_overlay_enabled,
         ))
+        .child(Spacer::new().width(8.0))
+        .child(screenshot_button(selected_path, has_selection, on_save_node_screenshot))
         .child(Spacer::new().width(10.0))
         .child(toolbar_input("Search components...", Some("Ctrl+F")))
         .child(toolbar_icon_button("settings"))
@@ -177,6 +181,21 @@ fn profiler_actions(
         last_recorded_signature_signal.set(profiler::EMPTY_FRAME_SIGNATURE);
       }),
     )
+    .into()
+}
+
+fn screenshot_button(
+  selected_path: Vec<usize>,
+  has_selection: bool,
+  on_save_node_screenshot: Option<DevToolsPathCallback>,
+) -> Element {
+  let color = if has_selection { PRIMARY } else { MUTED };
+  toolbar_button("share-2", "Screenshot", color, SURFACE_2, BORDER)
+    .on_click(move |_| {
+      if has_selection && let Some(on_save_node_screenshot) = &on_save_node_screenshot {
+        on_save_node_screenshot(selected_path.clone());
+      }
+    })
     .into()
 }
 

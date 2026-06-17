@@ -54,6 +54,8 @@ pub struct DevToolsProps {
   pub on_pick_inspected: Option<DevToolsBoolCallback>,
   #[devtools_ignore]
   pub on_selected_path: Option<DevToolsPathCallback>,
+  #[devtools_ignore]
+  pub on_save_node_screenshot: Option<DevToolsPathCallback>,
 }
 
 pub struct DevTools {
@@ -292,6 +294,7 @@ impl Component for DevTools {
         props.on_debug_overlay_path.clone(),
         props.on_overlay_enabled.clone(),
         props.on_pick_inspected.clone(),
+        props.on_save_node_screenshot.clone(),
         active_tab,
         self.active_tab.clone(),
         profiler_recording,
