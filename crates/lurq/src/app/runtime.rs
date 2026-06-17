@@ -5985,7 +5985,19 @@ fn draw_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rec
     return;
   };
   let fill = [rect.color.r(), rect.color.g(), rect.color.b(), rect.color.a()];
-  fill_screenshot_rect(pixels, bounds, draw, fill);
+  if fill[3] > 0 {
+    for py in draw.y0..draw.y1 {
+      for px in draw.x0..draw.x1 {
+        let world_x = bounds.x as f32 + px as f32 + 0.5;
+        let world_y = bounds.y as f32 + py as f32 + 0.5;
+        if screenshot_rounded_rect_contains(world_x, world_y, rect.x, rect.y, rect.width, rect.height, rect.radii)
+          && screenshot_clip_contains(rect.clip, world_x, world_y)
+        {
+          blend_screenshot_pixel(pixels, bounds.width, px, py, fill);
+        }
+      }
+    }
+  }
 
   let stroke = [
     rect.stroke_color.r(),
@@ -6029,6 +6041,9 @@ fn draw_screenshot_glyph(
     for px in draw.x0..draw.x1 {
       let world_x = bounds.x as f32 + px as f32 + 0.5;
       let world_y = bounds.y as f32 + py as f32 + 0.5;
+      if !screenshot_clip_contains(glyph.clip, world_x, world_y) {
+        continue;
+      }
       let u = ((world_x - glyph.x) / glyph.width.max(1.0)).clamp(0.0, 1.0);
       let v = ((world_y - glyph.y) / glyph.height.max(1.0)).clamp(0.0, 1.0);
       let sx = (atlas_x0 + (u * atlas_w as f32).floor() as i32).clamp(0, atlas.width as i32 - 1);
@@ -6071,6 +6086,19 @@ fn draw_screenshot_image(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, im
     for px in draw.x0..draw.x1 {
       let world_x = bounds.x as f32 + px as f32 + 0.5;
       let world_y = bounds.y as f32 + py as f32 + 0.5;
+      if !screenshot_clip_contains(image.clip, world_x, world_y)
+        || !screenshot_rounded_rect_contains(
+          world_x,
+          world_y,
+          image.x,
+          image.y,
+          image.width,
+          image.height,
+          image.radii,
+        )
+      {
+        continue;
+      }
       let local_u = ((world_x - image.x) / image.width.max(1.0)).clamp(0.0, 1.0);
       let local_v = ((world_y - image.y) / image.height.max(1.0)).clamp(0.0, 1.0);
       let u = image.uv_min[0] + (image.uv_max[0] - image.uv_min[0]) * local_u;
@@ -6141,33 +6169,115 @@ fn screenshot_draw_rect(
 }
 
 #[cfg(feature = "devtools")]
-fn fill_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: ScreenshotDrawRect, color: [u8; 4]) {
-  if color[3] == 0 {
+fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: &RectCmd, color: [u8; 4]) {
+  let top = rect.stroke[0].max(0.0);
+  let right = rect.stroke[1].max(0.0);
+  let bottom = rect.stroke[2].max(0.0);
+  let left = rect.stroke[3].max(0.0);
+  let Some(draw) = screenshot_draw_rect(bounds, rect.x, rect.y, rect.width, rect.height, rect.clip) else {
     return;
-  }
-  for py in rect.y0..rect.y1 {
-    for px in rect.x0..rect.x1 {
+  };
+
+  let inner_x = rect.x + left;
+  let inner_y = rect.y + top;
+  let inner_width = (rect.width - left - right).max(0.0);
+  let inner_height = (rect.height - top - bottom).max(0.0);
+  let inner_radii = [
+    (rect.radii[0] - left.max(top)).max(0.0),
+    (rect.radii[1] - right.max(top)).max(0.0),
+    (rect.radii[2] - right.max(bottom)).max(0.0),
+    (rect.radii[3] - left.max(bottom)).max(0.0),
+  ];
+
+  for py in draw.y0..draw.y1 {
+    for px in draw.x0..draw.x1 {
+      let world_x = bounds.x as f32 + px as f32 + 0.5;
+      let world_y = bounds.y as f32 + py as f32 + 0.5;
+      if !screenshot_clip_contains(rect.clip, world_x, world_y)
+        || !screenshot_rounded_rect_contains(world_x, world_y, rect.x, rect.y, rect.width, rect.height, rect.radii)
+      {
+        continue;
+      }
+      if inner_width > 0.0
+        && inner_height > 0.0
+        && screenshot_rounded_rect_contains(
+          world_x,
+          world_y,
+          inner_x,
+          inner_y,
+          inner_width,
+          inner_height,
+          inner_radii,
+        )
+      {
+        continue;
+      }
       blend_screenshot_pixel(pixels, bounds.width, px, py, color);
     }
   }
 }
 
 #[cfg(feature = "devtools")]
-fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: &RectCmd, color: [u8; 4]) {
-  let top = rect.stroke[0].max(0.0);
-  let right = rect.stroke[1].max(0.0);
-  let bottom = rect.stroke[2].max(0.0);
-  let left = rect.stroke[3].max(0.0);
-  for (x, y, width, height) in [
-    (rect.x, rect.y, rect.width, top),
-    (rect.x + rect.width - right, rect.y, right, rect.height),
-    (rect.x, rect.y + rect.height - bottom, rect.width, bottom),
-    (rect.x, rect.y, left, rect.height),
-  ] {
-    if let Some(draw) = screenshot_draw_rect(bounds, x, y, width, height, rect.clip) {
-      fill_screenshot_rect(pixels, bounds, draw, color);
-    }
+fn screenshot_clip_contains(clip: ClipRect, x: f32, y: f32) -> bool {
+  if !clip.active {
+    return true;
   }
+  if x < clip.x || y < clip.y || x >= clip.x + clip.width || y >= clip.y + clip.height {
+    return false;
+  }
+  let radii = clip.border_radius.map(|radius| radius.to_array()).unwrap_or([0.0; 4]);
+  screenshot_rounded_rect_contains(x, y, clip.x, clip.y, clip.width, clip.height, radii)
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_rounded_rect_contains(
+  x: f32,
+  y: f32,
+  rect_x: f32,
+  rect_y: f32,
+  width: f32,
+  height: f32,
+  radii: [f32; 4],
+) -> bool {
+  if x < rect_x || y < rect_y || x >= rect_x + width || y >= rect_y + height {
+    return false;
+  }
+  let radii = screenshot_normalized_radii(radii, width, height);
+  if radii.iter().all(|radius| *radius <= 0.0) {
+    return true;
+  }
+
+  let right = rect_x + width;
+  let bottom = rect_y + height;
+  if radii[0] > 0.0 && x < rect_x + radii[0] && y < rect_y + radii[0] {
+    return screenshot_point_in_corner(x, y, rect_x + radii[0], rect_y + radii[0], radii[0]);
+  }
+  if radii[1] > 0.0 && x >= right - radii[1] && y < rect_y + radii[1] {
+    return screenshot_point_in_corner(x, y, right - radii[1], rect_y + radii[1], radii[1]);
+  }
+  if radii[2] > 0.0 && x >= right - radii[2] && y >= bottom - radii[2] {
+    return screenshot_point_in_corner(x, y, right - radii[2], bottom - radii[2], radii[2]);
+  }
+  if radii[3] > 0.0 && x < rect_x + radii[3] && y >= bottom - radii[3] {
+    return screenshot_point_in_corner(x, y, rect_x + radii[3], bottom - radii[3], radii[3]);
+  }
+  true
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_normalized_radii(mut radii: [f32; 4], width: f32, height: f32) -> [f32; 4] {
+  let max_radius = width.min(height).max(0.0) * 0.5;
+  for radius in &mut radii {
+    *radius = radius.max(0.0).min(max_radius);
+  }
+  radii
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_point_in_corner(x: f32, y: f32, center_x: f32, center_y: f32, radius: f32) -> bool {
+  let dx = x - center_x;
+  let dy = y - center_y;
+  dx * dx + dy * dy <= radius * radius
 }
 
 #[cfg(feature = "devtools")]
