@@ -8,7 +8,7 @@ use std::{
   ptr,
   sync::{
     Arc, Mutex,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
   },
 };
 
@@ -74,7 +74,7 @@ use windows::{
     },
     System::Threading::{CreateEventW, INFINITE, WaitForSingleObject},
   },
-  core::{Error, Interface, PCSTR, PCWSTR, Result},
+  core::{Error, HRESULT, Interface, PCSTR, PCWSTR, Result},
 };
 
 #[cfg(feature = "image")]
@@ -104,7 +104,9 @@ const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT 
 #[cfg(feature = "image")]
 static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "image")]
-static DX12_IMAGE_MOD_NOT_FOUND_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static DX12_IMAGE_MOD_NOT_FOUND_LOGGED: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "image")]
+static DX12_IMAGE_DRAWS_DISABLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(feature = "image")]
 fn dx12_native_image_log(message: impl std::fmt::Display) {
@@ -1977,6 +1979,10 @@ fn is_error_mod_not_found(err: &Error) -> bool {
   (err.code().0 as u32) == 0x8007007E
 }
 
+fn dx12_invalid_arg(message: impl Into<String>) -> Error {
+  Error::new(HRESULT(0x80070057u32 as i32), message.into())
+}
+
 impl Dx12State {
   unsafe fn new(hwnd: HWND, width: u32, height: u32) -> Result<Self> {
     let factory = create_factory()?;
@@ -2341,6 +2347,9 @@ impl Dx12State {
         )?,
         #[cfg(feature = "image")]
         OrderedDraw::Image(index) => {
+          if DX12_IMAGE_DRAWS_DISABLED.load(Ordering::Relaxed) {
+            continue;
+          }
           let image = &list.images[index];
           let result = dx12_context(
             self.draw_image(image),
@@ -2354,9 +2363,10 @@ impl Dx12State {
           );
           if let Err(err) = result {
             if is_error_mod_not_found(&err) {
+              DX12_IMAGE_DRAWS_DISABLED.store(true, Ordering::Relaxed);
               if !DX12_IMAGE_MOD_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
                 tracing::error!(
-                  "skipping dx12 image draws after ERROR_MOD_NOT_FOUND; continuing frame so non-image UI can render"
+                  "disabling dx12 image draws after ERROR_MOD_NOT_FOUND; continuing frame so non-image UI can render"
                 );
               }
               continue;
@@ -2911,7 +2921,10 @@ impl Dx12State {
       crate::images::ImagePixelFormat::Nv12 => 2,
     };
     if self.next_srv_index + descriptors_needed > SRV_DESCRIPTOR_COUNT as usize {
-      return Err(Error::from_win32());
+      return Err(dx12_invalid_arg(format!(
+        "dx12 image descriptor heap exhausted: image id={} needs {} descriptors, next={}, capacity={}",
+        image.image_id, descriptors_needed, self.next_srv_index, SRV_DESCRIPTOR_COUNT
+      )));
     }
 
     let descriptor_index = self.next_srv_index;
@@ -2964,7 +2977,10 @@ impl Dx12State {
       }
       crate::images::ImagePixelFormat::Nv12 => {
         if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
-          return Err(Error::from_win32());
+          return Err(dx12_invalid_arg(format!(
+            "dx12 nv12 image dimensions must be even: image id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          )));
         }
         let y_texture = dx12_context(
           create_r8_texture(&self.device, image.image_width, image.image_height),
@@ -3047,7 +3063,10 @@ impl Dx12State {
   #[cfg(feature = "image")]
   unsafe fn ensure_native_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
     let Some(native) = &image.native else {
-      return Err(Error::from_win32());
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image command missing native payload: image id={}",
+        image.image_id
+      )));
     };
     match native.backend() {
       crate::images::NativeImageBackend::Dx12Nv12 => {}
@@ -3056,7 +3075,10 @@ impl Dx12State {
       || image.image_width % 2 != 0
       || image.image_height % 2 != 0
     {
-      return Err(Error::from_win32());
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image must be even-sized nv12: image id={} format={:?} size={}x{}",
+        image.image_id, image.image_format, image.image_width, image.image_height
+      )));
     }
 
     if let Some(cached) = self.image_textures.get(&image.image_id) {
@@ -3071,7 +3093,10 @@ impl Dx12State {
           let descriptor_index = *descriptor_index;
           if *version != image.version {
             let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
-              return Err(Error::from_win32());
+              return Err(dx12_invalid_arg(format!(
+                "dx12 native image payload type mismatch: image id={}",
+                image.image_id
+              )));
             };
             dx12_native_image_log(format_args!(
               "refresh SRV image={} version={} previous_version={} descriptor={} y_plane={} uv_plane={}",
@@ -3143,10 +3168,16 @@ impl Dx12State {
     }
 
     let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
-      return Err(Error::from_win32());
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image payload type mismatch: image id={}",
+        image.image_id
+      )));
     };
     if self.next_srv_index + 2 > SRV_DESCRIPTOR_COUNT as usize {
-      return Err(Error::from_win32());
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image descriptor heap exhausted: image id={} next={} capacity={}",
+        image.image_id, self.next_srv_index, SRV_DESCRIPTOR_COUNT
+      )));
     }
 
     let descriptor_index = self.next_srv_index;

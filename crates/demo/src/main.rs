@@ -26,7 +26,7 @@ use std::io::Write;
 use lurq::app::dx12_render::Dx12RenderEngine;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::{Column, Modal, Outlet, Rect, Root, Router, Row, Stack},
+  components::{Column, Modal, Outlet, Rect, Root, Router, Row, Slider, Stack},
   core::Signal,
   layout::{
     Alignment, StackAlignment,
@@ -169,9 +169,12 @@ fn demo_shell(ctx: &mut Ctx, theme: Signal<DemoTheme>, modal_open: Signal<bool>)
     )
     .background(palette.bg)
     .child(
-      Modal::new(demo_modal(theme, modal_open.clone()))
-        .open(modal_open)
-        .target(Root),
+      Modal::new(ctx.mount::<DemoModalContent>(DemoModalProps {
+        theme,
+        modal_open: modal_open.clone(),
+      }))
+      .open(modal_open)
+      .target(Root),
     )
     .into()
 }
@@ -196,46 +199,100 @@ fn demo_toolbar(selected_tab: DemoTab, theme: DemoTheme, modal_open: Signal<bool
     .into()
 }
 
-fn demo_modal(theme: DemoTheme, modal_open: Signal<bool>) -> Element {
-  let palette = theme.palette();
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct DemoModalProps {
+  theme: DemoTheme,
+  modal_open: Signal<bool>,
+}
 
-  Stack::new()
-    .stack_align(StackAlignment::Center)
-    .child(
-      Rect::new(Dimension::Pct(100.0), Dimension::Pct(100.0))
-        .background("#000000")
-        .opacity(0.58)
-        .on_click({
-          let modal_open = modal_open.clone();
-          move |_| modal_open.set(false)
-        }),
-    )
-    .child(
-      Column::new()
-        .spacing(12.0)
-        .child(style::text("Demo modal", 22.0, FontWeight::Bold, palette.text))
-        .child(
-          style::text(
-            "This panel is declared as a render-flow Modal and rendered above the app content.",
-            13.0,
-            FontWeight::Medium,
-            palette.text_muted,
+impl PartialEq for DemoModalProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.theme == other.theme
+  }
+}
+
+struct DemoModalContent {
+  value: Signal<i32>,
+}
+
+impl Component for DemoModalContent {
+  type Props = DemoModalProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self { value: ctx.signal(64) }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<DemoModalProps>();
+    let palette = props.theme.palette();
+    let modal_open = props.modal_open.clone();
+    let value = self.value.clone();
+    let current = value.get();
+
+    Stack::new()
+      .stack_align(StackAlignment::Center)
+      .child(
+        Rect::new(Dimension::Pct(100.0), Dimension::Pct(100.0))
+          .background("#000000")
+          .opacity(0.58)
+          .on_click({
+            let modal_open = modal_open.clone();
+            move |_| modal_open.set(false)
+          }),
+      )
+      .child(
+        Column::new()
+          .spacing(12.0)
+          .child(style::text("Demo modal", 22.0, FontWeight::Bold, palette.text))
+          .child(
+            style::text(
+              "This panel is declared as a render-flow Modal and rendered above the app content.",
+              13.0,
+              FontWeight::Medium,
+              palette.text_muted,
+            )
+            .width(Dimension::Pct(100.0)),
           )
-          .width(Dimension::Pct(100.0)),
-        )
-        .child(
-          Row::new()
-            .justify(Justify::End)
-            .child(demo_button("Close", palette.primary, move || modal_open.set(false))),
-        )
-        .width(420.0)
-        .padding(24.0)
-        .background(palette.surface)
-        .border_inside(1.0, Color::from_hex(palette.border))
-        .rounded(10.0),
-    )
-    .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
-    .into()
+          .child(
+            Column::new()
+              .spacing(8.0)
+              .child(
+                Row::new()
+                  .align_items(Alignment::Center)
+                  .child(style::text("Modal slider", 14.0, FontWeight::Bold, palette.text))
+                  .child(lurq::components::Spacer::new().flex(1.0))
+                  .child(style::text(
+                    &current.to_string(),
+                    12.0,
+                    FontWeight::Medium,
+                    palette.accent,
+                  )),
+              )
+              .child(
+                Slider::new(value)
+                  .range(0, 100)
+                  .height(18.0)
+                  .width(Dimension::Pct(100.0))
+                  .background("#cbd5e1")
+                  .rounded(9.0)
+                  .cursor(CursorIcon::Pointer)
+                  .focused(move |style| style.border_inside(2.0, Color::from_hex(palette.primary))),
+              )
+              .width(Dimension::Pct(100.0)),
+          )
+          .child(
+            Row::new()
+              .justify(Justify::End)
+              .child(demo_button("Close", palette.primary, move || modal_open.set(false))),
+          )
+          .width(420.0)
+          .padding(24.0)
+          .background(palette.surface)
+          .border_inside(1.0, Color::from_hex(palette.border))
+          .rounded(10.0),
+      )
+      .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+  }
 }
 
 fn demo_button(label: &str, fill: &'static str, on_click: impl Fn() + Send + Sync + 'static) -> Element {
