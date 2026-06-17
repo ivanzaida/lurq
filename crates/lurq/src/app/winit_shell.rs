@@ -396,12 +396,16 @@ impl ManagedWindow {
         }
         WindowCommand::StartDrag => {
           if let Some(window) = &self.window {
-            let _ = window.drag_window();
+            if !begin_native_window_drag(window) {
+              let _ = window.drag_window();
+            }
           }
         }
         WindowCommand::StartResize(direction) => {
           if let Some(window) = &self.window {
-            let _ = window.drag_resize_window(to_winit_resize_direction(direction));
+            if !begin_native_window_resize(window, direction) {
+              let _ = window.drag_resize_window(to_winit_resize_direction(direction));
+            }
           }
         }
         WindowCommand::StopDrag => {}
@@ -819,12 +823,16 @@ impl ManagedSecondaryWindow {
         }
         WindowCommand::StartDrag => {
           if let Some(window) = &self.window {
-            let _ = window.drag_window();
+            if !begin_native_window_drag(window) {
+              let _ = window.drag_window();
+            }
           }
         }
         WindowCommand::StartResize(direction) => {
           if let Some(window) = &self.window {
-            let _ = window.drag_resize_window(to_winit_resize_direction(direction));
+            if !begin_native_window_resize(window, direction) {
+              let _ = window.drag_resize_window(to_winit_resize_direction(direction));
+            }
           }
         }
         WindowCommand::StopDrag => {}
@@ -1473,4 +1481,70 @@ fn to_winit_resize_direction(direction: WindowResizeDirection) -> WinitResizeDir
     WindowResizeDirection::SouthWest => WinitResizeDirection::SouthWest,
     WindowResizeDirection::West => WinitResizeDirection::West,
   }
+}
+
+#[cfg(windows)]
+fn begin_native_window_drag(window: &Window) -> bool {
+  use windows::Win32::UI::WindowsAndMessaging::HTCAPTION;
+
+  send_native_non_client_mouse_down(window, HTCAPTION)
+}
+
+#[cfg(not(windows))]
+fn begin_native_window_drag(window: &Window) -> bool {
+  let _ = window;
+  false
+}
+
+#[cfg(windows)]
+fn begin_native_window_resize(window: &Window, direction: WindowResizeDirection) -> bool {
+  use windows::Win32::UI::WindowsAndMessaging::{
+    HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT,
+  };
+
+  let hit_test = match direction {
+    WindowResizeDirection::North => HTTOP,
+    WindowResizeDirection::South => HTBOTTOM,
+    WindowResizeDirection::West => HTLEFT,
+    WindowResizeDirection::East => HTRIGHT,
+    WindowResizeDirection::NorthWest => HTTOPLEFT,
+    WindowResizeDirection::NorthEast => HTTOPRIGHT,
+    WindowResizeDirection::SouthWest => HTBOTTOMLEFT,
+    WindowResizeDirection::SouthEast => HTBOTTOMRIGHT,
+  };
+  send_native_non_client_mouse_down(window, hit_test)
+}
+
+#[cfg(not(windows))]
+fn begin_native_window_resize(window: &Window, direction: WindowResizeDirection) -> bool {
+  let _ = (window, direction);
+  false
+}
+
+#[cfg(windows)]
+fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
+  use windows::Win32::{
+    Foundation::{HWND, LPARAM, WPARAM},
+    UI::{
+      Input::KeyboardAndMouse::ReleaseCapture,
+      WindowsAndMessaging::{SendMessageW, WM_NCLBUTTONDOWN},
+    },
+  };
+
+  let Ok(handle) = window.window_handle() else {
+    return false;
+  };
+  let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+    return false;
+  };
+  let hwnd = HWND(handle.hwnd.get() as *mut _);
+  if hwnd.is_invalid() {
+    return false;
+  }
+
+  unsafe {
+    let _ = ReleaseCapture();
+    SendMessageW(hwnd, WM_NCLBUTTONDOWN, WPARAM(hit_test as usize), LPARAM(0));
+  }
+  true
 }

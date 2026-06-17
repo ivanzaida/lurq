@@ -30,6 +30,7 @@ mod svg;
 mod text;
 mod text_input;
 mod virtualized_list;
+mod window_chrome;
 
 pub use button::Button;
 pub use checkbox::Checkbox;
@@ -71,6 +72,10 @@ pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow};
 pub use virtualized_list::VirtualizedList;
+pub use window_chrome::{
+  ChromeBorderPolicy, ChromeTitleBar, ResizeHandlePolicy, WindowChrome, WindowChromeMetrics, WindowChromeMode,
+  WindowChromeProps, WindowControlStyle, WindowControls,
+};
 
 pub use crate::app::ctx::{CollisionStrategy, Modal, ModalTarget, OpenState, Overlay, Parent, Placement, Root};
 

@@ -168,6 +168,63 @@ ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
 ])
 ```
 
+## Custom Window Chrome
+
+`WindowChrome` is a strict wrapper for custom desktop chrome. It disables native decorations when custom chrome is active,
+renders the title bar and content area, owns the draggable title-bar behavior, adds resize hit zones, and provides
+standard window controls.
+
+```rust
+use lurq::{
+  components::{ChromeTitleBar, Text, WindowChrome, WindowControls},
+  node::color::Color,
+};
+
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  WindowChrome::new()
+    .title_bar(
+      ChromeTitleBar::new()
+        .leading(Text::new("My App").padding_horizontal(12.0))
+        .trailing(Text::new("ready").color(Color::from_hex("#94a3b8")))
+        .controls(WindowControls::new().on_close(|| {
+          // Optional app cleanup before the window closes.
+        })),
+    )
+    .content(app_content(ctx))
+    .overlay(fullscreen_modal_layer(ctx))
+    .mount(ctx)
+}
+```
+
+Apps provide title-bar slots and content. They should not manually call `window.start_drag()` or render resize handles for
+normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, resize edge and corner hit zones,
+control-button event propagation, and platform drag/resize fallbacks in the active shell.
+
+Use `WindowChrome::overlay(...)` for fullscreen modals or app-level overlay layers that should cover content but stay
+below chrome resize hit zones. `WindowChrome` renders content first, then overlays, then chrome borders and resize
+handles, so modal layers do not make an undecorated window impossible to resize.
+
+Use `WindowChromeProps` for policy-level changes:
+
+```rust
+use lurq::{
+  components::{ChromeBorderPolicy, ResizeHandlePolicy, WindowChromeMode, WindowChromeProps},
+  node::color::Color,
+};
+
+let props = WindowChromeProps::new()
+  .mode(WindowChromeMode::AlwaysCustom)
+  .resize_handles(ResizeHandlePolicy::Enabled { size: 6.0 })
+  .border(ChromeBorderPolicy::Visible {
+    size: 1.0,
+    color: Color::from_hex("#252a32").into(),
+  });
+```
+
+`WindowChrome::metrics()` returns `WindowChromeMetrics`, which can be used for modal or overlay coordinate adjustment
+when a component needs to reason about the custom chrome content area. Metrics include whether custom chrome is enabled,
+the title-bar height, resize handle size, and border size.
+
 ## Built-In DnD Components
 
 `DragContainer`, `Draggable`, and `DropZone` are real components. Use their `mount` helpers for the explicit one-child

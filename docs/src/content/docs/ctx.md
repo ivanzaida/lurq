@@ -304,9 +304,6 @@ window.set_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1));
 window.set_corner_radius(lurq::app::WindowCornerRadius::RoundedSmall);
 window.resize(1280, 720);
 window.move_to(120, 80);
-window.start_drag();
-window.start_resize(WindowResizeDirection::SouthEast);
-window.stop_drag();
 ```
 
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so
@@ -318,31 +315,31 @@ API, while corner radius maps to the Windows corner preference API and macOS App
 Unsupported platforms no-op. Use `clear_icon()`, `clear_title_bar_color()`, and `reset_corner_radius()` to return those
 settings to the platform default.
 
-For custom title bars, call `window.start_drag()` from the press handler for the draggable region. Call
-`window.start_resize(direction)` from the press handler for custom edge or corner resize handles. The active platform
-shell uses its native window drag and resize APIs when available. `window.stop_drag()` ends custom drag state for shells
-that need it; on winit, the OS ends native drag and resize operations automatically on release.
+For normal custom desktop chrome, prefer `WindowChrome`. It disables native decorations when custom chrome is active,
+renders the draggable title bar and content area, owns resize hit zones, handles standard window controls, and uses the
+active shell's native drag/resize behavior where available.
 
 ```rust
 use lurq::{
-  app::events::{MouseButton, MouseEvent},
-  components::{Stack, Text},
+  components::{ChromeTitleBar, Text, WindowChrome, WindowControls},
+  node::color::Color,
 };
 
-let window = ctx.window();
-
-Stack::new()
-.height(36.0)
-.child(Text::new("My App").padding_horizontal(12.0))
-.on_mouse_down( move | event: MouseEvent| {
-if event.button == MouseButton::Left {
-window.start_drag();
-}
-})
+WindowChrome::new()
+  .title_bar(
+    ChromeTitleBar::new()
+      .leading(Text::new("My App").padding_horizontal(12.0))
+      .trailing(Text::new("ready").color(Color::from_hex("#94a3b8")))
+      .controls(WindowControls::new()),
+  )
+  .content(app_content(ctx))
+  .overlay(fullscreen_modal_layer(ctx))
+  .mount(ctx)
 ```
 
-Native resize should be started immediately after the left mouse button press. For an undecorated window, render small
-edge and corner hit zones and call the matching direction:
+`window.start_drag()`, `window.start_resize(direction)`, and `window.stop_drag()` remain available as low-level escape
+hatches for custom shells or highly specialized chrome. If you use them directly, start native drag or resize from the
+left mouse-button press handler and stop propagation so underlying widgets do not also handle the same press:
 
 ```rust
 use lurq::{
@@ -361,9 +358,14 @@ Rect::new(8.0, 8.0)
 .on_mouse_down( move | event: MouseEvent| {
 if event.button == MouseButton::Left {
 window.start_resize(WindowResizeDirection::SouthEast);
+event.prevent_default();
+event.stop_immediate_propagation();
 }
 })
 ```
+
+With the winit shell, `start_drag()` and `start_resize(...)` use native platform APIs where possible. On Windows, the
+shell falls back to non-client mouse messages for custom chrome drag and resize behavior.
 
 ## Slot Children
 
