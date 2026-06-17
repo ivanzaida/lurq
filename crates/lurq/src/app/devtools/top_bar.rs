@@ -2,8 +2,8 @@ use super::{
   DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsPathCallback, DevToolsTab,
   debug_overlay_path_for_selection, profiler, signals,
   style::{
-    BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text, toolbar_button,
-    toolbar_icon_button, toolbar_input,
+    BORDER, FILL, MUTED, PRIMARY, SELECTED, SURFACE, SURFACE_2, TEXT, badge, icon, text, toolbar_button, toolbar_input,
+    toolbar_search_input,
   },
 };
 use crate::{
@@ -21,6 +21,7 @@ pub(crate) fn top_bar(
   pick_enabled_signal: Signal<bool>,
   selected_path: Vec<usize>,
   has_selection: bool,
+  component_search: Signal<String>,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
   on_overlay_enabled: Option<DevToolsBoolCallback>,
   on_pick_inspected: Option<DevToolsBoolCallback>,
@@ -95,8 +96,11 @@ pub(crate) fn top_bar(
         .child(Spacer::new().width(8.0))
         .child(screenshot_button(selected_path, has_selection, on_save_node_screenshot))
         .child(Spacer::new().width(10.0))
-        .child(toolbar_input("Search components...", Some("Ctrl+F")))
-        .child(toolbar_icon_button("settings"))
+        .child(toolbar_search_input(
+          component_search,
+          "Search components...",
+          Some("Ctrl+F"),
+        ))
         .into(),
     })
     .height(48.0)

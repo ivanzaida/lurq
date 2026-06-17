@@ -112,6 +112,7 @@ impl WinitWindow {
   pub fn with_corner_radius(mut self, radius: WindowCornerRadius) -> Self {
     self.attrs = with_corner_radius(self.attrs, radius);
     self.corner_radius = Some(radius);
+    self.tree.window().set_corner_radius(radius);
     self
   }
 
@@ -271,6 +272,7 @@ impl ManagedWindow {
     let window = event_loop.create_window(attrs).unwrap();
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
+      self.tree.window().set_corner_radius(radius);
     }
     let size = window.inner_size();
     self.tree.set_scale_factor(window.scale_factor() as f32);
@@ -377,6 +379,7 @@ impl ManagedWindow {
           if let Some(window) = &self.window {
             set_corner_radius(window, radius);
           }
+          self.tree.window().set_corner_radius(radius);
         }
         WindowCommand::Move { x, y } => {
           if let Some(window) = &self.window {
@@ -801,6 +804,7 @@ impl ManagedSecondaryWindow {
           if let Some(window) = &self.window {
             set_corner_radius(window, radius);
           }
+          tree.window().set_corner_radius(radius);
         }
         WindowCommand::Move { x, y } => {
           if let Some(window) = &self.window {

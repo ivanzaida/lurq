@@ -8,6 +8,7 @@ use lurq::{
   components::{Rect, VirtualizedList},
   node::{Element, color::Color},
 };
+use lurq_macros::DevtoolsInspectable;
 
 use crate::support::run_pass;
 
@@ -28,7 +29,7 @@ impl<T> PartialEq for Shared<T> {
 #[cfg(feature = "devtools")]
 impl<T> lurq::app::component::DevtoolsInspectable for Shared<T> {}
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, DevtoolsInspectable)]
 struct RowData {
   id: usize,
   height: f32,

@@ -107,8 +107,6 @@ fn inspector_title(title: &str, kind: DevToolsNodeKind) -> Element {
     .child(mono_text(title, 14.0, FontWeight::Bold, BLUE))
     .child(badge(kind_label, kind_color, kind_fill))
     .child(Spacer::new().flex(1.0))
-    .child(mono_text("reactivity_demo.rs:42", 10.0, FontWeight::Normal, MUTED))
-    .child(icon("external-link", 12.0, MUTED))
     .padding_horizontal(16.0)
     .padding_vertical(10.0)
     .width(FILL)

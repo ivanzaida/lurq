@@ -427,7 +427,14 @@ fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine
   panic!("--renderer dx12 requires Windows");
 }
 
+fn init_tracing() {
+  let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,lurq=info,demo=info"));
+  let _ = tracing_subscriber::fmt().with_env_filter(filter).compact().try_init();
+}
+
 fn main() {
+  init_tracing();
   let options = demo_options();
   let mut app = App::new();
   let mut tree = Tree::new();

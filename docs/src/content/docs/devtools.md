@@ -37,6 +37,47 @@ The current DevTools UI has three primary tabs:
 | Profiler | Captured render commits, frame timings, render causes, signal changes, memo recomputes, layout status, and perf overlay stats. |
 | Signals | Signal list, value, owner component, subscriber count, dependency graph, and change history. |
 
+## Component Search
+
+The Components tab search box accepts plain text and a small query language.
+
+Plain terms search component/node names, keys, and text values:
+
+```text
+button
+settings modal
+"Save changes"
+```
+
+Multiple terms are combined with AND. A row matches only when every positive term matches and no negated term matches. Matching descendants keep their ancestors visible, and collapsed branches are expanded while the search is active.
+
+Field prefixes narrow a term to one part of the node snapshot:
+
+| Query | Matches |
+| --- | --- |
+| `tag:Button` | Full or short component/node tag. |
+| `name:Button` | Alias for `tag:`. |
+| `component:Button` | Alias for `tag:`. |
+| `key:submit` | Component key. |
+| `text:"Save changes"` | Text value. |
+| `value:"Save changes"` | Alias for `text:`. |
+| `kind:component` | Node kind, `component` or `element`. |
+| `state:focused` | Runtime state, `focused`, `hovered`, or `active`. |
+
+Prefix a term with `-` to exclude nodes:
+
+```text
+tag:Button -key:secondary
+kind:element state:focused
+text:"Save changes" -key:secondary
+```
+
+Quotes keep spaces inside one term. Backslash escapes work inside quoted terms:
+
+```text
+text:"Delete \"draft\""
+```
+
 ## Inspectable Props
 
 When `devtools` is enabled, component props must implement `DevtoolsInspectable`.

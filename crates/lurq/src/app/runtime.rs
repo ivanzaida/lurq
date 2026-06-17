@@ -15,6 +15,8 @@ use crate::app::devtools::{
 };
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::{FrameProfile, RuntimeMemoryProfile};
+#[cfg(feature = "devtools")]
+use crate::app::render_engine::{RenderFrameCapture, RenderFrameCaptureWindowClip};
 #[cfg(feature = "form")]
 use crate::node::ButtonKind;
 use crate::{
@@ -31,6 +33,7 @@ use crate::{
     profile_support::{PerfMeterStats, profile_elapsed, profile_if, profile_scope, profile_value},
     render_engine::{RenderEngine, RenderEngineFactory},
     theme::CaretMode,
+    window::WindowCornerRadius,
   },
   core::{
     ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId, Signal,
@@ -440,25 +443,28 @@ fn devtools_save_node_screenshot_callback(
   screenshot_request: Arc<Mutex<Option<DevToolsScreenshotRequest>>>,
 ) -> DevToolsPathCallback {
   Arc::new(move |node_path| {
-    let Some(mut output_path) = rfd::FileDialog::new()
-      .add_filter("PNG image", &["png"])
-      .set_file_name("lurq-node.png")
-      .save_file()
-    else {
-      return;
-    };
+    let screenshot_request = screenshot_request.clone();
+    std::thread::spawn(move || {
+      let Some(mut output_path) = rfd::FileDialog::new()
+        .add_filter("PNG image", &["png"])
+        .set_file_name("lurq-node.png")
+        .save_file()
+      else {
+        return;
+      };
 
-    match output_path.extension().and_then(|extension| extension.to_str()) {
-      Some(extension) if extension.eq_ignore_ascii_case("png") => {}
-      _ => {
-        output_path.set_extension("png");
+      match output_path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) if extension.eq_ignore_ascii_case("png") => {}
+        _ => {
+          output_path.set_extension("png");
+        }
       }
-    }
 
-    *screenshot_request.lock().unwrap() = Some(DevToolsScreenshotRequest {
-      node_path,
-      output_path,
-      attempts: 0,
+      *screenshot_request.lock().unwrap() = Some(DevToolsScreenshotRequest {
+        node_path,
+        output_path,
+        attempts: 0,
+      });
     });
   })
 }
@@ -1783,26 +1789,46 @@ impl Tree {
     quads.clear();
     self.quad_scratch = quads;
 
-    #[cfg(all(feature = "devtools", feature = "image"))]
-    self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
-    #[cfg(all(feature = "devtools", not(feature = "image")))]
-    self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
+    #[cfg(feature = "devtools")]
+    let devtools_frame_capture = if self
+      .render_engine
+      .as_ref()
+      .is_some_and(|render_engine| render_engine.supports_frame_capture())
+    {
+      self.take_pending_devtools_frame_capture()
+    } else {
+      #[cfg(feature = "image")]
+      self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
+      #[cfg(not(feature = "image"))]
+      self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
+      None
+    };
 
     #[cfg(feature = "devtools")]
-    push_devtools_overlay(
-      &mut rects,
-      &mut glyphs,
-      &mut app.glyph_engine,
-      devtools_overlay,
-      quad_count,
-      scale,
-      self.viewport_physical,
-    );
+    if devtools_frame_capture.is_none() {
+      push_devtools_overlay(
+        &mut rects,
+        &mut glyphs,
+        &mut app.glyph_engine,
+        devtools_overlay,
+        quad_count,
+        scale,
+        self.viewport_physical,
+      );
+    }
+    #[cfg(feature = "devtools")]
+    let perf_overlay = if devtools_frame_capture.is_some() {
+      None
+    } else {
+      self.perf_overlay_enabled.then_some(self.perf_overlay_stats)
+    };
+    #[cfg(not(feature = "devtools"))]
+    let perf_overlay = self.perf_overlay_enabled.then_some(self.perf_overlay_stats);
     push_perf_meter(
       &mut rects,
       &mut glyphs,
       &mut app.glyph_engine,
-      self.perf_overlay_enabled.then_some(self.perf_overlay_stats),
+      perf_overlay,
       quad_count + 20_000,
       scale,
       self.viewport_physical,
@@ -1827,6 +1853,9 @@ impl Tree {
     let Some(render_engine) = &mut self.render_engine else {
       return report;
     };
+    #[cfg(feature = "devtools")]
+    render_engine.render_with_capture(&list, window, display, devtools_frame_capture);
+    #[cfg(not(feature = "devtools"))]
     render_engine.render(&list, window, display);
     report.rendered = true;
     if let Some(root) = self.root.as_ref() {
@@ -3888,6 +3917,9 @@ impl Tree {
       self.cached_render_list = Some(cached);
       return false;
     };
+    #[cfg(feature = "devtools")]
+    render_engine.render_with_capture(&cached.list, window, display, None);
+    #[cfg(not(feature = "devtools"))]
     render_engine.render(&cached.list, window, display);
     let _gpu_dur = profile_elapsed!(_gpu_start);
 
@@ -5779,6 +5811,39 @@ impl Tree {
     devtools_overlay_target_at_path(root, layout, path, 0.0, 0.0)
   }
 
+  fn take_pending_devtools_frame_capture(&mut self) -> Option<RenderFrameCapture> {
+    let Some(mut request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
+      return None;
+    };
+
+    let Some(bounds) = self.devtools_screenshot_bounds(&request.node_path) else {
+      if request.attempts < 2 {
+        request.attempts += 1;
+        *self.devtools_state.screenshot_request.lock().unwrap() = Some(request);
+        self.needs_redraw = true;
+      } else {
+        tracing::warn!(
+          "could not resolve selected devtools node path for screenshot to {}",
+          request.output_path.display()
+        );
+      }
+      return None;
+    };
+
+    Some(RenderFrameCapture {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      output_path: request.output_path,
+      window_clip: bounds.window_clip.map(|clip| RenderFrameCaptureWindowClip {
+        width: clip.width,
+        height: clip.height,
+        radii: clip.radii,
+      }),
+    })
+  }
+
   #[cfg(feature = "image")]
   fn save_pending_devtools_screenshot(
     &mut self,
@@ -5806,16 +5871,22 @@ impl Tree {
       return;
     };
 
-    if let Err(error) =
-      save_devtools_screenshot(&request.output_path, bounds, clear_color, rects, glyphs, images, atlas)
-    {
-      tracing::warn!(
-        "failed to save devtools node screenshot to {}: {error}",
-        request.output_path.display()
-      );
-    } else {
-      tracing::info!("saved devtools node screenshot to {}", request.output_path.display());
-    }
+    let output_path = request.output_path;
+    let rects = rects.to_vec();
+    let glyphs = glyphs.to_vec();
+    let images = images.to_vec();
+    let atlas = atlas.clone();
+    std::thread::spawn(move || {
+      if let Err(error) = save_devtools_screenshot(&output_path, bounds, clear_color, &rects, &glyphs, &images, &atlas)
+      {
+        tracing::warn!(
+          "failed to save devtools node screenshot to {}: {error}",
+          output_path.display()
+        );
+      } else {
+        tracing::info!("Saved screenshot here: {}", output_path.display());
+      }
+    });
   }
 
   #[cfg(not(feature = "image"))]
@@ -5844,14 +5915,20 @@ impl Tree {
       return;
     };
 
-    if let Err(error) = save_devtools_screenshot(&request.output_path, bounds, clear_color, rects, glyphs, atlas) {
-      tracing::warn!(
-        "failed to save devtools node screenshot to {}: {error}",
-        request.output_path.display()
-      );
-    } else {
-      tracing::info!("saved devtools node screenshot to {}", request.output_path.display());
-    }
+    let output_path = request.output_path;
+    let rects = rects.to_vec();
+    let glyphs = glyphs.to_vec();
+    let atlas = atlas.clone();
+    std::thread::spawn(move || {
+      if let Err(error) = save_devtools_screenshot(&output_path, bounds, clear_color, &rects, &glyphs, &atlas) {
+        tracing::warn!(
+          "failed to save devtools node screenshot to {}: {error}",
+          output_path.display()
+        );
+      } else {
+        tracing::info!("Saved screenshot here: {}", output_path.display());
+      }
+    });
   }
 
   fn devtools_screenshot_bounds(&self, path: &[usize]) -> Option<DevtoolsScreenshotBounds> {
@@ -5876,6 +5953,30 @@ impl Tree {
       y: top as u32,
       width: (right - left).max(1.0) as u32,
       height: (bottom - top).max(1.0) as u32,
+      window_clip: self.devtools_screenshot_window_clip(),
+    })
+  }
+
+  fn devtools_screenshot_window_clip(&self) -> Option<DevtoolsWindowClip> {
+    let info = self.window.info();
+    if info.is_decorated || info.is_maximized || info.is_full_screen {
+      return None;
+    }
+
+    let logical_radius = match self.window.corner_radius() {
+      WindowCornerRadius::Rounded => 10.0,
+      WindowCornerRadius::RoundedSmall => 4.0,
+      WindowCornerRadius::Default | WindowCornerRadius::None => return None,
+    };
+    let radius = logical_radius * self.scale_factor();
+    if radius <= 0.0 {
+      return None;
+    }
+
+    Some(DevtoolsWindowClip {
+      width: self.viewport_physical.width,
+      height: self.viewport_physical.height,
+      radii: [radius; 4],
     })
   }
 }
@@ -5927,6 +6028,15 @@ struct DevtoolsScreenshotBounds {
   y: u32,
   width: u32,
   height: u32,
+  window_clip: Option<DevtoolsWindowClip>,
+}
+
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy)]
+struct DevtoolsWindowClip {
+  width: f32,
+  height: f32,
+  radii: [f32; 4],
 }
 
 #[cfg(feature = "devtools")]
@@ -5952,11 +6062,18 @@ fn save_devtools_screenshot(
   }
 
   let mut pixels = vec![0_u8; bounds.width as usize * bounds.height as usize * 4];
-  for pixel in pixels.chunks_exact_mut(4) {
-    pixel[0] = clear_color.r();
-    pixel[1] = clear_color.g();
-    pixel[2] = clear_color.b();
-    pixel[3] = clear_color.a();
+  for y in 0..bounds.height {
+    for x in 0..bounds.width {
+      let index = (y * bounds.width + x) as usize * 4;
+      let world_x = bounds.x as f32 + x as f32 + 0.5;
+      let world_y = bounds.y as f32 + y as f32 + 0.5;
+      if screenshot_window_clip_contains(bounds, world_x, world_y) {
+        pixels[index] = clear_color.r();
+        pixels[index + 1] = clear_color.g();
+        pixels[index + 2] = clear_color.b();
+        pixels[index + 3] = clear_color.a();
+      }
+    }
   }
 
   let draw_capacity = rects.len() + glyphs.len() + {
@@ -6015,16 +6132,27 @@ fn draw_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rec
   let Some(draw) = screenshot_draw_rect(bounds, rect.x, rect.y, rect.width, rect.height, rect.clip) else {
     return;
   };
-  let fill = [rect.color.r(), rect.color.g(), rect.color.b(), rect.color.a()];
-  if fill[3] > 0 {
+  let radii = screenshot_effective_rect_radii(bounds, rect);
+  let solid_fill = [rect.color.r(), rect.color.g(), rect.color.b(), rect.color.a()];
+  if rect.gradient.is_some() || solid_fill[3] > 0 {
     for py in draw.y0..draw.y1 {
       for px in draw.x0..draw.x1 {
-        let world_x = bounds.x as f32 + px as f32 + 0.5;
-        let world_y = bounds.y as f32 + py as f32 + 0.5;
-        if screenshot_rounded_rect_contains(world_x, world_y, rect.x, rect.y, rect.width, rect.height, rect.radii)
-          && screenshot_clip_contains(rect.clip, world_x, world_y)
-        {
-          blend_screenshot_pixel(pixels, bounds.width, px, py, fill);
+        let coverage = screenshot_sample_coverage(bounds, px, py, |world_x, world_y| {
+          screenshot_window_clip_contains(bounds, world_x, world_y)
+            && screenshot_rounded_rect_contains(world_x, world_y, rect.x, rect.y, rect.width, rect.height, radii)
+            && screenshot_clip_contains(rect.clip, world_x, world_y)
+        });
+        if coverage > 0.0 {
+          let world_x = bounds.x as f32 + px as f32 + 0.5;
+          let world_y = bounds.y as f32 + py as f32 + 0.5;
+          let fill = screenshot_rect_fill_color(rect, solid_fill, world_x, world_y);
+          blend_screenshot_pixel(
+            pixels,
+            bounds.width,
+            px,
+            py,
+            screenshot_color_with_coverage(fill, coverage),
+          );
         }
       }
     }
@@ -6072,7 +6200,9 @@ fn draw_screenshot_glyph(
     for px in draw.x0..draw.x1 {
       let world_x = bounds.x as f32 + px as f32 + 0.5;
       let world_y = bounds.y as f32 + py as f32 + 0.5;
-      if !screenshot_clip_contains(glyph.clip, world_x, world_y) {
+      if !screenshot_window_clip_contains(bounds, world_x, world_y)
+        || !screenshot_clip_contains(glyph.clip, world_x, world_y)
+      {
         continue;
       }
       let u = ((world_x - glyph.x) / glyph.width.max(1.0)).clamp(0.0, 1.0);
@@ -6117,7 +6247,8 @@ fn draw_screenshot_image(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, im
     for px in draw.x0..draw.x1 {
       let world_x = bounds.x as f32 + px as f32 + 0.5;
       let world_y = bounds.y as f32 + py as f32 + 0.5;
-      if !screenshot_clip_contains(image.clip, world_x, world_y)
+      if !screenshot_window_clip_contains(bounds, world_x, world_y)
+        || !screenshot_clip_contains(image.clip, world_x, world_y)
         || !screenshot_rounded_rect_contains(
           world_x,
           world_y,
@@ -6205,6 +6336,7 @@ fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, r
   let right = rect.stroke[1].max(0.0);
   let bottom = rect.stroke[2].max(0.0);
   let left = rect.stroke[3].max(0.0);
+  let radii = screenshot_effective_rect_radii(bounds, rect);
   let Some(draw) = screenshot_draw_rect(bounds, rect.x, rect.y, rect.width, rect.height, rect.clip) else {
     return;
   };
@@ -6214,38 +6346,214 @@ fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, r
   let inner_width = (rect.width - left - right).max(0.0);
   let inner_height = (rect.height - top - bottom).max(0.0);
   let inner_radii = [
-    (rect.radii[0] - left.max(top)).max(0.0),
-    (rect.radii[1] - right.max(top)).max(0.0),
-    (rect.radii[2] - right.max(bottom)).max(0.0),
-    (rect.radii[3] - left.max(bottom)).max(0.0),
+    (radii[0] - left.max(top)).max(0.0),
+    (radii[1] - right.max(top)).max(0.0),
+    (radii[2] - right.max(bottom)).max(0.0),
+    (radii[3] - left.max(bottom)).max(0.0),
   ];
 
   for py in draw.y0..draw.y1 {
     for px in draw.x0..draw.x1 {
-      let world_x = bounds.x as f32 + px as f32 + 0.5;
-      let world_y = bounds.y as f32 + py as f32 + 0.5;
-      if !screenshot_clip_contains(rect.clip, world_x, world_y)
-        || !screenshot_rounded_rect_contains(world_x, world_y, rect.x, rect.y, rect.width, rect.height, rect.radii)
-      {
-        continue;
+      let coverage = screenshot_sample_coverage(bounds, px, py, |world_x, world_y| {
+        if !screenshot_window_clip_contains(bounds, world_x, world_y)
+          || !screenshot_clip_contains(rect.clip, world_x, world_y)
+          || !screenshot_rounded_rect_contains(world_x, world_y, rect.x, rect.y, rect.width, rect.height, radii)
+        {
+          return false;
+        }
+        if inner_width > 0.0
+          && inner_height > 0.0
+          && screenshot_rounded_rect_contains(
+            world_x,
+            world_y,
+            inner_x,
+            inner_y,
+            inner_width,
+            inner_height,
+            inner_radii,
+          )
+        {
+          return false;
+        }
+        true
+      });
+      if coverage > 0.0 {
+        blend_screenshot_pixel(
+          pixels,
+          bounds.width,
+          px,
+          py,
+          screenshot_color_with_coverage(color, coverage),
+        );
       }
-      if inner_width > 0.0
-        && inner_height > 0.0
-        && screenshot_rounded_rect_contains(
-          world_x,
-          world_y,
-          inner_x,
-          inner_y,
-          inner_width,
-          inner_height,
-          inner_radii,
-        )
-      {
-        continue;
-      }
-      blend_screenshot_pixel(pixels, bounds.width, px, py, color);
     }
   }
+}
+
+#[cfg(feature = "devtools")]
+const SCREENSHOT_SAMPLE_OFFSETS: [(f32, f32); 4] = [(-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25)];
+
+#[cfg(feature = "devtools")]
+fn screenshot_sample_coverage(
+  bounds: DevtoolsScreenshotBounds,
+  px: u32,
+  py: u32,
+  mut contains: impl FnMut(f32, f32) -> bool,
+) -> f32 {
+  let mut hits = 0_u32;
+  for (dx, dy) in SCREENSHOT_SAMPLE_OFFSETS {
+    let world_x = bounds.x as f32 + px as f32 + 0.5 + dx;
+    let world_y = bounds.y as f32 + py as f32 + 0.5 + dy;
+    if contains(world_x, world_y) {
+      hits += 1;
+    }
+  }
+  hits as f32 / SCREENSHOT_SAMPLE_OFFSETS.len() as f32
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_color_with_coverage(mut color: [u8; 4], coverage: f32) -> [u8; 4] {
+  color[3] = (color[3] as f32 * coverage.clamp(0.0, 1.0)).round() as u8;
+  color
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_window_clip_contains(bounds: DevtoolsScreenshotBounds, x: f32, y: f32) -> bool {
+  let Some(clip) = bounds.window_clip else {
+    return true;
+  };
+  screenshot_rounded_rect_contains(x, y, 0.0, 0.0, clip.width, clip.height, clip.radii)
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_effective_rect_radii(bounds: DevtoolsScreenshotBounds, rect: &RectCmd) -> [f32; 4] {
+  let mut radii = rect.radii;
+  let Some(clip) = bounds.window_clip else {
+    return radii;
+  };
+
+  const WINDOW_RECT_TOLERANCE_PX: f32 = 1.0;
+  let covers_window = rect.x <= WINDOW_RECT_TOLERANCE_PX
+    && rect.y <= WINDOW_RECT_TOLERANCE_PX
+    && rect.x + rect.width >= clip.width - WINDOW_RECT_TOLERANCE_PX
+    && rect.y + rect.height >= clip.height - WINDOW_RECT_TOLERANCE_PX;
+  if covers_window {
+    for (radius, window_radius) in radii.iter_mut().zip(clip.radii) {
+      *radius = radius.max(window_radius);
+    }
+  }
+  radii
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_rect_fill_color(rect: &RectCmd, fallback: [u8; 4], world_x: f32, world_y: f32) -> [u8; 4] {
+  let Some(gradient) = &rect.gradient else {
+    return fallback;
+  };
+  if gradient.stops.is_empty() {
+    return fallback;
+  }
+
+  let local = [
+    world_x - rect.x - rect.width * 0.5,
+    world_y - rect.y - rect.height * 0.5,
+  ];
+  let half = [rect.width * 0.5, rect.height * 0.5];
+  screenshot_sample_gradient(gradient, local, half)
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_sample_gradient(gradient: &RenderGradient, local: [f32; 2], half: [f32; 2]) -> [u8; 4] {
+  let mut t = match gradient.kind {
+    0 => {
+      let dir = gradient.dir;
+      let hl = (half[0] * dir[0]).abs() + (half[1] * dir[1]).abs();
+      ((local[0] * dir[0] + local[1] * dir[1]) + hl) / (2.0 * hl.max(1e-5))
+    }
+    1 => {
+      let center_norm = [gradient.center[0] * 2.0 - 1.0, gradient.center[1] * 2.0 - 1.0];
+      let center = [center_norm[0] * half[0], center_norm[1] * half[1]];
+      if gradient.flags & 1 != 0 {
+        let p = [
+          (local[0] - center[0]) / half[0].max(1e-3),
+          (local[1] - center[1]) / half[1].max(1e-3),
+        ];
+        let radius = screenshot_max_corner_distance(center_norm, [1.0, 1.0]);
+        screenshot_len(p) / radius.max(1e-5)
+      } else {
+        let radius = screenshot_max_corner_distance(center, half);
+        screenshot_len([local[0] - center[0], local[1] - center[1]]) / radius.max(1e-5)
+      }
+    }
+    2 => {
+      let center = [
+        (gradient.center[0] * 2.0 - 1.0) * half[0],
+        (gradient.center[1] * 2.0 - 1.0) * half[1],
+      ];
+      let d = [local[0] - center[0], local[1] - center[1]];
+      let angle = (d[0].atan2(-d[1]) - gradient.from_angle) / (2.0 * std::f32::consts::PI);
+      angle - angle.floor()
+    }
+    _ => 0.0,
+  };
+
+  if gradient.kind != 2 {
+    t = t.clamp(0.0, 1.0);
+  }
+
+  let mut color = gradient.stops.last().map(|stop| stop.color).unwrap_or([0.0; 4]);
+  for stops in gradient.stops.windows(2) {
+    let [a, b] = stops else {
+      continue;
+    };
+    if t <= b.position {
+      let span = (b.position - a.position).max(1e-5);
+      let mix = ((t - a.position) / span).clamp(0.0, 1.0);
+      color = [
+        a.color[0] + (b.color[0] - a.color[0]) * mix,
+        a.color[1] + (b.color[1] - a.color[1]) * mix,
+        a.color[2] + (b.color[2] - a.color[2]) * mix,
+        a.color[3] + (b.color[3] - a.color[3]) * mix,
+      ];
+      break;
+    }
+  }
+
+  [
+    screenshot_linear_to_srgb_u8(color[0]),
+    screenshot_linear_to_srgb_u8(color[1]),
+    screenshot_linear_to_srgb_u8(color[2]),
+    (color[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+  ]
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_max_corner_distance(center: [f32; 2], half: [f32; 2]) -> f32 {
+  [
+    [-half[0], -half[1]],
+    [half[0], -half[1]],
+    [-half[0], half[1]],
+    [half[0], half[1]],
+  ]
+  .into_iter()
+  .map(|corner| screenshot_len([corner[0] - center[0], corner[1] - center[1]]))
+  .fold(0.0, f32::max)
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_len(v: [f32; 2]) -> f32 {
+  (v[0] * v[0] + v[1] * v[1]).sqrt()
+}
+
+#[cfg(feature = "devtools")]
+fn screenshot_linear_to_srgb_u8(channel: f32) -> u8 {
+  let channel = channel.clamp(0.0, 1.0);
+  let srgb = if channel <= 0.003_130_8 {
+    channel * 12.92
+  } else {
+    1.055 * channel.powf(1.0 / 2.4) - 0.055
+  };
+  (srgb.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 #[cfg(feature = "devtools")]

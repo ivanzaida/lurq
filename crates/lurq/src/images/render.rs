@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::{ImagePixelFormat, NativeImageData};
 use crate::layout::quad::ClipRect;
 
+#[derive(Clone)]
 pub struct ImageCmd {
   pub order: usize,
   pub x: f32,

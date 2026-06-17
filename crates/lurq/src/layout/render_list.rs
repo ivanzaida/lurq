@@ -18,6 +18,7 @@ pub struct RenderList {
   pub atlas: GlyphAtlas,
 }
 
+#[derive(Clone)]
 pub struct RectCmd {
   pub order: usize,
   pub x: f32,
@@ -154,6 +155,7 @@ pub fn encode_gradient(buffer: &mut Vec<[f32; 4]>, gradient: &RenderGradient) ->
   offset
 }
 
+#[derive(Clone)]
 pub struct GlyphCmd {
   pub order: usize,
   pub x: f32,
@@ -170,6 +172,7 @@ pub struct GlyphCmd {
   pub clip: ClipRect,
 }
 
+#[derive(Clone)]
 pub struct GlyphAtlas {
   pub data: std::sync::Arc<[u8]>,
   pub width: u32,

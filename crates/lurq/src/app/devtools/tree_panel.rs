@@ -35,6 +35,7 @@ pub(crate) fn tree_panel(
   selected: Signal<Vec<usize>>,
   collapsed_nodes: Vec<NodeId>,
   collapsed: Signal<Vec<NodeId>>,
+  search_query: String,
   scroll_state: ScrollState,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
@@ -42,6 +43,7 @@ pub(crate) fn tree_panel(
 ) -> Element {
   let mut rows = Vec::new();
   let mut row_count = 0;
+  let search_query = parse_search_query(&search_query);
   if let Some(root) = &snapshot.root {
     let row_window = tree_row_window(&scroll_state);
     collect_tree_rows(
@@ -54,6 +56,7 @@ pub(crate) fn tree_panel(
       selected,
       &collapsed_nodes,
       collapsed,
+      search_query.as_ref(),
       overlay_enabled,
       on_debug_overlay_path,
       on_selected_path,
@@ -74,8 +77,18 @@ pub(crate) fn tree_panel(
     rows.push(empty_state("No mounted root"));
   }
 
+  if snapshot.root.is_some() && row_count == 0 {
+    rows.push(empty_state("No components match search"));
+  }
+
+  let count_label = if search_query.is_some() {
+    format!("{row_count} matches")
+  } else {
+    format!("{row_count} components")
+  };
+
   Column::new()
-    .child(section_header("COMPONENT TREE", &format!("{row_count} components")))
+    .child(section_header("COMPONENT TREE", &count_label))
     .child(
       ScrollBoth::new(Column::new().with_children(rows))
         .with_scroll_state(scroll_state)
@@ -117,12 +130,19 @@ fn collect_tree_rows(
   selected: Signal<Vec<usize>>,
   collapsed_nodes: &[NodeId],
   collapsed: Signal<Vec<NodeId>>,
+  search_query: Option<&TreeSearchQuery>,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
   on_selected_path: Option<DevToolsPathCallback>,
   rows: &mut Vec<Element>,
 ) {
-  let is_collapsed = !node.children.is_empty() && collapsed_nodes.contains(&node.id);
+  if let Some(query) = search_query
+    && !node_subtree_matches_search(node, query)
+  {
+    return;
+  }
+
+  let is_collapsed = search_query.is_none() && !node.children.is_empty() && collapsed_nodes.contains(&node.id);
   let row_index = *row_count;
   *row_count += 1;
   if row_index >= row_window.start && row_index < row_window.end {
@@ -134,6 +154,7 @@ fn collect_tree_rows(
       is_collapsed,
       selected.clone(),
       collapsed.clone(),
+      search_query.is_some(),
       overlay_enabled,
       on_debug_overlay_path.clone(),
       on_selected_path.clone(),
@@ -155,6 +176,7 @@ fn collect_tree_rows(
       selected.clone(),
       collapsed_nodes,
       collapsed.clone(),
+      search_query,
       overlay_enabled,
       on_debug_overlay_path.clone(),
       on_selected_path.clone(),
@@ -172,6 +194,7 @@ fn tree_row(
   collapsed: bool,
   selected_path: Signal<Vec<usize>>,
   collapsed_nodes: Signal<Vec<NodeId>>,
+  search_active: bool,
   overlay_enabled: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
   on_selected_path: Option<DevToolsPathCallback>,
@@ -194,11 +217,14 @@ fn tree_row(
     .child(Spacer::new().width(indent))
     .child(if child_count > 0 {
       let icon_name = if collapsed { "chevron-right" } else { "chevron-down" };
-      icon(icon_name, 12.0, MUTED)
+      let mut collapse_icon = icon(icon_name, 12.0, MUTED)
         .width(12.0)
         .height(18.0)
-        .cursor(CursorIcon::Pointer)
-        .on_click(move |_| toggle_collapsed(&collapsed_nodes, collapse_id))
+        .cursor(CursorIcon::Pointer);
+      if !search_active {
+        collapse_icon = collapse_icon.on_click(move |_| toggle_collapsed(&collapsed_nodes, collapse_id));
+      }
+      collapse_icon
     } else {
       text("", 12.0, FontWeight::Normal, MUTED).width(12.0)
     })
@@ -273,6 +299,159 @@ fn format_attr_value(content: &str) -> String {
   }
 
   format!("\"{escaped}\"")
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TreeSearchQuery {
+  terms: Vec<TreeSearchTerm>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TreeSearchTerm {
+  field: TreeSearchField,
+  value: String,
+  negated: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TreeSearchField {
+  Any,
+  Tag,
+  Key,
+  Text,
+  Kind,
+  State,
+}
+
+fn parse_search_query(query: &str) -> Option<TreeSearchQuery> {
+  let terms = tokenize_search_query(query)
+    .into_iter()
+    .filter_map(parse_search_term)
+    .collect::<Vec<_>>();
+  (!terms.is_empty()).then_some(TreeSearchQuery { terms })
+}
+
+fn tokenize_search_query(query: &str) -> Vec<String> {
+  let mut tokens = Vec::new();
+  let mut current = String::new();
+  let mut chars = query.chars();
+  let mut in_quote = false;
+
+  while let Some(ch) = chars.next() {
+    match ch {
+      '"' => in_quote = !in_quote,
+      '\\' if in_quote => {
+        if let Some(next) = chars.next() {
+          current.push(next);
+        }
+      }
+      ch if ch.is_whitespace() && !in_quote => {
+        if !current.is_empty() {
+          tokens.push(std::mem::take(&mut current));
+        }
+      }
+      _ => current.push(ch),
+    }
+  }
+
+  if !current.is_empty() {
+    tokens.push(current);
+  }
+
+  tokens
+}
+
+fn parse_search_term(token: String) -> Option<TreeSearchTerm> {
+  let token = token.trim();
+  if token.is_empty() {
+    return None;
+  }
+
+  let (negated, token) = token.strip_prefix('-').map_or((false, token), |token| (true, token));
+  let (field, value) = parse_search_field(token).unwrap_or((TreeSearchField::Any, token));
+  let value = value.trim();
+  if value.is_empty() {
+    return None;
+  }
+
+  Some(TreeSearchTerm {
+    field,
+    value: value.to_ascii_lowercase(),
+    negated,
+  })
+}
+
+fn parse_search_field(token: &str) -> Option<(TreeSearchField, &str)> {
+  let (field, value) = token.split_once(':')?;
+  let field = match field.to_ascii_lowercase().as_str() {
+    "tag" | "name" | "component" => TreeSearchField::Tag,
+    "key" => TreeSearchField::Key,
+    "text" | "value" => TreeSearchField::Text,
+    "kind" => TreeSearchField::Kind,
+    "state" => TreeSearchField::State,
+    _ => return None,
+  };
+  Some((field, value))
+}
+
+fn node_subtree_matches_search(node: &DevToolsNode, query: &TreeSearchQuery) -> bool {
+  node_matches_search(node, query)
+    || node
+      .children
+      .iter()
+      .any(|child| node_subtree_matches_search(child, query))
+}
+
+fn node_matches_search(node: &DevToolsNode, query: &TreeSearchQuery) -> bool {
+  query.terms.iter().all(|term| {
+    let matched = node_matches_search_term(node, term);
+    if term.negated { !matched } else { matched }
+  })
+}
+
+fn node_matches_search_term(node: &DevToolsNode, term: &TreeSearchTerm) -> bool {
+  match term.field {
+    TreeSearchField::Any => {
+      string_matches_search(&node.tag, &term.value)
+        || string_matches_search(short_tag(&node.tag), &term.value)
+        || node
+          .key
+          .as_deref()
+          .is_some_and(|key| string_matches_search(key, &term.value))
+        || node
+          .text
+          .as_deref()
+          .is_some_and(|text| string_matches_search(text, &term.value))
+    }
+    TreeSearchField::Tag => {
+      string_matches_search(&node.tag, &term.value) || string_matches_search(short_tag(&node.tag), &term.value)
+    }
+    TreeSearchField::Key => node
+      .key
+      .as_deref()
+      .is_some_and(|key| string_matches_search(key, &term.value)),
+    TreeSearchField::Text => node
+      .text
+      .as_deref()
+      .is_some_and(|text| string_matches_search(text, &term.value)),
+    TreeSearchField::Kind => string_matches_search(node_kind_label(node.kind), &term.value),
+    TreeSearchField::State => {
+      (node.hovered && string_matches_search("hovered", &term.value))
+        || (node.active && string_matches_search("active", &term.value))
+        || (node.focused && string_matches_search("focused", &term.value))
+    }
+  }
+}
+
+fn string_matches_search(value: &str, query: &str) -> bool {
+  value.to_ascii_lowercase().contains(query)
+}
+
+fn node_kind_label(kind: super::snapshot::DevToolsNodeKind) -> &'static str {
+  match kind {
+    super::snapshot::DevToolsNodeKind::Component => "component",
+    super::snapshot::DevToolsNodeKind::Element => "element",
+  }
 }
 
 fn toggle_collapsed(collapsed_nodes: &Signal<Vec<NodeId>>, id: NodeId) {
@@ -378,6 +557,7 @@ mod tests {
       Signal::new(Vec::new()),
       &collapsed.get_untracked(),
       collapsed,
+      None,
       true,
       None,
       None,
@@ -446,6 +626,7 @@ mod tests {
       Signal::new(Vec::new()),
       &collapsed.get_untracked(),
       collapsed,
+      None,
       true,
       None,
       None,
@@ -454,5 +635,212 @@ mod tests {
 
     assert_eq!(row_count, 7);
     assert_eq!(rows.len(), 3);
+  }
+
+  #[test]
+  fn collect_tree_rows_searches_component_name_key_and_text() {
+    let ids = IdGenerator::new();
+    let text_child = DevToolsNode {
+      id: ids.next(),
+      tag: "Text".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Element,
+      key: None,
+      attrs: Vec::new(),
+      text: Some("Confirm order".to_owned()),
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
+      children: Vec::new(),
+    };
+    let root = DevToolsNode {
+      id: ids.next(),
+      tag: "CheckoutPanel".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Component,
+      key: Some("checkout-root".to_owned()),
+      attrs: Vec::new(),
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
+      children: vec![text_child],
+    };
+
+    assert!(node_subtree_matches_search(
+      &root,
+      &parse_search_query("checkoutpanel").unwrap()
+    ));
+    assert!(node_subtree_matches_search(
+      &root,
+      &parse_search_query("key:checkout-root").unwrap()
+    ));
+    assert!(node_subtree_matches_search(
+      &root,
+      &parse_search_query("text:\"Confirm order\"").unwrap()
+    ));
+    assert!(!node_subtree_matches_search(
+      &root,
+      &parse_search_query("missing").unwrap()
+    ));
+  }
+
+  #[test]
+  fn collect_tree_rows_search_keeps_ancestors_visible() {
+    let ids = IdGenerator::new();
+    let child_id = ids.next();
+    let root = DevToolsNode {
+      id: ids.next(),
+      tag: "Root".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Component,
+      key: None,
+      attrs: Vec::new(),
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
+      children: vec![DevToolsNode {
+        id: child_id,
+        tag: "Child".to_owned(),
+        kind: super::super::snapshot::DevToolsNodeKind::Element,
+        key: None,
+        attrs: Vec::new(),
+        text: None,
+        color: None,
+        props: None,
+        signals: Vec::new(),
+        memos: Vec::new(),
+        contexts: Vec::new(),
+        shape: Vec::new(),
+        effects: Vec::new(),
+        layout_box: None,
+        hovered: false,
+        active: false,
+        focused: false,
+        children: vec![DevToolsNode {
+          id: ids.next(),
+          tag: "Grandchild".to_owned(),
+          kind: super::super::snapshot::DevToolsNodeKind::Element,
+          key: Some("target-key".to_owned()),
+          attrs: Vec::new(),
+          text: None,
+          color: None,
+          props: None,
+          signals: Vec::new(),
+          memos: Vec::new(),
+          contexts: Vec::new(),
+          shape: Vec::new(),
+          effects: Vec::new(),
+          layout_box: None,
+          hovered: false,
+          active: false,
+          focused: false,
+          children: Vec::new(),
+        }],
+      }],
+    };
+    let collapsed = Signal::new(vec![child_id]);
+    let mut rows = Vec::new();
+    let mut row_count = 0;
+
+    collect_tree_rows(
+      &root,
+      &mut Vec::new(),
+      0,
+      TreeRowWindow { start: 0, end: 16 },
+      &mut row_count,
+      &[],
+      Signal::new(Vec::new()),
+      &collapsed.get_untracked(),
+      collapsed,
+      parse_search_query("key:target-key").as_ref(),
+      true,
+      None,
+      None,
+      &mut rows,
+    );
+
+    assert_eq!(row_count, 3);
+    assert_eq!(rows.len(), 3);
+  }
+
+  #[test]
+  fn parsed_search_supports_kind_state_and_negation() {
+    let ids = IdGenerator::new();
+    let focused_child = DevToolsNode {
+      id: ids.next(),
+      tag: "Button".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Element,
+      key: Some("primary-action".to_owned()),
+      attrs: Vec::new(),
+      text: Some("Save changes".to_owned()),
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: true,
+      children: Vec::new(),
+    };
+    let root = DevToolsNode {
+      id: ids.next(),
+      tag: "SettingsPanel".to_owned(),
+      kind: super::super::snapshot::DevToolsNodeKind::Component,
+      key: None,
+      attrs: Vec::new(),
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
+      children: vec![focused_child],
+    };
+
+    assert!(node_subtree_matches_search(
+      &root,
+      &parse_search_query("kind:element state:focused").unwrap()
+    ));
+    assert!(node_subtree_matches_search(
+      &root,
+      &parse_search_query("text:\"Save changes\" -key:secondary").unwrap()
+    ));
+    assert!(!node_subtree_matches_search(
+      &root,
+      &parse_search_query("text:\"Save changes\" -key:primary").unwrap()
+    ));
   }
 }

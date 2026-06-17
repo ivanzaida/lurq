@@ -245,6 +245,7 @@ pub struct Window {
 
 struct WindowInner {
   info: WindowInfo,
+  corner_radius: WindowCornerRadius,
   version: u64,
   commands: Vec<WindowCommand>,
 }
@@ -271,6 +272,7 @@ impl Window {
           is_decorated: true,
           is_focused: true,
         },
+        corner_radius: WindowCornerRadius::Default,
         version: 0,
         commands: Vec::new(),
       })),
@@ -284,6 +286,10 @@ impl Window {
 
   pub(crate) fn info(&self) -> WindowInfo {
     self.inner.read().unwrap().info
+  }
+
+  pub(crate) fn corner_radius(&self) -> WindowCornerRadius {
+    self.inner.read().unwrap().corner_radius
   }
 
   pub(crate) fn handle(&self) -> WindowHandle {
@@ -404,6 +410,19 @@ impl Window {
         return;
       }
       inner.info.is_focused = focused;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_corner_radius(&self, radius: WindowCornerRadius) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.corner_radius == radius {
+        return;
+      }
+      inner.corner_radius = radius;
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);

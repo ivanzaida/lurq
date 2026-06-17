@@ -1,6 +1,11 @@
 use crate::{
-  components::{Row, Text},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  components::{Row, Text, TextInput},
+  core::Signal,
+  layout::{
+    Alignment,
+    layout_kind::Justify,
+    text_style::{FontWeight, TextStyle},
+  },
   node::{CursorIcon, Element, color::Color, dimension::Dimension},
 };
 
@@ -37,9 +42,10 @@ pub(crate) fn section_header(label: &str, count: &str) -> Element {
 }
 
 pub(crate) fn empty_state(message: &str) -> Element {
-  text(message, 11.0, FontWeight::Normal, MUTED)
-    .padding_horizontal(40.0)
-    .padding_vertical(8.0)
+  Row::new()
+    .child(text(message, 11.0, FontWeight::Normal, MUTED))
+    .padding_horizontal(14.0)
+    .padding_vertical(12.0)
     .into()
 }
 
@@ -71,26 +77,50 @@ pub(crate) fn toolbar_button(icon_name: &str, label: &str, color: &str, fill: &s
     .cursor(CursorIcon::Pointer)
 }
 
-pub(crate) fn toolbar_icon_button(icon_name: &str) -> Row {
-  Row::new()
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .child(icon(icon_name, 16.0, MUTED))
-    .height(CONTROL_HEIGHT)
-    .padding_horizontal(8.0)
-    .padding_vertical(0.0)
-    .background(SURFACE_2)
-    .border_inside(1.0, Color::from_hex(BORDER))
-    .rounded(CONTROL_RADIUS)
-    .cursor(CursorIcon::Pointer)
-}
-
 pub(crate) fn toolbar_input(placeholder: &str, shortcut: Option<&str>) -> Row {
   let mut row = Row::new()
     .align_items(Alignment::Center)
     .spacing(8.0)
     .child(icon("search", 13.0, MUTED))
     .child(text(placeholder, 12.0, FontWeight::Normal, MUTED));
+  if let Some(shortcut) = shortcut {
+    row = row.child(text(shortcut, 10.0, FontWeight::Normal, MUTED));
+  }
+  row
+    .height(CONTROL_HEIGHT)
+    .padding_horizontal(10.0)
+    .padding_vertical(0.0)
+    .background(SURFACE_2)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CONTROL_RADIUS)
+}
+
+pub(crate) fn toolbar_search_input(value: Signal<String>, placeholder: &str, shortcut: Option<&str>) -> Row {
+  let mut row = Row::new()
+    .align_items(Alignment::Center)
+    .spacing(8.0)
+    .child(icon("search", 13.0, MUTED))
+    .child(
+      TextInput::styled(
+        value,
+        TextStyle {
+          font_size: 12.0,
+          color: Color::from_hex(TEXT),
+          ..Default::default()
+        },
+      )
+      .placeholder(placeholder)
+      .placeholder_style(TextStyle {
+        font_size: 12.0,
+        color: Color::from_hex(MUTED),
+        ..Default::default()
+      })
+      .caret_color(TEXT)
+      .single_line()
+      .height(20.0)
+      .width(170.0)
+      .background("#00000000"),
+    );
   if let Some(shortcut) = shortcut {
     row = row.child(text(shortcut, 10.0, FontWeight::Normal, MUTED));
   }

@@ -62,6 +62,7 @@ pub struct DevTools {
   selected_path: Signal<Vec<usize>>,
   collapsed_nodes: Signal<Vec<NodeId>>,
   collapsed_sections: Signal<Vec<String>>,
+  component_search: Signal<String>,
   show_inspected_overlay: Signal<bool>,
   pick_inspected: Signal<bool>,
   active_tab: Signal<DevToolsTab>,
@@ -215,6 +216,7 @@ impl Component for DevTools {
       selected_path: ctx.signal(Vec::new()),
       collapsed_nodes: ctx.signal(Vec::new()),
       collapsed_sections: ctx.signal(Vec::new()),
+      component_search: ctx.signal(String::new()),
       show_inspected_overlay: ctx.signal(true),
       pick_inspected: ctx.signal(false),
       active_tab: ctx.signal(DevToolsTab::Components),
@@ -241,6 +243,7 @@ impl Component for DevTools {
     let show_inspected_overlay = self.show_inspected_overlay.get();
     let mut pick_inspected = self.pick_inspected.get();
     let active_tab = self.active_tab.get();
+    let component_search = self.component_search.get();
     let profiler_recording = self.profiler_recording.get();
 
     if profiler_recording {
@@ -291,6 +294,7 @@ impl Component for DevTools {
         self.pick_inspected.clone(),
         selected_path.clone(),
         selected.is_some(),
+        self.component_search.clone(),
         props.on_debug_overlay_path.clone(),
         props.on_overlay_enabled.clone(),
         props.on_pick_inspected.clone(),
@@ -315,6 +319,7 @@ impl Component for DevTools {
           self.collapsed_nodes.clone(),
           self.collapsed_sections.get(),
           self.collapsed_sections.clone(),
+          component_search,
           self.tree.scroll_state(),
           show_inspected_overlay,
           props.on_debug_overlay_path.clone(),
@@ -358,6 +363,7 @@ fn components_view(
   collapsed_nodes_signal: Signal<Vec<NodeId>>,
   collapsed_sections: Vec<String>,
   collapsed_sections_signal: Signal<Vec<String>>,
+  component_search: String,
   tree_scroll: ScrollState,
   show_inspected_overlay: bool,
   on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
@@ -370,6 +376,7 @@ fn components_view(
       selected_path_signal,
       collapsed_nodes,
       collapsed_nodes_signal,
+      component_search,
       tree_scroll,
       show_inspected_overlay,
       on_debug_overlay_path,

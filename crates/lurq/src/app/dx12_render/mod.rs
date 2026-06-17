@@ -1,7 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 #[cfg(feature = "image")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{
   ffi::c_void,
   mem::ManuallyDrop,
@@ -97,6 +97,7 @@ use crate::{
 const FRAME_COUNT: usize = 2;
 const SRV_DESCRIPTOR_COUNT: u32 = 1024;
 const GLYPH_ATLAS_SRV_INDEX: usize = 0;
+const IMAGE_SRV_FIRST_INDEX: usize = GLYPH_ATLAS_SRV_INDEX + 1;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -542,7 +543,7 @@ struct GlyphAtlasUploadStats {
 enum CachedImageTexture {
   Rgba {
     _texture: ID3D12Resource,
-    descriptor_index: usize,
+    descriptor_index: Option<usize>,
     width: u32,
     height: u32,
     frame_index: usize,
@@ -551,7 +552,7 @@ enum CachedImageTexture {
   Nv12 {
     _y_texture: ID3D12Resource,
     _uv_texture: ID3D12Resource,
-    descriptor_index: usize,
+    descriptor_index: Option<usize>,
     width: u32,
     height: u32,
     frame_index: usize,
@@ -562,11 +563,34 @@ enum CachedImageTexture {
     _uv_texture: ID3D12Resource,
     y_keyed_mutex: Option<IDXGIKeyedMutex>,
     uv_keyed_mutex: Option<IDXGIKeyedMutex>,
-    descriptor_index: usize,
+    descriptor_index: Option<usize>,
     width: u32,
     height: u32,
     version: u64,
   },
+}
+
+#[cfg(feature = "image")]
+impl CachedImageTexture {
+  fn clear_descriptor_index(&mut self) {
+    match self {
+      Self::Rgba { descriptor_index, .. }
+      | Self::Nv12 { descriptor_index, .. }
+      | Self::NativeNv12 { descriptor_index, .. } => {
+        *descriptor_index = None;
+      }
+    }
+  }
+
+  fn set_descriptor_index(&mut self, index: usize) {
+    match self {
+      Self::Rgba { descriptor_index, .. }
+      | Self::Nv12 { descriptor_index, .. }
+      | Self::NativeNv12 { descriptor_index, .. } => {
+        *descriptor_index = Some(index);
+      }
+    }
+  }
 }
 
 struct CpuDescriptorHeap {
@@ -1983,6 +2007,19 @@ fn dx12_invalid_arg(message: impl Into<String>) -> Error {
   Error::new(HRESULT(0x80070057u32 as i32), message.into())
 }
 
+#[cfg(feature = "image")]
+fn frame_image_srv_range(frame_index: usize) -> (usize, usize) {
+  let image_descriptor_count = SRV_DESCRIPTOR_COUNT as usize - IMAGE_SRV_FIRST_INDEX;
+  let descriptors_per_frame = image_descriptor_count / FRAME_COUNT;
+  let start = IMAGE_SRV_FIRST_INDEX + frame_index * descriptors_per_frame;
+  let end = if frame_index + 1 == FRAME_COUNT {
+    SRV_DESCRIPTOR_COUNT as usize
+  } else {
+    start + descriptors_per_frame
+  };
+  (start, end)
+}
+
 impl Dx12State {
   unsafe fn new(hwnd: HWND, width: u32, height: u32) -> Result<Self> {
     let factory = create_factory()?;
@@ -2137,6 +2174,8 @@ impl Dx12State {
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
+    #[cfg(feature = "image")]
+    self.begin_frame_image_descriptors(list);
     self.reset_frame_command_allocator()?;
     let allocator = &self.command_allocators[self.frame_index];
     dx12_context(
@@ -2831,367 +2870,98 @@ impl Dx12State {
   }
 
   #[cfg(feature = "image")]
-  unsafe fn ensure_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
-    if image.native.is_some() {
-      return self.ensure_native_image_texture(image);
+  fn begin_frame_image_descriptors(&mut self, list: &RenderList) {
+    let (start, _) = frame_image_srv_range(self.frame_index);
+    self.next_srv_index = start;
+    let live_image_ids: HashSet<u64> = list.images.iter().map(|image| image.image_id).collect();
+    self
+      .image_textures
+      .retain(|image_id, _| live_image_ids.contains(image_id));
+    for texture in self.image_textures.values_mut() {
+      texture.clear_descriptor_index();
     }
+  }
 
-    if let Some(cached) = self.image_textures.get(&image.image_id) {
-      match cached {
-        CachedImageTexture::Rgba {
-          _texture,
-          descriptor_index,
-          width,
-          height,
-          frame_index,
-          version,
-        } if image.image_format == crate::images::ImagePixelFormat::Rgba8
-          && *width == image.image_width
-          && *height == image.image_height =>
-        {
-          let descriptor_index = *descriptor_index;
-          let frame_index = *frame_index;
-          let version = *version;
-          let texture = _texture.clone();
-          if frame_index != image.frame_index || version != image.version {
-            dx12_context(
-              self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
-              format_args!(
-                "update cached rgba image texture id={} size={}x{}",
-                image.image_id, image.image_width, image.image_height
-              ),
-            )?;
-            if let Some(CachedImageTexture::Rgba {
-              frame_index, version, ..
-            }) = self.image_textures.get_mut(&image.image_id)
-            {
-              *frame_index = image.frame_index;
-              *version = image.version;
-            }
-          }
-          return Ok(descriptor_index);
-        }
-        CachedImageTexture::Nv12 {
-          _y_texture,
-          _uv_texture,
-          descriptor_index,
-          width,
-          height,
-          frame_index,
-          version,
-        } if image.image_format == crate::images::ImagePixelFormat::Nv12
-          && *width == image.image_width
-          && *height == image.image_height =>
-        {
-          let descriptor_index = *descriptor_index;
-          let frame_index = *frame_index;
-          let version = *version;
-          let y_texture = _y_texture.clone();
-          let uv_texture = _uv_texture.clone();
-          if frame_index != image.frame_index || version != image.version {
-            dx12_context(
-              self.upload_nv12_image_textures(
-                &y_texture,
-                &uv_texture,
-                image,
-                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-              ),
-              format_args!(
-                "update cached nv12 image texture id={} size={}x{}",
-                image.image_id, image.image_width, image.image_height
-              ),
-            )?;
-            if let Some(CachedImageTexture::Nv12 {
-              frame_index, version, ..
-            }) = self.image_textures.get_mut(&image.image_id)
-            {
-              *frame_index = image.frame_index;
-              *version = image.version;
-            }
-          }
-          return Ok(descriptor_index);
-        }
-        _ => {
-          self.image_textures.remove(&image.image_id);
-        }
-      }
-    }
-    let descriptors_needed = match image.image_format {
-      crate::images::ImagePixelFormat::Rgba8 => 1,
-      crate::images::ImagePixelFormat::Nv12 => 2,
-    };
-    if self.next_srv_index + descriptors_needed > SRV_DESCRIPTOR_COUNT as usize {
+  #[cfg(feature = "image")]
+  fn allocate_frame_image_descriptors(&mut self, image_id: u64, descriptors_needed: usize) -> Result<usize> {
+    let (_, frame_srv_end) = frame_image_srv_range(self.frame_index);
+    if self.next_srv_index + descriptors_needed > frame_srv_end {
       return Err(dx12_invalid_arg(format!(
-        "dx12 image descriptor heap exhausted: image id={} needs {} descriptors, next={}, capacity={}",
-        image.image_id, descriptors_needed, self.next_srv_index, SRV_DESCRIPTOR_COUNT
+        "dx12 image descriptor heap exhausted: image id={} needs {} descriptors, next={}, frame_end={}, capacity={}",
+        image_id, descriptors_needed, self.next_srv_index, frame_srv_end, SRV_DESCRIPTOR_COUNT
       )));
     }
 
     let descriptor_index = self.next_srv_index;
     self.next_srv_index += descriptors_needed;
-    match image.image_format {
-      crate::images::ImagePixelFormat::Rgba8 => {
-        let texture = dx12_context(
-          create_rgba_texture(&self.device, image.image_width, image.image_height),
-          format_args!(
-            "create rgba image texture id={} size={}x{}",
-            image.image_id, image.image_width, image.image_height
-          ),
-        )?;
-        let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-          Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-            Texture2D: D3D12_TEX2D_SRV {
-              MostDetailedMip: 0,
-              MipLevels: 1,
-              PlaneSlice: 0,
-              ResourceMinLODClamp: 0.0,
-            },
-          },
-        };
-        self
-          .device
-          .CreateShaderResourceView(&texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
-
-        dx12_context(
-          self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST),
-          format_args!(
-            "upload rgba image texture id={} size={}x{}",
-            image.image_id, image.image_width, image.image_height
-          ),
-        )?;
-
-        self.image_textures.insert(
-          image.image_id,
-          CachedImageTexture::Rgba {
-            _texture: texture,
-            descriptor_index,
-            width: image.image_width,
-            height: image.image_height,
-            frame_index: image.frame_index,
-            version: image.version,
-          },
-        );
-      }
-      crate::images::ImagePixelFormat::Nv12 => {
-        if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
-          return Err(dx12_invalid_arg(format!(
-            "dx12 nv12 image dimensions must be even: image id={} size={}x{}",
-            image.image_id, image.image_width, image.image_height
-          )));
-        }
-        let y_texture = dx12_context(
-          create_r8_texture(&self.device, image.image_width, image.image_height),
-          format_args!(
-            "create nv12 y image texture id={} size={}x{}",
-            image.image_id, image.image_width, image.image_height
-          ),
-        )?;
-        let uv_texture = dx12_context(
-          create_r8g8_texture(&self.device, image.image_width / 2, image.image_height / 2),
-          format_args!(
-            "create nv12 uv image texture id={} size={}x{}",
-            image.image_id,
-            image.image_width / 2,
-            image.image_height / 2
-          ),
-        )?;
-        let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-          Format: DXGI_FORMAT_R8_UNORM,
-          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-            Texture2D: D3D12_TEX2D_SRV {
-              MostDetailedMip: 0,
-              MipLevels: 1,
-              PlaneSlice: 0,
-              ResourceMinLODClamp: 0.0,
-            },
-          },
-        };
-        let uv_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-          Format: DXGI_FORMAT_R8G8_UNORM,
-          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-            Texture2D: D3D12_TEX2D_SRV {
-              MostDetailedMip: 0,
-              MipLevels: 1,
-              PlaneSlice: 0,
-              ResourceMinLODClamp: 0.0,
-            },
-          },
-        };
-        self.device.CreateShaderResourceView(
-          &y_texture,
-          Some(&y_srv_desc),
-          self.srv_heap.cpu_handle(descriptor_index),
-        );
-        self.device.CreateShaderResourceView(
-          &uv_texture,
-          Some(&uv_srv_desc),
-          self.srv_heap.cpu_handle(descriptor_index + 1),
-        );
-
-        dx12_context(
-          self.upload_nv12_image_textures(&y_texture, &uv_texture, image, D3D12_RESOURCE_STATE_COPY_DEST),
-          format_args!(
-            "upload nv12 image texture id={} size={}x{}",
-            image.image_id, image.image_width, image.image_height
-          ),
-        )?;
-
-        self.image_textures.insert(
-          image.image_id,
-          CachedImageTexture::Nv12 {
-            _y_texture: y_texture,
-            _uv_texture: uv_texture,
-            descriptor_index,
-            width: image.image_width,
-            height: image.image_height,
-            frame_index: image.frame_index,
-            version: image.version,
-          },
-        );
-      }
-    }
     Ok(descriptor_index)
   }
 
   #[cfg(feature = "image")]
-  unsafe fn ensure_native_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
-    let Some(native) = &image.native else {
-      return Err(dx12_invalid_arg(format!(
-        "dx12 native image command missing native payload: image id={}",
-        image.image_id
-      )));
+  unsafe fn write_rgba_image_srv(&self, texture: &ID3D12Resource, descriptor_index: usize) {
+    let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
     };
-    match native.backend() {
-      crate::images::NativeImageBackend::Dx12Nv12 => {}
-    }
-    if image.image_format != crate::images::ImagePixelFormat::Nv12
-      || image.image_width % 2 != 0
-      || image.image_height % 2 != 0
-    {
-      return Err(dx12_invalid_arg(format!(
-        "dx12 native image must be even-sized nv12: image id={} format={:?} size={}x{}",
-        image.image_id, image.image_format, image.image_width, image.image_height
-      )));
-    }
+    self
+      .device
+      .CreateShaderResourceView(texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
+  }
 
-    if let Some(cached) = self.image_textures.get(&image.image_id) {
-      match cached {
-        CachedImageTexture::NativeNv12 {
-          descriptor_index,
-          width,
-          height,
-          version,
-          ..
-        } if *width == image.image_width && *height == image.image_height => {
-          let descriptor_index = *descriptor_index;
-          if *version != image.version {
-            let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
-              return Err(dx12_invalid_arg(format!(
-                "dx12 native image payload type mismatch: image id={}",
-                image.image_id
-              )));
-            };
-            dx12_native_image_log(format_args!(
-              "refresh SRV image={} version={} previous_version={} descriptor={} y_plane={} uv_plane={}",
-              image.image_id, image.version, *version, descriptor_index, dx12.y_plane_slice, dx12.uv_plane_slice
-            ));
-            let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-              Format: DXGI_FORMAT_R8_UNORM,
-              ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-              Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-              Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                Texture2D: D3D12_TEX2D_SRV {
-                  MostDetailedMip: 0,
-                  MipLevels: 1,
-                  PlaneSlice: dx12.y_plane_slice,
-                  ResourceMinLODClamp: 0.0,
-                },
-              },
-            };
-            let uv_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
-              Format: DXGI_FORMAT_R8G8_UNORM,
-              ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-              Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-              Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                Texture2D: D3D12_TEX2D_SRV {
-                  MostDetailedMip: 0,
-                  MipLevels: 1,
-                  PlaneSlice: dx12.uv_plane_slice,
-                  ResourceMinLODClamp: 0.0,
-                },
-              },
-            };
-            self.device.CreateShaderResourceView(
-              &dx12.y_texture,
-              Some(&y_srv_desc),
-              self.srv_heap.cpu_handle(descriptor_index),
-            );
-            self.device.CreateShaderResourceView(
-              &dx12.uv_texture,
-              Some(&uv_srv_desc),
-              self.srv_heap.cpu_handle(descriptor_index + 1),
-            );
-            if let Some(CachedImageTexture::NativeNv12 {
-              _y_texture,
-              _uv_texture,
-              y_keyed_mutex,
-              uv_keyed_mutex,
-              version,
-              ..
-            }) = self.image_textures.get_mut(&image.image_id)
-            {
-              *_y_texture = dx12.y_texture.clone();
-              *_uv_texture = dx12.uv_texture.clone();
-              let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
-              *y_keyed_mutex = if packed_nv12 {
-                dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
-              } else {
-                None
-              };
-              *uv_keyed_mutex = None;
-              *version = image.version;
-            }
-          }
-          return Ok(descriptor_index);
-        }
-        _ => {
-          self.image_textures.remove(&image.image_id);
-        }
-      }
-    }
-
-    let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
-      return Err(dx12_invalid_arg(format!(
-        "dx12 native image payload type mismatch: image id={}",
-        image.image_id
-      )));
+  #[cfg(feature = "image")]
+  unsafe fn write_nv12_image_srvs(
+    &self,
+    y_texture: &ID3D12Resource,
+    uv_texture: &ID3D12Resource,
+    descriptor_index: usize,
+  ) {
+    let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: DXGI_FORMAT_R8_UNORM,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
     };
-    if self.next_srv_index + 2 > SRV_DESCRIPTOR_COUNT as usize {
-      return Err(dx12_invalid_arg(format!(
-        "dx12 native image descriptor heap exhausted: image id={} next={} capacity={}",
-        image.image_id, self.next_srv_index, SRV_DESCRIPTOR_COUNT
-      )));
-    }
+    let uv_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: DXGI_FORMAT_R8G8_UNORM,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
+    };
+    self
+      .device
+      .CreateShaderResourceView(y_texture, Some(&y_srv_desc), self.srv_heap.cpu_handle(descriptor_index));
+    self.device.CreateShaderResourceView(
+      uv_texture,
+      Some(&uv_srv_desc),
+      self.srv_heap.cpu_handle(descriptor_index + 1),
+    );
+  }
 
-    let descriptor_index = self.next_srv_index;
-    self.next_srv_index += 2;
-    dx12_native_image_log(format_args!(
-      "create SRV image={} version={} descriptor={} size={}x{} y_plane={} uv_plane={}",
-      image.image_id,
-      image.version,
-      descriptor_index,
-      image.image_width,
-      image.image_height,
-      dx12.y_plane_slice,
-      dx12.uv_plane_slice
-    ));
+  #[cfg(feature = "image")]
+  unsafe fn write_native_nv12_image_srvs(&self, dx12: &crate::images::Dx12Nv12Image, descriptor_index: usize) {
     let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
       Format: DXGI_FORMAT_R8_UNORM,
       ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
@@ -3228,6 +2998,306 @@ impl Dx12State {
       Some(&uv_srv_desc),
       self.srv_heap.cpu_handle(descriptor_index + 1),
     );
+  }
+
+  #[cfg(feature = "image")]
+  unsafe fn ensure_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
+    if image.native.is_some() {
+      return self.ensure_native_image_texture(image);
+    }
+
+    if let Some(cached) = self.image_textures.get(&image.image_id) {
+      match cached {
+        CachedImageTexture::Rgba {
+          _texture,
+          descriptor_index,
+          width,
+          height,
+          frame_index,
+          version,
+        } if image.image_format == crate::images::ImagePixelFormat::Rgba8
+          && *width == image.image_width
+          && *height == image.image_height =>
+        {
+          let cached_descriptor_index = *descriptor_index;
+          let frame_index = *frame_index;
+          let version = *version;
+          let texture = _texture.clone();
+          if frame_index != image.frame_index || version != image.version {
+            dx12_context(
+              self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+              format_args!(
+                "update cached rgba image texture id={} size={}x{}",
+                image.image_id, image.image_width, image.image_height
+              ),
+            )?;
+            if let Some(CachedImageTexture::Rgba {
+              frame_index, version, ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *frame_index = image.frame_index;
+              *version = image.version;
+            }
+          }
+
+          let descriptor_index = match cached_descriptor_index {
+            Some(descriptor_index) => descriptor_index,
+            None => {
+              let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 1)?;
+              self.write_rgba_image_srv(&texture, descriptor_index);
+              if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
+                cached.set_descriptor_index(descriptor_index);
+              }
+              descriptor_index
+            }
+          };
+          return Ok(descriptor_index);
+        }
+        CachedImageTexture::Nv12 {
+          _y_texture,
+          _uv_texture,
+          descriptor_index,
+          width,
+          height,
+          frame_index,
+          version,
+        } if image.image_format == crate::images::ImagePixelFormat::Nv12
+          && *width == image.image_width
+          && *height == image.image_height =>
+        {
+          let cached_descriptor_index = *descriptor_index;
+          let frame_index = *frame_index;
+          let version = *version;
+          let y_texture = _y_texture.clone();
+          let uv_texture = _uv_texture.clone();
+          if frame_index != image.frame_index || version != image.version {
+            dx12_context(
+              self.upload_nv12_image_textures(
+                &y_texture,
+                &uv_texture,
+                image,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+              ),
+              format_args!(
+                "update cached nv12 image texture id={} size={}x{}",
+                image.image_id, image.image_width, image.image_height
+              ),
+            )?;
+            if let Some(CachedImageTexture::Nv12 {
+              frame_index, version, ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *frame_index = image.frame_index;
+              *version = image.version;
+            }
+          }
+
+          let descriptor_index = match cached_descriptor_index {
+            Some(descriptor_index) => descriptor_index,
+            None => {
+              let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
+              self.write_nv12_image_srvs(&y_texture, &uv_texture, descriptor_index);
+              if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
+                cached.set_descriptor_index(descriptor_index);
+              }
+              descriptor_index
+            }
+          };
+          return Ok(descriptor_index);
+        }
+        _ => {
+          self.image_textures.remove(&image.image_id);
+        }
+      }
+    }
+
+    let descriptor_index = match image.image_format {
+      crate::images::ImagePixelFormat::Rgba8 => {
+        let texture = dx12_context(
+          create_rgba_texture(&self.device, image.image_width, image.image_height),
+          format_args!(
+            "create rgba image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
+        dx12_context(
+          self.upload_image_texture(&texture, image, D3D12_RESOURCE_STATE_COPY_DEST),
+          format_args!(
+            "upload rgba image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
+
+        let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 1)?;
+        self.write_rgba_image_srv(&texture, descriptor_index);
+        self.image_textures.insert(
+          image.image_id,
+          CachedImageTexture::Rgba {
+            _texture: texture,
+            descriptor_index: Some(descriptor_index),
+            width: image.image_width,
+            height: image.image_height,
+            frame_index: image.frame_index,
+            version: image.version,
+          },
+        );
+        descriptor_index
+      }
+      crate::images::ImagePixelFormat::Nv12 => {
+        if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
+          return Err(dx12_invalid_arg(format!(
+            "dx12 nv12 image dimensions must be even: image id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          )));
+        }
+        let y_texture = dx12_context(
+          create_r8_texture(&self.device, image.image_width, image.image_height),
+          format_args!(
+            "create nv12 y image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
+        let uv_texture = dx12_context(
+          create_r8g8_texture(&self.device, image.image_width / 2, image.image_height / 2),
+          format_args!(
+            "create nv12 uv image texture id={} size={}x{}",
+            image.image_id,
+            image.image_width / 2,
+            image.image_height / 2
+          ),
+        )?;
+        dx12_context(
+          self.upload_nv12_image_textures(&y_texture, &uv_texture, image, D3D12_RESOURCE_STATE_COPY_DEST),
+          format_args!(
+            "upload nv12 image texture id={} size={}x{}",
+            image.image_id, image.image_width, image.image_height
+          ),
+        )?;
+
+        let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
+        self.write_nv12_image_srvs(&y_texture, &uv_texture, descriptor_index);
+        self.image_textures.insert(
+          image.image_id,
+          CachedImageTexture::Nv12 {
+            _y_texture: y_texture,
+            _uv_texture: uv_texture,
+            descriptor_index: Some(descriptor_index),
+            width: image.image_width,
+            height: image.image_height,
+            frame_index: image.frame_index,
+            version: image.version,
+          },
+        );
+        descriptor_index
+      }
+    };
+    Ok(descriptor_index)
+  }
+
+  #[cfg(feature = "image")]
+  unsafe fn ensure_native_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
+    let Some(native) = &image.native else {
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image command missing native payload: image id={}",
+        image.image_id
+      )));
+    };
+    match native.backend() {
+      crate::images::NativeImageBackend::Dx12Nv12 => {}
+    }
+    if image.image_format != crate::images::ImagePixelFormat::Nv12
+      || image.image_width % 2 != 0
+      || image.image_height % 2 != 0
+    {
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image must be even-sized nv12: image id={} format={:?} size={}x{}",
+        image.image_id, image.image_format, image.image_width, image.image_height
+      )));
+    }
+
+    if let Some(cached) = self.image_textures.get(&image.image_id) {
+      match cached {
+        CachedImageTexture::NativeNv12 {
+          descriptor_index,
+          width,
+          height,
+          version,
+          ..
+        } if *width == image.image_width && *height == image.image_height => {
+          let cached_descriptor_index = *descriptor_index;
+          let version = *version;
+          let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
+            return Err(dx12_invalid_arg(format!(
+              "dx12 native image payload type mismatch: image id={}",
+              image.image_id
+            )));
+          };
+
+          if version != image.version {
+            dx12_native_image_log(format_args!(
+              "refresh SRV image={} version={} previous_version={} descriptor={:?} y_plane={} uv_plane={}",
+              image.image_id, image.version, version, cached_descriptor_index, dx12.y_plane_slice, dx12.uv_plane_slice
+            ));
+            if let Some(CachedImageTexture::NativeNv12 {
+              _y_texture,
+              _uv_texture,
+              y_keyed_mutex,
+              uv_keyed_mutex,
+              version,
+              ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *_y_texture = dx12.y_texture.clone();
+              *_uv_texture = dx12.uv_texture.clone();
+              let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
+              *y_keyed_mutex = if packed_nv12 {
+                dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
+              } else {
+                None
+              };
+              *uv_keyed_mutex = None;
+              *version = image.version;
+            }
+          }
+
+          let descriptor_index = match cached_descriptor_index {
+            Some(descriptor_index) => descriptor_index,
+            None => {
+              let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
+              if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
+                cached.set_descriptor_index(descriptor_index);
+              }
+              descriptor_index
+            }
+          };
+          self.write_native_nv12_image_srvs(dx12, descriptor_index);
+          return Ok(descriptor_index);
+        }
+        _ => {
+          self.image_textures.remove(&image.image_id);
+        }
+      }
+    }
+
+    let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
+      return Err(dx12_invalid_arg(format!(
+        "dx12 native image payload type mismatch: image id={}",
+        image.image_id
+      )));
+    };
+
+    let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
+    dx12_native_image_log(format_args!(
+      "create SRV image={} version={} descriptor={} size={}x{} y_plane={} uv_plane={}",
+      image.image_id,
+      image.version,
+      descriptor_index,
+      image.image_width,
+      image.image_height,
+      dx12.y_plane_slice,
+      dx12.uv_plane_slice
+    ));
+    self.write_native_nv12_image_srvs(dx12, descriptor_index);
     let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
     let y_keyed_mutex = if packed_nv12 {
       dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
@@ -3242,7 +3312,7 @@ impl Dx12State {
         _uv_texture: dx12.uv_texture.clone(),
         y_keyed_mutex,
         uv_keyed_mutex,
-        descriptor_index,
+        descriptor_index: Some(descriptor_index),
         width: image.image_width,
         height: image.image_height,
         version: image.version,
