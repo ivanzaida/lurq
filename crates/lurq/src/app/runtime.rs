@@ -388,6 +388,7 @@ struct DevToolsState {
 struct DevToolsScreenshotRequest {
   node_path: Vec<usize>,
   output_path: PathBuf,
+  attempts: u8,
 }
 
 #[cfg(feature = "devtools")]
@@ -454,7 +455,11 @@ fn devtools_save_node_screenshot_callback(
       }
     }
 
-    *screenshot_request.lock().unwrap() = Some(DevToolsScreenshotRequest { node_path, output_path });
+    *screenshot_request.lock().unwrap() = Some(DevToolsScreenshotRequest {
+      node_path,
+      output_path,
+      attempts: 0,
+    });
   })
 }
 
@@ -5783,12 +5788,21 @@ impl Tree {
     images: &[crate::images::ImageCmd],
     atlas: &crate::layout::render_list::GlyphAtlas,
   ) {
-    let Some(request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
+    let Some(mut request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
       return;
     };
 
     let Some(bounds) = self.devtools_screenshot_bounds(&request.node_path) else {
-      tracing::warn!("could not resolve selected devtools node path for screenshot");
+      if request.attempts < 2 {
+        request.attempts += 1;
+        *self.devtools_state.screenshot_request.lock().unwrap() = Some(request);
+        self.needs_redraw = true;
+      } else {
+        tracing::warn!(
+          "could not resolve selected devtools node path for screenshot to {}",
+          request.output_path.display()
+        );
+      }
       return;
     };
 
@@ -5799,6 +5813,8 @@ impl Tree {
         "failed to save devtools node screenshot to {}: {error}",
         request.output_path.display()
       );
+    } else {
+      tracing::info!("saved devtools node screenshot to {}", request.output_path.display());
     }
   }
 
@@ -5810,12 +5826,21 @@ impl Tree {
     glyphs: &[GlyphCmd],
     atlas: &crate::layout::render_list::GlyphAtlas,
   ) {
-    let Some(request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
+    let Some(mut request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
       return;
     };
 
     let Some(bounds) = self.devtools_screenshot_bounds(&request.node_path) else {
-      tracing::warn!("could not resolve selected devtools node path for screenshot");
+      if request.attempts < 2 {
+        request.attempts += 1;
+        *self.devtools_state.screenshot_request.lock().unwrap() = Some(request);
+        self.needs_redraw = true;
+      } else {
+        tracing::warn!(
+          "could not resolve selected devtools node path for screenshot to {}",
+          request.output_path.display()
+        );
+      }
       return;
     };
 
@@ -5824,6 +5849,8 @@ impl Tree {
         "failed to save devtools node screenshot to {}: {error}",
         request.output_path.display()
       );
+    } else {
+      tracing::info!("saved devtools node screenshot to {}", request.output_path.display());
     }
   }
 
@@ -5920,6 +5947,10 @@ fn save_devtools_screenshot(
   #[cfg(feature = "image")] images: &[crate::images::ImageCmd],
   atlas: &crate::layout::render_list::GlyphAtlas,
 ) -> Result<(), image::ImageError> {
+  if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    std::fs::create_dir_all(parent).map_err(image::ImageError::IoError)?;
+  }
+
   let mut pixels = vec![0_u8; bounds.width as usize * bounds.height as usize * 4];
   for pixel in pixels.chunks_exact_mut(4) {
     pixel[0] = clear_color.r();
