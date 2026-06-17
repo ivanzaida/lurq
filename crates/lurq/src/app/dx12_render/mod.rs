@@ -70,8 +70,9 @@ use windows::{
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
         DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET, DXGI_ERROR_DRIVER_INTERNAL_ERROR,
         DXGI_GPU_PREFERENCE_UNSPECIFIED, DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1,
-        DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIFactory6,
-        IDXGIKeyedMutex, IDXGIOutput, IDXGISwapChain3,
+        DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIFactory6, IDXGIKeyedMutex, IDXGIOutput,
+        IDXGISwapChain2, IDXGISwapChain3,
       },
     },
     System::Threading::{CreateEventW, WaitForSingleObject},
@@ -101,7 +102,9 @@ const SRV_DESCRIPTOR_COUNT: u32 = 1024;
 const GLYPH_ATLAS_SRV_INDEX: usize = 0;
 const IMAGE_SRV_FIRST_INDEX: usize = GLYPH_ATLAS_SRV_INDEX + 1;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
+const DX12_FRAME_WAIT_TIMEOUT_MS: u32 = 250;
 const DX12_GPU_WAIT_TIMEOUT_MS: u32 = 2_000;
+const DX12_FRAME_NOT_READY: HRESULT = HRESULT(0x800705B4u32 as i32);
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
@@ -436,7 +439,10 @@ impl RenderEngine for Dx12RenderEngine {
     let _render_profile = match unsafe { state.render(list) } {
       Ok(profile) => profile,
       Err(err) => {
-        if is_dxgi_device_lost(&err) {
+        if is_dx12_frame_not_ready(&err) {
+          tracing::debug!("native dx12 frame skipped while waiting for previous GPU work: {err:?}");
+          return;
+        } else if is_dxgi_device_lost(&err) {
           let reason = unsafe { state.device_removed_reason_code() };
           tracing::warn!(
             "native dx12 device lost while rendering frame; resetting renderer: error={err:?} removed_reason={}",
@@ -485,6 +491,7 @@ struct Dx12State {
   device: ID3D12Device,
   command_queue: ID3D12CommandQueue,
   swapchain: IDXGISwapChain3,
+  frame_latency_waitable: HANDLE,
   rtv_heap: CpuDescriptorHeap,
   srv_heap: CpuDescriptorHeap,
   sampler_heap: CpuDescriptorHeap,
@@ -2064,6 +2071,14 @@ fn dx12_gpu_wait_timeout_error(stage: &str, reason: HRESULT) -> Error {
   )
 }
 
+fn dx12_frame_not_ready_error(stage: &str, detail: impl std::fmt::Display) -> Error {
+  Error::new(DX12_FRAME_NOT_READY, format!("{stage}: {detail}"))
+}
+
+fn is_dx12_frame_not_ready(err: &Error) -> bool {
+  err.code() == DX12_FRAME_NOT_READY
+}
+
 fn is_error_mod_not_found(err: &Error) -> bool {
   (err.code().0 as u32) == 0x8007007E
 }
@@ -2110,7 +2125,7 @@ impl Dx12State {
       Scaling: DXGI_SCALING_NONE,
       SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
       AlphaMode: DXGI_ALPHA_MODE_IGNORE,
-      Flags: 0,
+      Flags: DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT.0 as u32,
     };
     let swapchain1 = factory.CreateSwapChainForHwnd(
       &command_queue.cast::<windows::core::IUnknown>()?,
@@ -2120,6 +2135,9 @@ impl Dx12State {
       None::<&IDXGIOutput>,
     )?;
     let swapchain: IDXGISwapChain3 = swapchain1.cast()?;
+    let swapchain2: IDXGISwapChain2 = swapchain.cast()?;
+    swapchain2.SetMaximumFrameLatency(1)?;
+    let frame_latency_waitable = swapchain2.GetFrameLatencyWaitableObject();
     factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)?;
 
     let rtv_heap = CpuDescriptorHeap::new(
@@ -2175,6 +2193,7 @@ impl Dx12State {
       device,
       command_queue,
       swapchain,
+      frame_latency_waitable,
       rtv_heap,
       srv_heap,
       sampler_heap,
@@ -2236,6 +2255,7 @@ impl Dx12State {
   unsafe fn render(&mut self, list: &RenderList) -> Result<RenderProfile> {
     let _total_start = profile_scope!();
     let _acquire_start = profile_scope!();
+    self.wait_for_frame_latency()?;
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
@@ -3565,24 +3585,44 @@ impl Dx12State {
     Ok(())
   }
 
+  unsafe fn wait_for_frame_latency(&mut self) -> Result<()> {
+    if self.device_lost || self.frame_latency_waitable.is_invalid() {
+      return Ok(());
+    }
+
+    let wait = WaitForSingleObject(self.frame_latency_waitable, DX12_FRAME_WAIT_TIMEOUT_MS);
+    if wait == WAIT_TIMEOUT {
+      return Err(dx12_frame_not_ready_error(
+        "wait for dx12 frame latency",
+        format_args!("swapchain was not ready after {DX12_FRAME_WAIT_TIMEOUT_MS}ms"),
+      ));
+    }
+    debug_assert_eq!(wait, WAIT_OBJECT_0);
+    Ok(())
+  }
+
   unsafe fn wait_for_frame(&mut self, frame_index: usize) -> Result<()> {
     if self.device_lost {
       return Ok(());
     }
 
     let fence_value = self.fence_values[frame_index];
-    if fence_value != 0 && self.fence.GetCompletedValue() < fence_value {
+    let completed_value = self.fence.GetCompletedValue();
+    if fence_value != 0 && completed_value < fence_value {
       if let Err(err) = self.fence.SetEventOnCompletion(fence_value, self.fence_event) {
         if is_dxgi_device_lost_code(err.code()) {
           self.device_lost = true;
         }
         return Err(err);
       }
-      let wait = WaitForSingleObject(self.fence_event, DX12_GPU_WAIT_TIMEOUT_MS);
+      let wait = WaitForSingleObject(self.fence_event, DX12_FRAME_WAIT_TIMEOUT_MS);
       if wait == WAIT_TIMEOUT {
-        let reason = self.device_removed_reason_code();
-        self.device_lost = true;
-        return Err(dx12_gpu_wait_timeout_error("wait for dx12 frame", reason));
+        return Err(dx12_frame_not_ready_error(
+          "wait for dx12 frame",
+          format_args!(
+            "previous GPU work was still busy after {DX12_FRAME_WAIT_TIMEOUT_MS}ms; fence={fence_value} completed={completed_value}"
+          ),
+        ));
       }
       debug_assert_eq!(wait, WAIT_OBJECT_0);
     }
@@ -3636,6 +3676,9 @@ impl Drop for Dx12State {
     unsafe {
       if !self.device_lost {
         let _ = self.wait_for_gpu();
+      }
+      if !self.frame_latency_waitable.is_invalid() {
+        let _ = CloseHandle(self.frame_latency_waitable);
       }
       let _ = CloseHandle(self.fence_event);
     }
