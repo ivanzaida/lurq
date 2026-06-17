@@ -68,8 +68,9 @@ use windows::{
           DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
-        DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
-        DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIKeyedMutex, IDXGIOutput, IDXGISwapChain3,
+        DXGI_GPU_PREFERENCE_UNSPECIFIED, DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1,
+        DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIFactory6,
+        IDXGIKeyedMutex, IDXGIOutput, IDXGISwapChain3,
       },
     },
     System::Threading::{CreateEventW, INFINITE, WaitForSingleObject},
@@ -3531,6 +3532,10 @@ impl Drop for Dx12State {
 }
 
 unsafe fn choose_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
+  if let Some(adapter) = choose_preferred_adapter(factory) {
+    return Ok(adapter);
+  }
+
   let mut index = 0;
   loop {
     let adapter = match factory.EnumAdapters1(index) {
@@ -3550,6 +3555,22 @@ unsafe fn choose_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
   }
 
   factory.EnumAdapters1(0)
+}
+
+unsafe fn choose_preferred_adapter(factory: &IDXGIFactory4) -> Option<IDXGIAdapter1> {
+  let factory = factory.cast::<IDXGIFactory6>().ok()?;
+  let mut index = 0;
+  loop {
+    let adapter = match factory.EnumAdapterByGpuPreference::<IDXGIAdapter1>(index, DXGI_GPU_PREFERENCE_UNSPECIFIED) {
+      Ok(adapter) => adapter,
+      Err(_) => return None,
+    };
+    let desc = adapter.GetDesc1().ok()?;
+    if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 == 0 && create_device(&adapter).is_ok() {
+      return Some(adapter);
+    }
+    index += 1;
+  }
 }
 
 unsafe fn create_device(adapter: &IDXGIAdapter1) -> Result<ID3D12Device> {
