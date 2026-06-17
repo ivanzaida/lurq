@@ -17,7 +17,7 @@ use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_UINT;
 use windows::{
   Win32::{
-    Foundation::{CloseHandle, FALSE, HANDLE, HWND, RECT, TRUE, WAIT_OBJECT_0},
+    Foundation::{CloseHandle, FALSE, HANDLE, HWND, RECT, TRUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
     Graphics::{
       Direct3D::{
         D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
@@ -68,12 +68,13 @@ use windows::{
           DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
         },
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
+        DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET, DXGI_ERROR_DRIVER_INTERNAL_ERROR,
         DXGI_GPU_PREFERENCE_UNSPECIFIED, DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1,
         DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIFactory6,
         IDXGIKeyedMutex, IDXGIOutput, IDXGISwapChain3,
       },
     },
-    System::Threading::{CreateEventW, INFINITE, WaitForSingleObject},
+    System::Threading::{CreateEventW, WaitForSingleObject},
   },
   core::{Error, HRESULT, Interface, PCSTR, PCWSTR, Result},
 };
@@ -100,6 +101,7 @@ const SRV_DESCRIPTOR_COUNT: u32 = 1024;
 const GLYPH_ATLAS_SRV_INDEX: usize = 0;
 const IMAGE_SRV_FIRST_INDEX: usize = GLYPH_ATLAS_SRV_INDEX + 1;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
+const DX12_GPU_WAIT_TIMEOUT_MS: u32 = 2_000;
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
@@ -417,7 +419,16 @@ impl RenderEngine for Dx12RenderEngine {
     let state = self.state.as_mut().unwrap();
     if state.width != self.width || state.height != self.height {
       if let Err(err) = unsafe { state.resize(self.width, self.height) } {
-        tracing::error!("failed to resize native dx12 swapchain: {err:?}");
+        if is_dxgi_device_lost(&err) {
+          let reason = unsafe { state.device_removed_reason_code() };
+          tracing::warn!(
+            "native dx12 device lost while resizing swapchain; resetting renderer: error={err:?} removed_reason={}",
+            dxgi_hresult_label(reason)
+          );
+          state.mark_device_lost();
+        } else {
+          tracing::error!("failed to resize native dx12 swapchain: {err:?}");
+        }
         self.state = None;
         return;
       }
@@ -425,11 +436,20 @@ impl RenderEngine for Dx12RenderEngine {
     let _render_profile = match unsafe { state.render(list) } {
       Ok(profile) => profile,
       Err(err) => {
-        tracing::error!("failed to render native dx12 frame: {err:?}");
-        if is_error_mod_not_found(&err) {
+        if is_dxgi_device_lost(&err) {
+          let reason = unsafe { state.device_removed_reason_code() };
+          tracing::warn!(
+            "native dx12 device lost while rendering frame; resetting renderer: error={err:?} removed_reason={}",
+            dxgi_hresult_label(reason)
+          );
+          state.mark_device_lost();
+        } else if is_error_mod_not_found(&err) {
+          tracing::error!("failed to render native dx12 frame: {err:?}");
           tracing::error!(
             "dx12 render failed with ERROR_MOD_NOT_FOUND; check the GPU driver, DirectX runtime, d3dcompiler_47.dll, and optional graphics debug tools"
           );
+        } else {
+          tracing::error!("failed to render native dx12 frame: {err:?}");
         }
         if let Some(video_surfaces) = &self.video_surfaces {
           video_surfaces.set_device(None);
@@ -494,6 +514,7 @@ struct Dx12State {
   frame_index: usize,
   width: u32,
   height: u32,
+  device_lost: bool,
 }
 
 struct StaticQuadBuffers {
@@ -2000,6 +2021,49 @@ fn dx12_context<T>(result: Result<T>, stage: impl std::fmt::Display) -> Result<T
   result.map_err(|err| Error::new(err.code(), format!("{stage}: {}", err.message())))
 }
 
+fn is_dxgi_device_lost(err: &Error) -> bool {
+  is_dxgi_device_lost_code(err.code())
+}
+
+fn is_dxgi_device_lost_code(code: HRESULT) -> bool {
+  code == DXGI_ERROR_DEVICE_REMOVED
+    || code == DXGI_ERROR_DEVICE_HUNG
+    || code == DXGI_ERROR_DEVICE_RESET
+    || code == DXGI_ERROR_DRIVER_INTERNAL_ERROR
+}
+
+fn dxgi_hresult_label(code: HRESULT) -> String {
+  let label = if code == DXGI_ERROR_DEVICE_REMOVED {
+    "DXGI_ERROR_DEVICE_REMOVED"
+  } else if code == DXGI_ERROR_DEVICE_HUNG {
+    "DXGI_ERROR_DEVICE_HUNG"
+  } else if code == DXGI_ERROR_DEVICE_RESET {
+    "DXGI_ERROR_DEVICE_RESET"
+  } else if code == DXGI_ERROR_DRIVER_INTERNAL_ERROR {
+    "DXGI_ERROR_DRIVER_INTERNAL_ERROR"
+  } else if code == HRESULT(0) {
+    "S_OK"
+  } else {
+    "UNKNOWN"
+  };
+  format!("{label}({:#010x})", code.0 as u32)
+}
+
+fn dx12_gpu_wait_timeout_error(stage: &str, reason: HRESULT) -> Error {
+  let code = if reason == HRESULT(0) {
+    DXGI_ERROR_DEVICE_REMOVED
+  } else {
+    reason
+  };
+  Error::new(
+    code,
+    format!(
+      "{stage}: timed out after {DX12_GPU_WAIT_TIMEOUT_MS}ms waiting for dx12 GPU fence; removed_reason={}",
+      dxgi_hresult_label(reason)
+    ),
+  )
+}
+
 fn is_error_mod_not_found(err: &Error) -> bool {
   (err.code().0 as u32) == 0x8007007E
 }
@@ -2140,6 +2204,7 @@ impl Dx12State {
       frame_index: 0,
       width: width.max(1),
       height: height.max(1),
+      device_lost: false,
     };
     state.create_render_targets()?;
     state.frame_index = state.swapchain.GetCurrentBackBufferIndex() as usize;
@@ -3500,32 +3565,78 @@ impl Dx12State {
     Ok(())
   }
 
-  unsafe fn wait_for_frame(&self, frame_index: usize) -> Result<()> {
+  unsafe fn wait_for_frame(&mut self, frame_index: usize) -> Result<()> {
+    if self.device_lost {
+      return Ok(());
+    }
+
     let fence_value = self.fence_values[frame_index];
     if fence_value != 0 && self.fence.GetCompletedValue() < fence_value {
-      self.fence.SetEventOnCompletion(fence_value, self.fence_event)?;
-      let wait = WaitForSingleObject(self.fence_event, INFINITE);
+      if let Err(err) = self.fence.SetEventOnCompletion(fence_value, self.fence_event) {
+        if is_dxgi_device_lost_code(err.code()) {
+          self.device_lost = true;
+        }
+        return Err(err);
+      }
+      let wait = WaitForSingleObject(self.fence_event, DX12_GPU_WAIT_TIMEOUT_MS);
+      if wait == WAIT_TIMEOUT {
+        let reason = self.device_removed_reason_code();
+        self.device_lost = true;
+        return Err(dx12_gpu_wait_timeout_error("wait for dx12 frame", reason));
+      }
       debug_assert_eq!(wait, WAIT_OBJECT_0);
     }
     Ok(())
   }
 
   unsafe fn wait_for_gpu(&mut self) -> Result<()> {
+    if self.device_lost {
+      return Ok(());
+    }
+
     let fence_value = self.next_fence_value;
     self.next_fence_value += 1;
-    self.command_queue.Signal(&self.fence, fence_value)?;
-    self.fence.SetEventOnCompletion(fence_value, self.fence_event)?;
-    let wait = WaitForSingleObject(self.fence_event, INFINITE);
+    if let Err(err) = self.command_queue.Signal(&self.fence, fence_value) {
+      if is_dxgi_device_lost_code(err.code()) {
+        self.device_lost = true;
+      }
+      return Err(err);
+    }
+    if let Err(err) = self.fence.SetEventOnCompletion(fence_value, self.fence_event) {
+      if is_dxgi_device_lost_code(err.code()) {
+        self.device_lost = true;
+      }
+      return Err(err);
+    }
+    let wait = WaitForSingleObject(self.fence_event, DX12_GPU_WAIT_TIMEOUT_MS);
+    if wait == WAIT_TIMEOUT {
+      let reason = self.device_removed_reason_code();
+      self.device_lost = true;
+      return Err(dx12_gpu_wait_timeout_error("wait for dx12 gpu idle", reason));
+    }
     debug_assert_eq!(wait, WAIT_OBJECT_0);
     self.fence_values = [0; FRAME_COUNT];
     Ok(())
+  }
+
+  fn mark_device_lost(&mut self) {
+    self.device_lost = true;
+  }
+
+  unsafe fn device_removed_reason_code(&self) -> HRESULT {
+    match self.device.GetDeviceRemovedReason() {
+      Ok(()) => HRESULT(0),
+      Err(err) => err.code(),
+    }
   }
 }
 
 impl Drop for Dx12State {
   fn drop(&mut self) {
     unsafe {
-      let _ = self.wait_for_gpu();
+      if !self.device_lost {
+        let _ = self.wait_for_gpu();
+      }
       let _ = CloseHandle(self.fence_event);
     }
   }
