@@ -103,7 +103,6 @@ const GLYPH_ATLAS_SRV_INDEX: usize = 0;
 const IMAGE_SRV_FIRST_INDEX: usize = GLYPH_ATLAS_SRV_INDEX + 1;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
 const DX12_FRAME_WAIT_TIMEOUT_MS: u32 = 250;
-const DX12_GPU_WAIT_TIMEOUT_MS: u32 = 2_000;
 const DX12_FRAME_NOT_READY: HRESULT = HRESULT(0x800705B4u32 as i32);
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -2057,15 +2056,10 @@ fn dxgi_hresult_label(code: HRESULT) -> String {
 }
 
 fn dx12_gpu_wait_timeout_error(stage: &str, reason: HRESULT) -> Error {
-  let code = if reason == HRESULT(0) {
-    DXGI_ERROR_DEVICE_REMOVED
-  } else {
-    reason
-  };
   Error::new(
-    code,
+    reason,
     format!(
-      "{stage}: timed out after {DX12_GPU_WAIT_TIMEOUT_MS}ms waiting for dx12 GPU fence; removed_reason={}",
+      "{stage}: timed out waiting for dx12 GPU fence; removed_reason={}",
       dxgi_hresult_label(reason)
     ),
   )
@@ -3648,11 +3642,20 @@ impl Dx12State {
       }
       return Err(err);
     }
-    let wait = WaitForSingleObject(self.fence_event, DX12_GPU_WAIT_TIMEOUT_MS);
+    let wait = WaitForSingleObject(self.fence_event, DX12_FRAME_WAIT_TIMEOUT_MS);
     if wait == WAIT_TIMEOUT {
       let reason = self.device_removed_reason_code();
-      self.device_lost = true;
-      return Err(dx12_gpu_wait_timeout_error("wait for dx12 gpu idle", reason));
+      if is_dxgi_device_lost_code(reason) {
+        self.device_lost = true;
+        return Err(dx12_gpu_wait_timeout_error("wait for dx12 gpu idle", reason));
+      }
+      return Err(dx12_frame_not_ready_error(
+        "wait for dx12 gpu idle",
+        format_args!(
+          "GPU queue was still busy after {DX12_FRAME_WAIT_TIMEOUT_MS}ms; fence={fence_value} removed_reason={}",
+          dxgi_hresult_label(reason)
+        ),
+      ));
     }
     debug_assert_eq!(wait, WAIT_OBJECT_0);
     self.fence_values = [0; FRAME_COUNT];
