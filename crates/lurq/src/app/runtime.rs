@@ -3,8 +3,11 @@ use std::path::PathBuf;
 #[cfg(feature = "devtools")]
 use std::sync::Mutex;
 use std::{
-  sync::Arc,
-  time::{Duration, Instant},
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
+  time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
@@ -65,6 +68,7 @@ const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const TEXT_INPUT_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(530);
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const VIDEO_TIMELINE_SAMPLE_INTERVAL_MS: u64 = 1_000;
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
@@ -72,6 +76,69 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
 const DEVTOOLS_INTERACTION_SYNC_DELAY: Duration = Duration::from_millis(250);
+
+static IMAGE_BUILD_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+static IMAGE_REFRESH_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+static RENDER_LIST_CACHE_MISS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+
+fn log_draw_image_timeline_sampled(
+  last_info_ms: &AtomicU64,
+  phase: &'static str,
+  image_id: u64,
+  image_version: u64,
+  frame_index: usize,
+) {
+  if should_log_video_timeline_sample(last_info_ms) {
+    tracing::info!(
+      target: "video::timeline",
+      "[video:timeline] draw_image phase={} image_id={} image_version={} frame_index={}",
+      phase,
+      image_id,
+      image_version,
+      frame_index
+    );
+  } else {
+    tracing::debug!(
+      target: "video::timeline",
+      "[video:timeline] draw_image phase={} image_id={} image_version={} frame_index={}",
+      phase,
+      image_id,
+      image_version,
+      frame_index
+    );
+  }
+}
+
+fn should_log_video_timeline_sample(last_info_ms: &AtomicU64) -> bool {
+  let now_ms = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis()
+    .min(u128::from(u64::MAX)) as u64;
+  let previous_ms = last_info_ms.load(Ordering::Relaxed);
+  now_ms.saturating_sub(previous_ms) >= VIDEO_TIMELINE_SAMPLE_INTERVAL_MS
+    && last_info_ms
+      .compare_exchange(previous_ms, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+      .is_ok()
+}
+
+fn log_render_list_cache_miss_timeline(reason: &'static str, pass_reasons: PassReasons) {
+  if should_log_video_timeline_sample(&RENDER_LIST_CACHE_MISS_TIMELINE_LAST_INFO_MS) {
+    tracing::info!(
+      target: "video::timeline",
+      "[video:timeline] render_list_cache phase=miss reason={} pass_reasons={:?}",
+      reason,
+      pass_reasons
+    );
+  } else {
+    tracing::debug!(
+      target: "video::timeline",
+      "[video:timeline] render_list_cache phase=miss reason={} pass_reasons={:?}",
+      reason,
+      pass_reasons
+    );
+  }
+}
 
 #[cfg(feature = "clipboard")]
 fn read_clipboard_text() -> Option<String> {
@@ -1341,6 +1408,25 @@ impl Tree {
     let now = Instant::now();
     self.flush_due_pending_click(now);
 
+    if self.root.is_some() && self.render_engine.is_some() {
+      if report.reasons.timeline_active {
+        log_render_list_cache_miss_timeline("early_timeline_active", report.reasons);
+      } else {
+        let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
+        let window = surface.window_handle().unwrap();
+        let display = surface.display_handle().unwrap();
+        match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
+          Some(true) => {
+            report.rendered = true;
+            report.used_cached_render_list = true;
+            return report;
+          }
+          Some(false) => return report,
+          None => {}
+        }
+      }
+    }
+
     let _layout_start = profile_scope!();
     let layout_updated = self.update_layout(app);
     self.update_text_input_caret_blink(now, caret_mode);
@@ -1360,7 +1446,9 @@ impl Tree {
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
 
-    if !report.layout_recalculated {
+    if report.layout_recalculated {
+      log_render_list_cache_miss_timeline("layout_recalculated", report.reasons);
+    } else {
       match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
         Some(true) => {
           report.rendered = true;
@@ -1688,12 +1776,17 @@ impl Tree {
         #[cfg(feature = "image")]
         QuadContent::Image { data, uv_min, uv_max } => {
           let frame = data.frame_at(image_frame_time);
+          if data.requires_continuous_redraw() {
+            log_draw_image_timeline_sampled(
+              &IMAGE_BUILD_TIMELINE_LAST_INFO_MS,
+              "build",
+              data.id(),
+              frame.version,
+              frame.frame_index,
+            );
+          }
           if let Some(next_frame_at) = frame.next_frame_at {
-            if next_frame_at <= image_frame_time {
-              self.needs_redraw = true;
-            } else {
-              self.request_redraw_at(next_frame_at);
-            }
+            self.request_redraw_at(next_frame_at);
           }
           let image_transform = quad.transform.matrix_2x2();
           let image_transform_origin = quad
@@ -2376,7 +2469,7 @@ impl Tree {
     let root_ctx = self.root_ctx.as_ref();
 
     PassReasons {
-      redraw_requested: self.needs_redraw,
+      redraw_requested: self.needs_redraw && !self.scheduled_redraw_due,
       scheduled_redraw: self.scheduled_redraw_due,
       timer_active: root_ctx.is_some_and(Ctx::has_active_timers),
       future_active: root_ctx.is_some_and(Ctx::has_active_futures),
@@ -3878,7 +3971,6 @@ impl Tree {
     }
     if reasons.timer_run
       || reasons.future_completed
-      || reasons.timeline_active
       || reasons.pending_click
       || reasons.input_interaction
       || reasons.text_input_caret
@@ -3920,9 +4012,11 @@ impl Tree {
     reasons: PassReasons,
   ) -> Option<bool> {
     if !self.can_reuse_cached_render_list(reasons) {
+      log_render_list_cache_miss_timeline("gate", reasons);
       return None;
     }
     let Some(mut cached) = self.cached_render_list.take() else {
+      log_render_list_cache_miss_timeline("empty", reasons);
       return None;
     };
 
@@ -3981,12 +4075,17 @@ impl Tree {
         continue;
       };
       let frame = source.frame_at(now);
+      if source.requires_continuous_redraw() {
+        log_draw_image_timeline_sampled(
+          &IMAGE_REFRESH_TIMELINE_LAST_INFO_MS,
+          "refresh",
+          source.id(),
+          frame.version,
+          frame.frame_index,
+        );
+      }
       if let Some(next_frame_at) = frame.next_frame_at {
-        if next_frame_at <= now {
-          self.needs_redraw = true;
-        } else {
-          self.request_redraw_at(next_frame_at);
-        }
+        self.request_redraw_at(next_frame_at);
       }
       image.frame_index = frame.frame_index;
       image.version = frame.version;

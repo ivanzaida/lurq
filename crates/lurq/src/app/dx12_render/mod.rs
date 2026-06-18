@@ -361,6 +361,15 @@ impl Dx12Nv12Surface {
     self.native.clone()
   }
 
+  pub fn dx12_nv12_image(&self) -> crate::images::Dx12Nv12Image {
+    crate::images::Dx12Nv12Image {
+      y_texture: self._y_texture.clone(),
+      uv_texture: self._uv_texture.clone(),
+      y_plane_slice: 0,
+      uv_plane_slice: if self.packed_nv12 { 1 } else { 0 },
+    }
+  }
+
   pub fn y_shared_handle_raw(&self) -> isize {
     self.y_shared_handle.0 as isize
   }
@@ -388,6 +397,14 @@ impl Dx12Nv12Surface {
   pub fn is_packed_nv12(&self) -> bool {
     self.packed_nv12
   }
+}
+
+#[cfg(feature = "image")]
+fn native_dx12_nv12_image(native: &crate::images::NativeImageData) -> Option<crate::images::Dx12Nv12Image> {
+  native
+    .payload::<crate::images::Dx12Nv12Image>()
+    .cloned()
+    .or_else(|| native.payload::<crate::images::Dx12Nv12ImageSlot>().map(crate::images::Dx12Nv12ImageSlot::image))
 }
 
 impl Drop for Dx12Nv12Surface {
@@ -3307,7 +3324,7 @@ impl Dx12State {
         } if *width == image.image_width && *height == image.image_height => {
           let cached_descriptor_index = *descriptor_index;
           let version = *version;
-          let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
+          let Some(dx12) = native_dx12_nv12_image(native) else {
             return Err(dx12_invalid_arg(format!(
               "dx12 native image payload type mismatch: image id={}",
               image.image_id
@@ -3351,7 +3368,7 @@ impl Dx12State {
               descriptor_index
             }
           };
-          self.write_native_nv12_image_srvs(dx12, descriptor_index);
+          self.write_native_nv12_image_srvs(&dx12, descriptor_index);
           return Ok(descriptor_index);
         }
         _ => {
@@ -3360,7 +3377,7 @@ impl Dx12State {
       }
     }
 
-    let Some(dx12) = native.payload::<crate::images::Dx12Nv12Image>() else {
+    let Some(dx12) = native_dx12_nv12_image(native) else {
       return Err(dx12_invalid_arg(format!(
         "dx12 native image payload type mismatch: image id={}",
         image.image_id
@@ -3378,7 +3395,7 @@ impl Dx12State {
       dx12.y_plane_slice,
       dx12.uv_plane_slice
     ));
-    self.write_native_nv12_image_srvs(dx12, descriptor_index);
+    self.write_native_nv12_image_srvs(&dx12, descriptor_index);
     let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
     let y_keyed_mutex = if packed_nv12 {
       dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()

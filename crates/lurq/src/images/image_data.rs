@@ -86,6 +86,7 @@ pub struct NativeImageData {
   backend: NativeImageBackend,
   payload: Arc<dyn Any + Send + Sync>,
   version: Arc<AtomicU64>,
+  continuous_redraw: bool,
 }
 
 #[cfg(all(feature = "dx12", target_os = "windows"))]
@@ -95,6 +96,12 @@ pub struct Dx12Nv12Image {
   pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
   pub y_plane_slice: u32,
   pub uv_plane_slice: u32,
+}
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+#[derive(Clone)]
+pub struct Dx12Nv12ImageSlot {
+  image: Arc<RwLock<Dx12Nv12Image>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -369,13 +376,19 @@ impl ImageData {
         .streaming
         .as_ref()
         .is_some_and(|streaming| streaming.continuous_redraw.load(Ordering::Acquire))
+      || self
+        .native
+        .as_ref()
+        .is_some_and(NativeImageData::requires_continuous_redraw)
   }
 
   pub fn version(&self) -> u64 {
     self
       .streaming
       .as_ref()
-      .map_or(0, |streaming| streaming.version.load(Ordering::Acquire))
+      .map_or_else(|| self.native.as_ref().map_or(0, NativeImageData::version), |streaming| {
+        streaming.version.load(Ordering::Acquire)
+      })
   }
 
   pub fn set_streaming_rgba(&self, data: Vec<u8>) {
@@ -488,7 +501,7 @@ impl ImageData {
         format: self.format,
         frame_index: 0,
         version: native.version(),
-        next_frame_at: None,
+        next_frame_at: native.requires_continuous_redraw().then_some(now),
       };
     }
 
@@ -538,6 +551,17 @@ impl NativeImageData {
     backend: NativeImageBackend,
     payload: T,
   ) -> Self {
+    Self::new_with_continuous_redraw(width, height, format, backend, payload, false)
+  }
+
+  pub fn new_with_continuous_redraw<T: Any + Send + Sync>(
+    width: u32,
+    height: u32,
+    format: ImagePixelFormat,
+    backend: NativeImageBackend,
+    payload: T,
+    continuous_redraw: bool,
+  ) -> Self {
     Self {
       id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed),
       width,
@@ -546,6 +570,7 @@ impl NativeImageData {
       backend,
       payload: Arc::new(payload),
       version: Arc::new(AtomicU64::new(0)),
+      continuous_redraw,
     }
   }
 
@@ -594,6 +619,27 @@ impl NativeImageData {
   pub fn bump_version(&self) {
     self.version.fetch_add(1, Ordering::Release);
   }
+
+  pub fn requires_continuous_redraw(&self) -> bool {
+    self.continuous_redraw
+  }
+}
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+impl Dx12Nv12ImageSlot {
+  pub fn new(image: Dx12Nv12Image) -> Self {
+    Self {
+      image: Arc::new(RwLock::new(image)),
+    }
+  }
+
+  pub fn image(&self) -> Dx12Nv12Image {
+    self.image.read().clone()
+  }
+
+  pub fn set_image(&self, image: Dx12Nv12Image) {
+    *self.image.write() = image;
+  }
 }
 
 #[cfg(all(feature = "dx12", target_os = "windows"))]
@@ -604,7 +650,7 @@ impl NativeImageData {
     y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
     uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
   ) -> Self {
-    Self::new(
+    Self::new_with_continuous_redraw(
       width,
       height,
       ImagePixelFormat::Nv12,
@@ -615,6 +661,7 @@ impl NativeImageData {
         y_plane_slice: 0,
         uv_plane_slice: 0,
       },
+      true,
     )
   }
 
@@ -623,7 +670,7 @@ impl NativeImageData {
     height: u32,
     texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
   ) -> Self {
-    Self::new(
+    Self::new_with_continuous_redraw(
       width,
       height,
       ImagePixelFormat::Nv12,
@@ -634,6 +681,18 @@ impl NativeImageData {
         y_plane_slice: 0,
         uv_plane_slice: 1,
       },
+      true,
+    )
+  }
+
+  pub fn from_dx12_nv12_slot(width: u32, height: u32, slot: Dx12Nv12ImageSlot) -> Self {
+    Self::new_with_continuous_redraw(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::Dx12Nv12,
+      slot,
+      true,
     )
   }
 }
@@ -641,12 +700,13 @@ impl NativeImageData {
 #[cfg(target_os = "macos")]
 impl NativeImageData {
   pub fn from_macos_cv_pixel_buffer_nv12(width: u32, height: u32, pixel_buffer: MacosCvPixelBuffer) -> Self {
-    Self::new(
+    Self::new_with_continuous_redraw(
       width,
       height,
       ImagePixelFormat::Nv12,
       NativeImageBackend::MacosCvPixelBufferNv12,
       MacosCvPixelBufferNv12Image { pixel_buffer },
+      true,
     )
   }
 }
@@ -655,6 +715,12 @@ impl StreamingImage {
   pub fn new_rgba(data: Vec<u8>, width: u32, height: u32) -> Self {
     Self {
       image: ImageData::streaming_rgba(data, width, height),
+    }
+  }
+
+  pub fn new_nv12(data: Vec<u8>, width: u32, height: u32) -> Self {
+    Self {
+      image: ImageData::streaming_nv12(data, width, height),
     }
   }
 
@@ -720,7 +786,7 @@ mod tests {
 
   use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
 
-  use super::{ImageData, StreamingImage, animation_epoch};
+  use super::{ImageData, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage, animation_epoch};
 
   #[test]
   fn gif_decoding_preserves_animation_with_stable_image_id() {
@@ -874,5 +940,16 @@ mod tests {
 
     assert!(image.is_streaming());
     assert!(!image.requires_continuous_redraw());
+  }
+
+  #[test]
+  fn continuous_native_image_requests_immediate_redraw() {
+    let native =
+      NativeImageData::new_with_continuous_redraw(2, 2, ImagePixelFormat::Nv12, NativeImageBackend::Dx12Nv12, (), true);
+    let image = native.image_data();
+    let now = Instant::now();
+
+    assert!(image.requires_continuous_redraw());
+    assert_eq!(image.frame_at(now).next_frame_at, Some(now));
   }
 }
