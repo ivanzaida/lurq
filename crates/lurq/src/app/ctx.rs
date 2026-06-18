@@ -625,6 +625,18 @@ pub struct FutureHandle<T: SignalValue, E: SignalValue> {
   task: AsyncTask,
 }
 
+pub struct StreamHandle<T: SignalValue, E: SignalValue> {
+  state: Signal<FutureState<T, E>>,
+  task: AsyncTask,
+}
+
+#[derive(Clone)]
+pub struct StreamEmitter<T: SignalValue, E: SignalValue> {
+  state: Signal<FutureState<T, E>>,
+  #[cfg(feature = "tokio")]
+  sender: Option<mpsc::Sender<FutureCompletion>>,
+}
+
 pub struct FutureAction<A, T: SignalValue, E: SignalValue> {
   state: Signal<FutureState<T, E>>,
   task: AsyncTask,
@@ -663,6 +675,7 @@ struct FutureSlot {
 struct TokioAsyncTask {
   join: tokio::task::JoinHandle<()>,
   receiver: mpsc::Receiver<FutureCompletion>,
+  finish_on_message: bool,
 }
 
 struct NoopWake;
@@ -672,6 +685,15 @@ impl Wake for NoopWake {
 }
 
 impl<T: SignalValue, E: SignalValue> Clone for FutureHandle<T, E> {
+  fn clone(&self) -> Self {
+    Self {
+      state: self.state.clone(),
+      task: self.task.clone(),
+    }
+  }
+}
+
+impl<T: SignalValue, E: SignalValue> Clone for StreamHandle<T, E> {
   fn clone(&self) -> Self {
     Self {
       state: self.state.clone(),
@@ -691,7 +713,57 @@ impl<A, T: SignalValue, E: SignalValue> Clone for FutureAction<A, T, E> {
   }
 }
 
+impl<T, E> StreamEmitter<T, E>
+where
+  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+{
+  pub fn emit(&self, data: T) -> bool {
+    #[cfg(feature = "tokio")]
+    if let Some(sender) = &self.sender {
+      let state = self.state.clone();
+      return sender
+        .send(Box::new(move || state.set(FutureState::fulfilled(data))))
+        .is_ok();
+    }
+
+    self.state.set(FutureState::fulfilled(data));
+    true
+  }
+
+  pub fn reject(&self, error: E) -> bool {
+    #[cfg(feature = "tokio")]
+    if let Some(sender) = &self.sender {
+      let state = self.state.clone();
+      return sender
+        .send(Box::new(move || {
+          let previous_data = state.get_untracked().data;
+          state.set(FutureState::rejected(error, previous_data));
+        }))
+        .is_ok();
+    }
+
+    let previous_data = self.state.get_untracked().data;
+    self.state.set(FutureState::rejected(error, previous_data));
+    true
+  }
+}
+
 impl<T: SignalValue, E: SignalValue> FutureHandle<T, E> {
+  pub fn state(&self) -> Signal<FutureState<T, E>> {
+    self.state.clone()
+  }
+
+  pub fn cancel(&self) {
+    self.task.cancel();
+  }
+
+  pub fn is_active(&self) -> bool {
+    self.task.is_active()
+  }
+}
+
+impl<T: SignalValue, E: SignalValue> StreamHandle<T, E> {
   pub fn state(&self) -> Signal<FutureState<T, E>> {
     self.state.clone()
   }
@@ -749,7 +821,21 @@ impl AsyncTask {
   #[cfg(feature = "tokio")]
   fn set_tokio(&self, join: tokio::task::JoinHandle<()>, receiver: mpsc::Receiver<FutureCompletion>) {
     self.cancel();
-    self.inner.lock().tokio_task = Some(TokioAsyncTask { join, receiver });
+    self.inner.lock().tokio_task = Some(TokioAsyncTask {
+      join,
+      receiver,
+      finish_on_message: true,
+    });
+  }
+
+  #[cfg(feature = "tokio")]
+  fn set_tokio_stream(&self, join: tokio::task::JoinHandle<()>, receiver: mpsc::Receiver<FutureCompletion>) {
+    self.cancel();
+    self.inner.lock().tokio_task = Some(TokioAsyncTask {
+      join,
+      receiver,
+      finish_on_message: false,
+    });
   }
 
   fn cancel(&self) {
@@ -797,12 +883,17 @@ impl AsyncTask {
         let mut inner = self.inner.lock();
         if let Some(task) = inner.tokio_task.as_mut() {
           match task.receiver.try_recv() {
-            Ok(received) => completion = Some(received),
+            Ok(received) => {
+              if task.finish_on_message {
+                disconnected = true;
+              }
+              completion = Some(received);
+            }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => disconnected = true,
           }
         }
-        if completion.is_some() || disconnected {
+        if disconnected {
           inner.tokio_task = None;
         }
       }
@@ -865,6 +956,42 @@ fn start_future_task<T, E>(
       }
     }
   }));
+}
+
+fn start_stream_task<T, E, Fut>(
+  state: Signal<FutureState<T, E>>,
+  task: AsyncTask,
+  runtime_handle: RuntimeFutureHandle,
+  factory: impl FnOnce(StreamEmitter<T, E>) -> Fut,
+) where
+  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+  Fut: Future<Output = ()> + Send + 'static,
+{
+  let previous_data = state.get_untracked().data;
+  state.set(FutureState::pending(previous_data));
+
+  #[cfg(feature = "tokio")]
+  if let Some(handle) = runtime_handle {
+    let (sender, receiver) = mpsc::channel::<FutureCompletion>();
+    let emitter = StreamEmitter {
+      state,
+      sender: Some(sender),
+    };
+    let join = handle.spawn(factory(emitter));
+    task.set_tokio_stream(join, receiver);
+    return;
+  }
+
+  #[cfg(not(feature = "tokio"))]
+  let _ = runtime_handle;
+
+  let emitter = StreamEmitter {
+    state,
+    #[cfg(feature = "tokio")]
+    sender: None,
+  };
+  task.set(Box::pin(factory(emitter)));
 }
 
 pub struct Ctx {
@@ -1723,6 +1850,13 @@ impl Ctx {
     nav.state::<T>()
   }
 
+  /// Runs a finite async operation and restarts it when `deps` changes between renders.
+  ///
+  /// Use this for requests, loads, and other one-shot work that has a single result.
+  /// Do not use `future` to model a continuous subscription by manually changing a
+  /// dependency after each completion; that creates a render-dependent re-arm gap.
+  /// Use [`Ctx::stream`] for receiver/watch/event sources that can produce multiple
+  /// values over time.
   pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
   where
     D: Clone + PartialEq + Send + Sync + 'static,
@@ -1771,6 +1905,67 @@ impl Ctx {
       self.future_slots.push(slot);
     }
     start_future_task(state, task, runtime_handle, Box::pin(factory(deps)));
+    handle
+  }
+
+  /// Runs a continuous async producer and updates the handle state for every emitted item.
+  ///
+  /// The stream task starts on first render, restarts when `deps` changes between
+  /// renders, and is cancelled when the component unmounts or stops calling
+  /// `stream` at this cursor position. Call [`StreamEmitter::emit`] from the task
+  /// for each item and [`StreamEmitter::reject`] to publish an error while keeping
+  /// the stream alive.
+  ///
+  /// Use this for `watch::Receiver`, websocket/event subscriptions, file watchers,
+  /// and other sources that can yield more than one value.
+  pub fn stream<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> StreamHandle<T, E>
+  where
+    D: Clone + PartialEq + Send + Sync + 'static,
+    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+    E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
+    F: Fn(D, StreamEmitter<T, E>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+  {
+    let cursor = self.future_cursor;
+    self.future_cursor += 1;
+    let runtime_handle = self.runtime_future_handle();
+
+    if cursor < self.future_slots.len() {
+      let slot = &mut self.future_slots[cursor];
+      if let Some(handle) = slot.handle.downcast_ref::<StreamHandle<T, E>>() {
+        let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
+        let handle = handle.clone();
+        if deps_changed {
+          slot.deps = Some(Box::new(deps.clone()));
+          start_stream_task(
+            handle.state.clone(),
+            handle.task.clone(),
+            runtime_handle.clone(),
+            move |emitter| factory(deps, emitter),
+          );
+        }
+        return handle;
+      }
+      slot.task.cancel();
+    }
+
+    let state = self.signal(FutureState::idle());
+    let task = AsyncTask::new();
+    let handle = StreamHandle {
+      state: state.clone(),
+      task: task.clone(),
+    };
+    let slot = FutureSlot {
+      deps: Some(Box::new(deps.clone())),
+      handle: Box::new(handle.clone()),
+      task: task.clone(),
+    };
+    if cursor < self.future_slots.len() {
+      self.future_slots[cursor] = slot;
+    } else {
+      self.future_slots.push(slot);
+    }
+    start_stream_task(state, task, runtime_handle, move |emitter| factory(deps, emitter));
     handle
   }
 

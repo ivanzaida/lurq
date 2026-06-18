@@ -543,7 +543,23 @@ let state = handle.state().get();
 ```
 
 `ctx.future` runs an async operation that restarts when `deps` changes. Returns a `FutureHandle` with a reactive
-`Signal<FutureState<T, E>>`.
+`Signal<FutureState<T, E>>`. Use it for finite async work with one result. For continuous subscriptions, use
+`ctx.stream`; manually chaining `ctx.future` completions can leave a render-dependent re-arm gap.
+
+```rust
+let handle = ctx.stream(deps, |deps, emitter: StreamEmitter<String, String>| async move {
+  loop {
+    let item = next_item(deps).await;
+    if !emitter.emit(item) {
+      break;
+    }
+  }
+});
+let latest = handle.state().get();
+```
+
+`ctx.stream` runs a dependency-keyed async producer that can emit many values through `StreamEmitter`. Returns a
+`StreamHandle` with a reactive `Signal<FutureState<T, E>>`.
 
 ```rust
 let action = ctx.future_action( | args: String| async move {

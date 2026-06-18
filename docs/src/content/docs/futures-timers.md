@@ -9,6 +9,8 @@ description: Async data fetching with futures, imperative actions, and timer-bas
 
 `ctx.future` runs an async operation that automatically re-executes when its dependencies change. The returned `FutureHandle` exposes a reactive `Signal<FutureState<T, E>>`.
 
+Use `ctx.future` for finite async work that resolves to one result, such as loading a page, querying an endpoint, or submitting a request. Do not use it to manually chain a continuous subscription by changing a dependency after every completion. For watch receivers, sockets, event feeds, and other multi-item sources, use [`ctx.stream`](#streams).
+
 ```rust
 use lurq::{
   app::{component::Component, ctx::{Ctx, FutureStatus}},
@@ -54,6 +56,8 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 The dependency must implement `Clone + PartialEq + Send + Sync + 'static`. Use a tuple to combine multiple deps.
 
+`ctx.future` restarts when the dependency value is different on a later render. If a future result is consumed and that render then changes the dependency, the new future is only created by a following render. That is fine for finite request/retry flows, but it is the wrong shape for continuous streams.
+
 ### FutureState
 
 | Field | Type | Description |
@@ -71,6 +75,74 @@ Convenience methods: `is_idle()`, `is_pending()`, `is_fulfilled()`, `is_rejected
 | `.state()` | Returns a `Signal<FutureState<T, E>>` for reactive reads. |
 | `.cancel()` | Cancels the in-flight future. |
 | `.is_active()` | Whether a future is currently running. |
+
+## Streams
+
+`ctx.stream` runs a continuous async producer. The producer receives a `StreamEmitter<T, E>` and can call `.emit(value)` repeatedly. The returned `StreamHandle` exposes the same reactive `Signal<FutureState<T, E>>` shape as futures, but the task stays alive after each emitted item.
+
+Use streams for `watch::Receiver`, websocket subscriptions, event feeds, filesystem watchers, and other sources that can produce more than one value.
+
+```rust
+use lurq::{
+  app::{
+    component::Component,
+    ctx::{Ctx, FutureStatus, StreamEmitter},
+  },
+  components::Text,
+  node::Element,
+};
+use tokio::sync::watch;
+
+struct ServerEvents;
+
+impl Component for ServerEvents {
+  type Props = watch::Receiver<String>;
+
+  fn create(_ctx: &mut Ctx) -> Self { Self }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let receiver = ctx.props::<Self::Props>().clone();
+    let handle = ctx.stream((), move |_, emitter: StreamEmitter<String, String>| {
+      let mut receiver = receiver.clone();
+      async move {
+        loop {
+          if receiver.changed().await.is_err() {
+            break;
+          }
+          if !emitter.emit(receiver.borrow().clone()) {
+            break;
+          }
+        }
+      }
+    });
+
+    let state = handle.state().get();
+    match state.status {
+      FutureStatus::Fulfilled => Text::new(&state.data.unwrap()),
+      FutureStatus::Pending => Text::new("Waiting..."),
+      FutureStatus::Rejected => Text::new(&format!("Stream error: {}", state.error.unwrap())),
+      FutureStatus::Idle => Text::new(""),
+    }
+  }
+}
+```
+
+### StreamHandle
+
+| Method | Description |
+| --- | --- |
+| `.state()` | Returns a `Signal<FutureState<T, E>>` containing the latest emitted item or error. |
+| `.cancel()` | Cancels the stream task. |
+| `.is_active()` | Whether the stream task is currently running. |
+
+### StreamEmitter
+
+| Method | Description |
+| --- | --- |
+| `.emit(value)` | Publishes a fulfilled item to the UI state. Returns `false` if the receiver was dropped. |
+| `.reject(error)` | Publishes a rejected state while keeping the stream task alive. Returns `false` if the receiver was dropped. |
+
+The dependency argument works the same way as `ctx.future`: changing it between renders cancels the existing stream task and starts a new one.
 
 ## Future Actions
 
@@ -116,9 +188,9 @@ let tokio_rt = tokio::runtime::Runtime::new().unwrap();
 let app = App::new().with_tokio_handle(tokio_rt.handle().clone());
 ```
 
-With a tokio handle, futures spawn onto the tokio runtime and complete independently. Results are delivered back to the UI thread on the next `tree.tick_futures()` call.
+With a tokio handle, futures and streams spawn onto the tokio runtime and complete independently. Results are delivered back to the UI thread on the next `tree.tick_futures()` call.
 
-Without the `tokio` feature, futures are polled cooperatively during `tree.tick_futures()`.
+Without the `tokio` feature, futures and streams are polled cooperatively during `tree.tick_futures()`.
 
 ## Timers
 

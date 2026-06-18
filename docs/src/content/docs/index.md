@@ -20,7 +20,7 @@ The docs are organized around the questions that come up while building:
 - [Styling And Events](./styling-events/) covers visual modifiers, hover/active/focus styles, cursor state, handlers, text selection, inputs, clipboard behavior, and drag and drop.
 - [Forms](./forms/) covers form handles, field binding, submission, `FormValues`, and the `Button` component.
 - [Routing](./routing/) covers declarative routes, nested layouts, links, params, guards, and history navigation.
-- [Futures And Timers](./futures-timers/) covers async data fetching, dependency-driven re-execution, future actions, tokio integration, timeouts, and intervals.
+- [Futures And Timers](./futures-timers/) covers async data fetching, dependency-driven re-execution, streams, future actions, tokio integration, timeouts, and intervals.
 - [Persistent Storage](./persistent-storage/) covers typed values that survive app restarts.
 - [Internationalization](./i18n/) covers translation resources, locale switching, interpolation, namespaces, and reactive re-rendering.
 - [Modals](./modals/) covers render-flow modal overlays, targets, and controlling visibility.
