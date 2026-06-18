@@ -1032,7 +1032,7 @@ impl RenderEngine for WgpuRenderEngine {
     }
   }
 
-  fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
+  fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     self.ensure_initialized(window, display);
@@ -1057,7 +1057,7 @@ impl RenderEngine for WgpuRenderEngine {
             ..RenderProfile::default()
           };
         }
-        return;
+        return false;
       }
     };
     let view = output.texture.create_view(&Default::default());
@@ -1826,6 +1826,7 @@ impl RenderEngine for WgpuRenderEngine {
         total: profile_elapsed!(_total_start),
       };
     }
+    true
   }
 
   #[cfg(feature = "devtools")]
@@ -1840,9 +1841,9 @@ impl RenderEngine for WgpuRenderEngine {
     window: WindowHandle<'_>,
     display: DisplayHandle<'_>,
     capture: Option<RenderFrameCapture>,
-  ) {
+  ) -> bool {
     self.pending_frame_capture = capture;
-    self.render(list, window, display);
+    self.render(list, window, display)
   }
 
   fn release_window_surface(&mut self) {

@@ -1337,6 +1337,8 @@ struct SliderInner {
   step: f32,
   track_style: SliderPartStyle,
   track_hovered_style: Option<SliderPartStyle>,
+  fill_style: Option<SliderPartStyle>,
+  fill_hovered_style: Option<SliderPartStyle>,
   thumb_style: SliderPartStyle,
   thumb_hovered_style: Option<SliderPartStyle>,
   hovered: bool,
@@ -1373,6 +1375,8 @@ impl SliderState {
         step: 1.0,
         track_style: SliderPartStyle::new(),
         track_hovered_style: None,
+        fill_style: None,
+        fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
         hovered: false,
@@ -1390,6 +1394,8 @@ impl SliderState {
         step: 0.01,
         track_style: SliderPartStyle::new(),
         track_hovered_style: None,
+        fill_style: None,
+        fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
         hovered: false,
@@ -1410,6 +1416,13 @@ impl SliderState {
     match &self.value {
       SliderValue::Int(value) => value.get_untracked() as f32,
       SliderValue::Float(value) => value.get_untracked(),
+    }
+  }
+
+  pub(crate) fn value_id(&self) -> usize {
+    match &self.value {
+      SliderValue::Int(value) => value.id(),
+      SliderValue::Float(value) => value.id(),
     }
   }
 
@@ -1514,6 +1527,14 @@ impl SliderState {
     self.inner.lock().unwrap().track_hovered_style = Some(style);
   }
 
+  pub(crate) fn set_fill_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().fill_style = Some(style);
+  }
+
+  pub(crate) fn set_fill_hovered_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().fill_hovered_style = Some(style);
+  }
+
   pub(crate) fn set_thumb_style(&self, style: SliderPartStyle) {
     self.inner.lock().unwrap().thumb_style = style;
   }
@@ -1529,6 +1550,15 @@ impl SliderState {
       style.merge_from(hovered_style);
     }
     style
+  }
+
+  pub(crate) fn fill_style(&self, hovered: bool) -> Option<SliderPartStyle> {
+    let inner = self.inner.lock().unwrap();
+    let mut style = inner.fill_style.clone()?;
+    if hovered && let Some(hovered_style) = &inner.fill_hovered_style {
+      style.merge_from(hovered_style);
+    }
+    Some(style)
   }
 
   pub(crate) fn thumb_style(&self, hovered: bool) -> SliderPartStyle {
@@ -1633,6 +1663,12 @@ impl SliderState {
     let mut inner = self.inner.lock().unwrap();
     let mut changed = resolve_style(&mut inner.track_style, &mut resolve);
     if let Some(style) = &mut inner.track_hovered_style {
+      changed |= resolve_style(style, &mut resolve);
+    }
+    if let Some(style) = &mut inner.fill_style {
+      changed |= resolve_style(style, &mut resolve);
+    }
+    if let Some(style) = &mut inner.fill_hovered_style {
       changed |= resolve_style(style, &mut resolve);
     }
     changed |= resolve_style(&mut inner.thumb_style, &mut resolve);

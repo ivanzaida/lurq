@@ -25,7 +25,7 @@ pub struct RenderFrameCaptureWindowClip {
 
 pub trait RenderEngine {
   fn resize(&mut self, width: u32, height: u32);
-  fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>);
+  fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool;
 
   #[cfg(feature = "devtools")]
   fn supports_frame_capture(&self) -> bool {
@@ -39,8 +39,8 @@ pub trait RenderEngine {
     window: WindowHandle<'_>,
     display: DisplayHandle<'_>,
     _capture: Option<RenderFrameCapture>,
-  ) {
-    self.render(list, window, display);
+  ) -> bool {
+    self.render(list, window, display)
   }
 
   fn release_window_surface(&mut self) {}

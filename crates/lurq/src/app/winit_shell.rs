@@ -488,13 +488,30 @@ impl ManagedWindow {
     self.tree.tick_futures();
     self.tree.tick_perf_overlay();
     self.tree.tick_scheduled_redraw(now);
-    if self.tree.has_active_timeline() {
-      self.tree.request_redraw();
-    }
-    if self.tree.perf_overlay_enabled() {
-      self.tree.request_redraw();
+    if self.tree.has_active_timeline() || self.tree.perf_overlay_enabled() {
+      self.request_redraw_for_next_refresh(now);
     }
     self.check_redraw();
+  }
+
+  fn request_redraw_for_next_refresh(&mut self, now: Instant) {
+    let next_frame_at = self.last_paint + self.refresh_interval();
+    if now >= next_frame_at {
+      self.tree.request_redraw();
+    } else {
+      self.tree.request_redraw_at(next_frame_at);
+    }
+  }
+
+  fn refresh_interval(&self) -> Duration {
+    self
+      .window
+      .as_ref()
+      .and_then(Window::current_monitor)
+      .and_then(|monitor| monitor.refresh_rate_millihertz())
+      .filter(|rate| *rate > 0)
+      .map(|rate| Duration::from_nanos((1_000_000_000_000u64 / rate as u64).max(1)))
+      .unwrap_or_else(|| Duration::from_micros(16_667))
   }
 
   fn notify_position_changed(&mut self, x: i32, y: i32) {
@@ -667,6 +684,7 @@ struct ManagedSecondaryWindow {
   attrs: Option<WindowAttributes>,
   redraw_pending: bool,
   close_requested: bool,
+  last_paint: Instant,
 }
 
 impl ManagedSecondaryWindow {
@@ -684,6 +702,7 @@ impl ManagedSecondaryWindow {
       ),
       redraw_pending: false,
       close_requested: false,
+      last_paint: Instant::now(),
     }
   }
 
@@ -874,6 +893,9 @@ impl ManagedSecondaryWindow {
       tree.resize(size.width, size.height);
       self.redraw_pending = false;
       let presented = tree.pass(app, w).rendered;
+      if presented {
+        self.last_paint = Instant::now();
+      }
       self.check_redraw(tree);
       return presented;
     }
@@ -898,13 +920,30 @@ impl ManagedSecondaryWindow {
     tree.tick_futures();
     tree.tick_perf_overlay();
     tree.tick_scheduled_redraw(now);
-    if tree.has_active_timeline() {
-      tree.request_redraw();
-    }
-    if tree.perf_overlay_enabled() {
-      tree.request_redraw();
+    if tree.has_active_timeline() || tree.perf_overlay_enabled() {
+      self.request_redraw_for_next_refresh(tree, now);
     }
     self.check_redraw(tree);
+  }
+
+  fn request_redraw_for_next_refresh(&mut self, tree: &mut Tree, now: Instant) {
+    let next_frame_at = self.last_paint + self.refresh_interval();
+    if now >= next_frame_at {
+      tree.request_redraw();
+    } else {
+      tree.request_redraw_at(next_frame_at);
+    }
+  }
+
+  fn refresh_interval(&self) -> Duration {
+    self
+      .window
+      .as_ref()
+      .and_then(Window::current_monitor)
+      .and_then(|monitor| monitor.refresh_rate_millihertz())
+      .filter(|rate| *rate > 0)
+      .map(|rate| Duration::from_nanos((1_000_000_000_000u64 / rate as u64).max(1)))
+      .unwrap_or_else(|| Duration::from_micros(16_667))
   }
 
   fn handle_event(
@@ -1263,10 +1302,10 @@ impl ApplicationHandler for WinitHandler {
       .chain(self.main.tree.next_scheduled_redraw())
       .min();
 
-    if (self.main.has_tick() || secondary_has_tick) && !redraw_pending {
-      event_loop.set_control_flow(ControlFlow::Poll);
-    } else if let Some(next_redraw) = next_scheduled_redraw.filter(|_| !redraw_pending) {
+    if let Some(next_redraw) = next_scheduled_redraw.filter(|_| !redraw_pending) {
       event_loop.set_control_flow(ControlFlow::WaitUntil(next_redraw));
+    } else if (self.main.has_tick() || secondary_has_tick) && !redraw_pending {
+      event_loop.set_control_flow(ControlFlow::Poll);
     } else {
       event_loop.set_control_flow(ControlFlow::Wait);
     }

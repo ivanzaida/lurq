@@ -411,6 +411,8 @@ pub(crate) trait NodeUpdate {
   fn slider_step(&mut self, step: f32);
   fn slider_track_style(&mut self, style: SliderPartStyle);
   fn slider_track_hovered_style(&mut self, style: SliderPartStyle);
+  fn slider_fill_style(&mut self, style: SliderPartStyle);
+  fn slider_fill_hovered_style(&mut self, style: SliderPartStyle);
   fn slider_thumb_style(&mut self, style: SliderPartStyle);
   fn slider_thumb_hovered_style(&mut self, style: SliderPartStyle);
   fn checkbox_box_style(&mut self, style: CheckboxStyle);
@@ -1431,6 +1433,18 @@ impl NodeUpdate for Node {
   fn slider_track_hovered_style(&mut self, style: SliderPartStyle) {
     if let Some(state) = self.slider_state() {
       state.set_track_hovered_style(style);
+    }
+  }
+
+  fn slider_fill_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_fill_style(style);
+    }
+  }
+
+  fn slider_fill_hovered_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_fill_hovered_style(style);
     }
   }
 
@@ -2736,6 +2750,20 @@ impl Node {
   pub fn slider_track_hovered_style(self, style: SliderPartStyle) -> Self {
     if let Some(state) = self.slider_state() {
       state.set_track_hovered_style(style);
+    }
+    self
+  }
+
+  pub fn slider_fill_style(self, style: SliderPartStyle) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_fill_style(style);
+    }
+    self
+  }
+
+  pub fn slider_fill_hovered_style(self, style: SliderPartStyle) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_fill_hovered_style(style);
     }
     self
   }

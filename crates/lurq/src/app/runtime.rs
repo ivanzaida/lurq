@@ -1360,12 +1360,16 @@ impl Tree {
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
 
-    if !report.layout_recalculated
-      && self.try_render_cached_render_list(app, clear_color, window, display, report.reasons)
-    {
-      report.rendered = true;
-      report.used_cached_render_list = true;
-      return report;
+    if !report.layout_recalculated {
+      match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
+        Some(true) => {
+          report.rendered = true;
+          report.used_cached_render_list = true;
+          return report;
+        }
+        Some(false) => return report,
+        None => {}
+      }
     }
 
     let root = match &self.root {
@@ -1853,10 +1857,19 @@ impl Tree {
     let Some(render_engine) = &mut self.render_engine else {
       return report;
     };
-    #[cfg(feature = "devtools")]
-    render_engine.render_with_capture(&list, window, display, devtools_frame_capture);
-    #[cfg(not(feature = "devtools"))]
-    render_engine.render(&list, window, display);
+    let rendered = {
+      #[cfg(feature = "devtools")]
+      {
+        render_engine.render_with_capture(&list, window, display, devtools_frame_capture)
+      }
+      #[cfg(not(feature = "devtools"))]
+      {
+        render_engine.render(&list, window, display)
+      }
+    };
+    if !rendered {
+      return report;
+    }
     report.rendered = true;
     if let Some(root) = self.root.as_ref() {
       root.clear_guards();
@@ -2575,7 +2588,7 @@ impl Tree {
     if let Some(mut drag) = self.dragging_slider.clone() {
       if let Some(state) = self.current_slider_state(drag.target_id) {
         drag.state = state;
-      } else if let Some(rebound) = self.current_slider_drag_at_y(ly) {
+      } else if let Some(rebound) = self.current_slider_drag_by_binding(drag.binding_id) {
         drag = rebound;
       } else {
         self.dragging_slider = None;
@@ -2947,7 +2960,7 @@ impl Tree {
               rect.y,
               rect.width,
               rect.height,
-              node.is_style_hovered(),
+              true,
               DEFAULT_SLIDER_THUMB_MIN_SIZE,
             );
             let travel_width = track_rect.width - thumb_rect.width;
@@ -2958,6 +2971,7 @@ impl Tree {
             };
             let drag = SliderDrag {
               target_id: node.node_id(),
+              binding_id: state.value_id(),
               state: state.clone(),
               x: drag_x,
               width: drag_width,
@@ -3236,10 +3250,10 @@ impl Tree {
     }
   }
 
-  fn current_slider_drag_at_y(&self, y: f32) -> Option<SliderDrag> {
+  fn current_slider_drag_by_binding(&self, binding_id: usize) -> Option<SliderDrag> {
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
-    let (node, rect) = find_slider_by_y_recursive(root, result, 0.0, 0.0, y)?;
+    let (node, rect) = find_slider_by_binding_recursive(root, result, 0.0, 0.0, binding_id)?;
     let NodeKind::Slider { state } = node.node_kind() else {
       return None;
     };
@@ -3248,7 +3262,7 @@ impl Tree {
       rect.y,
       rect.width,
       rect.height,
-      node.is_style_hovered(),
+      true,
       DEFAULT_SLIDER_THUMB_MIN_SIZE,
     );
     let travel_width = track_rect.width - thumb_rect.width;
@@ -3259,6 +3273,7 @@ impl Tree {
     };
     Some(SliderDrag {
       target_id: node.node_id(),
+      binding_id: state.value_id(),
       state: state.clone(),
       x: drag_x,
       width: drag_width,
@@ -3898,12 +3913,12 @@ impl Tree {
     window: WindowHandle<'_>,
     display: DisplayHandle<'_>,
     reasons: PassReasons,
-  ) -> bool {
+  ) -> Option<bool> {
     if !self.can_reuse_cached_render_list(reasons) {
-      return false;
+      return None;
     }
     let Some(mut cached) = self.cached_render_list.take() else {
-      return false;
+      return None;
     };
 
     self.needs_redraw = false;
@@ -3915,12 +3930,22 @@ impl Tree {
     let _gpu_start = profile_scope!();
     let Some(render_engine) = &mut self.render_engine else {
       self.cached_render_list = Some(cached);
-      return false;
+      return Some(false);
     };
-    #[cfg(feature = "devtools")]
-    render_engine.render_with_capture(&cached.list, window, display, None);
-    #[cfg(not(feature = "devtools"))]
-    render_engine.render(&cached.list, window, display);
+    let rendered = {
+      #[cfg(feature = "devtools")]
+      {
+        render_engine.render_with_capture(&cached.list, window, display, None)
+      }
+      #[cfg(not(feature = "devtools"))]
+      {
+        render_engine.render(&cached.list, window, display)
+      }
+    };
+    if !rendered {
+      self.cached_render_list = Some(cached);
+      return Some(false);
+    }
     let _gpu_dur = profile_elapsed!(_gpu_start);
 
     profile_if! {
@@ -3941,7 +3966,7 @@ impl Tree {
     self.frame_count += 1;
     #[cfg(feature = "devtools")]
     self.sync_devtools();
-    true
+    Some(true)
   }
 
   #[cfg(feature = "image")]
@@ -5434,6 +5459,7 @@ struct ScrollDrag {
 #[derive(Clone)]
 struct SliderDrag {
   target_id: NodeId,
+  binding_id: usize,
   state: SliderState,
   x: f32,
   width: f32,
@@ -7351,6 +7377,45 @@ fn find_slider_by_y_recursive<'a>(
   }
 
   None
+}
+
+fn find_slider_by_binding_recursive<'a>(
+  node: &'a Node,
+  layout: &'a LayoutResult,
+  abs_x: f32,
+  abs_y: f32,
+  binding_id: usize,
+) -> Option<(&'a Node, ElementRect)> {
+  for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
+    if let Some(found) = find_slider_by_binding_recursive(
+      child_node,
+      &child_layout.result,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      binding_id,
+    ) {
+      return Some(found);
+    }
+  }
+
+  let NodeKind::Slider { state } = node.node_kind() else {
+    return None;
+  };
+  if state.value_id() != binding_id {
+    return None;
+  }
+
+  Some((
+    node,
+    ElementRect {
+      x: abs_x,
+      y: abs_y,
+      relative_x: 0.0,
+      relative_y: 0.0,
+      width: layout.size.width,
+      height: layout.size.height,
+    },
+  ))
 }
 
 fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {

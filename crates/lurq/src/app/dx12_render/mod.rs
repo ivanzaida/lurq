@@ -409,12 +409,12 @@ impl RenderEngine for Dx12RenderEngine {
     self.height = height.max(1);
   }
 
-  fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
+  fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     if let Err(err) = self.ensure_initialized(window) {
       tracing::error!("failed to initialize native dx12 renderer: {err:?}");
-      return;
+      return false;
     }
     let _init_dur = profile_elapsed!(_init_start);
 
@@ -432,7 +432,7 @@ impl RenderEngine for Dx12RenderEngine {
           tracing::error!("failed to resize native dx12 swapchain: {err:?}");
         }
         self.state = None;
-        return;
+        return false;
       }
     }
     let _render_profile = match unsafe { state.render(list) } {
@@ -440,7 +440,7 @@ impl RenderEngine for Dx12RenderEngine {
       Err(err) => {
         if is_dx12_frame_not_ready(&err) {
           tracing::debug!("native dx12 frame skipped while waiting for previous GPU work: {err:?}");
-          return;
+          return false;
         } else if is_dxgi_device_lost(&err) {
           let reason = unsafe { state.device_removed_reason_code() };
           tracing::warn!(
@@ -460,7 +460,7 @@ impl RenderEngine for Dx12RenderEngine {
           video_surfaces.set_device(None);
         }
         self.state = None;
-        return;
+        return false;
       }
     };
 
@@ -471,6 +471,7 @@ impl RenderEngine for Dx12RenderEngine {
         .._render_profile
       };
     }
+    true
   }
 
   fn release_window_surface(&mut self) {

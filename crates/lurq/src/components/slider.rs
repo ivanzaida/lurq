@@ -46,6 +46,26 @@ impl Slider {
     self
   }
 
+  pub fn fill_style(mut self, style: SliderPartStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_fill_style(node, style));
+    self
+  }
+
+  pub fn fill(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_fill_style(node, f(SliderPartStyle::new())));
+    self
+  }
+
+  pub fn fill_hovered_style(mut self, style: SliderPartStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_fill_hovered_style(node, style));
+    self
+  }
+
+  pub fn fill_hovered(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_fill_hovered_style(node, f(SliderPartStyle::new())));
+    self
+  }
+
   pub fn thumb_style(mut self, style: SliderPartStyle) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::slider_thumb_style(node, style));
     self

@@ -1220,6 +1220,7 @@ impl LayoutEngine {
       NodeKind::Slider { state } => {
         let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
+        let fill_style = state.fill_style(hovered);
         let thumb_style = state.thumb_style(hovered);
         let (track_rect, thumb_rect) = state.part_rects(
           abs_x,
@@ -1253,6 +1254,38 @@ impl LayoutEngine {
           transform,
           clip,
         );
+        if let Some(fill_style) = fill_style {
+          let fill_height = fill_style.height.unwrap_or(track_rect.height).max(0.0);
+          let fill_center_y = track_rect.y + track_rect.height * 0.5;
+          let fill_rect = SliderPartRect {
+            x: track_rect.x,
+            y: fill_center_y - fill_height * 0.5,
+            width: ((thumb_rect.x + thumb_rect.width * 0.5) - track_rect.x)
+              .max(0.0)
+              .min(track_rect.width),
+            height: fill_height,
+          };
+          let fill_color = fill_style.color.unwrap_or(track_color);
+          let fill_radius = fill_style
+            .border_radius
+            .map(|radius| radius.resolve(&self.radii.borrow()))
+            .or(track_radius);
+          let fill_border = fill_style
+            .border
+            .as_ref()
+            .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()));
+          push_slider_part_quads(
+            quads,
+            fill_rect,
+            &fill_style,
+            fill_color,
+            fill_radius,
+            fill_border,
+            opacity,
+            transform,
+            clip,
+          );
+        }
         push_slider_part_quads(
           quads,
           thumb_rect,
