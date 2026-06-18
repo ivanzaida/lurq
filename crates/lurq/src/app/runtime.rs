@@ -2912,7 +2912,12 @@ impl Tree {
           }
         }
 
+        let pointer_on_slider = hits
+          .iter()
+          .any(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }));
+
         if pending_text_selection_drag.is_none()
+          && !pointer_on_slider
           && let Some((node, rect)) = selectable_text_drag_start_endpoint(root, result, lx, ly)
         {
           if let Some((state, value)) = selectable_text_state_and_value(node) {
