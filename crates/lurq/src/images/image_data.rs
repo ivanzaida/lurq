@@ -383,12 +383,10 @@ impl ImageData {
   }
 
   pub fn version(&self) -> u64 {
-    self
-      .streaming
-      .as_ref()
-      .map_or_else(|| self.native.as_ref().map_or(0, NativeImageData::version), |streaming| {
-        streaming.version.load(Ordering::Acquire)
-      })
+    self.streaming.as_ref().map_or_else(
+      || self.native.as_ref().map_or(0, NativeImageData::version),
+      |streaming| streaming.version.load(Ordering::Acquire),
+    )
   }
 
   pub fn set_streaming_rgba(&self, data: Vec<u8>) {

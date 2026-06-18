@@ -401,10 +401,11 @@ impl Dx12Nv12Surface {
 
 #[cfg(feature = "image")]
 fn native_dx12_nv12_image(native: &crate::images::NativeImageData) -> Option<crate::images::Dx12Nv12Image> {
-  native
-    .payload::<crate::images::Dx12Nv12Image>()
-    .cloned()
-    .or_else(|| native.payload::<crate::images::Dx12Nv12ImageSlot>().map(crate::images::Dx12Nv12ImageSlot::image))
+  native.payload::<crate::images::Dx12Nv12Image>().cloned().or_else(|| {
+    native
+      .payload::<crate::images::Dx12Nv12ImageSlot>()
+      .map(crate::images::Dx12Nv12ImageSlot::image)
+  })
 }
 
 impl Drop for Dx12Nv12Surface {

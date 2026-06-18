@@ -1075,6 +1075,10 @@ impl TextInputState {
     self.layout_dirty.swap(false, Ordering::Relaxed)
   }
 
+  pub(crate) fn has_layout_dirty(&self) -> bool {
+    self.layout_dirty.load(Ordering::Relaxed)
+  }
+
   fn mark_layout_dirty(&self) {
     self.layout_dirty.store(true, Ordering::Relaxed);
   }

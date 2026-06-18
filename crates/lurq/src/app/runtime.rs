@@ -69,6 +69,7 @@ const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const TEXT_INPUT_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(530);
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const VIDEO_TIMELINE_SAMPLE_INTERVAL_MS: u64 = 1_000;
+const SLOW_FRAME_PASS_TIMELINE_THRESHOLD: Duration = Duration::from_millis(16);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
@@ -79,6 +80,9 @@ const DEVTOOLS_INTERACTION_SYNC_DELAY: Duration = Duration::from_millis(250);
 
 static IMAGE_BUILD_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static IMAGE_REFRESH_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+static FRAME_PASS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+static LAYOUT_FAST_PATH_MISS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+static RENDER_LIST_CACHE_HIT_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static RENDER_LIST_CACHE_MISS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 
 fn log_draw_image_timeline_sampled(
@@ -122,6 +126,10 @@ fn should_log_video_timeline_sample(last_info_ms: &AtomicU64) -> bool {
       .is_ok()
 }
 
+fn timeline_ms(duration: Duration) -> f32 {
+  duration.as_secs_f32() * 1000.0
+}
+
 fn log_render_list_cache_miss_timeline(reason: &'static str, pass_reasons: PassReasons) {
   if should_log_video_timeline_sample(&RENDER_LIST_CACHE_MISS_TIMELINE_LAST_INFO_MS) {
     tracing::info!(
@@ -135,6 +143,164 @@ fn log_render_list_cache_miss_timeline(reason: &'static str, pass_reasons: PassR
       target: "video::timeline",
       "[video:timeline] render_list_cache phase=miss reason={} pass_reasons={:?}",
       reason,
+      pass_reasons
+    );
+  }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn log_layout_fast_path_miss_timeline(
+  animation_layout_changed: bool,
+  image_resources_changed: bool,
+  svg_resources_changed: bool,
+  theme_changed: bool,
+  has_active_overlays: bool,
+  has_dirty_element_ref: bool,
+  has_pending_layout_dirty: bool,
+  has_runtime_layout_state: bool,
+  has_last_layout: bool,
+  root_cache_contains: bool,
+  root_render_dirty: bool,
+  root_child_count: usize,
+  component_dirty: bool,
+) {
+  if should_log_video_timeline_sample(&LAYOUT_FAST_PATH_MISS_TIMELINE_LAST_INFO_MS) {
+    tracing::info!(
+      target: "video::timeline",
+      "[video:timeline] layout_fast_path phase=miss animation_layout_changed={} image_resources_changed={} svg_resources_changed={} theme_changed={} has_active_overlays={} has_dirty_element_ref={} has_pending_layout_dirty={} has_runtime_layout_state={} has_last_layout={} root_cache_contains={} root_render_dirty={} root_child_count={} component_dirty={}",
+      animation_layout_changed,
+      image_resources_changed,
+      svg_resources_changed,
+      theme_changed,
+      has_active_overlays,
+      has_dirty_element_ref,
+      has_pending_layout_dirty,
+      has_runtime_layout_state,
+      has_last_layout,
+      root_cache_contains,
+      root_render_dirty,
+      root_child_count,
+      component_dirty
+    );
+  } else {
+    tracing::debug!(
+      target: "video::timeline",
+      "[video:timeline] layout_fast_path phase=miss animation_layout_changed={} image_resources_changed={} svg_resources_changed={} theme_changed={} has_active_overlays={} has_dirty_element_ref={} has_pending_layout_dirty={} has_runtime_layout_state={} has_last_layout={} root_cache_contains={} root_render_dirty={} root_child_count={} component_dirty={}",
+      animation_layout_changed,
+      image_resources_changed,
+      svg_resources_changed,
+      theme_changed,
+      has_active_overlays,
+      has_dirty_element_ref,
+      has_pending_layout_dirty,
+      has_runtime_layout_state,
+      has_last_layout,
+      root_cache_contains,
+      root_render_dirty,
+      root_child_count,
+      component_dirty
+    );
+  }
+}
+
+fn log_frame_pass_timeline(
+  path: &'static str,
+  total: Duration,
+  layout: Duration,
+  quad: Duration,
+  glyph: Duration,
+  gpu: Duration,
+  report: PassReport,
+  quad_count: usize,
+  rect_count: usize,
+  glyph_count: usize,
+) {
+  let slow = total >= SLOW_FRAME_PASS_TIMELINE_THRESHOLD;
+  if slow {
+    tracing::warn!(
+      target: "video::timeline",
+      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} reasons={:?}",
+      path,
+      timeline_ms(total),
+      timeline_ms(layout),
+      timeline_ms(quad),
+      timeline_ms(glyph),
+      timeline_ms(gpu),
+      report.rendered,
+      report.used_cached_render_list,
+      report.layout_updated,
+      report.layout_recalculated,
+      quad_count,
+      rect_count,
+      glyph_count,
+      report.reasons
+    );
+  } else if should_log_video_timeline_sample(&FRAME_PASS_TIMELINE_LAST_INFO_MS) {
+    tracing::info!(
+      target: "video::timeline",
+      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} reasons={:?}",
+      path,
+      timeline_ms(total),
+      timeline_ms(layout),
+      timeline_ms(quad),
+      timeline_ms(glyph),
+      timeline_ms(gpu),
+      report.rendered,
+      report.used_cached_render_list,
+      report.layout_updated,
+      report.layout_recalculated,
+      quad_count,
+      rect_count,
+      glyph_count,
+      report.reasons
+    );
+  } else {
+    tracing::debug!(
+      target: "video::timeline",
+      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} reasons={:?}",
+      path,
+      timeline_ms(total),
+      timeline_ms(layout),
+      timeline_ms(quad),
+      timeline_ms(glyph),
+      timeline_ms(gpu),
+      report.rendered,
+      report.used_cached_render_list,
+      report.layout_updated,
+      report.layout_recalculated,
+      quad_count,
+      rect_count,
+      glyph_count,
+      report.reasons
+    );
+  }
+}
+
+fn log_render_list_cache_hit_timeline(
+  pass_reasons: PassReasons,
+  gpu: Duration,
+  rect_count: usize,
+  glyph_count: usize,
+  image_count: usize,
+) {
+  if should_log_video_timeline_sample(&RENDER_LIST_CACHE_HIT_TIMELINE_LAST_INFO_MS) {
+    tracing::info!(
+      target: "video::timeline",
+      "[video:timeline] render_list_cache phase=hit gpu_ms={:.1} rect_count={} glyph_count={} image_count={} pass_reasons={:?}",
+      timeline_ms(gpu),
+      rect_count,
+      glyph_count,
+      image_count,
+      pass_reasons
+    );
+  } else {
+    tracing::debug!(
+      target: "video::timeline",
+      "[video:timeline] render_list_cache phase=hit gpu_ms={:.1} rect_count={} glyph_count={} image_count={} pass_reasons={:?}",
+      timeline_ms(gpu),
+      rect_count,
+      glyph_count,
+      image_count,
       pass_reasons
     );
   }
@@ -783,11 +949,30 @@ impl Tree {
   }
 
   pub fn tick_futures(&mut self) {
+    let dirty_before = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
+    let active_before = self.root_ctx.as_ref().is_some_and(Ctx::has_active_futures);
     let completed = self.root_ctx.as_mut().is_some_and(Ctx::tick_futures);
+    let dirty_after_poll = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
+    if completed || (!dirty_before && dirty_after_poll) {
+      tracing::info!(
+        target: "lurq::reactivity",
+        "[lurq:reactivity] future_poll completed={} active_before={} dirty_before={} dirty_after_poll={}",
+        completed,
+        active_before,
+        dirty_before,
+        dirty_after_poll
+      );
+    }
     if completed {
       self.needs_redraw = true;
       self.pending_pass_reasons.future_completed = true;
       self.apply_reactive_updates_after_event();
+      tracing::info!(
+        target: "lurq::reactivity",
+        "[lurq:reactivity] future_completed applied dirty_after_apply={} needs_redraw={}",
+        self.root_ctx.as_ref().is_some_and(Ctx::any_dirty),
+        self.needs_redraw
+      );
     }
   }
 
@@ -1398,6 +1583,7 @@ impl Tree {
     self.scheduled_redraw_at = None;
 
     self.set_app_ref(app);
+    let frame_wall_start = Instant::now();
     let _frame_start = profile_scope!();
     let scale = self.scale_factor();
     profile_if! {
@@ -1409,27 +1595,25 @@ impl Tree {
     self.flush_due_pending_click(now);
 
     if self.root.is_some() && self.render_engine.is_some() {
-      if report.reasons.timeline_active {
-        log_render_list_cache_miss_timeline("early_timeline_active", report.reasons);
-      } else {
-        let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
-        let window = surface.window_handle().unwrap();
-        let display = surface.display_handle().unwrap();
-        match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
-          Some(true) => {
-            report.rendered = true;
-            report.used_cached_render_list = true;
-            return report;
-          }
-          Some(false) => return report,
-          None => {}
+      let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
+      let window = surface.window_handle().unwrap();
+      let display = surface.display_handle().unwrap();
+      match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
+        Some(true) => {
+          report.rendered = true;
+          report.used_cached_render_list = true;
+          return report;
         }
+        Some(false) => return report,
+        None => {}
       }
     }
 
+    let layout_wall_start = Instant::now();
     let _layout_start = profile_scope!();
     let layout_updated = self.update_layout(app);
     self.update_text_input_caret_blink(now, caret_mode);
+    let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
     let _layout_recalculated: bool = profile_value!(layout_updated && self.layout_engine.last_recalculated());
     report.layout_updated = layout_updated;
@@ -1470,6 +1654,7 @@ impl Tree {
       None => return report,
     };
 
+    let quad_wall_start = Instant::now();
     let _quad_start = profile_scope!();
     let viewport_clip = ClipRect {
       x: 0.0,
@@ -1484,6 +1669,7 @@ impl Tree {
     self
       .layout_engine
       .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
+    let quad_wall_dur = quad_wall_start.elapsed();
     let _quad_dur = profile_elapsed!(_quad_start);
     let quad_count = quads.len();
     #[cfg(feature = "devtools")]
@@ -1491,6 +1677,7 @@ impl Tree {
 
     self.last_layout = Some(result);
 
+    let glyph_wall_start = Instant::now();
     let _glyph_start = profile_scope!();
     let mut rects = std::mem::take(&mut self.render_rects);
     rects.clear();
@@ -1931,6 +2118,7 @@ impl Tree {
       self.viewport_physical,
     );
 
+    let glyph_wall_dur = glyph_wall_start.elapsed();
     let _glyph_dur = profile_elapsed!(_glyph_start);
     let _rect_count: usize = profile_value!(rects.len());
     let _glyph_count: usize = profile_value!(glyphs.len());
@@ -1946,6 +2134,7 @@ impl Tree {
       atlas: app.glyph_engine.atlas(),
     };
 
+    let gpu_wall_start = Instant::now();
     let _gpu_start = profile_scope!();
     let Some(render_engine) = &mut self.render_engine else {
       return report;
@@ -1967,6 +2156,7 @@ impl Tree {
     if let Some(root) = self.root.as_ref() {
       root.clear_guards();
     }
+    let gpu_wall_dur = gpu_wall_start.elapsed();
     let _gpu_dur = profile_elapsed!(_gpu_start);
 
     profile_if! {
@@ -1990,6 +2180,18 @@ impl Tree {
         memory: self.cached_memory_profile(app),
       };
     }
+    log_frame_pass_timeline(
+      "full",
+      frame_wall_start.elapsed(),
+      layout_wall_dur,
+      quad_wall_dur,
+      glyph_wall_dur,
+      gpu_wall_dur,
+      report,
+      quad_count,
+      list.rects.len(),
+      list.glyphs.len(),
+    );
 
     #[cfg(feature = "image")]
     let should_cache_render_list = self.should_store_cached_render_list();
@@ -3966,10 +4168,13 @@ impl Tree {
   }
 
   fn can_reuse_cached_render_list(&self, reasons: PassReasons) -> bool {
-    if !reasons.scheduled_redraw || reasons.redraw_requested {
+    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       return false;
     }
-    if reasons.timer_run
+    if !reasons.scheduled_redraw && !reasons.timeline_active {
+      return false;
+    }
+    if reasons.redraw_requested
       || reasons.future_completed
       || reasons.pending_click
       || reasons.input_interaction
@@ -4025,7 +4230,14 @@ impl Tree {
     #[cfg(feature = "image")]
     self.refresh_cached_image_frames(&mut cached, Instant::now());
     cached.list.atlas = app.glyph_engine.atlas();
+    let rect_count = cached.list.rects.len();
+    let glyph_count = cached.list.glyphs.len();
+    #[cfg(feature = "image")]
+    let image_count = cached.list.images.len();
+    #[cfg(not(feature = "image"))]
+    let image_count = 0;
 
+    let gpu_wall_start = Instant::now();
     let _gpu_start = profile_scope!();
     let Some(render_engine) = &mut self.render_engine else {
       self.cached_render_list = Some(cached);
@@ -4045,6 +4257,7 @@ impl Tree {
       self.cached_render_list = Some(cached);
       return Some(false);
     }
+    let gpu_wall_dur = gpu_wall_start.elapsed();
     let _gpu_dur = profile_elapsed!(_gpu_start);
 
     profile_if! {
@@ -4063,6 +4276,7 @@ impl Tree {
     self.cached_render_list = Some(cached);
     self.scheduled_redraw_due = false;
     self.frame_count += 1;
+    log_render_list_cache_hit_timeline(reasons, gpu_wall_dur, rect_count, glyph_count, image_count);
     #[cfg(feature = "devtools")]
     self.sync_devtools();
     Some(true)
@@ -4257,6 +4471,7 @@ impl Tree {
     if let Some(root) = &mut self.root {
       root.assign_ids(&self.id_gen);
     }
+    self.cached_render_list = None;
     self.needs_redraw = true;
     self.refresh_interaction_state();
   }
@@ -4282,8 +4497,19 @@ impl Tree {
       .root
       .as_ref()
       .is_some_and(|root| root.has_synthetic_role(SyntheticNodeRole::OverlayHost));
+    let had_active_overlays = self
+      .root
+      .as_ref()
+      .is_some_and(|root| root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && root.children.len() > 1);
     let mut animation_layout_changed = false;
-    if !had_overlay_host && let Some(root) = self.root.as_mut() {
+    if had_overlay_host && !had_active_overlays {
+      if let Some(root) = self.root.as_mut()
+        && let Some(base) = root.children.first_mut()
+      {
+        animation_layout_changed |= self.transition_engine.tick(base, now);
+        animation_layout_changed |= self.animation_engine.tick(base, now);
+      }
+    } else if !had_overlay_host && let Some(root) = self.root.as_mut() {
       animation_layout_changed |= self.transition_engine.tick(root, now);
       animation_layout_changed |= self.animation_engine.tick(root, now);
     }
@@ -4301,23 +4527,43 @@ impl Tree {
         .map(|ctx| ctx.theme().version())
         .unwrap_or_else(|| app.theme().version());
       let theme_changed = self.last_theme_version != theme_version;
-      let has_overlay_host = root.has_synthetic_role(SyntheticNodeRole::OverlayHost);
+      let has_active_overlays = root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && root.children.len() > 1;
       let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
       let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
       let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
+      let has_last_layout = self.last_layout.is_some();
+      let root_cache_contains = root.layout_cache.contains(constraints);
+      let root_render_dirty = root.has_render_dirty();
+      let component_dirty = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
       if !animation_layout_changed
         && !image_resources_changed
         && !svg_resources_changed
         && !theme_changed
-        && !has_overlay_host
         && !has_dirty_element_ref
         && !has_pending_layout_dirty
         && !has_runtime_layout_state
-        && self.last_layout.is_some()
-        && root.layout_cache.contains(constraints)
+        && has_last_layout
+        && root_cache_contains
       {
         self.last_theme_version = theme_version;
         return false;
+      }
+      if self.has_active_timeline() || component_dirty || has_pending_layout_dirty {
+        log_layout_fast_path_miss_timeline(
+          animation_layout_changed,
+          image_resources_changed,
+          svg_resources_changed,
+          theme_changed,
+          has_active_overlays,
+          has_dirty_element_ref,
+          has_pending_layout_dirty,
+          has_runtime_layout_state,
+          has_last_layout,
+          root_cache_contains,
+          root_render_dirty,
+          root.children.len(),
+          component_dirty,
+        );
       }
     }
 
@@ -6941,7 +7187,6 @@ fn has_dirty_element_ref_recursive(node: &Node) -> bool {
 
 fn has_runtime_layout_state_recursive(node: &Node) -> bool {
   let local = match node.node_kind() {
-    NodeKind::TextInput { .. } => true,
     NodeKind::Select { state } => state.is_open(),
     _ => false,
   };
@@ -6949,7 +7194,12 @@ fn has_runtime_layout_state_recursive(node: &Node) -> bool {
 }
 
 fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
-  let local = node.layout_cache.is_dirty()
+  let text_input_dirty = match node.node_kind() {
+    NodeKind::TextInput { state, .. } => state.has_layout_dirty(),
+    _ => false,
+  };
+  let local = text_input_dirty
+    || node.layout_cache.is_dirty()
     || node.has_style_layout_dirty()
     || matches!(node.layout_kind(), LayoutKind::ScrollModifier { state, .. } if state.has_scroll_dirty());
   local || node.children().iter().any(has_pending_layout_dirty_recursive)
