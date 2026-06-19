@@ -1763,6 +1763,7 @@ pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;
 #[derive(Clone)]
 pub(crate) struct SelectState {
   inner: Arc<Mutex<SelectInner>>,
+  layout_dirty: Arc<AtomicBool>,
 }
 
 struct SelectInner {
@@ -1791,6 +1792,7 @@ impl SelectState {
         open: false,
         highlighted: None,
       })),
+      layout_dirty: Arc::new(AtomicBool::new(false)),
     }
   }
 
@@ -1864,16 +1866,24 @@ impl SelectState {
 
   pub(crate) fn set_open(&self, open: bool) {
     let mut inner = self.inner.lock().unwrap();
+    let changed = inner.open != open;
     inner.open = open;
     if !open {
       inner.highlighted = None;
+    }
+    if changed {
+      self.mark_layout_dirty();
     }
   }
 
   pub(crate) fn open_with_highlight(&self) {
     let mut inner = self.inner.lock().unwrap();
+    let changed = !inner.open;
     inner.open = true;
     inner.highlighted = Some(inner.selected.first().copied().unwrap_or(0));
+    if changed {
+      self.mark_layout_dirty();
+    }
   }
 
   pub(crate) fn toggle_open(&self) {
@@ -1892,6 +1902,18 @@ impl SelectState {
       .unwrap_or_else(|| if delta < 0 { 0 } else { count - 1 });
     let next = (current as i32 + delta).rem_euclid(count as i32);
     inner.highlighted = Some(next as usize);
+  }
+
+  pub(crate) fn take_layout_dirty(&self) -> bool {
+    self.layout_dirty.swap(false, Ordering::Relaxed)
+  }
+
+  pub(crate) fn has_layout_dirty(&self) -> bool {
+    self.layout_dirty.load(Ordering::Relaxed)
+  }
+
+  fn mark_layout_dirty(&self) {
+    self.layout_dirty.store(true, Ordering::Relaxed);
   }
 
   /// Commit a click on option `index`: fire the change callback and, for

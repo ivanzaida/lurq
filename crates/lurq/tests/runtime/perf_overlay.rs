@@ -37,7 +37,8 @@ struct PerfOverlayCaptureRenderEngine {
 impl RenderEngine for PerfOverlayCaptureRenderEngine {
   fn resize(&mut self, _width: u32, _height: u32) {}
 
-  fn render(&mut self, _list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
+  fn render(&mut self, _list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
     *self.render_calls.lock().unwrap() += 1;
+    true
   }
 }

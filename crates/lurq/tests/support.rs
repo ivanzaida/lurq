@@ -112,7 +112,7 @@ struct CapturingRenderEngine {
 impl RenderEngine for CapturingRenderEngine {
   fn resize(&mut self, _width: u32, _height: u32) {}
 
-  fn render(&mut self, list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
+  fn render(&mut self, list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
     let rects = list.rects.iter().map(rect_snapshot).collect();
     let glyphs = list.glyphs.iter().map(glyph_snapshot).collect();
     *self.capture.lock().unwrap() = Some(RenderSnapshot {
@@ -124,6 +124,7 @@ impl RenderEngine for CapturingRenderEngine {
       #[cfg(feature = "svg")]
       svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
     });
+    true
   }
 }
 

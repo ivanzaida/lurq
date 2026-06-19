@@ -646,6 +646,7 @@ impl LayoutEngine {
     // ancestors must recompute to reposition it, so propagate dirtiness upward.
     let text_input_dirty = match node.node_kind() {
       NodeKind::TextInput { state, .. } => state.take_layout_dirty(),
+      NodeKind::Select { state } => state.take_layout_dirty(),
       _ => false,
     };
     let mut local_dirty =

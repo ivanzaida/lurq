@@ -4531,6 +4531,9 @@ impl Tree {
       let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
       let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
       let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
+      let has_active_timeline = self.has_active_timeline();
+      let has_render_dirty_timeline_target =
+        self.cached_render_list.is_none() && has_timeline_target_recursive(root);
       let has_last_layout = self.last_layout.is_some();
       let root_cache_contains = root.layout_cache.contains(constraints);
       let root_render_dirty = root.has_render_dirty();
@@ -4539,6 +4542,8 @@ impl Tree {
         && !image_resources_changed
         && !svg_resources_changed
         && !theme_changed
+        && !has_active_timeline
+        && !has_render_dirty_timeline_target
         && !has_dirty_element_ref
         && !has_pending_layout_dirty
         && !has_runtime_layout_state
@@ -7193,9 +7198,16 @@ fn has_runtime_layout_state_recursive(node: &Node) -> bool {
   local || node.children().iter().any(has_runtime_layout_state_recursive)
 }
 
+fn has_timeline_target_recursive(node: &Node) -> bool {
+  !node.transitions.is_empty()
+    || node.animation.is_some()
+    || node.children().iter().any(has_timeline_target_recursive)
+}
+
 fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
   let text_input_dirty = match node.node_kind() {
     NodeKind::TextInput { state, .. } => state.has_layout_dirty(),
+    NodeKind::Select { state } => state.has_layout_dirty(),
     _ => false,
   };
   let local = text_input_dirty
