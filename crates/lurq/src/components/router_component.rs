@@ -48,6 +48,12 @@ impl Component for Router {
 
     let path = handle.inner.current_path.get();
     let matches = handle.inner.routes.resolve(&path);
+    tracing::debug!(
+      target: "lurq::router",
+      "[lurq/router] render path={} matches={}",
+      path,
+      matches.len()
+    );
 
     if matches.is_empty() {
       return Element::new();
@@ -102,6 +108,13 @@ impl Component for RouteView {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let route_match = ctx.props::<RouteViewProps>().route_match.clone();
+    tracing::debug!(
+      target: "lurq::router",
+      "[lurq/router] route_view render index={} pattern={} path={}",
+      route_match.route_index(),
+      route_match.pattern_raw(),
+      route_match.path()
+    );
     (route_match.render)(ctx)
   }
 }

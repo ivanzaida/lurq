@@ -4532,10 +4532,32 @@ impl Tree {
   }
 
   fn rebuild_if_dirty(&mut self) {
-    if self.root_ctx.as_ref().is_some_and(Ctx::is_dirty) {
-      self.rebuild();
-    } else if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
-      self.refresh_dirty_subtrees();
+    const MAX_REACTIVE_FLUSH_PASSES: usize = 8;
+
+    for pass in 0..MAX_REACTIVE_FLUSH_PASSES {
+      if self.root_ctx.as_ref().is_some_and(Ctx::is_dirty) {
+        self.rebuild();
+      } else if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+        self.refresh_dirty_subtrees();
+      } else if pass > 0 {
+        tracing::debug!(
+          target: "lurq::reactivity",
+          "[lurq:reactivity] dirty flush settled passes={}",
+          pass
+        );
+        return;
+      } else {
+        return;
+      }
+    }
+
+    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      tracing::debug!(
+        target: "lurq::reactivity",
+        "[lurq:reactivity] dirty flush capped passes={} dirty_after_cap=true",
+        MAX_REACTIVE_FLUSH_PASSES
+      );
+      self.needs_redraw = true;
     }
   }
 
@@ -4636,13 +4658,32 @@ impl Tree {
   }
 
   fn refresh_dirty_subtrees(&mut self) {
-    let replacements = match &mut self.root_ctx {
-      Some(ctx) => ctx.refresh_dirty_subtrees(),
+    let (replacements, dirty_after_refresh) = match &mut self.root_ctx {
+      Some(ctx) => {
+        let replacements = ctx.refresh_dirty_subtrees();
+        let dirty_after_refresh = ctx.any_dirty();
+        (replacements, dirty_after_refresh)
+      }
       None => return,
     };
 
     if replacements.is_empty() {
+      if dirty_after_refresh {
+        tracing::debug!(
+          target: "lurq::reactivity",
+          "[lurq:reactivity] dirty refresh left pending work without replacements"
+        );
+        self.needs_redraw = true;
+      }
       return;
+    }
+
+    if dirty_after_refresh {
+      tracing::debug!(
+        target: "lurq::reactivity",
+        "[lurq:reactivity] dirty refresh left pending work replacements={}",
+        replacements.len()
+      );
     }
 
     if let Some(root) = &mut self.root {

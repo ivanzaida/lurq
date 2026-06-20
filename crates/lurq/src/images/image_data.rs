@@ -507,6 +507,22 @@ impl ImageData {
     }
 
     if let Some(native) = &self.native {
+      #[cfg(all(feature = "dx12", target_os = "windows"))]
+      if let Some((native, version)) = native.dx12_nv12_slot_snapshot() {
+        let next_frame_at = native.requires_continuous_redraw().then_some(now);
+        return ImageFrameData {
+          data: Arc::new(Vec::new()),
+          animation_frames: None,
+          native: Some(native),
+          width: self.width,
+          height: self.height,
+          format: self.format,
+          frame_index: 0,
+          version,
+          next_frame_at,
+        };
+      }
+
       return ImageFrameData {
         data: Arc::new(Vec::new()),
         animation_frames: None,
@@ -649,6 +665,25 @@ impl NativeImageData {
   pub fn requires_continuous_redraw(&self) -> bool {
     self.continuous_redraw
   }
+
+  #[cfg(all(feature = "dx12", target_os = "windows"))]
+  fn dx12_nv12_slot_snapshot(&self) -> Option<(Self, u64)> {
+    let slot = self.payload::<Dx12Nv12ImageSlot>()?;
+    let (image, version) = slot.snapshot();
+    Some((
+      Self {
+        id: self.id,
+        width: self.width,
+        height: self.height,
+        format: self.format,
+        backend: self.backend,
+        payload: Arc::new(image),
+        version: Arc::new(AtomicU64::new(version)),
+        continuous_redraw: self.continuous_redraw,
+      },
+      version,
+    ))
+  }
 }
 
 #[cfg(all(feature = "dx12", target_os = "windows"))]
@@ -665,6 +700,11 @@ impl Dx12Nv12ImageSlot {
 
   pub fn image(&self) -> Dx12Nv12Image {
     self.state.read().image.clone()
+  }
+
+  pub fn snapshot(&self) -> (Dx12Nv12Image, u64) {
+    let state = self.state.read();
+    (state.image.clone(), state.version)
   }
 
   pub fn set_image(&self, image: Dx12Nv12Image) -> u64 {

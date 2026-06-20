@@ -98,6 +98,11 @@ impl RouterHandle {
       });
       history.cursor = history.entries.len() - 1;
     }
+    tracing::debug!(
+      target: "lurq::router",
+      "[lurq/router] navigate set path={}",
+      path
+    );
     self.inner.current_path.set(path);
   }
 
@@ -139,6 +144,11 @@ impl RouterHandle {
         };
       }
     }
+    tracing::debug!(
+      target: "lurq::router",
+      "[lurq/router] replace set path={}",
+      path
+    );
     self.inner.current_path.set(path);
   }
 

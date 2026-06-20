@@ -2602,12 +2602,12 @@ impl Ctx {
   // --- Render lifecycle ---
 
   pub fn begin_render(&mut self) {
+    self.clear_dirty();
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
     self.click_outside_cursor = 0;
     self.click_outside_active_cursors.clear();
     self.future_cursor = 0;
-    self.render_watch_handles.clear();
     tracking::start_tracking();
     self.rendering = true;
   }
@@ -2685,7 +2685,6 @@ impl Ctx {
         Box::new(handle) as Box<dyn Any + Send + Sync>
       })
       .collect();
-    self.clear_dirty();
   }
 
   pub(crate) fn any_dirty(&self) -> bool {
@@ -2756,6 +2755,7 @@ impl Ctx {
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
+        let needs_followup_refresh = slot.ctx.any_dirty();
         element.node = attach_component_metadata(
           element.node,
           slot.component.tag_name(),
@@ -2769,6 +2769,9 @@ impl Ctx {
         }
         slot.rendered = Some(element.node.clone_for_reuse());
         replacements.push((slot.id, element.node));
+        if needs_followup_refresh {
+          Self::mark_dirty_child_slot(&self.dirty_child_slots, dirty_slot_id);
+        }
         continue;
       } else {
         let nested_replacements = slot.ctx.refresh_dirty_subtrees();
@@ -2885,6 +2888,39 @@ mod tests {
       assert!(!ctx.is_dirty());
       assert!(!ctx.any_dirty());
     });
+
+    assert!(ctx.is_dirty());
+    assert!(ctx.any_dirty());
+  }
+
+  #[test]
+  fn dirty_mark_during_render_survives_end_render() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0);
+    ctx.clear_dirty();
+
+    ctx.begin_render();
+    signal.set(1);
+    ctx.end_render();
+
+    assert!(ctx.is_dirty());
+    assert!(ctx.any_dirty());
+  }
+
+  #[test]
+  fn dirty_mark_for_previous_render_dependency_survives_rerender() {
+    let mut ctx = Ctx::new_root();
+    let signal = ctx.signal(0);
+
+    ctx.begin_render();
+    let _ = signal.get();
+    ctx.end_render();
+    ctx.clear_dirty();
+
+    ctx.begin_render();
+    let _ = signal.get();
+    signal.set(1);
+    ctx.end_render();
 
     assert!(ctx.is_dirty());
     assert!(ctx.any_dirty());
