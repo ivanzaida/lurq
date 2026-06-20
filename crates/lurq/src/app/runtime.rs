@@ -2904,11 +2904,16 @@ impl Tree {
 
   fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
     self.rebuild_if_dirty();
-    self
-      .root
-      .as_ref()
-      .and_then(|root| find_node_by_id(root, target_id))
-      .is_some_and(|node| !node.events.on_dblclick.is_empty())
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let Some(path) = find_path_by_id(root, target_id) else {
+      return false;
+    };
+
+    (0..=path.len())
+      .rev()
+      .any(|depth| find_node_by_path(root, &path[..depth]).is_some_and(|node| !node.events.on_dblclick.is_empty()))
   }
 
   fn take_matching_click_press(&mut self, position: (f32, f32), button: MouseButton) -> Option<ClickDispatchTarget> {

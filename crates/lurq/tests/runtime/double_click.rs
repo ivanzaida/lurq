@@ -1,6 +1,6 @@
 use lurq::{
   app::{Tree, events::MouseButton},
-  components::Rect,
+  components::{Column, Rect},
   core::Signal,
 };
 
@@ -52,6 +52,33 @@ fn second_nearby_click_dispatches_only_dblclick_handler() {
   pointer_click(&mut runtime, x, y, MouseButton::Left);
 
   assert_eq!(events.get(), vec!["dblclick"]);
+}
+
+#[test]
+fn child_click_uses_ancestor_dblclick_handler() {
+  let events = Signal::new(Vec::new());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    Column::new()
+      .on_dblclick({
+        let events = events.clone();
+        move |_| events.update(|events| events.push("ancestor-dblclick"))
+      })
+      .child(Rect::new(100.0, 40.0).background("#22c55e")),
+  );
+  run_pass(&mut runtime);
+
+  let rect = runtime
+    .find_element(|element| element.color().is_some())
+    .unwrap()
+    .bounds();
+  let (x, y) = rect.center();
+
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+  pointer_click(&mut runtime, x, y, MouseButton::Left);
+
+  assert_eq!(events.get(), vec!["ancestor-dblclick"]);
 }
 
 #[test]
