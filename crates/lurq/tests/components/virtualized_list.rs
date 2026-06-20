@@ -6,6 +6,7 @@ use std::sync::{
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::ScrollPhase},
   components::{Rect, VirtualizedList},
+  layout::layout_kind::ScrollState,
   node::{Element, color::Color},
 };
 use lurq_macros::DevtoolsInspectable;
@@ -94,6 +95,29 @@ impl Component for VirtualizedTopRoot {
   }
 }
 
+struct VirtualizedExternalScrollRoot;
+
+impl Component for VirtualizedExternalScrollRoot {
+  type Props = (Vec<RowData>, Shared<ScrollState>, Shared<AtomicUsize>);
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (items, scroll_state, scroll_events) = ctx.props::<Self::Props>().clone();
+    let scroll_events = scroll_events.0.clone();
+    VirtualizedList::new(ctx, items)
+      .size(100.0, 100.0)
+      .overscan_px(0.0)
+      .with_scroll_state((*scroll_state.0).clone())
+      .on_scroll(move |_| {
+        scroll_events.fetch_add(1, Ordering::SeqCst);
+      })
+      .mount_keyed::<MeasuredRow, _, _, _>(|row| row.id, |row| (*row).clone())
+  }
+}
+
 #[test]
 fn virtualized_list_measures_all_rows_then_renders_visible_window() {
   let mut tree = Tree::new();
@@ -129,6 +153,32 @@ fn virtualized_list_updates_visible_window_after_scroll() {
   assert_eq!(content.children[0].result.size.height, 150.0);
   assert_eq!(content.children[3].result.size.height, 250.0);
   assert_eq!(scroll_content_height(layout), 500.0);
+}
+
+#[test]
+fn virtualized_list_accepts_external_scroll_state() {
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  let scroll_events = Arc::new(AtomicUsize::new(0));
+  tree.mount_root::<VirtualizedExternalScrollRoot>(
+    &mut App::new(),
+    (rows(10), Shared(scroll_state.clone()), Shared(scroll_events.clone())),
+  );
+
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+
+  tree.scroll(10.0, 10.0, 0.0, -150.0, ScrollPhase::Scroll);
+  run_pass(&mut tree);
+
+  let layout = tree.last_layout().unwrap();
+  let content = scroll_content(layout);
+  assert_eq!(scroll_state.scroll_y(), 150.0);
+  assert_eq!(scroll_offset(layout), 150.0);
+  assert_eq!(content.children.len(), 4);
+  assert_eq!(content.children[0].result.size.height, 150.0);
+  assert_eq!(content.children[3].result.size.height, 250.0);
+  assert_eq!(scroll_events.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -210,6 +260,7 @@ fn virtualized_list_preserves_anchor_when_rows_are_prepended() {
   tree.update_root_props::<VirtualizedRoot>((prepended, Shared(reached)));
 
   run_pass(&mut tree);
+  assert!(scroll_content_child_count(tree.last_layout().unwrap()) < 12);
   run_pass(&mut tree);
 
   let layout = tree.last_layout().unwrap();

@@ -16,7 +16,7 @@ use crate::{
     layout_kind::{FrameConstraints, ScrollState},
     scrollbar::ScrollBarStyle,
   },
-  node::{Element, EventHandler, dimension::Dimension},
+  node::{Element, EventHandler, IntoScrollEventHandler, dimension::Dimension},
 };
 
 const DEFAULT_OVERSCAN_PX: f32 = 256.0;
@@ -25,8 +25,12 @@ const HEIGHT_EPSILON: f32 = 0.01;
 #[derive(Clone, Default)]
 struct VirtualizedListOptions {
   frame: FrameConstraints,
+  flex: Option<f32>,
   overscan_px: f32,
+  scroll_state: Option<ScrollState>,
   scrollbar: Option<ScrollBarStyle>,
+  scrollbar_hovered: Option<Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync>>,
+  scroll_handlers: Vec<EventHandler<ScrollEvent>>,
   top_handlers: Vec<EventHandler<ScrollEvent>>,
   bottom_handlers: Vec<EventHandler<ScrollEvent>>,
   list_key: Option<String>,
@@ -76,8 +80,28 @@ impl<'a, T> VirtualizedList<'a, T> {
     self
   }
 
+  pub fn flex(mut self, flex: f32) -> Self {
+    self.options.flex = Some(flex);
+    self
+  }
+
   pub fn scrollbar(mut self, style: ScrollBarStyle) -> Self {
     self.options.scrollbar = Some(style);
+    self
+  }
+
+  pub fn scrollbar_hovered(mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) -> Self {
+    self.options.scrollbar_hovered = Some(Arc::new(f));
+    self
+  }
+
+  pub fn with_scroll_state(mut self, scroll_state: ScrollState) -> Self {
+    self.options.scroll_state = Some(scroll_state);
+    self
+  }
+
+  pub fn on_scroll(mut self, f: impl IntoScrollEventHandler) -> Self {
+    self.options.scroll_handlers.push(f.into_event_handler());
     self
   }
 
@@ -86,8 +110,18 @@ impl<'a, T> VirtualizedList<'a, T> {
     self
   }
 
+  pub fn on_scroll_reach_top(mut self, f: impl IntoScrollEventHandler) -> Self {
+    self.options.top_handlers.push(f.into_event_handler());
+    self
+  }
+
   pub fn on_bottom_reached(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
     self.options.bottom_handlers.push(EventHandler::new(move |_| f()));
+    self
+  }
+
+  pub fn on_scroll_reach_bottom(mut self, f: impl IntoScrollEventHandler) -> Self {
+    self.options.bottom_handlers.push(f.into_event_handler());
     self
   }
 
@@ -140,6 +174,7 @@ where
   C: Component,
 {
   scroll_state: ScrollState,
+  active_scroll_state: Arc<Mutex<ScrollState>>,
   revision: Signal<u64>,
   runtime: Arc<Mutex<VirtualizedRuntime<T>>>,
   _marker: PhantomData<(C, K, KF, PF)>,
@@ -185,8 +220,10 @@ where
   type Props = VirtualizedMountListProps<T, KF, PF>;
 
   fn create(ctx: &mut Ctx) -> Self {
+    let scroll_state = ScrollState::new();
     Self {
-      scroll_state: ScrollState::new(),
+      scroll_state: scroll_state.clone(),
+      active_scroll_state: Arc::new(Mutex::new(scroll_state)),
       revision: ctx.signal(0),
       runtime: Arc::new(Mutex::new(VirtualizedRuntime::default())),
       _marker: PhantomData,
@@ -204,11 +241,19 @@ where
       )
     };
     let _ = self.revision.get();
-    let rows = self.rows(ctx, &items, &*key_fn, &*props_fn, &options);
-    let mut scroll = ScrollVertical::new(rows).with_scroll_state(self.scroll_state.clone());
+    let scroll_state = options
+      .scroll_state
+      .clone()
+      .unwrap_or_else(|| self.scroll_state.clone());
+    *self.active_scroll_state.lock() = scroll_state.clone();
+    let rows = self.rows(ctx, &items, &*key_fn, &*props_fn, &options, &scroll_state);
+    let mut scroll = ScrollVertical::new(rows).with_scroll_state(scroll_state);
 
     if let Some(style) = options.scrollbar.clone() {
       scroll = scroll.scrollbar(style);
+    }
+    if let Some(hovered) = options.scrollbar_hovered.clone() {
+      scroll = scroll.scrollbar_hovered(move |style| hovered(style));
     }
 
     for handler in options.top_handlers.iter().cloned() {
@@ -216,6 +261,9 @@ where
     }
     for handler in options.bottom_handlers.iter().cloned() {
       scroll = scroll.on_scroll_reach_bottom(handler);
+    }
+    for handler in options.scroll_handlers.iter().cloned() {
+      scroll = scroll.on_scroll(handler);
     }
 
     let revision = self.revision.clone();
@@ -240,6 +288,9 @@ where
     }
     if let Some(max_height) = options.frame.max_height {
       scroll = scroll.max_height(max_height);
+    }
+    if let Some(flex) = options.flex {
+      scroll = scroll.flex(flex);
     }
 
     scroll
@@ -266,8 +317,9 @@ where
         }
       }
 
-      let scroll_y = self.scroll_state.scroll_y();
-      let viewport_height = self.scroll_state.viewport_height();
+      let scroll_state = self.active_scroll_state.lock().clone();
+      let scroll_y = scroll_state.scroll_y();
+      let viewport_height = scroll_state.viewport_height();
       if (runtime.last_scroll_y - scroll_y).abs() > HEIGHT_EPSILON
         || (runtime.last_viewport_height - viewport_height).abs() > HEIGHT_EPSILON
       {
@@ -280,7 +332,7 @@ where
         if runtime.order.iter().all(|key| runtime.heights.contains_key(key)) {
           if let Some(anchor_index) = runtime.order.iter().position(|key| key == &anchor.key) {
             let new_top = prefix_height(&runtime.order[..anchor_index], &runtime.heights);
-            self.scroll_state.set_scroll(0.0, new_top + anchor.offset);
+            scroll_state.set_scroll(0.0, new_top + anchor.offset);
             changed = true;
           }
         } else {
@@ -303,14 +355,22 @@ where
   KF: Fn(&T) -> K + Send + Sync + 'static,
   PF: Fn(&T) -> C::Props + Send + Sync + 'static,
 {
-  fn rows(&self, ctx: &mut Ctx, items: &[T], key_fn: &KF, props_fn: &PF, options: &VirtualizedListOptions) -> Column {
+  fn rows(
+    &self,
+    ctx: &mut Ctx,
+    items: &[T],
+    key_fn: &KF,
+    props_fn: &PF,
+    options: &VirtualizedListOptions,
+    scroll_state: &ScrollState,
+  ) -> Column {
     let keys: Vec<String> = items.iter().map(|item| format!("{}", key_fn(item))).collect();
     let mut runtime = self.runtime.lock();
     if runtime.order != keys
       && runtime.pending_anchor.is_none()
       && runtime.order.iter().all(|key| runtime.heights.contains_key(key))
     {
-      runtime.pending_anchor = scroll_anchor_for(&runtime.order, &runtime.heights, self.scroll_state.scroll_y());
+      runtime.pending_anchor = scroll_anchor_for(&runtime.order, &runtime.heights, scroll_state.scroll_y());
     }
     let current_keys: HashSet<&str> = keys.iter().map(String::as_str).collect();
     runtime.heights.retain(|key, _| current_keys.contains(key.as_str()));
@@ -325,47 +385,55 @@ where
     runtime.order = keys.clone();
 
     let all_measured = !keys.is_empty() && keys.iter().all(|key| runtime.heights.contains_key(key));
-    let visible_range = if all_measured {
+    let has_measurements = keys.iter().any(|key| runtime.heights.contains_key(key));
+    let visible_range = if all_measured || has_measurements {
       visible_range(
         &keys,
         &runtime.heights,
-        self.scroll_state.scroll_y(),
-        self.scroll_state.viewport_height(),
+        scroll_state.scroll_y(),
+        scroll_state.viewport_height(),
         options.overscan_px,
       )
     } else {
       (0, items.len())
     };
-    let prefix = if all_measured {
-      prefix_height(&keys[..visible_range.0], &runtime.heights)
-    } else {
-      0.0
-    };
-    let suffix = if all_measured {
-      let visible_end_height = prefix_height(&keys[..visible_range.1], &runtime.heights);
-      (prefix_height(&keys, &runtime.heights) - visible_end_height).max(0.0)
-    } else {
-      0.0
-    };
+    let mut rendered_indices: Vec<usize> = (visible_range.0..visible_range.1).collect();
+    if has_measurements && !all_measured {
+      rendered_indices.extend(
+        keys
+          .iter()
+          .enumerate()
+          .filter_map(|(index, key)| (!runtime.heights.contains_key(key)).then_some(index)),
+      );
+      rendered_indices.sort_unstable();
+      rendered_indices.dedup();
+    }
+    let total_height = has_measurements.then(|| prefix_height(&keys, &runtime.heights));
+    let heights = runtime.heights.clone();
     runtime.rendered_refs.clear();
     drop(runtime);
 
     let mut column = Column::new().spacing(0.0).align_items(Alignment::Start);
-    if prefix > 0.0 {
-      column = column.child(Spacer::new().height(prefix));
-    }
+    let mut cursor_y = 0.0;
 
-    for index in visible_range.0..visible_range.1 {
+    for index in rendered_indices {
+      let row_y = prefix_height(&keys[..index], &heights);
+      if row_y > cursor_y {
+        column = column.child(Spacer::new().height(row_y - cursor_y));
+      }
       let key = keys[index].clone();
       let row_ref = ctx.element_ref();
       self.runtime.lock().rendered_refs.insert(key.clone(), row_ref.clone());
       let row = ctx.mount_keyed::<C>(&key, props_fn(&items[index]));
       let wrapper = Column::new().spacing(0.0).ref_element(row_ref).child(row);
       column = column.child(wrapper);
+      cursor_y = row_y + heights.get(&key).copied().unwrap_or(0.0);
     }
 
-    if suffix > 0.0 {
-      column = column.child(Spacer::new().height(suffix));
+    if let Some(total_height) = total_height
+      && total_height > cursor_y
+    {
+      column = column.child(Spacer::new().height(total_height - cursor_y));
     }
 
     column
