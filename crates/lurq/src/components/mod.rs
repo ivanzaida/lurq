@@ -29,6 +29,8 @@ mod stack;
 mod svg;
 mod text;
 mod text_input;
+#[cfg(feature = "image")]
+mod video;
 mod virtualized_list;
 mod window_chrome;
 
@@ -71,6 +73,8 @@ pub use stack::Stack;
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow};
+#[cfg(feature = "image")]
+pub use video::Video;
 pub use virtualized_list::VirtualizedList;
 pub use window_chrome::{
   ChromeBorderPolicy, ChromeTitleBar, ResizeHandlePolicy, WindowChrome, WindowChromeMetrics, WindowChromeMode,

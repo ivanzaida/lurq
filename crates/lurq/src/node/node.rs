@@ -1835,6 +1835,27 @@ impl Node {
   }
 
   #[cfg(feature = "image")]
+  pub fn video(data: crate::images::ImageData) -> Self {
+    let mut node = Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Video {
+        data: data.clone(),
+        fit: BackgroundSize::Contain,
+      },
+      vec![],
+    );
+    node.intrinsic_size = Some(Size::new(data.width() as f32, data.height() as f32));
+    node
+  }
+
+  #[cfg(feature = "image")]
+  pub(crate) fn set_video_fit(&mut self, next_fit: BackgroundSize) {
+    if let NodeKind::Video { fit, .. } = &mut self.node_kind {
+      *fit = next_fit;
+    }
+  }
+
+  #[cfg(feature = "image")]
   pub fn resource_image(path: &str) -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceImage { path: path.into() }, vec![])
   }
@@ -3559,6 +3580,14 @@ impl Node {
       }
       #[cfg(feature = "image")]
       (NodeKind::Image { data }, NodeKind::Image { data: old_data }) => data.id() == old_data.id(),
+      #[cfg(feature = "image")]
+      (
+        NodeKind::Video { data, fit },
+        NodeKind::Video {
+          data: old_data,
+          fit: old_fit,
+        },
+      ) => data.id() == old_data.id() && fit == old_fit,
       #[cfg(feature = "image")]
       (NodeKind::ResourceImage { path }, NodeKind::ResourceImage { path: old_path }) => path == old_path,
       #[cfg(feature = "svg")]

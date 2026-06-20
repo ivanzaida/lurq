@@ -10,6 +10,7 @@ use std::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
+  time::{Duration, Instant},
 };
 
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
@@ -102,7 +103,9 @@ const SRV_DESCRIPTOR_COUNT: u32 = 1024;
 const GLYPH_ATLAS_SRV_INDEX: usize = 0;
 const IMAGE_SRV_FIRST_INDEX: usize = GLYPH_ATLAS_SRV_INDEX + 1;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
-const DX12_FRAME_WAIT_TIMEOUT_MS: u32 = 250;
+const DX12_FRAME_WAIT_TIMEOUT_MS: u32 = 32;
+const DX12_SLOW_FRAME_THRESHOLD: Duration = Duration::from_millis(12);
+const DX12_SLOW_PHASE_THRESHOLD: Duration = Duration::from_millis(6);
 const DX12_FRAME_NOT_READY: HRESULT = HRESULT(0x800705B4u32 as i32);
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -119,20 +122,126 @@ fn dx12_native_image_log(message: impl std::fmt::Display) {
   tracing::debug!("[dx12/native-image] {message}");
 }
 
+fn duration_ms(duration: Duration) -> f64 {
+  duration.as_secs_f64() * 1000.0
+}
+
+fn log_slow_dx12_render_frame(width: u32, height: u32, init: Duration, profile: &RenderProfile, total: Duration) {
+  let upload = profile.upload_total();
+  let render_work = total.saturating_sub(profile.acquire);
+  if render_work < DX12_SLOW_FRAME_THRESHOLD
+    && upload < DX12_SLOW_PHASE_THRESHOLD
+    && profile.encode < DX12_SLOW_PHASE_THRESHOLD
+    && profile.submit < DX12_SLOW_PHASE_THRESHOLD
+    && profile.present < DX12_SLOW_PHASE_THRESHOLD
+  {
+    return;
+  }
+
+  tracing::debug!(
+    target: "video::watch::lurq",
+    "dx12 render slow frame size={}x{} total_ms={:.2} work_ms={:.2} init_ms={:.2} wait_ms={:.2} upload_ms={:.2} atlas_upload_ms={:.2} image_upload_ms={:.2} encode_ms={:.2} submit_ms={:.2} present_ms={:.2} atlas_bytes={} atlas_rects={} atlas_full={}",
+    width,
+    height,
+    duration_ms(total),
+    duration_ms(render_work),
+    duration_ms(init),
+    duration_ms(profile.acquire),
+    duration_ms(upload),
+    duration_ms(profile.atlas_upload),
+    duration_ms(profile.image_upload),
+    duration_ms(profile.encode),
+    duration_ms(profile.submit),
+    duration_ms(profile.present),
+    profile.glyph_atlas_upload_bytes,
+    profile.glyph_atlas_upload_rects,
+    profile.glyph_atlas_full_uploads
+  );
+}
+
+#[derive(Debug)]
+struct Dx12RenderCadence {
+  started_at: Instant,
+  renders: u32,
+  slow_renders: u32,
+  last_render_at: Option<Instant>,
+  max_render_delta: Duration,
+  max_total: Duration,
+  max_acquire: Duration,
+  max_encode: Duration,
+  max_present: Duration,
+  last_rects: usize,
+  last_glyphs: usize,
+  last_images: usize,
+}
+
+impl Dx12RenderCadence {
+  fn new(now: Instant) -> Self {
+    Self {
+      started_at: now,
+      renders: 0,
+      slow_renders: 0,
+      last_render_at: None,
+      max_render_delta: Duration::ZERO,
+      max_total: Duration::ZERO,
+      max_acquire: Duration::ZERO,
+      max_encode: Duration::ZERO,
+      max_present: Duration::ZERO,
+      last_rects: 0,
+      last_glyphs: 0,
+      last_images: 0,
+    }
+  }
+}
+
+#[cfg(feature = "image")]
+fn acquire_native_nv12_mutex(
+  mutex: Option<&IDXGIKeyedMutex>,
+  image_id: u64,
+  version: u64,
+  plane: &'static str,
+) -> bool {
+  let Some(mutex) = mutex else {
+    return false;
+  };
+
+  let started_at = Instant::now();
+  let result = unsafe { mutex.AcquireSync(1, 5) };
+  let elapsed = started_at.elapsed();
+  let acquired = result.is_ok();
+  if !acquired || elapsed >= Duration::from_millis(2) {
+    tracing::debug!(
+      target: "video::watch::lurq",
+      "watched stream native texture mutex image_id={} version={} plane={} acquired={} wait_ms={:.2} error={:?}",
+      image_id,
+      version,
+      plane,
+      acquired,
+      duration_ms(elapsed),
+      result.err()
+    );
+  }
+  acquired
+}
+
 pub struct Dx12RenderEngine {
   state: Option<Dx12State>,
   width: u32,
   height: u32,
+  render_cadence: Dx12RenderCadence,
   #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
+  #[cfg(feature = "image")]
   video_surfaces: Option<Dx12VideoSurfaceAllocator>,
 }
 
+#[cfg(feature = "image")]
 #[derive(Clone, Default)]
 pub struct Dx12VideoSurfaceAllocator {
   device: Arc<Mutex<Option<ID3D12Device>>>,
 }
 
+#[cfg(feature = "image")]
 pub struct Dx12Nv12Surface {
   native: crate::images::NativeImageData,
   _y_texture: ID3D12Resource,
@@ -147,7 +256,9 @@ pub struct Dx12Nv12Surface {
   packed_nv12: bool,
 }
 
+#[cfg(feature = "image")]
 unsafe impl Send for Dx12Nv12Surface {}
+#[cfg(feature = "image")]
 unsafe impl Sync for Dx12Nv12Surface {}
 
 impl Default for Dx12RenderEngine {
@@ -162,12 +273,15 @@ impl Dx12RenderEngine {
       state: None,
       width: 800,
       height: 600,
+      render_cadence: Dx12RenderCadence::new(Instant::now()),
       #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
+      #[cfg(feature = "image")]
       video_surfaces: None,
     }
   }
 
+  #[cfg(feature = "image")]
   pub fn with_video_surface_allocator(video_surfaces: Dx12VideoSurfaceAllocator) -> Self {
     Self {
       video_surfaces: Some(video_surfaces),
@@ -182,14 +296,66 @@ impl Dx12RenderEngine {
 
     let hwnd = hwnd_from_window(window)?;
     let state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1))? };
+    #[cfg(feature = "image")]
     if let Some(video_surfaces) = &self.video_surfaces {
       video_surfaces.set_device(Some(state.device.clone()));
     }
     self.state = Some(state);
     Ok(())
   }
+
+  fn record_render_cadence(&mut self, list: &RenderList, total: Duration, profile: &RenderProfile) {
+    let now = Instant::now();
+    let stats = &mut self.render_cadence;
+    stats.renders += 1;
+    if let Some(last_render_at) = stats.last_render_at {
+      stats.max_render_delta = stats.max_render_delta.max(now.duration_since(last_render_at));
+    }
+    stats.last_render_at = Some(now);
+    if total >= DX12_SLOW_FRAME_THRESHOLD {
+      stats.slow_renders += 1;
+    }
+    stats.max_total = stats.max_total.max(total);
+    stats.max_acquire = stats.max_acquire.max(profile.acquire);
+    stats.max_encode = stats.max_encode.max(profile.encode);
+    stats.max_present = stats.max_present.max(profile.present);
+    stats.last_rects = list.rects.len();
+    stats.last_glyphs = list.glyphs.len();
+    #[cfg(feature = "image")]
+    {
+      stats.last_images = list.images.len();
+    }
+    #[cfg(not(feature = "image"))]
+    {
+      stats.last_images = 0;
+    }
+
+    if now.duration_since(stats.started_at) < Duration::from_secs(1) {
+      return;
+    }
+
+    tracing::debug!(
+      target: "video::watch::lurq",
+      "dx12 render cadence renders={} slow={} max_render_delta_ms={:.2} max_total_ms={:.2} max_wait_ms={:.2} max_encode_ms={:.2} max_present_ms={:.2} rects={} glyphs={} images={}",
+      stats.renders,
+      stats.slow_renders,
+      duration_ms(stats.max_render_delta),
+      duration_ms(stats.max_total),
+      duration_ms(stats.max_acquire),
+      duration_ms(stats.max_encode),
+      duration_ms(stats.max_present),
+      stats.last_rects,
+      stats.last_glyphs,
+      stats.last_images
+    );
+
+    let last_render_at = stats.last_render_at;
+    *stats = Dx12RenderCadence::new(now);
+    stats.last_render_at = last_render_at;
+  }
 }
 
+#[cfg(feature = "image")]
 impl Dx12VideoSurfaceAllocator {
   pub fn new() -> Self {
     Self::default()
@@ -352,6 +518,7 @@ impl Dx12VideoSurfaceAllocator {
   }
 }
 
+#[cfg(feature = "image")]
 impl Dx12Nv12Surface {
   pub fn image_data(&self) -> crate::images::ImageData {
     self.native.image_data()
@@ -367,6 +534,7 @@ impl Dx12Nv12Surface {
       uv_texture: self._uv_texture.clone(),
       y_plane_slice: 0,
       uv_plane_slice: if self.packed_nv12 { 1 } else { 0 },
+      frame_number: None,
     }
   }
 
@@ -408,6 +576,7 @@ fn native_dx12_nv12_image(native: &crate::images::NativeImageData) -> Option<cra
   })
 }
 
+#[cfg(feature = "image")]
 impl Drop for Dx12Nv12Surface {
   fn drop(&mut self) {
     if self.owns_shared_handles {
@@ -438,6 +607,14 @@ impl RenderEngine for Dx12RenderEngine {
 
     let state = self.state.as_mut().unwrap();
     if state.width != self.width || state.height != self.height {
+      tracing::debug!(
+        target: "video::watch::lurq",
+        "dx12 swapchain resize old={}x{} new={}x{}",
+        state.width,
+        state.height,
+        self.width,
+        self.height
+      );
       if let Err(err) = unsafe { state.resize(self.width, self.height) } {
         if is_dxgi_device_lost(&err) {
           let reason = unsafe { state.device_removed_reason_code() };
@@ -447,7 +624,14 @@ impl RenderEngine for Dx12RenderEngine {
           );
           state.mark_device_lost();
         } else {
-          tracing::error!("failed to resize native dx12 swapchain: {err:?}");
+          tracing::error!(
+            target: "video::watch::lurq",
+            "failed to resize native dx12 swapchain old={}x{} new={}x{} error={err:?}",
+            state.width,
+            state.height,
+            self.width,
+            self.height
+          );
         }
         self.state = None;
         return false;
@@ -457,7 +641,7 @@ impl RenderEngine for Dx12RenderEngine {
       Ok(profile) => profile,
       Err(err) => {
         if is_dx12_frame_not_ready(&err) {
-          tracing::debug!("native dx12 frame skipped while waiting for previous GPU work: {err:?}");
+          tracing::trace!("native dx12 frame skipped while waiting for previous GPU work: {err:?}");
           return false;
         } else if is_dxgi_device_lost(&err) {
           let reason = unsafe { state.device_removed_reason_code() };
@@ -474,18 +658,24 @@ impl RenderEngine for Dx12RenderEngine {
         } else {
           tracing::error!("failed to render native dx12 frame: {err:?}");
         }
-        if let Some(video_surfaces) = &self.video_surfaces {
-          video_surfaces.set_device(None);
+        #[cfg(feature = "image")]
+        {
+          if let Some(video_surfaces) = &self.video_surfaces {
+            video_surfaces.set_device(None);
+          }
         }
         self.state = None;
         return false;
       }
     };
+    let total_dur = profile_elapsed!(_total_start);
+    log_slow_dx12_render_frame(self.width, self.height, _init_dur, &_render_profile, total_dur);
+    self.record_render_cadence(list, total_dur, &_render_profile);
 
     profile_if! {
       self.last_profile = RenderProfile {
         init: _init_dur,
-        total: profile_elapsed!(_total_start),
+        total: total_dur,
         .._render_profile
       };
     }
@@ -493,8 +683,11 @@ impl RenderEngine for Dx12RenderEngine {
   }
 
   fn release_window_surface(&mut self) {
-    if let Some(video_surfaces) = &self.video_surfaces {
-      video_surfaces.set_device(None);
+    #[cfg(feature = "image")]
+    {
+      if let Some(video_surfaces) = &self.video_surfaces {
+        video_surfaces.set_device(None);
+      }
     }
     self.state = None;
   }
@@ -527,6 +720,8 @@ struct Dx12State {
   #[cfg(feature = "image")]
   image_textures: HashMap<u64, CachedImageTexture>,
   #[cfg(feature = "image")]
+  native_image_draw_cadence: HashMap<u64, NativeImageDrawCadence>,
+  #[cfg(feature = "image")]
   next_srv_index: usize,
   frame_arenas: [UploadArena; FRAME_COUNT],
   frame_uploads: [Vec<UploadBuffer>; FRAME_COUNT],
@@ -540,6 +735,33 @@ struct Dx12State {
   width: u32,
   height: u32,
   device_lost: bool,
+}
+
+#[cfg(feature = "image")]
+struct NativeImageDrawCadence {
+  started_at: Instant,
+  draws: u32,
+  version_changes: u32,
+  repeated_draws: u32,
+  skipped_versions: u64,
+  last_version: Option<u64>,
+  stream_frame_changes: u32,
+  repeated_stream_frames: u32,
+  backward_stream_frames: u32,
+  skipped_stream_frames: u64,
+  max_stream_frame_delta: u32,
+  last_stream_frame: Option<u32>,
+  last_draw_at: Option<Instant>,
+  max_draw_delta: Duration,
+  max_version_delta: u64,
+  last_width: u32,
+  last_height: u32,
+}
+
+#[cfg(feature = "image")]
+fn stream_frame_after(frame_number: u32, previous_frame_number: u32) -> bool {
+  let delta = frame_number.wrapping_sub(previous_frame_number);
+  delta != 0 && delta < (u32::MAX / 2)
 }
 
 struct StaticQuadBuffers {
@@ -610,7 +832,9 @@ enum CachedImageTexture {
     _uv_texture: ID3D12Resource,
     y_keyed_mutex: Option<IDXGIKeyedMutex>,
     uv_keyed_mutex: Option<IDXGIKeyedMutex>,
-    descriptor_index: Option<usize>,
+    descriptor_indices: [Option<usize>; FRAME_COUNT],
+    descriptor_versions: [u64; FRAME_COUNT],
+    descriptor_stream_frames: [Option<u32>; FRAME_COUNT],
     width: u32,
     height: u32,
     version: u64,
@@ -621,21 +845,33 @@ enum CachedImageTexture {
 impl CachedImageTexture {
   fn clear_descriptor_index(&mut self) {
     match self {
-      Self::Rgba { descriptor_index, .. }
-      | Self::Nv12 { descriptor_index, .. }
-      | Self::NativeNv12 { descriptor_index, .. } => {
+      Self::Rgba { descriptor_index, .. } | Self::Nv12 { descriptor_index, .. } => {
         *descriptor_index = None;
       }
+      Self::NativeNv12 { .. } => {}
     }
   }
 
   fn set_descriptor_index(&mut self, index: usize) {
     match self {
-      Self::Rgba { descriptor_index, .. }
-      | Self::Nv12 { descriptor_index, .. }
-      | Self::NativeNv12 { descriptor_index, .. } => {
+      Self::Rgba { descriptor_index, .. } | Self::Nv12 { descriptor_index, .. } => {
         *descriptor_index = Some(index);
       }
+      Self::NativeNv12 { .. } => {}
+    }
+  }
+
+  fn set_native_descriptor_index(&mut self, frame_index: usize, index: usize, version: u64, stream_frame: Option<u32>) {
+    if let Self::NativeNv12 {
+      descriptor_indices,
+      descriptor_versions,
+      descriptor_stream_frames,
+      ..
+    } = self
+    {
+      descriptor_indices[frame_index] = Some(index);
+      descriptor_versions[frame_index] = version;
+      descriptor_stream_frames[frame_index] = stream_frame;
     }
   }
 }
@@ -2224,6 +2460,8 @@ impl Dx12State {
       #[cfg(feature = "image")]
       image_textures: HashMap::new(),
       #[cfg(feature = "image")]
+      native_image_draw_cadence: HashMap::new(),
+      #[cfg(feature = "image")]
       next_srv_index: 1,
       frame_arenas,
       frame_uploads: std::array::from_fn(|_| Vec::new()),
@@ -2255,9 +2493,13 @@ impl Dx12State {
     for uploads in &mut self.frame_uploads {
       uploads.clear();
     }
-    self
-      .swapchain
-      .ResizeBuffers(FRAME_COUNT as u32, width, height, SWAPCHAIN_FORMAT, Default::default())?;
+    self.swapchain.ResizeBuffers(
+      FRAME_COUNT as u32,
+      width,
+      height,
+      SWAPCHAIN_FORMAT,
+      DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
+    )?;
     self.width = width;
     self.height = height;
     self.create_render_targets()?;
@@ -2608,7 +2850,145 @@ impl Dx12State {
   }
 
   #[cfg(feature = "image")]
+  fn record_native_image_draw(&mut self, image: &crate::images::ImageCmd, stream_frame: Option<u32>) {
+    let now = Instant::now();
+    let stats = self
+      .native_image_draw_cadence
+      .entry(image.image_id)
+      .or_insert_with(|| NativeImageDrawCadence {
+        started_at: now,
+        draws: 0,
+        version_changes: 0,
+        repeated_draws: 0,
+        skipped_versions: 0,
+        last_version: None,
+        stream_frame_changes: 0,
+        repeated_stream_frames: 0,
+        backward_stream_frames: 0,
+        skipped_stream_frames: 0,
+        max_stream_frame_delta: 0,
+        last_stream_frame: None,
+        last_draw_at: None,
+        max_draw_delta: Duration::ZERO,
+        max_version_delta: 0,
+        last_width: image.image_width,
+        last_height: image.image_height,
+      });
+
+    stats.draws += 1;
+    if let Some(last_draw_at) = stats.last_draw_at {
+      stats.max_draw_delta = stats.max_draw_delta.max(now.duration_since(last_draw_at));
+    }
+    stats.last_draw_at = Some(now);
+    stats.last_width = image.image_width;
+    stats.last_height = image.image_height;
+    match stats.last_version {
+      Some(last_version) if last_version == image.version => {
+        stats.repeated_draws += 1;
+      }
+      Some(last_version) => {
+        let version_delta = image.version.saturating_sub(last_version);
+        stats.max_version_delta = stats.max_version_delta.max(version_delta);
+        stats.version_changes += 1;
+        stats.skipped_versions += version_delta.saturating_sub(1);
+        stats.last_version = Some(image.version);
+      }
+      None => {
+        stats.version_changes += 1;
+        stats.last_version = Some(image.version);
+      }
+    }
+    if let Some(stream_frame) = stream_frame {
+      match stats.last_stream_frame {
+        Some(last_stream_frame) if last_stream_frame == stream_frame => {
+          stats.repeated_stream_frames += 1;
+        }
+        Some(last_stream_frame) if stream_frame_after(stream_frame, last_stream_frame) => {
+          let frame_delta = stream_frame.wrapping_sub(last_stream_frame);
+          stats.max_stream_frame_delta = stats.max_stream_frame_delta.max(frame_delta);
+          stats.skipped_stream_frames += u64::from(frame_delta.saturating_sub(1));
+          stats.stream_frame_changes += 1;
+          stats.last_stream_frame = Some(stream_frame);
+        }
+        Some(last_stream_frame) => {
+          stats.backward_stream_frames += 1;
+          tracing::debug!(
+            target: "video::watch::lurq",
+            "dx12 native image frame order image={} drawn_frame={} previous_drawn_frame={} backwards=true image_version={} size={}x{}",
+            image.image_id,
+            stream_frame,
+            last_stream_frame,
+            image.version,
+            image.image_width,
+            image.image_height
+          );
+          stats.last_stream_frame = Some(stream_frame);
+        }
+        None => {
+          stats.stream_frame_changes += 1;
+          stats.last_stream_frame = Some(stream_frame);
+        }
+      }
+    }
+
+    if now.duration_since(stats.started_at) < Duration::from_secs(1) {
+      return;
+    }
+
+    tracing::debug!(
+      target: "video::watch::lurq",
+      "dx12 native image cadence image={} size={}x{} draws={} version_changes={} repeated_draws={} skipped_versions={} max_draw_delta_ms={:.2} max_version_delta={} last_version={:?} stream_frame_changes={} repeated_stream_frames={} backward_stream_frames={} skipped_stream_frames={} max_stream_frame_delta={} last_stream_frame={:?}",
+      image.image_id,
+      stats.last_width,
+      stats.last_height,
+      stats.draws,
+      stats.version_changes,
+      stats.repeated_draws,
+      stats.skipped_versions,
+      duration_ms(stats.max_draw_delta),
+      stats.max_version_delta,
+      stats.last_version,
+      stats.stream_frame_changes,
+      stats.repeated_stream_frames,
+      stats.backward_stream_frames,
+      stats.skipped_stream_frames,
+      stats.max_stream_frame_delta,
+      stats.last_stream_frame
+    );
+
+    *stats = NativeImageDrawCadence {
+      started_at: now,
+      draws: 0,
+      version_changes: 0,
+      repeated_draws: 0,
+      skipped_versions: 0,
+      last_version: stats.last_version,
+      stream_frame_changes: 0,
+      repeated_stream_frames: 0,
+      backward_stream_frames: 0,
+      skipped_stream_frames: 0,
+      max_stream_frame_delta: 0,
+      last_stream_frame: stats.last_stream_frame,
+      last_draw_at: stats.last_draw_at,
+      max_draw_delta: Duration::ZERO,
+      max_version_delta: 0,
+      last_width: image.image_width,
+      last_height: image.image_height,
+    };
+  }
+
+  #[cfg(feature = "image")]
   unsafe fn draw_image(&mut self, image: &crate::images::ImageCmd) -> Result<()> {
+    let refreshed_native_image = image.native.as_ref().and_then(|native| {
+      let version = native.version();
+      (version != image.version).then(|| crate::images::ImageCmd {
+        version,
+        native: Some(native.clone()),
+        ..image.clone()
+      })
+    });
+    let image = refreshed_native_image.as_ref().unwrap_or(image);
+
     if image.image_width == 0 || image.image_height == 0 {
       return Ok(());
     }
@@ -2641,22 +3021,54 @@ impl Dx12State {
       )),
       _ => None,
     };
-    let y_keyed_mutex_acquired = native_nv12_mutexes
+    let native_stream_frame = image
+      .native
       .as_ref()
-      .and_then(|(mutex, _)| mutex.as_ref())
-      .is_some_and(|mutex| mutex.AcquireSync(1, 5).is_ok());
-    let uv_keyed_mutex_acquired = native_nv12_mutexes
-      .as_ref()
-      .and_then(|(_, mutex)| mutex.as_ref())
-      .is_some_and(|mutex| mutex.AcquireSync(1, 5).is_ok());
+      .and_then(native_dx12_nv12_image)
+      .and_then(|native| native.frame_number);
+    let descriptor_stream_frame = match self.image_textures.get(&image.image_id) {
+      Some(CachedImageTexture::NativeNv12 {
+        descriptor_stream_frames,
+        ..
+      }) => descriptor_stream_frames[self.frame_index],
+      _ => None,
+    };
+    if native_stream_frame != descriptor_stream_frame {
+      tracing::debug!(
+        target: "video::watch::lurq",
+        "dx12 native image descriptor frame mismatch image={} live_frame={:?} descriptor_frame={:?} image_version={} frame_index={} descriptor={}",
+        image.image_id,
+        native_stream_frame,
+        descriptor_stream_frame,
+        image.version,
+        self.frame_index,
+        descriptor_index
+      );
+    }
+    if native_nv12_resources.is_some() {
+      self.record_native_image_draw(image, native_stream_frame);
+    }
+    let y_keyed_mutex_acquired = acquire_native_nv12_mutex(
+      native_nv12_mutexes.as_ref().and_then(|(mutex, _)| mutex.as_ref()),
+      image.image_id,
+      image.version,
+      "y",
+    );
+    let uv_keyed_mutex_acquired = acquire_native_nv12_mutex(
+      native_nv12_mutexes.as_ref().and_then(|(_, mutex)| mutex.as_ref()),
+      image.image_id,
+      image.version,
+      "uv",
+    );
     if native_nv12_resources.is_some() {
       let draw_count = DX12_NATIVE_IMAGE_DRAW_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
       if draw_count == 1 || draw_count % 120 == 0 {
         dx12_native_image_log(format_args!(
-          "draw #{} image={} version={} y_keyed={} y_acquired={} uv_keyed={} uv_acquired={} descriptor={}",
+          "draw #{} image={} version={} stream_frame={:?} y_keyed={} y_acquired={} uv_keyed={} uv_acquired={} descriptor={}",
           draw_count,
           image.image_id,
           image.version,
+          native_stream_frame,
           native_nv12_mutexes
             .as_ref()
             .and_then(|(mutex, _)| mutex.as_ref())
@@ -3317,13 +3729,17 @@ impl Dx12State {
     if let Some(cached) = self.image_textures.get(&image.image_id) {
       match cached {
         CachedImageTexture::NativeNv12 {
-          descriptor_index,
+          descriptor_indices,
+          descriptor_versions,
+          descriptor_stream_frames: _,
           width,
           height,
           version,
           ..
         } if *width == image.image_width && *height == image.image_height => {
-          let cached_descriptor_index = *descriptor_index;
+          let frame_index = self.frame_index;
+          let cached_descriptor_index = descriptor_indices[frame_index];
+          let cached_descriptor_version = descriptor_versions[frame_index];
           let version = *version;
           let Some(dx12) = native_dx12_nv12_image(native) else {
             return Err(dx12_invalid_arg(format!(
@@ -3360,16 +3776,24 @@ impl Dx12State {
           }
 
           let descriptor_index = match cached_descriptor_index {
-            Some(descriptor_index) => descriptor_index,
+            Some(descriptor_index) => {
+              self.next_srv_index = self.next_srv_index.max(descriptor_index + 2);
+              descriptor_index
+            }
             None => {
               let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
               if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
-                cached.set_descriptor_index(descriptor_index);
+                cached.set_native_descriptor_index(frame_index, descriptor_index, 0, None);
               }
               descriptor_index
             }
           };
-          self.write_native_nv12_image_srvs(&dx12, descriptor_index);
+          if cached_descriptor_version != image.version {
+            self.write_native_nv12_image_srvs(&dx12, descriptor_index);
+            if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
+              cached.set_native_descriptor_index(frame_index, descriptor_index, image.version, dx12.frame_number);
+            }
+          }
           return Ok(descriptor_index);
         }
         _ => {
@@ -3404,6 +3828,12 @@ impl Dx12State {
       None
     };
     let uv_keyed_mutex = None;
+    let mut descriptor_indices = [None; FRAME_COUNT];
+    descriptor_indices[self.frame_index] = Some(descriptor_index);
+    let mut descriptor_versions = [0; FRAME_COUNT];
+    descriptor_versions[self.frame_index] = image.version;
+    let mut descriptor_stream_frames = [None; FRAME_COUNT];
+    descriptor_stream_frames[self.frame_index] = dx12.frame_number;
     self.image_textures.insert(
       image.image_id,
       CachedImageTexture::NativeNv12 {
@@ -3411,7 +3841,9 @@ impl Dx12State {
         _uv_texture: dx12.uv_texture.clone(),
         y_keyed_mutex,
         uv_keyed_mutex,
-        descriptor_index: Some(descriptor_index),
+        descriptor_indices,
+        descriptor_versions,
+        descriptor_stream_frames,
         width: image.image_width,
         height: image.image_height,
         version: image.version,

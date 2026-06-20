@@ -640,6 +640,8 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     #[cfg(feature = "image")]
     NodeKind::Image { .. } => "Image",
     #[cfg(feature = "image")]
+    NodeKind::Video { .. } => "Video",
+    #[cfg(feature = "image")]
     NodeKind::ResourceImage { .. } => "ResourceImage",
     #[cfg(feature = "svg")]
     NodeKind::Svg { .. } => "Svg",

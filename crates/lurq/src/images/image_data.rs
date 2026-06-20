@@ -96,12 +96,20 @@ pub struct Dx12Nv12Image {
   pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
   pub y_plane_slice: u32,
   pub uv_plane_slice: u32,
+  pub frame_number: Option<u32>,
 }
 
 #[cfg(all(feature = "dx12", target_os = "windows"))]
 #[derive(Clone)]
 pub struct Dx12Nv12ImageSlot {
-  image: Arc<RwLock<Dx12Nv12Image>>,
+  state: Arc<RwLock<Dx12Nv12ImageSlotState>>,
+}
+
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+struct Dx12Nv12ImageSlotState {
+  image: Dx12Nv12Image,
+  version: u64,
+  pending_external_bump: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -383,6 +391,15 @@ impl ImageData {
   }
 
   pub fn version(&self) -> u64 {
+    #[cfg(all(feature = "dx12", target_os = "windows"))]
+    if let Some(slot) = self
+      .native
+      .as_ref()
+      .and_then(|native| native.payload::<Dx12Nv12ImageSlot>())
+    {
+      return slot.version();
+    }
+
     self.streaming.as_ref().map_or_else(
       || self.native.as_ref().map_or(0, NativeImageData::version),
       |streaming| streaming.version.load(Ordering::Acquire),
@@ -611,10 +628,21 @@ impl NativeImageData {
   }
 
   pub fn version(&self) -> u64 {
+    #[cfg(all(feature = "dx12", target_os = "windows"))]
+    if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
+      return slot.version();
+    }
+
     self.version.load(Ordering::Acquire)
   }
 
   pub fn bump_version(&self) {
+    #[cfg(all(feature = "dx12", target_os = "windows"))]
+    if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
+      slot.bump_version();
+      return;
+    }
+
     self.version.fetch_add(1, Ordering::Release);
   }
 
@@ -627,16 +655,38 @@ impl NativeImageData {
 impl Dx12Nv12ImageSlot {
   pub fn new(image: Dx12Nv12Image) -> Self {
     Self {
-      image: Arc::new(RwLock::new(image)),
+      state: Arc::new(RwLock::new(Dx12Nv12ImageSlotState {
+        image,
+        version: 0,
+        pending_external_bump: false,
+      })),
     }
   }
 
   pub fn image(&self) -> Dx12Nv12Image {
-    self.image.read().clone()
+    self.state.read().image.clone()
   }
 
-  pub fn set_image(&self, image: Dx12Nv12Image) {
-    *self.image.write() = image;
+  pub fn set_image(&self, image: Dx12Nv12Image) -> u64 {
+    let mut state = self.state.write();
+    state.version = state.version.wrapping_add(1);
+    state.image = image;
+    state.pending_external_bump = true;
+    state.version
+  }
+
+  pub fn version(&self) -> u64 {
+    self.state.read().version
+  }
+
+  fn bump_version(&self) -> u64 {
+    let mut state = self.state.write();
+    if state.pending_external_bump {
+      state.pending_external_bump = false;
+      return state.version;
+    }
+    state.version = state.version.wrapping_add(1);
+    state.version
   }
 }
 
@@ -658,6 +708,7 @@ impl NativeImageData {
         uv_texture,
         y_plane_slice: 0,
         uv_plane_slice: 0,
+        frame_number: None,
       },
       true,
     )
@@ -678,6 +729,7 @@ impl NativeImageData {
         uv_texture: texture,
         y_plane_slice: 0,
         uv_plane_slice: 1,
+        frame_number: None,
       },
       true,
     )

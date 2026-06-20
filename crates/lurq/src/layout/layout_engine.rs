@@ -864,6 +864,21 @@ impl LayoutEngine {
         uv_max: [1.0, 1.0],
       },
       #[cfg(feature = "image")]
+      NodeKind::Video { data, fit } => {
+        let placement = background_image_placement(
+          *fit,
+          result.size.width,
+          result.size.height,
+          data.width() as f32,
+          data.height() as f32,
+        );
+        QuadContent::Video {
+          data: data.clone(),
+          uv_min: placement.uv_min,
+          uv_max: placement.uv_max,
+        }
+      }
+      #[cfg(feature = "image")]
       NodeKind::ResourceImage { .. } => QuadContent::None,
       #[cfg(feature = "svg")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
@@ -1064,6 +1079,23 @@ impl LayoutEngine {
                 clip,
               )
             }
+          }
+          #[cfg(feature = "image")]
+          NodeKind::Video { data, fit } => {
+            let placement = background_image_placement(
+              *fit,
+              result.size.width,
+              result.size.height,
+              data.width() as f32,
+              data.height() as f32,
+            );
+            (
+              abs_x + placement.x,
+              abs_y + placement.y,
+              placement.width,
+              placement.height,
+              clip,
+            )
           }
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
@@ -1933,6 +1965,16 @@ impl LayoutEngine {
       }
       #[cfg(feature = "image")]
       NodeKind::Image { data } => {
+        let preferred = node
+          .intrinsic_size
+          .unwrap_or(Size::new(data.width() as f32, data.height() as f32));
+        return LayoutResult {
+          size: constraints.constrain(preferred),
+          children: vec![],
+        };
+      }
+      #[cfg(feature = "image")]
+      NodeKind::Video { data, .. } => {
         let preferred = node
           .intrinsic_size
           .unwrap_or(Size::new(data.width() as f32, data.height() as f32));
@@ -2974,7 +3016,7 @@ impl LayoutEngine {
     #[cfg(feature = "image")]
     if matches!(
       node.node_kind(),
-      NodeKind::Image { .. } | NodeKind::ResourceImage { .. }
+      NodeKind::Image { .. } | NodeKind::Video { .. } | NodeKind::ResourceImage { .. }
     ) {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }

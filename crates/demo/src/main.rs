@@ -21,13 +21,22 @@ mod visual_demo;
 
 #[cfg(feature = "perf_profile")]
 use std::io::Write;
+use std::{
+  sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+  },
+  thread,
+  time::{Duration, Instant},
+};
 
 #[cfg(target_os = "windows")]
 use lurq::app::dx12_render::Dx12RenderEngine;
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
-  components::{Column, Modal, Outlet, Rect, Root, Router, Row, Slider, Stack},
+  components::{Column, Image, Modal, Outlet, Rect, Root, Router, Row, Slider, Stack},
   core::Signal,
+  images::ImageData,
   layout::{
     Alignment, StackAlignment,
     layout_kind::Justify,
@@ -315,6 +324,14 @@ struct DemoOptions {
   renderer: String,
   initial_route: String,
   profile_log: Option<std::path::PathBuf>,
+  continuous_video_probe: Option<ContinuousVideoProbeOptions>,
+}
+
+#[derive(Clone, Copy)]
+struct ContinuousVideoProbeOptions {
+  width: u32,
+  height: u32,
+  fps: u32,
 }
 
 fn set_selected_render_engine(tree: &mut Tree, selected_renderer: &str) -> String {
@@ -344,6 +361,7 @@ fn demo_options() -> DemoOptions {
   let mut renderer = DEFAULT_RENDERER.to_owned();
   let mut initial_route = DEFAULT_ROUTE.to_owned();
   let mut profile_log = None;
+  let mut continuous_video_probe = None;
   let mut args = std::env::args().skip(1);
   while let Some(arg) = args.next() {
     if arg == "--renderer" {
@@ -381,6 +399,48 @@ fn demo_options() -> DemoOptions {
 
     if let Some(path) = arg.strip_prefix("--profile-log=") {
       profile_log = Some(std::path::PathBuf::from(path));
+      continue;
+    }
+
+    if arg == "--continuous-video-probe" {
+      continuous_video_probe = Some(ContinuousVideoProbeOptions {
+        width: 1280,
+        height: 720,
+        fps: 120,
+      });
+      continue;
+    }
+
+    if let Some(fps) = arg.strip_prefix("--probe-fps=") {
+      continuous_video_probe
+        .get_or_insert(ContinuousVideoProbeOptions {
+          width: 1280,
+          height: 720,
+          fps: 120,
+        })
+        .fps = fps.parse().expect("--probe-fps must be a number");
+      continue;
+    }
+
+    if let Some(width) = arg.strip_prefix("--probe-width=") {
+      continuous_video_probe
+        .get_or_insert(ContinuousVideoProbeOptions {
+          width: 1280,
+          height: 720,
+          fps: 120,
+        })
+        .width = width.parse().expect("--probe-width must be a number");
+      continue;
+    }
+
+    if let Some(height) = arg.strip_prefix("--probe-height=") {
+      continuous_video_probe
+        .get_or_insert(ContinuousVideoProbeOptions {
+          width: 1280,
+          height: 720,
+          fps: 120,
+        })
+        .height = height.parse().expect("--probe-height must be a number");
     }
   }
 
@@ -388,6 +448,7 @@ fn demo_options() -> DemoOptions {
     renderer,
     initial_route,
     profile_log,
+    continuous_video_probe,
   }
 }
 
@@ -433,9 +494,247 @@ fn init_tracing() {
   let _ = tracing_subscriber::fmt().with_env_filter(filter).compact().try_init();
 }
 
+struct ContinuousVideoProbeStats {
+  started_at: Instant,
+  paints: u32,
+  rendered: u32,
+  version_changes: u32,
+  repeated_versions: u32,
+  skipped_versions: u64,
+  max_paint_delta: Duration,
+  last_version: Option<u64>,
+}
+
+impl ContinuousVideoProbeStats {
+  fn new(now: Instant) -> Self {
+    Self {
+      started_at: now,
+      paints: 0,
+      rendered: 0,
+      version_changes: 0,
+      repeated_versions: 0,
+      skipped_versions: 0,
+      max_paint_delta: Duration::ZERO,
+      last_version: None,
+    }
+  }
+}
+
+fn run_continuous_video_probe(options: DemoOptions, probe: ContinuousVideoProbeOptions) {
+  let app = App::new();
+  let mut tree = Tree::new();
+  let renderer = set_selected_render_engine(&mut tree, &options.renderer);
+  let image = ImageData::streaming_rgba(
+    vec![0; (probe.width * probe.height * 4) as usize],
+    probe.width,
+    probe.height,
+  );
+  let produced = Arc::new(AtomicU64::new(0));
+  let stop = Arc::new(AtomicBool::new(false));
+  start_continuous_video_probe_producer(image.clone(), probe, produced.clone(), stop.clone());
+
+  tree.set_root(
+    Stack::new()
+      .child(
+        Image::new(image.clone())
+          .width(Dimension::Pct(100.0))
+          .height(Dimension::Pct(100.0)),
+      )
+      .width(Dimension::Pct(100.0))
+      .height(Dimension::Pct(100.0))
+      .background("#0f172a"),
+  );
+
+  let stats = Arc::new(Mutex::new(ContinuousVideoProbeStats::new(Instant::now())));
+  let stats_for_paint = stats.clone();
+  let image_for_paint = image.clone();
+  let produced_for_paint = produced.clone();
+  let title = format!(
+    "lurq continuous video probe ({renderer}) {}x{} @ {}fps",
+    probe.width, probe.height, probe.fps
+  );
+  tracing::info!(
+    target: "video::watch::lurq",
+    "continuous video probe start renderer={} size={}x{} target_fps={}",
+    renderer,
+    probe.width,
+    probe.height,
+    probe.fps
+  );
+  WinitWindow::new(app, tree)
+    .with_title(&title)
+    .with_size(probe.width.min(1280), probe.height.min(720))
+    .on_paint(move |_tree, delta, report| {
+      let now = Instant::now();
+      let version = image_for_paint.version();
+      let mut stats = stats_for_paint.lock().expect("continuous video probe stats lock");
+      stats.paints += 1;
+      stats.rendered += u32::from(report.rendered);
+      stats.max_paint_delta = stats.max_paint_delta.max(delta);
+      match stats.last_version {
+        Some(last_version) if version == last_version => {
+          stats.repeated_versions += 1;
+        }
+        Some(last_version) => {
+          stats.version_changes += 1;
+          stats.skipped_versions += version.saturating_sub(last_version).saturating_sub(1);
+        }
+        None => {
+          stats.version_changes += 1;
+        }
+      }
+      stats.last_version = Some(version);
+      if now.duration_since(stats.started_at) < Duration::from_secs(1) {
+        return;
+      }
+      tracing::info!(
+        target: "video::watch::lurq",
+        "continuous video probe render produced={} paints={} rendered={} version_changes={} repeated_versions={} skipped_versions={} max_paint_delta_ms={:.2} last_version={}",
+        produced_for_paint.load(Ordering::Relaxed),
+        stats.paints,
+        stats.rendered,
+        stats.version_changes,
+        stats.repeated_versions,
+        stats.skipped_versions,
+        stats.max_paint_delta.as_secs_f64() * 1000.0,
+        version
+      );
+      *stats = ContinuousVideoProbeStats::new(now);
+      stats.last_version = Some(version);
+    })
+    .run();
+  stop.store(true, Ordering::Relaxed);
+}
+
+fn start_continuous_video_probe_producer(
+  image: ImageData,
+  probe: ContinuousVideoProbeOptions,
+  produced: Arc<AtomicU64>,
+  stop: Arc<AtomicBool>,
+) {
+  thread::spawn(move || {
+    let interval = Duration::from_secs_f64(1.0 / probe.fps.max(1) as f64);
+    let mut next_frame_at = Instant::now();
+    let mut last_frame_at = None;
+    let mut stats_started_at = Instant::now();
+    let mut frames = 0_u32;
+    let mut max_frame_delta = Duration::ZERO;
+    while !stop.load(Ordering::Relaxed) {
+      let now = Instant::now();
+      if now < next_frame_at {
+        thread::sleep((next_frame_at - now).min(Duration::from_millis(1)));
+        continue;
+      }
+      if let Some(last) = last_frame_at {
+        max_frame_delta = max_frame_delta.max(now.duration_since(last));
+      }
+      last_frame_at = Some(now);
+      let frame = produced.fetch_add(1, Ordering::Relaxed) + 1;
+      image.update_streaming_rgba(|pixels| {
+        fill_continuous_video_probe_frame(pixels, probe.width, probe.height, frame);
+      });
+      frames += 1;
+      next_frame_at += interval;
+      if now.duration_since(stats_started_at) >= Duration::from_secs(1) {
+        tracing::info!(
+          target: "video::watch::lurq",
+          "continuous video probe producer target_fps={} produced={} max_frame_delta_ms={:.2}",
+          probe.fps,
+          frames,
+          max_frame_delta.as_secs_f64() * 1000.0
+        );
+        frames = 0;
+        max_frame_delta = Duration::ZERO;
+        stats_started_at = now;
+      }
+    }
+  });
+}
+
+fn fill_continuous_video_probe_frame(pixels: &mut [u8], width: u32, height: u32, frame: u64) {
+  let width = width as usize;
+  let height = height as usize;
+  if width == 0 || height == 0 {
+    return;
+  }
+  let expected_len = width.saturating_mul(height).saturating_mul(4);
+  if pixels.len() < expected_len {
+    return;
+  }
+
+  let marker_width = width.min(72);
+  let marker_height = height.min(72);
+  let background = [8, 12, 24, 255];
+  let previous_x = ((frame.saturating_sub(1) as usize * 11) % width).min(width - 1);
+  let current_x = ((frame as usize * 11) % width).min(width - 1);
+  let previous_y = ((frame.saturating_sub(1) as usize * 7) % height).min(height - 1);
+  let current_y = ((frame as usize * 7) % height).min(height - 1);
+
+  fill_wrapped_rect(pixels, width, height, previous_x, 0, marker_width, height, background);
+  fill_wrapped_rect(pixels, width, height, 0, previous_y, width, marker_height, background);
+
+  let vertical_color = [
+    frame.wrapping_mul(17) as u8,
+    frame.wrapping_mul(31).wrapping_add(80) as u8,
+    245,
+    255,
+  ];
+  let horizontal_color = [
+    245,
+    frame.wrapping_mul(23).wrapping_add(40) as u8,
+    frame.wrapping_mul(13) as u8,
+    255,
+  ];
+  fill_wrapped_rect(
+    pixels,
+    width,
+    height,
+    current_x,
+    0,
+    marker_width,
+    height,
+    vertical_color,
+  );
+  fill_wrapped_rect(
+    pixels,
+    width,
+    height,
+    0,
+    current_y,
+    width,
+    marker_height,
+    horizontal_color,
+  );
+}
+
+fn fill_wrapped_rect(
+  pixels: &mut [u8],
+  width: usize,
+  height: usize,
+  x: usize,
+  y: usize,
+  rect_width: usize,
+  rect_height: usize,
+  color: [u8; 4],
+) {
+  for row in 0..rect_height {
+    let py = (y + row) % height;
+    for col in 0..rect_width {
+      let px = (x + col) % width;
+      let i = (py * width + px) * 4;
+      pixels[i..i + 4].copy_from_slice(&color);
+    }
+  }
+}
+
 fn main() {
   init_tracing();
   let options = demo_options();
+  if let Some(probe) = options.continuous_video_probe {
+    run_continuous_video_probe(options, probe);
+    return;
+  }
+
   let mut app = App::new();
   let mut tree = Tree::new();
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));

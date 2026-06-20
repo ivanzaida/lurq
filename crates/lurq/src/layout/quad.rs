@@ -54,6 +54,12 @@ pub enum QuadContent {
     uv_min: [f32; 2],
     uv_max: [f32; 2],
   },
+  #[cfg(feature = "image")]
+  Video {
+    data: crate::images::ImageData,
+    uv_min: [f32; 2],
+    uv_max: [f32; 2],
+  },
   #[cfg(feature = "svg")]
   Svg {
     data: crate::svg::SvgData,

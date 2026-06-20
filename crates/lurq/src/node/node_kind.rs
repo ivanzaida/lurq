@@ -72,6 +72,11 @@ pub(crate) enum NodeKind {
     data: crate::images::ImageData,
   },
   #[cfg(feature = "image")]
+  Video {
+    data: crate::images::ImageData,
+    fit: crate::node::BackgroundSize,
+  },
+  #[cfg(feature = "image")]
   ResourceImage {
     path: Arc<str>,
   },

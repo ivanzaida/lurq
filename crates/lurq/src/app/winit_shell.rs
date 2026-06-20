@@ -27,6 +27,11 @@ use crate::{
   node::{CursorIcon, color::Color},
 };
 
+const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
+const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
+const WINIT_SLOW_SCOPE_THRESHOLD: Duration = Duration::from_millis(45);
+const WINIT_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
+
 type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
 type PaintFn = Box<dyn FnMut(&Tree, Duration, PassReport)>;
 type PositionChangedFn = Box<dyn FnMut(i32, i32)>;
@@ -196,6 +201,7 @@ impl WinitWindow {
         true,
       ),
       secondaries,
+      loop_cadence: WinitLoopCadence::new(Instant::now()),
     };
     event_loop.run_app(&mut handler).unwrap();
   }
@@ -217,6 +223,7 @@ struct ManagedWindow {
   close_exits: bool,
   last_tick: Instant,
   last_paint: Instant,
+  continuous_redraw_until: Option<Instant>,
 }
 
 impl ManagedWindow {
@@ -246,6 +253,7 @@ impl ManagedWindow {
       close_exits,
       last_tick: Instant::now(),
       last_paint: Instant::now(),
+      continuous_redraw_until: None,
     }
   }
 
@@ -284,7 +292,7 @@ impl ManagedWindow {
     }
     self.window = Some(window);
     self.sync_window_state();
-    let presented = show_after_first_present && self.present_now(app);
+    let presented = show_after_first_present && self.present_now(app, true);
     if show_after_first_present {
       if let Some(window) = &self.window {
         window.set_visible(true);
@@ -442,25 +450,67 @@ impl ManagedWindow {
     }
   }
 
-  fn present_now(&mut self, app: &mut App) -> bool {
+  fn present_now(&mut self, app: &mut App, request_followup_redraw: bool) -> bool {
     if let Some(w) = &self.window {
+      let started_at = Instant::now();
+      let setup_started_at = Instant::now();
       let size = w.inner_size();
       self.tree.set_scale_factor(w.scale_factor() as f32);
       self.tree.resize(size.width, size.height);
       self.redraw_pending = false;
+      let setup = setup_started_at.elapsed();
+      let pass_started_at = Instant::now();
       let report = self.tree.pass(app, w);
+      let pass = pass_started_at.elapsed();
       let presented = report.rendered;
+      let mut paint_duration = Duration::ZERO;
       if presented {
         let now = Instant::now();
         let delta = now.duration_since(self.last_paint);
         self.last_paint = now;
         if let Some(paint) = &mut self.on_paint {
+          let paint_started_at = Instant::now();
           paint(&self.tree, delta, report);
+          paint_duration = paint_started_at.elapsed();
         }
       }
-      self.check_redraw();
+      let followup_started_at = Instant::now();
+      if request_followup_redraw {
+        self.check_redraw();
+      }
+      let followup = followup_started_at.elapsed();
+      let total = started_at.elapsed();
+      if total >= WINIT_BREAKDOWN_THRESHOLD {
+        tracing::debug!(
+          target: "video::watch::lurq",
+          "winit present_now breakdown total_ms={:.2} setup_ms={:.2} pass_ms={:.2} paint_ms={:.2} followup_ms={:.2} rendered={} cached={} request_followup_redraw={} reasons={:?}",
+          duration_ms(total),
+          duration_ms(setup),
+          duration_ms(pass),
+          duration_ms(paint_duration),
+          duration_ms(followup),
+          presented,
+          report.used_cached_render_list,
+          request_followup_redraw,
+          report.reasons
+        );
+      }
       return presented;
     }
+    false
+  }
+
+  fn has_continuous_redraw_video_recently(&mut self, now: Instant) -> bool {
+    if self.tree.has_continuous_redraw_video() {
+      self.continuous_redraw_until = now.checked_add(CONTINUOUS_REDRAW_GRACE);
+      return true;
+    }
+
+    if self.continuous_redraw_until.is_some_and(|until| now <= until) {
+      return true;
+    }
+
+    self.continuous_redraw_until = None;
     false
   }
 
@@ -488,10 +538,20 @@ impl ManagedWindow {
     self.tree.tick_futures();
     self.tree.tick_perf_overlay();
     self.tree.tick_scheduled_redraw(now);
-    if self.tree.has_active_timeline() || self.tree.perf_overlay_enabled() {
+    let has_continuous_video = self.has_continuous_redraw_video_recently(now);
+    if has_continuous_video {
+      // Video streams are presented directly from about_to_wait. Requesting
+      // winit redraw events for the same stream adds a second, irregular presentation
+      // path that can reset last_paint and create visible cadence gaps.
+    } else if self.tree.has_active_timeline()
+      || self.tree.perf_overlay_enabled()
+      || self.tree.has_continuous_redraw_image()
+    {
       self.request_redraw_for_next_refresh(now);
     }
-    self.check_redraw();
+    if !has_continuous_video {
+      self.check_redraw();
+    }
   }
 
   fn request_redraw_for_next_refresh(&mut self, now: Instant) {
@@ -511,7 +571,7 @@ impl ManagedWindow {
       .and_then(|monitor| monitor.refresh_rate_millihertz())
       .filter(|rate| *rate > 0)
       .map(|rate| Duration::from_nanos((1_000_000_000_000u64 / rate as u64).max(1)))
-      .unwrap_or_else(|| Duration::from_micros(16_667))
+      .unwrap_or(FALLBACK_REFRESH_INTERVAL)
   }
 
   fn notify_position_changed(&mut self, x: i32, y: i32) {
@@ -663,7 +723,7 @@ impl ManagedWindow {
         self.check_redraw();
       }
       WindowEvent::RedrawRequested => {
-        let presented = self.present_now(app);
+        let presented = self.present_now(app, true);
         self.apply_window_commands(event_loop);
         return presented;
       }
@@ -920,7 +980,7 @@ impl ManagedSecondaryWindow {
     tree.tick_futures();
     tree.tick_perf_overlay();
     tree.tick_scheduled_redraw(now);
-    if tree.has_active_timeline() || tree.perf_overlay_enabled() {
+    if tree.has_active_timeline() || tree.perf_overlay_enabled() || tree.has_continuous_redraw_image() {
       self.request_redraw_for_next_refresh(tree, now);
     }
     self.check_redraw(tree);
@@ -943,7 +1003,7 @@ impl ManagedSecondaryWindow {
       .and_then(|monitor| monitor.refresh_rate_millihertz())
       .filter(|rate| *rate > 0)
       .map(|rate| Duration::from_nanos((1_000_000_000_000u64 / rate as u64).max(1)))
-      .unwrap_or_else(|| Duration::from_micros(16_667))
+      .unwrap_or(FALLBACK_REFRESH_INTERVAL)
   }
 
   fn handle_event(
@@ -1102,6 +1162,121 @@ struct WinitHandler {
   app: App,
   main: ManagedWindow,
   secondaries: Vec<ManagedSecondaryWindow>,
+  loop_cadence: WinitLoopCadence,
+}
+
+struct WinitLoopCadence {
+  started_at: Instant,
+  ticks: u32,
+  direct_presents: u32,
+  redraw_requests: u32,
+  poll_requests: u32,
+  wait_until_requests: u32,
+  wait_requests: u32,
+  continuous_ticks: u32,
+  redraw_pending_ticks: u32,
+  last_tick_at: Option<Instant>,
+  max_tick_delta: Duration,
+}
+
+fn duration_ms(duration: Duration) -> f64 {
+  duration.as_secs_f64() * 1000.0
+}
+
+impl WinitLoopCadence {
+  fn new(now: Instant) -> Self {
+    Self {
+      started_at: now,
+      ticks: 0,
+      direct_presents: 0,
+      redraw_requests: 0,
+      poll_requests: 0,
+      wait_until_requests: 0,
+      wait_requests: 0,
+      continuous_ticks: 0,
+      redraw_pending_ticks: 0,
+      last_tick_at: None,
+      max_tick_delta: Duration::ZERO,
+    }
+  }
+
+  fn record(
+    &mut self,
+    now: Instant,
+    has_continuous_redraw_image: bool,
+    redraw_pending: bool,
+    direct_presented: bool,
+    redraw_requested: bool,
+    control_flow: &'static str,
+  ) {
+    if let Some(last_tick_at) = self.last_tick_at {
+      self.max_tick_delta = self.max_tick_delta.max(now.saturating_duration_since(last_tick_at));
+    }
+    self.last_tick_at = Some(now);
+    self.ticks += 1;
+    self.direct_presents += u32::from(direct_presented);
+    self.redraw_requests += u32::from(redraw_requested);
+    self.continuous_ticks += u32::from(has_continuous_redraw_image);
+    self.redraw_pending_ticks += u32::from(redraw_pending);
+    match control_flow {
+      "poll" => self.poll_requests += 1,
+      "wait_until" => self.wait_until_requests += 1,
+      _ => self.wait_requests += 1,
+    }
+
+    if now.saturating_duration_since(self.started_at) < Duration::from_secs(1) {
+      return;
+    }
+
+    tracing::debug!(
+      target: "video::watch::lurq",
+      "winit loop cadence ticks={} max_tick_delta_ms={:.2} continuous_ticks={} redraw_pending_ticks={} direct_presents={} redraw_requests={} poll={} wait_until={} wait={}",
+      self.ticks,
+      duration_ms(self.max_tick_delta),
+      self.continuous_ticks,
+      self.redraw_pending_ticks,
+      self.direct_presents,
+      self.redraw_requests,
+      self.poll_requests,
+      self.wait_until_requests,
+      self.wait_requests
+    );
+
+    *self = Self::new(now);
+  }
+}
+
+struct WinitSlowScope {
+  name: &'static str,
+  detail: &'static str,
+  started_at: Instant,
+}
+
+impl WinitSlowScope {
+  fn new(name: &'static str, detail: &'static str) -> Self {
+    Self {
+      name,
+      detail,
+      started_at: Instant::now(),
+    }
+  }
+}
+
+impl Drop for WinitSlowScope {
+  fn drop(&mut self) {
+    let elapsed = self.started_at.elapsed();
+    if elapsed < WINIT_SLOW_SCOPE_THRESHOLD {
+      return;
+    }
+
+    tracing::debug!(
+      target: "video::watch::lurq",
+      "winit slow scope name={} detail={} elapsed_ms={:.2}",
+      self.name,
+      self.detail,
+      duration_ms(elapsed)
+    );
+  }
 }
 
 impl WinitHandler {
@@ -1215,6 +1390,39 @@ impl WinitHandler {
   }
 }
 
+fn window_event_name(event: &WindowEvent) -> &'static str {
+  match event {
+    WindowEvent::ActivationTokenDone { .. } => "ActivationTokenDone",
+    WindowEvent::Resized(_) => "Resized",
+    WindowEvent::Moved(_) => "Moved",
+    WindowEvent::CloseRequested => "CloseRequested",
+    WindowEvent::Destroyed => "Destroyed",
+    WindowEvent::DroppedFile(_) => "DroppedFile",
+    WindowEvent::HoveredFile(_) => "HoveredFile",
+    WindowEvent::HoveredFileCancelled => "HoveredFileCancelled",
+    WindowEvent::Focused(_) => "Focused",
+    WindowEvent::KeyboardInput { .. } => "KeyboardInput",
+    WindowEvent::ModifiersChanged(_) => "ModifiersChanged",
+    WindowEvent::Ime(_) => "Ime",
+    WindowEvent::CursorMoved { .. } => "CursorMoved",
+    WindowEvent::CursorEntered { .. } => "CursorEntered",
+    WindowEvent::CursorLeft { .. } => "CursorLeft",
+    WindowEvent::MouseWheel { .. } => "MouseWheel",
+    WindowEvent::MouseInput { .. } => "MouseInput",
+    WindowEvent::PinchGesture { .. } => "PinchGesture",
+    WindowEvent::PanGesture { .. } => "PanGesture",
+    WindowEvent::DoubleTapGesture { .. } => "DoubleTapGesture",
+    WindowEvent::RotationGesture { .. } => "RotationGesture",
+    WindowEvent::TouchpadPressure { .. } => "TouchpadPressure",
+    WindowEvent::AxisMotion { .. } => "AxisMotion",
+    WindowEvent::Touch(_) => "Touch",
+    WindowEvent::ScaleFactorChanged { .. } => "ScaleFactorChanged",
+    WindowEvent::ThemeChanged(_) => "ThemeChanged",
+    WindowEvent::Occluded(_) => "Occluded",
+    WindowEvent::RedrawRequested => "RedrawRequested",
+  }
+}
+
 impl ApplicationHandler for WinitHandler {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop, &mut self.app);
@@ -1222,15 +1430,56 @@ impl ApplicationHandler for WinitHandler {
   }
 
   fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    let event_name = window_event_name(&event);
+    let _slow_scope = WinitSlowScope::new("window_event", event_name);
     if self.main.window_id() == Some(id) {
-      if self.handle_secondary_pick_event(&event) {
+      if matches!(event, WindowEvent::RedrawRequested) && self.main.has_continuous_redraw_video_recently(Instant::now())
+      {
+        self.main.redraw_pending = false;
         return;
       }
+      let started_at = Instant::now();
+      let pick_started_at = Instant::now();
+      if self.handle_secondary_pick_event(&event) {
+        let pick = pick_started_at.elapsed();
+        let total = started_at.elapsed();
+        if total >= WINIT_BREAKDOWN_THRESHOLD {
+          tracing::debug!(
+            target: "video::watch::lurq",
+            "winit window_event breakdown event={} total_ms={:.2} pick_ms={:.2} handle_ms=0.00 secondary_requests_ms=0.00 post_present_ms=0.00 presented=false picked=true",
+            event_name,
+            duration_ms(total),
+            duration_ms(pick)
+          );
+        }
+        return;
+      }
+      let pick = pick_started_at.elapsed();
+      let handle_started_at = Instant::now();
       let presented = self.main.handle_event(&mut self.app, event_loop, event);
+      let handle = handle_started_at.elapsed();
+      let requests_started_at = Instant::now();
       self.apply_secondary_window_requests(event_loop);
+      let requests = requests_started_at.elapsed();
+      let post_present_started_at = Instant::now();
       if presented {
         self.check_secondary_redraw();
         self.present_dirty_secondaries();
+      }
+      let post_present = post_present_started_at.elapsed();
+      let total = started_at.elapsed();
+      if total >= WINIT_BREAKDOWN_THRESHOLD {
+        tracing::debug!(
+          target: "video::watch::lurq",
+          "winit window_event breakdown event={} total_ms={:.2} pick_ms={:.2} handle_ms={:.2} secondary_requests_ms={:.2} post_present_ms={:.2} presented={} picked=false",
+          event_name,
+          duration_ms(total),
+          duration_ms(pick),
+          duration_ms(handle),
+          duration_ms(requests),
+          duration_ms(post_present),
+          presented
+        );
       }
       return;
     }
@@ -1260,9 +1509,38 @@ impl ApplicationHandler for WinitHandler {
   }
 
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    let _slow_scope = WinitSlowScope::new("about_to_wait", "main");
+    let started_at = Instant::now();
+    let stage_started_at = Instant::now();
     self.main.tick();
+    let tick = stage_started_at.elapsed();
+    let stage_started_at = Instant::now();
     self.main.apply_window_commands(event_loop);
+    let main_commands = stage_started_at.elapsed();
+    let stage_started_at = Instant::now();
     self.apply_secondary_window_requests(event_loop);
+    let secondary_requests = stage_started_at.elapsed();
+    let mut direct_presented = false;
+    let stage_started_at = Instant::now();
+    let now = Instant::now();
+    let main_has_continuous_video = self.main.has_continuous_redraw_video_recently(now);
+    let continuous_check = stage_started_at.elapsed();
+    let mut present = Duration::ZERO;
+    let mut post_present = Duration::ZERO;
+    if main_has_continuous_video {
+      let stage_started_at = Instant::now();
+      let presented = self.main.present_now(&mut self.app, false);
+      present = stage_started_at.elapsed();
+      direct_presented = presented;
+      let stage_started_at = Instant::now();
+      self.apply_secondary_window_requests(event_loop);
+      if presented {
+        self.check_secondary_redraw();
+        self.present_dirty_secondaries();
+      }
+      post_present = stage_started_at.elapsed();
+    }
+    let stage_started_at = Instant::now();
     let mut position = 0;
     while position < self.secondaries.len() {
       let secondary_index = self.secondaries[position].index();
@@ -1279,8 +1557,12 @@ impl ApplicationHandler for WinitHandler {
         position += 1;
       }
     }
+    let secondary_tick = stage_started_at.elapsed();
+    let stage_started_at = Instant::now();
     self.sync_secondary_windows(event_loop);
+    let sync_secondary = stage_started_at.elapsed();
 
+    let stage_started_at = Instant::now();
     let secondary_has_tick = self.secondaries.iter().any(|secondary_window| {
       self
         .main
@@ -1288,7 +1570,23 @@ impl ApplicationHandler for WinitHandler {
         .secondary_window(secondary_window.index())
         .is_some_and(|secondary| secondary_window.has_tick(Some(secondary.tree())))
     });
+    let secondary_has_continuous_video = self.secondaries.iter().any(|secondary_window| {
+      self
+        .main
+        .tree
+        .secondary_window(secondary_window.index())
+        .is_some_and(|secondary| secondary.tree().has_continuous_redraw_video())
+    });
+    let has_continuous_video = main_has_continuous_video || secondary_has_continuous_video;
     let redraw_pending = self.main.redraw_pending || self.secondaries.iter().any(|secondary| secondary.redraw_pending);
+    let redraw_requested = self.main.tree.needs_redraw()
+      || self.secondaries.iter().any(|secondary_window| {
+        self
+          .main
+          .tree
+          .secondary_window(secondary_window.index())
+          .is_some_and(|secondary| secondary.tree().needs_redraw())
+      });
     let next_scheduled_redraw = self
       .secondaries
       .iter()
@@ -1302,12 +1600,51 @@ impl ApplicationHandler for WinitHandler {
       .chain(self.main.tree.next_scheduled_redraw())
       .min();
 
-    if let Some(next_redraw) = next_scheduled_redraw.filter(|_| !redraw_pending) {
+    let control_flow;
+    if has_continuous_video {
+      control_flow = "poll";
+      event_loop.set_control_flow(ControlFlow::Poll);
+    } else if let Some(next_redraw) = next_scheduled_redraw.filter(|_| !redraw_pending) {
+      control_flow = "wait_until";
       event_loop.set_control_flow(ControlFlow::WaitUntil(next_redraw));
     } else if (self.main.has_tick() || secondary_has_tick) && !redraw_pending {
+      control_flow = "poll";
       event_loop.set_control_flow(ControlFlow::Poll);
     } else {
+      control_flow = "wait";
       event_loop.set_control_flow(ControlFlow::Wait);
+    }
+    self.loop_cadence.record(
+      now,
+      has_continuous_video,
+      redraw_pending,
+      direct_presented,
+      redraw_requested,
+      control_flow,
+    );
+    let control_flow_duration = stage_started_at.elapsed();
+    let total = started_at.elapsed();
+    if total >= WINIT_BREAKDOWN_THRESHOLD {
+      tracing::debug!(
+        target: "video::watch::lurq",
+        "winit about_to_wait breakdown total_ms={:.2} tick_ms={:.2} main_commands_ms={:.2} secondary_requests_ms={:.2} continuous_check_ms={:.2} present_ms={:.2} post_present_ms={:.2} secondary_tick_ms={:.2} sync_secondary_ms={:.2} control_flow_ms={:.2} main_video={} secondary_video={} direct_presented={} redraw_pending={} redraw_requested={} control_flow={}",
+        duration_ms(total),
+        duration_ms(tick),
+        duration_ms(main_commands),
+        duration_ms(secondary_requests),
+        duration_ms(continuous_check),
+        duration_ms(present),
+        duration_ms(post_present),
+        duration_ms(secondary_tick),
+        duration_ms(sync_secondary),
+        duration_ms(control_flow_duration),
+        main_has_continuous_video,
+        secondary_has_continuous_video,
+        direct_presented,
+        redraw_pending,
+        redraw_requested,
+        control_flow
+      );
     }
   }
 }

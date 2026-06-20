@@ -70,6 +70,7 @@ const TEXT_INPUT_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(530);
 const PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const VIDEO_TIMELINE_SAMPLE_INTERVAL_MS: u64 = 1_000;
 const SLOW_FRAME_PASS_TIMELINE_THRESHOLD: Duration = Duration::from_millis(16);
+const PASS_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
@@ -372,6 +373,8 @@ struct CachedRenderList {
   list: RenderList,
   #[cfg(feature = "image")]
   image_sources: Vec<Option<crate::images::ImageData>>,
+  #[cfg(feature = "image")]
+  video_sources: Vec<Option<crate::images::ImageData>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -383,6 +386,7 @@ pub struct PassReasons {
   pub future_completed: bool,
   pub future_active: bool,
   pub timeline_active: bool,
+  pub continuous_redraw_image: bool,
   pub perf_overlay: bool,
   pub pending_click: bool,
   pub input_interaction: bool,
@@ -402,6 +406,7 @@ impl PassReasons {
       || self.future_completed
       || self.future_active
       || self.timeline_active
+      || self.continuous_redraw_image
       || self.perf_overlay
       || self.pending_click
       || self.input_interaction
@@ -420,6 +425,7 @@ impl PassReasons {
     self.future_completed |= other.future_completed;
     self.future_active |= other.future_active;
     self.timeline_active |= other.timeline_active;
+    self.continuous_redraw_image |= other.continuous_redraw_image;
     self.perf_overlay |= other.perf_overlay;
     self.pending_click |= other.pending_click;
     self.input_interaction |= other.input_interaction;
@@ -439,6 +445,46 @@ pub struct PassReport {
   pub layout_updated: bool,
   pub layout_recalculated: bool,
   pub reasons: PassReasons,
+}
+
+fn duration_ms(duration: Duration) -> f64 {
+  duration.as_secs_f64() * 1000.0
+}
+
+fn log_pass_breakdown(
+  path: &'static str,
+  started_at: Instant,
+  setup: Duration,
+  initial_cache: Duration,
+  layout: Duration,
+  second_cache: Duration,
+  quad: Duration,
+  glyph: Duration,
+  gpu: Duration,
+  report: PassReport,
+) {
+  let total = started_at.elapsed();
+  if total < PASS_BREAKDOWN_THRESHOLD {
+    return;
+  }
+
+  tracing::debug!(
+    target: "video::watch::lurq",
+    "lurq pass breakdown path={} total_ms={:.2} setup_ms={:.2} initial_cache_ms={:.2} layout_ms={:.2} second_cache_ms={:.2} quad_ms={:.2} glyph_ms={:.2} gpu_ms={:.2} rendered={} cached={} required={} reasons={:?}",
+    path,
+    duration_ms(total),
+    duration_ms(setup),
+    duration_ms(initial_cache),
+    duration_ms(layout),
+    duration_ms(second_cache),
+    duration_ms(quad),
+    duration_ms(glyph),
+    duration_ms(gpu),
+    report.rendered,
+    report.used_cached_render_list,
+    report.required,
+    report.reasons
+  );
 }
 
 pub struct Tree {
@@ -994,6 +1040,7 @@ impl Tree {
   pub(crate) fn has_active_tick_sources(&self) -> bool {
     self.perf_overlay_enabled
       || self.has_active_timeline()
+      || self.has_continuous_redraw_image()
       || self.has_active_input_interaction()
       || self.click_tracker.has_pending()
       || self.has_focused_blinking_text_input(CaretMode::Blinking)
@@ -1005,6 +1052,43 @@ impl Tree {
 
   pub(crate) fn has_active_timeline(&self) -> bool {
     self.transition_engine.has_active || self.animation_engine.has_active
+  }
+
+  pub(crate) fn has_continuous_redraw_image(&self) -> bool {
+    #[cfg(feature = "image")]
+    {
+      self.cached_render_list.as_ref().is_some_and(|cached| {
+        cached
+          .image_sources
+          .iter()
+          .flatten()
+          .any(crate::images::ImageData::requires_continuous_redraw)
+      })
+    }
+
+    #[cfg(not(feature = "image"))]
+    {
+      false
+    }
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn has_continuous_redraw_video(&self) -> bool {
+    #[cfg(feature = "image")]
+    {
+      self.cached_render_list.as_ref().is_some_and(|cached| {
+        cached
+          .video_sources
+          .iter()
+          .flatten()
+          .any(crate::images::ImageData::requires_continuous_redraw)
+      })
+    }
+
+    #[cfg(not(feature = "image"))]
+    {
+      false
+    }
   }
 
   pub fn frame_count(&self) -> u64 {
@@ -1555,6 +1639,7 @@ impl Tree {
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
+    let pass_started_at = Instant::now();
     self.tick_scheduled_redraw(Instant::now());
     let theme_version = self
       .root_ctx
@@ -1574,8 +1659,21 @@ impl Tree {
       reasons,
       ..PassReport::default()
     };
+    let setup = pass_started_at.elapsed();
     if !self.needs_redraw && !self.has_active_tick_sources() && self.last_theme_version == theme_version {
       self.pending_pass_reasons = PassReasons::default();
+      log_pass_breakdown(
+        "not_required",
+        pass_started_at,
+        setup,
+        Duration::ZERO,
+        Duration::ZERO,
+        Duration::ZERO,
+        Duration::ZERO,
+        Duration::ZERO,
+        Duration::ZERO,
+        report,
+      );
       return report;
     }
     self.pending_pass_reasons = PassReasons::default();
@@ -1594,19 +1692,50 @@ impl Tree {
     let now = Instant::now();
     self.flush_due_pending_click(now);
 
-    if self.root.is_some() && self.render_engine.is_some() {
+    let initial_cache_start = Instant::now();
+    let initial_cache_result = if self.root.is_some() && self.render_engine.is_some() {
       let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
       let window = surface.window_handle().unwrap();
       let display = surface.display_handle().unwrap();
-      match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
-        Some(true) => {
-          report.rendered = true;
-          report.used_cached_render_list = true;
-          return report;
-        }
-        Some(false) => return report,
-        None => {}
+      self.try_render_cached_render_list(app, clear_color, window, display, report.reasons)
+    } else {
+      None
+    };
+    let initial_cache = initial_cache_start.elapsed();
+    match initial_cache_result {
+      Some(true) => {
+        report.rendered = true;
+        report.used_cached_render_list = true;
+        log_pass_breakdown(
+          "initial_cache_hit",
+          pass_started_at,
+          setup,
+          initial_cache,
+          Duration::ZERO,
+          Duration::ZERO,
+          Duration::ZERO,
+          Duration::ZERO,
+          Duration::ZERO,
+          report,
+        );
+        return report;
       }
+      Some(false) => {
+        log_pass_breakdown(
+          "initial_cache_skip",
+          pass_started_at,
+          setup,
+          initial_cache,
+          Duration::ZERO,
+          Duration::ZERO,
+          Duration::ZERO,
+          Duration::ZERO,
+          Duration::ZERO,
+          report,
+        );
+        return report;
+      }
+      None => {}
     }
 
     let layout_wall_start = Instant::now();
@@ -1630,16 +1759,46 @@ impl Tree {
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();
 
+    let mut second_cache = Duration::ZERO;
     if report.layout_recalculated {
       log_render_list_cache_miss_timeline("layout_recalculated", report.reasons);
     } else {
-      match self.try_render_cached_render_list(app, clear_color, window, display, report.reasons) {
+      let second_cache_start = Instant::now();
+      let second_cache_result = self.try_render_cached_render_list(app, clear_color, window, display, report.reasons);
+      second_cache = second_cache_start.elapsed();
+      match second_cache_result {
         Some(true) => {
           report.rendered = true;
           report.used_cached_render_list = true;
+          log_pass_breakdown(
+            "second_cache_hit",
+            pass_started_at,
+            setup,
+            initial_cache,
+            layout_wall_dur,
+            second_cache,
+            Duration::ZERO,
+            Duration::ZERO,
+            Duration::ZERO,
+            report,
+          );
           return report;
         }
-        Some(false) => return report,
+        Some(false) => {
+          log_pass_breakdown(
+            "second_cache_skip",
+            pass_started_at,
+            setup,
+            initial_cache,
+            layout_wall_dur,
+            second_cache,
+            Duration::ZERO,
+            Duration::ZERO,
+            Duration::ZERO,
+            report,
+          );
+          return report;
+        }
         None => {}
       }
     }
@@ -1695,6 +1854,8 @@ impl Tree {
     let image_frame_time = std::time::Instant::now();
     #[cfg(feature = "image")]
     let mut image_sources = Vec::new();
+    #[cfg(feature = "image")]
+    let mut video_sources = Vec::new();
     #[cfg(all(feature = "svg", feature = "image"))]
     let svgs = {
       let mut svgs = std::mem::take(&mut self.render_svgs);
@@ -1961,7 +2122,8 @@ impl Tree {
           }
         }
         #[cfg(feature = "image")]
-        QuadContent::Image { data, uv_min, uv_max } => {
+        QuadContent::Image { data, uv_min, uv_max } | QuadContent::Video { data, uv_min, uv_max } => {
+          let is_video = matches!(&quad.content, QuadContent::Video { .. });
           let frame = data.frame_at(image_frame_time);
           if data.requires_continuous_redraw() {
             log_draw_image_timeline_sampled(
@@ -1972,7 +2134,9 @@ impl Tree {
               frame.frame_index,
             );
           }
-          if let Some(next_frame_at) = frame.next_frame_at {
+          if let Some(next_frame_at) = frame.next_frame_at
+            && !data.requires_continuous_redraw()
+          {
             self.request_redraw_at(next_frame_at);
           }
           let image_transform = quad.transform.matrix_2x2();
@@ -2015,6 +2179,7 @@ impl Tree {
             clip: scaled_clip,
           });
           image_sources.push(Some(data.clone()));
+          video_sources.push(is_video.then(|| data.clone()));
         }
         #[cfg(all(feature = "svg", feature = "image"))]
         QuadContent::Svg { data } => {
@@ -2049,6 +2214,7 @@ impl Tree {
             clip: scaled_clip,
           });
           image_sources.push(None);
+          video_sources.push(None);
         }
         #[cfg(all(feature = "svg", not(feature = "image")))]
         QuadContent::Svg { data } => {
@@ -2192,6 +2358,18 @@ impl Tree {
       list.rects.len(),
       list.glyphs.len(),
     );
+    log_pass_breakdown(
+      "full",
+      pass_started_at,
+      setup,
+      initial_cache,
+      layout_wall_dur,
+      second_cache,
+      quad_wall_dur,
+      glyph_wall_dur,
+      gpu_wall_dur,
+      report,
+    );
 
     #[cfg(feature = "image")]
     let should_cache_render_list = self.should_store_cached_render_list();
@@ -2203,6 +2381,8 @@ impl Tree {
         list,
         #[cfg(feature = "image")]
         image_sources,
+        #[cfg(feature = "image")]
+        video_sources,
       });
       self.scheduled_redraw_due = false;
       self.frame_count += 1;
@@ -2676,6 +2856,7 @@ impl Tree {
       timer_active: root_ctx.is_some_and(Ctx::has_active_timers),
       future_active: root_ctx.is_some_and(Ctx::has_active_futures),
       timeline_active: self.has_active_timeline(),
+      continuous_redraw_image: self.has_continuous_redraw_image(),
       perf_overlay: self.perf_overlay_enabled,
       pending_click: self.click_tracker.has_pending(),
       input_interaction: self.has_active_input_interaction(),
@@ -4171,7 +4352,7 @@ impl Tree {
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       return false;
     }
-    if !reasons.scheduled_redraw && !reasons.timeline_active {
+    if !reasons.scheduled_redraw && !reasons.timeline_active && !reasons.continuous_redraw_image {
       return false;
     }
     if reasons.redraw_requested
@@ -4298,7 +4479,9 @@ impl Tree {
           frame.frame_index,
         );
       }
-      if let Some(next_frame_at) = frame.next_frame_at {
+      if let Some(next_frame_at) = frame.next_frame_at
+        && !source.requires_continuous_redraw()
+      {
         self.request_redraw_at(next_frame_at);
       }
       image.frame_index = frame.frame_index;
@@ -4532,8 +4715,7 @@ impl Tree {
       let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
       let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
       let has_active_timeline = self.has_active_timeline();
-      let has_render_dirty_timeline_target =
-        self.cached_render_list.is_none() && has_timeline_target_recursive(root);
+      let has_render_dirty_timeline_target = self.cached_render_list.is_none() && has_timeline_target_recursive(root);
       let has_last_layout = self.last_layout.is_some();
       let root_cache_contains = root.layout_cache.contains(constraints);
       let root_render_dirty = root.has_render_dirty();
@@ -7199,9 +7381,7 @@ fn has_runtime_layout_state_recursive(node: &Node) -> bool {
 }
 
 fn has_timeline_target_recursive(node: &Node) -> bool {
-  !node.transitions.is_empty()
-    || node.animation.is_some()
-    || node.children().iter().any(has_timeline_target_recursive)
+  !node.transitions.is_empty() || node.animation.is_some() || node.children().iter().any(has_timeline_target_recursive)
 }
 
 fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
