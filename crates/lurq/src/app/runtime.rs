@@ -2452,10 +2452,34 @@ impl Tree {
 
   pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
     let modifiers = MouseModifiers { shift, ctrl, alt };
+    let position = (x, y);
+    let target_ids = self.hit_target_ids_at(x, y);
+
+    if button == MouseButton::Left {
+      let now = Instant::now();
+      if let Some(click_target_id) = self
+        .click_tracker
+        .pending_match_for_targets(now, position, button, &target_ids)
+      {
+        self.click_press = None;
+        self.click_tracker.take_pending();
+        self.dispatch_mouse_with_click_target(
+          x,
+          y,
+          button,
+          MouseEventKind::DoubleClick,
+          modifiers,
+          Some(click_target_id),
+        );
+        self.apply_reactive_updates_after_event();
+        return;
+      }
+    }
+
     self.click_press = Some(ClickPress {
-      position: (x, y),
+      position,
       button,
-      target_ids: self.hit_target_ids_at(x, y),
+      target_ids,
     });
     self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
     self.apply_reactive_updates_after_event();
@@ -6208,6 +6232,27 @@ impl ClickTracker {
         && now.duration_since(pending.time) <= DOUBLE_CLICK_INTERVAL
         && distance_squared(pending.position, position) <= DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
     })
+  }
+
+  fn pending_match_for_targets(
+    &self,
+    now: Instant,
+    position: (f32, f32),
+    button: MouseButton,
+    target_ids: &[NodeId],
+  ) -> Option<NodeId> {
+    let pending = self.pending_click?;
+    if pending.button != button
+      || now.duration_since(pending.time) > DOUBLE_CLICK_INTERVAL
+      || distance_squared(pending.position, position) > DOUBLE_CLICK_DISTANCE * DOUBLE_CLICK_DISTANCE
+    {
+      return None;
+    }
+
+    target_ids
+      .iter()
+      .copied()
+      .find(|target_id| *target_id == pending.target_id)
   }
 
   fn pending_is_due(&self, now: Instant) -> bool {

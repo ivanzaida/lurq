@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+  sync::{Arc, Mutex},
+  time::{Duration, Instant},
+};
 
 use crate::{
   app::{
@@ -18,6 +21,8 @@ use crate::{
 const WINDOWS_CHROME_HEIGHT: f32 = 36.0;
 const MACOS_CHROME_HEIGHT: f32 = 28.0;
 const RESIZE_HANDLE_SIZE: f32 = 3.0;
+const TITLEBAR_DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+const TITLEBAR_DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 
 #[derive(Clone)]
 pub struct WindowChrome {
@@ -82,6 +87,13 @@ pub enum WindowControlStyle {
   Windows,
   Macos,
   Hidden,
+}
+
+#[derive(Clone, Copy)]
+struct TitlebarClick {
+  time: Instant,
+  x: f32,
+  y: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -368,6 +380,7 @@ impl ChromeTitleBar {
     let height = self.height.unwrap_or(chrome_height);
     let drag_window = window.clone();
     let maximize_window = window.clone();
+    let titlebar_click = Arc::new(Mutex::new(None::<TitlebarClick>));
     let titlebar = Row::new()
       .width(Dimension::Pct(100.0))
       .height(height)
@@ -375,15 +388,31 @@ impl ChromeTitleBar {
       .background(self.background)
       .on_mouse_down(move |event: MouseEvent| {
         if event.button == MouseButton::Left {
-          drag_window.start_drag();
+          let now = Instant::now();
+          let mut titlebar_click = titlebar_click
+            .lock()
+            .expect("titlebar click state should not be poisoned");
+          let is_double_click = titlebar_click.is_some_and(|click| {
+            now.duration_since(click.time) <= TITLEBAR_DOUBLE_CLICK_INTERVAL
+              && (event.x - click.x).abs() <= TITLEBAR_DOUBLE_CLICK_DISTANCE
+              && (event.y - click.y).abs() <= TITLEBAR_DOUBLE_CLICK_DISTANCE
+          });
+
+          if is_double_click {
+            *titlebar_click = None;
+            maximize_window.set_maximized(!maximize_window.is_maximized);
+          } else {
+            *titlebar_click = Some(TitlebarClick {
+              time: now,
+              x: event.x,
+              y: event.y,
+            });
+            drag_window.start_drag();
+          }
+
           event.prevent_default();
           event.stop_immediate_propagation();
         }
-      })
-      .on_dblclick(move |event: MouseEvent| {
-        maximize_window.set_maximized(!maximize_window.is_maximized);
-        event.prevent_default();
-        event.stop_immediate_propagation();
       });
 
     let mut titlebar = if let Some(border) = self.border_bottom {
