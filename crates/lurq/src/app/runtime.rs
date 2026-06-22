@@ -518,6 +518,7 @@ pub struct Tree {
   click_press: Option<ClickPress>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
+  tree_rebuilt_since_layout: bool,
   pending_pass_reasons: PassReasons,
   scheduled_redraw_at: Option<Instant>,
   scheduled_redraw_due: bool,
@@ -787,6 +788,7 @@ impl Tree {
       click_press: None,
       suppressed_click: None,
       needs_redraw: true,
+      tree_rebuilt_since_layout: false,
       pending_pass_reasons: PassReasons::default(),
       scheduled_redraw_at: None,
       scheduled_redraw_due: false,
@@ -1573,6 +1575,8 @@ impl Tree {
       if let Some(root) = &mut self.root {
         root.assign_ids(&self.id_gen);
       }
+      self.tree_rebuilt_since_layout = true;
+      self.cached_render_list = None;
       self.refresh_interaction_state();
     }
   }
@@ -4727,6 +4731,7 @@ impl Tree {
     if let Some(root) = &mut self.root {
       root.assign_ids(&self.id_gen);
     }
+    self.tree_rebuilt_since_layout = true;
     self.cached_render_list = None;
     self.needs_redraw = true;
     self.refresh_interaction_state();
@@ -4789,6 +4794,7 @@ impl Tree {
       let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
       let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
       let has_active_timeline = self.has_active_timeline();
+      let tree_rebuilt_since_layout = self.tree_rebuilt_since_layout;
       let has_render_dirty_timeline_target = self.cached_render_list.is_none() && has_timeline_target_recursive(root);
       let has_last_layout = self.last_layout.is_some();
       let root_cache_contains = root.layout_cache.contains(constraints);
@@ -4799,6 +4805,7 @@ impl Tree {
         && !svg_resources_changed
         && !theme_changed
         && !has_active_timeline
+        && !tree_rebuilt_since_layout
         && !has_render_dirty_timeline_target
         && !component_dirty
         && !has_dirty_element_ref
@@ -4941,6 +4948,7 @@ impl Tree {
         }
       }
       self.last_layout = Some(layout);
+      self.tree_rebuilt_since_layout = false;
       return true;
     }
     false

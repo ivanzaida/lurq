@@ -13,6 +13,8 @@ Regression tests:
 
 - [`signal_opened_parent_modal_requires_and_presents_next_pass_without_explicit_redraw`](../crates/lurq/tests/runtime/pass_report.rs)
 - [`signal_opened_root_modal_requires_and_presents_next_pass_without_explicit_redraw`](../crates/lurq/tests/runtime/pass_report.rs)
+- [`click_opened_parent_modal_presents_next_pass_after_event_flush`](../crates/lurq/tests/runtime/pass_report.rs)
+- [`click_opened_root_modal_presents_next_pass_after_event_flush`](../crates/lurq/tests/runtime/pass_report.rs)
 
 ## Summary
 

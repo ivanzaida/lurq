@@ -8,6 +8,7 @@ use lurq::{
     App, Tree,
     component::Component,
     ctx::{Ctx, Timeout},
+    events::MouseButton,
     render_engine::RenderEngine,
   },
   components::{Modal, Rect, Root as ModalRoot, Stack},
@@ -131,6 +132,46 @@ impl Component for ModalRedrawRoot {
   }
 }
 
+struct EventModalRedrawRoot {
+  open: Signal<bool>,
+  render_count: Arc<AtomicUsize>,
+  target: ModalRegressionTarget,
+}
+
+impl Component for EventModalRedrawRoot {
+  type Props = SharedModalState;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>();
+    let render_count = props.render_count.clone();
+    let target = props.target;
+    Self {
+      open: ctx.signal(false),
+      render_count,
+      target,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    self.render_count.fetch_add(1, Ordering::Relaxed);
+    let open = self.open.clone();
+    let modal = Modal::new(Rect::new(60.0, 40.0).background("#ef4444")).open(self.open.clone());
+    let modal = match self.target {
+      ModalRegressionTarget::Parent => modal,
+      ModalRegressionTarget::Root => modal.target(ModalRoot),
+    };
+
+    Stack::new()
+      .size(240.0, 160.0)
+      .child(
+        Rect::new(80.0, 40.0)
+          .background("#22c55e")
+          .on_click(move |_| open.set(true)),
+      )
+      .child(modal)
+  }
+}
+
 struct CountingRenderEngine {
   render_count: Arc<AtomicUsize>,
 }
@@ -209,6 +250,16 @@ fn signal_opened_root_modal_requires_and_presents_next_pass_without_explicit_red
   signal_opened_modal_requires_and_presents_next_pass_without_explicit_redraw(ModalRegressionTarget::Root);
 }
 
+#[test]
+fn click_opened_parent_modal_presents_next_pass_after_event_flush() {
+  click_opened_modal_presents_next_pass_after_event_flush(ModalRegressionTarget::Parent);
+}
+
+#[test]
+fn click_opened_root_modal_presents_next_pass_after_event_flush() {
+  click_opened_modal_presents_next_pass_after_event_flush(ModalRegressionTarget::Root);
+}
+
 fn signal_opened_modal_requires_and_presents_next_pass_without_explicit_redraw(target: ModalRegressionTarget) {
   let open = Arc::new(Signal::new(false));
   let component_renders = Arc::new(AtomicUsize::new(0));
@@ -244,6 +295,43 @@ fn signal_opened_modal_requires_and_presents_next_pass_without_explicit_redraw(t
   assert!(report.required);
   assert!(report.rendered);
   assert!(report.reasons.component_dirty);
+  assert_eq!(component_renders.load(Ordering::Relaxed), 2);
+  assert_eq!(presented_frames.load(Ordering::Relaxed), 2);
+  assert_eq!(tree.root().unwrap().tag_name(), "OverlayHost");
+}
+
+fn click_opened_modal_presents_next_pass_after_event_flush(target: ModalRegressionTarget) {
+  let open = Arc::new(Signal::new(false));
+  let component_renders = Arc::new(AtomicUsize::new(0));
+  let presented_frames = Arc::new(AtomicUsize::new(0));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  let presented_frames_for_engine = presented_frames.clone();
+  tree.set_render_engine_factory(move || {
+    Box::new(CountingRenderEngine {
+      render_count: presented_frames_for_engine.clone(),
+    })
+  });
+  tree.mount_root::<EventModalRedrawRoot>(
+    &mut app,
+    SharedModalState {
+      open,
+      render_count: component_renders.clone(),
+      target,
+    },
+  );
+
+  let initial = tree.pass(&mut app, &TestSurface);
+  assert!(initial.rendered);
+
+  tree.mouse_down(10.0, 10.0, MouseButton::Left);
+  tree.mouse_up(10.0, 10.0, MouseButton::Left);
+  assert!(tree.needs_redraw());
+
+  let report = tree.pass(&mut app, &TestSurface);
+
+  assert!(report.required);
+  assert!(report.rendered);
   assert_eq!(component_renders.load(Ordering::Relaxed), 2);
   assert_eq!(presented_frames.load(Ordering::Relaxed), 2);
   assert_eq!(tree.root().unwrap().tag_name(), "OverlayHost");
