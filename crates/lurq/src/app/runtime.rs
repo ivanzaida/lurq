@@ -1653,14 +1653,17 @@ impl Tree {
       .unwrap_or_else(|| app.theme().caret_mode());
     let mut reasons = self.pending_pass_reasons;
     reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
-    let required = self.needs_redraw || self.has_active_tick_sources() || self.last_theme_version != theme_version;
+    let needs_redraw = self.needs_redraw();
+    let has_active_tick_sources = self.has_active_tick_sources();
+    let theme_changed = self.last_theme_version != theme_version;
+    let required = needs_redraw || has_active_tick_sources || theme_changed;
     let mut report = PassReport {
       required,
       reasons,
       ..PassReport::default()
     };
     let setup = pass_started_at.elapsed();
-    if !self.needs_redraw && !self.has_active_tick_sources() && self.last_theme_version == theme_version {
+    if !required {
       self.pending_pass_reasons = PassReasons::default();
       log_pass_breakdown(
         "not_required",
@@ -4734,6 +4737,7 @@ impl Tree {
   }
 
   fn update_layout(&mut self, app: &mut App) -> bool {
+    let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
@@ -4789,13 +4793,14 @@ impl Tree {
       let has_last_layout = self.last_layout.is_some();
       let root_cache_contains = root.layout_cache.contains(constraints);
       let root_render_dirty = root.has_render_dirty();
-      let component_dirty = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
+      let component_dirty = component_dirty_before_rebuild || self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
       if !animation_layout_changed
         && !image_resources_changed
         && !svg_resources_changed
         && !theme_changed
         && !has_active_timeline
         && !has_render_dirty_timeline_target
+        && !component_dirty
         && !has_dirty_element_ref
         && !has_pending_layout_dirty
         && !has_runtime_layout_state

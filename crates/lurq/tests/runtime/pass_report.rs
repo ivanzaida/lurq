@@ -8,10 +8,14 @@ use lurq::{
     App, Tree,
     component::Component,
     ctx::{Ctx, Timeout},
+    render_engine::RenderEngine,
   },
+  components::{Modal, Rect, Root as ModalRoot, Stack},
   core::Signal,
+  layout::render_list::RenderList,
   node::Element,
 };
+use raw_window_handle::{DisplayHandle, WindowHandle};
 
 use crate::support::TestSurface;
 
@@ -68,6 +72,78 @@ impl Component for TimerRoot {
   }
 }
 
+#[derive(Clone)]
+struct SharedModalState {
+  open: Arc<Signal<bool>>,
+  render_count: Arc<AtomicUsize>,
+  target: ModalRegressionTarget,
+}
+
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for SharedModalState {
+  fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+}
+
+impl PartialEq for SharedModalState {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.open, &other.open)
+      && Arc::ptr_eq(&self.render_count, &other.render_count)
+      && self.target == other.target
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ModalRegressionTarget {
+  Parent,
+  Root,
+}
+
+struct ModalRedrawRoot {
+  open: Signal<bool>,
+  render_count: Arc<AtomicUsize>,
+  target: ModalRegressionTarget,
+}
+
+impl Component for ModalRedrawRoot {
+  type Props = SharedModalState;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>();
+    Self {
+      open: (*props.open).clone(),
+      render_count: props.render_count.clone(),
+      target: props.target,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    self.render_count.fetch_add(1, Ordering::Relaxed);
+    let modal = Modal::new(Rect::new(60.0, 40.0).background("#ef4444")).open(self.open.clone());
+    let modal = match self.target {
+      ModalRegressionTarget::Parent => modal,
+      ModalRegressionTarget::Root => modal.target(ModalRoot),
+    };
+
+    Stack::new()
+      .size(240.0, 160.0)
+      .child(Rect::new(240.0, 160.0).background("#22c55e"))
+      .child(modal)
+  }
+}
+
+struct CountingRenderEngine {
+  render_count: Arc<AtomicUsize>,
+}
+
+impl RenderEngine for CountingRenderEngine {
+  fn resize(&mut self, _width: u32, _height: u32) {}
+
+  fn render(&mut self, _list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
+    self.render_count.fetch_add(1, Ordering::Relaxed);
+    true
+  }
+}
+
 #[test]
 fn pass_report_marks_initial_layout_and_noop_pass() {
   let mut app = App::new();
@@ -121,4 +197,54 @@ fn pass_report_marks_timer_run_and_dirty_component() {
   assert!(report.reasons.timer_run);
   assert!(!report.reasons.component_dirty);
   assert!(report.layout_updated);
+}
+
+#[test]
+fn signal_opened_parent_modal_requires_and_presents_next_pass_without_explicit_redraw() {
+  signal_opened_modal_requires_and_presents_next_pass_without_explicit_redraw(ModalRegressionTarget::Parent);
+}
+
+#[test]
+fn signal_opened_root_modal_requires_and_presents_next_pass_without_explicit_redraw() {
+  signal_opened_modal_requires_and_presents_next_pass_without_explicit_redraw(ModalRegressionTarget::Root);
+}
+
+fn signal_opened_modal_requires_and_presents_next_pass_without_explicit_redraw(target: ModalRegressionTarget) {
+  let open = Arc::new(Signal::new(false));
+  let component_renders = Arc::new(AtomicUsize::new(0));
+  let presented_frames = Arc::new(AtomicUsize::new(0));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  let presented_frames_for_engine = presented_frames.clone();
+  tree.set_render_engine_factory(move || {
+    Box::new(CountingRenderEngine {
+      render_count: presented_frames_for_engine.clone(),
+    })
+  });
+  tree.mount_root::<ModalRedrawRoot>(
+    &mut app,
+    SharedModalState {
+      open: open.clone(),
+      render_count: component_renders.clone(),
+      target,
+    },
+  );
+
+  let initial = tree.pass(&mut app, &TestSurface);
+  assert!(initial.required);
+  assert!(initial.rendered);
+  assert_eq!(component_renders.load(Ordering::Relaxed), 1);
+  assert_eq!(presented_frames.load(Ordering::Relaxed), 1);
+
+  open.set(true);
+  assert!(tree.needs_redraw());
+
+  let report = tree.pass(&mut app, &TestSurface);
+
+  assert!(report.required);
+  assert!(report.rendered);
+  assert!(report.reasons.component_dirty);
+  assert_eq!(component_renders.load(Ordering::Relaxed), 2);
+  assert_eq!(presented_frames.load(Ordering::Relaxed), 2);
+  assert_eq!(tree.root().unwrap().tag_name(), "OverlayHost");
 }
