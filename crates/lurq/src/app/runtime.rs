@@ -36,7 +36,6 @@ use crate::{
     profile_support::{PerfMeterStats, profile_elapsed, profile_if, profile_scope, profile_value},
     render_engine::{RenderEngine, RenderEngineFactory},
     theme::CaretMode,
-    window::WindowCornerRadius,
   },
   core::{
     ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId, Signal,
@@ -79,13 +78,16 @@ const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
 const DEVTOOLS_INTERACTION_SYNC_DELAY: Duration = Duration::from_millis(250);
 
+#[allow(dead_code)]
 static IMAGE_BUILD_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
+#[allow(dead_code)]
 static IMAGE_REFRESH_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static FRAME_PASS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static LAYOUT_FAST_PATH_MISS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static RENDER_LIST_CACHE_HIT_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 static RENDER_LIST_CACHE_MISS_TIMELINE_LAST_INFO_MS: AtomicU64 = AtomicU64::new(0);
 
+#[allow(dead_code)]
 fn log_draw_image_timeline_sampled(
   last_info_ms: &AtomicU64,
   phase: &'static str,

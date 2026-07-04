@@ -288,6 +288,7 @@ impl Window {
     self.inner.read().unwrap().info
   }
 
+  #[allow(dead_code)]
   pub(crate) fn corner_radius(&self) -> WindowCornerRadius {
     self.inner.read().unwrap().corner_radius
   }
