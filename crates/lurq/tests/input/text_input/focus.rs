@@ -8,7 +8,7 @@ use lurq::{
     Tree,
     events::{MouseButton, MouseEvent},
   },
-  components::TextInput,
+  components::{Rect, TextInput},
   core::{ElementRef, Signal},
   node::color::Color,
 };
@@ -109,6 +109,56 @@ fn mouse_down_prevent_default_blocks_text_input_focus() {
 
   assert!(!input_ref.focused());
   assert_eq!(focus.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn clicking_outside_text_input_blurs_it() {
+  let blur = Arc::new(AtomicUsize::new(0));
+  let input_ref = ElementRef::new();
+  let outside_ref = ElementRef::new();
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::Column::new()
+      .spacing(8.0)
+      .child(
+        TextInput::new(Signal::new(String::new()))
+          .width(100.0)
+          .ref_element(input_ref.clone())
+          .on_blur({
+            let blur = blur.clone();
+            move || {
+              blur.fetch_add(1, Ordering::SeqCst);
+            }
+          }),
+      )
+      .child(
+        Rect::new(100.0, 40.0)
+          .background("#22c55e")
+          .ref_element(outside_ref.clone()),
+      ),
+  );
+  run_pass(&mut runtime);
+
+  let input = input_ref.bounds();
+  pointer_click(
+    &mut runtime,
+    input.x + 10.0,
+    input.y + input.height / 2.0,
+    MouseButton::Left,
+  );
+  assert!(input_ref.focused());
+
+  let outside = outside_ref.bounds();
+  pointer_click(
+    &mut runtime,
+    outside.x + outside.width / 2.0,
+    outside.y + outside.height / 2.0,
+    MouseButton::Left,
+  );
+
+  assert!(!input_ref.focused());
+  assert_eq!(blur.load(Ordering::SeqCst), 1);
 }
 
 #[test]

@@ -41,11 +41,13 @@ pub enum QuadContent {
     text: String,
     style: TextStyle,
     wrap: bool,
+    center_y: bool,
     transform_mode: TextTransformMode,
   },
   RichText {
     spans: Vec<RichTextSpan>,
     wrap: bool,
+    center_y: bool,
     transform_mode: TextTransformMode,
   },
   #[cfg(feature = "image")]

@@ -1048,6 +1048,17 @@ impl RenderEngine for WgpuRenderEngine {
     let _acquire_start = profile_scope!();
     let output = match surface.get_current_texture() {
       Ok(t) => t,
+      // The surface fell out of sync with the window — common on Vulkan during a
+      // live resize (VK_ERROR_OUT_OF_DATE_KHR). Reconfigure to the current size
+      // and retry once; without this the frame is skipped and the window stalls
+      // (and stays stalled) while resizing.
+      Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+        surface.configure(device, config);
+        match surface.get_current_texture() {
+          Ok(t) => t,
+          Err(_) => return false,
+        }
+      }
       Err(_) => {
         profile_if! {
           self.last_profile = RenderProfile {

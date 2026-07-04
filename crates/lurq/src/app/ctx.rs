@@ -2136,6 +2136,12 @@ impl Ctx {
     unsafe { self.app.expect("app ref not set").as_ref() }
   }
 
+  /// Cloneable handle for opening secondary OS windows; safe to capture in
+  /// event handlers (see [`crate::app::WindowOpener`]).
+  pub fn window_opener(&self) -> crate::app::WindowOpener {
+    self.app_ref().window_opener()
+  }
+
   pub fn app_ref_mut(&mut self) -> &mut App {
     unsafe { self.app.expect("app ref not set").as_mut() }
   }

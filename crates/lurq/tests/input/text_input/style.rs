@@ -172,6 +172,46 @@ fn text_align_centers_placeholder_glyphs_in_single_line_input() {
   );
 }
 
+#[test]
+fn single_line_input_centers_glyphs_with_tall_line_height() {
+  let value = Signal::new("Text".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    TextInput::styled(
+      value,
+      TextStyle {
+        font_size: 20.0,
+        line_height: 1.6,
+        color: Color::from_hex("#1e293b"),
+        ..TextStyle::default()
+      },
+    )
+    .single_line()
+    .width(200.0)
+    .height(64.0),
+  );
+
+  let snapshot = render_pass(&mut runtime);
+  let top = snapshot
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y)
+    .fold(f32::INFINITY, f32::min);
+  let bottom = snapshot
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  let center = (top + bottom) * 0.5;
+  let input_center = 32.0;
+
+  assert!(
+    (center - input_center).abs() <= 2.0,
+    "single-line input glyph center should match input center: glyph={center}, input={input_center}",
+  );
+}
+
 #[derive(Clone, Debug, lurq::DevtoolsInspectable)]
 struct ErrorStyledTextInputProps {
   error: Signal<bool>,

@@ -1345,7 +1345,7 @@ impl WinitHandler {
   }
 
   fn apply_secondary_window_requests(&mut self, event_loop: &ActiveEventLoop) {
-    if self.main.tree.apply_secondary_window_requests() {
+    if self.main.tree.apply_secondary_window_requests(&mut self.app) {
       self.main.request_redraw();
     }
     self.sync_secondary_windows(event_loop);

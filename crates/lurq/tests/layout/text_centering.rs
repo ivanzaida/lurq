@@ -12,6 +12,7 @@ use lurq::{
 };
 
 use super::PassLayoutExt;
+use crate::support::{GlyphSnapshot, render_pass};
 
 fn rt() -> Tree {
   Tree::new()
@@ -402,4 +403,83 @@ fn text_vertically_centered_in_fixed_height_row() {
     text_center_y,
     row.size.height / 2.0
   );
+}
+
+#[test]
+fn centered_text_glyphs_do_not_shift_when_line_height_changes() {
+  let compact_center = centered_text_glyph_center_y(1.0);
+  let tall_center = centered_text_glyph_center_y(1.8);
+  let row_center = 32.0;
+
+  assert!(
+    (compact_center - tall_center).abs() <= 1.0,
+    "centered glyphs should stay visually centered when line-height changes: compact={compact_center}, tall={tall_center}",
+  );
+  assert!(
+    (compact_center - row_center).abs() <= 2.0,
+    "compact glyph center should match row center: compact={compact_center}, row={row_center}",
+  );
+  assert!(
+    (tall_center - row_center).abs() <= 2.0,
+    "tall glyph center should match row center: tall={tall_center}, row={row_center}",
+  );
+}
+
+#[test]
+fn fixed_height_text_centers_rendered_glyphs() {
+  let mut rt = rt();
+  rt.set_root(
+    lurq::components::Text::styled(
+      "Open",
+      TextStyle {
+        font_size: 18.0,
+        line_height: 1.0,
+        weight: FontWeight::Bold,
+        color: Color::from_hex("#1e293b"),
+        ..TextStyle::default()
+      },
+    )
+    .height(54.0),
+  );
+
+  let snapshot = render_pass(&mut rt);
+  let center = glyph_bounds_center_y(&snapshot.glyphs);
+  let text_center = 27.0;
+
+  assert!(
+    (center - text_center).abs() <= 3.0,
+    "fixed-height text glyph center should match text box center: glyph={center}, text={text_center}",
+  );
+}
+
+fn centered_text_glyph_center_y(line_height: f32) -> f32 {
+  let mut rt = rt();
+  rt.set_root(
+    lurq::components::Row::new()
+      .align_items(Alignment::Center)
+      .height(64.0)
+      .child(lurq::components::Text::styled(
+        "Text",
+        TextStyle {
+          font_size: 20.0,
+          line_height,
+          weight: FontWeight::Bold,
+          color: Color::from_hex("#1e293b"),
+          ..TextStyle::default()
+        },
+      )),
+  );
+
+  let snapshot = render_pass(&mut rt);
+  glyph_bounds_center_y(&snapshot.glyphs)
+}
+
+fn glyph_bounds_center_y(glyphs: &[GlyphSnapshot]) -> f32 {
+  assert!(!glyphs.is_empty(), "text should render glyphs");
+  let top = glyphs.iter().map(|glyph| glyph.y).fold(f32::INFINITY, f32::min);
+  let bottom = glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  (top + bottom) * 0.5
 }

@@ -835,6 +835,7 @@ impl LayoutEngine {
             .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
           style: resolved_style,
           wrap: state.render_wrap(),
+          center_y: true,
           transform_mode: *transform_mode,
         }
       }
@@ -844,6 +845,7 @@ impl LayoutEngine {
       } => QuadContent::RichText {
         spans: spans.clone(),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
+        center_y: true,
         transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
@@ -854,6 +856,7 @@ impl LayoutEngine {
         text: state.rendered_text_for_layout(),
         style: text_input_display_style(state, style, placeholder_style.as_ref()).clone(),
         wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
+        center_y: false,
         transform_mode: TextTransformMode::Bitmap,
       },
       NodeKind::Checkbox { .. } => QuadContent::None,

@@ -570,6 +570,8 @@ pub(crate) struct SecondaryWindow {
   title: String,
   width: u32,
   height: u32,
+  /// Whether the OS window is created with native decorations.
+  decorations: bool,
   tree: Tree,
   open: bool,
   metadata: SecondaryWindowMetadata,
@@ -598,10 +600,16 @@ impl SecondaryWindow {
       title: title.into(),
       width,
       height,
+      decorations: true,
       tree,
       open: true,
       metadata: SecondaryWindowMetadata::default(),
     }
+  }
+
+  fn with_decorations(mut self, decorations: bool) -> Self {
+    self.decorations = decorations;
+    self
   }
 
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
@@ -639,6 +647,10 @@ impl SecondaryWindow {
 
   pub(crate) fn height(&self) -> u32 {
     self.height
+  }
+
+  pub(crate) fn decorations(&self) -> bool {
+    self.decorations
   }
 
   pub(crate) fn tree(&self) -> &Tree {
@@ -1216,14 +1228,24 @@ impl Tree {
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
-  pub(crate) fn apply_secondary_window_requests(&mut self) -> bool {
+  pub(crate) fn apply_secondary_window_requests(&mut self, app: &mut App) -> bool {
+    #[allow(unused_mut)]
+    let mut changed = false;
     #[cfg(feature = "devtools")]
     {
-      return self.apply_devtools_requests();
+      changed |= self.apply_devtools_requests();
     }
 
-    #[cfg(not(feature = "devtools"))]
-    false
+    // User-requested windows (see `WindowOpener`): build each tree with the
+    // caller's mount closure and register it open — the shell creates the OS
+    // window on the next sync.
+    for request in app.window_opener.take() {
+      let mut tree = Tree::new();
+      (request.build)(app, &mut tree);
+      self.push_secondary_window(SecondaryWindow::new(request.title, request.width, request.height, tree));
+      changed = true;
+    }
+    changed
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -1965,6 +1987,7 @@ impl Tree {
           text,
           style,
           wrap,
+          center_y,
           transform_mode,
         } => {
           let glyph_start = glyphs.len();
@@ -1985,6 +2008,8 @@ impl Tree {
               quad.y * scale + quad.height * scale * 0.5,
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
+          let text_y = scaled_y
+            + text_vertical_center_offset(app, text, &scaled_style, max_width, *wrap, *center_y, scaled_height);
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
@@ -1992,7 +2017,7 @@ impl Tree {
               max_width,
               *wrap,
               quad.x * scale,
-              quad.y * scale,
+              text_y,
               glyph_clip,
               &mut glyphs,
             );
@@ -2003,7 +2028,7 @@ impl Tree {
               max_width,
               *wrap,
               quad.x * scale,
-              quad.y * scale,
+              text_y,
               quad.transform,
               glyph_origin,
               &mut glyphs,
@@ -2017,7 +2042,7 @@ impl Tree {
               f32::MAX
             };
             let raster_x = quad.x * scale * raster_scale;
-            let raster_y = quad.y * scale * raster_scale;
+            let raster_y = text_y * raster_scale;
             let unsnapped_start = glyphs.len();
             app.glyph_engine.rasterize_text_unsnapped_with_wrap_into(
               text,
@@ -2047,6 +2072,7 @@ impl Tree {
         QuadContent::RichText {
           spans,
           wrap,
+          center_y,
           transform_mode,
         } => {
           let glyph_start = glyphs.len();
@@ -2072,13 +2098,15 @@ impl Tree {
               quad.y * scale + quad.height * scale * 0.5,
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
+          let text_y =
+            scaled_y + rich_text_vertical_center_offset(app, &scaled_spans, max_width, *wrap, *center_y, scaled_height);
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_rich_text_with_wrap_clipped_into(
               &scaled_spans,
               max_width,
               *wrap,
               quad.x * scale,
-              quad.y * scale,
+              text_y,
               glyph_clip,
               &mut glyphs,
             );
@@ -2088,7 +2116,7 @@ impl Tree {
               max_width,
               *wrap,
               quad.x * scale,
-              quad.y * scale,
+              text_y,
               quad.transform,
               glyph_origin,
               &mut glyphs,
@@ -2104,7 +2132,7 @@ impl Tree {
               f32::MAX
             };
             let raster_x = quad.x * scale * raster_scale;
-            let raster_y = quad.y * scale * raster_scale;
+            let raster_y = text_y * raster_scale;
             let unsnapped_start = glyphs.len();
             app.glyph_engine.rasterize_rich_text_unsnapped_with_wrap_into(
               &scaled_spans,
@@ -3252,6 +3280,7 @@ impl Tree {
     let mut pending_text_selection_drag = None;
     let mut reset_text_input_caret_blink = false;
     let mut blur_focused_select = false;
+    let mut blur_focused_text_input = false;
     let is_left_button = evt.button == MouseButton::Left;
     let is_left_click = matches!(evt.kind, MouseEventKind::Click) && is_left_button;
     let is_left_down = matches!(evt.kind, MouseEventKind::Down) && is_left_button;
@@ -3389,6 +3418,22 @@ impl Tree {
               .and_then(|path| find_node_by_path(root, path))
           })
           .is_some_and(|node| matches!(node.node_kind(), NodeKind::Select { .. }));
+      }
+
+      let on_text_input = hits
+        .iter()
+        .any(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }));
+      if !on_text_input {
+        blur_focused_text_input = self
+          .focused_node
+          .and_then(|focused| find_node_by_id(root, focused))
+          .or_else(|| {
+            self
+              .focused_path
+              .as_deref()
+              .and_then(|path| find_node_by_path(root, path))
+          })
+          .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }));
       }
     }
 
@@ -3737,7 +3782,7 @@ impl Tree {
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
     }
-    if blur_focused_select {
+    if blur_focused_select || blur_focused_text_input {
       self.blur_focus();
     }
     if clear_active_after_dispatch {
@@ -8419,6 +8464,54 @@ fn push_raw_text(
     glyph.clip = ClipRect::default();
   }
   glyphs.extend(text_glyphs);
+}
+
+fn text_vertical_center_offset(
+  app: &mut App,
+  text: &str,
+  style: &TextStyle,
+  max_width: f32,
+  _wrap: bool,
+  center_y: bool,
+  quad_height: f32,
+) -> f32 {
+  if !center_y || quad_height <= 0.0 {
+    return 0.0;
+  }
+  let single_line_height = style.font_size * style.line_height;
+  if quad_height <= single_line_height + 0.5 {
+    return 0.0;
+  }
+  let measured = app.glyph_engine.measure_text(text, style, max_width).height;
+  if measured > single_line_height + 0.5 {
+    return 0.0;
+  }
+  ((quad_height - measured).max(0.0)) * 0.5
+}
+
+fn rich_text_vertical_center_offset(
+  app: &mut App,
+  spans: &[crate::layout::quad::RichTextSpan],
+  max_width: f32,
+  _wrap: bool,
+  center_y: bool,
+  quad_height: f32,
+) -> f32 {
+  if !center_y || quad_height <= 0.0 {
+    return 0.0;
+  }
+  let single_line_height = spans
+    .first()
+    .map(|span| span.style.font_size * span.style.line_height)
+    .unwrap_or(0.0);
+  if quad_height <= single_line_height + 0.5 {
+    return 0.0;
+  }
+  let measured = app.glyph_engine.measure_rich_text(spans, max_width).height;
+  if measured > single_line_height + 0.5 {
+    return 0.0;
+  }
+  ((quad_height - measured).max(0.0)) * 0.5
 }
 
 fn apply_opacity(color: Color, opacity: f32) -> Color {

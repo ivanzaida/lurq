@@ -23,6 +23,6 @@ pub mod window;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
 
-pub use app_state::App;
+pub use app_state::{App, SecondaryWindowRequest, WindowOpener};
 pub use runtime::{PassReasons, PassReport, Tree};
 pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};

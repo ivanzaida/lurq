@@ -1978,9 +1978,19 @@ fn glyph_color(color: Option<CosmicColor>, default: Color) -> [f32; 4] {
 }
 
 fn glyph_cluster_is_whitespace(line_text: &str, glyph: &LayoutGlyph) -> bool {
-  line_text
-    .get(glyph.start..glyph.end)
-    .is_some_and(|cluster| cluster.chars().all(char::is_whitespace))
+  cluster_is_whitespace(line_text, glyph.start, glyph.end)
+}
+
+/// Whether the source cluster `[start, end)` is non-empty and entirely
+/// whitespace. An empty range slices to "", and `"".chars().all(..)` is
+/// vacuously true — which would misclassify a glyph with no source bytes as
+/// whitespace and skip drawing it (its advance stays, leaving a gap mid-word),
+/// so an empty cluster must not count as whitespace.
+fn cluster_is_whitespace(line_text: &str, start: usize, end: usize) -> bool {
+  match line_text.get(start..end) {
+    Some(cluster) => !cluster.is_empty() && cluster.chars().all(char::is_whitespace),
+    None => false,
+  }
 }
 
 #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
@@ -2448,10 +2458,21 @@ mod tests {
 
   use super::{
     AtlasPacker, GLYPH_ATLAS_BYTES_PER_PIXEL, GLYPH_ATLAS_PADDING, GlyphAtlasDirtyRect, GlyphEngine,
-    coalesce_dirty_rects, glyph_atlas_pixels, glyph_coverage_mask, is_bounded_text_width, render_glyph_image,
-    swash_transform_from_screen,
+    cluster_is_whitespace, coalesce_dirty_rects, glyph_atlas_pixels, glyph_coverage_mask, is_bounded_text_width,
+    render_glyph_image, swash_transform_from_screen,
   };
   use crate::{layout::quad::ClipRect, node::transform::Transform2D};
+
+  #[test]
+  fn empty_cluster_is_not_treated_as_whitespace() {
+    // A glyph whose source-cluster range is empty (start == end) must not be
+    // skipped as whitespace, otherwise it drops out of the word while keeping
+    // its advance, leaving a visible gap mid-word.
+    assert!(!cluster_is_whitespace("items", 3, 3));
+    assert!(!cluster_is_whitespace("items", 3, 4)); // "m" — a real glyph
+    assert!(cluster_is_whitespace("a b", 1, 2)); // the space
+    assert!(!cluster_is_whitespace("items", 10, 12)); // out of range
+  }
 
   #[test]
   fn atlas_packer_leaves_padding_between_glyph_regions() {

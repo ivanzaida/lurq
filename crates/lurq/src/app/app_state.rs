@@ -6,9 +6,75 @@ use std::path::PathBuf;
 use crate::app::i18n::I18n;
 use crate::app::{glyph_engine::GlyphEngine, theme::Theme};
 
+/// A request to open a new OS window that renders its own component tree.
+/// Created through [`WindowOpener::open`], drained by the runtime each loop
+/// turn (the winit shell then creates the OS window and renders the tree with
+/// the same render-engine factory as the main window).
+pub struct SecondaryWindowRequest {
+  pub(crate) title: String,
+  pub(crate) width: u32,
+  pub(crate) height: u32,
+  /// `false` creates the OS window without native decorations, for trees that
+  /// render their own `WindowChrome`.
+  pub(crate) decorations: bool,
+  pub(crate) build: Box<dyn FnOnce(&mut App, &mut crate::app::Tree) + Send>,
+}
+
+/// Cloneable handle for opening secondary windows from anywhere — including
+/// event handlers, which don't have `Ctx` access. Obtain it via
+/// `ctx.window_opener()` (or [`App::window_opener`]).
+#[derive(Clone, Default)]
+pub struct WindowOpener {
+  queue: std::sync::Arc<std::sync::Mutex<Vec<SecondaryWindowRequest>>>,
+}
+
+impl WindowOpener {
+  /// Queue a new secondary window with the given title and logical size.
+  /// `build` mounts the window's root component into a fresh [`crate::app::Tree`]:
+  ///
+  /// ```ignore
+  /// opener.open("Preview", 1100, 800, move |app, tree| {
+  ///   tree.mount_root::<PreviewWindow>(app, props);
+  /// });
+  /// ```
+  pub fn open<F>(&self, title: impl Into<String>, width: u32, height: u32, build: F)
+  where
+    F: FnOnce(&mut App, &mut crate::app::Tree) + Send + 'static,
+  {
+    self.request(title, width, height, true, build);
+  }
+
+  /// Like [`open`](Self::open), but the OS window is created without native
+  /// decorations — for windows that render their own `WindowChrome`.
+  pub fn open_undecorated<F>(&self, title: impl Into<String>, width: u32, height: u32, build: F)
+  where
+    F: FnOnce(&mut App, &mut crate::app::Tree) + Send + 'static,
+  {
+    self.request(title, width, height, false, build);
+  }
+
+  fn request<F>(&self, title: impl Into<String>, width: u32, height: u32, decorations: bool, build: F)
+  where
+    F: FnOnce(&mut App, &mut crate::app::Tree) + Send + 'static,
+  {
+    self.queue.lock().unwrap().push(SecondaryWindowRequest {
+      title: title.into(),
+      width,
+      height,
+      decorations,
+      build: Box::new(build),
+    });
+  }
+
+  pub(crate) fn take(&self) -> Vec<SecondaryWindowRequest> {
+    std::mem::take(&mut self.queue.lock().unwrap())
+  }
+}
+
 pub struct App {
   pub(crate) glyph_engine: GlyphEngine,
   pub(crate) theme: Theme,
+  pub(crate) window_opener: WindowOpener,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
   pub(crate) scale_override: Option<f32>,
@@ -35,6 +101,7 @@ impl App {
     Self {
       glyph_engine: GlyphEngine::new(),
       theme: Theme::new(),
+      window_opener: WindowOpener::default(),
       #[cfg(feature = "i18n")]
       i18n: I18n::new(),
       scale_override: None,
@@ -79,6 +146,11 @@ impl App {
 
   pub fn theme(&self) -> &Theme {
     &self.theme
+  }
+
+  /// Handle for opening secondary OS windows (see [`WindowOpener`]).
+  pub fn window_opener(&self) -> WindowOpener {
+    self.window_opener.clone()
   }
 
   #[cfg(feature = "i18n")]
