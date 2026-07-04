@@ -291,3 +291,211 @@ fn scroll_content_child_count(layout: &lurq::layout::layout_result::LayoutResult
 fn scroll_content_height(layout: &lurq::layout::layout_result::LayoutResult) -> f32 {
   scroll_content(layout).size.height
 }
+
+// ── Timing harness (run explicitly) ─────────────────────────────────────
+// cargo test -p lurq --features "winit wgpu image svg resources clipboard" \
+//   virtualized_list_scroll_timing -- --ignored --nocapture
+
+#[derive(Clone, PartialEq, DevtoolsInspectable)]
+struct TimingLine {
+  id: usize,
+  text: std::sync::Arc<str>,
+}
+
+struct TimingRow;
+
+impl Component for TimingRow {
+  type Props = TimingLine;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let line = ctx.props::<Self::Props>().clone();
+    lurq::components::Row::new()
+      .min_width(2400.0)
+      .child(
+        lurq::components::Row::new()
+          .width(48.0)
+          .child(lurq::components::Text::new(&(line.id + 1).to_string())),
+      )
+      .child(
+        lurq::components::Text::new(&line.text)
+          .nowrap()
+          .selectable(true),
+      )
+  }
+}
+
+struct TimingRoot;
+
+impl Component for TimingRoot {
+  type Props = Shared<Vec<TimingLine>>;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let items = ctx.props::<Self::Props>().0.as_ref().clone();
+    VirtualizedList::new(ctx, items)
+      .size(900.0, 700.0)
+      .horizontal_scroll(true)
+      .mount_keyed::<TimingRow, _, _, _>(|line| line.id, |line| line.clone())
+  }
+}
+
+#[test]
+#[ignore]
+fn virtualized_list_scroll_timing() {
+  use std::time::Instant;
+
+  let lines: Vec<TimingLine> = (0..10_000)
+    .map(|id| TimingLine {
+      id,
+      text: std::sync::Arc::from(format!(
+        "<TerrainRoad id=\"{id}\" texture=\"surfaces/road/autobase_{id}.dds\" \
+         u0=\"0.125\" v0=\"0.25\" u1=\"0.875\" v1=\"0.75\" blend=\"true\" layer=\"3\"/>"
+      )),
+    })
+    .collect();
+
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  tree.mount_root::<TimingRoot>(&mut app, Shared(Arc::new(lines)));
+
+  let mut timed_pass = |tree: &mut Tree, label: &str| {
+    let started = Instant::now();
+    tree.request_redraw();
+    tree.pass(&mut app, &crate::support::TestSurface);
+    eprintln!("{label}: {:.2}ms", started.elapsed().as_secs_f64() * 1000.0);
+  };
+
+  timed_pass(&mut tree, "bootstrap");
+  timed_pass(&mut tree, "settle-1");
+  timed_pass(&mut tree, "settle-2");
+
+  for step in 0..12 {
+    let started = Instant::now();
+    tree.scroll(400.0, 300.0, 0.0, -400.0, ScrollPhase::Scroll);
+    let scroll_ms = started.elapsed().as_secs_f64() * 1000.0;
+    eprintln!("scroll-{step}: event {scroll_ms:.2}ms");
+    timed_pass(&mut tree, &format!("  pass-{step}"));
+    timed_pass(&mut tree, &format!("  settle-{step}"));
+  }
+}
+
+struct PlainTextRow;
+
+impl Component for PlainTextRow {
+  type Props = TimingLine;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let line = ctx.props::<Self::Props>().clone();
+    lurq::components::Row::new()
+      .min_width(2400.0)
+      .child(lurq::components::Text::new(&line.text).nowrap())
+  }
+}
+
+struct RectRow;
+
+impl Component for RectRow {
+  type Props = TimingLine;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Rect::new(2400.0, 22.0).background(Color::from_hex("#334455"))
+  }
+}
+
+struct PlainTimingRoot;
+
+impl Component for PlainTimingRoot {
+  type Props = Shared<Vec<TimingLine>>;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let items = ctx.props::<Self::Props>().0.as_ref().clone();
+    VirtualizedList::new(ctx, items)
+      .size(900.0, 700.0)
+      .mount_keyed::<PlainTextRow, _, _, _>(|line| line.id, |line| line.clone())
+  }
+}
+
+struct RectTimingRoot;
+
+impl Component for RectTimingRoot {
+  type Props = Shared<Vec<TimingLine>>;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let items = ctx.props::<Self::Props>().0.as_ref().clone();
+    VirtualizedList::new(ctx, items)
+      .size(900.0, 700.0)
+      .mount_keyed::<RectRow, _, _, _>(|line| line.id, |line| line.clone())
+  }
+}
+
+fn timing_lines() -> Vec<TimingLine> {
+  (0..10_000)
+    .map(|id| TimingLine {
+      id,
+      text: std::sync::Arc::from(format!(
+        "<TerrainRoad id=\"{id}\" texture=\"surfaces/road/autobase_{id}.dds\" \
+         u0=\"0.125\" v0=\"0.25\" u1=\"0.875\" v1=\"0.75\" blend=\"true\" layer=\"3\"/>"
+      )),
+    })
+    .collect()
+}
+
+fn run_timing<R>(label: &str)
+where
+  R: Component<Props = Shared<Vec<TimingLine>>>,
+{
+  use std::time::Instant;
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  tree.mount_root::<R>(&mut app, Shared(Arc::new(timing_lines())));
+
+  let mut timed_pass = |tree: &mut Tree, label: String| {
+    let started = Instant::now();
+    tree.request_redraw();
+    tree.pass(&mut app, &crate::support::TestSurface);
+    eprintln!("{label}: {:.2}ms", started.elapsed().as_secs_f64() * 1000.0);
+  };
+
+  timed_pass(&mut tree, format!("[{label}] bootstrap"));
+  timed_pass(&mut tree, format!("[{label}] settle"));
+  for step in 0..3 {
+    tree.scroll(400.0, 300.0, 0.0, -400.0, ScrollPhase::Scroll);
+    timed_pass(&mut tree, format!("[{label}] jump-pass-{step}"));
+    timed_pass(&mut tree, format!("[{label}] jump-settle-{step}"));
+  }
+  for step in 0..3 {
+    tree.scroll(400.0, 300.0, 0.0, -160.0, ScrollPhase::Scroll);
+    timed_pass(&mut tree, format!("[{label}] step-pass-{step}"));
+  }
+}
+
+#[test]
+#[ignore]
+fn virtualized_list_scroll_timing_variants() {
+  run_timing::<RectTimingRoot>("rect");
+  run_timing::<PlainTimingRoot>("plain-text");
+  run_timing::<TimingRoot>("selectable-text");
+}

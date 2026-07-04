@@ -60,6 +60,7 @@ use crate::{
     transform::Transform2D,
   },
 };
+use crate::app::WindowCornerRadius;
 
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;

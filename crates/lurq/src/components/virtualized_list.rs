@@ -7,7 +7,7 @@ use std::{
 
 use parking_lot::Mutex;
 
-use super::{Column, ScrollVertical, Spacer};
+use super::{Column, ScrollBoth, ScrollVertical, Spacer};
 use crate::{
   app::{component::Component, ctx::Ctx, events::ScrollEvent},
   core::{ElementRef, Signal},
@@ -21,6 +21,12 @@ use crate::{
 
 const DEFAULT_OVERSCAN_PX: f32 = 256.0;
 const HEIGHT_EPSILON: f32 = 0.01;
+/// Upper bound on not-yet-measured rows mounted per frame while a pending
+/// scroll anchor needs exact heights.
+const MEASURE_CHUNK: usize = 256;
+/// Rows rendered on the very first pass, before any height is known; their
+/// measured heights seed the estimate that sizes the rest of the list.
+const BOOTSTRAP_ROWS: usize = 64;
 
 #[derive(Clone, Default)]
 struct VirtualizedListOptions {
@@ -34,6 +40,9 @@ struct VirtualizedListOptions {
   top_handlers: Vec<EventHandler<ScrollEvent>>,
   bottom_handlers: Vec<EventHandler<ScrollEvent>>,
   list_key: Option<String>,
+  /// Scroll horizontally too (rows wider than the viewport pan; virtualization
+  /// still works off the vertical axis only).
+  horizontal: bool,
 }
 
 pub struct VirtualizedList<'a, T> {
@@ -61,6 +70,13 @@ impl<'a, T> VirtualizedList<'a, T> {
 
   pub fn overscan_px(mut self, overscan_px: f32) -> Self {
     self.options.overscan_px = overscan_px.max(0.0);
+    self
+  }
+
+  /// Also scroll horizontally: rows wider than the viewport pan sideways.
+  /// Virtualization still windows on the vertical axis only.
+  pub fn horizontal_scroll(mut self, enabled: bool) -> Self {
+    self.options.horizontal = enabled;
     self
   }
 
@@ -134,7 +150,7 @@ impl<'a, T> VirtualizedList<'a, T> {
     PF: Fn(&T) -> C::Props + Send + Sync + 'static,
   {
     let props = VirtualizedMountListProps::<T, KF, PF> {
-      items: self.items,
+      items: Arc::new(self.items),
       key_fn: Arc::new(key_fn),
       props_fn: Arc::new(props_fn),
       options: self.options.clone(),
@@ -150,7 +166,9 @@ impl<'a, T> VirtualizedList<'a, T> {
 }
 
 struct VirtualizedMountListProps<T, KF, PF> {
-  items: Vec<T>,
+  /// Shared, not cloned: steady-state scroll re-renders must not copy or
+  /// deep-compare the item list.
+  items: Arc<Vec<T>>,
   key_fn: Arc<KF>,
   props_fn: Arc<PF>,
   options: VirtualizedListOptions,
@@ -182,11 +200,25 @@ where
 
 struct VirtualizedRuntime<T> {
   heights: HashMap<String, f32>,
-  items: HashMap<String, T>,
+  /// The item list as of the last change, for cheap change detection — the
+  /// steady-state scroll path must not rebuild keys or maps per frame.
+  /// Compared by pointer first, contents only when the pointer changed.
+  items_snapshot: Arc<Vec<T>>,
   order: Vec<String>,
+  /// Cumulative row heights (`prefix[i]` = top of row `i`). Rows that were
+  /// never measured count as the average measured height, so the extent and
+  /// windowing work without ever mounting off-screen rows. Rebuilt only when
+  /// items or measured heights change; the per-scroll visible-range query is
+  /// a binary search.
+  prefix: Vec<f32>,
+  prefix_dirty: bool,
   rendered_refs: HashMap<String, ElementRef>,
   pending_anchor: Option<ScrollAnchor>,
-  last_scroll_y: f32,
+  /// Scroll position at which the row window was last built; re-renders only
+  /// happen once the position drifts past `rebuild_threshold`.
+  last_render_scroll_y: f32,
+  /// Half the overscan margin (set from the options in `rows`).
+  rebuild_threshold: f32,
   last_viewport_height: f32,
 }
 
@@ -199,11 +231,14 @@ impl<T> Default for VirtualizedRuntime<T> {
   fn default() -> Self {
     Self {
       heights: HashMap::new(),
-      items: HashMap::new(),
+      items_snapshot: Arc::new(Vec::new()),
       order: Vec::new(),
+      prefix: vec![0.0],
+      prefix_dirty: false,
       rendered_refs: HashMap::new(),
       pending_anchor: None,
-      last_scroll_y: 0.0,
+      last_render_scroll_y: 0.0,
+      rebuild_threshold: DEFAULT_OVERSCAN_PX * 0.5,
       last_viewport_height: 0.0,
     }
   }
@@ -247,52 +282,81 @@ where
       .unwrap_or_else(|| self.scroll_state.clone());
     *self.active_scroll_state.lock() = scroll_state.clone();
     let rows = self.rows(ctx, &items, &*key_fn, &*props_fn, &options, &scroll_state);
-    let mut scroll = ScrollVertical::new(rows).with_scroll_state(scroll_state);
 
-    if let Some(style) = options.scrollbar.clone() {
-      scroll = scroll.scrollbar(style);
-    }
-    if let Some(hovered) = options.scrollbar_hovered.clone() {
-      scroll = scroll.scrollbar_hovered(move |style| hovered(style));
+    // Re-render only when the scroll position drifts past half the overscan
+    // margin from where the window was last built — everything closer is
+    // already materialized, so plain retained scrolling covers it. Without
+    // this hysteresis every wheel tick rebuilds and re-lays the whole visible
+    // window, which crawls on long lists.
+    let rebuild_handler = {
+      let revision = self.revision.clone();
+      let runtime = self.runtime.clone();
+      let handler_scroll_state = scroll_state.clone();
+      let rebuild_threshold = (options.overscan_px * 0.5).max(1.0);
+      move |event: ScrollEvent| {
+        // Handlers run before the default scroll movement applies, so predict
+        // the post-scroll position from the delta.
+        let scroll_y = (handler_scroll_state.scroll_y() - event.delta_y).max(0.0);
+        let drifted =
+          (runtime.lock().last_render_scroll_y - scroll_y).abs() > rebuild_threshold;
+        if drifted {
+          revision.update(|value| *value = value.wrapping_add(1));
+        }
+      }
+    };
+
+    // The vertical and both-axes scroll containers are distinct types with
+    // identical (macro-provided) builders, so the shared option chain is
+    // applied through a macro.
+    macro_rules! configure_scroll {
+      ($scroll:expr) => {{
+        let mut scroll = $scroll.with_scroll_state(scroll_state.clone());
+        if let Some(style) = options.scrollbar.clone() {
+          scroll = scroll.scrollbar(style);
+        }
+        if let Some(hovered) = options.scrollbar_hovered.clone() {
+          scroll = scroll.scrollbar_hovered(move |style| hovered(style));
+        }
+        for handler in options.top_handlers.iter().cloned() {
+          scroll = scroll.on_scroll_reach_top(handler);
+        }
+        for handler in options.bottom_handlers.iter().cloned() {
+          scroll = scroll.on_scroll_reach_bottom(handler);
+        }
+        for handler in options.scroll_handlers.iter().cloned() {
+          scroll = scroll.on_scroll(handler);
+        }
+        scroll = scroll.on_scroll(rebuild_handler.clone());
+        if let Some(width) = options.frame.width {
+          scroll = scroll.width(width);
+        }
+        if let Some(height) = options.frame.height {
+          scroll = scroll.height(height);
+        }
+        if let Some(min_width) = options.frame.min_width {
+          scroll = scroll.min_width(min_width);
+        }
+        if let Some(max_width) = options.frame.max_width {
+          scroll = scroll.max_width(max_width);
+        }
+        if let Some(min_height) = options.frame.min_height {
+          scroll = scroll.min_height(min_height);
+        }
+        if let Some(max_height) = options.frame.max_height {
+          scroll = scroll.max_height(max_height);
+        }
+        if let Some(flex) = options.flex {
+          scroll = scroll.flex(flex);
+        }
+        scroll
+      }};
     }
 
-    for handler in options.top_handlers.iter().cloned() {
-      scroll = scroll.on_scroll_reach_top(handler);
-    }
-    for handler in options.bottom_handlers.iter().cloned() {
-      scroll = scroll.on_scroll_reach_bottom(handler);
-    }
-    for handler in options.scroll_handlers.iter().cloned() {
-      scroll = scroll.on_scroll(handler);
-    }
-
-    let revision = self.revision.clone();
-    scroll = scroll.on_scroll(move |_| {
-      revision.update(|value| *value = value.wrapping_add(1));
-    });
-
-    if let Some(width) = options.frame.width {
-      scroll = scroll.width(width);
-    }
-    if let Some(height) = options.frame.height {
-      scroll = scroll.height(height);
-    }
-    if let Some(min_width) = options.frame.min_width {
-      scroll = scroll.min_width(min_width);
-    }
-    if let Some(max_width) = options.frame.max_width {
-      scroll = scroll.max_width(max_width);
-    }
-    if let Some(min_height) = options.frame.min_height {
-      scroll = scroll.min_height(min_height);
-    }
-    if let Some(max_height) = options.frame.max_height {
-      scroll = scroll.max_height(max_height);
-    }
-    if let Some(flex) = options.flex {
-      scroll = scroll.flex(flex);
-    }
-
+    let scroll: Element = if options.horizontal {
+      configure_scroll!(ScrollBoth::new(rows)).into()
+    } else {
+      configure_scroll!(ScrollVertical::new(rows)).into()
+    };
     scroll
   }
 
@@ -313,6 +377,7 @@ where
         let height = element_ref.height().max(0.0);
         let previous = runtime.heights.insert(key, height);
         if previous.is_none_or(|old| (old - height).abs() > HEIGHT_EPSILON) {
+          runtime.prefix_dirty = true;
           changed = true;
         }
       }
@@ -320,16 +385,18 @@ where
       let scroll_state = self.active_scroll_state.lock().clone();
       let scroll_y = scroll_state.scroll_y();
       let viewport_height = scroll_state.viewport_height();
-      if (runtime.last_scroll_y - scroll_y).abs() > HEIGHT_EPSILON
+      // Same hysteresis as the scroll handler: rebuild only once the position
+      // leaves the already-materialized overscan margin (or the viewport
+      // itself resized).
+      if (runtime.last_render_scroll_y - scroll_y).abs() > runtime.rebuild_threshold
         || (runtime.last_viewport_height - viewport_height).abs() > HEIGHT_EPSILON
       {
-        runtime.last_scroll_y = scroll_y;
         runtime.last_viewport_height = viewport_height;
         changed = true;
       }
 
       if let Some(anchor) = runtime.pending_anchor.take() {
-        if runtime.order.iter().all(|key| runtime.heights.contains_key(key)) {
+        if runtime.heights.len() >= runtime.order.len() {
           if let Some(anchor_index) = runtime.order.iter().position(|key| key == &anchor.key) {
             let new_top = prefix_height(&runtime.order[..anchor_index], &runtime.heights);
             scroll_state.set_scroll(0.0, new_top + anchor.offset);
@@ -358,76 +425,158 @@ where
   fn rows(
     &self,
     ctx: &mut Ctx,
-    items: &[T],
+    items: &Arc<Vec<T>>,
     key_fn: &KF,
     props_fn: &PF,
     options: &VirtualizedListOptions,
     scroll_state: &ScrollState,
   ) -> Column {
-    let keys: Vec<String> = items.iter().map(|item| format!("{}", key_fn(item))).collect();
     let mut runtime = self.runtime.lock();
-    if runtime.order != keys
-      && runtime.pending_anchor.is_none()
-      && runtime.order.iter().all(|key| runtime.heights.contains_key(key))
-    {
-      runtime.pending_anchor = scroll_anchor_for(&runtime.order, &runtime.heights, scroll_state.scroll_y());
-    }
-    let current_keys: HashSet<&str> = keys.iter().map(String::as_str).collect();
-    runtime.heights.retain(|key, _| current_keys.contains(key.as_str()));
-    runtime.items.retain(|key, _| current_keys.contains(key.as_str()));
 
-    for (key, item) in keys.iter().zip(items.iter()) {
-      if runtime.items.get(key) != Some(item) {
-        runtime.heights.remove(key);
+    // Steady-state scroll ticks must be free of O(n) work: the shared item
+    // list is compared by pointer, and contents only when the pointer changed
+    // (a parent re-render building an identical list).
+    let items_changed = !Arc::ptr_eq(&runtime.items_snapshot, items)
+      && runtime.items_snapshot.as_slice() != items.as_slice();
+    if !items_changed && !Arc::ptr_eq(&runtime.items_snapshot, items) {
+      // Same contents, new allocation — adopt it so the next compare is O(1).
+      runtime.items_snapshot = items.clone();
+    }
+    if items_changed {
+      let keys: Vec<String> = items.iter().map(|item| format!("{}", key_fn(item))).collect();
+      if runtime.order != keys && runtime.pending_anchor.is_none() && !runtime.order.is_empty() {
+        // Anchor the first (partially) visible row using the pre-change
+        // prefix, so the viewport is restored once the new heights settle.
+        let scroll_y = scroll_state.scroll_y();
+        let index = runtime.prefix[1..runtime.order.len() + 1]
+          .partition_point(|&bottom| bottom <= scroll_y)
+          .min(runtime.order.len() - 1);
+        runtime.pending_anchor = Some(ScrollAnchor {
+          key: runtime.order[index].clone(),
+          offset: scroll_y - runtime.prefix[index],
+        });
       }
-      runtime.items.insert(key.clone(), item.clone());
-    }
-    runtime.order = keys.clone();
 
-    let all_measured = !keys.is_empty() && keys.iter().all(|key| runtime.heights.contains_key(key));
-    let has_measurements = keys.iter().any(|key| runtime.heights.contains_key(key));
-    let visible_range = if all_measured || has_measurements {
-      visible_range(
-        &keys,
-        &runtime.heights,
+      // Evict heights for removed keys and for keys whose item changed.
+      let old_order = std::mem::take(&mut runtime.order);
+      let old_snapshot = std::mem::replace(&mut runtime.items_snapshot, Arc::new(Vec::new()));
+      let old_items: HashMap<&str, &T> = old_order
+        .iter()
+        .map(String::as_str)
+        .zip(old_snapshot.iter())
+        .collect();
+      let current_keys: HashSet<&str> = keys.iter().map(String::as_str).collect();
+      runtime.heights.retain(|key, _| current_keys.contains(key.as_str()));
+      for (key, item) in keys.iter().zip(items.iter()) {
+        if old_items.get(key.as_str()).is_none_or(|old| *old != item) {
+          runtime.heights.remove(key);
+        }
+      }
+      drop(old_items);
+      runtime.order = keys;
+      runtime.items_snapshot = items.clone();
+      runtime.prefix_dirty = true;
+    }
+
+    // Cumulative heights (`prefix[i]` = top of row `i`), rebuilt only when
+    // items or measured heights changed. Rows that were never measured count
+    // as the average measured height — off-screen rows are never mounted just
+    // to size them; the extent refines as real heights come in. Row offsets
+    // and the visible range then cost O(1)/O(log n) per scroll tick.
+    if runtime.prefix_dirty {
+      let mut measured_sum = 0.0f64;
+      let mut measured_count = 0usize;
+      let row_heights: Vec<Option<f32>> = runtime
+        .order
+        .iter()
+        .map(|key| {
+          let height = runtime.heights.get(key).copied();
+          if let Some(height) = height {
+            measured_sum += f64::from(height);
+            measured_count += 1;
+          }
+          height
+        })
+        .collect();
+      let estimate = if measured_count > 0 {
+        (measured_sum / measured_count as f64) as f32
+      } else {
+        0.0
+      };
+      let mut prefix = Vec::with_capacity(row_heights.len() + 1);
+      let mut sum = 0.0f32;
+      prefix.push(0.0);
+      for height in row_heights {
+        sum += height.unwrap_or(estimate);
+        prefix.push(sum);
+      }
+      runtime.prefix = prefix;
+      runtime.prefix_dirty = false;
+    }
+
+    let count = runtime.order.len();
+    let all_measured = count > 0 && runtime.heights.len() >= count;
+    let has_measurements = !runtime.heights.is_empty();
+
+    let visible_range = if has_measurements {
+      visible_range_from_prefix(
+        &runtime.prefix,
         scroll_state.scroll_y(),
         scroll_state.viewport_height(),
         options.overscan_px,
       )
     } else {
-      (0, items.len())
+      // Nothing measured yet: render a small seed batch; its measured heights
+      // become the estimate that sizes everything else.
+      (0, count.min(BOOTSTRAP_ROWS))
     };
     let mut rendered_indices: Vec<usize> = (visible_range.0..visible_range.1).collect();
-    if has_measurements && !all_measured {
+    if runtime.pending_anchor.is_some() && !all_measured {
+      // A pending anchor (rows prepended/replaced) wants exact heights for
+      // everything above the anchor row; measure the remainder in bounded
+      // chunks per frame until it can be applied.
       rendered_indices.extend(
-        keys
+        runtime
+          .order
           .iter()
           .enumerate()
-          .filter_map(|(index, key)| (!runtime.heights.contains_key(key)).then_some(index)),
+          .filter_map(|(index, key)| (!runtime.heights.contains_key(key)).then_some(index))
+          .take(MEASURE_CHUNK),
       );
       rendered_indices.sort_unstable();
       rendered_indices.dedup();
     }
-    let total_height = has_measurements.then(|| prefix_height(&keys, &runtime.heights));
-    let heights = runtime.heights.clone();
+    let total_height = has_measurements.then(|| runtime.prefix[count]);
+    // Only the handful of rendered rows need owned keys/offsets.
+    let rendered: Vec<(usize, String, f32, f32)> = rendered_indices
+      .into_iter()
+      .map(|index| {
+        (
+          index,
+          runtime.order[index].clone(),
+          runtime.prefix[index],
+          runtime.prefix[index + 1] - runtime.prefix[index],
+        )
+      })
+      .collect();
+    runtime.last_render_scroll_y = scroll_state.scroll_y();
+    runtime.rebuild_threshold = (options.overscan_px * 0.5).max(1.0);
     runtime.rendered_refs.clear();
     drop(runtime);
 
     let mut column = Column::new().spacing(0.0).align_items(Alignment::Start);
     let mut cursor_y = 0.0;
 
-    for index in rendered_indices {
-      let row_y = prefix_height(&keys[..index], &heights);
+    for (index, key, row_y, row_height) in rendered {
       if row_y > cursor_y {
         column = column.child(Spacer::new().height(row_y - cursor_y));
       }
-      let key = keys[index].clone();
       let row_ref = ctx.element_ref();
       self.runtime.lock().rendered_refs.insert(key.clone(), row_ref.clone());
       let row = ctx.mount_keyed::<C>(&key, props_fn(&items[index]));
       let wrapper = Column::new().spacing(0.0).ref_element(row_ref).child(row);
       column = column.child(wrapper);
-      cursor_y = row_y + heights.get(&key).copied().unwrap_or(0.0);
+      cursor_y = row_y + row_height;
     }
 
     if let Some(total_height) = total_height
@@ -444,60 +593,25 @@ fn prefix_height(keys: &[String], heights: &HashMap<String, f32>) -> f32 {
   keys.iter().map(|key| heights.get(key).copied().unwrap_or(0.0)).sum()
 }
 
-fn scroll_anchor_for(keys: &[String], heights: &HashMap<String, f32>, scroll_y: f32) -> Option<ScrollAnchor> {
-  let mut offset = 0.0;
-  for key in keys {
-    let height = heights.get(key).copied().unwrap_or(0.0);
-    let next = offset + height;
-    if next > scroll_y {
-      return Some(ScrollAnchor {
-        key: key.clone(),
-        offset: scroll_y - offset,
-      });
-    }
-    offset = next;
-  }
-
-  keys.last().map(|key| ScrollAnchor {
-    key: key.clone(),
-    offset: 0.0,
-  })
-}
-
-fn visible_range(
-  keys: &[String],
-  heights: &HashMap<String, f32>,
+/// Visible index window from the cumulative-height prefix (see
+/// `VirtualizedRuntime::prefix`): two binary searches instead of an O(n) walk.
+fn visible_range_from_prefix(
+  prefix: &[f32],
   scroll_y: f32,
   viewport_height: f32,
   overscan_px: f32,
 ) -> (usize, usize) {
-  if keys.is_empty() {
+  let count = prefix.len().saturating_sub(1);
+  if count == 0 {
     return (0, 0);
   }
-
   let start_y = (scroll_y - overscan_px).max(0.0);
   let end_y = scroll_y + viewport_height + overscan_px;
-  let mut offset = 0.0;
-  let mut start = 0;
 
-  for (index, key) in keys.iter().enumerate() {
-    let next = offset + heights.get(key).copied().unwrap_or(0.0);
-    if next > start_y {
-      start = index;
-      break;
-    }
-    offset = next;
-    start = index + 1;
-  }
-
-  let mut end = start;
-  for (index, key) in keys.iter().enumerate().skip(start) {
-    if offset >= end_y {
-      break;
-    }
-    offset += heights.get(key).copied().unwrap_or(0.0);
-    end = index + 1;
-  }
-
-  (start.min(keys.len()), end.min(keys.len()).max(start.min(keys.len())))
+  // First row whose bottom edge is past `start_y`.
+  let start = prefix[1..].partition_point(|&bottom| bottom <= start_y).min(count);
+  // One past the last row whose top edge is before `end_y`.
+  let end = prefix[..count].partition_point(|&top| top < end_y).max(start);
+  (start, end)
 }
+

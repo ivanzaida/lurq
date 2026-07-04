@@ -5,3 +5,28 @@ members = ["crates/lurq", "crates/demo", "crates/lurq_macros"]
 [workspace.dependencies]
 parking_lot = "0.12.5"
 tracing = "0.1"
+
+# Text shaping at opt-level 0 makes text-heavy screens crawl in dev builds.
+[profile.dev.package.cosmic-text]
+opt-level = 2
+
+[profile.dev.package.swash]
+opt-level = 2
+
+[profile.dev.package.rustybuzz]
+opt-level = 2
+
+[profile.dev.package.ttf-parser]
+opt-level = 2
+
+[profile.dev.package.fontdb]
+opt-level = 2
+
+[profile.dev.package.unicode-bidi]
+opt-level = 2
+
+[profile.dev.package.unicode-linebreak]
+opt-level = 2
+
+[profile.dev.package.unicode-script]
+opt-level = 2

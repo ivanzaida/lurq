@@ -331,6 +331,7 @@ pub(crate) struct GlyphEngine {
   transformed_scale_context: ScaleContext,
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<u64, Vec<(CacheKey, Size)>>,
+  caret_cache: HashMap<u64, Vec<(CacheKey, Vec<CaretPosition>)>>,
   rich_shaped_layout_cache: HashMap<u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
   clipped_glyph_layout_cache: HashMap<ClippedCacheKey, Vec<CachedGlyph>>,
@@ -359,6 +360,7 @@ impl GlyphEngine {
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
+      caret_cache: HashMap::new(),
       rich_shaped_layout_cache: HashMap::new(),
       glyph_layout_cache: HashMap::new(),
       clipped_glyph_layout_cache: HashMap::new(),
@@ -407,6 +409,7 @@ impl GlyphEngine {
 
   fn clear_text_caches(&mut self) {
     self.measure_cache.clear();
+    self.caret_cache.clear();
     self.rich_shaped_layout_cache.clear();
     self.glyph_layout_cache.clear();
     self.clipped_glyph_layout_cache.clear();
@@ -503,6 +506,41 @@ impl GlyphEngine {
   }
 
   pub(crate) fn caret_positions(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Vec<CaretPosition> {
+    // Selectable text recomputes caret positions on every layout; cache them
+    // like measurements — a full per-character shaping walk per node per pass
+    // makes lists of selectable text crawl.
+    let fingerprint = text_measure_fingerprint(text, style, max_width, wrap);
+    if let Some(cached) = self
+      .caret_cache
+      .get(&fingerprint)
+      .and_then(|bucket| {
+        bucket
+          .iter()
+          .find(|(key, _)| key.matches_measure(text, style, max_width, wrap))
+      })
+      .map(|(_, positions)| positions.clone())
+    {
+      return cached;
+    }
+    let positions = self.compute_caret_positions(text, style, max_width, wrap);
+    if self.caret_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.caret_cache.clear();
+    }
+    self
+      .caret_cache
+      .entry(fingerprint)
+      .or_default()
+      .push((CacheKey::new(text, style, max_width, wrap), positions.clone()));
+    positions
+  }
+
+  fn compute_caret_positions(
     &mut self,
     text: &str,
     style: &TextStyle,
