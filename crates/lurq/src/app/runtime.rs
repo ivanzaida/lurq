@@ -1242,7 +1242,10 @@ impl Tree {
     for request in app.window_opener.take() {
       let mut tree = Tree::new();
       (request.build)(app, &mut tree);
-      self.push_secondary_window(SecondaryWindow::new(request.title, request.width, request.height, tree));
+      self.push_secondary_window(
+        SecondaryWindow::new(request.title, request.width, request.height, tree)
+          .with_decorations(request.decorations),
+      );
       changed = true;
     }
     changed

@@ -758,6 +758,7 @@ impl ManagedSecondaryWindow {
       attrs: Some(
         WindowAttributes::default()
           .with_title(secondary.title())
+          .with_decorations(secondary.decorations())
           .with_inner_size(winit::dpi::LogicalSize::new(secondary.width(), secondary.height())),
       ),
       redraw_pending: false,
@@ -833,6 +834,7 @@ impl ManagedSecondaryWindow {
       }
       tree.window().set_maximized(window.is_maximized());
       tree.window().set_full_screen(window.fullscreen().is_some());
+      tree.window().set_decorated(window.is_decorated());
     }
   }
 
