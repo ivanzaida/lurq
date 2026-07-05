@@ -3291,7 +3291,17 @@ impl Dx12State {
       self.transition_resource(&texture, current_state, D3D12_RESOURCE_STATE_COPY_DEST);
     }
 
-    if recreate || atlas.dirty_rects.is_empty() || DX12_ALWAYS_FULL_ATLAS_UPLOAD {
+    // The atlas is shared across windows; this texture may be several
+    // versions behind, so apply the log's rects newer than *our* uploaded
+    // version — or the full atlas when the log no longer covers the gap.
+    let uploaded_version = self.glyph_atlas.as_ref().unwrap().version;
+    let pending = if recreate {
+      None
+    } else {
+      crate::app::glyph_engine::atlas_rects_to_apply(atlas, uploaded_version)
+    };
+
+    if pending.is_none() || DX12_ALWAYS_FULL_ATLAS_UPLOAD {
       let row_bytes = atlas.width as usize * 4;
       let row_pitch = align_up(row_bytes, 256);
       let upload_size = row_pitch * atlas.height as usize;
@@ -3336,7 +3346,7 @@ impl Dx12State {
       stats.full_uploads += 1;
       self.frame_uploads[self.frame_index].push(upload);
     } else {
-      for rect in atlas.dirty_rects.iter() {
+      for rect in pending.unwrap_or_default() {
         if rect.width == 0 || rect.height == 0 || rect.x >= atlas.width || rect.y >= atlas.height {
           continue;
         }

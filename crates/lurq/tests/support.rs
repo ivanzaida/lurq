@@ -92,6 +92,14 @@ pub struct ClipSnapshot {
 }
 
 pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
+  let mut app = App::new();
+  render_pass_with_app(tree, &mut app)
+}
+
+/// Like [`render_pass`] but with a caller-provided persistent `App` — a fresh
+/// `App` per pass changes the theme version, which force-dirties every layout
+/// and silently bypasses the incremental relayout paths under test.
+pub fn render_pass_with_app(tree: &mut Tree, app: &mut App) -> RenderSnapshot {
   let capture = Arc::new(Mutex::new(None));
   let render_capture = capture.clone();
   tree.set_render_engine_factory(move || {
@@ -100,8 +108,7 @@ pub fn render_pass(tree: &mut Tree) -> RenderSnapshot {
     })
   });
   tree.request_redraw();
-  let mut app = App::new();
-  tree.pass(&mut app, &TestSurface);
+  tree.pass(app, &TestSurface);
   capture.lock().unwrap().clone().unwrap_or_else(empty_snapshot)
 }
 

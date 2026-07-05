@@ -253,6 +253,16 @@ impl ScrollState {
     self.inner.lock().unwrap().viewport_height
   }
 
+  /// Whether two handles share the same underlying scroll state.
+  pub(crate) fn ptr_eq(&self, other: &ScrollState) -> bool {
+    Arc::ptr_eq(&self.inner, &other.inner)
+  }
+
+  /// Absolute (window-space) top of the scroll viewport, set during layout.
+  pub(crate) fn viewport_abs_y(&self) -> f32 {
+    self.inner.lock().unwrap().viewport_abs_y
+  }
+
   pub fn style(&self) -> ScrollBarStyle {
     self.inner.lock().unwrap().scrollbar_style.clone()
   }

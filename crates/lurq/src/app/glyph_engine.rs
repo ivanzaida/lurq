@@ -2259,6 +2259,10 @@ fn load_platform_fonts(font_system: &mut FontSystem) {
   }
 }
 
+/// Upper bound on retained dirty-log entries; consumers further behind than
+/// the pruned tail fall back to a full atlas upload.
+const GLYPH_ATLAS_DIRTY_LOG_LIMIT: usize = 512;
+
 pub(crate) struct AtlasPacker {
   pub data: Vec<u8>,
   pub width: u32,
@@ -2267,8 +2271,14 @@ pub(crate) struct AtlasPacker {
   cursor_y: u32,
   row_height: u32,
   version: u64,
-  dirty_rects: Vec<GlyphAtlasDirtyRect>,
+  /// Version-tagged log of packed rects (see [`GlyphAtlas::dirty_rects`]).
+  /// Retained — not drained per snapshot — because multiple windows consume
+  /// the same atlas from different uploaded versions.
+  dirty_rects: std::collections::VecDeque<GlyphAtlasDirtyRect>,
+  /// Versions at or before this are no longer covered by the log.
+  dirty_from_version: u64,
   snapshot_data: std::sync::Arc<[u8]>,
+  snapshot_rects: std::sync::Arc<[GlyphAtlasDirtyRect]>,
   snapshot_width: u32,
   snapshot_height: u32,
   snapshot_version: u64,
@@ -2286,8 +2296,10 @@ impl AtlasPacker {
       cursor_y: 0,
       row_height: 0,
       version: 0,
-      dirty_rects: Vec::new(),
+      dirty_rects: std::collections::VecDeque::new(),
+      dirty_from_version: 0,
       snapshot_data: Vec::<u8>::new().into(),
+      snapshot_rects: Vec::new().into(),
       snapshot_width: 0,
       snapshot_height: 0,
       snapshot_version: u64::MAX,
@@ -2393,18 +2405,31 @@ impl AtlasPacker {
 
   fn record_packed_rect(&mut self, x0: u32, y0: u32, reserved_width: u32, reserved_height: u32) {
     self.version += 1;
-    self.dirty_rects.push(GlyphAtlasDirtyRect {
+    let rect = GlyphAtlasDirtyRect {
       x: x0,
       y: y0,
       width: reserved_width,
       height: reserved_height,
-    });
+      version: self.version,
+    };
+    // Merge adjacent same-row packs as they land so glyph bursts don't blow
+    // up the log (the merged rect carries the newest version).
+    match self.dirty_rects.back_mut() {
+      Some(last) if should_merge_dirty_rects(*last, rect) => *last = union_dirty_rect(*last, rect),
+      _ => self.dirty_rects.push_back(rect),
+    }
+    while self.dirty_rects.len() > GLYPH_ATLAS_DIRTY_LOG_LIMIT {
+      if let Some(removed) = self.dirty_rects.pop_front() {
+        self.dirty_from_version = removed.version;
+      }
+    }
   }
 
   pub(crate) fn to_atlas(&mut self) -> GlyphAtlas {
     if self.snapshot_version != self.version || self.snapshot_width != self.width || self.snapshot_height != self.height
     {
       self.snapshot_data = std::sync::Arc::from(self.data.clone());
+      self.snapshot_rects = self.dirty_rects.iter().copied().collect();
       self.snapshot_width = self.width;
       self.snapshot_height = self.height;
       self.snapshot_version = self.version;
@@ -2415,9 +2440,30 @@ impl AtlasPacker {
       width: self.width,
       height: self.height,
       version: self.version,
-      dirty_rects: coalesce_dirty_rects(std::mem::take(&mut self.dirty_rects)).into(),
+      dirty_rects: self.snapshot_rects.clone(),
+      dirty_from_version: self.dirty_from_version,
     }
   }
+}
+
+/// The dirty rects a consumer whose GPU texture is at `uploaded_version` must
+/// apply to reach `atlas.version` — `None` when the log no longer covers the
+/// gap and the full atlas has to be re-uploaded instead.
+pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+  if uploaded_version < atlas.dirty_from_version {
+    return None;
+  }
+  let pending: Vec<GlyphAtlasDirtyRect> = atlas
+    .dirty_rects
+    .iter()
+    .filter(|rect| rect.version > uploaded_version)
+    .copied()
+    .collect();
+  if pending.is_empty() && uploaded_version < atlas.version {
+    // The version moved but the log doesn't show how — stay safe.
+    return None;
+  }
+  Some(coalesce_dirty_rects(pending))
 }
 
 fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
@@ -2482,6 +2528,7 @@ fn union_dirty_rect(a: GlyphAtlasDirtyRect, b: GlyphAtlasDirtyRect) -> GlyphAtla
     y: y0,
     width: x1.saturating_sub(x0),
     height: y1.saturating_sub(y0),
+    version: a.version.max(b.version),
   }
 }
 
@@ -2610,9 +2657,61 @@ mod tests {
     assert!(!std::sync::Arc::ptr_eq(&second.data, &third.data));
     assert_eq!(third.dirty_rects.len(), 1);
 
+    // The dirty log is retained (not drained) so every window's render
+    // engine can catch up from its own uploaded version.
     let fourth = packer.to_atlas();
-    assert!(fourth.dirty_rects.is_empty());
+    assert_eq!(fourth.dirty_rects.len(), 1);
+    assert!(std::sync::Arc::ptr_eq(&third.dirty_rects, &fourth.dirty_rects));
     assert!(std::sync::Arc::ptr_eq(&third.data, &fourth.data));
+  }
+
+  #[test]
+  fn atlas_dirty_log_serves_consumers_at_different_versions() {
+    let mut packer = AtlasPacker::new();
+    packer.pack_pixels(&[255; 4], 2, 2);
+    let snap1 = packer.to_atlas();
+    // Consumer A uploads snap1 fully; its texture is now at snap1.version.
+    let a_version = snap1.version;
+
+    packer.pack_pixels(&[255; 4], 2, 2);
+    packer.pack_pixels(&[255; 4], 2, 2);
+    let snap2 = packer.to_atlas();
+
+    // Consumer A only needs the packs after its version.
+    let a_rects = super::atlas_rects_to_apply(&snap2, a_version).expect("log covers consumer A");
+    assert!(a_rects.iter().all(|rect| rect.version > a_version));
+    assert!(!a_rects.is_empty());
+
+    // Consumer B never uploaded any rects (texture at version 0) — the log
+    // must still cover it, including the packs consumer A already applied.
+    let b_rects = super::atlas_rects_to_apply(&snap2, 0).expect("log covers consumer B");
+    let b_area: u64 = b_rects.iter().map(|rect| super::dirty_rect_area(*rect)).sum();
+    let a_area: u64 = a_rects.iter().map(|rect| super::dirty_rect_area(*rect)).sum();
+    assert!(b_area >= a_area, "stale consumer must receive at least as much as a fresh one");
+
+    // Up to date: nothing to apply.
+    let none = super::atlas_rects_to_apply(&snap2, snap2.version).expect("up-to-date consumer");
+    assert!(none.is_empty());
+  }
+
+  #[test]
+  fn atlas_dirty_log_prunes_to_full_upload_for_stale_consumers() {
+    let mut packer = AtlasPacker::new();
+    packer.pack_pixels(&[255; 4], 2, 2);
+    let stale_version = packer.to_atlas().version;
+
+    // Overflow the log with widely-spaced packs (each on its own atlas row so
+    // they never merge away).
+    for _ in 0..(super::GLYPH_ATLAS_DIRTY_LOG_LIMIT + 8) {
+      packer.pack_pixels(&[255; 4096], 1000, 1);
+    }
+    let snap = packer.to_atlas();
+
+    assert!(snap.dirty_from_version > stale_version);
+    // A consumer behind the pruned tail must full-upload...
+    assert!(super::atlas_rects_to_apply(&snap, stale_version).is_none());
+    // ...while one at the tail can still use the log.
+    assert!(super::atlas_rects_to_apply(&snap, snap.dirty_from_version).is_some());
   }
 
   #[test]
@@ -2623,18 +2722,21 @@ mod tests {
         y: 12,
         width: 8,
         height: 10,
+        version: 1,
       },
       GlyphAtlasDirtyRect {
         x: 8,
         y: 12,
         width: 7,
         height: 10,
+        version: 2,
       },
       GlyphAtlasDirtyRect {
         x: 15,
         y: 12,
         width: 9,
         height: 10,
+        version: 3,
       },
     ]);
 
@@ -2646,6 +2748,7 @@ mod tests {
         y: 12,
         width: 24,
         height: 10,
+        version: 3,
       }
     );
   }
@@ -2658,12 +2761,14 @@ mod tests {
         y: 12,
         width: 20,
         height: 10,
+        version: 1,
       },
       GlyphAtlasDirtyRect {
         x: 0,
         y: 22,
         width: 20,
         height: 10,
+        version: 2,
       },
     ]);
 

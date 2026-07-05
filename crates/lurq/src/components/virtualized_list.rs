@@ -21,6 +21,32 @@ use crate::{
 
 const DEFAULT_OVERSCAN_PX: f32 = 256.0;
 const HEIGHT_EPSILON: f32 = 0.01;
+
+/// `LURQ_VLIST_DEBUG=1` paints diagnostics over every virtualized list: row
+/// wrappers are tinted by the window-build generation (a stale reused subtree
+/// keeps its old tint), and a stats panel shows the live windowing state.
+fn debug_overlay_enabled() -> bool {
+  static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+  *ENABLED.get_or_init(|| {
+    std::env::var("LURQ_VLIST_DEBUG")
+      .map(|value| value != "0" && !value.is_empty())
+      .unwrap_or(false)
+  })
+}
+
+/// Distinct translucent tints, rotated per window build.
+fn debug_build_tint(build_seq: u64) -> crate::node::color::Color {
+  const PALETTE: [(u8, u8, u8); 6] = [
+    (46, 204, 113),
+    (52, 152, 219),
+    (155, 89, 182),
+    (241, 196, 15),
+    (230, 126, 34),
+    (231, 76, 60),
+  ];
+  let (r, g, b) = PALETTE[(build_seq % PALETTE.len() as u64) as usize];
+  crate::node::color::Color::new(r, g, b, 36)
+}
 /// Upper bound on not-yet-measured rows mounted per frame while a pending
 /// scroll anchor needs exact heights.
 const MEASURE_CHUNK: usize = 256;
@@ -220,6 +246,18 @@ struct VirtualizedRuntime<T> {
   /// Half the overscan margin (set from the options in `rows`).
   rebuild_threshold: f32,
   last_viewport_height: f32,
+  /// Diagnostics for the viewport-coverage probe: the index window and its
+  /// prefix top from the last `rows()` build.
+  last_window: (usize, usize),
+  last_window_prefix_start: f32,
+  /// Ring of recent window builds: (scroll_y, start, end, prefix_start,
+  /// items_changed) — lets the coverage probe identify which historical
+  /// build the on-screen geometry actually corresponds to.
+  recent_builds: std::collections::VecDeque<(f32, usize, usize, f32, bool)>,
+  /// Monotonic window-build counter (drives the debug overlay row tint).
+  build_seq: u64,
+  /// Last coverage-probe failure, shown in the debug overlay panel.
+  last_hole: Option<String>,
 }
 
 struct ScrollAnchor {
@@ -240,6 +278,11 @@ impl<T> Default for VirtualizedRuntime<T> {
       last_render_scroll_y: 0.0,
       rebuild_threshold: DEFAULT_OVERSCAN_PX * 0.5,
       last_viewport_height: 0.0,
+      last_window: (0, 0),
+      last_window_prefix_start: 0.0,
+      recent_builds: std::collections::VecDeque::new(),
+      build_seq: 0,
+      last_hole: None,
     }
   }
 }
@@ -266,7 +309,7 @@ where
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let (items, key_fn, props_fn, options) = {
+    let (items, key_fn, props_fn, mut options) = {
       let props = ctx.props::<Self::Props>();
       (
         props.items.clone(),
@@ -276,6 +319,18 @@ where
       )
     };
     let _ = self.revision.get();
+    // With the debug overlay the scroll gets wrapped in a Stack; the outer
+    // frame/flex move onto the Stack while the scroll fills it.
+    let outer_frame = options.frame;
+    let outer_flex = options.flex;
+    if debug_overlay_enabled() {
+      options.frame = FrameConstraints {
+        width: Some(Dimension::full()),
+        height: Some(Dimension::full()),
+        ..FrameConstraints::default()
+      };
+      options.flex = None;
+    }
     let scroll_state = options
       .scroll_state
       .clone()
@@ -357,7 +412,10 @@ where
     } else {
       configure_scroll!(ScrollVertical::new(rows)).into()
     };
-    scroll
+    if !debug_overlay_enabled() {
+      return scroll;
+    }
+    self.wrap_with_debug_overlay(scroll, &scroll_state, &outer_frame, outer_flex)
   }
 
   fn after_layout(&self) {
@@ -385,12 +443,115 @@ where
       let scroll_state = self.active_scroll_state.lock().clone();
       let scroll_y = scroll_state.scroll_y();
       let viewport_height = scroll_state.viewport_height();
+
+      // Paint-time invariant probe: the rows this list just laid out must
+      // cover the scroll viewport (in absolute window coords). A hole here
+      // is a windowing/layout failure; a hole the user sees WITHOUT this
+      // warning is a renderer failure.
+      if viewport_height > 0.0 && !runtime.rendered_refs.is_empty() {
+        let viewport_top = scroll_state.viewport_abs_y();
+        let viewport_bottom = viewport_top + viewport_height;
+        let mut spans: Vec<(f32, f32)> = runtime
+          .rendered_refs
+          .values()
+          .filter(|element_ref| element_ref.is_attached())
+          .map(|element_ref| (element_ref.y(), element_ref.y() + element_ref.height()))
+          .filter(|(top, bottom)| *bottom > viewport_top && *top < viewport_bottom)
+          .collect();
+        spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let content_bottom = viewport_top + (scroll_state.content_height() - scroll_y).max(0.0);
+        let mut covered_to = if scroll_y <= 1.0 { viewport_top } else { f32::MIN };
+        let mut hole = None;
+        if let Some(first) = spans.first() {
+          if covered_to == f32::MIN {
+            covered_to = first.0;
+          }
+          if first.0 > viewport_top + 1.0 && scroll_y > 1.0 {
+            hole = Some((viewport_top, first.0));
+          }
+          for (top, bottom) in &spans {
+            if *top > covered_to + 1.0 {
+              hole.get_or_insert((covered_to, *top));
+            }
+            covered_to = covered_to.max(*bottom);
+          }
+          if covered_to < viewport_bottom.min(content_bottom) - 1.0 {
+            hole.get_or_insert((covered_to, viewport_bottom));
+          }
+        } else {
+          hole = Some((viewport_top, viewport_bottom));
+        }
+        if let Some((from, to)) = hole {
+          let all: Vec<(f32, f32)> = runtime
+            .rendered_refs
+            .values()
+            .filter(|element_ref| element_ref.is_attached())
+            .map(|element_ref| (element_ref.y(), element_ref.height()))
+            .collect();
+          let min_top = all.iter().map(|(y, _)| *y).fold(f32::MAX, f32::min);
+          let max_bottom = all.iter().map(|(y, h)| y + h).fold(f32::MIN, f32::max);
+          let zero_height = all.iter().filter(|(_, h)| *h < 0.5).count();
+          let (first_key, first_top) = runtime
+            .rendered_refs
+            .iter()
+            .filter(|(_, element_ref)| element_ref.is_attached())
+            .min_by(|a, b| a.1.y().partial_cmp(&b.1.y()).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(key, element_ref)| (key.clone(), element_ref.y()))
+            .unwrap_or_default();
+          // Where the window's first row SHOULD be, per the prefix the window
+          // was built from — the measured/expected delta separates a stale
+          // scroll translation from a stale spacer or poisoned heights.
+          let expected_first_top = viewport_top + runtime.last_window_prefix_start - scroll_y;
+          let mut sorted_heights: Vec<f32> = runtime.heights.values().copied().collect();
+          sorted_heights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+          let (height_min, height_median, height_max) = if sorted_heights.is_empty() {
+            (0.0, 0.0, 0.0)
+          } else {
+            (
+              sorted_heights[0],
+              sorted_heights[sorted_heights.len() / 2],
+              sorted_heights[sorted_heights.len() - 1],
+            )
+          };
+          let small_heights = sorted_heights.iter().filter(|height| **height < 10.0).count();
+          tracing::warn!(
+            target: "lurq::vlist",
+            "laid-out rows leave viewport hole y=[{from:.1}..{to:.1}] (viewport=[{viewport_top:.1}..{viewport_bottom:.1}] scroll_y={scroll_y:.1} window_built_at={:.1} rows={} rows_span=[{min_top:.1}..{max_bottom:.1}] zero_h={zero_height} first_row=({first_key}@{first_top:.1}) expected_first_top={expected_first_top:.1} window={:?} prefix_start={:.1} content_h={:.1} prefix_len={} heights={} h_min={height_min:.1} h_med={height_median:.1} h_max={height_max:.1} h_small={small_heights})",
+            runtime.last_render_scroll_y,
+            runtime.rendered_refs.len(),
+            runtime.last_window,
+            runtime.last_window_prefix_start,
+            scroll_state.content_height(),
+            runtime.prefix.len(),
+            runtime.heights.len(),
+          );
+          tracing::warn!(
+            target: "lurq::vlist",
+            "recent builds (scroll, start, end, prefix_start, items_changed): {:?}",
+            runtime.recent_builds
+          );
+          runtime.last_hole = Some(format!(
+            "y=[{from:.0}..{to:.0}] rows@[{min_top:.0}..{max_bottom:.0}] exp {expected_first_top:.0}"
+          ));
+        } else {
+          runtime.last_hole = None;
+        }
+      }
       // Same hysteresis as the scroll handler: rebuild only once the position
       // leaves the already-materialized overscan margin (or the viewport
       // itself resized).
-      if (runtime.last_render_scroll_y - scroll_y).abs() > runtime.rebuild_threshold
-        || (runtime.last_viewport_height - viewport_height).abs() > HEIGHT_EPSILON
-      {
+      let drifted = (runtime.last_render_scroll_y - scroll_y).abs() > runtime.rebuild_threshold;
+      if drifted && (runtime.last_render_scroll_y - scroll_y).abs() > runtime.rebuild_threshold * 2.0 {
+        // The scroll handler should have re-windowed well before this point —
+        // reaching here means scroll moved without the handlers firing.
+        tracing::warn!(
+          target: "lurq::vlist",
+          "virtualized window healed after missed scroll events: scroll_y={:.1} window_built_at={:.1}",
+          scroll_y,
+          runtime.last_render_scroll_y
+        );
+      }
+      if drifted || (runtime.last_viewport_height - viewport_height).abs() > HEIGHT_EPSILON {
         runtime.last_viewport_height = viewport_height;
         changed = true;
       }
@@ -422,6 +583,109 @@ where
   KF: Fn(&T) -> K + Send + Sync + 'static,
   PF: Fn(&T) -> C::Props + Send + Sync + 'static,
 {
+  /// Debug overlay (`LURQ_VLIST_DEBUG=1`): wraps the scroll in a Stack with a
+  /// live stats panel pinned top-right. The outer frame/flex land on the
+  /// Stack; the scroll fills it.
+  fn wrap_with_debug_overlay(
+    &self,
+    scroll: Element,
+    scroll_state: &ScrollState,
+    outer_frame: &FrameConstraints,
+    outer_flex: Option<f32>,
+  ) -> Element {
+    use crate::{
+      layout::text_style::TextStyle,
+      node::{color::Color, padding::Padding},
+    };
+    use super::{Stack, Text};
+
+    let runtime = self.runtime.lock();
+    let max_scroll = (scroll_state.content_height() - scroll_state.viewport_height()).max(0.0);
+    let percent = if max_scroll > 0.0 {
+      (scroll_state.scroll_y() / max_scroll * 100.0).clamp(0.0, 100.0)
+    } else {
+      0.0
+    };
+    let lines = vec![
+      format!("build #{}", runtime.build_seq),
+      format!(
+        "scroll {:.0}/{max_scroll:.0} ({percent:.0}%)  row {}/{}",
+        scroll_state.scroll_y(),
+        runtime.last_window.0,
+        runtime.order.len()
+      ),
+      format!(
+        "scroll {:.1}  built@ {:.1}",
+        scroll_state.scroll_y(),
+        runtime.last_render_scroll_y
+      ),
+      format!(
+        "window {}..{}  rows {}",
+        runtime.last_window.0,
+        runtime.last_window.1,
+        runtime.rendered_refs.len()
+      ),
+      format!("prefix_start {:.1}", runtime.last_window_prefix_start),
+      format!(
+        "content {:.1}  viewport {:.1}",
+        scroll_state.content_height(),
+        scroll_state.viewport_height()
+      ),
+      format!("heights {}/{}", runtime.heights.len(), runtime.order.len()),
+    ];
+    let hole = runtime.last_hole.clone();
+    drop(runtime);
+
+    let line_style = |color: Color| TextStyle {
+      font_size: 11.0,
+      line_height: 1.25,
+      color,
+      ..TextStyle::default()
+    };
+    let mut panel = Column::new()
+      .spacing(1.0)
+      .padding(Padding::new().top(6.0).bottom(6.0).left(9.0).right(9.0))
+      .background(Color::new(8, 10, 14, 216));
+    for line in &lines {
+      panel = panel.child(Text::styled(line, line_style(Color::new(150, 235, 170, 255))));
+    }
+    if let Some(hole) = hole {
+      panel = panel.child(Text::styled(
+        &format!("HOLE {hole}"),
+        line_style(Color::new(255, 110, 110, 255)),
+      ));
+    }
+    let overlay = Column::new()
+      .width(Dimension::full())
+      .align_items(Alignment::End)
+      .padding(Padding::new().top(44.0).right(18.0))
+      .child(panel);
+
+    let mut stack = Stack::new().child(scroll).child(overlay);
+    if let Some(width) = outer_frame.width {
+      stack = stack.width(width);
+    }
+    if let Some(height) = outer_frame.height {
+      stack = stack.height(height);
+    }
+    if let Some(min_width) = outer_frame.min_width {
+      stack = stack.min_width(min_width);
+    }
+    if let Some(max_width) = outer_frame.max_width {
+      stack = stack.max_width(max_width);
+    }
+    if let Some(min_height) = outer_frame.min_height {
+      stack = stack.min_height(min_height);
+    }
+    if let Some(max_height) = outer_frame.max_height {
+      stack = stack.max_height(max_height);
+    }
+    if let Some(flex) = outer_flex {
+      stack = stack.flex(flex);
+    }
+    stack.into()
+  }
+
   fn rows(
     &self,
     ctx: &mut Ctx,
@@ -444,6 +708,14 @@ where
     }
     if items_changed {
       let keys: Vec<String> = items.iter().map(|item| format!("{}", key_fn(item))).collect();
+      tracing::warn!(
+        target: "lurq::vlist",
+        "items changed in place: old_len={} new_len={} keys_equal={} scroll_y={:.1}",
+        runtime.order.len(),
+        keys.len(),
+        runtime.order == keys,
+        scroll_state.scroll_y(),
+      );
       if runtime.order != keys && runtime.pending_anchor.is_none() && !runtime.order.is_empty() {
         // Anchor the first (partially) visible row using the pre-change
         // prefix, so the viewport is restored once the new heights settle.
@@ -457,22 +729,16 @@ where
         });
       }
 
-      // Evict heights for removed keys and for keys whose item changed.
-      let old_order = std::mem::take(&mut runtime.order);
-      let old_snapshot = std::mem::replace(&mut runtime.items_snapshot, Arc::new(Vec::new()));
-      let old_items: HashMap<&str, &T> = old_order
-        .iter()
-        .map(String::as_str)
-        .zip(old_snapshot.iter())
-        .collect();
+      // Evict heights only for keys that disappeared. Keys that survive an
+      // item change keep their old measurement as a stale-but-usable estimate:
+      // rendered rows re-measure on the very next layout, and dropping every
+      // height at once would collapse the prefix to the bootstrap window —
+      // teleporting the scroll (clamped against the collapsed content) and
+      // blanking the viewport when the same-shaped list is swapped in place
+      // (e.g. a preview re-decoded into a new allocation while scrolled deep).
       let current_keys: HashSet<&str> = keys.iter().map(String::as_str).collect();
       runtime.heights.retain(|key, _| current_keys.contains(key.as_str()));
-      for (key, item) in keys.iter().zip(items.iter()) {
-        if old_items.get(key.as_str()).is_none_or(|old| *old != item) {
-          runtime.heights.remove(key);
-        }
-      }
-      drop(old_items);
+      drop(current_keys);
       runtime.order = keys;
       runtime.items_snapshot = items.clone();
       runtime.prefix_dirty = true;
@@ -561,9 +827,25 @@ where
       .collect();
     runtime.last_render_scroll_y = scroll_state.scroll_y();
     runtime.rebuild_threshold = (options.overscan_px * 0.5).max(1.0);
+    runtime.last_window = visible_range;
+    let window_prefix_start = runtime.prefix.get(visible_range.0).copied().unwrap_or(0.0);
+    runtime.last_window_prefix_start = window_prefix_start;
+    runtime.recent_builds.push_back((
+      scroll_state.scroll_y(),
+      visible_range.0,
+      visible_range.1,
+      window_prefix_start,
+      items_changed,
+    ));
+    if runtime.recent_builds.len() > 8 {
+      runtime.recent_builds.pop_front();
+    }
+    runtime.build_seq = runtime.build_seq.wrapping_add(1);
+    let build_seq = runtime.build_seq;
     runtime.rendered_refs.clear();
     drop(runtime);
 
+    let debug_tint = debug_overlay_enabled().then(|| debug_build_tint(build_seq));
     let mut column = Column::new().spacing(0.0).align_items(Alignment::Start);
     let mut cursor_y = 0.0;
 
@@ -574,7 +856,10 @@ where
       let row_ref = ctx.element_ref();
       self.runtime.lock().rendered_refs.insert(key.clone(), row_ref.clone());
       let row = ctx.mount_keyed::<C>(&key, props_fn(&items[index]));
-      let wrapper = Column::new().spacing(0.0).ref_element(row_ref).child(row);
+      let mut wrapper = Column::new().spacing(0.0).ref_element(row_ref).child(row);
+      if let Some(tint) = debug_tint {
+        wrapper = wrapper.background(tint);
+      }
       column = column.child(wrapper);
       cursor_y = row_y + row_height;
     }

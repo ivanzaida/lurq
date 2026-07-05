@@ -60,7 +60,7 @@ use crate::{
     transform::Transform2D,
   },
 };
-use crate::app::WindowCornerRadius;
+
 
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
@@ -3099,9 +3099,16 @@ impl Tree {
           drag.state.drag_to_axis(drag.axis, lx, ly, &drag.state.style());
           let moved = drag.state.scroll_x() != previous_scroll_x || drag.state.scroll_y() != previous_scroll_y;
           if moved {
-            self.dispatch_scroll_handlers_for_node(drag.target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll);
+            let target_id = self.rebound_scroll_drag_target(drag);
+            // Match the wheel path: consumed scroll dirties layout so the
+            // next pass re-lays (and `after_layout` hooks observe) the moved
+            // content.
+            if let Some(root) = &self.root {
+              mark_scroll_layout_dirty(root, target_id);
+            }
+            self.dispatch_scroll_handlers_for_node(target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll);
             self.dispatch_scroll_reach_handlers_for_node(
-              drag.target_id,
+              target_id,
               evt.x,
               evt.y,
               0.0,
@@ -3117,7 +3124,8 @@ impl Tree {
         }
         MouseEventKind::Up => {
           drag.state.end_drag();
-          self.dispatch_scroll_handlers_for_node(drag.target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::End);
+          let target_id = self.rebound_scroll_drag_target(drag);
+          self.dispatch_scroll_handlers_for_node(target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::End);
           self.dragging_scroll = None;
           self.clear_active_path();
           self.suppress_click((evt.x, evt.y), button);
@@ -3816,6 +3824,37 @@ impl Tree {
       NodeKind::Slider { state } => Some(state.clone()),
       _ => None,
     }
+  }
+
+  /// The scroll node id for an active scrollbar drag. The drag's own scroll
+  /// handlers can rebuild the retained tree mid-drag (e.g. a virtualized list
+  /// re-windowing), replacing the node captured on mouse-down — without
+  /// rebinding, the remaining drag would still move the scroll state but no
+  /// scroll handlers would fire, leaving the stale window on screen.
+  fn rebound_scroll_drag_target(&mut self, drag: &ScrollDrag) -> NodeId {
+    let Some(root) = &self.root else {
+      return drag.target_id;
+    };
+    if find_node_by_id(root, drag.target_id).is_some() {
+      return drag.target_id;
+    }
+    let Some(rebound) = find_scroll_node_id_by_state(root, &drag.state) else {
+      tracing::warn!(
+        target: "lurq::scroll",
+        "scrollbar drag target lost and no node shares its scroll state; scroll handlers skipped"
+      );
+      return drag.target_id;
+    };
+    tracing::warn!(
+      target: "lurq::scroll",
+      "scrollbar drag target rebound after retained-tree rebuild ({:?} -> {:?})",
+      drag.target_id,
+      rebound
+    );
+    if let Some(active) = self.dragging_scroll.as_mut() {
+      active.target_id = rebound;
+    }
+    rebound
   }
 
   fn current_slider_drag_by_binding(&self, binding_id: usize) -> Option<SliderDrag> {
@@ -4990,6 +5029,7 @@ impl Tree {
       self.last_theme_version = theme_version;
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
+        verify_scroll_offsets(root, &layout);
       }
       if let (Some(component), Some(ctx)) = (&self.root_component, &self.root_ctx) {
         component.after_layout();
@@ -6484,6 +6524,80 @@ fn find_element_recursive(
   None
 }
 
+/// Post-layout invariant probe: every scroll container's child offset in the
+/// final layout must equal `-scroll` from its own state. A mismatch means a
+/// stale cached layout leaked through the incremental relayout paths.
+fn verify_scroll_offsets(node: &Node, result: &crate::layout::layout_result::LayoutResult) {
+  if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+    if let Some(child) = result.children.first() {
+      let expected_y = -state.scroll_y();
+      let expected_x = -state.scroll_x();
+      if (child.offset.y - expected_y).abs() > 0.5 || (child.offset.x - expected_x).abs() > 0.5 {
+        tracing::warn!(
+          target: "lurq::layout",
+          "stale scroll offset in final layout: offset=({:.1},{:.1}) expected=({expected_x:.1},{expected_y:.1}) content_h={:.1}",
+          child.offset.x,
+          child.offset.y,
+          child.result.size.height,
+        );
+      }
+    }
+  }
+  // A node with a large fixed pixel height (a virtualized list's spacer) must
+  // be laid at exactly that height — a mismatch means the final layout served
+  // a stale cached result for this subtree. Gated to giant spacers so
+  // legitimately clamped fixed-size controls don't produce noise.
+  if let Some(crate::node::dimension::Dimension::Px(requested)) = node.frame.height {
+    if requested > 1000.0 && (result.size.height - requested).abs() > 0.5 {
+      tracing::warn!(
+        target: "lurq::layout",
+        "stale child geometry in final layout: laid_h={:.1} requested_h={requested:.1} (tag={} local_dirty={} descendant_dirty={} has_cached={})",
+        result.size.height,
+        node.tag_name(),
+        node.layout_cache.is_local_dirty(),
+        node.layout_cache.is_descendant_dirty(),
+        node.layout_cache.has_cached_result(),
+      );
+    }
+  }
+  for (child_layout, child) in result.children.iter().zip(node.children()) {
+    verify_scroll_offsets(child, &child_layout.result);
+  }
+}
+
+/// Find the scroll node sharing `state`'s underlying scroll state — the
+/// stable identity of a scroll container across retained-tree rebuilds.
+fn find_scroll_node_id_by_state(node: &Node, state: &ScrollState) -> Option<NodeId> {
+  if let LayoutKind::ScrollModifier { state: node_state, .. } = node.layout_kind() {
+    if node_state.ptr_eq(state) {
+      return Some(node.node_id());
+    }
+  }
+  for child in node.children() {
+    if let Some(found) = find_scroll_node_id_by_state(child, state) {
+      return Some(found);
+    }
+  }
+  None
+}
+
+/// Dirty the layout of node `id` plus the descendant flags on its ancestor
+/// chain, mirroring what the wheel path does through its hit list.
+fn mark_scroll_layout_dirty(node: &Node, id: NodeId) -> bool {
+  if node.node_id() == id {
+    node.layout_cache.mark_local_dirty();
+    node.layout_cache.mark_descendant_dirty();
+    return true;
+  }
+  for child in node.children() {
+    if mark_scroll_layout_dirty(child, id) {
+      node.layout_cache.mark_descendant_dirty();
+      return true;
+    }
+  }
+  false
+}
+
 fn find_node_by_id(node: &Node, id: NodeId) -> Option<&Node> {
   if node.node_id() == id {
     return Some(node);
@@ -6681,6 +6795,7 @@ impl Tree {
       return None;
     }
 
+    use crate::app::WindowCornerRadius;
     let logical_radius = match self.window.corner_radius() {
       WindowCornerRadius::Rounded => 10.0,
       WindowCornerRadius::RoundedSmall => 4.0,

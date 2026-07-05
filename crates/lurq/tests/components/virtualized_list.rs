@@ -4,7 +4,12 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx, events::ScrollPhase},
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::Ctx,
+    events::{MouseButton, ScrollPhase},
+  },
   components::{Rect, VirtualizedList},
   layout::layout_kind::ScrollState,
   node::{Element, color::Color},
@@ -290,6 +295,752 @@ fn scroll_content_child_count(layout: &lurq::layout::layout_result::LayoutResult
 
 fn scroll_content_height(layout: &lurq::layout::layout_result::LayoutResult) -> f32 {
   scroll_content(layout).size.height
+}
+
+// ── Viewport coverage under wheel scrolling ─────────────────────────────
+// Mirrors the PW-studio text preview: uniform rows, overscan 600, ScrollBoth
+// (horizontal panning). After every wheel event + redraw, every row that
+// intersects the viewport must actually paint — a gap means the virtualized
+// window went stale.
+
+const COVERAGE_ROW_H: f32 = 22.0;
+const COVERAGE_VIEW_W: f32 = 900.0;
+const COVERAGE_VIEW_H: f32 = 700.0;
+const COVERAGE_ROWS: usize = 5000;
+
+fn coverage_color(id: usize) -> Color {
+  Color::new((id & 0xff) as u8, ((id >> 8) & 0xff) as u8, 200, 255)
+}
+
+struct CoverageRow;
+
+impl Component for CoverageRow {
+  type Props = RowData;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let row = ctx.props::<Self::Props>();
+    lurq::components::Row::new()
+      .min_width(2400.0)
+      .child(Rect::new(2400.0, row.height).background(coverage_color(row.id)))
+  }
+}
+
+struct CoverageRoot;
+
+impl Component for CoverageRoot {
+  type Props = (Vec<RowData>, Shared<ScrollState>);
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (items, scroll_state) = ctx.props::<Self::Props>().clone();
+    VirtualizedList::new(ctx, items)
+      .size(COVERAGE_VIEW_W, COVERAGE_VIEW_H)
+      .overscan_px(600.0)
+      .horizontal_scroll(true)
+      .with_scroll_state((*scroll_state.0).clone())
+      .mount_keyed::<CoverageRow, _, _, _>(|row| row.id, |row| (*row).clone())
+  }
+}
+
+fn assert_viewport_covered(snapshot: &crate::support::RenderSnapshot, scroll_y: f32, label: &str) {
+  let first = (scroll_y / COVERAGE_ROW_H).floor() as usize;
+  let last = ((((scroll_y + COVERAGE_VIEW_H) / COVERAGE_ROW_H).ceil() as usize).min(COVERAGE_ROWS)).saturating_sub(1);
+  for id in first..=last {
+    let expected_y = id as f32 * COVERAGE_ROW_H - scroll_y;
+    let found = snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.color == coverage_color(id) && (rect.y - expected_y).abs() < 0.5);
+    assert!(
+      found,
+      "{label}: row {id} not painted at y={expected_y:.1} (scroll_y={scroll_y:.1})"
+    );
+  }
+}
+
+#[test]
+fn virtualized_list_keeps_viewport_covered_while_wheel_scrolling() {
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<CoverageRoot>(
+    &mut App::new(),
+    (
+      (0..COVERAGE_ROWS)
+        .map(|id| RowData {
+          id,
+          height: COVERAGE_ROW_H,
+        })
+        .collect(),
+      Shared(scroll_state.clone()),
+    ),
+  );
+
+  // The default test window is 800x600 — smaller than the list, which would
+  // cull bottom rows at the window edge and fake a coverage failure.
+  tree.resize(1000, 800);
+
+  // Bootstrap + settle (first pass measures the seed batch).
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+
+  // Wheel patterns: slow ticks, medium steps, multi-event flicks (fast wheel
+  // spins deliver several events per frame), then the same back up.
+  let steps: &[&[f32]] = &[
+    &[-120.0],
+    &[-120.0],
+    &[-40.0],
+    &[-240.0, -240.0],
+    &[-400.0],
+    &[-120.0, -120.0, -120.0, -120.0, -120.0],
+    &[-800.0],
+    &[-2000.0, -2000.0],
+    &[-120.0],
+    &[120.0],
+    &[400.0, 400.0],
+    &[2500.0],
+    &[-60.0],
+    &[3000.0, 3000.0],
+    &[-120.0],
+  ];
+  for (step, deltas) in steps.iter().enumerate() {
+    for delta in deltas.iter() {
+      tree.scroll(450.0, 350.0, 0.0, *delta, ScrollPhase::Scroll);
+    }
+    let snapshot = crate::support::render_pass(&mut tree);
+    {
+      let mut ids: Vec<usize> = snapshot.rects.iter().filter(|r| r.color.a() == 255 && r.color.b() == 200)
+        .map(|r| (r.color.r() as usize) | ((r.color.g() as usize) << 8)).collect();
+      ids.sort_unstable(); ids.dedup();
+      eprintln!("step {step} scroll_y={:.1} painted rows: {:?}..{:?} count={}", scroll_state.scroll_y(), ids.first(), ids.last(), ids.len());
+      for rect in snapshot.rects.iter() {
+        if rect.color.a() == 255 && rect.color.b() == 200 {
+          let id = (rect.color.r() as usize) | ((rect.color.g() as usize) << 8);
+          if (30..=35).contains(&id) {
+            eprintln!(
+              "  row {id}: y={:.1} h={:.1} clip=({:.1},{:.1} {:.1}x{:.1} active={})",
+              rect.y, rect.height, rect.clip.x, rect.clip.y, rect.clip.width, rect.clip.height, rect.clip.active
+            );
+          }
+        }
+      }
+    }
+    assert_viewport_covered(&snapshot, scroll_state.scroll_y(), &format!("step {step} after scroll"));
+    // A settle pass (after_layout corrections) must not regress coverage.
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_covered(&snapshot, scroll_state.scroll_y(), &format!("step {step} settled"));
+  }
+}
+
+#[test]
+fn virtualized_list_keeps_viewport_covered_during_scrollbar_drag() {
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<CoverageRoot>(
+    &mut App::new(),
+    (
+      (0..COVERAGE_ROWS)
+        .map(|id| RowData {
+          id,
+          height: COVERAGE_ROW_H,
+        })
+        .collect(),
+      Shared(scroll_state.clone()),
+    ),
+  );
+
+  tree.resize(1000, 800);
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+
+  // Grab the vertical thumb (right edge of the 900-wide list, top of track)
+  // and drag in bursts — with 110k px of content each pixel of thumb travel
+  // jumps the scroll by ~160px, so this exercises huge window jumps through
+  // the scrollbar-drag dispatch path (delta=0, position pre-applied).
+  tree.mouse_down(894.0, 6.0, MouseButton::Left);
+  let mut y = 6.0;
+  for burst in 0..12 {
+    // Several move events per redraw, like a fast hand drag.
+    for _ in 0..(1 + burst % 3) {
+      y += 4.0;
+      tree.mouse_move(894.0, y);
+    }
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_covered(
+      &snapshot,
+      scroll_state.scroll_y(),
+      &format!("drag burst {burst} (thumb y={y})"),
+    );
+  }
+  // Drag back up.
+  for burst in 0..6 {
+    y -= 7.0;
+    tree.mouse_move(894.0, y);
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_covered(
+      &snapshot,
+      scroll_state.scroll_y(),
+      &format!("drag-up burst {burst} (thumb y={y})"),
+    );
+  }
+  tree.mouse_up(894.0, y, MouseButton::Left);
+  let snapshot = crate::support::render_pass(&mut tree);
+  assert_viewport_covered(&snapshot, scroll_state.scroll_y(), "after release");
+}
+
+// ── In-place item swap while scrolled deep ───────────────────────────────
+// Items are often rebuilt with identical keys but fresh allocations/props (a
+// re-decoded document, a refreshed query). Evicting every measured height in
+// that case used to collapse the prefix to the bootstrap window, clamping the
+// scroll against the collapsed content (teleporting the viewport tens of
+// thousands of pixels) and leaving the viewport blank.
+
+#[derive(Clone, PartialEq, DevtoolsInspectable)]
+struct SwapRowData {
+  id: usize,
+  generation: u32,
+  height: f32,
+}
+
+struct SwapRow;
+
+impl Component for SwapRow {
+  type Props = SwapRowData;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let row = ctx.props::<Self::Props>();
+    Rect::new(2400.0, row.height).background(coverage_color(row.id))
+  }
+}
+
+struct SwapRoot;
+
+impl Component for SwapRoot {
+  type Props = (Vec<SwapRowData>, Shared<ScrollState>);
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (items, scroll_state) = ctx.props::<Self::Props>().clone();
+    VirtualizedList::new(ctx, items)
+      .size(COVERAGE_VIEW_W, COVERAGE_VIEW_H)
+      .overscan_px(600.0)
+      .with_scroll_state((*scroll_state.0).clone())
+      .mount_keyed::<SwapRow, _, _, _>(|row| row.id, |row| (*row).clone())
+  }
+}
+
+fn swap_rows(generation: u32) -> Vec<SwapRowData> {
+  (0..COVERAGE_ROWS)
+    .map(|id| SwapRowData {
+      id,
+      generation,
+      height: COVERAGE_ROW_H,
+    })
+    .collect()
+}
+
+/// The painted row rects must tile the viewport with no hole (heights vary,
+/// so positions can't be predicted — coverage is asserted geometrically).
+fn assert_swap_viewport_tiled(snapshot: &crate::support::RenderSnapshot, label: &str) {
+  let mut spans: Vec<(f32, f32)> = snapshot
+    .rects
+    .iter()
+    .filter(|rect| rect.color.a() == 255 && rect.color.b() == 200)
+    .map(|rect| (rect.y, rect.y + rect.height))
+    .collect();
+  assert!(!spans.is_empty(), "{label}: no rows painted at all");
+  spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+  let mut covered_to = spans[0].0;
+  assert!(covered_to <= 1.0, "{label}: first painted row starts at y={covered_to:.1}");
+  for (top, bottom) in spans {
+    assert!(
+      top <= covered_to + 1.0,
+      "{label}: hole in viewport between y={covered_to:.1} and y={top:.1}"
+    );
+    covered_to = covered_to.max(bottom);
+    if covered_to >= COVERAGE_VIEW_H - 0.5 {
+      return;
+    }
+  }
+  panic!("{label}: painted rows end at y={covered_to:.1}, viewport is {COVERAGE_VIEW_H}");
+}
+
+/// Switching the same list (same keys/scroll state) to a document with
+/// different row heights and a different row count — like previewing another
+/// file in the same window. Old measurements are invalid, but the viewport
+/// must stay covered and the scroll must stay within the new content.
+#[test]
+fn virtualized_list_survives_switch_to_different_document() {
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<SwapRoot>(&mut App::new(), (swap_rows(0), Shared(scroll_state.clone())));
+  tree.resize(1000, 800);
+
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+
+  // Scroll deep into document A (5000 rows @ 22px).
+  for _ in 0..40 {
+    tree.scroll(450.0, 350.0, 0.0, -1000.0, ScrollPhase::Scroll);
+  }
+  let snapshot = crate::support::render_pass(&mut tree);
+  assert_viewport_covered(&snapshot, scroll_state.scroll_y(), "document A");
+
+  // Document B: 800 rows with varied heights (empty-line-ish rows mixed in).
+  let doc_b: Vec<SwapRowData> = (0..800)
+    .map(|id| SwapRowData {
+      id,
+      generation: 1,
+      height: if id % 3 == 0 { 8.0 } else { 15.0 },
+    })
+    .collect();
+  tree.update_root_props::<SwapRoot>((doc_b.clone(), Shared(scroll_state.clone())));
+  let content_b: f32 = doc_b.iter().map(|row| row.height).sum();
+
+  // Settle a couple frames (row heights genuinely changed — re-measure is
+  // expected), then the viewport must be covered and stay covered while
+  // wheel-scrolling through document B.
+  crate::support::render_pass(&mut tree);
+  crate::support::render_pass(&mut tree);
+  let snapshot = crate::support::render_pass(&mut tree);
+  assert!(
+    scroll_state.scroll_y() <= content_b,
+    "scroll {:.1} beyond document B content {content_b:.1}",
+    scroll_state.scroll_y()
+  );
+  assert_swap_viewport_tiled(&snapshot, "after switching to document B");
+
+  // Wheel up and down through the new document.
+  for tick in 0..80usize {
+    let delta = if tick % 5 == 4 { 400.0 } else { -160.0 };
+    tree.scroll(450.0, 350.0, 0.0, delta, ScrollPhase::Scroll);
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_swap_viewport_tiled(&snapshot, &format!("document B tick {tick}"));
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_swap_viewport_tiled(&snapshot, &format!("document B tick {tick} settled"));
+  }
+}
+
+#[test]
+fn virtualized_list_survives_in_place_item_swap_at_depth() {
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<SwapRoot>(&mut App::new(), (swap_rows(0), Shared(scroll_state.clone())));
+  tree.resize(1000, 800);
+
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+
+  // Scroll deep, then verify the viewport is covered.
+  for _ in 0..40 {
+    tree.scroll(450.0, 350.0, 0.0, -1000.0, ScrollPhase::Scroll);
+  }
+  let snapshot = crate::support::render_pass(&mut tree);
+  let depth = scroll_state.scroll_y();
+  assert!(depth > 30_000.0, "expected a deep scroll, got {depth}");
+  assert_viewport_covered(&snapshot, depth, "before swap");
+
+  // Same keys, new generation: every item compares unequal. The next frame
+  // must keep the scroll anchored and the viewport covered.
+  tree.update_root_props::<SwapRoot>((swap_rows(1), Shared(scroll_state.clone())));
+  let snapshot = crate::support::render_pass(&mut tree);
+  assert!(
+    (scroll_state.scroll_y() - depth).abs() < COVERAGE_VIEW_H,
+    "swap teleported the scroll: was {depth:.1}, now {:.1}",
+    scroll_state.scroll_y()
+  );
+  assert_viewport_covered(&snapshot, scroll_state.scroll_y(), "first frame after swap");
+
+  // A producer may swap every frame; the list must stay anchored anyway.
+  for generation in 2..20u32 {
+    tree.update_root_props::<SwapRoot>((swap_rows(generation), Shared(scroll_state.clone())));
+    tree.scroll(450.0, 350.0, 0.0, -120.0, ScrollPhase::Scroll);
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_covered(
+      &snapshot,
+      scroll_state.scroll_y(),
+      &format!("repeated swap generation {generation}"),
+    );
+  }
+}
+
+// ── Preview-shaped rows: text lines with uneven heights ─────────────────
+// Mirrors the PW-studio text preview rows exactly: a background-tagged Row
+// with line-number gutter + selectable nowrap text, extra padding on the
+// first/last row, empty lines mixed in (their text node may collapse), 30k
+// rows. Coverage is asserted geometrically: the painted row rects must tile
+// the viewport without holes.
+
+const PREVIEW_ROWS: usize = 30_000;
+
+#[derive(Clone, PartialEq, DevtoolsInspectable)]
+struct PreviewLine {
+  id: usize,
+  count: usize,
+}
+
+struct PreviewLikeRow;
+
+impl Component for PreviewLikeRow {
+  type Props = PreviewLine;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let line = ctx.props::<Self::Props>().clone();
+    let text = if line.id % 7 == 3 {
+      String::new()
+    } else {
+      format!("npc {id} limit info entry value {id}", id = line.id)
+    };
+    let pad_top = if line.id == 0 { 14.0 } else { 2.0 };
+    let pad_bottom = if line.id + 1 == line.count { 14.0 } else { 2.0 };
+    lurq::components::Row::new()
+      .min_width(2400.0)
+      .background(coverage_color(line.id))
+      .padding(
+        lurq::node::padding::Padding::new()
+          .left(16.0)
+          .right(24.0)
+          .top(pad_top)
+          .bottom(pad_bottom),
+      )
+      .child(
+        lurq::components::Row::new()
+          .width(64.0)
+          .child(lurq::components::Text::new(&(line.id + 1).to_string())),
+      )
+      .child(lurq::components::Text::new(&text).nowrap().selectable(true))
+  }
+}
+
+struct PreviewLikeRoot;
+
+impl Component for PreviewLikeRoot {
+  // The `u64` nonce forces parent re-renders without changing the items —
+  // mirroring a window shell re-rendering on every input event.
+  type Props = (Vec<PreviewLine>, Shared<ScrollState>, u64);
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (items, scroll_state, _nonce) = ctx.props::<Self::Props>().clone();
+    VirtualizedList::new(ctx, items)
+      .size(COVERAGE_VIEW_W, COVERAGE_VIEW_H)
+      .overscan_px(600.0)
+      .horizontal_scroll(true)
+      .with_scroll_state((*scroll_state.0).clone())
+      .mount_keyed::<PreviewLikeRow, _, _, _>(|line| line.id, |line| line.clone())
+  }
+}
+
+/// The painted row rects must cover the viewport top-to-bottom with no hole
+/// wider than a hairline (spacer gaps mean stale windowing).
+fn assert_viewport_tiled(snapshot: &crate::support::RenderSnapshot, label: &str) {
+  let mut spans: Vec<(f32, f32)> = snapshot
+    .rects
+    .iter()
+    .filter(|rect| rect.color.a() == 255 && rect.color.b() == 200)
+    .map(|rect| (rect.y, rect.y + rect.height))
+    .collect();
+  assert!(!spans.is_empty(), "{label}: no rows painted at all");
+  spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+  let mut covered_to = spans[0].0;
+  assert!(covered_to <= 1.0, "{label}: first painted row starts at y={covered_to:.1}");
+  for (top, bottom) in spans {
+    assert!(
+      top <= covered_to + 1.0,
+      "{label}: hole in viewport between y={covered_to:.1} and y={top:.1}"
+    );
+    covered_to = covered_to.max(bottom);
+    if covered_to >= COVERAGE_VIEW_H - 0.5 {
+      return;
+    }
+  }
+  panic!("{label}: painted rows end at y={covered_to:.1}, viewport is {COVERAGE_VIEW_H}");
+}
+
+#[test]
+fn virtualized_list_preview_rows_stay_tiled_under_mixed_scrolling() {
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<PreviewLikeRoot>(
+    &mut App::new(),
+    (
+      (0..PREVIEW_ROWS)
+        .map(|id| PreviewLine {
+          id,
+          count: PREVIEW_ROWS,
+        })
+        .collect(),
+      Shared(scroll_state.clone()),
+      0,
+    ),
+  );
+
+  tree.resize(1000, 800);
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+  crate::support::run_pass(&mut tree);
+
+  // Wheel bursts down.
+  for step in 0..10 {
+    for _ in 0..(1 + step % 3) {
+      tree.scroll(450.0, 350.0, 0.0, -120.0, ScrollPhase::Scroll);
+    }
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_tiled(&snapshot, &format!("wheel step {step}"));
+  }
+
+  // Thumb drag: deep jumps through unmeasured territory and back.
+  tree.mouse_down(894.0, 8.0, MouseButton::Left);
+  let mut y = 8.0;
+  for burst in 0..14 {
+    for _ in 0..(1 + burst % 3) {
+      y += 5.0;
+      tree.mouse_move(894.0, y);
+    }
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_tiled(&snapshot, &format!("drag burst {burst} (thumb y={y})"));
+  }
+  for burst in 0..8 {
+    y -= 9.0;
+    tree.mouse_move(894.0, y);
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_tiled(&snapshot, &format!("drag-up burst {burst} (thumb y={y})"));
+  }
+  tree.mouse_up(894.0, y, MouseButton::Left);
+
+  // Wheel again where heights are now part-measured, part-estimated.
+  for step in 0..6 {
+    tree.scroll(450.0, 350.0, 0.0, if step % 2 == 0 { -400.0 } else { 250.0 }, ScrollPhase::Scroll);
+    let snapshot = crate::support::render_pass(&mut tree);
+    assert_viewport_tiled(&snapshot, &format!("post-drag wheel step {step}"));
+  }
+}
+
+/// Real event loops coalesce many wheel ticks (or drag moves) into one paint:
+/// several window rebuilds get diffed against retained trees that were never
+/// laid out in between. The viewport must still be tiled at every paint.
+#[test]
+fn virtualized_list_preview_rows_stay_tiled_with_coalesced_event_bursts() {
+  let items: Vec<PreviewLine> = (0..PREVIEW_ROWS)
+    .map(|id| PreviewLine {
+      id,
+      count: PREVIEW_ROWS,
+    })
+    .collect();
+  let mut tree = Tree::new();
+  // Persistent App so incremental (non-force-dirtied) relayout actually runs.
+  let mut app = App::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<PreviewLikeRoot>(&mut app, (items.clone(), Shared(scroll_state.clone()), 0));
+
+  tree.resize(1000, 800);
+  let paint = crate::support::render_pass_with_app;
+  paint(&mut tree, &mut app);
+  paint(&mut tree, &mut app);
+  paint(&mut tree, &mut app);
+
+  // Bursts of 10..=59 wheel ticks (400..=2360px) between paints — several
+  // chained drift-rebuilds per frame, with a parent re-render interleaved
+  // after every tick like the real window shell — down, then back up.
+  let mut nonce = 0u64;
+  for step in 0..80usize {
+    let burst = 10 + (step * 7) % 50;
+    for _ in 0..burst {
+      tree.scroll(450.0, 350.0, 0.0, -40.0, ScrollPhase::Scroll);
+      nonce += 1;
+      tree.update_root_props::<PreviewLikeRoot>((items.clone(), Shared(scroll_state.clone()), nonce));
+    }
+    let snapshot = paint(&mut tree, &mut app);
+    assert_viewport_tiled(
+      &snapshot,
+      &format!("burst-down step {step} ({burst} ticks) scroll_y={:.1}", scroll_state.scroll_y()),
+    );
+  }
+  for step in 0..80usize {
+    let burst = 10 + (step * 11) % 50;
+    for _ in 0..burst {
+      tree.scroll(450.0, 350.0, 0.0, 40.0, ScrollPhase::Scroll);
+      nonce += 1;
+      tree.update_root_props::<PreviewLikeRoot>((items.clone(), Shared(scroll_state.clone()), nonce));
+    }
+    let snapshot = paint(&mut tree, &mut app);
+    assert_viewport_tiled(
+      &snapshot,
+      &format!("burst-up step {step} ({burst} ticks) scroll_y={:.1}", scroll_state.scroll_y()),
+    );
+  }
+}
+
+/// The real shell re-renders the window component on nearly every input
+/// event, so the list rebuilds twice per wheel tick (drift bump + parent
+/// re-render) — producing back-to-back duplicate window builds diffed against
+/// retained trees that were never laid out. Combined with coalesced events
+/// this is the exact production event pattern.
+#[test]
+fn virtualized_list_preview_rows_stay_tiled_with_parent_rerenders() {
+  let items: Vec<PreviewLine> = (0..PREVIEW_ROWS)
+    .map(|id| PreviewLine {
+      id,
+      count: PREVIEW_ROWS,
+    })
+    .collect();
+  let mut tree = Tree::new();
+  // One App for the whole test, like the real shell. `support::render_pass`
+  // creates a fresh App per pass, which flips `theme_changed` and force-dirties
+  // every layout — silently bypassing the incremental relayout path this test
+  // exists to exercise.
+  let mut app = App::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<PreviewLikeRoot>(&mut app, (items.clone(), Shared(scroll_state.clone()), 0));
+
+  tree.resize(1000, 800);
+
+  let paint = crate::support::render_pass_with_app;
+  paint(&mut tree, &mut app);
+  paint(&mut tree, &mut app);
+  paint(&mut tree, &mut app);
+
+  // Wheel down with a parent re-render after every tick, painting only every
+  // few events (coalescing), then the same pattern back up.
+  let mut nonce = 0u64;
+  for step in 0..600usize {
+    tree.scroll(450.0, 350.0, 0.0, -40.0, ScrollPhase::Scroll);
+    nonce += 1;
+    tree.update_root_props::<PreviewLikeRoot>((items.clone(), Shared(scroll_state.clone()), nonce));
+    if step % 4 != 3 {
+      continue;
+    }
+    let snapshot = paint(&mut tree, &mut app);
+    assert_viewport_tiled(
+      &snapshot,
+      &format!("rerender-down step {step} scroll_y={:.1}", scroll_state.scroll_y()),
+    );
+  }
+  for step in 0..300usize {
+    tree.scroll(450.0, 350.0, 0.0, 40.0, ScrollPhase::Scroll);
+    nonce += 1;
+    tree.update_root_props::<PreviewLikeRoot>((items.clone(), Shared(scroll_state.clone()), nonce));
+    if step % 4 != 3 {
+      continue;
+    }
+    let snapshot = paint(&mut tree, &mut app);
+    assert_viewport_tiled(
+      &snapshot,
+      &format!("rerender-up step {step} scroll_y={:.1}", scroll_state.scroll_y()),
+    );
+  }
+}
+
+// ── Randomized interleaving fuzz ─────────────────────────────────────────
+// Ten targeted event-pattern tests failed to reproduce a production blank
+// that provably exists (stale spacer geometry served from a clean cache), so
+// this fuzzes the interleavings: wheel ticks, root re-renders (`rebuild()`
+// preserves caches from the live laid tree), paints, and viewport resizes.
+// On failure the seed + action log pinpoint the minimal sequence.
+
+#[test]
+fn virtualized_list_fuzz_scroll_rerender_paint() {
+  for seed in 1..=6u64 {
+    fuzz_one(seed);
+  }
+}
+
+fn fuzz_one(seed: u64) {
+  let items: Vec<PreviewLine> = (0..PREVIEW_ROWS)
+    .map(|id| PreviewLine {
+      id,
+      count: PREVIEW_ROWS,
+    })
+    .collect();
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<PreviewLikeRoot>(&mut app, (items.clone(), Shared(scroll_state.clone()), 0));
+  tree.resize(1000, 800);
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+
+  let mut rng = seed.wrapping_mul(0x9E3779B97F4A7C15).max(1);
+  let mut next = |bound: u64| {
+    rng ^= rng << 13;
+    rng ^= rng >> 7;
+    rng ^= rng << 17;
+    rng % bound
+  };
+
+  let mut nonce = 0u64;
+  let mut log: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+  let mut push_log = |log: &mut std::collections::VecDeque<String>, entry: String| {
+    log.push_back(entry);
+    if log.len() > 40 {
+      log.pop_front();
+    }
+  };
+
+  for step in 0..4000usize {
+    match next(100) {
+      // Wheel down (most common), wheel up.
+      0..=44 => {
+        let ticks = 1 + next(6);
+        for _ in 0..ticks {
+          tree.scroll(450.0, 350.0, 0.0, -40.0, ScrollPhase::Scroll);
+        }
+        push_log(&mut log, format!("wheel-down x{ticks}"));
+      }
+      45..=64 => {
+        let ticks = 1 + next(6);
+        for _ in 0..ticks {
+          tree.scroll(450.0, 350.0, 0.0, 40.0, ScrollPhase::Scroll);
+        }
+        push_log(&mut log, format!("wheel-up x{ticks}"));
+      }
+      // Root re-render (window shell noise).
+      65..=84 => {
+        nonce += 1;
+        tree.update_root_props::<PreviewLikeRoot>((items.clone(), Shared(scroll_state.clone()), nonce));
+        push_log(&mut log, "rerender".to_owned());
+      }
+      // Paint.
+      85..=97 => {
+        let snapshot = crate::support::render_pass_with_app(&mut tree, &mut app);
+        push_log(&mut log, format!("paint scroll={:.1}", scroll_state.scroll_y()));
+        let label = format!(
+          "fuzz seed={seed} step={step} scroll_y={:.1}\nlast actions: {:?}",
+          scroll_state.scroll_y(),
+          log
+        );
+        assert_viewport_tiled(&snapshot, &label);
+      }
+      // Rare viewport resize (also heals in production — keep rare).
+      _ => {
+        let height = 700 + (next(4) * 50) as u32;
+        tree.resize(1000, height);
+        push_log(&mut log, format!("resize h={height}"));
+      }
+    }
+  }
 }
 
 // ── Timing harness (run explicitly) ─────────────────────────────────────

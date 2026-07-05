@@ -430,6 +430,21 @@ impl<T: DevtoolsInspectable> DevtoolsInspectable for Vec<T> {
   }
 }
 
+impl<T, S> DevtoolsInspectable for std::collections::HashSet<T, S> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value(
+      std::any::type_name::<std::collections::HashSet<T, S>>(),
+      format!("len={}", self.len()),
+    );
+  }
+}
+
+impl DevtoolsInspectable for str {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 impl<T: DevtoolsInspectable + ?Sized> DevtoolsInspectable for Box<T> {
   fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
     (**self).write_info(formatter.buffer_mut());

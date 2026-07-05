@@ -65,6 +65,15 @@ impl LayoutCache {
     !self.inner.borrow().is_empty()
   }
 
+  /// Constraints and size of the most recently stored result, if any.
+  pub(crate) fn cached_entry(&self) -> Option<(Constraints, crate::layout::Size)> {
+    self
+      .inner
+      .borrow()
+      .first()
+      .map(|cached| (cached.constraints, cached.result.size))
+  }
+
   pub(crate) fn preserve_from(&self, old: &Self) {
     *self.inner.borrow_mut() = old.inner.borrow().clone();
     self.clear_dirty();

@@ -652,6 +652,35 @@ impl LayoutEngine {
     let mut local_dirty =
       force_dirty || node.text_content.is_changed() || text_input_dirty || !node.layout_cache.has_cached_result();
 
+    // A cached result that contradicts the node's own fixed frame is stale no
+    // matter how it got there (observed in production: retained-tree diffs can
+    // transplant a cache across a frame change, leaving a clean-flagged node
+    // laid at an old size — e.g. a virtualized list's spacer holding a
+    // previous window's height, which blanks the viewport). Only sizes the
+    // cached constraints would have permitted count as conflicts, so nodes
+    // legitimately clamped by their parent are left alone.
+    if !local_dirty
+      && let Some((cached_constraints, cached_size)) = node.layout_cache.cached_entry()
+    {
+      let width_conflicts = matches!(
+        node.frame.width,
+        Some(Dimension::Px(px))
+          if (cached_size.width - px).abs() > 0.5
+            && px <= cached_constraints.max_width + 0.5
+            && px >= cached_constraints.min_width - 0.5
+      );
+      let height_conflicts = matches!(
+        node.frame.height,
+        Some(Dimension::Px(px))
+          if (cached_size.height - px).abs() > 0.5
+            && px <= cached_constraints.max_height + 0.5
+            && px >= cached_constraints.min_height - 0.5
+      );
+      if width_conflicts || height_conflicts {
+        local_dirty = true;
+      }
+    }
+
     let scroll_offset_dirty = matches!(
       node.layout_kind(),
       LayoutKind::ScrollModifier { state, .. } if state.take_scroll_dirty()
@@ -1651,6 +1680,23 @@ impl LayoutEngine {
   }
 
   fn cached_result_matches_node_tree(node: &Node, result: &LayoutResult) -> bool {
+    // A cached subtree whose geometry contradicts any node's fixed frame is
+    // stale no matter how clean its flags are — observed in production as a
+    // virtualized list's rows column serving a previous window's result
+    // (old spacer heights inside), shifting every row off the viewport. The
+    // per-node frame/cache check in `mark_layout_dirty` cannot catch this:
+    // the stale geometry lives in the PARENT's cached tree, not in the
+    // mismatched child's own cache.
+    if let Some(Dimension::Px(px)) = node.frame.width
+      && (result.size.width - px).abs() > 0.5
+    {
+      return false;
+    }
+    if let Some(Dimension::Px(px)) = node.frame.height
+      && (result.size.height - px).abs() > 0.5
+    {
+      return false;
+    }
     result.children.len() == node.children().len()
       && node
         .children()
@@ -3575,6 +3621,110 @@ mod tests {
 
     assert!(rect_intersects_clip(90.0, 90.0, 20.0, 20.0, clip));
     assert!(!rect_intersects_clip(120.0, 0.0, 20.0, 20.0, clip));
+  }
+
+  #[test]
+  fn frame_conflicting_cached_result_is_recomputed() {
+    // Production repro (PW-studio text preview): a retained-tree diff can
+    // transplant a laid cache onto a node whose fixed frame has since changed,
+    // leaving clean flags — a virtualized list's spacer then keeps serving a
+    // previous window's height and the viewport goes blank. The layout walk
+    // must treat a cache that contradicts the node's own fixed frame as dirty.
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::loose(Size::new(400.0, 10_000.0));
+    let compute = |engine: &LayoutEngine, glyph_engine: &mut GlyphEngine, node: &Node| {
+      engine.compute(
+        glyph_engine,
+        node,
+        constraints,
+        ThemePalette::default(),
+        ThemeBorderSizes::default(),
+        ThemeSpacing::default(),
+        ThemeRadii::default(),
+        ThemeCaret::default(),
+        ScrollBarStyle::default(),
+        ThemeTypography::default(),
+        false,
+      )
+    };
+
+    let old: Node = crate::node::Element::from(crate::components::Spacer::new().height(2000.0)).node;
+    let laid = compute(&engine, &mut glyph_engine, &old);
+    assert_eq!(laid.size.height, 2000.0);
+
+    let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).node;
+    // The transplant: previously laid cache adopted across a frame change,
+    // flags cleared (what `preserve_from` does). Guards are cleared like the
+    // retained diff does for unchanged content.
+    new.layout_cache.preserve_from(&old.layout_cache);
+    new.clear_guards();
+    assert!(new.layout_cache.has_cached_result());
+    assert!(!new.layout_cache.is_dirty());
+
+    let result = compute(&engine, &mut glyph_engine, &new);
+    assert_eq!(
+      result.size.height, 3000.0,
+      "stale transplanted cache must not override the node's fixed frame"
+    );
+  }
+
+  #[test]
+  fn stale_parent_cache_with_conflicting_child_frame_is_recomputed() {
+    // Production repro v2 (PW-studio text preview): the virtualized list's
+    // rows COLUMN kept serving a clean-flagged cached result from a previous
+    // window build — its spacer child's fixed frame said one height while the
+    // column's cached tree still contained the old height, shifting every row
+    // off the viewport. The child's own cache was fine, so the per-node
+    // frame/cache check didn't fire; the parent's cached tree must be
+    // validated against descendant frames.
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::loose(Size::new(400.0, 100_000.0));
+    let compute = |engine: &LayoutEngine, glyph_engine: &mut GlyphEngine, node: &Node| {
+      engine.compute(
+        glyph_engine,
+        node,
+        constraints,
+        ThemePalette::default(),
+        ThemeBorderSizes::default(),
+        ThemeSpacing::default(),
+        ThemeRadii::default(),
+        ThemeCaret::default(),
+        ScrollBarStyle::default(),
+        ThemeTypography::default(),
+        false,
+      )
+    };
+    let column = |spacer_height: f32| -> Node {
+      crate::node::Element::from(
+        crate::components::Column::new()
+          .spacing(0.0)
+          .child(crate::components::Spacer::new().height(spacer_height))
+          .child(crate::components::Spacer::new().height(50.0)),
+      )
+      .node
+    };
+
+    let old = column(2000.0);
+    let laid = compute(&engine, &mut glyph_engine, &old);
+    assert_eq!(laid.size.height, 2050.0);
+
+    let mut new = column(3000.0);
+    // Lay the new tree once so every child's own cache is fresh and correct…
+    compute(&engine, &mut glyph_engine, &new);
+    // …then transplant the OLD column result onto the column node with clean
+    // flags (what a retained-diff `preserve_from` chain does).
+    new.layout_cache.preserve_from(&old.layout_cache);
+    new.clear_guards();
+    assert!(!new.layout_cache.is_dirty());
+
+    let result = compute(&engine, &mut glyph_engine, &new);
+    assert_eq!(
+      result.size.height, 3050.0,
+      "a stale parent cache conflicting with a child's fixed frame must be recomputed"
+    );
+    assert_eq!(result.children[0].result.size.height, 3000.0);
   }
 
   #[test]

@@ -1142,7 +1142,16 @@ impl RenderEngine for WgpuRenderEngine {
       self.atlas_size = (atlas.width, atlas.height);
     }
     if atlas_recreated || self.atlas_version != atlas.version {
-      let upload_full_atlas = atlas_recreated || atlas.dirty_rects.is_empty();
+      // The atlas is shared across windows; this engine's texture may be
+      // several versions behind, so apply the log's rects newer than *our*
+      // uploaded version — or the full atlas when the log no longer covers
+      // the gap.
+      let pending = if atlas_recreated {
+        None
+      } else {
+        crate::app::glyph_engine::atlas_rects_to_apply(atlas, self.atlas_version)
+      };
+      let upload_full_atlas = pending.is_none();
       if upload_full_atlas {
         _atlas_upload_bytes = wgpu_staged_texture_bytes(atlas.width * 4, atlas.height);
         _atlas_upload_rects = 1;
@@ -1167,7 +1176,7 @@ impl RenderEngine for WgpuRenderEngine {
           },
         );
       } else {
-        for rect in atlas.dirty_rects.iter() {
+        for rect in pending.unwrap_or_default() {
           if rect.width == 0 || rect.height == 0 || rect.x >= atlas.width || rect.y >= atlas.height {
             continue;
           }

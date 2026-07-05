@@ -178,7 +178,14 @@ pub struct GlyphAtlas {
   pub width: u32,
   pub height: u32,
   pub version: u64,
+  /// Retained log of packed-glyph updates, each tagged with the atlas version
+  /// its pack produced. The atlas is shared by every window, but each window's
+  /// render engine owns a separate GPU texture, so the log must serve
+  /// consumers at different versions: apply the rects newer than the version
+  /// already uploaded. Entries older than `dirty_from_version` are pruned —
+  /// a consumer behind that must re-upload the whole atlas.
   pub dirty_rects: std::sync::Arc<[GlyphAtlasDirtyRect]>,
+  pub dirty_from_version: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,4 +194,7 @@ pub struct GlyphAtlasDirtyRect {
   pub y: u32,
   pub width: u32,
   pub height: u32,
+  /// Atlas version produced by the pack that dirtied this rect (merged rects
+  /// carry the newest version — re-applying the older part is harmless).
+  pub version: u64,
 }
