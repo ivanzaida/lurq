@@ -207,6 +207,7 @@ fn log_layout_fast_path_miss_timeline(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn log_frame_pass_timeline(
   path: &'static str,
   total: Duration,
@@ -218,12 +219,20 @@ fn log_frame_pass_timeline(
   quad_count: usize,
   rect_count: usize,
   glyph_count: usize,
+  text_measure_cache: (usize, usize),
+  glyph_cache: (usize, usize),
 ) {
+  // Text measurement happens during layout — a slow layout with a high
+  // measure-miss count means re-shaping, not flex arithmetic.
+  let caches = format!(
+    "text_measure_hit/miss={}/{} glyph_hit/miss={}/{}",
+    text_measure_cache.0, text_measure_cache.1, glyph_cache.0, glyph_cache.1
+  );
   let slow = total >= SLOW_FRAME_PASS_TIMELINE_THRESHOLD;
   if slow {
     tracing::warn!(
       target: "video::timeline",
-      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} reasons={:?}",
+      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} {} reasons={:?}",
       path,
       timeline_ms(total),
       timeline_ms(layout),
@@ -237,12 +246,13 @@ fn log_frame_pass_timeline(
       quad_count,
       rect_count,
       glyph_count,
+      caches,
       report.reasons
     );
   } else if should_log_video_timeline_sample(&FRAME_PASS_TIMELINE_LAST_INFO_MS) {
     tracing::info!(
       target: "video::timeline",
-      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} reasons={:?}",
+      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} {} reasons={:?}",
       path,
       timeline_ms(total),
       timeline_ms(layout),
@@ -256,12 +266,13 @@ fn log_frame_pass_timeline(
       quad_count,
       rect_count,
       glyph_count,
+      caches,
       report.reasons
     );
   } else {
     tracing::debug!(
       target: "video::timeline",
-      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} reasons={:?}",
+      "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} {} reasons={:?}",
       path,
       timeline_ms(total),
       timeline_ms(layout),
@@ -275,6 +286,7 @@ fn log_frame_pass_timeline(
       quad_count,
       rect_count,
       glyph_count,
+      caches,
       report.reasons
     );
   }
@@ -1719,9 +1731,9 @@ impl Tree {
     let frame_wall_start = Instant::now();
     let _frame_start = profile_scope!();
     let scale = self.scale_factor();
-    profile_if! {
-      app.glyph_engine.reset_stats();
-    }
+    // Cheap counter reset; the cache hit/miss stats feed the frame timeline
+    // log (and the perf overlay when profiling).
+    app.glyph_engine.reset_stats();
     self.update_perf_overlay_stats();
 
     let now = Instant::now();
@@ -2398,6 +2410,8 @@ impl Tree {
       quad_count,
       list.rects.len(),
       list.glyphs.len(),
+      (app.glyph_engine.measure_hits, app.glyph_engine.measure_misses),
+      (app.glyph_engine.glyph_hits, app.glyph_engine.glyph_misses),
     );
     log_pass_breakdown(
       "full",
@@ -2615,6 +2629,7 @@ impl Tree {
       alt,
       meta,
       target_id: NodeId::UNASSIGNED,
+      text_input_focused: self.text_input_focused(),
       control,
     };
     if let Some(root) = &self.root {
@@ -2686,6 +2701,7 @@ impl Tree {
       alt,
       meta,
       target_id: NodeId::UNASSIGNED,
+      text_input_focused: self.text_input_focused(),
       control: EventControl::new(),
     };
     let root = match &self.root {
@@ -4716,6 +4732,25 @@ impl Tree {
       self.needs_redraw = true;
     }
     self.layout_engine.set_text_input_caret_visible(visible);
+  }
+
+  /// Whether keyboard focus currently sits on a text input — stamped onto
+  /// [`KeyboardEvent`]s so global-shortcut handlers can step aside while the
+  /// user is typing.
+  fn text_input_focused(&self) -> bool {
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    self
+      .focused_path
+      .as_deref()
+      .and_then(|path| find_node_by_path(root, path))
+      .or_else(|| {
+        self
+          .focused_node
+          .and_then(|id| find_node_by_id(root, id))
+      })
+      .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }))
   }
 
   fn has_focused_blinking_text_input(&self, theme_caret_mode: CaretMode) -> bool {

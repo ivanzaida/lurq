@@ -10,6 +10,12 @@ pub struct KeyboardEvent {
   pub alt: bool,
   pub meta: bool,
   pub target_id: NodeId,
+  /// Whether a text input holds keyboard focus when this event fires.
+  /// `on_key_down` handlers run before the focused input consumes the key,
+  /// so global shortcuts (e.g. an app's ctrl+z) should check this and step
+  /// aside while the user is typing — the input's own editing (including
+  /// its undo/redo) takes the key otherwise.
+  pub text_input_focused: bool,
   pub(crate) control: EventControl,
 }
 
@@ -31,6 +37,7 @@ impl KeyboardEvent {
       alt,
       meta,
       target_id,
+      text_input_focused: false,
       control: EventControl::new(),
     }
   }
