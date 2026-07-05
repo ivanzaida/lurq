@@ -522,7 +522,12 @@ impl TextInputState {
     if text.is_empty() {
       return false;
     }
-    if !self.fire_input(keyboard) {
+    if !self.fire_input(keyboard, || {
+      let (mut value, caret) = self.value_without_selection();
+      let caret = clamp_to_char_boundary(&value, caret);
+      value.insert_str(caret, text);
+      value
+    }) {
       return true;
     }
 
@@ -552,7 +557,7 @@ impl TextInputState {
 
   pub(crate) fn backspace(&self, keyboard: &KeyboardEvent) -> bool {
     if self.has_selection() {
-      if !self.fire_input(keyboard) {
+      if !self.fire_input(keyboard, || self.value_without_selection().0) {
         return true;
       }
       self.push_undo_snapshot();
@@ -564,7 +569,15 @@ impl TextInputState {
     if caret == 0 {
       return false;
     }
-    if !self.fire_input(keyboard) {
+    if !self.fire_input(keyboard, || {
+      let mut value = self.value();
+      let caret = clamp_to_char_boundary(&value, caret);
+      if caret > 0 {
+        let previous = previous_char_boundary(&value, caret);
+        value.replace_range(previous..caret, "");
+      }
+      value
+    }) {
       return true;
     }
 
@@ -584,7 +597,7 @@ impl TextInputState {
 
   pub(crate) fn delete(&self, keyboard: &KeyboardEvent) -> bool {
     if self.has_selection() {
-      if !self.fire_input(keyboard) {
+      if !self.fire_input(keyboard, || self.value_without_selection().0) {
         return true;
       }
       self.push_undo_snapshot();
@@ -598,7 +611,12 @@ impl TextInputState {
     if caret >= value.len() {
       return false;
     }
-    if !self.fire_input(keyboard) {
+    if !self.fire_input(keyboard, || {
+      let mut value = value.clone();
+      let next = next_char_boundary(&value, caret);
+      value.replace_range(caret..next, "");
+      value
+    }) {
       return true;
     }
 
@@ -755,7 +773,7 @@ impl TextInputState {
 
   pub(crate) fn cut_selection(&self, keyboard: &KeyboardEvent) -> Option<String> {
     let selected = self.selected_text()?;
-    if !self.fire_input(keyboard) {
+    if !self.fire_input(keyboard, || self.value_without_selection().0) {
       return Some(selected);
     }
     self.push_undo_snapshot();
@@ -768,7 +786,7 @@ impl TextInputState {
     let Some(snapshot) = self.inner.lock().unwrap().undo_stack.pop() else {
       return false;
     };
-    if !self.fire_input(keyboard) {
+    if !self.fire_input(keyboard, || snapshot.value.clone()) {
       self.push_undo_snapshot_value(snapshot);
       return true;
     }
@@ -783,7 +801,7 @@ impl TextInputState {
     let Some(snapshot) = self.inner.lock().unwrap().redo_stack.pop() else {
       return false;
     };
-    if !self.fire_input(keyboard) {
+    if !self.fire_input(keyboard, || snapshot.value.clone()) {
       self.push_redo_snapshot(snapshot);
       return true;
     }
@@ -1088,18 +1106,38 @@ impl TextInputState {
     self.layout_dirty.store(true, Ordering::Relaxed);
   }
 
-  fn fire_input(&self, keyboard: &KeyboardEvent) -> bool {
+  /// Fire `on_input` handlers with the text this edit is about to produce.
+  /// `new_value` is only evaluated when handlers are attached.
+  fn fire_input(&self, keyboard: &KeyboardEvent, new_value: impl FnOnce() -> String) -> bool {
     let handlers = self.on_input.lock().unwrap().clone();
     if handlers.is_empty() {
       return true;
     }
 
-    let event = TextInputEvent::new(self.value.clone(), keyboard.clone());
+    let event = TextInputEvent::new(self.value.clone(), new_value(), keyboard.clone());
     for handler in handlers {
       handler.call(&event);
     }
     self.sync_external_value();
     !event.default_prevented()
+  }
+
+  /// The text as it will read after the current selection is removed, plus
+  /// the caret position after that removal. The value is unchanged (and the
+  /// caret current) when nothing is selected.
+  fn value_without_selection(&self) -> (String, usize) {
+    let mut value = self.value();
+    let inner = self.inner.lock().unwrap();
+    match selection_range_indices(&value, inner.selection_anchor, inner.caret) {
+      Some((start, end)) => {
+        value.replace_range(start..end, "");
+        (value, start)
+      }
+      None => {
+        let caret = inner.caret;
+        (value, caret)
+      }
+    }
   }
 
   pub(crate) fn has_selection(&self) -> bool {

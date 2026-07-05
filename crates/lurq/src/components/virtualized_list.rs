@@ -856,7 +856,15 @@ where
       let row_ref = ctx.element_ref();
       self.runtime.lock().rendered_refs.insert(key.clone(), row_ref.clone());
       let row = ctx.mount_keyed::<C>(&key, props_fn(&items[index]));
-      let mut wrapper = Column::new().spacing(0.0).ref_element(row_ref).child(row);
+      // Key the wrapper too: it is the row's direct sibling in the column, so
+      // keying it lets node-id reconciliation re-align wrappers by key when the
+      // window shifts — keeping hover/focus glued to the row the pointer is
+      // actually over instead of the position it used to occupy.
+      let mut wrapper = Column::new()
+        .spacing(0.0)
+        .key(key.as_str())
+        .ref_element(row_ref)
+        .child(row);
       if let Some(tint) = debug_tint {
         wrapper = wrapper.background(tint);
       }

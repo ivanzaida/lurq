@@ -3604,13 +3604,56 @@ impl Node {
       old.node_id = NodeId::UNASSIGNED;
     }
 
-    for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
-      child.preserve_ids_from(old_child);
+    // Keyed/slotted children can move between renders (a windowed or reordered
+    // list). Match them to their old twin by identity so node ids — and the
+    // hover/active/focus state the runtime tracks by id — follow the element
+    // instead of its position. Subtrees with no such children keep the cheap
+    // positional zip. This mirrors `preserve_runtime_state_from`, which already
+    // reconciles moved children by slot id.
+    let reorderable = self
+      .children
+      .iter()
+      .any(|child| child.component_key.is_some() || child.component_slot_id.is_some());
+    if !reorderable {
+      for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
+        child.preserve_ids_from(old_child);
+      }
+      return;
+    }
+
+    let mut claimed = vec![false; old.children.len()];
+    for (index, child) in self.children.iter_mut().enumerate() {
+      let matched = old
+        .children
+        .get(index)
+        .filter(|old_child| !claimed[index] && child.can_reuse_id_from(old_child))
+        .map(|_| index)
+        .or_else(|| {
+          old.children.iter().enumerate().find_map(|(offset, old_child)| {
+            (!claimed[offset] && child.identity_matches(old_child)).then_some(offset)
+          })
+        });
+      if let Some(offset) = matched {
+        claimed[offset] = true;
+        child.preserve_ids_from(&mut old.children[offset]);
+      }
     }
   }
 
   fn can_reuse_id_from(&self, old: &Node) -> bool {
     self.component_slot_id == old.component_slot_id
+      && self.component_key == old.component_key
+      && std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
+      && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
+  }
+
+  /// A moved keyed/slotted child's twin in the old children: only nodes that
+  /// carry a stable identity (key or component slot) match across a reorder;
+  /// unkeyed nodes fall back to positional pairing in `preserve_ids_from`.
+  fn identity_matches(&self, old: &Node) -> bool {
+    (self.component_key.is_some() || self.component_slot_id.is_some())
+      && self.component_slot_id == old.component_slot_id
+      && self.component_key == old.component_key
       && std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
       && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
   }
@@ -4007,5 +4050,61 @@ mod tests {
 
     assert!(new.layout_cache.has_cached_result());
     assert!(new.layout_cache.is_descendant_dirty());
+  }
+
+  #[test]
+  fn preserve_ids_follows_keyed_children_across_a_window_shift() {
+    use crate::core::{IdGenerator, NodeId};
+
+    fn keyed_row(key: &str) -> Node {
+      let mut wrapper = Node::column(0.0, Alignment::Start, vec![Node::text(key)]);
+      wrapper.set_component_key(Some(key));
+      wrapper
+    }
+    fn id_for(parent: &Node, key: &str) -> NodeId {
+      parent
+        .children
+        .iter()
+        .find(|child| child.component_key() == Some(key))
+        .expect("row present")
+        .node_id()
+    }
+    fn collect_ids(node: &Node, out: &mut Vec<NodeId>) {
+      out.push(node.node_id());
+      for child in &node.children {
+        collect_ids(child, out);
+      }
+    }
+
+    let id_gen = IdGenerator::new();
+    // Old window: rows a, b, c.
+    let mut old = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![keyed_row("a"), keyed_row("b"), keyed_row("c")],
+    );
+    old.assign_ids(&id_gen);
+    let old_b = id_for(&old, "b");
+    let old_c = id_for(&old, "c");
+
+    // New window scrolled by one: rows b, c, d — b and c each moved up a slot.
+    let mut new = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![keyed_row("b"), keyed_row("c"), keyed_row("d")],
+    );
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    // b and c keep their node ids despite moving position, so hover/focus
+    // tracked by id stays glued to the same rows instead of jumping.
+    assert_eq!(id_for(&new, "b"), old_b);
+    assert_eq!(id_for(&new, "c"), old_c);
+
+    // No id collision between preserved and freshly assigned nodes.
+    let mut ids = Vec::new();
+    collect_ids(&new, &mut ids);
+    let unique: std::collections::HashSet<u64> = ids.iter().map(|id| id.value()).collect();
+    assert_eq!(unique.len(), ids.len());
   }
 }

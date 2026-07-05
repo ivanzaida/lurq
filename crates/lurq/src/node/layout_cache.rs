@@ -76,7 +76,16 @@ impl LayoutCache {
 
   pub(crate) fn preserve_from(&self, old: &Self) {
     *self.inner.borrow_mut() = old.inner.borrow().clone();
-    self.clear_dirty();
+    // Carry the old cache's unresolved dirtiness instead of clearing it: the
+    // old tree may hold marks no layout pass has consumed yet (re-render
+    // chains between paints). Dropping them here laundered staleness — a
+    // duplicate re-render inherited the stale results with clean flags and
+    // the engine served them wholesale (stale spacer heights / stale text
+    // measurements on screen).
+    self.local_dirty.set(self.local_dirty.get() || old.local_dirty.get());
+    self
+      .descendant_dirty
+      .set(self.descendant_dirty.get() || old.descendant_dirty.get());
   }
 
   pub fn store(&self, constraints: Constraints, result: LayoutResult) {
