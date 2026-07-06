@@ -52,6 +52,11 @@ impl TextInput {
     self
   }
 
+  pub fn selection_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::selection_color(node, color));
+    self
+  }
+
   pub fn caret_mode(mut self, mode: CaretMode) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_input_caret_mode(node, mode));
     self

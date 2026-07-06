@@ -659,9 +659,7 @@ impl LayoutEngine {
     // previous window's height, which blanks the viewport). Only sizes the
     // cached constraints would have permitted count as conflicts, so nodes
     // legitimately clamped by their parent are left alone.
-    if !local_dirty
-      && let Some((cached_constraints, cached_size)) = node.layout_cache.cached_entry()
-    {
+    if !local_dirty && let Some((cached_constraints, cached_size)) = node.layout_cache.cached_entry() {
       let width_conflicts = matches!(
         node.frame.width,
         Some(Dimension::Px(px))
@@ -970,6 +968,11 @@ impl LayoutEngine {
           && state.selectable()
         {
           let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
+          let palette = self.palette.borrow();
+          let selection_color = node
+            .selection_color_value()
+            .and_then(|color| color.resolve(&palette))
+            .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
           let selection_clip = clip;
           for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
@@ -986,7 +989,7 @@ impl LayoutEngine {
               transform: selection_transform,
               transform_origin: selection_transform_origin,
               content: QuadContent::Rect {
-                color: DEFAULT_TEXT_SELECTION_COLOR,
+                color: selection_color,
                 gradient: None,
               },
               border_radius: None,
@@ -999,6 +1002,11 @@ impl LayoutEngine {
         if let NodeKind::RichText { state, spans, .. } = node.node_kind()
           && state.selectable()
         {
+          let palette = self.palette.borrow();
+          let selection_color = node
+            .selection_color_value()
+            .and_then(|color| color.resolve(&palette))
+            .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let style = spans.first().map(|span| &span.style);
           let selection_height = style
             .map(|style| style.font_size * style.line_height)
@@ -1020,7 +1028,7 @@ impl LayoutEngine {
               transform: selection_transform,
               transform_origin: selection_transform_origin,
               content: QuadContent::Rect {
-                color: DEFAULT_TEXT_SELECTION_COLOR,
+                color: selection_color,
                 gradient: None,
               },
               border_radius: None,
@@ -1033,6 +1041,11 @@ impl LayoutEngine {
         if let NodeKind::TextInput { state, .. } = node.node_kind()
           && state.is_focused()
         {
+          let palette = self.palette.borrow();
+          let selection_color = node
+            .selection_color_value()
+            .and_then(|color| color.resolve(&palette))
+            .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_width = (result.size.width - padding.left - padding.right).max(0.0);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
@@ -1063,7 +1076,7 @@ impl LayoutEngine {
               transform: selection_transform,
               transform_origin: selection_transform_origin,
               content: QuadContent::Rect {
-                color: DEFAULT_TEXT_SELECTION_COLOR,
+                color: selection_color,
                 gradient: None,
               },
               border_radius: None,
@@ -1732,9 +1745,7 @@ impl LayoutEngine {
           // a self-declared offset to check against.
           if let Position::Absolute { x, y, .. } = child.position() {
             let expected = Self::apply_relative_position(child, Offset::new(x, y));
-            if (child_layout.offset.x - expected.x).abs() > 0.01
-              || (child_layout.offset.y - expected.y).abs() > 0.01
-            {
+            if (child_layout.offset.x - expected.x).abs() > 0.01 || (child_layout.offset.y - expected.y).abs() > 0.01 {
               return false;
             }
           }

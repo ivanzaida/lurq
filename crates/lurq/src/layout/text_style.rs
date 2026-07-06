@@ -23,6 +23,7 @@ pub struct TextStyle {
   pub text_align: TextAlign,
   pub color: Color,
   pub caret_color: Option<TextColor>,
+  pub shadow: Option<TextShadow>,
 }
 
 impl Default for TextStyle {
@@ -36,7 +37,33 @@ impl Default for TextStyle {
       text_align: TextAlign::Left,
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
+      shadow: None,
     }
+  }
+}
+
+/// CSS-like text shadow: offsets and blur radius are in logical pixels, the
+/// blur radius maps to a Gaussian with `sigma = blur_radius / 2`.
+#[derive(Clone, Copy, PartialEq)]
+pub struct TextShadow {
+  pub offset_x: f32,
+  pub offset_y: f32,
+  pub blur_radius: f32,
+  pub color: Color,
+}
+
+impl TextShadow {
+  pub fn new(offset_x: f32, offset_y: f32, blur_radius: f32, color: Color) -> Self {
+    Self {
+      offset_x,
+      offset_y,
+      blur_radius: blur_radius.max(0.0),
+      color,
+    }
+  }
+
+  pub(crate) fn is_visible(&self) -> bool {
+    self.color.a() > 0 && (self.offset_x != 0.0 || self.offset_y != 0.0 || self.blur_radius > 0.0)
   }
 }
 

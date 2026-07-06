@@ -295,6 +295,7 @@ pub(crate) trait NodeUpdate {
   fn background(&mut self, color: impl Into<BackgroundColor>);
   fn background_gradient(&mut self, gradient: impl Into<Gradient>);
   fn caret_color(&mut self, color: impl Into<TextColor>);
+  fn selection_color(&mut self, color: impl Into<TextColor>);
   fn text_input_caret_mode(&mut self, mode: CaretMode);
   fn corner_radius(&mut self, radius: impl Into<RadiusValue>);
   fn corner_radius_custom(&mut self, radius: BorderRadius);
@@ -391,6 +392,7 @@ pub(crate) trait NodeUpdate {
   fn text_transform_mode(&mut self, mode: TextTransformMode);
   fn text_variant(&mut self, typography_style: impl Into<TypographyStyle>);
   fn text_color(&mut self, color: impl Into<TextColor>);
+  fn text_shadow(&mut self, shadow: crate::layout::text_style::TextShadow);
   fn text_align(&mut self, align: impl Into<TextAlign>);
   fn on_input(&mut self, f: impl IntoTextInputEventHandler);
   fn off_input(&mut self, f: impl IntoTextInputEventHandler);
@@ -575,6 +577,7 @@ pub(crate) struct Node {
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
   pub(crate) caret_color: Guard<Option<TextColor>>,
+  pub(crate) selection_color: Guard<Option<TextColor>>,
   pub(crate) caret_mode: Guard<Option<CaretMode>>,
   pub(crate) cursor: Option<CursorIcon>,
   pub(crate) hit_test: HitTestBehavior,
@@ -853,6 +856,10 @@ impl NodeUpdate for Node {
 
   fn caret_color(&mut self, color: impl Into<TextColor>) {
     self.set_caret_color(color.into());
+  }
+
+  fn selection_color(&mut self, color: impl Into<TextColor>) {
+    self.set_selection_color(color.into());
   }
 
   fn text_input_caret_mode(&mut self, mode: CaretMode) {
@@ -1336,6 +1343,12 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn text_shadow(&mut self, shadow: crate::layout::text_style::TextShadow) {
+    if let NodeKind::Text { style, .. } = &mut self.node_kind {
+      style.set_shadow(shadow);
+    }
+  }
+
   fn text_align(&mut self, align: impl Into<TextAlign>) {
     if let NodeKind::Text { style, .. } = &mut self.node_kind {
       style.set_text_align(align);
@@ -1546,6 +1559,7 @@ impl Node {
       border_radius: Guard::new(None),
       border: Guard::new(None),
       caret_color: Guard::new(None),
+      selection_color: Guard::new(None),
       caret_mode: Guard::new(None),
       cursor: None,
       hit_test: HitTestBehavior::default(),
@@ -1983,6 +1997,15 @@ impl Node {
     } else {
       self.caret_color.set(Some(color));
     }
+  }
+
+  pub(crate) fn selection_color(mut self, color: impl Into<TextColor>) -> Self {
+    self.set_selection_color(color.into());
+    self
+  }
+
+  fn set_selection_color(&mut self, color: TextColor) {
+    self.selection_color.set(Some(color));
   }
 
   pub(crate) fn text_input_caret_mode(mut self, mode: CaretMode) -> Self {
@@ -3044,6 +3067,10 @@ impl Node {
     <Option<TextColor> as Clone>::clone(&self.caret_color)
   }
 
+  pub(crate) fn selection_color_value(&self) -> Option<TextColor> {
+    <Option<TextColor> as Clone>::clone(&self.selection_color)
+  }
+
   pub(crate) fn caret_mode_value(&self) -> Option<CaretMode> {
     *self.caret_mode
   }
@@ -3209,6 +3236,7 @@ impl Node {
       || self.border_radius.is_changed()
       || self.border.is_changed()
       || self.caret_color.is_changed()
+      || self.selection_color.is_changed()
       || self.caret_mode.is_changed()
       || self.scrollbar_style.is_changed()
       || {
@@ -3338,6 +3366,7 @@ impl Node {
     self.border_radius.clear_changed();
     self.border.clear_changed();
     self.caret_color.clear_changed();
+    self.selection_color.clear_changed();
     self.caret_mode.clear_changed();
     #[cfg(feature = "image")]
     self.background_image.clear_changed();
@@ -3460,6 +3489,9 @@ impl Node {
     }
     if self.caret_color.as_ref() == old.caret_color.as_ref() {
       self.caret_color.clear_changed();
+    }
+    if self.selection_color.as_ref() == old.selection_color.as_ref() {
+      self.selection_color.clear_changed();
     }
     if self.caret_mode.as_ref() == old.caret_mode.as_ref() {
       self.caret_mode.clear_changed();
@@ -3645,9 +3677,11 @@ impl Node {
         .filter(|old_child| !claimed[index] && child.can_reuse_id_from(old_child))
         .map(|_| index)
         .or_else(|| {
-          old.children.iter().enumerate().find_map(|(offset, old_child)| {
-            (!claimed[offset] && child.identity_matches(old_child)).then_some(offset)
-          })
+          old
+            .children
+            .iter()
+            .enumerate()
+            .find_map(|(offset, old_child)| (!claimed[offset] && child.identity_matches(old_child)).then_some(offset))
         });
       if let Some(offset) = matched {
         claimed[offset] = true;
@@ -3720,6 +3754,7 @@ impl Node {
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
       caret_color: self.caret_color.clone(),
+      selection_color: self.selection_color.clone(),
       caret_mode: self.caret_mode.clone(),
       cursor: self.cursor,
       hit_test: self.hit_test,

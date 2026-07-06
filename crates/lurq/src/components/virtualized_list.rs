@@ -352,8 +352,7 @@ where
         // Handlers run before the default scroll movement applies, so predict
         // the post-scroll position from the delta.
         let scroll_y = (handler_scroll_state.scroll_y() - event.delta_y).max(0.0);
-        let drifted =
-          (runtime.lock().last_render_scroll_y - scroll_y).abs() > rebuild_threshold;
+        let drifted = (runtime.lock().last_render_scroll_y - scroll_y).abs() > rebuild_threshold;
         if drifted {
           revision.update(|value| *value = value.wrapping_add(1));
         }
@@ -593,11 +592,11 @@ where
     outer_frame: &FrameConstraints,
     outer_flex: Option<f32>,
   ) -> Element {
+    use super::{Stack, Text};
     use crate::{
       layout::text_style::TextStyle,
       node::{color::Color, padding::Padding},
     };
-    use super::{Stack, Text};
 
     let runtime = self.runtime.lock();
     let max_scroll = (scroll_state.content_height() - scroll_state.viewport_height()).max(0.0);
@@ -700,8 +699,8 @@ where
     // Steady-state scroll ticks must be free of O(n) work: the shared item
     // list is compared by pointer, and contents only when the pointer changed
     // (a parent re-render building an identical list).
-    let items_changed = !Arc::ptr_eq(&runtime.items_snapshot, items)
-      && runtime.items_snapshot.as_slice() != items.as_slice();
+    let items_changed =
+      !Arc::ptr_eq(&runtime.items_snapshot, items) && runtime.items_snapshot.as_slice() != items.as_slice();
     if !items_changed && !Arc::ptr_eq(&runtime.items_snapshot, items) {
       // Same contents, new allocation — adopt it so the next compare is O(1).
       runtime.items_snapshot = items.clone();
@@ -888,12 +887,7 @@ fn prefix_height(keys: &[String], heights: &HashMap<String, f32>) -> f32 {
 
 /// Visible index window from the cumulative-height prefix (see
 /// `VirtualizedRuntime::prefix`): two binary searches instead of an O(n) walk.
-fn visible_range_from_prefix(
-  prefix: &[f32],
-  scroll_y: f32,
-  viewport_height: f32,
-  overscan_px: f32,
-) -> (usize, usize) {
+fn visible_range_from_prefix(prefix: &[f32], scroll_y: f32, viewport_height: f32, overscan_px: f32) -> (usize, usize) {
   let count = prefix.len().saturating_sub(1);
   if count == 0 {
     return (0, 0);
@@ -907,4 +901,3 @@ fn visible_range_from_prefix(
   let end = prefix[..count].partition_point(|&top| top < end_y).max(start);
   (start, end)
 }
-

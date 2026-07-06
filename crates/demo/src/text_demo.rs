@@ -1,7 +1,7 @@
 use lurq::{
   layout::{
     Alignment,
-    text_style::{FontStyle, FontWeight, TextStyle},
+    text_style::{FontStyle, FontWeight, TextShadow, TextStyle},
   },
   node::{Element, TextTransformMode, color::Color, dimension::Dimension, transform::Transform2D},
 };
@@ -34,6 +34,8 @@ pub(crate) fn text_content() -> Element {
     .child(selection_examples())
     .child(section_title("Text Colors"))
     .child(text_colors())
+    .child(section_title("Text Shadow"))
+    .child(text_shadows())
     .padding(CONTENT_PAD)
     .width(FILL_WIDTH)
     .background(BG)
@@ -302,6 +304,39 @@ fn selection_row(label: &str, content: Element) -> lurq::components::Row {
     .child(content)
     .width(FILL_WIDTH)
     .overflow_visible()
+}
+
+fn text_shadows() -> Element {
+  let variants: &[(&str, TextShadow)] = &[
+    ("Hard offset", TextShadow::new(2.0, 2.0, 0.0, Color::new(0, 0, 0, 200))),
+    ("Soft drop", TextShadow::new(2.0, 3.0, 6.0, Color::new(0, 0, 0, 220))),
+    ("Glow", TextShadow::new(0.0, 0.0, 10.0, Color::from_hex("#3B82F6"))),
+    (
+      "Colored offset",
+      TextShadow::new(-3.0, 2.0, 4.0, Color::from_hex("#EF4444")),
+    ),
+  ];
+
+  lurq::components::Column::new()
+    .spacing(12.0)
+    .with_children(variants.iter().map(|(label, shadow)| {
+      lurq::components::Row::new()
+        .spacing(16.0)
+        .align_items(Alignment::Center)
+        .child(text(label, 12.0, FontWeight::Normal, TEXT_MUTED).width(110.0))
+        .child(
+          text("The quick brown fox", 24.0, FontWeight::Bold, TEXT)
+            .text_shadow(*shadow)
+            .nowrap(),
+        )
+        .width(FILL_WIDTH)
+    }))
+    .padding(24.0)
+    .width(FILL_WIDTH)
+    .background(SURFACE)
+    .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
 }
 
 fn text_colors() -> Element {

@@ -95,6 +95,7 @@ pub(crate) struct TextStyleSource {
   base: TextStyleBase,
   color: Option<TextColor>,
   text_align: Option<TextAlign>,
+  shadow: Option<crate::layout::text_style::TextShadow>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -110,6 +111,7 @@ impl TextStyleSource {
       base: TextStyleBase::Default,
       color: None,
       text_align: None,
+      shadow: None,
     }
   }
 
@@ -118,6 +120,7 @@ impl TextStyleSource {
       base: TextStyleBase::Explicit(style),
       color: None,
       text_align: None,
+      shadow: None,
     }
   }
 
@@ -133,6 +136,10 @@ impl TextStyleSource {
     self.text_align = Some(align.into());
   }
 
+  pub(crate) fn set_shadow(&mut self, shadow: crate::layout::text_style::TextShadow) {
+    self.shadow = Some(shadow);
+  }
+
   pub(crate) fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
     let mut style = match &self.base {
       TextStyleBase::Default => typography.default_style().clone(),
@@ -144,6 +151,9 @@ impl TextStyleSource {
     }
     if let Some(text_align) = self.text_align {
       style.text_align = text_align;
+    }
+    if let Some(shadow) = self.shadow {
+      style.shadow = Some(shadow);
     }
     style
   }

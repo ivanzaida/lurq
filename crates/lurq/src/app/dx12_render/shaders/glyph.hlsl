@@ -22,6 +22,7 @@ struct VsIn
   float2 xf_origin : TEXCOORD7;
   float sharpness : TEXCOORD8;
   float color_glyph : TEXCOORD9;
+  float shadow_sigma : TEXCOORD10;
 };
 
 struct VsOut
@@ -31,11 +32,23 @@ struct VsOut
   float2 uv : TEXCOORD0;
   float sharpness : TEXCOORD1;
   float color_glyph : TEXCOORD2;
+  float shadow_sigma : TEXCOORD3;
+  float4 uv_bounds : TEXCOORD4;
 };
+
+// Blur taps reach 2 * sigma texels; one extra texel keeps bilinear sampling
+// at the edge inside the expanded region.
+float shadow_pad(float sigma)
+{
+  return sigma > 0.0 ? ceil(sigma * 2.0) + 1.0 : 0.0;
+}
 
 VsOut vs_main(VsIn input)
 {
-  float2 local_px = input.corner * input.size;
+  // Shadow instances grow beyond the glyph rect so the blur has room to
+  // spill; uv is extrapolated through the same linear mapping.
+  float pad = shadow_pad(input.shadow_sigma);
+  float2 local_px = input.corner * (input.size + 2.0 * pad) - float2(pad, pad);
   float2 centered = local_px - input.xf_origin;
   float2 transformed = float2(
     input.transform.x * centered.x + input.transform.z * centered.y,
@@ -47,9 +60,11 @@ VsOut vs_main(VsIn input)
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);
   output.color = input.color;
-  output.uv = lerp(input.uv_min, input.uv_max, input.corner);
+  output.uv = lerp(input.uv_min, input.uv_max, local_px / max(input.size, float2(1e-6, 1e-6)));
   output.sharpness = input.sharpness;
   output.color_glyph = input.color_glyph;
+  output.shadow_sigma = input.shadow_sigma;
+  output.uv_bounds = float4(input.uv_min, input.uv_max);
   return output;
 }
 
@@ -107,6 +122,36 @@ float4 ps_main(VsOut input) : SV_TARGET
   }
 
   float4 sample = atlas_texture.Sample(atlas_sampler, input.uv);
+
+  // Text-shadow instances: Gaussian-blur the glyph's alpha coverage. Taps
+  // outside the glyph's atlas rect are masked to zero so neighbouring atlas
+  // entries never bleed in.
+  if (input.shadow_sigma > 0.0)
+  {
+    float2 atlas_size;
+    atlas_texture.GetDimensions(atlas_size.x, atlas_size.y);
+    float2 texel = 1.0 / atlas_size;
+    int radius = (int)ceil(input.shadow_sigma * 2.0);
+    float inv_two_sigma2 = 1.0 / (2.0 * input.shadow_sigma * input.shadow_sigma);
+    float sum = 0.0;
+    float weight_sum = 0.0;
+    for (int dy = -radius; dy <= radius; dy++)
+    {
+      for (int dx = -radius; dx <= radius; dx++)
+      {
+        float2 offset = float2(dx, dy);
+        float weight = exp(-dot(offset, offset) * inv_two_sigma2);
+        float2 tap_uv = input.uv + offset * texel;
+        float inside = step(input.uv_bounds.x, tap_uv.x) * step(input.uv_bounds.y, tap_uv.y)
+          * step(tap_uv.x, input.uv_bounds.z) * step(tap_uv.y, input.uv_bounds.w);
+        sum += weight * atlas_texture.SampleLevel(atlas_sampler, tap_uv, 0.0).a * inside;
+        weight_sum += weight;
+      }
+    }
+    float shadow_coverage = sum / max(weight_sum, 1e-6);
+    return float4(input.color.rgb, input.color.a * shadow_coverage * clip_alpha_value);
+  }
+
   if (input.color_glyph > 0.5)
   {
     return float4(sample.rgb, sample.a * input.color.a * clip_alpha_value);

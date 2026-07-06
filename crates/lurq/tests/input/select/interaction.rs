@@ -14,6 +14,14 @@ fn options() -> [(String, &'static str); 3] {
   [("sm", "Small"), ("md", "Medium"), ("lg", "Large")].map(|(v, l)| (v.to_owned(), l))
 }
 
+fn named_options(prefix: &str) -> [(String, String); 3] {
+  [
+    ("sm".to_owned(), format!("{prefix} Small")),
+    ("md".to_owned(), format!("{prefix} Medium")),
+    ("lg".to_owned(), format!("{prefix} Large")),
+  ]
+}
+
 #[test]
 fn single_select_opens_and_commits() {
   let value = Signal::new("md".to_owned());
@@ -110,14 +118,14 @@ fn opening_another_select_blurs_previous_select() {
       .spacing(180.0)
       .child(
         Select::new(Signal::new("md".to_owned()))
-          .options(options())
+          .options(named_options("First"))
           .width(200.0)
           .height(40.0)
           .ref_element(first_ref.clone()),
       )
       .child(
         Select::new(Signal::new("sm".to_owned()))
-          .options(options())
+          .options(named_options("Second"))
           .width(200.0)
           .height(40.0)
           .ref_element(second_ref.clone()),
@@ -129,6 +137,12 @@ fn opening_another_select_blurs_previous_select() {
   pointer_click(&mut tree, x, y, MouseButton::Left);
   run_pass(&mut tree);
   assert!(first_ref.focused());
+  assert!(
+    tree
+      .find_element(|el| el.text_content() == Some("First Large"))
+      .is_some(),
+    "first menu should open"
+  );
 
   let (x, y) = second_ref.bounds().center();
   pointer_click(&mut tree, x, y, MouseButton::Left);
@@ -136,6 +150,18 @@ fn opening_another_select_blurs_previous_select() {
 
   assert!(!first_ref.focused());
   assert!(second_ref.focused());
+  assert!(
+    tree
+      .find_element(|el| el.text_content() == Some("First Large"))
+      .is_none(),
+    "opening the second select should close the first menu"
+  );
+  assert!(
+    tree
+      .find_element(|el| el.text_content() == Some("Second Large"))
+      .is_some(),
+    "second menu should stay open"
+  );
 }
 
 #[test]

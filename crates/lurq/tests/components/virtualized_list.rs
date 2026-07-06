@@ -416,10 +416,21 @@ fn virtualized_list_keeps_viewport_covered_while_wheel_scrolling() {
     }
     let snapshot = crate::support::render_pass(&mut tree);
     {
-      let mut ids: Vec<usize> = snapshot.rects.iter().filter(|r| r.color.a() == 255 && r.color.b() == 200)
-        .map(|r| (r.color.r() as usize) | ((r.color.g() as usize) << 8)).collect();
-      ids.sort_unstable(); ids.dedup();
-      eprintln!("step {step} scroll_y={:.1} painted rows: {:?}..{:?} count={}", scroll_state.scroll_y(), ids.first(), ids.last(), ids.len());
+      let mut ids: Vec<usize> = snapshot
+        .rects
+        .iter()
+        .filter(|r| r.color.a() == 255 && r.color.b() == 200)
+        .map(|r| (r.color.r() as usize) | ((r.color.g() as usize) << 8))
+        .collect();
+      ids.sort_unstable();
+      ids.dedup();
+      eprintln!(
+        "step {step} scroll_y={:.1} painted rows: {:?}..{:?} count={}",
+        scroll_state.scroll_y(),
+        ids.first(),
+        ids.last(),
+        ids.len()
+      );
       for rect in snapshot.rects.iter() {
         if rect.color.a() == 255 && rect.color.b() == 200 {
           let id = (rect.color.r() as usize) | ((rect.color.g() as usize) << 8);
@@ -566,7 +577,10 @@ fn assert_swap_viewport_tiled(snapshot: &crate::support::RenderSnapshot, label: 
   assert!(!spans.is_empty(), "{label}: no rows painted at all");
   spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
   let mut covered_to = spans[0].0;
-  assert!(covered_to <= 1.0, "{label}: first painted row starts at y={covered_to:.1}");
+  assert!(
+    covered_to <= 1.0,
+    "{label}: first painted row starts at y={covered_to:.1}"
+  );
   for (top, bottom) in spans {
     assert!(
       top <= covered_to + 1.0,
@@ -765,7 +779,10 @@ fn assert_viewport_tiled(snapshot: &crate::support::RenderSnapshot, label: &str)
   assert!(!spans.is_empty(), "{label}: no rows painted at all");
   spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
   let mut covered_to = spans[0].0;
-  assert!(covered_to <= 1.0, "{label}: first painted row starts at y={covered_to:.1}");
+  assert!(
+    covered_to <= 1.0,
+    "{label}: first painted row starts at y={covered_to:.1}"
+  );
   for (top, bottom) in spans {
     assert!(
       top <= covered_to + 1.0,
@@ -832,7 +849,13 @@ fn virtualized_list_preview_rows_stay_tiled_under_mixed_scrolling() {
 
   // Wheel again where heights are now part-measured, part-estimated.
   for step in 0..6 {
-    tree.scroll(450.0, 350.0, 0.0, if step % 2 == 0 { -400.0 } else { 250.0 }, ScrollPhase::Scroll);
+    tree.scroll(
+      450.0,
+      350.0,
+      0.0,
+      if step % 2 == 0 { -400.0 } else { 250.0 },
+      ScrollPhase::Scroll,
+    );
     let snapshot = crate::support::render_pass(&mut tree);
     assert_viewport_tiled(&snapshot, &format!("post-drag wheel step {step}"));
   }
@@ -875,7 +898,10 @@ fn virtualized_list_preview_rows_stay_tiled_with_coalesced_event_bursts() {
     let snapshot = paint(&mut tree, &mut app);
     assert_viewport_tiled(
       &snapshot,
-      &format!("burst-down step {step} ({burst} ticks) scroll_y={:.1}", scroll_state.scroll_y()),
+      &format!(
+        "burst-down step {step} ({burst} ticks) scroll_y={:.1}",
+        scroll_state.scroll_y()
+      ),
     );
   }
   for step in 0..80usize {
@@ -888,7 +914,10 @@ fn virtualized_list_preview_rows_stay_tiled_with_coalesced_event_bursts() {
     let snapshot = paint(&mut tree, &mut app);
     assert_viewport_tiled(
       &snapshot,
-      &format!("burst-up step {step} ({burst} ticks) scroll_y={:.1}", scroll_state.scroll_y()),
+      &format!(
+        "burst-up step {step} ({burst} ticks) scroll_y={:.1}",
+        scroll_state.scroll_y()
+      ),
     );
   }
 }
@@ -1071,11 +1100,7 @@ impl Component for TimingRow {
           .width(48.0)
           .child(lurq::components::Text::new(&(line.id + 1).to_string())),
       )
-      .child(
-        lurq::components::Text::new(&line.text)
-          .nowrap()
-          .selectable(true),
-      )
+      .child(lurq::components::Text::new(&line.text).nowrap().selectable(true))
   }
 }
 

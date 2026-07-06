@@ -61,7 +61,6 @@ use crate::{
   },
 };
 
-
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
@@ -1256,8 +1255,7 @@ impl Tree {
       let mut tree = Tree::new();
       (request.build)(app, &mut tree);
       self.push_secondary_window(
-        SecondaryWindow::new(request.title, request.width, request.height, tree)
-          .with_decorations(request.decorations),
+        SecondaryWindow::new(request.title, request.width, request.height, tree).with_decorations(request.decorations),
       );
       changed = true;
     }
@@ -2088,6 +2086,9 @@ impl Tree {
               g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
             }
           }
+          if let Some(shadow) = &style.shadow {
+            append_text_shadow_glyphs(&mut glyphs, glyph_start, shadow, scale);
+          }
         }
         QuadContent::RichText {
           spans,
@@ -2176,6 +2177,9 @@ impl Tree {
               g.transform = glyph_xf;
               g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
             }
+          }
+          if let Some(shadow) = spans.first().and_then(|span| span.style.shadow) {
+            append_text_shadow_glyphs(&mut glyphs, glyph_start, &shadow, scale);
           }
         }
         #[cfg(feature = "image")]
@@ -3438,6 +3442,14 @@ impl Tree {
       let on_menu = hits
         .iter()
         .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu));
+      if !on_menu
+        && let Some((node, _)) = hits
+          .iter()
+          .find(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }))
+        && close_open_selects_except(root, Some(node.node_id()))
+      {
+        builtin_needs_redraw = true;
+      }
       let on_select = hits
         .iter()
         .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }));
@@ -4758,11 +4770,7 @@ impl Tree {
       .focused_path
       .as_deref()
       .and_then(|path| find_node_by_path(root, path))
-      .or_else(|| {
-        self
-          .focused_node
-          .and_then(|id| find_node_by_id(root, id))
-      })
+      .or_else(|| self.focused_node.and_then(|id| find_node_by_id(root, id)))
       .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }))
   }
 
@@ -6126,15 +6134,20 @@ fn apply_select_menu_edge_radius(
 
 /// Close every open select; returns whether any were open.
 fn close_all_open_selects(node: &Node) -> bool {
+  close_open_selects_except(node, None)
+}
+
+fn close_open_selects_except(node: &Node, except: Option<NodeId>) -> bool {
   let mut changed = false;
   if let NodeKind::Select { state } = node.node_kind()
+    && Some(node.node_id()) != except
     && state.is_open()
   {
     state.set_open(false);
     changed = true;
   }
   for child in node.children() {
-    changed |= close_all_open_selects(child);
+    changed |= close_open_selects_except(child, except);
   }
   changed
 }
@@ -8909,6 +8922,42 @@ fn push_single_side_border_rect(
 
 fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {
   x < clip.x + clip.width && x + width > clip.x && y < clip.y + clip.height && y + height > clip.y
+}
+
+/// Duplicate the glyphs appended since `glyph_start` as shadow instances and
+/// splice them in front so they render beneath the text within the same order.
+fn append_text_shadow_glyphs(
+  glyphs: &mut Vec<GlyphCmd>,
+  glyph_start: usize,
+  shadow: &crate::layout::text_style::TextShadow,
+  scale: f32,
+) {
+  // Bounds the per-fragment blur loop in the glyph shaders.
+  const MAX_SHADOW_SIGMA: f32 = 16.0;
+  if !shadow.is_visible() || glyphs.len() == glyph_start {
+    return;
+  }
+  let dx = shadow.offset_x * scale;
+  let dy = shadow.offset_y * scale;
+  // CSS blur radius equals twice the Gaussian standard deviation.
+  let sigma = (shadow.blur_radius * scale * 0.5).min(MAX_SHADOW_SIGMA);
+  let color = shadow.color.to_linear_f32_array();
+  let shadows: Vec<GlyphCmd> = glyphs[glyph_start..]
+    .iter()
+    .map(|glyph| {
+      let mut cmd = glyph.clone();
+      cmd.x += dx;
+      cmd.y += dy;
+      // Keep the rotation centre at the same absolute point despite the offset.
+      cmd.transform_origin = [glyph.transform_origin[0] - dx, glyph.transform_origin[1] - dy];
+      cmd.color = color;
+      cmd.color_glyph = false;
+      cmd.sharpness = 1.0;
+      cmd.shadow_sigma = sigma;
+      cmd
+    })
+    .collect();
+  glyphs.splice(glyph_start..glyph_start, shadows);
 }
 
 fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {

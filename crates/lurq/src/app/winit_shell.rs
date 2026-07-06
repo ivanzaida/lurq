@@ -1554,8 +1554,7 @@ impl ApplicationHandler for WinitHandler {
     // sessions) present directly too: on Windows the WM_MOUSEMOVE stream
     // starves WM_PAINT, so redraws requested from drag handlers would only
     // land once the mouse pauses. Vsync in present caps the rate.
-    let main_has_interactive_drag =
-      self.main.tree.has_active_input_interaction() && self.main.tree.needs_redraw();
+    let main_has_interactive_drag = self.main.tree.has_active_input_interaction() && self.main.tree.needs_redraw();
     let continuous_check = stage_started_at.elapsed();
     let mut present = Duration::ZERO;
     let mut post_present = Duration::ZERO;

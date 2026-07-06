@@ -64,6 +64,7 @@ pub struct GlyphSnapshot {
   pub color: [f32; 4],
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
+  pub shadow_sigma: f32,
   pub clip: ClipSnapshot,
 }
 
@@ -156,6 +157,7 @@ fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
     color: glyph.color,
     transform: glyph.transform,
     transform_origin: glyph.transform_origin,
+    shadow_sigma: glyph.shadow_sigma,
     clip: clip_snapshot(glyph.clip),
   }
 }

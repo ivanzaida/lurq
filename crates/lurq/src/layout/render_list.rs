@@ -169,6 +169,9 @@ pub struct GlyphCmd {
   pub transform_origin: [f32; 2],
   pub sharpness: f32,
   pub color_glyph: bool,
+  /// Gaussian sigma in physical pixels; `> 0` marks a text-shadow instance
+  /// that the glyph shader blurs and the vertex stage expands.
+  pub shadow_sigma: f32,
   pub clip: ClipRect,
 }
 

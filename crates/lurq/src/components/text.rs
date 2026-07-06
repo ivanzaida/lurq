@@ -52,8 +52,18 @@ impl Text {
     self
   }
 
+  pub fn text_shadow(mut self, shadow: crate::layout::text_style::TextShadow) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::text_shadow(node, shadow));
+    self
+  }
+
   pub fn caret_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::caret_color(node, color));
+    self
+  }
+
+  pub fn selection_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::selection_color(node, color));
     self
   }
 }

@@ -62,6 +62,7 @@ struct VsIn {
     @location(7) xf_origin: vec2<f32>, // transform origin relative to rect top-left
     @location(8) sharpness: f32,
     @location(9) color_glyph: f32,
+    @location(10) shadow_sigma: f32,   // > 0 marks a blurred text-shadow instance
 }
 
 struct VsOut {
@@ -70,11 +71,25 @@ struct VsOut {
     @location(1) uv: vec2<f32>,
     @location(2) sharpness: f32,
     @location(3) color_glyph: f32,
+    @location(4) shadow_sigma: f32,
+    @location(5) uv_bounds: vec4<f32>, // glyph rect in atlas uv, for masking blur taps
+}
+
+/// Blur taps reach `2 * sigma` texels; the quad is padded one extra texel so
+/// bilinear sampling at the edge stays inside the expanded region.
+fn shadow_pad(sigma: f32) -> f32 {
+    if (sigma <= 0.0) {
+        return 0.0;
+    }
+    return ceil(sigma * 2.0) + 1.0;
 }
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
-    let local_px = in.corner * in.size;
+    // Shadow instances grow beyond the glyph rect so the blur has room to
+    // spill; uv is extrapolated through the same linear mapping.
+    let pad = shadow_pad(in.shadow_sigma);
+    let local_px = in.corner * (in.size + 2.0 * pad) - vec2<f32>(pad, pad);
     let centered = local_px - in.xf_origin;
     let rotated = vec2<f32>(
         in.transform.x * centered.x + in.transform.z * centered.y,
@@ -84,7 +99,7 @@ fn vs_main(in: VsIn) -> VsOut {
     let viewport = globals.viewport.xy;
     let ndc_x = (world.x / viewport.x) * 2.0 - 1.0;
     let ndc_y = 1.0 - (world.y / viewport.y) * 2.0;
-    let uv = mix(in.uv_min, in.uv_max, in.corner);
+    let uv = mix(in.uv_min, in.uv_max, local_px / max(in.size, vec2<f32>(1e-6, 1e-6)));
 
     var out: VsOut;
     out.clip = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
@@ -92,6 +107,8 @@ fn vs_main(in: VsIn) -> VsOut {
     out.uv = uv;
     out.sharpness = in.sharpness;
     out.color_glyph = in.color_glyph;
+    out.shadow_sigma = in.shadow_sigma;
+    out.uv_bounds = vec4<f32>(in.uv_min, in.uv_max);
     return out;
 }
 
@@ -115,8 +132,35 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // Instance colors arrive in linear space and are written to an sRGB
-    // surface, matching the quad pipeline.
+    // surface, matching the quad pipeline. Sampled before any non-uniform
+    // branching because textureSample needs implicit derivatives.
     let sample = textureSample(atlas, atlas_sampler, in.uv);
+
+    // Text-shadow instances: Gaussian-blur the glyph's alpha coverage. Taps
+    // outside the glyph's atlas rect are masked to zero so neighbouring atlas
+    // entries never bleed in. Uses textureSampleLevel because the loop is
+    // non-uniform control flow.
+    if (in.shadow_sigma > 0.0) {
+        let texel = 1.0 / vec2<f32>(textureDimensions(atlas));
+        let radius = i32(ceil(in.shadow_sigma * 2.0));
+        let inv_two_sigma2 = 1.0 / (2.0 * in.shadow_sigma * in.shadow_sigma);
+        var sum = 0.0;
+        var weight_sum = 0.0;
+        for (var dy = -radius; dy <= radius; dy = dy + 1) {
+            for (var dx = -radius; dx <= radius; dx = dx + 1) {
+                let offset = vec2<f32>(f32(dx), f32(dy));
+                let weight = exp(-dot(offset, offset) * inv_two_sigma2);
+                let tap_uv = in.uv + offset * texel;
+                let inside = step(in.uv_bounds.x, tap_uv.x) * step(in.uv_bounds.y, tap_uv.y)
+                    * step(tap_uv.x, in.uv_bounds.z) * step(tap_uv.y, in.uv_bounds.w);
+                sum += weight * textureSampleLevel(atlas, atlas_sampler, tap_uv, 0.0).a * inside;
+                weight_sum += weight;
+            }
+        }
+        let shadow_coverage = sum / max(weight_sum, 1e-6);
+        return vec4<f32>(in.color.rgb, in.color.a * shadow_coverage * clip_alpha);
+    }
+
     if (in.color_glyph > 0.5) {
         return vec4<f32>(sample.rgb, sample.a * in.color.a * clip_alpha);
     }

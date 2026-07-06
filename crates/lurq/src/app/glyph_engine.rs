@@ -1295,6 +1295,7 @@ impl GlyphEngine {
         transform_origin: [0.0, 0.0],
         sharpness: 1.0,
         color_glyph: packed.is_color,
+        shadow_sigma: 0.0,
         clip: crate::layout::quad::ClipRect::default(),
       });
     }
@@ -1771,6 +1772,7 @@ impl GlyphEngine {
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
       color_glyph: packed.is_color,
+      shadow_sigma: 0.0,
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
@@ -2090,6 +2092,7 @@ fn append_glyph_cmds_from_cached(
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
       color_glyph: glyph.is_color,
+      shadow_sigma: 0.0,
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
@@ -2147,6 +2150,7 @@ fn append_rich_glyph_cmds_from_cached(
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
       color_glyph: glyph.is_color,
+      shadow_sigma: 0.0,
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
@@ -2687,7 +2691,10 @@ mod tests {
     let b_rects = super::atlas_rects_to_apply(&snap2, 0).expect("log covers consumer B");
     let b_area: u64 = b_rects.iter().map(|rect| super::dirty_rect_area(*rect)).sum();
     let a_area: u64 = a_rects.iter().map(|rect| super::dirty_rect_area(*rect)).sum();
-    assert!(b_area >= a_area, "stale consumer must receive at least as much as a fresh one");
+    assert!(
+      b_area >= a_area,
+      "stale consumer must receive at least as much as a fresh one"
+    );
 
     // Up to date: nothing to apply.
     let none = super::atlas_rects_to_apply(&snap2, snap2.version).expect("up-to-date consumer");

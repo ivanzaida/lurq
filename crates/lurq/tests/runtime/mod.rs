@@ -18,11 +18,12 @@ mod futures {
 mod mouse_leave;
 mod overlay;
 mod pass_report;
-mod text_reflow;
 mod perf_overlay;
 #[cfg(feature = "image")]
 mod render_order;
 mod scroll_state;
+mod text_reflow;
+mod text_shadow;
 mod timers {
   mod all_due_timers_fire;
   mod interval_repeats_until_stopped;

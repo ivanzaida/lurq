@@ -61,9 +61,7 @@ fn baseline_rows(snapshot: &RenderSnapshot) -> usize {
 }
 
 fn title(text: &str) -> CardProps {
-  CardProps {
-    title: Arc::from(text),
-  }
+  CardProps { title: Arc::from(text) }
 }
 
 #[test]
@@ -74,7 +72,11 @@ fn changed_text_is_measured_fresh_not_wrapped_at_stale_width() {
   tree.resize(800, 600);
 
   let snapshot = render_pass_with_app(&mut tree, &mut app);
-  assert_eq!(baseline_rows(&snapshot), 2, "short title lays as one line plus subtitle");
+  assert_eq!(
+    baseline_rows(&snapshot),
+    2,
+    "short title lays as one line plus subtitle"
+  );
 
   // Content change followed by duplicate re-renders BEFORE any paint — the
   // production pattern (a window shell re-rendering per input event).

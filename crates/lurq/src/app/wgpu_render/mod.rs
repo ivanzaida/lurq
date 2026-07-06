@@ -1333,6 +1333,7 @@ impl RenderEngine for WgpuRenderEngine {
         xf_origin: g.transform_origin,
         sharpness: g.sharpness,
         color_glyph: if g.color_glyph { 1.0 } else { 0.0 },
+        shadow_sigma: g.shadow_sigma,
       }));
     let _glyph_upload_start = profile_scope!();
     let glyph_instance_buf = self
