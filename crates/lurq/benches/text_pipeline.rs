@@ -80,9 +80,10 @@ struct NoopRenderEngine;
 impl RenderEngine for NoopRenderEngine {
   fn resize(&mut self, _width: u32, _height: u32) {}
 
-  fn render(&mut self, list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) {
+  fn render(&mut self, list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
     black_box(list.glyphs.len());
     black_box(list.atlas.version);
+    true
   }
 }
 
