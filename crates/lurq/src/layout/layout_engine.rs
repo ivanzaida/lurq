@@ -1659,6 +1659,16 @@ impl LayoutEngine {
           Some(&child_overrides),
         ));
       }
+      // A cleared bounds override leaves the override baked into the cached
+      // offset — only a full relayout recovers the child's natural position.
+      if child.take_element_override_cleared() {
+        return Some(self.layout_node_uncached_with_child_overrides(
+          glyph_engine,
+          node,
+          constraints,
+          Some(&child_overrides),
+        ));
+      }
       let size_changed = repaired.size != cached.children[index].result.size;
       if size_changed
         && (!Self::layout_kind_can_patch_child_size_change(node.layout_kind())
@@ -1702,7 +1712,34 @@ impl LayoutEngine {
         .children()
         .iter()
         .zip(&result.children)
-        .all(|(child, child_layout)| Self::cached_result_matches_node_tree(child, &child_layout.result))
+        .all(|(child, child_layout)| {
+          // A cached offset that contradicts a live bounds override is stale
+          // the same way: consumed dirty flags don't protect a parent cache
+          // that predates the override (observed with the overlay-host double
+          // compute — the second pass served the root's pre-drag snapshot,
+          // pinning dragged elements to their declared position).
+          if let Some(rect) = child.element_override_rect()
+            && ((child_layout.offset.x - rect.relative_x).abs() > 0.01
+              || (child_layout.offset.y - rect.relative_y).abs() > 0.01)
+          {
+            return false;
+          }
+          // Likewise a cached offset that contradicts the child's DECLARED
+          // absolute position: a position-only change (e.g. an editor undo
+          // moving a widget back) doesn't set any dirty flag, so a preserved
+          // node cache keeps the parent serving the old offset until an
+          // unrelated invalidation. Only absolutely-positioned children have
+          // a self-declared offset to check against.
+          if let Position::Absolute { x, y, .. } = child.position() {
+            let expected = Self::apply_relative_position(child, Offset::new(x, y));
+            if (child_layout.offset.x - expected.x).abs() > 0.01
+              || (child_layout.offset.y - expected.y).abs() > 0.01
+            {
+              return false;
+            }
+          }
+          Self::cached_result_matches_node_tree(child, &child_layout.result)
+        })
   }
 
   fn child_fits_cached_parent(offset: Offset, child_size: Size, parent_size: Size) -> bool {
@@ -3725,6 +3762,131 @@ mod tests {
       "a stale parent cache conflicting with a child's fixed frame must be recomputed"
     );
     assert_eq!(result.children[0].result.size.height, 3000.0);
+  }
+
+  #[test]
+  fn stale_parent_cache_with_conflicting_bounds_override_is_recomputed() {
+    // Production repro (PW-studio move drag under an overlay-host root): the
+    // overlay flow lays the base subtree first (consuming every dirty flag
+    // and repairing the drag's bounds override), then computes the ROOT — the
+    // second pass finds nothing dirty and serves the root's cached tree from
+    // before the drag, pinning the dragged element to its declared position.
+    // A cached offset contradicting a live override must invalidate the tree.
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::tight(Size::new(400.0, 300.0));
+    let compute = |engine: &LayoutEngine, glyph_engine: &mut GlyphEngine, node: &Node| {
+      engine.compute(
+        glyph_engine,
+        node,
+        constraints,
+        ThemePalette::default(),
+        ThemeBorderSizes::default(),
+        ThemeSpacing::default(),
+        ThemeRadii::default(),
+        ThemeCaret::default(),
+        ScrollBarStyle::default(),
+        ThemeTypography::default(),
+        false,
+      )
+    };
+
+    let element_ref = crate::core::ElementRefMut::new();
+    let root = crate::node::Element::from(
+      crate::components::Row::new().child(
+        crate::components::Stack::new().size(400.0, 300.0).child(
+          crate::components::Rect::new(50.0, 50.0)
+            .absolute_position(10.0, 20.0)
+            .ref_element(element_ref.clone()),
+        ),
+      ),
+    )
+    .node;
+
+    let laid = compute(&engine, &mut glyph_engine, &root);
+    let widget_offset = laid.children[0].result.children[0].offset;
+    assert_eq!((widget_offset.x, widget_offset.y), (10.0, 20.0));
+
+    // The drag moves the element through its bounds override…
+    element_ref.set_bounds(crate::core::ElementRect {
+      x: 30.0,
+      y: 40.0,
+      relative_x: 30.0,
+      relative_y: 40.0,
+      width: 50.0,
+      height: 50.0,
+    });
+    // …and the base compute (overlay flow's first pass) consumes the dirty
+    // flags and repairs the stack subtree.
+    let stack = &root.children()[0];
+    let repaired = compute(&engine, &mut glyph_engine, stack);
+    let repaired_offset = repaired.children[0].offset;
+    assert_eq!((repaired_offset.x, repaired_offset.y), (30.0, 40.0));
+
+    // The second, root-level compute must not serve the pre-drag snapshot.
+    let result = compute(&engine, &mut glyph_engine, &root);
+    let widget_offset = result.children[0].result.children[0].offset;
+    assert_eq!(
+      (widget_offset.x, widget_offset.y),
+      (30.0, 40.0),
+      "a cached tree contradicting a live bounds override must be recomputed"
+    );
+  }
+
+  #[test]
+  fn stale_parent_cache_with_conflicting_absolute_position_is_recomputed() {
+    // Production repro (PW-studio editor undo): a widget's declared absolute
+    // position changes (an edit reverts it) but no dirty flag is set — a
+    // retained-diff that preserves the node's cache leaves the parent stack
+    // serving the old child offset, so the widget stays put on screen until
+    // an unrelated invalidation (a selection click). A cached offset that
+    // contradicts the child's declared absolute position must be recomputed.
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::tight(Size::new(400.0, 300.0));
+    let compute = |engine: &LayoutEngine, glyph_engine: &mut GlyphEngine, node: &Node| {
+      engine.compute(
+        glyph_engine,
+        node,
+        constraints,
+        ThemePalette::default(),
+        ThemeBorderSizes::default(),
+        ThemeSpacing::default(),
+        ThemeRadii::default(),
+        ThemeCaret::default(),
+        ScrollBarStyle::default(),
+        ThemeTypography::default(),
+        false,
+      )
+    };
+    let stack = |x: f32, y: f32| -> Node {
+      crate::node::Element::from(
+        crate::components::Stack::new()
+          .size(400.0, 300.0)
+          .child(crate::components::Rect::new(50.0, 50.0).absolute_position(x, y)),
+      )
+      .node
+    };
+
+    let old = stack(10.0, 20.0);
+    let laid = compute(&engine, &mut glyph_engine, &old);
+    assert_eq!((laid.children[0].offset.x, laid.children[0].offset.y), (10.0, 20.0));
+
+    let mut new = stack(30.0, 40.0);
+    // Lay the new tree once so the child's own cache is fresh…
+    compute(&engine, &mut glyph_engine, &new);
+    // …then transplant the OLD stack cache (old child offset baked in) with
+    // clean flags, as a retained-diff `preserve_from` chain would.
+    new.layout_cache.preserve_from(&old.layout_cache);
+    new.clear_guards();
+    assert!(!new.layout_cache.is_dirty());
+
+    let result = compute(&engine, &mut glyph_engine, &new);
+    assert_eq!(
+      (result.children[0].offset.x, result.children[0].offset.y),
+      (30.0, 40.0),
+      "a cached offset contradicting the child's declared absolute position must be recomputed"
+    );
   }
 
   #[test]

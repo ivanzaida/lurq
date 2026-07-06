@@ -39,6 +39,7 @@ struct ElementRefInner {
   active: bool,
   focused: bool,
   override_rect: Option<ElementRect>,
+  override_cleared: bool,
   layout_dirty: bool,
 }
 
@@ -119,6 +120,13 @@ impl ElementRef {
 
   pub(crate) fn override_rect(&self) -> Option<ElementRect> {
     self.inner.read().unwrap().override_rect
+  }
+
+  pub(crate) fn take_override_cleared(&self) -> bool {
+    let mut inner = self.inner.write().unwrap();
+    let cleared = inner.override_cleared;
+    inner.override_cleared = false;
+    cleared
   }
 
   pub(crate) fn has_layout_dirty(&self) -> bool {
@@ -208,7 +216,12 @@ impl ElementRefMut {
 
   pub fn clear_bounds_override(&self) {
     let mut inner = self.inner.write().unwrap();
-    inner.override_rect = None;
+    if inner.override_rect.take().is_some() {
+      // Cached parent layouts have the override baked into their child
+      // offsets — flag so the layout engine falls back to a full relayout
+      // instead of serving the stale offset.
+      inner.override_cleared = true;
+    }
     inner.layout_dirty = true;
   }
 
