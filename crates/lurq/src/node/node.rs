@@ -10,7 +10,9 @@ use crate::app::ctx::{
 use crate::{
   animation::{Animation, Transition},
   app::{
-    events::{DragEvent, DropEvent, KeyboardEvent, MouseButton, MouseEvent, ScrollEvent, TextInputEvent},
+    events::{
+      DragEvent, DropEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent, ScrollEvent, TextInputEvent,
+    },
     theme::{CaretMode, TypographyStyle},
   },
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
@@ -340,6 +342,7 @@ pub(crate) trait NodeUpdate {
   fn off_mouse_up(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
+  fn start_drag_buttons(&mut self, buttons: MouseButtonMask);
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn on_drag_move(&mut self, f: impl IntoDragEventHandler);
@@ -519,6 +522,7 @@ pub struct EventHandlers {
   pub on_mouse_down: Vec<Callback<MouseEvent>>,
   pub on_mouse_up: Vec<Callback<MouseEvent>>,
   pub on_mouse_move: Vec<Callback<MouseEvent>>,
+  pub start_drag_buttons: MouseButtonMask,
   pub on_drag_start: Vec<Callback<DragEvent>>,
   pub on_drag_move: Vec<Callback<DragEvent>>,
   pub on_drag_end: Vec<Callback<DragEvent>>,
@@ -1068,6 +1072,10 @@ impl NodeUpdate for Node {
       .events
       .on_mouse_move
       .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn start_drag_buttons(&mut self, buttons: MouseButtonMask) {
+    self.events.start_drag_buttons = buttons;
   }
 
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler) {
@@ -2260,6 +2268,11 @@ impl Node {
       .events
       .on_mouse_move
       .retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn start_drag_buttons(mut self, buttons: MouseButtonMask) -> Self {
+    self.events.start_drag_buttons = buttons;
     self
   }
 

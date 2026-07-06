@@ -5,7 +5,7 @@ use lurq::{
     Tree,
     component::Component,
     ctx::Ctx,
-    events::{DragEvent, MouseButton},
+    events::{DragEvent, MouseButton, MouseButtonMask},
   },
   components::{
     DragContainer, DragContainerProps, DragOverridePolicy, Draggable, DraggableProps, DropMissBehavior, DropZone,
@@ -81,6 +81,27 @@ fn drag_reports_incremental_and_total_deltas() {
     *moves.lock().unwrap(),
     vec![(10.0, 10.0, 10.0, 10.0), (20.0, 5.0, 30.0, 15.0)]
   );
+}
+
+#[test]
+fn drag_start_button_mask_filters_pointer_buttons() {
+  let starts = Arc::new(Mutex::new(Vec::new()));
+  let captured = starts.clone();
+
+  let mut runtime = Tree::new();
+  runtime.set_root(
+    Rect::new(100.0, 100.0)
+      .start_drag_buttons(MouseButtonMask::LEFT)
+      .on_drag_start(move |event: DragEvent| captured.lock().unwrap().push(event.button)),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Right);
+  runtime.mouse_move(30.0, 30.0);
+  runtime.mouse_up(30.0, 30.0, MouseButton::Right);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+
+  assert_eq!(*starts.lock().unwrap(), vec![MouseButton::Left]);
 }
 
 #[test]

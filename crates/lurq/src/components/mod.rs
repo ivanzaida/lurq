@@ -492,6 +492,11 @@ macro_rules! impl_into_node {
         self
       }
 
+      pub fn start_drag_buttons(mut self, buttons: $crate::app::events::MouseButtonMask) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::start_drag_buttons(node, buttons));
+        self
+      }
+
       pub fn on_drag_start(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_drag_start(node, f));
         self

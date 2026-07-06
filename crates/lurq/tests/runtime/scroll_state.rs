@@ -1,5 +1,5 @@
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
 };
 
@@ -8,7 +8,7 @@ use lurq::{
     Tree,
     component::Component,
     ctx::{Ctx, Overlay, Placement},
-    events::{MouseButton, ScrollPhase},
+    events::{MouseButton, ScrollEvent, ScrollPhase},
   },
   components::{Column, Rect, Row, ScrollHorizontal, ScrollVertical},
   core::{ElementRef as CoreElementRef, Signal},
@@ -82,6 +82,22 @@ fn scroll_state_survives_signal_driven_rerender() {
     .find_element(|element| element.color() == Some(CONTENT_COLOR))
     .unwrap();
   assert_eq!(content.bounds().y, -60.0);
+}
+
+#[test]
+fn scroll_event_coordinates_are_logical_under_window_scale() {
+  let captured = Arc::new(Mutex::new(None));
+  let captured_event = captured.clone();
+  let mut runtime = Tree::new();
+  runtime.set_root(Rect::new(100.0, 100.0).on_scroll(move |event: ScrollEvent| {
+    *captured_event.lock().unwrap() = Some((event.x, event.y));
+  }));
+  runtime.set_scale_factor(2.0);
+
+  run_pass(&mut runtime);
+  runtime.scroll(40.0, 60.0, 0.0, 20.0, ScrollPhase::Scroll);
+
+  assert_eq!(*captured.lock().unwrap(), Some((20.0, 30.0)));
 }
 
 struct ScrollbarDragReactiveRoot {

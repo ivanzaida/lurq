@@ -9,7 +9,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{DragEvent, DragPayload, DropResult},
+    events::{DragEvent, DragPayload, DropResult, MouseButtonMask},
   },
   core::{ElementRect, ElementRefMut},
   node::Element,
@@ -25,6 +25,7 @@ pub struct DraggableProps {
   pub on_drag_move: Option<DragCallback>,
   #[devtools_ignore]
   pub on_drag_end: Option<DragCallback>,
+  pub start_drag_buttons: MouseButtonMask,
   pub drop_miss_behavior: DropMissBehavior,
   pub override_policy: DragOverridePolicy,
   /// An externally owned ref for the dragged element; when absent the
@@ -48,6 +49,7 @@ impl fmt::Debug for DraggableProps {
       .field("on_drag_start", &self.on_drag_start.as_ref().map(|_| "<callback>"))
       .field("on_drag_move", &self.on_drag_move.as_ref().map(|_| "<callback>"))
       .field("on_drag_end", &self.on_drag_end.as_ref().map(|_| "<callback>"))
+      .field("start_drag_buttons", &self.start_drag_buttons)
       .field("drop_miss_behavior", &self.drop_miss_behavior)
       .field("override_policy", &self.override_policy)
       .field("followers", &self.followers.len())
@@ -97,6 +99,11 @@ impl DraggableProps {
     self
   }
 
+  pub fn start_drag_buttons(mut self, buttons: MouseButtonMask) -> Self {
+    self.start_drag_buttons = buttons;
+    self
+  }
+
   pub fn drop_miss_behavior(mut self, behavior: DropMissBehavior) -> Self {
     self.drop_miss_behavior = behavior;
     self
@@ -133,6 +140,7 @@ impl PartialEq for DraggableProps {
     same_callback(&self.on_drag_start, &other.on_drag_start)
       && same_callback(&self.on_drag_move, &other.on_drag_move)
       && same_callback(&self.on_drag_end, &other.on_drag_end)
+      && self.start_drag_buttons == other.start_drag_buttons
       && self.drop_miss_behavior == other.drop_miss_behavior
       && self.override_policy == other.override_policy
       && same_element_ref(&self.element_ref, &other.element_ref)
@@ -177,6 +185,7 @@ impl Component for Draggable {
     child.node = child
       .node
       .ref_element(element_ref.clone())
+      .start_drag_buttons(props.start_drag_buttons)
       .on_drag_start({
         let on_drag_start = props.on_drag_start.clone();
         let element_ref = element_ref.clone();

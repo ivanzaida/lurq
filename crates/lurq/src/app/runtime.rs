@@ -3112,6 +3112,8 @@ impl Tree {
     let scale = self.scale_factor();
     let lx = evt.x / scale;
     let ly = evt.y / scale;
+    evt.x = lx;
+    evt.y = ly;
 
     // Handle active scrollbar drag
     if let Some(ref drag) = self.dragging_scroll.clone() {
@@ -3715,9 +3717,10 @@ impl Tree {
       hits
         .iter()
         .find(|(node, _)| {
-          !node.events.on_drag_start.is_empty()
-            || !node.events.on_drag_move.is_empty()
-            || !node.events.on_drag_end.is_empty()
+          node.events.start_drag_buttons.contains_button(button)
+            && (!node.events.on_drag_start.is_empty()
+              || !node.events.on_drag_move.is_empty()
+              || !node.events.on_drag_end.is_empty())
         })
         .map(|(node, _)| {
           let event = DragEvent {
@@ -4262,10 +4265,13 @@ impl Tree {
     let scale = self.scale_factor();
     let lx = evt.x / scale;
     let ly = evt.y / scale;
+    evt.x = lx;
+    evt.y = ly;
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
-    if !scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y) {
+    let scroll_delta_can_be_consumed = scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y);
+    if !scroll_delta_can_be_consumed && !scroll_handlers_present_for_phase(&hits, evt.phase) {
       return;
     }
 
@@ -4304,7 +4310,7 @@ impl Tree {
       }
     }
 
-    if evt.default_prevented() {
+    if evt.default_prevented() || !scroll_delta_can_be_consumed {
       return;
     }
 
@@ -6196,6 +6202,14 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
   }
 
   false
+}
+
+fn scroll_handlers_present_for_phase(hits: &[(&Node, HitRect)], phase: ScrollPhase) -> bool {
+  hits.iter().any(|(node, _)| match phase {
+    ScrollPhase::Start => !node.events.on_scroll_start.is_empty(),
+    ScrollPhase::Scroll => !node.events.on_scroll.is_empty(),
+    ScrollPhase::End => !node.events.on_scroll_end.is_empty(),
+  })
 }
 
 fn scroll_axis_delta_can_be_consumed(state: &ScrollState, axis: ScrollAxis, delta: f32) -> bool {

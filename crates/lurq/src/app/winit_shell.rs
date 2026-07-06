@@ -665,12 +665,7 @@ impl ManagedWindow {
         self.check_redraw();
       }
       WindowEvent::MouseInput { state, button, .. } => {
-        let btn = match button {
-          winit::event::MouseButton::Left => MouseButton::Left,
-          winit::event::MouseButton::Right => MouseButton::Right,
-          winit::event::MouseButton::Middle => MouseButton::Middle,
-          _ => MouseButton::Left,
-        };
+        let btn = to_lurq_mouse_button(button);
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
           ElementState::Pressed => self.tree.mouse_down_with_modifiers(
@@ -1082,12 +1077,7 @@ impl ManagedSecondaryWindow {
         self.check_redraw(tree);
       }
       WindowEvent::MouseInput { state, button, .. } => {
-        let btn = match button {
-          winit::event::MouseButton::Left => MouseButton::Left,
-          winit::event::MouseButton::Right => MouseButton::Right,
-          winit::event::MouseButton::Middle => MouseButton::Middle,
-          _ => MouseButton::Left,
-        };
+        let btn = to_lurq_mouse_button(button);
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
           ElementState::Pressed => tree.mouse_down_with_modifiers(
@@ -1677,6 +1667,17 @@ impl ApplicationHandler for WinitHandler {
         control_flow
       );
     }
+  }
+}
+
+fn to_lurq_mouse_button(button: winit::event::MouseButton) -> MouseButton {
+  match button {
+    winit::event::MouseButton::Left => MouseButton::Left,
+    winit::event::MouseButton::Right => MouseButton::Right,
+    winit::event::MouseButton::Middle => MouseButton::Middle,
+    winit::event::MouseButton::Back => MouseButton::Other(4),
+    winit::event::MouseButton::Forward => MouseButton::Other(5),
+    winit::event::MouseButton::Other(id) => MouseButton::Other(id.min(u16::from(u8::MAX)) as u8),
   }
 }
 
