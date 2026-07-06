@@ -1,4 +1,5 @@
 use std::{
+  any::Any,
   fmt,
   sync::{Arc, Mutex},
 };
@@ -8,7 +9,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{DragEvent, DropResult},
+    events::{DragEvent, DragPayload, DropResult},
   },
   core::{ElementRect, ElementRefMut},
   node::Element,
@@ -25,6 +26,18 @@ pub struct DraggableProps {
   #[devtools_ignore]
   pub on_drag_end: Option<DragCallback>,
   pub drop_miss_behavior: DropMissBehavior,
+  pub override_policy: DragOverridePolicy,
+  /// An externally owned ref for the dragged element; when absent the
+  /// component allocates one internally.
+  #[devtools_ignore]
+  pub element_ref: Option<ElementRefMut>,
+  /// Elements that move in lockstep with the dragged one (e.g. the rest of
+  /// a multi-selection), and share its revert/override handling.
+  #[devtools_ignore]
+  pub followers: Vec<ElementRefMut>,
+  /// Data delivered to the drop target's handler via `DropEvent::payload`.
+  #[devtools_ignore]
+  pub payload: Option<DragPayload>,
   #[devtools_ignore]
   child: Option<Element>,
 }
@@ -36,6 +49,9 @@ impl fmt::Debug for DraggableProps {
       .field("on_drag_move", &self.on_drag_move.as_ref().map(|_| "<callback>"))
       .field("on_drag_end", &self.on_drag_end.as_ref().map(|_| "<callback>"))
       .field("drop_miss_behavior", &self.drop_miss_behavior)
+      .field("override_policy", &self.override_policy)
+      .field("followers", &self.followers.len())
+      .field("payload", &self.payload.as_ref().map(|_| "<payload>"))
       .field("child", &self.child.as_ref().map(|_| "<slot child>"))
       .finish()
   }
@@ -46,6 +62,19 @@ pub enum DropMissBehavior {
   #[default]
   KeepPosition,
   RevertToDragStart,
+}
+
+/// What happens to the drag's bounds overrides once the drag ends.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, crate::DevtoolsInspectable)]
+pub enum DragOverridePolicy {
+  /// The overrides persist — the elements stay where the drag left them.
+  #[default]
+  Keep,
+  /// The overrides are cleared at drag end, handing position authority back
+  /// to layout. For elements whose position re-renders from state the drop
+  /// target's handler commits: an accepted drop settles on the committed
+  /// coordinates, a missed drop reverts.
+  Clear,
 }
 
 impl DraggableProps {
@@ -72,6 +101,31 @@ impl DraggableProps {
     self.drop_miss_behavior = behavior;
     self
   }
+
+  pub fn override_policy(mut self, policy: DragOverridePolicy) -> Self {
+    self.override_policy = policy;
+    self
+  }
+
+  pub fn element_ref(mut self, element_ref: ElementRefMut) -> Self {
+    self.element_ref = Some(element_ref);
+    self
+  }
+
+  pub fn follower(mut self, follower: ElementRefMut) -> Self {
+    self.followers.push(follower);
+    self
+  }
+
+  pub fn followers(mut self, followers: impl IntoIterator<Item = ElementRefMut>) -> Self {
+    self.followers.extend(followers);
+    self
+  }
+
+  pub fn payload(mut self, payload: impl Any + Send + Sync) -> Self {
+    self.payload = Some(Arc::new(payload));
+    self
+  }
 }
 
 impl PartialEq for DraggableProps {
@@ -80,6 +134,15 @@ impl PartialEq for DraggableProps {
       && same_callback(&self.on_drag_move, &other.on_drag_move)
       && same_callback(&self.on_drag_end, &other.on_drag_end)
       && self.drop_miss_behavior == other.drop_miss_behavior
+      && self.override_policy == other.override_policy
+      && same_element_ref(&self.element_ref, &other.element_ref)
+      && self.followers.len() == other.followers.len()
+      && self
+        .followers
+        .iter()
+        .zip(&other.followers)
+        .all(|(left, right)| left.as_ref().same_handle(&right.as_ref()))
+      && same_payload(&self.payload, &other.payload)
       && self.child.is_none()
       && other.child.is_none()
   }
@@ -103,8 +166,12 @@ impl Component for Draggable {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let element_ref = ctx.element_ref_mut();
-    let drag_start_bounds = Arc::new(Mutex::new(None::<ElementRect>));
+    // Allocate the internal ref unconditionally so the ctx ref cursor stays
+    // stable when the prop flips between renders.
+    let internal_ref = ctx.element_ref_mut();
+    let element_ref = props.element_ref.clone().unwrap_or(internal_ref);
+    let followers = Arc::new(props.followers.clone());
+    let start_bounds = Arc::new(Mutex::new(Vec::<(ElementRefMut, ElementRect)>::new()));
     let mut child = explicit_child(ctx, &props);
 
     child.node = child
@@ -113,9 +180,16 @@ impl Component for Draggable {
       .on_drag_start({
         let on_drag_start = props.on_drag_start.clone();
         let element_ref = element_ref.clone();
-        let drag_start_bounds = drag_start_bounds.clone();
+        let followers = followers.clone();
+        let start_bounds = start_bounds.clone();
         move |event| {
-          *drag_start_bounds.lock().unwrap() = Some(element_ref.bounds());
+          let mut starts = start_bounds.lock().unwrap();
+          starts.clear();
+          starts.push((element_ref.clone(), element_ref.bounds()));
+          for follower in attached(&followers) {
+            starts.push((follower.clone(), follower.bounds()));
+          }
+          drop(starts);
           if let Some(on_drag_start) = &on_drag_start {
             on_drag_start(&event);
           }
@@ -123,9 +197,13 @@ impl Component for Draggable {
       })
       .on_drag_move({
         let element_ref = element_ref.clone();
+        let followers = followers.clone();
         let on_drag_move = props.on_drag_move.clone();
         move |event: DragEvent| {
           move_element(&element_ref, event.delta_x, event.delta_y);
+          for follower in attached(&followers) {
+            move_element(follower, event.delta_x, event.delta_y);
+          }
           if let Some(on_drag_move) = &on_drag_move {
             on_drag_move(&event);
           }
@@ -134,13 +212,21 @@ impl Component for Draggable {
       .on_drag_end({
         let on_drag_end = props.on_drag_end.clone();
         let element_ref = element_ref.clone();
-        let drag_start_bounds = drag_start_bounds.clone();
+        let followers = followers.clone();
+        let start_bounds = start_bounds.clone();
         let drop_miss_behavior = props.drop_miss_behavior;
+        let override_policy = props.override_policy;
         move |event: DragEvent| {
           if drop_miss_behavior == DropMissBehavior::RevertToDragStart && event.drop_result == Some(DropResult::Missed)
           {
-            if let Some(bounds) = *drag_start_bounds.lock().unwrap() {
-              element_ref.set_bounds(bounds);
+            for (dragged, bounds) in start_bounds.lock().unwrap().drain(..) {
+              dragged.set_bounds(bounds);
+            }
+          }
+          if override_policy == DragOverridePolicy::Clear {
+            element_ref.clear_bounds_override();
+            for follower in followers.iter() {
+              follower.clear_bounds_override();
             }
           }
           if let Some(on_drag_end) = &on_drag_end {
@@ -149,8 +235,16 @@ impl Component for Draggable {
         }
       });
 
+    if let Some(payload) = props.payload.clone() {
+      child.node = child.node.drag_payload(payload);
+    }
+
     child
   }
+}
+
+fn attached(followers: &Arc<Vec<ElementRefMut>>) -> impl Iterator<Item = &ElementRefMut> {
+  followers.iter().filter(|follower| follower.is_attached())
 }
 
 fn move_element(element_ref: &ElementRefMut, delta_x: f32, delta_y: f32) {
@@ -164,6 +258,22 @@ fn move_element(element_ref: &ElementRefMut, delta_x: f32, delta_y: f32) {
 }
 
 fn same_callback(left: &Option<DragCallback>, right: &Option<DragCallback>) -> bool {
+  match (left, right) {
+    (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+    (None, None) => true,
+    _ => false,
+  }
+}
+
+fn same_element_ref(left: &Option<ElementRefMut>, right: &Option<ElementRefMut>) -> bool {
+  match (left, right) {
+    (Some(left), Some(right)) => left.as_ref().same_handle(&right.as_ref()),
+    (None, None) => true,
+    _ => false,
+  }
+}
+
+fn same_payload(left: &Option<DragPayload>, right: &Option<DragPayload>) -> bool {
   match (left, right) {
     (Some(left), Some(right)) => Arc::ptr_eq(left, right),
     (None, None) => true,

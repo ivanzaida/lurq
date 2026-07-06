@@ -587,6 +587,7 @@ pub(crate) struct Node {
   pub(crate) scrollbar_style: Guard<Option<ScrollBarStyle>>,
   pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
+  pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
   pub(crate) interaction: Option<InteractionState>,
   pub(crate) focusable: bool,
   pub(crate) tab_index: Option<i32>,
@@ -1557,6 +1558,7 @@ impl Node {
       scrollbar_style: Guard::new(None),
       scrollbar_hovered_style: None,
       element_ref: None,
+      drag_payload: None,
       interaction: None,
       focusable: false,
       tab_index: None,
@@ -2475,6 +2477,13 @@ impl Node {
     self
   }
 
+  /// Attach data to drags starting on this node; the drop target's handler
+  /// receives it through `DropEvent::payload`.
+  pub fn drag_payload(mut self, payload: crate::app::events::DragPayload) -> Self {
+    self.drag_payload = Some(payload);
+    self
+  }
+
   pub(crate) fn element_ref_handle(&mut self) -> CoreElementRef {
     self.element_ref.get_or_insert_with(CoreElementRef::new).clone()
   }
@@ -3174,6 +3183,13 @@ impl Node {
     self.element_ref.as_ref().and_then(CoreElementRef::override_rect)
   }
 
+  pub(crate) fn take_element_override_cleared(&self) -> bool {
+    self
+      .element_ref
+      .as_ref()
+      .is_some_and(CoreElementRef::take_override_cleared)
+  }
+
   pub(crate) fn state_styles_affect_layout(&self) -> bool {
     self.state_styles.affects_layout()
   }
@@ -3716,6 +3732,7 @@ impl Node {
       scrollbar_style: self.scrollbar_style.clone(),
       scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
       element_ref: self.element_ref.clone(),
+      drag_payload: self.drag_payload.clone(),
       interaction: self.interaction.clone(),
       focusable: self.focusable,
       tab_index: self.tab_index,

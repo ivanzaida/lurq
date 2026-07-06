@@ -73,6 +73,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     scrollbar_style: Guard::new(None),
     scrollbar_hovered_style: None,
     element_ref: None,
+    drag_payload: None,
     interaction: None,
     focusable: false,
     tab_index: None,

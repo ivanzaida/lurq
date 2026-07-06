@@ -31,6 +31,10 @@ const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
 const WINIT_SLOW_SCOPE_THRESHOLD: Duration = Duration::from_millis(45);
 const WINIT_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
+/// Floor between direct presents from the mouse-move stream during an
+/// interactive drag (vsync usually paces harder; this guards the
+/// vsync-off case).
+const INTERACTION_PRESENT_INTERVAL: Duration = Duration::from_millis(7);
 
 type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
 type PaintFn = Box<dyn FnMut(&Tree, Duration, PassReport)>;
@@ -224,6 +228,9 @@ struct ManagedWindow {
   last_tick: Instant,
   last_paint: Instant,
   continuous_redraw_until: Option<Instant>,
+  /// Last direct present from inside the mouse-move stream (interactive
+  /// drags paint here — see the CursorMoved arm).
+  last_interaction_present: Instant,
 }
 
 impl ManagedWindow {
@@ -254,6 +261,7 @@ impl ManagedWindow {
       last_tick: Instant::now(),
       last_paint: Instant::now(),
       continuous_redraw_until: None,
+      last_interaction_present: Instant::now(),
     }
   }
 
@@ -634,6 +642,22 @@ impl ManagedWindow {
         );
         self.apply_cursor();
         self.check_redraw();
+        // Interactive drags (scrollbars, sliders, text selection, on_drag_*
+        // sessions) must paint from inside the event stream: a high-rate
+        // mouse never lets the queue drain, so both `about_to_wait` and
+        // WM_PAINT are starved for the whole gesture and the drag would
+        // only repaint when the mouse pauses.
+        if self.tree.has_active_input_interaction()
+          && self.tree.needs_redraw()
+          && self.last_interaction_present.elapsed() >= INTERACTION_PRESENT_INTERVAL
+        {
+          self.last_interaction_present = Instant::now();
+          let presented = self.present_now(app, false);
+          if presented {
+            self.apply_window_commands(event_loop);
+            return true;
+          }
+        }
       }
       WindowEvent::CursorLeft { .. } => {
         self.tree.mouse_leave_window();
@@ -1526,10 +1550,16 @@ impl ApplicationHandler for WinitHandler {
     let stage_started_at = Instant::now();
     let now = Instant::now();
     let main_has_continuous_video = self.main.has_continuous_redraw_video_recently(now);
+    // Interactive drags (scrollbars, sliders, text selection, on_drag_*
+    // sessions) present directly too: on Windows the WM_MOUSEMOVE stream
+    // starves WM_PAINT, so redraws requested from drag handlers would only
+    // land once the mouse pauses. Vsync in present caps the rate.
+    let main_has_interactive_drag =
+      self.main.tree.has_active_input_interaction() && self.main.tree.needs_redraw();
     let continuous_check = stage_started_at.elapsed();
     let mut present = Duration::ZERO;
     let mut post_present = Duration::ZERO;
-    if main_has_continuous_video {
+    if main_has_continuous_video || main_has_interactive_drag {
       let stage_started_at = Instant::now();
       let presented = self.main.present_now(&mut self.app, false);
       present = stage_started_at.elapsed();

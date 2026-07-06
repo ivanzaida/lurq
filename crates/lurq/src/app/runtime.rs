@@ -1485,8 +1485,12 @@ impl Tree {
     self.devtools_state.last_sync = now;
   }
 
-  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
-  fn has_active_input_interaction(&self) -> bool {
+  /// Whether the pointer currently holds an interactive drag (scrollbar,
+  /// slider, text selection, or an `on_drag_*` session). The winit shell
+  /// presents directly from `about_to_wait` while this is true — on Windows
+  /// a continuous WM_MOUSEMOVE stream starves WM_PAINT, so redraws requested
+  /// from drag handlers would otherwise only land when the mouse pauses.
+  pub fn has_active_input_interaction(&self) -> bool {
     self.dragging_scroll.is_some()
       || self.dragging_slider.is_some()
       || self.dragging_text_selection.is_some()
@@ -3257,13 +3261,21 @@ impl Tree {
               button,
               source_id: drag.target_id,
               target_id,
+              payload: drag.payload.clone(),
             };
             for handler in handlers {
               handler.call(&drop_event);
             }
           }
+          let moved = distance_squared((drag.start_x, drag.start_y), (lx, ly))
+            > SUPPRESSED_CLICK_DISTANCE * SUPPRESSED_CLICK_DISTANCE;
           for handler in drag.on_end {
             handler.call(&drag_event);
+          }
+          // A drag that actually moved is not a click — suppress the one the
+          // release would otherwise synthesize on the drag source.
+          if moved {
+            self.suppress_click((evt.x, evt.y), button);
           }
           self.clear_active_path();
           self.needs_redraw = true;
@@ -3721,6 +3733,7 @@ impl Tree {
               button,
               on_move: node.events.on_drag_move.clone(),
               on_end: node.events.on_drag_end.clone(),
+              payload: node.drag_payload.clone(),
             },
           )
         })
@@ -6334,6 +6347,7 @@ struct ActiveDrag {
   button: MouseButton,
   on_move: Vec<DragCallback>,
   on_end: Vec<DragCallback>,
+  payload: Option<crate::app::events::DragPayload>,
 }
 
 impl ActiveDrag {

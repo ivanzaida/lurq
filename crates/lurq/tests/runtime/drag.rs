@@ -7,8 +7,11 @@ use lurq::{
     ctx::Ctx,
     events::{DragEvent, MouseButton},
   },
-  components::{DragContainer, DragContainerProps, Draggable, DraggableProps, DropZone, DropZoneProps, Rect, Row},
-  core::Signal,
+  components::{
+    DragContainer, DragContainerProps, DragOverridePolicy, Draggable, DraggableProps, DropMissBehavior, DropZone,
+    DropZoneProps, Rect, Row,
+  },
+  core::{ElementRefMut, Signal},
   node::{Element, color::Color},
 };
 
@@ -247,6 +250,261 @@ fn drag_container_clamps_draggable_to_container_bounds() {
     .unwrap();
   assert_eq!(dragged.bounds().x, 190.0);
   assert_eq!(dragged.bounds().y, 30.0);
+}
+
+struct ExternalRefDrag;
+
+impl Component for ExternalRefDrag {
+  type Props = Shared<ElementRefMut>;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let element_ref = (*ctx.props::<Self::Props>().0).clone();
+    let draggable = Draggable::mount(
+      ctx,
+      DraggableProps::new()
+        .element_ref(element_ref)
+        .override_policy(DragOverridePolicy::Clear),
+      Rect::new(50.0, 50.0).background(DRAG_COLOR).absolute_position(0.0, 0.0),
+    );
+
+    lurq::components::Stack::new().size(240.0, 80.0).child(draggable)
+  }
+}
+
+#[test]
+fn external_element_ref_drives_drag_and_clear_policy_restores_layout_position() {
+  let element_ref = ElementRefMut::new();
+  let mut runtime = Tree::new();
+  runtime.mount_root::<ExternalRefDrag>(&mut lurq::app::App::new(), Shared(Arc::new(element_ref.clone())));
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(40.0, 30.0);
+
+  run_pass(&mut runtime);
+  let dragged = runtime
+    .find_element(|element| element.color() == Some(DRAG_COLOR))
+    .unwrap();
+  assert_eq!(dragged.bounds().x, 30.0);
+  assert_eq!(dragged.bounds().y, 20.0);
+  assert_eq!(element_ref.bounds().relative_x, 30.0);
+
+  // The drop handler would commit the position into app state here; the
+  // Clear policy hands layout authority back at drag end.
+  runtime.mouse_up(40.0, 30.0, MouseButton::Left);
+
+  run_pass(&mut runtime);
+  let dragged = runtime
+    .find_element(|element| element.color() == Some(DRAG_COLOR))
+    .unwrap();
+  assert_eq!(dragged.bounds().x, 0.0);
+  assert_eq!(dragged.bounds().y, 0.0);
+}
+
+#[test]
+fn drag_that_moved_suppresses_the_synthesized_click() {
+  let clicks = Arc::new(Mutex::new(0u32));
+  let captured = clicks.clone();
+
+  let mut runtime = Tree::new();
+  runtime.set_root(
+    Rect::new(100.0, 100.0)
+      .on_drag_move(|_| {})
+      .on_click(move |_| *captured.lock().unwrap() += 1),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(40.0, 30.0);
+  runtime.mouse_up(40.0, 30.0, MouseButton::Left);
+
+  assert_eq!(*clicks.lock().unwrap(), 0);
+}
+
+#[test]
+fn stationary_press_on_a_drag_source_still_clicks() {
+  let clicks = Arc::new(Mutex::new(0u32));
+  let captured = clicks.clone();
+
+  let mut runtime = Tree::new();
+  runtime.set_root(
+    Rect::new(100.0, 100.0)
+      .on_drag_move(|_| {})
+      .on_click(move |_| *captured.lock().unwrap() += 1),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+  runtime.mouse_up(10.0, 10.0, MouseButton::Left);
+
+  assert_eq!(*clicks.lock().unwrap(), 1);
+}
+
+struct PayloadDrag {
+  received: Arc<Mutex<Vec<(String, f32)>>>,
+}
+
+impl Component for PayloadDrag {
+  type Props = Shared<Mutex<Vec<(String, f32)>>>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      received: ctx.props::<Self::Props>().0.clone(),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let draggable = Draggable::mount(
+      ctx,
+      DraggableProps::new().payload("widget-7".to_owned()),
+      Rect::new(50.0, 50.0),
+    );
+
+    let drop_zone = DropZone::mount(
+      ctx,
+      DropZoneProps::new().on_drop({
+        let received = self.received.clone();
+        move |event| {
+          let payload = event
+            .payload::<String>()
+            .cloned()
+            .unwrap_or_else(|| "<missing>".to_owned());
+          received.lock().unwrap().push((payload, event.total_delta_x));
+        }
+      }),
+      Rect::new(80.0, 50.0),
+    );
+
+    Row::new().spacing(20.0).child(draggable).child(drop_zone)
+  }
+}
+
+#[test]
+fn drop_event_delivers_the_drag_sources_payload() {
+  let received = Arc::new(Mutex::new(Vec::new()));
+  let mut runtime = Tree::new();
+  runtime.mount_root::<PayloadDrag>(&mut lurq::app::App::new(), Shared(received.clone()));
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+  runtime.mouse_up(90.0, 20.0, MouseButton::Left);
+
+  assert_eq!(*received.lock().unwrap(), vec![("widget-7".to_owned(), 80.0)]);
+}
+
+struct FollowerDrag {
+  revert_on_miss: bool,
+}
+
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct FollowerDragProps {
+  #[devtools_ignore]
+  follower: ElementRefMut,
+  revert_on_miss: bool,
+}
+
+impl std::fmt::Debug for FollowerDragProps {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("FollowerDragProps")
+      .field("revert_on_miss", &self.revert_on_miss)
+      .finish()
+  }
+}
+
+impl PartialEq for FollowerDragProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.revert_on_miss == other.revert_on_miss && std::ptr::eq(&self.follower, &other.follower)
+  }
+}
+
+impl Component for FollowerDrag {
+  type Props = FollowerDragProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      revert_on_miss: ctx.props::<Self::Props>().revert_on_miss,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let follower = ctx.props::<Self::Props>().follower.clone();
+    let mut props = DraggableProps::new().follower(follower.clone());
+    if self.revert_on_miss {
+      props = props.drop_miss_behavior(DropMissBehavior::RevertToDragStart);
+    }
+    let draggable = Draggable::mount(
+      ctx,
+      props,
+      Rect::new(50.0, 50.0).background(DRAG_COLOR).absolute_position(0.0, 0.0),
+    );
+
+    lurq::components::Stack::new()
+      .size(400.0, 280.0)
+      .child(draggable)
+      .child(
+        Rect::new(40.0, 40.0)
+          .absolute_position(150.0, 10.0)
+          .ref_element(follower.clone()),
+      )
+  }
+}
+
+#[test]
+fn followers_move_in_lockstep_with_the_dragged_element() {
+  let follower = ElementRefMut::new();
+  let mut runtime = Tree::new();
+  runtime.mount_root::<FollowerDrag>(
+    &mut lurq::app::App::new(),
+    FollowerDragProps {
+      follower: follower.clone(),
+      revert_on_miss: false,
+    },
+  );
+
+  run_pass(&mut runtime);
+  assert_eq!(follower.bounds().relative_x, 150.0);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(40.0, 30.0);
+
+  run_pass(&mut runtime);
+  let dragged = runtime
+    .find_element(|element| element.color() == Some(DRAG_COLOR))
+    .unwrap();
+  assert_eq!(dragged.bounds().x, 30.0);
+  assert_eq!(dragged.bounds().y, 20.0);
+  assert_eq!(follower.bounds().relative_x, 180.0);
+  assert_eq!(follower.bounds().relative_y, 30.0);
+}
+
+#[test]
+fn followers_revert_with_the_dragged_element_on_a_missed_drop() {
+  let follower = ElementRefMut::new();
+  let mut runtime = Tree::new();
+  runtime.mount_root::<FollowerDrag>(
+    &mut lurq::app::App::new(),
+    FollowerDragProps {
+      follower: follower.clone(),
+      revert_on_miss: true,
+    },
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(10.0, 10.0, MouseButton::Left);
+  runtime.mouse_move(40.0, 30.0);
+  runtime.mouse_up(40.0, 30.0, MouseButton::Left);
+
+  run_pass(&mut runtime);
+  let dragged = runtime
+    .find_element(|element| element.color() == Some(DRAG_COLOR))
+    .unwrap();
+  assert_eq!(dragged.bounds().x, 0.0);
+  assert_eq!(dragged.bounds().y, 0.0);
+  assert_eq!(follower.bounds().relative_x, 150.0);
+  assert_eq!(follower.bounds().relative_y, 10.0);
 }
 
 struct DemoBoundedDrag {
