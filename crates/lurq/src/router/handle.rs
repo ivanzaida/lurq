@@ -187,6 +187,17 @@ impl RouterHandle {
     true
   }
 
+  /// Whether [`RouterHandle::back`] would move — there is a prior entry.
+  pub fn can_back(&self) -> bool {
+    self.inner.history.lock().cursor > 0
+  }
+
+  /// Whether [`RouterHandle::forward`] would move — there is a later entry.
+  pub fn can_forward(&self) -> bool {
+    let history = self.inner.history.lock();
+    history.cursor + 1 < history.entries.len()
+  }
+
   pub fn path(&self) -> Signal<String> {
     self.inner.current_path.clone()
   }

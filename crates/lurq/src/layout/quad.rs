@@ -1,5 +1,8 @@
 use crate::{
-  layout::{render_list::RenderGradient, text_style::TextStyle},
+  layout::{
+    render_list::RenderGradient,
+    text_style::{TextStyle, VerticalAlign},
+  },
   node::{
     TextTransformMode,
     border::{BorderRadius, ResolvedBorders},
@@ -41,13 +44,13 @@ pub enum QuadContent {
     text: String,
     style: TextStyle,
     wrap: bool,
-    center_y: bool,
+    vertical_align: VerticalAlign,
     transform_mode: TextTransformMode,
   },
   RichText {
     spans: Vec<RichTextSpan>,
     wrap: bool,
-    center_y: bool,
+    vertical_align: VerticalAlign,
     transform_mode: TextTransformMode,
   },
   #[cfg(feature = "image")]

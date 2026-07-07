@@ -46,6 +46,16 @@ impl Navigator {
     self.handle.forward()
   }
 
+  /// Whether [`Navigator::back`] would move — there is a prior entry.
+  pub fn can_back(&self) -> bool {
+    self.handle.can_back()
+  }
+
+  /// Whether [`Navigator::forward`] would move — there is a later entry.
+  pub fn can_forward(&self) -> bool {
+    self.handle.can_forward()
+  }
+
   pub fn path(&self) -> Signal<String> {
     self.handle.path()
   }

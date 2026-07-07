@@ -21,6 +21,11 @@ pub struct TextStyle {
   pub weight: FontWeight,
   pub style: FontStyle,
   pub text_align: TextAlign,
+  /// Vertical placement of the glyph run within its box (the line-height box
+  /// for a single line, or the node's box when it is taller). Alignment is
+  /// based on the actual glyph ink bounds so text is optically centered rather
+  /// than metric-centered (which leaves most fonts sitting visibly high).
+  pub vertical_align: VerticalAlign,
   pub color: Color,
   pub caret_color: Option<TextColor>,
   pub shadow: Option<TextShadow>,
@@ -35,6 +40,7 @@ impl Default for TextStyle {
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
       text_align: TextAlign::Left,
+      vertical_align: VerticalAlign::default(),
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
       shadow: None,
@@ -138,6 +144,19 @@ impl TextAlign {
       Self::End => cosmic_text::Align::End,
     }
   }
+}
+
+/// Vertical alignment of a text run's glyph ink within its box, mirroring
+/// browser `vertical-align` semantics against the line-height box:
+/// - `Top`: the top of the glyph ink meets the top of the box.
+/// - `Bottom`: the bottom of the glyph ink meets the bottom of the box.
+/// - `Center`: the ink is centered — `offset = (box_height - ink_height) / 2`.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum VerticalAlign {
+  Top,
+  #[default]
+  Center,
+  Bottom,
 }
 
 impl From<Alignment> for TextAlign {

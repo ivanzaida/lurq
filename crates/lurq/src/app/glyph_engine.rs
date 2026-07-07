@@ -325,12 +325,29 @@ fn set_buffer_text(buffer: &mut Buffer, font_system: &mut FontSystem, text: &str
   }
 }
 
+/// Vertical extents of a shaped single line, relative to the render origin
+/// (a glyph placed at origin_y `Y` puts these at `Y + value`). `ink_*` is the
+/// tight bound of the visible glyph ink; `optical_*` is the descender-agnostic
+/// box used for centering — the font's cap-height box (`[baseline - cap_height,
+/// baseline]`) for real text, falling back to the ink bounds when the font
+/// exposes no usable cap height (e.g. icon fonts). Centering the optical box
+/// keeps text with and without descenders — and icons next to it — visually
+/// aligned, instead of letting descenders drag the visible mass upward.
+#[derive(Clone, Copy)]
+pub(crate) struct TextVerticalExtents {
+  pub(crate) ink_top: f32,
+  pub(crate) ink_bottom: f32,
+  pub(crate) optical_top: f32,
+  pub(crate) optical_bottom: f32,
+}
+
 pub(crate) struct GlyphEngine {
   font_system: FontSystem,
   swash_context: ScaleContext,
   transformed_scale_context: ScaleContext,
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<u64, Vec<(CacheKey, Size)>>,
+  vertical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<TextVerticalExtents>)>>,
   caret_cache: HashMap<u64, Vec<(CacheKey, Vec<CaretPosition>)>>,
   rich_shaped_layout_cache: HashMap<u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
@@ -360,6 +377,7 @@ impl GlyphEngine {
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
+      vertical_extents_cache: HashMap::new(),
       caret_cache: HashMap::new(),
       rich_shaped_layout_cache: HashMap::new(),
       glyph_layout_cache: HashMap::new(),
@@ -409,6 +427,7 @@ impl GlyphEngine {
 
   fn clear_text_caches(&mut self) {
     self.measure_cache.clear();
+    self.vertical_extents_cache.clear();
     self.caret_cache.clear();
     self.rich_shaped_layout_cache.clear();
     self.glyph_layout_cache.clear();
@@ -474,6 +493,134 @@ impl GlyphEngine {
       .or_default()
       .push((CacheKey::new(text, style, max_width, wrap), size));
     size
+  }
+
+  /// Vertical extents of `text` relative to the render origin used by
+  /// `rasterize_text_*`. Whitespace-only or empty text yields `None`. See
+  /// [`TextVerticalExtents`] for how the ink vs. optical (cap-height) boxes are
+  /// used by the different vertical-align modes.
+  pub(crate) fn text_vertical_extents(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Option<TextVerticalExtents> {
+    let fingerprint = text_measure_fingerprint(text, style, max_width, wrap);
+    if let Some(cached) = self
+      .vertical_extents_cache
+      .get(&fingerprint)
+      .and_then(|bucket| {
+        bucket
+          .iter()
+          .find(|(key, _)| key.matches_measure(text, style, max_width, wrap))
+      })
+      .map(|(_, extents)| *extents)
+    {
+      self.measure_hits += 1;
+      return cached;
+    }
+    self.measure_misses += 1;
+    let extents = self.compute_text_vertical_extents(text, style, max_width, wrap);
+    if self.vertical_extents_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.vertical_extents_cache.clear();
+    }
+    self
+      .vertical_extents_cache
+      .entry(fingerprint)
+      .or_default()
+      .push((CacheKey::new(text, style, max_width, wrap), extents));
+    extents
+  }
+
+  fn compute_text_vertical_extents(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Option<TextVerticalExtents> {
+    let mut buffer = self.acquire_buffer(style, max_width, wrap);
+    let resolved = self.resolve_family(style);
+    let family = if resolved.is_empty() {
+      Family::SansSerif
+    } else {
+      Family::Name(&resolved)
+    };
+    let attrs = Attrs::new()
+      .family(family)
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
+    buffer.shape_until_scroll(&mut self.font_system, false);
+
+    let mut top = f32::INFINITY;
+    let mut bottom = f32::NEG_INFINITY;
+    let mut first: Option<(cosmic_text::fontdb::ID, f32, f32)> = None;
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs.iter() {
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
+        let y_offset = glyph.font_size * glyph.y_offset;
+        let (cache_key, ..) = GlyphCacheKey::new(
+          glyph.font_id,
+          glyph.glyph_id,
+          glyph.font_size,
+          (0.0, 0.0),
+          glyph.cache_key_flags,
+        );
+        let Some(packed) = self.get_or_pack_glyph(cache_key) else {
+          continue;
+        };
+        if packed.height == 0 {
+          continue;
+        }
+        let glyph_top = run.line_y + glyph.y - y_offset - packed.top as f32;
+        top = top.min(glyph_top);
+        bottom = bottom.max(glyph_top + packed.height as f32);
+        if first.is_none() {
+          first = Some((glyph.font_id, run.line_y + glyph.y - y_offset, glyph.font_size));
+        }
+      }
+    }
+
+    self.buffer_pool.push(buffer);
+    if bottom < top {
+      return None;
+    }
+
+    // Optical box = the font's cap-height box on the first line's baseline,
+    // which is descender- and content-independent. Icon fonts usually report no
+    // usable cap height, so fall back to the ink box for them.
+    let (optical_top, optical_bottom) = first
+      .and_then(|(font_id, baseline, font_size)| {
+        let cap_px = self.font_cap_height_px(font_id, font_size)?;
+        // Only trust a plausible text cap height. Icon/symbol fonts report 0 or
+        // a full-em value; those fall back to ink so the glyph shape itself is
+        // centered (which keeps icons aligned with adjacent cap-centered text).
+        (cap_px > font_size * 0.4 && cap_px < font_size * 0.95).then_some((baseline - cap_px, baseline))
+      })
+      .unwrap_or((top, bottom));
+
+    Some(TextVerticalExtents {
+      ink_top: top,
+      ink_bottom: bottom,
+      optical_top,
+      optical_bottom,
+    })
+  }
+
+  /// Cap height of `font_id` in pixels at `font_size`, if the font exposes a
+  /// usable one (icon/symbol fonts often report 0).
+  fn font_cap_height_px(&mut self, font_id: cosmic_text::fontdb::ID, font_size: f32) -> Option<f32> {
+    let font = self.font_system.get_font(font_id)?;
+    let metrics = font.as_swash().metrics(&[]);
+    let upem = metrics.units_per_em as f32;
+    if upem <= 0.0 || metrics.cap_height <= 0.0 {
+      return None;
+    }
+    Some(metrics.cap_height * font_size / upem)
   }
 
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]

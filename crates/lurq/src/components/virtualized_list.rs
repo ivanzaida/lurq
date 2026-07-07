@@ -69,6 +69,11 @@ struct VirtualizedListOptions {
   /// Scroll horizontally too (rows wider than the viewport pan; virtualization
   /// still works off the vertical axis only).
   horizontal: bool,
+  /// A row key to scroll into view (`scrollIntoView` with `nearest` block
+  /// behaviour): revealed once when this value changes, and only when the row
+  /// is off-screen — an already-visible row does not move. Used to restore a
+  /// selection after navigation without persisting scroll offsets.
+  reveal_key: Option<String>,
 }
 
 pub struct VirtualizedList<'a, T> {
@@ -103,6 +108,16 @@ impl<'a, T> VirtualizedList<'a, T> {
   /// Virtualization still windows on the vertical axis only.
   pub fn horizontal_scroll(mut self, enabled: bool) -> Self {
     self.options.horizontal = enabled;
+    self
+  }
+
+  /// Scroll the row with this key into view (`scrollIntoView`, `nearest`): the
+  /// reveal fires once each time the key changes, and only if the row is
+  /// off-screen, so an already-visible target does not jump. Pass the current
+  /// selection's row key to restore it after navigation without persisting the
+  /// scroll offset.
+  pub fn reveal_key(mut self, key: Option<String>) -> Self {
+    self.options.reveal_key = key;
     self
   }
 
@@ -240,6 +255,11 @@ struct VirtualizedRuntime<T> {
   prefix_dirty: bool,
   rendered_refs: HashMap<String, ElementRef>,
   pending_anchor: Option<ScrollAnchor>,
+  /// A row key requested via `reveal_key` that still needs to be scrolled into
+  /// view (deferred until every row above it is measured for an exact offset).
+  pending_reveal: Option<String>,
+  /// The last `reveal_key` acted on, so a reveal fires only when it changes.
+  last_reveal: Option<String>,
   /// Scroll position at which the row window was last built; re-renders only
   /// happen once the position drifts past `rebuild_threshold`.
   last_render_scroll_y: f32,
@@ -275,6 +295,8 @@ impl<T> Default for VirtualizedRuntime<T> {
       prefix_dirty: false,
       rendered_refs: HashMap::new(),
       pending_anchor: None,
+      pending_reveal: None,
+      last_reveal: None,
       last_render_scroll_y: 0.0,
       rebuild_threshold: DEFAULT_OVERSCAN_PX * 0.5,
       last_viewport_height: 0.0,
@@ -566,6 +588,27 @@ where
           runtime.pending_anchor = Some(anchor);
         }
       }
+
+      // Reveal the requested row: when it is not already fully visible, scroll
+      // it to the top of the viewport (`scrollIntoView`, `block: start`); an
+      // already-visible row does not move, so clicking a visible row never
+      // jumps. Deferred until heights above it are exact.
+      if let Some(key) = runtime.pending_reveal.clone() {
+        if runtime.heights.len() >= runtime.order.len() {
+          runtime.pending_reveal = None;
+          if let Some(index) = runtime.order.iter().position(|k| k == &key) {
+            let row_top = prefix_height(&runtime.order[..index], &runtime.heights);
+            let row_bottom = row_top + runtime.heights.get(&key).copied().unwrap_or(0.0);
+            let view_top = scroll_state.scroll_y();
+            let view_bottom = view_top + scroll_state.viewport_height();
+            let fully_visible = row_top >= view_top && row_bottom <= view_bottom;
+            if !fully_visible {
+              scroll_state.set_scroll(0.0, row_top.max(0.0));
+              changed = true;
+            }
+          }
+        }
+      }
     }
 
     if changed {
@@ -743,6 +786,14 @@ where
       runtime.prefix_dirty = true;
     }
 
+    // A new `reveal_key` (e.g. a selection restored by navigation) queues a
+    // scroll-into-view, applied once heights above the row are known. Fires
+    // only on change, so it never fights the user's scrolling.
+    if options.reveal_key != runtime.last_reveal {
+      runtime.last_reveal = options.reveal_key.clone();
+      runtime.pending_reveal = options.reveal_key.clone();
+    }
+
     // Cumulative heights (`prefix[i]` = top of row `i`), rebuilt only when
     // items or measured heights changed. Rows that were never measured count
     // as the average measured height — off-screen rows are never mounted just
@@ -796,10 +847,10 @@ where
       (0, count.min(BOOTSTRAP_ROWS))
     };
     let mut rendered_indices: Vec<usize> = (visible_range.0..visible_range.1).collect();
-    if runtime.pending_anchor.is_some() && !all_measured {
-      // A pending anchor (rows prepended/replaced) wants exact heights for
-      // everything above the anchor row; measure the remainder in bounded
-      // chunks per frame until it can be applied.
+    if (runtime.pending_anchor.is_some() || runtime.pending_reveal.is_some()) && !all_measured {
+      // A pending anchor (rows prepended/replaced) or a pending reveal wants
+      // exact heights for everything above the target row; measure the
+      // remainder in bounded chunks per frame until it can be applied.
       rendered_indices.extend(
         runtime
           .order

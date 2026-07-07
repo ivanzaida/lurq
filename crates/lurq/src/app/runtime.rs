@@ -47,7 +47,7 @@ use crate::{
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{GlyphCmd, RectCmd, RenderGradient, RenderList},
-    text_style::{FontWeight, TextStyle},
+    text_style::{FontWeight, TextStyle, VerticalAlign},
   },
   node::{
     Element, ElementRef, EventHandler, HitTestBehavior, Node, SyntheticNodeRole, TextTransformMode, VoidEventHandler,
@@ -2005,7 +2005,7 @@ impl Tree {
           text,
           style,
           wrap,
-          center_y,
+          vertical_align,
           transform_mode,
         } => {
           let glyph_start = glyphs.len();
@@ -2027,7 +2027,7 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + text_vertical_center_offset(app, text, &scaled_style, max_width, *wrap, *center_y, scaled_height);
+            + text_vertical_align_offset(app, text, &scaled_style, max_width, *wrap, *vertical_align, scaled_height);
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
@@ -2093,7 +2093,7 @@ impl Tree {
         QuadContent::RichText {
           spans,
           wrap,
-          center_y,
+          vertical_align,
           transform_mode,
         } => {
           let glyph_start = glyphs.len();
@@ -2119,8 +2119,8 @@ impl Tree {
               quad.y * scale + quad.height * scale * 0.5,
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
-          let text_y =
-            scaled_y + rich_text_vertical_center_offset(app, &scaled_spans, max_width, *wrap, *center_y, scaled_height);
+          let text_y = scaled_y
+            + rich_text_vertical_align_offset(app, &scaled_spans, max_width, *wrap, *vertical_align, scaled_height);
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_rich_text_with_wrap_clipped_into(
               &scaled_spans,
@@ -8661,52 +8661,72 @@ fn push_raw_text(
   glyphs.extend(text_glyphs);
 }
 
-fn text_vertical_center_offset(
+/// Offset (in the render/physical space of `quad_height`) that positions a
+/// glyph run at the requested vertical alignment within its box. `Top`/`Bottom`
+/// use the visible ink; `Center` uses the descender-agnostic optical box (the
+/// font's cap-height box), so text with descenders and adjacent icons stay
+/// aligned instead of being dragged upward by descenders.
+fn vertical_align_offset(
+  align: VerticalAlign,
+  extents: crate::app::glyph_engine::TextVerticalExtents,
+  quad_height: f32,
+) -> f32 {
+  match align {
+    VerticalAlign::Top => -extents.ink_top,
+    VerticalAlign::Center => {
+      let box_h = extents.optical_bottom - extents.optical_top;
+      (quad_height - box_h) * 0.5 - extents.optical_top
+    }
+    VerticalAlign::Bottom => quad_height - extents.ink_bottom,
+  }
+}
+
+fn text_vertical_align_offset(
   app: &mut App,
   text: &str,
   style: &TextStyle,
   max_width: f32,
-  _wrap: bool,
-  center_y: bool,
+  wrap: bool,
+  vertical_align: VerticalAlign,
   quad_height: f32,
 ) -> f32 {
-  if !center_y || quad_height <= 0.0 {
+  if quad_height <= 0.0 {
     return 0.0;
   }
-  let single_line_height = style.font_size * style.line_height;
-  if quad_height <= single_line_height + 0.5 {
+  let Some(extents) = app.glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
     return 0.0;
-  }
-  let measured = app.glyph_engine.measure_text(text, style, max_width).height;
-  if measured > single_line_height + 0.5 {
-    return 0.0;
-  }
-  ((quad_height - measured).max(0.0)) * 0.5
+  };
+  vertical_align_offset(vertical_align, extents, quad_height)
 }
 
-fn rich_text_vertical_center_offset(
+fn rich_text_vertical_align_offset(
   app: &mut App,
   spans: &[crate::layout::quad::RichTextSpan],
   max_width: f32,
-  _wrap: bool,
-  center_y: bool,
+  wrap: bool,
+  vertical_align: VerticalAlign,
   quad_height: f32,
 ) -> f32 {
-  if !center_y || quad_height <= 0.0 {
+  if quad_height <= 0.0 {
     return 0.0;
   }
-  let single_line_height = spans
-    .first()
-    .map(|span| span.style.font_size * span.style.line_height)
-    .unwrap_or(0.0);
-  if quad_height <= single_line_height + 0.5 {
-    return 0.0;
+  // Single-span rich text shares the plain-text path; multi-span rich text
+  // (mixed sizes) falls back to metric extent, which is adequate for the
+  // markdown/rich cases that use it.
+  if let [span] = spans {
+    return text_vertical_align_offset(app, &span.text, &span.style, max_width, wrap, vertical_align, quad_height);
   }
   let measured = app.glyph_engine.measure_rich_text(spans, max_width).height;
-  if measured > single_line_height + 0.5 {
-    return 0.0;
-  }
-  ((quad_height - measured).max(0.0)) * 0.5
+  vertical_align_offset(
+    vertical_align,
+    crate::app::glyph_engine::TextVerticalExtents {
+      ink_top: 0.0,
+      ink_bottom: measured,
+      optical_top: 0.0,
+      optical_bottom: measured,
+    },
+    quad_height,
+  )
 }
 
 fn apply_opacity(color: Color, opacity: f32) -> Color {

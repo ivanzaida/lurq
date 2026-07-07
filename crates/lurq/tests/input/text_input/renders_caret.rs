@@ -135,16 +135,24 @@ fn single_line_text_input_centers_text_quad_in_tall_input() {
 
   runtime.set_root(lurq::components::TextInput::new(value).single_line().height(40.0));
   run_pass(&mut runtime);
-  let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
-  let text_quad = quads
-    .iter()
-    .find(|quad| matches!(quad.content, QuadContent::Text { .. }))
-    .expect("text input should produce a text quad");
 
+  // Centering now happens in the render path (`vertical_align`), so the glyph
+  // ink should sit around the middle of the 40px box rather than the text quad
+  // being pre-offset in layout — and crucially not jammed to the top/bottom.
+  // (Exact center is font- and descender-dependent under cap-height centering,
+  // so this checks the band, not a pixel value.)
+  let snapshot = render_pass(&mut runtime);
+  assert!(!snapshot.glyphs.is_empty(), "text input should render glyphs");
+  let top = snapshot.glyphs.iter().map(|g| g.y).fold(f32::INFINITY, f32::min);
+  let bottom = snapshot
+    .glyphs
+    .iter()
+    .map(|g| g.y + g.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  let center = (top + bottom) * 0.5;
   assert!(
-    (text_quad.y - 10.4).abs() < 0.01,
-    "40px single-line input should center 19.2px line-height text; got y {}",
-    text_quad.y
+    (center - 20.0).abs() <= 6.0,
+    "40px single-line input should vertically center its text (not jam to an edge); got center {center}",
   );
 }
 

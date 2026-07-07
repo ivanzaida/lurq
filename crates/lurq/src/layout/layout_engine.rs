@@ -856,13 +856,14 @@ impl LayoutEngine {
         transform_mode,
       } => {
         let resolved_style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
+        let vertical_align = resolved_style.vertical_align;
         QuadContent::Text {
           text: state
             .display_text()
             .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
           style: resolved_style,
           wrap: state.render_wrap(),
-          center_y: true,
+          vertical_align,
           transform_mode: *transform_mode,
         }
       }
@@ -872,20 +873,30 @@ impl LayoutEngine {
       } => QuadContent::RichText {
         spans: spans.clone(),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
-        center_y: true,
+        vertical_align: crate::layout::text_style::VerticalAlign::Center,
         transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
         state,
         style,
         placeholder_style,
-      } => QuadContent::Text {
-        text: state.rendered_text_for_layout(),
-        style: text_input_display_style(state, style, placeholder_style.as_ref()).clone(),
-        wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
-        center_y: false,
-        transform_mode: TextTransformMode::Bitmap,
-      },
+      } => {
+        let display_style = text_input_display_style(state, style, placeholder_style.as_ref()).clone();
+        // Single-line inputs center their glyph ink in the box; multi-line
+        // inputs flow from the top and scroll.
+        let vertical_align = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
+          crate::layout::text_style::VerticalAlign::Top
+        } else {
+          display_style.vertical_align
+        };
+        QuadContent::Text {
+          text: state.rendered_text_for_layout(),
+          style: display_style,
+          wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
+          vertical_align,
+          transform_mode: TextTransformMode::Bitmap,
+        }
+      }
       NodeKind::Checkbox { .. } => QuadContent::None,
       #[cfg(feature = "image")]
       NodeKind::Image { data } => QuadContent::Image {
@@ -1093,14 +1104,16 @@ impl LayoutEngine {
             let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
             let scroll_x = state.scroll_x();
             let scroll_y = state.scroll_y();
-            let vertical_offset = text_input_vertical_offset(state, content_height);
+            // The glyph run is vertically aligned by the render path (via the
+            // quad's `vertical_align`), so the content box starts at the top of
+            // the padding box here — no metric centering offset is baked in.
             if matches!(
               state.overflow(),
               TextInputOverflow::Scroll | TextInputOverflow::Multiline
             ) {
               (
                 abs_x + padding.left - scroll_x,
-                abs_y + padding.top + vertical_offset - scroll_y,
+                abs_y + padding.top - scroll_y,
                 content_width + scroll_x,
                 content_height + scroll_y,
                 intersect_clip(
