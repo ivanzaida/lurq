@@ -90,7 +90,17 @@ impl LayoutCache {
 
   pub fn store(&self, constraints: Constraints, result: LayoutResult) {
     let mut borrow = self.inner.borrow_mut();
-    if let Some(index) = borrow.iter().position(|cached| cached.constraints == constraints) {
+    if self.is_dirty() {
+      // The dirty flags are cache-wide, but a store only replaces the entry
+      // for the constraints just laid out. Any other cached entry predates
+      // the invalidation and is equally stale — clearing the flags below
+      // while keeping it would launder it into a servable result (observed
+      // in production: a two-entry cache under oscillating constraints — a
+      // scrollbar gutter toggling a column's width — served a pre-change
+      // sibling layout with clean flags, freezing a text row at its old
+      // child offsets).
+      borrow.clear();
+    } else if let Some(index) = borrow.iter().position(|cached| cached.constraints == constraints) {
       borrow.remove(index);
     }
     borrow.insert(0, CachedLayout { constraints, result });
@@ -141,5 +151,74 @@ impl LayoutCache {
 impl Default for LayoutCache {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::layout::Size;
+
+  fn constraints(max_width: f32) -> Constraints {
+    Constraints {
+      min_width: 0.0,
+      min_height: 0.0,
+      max_width,
+      max_height: f32::MAX,
+    }
+  }
+
+  fn result(width: f32) -> LayoutResult {
+    LayoutResult {
+      size: Size::new(width, 10.0),
+      children: vec![],
+    }
+  }
+
+  /// A dirty cache must not keep sibling entries across a store: they were
+  /// computed before the invalidation, and clearing the cache-wide dirty
+  /// flags while keeping them would serve them as fresh once the caller's
+  /// constraints oscillate back (the studio skills-viewer bug: a scrollbar
+  /// gutter toggled a column's width per pass, and a text row whose content
+  /// grew kept serving its pre-change layout from the second cache slot).
+  #[test]
+  fn store_on_a_dirty_cache_drops_stale_sibling_entries() {
+    let cache = LayoutCache::new();
+    cache.store(constraints(100.0), result(40.0));
+    cache.store(constraints(90.0), result(38.0));
+    assert!(cache.get(constraints(100.0)).is_some());
+    assert!(cache.get(constraints(90.0)).is_some());
+
+    // Content changed: both entries are stale. Repair relayouts under one
+    // constraint set only.
+    cache.mark_descendant_dirty();
+    cache.store(constraints(90.0), result(45.0));
+
+    assert_eq!(
+      cache.get(constraints(90.0)).map(|cached| cached.size.width),
+      Some(45.0),
+      "the freshly stored entry is served"
+    );
+    assert!(
+      cache.get(constraints(100.0)).is_none(),
+      "the pre-invalidation sibling entry must not be served as fresh"
+    );
+  }
+
+  /// A clean cache keeps memoizing both constraint sets (the two-slot memo
+  /// exists for constraint oscillation with unchanged content).
+  #[test]
+  fn clean_stores_keep_both_entries() {
+    let cache = LayoutCache::new();
+    cache.store(constraints(100.0), result(40.0));
+    cache.store(constraints(90.0), result(38.0));
+    assert_eq!(
+      cache.get(constraints(100.0)).map(|cached| cached.size.width),
+      Some(40.0)
+    );
+    assert_eq!(
+      cache.get(constraints(90.0)).map(|cached| cached.size.width),
+      Some(38.0)
+    );
   }
 }
