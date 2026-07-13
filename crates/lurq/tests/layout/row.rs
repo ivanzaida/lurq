@@ -213,3 +213,43 @@ fn row_default_wrapping_text_emits_unwrapped_quad_when_layout_is_unbounded() {
 
   assert!(!version, "unbounded row text should render without soft-wrap");
 }
+
+/// A fit-content child of a wrapping row (e.g. a value pill: text + glyph)
+/// must measure its text at intrinsic width — the same as it would in a
+/// non-wrapping row.
+#[test]
+fn row_wrap_keeps_text_width_in_fit_content_children() {
+  let pill = || {
+    lurq::components::Row::new()
+      .align_items(Alignment::Center)
+      .spacing(6.0)
+      .padding_vertical(5.0)
+      .padding_horizontal(9.0)
+      .child(lurq::components::Text::new("11208"))
+      .child(lurq::components::Text::new("x"))
+  };
+
+  let mut plain = rt();
+  plain.set_root(lurq::components::Row::new().spacing(7.0).child(pill()));
+  let plain_result = plain.pass_layout(Constraints::tight(Size::new(400.0, 100.0))).unwrap();
+  let plain_pill = plain_result.children[0].result.size;
+
+  let mut wrapped = rt();
+  wrapped.set_root(lurq::components::Row::new().wrap().spacing(7.0).child(pill()));
+  let wrap_result = wrapped
+    .pass_layout(Constraints::tight(Size::new(400.0, 100.0)))
+    .unwrap();
+  let wrap_pill = wrap_result.children[0].result.size;
+
+  assert!(
+    plain_pill.width > 20.0,
+    "the pill must have measurable text: {}x{}",
+    plain_pill.width,
+    plain_pill.height
+  );
+  assert_eq!(
+    wrap_pill.width, plain_pill.width,
+    "a wrapped row must not change a fit-content child's measured width"
+  );
+  assert_eq!(wrap_pill.height, plain_pill.height);
+}

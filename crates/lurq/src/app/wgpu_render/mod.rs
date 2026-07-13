@@ -1895,7 +1895,8 @@ fn capture_wgpu_frame(
 
   let bytes_per_pixel = 4_u32;
   let unpadded_bytes_per_row = capture.width * bytes_per_pixel;
-  let padded_bytes_per_row = align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+  let padded_bytes_per_row =
+    crate::app::frame_capture::align_capture_row_pitch(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
   let buffer_size = padded_bytes_per_row as u64 * capture.height as u64;
   let buffer = device.create_buffer(&wgpu::BufferDescriptor {
     label: Some("lurq_devtools_frame_capture"),
@@ -1951,134 +1952,22 @@ fn capture_wgpu_frame(
     }
 
     let data = slice.get_mapped_range();
-    let mut pixels = vec![0_u8; capture.width as usize * capture.height as usize * 4];
-    for y in 0..capture.height {
-      let source_start = y as usize * padded_bytes_per_row as usize;
-      let source_row = &data[source_start..source_start + unpadded_bytes_per_row as usize];
-      let target_start = y as usize * capture.width as usize * 4;
-      let target_row = &mut pixels[target_start..target_start + capture.width as usize * 4];
-      copy_capture_row_to_rgba(source_row, target_row, format);
-    }
+    let bgra = matches!(
+      format,
+      wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+    );
+    let pixels = crate::app::frame_capture::capture_rows_to_rgba(
+      &data,
+      padded_bytes_per_row as usize,
+      capture.width,
+      capture.height,
+      bgra,
+    );
     drop(data);
     buffer.unmap();
 
-    apply_capture_window_clip(&mut pixels, &capture);
-
-    if let Some(parent) = capture
-      .output_path
-      .parent()
-      .filter(|parent| !parent.as_os_str().is_empty())
-    {
-      if let Err(error) = std::fs::create_dir_all(parent) {
-        tracing::warn!(
-          "failed to create devtools screenshot output directory {}: {error}",
-          parent.display()
-        );
-        return;
-      }
-    }
-    if let Err(error) = image::save_buffer_with_format(
-      &capture.output_path,
-      &pixels,
-      capture.width,
-      capture.height,
-      image::ColorType::Rgba8,
-      image::ImageFormat::Png,
-    ) {
-      tracing::warn!(
-        "failed to save devtools node screenshot to {}: {error}",
-        capture.output_path.display()
-      );
-    } else {
-      tracing::info!("Saved screenshot here: {}", capture.output_path.display());
-    }
+    crate::app::frame_capture::finish_capture(pixels, &capture);
   });
-}
-
-#[cfg(feature = "devtools")]
-fn align_to(value: u32, alignment: u32) -> u32 {
-  value.div_ceil(alignment) * alignment
-}
-
-#[cfg(feature = "devtools")]
-fn copy_capture_row_to_rgba(source: &[u8], target: &mut [u8], format: wgpu::TextureFormat) {
-  let bgra = matches!(
-    format,
-    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
-  );
-  for (source, target) in source.chunks_exact(4).zip(target.chunks_exact_mut(4)) {
-    if bgra {
-      target[0] = source[2];
-      target[1] = source[1];
-      target[2] = source[0];
-      target[3] = source[3];
-    } else {
-      target.copy_from_slice(source);
-    }
-  }
-}
-
-#[cfg(feature = "devtools")]
-fn apply_capture_window_clip(pixels: &mut [u8], capture: &RenderFrameCapture) {
-  let Some(clip) = capture.window_clip else {
-    return;
-  };
-  for y in 0..capture.height {
-    for x in 0..capture.width {
-      let world_x = capture.x as f32 + x as f32 + 0.5;
-      let world_y = capture.y as f32 + y as f32 + 0.5;
-      if capture_rounded_rect_contains(world_x, world_y, 0.0, 0.0, clip.width, clip.height, clip.radii) {
-        continue;
-      }
-      let index = (y * capture.width + x) as usize * 4;
-      pixels[index..index + 4].copy_from_slice(&[0, 0, 0, 0]);
-    }
-  }
-}
-
-#[cfg(feature = "devtools")]
-fn capture_rounded_rect_contains(
-  x: f32,
-  y: f32,
-  rect_x: f32,
-  rect_y: f32,
-  width: f32,
-  height: f32,
-  radii: [f32; 4],
-) -> bool {
-  if x < rect_x || y < rect_y || x >= rect_x + width || y >= rect_y + height {
-    return false;
-  }
-  let max_radius = width.min(height).max(0.0) * 0.5;
-  let radii = radii.map(|radius| radius.max(0.0).min(max_radius));
-  let right = rect_x + width;
-  let bottom = rect_y + height;
-  if radii.iter().all(|radius| *radius <= 0.0) {
-    return true;
-  }
-  if x < rect_x + radii[0] && y < rect_y + radii[0] {
-    return capture_point_in_corner(x, y, rect_x + radii[0], rect_y + radii[0], radii[0]);
-  }
-  if x >= right - radii[1] && y < rect_y + radii[1] {
-    return capture_point_in_corner(x, y, right - radii[1], rect_y + radii[1], radii[1]);
-  }
-  if x >= right - radii[2] && y >= bottom - radii[2] {
-    return capture_point_in_corner(x, y, right - radii[2], bottom - radii[2], radii[2]);
-  }
-  if x < rect_x + radii[3] && y >= bottom - radii[3] {
-    return capture_point_in_corner(x, y, rect_x + radii[3], bottom - radii[3], radii[3]);
-  }
-  true
-}
-
-#[cfg(feature = "devtools")]
-fn capture_point_in_corner(x: f32, y: f32, center_x: f32, center_y: f32, radius: f32) -> bool {
-  if radius <= 0.0 {
-    return true;
-  }
-  let dx = x - center_x;
-  let dy = y - center_y;
-  dx * dx + dy * dy <= radius * radius
 }
 
 fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect) -> bool {

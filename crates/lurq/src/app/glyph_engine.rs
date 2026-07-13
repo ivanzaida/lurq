@@ -1077,7 +1077,33 @@ impl GlyphEngine {
     let key = CacheKey::new_for_raster(text, style, max_width, wrap, snap_to_pixel);
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
+    // `LURQ_GLYPH_DEBUG=<substring>` dumps every emission of a matching text
+    // run: cache path, geometry, atlas coords, and the resulting UVs — the
+    // ground truth for "this text is invisible on screen" hunts.
+    let debug_marker = glyph_debug_marker().filter(|marker| text.contains(marker.as_str()));
+    if let Some(marker) = &debug_marker {
+      eprintln!(
+        "[glyph-debug:{marker}] run text={text:?} size={} family={:?} origin=({origin_x}, {origin_y}) \
+         max_width={max_width} snap={snap_to_pixel} clip={} atlas={atlas_w}x{atlas_h}",
+        style.font_size,
+        style.font_family,
+        clip_debug_text(clip),
+      );
+    }
     if let Some(cached) = self.glyph_layout_cache.get(&key) {
+      if let Some(marker) = &debug_marker {
+        for glyph in cached.iter() {
+          eprintln!(
+            "[glyph-debug:{marker}] HIT glyph at ({}, {}) {}x{} atlas=({}, {})",
+            origin_x + glyph.x,
+            origin_y + glyph.y,
+            glyph.width,
+            glyph.height,
+            glyph.atlas_x,
+            glyph.atlas_y,
+          );
+        }
+      }
       self.glyph_hits += cached.len();
       #[cfg(feature = "perf_profile")]
       let append_start = Instant::now();
@@ -1144,6 +1170,14 @@ impl GlyphEngine {
     let mut skipped_run_for_clip = false;
     for run in buffer.layout_runs() {
       if !text_run_intersects_clip(origin_y, run.line_top, run.line_height, clip) {
+        if let Some(marker) = &debug_marker {
+          eprintln!(
+            "[glyph-debug:{marker}] MISS line SKIPPED by clip: line_top={} line_height={} origin_y={origin_y} clip={}",
+            run.line_top,
+            run.line_height,
+            clip_debug_text(clip),
+          );
+        }
         skipped_run_for_clip = true;
         continue;
       }
@@ -1154,6 +1188,12 @@ impl GlyphEngine {
         let cached_glyph = if snap_to_pixel {
           let physical = glyph.physical((0.0, run.line_y), 1.0);
           let Some(packed) = self.get_or_pack_glyph(physical.cache_key) else {
+            if let Some(marker) = &debug_marker {
+              eprintln!(
+                "[glyph-debug:{marker}] MISS glyph {} FAILED to rasterize/pack (font_id={:?})",
+                glyph.glyph_id, physical.cache_key.font_id,
+              );
+            }
             continue;
           };
 
@@ -1177,6 +1217,12 @@ impl GlyphEngine {
             glyph.cache_key_flags,
           );
           let Some(packed) = self.get_or_pack_glyph(cache_key) else {
+            if let Some(marker) = &debug_marker {
+              eprintln!(
+                "[glyph-debug:{marker}] MISS glyph {} FAILED to rasterize/pack (font_id={:?})",
+                glyph.glyph_id, glyph.font_id,
+              );
+            }
             continue;
           };
 
@@ -1198,6 +1244,23 @@ impl GlyphEngine {
     self.buffer_pool.push(buffer);
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
+    if let Some(marker) = &debug_marker {
+      eprintln!(
+        "[glyph-debug:{marker}] MISS rasterized {} glyphs, skipped_for_clip={skipped_run_for_clip}, atlas now {atlas_w}x{atlas_h}",
+        cached.len(),
+      );
+      for glyph in &cached {
+        eprintln!(
+          "[glyph-debug:{marker}] MISS glyph at ({}, {}) {}x{} atlas=({}, {})",
+          origin_x + glyph.x,
+          origin_y + glyph.y,
+          glyph.width,
+          glyph.height,
+          glyph.atlas_x,
+          glyph.atlas_y,
+        );
+      }
+    }
     #[cfg(feature = "perf_profile")]
     let append_start = Instant::now();
     append_glyph_cmds_from_cached(
@@ -2105,6 +2168,44 @@ fn swash_transform_from_screen(transform: Transform2D) -> SwashTransform {
   SwashTransform::new(transform.a, -transform.b, -transform.c, transform.d, 0.0, 0.0)
 }
 
+/// The `LURQ_GLYPH_DEBUG` env marker, read once — a substring of the text runs
+/// to trace through emission (see `rasterize_text_with_snap_into`).
+/// Render an optional clip rect for the glyph-debug lines.
+fn clip_debug_text(clip: Option<ClipRect>) -> String {
+  match clip {
+    Some(clip) => format!(
+      "({}, {}, {}x{}, active={})",
+      clip.x, clip.y, clip.width, clip.height, clip.active
+    ),
+    None => "none".to_owned(),
+  }
+}
+
+pub(crate) fn glyph_debug_marker() -> Option<String> {
+  static MARKER: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+  MARKER
+    .get_or_init(|| {
+      std::env::var("LURQ_GLYPH_DEBUG")
+        .ok()
+        .filter(|marker| !marker.is_empty())
+    })
+    .clone()
+}
+
+/// `LURQ_GLYPH_DEBUG_FORCE` — draw-command overrides applied to the marked
+/// text runs, to bisect why a well-formed run is invisible: `noclip` clears
+/// their clip, `order` lifts them above everything, `both` does both.
+pub(crate) fn glyph_debug_force() -> Option<String> {
+  static FORCE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+  FORCE
+    .get_or_init(|| {
+      std::env::var("LURQ_GLYPH_DEBUG_FORCE")
+        .ok()
+        .filter(|force| !force.is_empty())
+    })
+    .clone()
+}
+
 fn render_glyph_image(context: &mut ScaleContext, font: &Font, cache_key: GlyphCacheKey) -> Option<SwashImage> {
   let mut scaler = context
     .builder(font.as_swash())
@@ -2968,6 +3069,66 @@ mod tests {
     );
 
     engine.buffer_pool.push(buffer);
+  }
+
+  /// Tiny UI text (chips/pills render around 7-8px) must still rasterize
+  /// visible coverage — a correctly-sized but all-zero mask packs into the
+  /// atlas and draws as invisible text, which no glyph-command-level check
+  /// catches.
+  #[test]
+  fn tiny_font_sizes_rasterize_nonzero_coverage() {
+    let mut engine = GlyphEngine::new();
+    for weight in [
+      crate::layout::text_style::FontWeight::Normal,
+      crate::layout::text_style::FontWeight::Bold,
+    ] {
+      for font_size in [7.7_f32, 8.4, 9.1, 11.0] {
+        let style = crate::layout::text_style::TextStyle {
+          weight,
+          font_size,
+          ..crate::layout::text_style::TextStyle::default()
+        };
+        let mut buffer = engine.acquire_buffer(&style, 100.0, true);
+        let resolved = engine.resolve_family(&style);
+        let attrs = Attrs::new()
+          .family(Family::Name(&resolved))
+          .weight(style.weight.to_cosmic())
+          .style(style.style.to_cosmic());
+        buffer.set_text(&mut engine.font_system, "2363", attrs, Shaping::Advanced);
+        buffer.shape_until_scroll(&mut engine.font_system, false);
+
+        let mut glyph_count = 0;
+        for run in buffer.layout_runs() {
+          for glyph in run.glyphs.iter() {
+            glyph_count += 1;
+            // A glyph must rasterize visibly at every subpixel offset it can
+            // land on, not just the whole-pixel bin.
+            for x_offset in [0.0_f32, 0.25, 0.5, 0.75] {
+              for y_offset in [0.0_f32, 0.25, 0.5, 0.75] {
+                let physical = glyph.physical((x_offset, run.line_y + y_offset), 1.0);
+                let font = engine
+                  .font_system
+                  .get_font(physical.cache_key.font_id)
+                  .expect("glyph font should be available");
+                let mut context = ScaleContext::new();
+                let image = render_glyph_image(&mut context, &font, physical.cache_key);
+                let visible = image
+                  .as_ref()
+                  .is_some_and(|image| glyph_coverage_mask(image).iter().any(|coverage| *coverage > 0));
+                assert!(
+                  visible,
+                  "{font_size}px glyph {} at subpixel ({x_offset}, {y_offset}) rasterized invisible",
+                  glyph.glyph_id
+                );
+              }
+            }
+          }
+        }
+        engine.buffer_pool.push(buffer);
+
+        assert!(glyph_count > 0, "digits should shape at {font_size}px");
+      }
+    }
   }
 
   #[test]

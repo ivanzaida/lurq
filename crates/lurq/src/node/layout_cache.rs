@@ -216,9 +216,6 @@ mod tests {
       cache.get(constraints(100.0)).map(|cached| cached.size.width),
       Some(40.0)
     );
-    assert_eq!(
-      cache.get(constraints(90.0)).map(|cached| cached.size.width),
-      Some(38.0)
-    );
+    assert_eq!(cache.get(constraints(90.0)).map(|cached| cached.size.width), Some(38.0));
   }
 }

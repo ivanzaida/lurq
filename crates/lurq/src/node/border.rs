@@ -33,6 +33,33 @@ impl BorderRadius {
   pub fn to_array(&self) -> [f32; 4] {
     [self.top_left, self.top_right, self.bottom_right, self.bottom_left]
   }
+
+  /// CSS-style overlap normalization: scale all corner radii down so adjacent
+  /// radii never exceed the box side they share. Pill shapes commonly use an
+  /// oversized radius (e.g. 999) — unclamped, a rounded CLIP with such a
+  /// radius has no interior at all, and everything inside it is discarded by
+  /// the shader-side clip (invisible children).
+  pub fn clamped_to_rect(self, width: f32, height: f32) -> Self {
+    let overlap = [
+      width / (self.top_left + self.top_right),
+      width / (self.bottom_left + self.bottom_right),
+      height / (self.top_left + self.bottom_left),
+      height / (self.top_right + self.bottom_right),
+    ]
+    .into_iter()
+    .filter(|factor| factor.is_finite())
+    .fold(1.0_f32, f32::min);
+    if overlap >= 1.0 {
+      return self;
+    }
+    let overlap = overlap.max(0.0);
+    Self {
+      top_left: self.top_left * overlap,
+      top_right: self.top_right * overlap,
+      bottom_right: self.bottom_right * overlap,
+      bottom_left: self.bottom_left * overlap,
+    }
+  }
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -259,5 +286,32 @@ pub struct ResolvedBorders {
 impl ResolvedBorders {
   pub(crate) fn any(&self) -> bool {
     self.top.is_some() || self.right.is_some() || self.bottom.is_some() || self.left.is_some()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::BorderRadius;
+
+  #[test]
+  fn oversized_radius_clamps_to_pill_shape() {
+    // The pill idiom: radius 999 on a small box must clamp to half the short
+    // side, keeping a non-empty interior for rounded clips.
+    let clamped = BorderRadius::all(999.0).clamped_to_rect(110.0, 25.0);
+    assert_eq!(clamped.top_left, 12.5);
+    assert_eq!(clamped.bottom_right, 12.5);
+
+    // Radii that already fit stay untouched.
+    let fitting = BorderRadius::all(6.0).clamped_to_rect(110.0, 25.0);
+    assert_eq!(fitting.top_left, 6.0);
+
+    // Zero radii divide the overlap factors by zero — must pass through.
+    let zero = BorderRadius::all(0.0).clamped_to_rect(110.0, 25.0);
+    assert_eq!(zero.top_left, 0.0);
+
+    // Asymmetric radii scale uniformly (CSS overlap rule).
+    let uneven = BorderRadius::new(40.0, 10.0, 40.0, 10.0).clamped_to_rect(100.0, 25.0);
+    assert!(uneven.top_left < 40.0);
+    assert!((uneven.top_left / uneven.top_right - 4.0).abs() < 0.001);
   }
 }

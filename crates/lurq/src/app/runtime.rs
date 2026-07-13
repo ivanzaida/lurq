@@ -1918,6 +1918,11 @@ impl Tree {
       svgs
     };
 
+    // `LURQ_GLYPH_DEBUG` — collect the marked text runs' bboxes+orders so the
+    // end of the build can report which rects paint over them.
+    let glyph_debug_marker = crate::app::glyph_engine::glyph_debug_marker();
+    let mut glyph_debug_regions: Vec<(String, f32, f32, f32, f32, usize)> = Vec::new();
+
     for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
         ClipRect {
@@ -2027,7 +2032,15 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + text_vertical_align_offset(app, text, &scaled_style, max_width, *wrap, *vertical_align, scaled_height);
+            + text_vertical_align_offset(
+              app,
+              text,
+              &scaled_style,
+              max_width,
+              *wrap,
+              *vertical_align,
+              scaled_height,
+            );
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
@@ -2084,6 +2097,37 @@ impl Tree {
             if !quad.transform.is_identity() && *transform_mode == TextTransformMode::Bitmap {
               g.transform = glyph_xf;
               g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
+            }
+          }
+          if let Some(marker) = glyph_debug_marker
+            .as_ref()
+            .filter(|marker| text.contains(marker.as_str()))
+          {
+            let run = &glyphs[glyph_start..];
+            let x0 = run.iter().map(|g| g.x).fold(f32::INFINITY, f32::min);
+            let y0 = run.iter().map(|g| g.y).fold(f32::INFINITY, f32::min);
+            let x1 = run.iter().map(|g| g.x + g.width).fold(f32::NEG_INFINITY, f32::max);
+            let y1 = run.iter().map(|g| g.y + g.height).fold(f32::NEG_INFINITY, f32::max);
+            eprintln!(
+              "[glyph-debug:{marker}] ORDER text={text:?} order={order} glyphs={} bbox=({x0}, {y0})..({x1}, {y1}) color={:?} opacity={} sharpness={:?}",
+              run.len(),
+              run.first().map(|g| g.color),
+              quad.opacity,
+              run.first().map(|g| g.sharpness),
+            );
+            glyph_debug_regions.push((text.clone(), x0, y0, x1, y1, order));
+            if let Some(force) = crate::app::glyph_engine::glyph_debug_force() {
+              let noclip = force == "noclip" || force == "both";
+              let lift = force == "order" || force == "both";
+              for g in &mut glyphs[glyph_start..] {
+                if noclip {
+                  g.clip = ClipRect::default();
+                }
+                if lift {
+                  g.order += 10_000;
+                }
+              }
+              eprintln!("[glyph-debug:{marker}] FORCED {force} on {text:?}");
             }
           }
           if let Some(shadow) = &style.shadow {
@@ -2344,6 +2388,33 @@ impl Tree {
       scale,
       self.viewport_physical,
     );
+
+    if let Some(marker) = &glyph_debug_marker {
+      for (text, x0, y0, x1, y1, text_order) in &glyph_debug_regions {
+        for rect in &rects {
+          let covers = rect.order >= *text_order
+            && rect.x < *x1
+            && rect.x + rect.width > *x0
+            && rect.y < *y1
+            && rect.y + rect.height > *y0;
+          if covers {
+            eprintln!(
+              "[glyph-debug:{marker}] COVERING RECT over {text:?} (text order {text_order}): order={} at ({}, {}) {}x{} radii={:?} rgba=({}, {}, {}, {})",
+              rect.order,
+              rect.x,
+              rect.y,
+              rect.width,
+              rect.height,
+              rect.radii,
+              rect.color.r(),
+              rect.color.g(),
+              rect.color.b(),
+              rect.color.a(),
+            );
+          }
+        }
+      }
+    }
 
     let glyph_wall_dur = glyph_wall_start.elapsed();
     let _glyph_dur = profile_elapsed!(_glyph_start);
@@ -7098,10 +7169,12 @@ fn draw_screenshot_glyph(
   let atlas_y1 = (glyph.uv_max[1] * atlas.height as f32).round() as i32;
   let atlas_w = (atlas_x1 - atlas_x0).max(1);
   let atlas_h = (atlas_y1 - atlas_y0).max(1);
+  // Glyph colors arrive in linear space (see glyph_engine's to_linear_f32_array);
+  // the PNG stores sRGB, so encode like the sRGB surface does on write.
   let color = [
-    (glyph.color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-    (glyph.color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-    (glyph.color[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+    screenshot_linear_to_srgb_u8(glyph.color[0]),
+    screenshot_linear_to_srgb_u8(glyph.color[1]),
+    screenshot_linear_to_srgb_u8(glyph.color[2]),
     (glyph.color[3].clamp(0.0, 1.0) * 255.0).round() as u8,
   ];
 
@@ -8714,7 +8787,15 @@ fn rich_text_vertical_align_offset(
   // (mixed sizes) falls back to metric extent, which is adequate for the
   // markdown/rich cases that use it.
   if let [span] = spans {
-    return text_vertical_align_offset(app, &span.text, &span.style, max_width, wrap, vertical_align, quad_height);
+    return text_vertical_align_offset(
+      app,
+      &span.text,
+      &span.style,
+      max_width,
+      wrap,
+      vertical_align,
+      quad_height,
+    );
   }
   let measured = app.glyph_engine.measure_rich_text(spans, max_width).height;
   vertical_align_offset(
@@ -9088,5 +9169,53 @@ mod tests {
     let transform = Transform2D::rotate_deg(-2.0).then(&Transform2D::scale(1.02, 1.02));
 
     assert_eq!(transformed_text_raster_scale(transform), 2.0);
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn screenshot_glyph_encodes_linear_color_back_to_srgb() {
+    use crate::{
+      app::runtime::{draw_screenshot_glyph, DevtoolsScreenshotBounds},
+      layout::render_list::{GlyphAtlas, GlyphCmd},
+      node::color::Color,
+    };
+
+    let source = Color::new(128, 128, 128, 255);
+    let glyph = GlyphCmd {
+      order: 0,
+      x: 0.0,
+      y: 0.0,
+      width: 1.0,
+      height: 1.0,
+      color: source.to_linear_f32_array(),
+      uv_min: [0.0, 0.0],
+      uv_max: [1.0, 1.0],
+      transform: [1.0, 0.0, 0.0, 1.0],
+      transform_origin: [0.0, 0.0],
+      sharpness: 1.0,
+      color_glyph: false,
+      shadow_sigma: 0.0,
+      clip: ClipRect::default(),
+    };
+    let atlas = GlyphAtlas {
+      data: std::sync::Arc::from([255_u8, 255, 255, 255].as_slice()),
+      width: 1,
+      height: 1,
+      version: 0,
+      dirty_rects: std::sync::Arc::from([].as_slice()),
+      dirty_from_version: 0,
+    };
+    let bounds = DevtoolsScreenshotBounds {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      window_clip: None,
+    };
+
+    let mut pixels = vec![0_u8, 0, 0, 255];
+    draw_screenshot_glyph(&mut pixels, bounds, &glyph, &atlas);
+
+    assert_eq!(&pixels, &[source.r(), source.g(), source.b(), 255]);
   }
 }

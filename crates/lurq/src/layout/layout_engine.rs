@@ -1449,7 +1449,9 @@ impl LayoutEngine {
             width: state.viewport_width(),
             height: state.viewport_height(),
             active: true,
-            border_radius: node.get_border_radius(&self.radii.borrow()),
+            border_radius: node
+              .get_border_radius(&self.radii.borrow())
+              .map(|radius| radius.clamped_to_rect(state.viewport_width(), state.viewport_height())),
           },
         );
         let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
@@ -1468,7 +1470,9 @@ impl LayoutEngine {
             width: result.size.width,
             height: result.size.height,
             active: true,
-            border_radius: node.get_border_radius(&self.radii.borrow()),
+            border_radius: node
+              .get_border_radius(&self.radii.borrow())
+              .map(|radius| radius.clamped_to_rect(result.size.width, result.size.height)),
           },
         );
         let child_clip = inset_clip_for_border(overflow_clip, resolved_border);
@@ -2801,9 +2805,13 @@ impl LayoutEngine {
       .iter()
       .enumerate()
       .map(|(index, child)| {
+        // Children measure at their intrinsic size: the container's min
+        // cross-constraint must not leak into them (same as the non-wrap
+        // path's `non_flex_child_constraints`), or a tight-height container
+        // stretches every wrapped item to its own min height.
         let c = if vertical {
           Constraints {
-            min_width: constraints.min_width,
+            min_width: 0.0,
             max_width: constraints.max_width,
             min_height: 0.0,
             max_height: f32::INFINITY,
@@ -2812,7 +2820,7 @@ impl LayoutEngine {
           Constraints {
             min_width: 0.0,
             max_width: f32::INFINITY,
-            min_height: constraints.min_height,
+            min_height: 0.0,
             max_height: constraints.max_height,
           }
         };

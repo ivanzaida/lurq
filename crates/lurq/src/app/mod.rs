@@ -3,6 +3,11 @@ pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]
 pub mod devtools;
+#[cfg(all(
+  feature = "devtools",
+  any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))
+))]
+pub(crate) mod frame_capture;
 #[cfg(all(feature = "dx12", target_os = "windows"))]
 pub mod dx12_render;
 pub mod events;
