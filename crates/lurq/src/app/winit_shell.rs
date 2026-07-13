@@ -1952,7 +1952,7 @@ fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
 
   unsafe {
     let _ = ReleaseCapture();
-    SendMessageW(hwnd, WM_NCLBUTTONDOWN, WPARAM(hit_test as usize), LPARAM(0));
+    SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(hit_test as usize)), Some(LPARAM(0)));
   }
   true
 }

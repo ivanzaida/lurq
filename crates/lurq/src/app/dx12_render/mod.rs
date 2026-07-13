@@ -90,6 +90,17 @@ use windows::{
   core::{Error, HRESULT, Interface, PCSTR, Result},
 };
 
+/// `windows` 0.62 renamed the last-thread Win32 error constructor.
+trait Win32ErrorCompat {
+  fn from_win32() -> Self;
+}
+
+impl Win32ErrorCompat for Error {
+  fn from_win32() -> Self {
+    Self::from_thread()
+  }
+}
+
 #[cfg(feature = "devtools")]
 use windows::Win32::Graphics::Direct3D12::{
   D3D12_BOX, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT,
@@ -2526,7 +2537,7 @@ impl Dx12State {
     command_list.Close()?;
 
     let fence: ID3D12Fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
-    let fence_event = CreateEventW(None, FALSE, FALSE, None)?;
+    let fence_event = CreateEventW(None, false, false, None)?;
     let frame_arenas = [
       UploadArena::new(&device, FRAME_UPLOAD_ARENA_BYTES)?,
       UploadArena::new(&device, FRAME_UPLOAD_ARENA_BYTES)?,
@@ -2683,7 +2694,7 @@ impl Dx12State {
       D3D12_RESOURCE_STATE_RENDER_TARGET,
     );
     let rtv = self.current_rtv_handle();
-    self.command_list.OMSetRenderTargets(1, Some(&rtv), FALSE, None);
+    self.command_list.OMSetRenderTargets(1, Some(&rtv), false, None);
     self
       .command_list
       .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
@@ -2786,7 +2797,9 @@ impl Dx12State {
       bottom: capture.y + capture.height,
       back: 1,
     };
-    self.command_list.CopyTextureRegion(&dst, 0, 0, 0, &src, Some(&source_box));
+    self
+      .command_list
+      .CopyTextureRegion(&dst, 0, 0, 0, &src, Some(&source_box));
     ManuallyDrop::drop(&mut dst.pResource);
     ManuallyDrop::drop(&mut src.pResource);
     self.transition_resource(&target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
@@ -2801,7 +2814,12 @@ impl Dx12State {
   /// Wait for the capture copy's fence, map the readback buffer, and hand the
   /// tight RGBA pixels to a worker thread for clipping and PNG encoding.
   #[cfg(feature = "devtools")]
-  unsafe fn finish_frame_capture(&mut self, capture: RenderFrameCapture, readback: FrameCaptureReadback, fence_value: u64) {
+  unsafe fn finish_frame_capture(
+    &mut self,
+    capture: RenderFrameCapture,
+    readback: FrameCaptureReadback,
+    fence_value: u64,
+  ) {
     if let Err(err) = self.wait_for_capture_fence(fence_value) {
       tracing::warn!(
         "dropped dx12 devtools frame capture to {}: {err:?}",

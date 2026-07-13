@@ -371,11 +371,10 @@ impl Default for WgpuRenderEngine {
 
 impl WgpuRenderEngine {
   pub fn new() -> Self {
+    let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    instance_descriptor.backends = wgpu::Backends::all();
     Self {
-      instance: wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-      }),
+      instance: wgpu::Instance::new(instance_descriptor),
       adapter: None,
       device: None,
       queue: None,
@@ -546,8 +545,8 @@ impl WgpuRenderEngine {
   }
 
   fn create_surface(&self, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> wgpu::Surface<'static> {
-    let surface_target =
-      unsafe { wgpu::SurfaceTargetUnsafe::from_window(&WindowDisplayPair { window, display }) }.unwrap();
+    let handles = WindowDisplayPair { window, display };
+    let surface_target = unsafe { wgpu::SurfaceTargetUnsafe::from_display_and_window(&handles, &handles) }.unwrap();
     unsafe { self.instance.create_surface_unsafe(surface_target) }.unwrap()
   }
 
@@ -643,8 +642,8 @@ impl WgpuRenderEngine {
 
     let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
       label: Some("lurq_quad_pl"),
-      bind_group_layouts: &[&quad_bgl],
-      push_constant_ranges: &[],
+      bind_group_layouts: &[Some(&quad_bgl)],
+      immediate_size: 0,
     });
 
     let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -672,7 +671,7 @@ impl WgpuRenderEngine {
       },
       depth_stencil: None,
       multisample: wgpu::MultisampleState::default(),
-      multiview: None,
+      multiview_mask: None,
       cache: None,
     });
 
@@ -716,8 +715,8 @@ impl WgpuRenderEngine {
 
     let glyph_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
       label: Some("lurq_glyph_pl"),
-      bind_group_layouts: &[&glyph_bgl],
-      push_constant_ranges: &[],
+      bind_group_layouts: &[Some(&glyph_bgl)],
+      immediate_size: 0,
     });
 
     let glyph_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -745,7 +744,7 @@ impl WgpuRenderEngine {
       },
       depth_stencil: None,
       multisample: wgpu::MultisampleState::default(),
-      multiview: None,
+      multiview_mask: None,
       cache: None,
     });
 
@@ -835,13 +834,13 @@ impl WgpuRenderEngine {
       });
       let image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("lurq_image_pl"),
-        bind_group_layouts: &[&image_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&image_bgl)],
+        immediate_size: 0,
       });
       let nv12_image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("lurq_nv12_image_pl"),
-        bind_group_layouts: &[&nv12_image_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&nv12_image_bgl)],
+        immediate_size: 0,
       });
       let image_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("lurq_image_pipeline"),
@@ -868,7 +867,7 @@ impl WgpuRenderEngine {
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
       });
       let nv12_image_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -896,7 +895,7 @@ impl WgpuRenderEngine {
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
       });
       let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -939,8 +938,8 @@ impl WgpuRenderEngine {
       });
       let svg_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("lurq_svg_pl"),
-        bind_group_layouts: &[&svg_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&svg_bgl)],
+        immediate_size: 0,
       });
       let svg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("lurq_svg_pipeline"),
@@ -967,7 +966,7 @@ impl WgpuRenderEngine {
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
       });
       (svg_pipeline, svg_bgl)
@@ -1123,19 +1122,19 @@ impl RenderEngine for WgpuRenderEngine {
 
     let _acquire_start = profile_scope!();
     let output = match surface.get_current_texture() {
-      Ok(t) => t,
+      wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
       // The surface fell out of sync with the window — common on Vulkan during a
       // live resize (VK_ERROR_OUT_OF_DATE_KHR). Reconfigure to the current size
       // and retry once; without this the frame is skipped and the window stalls
       // (and stays stalled) while resizing.
-      Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+      wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
         surface.configure(device, config);
         match surface.get_current_texture() {
-          Ok(t) => t,
-          Err(_) => return false,
+          wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
+          _ => return false,
         }
       }
-      Err(_) => {
+      _ => {
         profile_if! {
           self.last_profile = RenderProfile {
             init: _init_dur,
