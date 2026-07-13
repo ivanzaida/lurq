@@ -1,3 +1,4 @@
+mod extension;
 mod vertex;
 
 #[cfg(all(feature = "image", target_os = "macos"))]
@@ -10,6 +11,8 @@ use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocato
 use core_foundation_sys::dictionary::CFDictionaryRef;
 #[cfg(all(feature = "image", target_os = "macos"))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
+use extension::WgpuFrameExtensionEntry;
+pub use extension::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
 #[cfg(all(feature = "image", target_os = "macos"))]
 use metal::foreign_types::ForeignType;
 use raw_window_handle::{DisplayHandle, WindowHandle};
@@ -184,6 +187,13 @@ struct CachedRgbaFrame {
 
 #[cfg(feature = "image")]
 enum CachedImageTexture {
+  ExternalRgba {
+    bind_group: wgpu::BindGroup,
+    view: wgpu::TextureView,
+    width: u32,
+    height: u32,
+    version: u64,
+  },
   Rgba {
     bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
@@ -265,6 +275,7 @@ unsafe extern "C" {
 impl CachedImageTexture {
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
+      Self::ExternalRgba { .. } => false,
       Self::Rgba {
         width,
         height,
@@ -347,6 +358,7 @@ pub struct WgpuRenderEngine {
   scratch_ordered_draws: Vec<(usize, OrderedDraw)>,
   width: u32,
   height: u32,
+  frame_extensions: Vec<WgpuFrameExtensionEntry>,
   #[cfg(feature = "devtools")]
   pending_frame_capture: Option<RenderFrameCapture>,
 }
@@ -424,14 +436,60 @@ impl WgpuRenderEngine {
       scratch_ordered_draws: Vec::new(),
       width: 800,
       height: 600,
+      frame_extensions: Vec::new(),
       #[cfg(feature = "devtools")]
       pending_frame_capture: None,
     }
   }
 
+  pub fn with_frame_extension(mut self, extension: impl WgpuFrameExtension + 'static) -> Self {
+    self.add_frame_extension(extension);
+    self
+  }
+
+  pub fn add_frame_extension(&mut self, extension: impl WgpuFrameExtension + 'static) {
+    self
+      .frame_extensions
+      .push(WgpuFrameExtensionEntry::new(Box::new(extension)));
+  }
+
+  fn shared_context(&self) -> Option<SharedWgpuContext> {
+    Some(SharedWgpuContext {
+      instance: self.instance.clone(),
+      adapter: self.adapter.clone()?,
+      device: self.device.clone()?,
+      queue: self.queue.clone()?,
+      surface_format: self.surface_format?,
+    })
+  }
+
+  fn prepare_frame_extensions(&mut self, list: &RenderList) {
+    if self.frame_extensions.is_empty() {
+      return;
+    }
+    let Some(gpu) = self.shared_context() else {
+      return;
+    };
+    let frame = WgpuFrameInfo::new(list, self.width, self.height);
+    for entry in &mut self.frame_extensions {
+      if !entry.initialized {
+        entry.extension.initialize(&gpu);
+        entry.initialized = true;
+      }
+      entry.extension.prepare(&gpu, frame);
+    }
+  }
+
   fn release_gpu_resources(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::Maintain::Poll);
+      let _ = device.poll(wgpu::PollType::Poll);
+    }
+
+    for entry in &mut self.frame_extensions {
+      if entry.initialized {
+        entry.extension.shutdown();
+        entry.initialized = false;
+      }
     }
 
     #[cfg(feature = "image")]
@@ -542,13 +600,10 @@ impl WgpuRenderEngine {
     }))
     .expect("no suitable GPU adapter found");
 
-    let (device, queue) = pollster::block_on(adapter.request_device(
-      &wgpu::DeviceDescriptor {
-        label: Some("lurq"),
-        ..Default::default()
-      },
-      None,
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+      label: Some("lurq"),
+      ..Default::default()
+    }))
     .expect("failed to create device");
 
     let format = self.configure_surface(surface, &adapter, &device);
@@ -1016,6 +1071,26 @@ impl Drop for WgpuRenderEngine {
   }
 }
 
+#[cfg(test)]
+mod extension_tests {
+  use super::{WgpuFrameExtension, WgpuRenderEngine};
+  use crate::app::render_engine::RenderEngine;
+
+  struct ContinuousExtension;
+
+  impl WgpuFrameExtension for ContinuousExtension {
+    fn wants_redraw(&self) -> bool {
+      true
+    }
+  }
+
+  #[test]
+  fn frame_extension_can_drive_host_redraws() {
+    let renderer = WgpuRenderEngine::new().with_frame_extension(ContinuousExtension);
+    assert!(renderer.wants_redraw());
+  }
+}
+
 impl RenderEngine for WgpuRenderEngine {
   fn resize(&mut self, width: u32, height: u32) {
     self.width = width.max(1);
@@ -1037,6 +1112,7 @@ impl RenderEngine for WgpuRenderEngine {
     let _init_start = profile_scope!();
     self.ensure_initialized(window, display);
     let _init_dur = profile_elapsed!(_init_start);
+    self.prepare_frame_extensions(list);
 
     let device = self.device.as_ref().unwrap();
     let queue = self.queue.as_ref().unwrap();
@@ -1376,6 +1452,7 @@ impl RenderEngine for WgpuRenderEngine {
         label: Some("lurq_pass"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
           view: &view,
+          depth_slice: None,
           resolve_target: None,
           ops: wgpu::Operations {
             load: wgpu::LoadOp::Clear(wgpu_clear_color(list.clear_color)),
@@ -1555,7 +1632,43 @@ impl RenderEngine for WgpuRenderEngine {
             let image_pipeline = self.image_pipeline.as_ref().unwrap().clone();
             let nv12_image_pipeline = self.nv12_image_pipeline.as_ref().unwrap().clone();
 
-            if !self
+            let external_wgpu_image = img
+              .native
+              .as_ref()
+              .filter(|native| native.backend() == crate::images::NativeImageBackend::WgpuExternalRgba);
+            if let Some(native) = external_wgpu_image {
+              let Some(snapshot) = native
+                .payload::<crate::images::WgpuExternalImageState>()
+                .and_then(crate::images::WgpuExternalImageState::snapshot)
+              else {
+                self.image_texture_cache.remove(&img.image_id);
+                continue;
+              };
+              let is_current = self.image_texture_cache.get(&img.image_id).is_some_and(|cached| {
+                matches!(
+                  cached,
+                  CachedImageTexture::ExternalRgba {
+                    width,
+                    height,
+                    version,
+                    ..
+                  } if *width == snapshot.width && *height == snapshot.height && *version == snapshot.version
+                )
+              });
+              if !is_current {
+                self.image_texture_cache.insert(
+                  img.image_id,
+                  create_external_rgba_cached_image_texture(
+                    device,
+                    &image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    snapshot,
+                  ),
+                );
+                self.image_clip_bind_groups.clear();
+              }
+            } else if !self
               .image_texture_cache
               .get(&img.image_id)
               .is_some_and(|cached| cached.is_compatible(img))
@@ -1564,7 +1677,7 @@ impl RenderEngine for WgpuRenderEngine {
               self.image_clip_bind_groups.clear();
             }
 
-            if !self.image_texture_cache.contains_key(&img.image_id) {
+            if external_wgpu_image.is_none() && !self.image_texture_cache.contains_key(&img.image_id) {
               let _image_texture_upload_start = profile_scope!();
               let cached = match img.image_format {
                 crate::images::ImagePixelFormat::Rgba8 => Some(create_rgba_cached_image_texture(
@@ -1591,6 +1704,7 @@ impl RenderEngine for WgpuRenderEngine {
               continue;
             };
             match cached {
+              CachedImageTexture::ExternalRgba { .. } => {}
               CachedImageTexture::Rgba {
                 texture,
                 animation_frames,
@@ -1634,6 +1748,45 @@ impl RenderEngine for WgpuRenderEngine {
             }
 
             match cached {
+              CachedImageTexture::ExternalRgba { bind_group, view, .. } => {
+                if active_pipeline != Some(ActivePipeline::Image) {
+                  pass.set_pipeline(&image_pipeline);
+                  active_pipeline = Some(ActivePipeline::Image);
+                }
+                if rounded_clip_needs_shader(img.clip) {
+                  let (clip_key, clip_globals) =
+                    globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
+                  let bind_key = ImageClipBindGroupKey {
+                    image_id: img.image_id,
+                    frame_index: 0,
+                    clip: clip_key,
+                    format: ImageClipFormat::Rgba,
+                  };
+                  let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                      label: Some("lurq_external_image_clip_bg"),
+                      layout: &image_bgl,
+                      entries: &[
+                        wgpu::BindGroupEntry {
+                          binding: 0,
+                          resource: clip_globals.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 1,
+                          resource: wgpu::BindingResource::TextureView(view),
+                        },
+                        wgpu::BindGroupEntry {
+                          binding: 2,
+                          resource: wgpu::BindingResource::Sampler(&image_sampler),
+                        },
+                      ],
+                    })
+                  });
+                  pass.set_bind_group(0, &*clip_bind_group, &[]);
+                } else {
+                  pass.set_bind_group(0, &*bind_group, &[]);
+                }
+              }
               CachedImageTexture::Rgba {
                 bind_group,
                 view,
@@ -1869,10 +2022,14 @@ impl RenderEngine for WgpuRenderEngine {
 
   fn release_window_surface(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::Maintain::Poll);
+      let _ = device.poll(wgpu::PollType::Poll);
     }
     self.surface_config = None;
     self.surface = None;
+  }
+
+  fn wants_redraw(&self) -> bool {
+    self.frame_extensions.iter().any(|entry| entry.extension.wants_redraw())
   }
 
   #[cfg(feature = "perf_profile")]
@@ -1938,7 +2095,7 @@ fn capture_wgpu_frame(
     slice.map_async(wgpu::MapMode::Read, move |result| {
       let _ = sender.send(result);
     });
-    let _ = device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     match receiver.recv() {
       Ok(Ok(())) => {}
       Ok(Err(error)) => {
@@ -1977,6 +2134,41 @@ fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect)
     && a.width == b.width
     && a.height == b.height
     && a.border_radius == b.border_radius
+}
+
+#[cfg(feature = "image")]
+fn create_external_rgba_cached_image_texture(
+  device: &wgpu::Device,
+  image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  snapshot: crate::images::WgpuExternalImageSnapshot,
+) -> CachedImageTexture {
+  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_external_img_bg"),
+    layout: image_bgl,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals_buffer.as_entire_binding(),
+      },
+      wgpu::BindGroupEntry {
+        binding: 1,
+        resource: wgpu::BindingResource::TextureView(&snapshot.view),
+      },
+      wgpu::BindGroupEntry {
+        binding: 2,
+        resource: wgpu::BindingResource::Sampler(image_sampler),
+      },
+    ],
+  });
+  CachedImageTexture::ExternalRgba {
+    bind_group,
+    view: snapshot.view,
+    width: snapshot.width,
+    height: snapshot.height,
+    version: snapshot.version,
+  }
 }
 
 #[cfg(feature = "image")]

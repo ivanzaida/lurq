@@ -45,6 +45,10 @@ pub trait RenderEngine {
 
   fn release_window_surface(&mut self) {}
 
+  fn wants_redraw(&self) -> bool {
+    false
+  }
+
   #[cfg(feature = "perf_profile")]
   fn last_profile(&self) -> Option<RenderProfile> {
     None

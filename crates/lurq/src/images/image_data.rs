@@ -73,6 +73,8 @@ fn animation_epoch() -> Instant {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeImageBackend {
   Dx12Nv12,
+  #[cfg(feature = "wgpu")]
+  WgpuExternalRgba,
   #[cfg(target_os = "macos")]
   MacosCvPixelBufferNv12,
 }
@@ -644,6 +646,11 @@ impl NativeImageData {
   }
 
   pub fn version(&self) -> u64 {
+    #[cfg(feature = "wgpu")]
+    if let Some(state) = self.payload::<super::WgpuExternalImageState>() {
+      return state.version();
+    }
+
     #[cfg(all(feature = "dx12", target_os = "windows"))]
     if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
       return slot.version();
@@ -653,6 +660,11 @@ impl NativeImageData {
   }
 
   pub fn bump_version(&self) {
+    #[cfg(feature = "wgpu")]
+    if self.payload::<super::WgpuExternalImageState>().is_some() {
+      return;
+    }
+
     #[cfg(all(feature = "dx12", target_os = "windows"))]
     if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
       slot.bump_version();

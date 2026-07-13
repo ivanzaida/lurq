@@ -2456,6 +2456,7 @@ impl Tree {
     }
     let gpu_wall_dur = gpu_wall_start.elapsed();
     let _gpu_dur = profile_elapsed!(_gpu_start);
+    let renderer_wants_redraw = render_engine.wants_redraw();
 
     profile_if! {
       let render_profile = render_engine.last_profile().unwrap_or_default();
@@ -2477,6 +2478,9 @@ impl Tree {
         glyph_engine: app.glyph_engine.profile(),
         memory: self.cached_memory_profile(app),
       };
+    }
+    if renderer_wants_redraw {
+      self.needs_redraw = true;
     }
     log_frame_pass_timeline(
       "full",
@@ -4684,6 +4688,7 @@ impl Tree {
     }
     let gpu_wall_dur = gpu_wall_start.elapsed();
     let _gpu_dur = profile_elapsed!(_gpu_start);
+    let renderer_wants_redraw = render_engine.wants_redraw();
 
     profile_if! {
       let render_profile = render_engine.last_profile().unwrap_or_default();
@@ -4696,6 +4701,10 @@ impl Tree {
         memory: self.cached_memory_profile(app),
         ..FrameProfile::default()
       };
+    }
+
+    if renderer_wants_redraw {
+      self.needs_redraw = true;
     }
 
     self.cached_render_list = Some(cached);

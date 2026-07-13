@@ -4021,6 +4021,13 @@ impl Dx12State {
     };
     match native.backend() {
       crate::images::NativeImageBackend::Dx12Nv12 => {}
+      #[cfg(feature = "wgpu")]
+      crate::images::NativeImageBackend::WgpuExternalRgba => {
+        return Err(dx12_invalid_arg(format!(
+          "dx12 renderer cannot sample a wgpu external image: image id={}",
+          image.image_id
+        )));
+      }
     }
     if image.image_format != crate::images::ImagePixelFormat::Nv12
       || image.image_width % 2 != 0

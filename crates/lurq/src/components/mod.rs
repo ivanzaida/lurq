@@ -6,6 +6,8 @@ mod draggable;
 mod drop_zone;
 #[cfg(feature = "form")]
 mod form;
+#[cfg(all(feature = "image", feature = "wgpu"))]
+mod gpu_viewport;
 #[cfg(feature = "image")]
 mod image;
 #[cfg(feature = "router")]
@@ -50,6 +52,8 @@ pub use form::{
   FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue, FormValues, ResolvedControl, ValidationResult,
   validators,
 };
+#[cfg(all(feature = "image", feature = "wgpu"))]
+pub use gpu_viewport::GpuViewport;
 #[cfg(feature = "image")]
 pub use image::Image;
 #[cfg(feature = "router")]
