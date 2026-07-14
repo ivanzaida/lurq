@@ -2016,9 +2016,11 @@ impl Tree {
           let glyph_start = glyphs.len();
           let mut scaled_style = style.clone();
           scaled_style.font_size *= scale;
+          // Layout shapes in logical pixels, while paint reshapes at the DPI-scaled
+          // font size. Round outward so subpixel scaling cannot add a paint-only line.
           let max_width =
             if (*wrap || style.text_align != crate::layout::text_style::TextAlign::Left) && quad.width > 0.0 {
-              quad.width * scale
+              (quad.width * scale).ceil()
             } else {
               f32::MAX
             };
@@ -2150,7 +2152,7 @@ impl Tree {
             .map(|span| span.style.text_align)
             .unwrap_or(crate::layout::text_style::TextAlign::Left);
           let max_width = if (*wrap || align != crate::layout::text_style::TextAlign::Left) && quad.width > 0.0 {
-            quad.width * scale
+            (quad.width * scale).ceil()
           } else {
             f32::MAX
           };

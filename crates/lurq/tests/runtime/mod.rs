@@ -23,6 +23,7 @@ mod perf_overlay;
 mod render_order;
 mod scroll_state;
 mod text_reflow;
+mod text_scale_wrap;
 mod text_shadow;
 mod timers {
   mod all_due_timers_fire;
