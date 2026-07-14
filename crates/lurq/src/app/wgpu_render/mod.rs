@@ -1396,14 +1396,18 @@ impl RenderEngine for WgpuRenderEngine {
 
     self.scratch_glyph_instances.clear();
     self.scratch_glyph_instances.reserve(list.glyphs.len());
+    let atlas_inverse = [
+      1.0 / list.atlas.width.max(1) as f32,
+      1.0 / list.atlas.height.max(1) as f32,
+    ];
     self
       .scratch_glyph_instances
       .extend(list.glyphs.iter().map(|g| GlyphInstance {
         pos: [g.x, g.y],
         size: [g.width, g.height],
         color: g.color,
-        uv_min: g.uv_min,
-        uv_max: g.uv_max,
+        uv_min: [g.atlas_min[0] * atlas_inverse[0], g.atlas_min[1] * atlas_inverse[1]],
+        uv_max: [g.atlas_max[0] * atlas_inverse[0], g.atlas_max[1] * atlas_inverse[1]],
         transform: g.transform,
         xf_origin: g.transform_origin,
         sharpness: g.sharpness,

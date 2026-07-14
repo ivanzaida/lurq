@@ -155,6 +155,109 @@ impl Component for NestedKeyedErrorLabelRoot {
   }
 }
 
+fn measured_height(style: TextStyle, max: Size) -> f32 {
+  let mut rt = rt();
+  rt.set_root(lurq::components::Text::styled("Ag", style));
+  rt.pass_layout(Constraints::loose(max)).unwrap().size.height
+}
+
+#[test]
+fn trim_line_box_collapses_single_line_to_em_box() {
+  let font_size = 20.0;
+  let base = TextStyle {
+    font_size,
+    line_height: 1.0,
+    ..TextStyle::default()
+  };
+  let tall = TextStyle {
+    line_height: 1.5,
+    ..base.clone()
+  };
+  let trimmed = TextStyle {
+    line_height: 1.5,
+    trim_line_box: true,
+    ..base.clone()
+  };
+
+  let base_h = measured_height(base, Size::new(400.0, 400.0));
+  let tall_h = measured_height(tall, Size::new(400.0, 400.0));
+  let trimmed_h = measured_height(trimmed, Size::new(400.0, 400.0));
+
+  assert!(
+    (tall_h - font_size * 1.5).abs() < 1.0,
+    "un-trimmed 1.5 line height = {tall_h}"
+  );
+  // Trimmed single line collapses to the em box — same as line-height 1.0.
+  assert!(
+    (trimmed_h - base_h).abs() < 1.0,
+    "trimmed 1.5 single line ({trimmed_h}) should match line-height 1.0 ({base_h})"
+  );
+  assert!(
+    (trimmed_h - font_size).abs() < 1.0,
+    "trimmed single line = em box {font_size}, got {trimmed_h}"
+  );
+}
+
+#[test]
+fn trim_line_box_keeps_leading_between_wrapped_lines() {
+  let font_size = 18.0;
+  let line_height = 1.5;
+  let style = TextStyle {
+    font_size,
+    line_height,
+    weight: FontWeight::Bold,
+    trim_line_box: true,
+    ..TextStyle::default()
+  };
+  // Narrow box forces a wrap to two lines.
+  let mut rt = rt();
+  rt.set_root(lurq::components::Text::styled("alpha bravo", style).width(60.0));
+  let two_line = rt
+    .pass_layout(Constraints::loose(Size::new(60.0, 400.0)))
+    .unwrap()
+    .size
+    .height;
+
+  // Two trimmed lines = one inter-line advance (line_height) + one em box.
+  let expected = font_size * line_height + font_size;
+  assert!(
+    (two_line - expected).abs() < 2.0,
+    "two trimmed lines should keep full leading between them: got {two_line}, expected ~{expected}"
+  );
+}
+
+#[test]
+fn trim_line_box_does_not_move_single_line_glyphs() {
+  // With trim + a tall line height, a single line must render exactly where the
+  // classic line-height 1.0 box renders it (the render path re-centers into the
+  // trimmed box), so switching studio text to trim is a visual no-op for labels.
+  fn center(line_height: f32, trim: bool) -> f32 {
+    let mut rt = rt();
+    rt.set_root(
+      lurq::components::Text::styled(
+        "Open",
+        TextStyle {
+          font_size: 18.0,
+          line_height,
+          trim_line_box: trim,
+          weight: FontWeight::Bold,
+          color: Color::from_hex("#1e293b"),
+          ..TextStyle::default()
+        },
+      )
+      .height(54.0),
+    );
+    glyph_bounds_center_y(&render_pass(&mut rt).glyphs)
+  }
+
+  let classic = center(1.0, false);
+  let trimmed = center(1.6, true);
+  assert!(
+    (classic - trimmed).abs() <= 1.0,
+    "trimmed tall-line-height glyphs must sit where line-height 1.0 puts them: classic={classic}, trimmed={trimmed}"
+  );
+}
+
 #[test]
 fn text_height_equals_line_height() {
   let mut rt = rt();

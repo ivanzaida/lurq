@@ -2,7 +2,7 @@ use lurq::{
   animation::Transition,
   app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
   components::{
-    CollisionStrategy, Column, Modal, Overlay, Parent, Placement, Popup, Rect, Root, ScrollVertical, Stack,
+    CollisionStrategy, Column, Modal, Overlay, Parent, Placement, Popup, Rect, Root, ScrollVertical, Select, Stack,
   },
   core::{ElementRef, Signal},
   node::{Element, color::Color, dimension::Dimension},
@@ -160,6 +160,50 @@ impl Component for PopupRoot {
 
 struct StaticPopupRoot {
   anchor: ElementRef,
+}
+
+struct PopupSelectRoot {
+  anchor: ElementRef,
+  value: Signal<String>,
+}
+
+impl Component for PopupSelectRoot {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+      value: ctx.signal("studio".to_owned()),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Stack::new()
+      .size(640.0, 400.0)
+      .child(
+        Rect::new(120.0, 32.0)
+          .absolute_position(440.0, 36.0)
+          .background("#22c55e")
+          .ref_element(self.anchor.clone()),
+      )
+      .child(
+        Popup::new(
+          self.anchor.clone(),
+          Column::new().key("popup-content").child(
+            Select::new(self.value.clone())
+              .options([
+                ("game".to_owned(), "Game"),
+                ("studio".to_owned(), "Studio"),
+                ("warm".to_owned(), "Warm"),
+              ])
+              .width(180.0)
+              .height(36.0),
+          ),
+        )
+        .placement(Placement::BottomEnd)
+        .offset(0.0, 8.0),
+      )
+  }
 }
 
 impl Component for StaticPopupRoot {
@@ -687,6 +731,64 @@ fn popup_does_not_close_when_clicking_anchor_or_content_but_closes_outside() {
       .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
       .is_none()
   );
+}
+
+#[test]
+fn select_menu_inside_positioned_popup_uses_global_trigger_bounds() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<PopupSelectRoot>(&mut app, ());
+  run_pass(&mut tree);
+
+  let trigger = tree
+    .find_element(|element| element.tag_name() == "Select")
+    .expect("select trigger should render inside popup")
+    .bounds();
+  let (x, y) = trigger.center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+
+  let option = tree
+    .find_element(|element| element.text_content() == Some("Warm"))
+    .expect("select menu should open")
+    .bounds();
+  assert!(
+    option.x >= trigger.x && option.x < trigger.x + trigger.width,
+    "nested select option must align to its global trigger x: trigger={trigger:?}, option={option:?}"
+  );
+  assert!(
+    option.y >= trigger.y + trigger.height,
+    "nested select menu must open below its global trigger: trigger={trigger:?}, option={option:?}"
+  );
+}
+
+#[test]
+fn popup_dismisses_only_on_left_mouse_down_outside() {
+  let open = Signal::new(true);
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<PopupRoot>(&mut app, Shared(std::sync::Arc::new(open.clone())));
+  run_pass(&mut tree);
+
+  let popup = tree
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+  let popup_center = (popup.x + popup.width * 0.5, popup.y + popup.height * 0.5);
+
+  tree.mouse_down(popup_center.0, popup_center.1, MouseButton::Left);
+  tree.mouse_move(300.0, 300.0);
+  tree.mouse_up(300.0, 300.0, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(open.get(), "releasing a drag outside must keep the popup open");
+
+  tree.mouse_down(300.0, 300.0, MouseButton::Right);
+  run_pass(&mut tree);
+  assert!(open.get(), "non-left presses must keep the popup open");
+
+  tree.mouse_down(300.0, 300.0, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(!open.get(), "a left press outside must dismiss the popup");
 }
 
 #[test]

@@ -3,14 +3,14 @@ pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]
 pub mod devtools;
+#[cfg(all(feature = "dx12", target_os = "windows"))]
+pub mod dx12_render;
+pub mod events;
 #[cfg(all(
   feature = "devtools",
   any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))
 ))]
 pub(crate) mod frame_capture;
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-pub mod dx12_render;
-pub mod events;
 pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;
 #[cfg(feature = "i18n")]

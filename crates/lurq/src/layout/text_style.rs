@@ -26,6 +26,16 @@ pub struct TextStyle {
   /// based on the actual glyph ink bounds so text is optically centered rather
   /// than metric-centered (which leaves most fonts sitting visibly high).
   pub vertical_align: VerticalAlign,
+  /// CSS `text-box-trim`-style leading trim. When set, `line_height` only adds
+  /// leading BETWEEN wrapped lines: the measured box of a single line collapses
+  /// to the em box (`font_size`) instead of `font_size * line_height`, and a
+  /// multi-line run's box drops the half-leading above the first line and below
+  /// the last. Glyph placement is unaffected — the render path already centers
+  /// the optical box within the (now trimmed) box — so a single line looks
+  /// identical to `line_height: 1.0` while wrapped lines keep their full leading.
+  /// Lets a caller pick one readable `line_height` for both single- and
+  /// multi-line text without inflating single-line vertical rhythm.
+  pub trim_line_box: bool,
   pub color: Color,
   pub caret_color: Option<TextColor>,
   pub shadow: Option<TextShadow>,
@@ -41,6 +51,7 @@ impl Default for TextStyle {
       style: FontStyle::Normal,
       text_align: TextAlign::Left,
       vertical_align: VerticalAlign::default(),
+      trim_line_box: false,
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
       shadow: None,

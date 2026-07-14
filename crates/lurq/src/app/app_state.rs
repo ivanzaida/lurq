@@ -174,6 +174,19 @@ impl App {
     self.glyph_engine.register_font(name, family);
   }
 
+  /// Installs multiple font faces and aliases with one text-cache invalidation.
+  /// Existing atlas entries remain valid because fontdb assigns stable IDs to
+  /// loaded faces, so only newly requested glyphs need to be rasterized.
+  pub fn install_fonts<I, A, N, F>(&mut self, fonts: I, aliases: A)
+  where
+    I: IntoIterator<Item = Vec<u8>>,
+    A: IntoIterator<Item = (N, F)>,
+    N: AsRef<str>,
+    F: AsRef<str>,
+  {
+    self.glyph_engine.install_fonts(fonts, aliases);
+  }
+
   #[cfg(feature = "resources")]
   pub fn set_resource_root(&mut self, root: PathBuf) {
     self.resource_loader.set_root(root);

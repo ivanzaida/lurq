@@ -43,7 +43,7 @@ use crate::{
   layout::{
     Constraints, Size,
     layout_engine::{LayoutEngine, OverlayLayoutIndex, OverlayLayoutRecord},
-    layout_kind::{LayoutKind, ScrollAxis, ScrollDirection, ScrollState},
+    layout_kind::{LayoutKind, Position, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{GlyphCmd, RectCmd, RenderGradient, RenderList},
@@ -3366,7 +3366,7 @@ impl Tree {
       }
     }
 
-    let overlay_dismiss_signals = if matches!(evt.kind, MouseEventKind::Click) && button == MouseButton::Left {
+    let overlay_dismiss_signals = if matches!(evt.kind, MouseEventKind::Down) && button == MouseButton::Left {
       self.overlay_dismiss_signals_at(lx, ly)
     } else {
       Vec::new()
@@ -5289,7 +5289,7 @@ impl Tree {
         Vec::new()
       } else {
         let overlay = &overlays[overlay_index];
-        let (_overlay_layout, overlay_layout_index) = self.layout_engine.compute_with_overlay_index(
+        let (_overlay_layout, mut overlay_layout_index) = self.layout_engine.compute_with_overlay_index(
           glyph_engine,
           overlay,
           constraints,
@@ -5302,6 +5302,11 @@ impl Tree {
           typography.clone(),
           theme_changed,
         );
+        let (origin_x, origin_y) = match overlay.position() {
+          Position::Absolute { x, y, .. } => (x, y),
+          Position::Static => (0.0, 0.0),
+        };
+        translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
         build_overlays_from_layout_index(
           &overlay_layout_index,
           viewport,
@@ -5731,6 +5736,26 @@ fn root_with_preserved_overlay_parts(base: Node, mut parts: OverlayHostParts, id
   host.preserve_ids_from(&mut old_host);
   old_host.free_ids(id_gen);
   host
+}
+
+fn translate_overlay_layout_index(index: &mut OverlayLayoutIndex, x: f32, y: f32) {
+  for element in &mut index.elements {
+    element.rect.x += x;
+    element.rect.y += y;
+  }
+  for overlay in &mut index.overlays {
+    match overlay {
+      OverlayLayoutRecord::SelectMenu { bounds, .. } => {
+        bounds.x += x;
+        bounds.y += y;
+      }
+      OverlayLayoutRecord::Modal { parent, .. } => {
+        parent.x += x;
+        parent.y += y;
+      }
+      OverlayLayoutRecord::Overlay { .. } => {}
+    }
+  }
 }
 
 fn preserve_overlay_reuse(overlay: &mut Node, old_parts: &mut OverlayHostReuse, index: usize) {
@@ -7172,10 +7197,10 @@ fn draw_screenshot_glyph(
     return;
   };
 
-  let atlas_x0 = (glyph.uv_min[0] * atlas.width as f32).round() as i32;
-  let atlas_y0 = (glyph.uv_min[1] * atlas.height as f32).round() as i32;
-  let atlas_x1 = (glyph.uv_max[0] * atlas.width as f32).round() as i32;
-  let atlas_y1 = (glyph.uv_max[1] * atlas.height as f32).round() as i32;
+  let atlas_x0 = glyph.atlas_min[0].round() as i32;
+  let atlas_y0 = glyph.atlas_min[1].round() as i32;
+  let atlas_x1 = glyph.atlas_max[0].round() as i32;
+  let atlas_y1 = glyph.atlas_max[1].round() as i32;
   let atlas_w = (atlas_x1 - atlas_x0).max(1);
   let atlas_h = (atlas_y1 - atlas_y0).max(1);
   // Glyph colors arrive in linear space (see glyph_engine's to_linear_f32_array);
@@ -9184,7 +9209,7 @@ mod tests {
   #[test]
   fn screenshot_glyph_encodes_linear_color_back_to_srgb() {
     use crate::{
-      app::runtime::{draw_screenshot_glyph, DevtoolsScreenshotBounds},
+      app::runtime::{DevtoolsScreenshotBounds, draw_screenshot_glyph},
       layout::render_list::{GlyphAtlas, GlyphCmd},
       node::color::Color,
     };
@@ -9197,8 +9222,8 @@ mod tests {
       width: 1.0,
       height: 1.0,
       color: source.to_linear_f32_array(),
-      uv_min: [0.0, 0.0],
-      uv_max: [1.0, 1.0],
+      atlas_min: [0.0, 0.0],
+      atlas_max: [1.0, 1.0],
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,

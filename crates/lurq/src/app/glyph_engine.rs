@@ -46,6 +46,7 @@ struct CacheKey {
   style: u8,
   text_align: u8,
   wrap: bool,
+  trim_line_box: bool,
   raster_mode: u8,
 }
 
@@ -62,6 +63,7 @@ impl Hash for CacheKey {
     self.style.hash(state);
     self.text_align.hash(state);
     self.wrap.hash(state);
+    self.trim_line_box.hash(state);
     self.raster_mode.hash(state);
   }
 }
@@ -78,6 +80,7 @@ impl CacheKey {
       style: style_to_u8(style.style),
       text_align: text_align_to_u8(style.text_align),
       wrap,
+      trim_line_box: style.trim_line_box,
       raster_mode: 0,
     }
   }
@@ -105,6 +108,7 @@ impl CacheKey {
       && self.style == style_to_u8(style.style)
       && self.text_align == text_align_to_u8(style.text_align)
       && self.wrap == wrap
+      && self.trim_line_box == style.trim_line_box
   }
 }
 
@@ -119,6 +123,7 @@ fn text_measure_fingerprint(text: &str, style: &TextStyle, max_width: f32, wrap:
   style_to_u8(style.style).hash(&mut hasher);
   text_align_to_u8(style.text_align).hash(&mut hasher);
   wrap.hash(&mut hasher);
+  style.trim_line_box.hash(&mut hasher);
   hasher.finish()
 }
 
@@ -400,25 +405,54 @@ impl GlyphEngine {
   pub(crate) fn load_font(&mut self, data: Vec<u8>) {
     self.font_system.db_mut().load_font_data(data);
     self.clear_text_caches();
-    self.clear_atlas();
   }
 
   pub(crate) fn load_font_file(&mut self, path: &Path) {
     self.font_system.db_mut().load_font_file(path).ok();
     self.clear_text_caches();
-    self.clear_atlas();
   }
 
   pub(crate) fn load_fonts_dir(&mut self, path: &Path) {
     self.font_system.db_mut().load_fonts_dir(path);
     self.clear_text_caches();
-    self.clear_atlas();
   }
 
   pub(crate) fn register_font(&mut self, name: &str, family: &str) {
+    if self.font_aliases.get(name).is_some_and(|current| current == family) {
+      return;
+    }
     self.font_aliases.insert(name.to_owned(), family.to_owned());
     self.clear_text_caches();
-    self.clear_atlas();
+  }
+
+  pub(crate) fn install_fonts<I, A, N, F>(&mut self, fonts: I, aliases: A)
+  where
+    I: IntoIterator<Item = Vec<u8>>,
+    A: IntoIterator<Item = (N, F)>,
+    N: AsRef<str>,
+    F: AsRef<str>,
+  {
+    let mut changed = false;
+    let mut fonts = fonts.into_iter().peekable();
+    if fonts.peek().is_some() {
+      let database = self.font_system.db_mut();
+      for data in fonts {
+        database.load_font_data(data);
+        changed = true;
+      }
+    }
+    for (name, family) in aliases {
+      let name = name.as_ref();
+      let family = family.as_ref();
+      if self.font_aliases.get(name).is_some_and(|current| current == family) {
+        continue;
+      }
+      self.font_aliases.insert(name.to_owned(), family.to_owned());
+      changed = true;
+    }
+    if changed {
+      self.clear_text_caches();
+    }
   }
 
   pub(crate) fn clear_cache(&mut self) {
@@ -434,12 +468,6 @@ impl GlyphEngine {
     self.clipped_glyph_layout_cache.clear();
     self.rich_glyph_layout_cache.clear();
     self.transformed_glyph_layout_cache.clear();
-  }
-
-  fn clear_atlas(&mut self) {
-    self.atlas_packer = AtlasPacker::new();
-    self.atlas_entries.clear();
-    self.transformed_atlas_entries.clear();
   }
 
   #[cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
@@ -1477,8 +1505,6 @@ impl GlyphEngine {
     swash_transform: SwashTransform,
     out: &mut Vec<GlyphCmd>,
   ) {
-    let atlas_w = self.atlas_packer.width as f32;
-    let atlas_h = self.atlas_packer.height as f32;
     let color = style.color.to_linear_f32_array();
     out.reserve(cached.len());
 
@@ -1496,11 +1522,8 @@ impl GlyphEngine {
         width: packed.width as f32,
         height: packed.height as f32,
         color,
-        uv_min: [packed.x as f32 / atlas_w, packed.y as f32 / atlas_h],
-        uv_max: [
-          (packed.x + packed.width) as f32 / atlas_w,
-          (packed.y + packed.height) as f32 / atlas_h,
-        ],
+        atlas_min: [packed.x as f32, packed.y as f32],
+        atlas_max: [(packed.x + packed.width) as f32, (packed.y + packed.height) as f32],
         transform: [1.0, 0.0, 0.0, 1.0],
         transform_origin: [0.0, 0.0],
         sharpness: 1.0,
@@ -1671,7 +1694,7 @@ impl GlyphEngine {
       last_line_y = run.line_y;
     }
     let height = if has_runs {
-      last_line_y - first_line_y + metrics.line_height
+      last_line_y - first_line_y + metrics.line_height - line_box_trim(style)
     } else {
       0.0
     };
@@ -1964,8 +1987,6 @@ impl GlyphEngine {
     color: [f32; 4],
     snap_to_pixel: bool,
   ) {
-    let atlas_w = self.atlas_packer.width as f32;
-    let atlas_h = self.atlas_packer.height as f32;
     out.push(GlyphCmd {
       order: 0,
       x: if snap_to_pixel { x.round() } else { x },
@@ -1973,11 +1994,8 @@ impl GlyphEngine {
       width: packed.width as f32,
       height: packed.height as f32,
       color,
-      uv_min: [packed.x as f32 / atlas_w, packed.y as f32 / atlas_h],
-      uv_max: [
-        (packed.x + packed.width) as f32 / atlas_w,
-        (packed.y + packed.height) as f32 / atlas_h,
-      ],
+      atlas_min: [packed.x as f32, packed.y as f32],
+      atlas_max: [(packed.x + packed.width) as f32, (packed.y + packed.height) as f32],
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
       sharpness: 1.0,
@@ -2310,8 +2328,8 @@ fn append_glyph_cmds_from_cached(
   origin_x: f32,
   origin_y: f32,
   style: &TextStyle,
-  atlas_w: f32,
-  atlas_h: f32,
+  _atlas_w: f32,
+  _atlas_h: f32,
   snap_to_pixel: bool,
   clip: Option<ClipRect>,
   out: &mut Vec<GlyphCmd>,
@@ -2331,10 +2349,10 @@ fn append_glyph_cmds_from_cached(
       width: glyph.width as f32,
       height: glyph.height as f32,
       color,
-      uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
-      uv_max: [
-        (glyph.atlas_x + glyph.width) as f32 / atlas_w,
-        (glyph.atlas_y + glyph.height) as f32 / atlas_h,
+      atlas_min: [glyph.atlas_x as f32, glyph.atlas_y as f32],
+      atlas_max: [
+        (glyph.atlas_x + glyph.width) as f32,
+        (glyph.atlas_y + glyph.height) as f32,
       ],
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
@@ -2344,6 +2362,19 @@ fn append_glyph_cmds_from_cached(
       clip: crate::layout::quad::ClipRect::default(),
     });
   }
+}
+
+/// Height to subtract from a measured text box for `text-box-trim` (see
+/// [`TextStyle::trim_line_box`]). `line_height * font_size` puts half the extra
+/// leading above the run and half below (cosmic centers each line); trimming
+/// both collapses a single line to the em box (`font_size`) while leaving the
+/// leading BETWEEN wrapped lines intact. Zero when trim is off or `line_height`
+/// is already at/under 1.0 (no extra leading to reclaim).
+fn line_box_trim(style: &TextStyle) -> f32 {
+  if !style.trim_line_box {
+    return 0.0;
+  }
+  (style.font_size * (style.line_height - 1.0)).max(0.0)
 }
 
 fn text_run_intersects_clip(origin_y: f32, line_top: f32, line_height: f32, clip: Option<ClipRect>) -> bool {
@@ -2372,8 +2403,8 @@ fn append_rich_glyph_cmds_from_cached(
   cached: &[CachedRichGlyph],
   origin_x: f32,
   origin_y: f32,
-  atlas_w: f32,
-  atlas_h: f32,
+  _atlas_w: f32,
+  _atlas_h: f32,
   snap_to_pixel: bool,
   out: &mut Vec<GlyphCmd>,
 ) {
@@ -2389,10 +2420,10 @@ fn append_rich_glyph_cmds_from_cached(
       width: glyph.width as f32,
       height: glyph.height as f32,
       color: rich_glyph.color,
-      uv_min: [glyph.atlas_x as f32 / atlas_w, glyph.atlas_y as f32 / atlas_h],
-      uv_max: [
-        (glyph.atlas_x + glyph.width) as f32 / atlas_w,
-        (glyph.atlas_y + glyph.height) as f32 / atlas_h,
+      atlas_min: [glyph.atlas_x as f32, glyph.atlas_y as f32],
+      atlas_max: [
+        (glyph.atlas_x + glyph.width) as f32,
+        (glyph.atlas_y + glyph.height) as f32,
       ],
       transform: [1.0, 0.0, 0.0, 1.0],
       transform_origin: [0.0, 0.0],
@@ -3181,6 +3212,31 @@ mod tests {
     assert!(glyphs.is_empty());
     assert_eq!(engine.glyph_hits, 0);
     assert_eq!(engine.glyph_misses, 0);
+  }
+
+  #[test]
+  fn installing_fonts_preserves_existing_atlas_entries() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle::default();
+    let glyphs = engine.rasterize_text("Existing atlas text", &style, 400.0, 0.0, 0.0);
+    engine.measure_text("Cached measurement", &style, 400.0);
+    assert!(!glyphs.is_empty());
+    assert!(!engine.measure_cache.is_empty());
+
+    let atlas_version = engine.atlas_packer.version;
+    let atlas_entries = engine.atlas_entries.len();
+    engine.install_fonts(
+      [include_bytes!("../../assets/lucide.ttf").to_vec()],
+      [("test-icons", "lucide")],
+    );
+
+    assert_eq!(engine.atlas_packer.version, atlas_version);
+    assert_eq!(engine.atlas_entries.len(), atlas_entries);
+    assert!(engine.measure_cache.is_empty());
+    assert_eq!(
+      engine.font_aliases.get("test-icons").map(String::as_str),
+      Some("lucide")
+    );
   }
 
   #[test]

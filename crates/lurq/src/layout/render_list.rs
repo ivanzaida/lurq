@@ -163,8 +163,11 @@ pub struct GlyphCmd {
   pub width: f32,
   pub height: f32,
   pub color: [f32; 4],
-  pub uv_min: [f32; 2],
-  pub uv_max: [f32; 2],
+  /// Glyph bounds in atlas pixels. Render backends normalize these against
+  /// the final atlas size while building their existing instance buffers, so
+  /// cached commands remain valid when the shared atlas grows.
+  pub atlas_min: [f32; 2],
+  pub atlas_max: [f32; 2],
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
   pub sharpness: f32,
