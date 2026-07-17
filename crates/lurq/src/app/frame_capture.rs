@@ -1,4 +1,4 @@
-//! Shared CPU-side post-processing for devtools GPU frame captures: repacking
+//! Shared CPU-side post-processing for GPU screenshots: repacking
 //! padded readback rows into tight RGBA, applying the borderless-window
 //! rounded-corner clip, and saving the PNG. Used by every render engine that
 //! supports frame capture.
@@ -51,7 +51,7 @@ pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) 
   {
     if let Err(error) = std::fs::create_dir_all(parent) {
       tracing::warn!(
-        "failed to create devtools screenshot output directory {}: {error}",
+        "failed to create screenshot output directory {}: {error}",
         parent.display()
       );
       return;
@@ -66,7 +66,7 @@ pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) 
     image::ImageFormat::Png,
   ) {
     tracing::warn!(
-      "failed to save devtools node screenshot to {}: {error}",
+      "failed to save screenshot to {}: {error}",
       capture.output_path.display()
     );
   } else {

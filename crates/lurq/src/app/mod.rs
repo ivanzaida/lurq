@@ -7,7 +7,7 @@ pub mod devtools;
 pub mod dx12_render;
 pub mod events;
 #[cfg(all(
-  feature = "devtools",
+  feature = "screenshot",
   any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))
 ))]
 pub(crate) mod frame_capture;

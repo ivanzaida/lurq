@@ -37,6 +37,7 @@ The default demo renderer is `wgpu`. Pass `--renderer wgpu` or `--renderer dx12`
 | `svg` | `Svg` and SVG tessellation/rendering. |
 | `resources` | Async local/remote resource loading. |
 | `devtools` | Component metadata, signal values, profiler data, and the DevTools secondary window. |
+| `screenshot` | GPU capture of the next fully composed window frame to PNG. `devtools` enables it automatically. |
 | `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts. |
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:

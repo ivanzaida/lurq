@@ -1,4 +1,4 @@
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 use std::path::PathBuf;
 #[cfg(feature = "devtools")]
 use std::sync::Mutex;
@@ -18,7 +18,7 @@ use crate::app::devtools::{
 };
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::{FrameProfile, RuntimeMemoryProfile};
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 use crate::app::render_engine::{RenderFrameCapture, RenderFrameCaptureWindowClip};
 #[cfg(feature = "form")]
 use crate::node::ButtonKind;
@@ -542,6 +542,8 @@ pub struct Tree {
   perf_overlay_last_seen_frame: u64,
   perf_overlay_frames_since_sample: u64,
   secondary_windows: Vec<SecondaryWindow>,
+  #[cfg(feature = "screenshot")]
+  pending_screenshot: Option<PathBuf>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -824,6 +826,8 @@ impl Tree {
       perf_overlay_last_seen_frame: 0,
       perf_overlay_frames_since_sample: 0,
       secondary_windows: Vec::new(),
+      #[cfg(feature = "screenshot")]
+      pending_screenshot: None,
       #[cfg(feature = "devtools")]
       devtools: None,
       #[cfg(feature = "devtools")]
@@ -987,6 +991,12 @@ impl Tree {
   pub fn request_redraw(&mut self) {
     self.needs_redraw = true;
     self.pending_pass_reasons.redraw_requested = true;
+  }
+
+  #[cfg(feature = "screenshot")]
+  pub(crate) fn request_screenshot(&mut self, output_path: impl Into<PathBuf>) {
+    self.pending_screenshot = Some(output_path.into());
+    self.request_redraw();
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -2351,23 +2361,27 @@ impl Tree {
     quads.clear();
     self.quad_scratch = quads;
 
-    #[cfg(feature = "devtools")]
-    let devtools_frame_capture = if self
+    #[cfg(feature = "screenshot")]
+    let frame_capture = if self
       .render_engine
       .as_ref()
       .is_some_and(|render_engine| render_engine.supports_frame_capture())
     {
-      self.take_pending_devtools_frame_capture()
+      self.take_pending_frame_capture()
     } else {
-      #[cfg(feature = "image")]
-      self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
-      #[cfg(not(feature = "image"))]
-      self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
+      self.drop_unsupported_screenshot();
+      #[cfg(feature = "devtools")]
+      {
+        #[cfg(feature = "image")]
+        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
+        #[cfg(not(feature = "image"))]
+        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
+      }
       None
     };
 
     #[cfg(feature = "devtools")]
-    if devtools_frame_capture.is_none() {
+    if frame_capture.is_none() {
       push_devtools_overlay(
         &mut rects,
         &mut glyphs,
@@ -2378,13 +2392,13 @@ impl Tree {
         self.viewport_physical,
       );
     }
-    #[cfg(feature = "devtools")]
-    let perf_overlay = if devtools_frame_capture.is_some() {
+    #[cfg(feature = "screenshot")]
+    let perf_overlay = if frame_capture.is_some() {
       None
     } else {
       self.perf_overlay_enabled.then_some(self.perf_overlay_stats)
     };
-    #[cfg(not(feature = "devtools"))]
+    #[cfg(not(feature = "screenshot"))]
     let perf_overlay = self.perf_overlay_enabled.then_some(self.perf_overlay_stats);
     push_perf_meter(
       &mut rects,
@@ -2445,11 +2459,11 @@ impl Tree {
       return report;
     };
     let rendered = {
-      #[cfg(feature = "devtools")]
+      #[cfg(feature = "screenshot")]
       {
-        render_engine.render_with_capture(&list, window, display, devtools_frame_capture)
+        render_engine.render_with_capture(&list, window, display, frame_capture)
       }
-      #[cfg(not(feature = "devtools"))]
+      #[cfg(not(feature = "screenshot"))]
       {
         render_engine.render(&list, window, display)
       }
@@ -6808,6 +6822,62 @@ fn find_node_by_path<'a>(node: &'a Node, path: &[usize]) -> Option<&'a Node> {
   Some(current)
 }
 
+#[cfg(feature = "screenshot")]
+impl Tree {
+  fn take_pending_frame_capture(&mut self) -> Option<RenderFrameCapture> {
+    let capture = self.take_pending_screenshot();
+    #[cfg(feature = "devtools")]
+    {
+      capture.or_else(|| self.take_pending_devtools_frame_capture())
+    }
+    #[cfg(not(feature = "devtools"))]
+    {
+      capture
+    }
+  }
+
+  fn take_pending_screenshot(&mut self) -> Option<RenderFrameCapture> {
+    let output_path = self.pending_screenshot.take()?;
+    Some(RenderFrameCapture {
+      x: 0,
+      y: 0,
+      width: self.viewport_physical.width.round().max(1.0) as u32,
+      height: self.viewport_physical.height.round().max(1.0) as u32,
+      output_path,
+      window_clip: self.screenshot_window_clip(),
+    })
+  }
+
+  fn drop_unsupported_screenshot(&mut self) {
+    if let Some(output_path) = self.pending_screenshot.take() {
+      tracing::warn!(
+        "failed to capture screenshot to {}: render engine does not support frame capture",
+        output_path.display()
+      );
+    }
+  }
+
+  fn screenshot_window_clip(&self) -> Option<RenderFrameCaptureWindowClip> {
+    let info = self.window.info();
+    if info.is_decorated || info.is_maximized || info.is_full_screen {
+      return None;
+    }
+
+    use crate::app::WindowCornerRadius;
+    let logical_radius = match self.window.corner_radius() {
+      WindowCornerRadius::Rounded => 10.0,
+      WindowCornerRadius::RoundedSmall => 4.0,
+      WindowCornerRadius::Default | WindowCornerRadius::None => return None,
+    };
+    let radius = logical_radius * self.scale_factor();
+    (radius > 0.0).then_some(RenderFrameCaptureWindowClip {
+      width: self.viewport_physical.width,
+      height: self.viewport_physical.height,
+      radii: [radius; 4],
+    })
+  }
+}
+
 #[cfg(feature = "devtools")]
 #[derive(Clone, Copy)]
 struct DevtoolsOverlayRect {
@@ -6978,26 +7048,10 @@ impl Tree {
   }
 
   fn devtools_screenshot_window_clip(&self) -> Option<DevtoolsWindowClip> {
-    let info = self.window.info();
-    if info.is_decorated || info.is_maximized || info.is_full_screen {
-      return None;
-    }
-
-    use crate::app::WindowCornerRadius;
-    let logical_radius = match self.window.corner_radius() {
-      WindowCornerRadius::Rounded => 10.0,
-      WindowCornerRadius::RoundedSmall => 4.0,
-      WindowCornerRadius::Default | WindowCornerRadius::None => return None,
-    };
-    let radius = logical_radius * self.scale_factor();
-    if radius <= 0.0 {
-      return None;
-    }
-
-    Some(DevtoolsWindowClip {
-      width: self.viewport_physical.width,
-      height: self.viewport_physical.height,
-      radii: [radius; 4],
+    self.screenshot_window_clip().map(|clip| DevtoolsWindowClip {
+      width: clip.width,
+      height: clip.height,
+      radii: clip.radii,
     })
   }
 }

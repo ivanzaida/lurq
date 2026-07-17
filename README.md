@@ -28,6 +28,7 @@ Useful optional features:
 | `resources` | Resource loader and resource-backed images/SVGs |
 | `clipboard` | Clipboard shortcuts for text inputs |
 | `devtools` | In-app DevTools window |
+| `screenshot` | Capture the next fully composed window frame to PNG; enabled automatically by `devtools` |
 
 ## Example
 

@@ -193,6 +193,12 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::StopDrag);
   }
 
+  /// Captures the next rendered window frame to a PNG file.
+  #[cfg(feature = "screenshot")]
+  pub fn screenshot(&self, output_path: impl Into<std::path::PathBuf>) {
+    self.window.push_command(WindowCommand::Screenshot(output_path.into()));
+  }
+
   pub fn open_devtools(&self) {
     self.window.push_command(WindowCommand::OpenDevtools);
   }
@@ -224,11 +230,19 @@ pub(crate) enum WindowCommand {
   SetTitleBarColor(Option<Color>),
   SetIcon(Option<WindowIcon>),
   SetCornerRadius(WindowCornerRadius),
-  Move { x: i32, y: i32 },
-  Resize { width: u32, height: u32 },
+  Move {
+    x: i32,
+    y: i32,
+  },
+  Resize {
+    width: u32,
+    height: u32,
+  },
   StartDrag,
   StartResize(WindowResizeDirection),
   StopDrag,
+  #[cfg(feature = "screenshot")]
+  Screenshot(std::path::PathBuf),
   OpenDevtools,
   CloseDevtools,
   ToggleDevtools,

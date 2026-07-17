@@ -4,7 +4,7 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use crate::app::profile_types::RenderProfile;
 use crate::layout::render_list::RenderList;
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 #[derive(Clone)]
 pub struct RenderFrameCapture {
   pub x: u32,
@@ -15,7 +15,7 @@ pub struct RenderFrameCapture {
   pub window_clip: Option<RenderFrameCaptureWindowClip>,
 }
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 #[derive(Clone, Copy)]
 pub struct RenderFrameCaptureWindowClip {
   pub width: f32,
@@ -27,12 +27,12 @@ pub trait RenderEngine {
   fn resize(&mut self, width: u32, height: u32);
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool;
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   fn supports_frame_capture(&self) -> bool {
     false
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   fn render_with_capture(
     &mut self,
     list: &RenderList,

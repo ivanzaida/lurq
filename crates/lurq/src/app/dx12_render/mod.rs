@@ -101,12 +101,12 @@ impl Win32ErrorCompat for Error {
   }
 }
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 use windows::Win32::Graphics::Direct3D12::{
   D3D12_BOX, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT,
 };
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 use crate::app::{
   frame_capture::{align_capture_row_pitch, capture_rows_to_rgba, finish_capture},
   render_engine::RenderFrameCapture,
@@ -142,10 +142,10 @@ const DX12_ALWAYS_FULL_ATLAS_UPLOAD: bool = true;
 const IMAGE_SRV_FIRST_INDEX: usize = GLYPH_ATLAS_SRV_INDEX + 1;
 const FRAME_UPLOAD_ARENA_BYTES: usize = 32 * 1024 * 1024;
 const DX12_FRAME_WAIT_TIMEOUT_MS: u32 = 32;
-/// Devtools screenshots block the render thread on the copy's fence; they are
+/// Screenshots block the render thread on the copy's fence; they are
 /// rare and user-invoked, so wait longer than the per-frame budget before
 /// dropping the capture.
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 const DX12_CAPTURE_WAIT_TIMEOUT_MS: u32 = 250;
 const DX12_SLOW_FRAME_THRESHOLD: Duration = Duration::from_millis(12);
 const DX12_SLOW_PHASE_THRESHOLD: Duration = Duration::from_millis(6);
@@ -272,7 +272,7 @@ pub struct Dx12RenderEngine {
   width: u32,
   height: u32,
   render_cadence: Dx12RenderCadence,
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   pending_frame_capture: Option<RenderFrameCapture>,
   #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
@@ -319,7 +319,7 @@ impl Dx12RenderEngine {
       width: 800,
       height: 600,
       render_cadence: Dx12RenderCadence::new(Instant::now()),
-      #[cfg(feature = "devtools")]
+      #[cfg(feature = "screenshot")]
       pending_frame_capture: None,
       #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
@@ -684,7 +684,7 @@ impl RenderEngine for Dx12RenderEngine {
         return false;
       }
     }
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     {
       state.pending_frame_capture = self.pending_frame_capture.take();
     }
@@ -733,12 +733,12 @@ impl RenderEngine for Dx12RenderEngine {
     true
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   fn supports_frame_capture(&self) -> bool {
     true
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   fn render_with_capture(
     &mut self,
     list: &RenderList,
@@ -750,7 +750,7 @@ impl RenderEngine for Dx12RenderEngine {
     let rendered = self.render(list, window, display);
     if let Some(capture) = self.pending_frame_capture.take() {
       tracing::warn!(
-        "dropped dx12 devtools frame capture to {}: the frame was not rendered",
+        "dropped DX12 frame capture to {}: the frame was not rendered",
         capture.output_path.display()
       );
     }
@@ -810,19 +810,19 @@ struct Dx12State {
   width: u32,
   height: u32,
   device_lost: bool,
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   pending_frame_capture: Option<RenderFrameCapture>,
   /// Readback buffers whose fence wait failed; the GPU may still be writing
   /// them, so they are kept alive until their frame slot's fence is waited on
   /// again at the start of a later frame.
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   retired_capture_readbacks: [Vec<ID3D12Resource>; FRAME_COUNT],
 }
 
-/// A recorded-but-not-yet-read devtools capture: the readback buffer the back
+/// A recorded-but-not-yet-read screenshot: the readback buffer the back
 /// buffer was copied into, plus the layout needed to unpack it after the
 /// frame's fence signals.
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 struct FrameCaptureReadback {
   resource: ID3D12Resource,
   padded_bytes_per_row: u32,
@@ -2586,9 +2586,9 @@ impl Dx12State {
       width: width.max(1),
       height: height.max(1),
       device_lost: false,
-      #[cfg(feature = "devtools")]
+      #[cfg(feature = "screenshot")]
       pending_frame_capture: None,
-      #[cfg(feature = "devtools")]
+      #[cfg(feature = "screenshot")]
       retired_capture_readbacks: std::array::from_fn(|_| Vec::new()),
     };
     state.create_render_targets()?;
@@ -2629,7 +2629,7 @@ impl Dx12State {
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     self.retired_capture_readbacks[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
     #[cfg(feature = "image")]
@@ -2651,7 +2651,7 @@ impl Dx12State {
       }
     };
 
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     let frame_capture = self.encode_pending_frame_capture();
 
     dx12_context(self.command_list.Close(), "close dx12 command list")?;
@@ -2661,7 +2661,7 @@ impl Dx12State {
     let command_list: ID3D12CommandList = dx12_context(self.command_list.cast(), "cast dx12 command list")?;
     self.command_queue.ExecuteCommandLists(&[Some(command_list)]);
     dx12_context(self.signal_current_frame(), "signal dx12 frame fence")?;
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     let capture_fence_value = self.fence_values[self.frame_index];
     let _submit_dur = profile_elapsed!(_submit_start);
 
@@ -2673,7 +2673,7 @@ impl Dx12State {
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     let _present_dur = profile_elapsed!(_present_start);
 
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     if let Some((capture, readback)) = frame_capture {
       self.finish_frame_capture(capture, readback, capture_fence_value);
     }
@@ -2719,14 +2719,14 @@ impl Dx12State {
     Ok((atlas_stats, atlas_dur))
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   unsafe fn encode_pending_frame_capture(&mut self) -> Option<(RenderFrameCapture, FrameCaptureReadback)> {
     let capture = self.pending_frame_capture.take()?;
     match self.encode_frame_capture(&capture) {
       Ok(readback) => Some((capture, readback)),
       Err(err) => {
         tracing::warn!(
-          "failed to encode dx12 devtools frame capture to {}: {err:?}",
+          "failed to encode DX12 frame capture to {}: {err:?}",
           capture.output_path.display()
         );
         None
@@ -2738,7 +2738,7 @@ impl Dx12State {
   /// readback buffer. The back buffer bytes are already sRGB-encoded RGBA8
   /// (UNORM swapchain written through an sRGB render target view), so the
   /// readback maps straight to PNG pixels.
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   unsafe fn encode_frame_capture(&mut self, capture: &RenderFrameCapture) -> Result<FrameCaptureReadback> {
     if capture.width == 0
       || capture.height == 0
@@ -2746,7 +2746,7 @@ impl Dx12State {
       || capture.y + capture.height > self.height
     {
       return Err(dx12_invalid_arg(format!(
-        "devtools capture rect {}x{} at ({}, {}) exceeds the {}x{} surface",
+        "screenshot capture rect {}x{} at ({}, {}) exceeds the {}x{} surface",
         capture.width, capture.height, capture.x, capture.y, self.width, self.height
       )));
     }
@@ -2819,7 +2819,7 @@ impl Dx12State {
 
   /// Wait for the capture copy's fence, map the readback buffer, and hand the
   /// tight RGBA pixels to a worker thread for clipping and PNG encoding.
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   unsafe fn finish_frame_capture(
     &mut self,
     capture: RenderFrameCapture,
@@ -2828,7 +2828,7 @@ impl Dx12State {
   ) {
     if let Err(err) = self.wait_for_capture_fence(fence_value) {
       tracing::warn!(
-        "dropped dx12 devtools frame capture to {}: {err:?}",
+        "dropped DX12 frame capture to {}: {err:?}",
         capture.output_path.display()
       );
       // The GPU may still be writing the buffer; keep it alive until this
@@ -2844,7 +2844,7 @@ impl Dx12State {
     };
     let mut mapped: *mut c_void = ptr::null_mut();
     if let Err(error) = readback.resource.Map(0, Some(&read_range), Some(&mut mapped)) {
-      tracing::warn!("failed to map dx12 devtools frame capture readback buffer: {error:?}");
+      tracing::warn!("failed to map DX12 frame capture readback buffer: {error:?}");
       return;
     }
     let data = std::slice::from_raw_parts(mapped.cast::<u8>(), buffer_size);
@@ -2861,7 +2861,7 @@ impl Dx12State {
     std::thread::spawn(move || finish_capture(pixels, &capture));
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   unsafe fn wait_for_capture_fence(&mut self, fence_value: u64) -> Result<()> {
     if self.device_lost {
       return Err(dx12_invalid_arg("dx12 device lost before frame capture readback"));
@@ -4598,7 +4598,7 @@ mod tests {
     assert_eq!(rect.bottom, 61);
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   #[test]
   fn dx12_engine_reports_frame_capture_support() {
     assert!(Dx12RenderEngine::new().supports_frame_capture());

@@ -1,12 +1,12 @@
-//! Manual end-to-end check for the dx12 devtools frame capture: renders a
+//! Manual end-to-end check for the DX12 screenshot capture: renders a
 //! known scene into a real swapchain, captures a sub-rect through
 //! `render_with_capture`, and asserts the saved PNG's pixels.
 //!
 //! Run with:
 //! ```text
-//! cargo run -p lurq --example dx12_capture_check --features devtools,dx12
+//! cargo run -p lurq --example dx12_capture_check --features screenshot,dx12
 //! ```
-#![cfg(all(windows, feature = "devtools", feature = "dx12"))]
+#![cfg(all(windows, feature = "screenshot", feature = "dx12"))]
 
 use std::num::NonZeroIsize;
 

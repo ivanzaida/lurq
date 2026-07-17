@@ -425,6 +425,10 @@ impl ManagedWindow {
           }
         }
         WindowCommand::StopDrag => {}
+        #[cfg(feature = "screenshot")]
+        WindowCommand::Screenshot(output_path) => {
+          self.tree.request_screenshot(output_path);
+        }
         WindowCommand::OpenDevtools => {
           self.tree.open_devtools();
         }
@@ -936,6 +940,10 @@ impl ManagedSecondaryWindow {
           }
         }
         WindowCommand::StopDrag => {}
+        #[cfg(feature = "screenshot")]
+        WindowCommand::Screenshot(output_path) => {
+          tree.request_screenshot(output_path);
+        }
         WindowCommand::OpenDevtools => {
           tree.open_devtools();
         }

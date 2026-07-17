@@ -24,7 +24,7 @@ pub use wgpu::{Features as WgpuFeatures, Limits as WgpuLimits};
 
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::RenderProfile;
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 use crate::app::render_engine::RenderFrameCapture;
 use crate::{
   app::{
@@ -362,7 +362,7 @@ pub struct WgpuRenderEngine {
   width: u32,
   height: u32,
   frame_extensions: Vec<WgpuFrameExtensionEntry>,
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   pending_frame_capture: Option<RenderFrameCapture>,
 }
 
@@ -441,7 +441,7 @@ impl WgpuRenderEngine {
       width: 800,
       height: 600,
       frame_extensions: Vec::new(),
-      #[cfg(feature = "devtools")]
+      #[cfg(feature = "screenshot")]
       pending_frame_capture: None,
     }
   }
@@ -2012,7 +2012,7 @@ impl RenderEngine for WgpuRenderEngine {
     }
     let _encode_dur = profile_elapsed!(_encode_start);
 
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     let frame_capture = self
       .pending_frame_capture
       .take()
@@ -2022,7 +2022,7 @@ impl RenderEngine for WgpuRenderEngine {
     queue.submit(std::iter::once(encoder.finish()));
     let _submit_dur = profile_elapsed!(_submit_start);
 
-    #[cfg(feature = "devtools")]
+    #[cfg(feature = "screenshot")]
     if let Some(frame_capture) = frame_capture {
       frame_capture.start(device.clone());
     }
@@ -2051,12 +2051,12 @@ impl RenderEngine for WgpuRenderEngine {
     true
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   fn supports_frame_capture(&self) -> bool {
     true
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(feature = "screenshot")]
   fn render_with_capture(
     &mut self,
     list: &RenderList,
@@ -2086,7 +2086,7 @@ impl RenderEngine for WgpuRenderEngine {
   }
 }
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 struct WgpuFrameCaptureReadback {
   buffer: wgpu::Buffer,
   format: wgpu::TextureFormat,
@@ -2094,7 +2094,7 @@ struct WgpuFrameCaptureReadback {
   capture: RenderFrameCapture,
 }
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 impl WgpuFrameCaptureReadback {
   fn start(self, device: wgpu::Device) {
     std::thread::spawn(move || {
@@ -2107,11 +2107,11 @@ impl WgpuFrameCaptureReadback {
       match receiver.recv() {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
-          tracing::warn!("failed to map devtools screenshot readback buffer: {error:?}");
+          tracing::warn!("failed to map screenshot readback buffer: {error:?}");
           return;
         }
         Err(error) => {
-          tracing::warn!("failed to receive devtools screenshot readback result: {error}");
+          tracing::warn!("failed to receive screenshot readback result: {error}");
           return;
         }
       }
@@ -2136,7 +2136,7 @@ impl WgpuFrameCaptureReadback {
   }
 }
 
-#[cfg(feature = "devtools")]
+#[cfg(feature = "screenshot")]
 fn encode_wgpu_frame_capture(
   device: &wgpu::Device,
   encoder: &mut wgpu::CommandEncoder,
@@ -2154,7 +2154,7 @@ fn encode_wgpu_frame_capture(
     crate::app::frame_capture::align_capture_row_pitch(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
   let buffer_size = padded_bytes_per_row as u64 * capture.height as u64;
   let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-    label: Some("lurq_devtools_frame_capture"),
+    label: Some("lurq_screenshot_frame_capture"),
     size: buffer_size,
     usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
     mapped_at_creation: false,

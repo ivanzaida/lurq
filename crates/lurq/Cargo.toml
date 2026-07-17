@@ -27,7 +27,8 @@ wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:metal", "dep:wgpu-hal"]
 dx12 = ["render"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
-devtools = ["dep:image", "dep:rfd"]
+screenshot = ["dep:image"]
+devtools = ["screenshot", "dep:rfd"]
 perf_profile = []
 router = []
 
@@ -95,7 +96,7 @@ required-features = ["resources"]
 
 [[example]]
 name = "dx12_capture_check"
-required-features = ["devtools", "dx12"]
+required-features = ["screenshot", "dx12"]
 
 [[bench]]
 name = "layout"
