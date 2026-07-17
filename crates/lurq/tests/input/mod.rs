@@ -11,6 +11,7 @@ mod text_input {
   mod editing;
   mod empty_value;
   mod focus;
+  mod overflow_anchor;
   mod preserves_editing_state_across_render;
   mod renders_caret;
   mod soft_wrap_selection;

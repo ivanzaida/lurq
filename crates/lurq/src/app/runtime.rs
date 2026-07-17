@@ -2011,6 +2011,7 @@ impl Tree {
           style,
           wrap,
           vertical_align,
+          center_using_ink_bounds,
           transform_mode,
         } => {
           let glyph_start = glyphs.len();
@@ -2041,6 +2042,7 @@ impl Tree {
               max_width,
               *wrap,
               *vertical_align,
+              *center_using_ink_bounds,
               scaled_height,
             );
           if quad.transform.is_identity() {
@@ -2092,6 +2094,9 @@ impl Tree {
               glyph.width /= raster_scale;
               glyph.height /= raster_scale;
             }
+          }
+          if *center_using_ink_bounds && quad.transform.is_identity() {
+            center_pixel_snapped_glyph_ink(&mut glyphs[glyph_start..], scaled_y, scaled_height);
           }
           for g in &mut glyphs[glyph_start..] {
             g.order = order;
@@ -8779,14 +8784,46 @@ fn vertical_align_offset(
   align: VerticalAlign,
   extents: crate::app::glyph_engine::TextVerticalExtents,
   quad_height: f32,
+  center_using_ink_bounds: bool,
 ) -> f32 {
   match align {
     VerticalAlign::Top => -extents.ink_top,
     VerticalAlign::Center => {
-      let box_h = extents.optical_bottom - extents.optical_top;
-      (quad_height - box_h) * 0.5 - extents.optical_top
+      let (top, bottom) = if center_using_ink_bounds {
+        (extents.ink_top, extents.ink_bottom)
+      } else {
+        (extents.optical_top, extents.optical_bottom)
+      };
+      (quad_height - (bottom - top)) * 0.5 - top
     }
     VerticalAlign::Bottom => quad_height - extents.ink_bottom,
+  }
+}
+
+/// Pixel snapping can move a theoretically centered run by one physical pixel
+/// when the control is rendered at a fractional DPI scale. Reconcile the
+/// painted bounds after rasterization and translate by whole pixels so input
+/// text remains both visually centered and sharp.
+fn center_pixel_snapped_glyph_ink(glyphs: &mut [GlyphCmd], box_y: f32, box_height: f32) {
+  if glyphs.is_empty() || box_height <= 0.0 {
+    return;
+  }
+  let top = glyphs.iter().map(|glyph| glyph.y).fold(f32::INFINITY, f32::min);
+  let bottom = glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  if !top.is_finite() || !bottom.is_finite() {
+    return;
+  }
+  let ink_center = (top + bottom) * 0.5;
+  let box_center = box_y + box_height * 0.5;
+  let correction = (box_center - ink_center).round();
+  if correction == 0.0 {
+    return;
+  }
+  for glyph in glyphs {
+    glyph.y += correction;
   }
 }
 
@@ -8797,6 +8834,7 @@ fn text_vertical_align_offset(
   max_width: f32,
   wrap: bool,
   vertical_align: VerticalAlign,
+  center_using_ink_bounds: bool,
   quad_height: f32,
 ) -> f32 {
   if quad_height <= 0.0 {
@@ -8805,7 +8843,7 @@ fn text_vertical_align_offset(
   let Some(extents) = app.glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
     return 0.0;
   };
-  vertical_align_offset(vertical_align, extents, quad_height)
+  vertical_align_offset(vertical_align, extents, quad_height, center_using_ink_bounds)
 }
 
 fn rich_text_vertical_align_offset(
@@ -8830,6 +8868,7 @@ fn rich_text_vertical_align_offset(
       max_width,
       wrap,
       vertical_align,
+      false,
       quad_height,
     );
   }
@@ -8843,6 +8882,7 @@ fn rich_text_vertical_align_offset(
       optical_bottom: measured,
     },
     quad_height,
+    false,
   )
 }
 

@@ -20,6 +20,7 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
+pub use wgpu::{Features as WgpuFeatures, Limits as WgpuLimits};
 
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::RenderProfile;
@@ -301,6 +302,8 @@ pub struct WgpuRenderEngine {
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
+  optional_device_features: wgpu::Features,
+  optional_device_limits: wgpu::Limits,
   quad_pipeline: Option<wgpu::RenderPipeline>,
   glyph_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "image")]
@@ -378,6 +381,8 @@ impl WgpuRenderEngine {
       adapter: None,
       device: None,
       queue: None,
+      optional_device_features: wgpu::Features::empty(),
+      optional_device_limits: wgpu::Limits::default(),
       quad_pipeline: None,
       glyph_pipeline: None,
       #[cfg(feature = "image")]
@@ -443,6 +448,16 @@ impl WgpuRenderEngine {
 
   pub fn with_frame_extension(mut self, extension: impl WgpuFrameExtension + 'static) -> Self {
     self.add_frame_extension(extension);
+    self
+  }
+
+  pub fn with_optional_device_features(mut self, features: WgpuFeatures) -> Self {
+    self.optional_device_features |= features;
+    self
+  }
+
+  pub fn with_optional_device_limits(mut self, limits: WgpuLimits) -> Self {
+    self.optional_device_limits = limits;
     self
   }
 
@@ -599,8 +614,15 @@ impl WgpuRenderEngine {
     }))
     .expect("no suitable GPU adapter found");
 
+    let required_features = adapter.features() & self.optional_device_features;
+    let required_limits = self
+      .optional_device_limits
+      .clone()
+      .or_worse_values_from(&adapter.limits());
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
       label: Some("lurq"),
+      required_features,
+      required_limits,
       ..Default::default()
     }))
     .expect("failed to create device");
@@ -1061,6 +1083,23 @@ impl WgpuRenderEngine {
     self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
     self.index_buffer = Some(index_buffer);
+  }
+}
+
+struct WindowDisplayPair<'a> {
+  window: WindowHandle<'a>,
+  display: DisplayHandle<'a>,
+}
+
+impl raw_window_handle::HasWindowHandle for WindowDisplayPair<'_> {
+  fn window_handle(&self) -> Result<WindowHandle<'_>, raw_window_handle::HandleError> {
+    Ok(self.window)
+  }
+}
+
+impl raw_window_handle::HasDisplayHandle for WindowDisplayPair<'_> {
+  fn display_handle(&self) -> Result<DisplayHandle<'_>, raw_window_handle::HandleError> {
+    Ok(self.display)
   }
 }
 
@@ -1974,13 +2013,19 @@ impl RenderEngine for WgpuRenderEngine {
     let _encode_dur = profile_elapsed!(_encode_start);
 
     #[cfg(feature = "devtools")]
-    if let Some(capture) = self.pending_frame_capture.take() {
-      capture_wgpu_frame(device, &mut encoder, &output.texture, config.format, capture);
-    }
+    let frame_capture = self
+      .pending_frame_capture
+      .take()
+      .and_then(|capture| encode_wgpu_frame_capture(device, &mut encoder, &output.texture, config.format, capture));
 
     let _submit_start = profile_scope!();
     queue.submit(std::iter::once(encoder.finish()));
     let _submit_dur = profile_elapsed!(_submit_start);
+
+    #[cfg(feature = "devtools")]
+    if let Some(frame_capture) = frame_capture {
+      frame_capture.start(device.clone());
+    }
 
     let _present_start = profile_scope!();
     output.present();
@@ -2042,15 +2087,65 @@ impl RenderEngine for WgpuRenderEngine {
 }
 
 #[cfg(feature = "devtools")]
-fn capture_wgpu_frame(
+struct WgpuFrameCaptureReadback {
+  buffer: wgpu::Buffer,
+  format: wgpu::TextureFormat,
+  padded_bytes_per_row: u32,
+  capture: RenderFrameCapture,
+}
+
+#[cfg(feature = "devtools")]
+impl WgpuFrameCaptureReadback {
+  fn start(self, device: wgpu::Device) {
+    std::thread::spawn(move || {
+      let slice = self.buffer.slice(..);
+      let (sender, receiver) = std::sync::mpsc::channel();
+      slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = sender.send(result);
+      });
+      let _ = device.poll(wgpu::PollType::wait_indefinitely());
+      match receiver.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+          tracing::warn!("failed to map devtools screenshot readback buffer: {error:?}");
+          return;
+        }
+        Err(error) => {
+          tracing::warn!("failed to receive devtools screenshot readback result: {error}");
+          return;
+        }
+      }
+
+      let data = slice.get_mapped_range();
+      let bgra = matches!(
+        self.format,
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+      );
+      let pixels = crate::app::frame_capture::capture_rows_to_rgba(
+        &data,
+        self.padded_bytes_per_row as usize,
+        self.capture.width,
+        self.capture.height,
+        bgra,
+      );
+      drop(data);
+      self.buffer.unmap();
+
+      crate::app::frame_capture::finish_capture(pixels, &self.capture);
+    });
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn encode_wgpu_frame_capture(
   device: &wgpu::Device,
   encoder: &mut wgpu::CommandEncoder,
   texture: &wgpu::Texture,
   format: wgpu::TextureFormat,
   capture: RenderFrameCapture,
-) {
+) -> Option<WgpuFrameCaptureReadback> {
   if capture.width == 0 || capture.height == 0 {
-    return;
+    return None;
   }
 
   let bytes_per_pixel = 4_u32;
@@ -2091,43 +2186,12 @@ fn capture_wgpu_frame(
     },
   );
 
-  let device = device.clone();
-  std::thread::spawn(move || {
-    let slice = buffer.slice(..);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-      let _ = sender.send(result);
-    });
-    let _ = device.poll(wgpu::PollType::wait_indefinitely());
-    match receiver.recv() {
-      Ok(Ok(())) => {}
-      Ok(Err(error)) => {
-        tracing::warn!("failed to map devtools screenshot readback buffer: {error:?}");
-        return;
-      }
-      Err(error) => {
-        tracing::warn!("failed to receive devtools screenshot readback result: {error}");
-        return;
-      }
-    }
-
-    let data = slice.get_mapped_range();
-    let bgra = matches!(
-      format,
-      wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
-    );
-    let pixels = crate::app::frame_capture::capture_rows_to_rgba(
-      &data,
-      padded_bytes_per_row as usize,
-      capture.width,
-      capture.height,
-      bgra,
-    );
-    drop(data);
-    buffer.unmap();
-
-    crate::app::frame_capture::finish_capture(pixels, &capture);
-  });
+  Some(WgpuFrameCaptureReadback {
+    buffer,
+    format,
+    padded_bytes_per_row,
+    capture,
+  })
 }
 
 fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect) -> bool {
@@ -2790,22 +2854,5 @@ mod tests {
     assert_eq!(super::wgpu_staged_texture_bytes(1, 3), 256 * 3);
     assert_eq!(super::wgpu_staged_texture_bytes(256, 2), 256 * 2);
     assert_eq!(super::wgpu_staged_texture_bytes(257, 2), 512 * 2);
-  }
-}
-
-struct WindowDisplayPair<'a> {
-  window: WindowHandle<'a>,
-  display: DisplayHandle<'a>,
-}
-
-impl raw_window_handle::HasWindowHandle for WindowDisplayPair<'_> {
-  fn window_handle(&self) -> Result<WindowHandle<'_>, raw_window_handle::HandleError> {
-    Ok(self.window)
-  }
-}
-
-impl raw_window_handle::HasDisplayHandle for WindowDisplayPair<'_> {
-  fn display_handle(&self) -> Result<DisplayHandle<'_>, raw_window_handle::HandleError> {
-    Ok(self.display)
   }
 }

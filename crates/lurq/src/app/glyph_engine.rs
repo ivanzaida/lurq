@@ -330,12 +330,13 @@ fn set_buffer_text(buffer: &mut Buffer, font_system: &mut FontSystem, text: &str
   }
 }
 
-/// Vertical extents of a shaped single line, relative to the render origin
+/// Vertical extents of shaped text, relative to the render origin
 /// (a glyph placed at origin_y `Y` puts these at `Y + value`). `ink_*` is the
 /// tight bound of the visible glyph ink; `optical_*` is the descender-agnostic
-/// box used for centering — the font's cap-height box (`[baseline - cap_height,
-/// baseline]`) for real text, falling back to the ink bounds when the font
-/// exposes no usable cap height (e.g. icon fonts). Centering the optical box
+/// box used for centering — from the first line's cap height to the final
+/// line's baseline for real text, falling back to the ink bounds when the font
+/// exposes no usable cap height (e.g. icon fonts). For one line this is the
+/// usual `[baseline - cap_height, baseline]` box. Centering the optical box
 /// keeps text with and without descenders — and icons next to it — visually
 /// aligned, instead of letting descenders drag the visible mass upward.
 #[derive(Clone, Copy)]
@@ -584,7 +585,8 @@ impl GlyphEngine {
 
     let mut top = f32::INFINITY;
     let mut bottom = f32::NEG_INFINITY;
-    let mut first: Option<(cosmic_text::fontdb::ID, f32, f32)> = None;
+    let mut first: Option<(cosmic_text::fontdb::ID, f32, f32, f32)> = None;
+    let mut last_line_y = None;
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
         if glyph_cluster_is_whitespace(run.text, glyph) {
@@ -604,12 +606,14 @@ impl GlyphEngine {
         if packed.height == 0 {
           continue;
         }
-        let glyph_top = run.line_y + glyph.y - y_offset - packed.top as f32;
+        let baseline = run.line_y + glyph.y - y_offset;
+        let glyph_top = baseline - packed.top as f32;
         top = top.min(glyph_top);
         bottom = bottom.max(glyph_top + packed.height as f32);
         if first.is_none() {
-          first = Some((glyph.font_id, run.line_y + glyph.y - y_offset, glyph.font_size));
+          first = Some((glyph.font_id, baseline, glyph.font_size, run.line_y));
         }
+        last_line_y = Some(run.line_y);
       }
     }
 
@@ -618,16 +622,19 @@ impl GlyphEngine {
       return None;
     }
 
-    // Optical box = the font's cap-height box on the first line's baseline,
-    // which is descender- and content-independent. Icon fonts usually report no
-    // usable cap height, so fall back to the ink box for them.
+    // Optical box = the font's cap height above the first line's baseline
+    // through the final line's baseline. Including every line advance is
+    // essential: centering only the first line's cap box shifts a wrapped run
+    // downward and lets its final line escape a trimmed line box. Icon fonts
+    // usually report no usable cap height, so fall back to the ink box for them.
     let (optical_top, optical_bottom) = first
-      .and_then(|(font_id, baseline, font_size)| {
+      .and_then(|(font_id, baseline, font_size, first_line_y)| {
         let cap_px = self.font_cap_height_px(font_id, font_size)?;
         // Only trust a plausible text cap height. Icon/symbol fonts report 0 or
         // a full-em value; those fall back to ink so the glyph shape itself is
         // centered (which keeps icons aligned with adjacent cap-centered text).
-        (cap_px > font_size * 0.4 && cap_px < font_size * 0.95).then_some((baseline - cap_px, baseline))
+        let final_baseline = baseline + last_line_y.unwrap_or(first_line_y) - first_line_y;
+        (cap_px > font_size * 0.4 && cap_px < font_size * 0.95).then_some((baseline - cap_px, final_baseline))
       })
       .unwrap_or((top, bottom));
 

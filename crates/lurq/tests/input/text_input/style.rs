@@ -212,6 +212,46 @@ fn single_line_input_centers_glyphs_with_tall_line_height() {
   );
 }
 
+#[test]
+fn single_line_input_centers_numeric_glyph_ink() {
+  let value = Signal::new("32986".to_owned());
+  let mut runtime = Tree::new();
+  runtime.set_scale_factor(1.5);
+
+  runtime.set_root(
+    TextInput::styled(
+      value,
+      TextStyle {
+        font_size: 13.0,
+        line_height: 1.0,
+        color: Color::from_hex("#e5e7eb"),
+        ..TextStyle::default()
+      },
+    )
+    .single_line()
+    .width(220.0)
+    .height(36.0),
+  );
+
+  let snapshot = render_pass(&mut runtime);
+  let top = snapshot
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y)
+    .fold(f32::INFINITY, f32::min);
+  let bottom = snapshot
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  let glyph_center = (top + bottom) * 0.5;
+
+  assert!(
+    (glyph_center - 27.0).abs() <= 0.5,
+    "numeric glyph ink should be centered in the scaled input: glyph={glyph_center}, input=27"
+  );
+}
+
 #[derive(Clone, Debug, lurq::DevtoolsInspectable)]
 struct ErrorStyledTextInputProps {
   error: Signal<bool>,

@@ -33,6 +33,13 @@ pub enum TextInputOverflow {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextInputOverflowAnchor {
+  #[default]
+  Start,
+  End,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextOverflow {
   #[default]
   Clip,
@@ -346,6 +353,7 @@ struct TextInputInner {
   caret_positions: Vec<CaretPosition>,
   scroll_x: f32,
   scroll_y: f32,
+  unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
   min_rows: Option<usize>,
   max_rows: Option<usize>,
@@ -365,6 +373,7 @@ struct TextInputSnapshot {
 #[derive(Clone, PartialEq)]
 pub(crate) struct TextInputLayoutSignature {
   placeholder: Option<String>,
+  unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
   min_rows: Option<usize>,
   max_rows: Option<usize>,
@@ -392,6 +401,7 @@ impl TextInputState {
         }],
         scroll_x: 0.0,
         scroll_y: 0.0,
+        unfocused_overflow_anchor: TextInputOverflowAnchor::default(),
         overflow: TextInputOverflow::default(),
         min_rows: None,
         max_rows: None,
@@ -964,6 +974,20 @@ impl TextInputState {
     self.inner.lock().unwrap().scroll_y
   }
 
+  pub(crate) fn set_unfocused_overflow_anchor(&self, anchor: TextInputOverflowAnchor) {
+    let mut inner = self.inner.lock().unwrap();
+    if inner.unfocused_overflow_anchor == anchor {
+      return;
+    }
+    inner.unfocused_overflow_anchor = anchor;
+    drop(inner);
+    self.mark_layout_dirty();
+  }
+
+  pub(crate) fn unfocused_overflow_anchor(&self) -> TextInputOverflowAnchor {
+    self.inner.lock().unwrap().unfocused_overflow_anchor
+  }
+
   pub(crate) fn set_overflow(&self, overflow: TextInputOverflow) {
     let mut inner = self.inner.lock().unwrap();
     if inner.overflow == overflow {
@@ -1057,7 +1081,13 @@ impl TextInputState {
   }
 
   pub(crate) fn set_focused(&self, focused: bool) {
-    self.inner.lock().unwrap().focused = focused;
+    let mut inner = self.inner.lock().unwrap();
+    if inner.focused == focused {
+      return;
+    }
+    inner.focused = focused;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn is_focused(&self) -> bool {
@@ -1097,6 +1127,7 @@ impl TextInputState {
     let inner = self.inner.lock().unwrap();
     TextInputLayoutSignature {
       placeholder: inner.placeholder.clone(),
+      unfocused_overflow_anchor: inner.unfocused_overflow_anchor,
       overflow: inner.overflow,
       min_rows: inner.min_rows,
       max_rows: inner.max_rows,

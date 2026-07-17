@@ -864,6 +864,7 @@ impl LayoutEngine {
           style: resolved_style,
           wrap: state.render_wrap(),
           vertical_align,
+          center_using_ink_bounds: false,
           transform_mode: *transform_mode,
         }
       }
@@ -894,6 +895,7 @@ impl LayoutEngine {
           style: display_style,
           wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
           vertical_align,
+          center_using_ink_bounds: vertical_align == crate::layout::text_style::VerticalAlign::Center,
           transform_mode: TextTransformMode::Bitmap,
         }
       }
@@ -2341,12 +2343,20 @@ impl LayoutEngine {
       crate::node::node_kind::TextInputOverflow::Scroll => {
         let caret_width = 1.0;
         let max_scroll = (text_result.size.width + caret_width - size.width).max(0.0);
-        let mut scroll_x = state.scroll_x().min(max_scroll);
-        if caret_x < scroll_x {
-          scroll_x = caret_x;
-        } else if caret_x + caret_width > scroll_x + size.width {
-          scroll_x = (caret_x + caret_width - size.width).min(max_scroll);
-        }
+        let scroll_x = if state.is_focused() {
+          let mut scroll_x = state.scroll_x().min(max_scroll);
+          if caret_x < scroll_x {
+            scroll_x = caret_x;
+          } else if caret_x + caret_width > scroll_x + size.width {
+            scroll_x = (caret_x + caret_width - size.width).min(max_scroll);
+          }
+          scroll_x
+        } else {
+          match state.unfocused_overflow_anchor() {
+            crate::node::node_kind::TextInputOverflowAnchor::Start => 0.0,
+            crate::node::node_kind::TextInputOverflowAnchor::End => max_scroll,
+          }
+        };
         state.set_scroll_x(scroll_x);
         state.set_scroll_y(0.0);
       }

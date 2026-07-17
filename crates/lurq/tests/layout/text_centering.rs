@@ -259,6 +259,54 @@ fn trim_line_box_does_not_move_single_line_glyphs() {
 }
 
 #[test]
+fn trim_line_box_keeps_wrapped_glyphs_inside_the_measured_box() {
+  let tint = Color::from_hex("#ff00ff");
+  let mut rt = rt();
+  rt.set_root(
+    lurq::components::Column::new().width(286.0).clip().child(
+      lurq::components::Text::styled(
+        "Exact splat terrain inside this radius; the lightweight overview remains visible beyond it.",
+        TextStyle {
+          font_size: 10.0,
+          line_height: 1.4,
+          trim_line_box: true,
+          color: tint,
+          ..TextStyle::default()
+        },
+      )
+      .width(286.0),
+    ),
+  );
+
+  let snapshot = render_pass(&mut rt);
+  let bounds = rt
+    .find_element(|element| {
+      element.text_content()
+        == Some("Exact splat terrain inside this radius; the lightweight overview remains visible beyond it.")
+    })
+    .expect("wrapped text should render")
+    .bounds();
+  let color = tint.to_linear_f32_array();
+  let glyphs = snapshot
+    .glyphs
+    .iter()
+    .filter(|glyph| glyph.color == color)
+    .collect::<Vec<_>>();
+  let glyph_bottom = glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  assert!(!glyphs.is_empty(), "wrapped text should emit glyphs");
+  let measured_bottom = bounds.y + bounds.height;
+
+  assert!(
+    glyph_bottom <= measured_bottom + 4.0,
+    "wrapped text must center the full multiline run inside its measured box \
+     (allowing atlas padding): glyph_bottom={glyph_bottom}, measured_bottom={measured_bottom}, bounds={bounds:?}"
+  );
+}
+
+#[test]
 fn text_height_equals_line_height() {
   let mut rt = rt();
   let style = TextStyle {

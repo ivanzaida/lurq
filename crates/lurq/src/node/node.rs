@@ -401,6 +401,7 @@ pub(crate) trait NodeUpdate {
   fn off_input(&mut self, f: impl IntoTextInputEventHandler);
   fn placeholder(&mut self, placeholder: &str);
   fn text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow);
+  fn text_input_unfocused_overflow_anchor(&mut self, anchor: crate::node::node_kind::TextInputOverflowAnchor);
   fn text_input_mask(&mut self);
   fn text_input_mask_char(&mut self, mask: char);
   fn text_input_unmask(&mut self);
@@ -1382,6 +1383,10 @@ impl NodeUpdate for Node {
 
   fn text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow) {
     self.set_text_input_overflow(overflow);
+  }
+
+  fn text_input_unfocused_overflow_anchor(&mut self, anchor: crate::node::node_kind::TextInputOverflowAnchor) {
+    self.set_text_input_unfocused_overflow_anchor(anchor);
   }
 
   fn text_input_mask(&mut self) {
@@ -2660,6 +2665,12 @@ impl Node {
   fn set_text_input_overflow(&mut self, overflow: crate::node::node_kind::TextInputOverflow) {
     if let NodeKind::TextInput { state, .. } = &self.node_kind {
       state.set_overflow(overflow);
+    }
+  }
+
+  fn set_text_input_unfocused_overflow_anchor(&mut self, anchor: crate::node::node_kind::TextInputOverflowAnchor) {
+    if let NodeKind::TextInput { state, .. } = &self.node_kind {
+      state.set_unfocused_overflow_anchor(anchor);
     }
   }
 

@@ -76,7 +76,7 @@ pub use stack::Stack;
 #[cfg(feature = "svg")]
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
-pub use text_input::{TextInput, TextInputOverflow};
+pub use text_input::{TextInput, TextInputOverflow, TextInputOverflowAnchor};
 #[cfg(feature = "image")]
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;

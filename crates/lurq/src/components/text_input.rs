@@ -1,4 +1,4 @@
-pub use crate::node::node_kind::TextInputOverflow;
+pub use crate::node::node_kind::{TextInputOverflow, TextInputOverflowAnchor};
 use crate::{
   app::theme::CaretMode,
   core::Signal,
@@ -64,6 +64,14 @@ impl TextInput {
 
   pub fn overflow(mut self, overflow: TextInputOverflow) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_input_overflow(node, overflow));
+    self
+  }
+
+  /// Controls which edge of overflowing single-line text is visible while
+  /// the input is not focused. Focused inputs always scroll to follow the
+  /// caret.
+  pub fn unfocused_overflow_anchor(mut self, anchor: TextInputOverflowAnchor) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::text_input_unfocused_overflow_anchor(node, anchor));
     self
   }
 
