@@ -1,5 +1,5 @@
 use std::{
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   time::{Duration, Instant},
 };
 
@@ -127,6 +127,7 @@ struct AnimationRun {
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
+  seen: HashSet<NodeId>,
   pub has_active: bool,
 }
 
@@ -135,6 +136,7 @@ impl AnimationEngine {
     Self {
       active: HashMap::new(),
       keyframe_store: HashMap::new(),
+      seen: HashSet::new(),
       has_active: false,
     }
   }
@@ -145,19 +147,39 @@ impl AnimationEngine {
 
   pub(crate) fn clear_state(&mut self) {
     self.active.clear();
+    self.seen.clear();
     self.has_active = false;
+  }
+
+  /// Starts a frame: forgets which animated nodes last frame's walks visited.
+  /// A frame may tick several subtrees (base tree, then each overlay), so the
+  /// engine can only tell which runs belong to unmounted nodes once all walks
+  /// are done — see [`Self::finish_frame`].
+  pub(crate) fn begin_frame(&mut self) {
+    self.seen.clear();
+  }
+
+  /// Ends a frame after every tick walk ran: drops runs whose node was not
+  /// visited by any walk. Runs are kept for the node's whole lifetime (a
+  /// finished run guards against restarting the animation), so without this
+  /// prune an unmounted spinner's infinite run would keep `has_active` — and
+  /// with it full per-frame relayout — for the rest of the process.
+  pub(crate) fn finish_frame(&mut self) {
+    let seen = &self.seen;
+    self.active.retain(|(node_id, _), _| seen.contains(node_id));
+    self.has_active = self.active.values().any(|run| !run.finished);
   }
 
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
     self.has_active = false;
     let needs_layout = self.tick_recursive(root, now);
-    self.has_active = !self.active.is_empty();
+    self.has_active = self.active.values().any(|run| !run.finished);
     needs_layout
   }
 
   pub(crate) fn tick_preserving_active_state(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
     let needs_layout = self.tick_recursive(root, now);
-    self.has_active = !self.active.is_empty();
+    self.has_active = self.active.values().any(|run| !run.finished);
     needs_layout
   }
 
@@ -166,6 +188,7 @@ impl AnimationEngine {
     let node_id = node.node_id();
     if node_id.is_assigned() {
       if let Some(spec) = &node.animation {
+        self.seen.insert(node_id);
         let spec = spec.clone();
         needs_layout = self.process_node(node, &spec, now);
       }

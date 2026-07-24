@@ -28,6 +28,8 @@ pub struct DraggableProps {
   pub start_drag_buttons: MouseButtonMask,
   pub drop_miss_behavior: DropMissBehavior,
   pub override_policy: DragOverridePolicy,
+  /// Whether Draggable applies pointer deltas or leaves bounds to the callback.
+  pub movement: DragMovement,
   /// An externally owned ref for the dragged element; when absent the
   /// component allocates one internally.
   #[devtools_ignore]
@@ -52,6 +54,7 @@ impl fmt::Debug for DraggableProps {
       .field("start_drag_buttons", &self.start_drag_buttons)
       .field("drop_miss_behavior", &self.drop_miss_behavior)
       .field("override_policy", &self.override_policy)
+      .field("movement", &self.movement)
       .field("followers", &self.followers.len())
       .field("payload", &self.payload.as_ref().map(|_| "<payload>"))
       .field("child", &self.child.as_ref().map(|_| "<slot child>"))
@@ -77,6 +80,16 @@ pub enum DragOverridePolicy {
   /// target's handler commits: an accepted drop settles on the committed
   /// coordinates, a missed drop reverts.
   Clear,
+}
+
+/// Who applies element bounds while a drag moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, crate::DevtoolsInspectable)]
+pub enum DragMovement {
+  /// Draggable applies each pointer delta to the source and followers.
+  #[default]
+  Automatic,
+  /// The move callback owns positioning, for snapping or constrained motion.
+  Manual,
 }
 
 impl DraggableProps {
@@ -114,6 +127,11 @@ impl DraggableProps {
     self
   }
 
+  pub fn movement(mut self, movement: DragMovement) -> Self {
+    self.movement = movement;
+    self
+  }
+
   pub fn element_ref(mut self, element_ref: ElementRefMut) -> Self {
     self.element_ref = Some(element_ref);
     self
@@ -143,6 +161,7 @@ impl PartialEq for DraggableProps {
       && self.start_drag_buttons == other.start_drag_buttons
       && self.drop_miss_behavior == other.drop_miss_behavior
       && self.override_policy == other.override_policy
+      && self.movement == other.movement
       && same_element_ref(&self.element_ref, &other.element_ref)
       && self.followers.len() == other.followers.len()
       && self
@@ -179,6 +198,7 @@ impl Component for Draggable {
     let internal_ref = ctx.element_ref_mut();
     let element_ref = props.element_ref.clone().unwrap_or(internal_ref);
     let followers = Arc::new(props.followers.clone());
+    let movement = props.movement;
     let start_bounds = Arc::new(Mutex::new(Vec::<(ElementRefMut, ElementRect)>::new()));
     let mut child = explicit_child(ctx, &props);
 
@@ -209,9 +229,11 @@ impl Component for Draggable {
         let followers = followers.clone();
         let on_drag_move = props.on_drag_move.clone();
         move |event: DragEvent| {
-          move_element(&element_ref, event.delta_x, event.delta_y);
-          for follower in attached(&followers) {
-            move_element(follower, event.delta_x, event.delta_y);
+          if movement == DragMovement::Automatic {
+            move_element(&element_ref, event.delta_x, event.delta_y);
+            for follower in attached(&followers) {
+              move_element(follower, event.delta_x, event.delta_y);
+            }
           }
           if let Some(on_drag_move) = &on_drag_move {
             on_drag_move(&event);

@@ -40,7 +40,7 @@ pub use button::Button;
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
-pub use draggable::{DragOverridePolicy, Draggable, DraggableProps, DropMissBehavior};
+pub use draggable::{DragMovement, DragOverridePolicy, Draggable, DraggableProps, DropMissBehavior};
 pub use drop_zone::{DropZone, DropZoneProps};
 #[cfg(feature = "form")]
 pub(crate) use form::FormContext;

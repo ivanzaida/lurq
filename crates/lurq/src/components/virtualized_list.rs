@@ -78,15 +78,22 @@ struct VirtualizedListOptions {
 
 pub struct VirtualizedList<'a, T> {
   ctx: &'a mut Ctx,
-  items: Vec<T>,
+  items: Arc<Vec<T>>,
   options: VirtualizedListOptions,
 }
 
 impl<'a, T> VirtualizedList<'a, T> {
   pub fn new(ctx: &'a mut Ctx, items: impl IntoIterator<Item = T>) -> Self {
+    Self::new_shared(ctx, Arc::new(items.into_iter().collect()))
+  }
+
+  /// Build the list from an already-shared item vector. Callers that memoize
+  /// their (potentially huge) item list across re-renders pass the same `Arc`
+  /// back in, so a re-render costs neither a rebuild nor a copy of the items.
+  pub fn new_shared(ctx: &'a mut Ctx, items: Arc<Vec<T>>) -> Self {
     Self {
       ctx,
-      items: items.into_iter().collect(),
+      items,
       options: VirtualizedListOptions {
         overscan_px: DEFAULT_OVERSCAN_PX,
         ..VirtualizedListOptions::default()
@@ -191,7 +198,7 @@ impl<'a, T> VirtualizedList<'a, T> {
     PF: Fn(&T) -> C::Props + Send + Sync + 'static,
   {
     let props = VirtualizedMountListProps::<T, KF, PF> {
-      items: Arc::new(self.items),
+      items: self.items,
       key_fn: Arc::new(key_fn),
       props_fn: Arc::new(props_fn),
       options: self.options.clone(),
@@ -577,6 +584,14 @@ where
         changed = true;
       }
 
+      // Restore the anchored row's viewport position once every height is
+      // exact (the bounded measure march in `rows` fills the gaps). An
+      // anchor whose row VANISHED with the new items — a different dataset
+      // swapped in under the same list, e.g. switching record categories —
+      // is dropped immediately instead: chasing it forced the march across
+      // every row of the new list (seconds of first-render jank on
+      // multi-thousand-row tables) for a position that no longer means
+      // anything there.
       if let Some(anchor) = runtime.pending_anchor.take() {
         if runtime.heights.len() >= runtime.order.len() {
           if let Some(anchor_index) = runtime.order.iter().position(|key| key == &anchor.key) {
@@ -592,21 +607,27 @@ where
       // Reveal the requested row: when it is not already fully visible, scroll
       // it to the top of the viewport (`scrollIntoView`, `block: start`); an
       // already-visible row does not move, so clicking a visible row never
-      // jumps. Deferred until heights above it are exact.
+      // jumps. The target's offset comes from the same estimate prefix; the
+      // reveal stays pending until the row itself has a real measurement, so
+      // the position converges as the revealed window's heights land.
       if let Some(key) = runtime.pending_reveal.clone() {
-        if runtime.heights.len() >= runtime.order.len() {
-          runtime.pending_reveal = None;
-          if let Some(index) = runtime.order.iter().position(|k| k == &key) {
-            let row_top = prefix_height(&runtime.order[..index], &runtime.heights);
-            let row_bottom = row_top + runtime.heights.get(&key).copied().unwrap_or(0.0);
+        match runtime.order.iter().position(|k| k == &key) {
+          Some(index) => {
+            let row_top = runtime.prefix.get(index).copied().unwrap_or(0.0);
+            let row_bottom = runtime.prefix.get(index + 1).copied().unwrap_or(row_top);
             let view_top = scroll_state.scroll_y();
             let view_bottom = view_top + scroll_state.viewport_height();
             let fully_visible = row_top >= view_top && row_bottom <= view_bottom;
-            if !fully_visible {
+            if fully_visible {
+              if runtime.heights.contains_key(&key) {
+                runtime.pending_reveal = None;
+              }
+            } else {
               scroll_state.set_scroll(0.0, row_top.max(0.0));
               changed = true;
             }
           }
+          None => runtime.pending_reveal = None,
         }
       }
     }
@@ -758,28 +779,46 @@ where
         runtime.order == keys,
         scroll_state.scroll_y(),
       );
-      if runtime.order != keys && runtime.pending_anchor.is_none() && !runtime.order.is_empty() {
-        // Anchor the first (partially) visible row using the pre-change
-        // prefix, so the viewport is restored once the new heights settle.
-        let scroll_y = scroll_state.scroll_y();
-        let index = runtime.prefix[1..runtime.order.len() + 1]
-          .partition_point(|&bottom| bottom <= scroll_y)
-          .min(runtime.order.len() - 1);
-        runtime.pending_anchor = Some(ScrollAnchor {
-          key: runtime.order[index].clone(),
-          offset: scroll_y - runtime.prefix[index],
-        });
-      }
-
-      // Evict heights only for keys that disappeared. Keys that survive an
-      // item change keep their old measurement as a stale-but-usable estimate:
-      // rendered rows re-measure on the very next layout, and dropping every
-      // height at once would collapse the prefix to the bootstrap window —
-      // teleporting the scroll (clamped against the collapsed content) and
-      // blanking the viewport when the same-shaped list is swapped in place
-      // (e.g. a preview re-decoded into a new allocation while scrolled deep).
       let current_keys: HashSet<&str> = keys.iter().map(String::as_str).collect();
-      runtime.heights.retain(|key, _| current_keys.contains(key.as_str()));
+      let survivors = runtime
+        .order
+        .iter()
+        .filter(|key| current_keys.contains(key.as_str()))
+        .count();
+      if !runtime.order.is_empty() && survivors == 0 {
+        // No key survived: a DIFFERENT dataset swapped in under the same
+        // list (e.g. switching record categories). There is no position to
+        // restore and every retained height is meaningless — chasing an
+        // anchor here forced a measure march across the whole new list
+        // (seconds of first-render jank on multi-thousand-row tables).
+        // Reset to a fresh bootstrap at the top instead.
+        runtime.heights.clear();
+        runtime.pending_anchor = None;
+        scroll_state.set_scroll(0.0, 0.0);
+      } else {
+        if runtime.order != keys && runtime.pending_anchor.is_none() && !runtime.order.is_empty() {
+          // Anchor the first (partially) visible row using the pre-change
+          // prefix, so the viewport is restored once the new heights settle.
+          let scroll_y = scroll_state.scroll_y();
+          let index = runtime.prefix[1..runtime.order.len() + 1]
+            .partition_point(|&bottom| bottom <= scroll_y)
+            .min(runtime.order.len() - 1);
+          runtime.pending_anchor = Some(ScrollAnchor {
+            key: runtime.order[index].clone(),
+            offset: scroll_y - runtime.prefix[index],
+          });
+        }
+
+        // Evict heights only for keys that disappeared. Keys that survive an
+        // item change keep their old measurement as a stale-but-usable
+        // estimate: rendered rows re-measure on the very next layout, and
+        // dropping every height at once would collapse the prefix to the
+        // bootstrap window — teleporting the scroll (clamped against the
+        // collapsed content) and blanking the viewport when the same-shaped
+        // list is swapped in place (e.g. a preview re-decoded into a new
+        // allocation while scrolled deep).
+        runtime.heights.retain(|key, _| current_keys.contains(key.as_str()));
+      }
       drop(current_keys);
       runtime.order = keys;
       runtime.items_snapshot = items.clone();
@@ -831,7 +870,6 @@ where
     }
 
     let count = runtime.order.len();
-    let all_measured = count > 0 && runtime.heights.len() >= count;
     let has_measurements = !runtime.heights.is_empty();
 
     let visible_range = if has_measurements {
@@ -847,10 +885,11 @@ where
       (0, count.min(BOOTSTRAP_ROWS))
     };
     let mut rendered_indices: Vec<usize> = (visible_range.0..visible_range.1).collect();
-    if (runtime.pending_anchor.is_some() || runtime.pending_reveal.is_some()) && !all_measured {
-      // A pending anchor (rows prepended/replaced) or a pending reveal wants
-      // exact heights for everything above the target row; measure the
-      // remainder in bounded chunks per frame until it can be applied.
+    // A pending anchor (same rows re-shaped in place) restores an exact
+    // position, so the not-yet-measured remainder is measured in bounded
+    // chunks per frame. Reveals never march: they apply from the estimate
+    // prefix in `after_layout` and converge as the revealed window measures.
+    if runtime.pending_anchor.is_some() && runtime.heights.len() < count {
       rendered_indices.extend(
         runtime
           .order

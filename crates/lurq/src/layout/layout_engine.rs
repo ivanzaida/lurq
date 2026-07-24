@@ -640,6 +640,14 @@ impl LayoutEngine {
   }
 
   fn mark_layout_dirty(node: &Node, force_dirty: bool) -> bool {
+    // Overlay/modal declaration nodes are invisible to layout: flex/stack
+    // walks skip them and their content is laid out inside the overlay host
+    // instead. They never receive a cached result, so any dirt attributed to
+    // them here could never be cleared by a store — it would wedge every
+    // screen containing a popup (open or closed) into full relayout forever.
+    if node.is_overlay_declaration() {
+      return false;
+    }
     // A node without a cached result has either never been laid out or had its
     // cache invalidated by a layout-affecting change (e.g. a reconciled subtree
     // patched in via a component slot replacement). It must be laid out, and its
@@ -1227,10 +1235,15 @@ impl LayoutEngine {
         let padding = self.resolved_padding_for_size(node, result.size);
         let content_width = (result.size.width - padding.left - padding.right).max(0.0);
         let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
-        let caret_height = state.caret_height().min(content_height).max(1.0);
+        let caret_line_height = state.caret_height();
+        // Line height controls row pitch, but the insertion caret should track
+        // the glyph/em height. Otherwise readable multiline leading produces
+        // a visually oversized caret.
+        let caret_height = style.font_size.min(caret_line_height).min(content_height).max(1.0);
+        let caret_leading = ((caret_line_height - caret_height) * 0.5).max(0.0);
         let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
         let caret_x = abs_x + padding.left + state.caret_x();
-        let caret_y = abs_y + vertical_offset + state.caret_y();
+        let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
         let palette = self.palette.borrow();
         let caret_color = node
           .caret_color_value()
@@ -1801,34 +1814,8 @@ impl LayoutEngine {
       let content_width = result.children.first().map(|c| c.result.size.width).unwrap_or(0.0);
       let content_height = result.children.first().map(|c| c.result.size.height).unwrap_or(0.0);
       let style = node.scrollbar_style(self.scrollbar.borrow().clone());
-      let mut reserve_vertical = false;
-      let mut reserve_horizontal = false;
-
-      for _ in 0..3 {
-        let viewport = reserved_viewport(result.size, &style, reserve_vertical, reserve_horizontal);
-        let next_reserve_vertical = should_reserve_scrollbar(
-          &style,
-          *direction,
-          ScrollAxis::Vertical,
-          content_height,
-          viewport.height,
-        );
-        let next_reserve_horizontal = should_reserve_scrollbar(
-          &style,
-          *direction,
-          ScrollAxis::Horizontal,
-          content_width,
-          viewport.width,
-        );
-
-        if next_reserve_vertical == reserve_vertical && next_reserve_horizontal == reserve_horizontal {
-          break;
-        }
-
-        reserve_vertical = next_reserve_vertical;
-        reserve_horizontal = next_reserve_horizontal;
-      }
-
+      let reserve_vertical = should_reserve_scrollbar(&style, *direction, ScrollAxis::Vertical);
+      let reserve_horizontal = should_reserve_scrollbar(&style, *direction, ScrollAxis::Horizontal);
       let viewport = reserved_viewport(result.size, &style, reserve_vertical, reserve_horizontal);
       state.update_layout_with_container(
         content_width,
@@ -3267,51 +3254,28 @@ impl LayoutEngine {
       };
     }
 
-    let mut reserve_vertical = false;
-    let mut reserve_horizontal = false;
-    let mut child_result = self.layout_child_node(
+    let reserve_vertical = should_reserve_scrollbar(&style, direction, ScrollAxis::Vertical);
+    let reserve_horizontal = should_reserve_scrollbar(&style, direction, ScrollAxis::Horizontal);
+    // First pass sizes the container from the child's natural extent (only
+    // relevant when the constraints leave an axis content-sized); the second
+    // lays the child inside the gutter-reduced viewport.
+    let child_result = self.layout_child_node(
       glyph_engine,
       child_overrides,
       0,
       child,
       scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height),
     );
-    let mut size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
-
-    for _ in 0..3 {
-      let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
-      child_result = self.layout_child_node(
-        glyph_engine,
-        child_overrides,
-        0,
-        child,
-        scroll_child_constraints(direction, constraints, viewport.width, viewport.height),
-      );
-      size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
-      let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
-      let next_reserve_vertical = should_reserve_scrollbar(
-        &style,
-        direction,
-        ScrollAxis::Vertical,
-        child_result.size.height,
-        viewport.height,
-      );
-      let next_reserve_horizontal = should_reserve_scrollbar(
-        &style,
-        direction,
-        ScrollAxis::Horizontal,
-        child_result.size.width,
-        viewport.width,
-      );
-
-      if next_reserve_vertical == reserve_vertical && next_reserve_horizontal == reserve_horizontal {
-        break;
-      }
-
-      reserve_vertical = next_reserve_vertical;
-      reserve_horizontal = next_reserve_horizontal;
-    }
-
+    let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
+    let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
+    let child_result = self.layout_child_node(
+      glyph_engine,
+      child_overrides,
+      0,
+      child,
+      scroll_child_constraints(direction, constraints, viewport.width, viewport.height),
+    );
+    let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
 
     state.update_layout_with_container(
@@ -3471,22 +3435,14 @@ fn reserved_viewport(
   )
 }
 
-fn should_reserve_scrollbar(
-  style: &ScrollBarStyle,
-  direction: ScrollDirection,
-  axis: ScrollAxis,
-  content_size: f32,
-  viewport_size: f32,
-) -> bool {
-  if style.placement != ScrollBarPlacement::Reserved || !scroll_direction_has_axis(direction, axis) {
-    return false;
-  }
-
-  match style.visible {
-    ScrollBarVisibility::Never => false,
-    ScrollBarVisibility::Always => true,
-    ScrollBarVisibility::Auto => content_size > viewport_size,
-  }
+fn should_reserve_scrollbar(style: &ScrollBarStyle, direction: ScrollDirection, axis: ScrollAxis) -> bool {
+  // Reserved placement keeps a stable gutter (CSS `scrollbar-gutter: stable`):
+  // Auto visibility only decides whether the thumb is drawn, never whether the
+  // gutter exists — otherwise content width toggles with overflow, oscillating
+  // the child between two constraint sets across settle passes.
+  style.placement == ScrollBarPlacement::Reserved
+    && scroll_direction_has_axis(direction, axis)
+    && style.visible != ScrollBarVisibility::Never
 }
 
 fn reserved_scrollbar_size(style: &ScrollBarStyle) -> f32 {
@@ -3804,6 +3760,50 @@ mod tests {
       "a stale parent cache conflicting with a child's fixed frame must be recomputed"
     );
     assert_eq!(result.children[0].result.size.height, 3000.0);
+  }
+
+  #[test]
+  fn overlay_declaration_child_never_reports_pending_dirt() {
+    // Production repro (PW-studio map screen): a popup — open or closed —
+    // renders as a childless layout-neutral overlay-declaration node. Layout
+    // skips such nodes entirely, so they never receive a cached result; the
+    // dirty walk must not count that as dirt, or every frame after the first
+    // recomputes the full tree forever (the layout fast path never engages).
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::loose(Size::new(400.0, 400.0));
+
+    let mut root: Node =
+      crate::node::Element::from(crate::components::Row::new().child(crate::components::Rect::new(40.0, 40.0))).node;
+    let mut anchor = Node::logical();
+    anchor.set_layout_neutral(true);
+    root.children.push(anchor);
+    // Guards start "changed" on a fresh tree; the runtime clears them during
+    // reconcile, which this engine-only test mimics.
+    root.clear_guards();
+
+    engine.compute(
+      &mut glyph_engine,
+      &root,
+      constraints,
+      ThemePalette::default(),
+      ThemeBorderSizes::default(),
+      ThemeSpacing::default(),
+      ThemeRadii::default(),
+      ThemeCaret::default(),
+      ScrollBarStyle::default(),
+      ThemeTypography::default(),
+      false,
+    );
+
+    assert!(
+      !root.children[1].layout_cache.is_dirty(),
+      "layout must not flag the never-laid-out overlay declaration as dirty"
+    );
+    assert!(
+      !LayoutEngine::mark_layout_dirty(&root, false),
+      "a laid-out tree with an overlay declaration must report clean"
+    );
   }
 
   #[test]

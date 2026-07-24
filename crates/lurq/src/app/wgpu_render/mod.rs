@@ -20,7 +20,7 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
-pub use wgpu::{Features as WgpuFeatures, Limits as WgpuLimits};
+pub use wgpu::{Features as WgpuFeatures, Limits as WgpuLimits, PresentMode as WgpuPresentMode};
 
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::RenderProfile;
@@ -304,6 +304,7 @@ pub struct WgpuRenderEngine {
   queue: Option<wgpu::Queue>,
   optional_device_features: wgpu::Features,
   optional_device_limits: wgpu::Limits,
+  requested_present_mode: wgpu::PresentMode,
   quad_pipeline: Option<wgpu::RenderPipeline>,
   glyph_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "image")]
@@ -383,6 +384,7 @@ impl WgpuRenderEngine {
       queue: None,
       optional_device_features: wgpu::Features::empty(),
       optional_device_limits: wgpu::Limits::default(),
+      requested_present_mode: wgpu::PresentMode::Fifo,
       quad_pipeline: None,
       glyph_pipeline: None,
       #[cfg(feature = "image")]
@@ -458,6 +460,11 @@ impl WgpuRenderEngine {
 
   pub fn with_optional_device_limits(mut self, limits: WgpuLimits) -> Self {
     self.optional_device_limits = limits;
+    self
+  }
+
+  pub fn with_present_mode(mut self, present_mode: WgpuPresentMode) -> Self {
+    self.requested_present_mode = present_mode;
     self
   }
 
@@ -583,7 +590,7 @@ impl WgpuRenderEngine {
       format,
       width: self.width.max(1),
       height: self.height.max(1),
-      present_mode: wgpu::PresentMode::Fifo,
+      present_mode: supported_present_mode(self.requested_present_mode, &caps.present_modes),
       alpha_mode: caps.alpha_modes[0],
       view_formats: vec![],
       desired_maximum_frame_latency: 1,
@@ -1083,6 +1090,14 @@ impl WgpuRenderEngine {
     self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
     self.index_buffer = Some(index_buffer);
+  }
+}
+
+fn supported_present_mode(requested: wgpu::PresentMode, supported: &[wgpu::PresentMode]) -> wgpu::PresentMode {
+  match requested {
+    wgpu::PresentMode::AutoVsync | wgpu::PresentMode::AutoNoVsync => requested,
+    requested if supported.contains(&requested) => requested,
+    _ => wgpu::PresentMode::Fifo,
   }
 }
 
@@ -2854,5 +2869,22 @@ mod tests {
     assert_eq!(super::wgpu_staged_texture_bytes(1, 3), 256 * 3);
     assert_eq!(super::wgpu_staged_texture_bytes(256, 2), 256 * 2);
     assert_eq!(super::wgpu_staged_texture_bytes(257, 2), 512 * 2);
+  }
+
+  #[test]
+  fn requested_present_mode_falls_back_only_when_unsupported() {
+    use super::WgpuPresentMode;
+
+    assert_eq!(
+      super::supported_present_mode(
+        WgpuPresentMode::Mailbox,
+        &[WgpuPresentMode::Fifo, WgpuPresentMode::Mailbox],
+      ),
+      WgpuPresentMode::Mailbox
+    );
+    assert_eq!(
+      super::supported_present_mode(WgpuPresentMode::Mailbox, &[WgpuPresentMode::Fifo]),
+      WgpuPresentMode::Fifo
+    );
   }
 }

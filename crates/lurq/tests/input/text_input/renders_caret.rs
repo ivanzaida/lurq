@@ -129,6 +129,41 @@ fn caret_uses_text_line_height_in_tall_text_input() {
 }
 
 #[test]
+fn multiline_caret_uses_glyph_height_inside_relaxed_line_pitch() {
+  let caret_color = Color::from_hex("#ff00ff");
+  let value = Signal::new("A\nB".to_owned());
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::styled(
+      value,
+      TextStyle {
+        font_size: 10.0,
+        line_height: 2.5,
+        ..TextStyle::default()
+      },
+    )
+    .caret_color(caret_color)
+    .multiline()
+    .width(120.0)
+    .height(50.0),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  pointer_click(&mut runtime, rect.x + 2.0, rect.y + 2.0, MouseButton::Left);
+
+  let snapshot = render_pass(&mut runtime);
+  let caret = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.width == 1.0 && rect.color == caret_color)
+    .expect("focused multiline input should render its caret");
+
+  assert!((caret.height - 10.0).abs() < 0.01);
+  assert!((caret.y - 7.5).abs() < 0.01);
+}
+
+#[test]
 fn single_line_text_input_centers_text_quad_in_tall_input() {
   let value = Signal::new("qweqweq".to_owned());
   let mut runtime = Tree::new();

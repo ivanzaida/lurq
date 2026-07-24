@@ -1088,7 +1088,11 @@ impl Tree {
         .is_some_and(|ctx| ctx.has_active_timers() || ctx.has_active_futures())
   }
 
-  pub(crate) fn has_active_timeline(&self) -> bool {
+  /// Whether any animation or transition is currently running. While true the
+  /// runtime schedules continuous redraws and layout recomputes every frame,
+  /// so this staying `true` on an idle screen is a bug (stale runs for
+  /// unmounted nodes are pruned at the end of each full pass).
+  pub fn has_active_timeline(&self) -> bool {
     self.transition_engine.has_active || self.animation_engine.has_active
   }
 
@@ -2499,6 +2503,7 @@ impl Tree {
         glyph_engine: app.glyph_engine.profile(),
         memory: self.cached_memory_profile(app),
       };
+      crate::app::profiler::notify_frame_profile(&self.last_profile);
     }
     if renderer_wants_redraw {
       self.needs_redraw = true;
@@ -4722,6 +4727,7 @@ impl Tree {
         memory: self.cached_memory_profile(app),
         ..FrameProfile::default()
       };
+      crate::app::profiler::notify_frame_profile(&self.last_profile);
     }
 
     if renderer_wants_redraw {
@@ -4996,6 +5002,8 @@ impl Tree {
 
   fn update_layout(&mut self, app: &mut App) -> bool {
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
+    self.transition_engine.begin_frame();
+    self.animation_engine.begin_frame();
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
@@ -5203,6 +5211,12 @@ impl Tree {
       }
       self.last_layout = Some(layout);
       self.tree_rebuilt_since_layout = false;
+      // All tick walks for this frame ran (base tree + overlay subtrees), so
+      // the engines can now drop runs whose nodes left the tree; otherwise an
+      // unmounted spinner keeps the timeline "active" and forces this full
+      // layout pass every frame forever.
+      self.transition_engine.finish_frame();
+      self.animation_engine.finish_frame();
       return true;
     }
     false
@@ -7899,6 +7913,13 @@ fn has_timeline_target_recursive(node: &Node) -> bool {
 }
 
 fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
+  // Overlay/modal declaration nodes are invisible to layout (mirrors the
+  // `mark_layout_dirty` skip): they are never laid out, so their flags could
+  // never be cleared — counting them here would wedge the fast path. Their
+  // content is laid out — and tracked — inside the overlay host subtree.
+  if node.is_overlay_declaration() {
+    return false;
+  }
   let text_input_dirty = match node.node_kind() {
     NodeKind::TextInput { state, .. } => state.has_layout_dirty(),
     NodeKind::Select { state } => state.has_layout_dirty(),

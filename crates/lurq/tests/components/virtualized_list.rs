@@ -1275,3 +1275,112 @@ fn virtualized_list_scroll_timing_variants() {
   run_timing::<PlainTimingRoot>("plain-text");
   run_timing::<TimingRoot>("selectable-text");
 }
+
+struct VirtualizedSharedRoot;
+
+impl Component for VirtualizedSharedRoot {
+  type Props = (Shared<Vec<RowData>>,);
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (items,) = ctx.props::<Self::Props>().clone();
+    VirtualizedList::new_shared(ctx, items.0)
+      .size(100.0, 100.0)
+      .overscan_px(0.0)
+      .mount_keyed::<MeasuredRow, _, _, _>(|row| row.id, |row| (*row).clone())
+  }
+}
+
+#[test]
+fn virtualized_list_new_shared_windows_without_copying_the_items() {
+  let mut tree = Tree::new();
+  let items = Arc::new(rows(10));
+  tree.mount_root::<VirtualizedSharedRoot>(&mut App::new(), (Shared(items.clone()),));
+
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  let layout = tree.last_layout().unwrap();
+  // Same windowing behaviour as `new`…
+  assert_eq!(scroll_content_child_count(layout), 3);
+  assert_eq!(scroll_content_height(layout), 500.0);
+  // …and the list holds the caller's allocation instead of a copy.
+  assert!(Arc::strong_count(&items) >= 2);
+}
+
+struct VirtualizedRevealRoot;
+
+impl Component for VirtualizedRevealRoot {
+  type Props = (Vec<RowData>, Option<String>);
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (items, reveal) = ctx.props::<Self::Props>().clone();
+    VirtualizedList::new(ctx, items)
+      .size(100.0, 100.0)
+      .overscan_px(0.0)
+      .reveal_key(reveal)
+      .mount_keyed::<MeasuredRow, _, _, _>(|row| row.id, |row| (*row).clone())
+  }
+}
+
+#[test]
+fn deep_reveal_scrolls_from_estimates_without_measuring_every_row() {
+  let mut tree = Tree::new();
+  // A list far larger than the viewport, revealing a row near the end. The
+  // reveal must come from the height estimates — mounting and measuring all
+  // 1000 rows to place it caused seconds of first-render jank on big tables.
+  tree.mount_root::<VirtualizedRevealRoot>(&mut App::new(), (rows(1000), Some("900".to_owned())));
+
+  let mut max_children = 0;
+  for _ in 0..6 {
+    run_pass(&mut tree);
+    max_children = max_children.max(scroll_content_child_count(tree.last_layout().unwrap()));
+  }
+
+  let layout = tree.last_layout().unwrap();
+  // Uniform 50px rows: row 900's exact top. The estimate equals the real
+  // height, so the reveal converges on the exact offset.
+  assert_eq!(scroll_offset(layout), 45_000.0);
+  assert_eq!(scroll_content_height(layout), 50_000.0);
+  // Row wrappers plus spacers only — never the whole list.
+  assert!(
+    max_children < 80,
+    "reveal mounted {max_children} children; it must stay windowed"
+  );
+}
+
+#[test]
+fn switching_to_an_all_new_dataset_never_marches_through_it() {
+  // Same list key, entirely different row keys — switching record categories.
+  // The stale anchor has no meaning in the new dataset; restoring it used to
+  // measure-march every new row (first-render jank on multi-thousand-row
+  // tables).
+  let mut tree = Tree::new();
+  let reached = Arc::new(AtomicUsize::new(0));
+  tree.mount_root::<VirtualizedRoot>(&mut App::new(), (rows(1000), Shared(reached.clone())));
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  tree.scroll(10.0, 10.0, 0.0, -2000.0, ScrollPhase::Scroll);
+  run_pass(&mut tree);
+
+  // New dataset: disjoint ids.
+  let replacement: Vec<RowData> = (5000..6000).map(|id| RowData { id, height: 50.0 }).collect();
+  tree.update_root_props::<VirtualizedRoot>((replacement, Shared(reached)));
+
+  let mut max_children = 0;
+  for _ in 0..6 {
+    run_pass(&mut tree);
+    max_children = max_children.max(scroll_content_child_count(tree.last_layout().unwrap()));
+  }
+  assert!(
+    max_children < 80,
+    "dataset switch mounted {max_children} children; it must stay windowed"
+  );
+  assert_eq!(scroll_content_height(tree.last_layout().unwrap()), 50_000.0);
+}

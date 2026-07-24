@@ -1,5 +1,5 @@
 use std::{
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   time::{Duration, Instant},
 };
 
@@ -125,6 +125,7 @@ struct TransitionRun {
 pub struct TransitionEngine {
   active: HashMap<(NodeId, AnimatableProperty), TransitionRun>,
   prev_values: HashMap<(NodeId, AnimatableProperty), AnimatableValue>,
+  seen: HashSet<NodeId>,
   pub has_active: bool,
 }
 
@@ -133,6 +134,7 @@ impl TransitionEngine {
     Self {
       active: HashMap::new(),
       prev_values: HashMap::new(),
+      seen: HashSet::new(),
       has_active: false,
     }
   }
@@ -140,7 +142,28 @@ impl TransitionEngine {
   pub(crate) fn clear_state(&mut self) {
     self.active.clear();
     self.prev_values.clear();
+    self.seen.clear();
     self.has_active = false;
+  }
+
+  /// Starts a frame: forgets which transitioning nodes last frame's walks
+  /// visited. Mirrors `AnimationEngine::begin_frame` — a frame ticks the base
+  /// tree and each overlay subtree separately, so stale runs are only
+  /// detectable after all walks in [`Self::finish_frame`].
+  pub(crate) fn begin_frame(&mut self) {
+    self.seen.clear();
+  }
+
+  /// Ends a frame after every tick walk ran: drops runs and prev-value
+  /// tracking for nodes no walk visited. A node unmounting mid-transition
+  /// otherwise leaves its run in `active` forever (only completed runs are
+  /// removed in `process_node`), wedging `has_active` and with it the layout
+  /// fast path.
+  pub(crate) fn finish_frame(&mut self) {
+    let seen = &self.seen;
+    self.active.retain(|(node_id, _), _| seen.contains(node_id));
+    self.prev_values.retain(|(node_id, _), _| seen.contains(node_id));
+    self.has_active = !self.active.is_empty();
   }
 
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
@@ -162,6 +185,7 @@ impl TransitionEngine {
     let node_id = node.node_id();
     let mut needs_layout = false;
     if node_id.is_assigned() && !node.transitions.is_empty() {
+      self.seen.insert(node_id);
       needs_layout = self.process_node(node, now);
     }
 
