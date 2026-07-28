@@ -31,8 +31,8 @@ const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
 const WINIT_SLOW_SCOPE_THRESHOLD: Duration = Duration::from_millis(45);
 const WINIT_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
-/// Floor between direct presents from the mouse-move stream during an
-/// interactive drag (vsync usually paces harder; this guards the
+/// Floor between direct presents from the mouse-move stream (interactive
+/// drags and hover restyles; vsync usually paces harder — this guards the
 /// vsync-off case).
 const INTERACTION_PRESENT_INTERVAL: Duration = Duration::from_millis(7);
 
@@ -646,13 +646,14 @@ impl ManagedWindow {
         );
         self.apply_cursor();
         self.check_redraw();
-        // Interactive drags (scrollbars, sliders, text selection, on_drag_*
-        // sessions) must paint from inside the event stream: a high-rate
-        // mouse never lets the queue drain, so both `about_to_wait` and
-        // WM_PAINT are starved for the whole gesture and the drag would
-        // only repaint when the mouse pauses.
-        if self.tree.has_active_input_interaction()
-          && self.tree.needs_redraw()
+        // Any redraw this move produced (interactive drags — scrollbars,
+        // sliders, text selection, on_drag_* sessions — but equally hover
+        // enter/leave restyles) must paint from inside the event stream: a
+        // high-rate mouse never lets the queue drain, so both
+        // `about_to_wait` and WM_PAINT are starved for the whole gesture.
+        // Gated on drags only, a drag repainted but a hover sweep skipped
+        // every row between where the pointer started and where it paused.
+        if self.tree.needs_redraw()
           && self.last_interaction_present.elapsed() >= INTERACTION_PRESENT_INTERVAL
         {
           self.last_interaction_present = Instant::now();

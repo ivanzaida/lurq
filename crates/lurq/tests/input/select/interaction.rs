@@ -196,6 +196,65 @@ fn single_select_commits_when_redrawn_between_option_down_and_up() {
 }
 
 #[test]
+fn closing_select_menu_does_not_click_content_under_option() {
+  let value = Signal::new("md".to_owned());
+  let underlying_clicks = Signal::new(0);
+  let underlying_mouse_ups = Signal::new(0);
+  let underlying_ref = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    Column::new()
+      .child(Select::new(value.clone()).options(options()).width(200.0).height(40.0))
+      .child(
+        Rect::new(200.0, 120.0)
+          .background("#ef4444")
+          .ref_element(underlying_ref.clone())
+          .on_mouse_up({
+            let underlying_mouse_ups = underlying_mouse_ups.clone();
+            move |_| underlying_mouse_ups.update(|count| *count += 1)
+          })
+          .on_click({
+            let underlying_clicks = underlying_clicks.clone();
+            move |_| underlying_clicks.update(|count| *count += 1)
+          }),
+      ),
+  );
+  run_pass(&mut tree);
+
+  let trigger = tree
+    .find_element(|el| el.tag_name() == "Select")
+    .expect("trigger present");
+  let (tx, ty) = trigger.bounds().center();
+  pointer_click(&mut tree, tx, ty, MouseButton::Left);
+  run_pass(&mut tree);
+
+  let large = tree
+    .find_element(|el| el.text_content() == Some("Large"))
+    .expect("Large option");
+  let (lx, ly) = large.bounds().center();
+  tree.mouse_down(lx, ly, MouseButton::Left);
+  run_pass(&mut tree);
+  tree.mouse_up(lx, ly, MouseButton::Left);
+  run_pass(&mut tree);
+
+  assert_eq!(value.get(), "lg", "the selected option should still commit");
+  assert_eq!(
+    underlying_mouse_ups.get(),
+    0,
+    "the release must remain captured by the menu that handled the press"
+  );
+  assert_eq!(
+    underlying_clicks.get(),
+    0,
+    "closing the menu must not retarget its click to content underneath"
+  );
+  assert!(
+    underlying_ref.hovered(),
+    "content exposed by the closed menu should become hovered without another mouse move"
+  );
+}
+
+#[test]
 fn single_select_commits_on_option_mouse_down() {
   let value = Signal::new("md".to_owned());
   let mut tree = Tree::new();

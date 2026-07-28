@@ -2618,6 +2618,11 @@ impl Tree {
     let modifiers = MouseModifiers { shift, ctrl, alt };
     let position = (x, y);
     let target_ids = self.hit_target_ids_at(x, y);
+    let transient_root = self.root.as_ref().and_then(|root| {
+      target_ids.iter().copied().find(|target_id| {
+        find_node_by_id(root, *target_id).is_some_and(|node| node.has_synthetic_role(SyntheticNodeRole::SelectMenu))
+      })
+    });
 
     if button == MouseButton::Left {
       let now = Instant::now();
@@ -2644,6 +2649,7 @@ impl Tree {
       position,
       button,
       target_ids,
+      transient_root,
     });
     self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
     self.apply_reactive_updates_after_event();
@@ -2655,6 +2661,27 @@ impl Tree {
 
   pub fn mouse_up_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
     let modifiers = MouseModifiers { shift, ctrl, alt };
+    let transient_root = self
+      .click_press
+      .as_ref()
+      .filter(|press| press.button == button)
+      .and_then(|press| press.transient_root);
+    let transient_disappeared =
+      transient_root.is_some_and(|target_id| !self.hit_target_ids_at(x, y).contains(&target_id));
+    if transient_disappeared {
+      // A transient overlay may commit and disappear on press. Keep the
+      // remainder of that pointer sequence from falling through to content
+      // newly exposed beneath it.
+      self.clear_active_path();
+      self.needs_redraw = true;
+      self.synthesize_click(x, y, button, modifiers);
+      // Pointer capture ends with the release. Re-evaluate hover immediately
+      // because the stationary pointer is now over the content exposed by
+      // the closed overlay.
+      self.dispatch_mouse(x, y, button, MouseEventKind::Move, modifiers);
+      self.apply_reactive_updates_after_event();
+      return;
+    }
     self.dispatch_mouse(x, y, button, MouseEventKind::Up, modifiers);
     self.synthesize_click(x, y, button, modifiers);
   }
@@ -3116,6 +3143,12 @@ impl Tree {
     }
 
     let release_target_ids = self.hit_target_ids_at(position.0, position.1);
+    if press
+      .transient_root
+      .is_some_and(|target_id| !release_target_ids.contains(&target_id))
+    {
+      return None;
+    }
     for (press_index, target_id) in press.target_ids.iter().copied().enumerate() {
       let Some(release_index) = release_target_ids
         .iter()
@@ -6616,6 +6649,7 @@ struct ClickPress {
   position: (f32, f32),
   button: MouseButton,
   target_ids: Vec<NodeId>,
+  transient_root: Option<NodeId>,
 }
 
 #[derive(Clone, Copy)]
