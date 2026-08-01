@@ -1672,6 +1672,18 @@ impl LayoutEngine {
       return None;
     }
 
+    // `align-items: stretch` gives an intrinsically sized child a second,
+    // cross-axis-tight layout pass while preserving its measured main-axis
+    // size. That tight main-axis constraint is an output of the previous
+    // parent layout, not an author constraint. Repairing changed descendants
+    // under it can therefore clamp the child to its old height/width and hide
+    // the intrinsic size change from this flex parent. Re-run the parent from
+    // its original constraints so the child is measured naturally before it
+    // is stretched again.
+    if Self::has_dirty_stretched_intrinsic_child(node) {
+      return None;
+    }
+
     // A descendant changed, but this node may still be able to keep its own
     // geometry. Patch dirty child results into the cached tree and only force
     // this parent to relayout if the child no longer fits the cached parent or
@@ -1798,6 +1810,44 @@ impl LayoutEngine {
       layout_kind,
       LayoutKind::Stack { .. } | LayoutKind::LogicalModifier | LayoutKind::ScrollModifier { .. }
     )
+  }
+
+  fn has_dirty_stretched_intrinsic_child(node: &Node) -> bool {
+    let vertical = match node.layout_kind() {
+      LayoutKind::Column {
+        align: Alignment::Stretch,
+        ..
+      } => true,
+      LayoutKind::Row {
+        align: Alignment::Stretch,
+        ..
+      } => false,
+      _ => return false,
+    };
+    node.children().iter().any(|child| {
+      if child.is_overlay_declaration() || !child.layout_cache.is_dirty() {
+        return false;
+      }
+
+      let is_intrinsic_main_size = child
+        .state_flex()
+        .is_none_or(|params| params.grow == 0.0 && params.basis.is_none());
+      let has_explicit_main_size = child.state_frame().is_some_and(|frame| {
+        if vertical {
+          frame.height.is_some()
+        } else {
+          frame.width.is_some()
+        }
+      });
+      let cached_main_axis_is_tight = child.layout_cache.constraints().is_some_and(|constraints| {
+        if vertical {
+          constraints.min_height == constraints.max_height
+        } else {
+          constraints.min_width == constraints.max_width
+        }
+      });
+      is_intrinsic_main_size && !has_explicit_main_size && cached_main_axis_is_tight
+    })
   }
 
   fn prepare_cached_result(&self, node: &Node, mut cached: LayoutResult) -> LayoutResult {
@@ -3642,6 +3692,92 @@ fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect)
 mod tests {
   use super::*;
   use crate::{app::glyph_engine::GlyphEngine, core::Signal, node::Node};
+
+  fn dirty_child_with_cached_constraints(child: Node, constraints: Constraints) -> Node {
+    child.layout_cache.store(
+      constraints,
+      LayoutResult {
+        size: constraints.constrain(Size::new(10.0, 10.0)),
+        children: Vec::new(),
+      },
+    );
+    child.layout_cache.mark_local_dirty();
+    child
+  }
+
+  #[test]
+  fn stretch_relayout_guard_only_matches_intrinsic_main_axis_children() {
+    let tight = Constraints::tight(Size::new(100.0, 24.0));
+    let intrinsic = dirty_child_with_cached_constraints(Node::text("changed"), tight);
+    let stretched = Node::column(0.0, Alignment::Stretch, vec![intrinsic]);
+    assert!(LayoutEngine::has_dirty_stretched_intrinsic_child(&stretched));
+
+    let non_stretched = Node::column(
+      0.0,
+      Alignment::Start,
+      vec![dirty_child_with_cached_constraints(Node::text("changed"), tight)],
+    );
+    assert!(!LayoutEngine::has_dirty_stretched_intrinsic_child(&non_stretched));
+
+    let flex_grow = Node::column(
+      0.0,
+      Alignment::Stretch,
+      vec![dirty_child_with_cached_constraints(
+        Node::text("changed").flex(1.0),
+        tight,
+      )],
+    );
+    assert!(!LayoutEngine::has_dirty_stretched_intrinsic_child(&flex_grow));
+
+    let fixed_height = Node::column(
+      0.0,
+      Alignment::Stretch,
+      vec![dirty_child_with_cached_constraints(
+        Node::text("changed").height(24.0),
+        tight,
+      )],
+    );
+    assert!(!LayoutEngine::has_dirty_stretched_intrinsic_child(&fixed_height));
+
+    let loose_main_axis = Node::column(
+      0.0,
+      Alignment::Stretch,
+      vec![dirty_child_with_cached_constraints(
+        Node::text("changed"),
+        Constraints::loose(Size::new(100.0, 24.0)),
+      )],
+    );
+    assert!(!LayoutEngine::has_dirty_stretched_intrinsic_child(&loose_main_axis));
+  }
+
+  #[test]
+  fn unchanged_stretched_intrinsic_tree_reuses_cached_layout() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let node = Node::column(0.0, Alignment::Stretch, vec![Node::text("unchanged")]);
+    let constraints = Constraints::loose(Size::new(320.0, 180.0));
+    let compute = |glyph_engine: &mut GlyphEngine| {
+      engine.compute(
+        glyph_engine,
+        &node,
+        constraints,
+        ThemePalette::default(),
+        ThemeBorderSizes::default(),
+        ThemeSpacing::default(),
+        ThemeRadii::default(),
+        ThemeCaret::default(),
+        ScrollBarStyle::default(),
+        ThemeTypography::default(),
+        false,
+      );
+    };
+
+    compute(&mut glyph_engine);
+    assert!(engine.last_recalculated());
+
+    compute(&mut glyph_engine);
+    assert!(!engine.last_recalculated());
+  }
 
   #[test]
   fn clipped_subtree_culling_keeps_partially_visible_rects() {
