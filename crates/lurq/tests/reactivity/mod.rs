@@ -18,6 +18,7 @@ mod effect;
 mod i18n;
 mod memo;
 mod modal;
+mod offstage;
 mod signal;
 mod store;
 mod theme;

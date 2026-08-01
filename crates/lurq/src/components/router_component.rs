@@ -71,6 +71,13 @@ impl Router {
   pub fn mount(ctx: &mut Ctx, handle: RouterHandle) -> Element {
     ctx.mount::<Self>(RouterProps { handle })
   }
+
+  /// Retains this router and its matched component tree while it is offstage.
+  /// Its route history and component state resume without remounting when
+  /// `active` becomes true again.
+  pub fn mount_offstage(ctx: &mut Ctx, handle: RouterHandle, active: bool) -> Element {
+    ctx.mount_offstage::<Self>(RouterProps { handle }, active)
+  }
 }
 
 #[derive(Clone)]

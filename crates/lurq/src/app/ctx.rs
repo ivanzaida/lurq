@@ -1346,6 +1346,8 @@ struct ChildSlot {
   ctx: Ctx,
   rendered: Option<Node>,
   mounted: bool,
+  offstage: bool,
+  offstage_dirty: bool,
 }
 
 trait AnyComponent: Send + Sync + 'static {
@@ -2312,19 +2314,33 @@ impl Ctx {
   // --- Component mounting ---
 
   pub fn mount<C: Component>(&mut self, props: C::Props) -> Element {
-    self.mount_inner::<C>(None, props, None)
+    self.mount_inner::<C>(None, props, None, true)
   }
 
   pub fn mount_keyed<C: Component>(&mut self, key: &str, props: C::Props) -> Element {
-    self.mount_inner::<C>(Some(key), props, None)
+    self.mount_inner::<C>(Some(key), props, None, true)
+  }
+
+  /// Retains a component and its complete context while excluding its output
+  /// from the active tree. Offstage components keep their slots, signals,
+  /// futures, and last rendered node, but do not participate in layout,
+  /// painting, hit testing, dirty refreshes, timers, or future polling until
+  /// they become active again.
+  pub fn mount_offstage<C: Component>(&mut self, props: C::Props, active: bool) -> Element {
+    self.mount_inner::<C>(None, props, None, active)
+  }
+
+  /// Keyed variant of [`Self::mount_offstage`].
+  pub fn mount_keyed_offstage<C: Component>(&mut self, key: &str, props: C::Props, active: bool) -> Element {
+    self.mount_inner::<C>(Some(key), props, None, active)
   }
 
   pub fn mount_with<C: Component>(&mut self, props: C::Props, slot_children: Vec<Element>) -> Element {
-    self.mount_inner::<C>(None, props, Some(slot_children))
+    self.mount_inner::<C>(None, props, Some(slot_children), true)
   }
 
   pub fn mount_keyed_with<C: Component>(&mut self, key: &str, props: C::Props, slot_children: Vec<Element>) -> Element {
-    self.mount_inner::<C>(Some(key), props, Some(slot_children))
+    self.mount_inner::<C>(Some(key), props, Some(slot_children), true)
   }
 
   fn mount_inner<C: Component>(
@@ -2332,6 +2348,7 @@ impl Ctx {
     key: Option<&str>,
     props: C::Props,
     slot_children: Option<Vec<Element>>,
+    active: bool,
   ) -> Element {
     let cursor = self.child_cursor;
     self.child_cursor += 1;
@@ -2367,7 +2384,24 @@ impl Ctx {
       if props_changed {
         slot.ctx.set_props(props);
       }
-      if has_slot_children || props_changed || context_changed || slot.ctx.any_dirty() || slot.rendered.is_none() {
+      if !active {
+        slot.offstage = true;
+        slot.offstage_dirty = true;
+        slot.ctx.clear_modal_entries_recursive();
+        slot.ctx.clear_dirty();
+        return Element::new();
+      }
+
+      let resumed = std::mem::replace(&mut slot.offstage, false);
+      let needs_render = has_slot_children
+        || props_changed
+        || context_changed
+        || slot.ctx.any_dirty()
+        || slot.rendered.is_none()
+        || slot.offstage_dirty;
+      slot.offstage_dirty = false;
+      if needs_render {
+        let previous = resumed.then(|| slot.rendered.take()).flatten();
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
@@ -2379,6 +2413,9 @@ impl Ctx {
           #[cfg(feature = "devtools")]
           &slot.ctx,
         );
+        if let Some(previous) = previous.as_ref() {
+          element.node.preserve_runtime_state_from(previous);
+        }
         slot.rendered = Some(element.node.clone_for_reuse());
         return element;
       }
@@ -2408,25 +2445,34 @@ impl Ctx {
     child_ctx.scope_id = slot_id;
     let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
-    child_ctx.begin_render();
-    let mut element = wrapper.render(&mut child_ctx);
-    child_ctx.end_render();
-    element.node = attach_component_metadata(
-      element.node,
-      wrapper.tag_name(),
-      slot_id,
-      key,
-      #[cfg(feature = "devtools")]
-      &child_ctx,
-    );
+    let mut element = Element::new();
+    let rendered = if active {
+      child_ctx.begin_render();
+      element = wrapper.render(&mut child_ctx);
+      child_ctx.end_render();
+      element.node = attach_component_metadata(
+        element.node,
+        wrapper.tag_name(),
+        slot_id,
+        key,
+        #[cfg(feature = "devtools")]
+        &child_ctx,
+      );
+      Some(element.node.clone_for_reuse())
+    } else {
+      child_ctx.clear_dirty();
+      None
+    };
 
     let slot = ChildSlot {
       id: slot_id,
       key: key.map(str::to_owned),
       component: Box::new(wrapper),
       ctx: child_ctx,
-      rendered: Some(element.node.clone_for_reuse()),
+      rendered,
       mounted: false,
+      offstage: !active,
+      offstage_dirty: !active,
     };
 
     if key.is_some() {
@@ -2486,6 +2532,8 @@ impl Ctx {
         ctx: group_ctx,
         rendered: None,
         mounted: false,
+        offstage: false,
+        offstage_dirty: false,
       };
       self.set_child_slot(cursor, slot);
     }
@@ -2584,6 +2632,8 @@ impl Ctx {
       ctx: child_ctx,
       rendered: Some(element.node.clone_for_reuse()),
       mounted: false,
+      offstage: false,
+      offstage_dirty: false,
     };
 
     self.insert_child_slot(cursor, slot);
@@ -2621,7 +2671,9 @@ impl Ctx {
   fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
     if cursor < self.children.len() {
       self.children[cursor].ctx.clear_modal_entries_recursive();
-      self.children[cursor].component.on_unmounted();
+      if self.children[cursor].mounted {
+        self.children[cursor].component.on_unmounted();
+      }
       self.children[cursor] = slot;
     } else {
       self.children.push(slot);
@@ -2653,7 +2705,9 @@ impl Ctx {
       .retain(|entry| entry.scope_id != self.scope_id || self.click_outside_active_cursors.contains(&entry.cursor));
 
     for slot in &self.children[self.child_cursor..] {
-      slot.component.on_unmounted();
+      if slot.mounted {
+        slot.component.on_unmounted();
+      }
     }
     for slot in &mut self.children[self.child_cursor..] {
       slot.ctx.clear_modal_entries_recursive();
@@ -2661,7 +2715,7 @@ impl Ctx {
     self.children.truncate(self.child_cursor);
 
     for slot in &mut self.children {
-      if !slot.mounted {
+      if !slot.mounted && !slot.offstage {
         slot.component.on_mounted();
         slot.mounted = true;
       }
@@ -2698,7 +2752,7 @@ impl Ctx {
   }
 
   pub(crate) fn after_layout_recursive(&self) {
-    for slot in &self.children {
+    for slot in self.children.iter().filter(|slot| !slot.offstage) {
       slot.component.after_layout();
       slot.ctx.after_layout_recursive();
     }
@@ -2706,13 +2760,20 @@ impl Ctx {
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_timers(&self) -> bool {
-    self.timers.iter().any(Timer::is_active) || self.children.iter().any(|slot| slot.ctx.has_active_timers())
+    self.timers.iter().any(Timer::is_active)
+      || self
+        .children
+        .iter()
+        .any(|slot| !slot.offstage && slot.ctx.has_active_timers())
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_futures(&self) -> bool {
     self.future_slots.iter().any(|slot| slot.task.is_active())
-      || self.children.iter().any(|slot| slot.ctx.has_active_futures())
+      || self
+        .children
+        .iter()
+        .any(|slot| !slot.offstage && slot.ctx.has_active_futures())
   }
 
   pub(crate) fn tick_timers(&mut self, now: Instant) -> bool {
@@ -2720,7 +2781,7 @@ impl Ctx {
     for timer in &self.timers {
       fired |= timer.tick(now);
     }
-    for slot in &mut self.children {
+    for slot in self.children.iter_mut().filter(|slot| !slot.offstage) {
       fired |= slot.ctx.tick_timers(now);
     }
     fired
@@ -2737,7 +2798,7 @@ impl Ctx {
     for slot in &self.future_slots {
       completed |= slot.task.poll(cx);
     }
-    for slot in &mut self.children {
+    for slot in self.children.iter_mut().filter(|slot| !slot.offstage) {
       completed |= slot.ctx.poll_futures(cx);
     }
     completed
@@ -2753,6 +2814,11 @@ impl Ctx {
       };
       let slot = &mut self.children[index];
       if !slot.ctx.any_dirty() {
+        continue;
+      }
+      if slot.offstage {
+        slot.offstage_dirty = true;
+        slot.ctx.clear_dirty();
         continue;
       }
 
@@ -2874,7 +2940,9 @@ impl ChildSlot {
 impl Drop for Ctx {
   fn drop(&mut self) {
     for slot in &self.children {
-      slot.component.on_unmounted();
+      if slot.mounted {
+        slot.component.on_unmounted();
+      }
     }
   }
 }
