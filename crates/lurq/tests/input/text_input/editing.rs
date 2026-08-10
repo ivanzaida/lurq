@@ -1,7 +1,7 @@
 use lurq::{
-  app::{Tree, events::MouseButton},
+  app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton},
   core::Signal,
-  node::color::Color,
+  node::{Element, color::Color},
 };
 
 use crate::support::{render_pass, run_pass};
@@ -335,6 +335,55 @@ fn mouse_drag_selection_renders_and_replaces_selected_text() {
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
 
   assert_eq!(value.get(), "X");
+}
+
+struct RebuildingTextInput {
+  value: Signal<String>,
+}
+
+impl Component for RebuildingTextInput {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      value: ctx.signal("Hello".to_owned()),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::TextInput::new(self.value.clone())
+  }
+}
+
+#[test]
+fn mouse_drag_selection_survives_component_rebuild() {
+  let mut runtime = Tree::new();
+
+  runtime.mount_root::<RebuildingTextInput>(&mut App::new(), ());
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  runtime.mouse_down(rect.x, y, MouseButton::Left);
+  runtime.rebuild();
+  runtime.mouse_move(rect.x + rect.width, y);
+  runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
+
+  let snapshot = render_pass(&mut runtime);
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| { rect.color == Color::from_hex("#bfdbfe") && rect.width > 1.0 && rect.height > 0.0 })
+  );
+
+  runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
+
+  assert!(
+    runtime
+      .find_element(|element| element.text_content() == Some("X"))
+      .is_some()
+  );
 }
 
 #[test]

@@ -3645,7 +3645,10 @@ impl Tree {
               rect.local_y - rect.y - vertical_offset,
             );
             pending_text_selection_drag = Some(TextSelectionDrag {
-              kind: TextSelectionDragKind::Input(state.clone()),
+              kind: TextSelectionDragKind::Input {
+                target_id: node.node_id(),
+                state: state.clone(),
+              },
               x: rect.x + padding.left,
               y: rect.y + vertical_offset,
               transform: rect.transform,
@@ -6454,7 +6457,10 @@ struct TextSelectionDrag {
 
 #[derive(Clone)]
 enum TextSelectionDragKind {
-  Input(TextInputState),
+  Input {
+    target_id: NodeId,
+    state: TextInputState,
+  },
   Text {
     start_id: NodeId,
     anchor: usize,
@@ -6468,7 +6474,7 @@ impl TextSelectionDrag {
   fn update(&self, x: f32, y: f32) {
     let (local_x, local_y) = self.local_point(x, y);
     match &self.kind {
-      TextSelectionDragKind::Input(state) => state.update_selection_to_point(local_x - self.x, local_y - self.y),
+      TextSelectionDragKind::Input { state, .. } => state.update_selection_to_point(local_x - self.x, local_y - self.y),
       TextSelectionDragKind::Text { state, value, .. } => {
         state.update_selection_to_point(value, local_x - self.x, local_y - self.y)
       }
@@ -6477,7 +6483,14 @@ impl TextSelectionDrag {
 
   fn update_with_tree(&self, root: &Node, layout: &LayoutResult, x: f32, y: f32) {
     match &self.kind {
-      TextSelectionDragKind::Input(_) => self.update(x, y),
+      TextSelectionDragKind::Input { .. } => {
+        let Some(state) = self.current_input_state(root) else {
+          self.update(x, y);
+          return;
+        };
+        let (local_x, local_y) = self.local_point(x, y);
+        state.update_selection_to_point(local_x - self.x, local_y - self.y);
+      }
       TextSelectionDragKind::Text {
         start_id,
         anchor,
@@ -6499,7 +6512,10 @@ impl TextSelectionDrag {
 
   fn has_selection(&self, root: Option<&Node>) -> bool {
     match &self.kind {
-      TextSelectionDragKind::Input(state) => state.has_selection(),
+      TextSelectionDragKind::Input { state, .. } => root
+        .and_then(|root| self.current_input_state(root))
+        .unwrap_or(state)
+        .has_selection(),
       TextSelectionDragKind::Text {
         state,
         value,
@@ -6513,6 +6529,17 @@ impl TextSelectionDrag {
         }
       }
     }
+  }
+
+  fn current_input_state<'a>(&self, root: &'a Node) -> Option<&'a TextInputState> {
+    let TextSelectionDragKind::Input { target_id, .. } = &self.kind else {
+      return None;
+    };
+    let node = find_node_by_id(root, *target_id)?;
+    let NodeKind::TextInput { state, .. } = node.node_kind() else {
+      return None;
+    };
+    Some(state)
   }
 
   fn local_point(&self, x: f32, y: f32) -> (f32, f32) {
