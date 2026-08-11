@@ -193,6 +193,9 @@ impl WindowChrome {
       window.set_decorations(false);
     }
 
+    // App-owned hit targets stay inside the resize perimeter, matching the separation
+    // between native client content and a platform-managed sizing frame.
+    let resize_inset = metrics.resize_inset(window.info());
     let title_bar = self.title_bar.render(&window, metrics.height);
     let content = Row::new()
       .width(Dimension::Pct(100.0))
@@ -207,23 +210,36 @@ impl WindowChrome {
         Column::new()
           .width(Dimension::Pct(100.0))
           .height(Dimension::Pct(100.0))
+          .padding_left(resize_inset)
+          .padding_right(resize_inset)
+          .padding_bottom(resize_inset)
           .child(chrome_titlebar_spacer(metrics.height))
           .child(content),
       );
+
+    let mut client_overlay = Stack::new()
+      .width(Dimension::Pct(100.0))
+      .height(Dimension::Pct(100.0))
+      .padding_left(resize_inset)
+      .padding_right(resize_inset)
+      .padding_bottom(resize_inset)
+      .hit_test(HitTestBehavior::ContentOnly)
+      .child(title_bar);
+
+    for overlay in self.overlays {
+      client_overlay = client_overlay.child(overlay);
+    }
 
     let mut chrome_overlay = Stack::new()
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
       .hit_test(HitTestBehavior::ContentOnly)
-      .child(title_bar);
+      .child(client_overlay);
 
-    for overlay in self.overlays {
-      chrome_overlay = chrome_overlay.child(overlay);
-    }
     for layer in border_layers(&window, &self.props.border) {
       chrome_overlay = chrome_overlay.child(layer);
     }
-    for layer in resize_handle_layers(&window, metrics.resize_handle_size) {
+    for layer in resize_handle_layers(&window, resize_inset) {
       chrome_overlay = chrome_overlay.child(layer);
     }
 
@@ -553,8 +569,24 @@ impl WindowControls {
 }
 
 impl WindowChromeMetrics {
+  /// Logical pixels reserved for resize handles in the current window state.
+  pub fn resize_inset(&self, window: WindowInfo) -> f32 {
+    active_resize_handle_size(window, self.resize_handle_size)
+  }
+
+  /// Horizontal origin of application content inside the custom frame.
+  pub fn content_x(&self, window: WindowInfo) -> f32 {
+    self.resize_inset(window)
+  }
+
+  /// Width available to application content between the side resize handles.
+  pub fn content_width(&self, window: WindowInfo) -> f32 {
+    (window.logical_width() - self.resize_inset(window) * 2.0).max(0.0)
+  }
+
+  /// Height below the title bar and above the bottom resize handle.
   pub fn content_height(&self, window: WindowInfo) -> f32 {
-    (window.logical_height() - self.height).max(0.0)
+    (window.logical_height() - self.height - self.resize_inset(window)).max(0.0)
   }
 
   pub fn content_y(&self) -> f32 {
@@ -652,6 +684,15 @@ fn border_layers(window: &WindowHandle, policy: &ChromeBorderPolicy) -> Vec<Elem
 
 fn border_strip(x: f32, y: f32, width: f32, height: f32, color: BackgroundColor) -> Element {
   Row::new().absolute(x, y, width, height).background(color).into()
+}
+
+fn active_resize_handle_size(window: WindowInfo, size: f32) -> f32 {
+  if size <= 0.0 || window.is_maximized || window.is_full_screen {
+    return 0.0;
+  }
+
+  let max_size = window.logical_width().min(window.logical_height()) * 0.5;
+  size.min(max_size.max(0.0))
 }
 
 fn resize_handle_layers(window: &WindowHandle, size: f32) -> Vec<Element> {
@@ -781,6 +822,35 @@ fn platform_chrome_height(windows_height: f32, macos_height: f32) -> f32 {
 mod tests {
   use super::*;
 
+  fn window_info() -> WindowInfo {
+    WindowInfo {
+      x: 0,
+      y: 0,
+      resolved_width: 800.0,
+      resolved_height: 600.0,
+      scale_factor: 2.0,
+      is_minimized: false,
+      is_maximized: false,
+      is_full_screen: false,
+      is_decorated: false,
+      is_focused: true,
+    }
+  }
+
+  fn mounted_chrome(maximized: bool) -> Element {
+    let window = crate::app::window::Window::new();
+    window.set_resolved_size(800.0, 600.0);
+    window.set_scale_factor(2.0);
+    window.set_maximized(maximized);
+    window.set_decorated(false);
+    let mut ctx = Ctx::new().with_window(window);
+
+    WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .content(Row::new())
+      .mount(&mut ctx)
+  }
+
   #[test]
   fn disabled_metrics_are_zeroed() {
     let metrics = WindowChromeProps::new().mode(WindowChromeMode::Disabled).metrics();
@@ -826,22 +896,97 @@ mod tests {
       resize_handle_size: 3.0,
       border_size: 1.0,
     };
-    let window = WindowInfo {
-      x: 0,
-      y: 0,
-      resolved_width: 800.0,
-      resolved_height: 600.0,
-      scale_factor: 2.0,
-      is_minimized: false,
-      is_maximized: false,
-      is_full_screen: false,
-      is_decorated: false,
-      is_focused: true,
-    };
+    let window = window_info();
 
+    assert_eq!(metrics.resize_inset(window), 3.0);
+    assert_eq!(metrics.content_x(window), 3.0);
+    assert_eq!(metrics.content_width(window), 394.0);
     assert_eq!(metrics.content_y(), 36.0);
-    assert_eq!(metrics.content_height(window), 264.0);
+    assert_eq!(metrics.content_height(window), 261.0);
     assert_eq!(metrics.modal_y(50.0), 14.0);
+  }
+
+  #[test]
+  fn maximized_and_fullscreen_windows_remove_resize_inset() {
+    let metrics = WindowChromeProps::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .resize_handles(ResizeHandlePolicy::Enabled { size: 5.0 })
+      .metrics();
+    let mut maximized = window_info();
+    maximized.is_maximized = true;
+    let mut fullscreen = window_info();
+    fullscreen.is_full_screen = true;
+
+    for window in [maximized, fullscreen] {
+      assert_eq!(metrics.resize_inset(window), 0.0);
+      assert_eq!(metrics.content_x(window), 0.0);
+      assert_eq!(metrics.content_width(window), 400.0);
+      assert_eq!(metrics.content_height(window), 264.0);
+    }
+  }
+
+  #[test]
+  fn disabled_resize_handles_do_not_inset_content() {
+    let metrics = WindowChromeProps::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .resize_handles(ResizeHandlePolicy::Disabled)
+      .metrics();
+    let window = window_info();
+
+    assert_eq!(metrics.resize_inset(window), 0.0);
+    assert_eq!(metrics.content_width(window), 400.0);
+    assert_eq!(metrics.content_height(window), 264.0);
+  }
+
+  #[test]
+  fn mounted_chrome_separates_client_layers_from_resize_edges() {
+    let root = mounted_chrome(false).node;
+    let expected_inset = crate::node::SpacingValue::from(RESIZE_HANDLE_SIZE);
+    let no_top_inset = crate::node::SpacingValue::default();
+    let content_layer = &root.children[0];
+    assert_eq!(content_layer.padding.left, expected_inset);
+    assert_eq!(content_layer.padding.top, no_top_inset);
+    assert_eq!(content_layer.padding.right, expected_inset);
+    assert_eq!(content_layer.padding.bottom, expected_inset);
+
+    let chrome_overlay = &root.children[1].modal_declaration.as_ref().unwrap().node;
+    let client_overlay = &chrome_overlay.children[0];
+    assert_eq!(client_overlay.padding.left, expected_inset);
+    assert_eq!(client_overlay.padding.top, no_top_inset);
+    assert_eq!(client_overlay.padding.right, expected_inset);
+    assert_eq!(client_overlay.padding.bottom, expected_inset);
+    assert_eq!(
+      chrome_overlay
+        .children
+        .iter()
+        .filter(|node| node.cursor.is_some())
+        .count(),
+      8
+    );
+  }
+
+  #[test]
+  fn mounted_maximized_chrome_has_no_resize_gutter_or_handles() {
+    let root = mounted_chrome(true).node;
+    let no_inset = crate::node::SpacingValue::from(0.0);
+    let content_layer = &root.children[0];
+    assert_eq!(content_layer.padding.left, no_inset);
+    assert_eq!(content_layer.padding.right, no_inset);
+    assert_eq!(content_layer.padding.bottom, no_inset);
+
+    let chrome_overlay = &root.children[1].modal_declaration.as_ref().unwrap().node;
+    let client_overlay = &chrome_overlay.children[0];
+    assert_eq!(client_overlay.padding.left, no_inset);
+    assert_eq!(client_overlay.padding.right, no_inset);
+    assert_eq!(client_overlay.padding.bottom, no_inset);
+    assert_eq!(
+      chrome_overlay
+        .children
+        .iter()
+        .filter(|node| node.cursor.is_some())
+        .count(),
+      0
+    );
   }
 
   #[test]
