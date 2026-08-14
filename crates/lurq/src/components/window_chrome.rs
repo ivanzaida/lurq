@@ -28,6 +28,7 @@ const TITLEBAR_DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 pub struct WindowChrome {
   props: WindowChromeProps,
   title_bar: ChromeTitleBar,
+  frame_background: Option<BackgroundColor>,
   content: Element,
   overlays: Vec<Element>,
 }
@@ -133,6 +134,7 @@ impl WindowChrome {
     Self {
       props: WindowChromeProps::default(),
       title_bar: ChromeTitleBar::new(),
+      frame_background: None,
       content: Element::new(),
       overlays: Vec::new(),
     }
@@ -155,6 +157,14 @@ impl WindowChrome {
 
   pub fn border(mut self, border: ChromeBorderPolicy) -> Self {
     self.props.border = border;
+    self
+  }
+
+  /// Overrides the color painted behind the client-area inset used by resize handles.
+  /// By default, chrome uses the content root background and falls back to the
+  /// title-bar background when the content root is transparent.
+  pub fn frame_background(mut self, background: impl Into<BackgroundColor>) -> Self {
+    self.frame_background = Some(background.into());
     self
   }
 
@@ -196,6 +206,11 @@ impl WindowChrome {
     // App-owned hit targets stay inside the resize perimeter, matching the separation
     // between native client content and a platform-managed sizing frame.
     let resize_inset = metrics.resize_inset(window.info());
+    let frame_background = self
+      .frame_background
+      .clone()
+      .or_else(|| self.content.node.background_color())
+      .unwrap_or_else(|| self.title_bar.background.clone());
     let title_bar = self.title_bar.render(&window, metrics.height);
     let content = Row::new()
       .width(Dimension::Pct(100.0))
@@ -206,6 +221,7 @@ impl WindowChrome {
     let mut frame = Stack::new()
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
+      .background(frame_background)
       .child(
         Column::new()
           .width(Dimension::Pct(100.0))
@@ -941,6 +957,7 @@ mod tests {
   #[test]
   fn mounted_chrome_separates_client_layers_from_resize_edges() {
     let root = mounted_chrome(false).node;
+    assert_eq!(root.color(), Some(Color::from_hex("#101215")));
     let expected_inset = crate::node::SpacingValue::from(RESIZE_HANDLE_SIZE);
     let no_top_inset = crate::node::SpacingValue::default();
     let content_layer = &root.children[0];
@@ -987,6 +1004,43 @@ mod tests {
         .count(),
       0
     );
+  }
+
+  #[test]
+  fn mounted_chrome_paints_resize_gutter_with_content_background() {
+    let window = crate::app::window::Window::new();
+    window.set_resolved_size(800.0, 600.0);
+    window.set_scale_factor(2.0);
+    window.set_decorated(false);
+    let mut ctx = Ctx::new().with_window(window);
+    let background = Color::from_hex("#0b0e13");
+
+    let root = WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .content(Row::new().background(background))
+      .mount(&mut ctx)
+      .node;
+
+    assert_eq!(root.color(), Some(background));
+  }
+
+  #[test]
+  fn explicit_frame_background_overrides_content_background() {
+    let window = crate::app::window::Window::new();
+    window.set_resolved_size(800.0, 600.0);
+    window.set_scale_factor(2.0);
+    window.set_decorated(false);
+    let mut ctx = Ctx::new().with_window(window);
+    let frame_background = Color::from_hex("#20242b");
+
+    let root = WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .frame_background(frame_background)
+      .content(Row::new().background("#0b0e13"))
+      .mount(&mut ctx)
+      .node;
+
+    assert_eq!(root.color(), Some(frame_background));
   }
 
   #[test]
