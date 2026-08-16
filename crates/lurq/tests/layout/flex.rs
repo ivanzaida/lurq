@@ -1,6 +1,8 @@
 use lurq::{
   app::Tree,
-  layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints},
+  components::{Row, Text, TextOverflow},
+  layout::{Alignment, Constraints, Size, layout_kind::FrameConstraints, quad::QuadContent},
+  node::dimension::Dimension,
 };
 
 use super::PassLayoutExt;
@@ -191,4 +193,33 @@ fn three_way_flex_split() {
   assert_eq!(result.children[0].result.size.width, 100.0);
   assert_eq!(result.children[1].result.size.width, 200.0);
   assert_eq!(result.children[2].result.size.width, 300.0);
+}
+
+#[test]
+fn flex_text_overflow_ellipsizes_before_a_fixed_sibling() {
+  let mut rt = rt();
+  rt.set_root(
+    Row::new()
+      .width(180.0)
+      .child(
+        Row::new().flex(1.0).clip().child(
+          Text::new("connect-to-production-cluster")
+            .nowrap()
+            .text_overflow(TextOverflow::Elipsis),
+        ),
+      )
+      .child(Row::new().width(Dimension::Px(60.0))),
+  );
+
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 100.0))).unwrap();
+  let quads = rt.resolve_quads(&result);
+  let text = quads
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, .. } => Some(text.as_str()),
+      _ => None,
+    })
+    .expect("text quad");
+
+  assert!(text.ends_with('…'), "expected ellipsis text, got {text:?}");
 }

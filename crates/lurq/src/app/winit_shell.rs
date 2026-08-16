@@ -653,9 +653,7 @@ impl ManagedWindow {
         // `about_to_wait` and WM_PAINT are starved for the whole gesture.
         // Gated on drags only, a drag repainted but a hover sweep skipped
         // every row between where the pointer started and where it paused.
-        if self.tree.needs_redraw()
-          && self.last_interaction_present.elapsed() >= INTERACTION_PRESENT_INTERVAL
-        {
+        if self.tree.needs_redraw() && self.last_interaction_present.elapsed() >= INTERACTION_PRESENT_INTERVAL {
           self.last_interaction_present = Instant::now();
           let presented = self.present_now(app, false);
           if presented {

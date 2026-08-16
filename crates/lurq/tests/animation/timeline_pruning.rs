@@ -50,9 +50,12 @@ impl Component for SpinnerHost {
     );
     if self.show.get() {
       row = row.child(
-        lurq::components::Rect::new(40.0, 40.0)
-          .background("#ef4444")
-          .animation(Animation::new(KeyframesId::new(SPIN)).duration_ms(900).linear().infinite()),
+        lurq::components::Rect::new(40.0, 40.0).background("#ef4444").animation(
+          Animation::new(KeyframesId::new(SPIN))
+            .duration_ms(900)
+            .linear()
+            .infinite(),
+        ),
       );
     }
     row
@@ -108,7 +111,10 @@ fn unmounting_infinite_animation_releases_active_timeline() {
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
 
   run_pass(&mut rt);
-  assert!(rt.has_active_timeline(), "infinite animation should keep the timeline active");
+  assert!(
+    rt.has_active_timeline(),
+    "infinite animation should keep the timeline active"
+  );
 
   toggle(&mut rt);
   run_pass(&mut rt);

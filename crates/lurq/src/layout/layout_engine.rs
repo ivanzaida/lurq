@@ -2683,6 +2683,12 @@ impl LayoutEngine {
 
   fn non_flex_child_constraints(child: &Node, constraints: Constraints, vertical: bool) -> Constraints {
     let bounds_percent_main = Self::has_percent_main_frame(child, vertical);
+    // A single-line ellipsized Text needs the row's finite width during its
+    // first layout pass. Without it, the text measures at intrinsic width and
+    // an enclosing flex/clip cell only clips the glyphs after layout, so the
+    // requested ellipsis is never produced.
+    let bounds_ellipsized_text =
+      !vertical && child.text_overflow == TextOverflow::Elipsis && constraints.max_width.is_finite();
 
     if vertical {
       Constraints {
@@ -2698,7 +2704,7 @@ impl LayoutEngine {
     } else {
       Constraints {
         min_width: 0.0,
-        max_width: if bounds_percent_main {
+        max_width: if bounds_percent_main || bounds_ellipsized_text {
           constraints.max_width
         } else {
           f32::INFINITY
