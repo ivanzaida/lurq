@@ -2,6 +2,10 @@ mod text {
   mod selectable;
 }
 
+mod synthetic {
+  mod injection;
+}
+
 mod select {
   mod interaction;
 }

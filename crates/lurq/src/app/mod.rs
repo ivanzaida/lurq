@@ -21,6 +21,7 @@ pub(crate) mod profile_types;
 pub mod profiler;
 pub mod render_engine;
 pub mod runtime;
+pub mod synthetic_input;
 pub mod theme;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
@@ -30,4 +31,5 @@ pub mod winit_shell;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener};
 pub use runtime::{PassReasons, PassReport, Tree};
+pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers};
 pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};

@@ -193,6 +193,25 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::StopDrag);
   }
 
+  /// Queue one synthetic input event, delivered inside the shell's event loop
+  /// exactly where the matching OS event would have been.
+  ///
+  /// Positions are physical pixels in the window's coordinate space — the same
+  /// units a captured frame is measured in.
+  pub fn inject_input(&self, input: crate::app::synthetic_input::SyntheticInput) {
+    self.window.push_command(WindowCommand::InjectInput(input));
+  }
+
+  /// Queue several synthetic events in order; see [`Self::inject_input`].
+  pub fn inject_inputs(
+    &self,
+    inputs: impl IntoIterator<Item = crate::app::synthetic_input::SyntheticInput>,
+  ) {
+    for input in inputs {
+      self.inject_input(input);
+    }
+  }
+
   /// Captures the next rendered window frame to a PNG file.
   #[cfg(feature = "screenshot")]
   pub fn screenshot(&self, output_path: impl Into<std::path::PathBuf>) {
@@ -220,7 +239,8 @@ impl Deref for WindowHandle {
   }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+// Not `Eq`: synthetic input carries pixel positions.
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum WindowCommand {
   Close,
   SetMinimized(bool),
@@ -241,6 +261,7 @@ pub(crate) enum WindowCommand {
   StartDrag,
   StartResize(WindowResizeDirection),
   StopDrag,
+  InjectInput(crate::app::synthetic_input::SyntheticInput),
   #[cfg(feature = "screenshot")]
   Screenshot(std::path::PathBuf),
   OpenDevtools,
