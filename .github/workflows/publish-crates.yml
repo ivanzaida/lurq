@@ -27,6 +27,8 @@ jobs:
           cargo check -p lurq
           cargo test -p lurq --test input_tests checkbox
           cargo test -p lurq --features resources --test resources_tests
+          cargo test -p lurq --features svg --test svg_tests
+          cargo test -p lurq --features svg --lib rasterize
 
       - name: Publish changed versions
         env:
