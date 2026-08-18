@@ -41,6 +41,7 @@ struct ElementRefInner {
   override_rect: Option<ElementRect>,
   override_cleared: bool,
   layout_dirty: bool,
+  rect_observer: Option<Arc<dyn Fn(ElementRect) + Send + Sync>>,
 }
 
 impl ElementRef {
@@ -104,14 +105,47 @@ impl ElementRef {
   }
 
   pub(crate) fn update(&self, x: f32, y: f32, relative_x: f32, relative_y: f32, width: f32, height: f32) {
-    let mut inner = self.inner.write().unwrap();
-    inner.x = x;
-    inner.y = y;
-    inner.relative_x = relative_x;
-    inner.relative_y = relative_y;
-    inner.width = width;
-    inner.height = height;
-    inner.attached = true;
+    let observer = {
+      let mut inner = self.inner.write().unwrap();
+      let changed = !inner.attached
+        || inner.x != x
+        || inner.y != y
+        || inner.relative_x != relative_x
+        || inner.relative_y != relative_y
+        || inner.width != width
+        || inner.height != height;
+      inner.x = x;
+      inner.y = y;
+      inner.relative_x = relative_x;
+      inner.relative_y = relative_y;
+      inner.width = width;
+      inner.height = height;
+      inner.attached = true;
+      if changed { inner.rect_observer.clone() } else { None }
+    };
+    // Outside the lock: the observer may read this ref (or write signals
+    // whose subscribers do).
+    if let Some(observer) = observer {
+      observer(ElementRect {
+        x,
+        y,
+        relative_x,
+        relative_y,
+        width,
+        height,
+      });
+    }
+  }
+
+  /// Register a callback fired whenever the measured rect changes, including
+  /// the first time the element is laid out. It runs during quad resolution
+  /// (after layout, before present), so writing a [`crate::core::Signal`]
+  /// from it marks the owning component dirty and the runtime schedules a
+  /// follow-up pass — the measure-then-render handshake for components whose
+  /// render depends on their own measured size. Registering again replaces
+  /// the previous observer.
+  pub fn observe_rect(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
+    self.inner.write().unwrap().rect_observer = Some(Arc::new(observer));
   }
 
   pub(crate) fn same_handle(&self, other: &Self) -> bool {
@@ -186,6 +220,11 @@ impl ElementRefMut {
 
   pub fn bounds(&self) -> ElementRect {
     self.as_ref().bounds()
+  }
+
+  /// See [`ElementRef::observe_rect`].
+  pub fn observe_rect(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
+    self.as_ref().observe_rect(observer);
   }
 
   pub fn set_bounds(&self, rect: ElementRect) {

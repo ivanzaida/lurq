@@ -14,6 +14,7 @@ mod dirty_tracking {
   mod parent_signal_does_not_rerender_clean_child;
 }
 mod effect;
+mod measured_rect;
 #[cfg(feature = "i18n")]
 mod i18n;
 mod memo;
