@@ -1734,7 +1734,53 @@ fn named_key_to_string(key: NamedKey) -> &'static str {
     NamedKey::Insert => "Insert",
     NamedKey::Enter => "Enter",
     NamedKey::Space => " ",
+    // An unmapped named key used to deliver `key == ""`, which silently
+    // broke every app-side `event.key == "Escape"`-style match.
+    NamedKey::Escape => "Escape",
+    NamedKey::Tab => "Tab",
+    NamedKey::PageUp => "PageUp",
+    NamedKey::PageDown => "PageDown",
+    NamedKey::Control => "Control",
+    NamedKey::Shift => "Shift",
+    NamedKey::Alt => "Alt",
+    NamedKey::Super => "Super",
+    NamedKey::CapsLock => "CapsLock",
+    NamedKey::ContextMenu => "ContextMenu",
+    NamedKey::F1 => "F1",
+    NamedKey::F2 => "F2",
+    NamedKey::F3 => "F3",
+    NamedKey::F4 => "F4",
+    NamedKey::F5 => "F5",
+    NamedKey::F6 => "F6",
+    NamedKey::F7 => "F7",
+    NamedKey::F8 => "F8",
+    NamedKey::F9 => "F9",
+    NamedKey::F10 => "F10",
+    NamedKey::F11 => "F11",
+    NamedKey::F12 => "F12",
     _ => "",
+  }
+}
+
+#[cfg(test)]
+mod key_name_tests {
+  use super::*;
+
+  #[test]
+  fn named_keys_apps_match_on_are_not_empty() {
+    // Escape regression: an empty string here breaks every app-side
+    // `event.key == "Escape"` shortcut without any visible error.
+    for (key, expected) in [
+      (NamedKey::Escape, "Escape"),
+      (NamedKey::Tab, "Tab"),
+      (NamedKey::Enter, "Enter"),
+      (NamedKey::PageUp, "PageUp"),
+      (NamedKey::PageDown, "PageDown"),
+      (NamedKey::F5, "F5"),
+      (NamedKey::Control, "Control"),
+    ] {
+      assert_eq!(named_key_to_string(key), expected);
+    }
   }
 }
 
