@@ -2025,7 +2025,6 @@ impl Tree {
           style,
           wrap,
           vertical_align,
-          center_using_ink_bounds,
           transform_mode,
         } => {
           let glyph_start = glyphs.len();
@@ -2049,16 +2048,7 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + text_vertical_align_offset(
-              app,
-              text,
-              &scaled_style,
-              max_width,
-              *wrap,
-              *vertical_align,
-              *center_using_ink_bounds,
-              scaled_height,
-            );
+            + text_vertical_align_offset(app, text, &scaled_style, max_width, *wrap, *vertical_align, scaled_height);
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
@@ -2108,9 +2098,6 @@ impl Tree {
               glyph.width /= raster_scale;
               glyph.height /= raster_scale;
             }
-          }
-          if *center_using_ink_bounds && quad.transform.is_identity() {
-            center_pixel_snapped_glyph_ink(&mut glyphs[glyph_start..], scaled_y, scaled_height);
           }
           for g in &mut glyphs[glyph_start..] {
             g.order = order;
@@ -8920,46 +8907,13 @@ fn vertical_align_offset(
   align: VerticalAlign,
   extents: crate::app::glyph_engine::TextVerticalExtents,
   quad_height: f32,
-  center_using_ink_bounds: bool,
 ) -> f32 {
   match align {
     VerticalAlign::Top => -extents.ink_top,
     VerticalAlign::Center => {
-      let (top, bottom) = if center_using_ink_bounds {
-        (extents.ink_top, extents.ink_bottom)
-      } else {
-        (extents.optical_top, extents.optical_bottom)
-      };
-      (quad_height - (bottom - top)) * 0.5 - top
+      (quad_height - (extents.optical_bottom - extents.optical_top)) * 0.5 - extents.optical_top
     }
     VerticalAlign::Bottom => quad_height - extents.ink_bottom,
-  }
-}
-
-/// Pixel snapping can move a theoretically centered run by one physical pixel
-/// when the control is rendered at a fractional DPI scale. Reconcile the
-/// painted bounds after rasterization and translate by whole pixels so input
-/// text remains both visually centered and sharp.
-fn center_pixel_snapped_glyph_ink(glyphs: &mut [GlyphCmd], box_y: f32, box_height: f32) {
-  if glyphs.is_empty() || box_height <= 0.0 {
-    return;
-  }
-  let top = glyphs.iter().map(|glyph| glyph.y).fold(f32::INFINITY, f32::min);
-  let bottom = glyphs
-    .iter()
-    .map(|glyph| glyph.y + glyph.height)
-    .fold(f32::NEG_INFINITY, f32::max);
-  if !top.is_finite() || !bottom.is_finite() {
-    return;
-  }
-  let ink_center = (top + bottom) * 0.5;
-  let box_center = box_y + box_height * 0.5;
-  let correction = (box_center - ink_center).round();
-  if correction == 0.0 {
-    return;
-  }
-  for glyph in glyphs {
-    glyph.y += correction;
   }
 }
 
@@ -8970,7 +8924,6 @@ fn text_vertical_align_offset(
   max_width: f32,
   wrap: bool,
   vertical_align: VerticalAlign,
-  center_using_ink_bounds: bool,
   quad_height: f32,
 ) -> f32 {
   if quad_height <= 0.0 {
@@ -8979,7 +8932,7 @@ fn text_vertical_align_offset(
   let Some(extents) = app.glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
     return 0.0;
   };
-  vertical_align_offset(vertical_align, extents, quad_height, center_using_ink_bounds)
+  vertical_align_offset(vertical_align, extents, quad_height)
 }
 
 fn rich_text_vertical_align_offset(
@@ -8997,16 +8950,7 @@ fn rich_text_vertical_align_offset(
   // (mixed sizes) falls back to metric extent, which is adequate for the
   // markdown/rich cases that use it.
   if let [span] = spans {
-    return text_vertical_align_offset(
-      app,
-      &span.text,
-      &span.style,
-      max_width,
-      wrap,
-      vertical_align,
-      false,
-      quad_height,
-    );
+    return text_vertical_align_offset(app, &span.text, &span.style, max_width, wrap, vertical_align, quad_height);
   }
   let measured = app.glyph_engine.measure_rich_text(spans, max_width).height;
   vertical_align_offset(
@@ -9018,7 +8962,6 @@ fn rich_text_vertical_align_offset(
       optical_bottom: measured,
     },
     quad_height,
-    false,
   )
 }
 

@@ -45,10 +45,6 @@ pub enum QuadContent {
     style: TextStyle,
     wrap: bool,
     vertical_align: VerticalAlign,
-    /// Center against the visible glyph bounds instead of the font's optical
-    /// cap-height box. Text inputs use this so their painted pixels sit on the
-    /// exact center of the control at fractional DPI scales.
-    center_using_ink_bounds: bool,
     transform_mode: TextTransformMode,
   },
   RichText {

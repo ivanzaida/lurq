@@ -872,7 +872,6 @@ impl LayoutEngine {
           style: resolved_style,
           wrap: state.render_wrap(),
           vertical_align,
-          center_using_ink_bounds: false,
           transform_mode: *transform_mode,
         }
       }
@@ -891,8 +890,11 @@ impl LayoutEngine {
         placeholder_style,
       } => {
         let display_style = text_input_display_style(state, style, placeholder_style.as_ref()).clone();
-        // Single-line inputs center their glyph ink in the box; multi-line
-        // inputs flow from the top and scroll.
+        // Single-line inputs center in the box using the font's metrics (the
+        // optical cap-height box, same as static text) so the baseline stays
+        // put while the value's ink changes — ink centering made the text jump
+        // when typing added the first ascender/descender. Multi-line inputs
+        // flow from the top and scroll.
         let vertical_align = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
           crate::layout::text_style::VerticalAlign::Top
         } else {
@@ -903,7 +905,6 @@ impl LayoutEngine {
           style: display_style,
           wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
           vertical_align,
-          center_using_ink_bounds: vertical_align == crate::layout::text_style::VerticalAlign::Center,
           transform_mode: TextTransformMode::Bitmap,
         }
       }

@@ -212,6 +212,74 @@ fn single_line_input_centers_glyphs_with_tall_line_height() {
   );
 }
 
+/// Typing a tall glyph must not move the glyphs already in the box: centering
+/// has to come from the font's metrics, not the current value's ink bounds.
+/// With ink centering, "as" (x-height ink) and "asd" (ascender ink) place the
+/// shared baseline at different heights, so the text jumps while typing.
+#[test]
+fn single_line_input_baseline_is_stable_when_ascender_appears() {
+  let short_value = Signal::new("as".to_owned());
+  let tall_value = Signal::new("asd".to_owned());
+  let mut short_runtime = Tree::new();
+  let mut tall_runtime = Tree::new();
+
+  short_runtime.set_root(TextInput::new(short_value).single_line().width(200.0).height(40.0));
+  tall_runtime.set_root(TextInput::new(tall_value).single_line().width(200.0).height(40.0));
+
+  let short = render_pass(&mut short_runtime);
+  let tall = render_pass(&mut tall_runtime);
+  // "a" and "s" rest on the baseline in both runs, so the max glyph bottom of
+  // the short run must line up with the "a"/"s" bottoms of the tall run.
+  let short_baseline = short
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  let tall_baseline = tall
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+
+  assert!(
+    (short_baseline - tall_baseline).abs() < 0.51,
+    "baseline must not move when a taller glyph is typed: short={short_baseline}, tall={tall_baseline}",
+  );
+}
+
+/// Same stability requirement under a fractional DPI scale — the whole-pixel
+/// reconciliation of the painted run must also be content-independent.
+#[test]
+fn scaled_single_line_input_baseline_is_stable_when_ascender_appears() {
+  let short_value = Signal::new("as".to_owned());
+  let tall_value = Signal::new("asd".to_owned());
+  let mut short_runtime = Tree::new();
+  let mut tall_runtime = Tree::new();
+  short_runtime.set_scale_factor(1.5);
+  tall_runtime.set_scale_factor(1.5);
+
+  short_runtime.set_root(TextInput::new(short_value).single_line().width(200.0).height(40.0));
+  tall_runtime.set_root(TextInput::new(tall_value).single_line().width(200.0).height(40.0));
+
+  let short = render_pass(&mut short_runtime);
+  let tall = render_pass(&mut tall_runtime);
+  let short_baseline = short
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+  let tall_baseline = tall
+    .glyphs
+    .iter()
+    .map(|glyph| glyph.y + glyph.height)
+    .fold(f32::NEG_INFINITY, f32::max);
+
+  assert!(
+    (short_baseline - tall_baseline).abs() < 1.01,
+    "scaled baseline must not move when a taller glyph is typed: short={short_baseline}, tall={tall_baseline}",
+  );
+}
+
 #[test]
 fn single_line_input_centers_numeric_glyph_ink() {
   let value = Signal::new("32986".to_owned());
@@ -246,9 +314,14 @@ fn single_line_input_centers_numeric_glyph_ink() {
     .fold(f32::NEG_INFINITY, f32::max);
   let glyph_center = (top + bottom) * 0.5;
 
+  // Centering aligns the font's cap-height box, not the painted ink, so the
+  // value cannot jump while typing (see the baseline stability tests above).
+  // Digit ink may therefore land up to a physical pixel off exact center from
+  // rasterized overshoot + whole-pixel snapping — allow that, but still catch
+  // jam-to-an-edge regressions.
   assert!(
-    (glyph_center - 27.0).abs() <= 0.5,
-    "numeric glyph ink should be centered in the scaled input: glyph={glyph_center}, input=27"
+    (glyph_center - 27.0).abs() <= 1.5,
+    "numeric glyph ink should sit at the center of the scaled input: glyph={glyph_center}, input=27"
   );
 }
 

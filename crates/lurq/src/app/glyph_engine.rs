@@ -2232,10 +2232,20 @@ pub(crate) fn glyph_debug_force() -> Option<String> {
 }
 
 fn render_glyph_image(context: &mut ScaleContext, font: &Font, cache_key: GlyphCacheKey) -> Option<SwashImage> {
+  // Hinting must stay OFF here: cosmic quantizes glyph x positions into
+  // quarter-pixel bins, so the same glyph rasterizes at four subpixel phases.
+  // TrueType hinting snaps stems to the pixel grid FIRST, and shifting that
+  // grid-fit outline by a fraction re-distributes its coverage differently per
+  // bin — adjacent instances of one letter come out with visibly different
+  // weight and geometry, which reads as jumpy, uneven text at UI sizes.
+  // Unhinted outlines sample the same smooth shape at every phase, so all
+  // instances match (the transformed-glyph path below renders unhinted for the
+  // same reason, as do DirectWrite's "natural" modes, which pair subpixel
+  // positioning with unhinted horizontal metrics).
   let mut scaler = context
     .builder(font.as_swash())
     .size(f32::from_bits(cache_key.font_size_bits))
-    .hint(true)
+    .hint(false)
     .build();
   let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
   let transform = cache_key
@@ -3109,6 +3119,94 @@ mod tests {
     engine.buffer_pool.push(buffer);
   }
 
+  /// Glyphs are positioned in quarter-pixel bins, so the same glyph renders at
+  /// four subpixel phases. Rasterization must therefore stay UNHINTED: TrueType
+  /// hinting grid-fits the outline first, and shifting a grid-fit outline by a
+  /// fraction redistributes its coverage differently per bin — adjacent
+  /// instances of one letter get visibly different weight/geometry, which
+  /// reads as jumpy text at UI sizes. This pins the main raster path to the
+  /// same unhinted output the transformed-glyph path produces; re-enabling
+  /// hinting makes the masks diverge and fails this test.
+  #[test]
+  fn subpixel_binned_glyphs_rasterize_unhinted() {
+    let mut engine = GlyphEngine::new();
+    let style = crate::layout::text_style::TextStyle {
+      font_size: 11.0,
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let mut buffer = engine.acquire_buffer(&style, 100.0, false);
+    let resolved = engine.resolve_family(&style);
+    let attrs = Attrs::new()
+      .family(Family::Name(&resolved))
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    buffer.set_text(&mut engine.font_system, "Hml", attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut engine.font_system, false);
+
+    let mut compared = 0;
+    for run in buffer.layout_runs() {
+      for glyph in run.glyphs.iter() {
+        for bin in [0.0_f32, 0.25, 0.5, 0.75] {
+          let (cache_key, ..) = super::GlyphCacheKey::new(
+            glyph.font_id,
+            glyph.glyph_id,
+            glyph.font_size,
+            (bin, 0.0),
+            glyph.cache_key_flags,
+          );
+          let font = engine.font_system.get_font(cache_key.font_id).expect("font");
+          let mut context = ScaleContext::new();
+          let main = render_glyph_image(&mut context, &font, cache_key).expect("main raster");
+
+          // Reference: an explicitly unhinted render at the same subpixel offset.
+          let mut scaler = context
+            .builder(font.as_swash())
+            .size(f32::from_bits(cache_key.font_size_bits))
+            .hint(false)
+            .build();
+          let offset = super::Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
+          let reference = super::Render::new(&[
+            super::Source::ColorOutline(0),
+            super::Source::ColorBitmap(super::StrikeWith::BestFit),
+            super::Source::Outline,
+          ])
+          .format(super::Format::Alpha)
+          .offset(offset)
+          .render(&mut scaler, cache_key.glyph_id)
+          .expect("reference raster");
+
+          assert_eq!(
+            (main.placement.left, main.placement.top, main.placement.width, main.placement.height),
+            (
+              reference.placement.left,
+              reference.placement.top,
+              reference.placement.width,
+              reference.placement.height
+            ),
+            "glyph {} at bin {bin} must place like the unhinted reference",
+            glyph.glyph_id,
+          );
+          let main_mask = glyph_coverage_mask(&main);
+          let reference_mask = glyph_coverage_mask(&reference);
+          let diff: u64 = main_mask
+            .iter()
+            .zip(reference_mask.iter())
+            .map(|(a, b)| a.abs_diff(*b) as u64)
+            .sum();
+          let mean_diff = diff as f64 / main_mask.len().max(1) as f64;
+          assert!(
+            mean_diff < 1.0,
+            "glyph {} at bin {bin} must rasterize unhinted (mean coverage diff {mean_diff:.2})",
+            glyph.glyph_id,
+          );
+          compared += 1;
+        }
+      }
+    }
+    assert!(compared >= 12, "expected all test glyphs to be compared, got {compared}");
+    engine.buffer_pool.push(buffer);
+  }
+
   /// Tiny UI text (chips/pills render around 7-8px) must still rasterize
   /// visible coverage — a correctly-sized but all-zero mask packs into the
   /// atlas and draws as invisible text, which no glyph-command-level check
@@ -3512,4 +3610,5 @@ mod tests {
     assert_eq!(engine.rich_shaped_layout_cache.len(), 1);
     assert_eq!(engine.rich_glyph_layout_cache.len(), 1);
   }
+
 }
