@@ -3436,7 +3436,7 @@ impl Dx12State {
     let instance = ImageInstance {
       pos: [image.x, image.y],
       size: [image.width, image.height],
-      opacity: [1.0, 0.0, 0.0, 0.0],
+      opacity: [image.opacity, 0.0, 0.0, 0.0],
       transform: image.transform,
       xf_origin: image.transform_origin,
       uv_min: image.uv_min,

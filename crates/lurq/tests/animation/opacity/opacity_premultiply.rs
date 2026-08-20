@@ -51,6 +51,47 @@ fn zero_opacity_zeros_alpha() {
 }
 
 #[test]
+fn faded_container_fades_its_text_glyphs() {
+  // Rects premultiplied opacity into their color; glyphs did not, so text
+  // stayed fully opaque inside a faded subtree.
+  let mut rt = Tree::new();
+  let node = lurq::components::Column::new().opacity(0.5).child(
+    lurq::components::Text::new("Hi").color(Color::new(255, 255, 255, 255)),
+  );
+  rt.set_root(node);
+
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  let snap = render_pass(&mut rt);
+
+  assert!(!snap.glyphs.is_empty());
+  for glyph in &snap.glyphs {
+    assert!(
+      (glyph.color[3] - 0.5).abs() < 0.01,
+      "glyph alpha should be halved, got {}",
+      glyph.color[3]
+    );
+  }
+}
+
+#[cfg(feature = "image")]
+#[test]
+fn faded_container_fades_its_images() {
+  // Images ignored quad opacity entirely — both backends' shaders multiply an
+  // instance opacity, but the CPU side hardcoded it to 1.0.
+  let mut rt = Tree::new();
+  let img = lurq::images::ImageData::from_rgba(vec![255; 4 * 4 * 4], 4, 4);
+  let node = lurq::components::Column::new()
+    .opacity(0.5)
+    .child(lurq::components::Image::new(img));
+  rt.set_root(node);
+
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  let snap = render_pass(&mut rt);
+
+  assert_eq!(snap.image_opacities, vec![0.5]);
+}
+
+#[test]
 fn opacity_does_not_change_rgb_channels() {
   let mut rt = Tree::new();
   let node = lurq::components::Rect::new(100.0, 50.0)

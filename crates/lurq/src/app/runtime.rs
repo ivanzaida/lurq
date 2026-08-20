@@ -2141,6 +2141,15 @@ impl Tree {
           if let Some(shadow) = &style.shadow {
             append_text_shadow_glyphs(&mut glyphs, glyph_start, shadow, scale);
           }
+          // Rects premultiply quad opacity into their color above; glyphs
+          // (including the shadow run just appended) must do the same or text
+          // stays fully opaque inside a faded subtree.
+          if quad.opacity < 1.0 {
+            let factor = quad.opacity.clamp(0.0, 1.0);
+            for g in &mut glyphs[glyph_start..] {
+              g.color[3] *= factor;
+            }
+          }
         }
         QuadContent::RichText {
           spans,
@@ -2233,6 +2242,12 @@ impl Tree {
           if let Some(shadow) = spans.first().and_then(|span| span.style.shadow) {
             append_text_shadow_glyphs(&mut glyphs, glyph_start, &shadow, scale);
           }
+          if quad.opacity < 1.0 {
+            let factor = quad.opacity.clamp(0.0, 1.0);
+            for g in &mut glyphs[glyph_start..] {
+              g.color[3] *= factor;
+            }
+          }
         }
         #[cfg(feature = "image")]
         QuadContent::Image { data, uv_min, uv_max } | QuadContent::Video { data, uv_min, uv_max } => {
@@ -2290,6 +2305,7 @@ impl Tree {
             transform: image_transform,
             transform_origin: image_transform_origin,
             clip: scaled_clip,
+            opacity: quad.opacity,
           });
           image_sources.push(Some(data.clone()));
           video_sources.push(is_video.then(|| data.clone()));
@@ -2298,6 +2314,8 @@ impl Tree {
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
+          // Quad opacity rides the image command, not the raster: a faded
+          // icon shares the cache entry with its opaque siblings.
           let raster = crate::svg::rasterize::rasterize(&data, w, h);
           let image_transform = quad.transform.matrix_2x2();
           let image_transform_origin = quad
@@ -2325,6 +2343,7 @@ impl Tree {
             transform: image_transform,
             transform_origin: image_transform_origin,
             clip: scaled_clip,
+            opacity: quad.opacity,
           });
           image_sources.push(None);
           video_sources.push(None);
@@ -2333,6 +2352,16 @@ impl Tree {
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
+          // SvgCmd carries no opacity, so the quad's fade folds into the
+          // data's own override before tessellation (it participates in the
+          // mesh identity, so faded and opaque copies never share vertices).
+          let data = if quad.opacity < 1.0 {
+            data
+              .clone()
+              .with_opacity(data.opacity_override().unwrap_or(1.0) * quad.opacity)
+          } else {
+            data.clone()
+          };
           let mesh = crate::svg::tessellate::tessellate(&data, w, h);
           svgs.push(crate::svg::SvgCmd {
             order,

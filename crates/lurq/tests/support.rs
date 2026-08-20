@@ -51,6 +51,8 @@ pub struct RenderSnapshot {
   pub glyph_count: usize,
   #[cfg(feature = "image")]
   pub image_orders: Vec<usize>,
+  #[cfg(feature = "image")]
+  pub image_opacities: Vec<f32>,
   #[cfg(feature = "svg")]
   pub svg_orders: Vec<usize>,
 }
@@ -129,6 +131,8 @@ impl RenderEngine for CapturingRenderEngine {
       glyph_count: list.glyphs.len(),
       #[cfg(feature = "image")]
       image_orders: list.images.iter().map(|image| image.order).collect(),
+      #[cfg(feature = "image")]
+      image_opacities: list.images.iter().map(|image| image.opacity).collect(),
       #[cfg(feature = "svg")]
       svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
     });
@@ -143,6 +147,8 @@ fn empty_snapshot() -> RenderSnapshot {
     glyph_count: 0,
     #[cfg(feature = "image")]
     image_orders: vec![],
+    #[cfg(feature = "image")]
+    image_opacities: vec![],
     #[cfg(feature = "svg")]
     svg_orders: vec![],
   }

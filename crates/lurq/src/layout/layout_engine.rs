@@ -750,6 +750,7 @@ impl LayoutEngine {
       0.0,
       0.0,
       Transform2D::IDENTITY,
+      1.0,
       viewport,
       viewport,
       true,
@@ -766,6 +767,7 @@ impl LayoutEngine {
     parent_x: f32,
     parent_y: f32,
     inherited_transform: Transform2D,
+    inherited_opacity: f32,
     clip: ClipRect,
     cull_clip: ClipRect,
     culling_enabled: bool,
@@ -830,6 +832,10 @@ impl LayoutEngine {
           abs_x,
           abs_y,
           inherited_transform,
+          // A plain wrapper never carries opacity of its own (the fast-path
+          // check above requires the default), so the inherited value passes
+          // through unchanged.
+          inherited_opacity,
           child_clip,
           child_cull_clip,
           child_culling_enabled,
@@ -944,7 +950,9 @@ impl LayoutEngine {
       _ => QuadContent::None,
     };
 
-    let opacity = node.opacity;
+    // Group opacity composes multiplicatively down the tree, the same way
+    // inherited transforms do — fading a container fades everything in it.
+    let opacity = node.opacity * inherited_opacity;
     let local_transform = node.effective_transform();
     let local_transform_origin_abs = [abs_x + result.size.width * 0.5, abs_y + result.size.height * 0.5];
     let local_affine = if local_transform.is_identity() {
@@ -1527,6 +1535,7 @@ impl LayoutEngine {
         abs_x,
         abs_y,
         transform,
+        opacity,
         child_clip,
         child_cull_clip,
         child_culling_enabled,

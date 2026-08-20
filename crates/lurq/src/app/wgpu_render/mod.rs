@@ -1485,7 +1485,7 @@ impl RenderEngine for WgpuRenderEngine {
         .extend(list.images.iter().map(|img| ImageInstance {
           pos: [img.x, img.y],
           size: [img.width, img.height],
-          opacity: [1.0, 0.0, 0.0, 0.0],
+          opacity: [img.opacity, 0.0, 0.0, 0.0],
           transform: img.transform,
           xf_origin: img.transform_origin,
           uv_min: img.uv_min,

@@ -25,4 +25,7 @@ pub struct ImageCmd {
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
   pub clip: ClipRect,
+  /// Composed quad opacity (node × inherited). Both backends' image shaders
+  /// multiply it into the sampled alpha.
+  pub opacity: f32,
 }
