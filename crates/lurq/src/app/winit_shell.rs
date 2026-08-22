@@ -429,8 +429,8 @@ impl ManagedWindow {
           crate::app::synthetic_input::apply(&mut self.tree, &input);
         }
         #[cfg(feature = "screenshot")]
-        WindowCommand::Screenshot(output_path) => {
-          self.tree.request_screenshot(output_path);
+        WindowCommand::Screenshot(output_path, region) => {
+          self.tree.request_screenshot(output_path, region);
         }
         WindowCommand::OpenDevtools => {
           self.tree.open_devtools();
@@ -946,8 +946,8 @@ impl ManagedSecondaryWindow {
           crate::app::synthetic_input::apply(tree, &input);
         }
         #[cfg(feature = "screenshot")]
-        WindowCommand::Screenshot(output_path) => {
-          tree.request_screenshot(output_path);
+        WindowCommand::Screenshot(output_path, region) => {
+          tree.request_screenshot(output_path, region);
         }
         WindowCommand::OpenDevtools => {
           tree.open_devtools();

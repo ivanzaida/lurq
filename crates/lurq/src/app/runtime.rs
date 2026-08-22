@@ -543,7 +543,7 @@ pub struct Tree {
   perf_overlay_frames_since_sample: u64,
   secondary_windows: Vec<SecondaryWindow>,
   #[cfg(feature = "screenshot")]
-  pending_screenshot: Option<PathBuf>,
+  pending_screenshot: Option<(PathBuf, Option<crate::app::window::ScreenshotRegion>)>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -994,8 +994,12 @@ impl Tree {
   }
 
   #[cfg(feature = "screenshot")]
-  pub(crate) fn request_screenshot(&mut self, output_path: impl Into<PathBuf>) {
-    self.pending_screenshot = Some(output_path.into());
+  pub(crate) fn request_screenshot(
+    &mut self,
+    output_path: impl Into<PathBuf>,
+    region: Option<crate::app::window::ScreenshotRegion>,
+  ) {
+    self.pending_screenshot = Some((output_path.into(), region));
     self.request_redraw();
   }
 
@@ -6928,19 +6932,42 @@ impl Tree {
   }
 
   fn take_pending_screenshot(&mut self) -> Option<RenderFrameCapture> {
-    let output_path = self.pending_screenshot.take()?;
+    let (output_path, region) = self.pending_screenshot.take()?;
+    let Some(region) = region else {
+      return Some(RenderFrameCapture {
+        x: 0,
+        y: 0,
+        width: self.viewport_physical.width.round().max(1.0) as u32,
+        height: self.viewport_physical.height.round().max(1.0) as u32,
+        output_path,
+        window_clip: self.screenshot_window_clip(),
+      });
+    };
+    let Some((x, y, width, height)) = crate::app::frame_capture::physical_capture_region(
+      region,
+      self.scale_factor(),
+      self.viewport_physical.width,
+      self.viewport_physical.height,
+    ) else {
+      tracing::warn!(
+        "screenshot region {region:?} has no visible area in the viewport; skipping capture to {}",
+        output_path.display()
+      );
+      return None;
+    };
+    // A region crop never touches the window corners, so no corner clip.
     Some(RenderFrameCapture {
-      x: 0,
-      y: 0,
-      width: self.viewport_physical.width.round().max(1.0) as u32,
-      height: self.viewport_physical.height.round().max(1.0) as u32,
+      x,
+      y,
+      width,
+      height,
       output_path,
-      window_clip: self.screenshot_window_clip(),
+      window_clip: None,
     })
   }
 
   fn drop_unsupported_screenshot(&mut self) {
-    if let Some(output_path) = self.pending_screenshot.take() {
+    if let Some((output_path, _region)) = self.pending_screenshot.take() {
       tracing::warn!(
         "failed to capture screenshot to {}: render engine does not support frame capture",
         output_path.display()

@@ -215,7 +215,37 @@ impl WindowHandle {
   /// Captures the next rendered window frame to a PNG file.
   #[cfg(feature = "screenshot")]
   pub fn screenshot(&self, output_path: impl Into<std::path::PathBuf>) {
-    self.window.push_command(WindowCommand::Screenshot(output_path.into()));
+    self
+      .window
+      .push_command(WindowCommand::Screenshot(output_path.into(), None));
+  }
+
+  /// Captures the next rendered frame cropped to a logical-pixel window
+  /// region. The region is converted to physical pixels and clamped to the
+  /// viewport at capture time; a region with no visible area is skipped with
+  /// a warning.
+  #[cfg(feature = "screenshot")]
+  pub fn screenshot_region(&self, output_path: impl Into<std::path::PathBuf>, region: ScreenshotRegion) {
+    self
+      .window
+      .push_command(WindowCommand::Screenshot(output_path.into(), Some(region)));
+  }
+
+  /// Captures the next rendered frame cropped to one element's bounds, as
+  /// attached with `ref_element`. The bounds are read now, from the last
+  /// completed layout pass — capture after the element has painted.
+  #[cfg(feature = "screenshot")]
+  pub fn screenshot_node(&self, output_path: impl Into<std::path::PathBuf>, node: &crate::core::ElementRef) {
+    let bounds = node.bounds();
+    self.screenshot_region(
+      output_path,
+      ScreenshotRegion {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      },
+    );
   }
 
   pub fn open_devtools(&self) {
@@ -237,6 +267,17 @@ impl Deref for WindowHandle {
   fn deref(&self) -> &Self::Target {
     &self.info
   }
+}
+
+/// A logical-pixel window region for a partial frame capture, matching the
+/// units of [`crate::core::ElementRect`] bounds.
+#[cfg(feature = "screenshot")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenshotRegion {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
 }
 
 // Not `Eq`: synthetic input carries pixel positions.
@@ -263,7 +304,7 @@ pub(crate) enum WindowCommand {
   StopDrag,
   InjectInput(crate::app::synthetic_input::SyntheticInput),
   #[cfg(feature = "screenshot")]
-  Screenshot(std::path::PathBuf),
+  Screenshot(std::path::PathBuf, Option<ScreenshotRegion>),
   OpenDevtools,
   CloseDevtools,
   ToggleDevtools,

@@ -74,6 +74,34 @@ pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) 
   }
 }
 
+/// Map a logical-pixel capture region onto the physical viewport: scale,
+/// clamp to the viewport bounds, and round outward so the requested area is
+/// fully covered. `None` when the region has no visible area.
+pub(crate) fn physical_capture_region(
+  region: crate::app::window::ScreenshotRegion,
+  scale_factor: f32,
+  viewport_width: f32,
+  viewport_height: f32,
+) -> Option<(u32, u32, u32, u32)> {
+  if !region.width.is_finite() || !region.height.is_finite() {
+    return None;
+  }
+  let left = (region.x * scale_factor).floor().clamp(0.0, viewport_width);
+  let top = (region.y * scale_factor).floor().clamp(0.0, viewport_height);
+  let right = ((region.x + region.width) * scale_factor)
+    .ceil()
+    .clamp(0.0, viewport_width);
+  let bottom = ((region.y + region.height) * scale_factor)
+    .ceil()
+    .clamp(0.0, viewport_height);
+  let width = right - left;
+  let height = bottom - top;
+  if width < 1.0 || height < 1.0 {
+    return None;
+  }
+  Some((left as u32, top as u32, width as u32, height as u32))
+}
+
 pub(crate) fn apply_capture_window_clip(pixels: &mut [u8], capture: &RenderFrameCapture) {
   let Some(clip) = capture.window_clip else {
     return;
@@ -157,6 +185,46 @@ mod tests {
     let rgba = capture_rows_to_rgba(&data, 12, 2, 2, false);
 
     assert_eq!(rgba, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  }
+
+  #[test]
+  fn capture_region_scales_and_clamps_to_the_viewport() {
+    let region = crate::app::window::ScreenshotRegion {
+      x: 10.0,
+      y: 20.0,
+      width: 100.0,
+      height: 50.0,
+    };
+
+    assert_eq!(physical_capture_region(region, 2.0, 1000.0, 1000.0), Some((20, 40, 200, 100)));
+
+    let clipped = crate::app::window::ScreenshotRegion {
+      x: -10.0,
+      y: 990.0,
+      width: 100.0,
+      height: 100.0,
+    };
+    assert_eq!(physical_capture_region(clipped, 1.0, 1000.0, 1000.0), Some((0, 990, 90, 10)));
+  }
+
+  #[test]
+  fn capture_region_outside_the_viewport_is_skipped() {
+    let region = crate::app::window::ScreenshotRegion {
+      x: 2000.0,
+      y: 0.0,
+      width: 100.0,
+      height: 100.0,
+    };
+
+    assert_eq!(physical_capture_region(region, 1.0, 1000.0, 1000.0), None);
+
+    let empty = crate::app::window::ScreenshotRegion {
+      x: 0.0,
+      y: 0.0,
+      width: 0.0,
+      height: 100.0,
+    };
+    assert_eq!(physical_capture_region(empty, 1.0, 1000.0, 1000.0), None);
   }
 
   #[test]
