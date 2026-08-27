@@ -12,6 +12,8 @@ pub(crate) enum BuiltinTool {
   Screenshot,
   ReadTree,
   Find,
+  FindById,
+  FindByClass,
   Windows,
   Wait,
   Interact,
@@ -129,6 +131,38 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "required": ["query"]
       })),
       kind: ToolKind::Builtin(BuiltinTool::Find),
+    },
+    RegisteredTool {
+      name: "lurq_find_by_id".into(),
+      description: "Look up the element carrying an HTML-like id (set with the `.id(...)` builder)                     in the live tree and return a fresh actionable ref for it. Duplicate ids                     resolve to the first match in tree order, like the DOM."
+        .into(),
+      scope: Scope::Observe,
+      read_only: true,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "The element id to look up" },
+          "window": { "type": "string", "description": WINDOW_PROP }
+        },
+        "required": ["id"]
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::FindById),
+    },
+    RegisteredTool {
+      name: "lurq_find_by_class".into(),
+      description: "Look up every element carrying an HTML-like class (set with the `.class(...)`                     builder) in the live tree, in tree order, and return fresh actionable refs."
+        .into(),
+      scope: Scope::Observe,
+      read_only: true,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "class": { "type": "string", "description": "The class name to look up" },
+          "window": { "type": "string", "description": WINDOW_PROP }
+        },
+        "required": ["class"]
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::FindByClass),
     },
     RegisteredTool {
       name: "lurq_windows".into(),

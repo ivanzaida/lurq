@@ -90,8 +90,10 @@ impl LurqMcpServer {
         let mut lines = Vec::new();
         for record in &refs.records {
           let haystack = format!(
-            "{} {} {}",
+            "{} {} {} {} {}",
             record.tag,
+            record.element_id.as_deref().unwrap_or(""),
+            record.classes.join(" "),
             record.text.as_deref().unwrap_or(""),
             record
               .attrs

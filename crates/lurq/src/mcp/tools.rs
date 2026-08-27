@@ -63,6 +63,12 @@ fn execute_builtin(
     BuiltinTool::ReadTree => {
       let _ = reply.send(read_tree_tool(tree, state, &args));
     }
+    BuiltinTool::FindById => {
+      let _ = reply.send(find_by_id_tool(tree, state, &args));
+    }
+    BuiltinTool::FindByClass => {
+      let _ = reply.send(find_by_class_tool(tree, state, &args));
+    }
     BuiltinTool::Screenshot => screenshot_tool(tree, state, &args, reply),
     BuiltinTool::Wait => wait_tool(tree, state, &args, reply),
     BuiltinTool::Interact => {
@@ -292,9 +298,12 @@ fn snapshot_node(
 
   let interactive = is_interactive(node);
   let attrs = node.debug_attrs();
+  let element_id = node.element_id().map(|id| id.to_owned());
+  let classes: Vec<String> = node.class_list().iter().map(|class| class.to_string()).collect();
+  let labeled = element_id.is_some() || !classes.is_empty();
   let text = node.text_content().map(|text| text.to_owned());
   let value = node_value_summary(node);
-  let interesting = interactive || !attrs.is_empty() || text.is_some() || value.is_some();
+  let interesting = interactive || labeled || !attrs.is_empty() || text.is_some() || value.is_some();
   if !ctx.all && !interesting && child_lines.is_empty() {
     return Vec::new();
   }
@@ -309,8 +318,14 @@ fn snapshot_node(
   });
 
   let mut line = format!("{}- {}", "  ".repeat(depth), node.tag_name());
+  if let Some(element_id) = &element_id {
+    line.push_str(&format!(" #{element_id}"));
+  }
+  for class in &classes {
+    line.push_str(&format!(" .{class}"));
+  }
 
-  if interactive || !attrs.is_empty() {
+  if interactive || labeled || !attrs.is_empty() {
     let ref_id = (ctx.mint)();
     line.push_str(&format!(" [{ref_id}]"));
     ctx.records.push(RefRecord {
@@ -319,6 +334,8 @@ fn snapshot_node(
       node_id: node.node_id(),
       tag: node.tag_name().to_owned(),
       text: text.clone(),
+      element_id,
+      classes,
       attrs: attrs
         .iter()
         .map(|(name, attr_value)| (name.to_string(), attr_value.to_string()))
@@ -413,6 +430,12 @@ fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -
 
 pub(crate) fn format_ref_line(record: &RefRecord) -> String {
   let mut line = format!("{} [{}] {}", record.id, record.window, record.tag);
+  if let Some(element_id) = &record.element_id {
+    line.push_str(&format!(" #{element_id}"));
+  }
+  for class in &record.classes {
+    line.push_str(&format!(" .{class}"));
+  }
   if let Some(text) = &record.text {
     line.push_str(&format!(" {:?}", truncate_text(text, 60)));
   }
@@ -425,6 +448,112 @@ pub(crate) fn format_ref_line(record: &RefRecord) -> String {
     line.push_str(" (not interactive)");
   }
   line
+}
+
+// ---------------------------------------------------------------------------
+// Id / class lookup
+
+/// Owned metadata for a node found by live lookup, captured while the
+/// `ElementRef` borrow is alive so bounds can be resolved afterwards.
+struct LookupHit {
+  node_id: NodeId,
+  tag: String,
+  text: Option<String>,
+  element_id: Option<String>,
+  classes: Vec<String>,
+  attrs: Vec<(String, String)>,
+  interactive: bool,
+}
+
+fn lookup_hit(node: &Node) -> LookupHit {
+  LookupHit {
+    node_id: node.node_id(),
+    tag: node.tag_name().to_owned(),
+    text: node.text_content().map(|text| text.to_owned()),
+    element_id: node.element_id().map(|id| id.to_owned()),
+    classes: node.class_list().iter().map(|class| class.to_string()).collect(),
+    attrs: node
+      .debug_attrs()
+      .iter()
+      .map(|(name, value)| (name.to_string(), value.to_string()))
+      .collect(),
+    interactive: is_interactive(node),
+  }
+}
+
+/// Mint a fresh actionable ref for a lookup hit. Appended to the ref table,
+/// leaving the window's `read_tree` refs valid.
+fn register_lookup_ref(target: &Tree, window: &str, hit: LookupHit, state: &McpState) -> RefRecord {
+  let scale = target.scale_factor();
+  let bounds = locate_node(target, hit.node_id)
+    .map(|[x, y, width, height]| {
+      [
+        (x * scale).round(),
+        (y * scale).round(),
+        (width * scale).round(),
+        (height * scale).round(),
+      ]
+    })
+    .unwrap_or([0.0; 4]);
+  let mut refs = state.shared.refs.lock().unwrap();
+  let record = RefRecord {
+    id: refs.mint(),
+    window: window.to_owned(),
+    node_id: hit.node_id,
+    tag: hit.tag,
+    text: hit.text,
+    element_id: hit.element_id,
+    classes: hit.classes,
+    attrs: hit.attrs,
+    bounds,
+    interactive: hit.interactive,
+  };
+  refs.append(vec![record.clone()]);
+  record
+}
+
+fn find_by_id_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
+  let id = args
+    .get("id")
+    .and_then(|value| value.as_str())
+    .ok_or("`id` is required")?;
+  let window = requested_window(args);
+  let target = window_tree_mut(tree, &window, state.include_devtools)?;
+  let hit = target.get_element_by_id(id).map(|element| lookup_hit(element.node));
+  let Some(hit) = hit else {
+    return Ok(McpToolOutput::Text(format!(
+      "no element with id {id:?} in window {window:?}"
+    )));
+  };
+  let record = register_lookup_ref(target, &window, hit, state);
+  Ok(McpToolOutput::Text(format_ref_line(&record)))
+}
+
+fn find_by_class_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
+  let class = args
+    .get("class")
+    .and_then(|value| value.as_str())
+    .ok_or("`class` is required")?;
+  let window = requested_window(args);
+  let target = window_tree_mut(tree, &window, state.include_devtools)?;
+  let hits: Vec<LookupHit> = target
+    .get_elements_by_class_name(class)
+    .into_iter()
+    .map(|element| lookup_hit(element.node))
+    .collect();
+  if hits.is_empty() {
+    return Ok(McpToolOutput::Text(format!(
+      "no elements with class {class:?} in window {window:?}"
+    )));
+  }
+  let lines: Vec<String> = hits
+    .into_iter()
+    .map(|hit| format_ref_line(&register_lookup_ref(target, &window, hit, state)))
+    .collect();
+  Ok(McpToolOutput::Text(lines.join(
+    "
+",
+  )))
 }
 
 // ---------------------------------------------------------------------------

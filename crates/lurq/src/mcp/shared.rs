@@ -46,6 +46,9 @@ pub(crate) struct RefRecord {
   pub(crate) node_id: NodeId,
   pub(crate) tag: String,
   pub(crate) text: Option<String>,
+  /// HTML-like `id`/classes from the `.id()` / `.class()` builders.
+  pub(crate) element_id: Option<String>,
+  pub(crate) classes: Vec<String>,
   pub(crate) attrs: Vec<(String, String)>,
   /// Physical (screenshot-pixel) bounds at snapshot time. Interaction
   /// re-resolves live bounds by `node_id`; these are for `lurq_find` output.
@@ -70,6 +73,11 @@ impl RefTable {
 
   pub(crate) fn replace_window(&mut self, window: &str, records: Vec<RefRecord>) {
     self.records.retain(|record| record.window != window);
+    self.records.extend(records);
+  }
+
+  /// Add lookup results without invalidating the window's `read_tree` refs.
+  pub(crate) fn append(&mut self, records: Vec<RefRecord>) {
     self.records.extend(records);
   }
 

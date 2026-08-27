@@ -198,6 +198,7 @@ fn demo_shell(ctx: &mut Ctx, theme: Signal<DemoTheme>, modal_open: Signal<bool>)
 fn demo_toolbar(selected_tab: DemoTab, theme: DemoTheme, modal_open: Signal<bool>) -> Element {
   let palette = theme.palette();
   Row::new()
+    .id("demo-toolbar")
     .align_items(Alignment::Center)
     .justify(Justify::End)
     .child(style::text(
@@ -313,6 +314,7 @@ impl Component for DemoModalContent {
 
 fn demo_button(label: &str, fill: &'static str, on_click: impl Fn() + Send + Sync + 'static) -> Element {
   Row::new()
+    .class("demo-button")
     .align_items(Alignment::Center)
     .justify(Justify::Center)
     .child(style::text(label, 12.0, FontWeight::Bold, "#ffffff"))
