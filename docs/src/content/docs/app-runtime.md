@@ -171,7 +171,7 @@ tree.get_element_by_id_mut("email").unwrap()
   .set_value("ada@example.com");                           // signal-backed, no on_input
 ```
 
-See [Retained Nodes](/retained_nodes/#ids-and-classes) for the full contract (transiency, duplicate ids, pre-layout behavior).
+See [Retained Nodes](./retained_nodes/#ids-and-classes) for the full contract (transiency, duplicate ids, pre-layout behavior).
 
 ## Perf Overlay
 

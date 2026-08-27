@@ -113,6 +113,8 @@ Text::new("Save")
   })
 ```
 
+Nodes can also carry HTML-like `id`/`class` attributes (`.id("save")`, `.class("row")`). They never affect reconciliation or styling — they exist so integration code and tests can address nodes browser-style: `tree.get_element_by_id("save")` for reads, `tree.get_element_by_id_mut("save")` for direct mutation and typed interaction (`click()`, `as_text_input().set_value(..)`). See [Runtime And Retained Tree](./retained_nodes/#ids-and-classes).
+
 ## DevTools Is Just Another Tree
 
 With the `devtools` feature, `Tree::mount_devtools(&mut app)` creates a secondary tree that renders with the same render engine factory. The main tree periodically syncs a snapshot into the DevTools tree during `pass()`.
