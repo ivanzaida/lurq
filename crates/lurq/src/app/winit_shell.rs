@@ -183,7 +183,23 @@ impl WinitWindow {
   pub fn run(self) {
     let event_loop = EventLoop::new().unwrap();
 
+    // Waker for commands pushed from other threads: without it a queued
+    // command waits for the next OS event while the loop idles in
+    // `ControlFlow::Wait`. The proxy wakes the loop; the resulting
+    // `about_to_wait` drains the queues.
+    let waker: crate::app::window::WindowWaker = {
+      let proxy = std::sync::Mutex::new(event_loop.create_proxy());
+      std::sync::Arc::new(move || {
+        if let Ok(proxy) = proxy.lock() {
+          let _ = proxy.send_event(());
+        }
+      })
+    };
+
     let tree = self.tree;
+    tree.window().set_waker(waker.clone());
+    #[cfg(feature = "mcp")]
+    tree.set_mcp_waker(waker.clone());
     let secondaries = (0..tree.secondary_window_count())
       .filter_map(|index| {
         tree
@@ -206,8 +222,11 @@ impl WinitWindow {
       ),
       secondaries,
       loop_cadence: WinitLoopCadence::new(Instant::now()),
+      window_waker: waker,
     };
     event_loop.run_app(&mut handler).unwrap();
+    #[cfg(feature = "mcp")]
+    handler.main.tree.shutdown_mcp();
   }
 }
 
@@ -1192,6 +1211,9 @@ struct WinitHandler {
   main: ManagedWindow,
   secondaries: Vec<ManagedSecondaryWindow>,
   loop_cadence: WinitLoopCadence,
+  /// Cloned into every tree's `Window` so cross-thread command pushes wake
+  /// the loop.
+  window_waker: crate::app::window::WindowWaker,
 }
 
 struct WinitLoopCadence {
@@ -1331,6 +1353,7 @@ impl WinitHandler {
       let Some(secondary) = self.main.tree.secondary_window(index) else {
         continue;
       };
+      secondary.tree().window().set_waker(self.window_waker.clone());
       let mut managed = ManagedSecondaryWindow::new(index, secondary);
       self.main.tree.ensure_secondary_window_render_engine(index);
       let metadata = self
@@ -1545,6 +1568,14 @@ impl ApplicationHandler for WinitHandler {
     let tick = stage_started_at.elapsed();
     let stage_started_at = Instant::now();
     self.main.apply_window_commands(event_loop);
+    #[cfg(feature = "mcp")]
+    if self.main.tree.drain_mcp_requests(&mut self.app) {
+      // Tool handlers ran against the trees; pick up any redraws or window
+      // commands they produced.
+      self.main.apply_window_commands(event_loop);
+      self.main.check_redraw();
+      self.check_secondary_redraw();
+    }
     let main_commands = stage_started_at.elapsed();
     let stage_started_at = Instant::now();
     self.apply_secondary_window_requests(event_loop);

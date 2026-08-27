@@ -6,10 +6,13 @@ pub mod devtools;
 #[cfg(all(feature = "dx12", target_os = "windows"))]
 pub mod dx12_render;
 pub mod events;
-#[cfg(all(
-  feature = "screenshot",
-  any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))
-))]
+#[cfg(feature = "screenshot")]
+// Without a render backend nothing performs captures; the helpers stay for
+// the mcp feature's capture types.
+#[cfg_attr(
+  not(any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))),
+  allow(dead_code)
+)]
 pub(crate) mod frame_capture;
 pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;
@@ -29,7 +32,7 @@ pub mod window;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
 
-pub use app_state::{App, SecondaryWindowRequest, WindowOpener};
+pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
 pub use runtime::{
   CheckboxHandle, ElementHandle, PassReasons, PassReport, SelectHandle, SliderHandle, TextInputHandle, Tree,
 };

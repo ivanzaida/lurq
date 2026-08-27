@@ -40,15 +40,24 @@ pub(crate) fn capture_rows_to_rgba(
   pixels
 }
 
-/// Apply the window rounded-corner clip and save the captured pixels as a PNG.
+/// Apply the window rounded-corner clip and deliver the captured pixels to
+/// the capture's target: saved as a PNG file, or handed to a bytes callback.
 pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) {
   apply_capture_window_clip(&mut pixels, capture);
 
-  if let Some(parent) = capture
-    .output_path
-    .parent()
-    .filter(|parent| !parent.as_os_str().is_empty())
-  {
+  let output_path = match &capture.target {
+    crate::app::render_engine::RenderCaptureTarget::Path(path) => path,
+    crate::app::render_engine::RenderCaptureTarget::Bytes(callback) => {
+      callback(Ok(crate::app::render_engine::CapturedFrame {
+        width: capture.width,
+        height: capture.height,
+        rgba: pixels,
+      }));
+      return;
+    }
+  };
+
+  if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
     if let Err(error) = std::fs::create_dir_all(parent) {
       tracing::warn!(
         "failed to create screenshot output directory {}: {error}",
@@ -58,19 +67,16 @@ pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) 
     }
   }
   if let Err(error) = image::save_buffer_with_format(
-    &capture.output_path,
+    output_path,
     &pixels,
     capture.width,
     capture.height,
     image::ColorType::Rgba8,
     image::ImageFormat::Png,
   ) {
-    tracing::warn!(
-      "failed to save screenshot to {}: {error}",
-      capture.output_path.display()
-    );
+    tracing::warn!("failed to save screenshot to {}: {error}", output_path.display());
   } else {
-    tracing::info!("Saved screenshot here: {}", capture.output_path.display());
+    tracing::info!("Saved screenshot here: {}", output_path.display());
   }
 }
 
@@ -196,7 +202,10 @@ mod tests {
       height: 50.0,
     };
 
-    assert_eq!(physical_capture_region(region, 2.0, 1000.0, 1000.0), Some((20, 40, 200, 100)));
+    assert_eq!(
+      physical_capture_region(region, 2.0, 1000.0, 1000.0),
+      Some((20, 40, 200, 100))
+    );
 
     let clipped = crate::app::window::ScreenshotRegion {
       x: -10.0,
@@ -204,7 +213,10 @@ mod tests {
       width: 100.0,
       height: 100.0,
     };
-    assert_eq!(physical_capture_region(clipped, 1.0, 1000.0, 1000.0), Some((0, 990, 90, 10)));
+    assert_eq!(
+      physical_capture_region(clipped, 1.0, 1000.0, 1000.0),
+      Some((0, 990, 90, 10))
+    );
   }
 
   #[test]
@@ -243,7 +255,7 @@ mod tests {
       y: 0,
       width: 4,
       height: 4,
-      output_path: std::path::PathBuf::new(),
+      target: crate::app::render_engine::RenderCaptureTarget::Path(std::path::PathBuf::new()),
       window_clip: Some(RenderFrameCaptureWindowClip {
         width: 4.0,
         height: 4.0,

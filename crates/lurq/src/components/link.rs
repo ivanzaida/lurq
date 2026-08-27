@@ -50,12 +50,12 @@ trait LinkDebugAttr {
 }
 
 impl LinkDebugAttr for crate::node::Node {
-  #[cfg(feature = "devtools")]
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
   fn link_debug_attr(self, path: Arc<str>) -> Self {
     self.debug_attr("to", path)
   }
 
-  #[cfg(not(feature = "devtools"))]
+  #[cfg(not(any(feature = "devtools", feature = "mcp")))]
   fn link_debug_attr(self, _path: Arc<str>) -> Self {
     self
   }

@@ -49,6 +49,12 @@ impl PartialEq for RouterHandle {
 }
 
 impl RouterHandle {
+  /// A [`super::Navigator`] for programmatic navigation over this router —
+  /// the same handle components get from `ctx.navigator()`.
+  pub fn navigator(&self) -> super::Navigator {
+    super::Navigator { handle: self.clone() }
+  }
+
   pub(crate) fn new_with_signal(routes: Routes, current_path: Signal<String>) -> Self {
     Self {
       inner: Arc::new(RouterInner {

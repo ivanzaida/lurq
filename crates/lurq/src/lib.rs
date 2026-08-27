@@ -24,6 +24,8 @@ pub mod responsive;
 #[cfg(feature = "svg")]
 pub mod svg;
 
+#[cfg(feature = "mcp")]
+pub mod mcp;
 #[cfg(feature = "resources")]
 pub mod resources;
 #[cfg(feature = "router")]

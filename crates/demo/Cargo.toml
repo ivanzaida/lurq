@@ -7,8 +7,10 @@ publish = false
 [features]
 default = []
 perf_profile = ["lurq/perf_profile"]
+mcp = ["lurq/mcp", "dep:serde_json"]
 
 [dependencies]
 lurq = { path = "../lurq", default-features = false, features = ["winit", "wgpu", "dx12", "image", "svg", "resources", "devtools", "clipboard", "form", "router", "markdown", "persistent_storage"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = { version = "1", optional = true }

@@ -17,7 +17,45 @@ pub struct SecondaryWindowRequest {
   /// `false` creates the OS window without native decorations, for trees that
   /// render their own `WindowChrome`.
   pub(crate) decorations: bool,
+  /// Optional stable machine name (titles aren't unique) surfaced to external
+  /// tooling such as the MCP `lurq_windows` tool.
+  pub(crate) name: Option<String>,
   pub(crate) build: Box<dyn FnOnce(&mut App, &mut crate::app::Tree) + Send>,
+}
+
+/// Options for [`WindowOpener::open_with`] — the builder-style variant of
+/// [`WindowOpener::open`] for windows that need a name or no decorations.
+pub struct WindowOptions {
+  title: String,
+  width: u32,
+  height: u32,
+  decorations: bool,
+  name: Option<String>,
+}
+
+impl WindowOptions {
+  pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
+    Self {
+      title: title.into(),
+      width,
+      height,
+      decorations: true,
+      name: None,
+    }
+  }
+
+  /// Create the OS window without native decorations (for trees that render
+  /// their own `WindowChrome`).
+  pub fn undecorated(mut self) -> Self {
+    self.decorations = false;
+    self
+  }
+
+  /// Stable machine name for external tooling to target this window by.
+  pub fn window_name(mut self, name: impl Into<String>) -> Self {
+    self.name = Some(name.into());
+    self
+  }
 }
 
 /// Cloneable handle for opening secondary windows from anywhere — including
@@ -53,6 +91,22 @@ impl WindowOpener {
     self.request(title, width, height, false, build);
   }
 
+  /// Queue a secondary window described by [`WindowOptions`], for windows
+  /// that need a stable name or no decorations.
+  pub fn open_with<F>(&self, options: WindowOptions, build: F)
+  where
+    F: FnOnce(&mut App, &mut crate::app::Tree) + Send + 'static,
+  {
+    self.queue.lock().unwrap().push(SecondaryWindowRequest {
+      title: options.title,
+      width: options.width,
+      height: options.height,
+      decorations: options.decorations,
+      name: options.name,
+      build: Box::new(build),
+    });
+  }
+
   fn request<F>(&self, title: impl Into<String>, width: u32, height: u32, decorations: bool, build: F)
   where
     F: FnOnce(&mut App, &mut crate::app::Tree) + Send + 'static,
@@ -62,6 +116,7 @@ impl WindowOpener {
       width,
       height,
       decorations,
+      name: None,
       build: Box::new(build),
     });
   }

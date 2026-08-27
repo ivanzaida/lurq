@@ -119,6 +119,17 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Attach a semantic annotation surfaced to tooling — the devtools
+      /// tree and the MCP `lurq_read_tree` — so agents can find and target
+      /// this element, e.g. `.describe("role", "save-button")`. A no-op
+      /// unless a tooling feature (`devtools`/`mcp`) is enabled.
+      pub fn describe(mut self, name: impl Into<std::sync::Arc<str>>, value: impl Into<std::sync::Arc<str>>) -> Self {
+        let name = name.into();
+        let value = value.into();
+        self.update_node(|node| $crate::node::NodeUpdate::describe(node, name, value));
+        self
+      }
+
       /// HTML-like `id` attribute for `Tree::get_element_by_id` lookup.
       /// Lookup only — never affects reconciliation or state preservation.
       pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
