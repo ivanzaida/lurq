@@ -37,4 +37,6 @@ pub use runtime::{
   CheckboxHandle, ElementHandle, PassReasons, PassReport, SelectHandle, SliderHandle, TextInputHandle, Tree,
 };
 pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers};
+#[cfg(feature = "screenshot")]
+pub use window::ScreenshotRegion;
 pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};
