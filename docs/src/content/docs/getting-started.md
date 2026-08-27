@@ -38,6 +38,7 @@ The default demo renderer is `wgpu`. Pass `--renderer wgpu` or `--renderer dx12`
 | `resources` | Async local/remote resource loading. |
 | `devtools` | Component metadata, signal values, profiler data, and the DevTools secondary window. |
 | `screenshot` | GPU capture of the next fully composed window frame to PNG. `devtools` enables it automatically. |
+| `mcp` | Embeddable [MCP server](./mcp/) so AI agents can drive and inspect a running app. Off by default; nothing listens unless the app calls `Tree::enable_mcp`. |
 | `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts. |
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:

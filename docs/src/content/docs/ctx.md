@@ -367,6 +367,50 @@ event.stop_immediate_propagation();
 With the winit shell, `start_drag()` and `start_resize(...)` use native platform APIs where possible. On Windows, the
 shell falls back to non-client mouse messages for custom chrome drag and resize behavior.
 
+### Frame Capture
+
+With the `screenshot` feature (`devtools` enables it automatically), the window handle can capture the next fully
+composed frame to a PNG file:
+
+```rust
+let window = ctx.window();
+
+window.screenshot("frame.png");
+
+window.screenshot_region("toolbar.png", lurq::app::ScreenshotRegion {
+  x: 0.0,
+  y: 0.0,
+  width: 480.0,
+  height: 64.0,
+});
+
+let card_ref = ctx.element_ref(); // attached elsewhere with .ref_element(card_ref.clone())
+window.screenshot_node("card.png", &card_ref);
+```
+
+`screenshot()` captures the whole window. `screenshot_region()` crops to a logical-pixel window region — the same units
+as element `bounds()` — which is converted to physical pixels and clamped to the viewport at capture time; a region with
+no visible area is skipped with a warning. `screenshot_node()` reads an `ElementRef`'s bounds from the last completed
+layout pass and crops to them, so capture after the element has painted.
+
+### Synthetic Input
+
+`inject_input` and `inject_inputs` queue synthetic events that the shell delivers inside its event loop, exactly where
+the matching OS events would have arrived. Positions are physical pixels in the window's coordinate space — the same
+units a captured frame is measured in.
+
+```rust
+use lurq::app::SyntheticInput;
+
+let window = ctx.window();
+
+window.inject_input(SyntheticInput::click(120.0, 48.0));
+window.inject_inputs(SyntheticInput::text("hello"));
+```
+
+`SyntheticInput` provides constructors for mouse moves, presses, releases, clicks, wheel scrolls, key presses, and text
+entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations.
+
 ## Slot Children
 
 Parents pass slot children with `mount_with` or `mount_keyed_with`:

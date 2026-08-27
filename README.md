@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.12.1"
+lurq = "0.18"
 ```
 
 Enable the runtime/rendering features you need:
 
 ```toml
 [dependencies]
-lurq = { version = "0.12.1", features = ["winit", "wgpu"] }
+lurq = { version = "0.18", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:
@@ -28,6 +28,7 @@ Useful optional features:
 | `resources` | Resource loader and resource-backed images/SVGs |
 | `clipboard` | Clipboard shortcuts for text inputs |
 | `devtools` | In-app DevTools window |
+| `mcp` | Embeddable MCP server for AI agents to drive and inspect a running app |
 | `screenshot` | Capture the next fully composed window frame to PNG; enabled automatically by `devtools` |
 
 ## Example
