@@ -30,6 +30,8 @@ pub mod window;
 pub mod winit_shell;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener};
-pub use runtime::{PassReasons, PassReport, Tree};
+pub use runtime::{
+  CheckboxHandle, ElementHandle, PassReasons, PassReport, SelectHandle, SliderHandle, TextInputHandle, Tree,
+};
 pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers};
 pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};

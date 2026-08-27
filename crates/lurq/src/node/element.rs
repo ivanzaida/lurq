@@ -45,6 +45,26 @@ impl Element {
     self.node.set_component_key(Some(&key));
     self
   }
+
+  /// HTML-like `id` attribute for `Tree::get_element_by_id` lookup.
+  /// Lookup only — never affects reconciliation or state preservation.
+  pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
+    crate::node::NodeUpdate::id(&mut self.node, id);
+    self
+  }
+
+  /// Appends an HTML-like class for `Tree::get_elements_by_class_name`
+  /// lookup. Lookup only, like [`Element::id`].
+  pub fn class(mut self, class: impl Into<std::sync::Arc<str>>) -> Self {
+    crate::node::NodeUpdate::class(&mut self.node, class);
+    self
+  }
+
+  /// Appends several classes at once; see [`Element::class`].
+  pub fn classes<C: Into<std::sync::Arc<str>>>(mut self, classes: impl IntoIterator<Item = C>) -> Self {
+    crate::node::NodeUpdate::classes(&mut self.node, classes);
+    self
+  }
 }
 
 impl Default for Element {
@@ -64,6 +84,20 @@ impl<'a> ElementRef<'a> {
 
   pub fn tag_name(&self) -> &'a str {
     self.node.tag_name()
+  }
+
+  /// The author-supplied HTML-like `id` attribute, if any.
+  pub fn id(&self) -> Option<&'a str> {
+    self.node.element_id.as_deref()
+  }
+
+  /// The author-supplied HTML-like classes, in insertion order.
+  pub fn classes(&self) -> impl Iterator<Item = &'a str> + use<'a> {
+    self.node.class_list().iter().map(|class| class.as_ref())
+  }
+
+  pub fn has_class(&self, class: &str) -> bool {
+    self.node.has_class(class)
   }
 
   #[allow(dead_code)]

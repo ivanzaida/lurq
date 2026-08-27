@@ -33,7 +33,7 @@ The current DevTools UI has three primary tabs:
 
 | Tab | Shows |
 | --- | --- |
-| Components | Retained component/element tree, selected node details, props, signals, contexts, effects, shape/style rows, and optional overlay. |
+| Components | Retained component/element tree, selected node details, props, signals, contexts, effects, shape/style rows, and optional overlay. Author-supplied `id`/`class` attributes appear first in each tree row and in the Attributes section, like browser devtools. |
 | Profiler | Captured render commits, frame timings, render causes, signal changes, memo recomputes, layout status, and perf overlay stats. |
 | Signals | Signal list, value, owner component, subscriber count, dependency graph, and change history. |
 
