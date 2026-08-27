@@ -4559,7 +4559,13 @@ impl Tree {
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
     let scroll_delta_can_be_consumed = scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y);
-    if !scroll_delta_can_be_consumed && !scroll_handlers_present_for_phase(&hits, evt.phase) {
+    // When the delta targets a scroll container that cannot move (edge-clamped
+    // or non-overflowing), suppress scroll events entirely; handlers on hits
+    // without a matching scroll container still receive wheel events.
+    if !scroll_delta_can_be_consumed
+      && (scroll_delta_targets_scroll_container(&hits, evt.delta_x, evt.delta_y)
+        || !scroll_handlers_present_for_phase(&hits, evt.phase))
+    {
       return;
     }
 
@@ -6529,6 +6535,16 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
   }
 
   false
+}
+
+fn scroll_delta_targets_scroll_container(hits: &[(&Node, HitRect)], delta_x: f32, delta_y: f32) -> bool {
+  hits.iter().any(|(node, _)| {
+    let LayoutKind::ScrollModifier { direction, .. } = node.layout_kind() else {
+      return false;
+    };
+    (delta_x != 0.0 && scroll_direction_has_axis(*direction, ScrollAxis::Horizontal))
+      || (delta_y != 0.0 && scroll_direction_has_axis(*direction, ScrollAxis::Vertical))
+  })
 }
 
 fn scroll_handlers_present_for_phase(hits: &[(&Node, HitRect)], phase: ScrollPhase) -> bool {
