@@ -57,8 +57,6 @@ pub enum Scope {
   Interact,
   /// Router navigation.
   Navigate,
-  /// Reactive state introspection (signals/memos/contexts).
-  State,
   /// App-defined scope for custom tools.
   Custom(Cow<'static, str>),
 }

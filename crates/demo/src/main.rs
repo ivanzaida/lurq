@@ -768,7 +768,7 @@ fn main() {
     let handle = tree.enable_mcp(
       McpConfig::new()
         .app_name("lurq-demo")
-        .scopes([Scope::Observe, Scope::Interact, Scope::Navigate, Scope::State])
+        .scopes([Scope::Observe, Scope::Interact, Scope::Navigate])
         .scope(Scope::custom("demo"))
         .tool(
           McpTool::new("demo_route")

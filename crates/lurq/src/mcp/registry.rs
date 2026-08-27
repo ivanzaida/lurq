@@ -17,7 +17,6 @@ pub(crate) enum BuiltinTool {
   Interact,
   SetValue,
   Resize,
-  ReadState,
   Logs,
   Navigate,
 }
@@ -220,20 +219,6 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "required": ["width", "height"]
       })),
       kind: ToolKind::Builtin(BuiltinTool::Resize),
-    },
-    RegisteredTool {
-      name: "lurq_read_state".into(),
-      description: "Read a component's reactive debug state (signals, memos, contexts) by ref.".into(),
-      scope: Scope::State,
-      read_only: true,
-      input_schema: schema(json!({
-        "type": "object",
-        "properties": {
-          "ref": { "type": "string", "description": "Element handle from lurq_read_tree" }
-        },
-        "required": ["ref"]
-      })),
-      kind: ToolKind::Builtin(BuiltinTool::ReadState),
     },
     RegisteredTool {
       name: "lurq_logs".into(),

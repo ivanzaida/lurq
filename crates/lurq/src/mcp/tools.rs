@@ -74,9 +74,6 @@ fn execute_builtin(
     BuiltinTool::Resize => {
       let _ = reply.send(resize_tool(tree, state, &args));
     }
-    BuiltinTool::ReadState => {
-      let _ = reply.send(read_state_tool(tree, state, &args));
-    }
     BuiltinTool::Navigate => {
       let _ = reply.send(navigate_tool(state, &args));
     }
@@ -297,13 +294,7 @@ fn snapshot_node(
   let attrs = node.debug_attrs();
   let text = node.text_content().map(|text| text.to_owned());
   let value = node_value_summary(node);
-  // Component nodes with reactive debug state get refs too, so
-  // lurq_read_state has something to target.
-  #[cfg(feature = "devtools")]
-  let stateful = !node.component_signals_debug().is_empty() || !node.component_memos_debug().is_empty();
-  #[cfg(not(feature = "devtools"))]
-  let stateful = false;
-  let interesting = interactive || stateful || !attrs.is_empty() || text.is_some() || value.is_some();
+  let interesting = interactive || !attrs.is_empty() || text.is_some() || value.is_some();
   if !ctx.all && !interesting && child_lines.is_empty() {
     return Vec::new();
   }
@@ -319,7 +310,7 @@ fn snapshot_node(
 
   let mut line = format!("{}- {}", "  ".repeat(depth), node.tag_name());
 
-  if interactive || stateful || !attrs.is_empty() {
+  if interactive || !attrs.is_empty() {
     let ref_id = (ctx.mint)();
     line.push_str(&format!(" [{ref_id}]"));
     ctx.records.push(RefRecord {
@@ -922,7 +913,7 @@ fn scroll_into_view(tree: &Tree, node_id: NodeId, ref_id: &str) -> Result<(), St
 }
 
 // ---------------------------------------------------------------------------
-// set_value / read_state / resize / navigate
+// set_value / resize / navigate
 
 fn set_value_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
   let ref_id = args
@@ -1019,68 +1010,6 @@ fn resize_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> M
     "ok": true, "window": window, "width": width, "height": height,
     "note": "resize is applied by the OS asynchronously; lurq_wait then lurq_windows to confirm"
   })))
-}
-
-#[cfg(feature = "devtools")]
-fn read_state_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
-  let ref_id = args
-    .get("ref")
-    .and_then(|value| value.as_str())
-    .ok_or("`ref` is required")?;
-  let resolved = resolve_ref(state, ref_id)?;
-  let target = window_tree_mut(tree, &resolved.window, state.include_devtools)?;
-  let node = find_node(target, resolved.node_id)
-    .ok_or_else(|| format!("ref {ref_id:?} no longer resolves to a live element; call lurq_read_tree again"))?;
-
-  let signals: Vec<_> = node
-    .component_signals_debug()
-    .iter()
-    .map(|signal| {
-      serde_json::json!({
-        "id": signal.id,
-        "type": signal.type_name.to_string(),
-        "value": signal.formatted_value(),
-        "subscribers": signal.subscriber_count(),
-      })
-    })
-    .collect();
-  let memos: Vec<_> = node
-    .component_memos_debug()
-    .iter()
-    .map(|memo| {
-      serde_json::json!({
-        "id": memo.id,
-        "type": memo.type_name.to_string(),
-        "value": memo.formatted_value(),
-        "subscribers": memo.subscriber_count(),
-      })
-    })
-    .collect();
-  let contexts: Vec<_> = node
-    .component_contexts_debug()
-    .iter()
-    .map(|context| {
-      serde_json::json!({
-        "kind": format!("{:?}", context.kind),
-        "type": context.type_name.to_string(),
-      })
-    })
-    .collect();
-  Ok(McpToolOutput::Json(serde_json::json!({
-    "ref": ref_id,
-    "tag": node.tag_name(),
-    "signals": signals,
-    "memos": memos,
-    "contexts": contexts,
-  })))
-}
-
-#[cfg(not(feature = "devtools"))]
-fn read_state_tool(_tree: &mut Tree, _state: &McpState, _args: &serde_json::Value) -> McpToolResult {
-  Err(
-    "lurq_read_state needs the app built with lurq's `devtools` feature (it reuses the devtools debug collection)"
-      .into(),
-  )
 }
 
 #[cfg(feature = "router")]
