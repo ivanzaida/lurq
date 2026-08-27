@@ -28,6 +28,7 @@ export default defineConfig({
                         'modals',
                         'app-runtime',
                         'devtools',
+                        'mcp',
                         'resources-media',
                         'testing',
                     ],
