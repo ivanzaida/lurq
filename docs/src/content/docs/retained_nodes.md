@@ -149,6 +149,78 @@ handle.set_relative_bounds(12.0, 24.0, 300.0, 180.0);
 
 Use this sparingly. Declarative component state should remain the default way to move UI.
 
+### Ids and Classes
+
+Every builder accepts HTML-like `id` and `class` attributes. They exist purely for lookup — they never affect reconciliation, state preservation, or styling (there is no selector engine).
+
+```rust
+Column::new()
+  .child(Text::new("Title").id("headline"))
+  .child(Rect::new(24.0, 24.0).class("icon").classes(["muted", "small"]))
+```
+
+Browser-style lookup on `Tree`:
+
+```rust
+// First match in tree order (duplicate ids warn in debug builds).
+let headline = tree.get_element_by_id("headline");
+
+// All matches in tree order.
+let icons = tree.get_elements_by_class_name("icon");
+
+// Accessors also work inside find_element predicates.
+let found = tree.find_element(|element| element.has_class("muted"));
+```
+
+Unlike `find_element`, the by-id/by-class lookups walk the live tree directly and work before the first layout pass. Pending component re-renders are flushed first, so results reflect the latest state.
+
+### Mutation Handles
+
+`get_element_by_id_mut` returns a short-lived `ElementHandle` for direct mutation:
+
+```rust
+let mut card = tree.get_element_by_id_mut("card").unwrap();
+card.add_class("selected");
+card.set_background("#ef4444");
+card.set_opacity(0.5);
+let center = card.bounds().unwrap().center();
+```
+
+Mutations write directly into the live node. In trees with a static root they are permanent; in component trees they last until the owning component re-renders, which rebuilds the node from its declarative description. Durable state belongs in signals.
+
+Handles are meant to be re-resolved per lookup — nodes are replaced wholesale on re-render, so storing a handle across passes is not supported (and the borrow checker enforces the short lifetime).
+
+### Typed Interaction
+
+DOM-downcast style: widgets expose their signal-backed operations through typed sub-handles. Because these write the same signals the app holds, they *do* survive re-renders.
+
+```rust
+// Text inputs: DOM `el.value = x` semantics — writes the signal and clamps
+// the caret, but does not fire on_input handlers.
+tree.get_element_by_id_mut("email").unwrap()
+  .as_text_input().unwrap()
+  .set_value("ada@example.com");
+
+// Checkboxes, sliders, selects.
+tree.get_element_by_id_mut("agree").unwrap().as_checkbox().unwrap().toggle();
+tree.get_element_by_id_mut("volume").unwrap().as_slider().unwrap().set_from_ratio(0.5);
+tree.get_element_by_id_mut("country").unwrap().as_select().unwrap().commit(2);
+```
+
+Universal actions live on the handle itself:
+
+```rust
+let mut save = tree.get_element_by_id_mut("save").unwrap();
+// DOM el.click(): fires the node's own on_click handlers at its bounds
+// center without hit-testing (works when occluded), focuses focusable
+// nodes, and submits for submit buttons.
+save.click();
+save.focus();
+save.blur();
+```
+
+For pointer-fidelity interaction (hit testing, hover, capture) keep using `tree.mouse_down` / `tree.mouse_up`, composing coordinates from `bounds().center()`.
+
 ## Input Dispatch
 
 The shell forwards input into `Tree`:

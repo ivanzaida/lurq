@@ -266,6 +266,9 @@ pub(crate) trait NodeUpdate {
   fn describe(&mut self, name: Arc<str>, value: Arc<str>);
   fn child(&mut self, child: Node);
   fn with_children(&mut self, children: impl IntoIterator<Item = Node>);
+  fn id(&mut self, id: impl Into<Arc<str>>);
+  fn class(&mut self, class: impl Into<Arc<str>>);
+  fn classes(&mut self, classes: impl IntoIterator<Item: Into<Arc<str>>>);
   fn spacing(&mut self, spacing: impl Into<SpacingValue>);
   fn align_items(&mut self, align: Alignment);
   fn justify(&mut self, justify: crate::layout::layout_kind::Justify);
@@ -551,6 +554,11 @@ pub(crate) struct Node {
   pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
   pub(crate) component_key: Option<Arc<str>>,
+  /// Author-supplied HTML-like `id` attribute. Lookup only — never
+  /// participates in reconciliation or state preservation.
+  pub(crate) element_id: Option<Arc<str>>,
+  /// Author-supplied HTML-like class list. Lookup only, like `element_id`.
+  pub(crate) classes: Vec<Arc<str>>,
   pub(crate) overlay_declaration: Option<Box<crate::app::ctx::OverlaySpec>>,
   pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
   pub(crate) layout_neutral: bool,
@@ -637,6 +645,20 @@ impl NodeUpdate for Node {
 
   fn with_children(&mut self, children: impl IntoIterator<Item = Node>) {
     self.children.extend(children);
+  }
+
+  fn id(&mut self, id: impl Into<Arc<str>>) {
+    self.element_id = Some(id.into());
+  }
+
+  fn class(&mut self, class: impl Into<Arc<str>>) {
+    self.push_class(class.into());
+  }
+
+  fn classes(&mut self, classes: impl IntoIterator<Item: Into<Arc<str>>>) {
+    for class in classes {
+      self.push_class(class.into());
+    }
   }
 
   fn spacing(&mut self, spacing: impl Into<SpacingValue>) {
@@ -1556,6 +1578,8 @@ impl Node {
       tag_name: Arc::from("Node"),
       component_slot_id: None,
       component_key: None,
+      element_id: None,
+      classes: Vec::new(),
       overlay_declaration: None,
       modal_declaration: None,
       layout_neutral: false,
@@ -1634,6 +1658,32 @@ impl Node {
 
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.component_key = Some(key.into());
+    self
+  }
+
+  /// HTML-like `id` attribute for [`Tree::get_element_by_id`] lookup.
+  /// Lookup only — never affects reconciliation or state preservation.
+  ///
+  /// [`Tree::get_element_by_id`]: crate::app::Tree::get_element_by_id
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.element_id = Some(id.into());
+    self
+  }
+
+  /// Appends an HTML-like class for [`Tree::get_elements_by_class_name`]
+  /// lookup. Lookup only, like [`Node::id`].
+  ///
+  /// [`Tree::get_elements_by_class_name`]: crate::app::Tree::get_elements_by_class_name
+  pub fn class(mut self, class: impl Into<Arc<str>>) -> Self {
+    self.push_class(class.into());
+    self
+  }
+
+  /// Appends several classes at once; see [`Node::class`].
+  pub fn classes(mut self, classes: impl IntoIterator<Item: Into<Arc<str>>>) -> Self {
+    for class in classes {
+      self.push_class(class.into());
+    }
     self
   }
 
@@ -3002,6 +3052,29 @@ impl Node {
     self.component_key = key.map(Arc::from);
   }
 
+  pub fn element_id(&self) -> Option<&str> {
+    self.element_id.as_deref()
+  }
+
+  pub(crate) fn class_list(&self) -> &[Arc<str>] {
+    &self.classes
+  }
+
+  pub fn has_class(&self, class: &str) -> bool {
+    self.classes.iter().any(|existing| existing.as_ref() == class)
+  }
+
+  /// Appends a class, deduplicating like the DOM's `classList.add`.
+  pub(crate) fn push_class(&mut self, class: Arc<str>) {
+    if !self.has_class(&class) {
+      self.classes.push(class);
+    }
+  }
+
+  pub(crate) fn remove_class(&mut self, class: &str) {
+    self.classes.retain(|existing| existing.as_ref() != class);
+  }
+
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_props_debug(&mut self, props: Option<DevtoolsInspectableDebug>) {
     self.component_props_debug = props;
@@ -3748,6 +3821,8 @@ impl Node {
       tag_name: self.tag_name.clone(),
       component_slot_id: self.component_slot_id,
       component_key: self.component_key.clone(),
+      element_id: self.element_id.clone(),
+      classes: self.classes.clone(),
       overlay_declaration: self
         .overlay_declaration
         .as_ref()
@@ -3858,6 +3933,7 @@ impl Node {
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
       + self.tag_name.len()
+      + self.estimated_id_class_heap_bytes()
       + self.estimated_debug_memory_bytes()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()
@@ -3913,8 +3989,15 @@ impl Node {
     0
   }
 
+  fn estimated_id_class_heap_bytes(&self) -> usize {
+    self.element_id.as_ref().map(|id| id.len()).unwrap_or(0)
+      + self.classes.iter().map(|class| class.len()).sum::<usize>()
+      + self.classes.capacity() * std::mem::size_of::<Arc<str>>()
+  }
+
   fn estimated_child_heap_bytes(&self) -> usize {
     self.tag_name.len()
+      + self.estimated_id_class_heap_bytes()
       + self.estimated_debug_memory_bytes()
       + self.text_content.as_ref().map(|text| text.capacity()).unwrap_or(0)
       + self.children.capacity() * std::mem::size_of::<Node>()

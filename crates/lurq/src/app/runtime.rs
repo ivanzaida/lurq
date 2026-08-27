@@ -50,12 +50,13 @@ use crate::{
     text_style::{FontWeight, TextStyle, VerticalAlign},
   },
   node::{
-    Element, ElementRef, EventHandler, HitTestBehavior, Node, SyntheticNodeRole, TextTransformMode, VoidEventHandler,
+    Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SyntheticNodeRole, TextTransformMode,
+    VoidEventHandler,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders, ThemedBorderRadius},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
-    node_kind::{NodeKind, SliderState, TextInputOverflow, TextInputState, TextState},
+    node_kind::{CheckboxState, NodeKind, SelectState, SliderState, TextInputOverflow, TextInputState, TextState},
     radius_value::RadiusValue,
     transform::Transform2D,
   },
@@ -1745,6 +1746,54 @@ impl Tree {
 
   pub fn find_element_mut(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<OwnedElementRefMut> {
     self.find_element(predicate).map(|element_ref| element_ref.mutable())
+  }
+
+  /// Browser-style lookup: the first node in tree order whose author-supplied
+  /// `id` (set via the builder `.id("...")`) matches. Pending component
+  /// re-renders are flushed first so the result reflects the latest state.
+  ///
+  /// Unlike [`Tree::find_element`], this walks the live tree directly and so
+  /// works before the first layout pass; anything that needs geometry
+  /// (`bounds`, `click`) does still require a pass.
+  ///
+  /// Duplicate ids resolve to the first match, like the DOM; debug builds log
+  /// a warning when more than one node carries the id.
+  pub fn get_element_by_id(&mut self, id: &str) -> Option<ElementRef<'_>> {
+    self.refresh_dirty_subtrees();
+    let root = self.root.as_ref()?;
+    let found = find_by_element_id(root, id)?;
+    #[cfg(debug_assertions)]
+    {
+      let count = count_element_id_matches(root, id);
+      if count > 1 {
+        tracing::warn!(
+          target: "lurq::lookup",
+          "get_element_by_id({id:?}) matched {count} nodes; returning the first in tree order"
+        );
+      }
+    }
+    Some(ElementRef::new(found))
+  }
+
+  /// All nodes carrying the given class (set via the builder `.class("...")`),
+  /// in tree order. Pending component re-renders are flushed first.
+  pub fn get_elements_by_class_name(&mut self, class: &str) -> Vec<ElementRef<'_>> {
+    self.refresh_dirty_subtrees();
+    let mut found = Vec::new();
+    if let Some(root) = self.root.as_ref() {
+      collect_by_class(root, class, &mut found);
+    }
+    found
+  }
+
+  /// Like [`Tree::get_element_by_id`], but returns a short-lived
+  /// [`ElementHandle`] for mutation and typed interaction. Re-resolve per
+  /// lookup — handles are not meant to be stored (re-renders replace nodes
+  /// wholesale, and the borrow checker enforces the short lifetime).
+  pub fn get_element_by_id_mut(&mut self, id: &str) -> Option<ElementHandle<'_>> {
+    self.refresh_dirty_subtrees();
+    let node_id = find_by_element_id(self.root.as_ref()?, id)?.node_id();
+    Some(ElementHandle { tree: self, node_id })
   }
 
   pub fn id_gen(&self) -> &IdGenerator {
@@ -6901,6 +6950,491 @@ fn find_element_recursive(
   }
 
   None
+}
+
+fn find_by_element_id<'a>(node: &'a Node, id: &str) -> Option<&'a Node> {
+  if node.element_id() == Some(id) {
+    return Some(node);
+  }
+  node.children().iter().find_map(|child| find_by_element_id(child, id))
+}
+
+#[cfg(debug_assertions)]
+fn count_element_id_matches(node: &Node, id: &str) -> usize {
+  (node.element_id() == Some(id)) as usize
+    + node
+      .children()
+      .iter()
+      .map(|child| count_element_id_matches(child, id))
+      .sum::<usize>()
+}
+
+fn collect_by_class<'a>(node: &'a Node, class: &str, found: &mut Vec<ElementRef<'a>>) {
+  if node.has_class(class) {
+    found.push(ElementRef::new(node));
+  }
+  for child in node.children() {
+    collect_by_class(child, class, found);
+  }
+}
+
+fn find_node_by_id_mut(node: &mut Node, id: NodeId) -> Option<&mut Node> {
+  if node.node_id() == id {
+    return Some(node);
+  }
+  node
+    .children
+    .iter_mut()
+    .find_map(|child| find_node_by_id_mut(child, id))
+}
+
+/// Short-lived mutation handle for a node found via
+/// [`Tree::get_element_by_id_mut`].
+///
+/// Writes go directly into the live node (browser style): in trees with a
+/// static root they are permanent, in component trees they last until the
+/// owning component re-renders — durable state belongs in signals. Value
+/// operations on the typed sub-handles ([`ElementHandle::as_text_input`]
+/// etc.) write signal-backed widget state and therefore DO survive
+/// re-renders.
+pub struct ElementHandle<'t> {
+  tree: &'t mut Tree,
+  node_id: NodeId,
+}
+
+impl<'t> ElementHandle<'t> {
+  fn node(&self) -> Option<&Node> {
+    self
+      .tree
+      .root
+      .as_ref()
+      .and_then(|root| find_node_by_id(root, self.node_id))
+  }
+
+  fn node_mut(&mut self) -> Option<&mut Node> {
+    self
+      .tree
+      .root
+      .as_mut()
+      .and_then(|root| find_node_by_id_mut(root, self.node_id))
+  }
+
+  fn invalidate_render(&mut self) {
+    self.tree.needs_redraw = true;
+    self.tree.cached_render_list = None;
+  }
+
+  pub fn node_id(&self) -> NodeId {
+    self.node_id
+  }
+
+  pub fn id(&self) -> Option<&str> {
+    self.node()?.element_id()
+  }
+
+  pub fn tag_name(&self) -> Option<&str> {
+    self.node().map(Node::tag_name)
+  }
+
+  pub fn text_content(&self) -> Option<&str> {
+    self.node()?.text_content()
+  }
+
+  pub fn has_class(&self, class: &str) -> bool {
+    self.node().is_some_and(|node| node.has_class(class))
+  }
+
+  /// Appends a class, deduplicating like the DOM's `classList.add`.
+  /// Classes only affect lookup — there is no selector-based styling.
+  pub fn add_class(&mut self, class: impl Into<Arc<str>>) {
+    if let Some(node) = self.node_mut() {
+      node.push_class(class.into());
+    }
+  }
+
+  pub fn remove_class(&mut self, class: &str) {
+    if let Some(node) = self.node_mut() {
+      node.remove_class(class);
+    }
+  }
+
+  /// DOM `classList.toggle`: returns whether the class is present afterwards.
+  pub fn toggle_class(&mut self, class: &str) -> bool {
+    let Some(node) = self.node_mut() else {
+      return false;
+    };
+    if node.has_class(class) {
+      node.remove_class(class);
+      false
+    } else {
+      node.push_class(Arc::from(class));
+      true
+    }
+  }
+
+  /// The node's absolute bounds from the most recent layout pass, or `None`
+  /// before the first pass.
+  pub fn bounds(&self) -> Option<ElementRect> {
+    let root = self.tree.root.as_ref()?;
+    let layout = self.tree.last_layout.as_ref()?;
+    let path = find_path_by_id(root, self.node_id)?;
+    let mut result: &LayoutResult = layout;
+    let (mut abs_x, mut abs_y, mut rel_x, mut rel_y) = (0.0, 0.0, 0.0, 0.0);
+    for &index in &path {
+      let child = result.children.get(index)?;
+      rel_x = child.offset.x;
+      rel_y = child.offset.y;
+      abs_x += rel_x;
+      abs_y += rel_y;
+      result = child.result.as_ref();
+    }
+    Some(ElementRect {
+      x: abs_x,
+      y: abs_y,
+      relative_x: rel_x,
+      relative_y: rel_y,
+      width: result.size.width,
+      height: result.size.height,
+    })
+  }
+
+  pub fn set_background(&mut self, color: impl Into<crate::node::BackgroundColor>) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::background(node, color);
+    self.invalidate_render();
+  }
+
+  pub fn set_background_gradient(&mut self, gradient: impl Into<crate::node::Gradient>) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::background_gradient(node, gradient);
+    self.invalidate_render();
+  }
+
+  pub fn set_corner_radius(&mut self, radius: impl Into<crate::node::RadiusValue>) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::corner_radius(node, radius);
+    self.invalidate_render();
+  }
+
+  pub fn set_border(&mut self, border: crate::node::border::Border) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::border(node, border);
+    self.invalidate_render();
+  }
+
+  pub fn set_opacity(&mut self, opacity: f32) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::opacity(node, opacity);
+    self.invalidate_render();
+  }
+
+  pub fn set_text_color(&mut self, color: impl Into<crate::node::TextColor>) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::text_color(node, color);
+    self.invalidate_render();
+  }
+
+  /// Replaces the node's text content. On `TextInput` nodes use
+  /// [`ElementHandle::as_text_input`] + `set_value` instead — the input's
+  /// signal-backed value overwrites raw text content on the next pass.
+  pub fn set_text_content(&mut self, text: impl Into<String>) {
+    let Some(node) = self.node_mut() else { return };
+    node.text_content.set(Some(text.into()));
+    // The pass' fast path only scans persistent dirty flags, so a live
+    // mutation must leave one behind (builder-time invalidation clears them).
+    node.layout_cache.mark_local_dirty();
+    self.invalidate_render();
+  }
+
+  pub fn set_size(
+    &mut self,
+    width: impl Into<crate::node::dimension::Dimension>,
+    height: impl Into<crate::node::dimension::Dimension>,
+  ) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::size(node, width, height);
+    // See `set_text_content` — the fast path needs a persistent dirty flag.
+    node.layout_cache.mark_local_dirty();
+    self.invalidate_render();
+  }
+
+  /// DOM `el.click()`: invokes this node's own `on_click` handlers with a
+  /// synthesized left-button [`MouseEvent`] at the node's bounds center
+  /// (zeros before the first layout pass). No hit-testing — this works even
+  /// when the node is occluded. Focusable nodes are focused first and submit
+  /// buttons submit their form, like a real browser click. For
+  /// pointer-fidelity clicks use [`Tree::mouse_down`] / [`Tree::mouse_up`].
+  pub fn click(&mut self) {
+    let center = self.bounds().map(|bounds| bounds.center()).unwrap_or((0.0, 0.0));
+    let Some(node) = self.node() else { return };
+    let focusable = node.is_focusable()
+      || node.button_kind_value().is_some()
+      || matches!(
+        node.node_kind(),
+        NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. }
+      );
+    let button_kind = node.button_kind_value();
+    let handlers = node.events.on_click.clone();
+    if focusable {
+      self.tree.focus_node(FocusTarget {
+        input_id: self.node_id,
+        event_id: self.node_id,
+      });
+    }
+    let event = MouseEvent {
+      x: center.0,
+      y: center.1,
+      button: MouseButton::Left,
+      kind: MouseEventKind::Click,
+      shift: false,
+      ctrl: false,
+      alt: false,
+      target_id: self.node_id,
+      control: EventControl::new(),
+    };
+    for handler in handlers {
+      handler.call(&event);
+    }
+    #[cfg(feature = "form")]
+    if button_kind == Some(ButtonKind::Submit) {
+      self.tree.submit_nearest_form_for_node_id(self.node_id);
+    }
+    #[cfg(not(feature = "form"))]
+    let _ = button_kind;
+    self.invalidate_render();
+  }
+
+  /// Focuses this node through the tree's focus machinery (fires `on_focus`
+  /// / `on_blur` handlers declared on the node itself).
+  pub fn focus(&mut self) {
+    self.tree.focus_node(FocusTarget {
+      input_id: self.node_id,
+      event_id: self.node_id,
+    });
+    self.invalidate_render();
+  }
+
+  /// Removes focus if this node currently holds it; no-op otherwise.
+  pub fn blur(&mut self) {
+    if self.tree.focused_node == Some(self.node_id) {
+      self.tree.blur_focus();
+    }
+  }
+
+  /// DOM-downcast style: `Some` when the node is a `TextInput`.
+  pub fn as_text_input(self) -> Option<TextInputHandle<'t>> {
+    matches!(self.node()?.node_kind(), NodeKind::TextInput { .. }).then_some(TextInputHandle { inner: self })
+  }
+
+  /// DOM-downcast style: `Some` when the node is a `Checkbox`.
+  pub fn as_checkbox(self) -> Option<CheckboxHandle<'t>> {
+    matches!(self.node()?.node_kind(), NodeKind::Checkbox { .. }).then_some(CheckboxHandle { inner: self })
+  }
+
+  /// DOM-downcast style: `Some` when the node is a `Slider`.
+  pub fn as_slider(self) -> Option<SliderHandle<'t>> {
+    matches!(self.node()?.node_kind(), NodeKind::Slider { .. }).then_some(SliderHandle { inner: self })
+  }
+
+  /// DOM-downcast style: `Some` when the node is a `Select`.
+  pub fn as_select(self) -> Option<SelectHandle<'t>> {
+    matches!(self.node()?.node_kind(), NodeKind::Select { .. }).then_some(SelectHandle { inner: self })
+  }
+}
+
+/// Typed interaction handle for `TextInput` nodes; see
+/// [`ElementHandle::as_text_input`]. Value writes are signal-backed and
+/// survive re-renders.
+pub struct TextInputHandle<'t> {
+  inner: ElementHandle<'t>,
+}
+
+impl TextInputHandle<'_> {
+  fn state(&self) -> Option<&TextInputState> {
+    match self.inner.node()?.node_kind() {
+      NodeKind::TextInput { state, .. } => Some(state),
+      _ => None,
+    }
+  }
+
+  pub fn value(&self) -> String {
+    self.state().map(TextInputState::value).unwrap_or_default()
+  }
+
+  /// DOM `el.value = x` semantics: writes the backing signal and clamps
+  /// caret/selection, but does NOT fire `on_input` handlers.
+  pub fn set_value(&mut self, value: impl Into<String>) {
+    if let Some(state) = self.state() {
+      state.set_value(value);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn select_all(&mut self) {
+    if let Some(state) = self.state() {
+      state.select_all();
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn placeholder(&self) -> Option<String> {
+    self.state().and_then(TextInputState::placeholder)
+  }
+
+  pub fn set_placeholder(&mut self, placeholder: impl Into<String>) {
+    if let Some(state) = self.state() {
+      state.set_placeholder(placeholder);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn focus(&mut self) {
+    self.inner.focus();
+  }
+}
+
+/// Typed interaction handle for `Checkbox` nodes; see
+/// [`ElementHandle::as_checkbox`].
+pub struct CheckboxHandle<'t> {
+  inner: ElementHandle<'t>,
+}
+
+impl CheckboxHandle<'_> {
+  fn state(&self) -> Option<&CheckboxState> {
+    match self.inner.node()?.node_kind() {
+      NodeKind::Checkbox { state } => Some(state),
+      _ => None,
+    }
+  }
+
+  pub fn is_checked(&self) -> bool {
+    self.state().is_some_and(CheckboxState::is_checked)
+  }
+
+  pub fn toggle(&mut self) {
+    if let Some(state) = self.state() {
+      state.toggle();
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn set_checked(&mut self, checked: bool) {
+    if let Some(state) = self.state() {
+      state.set_checked(checked);
+    }
+    self.inner.invalidate_render();
+  }
+}
+
+/// Typed interaction handle for `Slider` nodes; see
+/// [`ElementHandle::as_slider`].
+pub struct SliderHandle<'t> {
+  inner: ElementHandle<'t>,
+}
+
+impl SliderHandle<'_> {
+  fn state(&self) -> Option<&SliderState> {
+    match self.inner.node()?.node_kind() {
+      NodeKind::Slider { state } => Some(state),
+      _ => None,
+    }
+  }
+
+  pub fn value(&self) -> f32 {
+    self.state().map(SliderState::value_f32).unwrap_or_default()
+  }
+
+  /// Sets the value from a 0..=1 ratio along the track, snapping to the
+  /// slider's step.
+  pub fn set_from_ratio(&mut self, ratio: f32) {
+    if let Some(state) = self.state() {
+      state.set_from_ratio(ratio);
+    }
+    self.inner.invalidate_render();
+  }
+
+  /// Steps the value by `delta` slider steps (keyboard-arrow semantics).
+  pub fn nudge(&mut self, delta: i32) {
+    if let Some(state) = self.state() {
+      state.nudge(delta);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn set_range(&mut self, min: i32, max: i32) {
+    if let Some(state) = self.state() {
+      state.set_range(min, max);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn set_range_f32(&mut self, min: f32, max: f32) {
+    if let Some(state) = self.state() {
+      state.set_range_f32(min, max);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn set_step(&mut self, step: f32) {
+    if let Some(state) = self.state() {
+      state.set_step(step);
+    }
+    self.inner.invalidate_render();
+  }
+}
+
+/// Typed interaction handle for `Select` nodes; see
+/// [`ElementHandle::as_select`].
+pub struct SelectHandle<'t> {
+  inner: ElementHandle<'t>,
+}
+
+impl SelectHandle<'_> {
+  fn state(&self) -> Option<&SelectState> {
+    match self.inner.node()?.node_kind() {
+      NodeKind::Select { state } => Some(state),
+      _ => None,
+    }
+  }
+
+  pub fn is_open(&self) -> bool {
+    self.state().is_some_and(SelectState::is_open)
+  }
+
+  pub fn set_open(&mut self, open: bool) {
+    if let Some(state) = self.state() {
+      state.set_open(open);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn toggle_open(&mut self) {
+    if let Some(state) = self.state() {
+      state.toggle_open();
+    }
+    self.inner.invalidate_render();
+  }
+
+  /// Commits option `index`: fires the select's change callback and, for
+  /// single-select, closes the menu.
+  pub fn commit(&mut self, index: usize) {
+    if let Some(state) = self.state() {
+      state.commit(index);
+    }
+    self.inner.invalidate_render();
+  }
+
+  pub fn labels(&self) -> Vec<Arc<str>> {
+    self.state().map(SelectState::labels).unwrap_or_default()
+  }
+
+  pub fn selected_labels(&self) -> Vec<Arc<str>> {
+    self.state().map(SelectState::selected_labels).unwrap_or_default()
+  }
+
+  pub fn is_selected(&self, index: usize) -> bool {
+    self.state().is_some_and(|state| state.is_selected(index))
+  }
 }
 
 /// Post-layout invariant probe: every scroll container's child offset in the

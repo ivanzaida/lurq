@@ -226,11 +226,7 @@ fn snapshot_node(
     tag: element.tag_name().to_owned(),
     kind,
     key: element.component_key().map(str::to_owned),
-    attrs: element
-      .debug_attrs()
-      .iter()
-      .map(|(name, value)| (name.to_string(), value.to_string()))
-      .collect(),
+    attrs: element_attrs(element),
     text: element.text_content().map(str::to_owned),
     color: element.color().map(|color| color.to_hex()),
     props,
@@ -265,6 +261,26 @@ fn snapshot_node(
   }
 }
 
+/// Attribute rows for the inspector/tree: the author-supplied `id` and
+/// `class` first (mirroring browser devtools), then the debug attrs.
+fn element_attrs(element: ElementRef<'_>) -> Vec<(String, String)> {
+  let mut attrs = Vec::new();
+  if let Some(id) = element.id() {
+    attrs.push(("id".to_owned(), id.to_owned()));
+  }
+  let classes = element.classes().collect::<Vec<_>>();
+  if !classes.is_empty() {
+    attrs.push(("class".to_owned(), classes.join(" ")));
+  }
+  attrs.extend(
+    element
+      .debug_attrs()
+      .iter()
+      .map(|(name, value)| (name.to_string(), value.to_string())),
+  );
+  attrs
+}
+
 fn snapshot_node_for_selection(
   element: ElementRef<'_>,
   layout: Option<&LayoutResult>,
@@ -292,11 +308,7 @@ fn snapshot_node_for_selection(
     tag: element.tag_name().to_owned(),
     kind,
     key: element.component_key().map(str::to_owned),
-    attrs: element
-      .debug_attrs()
-      .iter()
-      .map(|(name, value)| (name.to_string(), value.to_string()))
-      .collect(),
+    attrs: element_attrs(element),
     text: element.text_content().map(str::to_owned),
     color: element.color().map(|color| color.to_hex()),
     props: include_inspector_details.then(|| props_ref.cloned()).flatten(),
