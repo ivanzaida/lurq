@@ -261,6 +261,9 @@ type ScrollbarStyleCallback = Arc<dyn Fn(ScrollBarStyle) -> ScrollBarStyle + Sen
 
 #[allow(private_bounds)]
 pub(crate) trait NodeUpdate {
+  /// Attach a semantic annotation surfaced to tooling (the devtools tree and
+  /// the MCP `lurq_read_tree`). A no-op unless a tooling feature is enabled.
+  fn describe(&mut self, name: Arc<str>, value: Arc<str>);
   fn child(&mut self, child: Node);
   fn with_children(&mut self, children: impl IntoIterator<Item = Node>);
   fn spacing(&mut self, spacing: impl Into<SpacingValue>);
@@ -562,7 +565,7 @@ pub(crate) struct Node {
   pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
-  #[cfg(feature = "devtools")]
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
   pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) frame: FrameConstraints,
@@ -621,6 +624,13 @@ impl Default for Node {
 }
 
 impl NodeUpdate for Node {
+  fn describe(&mut self, name: Arc<str>, value: Arc<str>) {
+    #[cfg(any(feature = "devtools", feature = "mcp"))]
+    self.debug_attrs.push((name, value));
+    #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+    let _ = (name, value);
+  }
+
   fn child(&mut self, child: Node) {
     self.children.push(child);
   }
@@ -1560,7 +1570,7 @@ impl Node {
       component_effects_debug: Vec::new(),
       #[cfg(feature = "devtools")]
       component_contexts_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
+      #[cfg(any(feature = "devtools", feature = "mcp"))]
       debug_attrs: Vec::new(),
       text_content: Guard::new(None),
       text_wrap: DEFAULT_TEXT_WRAP,
@@ -3017,7 +3027,7 @@ impl Node {
     self.component_contexts_debug = contexts;
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[cfg_attr(not(feature = "router"), allow(dead_code))]
   pub(crate) fn debug_attr(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
     self.debug_attrs.push((name.into(), value.into()));
@@ -3054,7 +3064,7 @@ impl Node {
     &self.component_contexts_debug
   }
 
-  #[cfg(feature = "devtools")]
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[allow(dead_code)]
   pub fn debug_attrs(&self) -> &[(Arc<str>, Arc<str>)] {
     &self.debug_attrs
@@ -3758,7 +3768,7 @@ impl Node {
       component_effects_debug: self.component_effects_debug.clone(),
       #[cfg(feature = "devtools")]
       component_contexts_debug: self.component_contexts_debug.clone(),
-      #[cfg(feature = "devtools")]
+      #[cfg(any(feature = "devtools", feature = "mcp"))]
       debug_attrs: self.debug_attrs.clone(),
       layout_kind: self.layout_kind.clone(),
       frame: self.frame,

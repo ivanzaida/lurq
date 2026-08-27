@@ -432,6 +432,16 @@ impl TextInputState {
       .retain(|existing| !existing.same_handler(&handler));
   }
 
+  /// Replace the value from outside the keyboard path (automation tooling).
+  /// Writes the app's value signal and reconciles caret/selection the same
+  /// way any external signal write is reconciled; `on_input` handlers do not
+  /// fire, matching a controlled update rather than a keystroke.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn set_value_external(&self, value: String) {
+    self.value.set(value);
+    self.sync_external_value();
+  }
+
   pub(crate) fn sync_external_value(&self) -> bool {
     let value = self.value();
     let mut inner = self.inner.lock().unwrap();
@@ -1492,7 +1502,7 @@ impl SliderState {
     }
   }
 
-  #[cfg(feature = "form")]
+  #[cfg(any(feature = "form", feature = "mcp"))]
   pub(crate) fn value_string(&self) -> String {
     match &self.value {
       SliderValue::Int(value) => value.get_untracked().to_string(),
@@ -1565,6 +1575,16 @@ impl SliderState {
     let stepped = snap_slider_value(current, inner.min, inner.max, inner.step);
     drop(inner);
     self.set_value(stepped);
+  }
+
+  /// Set the slider from outside the pointer/keyboard path (automation
+  /// tooling); the value is snapped to the slider's range and step.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn set_value_external(&self, value: f32) -> bool {
+    let inner = self.inner.lock().unwrap();
+    let value = snap_slider_value(value, inner.min, inner.max, inner.step);
+    drop(inner);
+    self.set_value(value)
   }
 
   pub(crate) fn set_from_ratio(&self, ratio: f32) -> bool {
@@ -1926,6 +1946,11 @@ impl SelectState {
 
   pub(crate) fn is_selected(&self, index: usize) -> bool {
     self.inner.lock().unwrap().selected.contains(&index)
+  }
+
+  #[cfg(feature = "mcp")]
+  pub(crate) fn selected_indices(&self) -> Vec<usize> {
+    self.inner.lock().unwrap().selected.clone()
   }
 
   #[cfg(feature = "form")]

@@ -203,10 +203,7 @@ impl WindowHandle {
   }
 
   /// Queue several synthetic events in order; see [`Self::inject_input`].
-  pub fn inject_inputs(
-    &self,
-    inputs: impl IntoIterator<Item = crate::app::synthetic_input::SyntheticInput>,
-  ) {
+  pub fn inject_inputs(&self, inputs: impl IntoIterator<Item = crate::app::synthetic_input::SyntheticInput>) {
     for input in inputs {
       self.inject_input(input);
     }
@@ -319,11 +316,19 @@ pub struct Window {
   version_signal: Signal<u64>,
 }
 
+/// Wakes the shell's event loop so a command pushed from another thread is
+/// processed without waiting for the next OS event.
+pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
+
 struct WindowInner {
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
   version: u64,
   commands: Vec<WindowCommand>,
+  /// Registered by the shell once its event loop exists. Without it, a
+  /// cross-thread `push_command` sat unprocessed while the loop idled in
+  /// `ControlFlow::Wait`.
+  waker: Option<WindowWaker>,
 }
 
 impl Default for Window {
@@ -351,6 +356,7 @@ impl Window {
         corner_radius: WindowCornerRadius::Default,
         version: 0,
         commands: Vec::new(),
+        waker: None,
       })),
       version_signal: Signal::new(0),
     }
@@ -382,7 +388,22 @@ impl Window {
   }
 
   fn push_command(&self, command: WindowCommand) {
-    self.inner.write().unwrap().commands.push(command);
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.commands.push(command);
+      inner.waker.clone()
+    };
+    // Invoked outside the lock: the waker may re-enter window state.
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// Registers the shell's event-loop waker; every subsequent `push_command`
+  /// invokes it so commands queued from other threads are drained promptly.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_waker(&self, waker: WindowWaker) {
+    self.inner.write().unwrap().waker = Some(waker);
   }
 
   pub fn version(&self) -> u64 {

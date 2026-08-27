@@ -746,13 +746,12 @@ impl RenderEngine for Dx12RenderEngine {
     display: DisplayHandle<'_>,
     capture: Option<RenderFrameCapture>,
   ) -> bool {
-    self.pending_frame_capture = capture;
+    if let Some(previous) = std::mem::replace(&mut self.pending_frame_capture, capture) {
+      previous.target.fail("superseded before a frame was rendered");
+    }
     let rendered = self.render(list, window, display);
     if let Some(capture) = self.pending_frame_capture.take() {
-      tracing::warn!(
-        "dropped DX12 frame capture to {}: the frame was not rendered",
-        capture.output_path.display()
-      );
+      capture.target.fail("the frame was not rendered");
     }
     rendered
   }
@@ -2725,10 +2724,9 @@ impl Dx12State {
     match self.encode_frame_capture(&capture) {
       Ok(readback) => Some((capture, readback)),
       Err(err) => {
-        tracing::warn!(
-          "failed to encode DX12 frame capture to {}: {err:?}",
-          capture.output_path.display()
-        );
+        capture
+          .target
+          .fail(format!("failed to encode DX12 frame capture: {err:?}"));
         None
       }
     }
@@ -2827,10 +2825,7 @@ impl Dx12State {
     fence_value: u64,
   ) {
     if let Err(err) = self.wait_for_capture_fence(fence_value) {
-      tracing::warn!(
-        "dropped DX12 frame capture to {}: {err:?}",
-        capture.output_path.display()
-      );
+      capture.target.fail(format!("capture fence wait failed: {err:?}"));
       // The GPU may still be writing the buffer; keep it alive until this
       // frame slot's fence is waited on again.
       self.retired_capture_readbacks[readback.frame_index].push(readback.resource);
@@ -2844,7 +2839,9 @@ impl Dx12State {
     };
     let mut mapped: *mut c_void = ptr::null_mut();
     if let Err(error) = readback.resource.Map(0, Some(&read_range), Some(&mut mapped)) {
-      tracing::warn!("failed to map DX12 frame capture readback buffer: {error:?}");
+      capture
+        .target
+        .fail(format!("failed to map DX12 frame capture readback buffer: {error:?}"));
       return;
     }
     let data = std::slice::from_raw_parts(mapped.cast::<u8>(), buffer_size);

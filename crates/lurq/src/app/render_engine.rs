@@ -4,6 +4,52 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use crate::app::profile_types::RenderProfile;
 use crate::layout::render_list::RenderList;
 
+/// A finished CPU-side frame capture: tightly packed RGBA8 pixels.
+#[cfg(feature = "screenshot")]
+pub struct CapturedFrame {
+  pub width: u32,
+  pub height: u32,
+  pub rgba: Vec<u8>,
+}
+
+/// Where a frame capture's pixels go once read back from the GPU.
+///
+/// `Bytes` completes exactly once — with the pixels, or with an error when the
+/// capture is dropped anywhere along the pipeline — so a caller parked on the
+/// result is never left waiting. The callback runs on a readback worker
+/// thread, never on the event loop.
+#[cfg(feature = "screenshot")]
+#[derive(Clone)]
+pub enum RenderCaptureTarget {
+  /// Save a PNG to this path (fire-and-forget; failures are logged).
+  Path(std::path::PathBuf),
+  /// Hand the raw pixels to this callback.
+  Bytes(std::sync::Arc<dyn Fn(Result<CapturedFrame, String>) + Send + Sync>),
+}
+
+#[cfg(feature = "screenshot")]
+impl RenderCaptureTarget {
+  /// Human-readable target for log messages.
+  pub fn describe(&self) -> String {
+    match self {
+      Self::Path(path) => path.display().to_string(),
+      Self::Bytes(_) => "<in-memory capture>".to_owned(),
+    }
+  }
+
+  /// Report a dropped capture: warns for file targets, completes byte
+  /// targets with an error so the waiter unblocks.
+  pub fn fail(&self, reason: impl Into<String>) {
+    let reason = reason.into();
+    match self {
+      Self::Path(path) => {
+        tracing::warn!("dropped frame capture to {}: {reason}", path.display());
+      }
+      Self::Bytes(callback) => callback(Err(reason)),
+    }
+  }
+}
+
 #[cfg(feature = "screenshot")]
 #[derive(Clone)]
 pub struct RenderFrameCapture {
@@ -11,7 +57,7 @@ pub struct RenderFrameCapture {
   pub y: u32,
   pub width: u32,
   pub height: u32,
-  pub output_path: std::path::PathBuf,
+  pub target: RenderCaptureTarget,
   pub window_clip: Option<RenderFrameCaptureWindowClip>,
 }
 

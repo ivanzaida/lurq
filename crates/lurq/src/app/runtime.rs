@@ -543,7 +543,10 @@ pub struct Tree {
   perf_overlay_frames_since_sample: u64,
   secondary_windows: Vec<SecondaryWindow>,
   #[cfg(feature = "screenshot")]
-  pending_screenshot: Option<(PathBuf, Option<crate::app::window::ScreenshotRegion>)>,
+  pending_screenshot: Option<(
+    crate::app::render_engine::RenderCaptureTarget,
+    Option<crate::app::window::ScreenshotRegion>,
+  )>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -569,6 +572,16 @@ pub struct Tree {
   render_svgs: Vec<crate::svg::SvgCmd>,
   cached_render_list: Option<CachedRenderList>,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
+  /// Monotonic id source for secondary windows; ids are never reused so a
+  /// closed window can be reported as gone instead of resolving to whatever
+  /// window later occupies its Vec slot.
+  next_secondary_window_id: u64,
+  /// MCP server state; present only on the root tree after `enable_mcp`.
+  #[cfg(feature = "mcp")]
+  pub(crate) mcp: Option<Box<crate::mcp::McpState>>,
+  /// Parked `lurq_wait` replies, resolved as this tree's frames complete.
+  #[cfg(feature = "mcp")]
+  pub(crate) mcp_wait_entries: Vec<crate::mcp::McpWaitEntry>,
 }
 
 struct OverlayDismissEntry {
@@ -581,6 +594,12 @@ struct OverlayDismissEntry {
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
 pub(crate) struct SecondaryWindow {
+  /// Stable id minted by the root tree on push; never reused, unlike the
+  /// window's Vec index.
+  id: u64,
+  /// Optional app-assigned machine name (titles aren't unique) so external
+  /// tooling can target `window: "settings"`.
+  name: Option<String>,
   title: String,
   width: u32,
   height: u32,
@@ -602,7 +621,7 @@ pub(crate) struct SecondaryWindowMetadata {
 #[cfg(feature = "devtools")]
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
 pub(crate) struct DevToolsWindow {
-  secondary_index: usize,
+  pub(crate) secondary_index: usize,
   pub(crate) metadata: SecondaryWindowMetadata,
 }
 
@@ -611,6 +630,8 @@ impl SecondaryWindow {
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn new(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
     Self {
+      id: 0,
+      name: None,
       title: title.into(),
       width,
       height,
@@ -619,6 +640,21 @@ impl SecondaryWindow {
       open: true,
       metadata: SecondaryWindowMetadata::default(),
     }
+  }
+
+  fn with_name(mut self, name: Option<String>) -> Self {
+    self.name = name;
+    self
+  }
+
+  #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+  pub(crate) fn id(&self) -> u64 {
+    self.id
+  }
+
+  #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+  pub(crate) fn name(&self) -> Option<&str> {
+    self.name.as_deref()
   }
 
   fn with_decorations(mut self, decorations: bool) -> Self {
@@ -853,6 +889,11 @@ impl Tree {
       render_svgs: Vec::new(),
       cached_render_list: None,
       overlay_dismiss_entries: Vec::new(),
+      next_secondary_window_id: 1,
+      #[cfg(feature = "mcp")]
+      mcp: None,
+      #[cfg(feature = "mcp")]
+      mcp_wait_entries: Vec::new(),
     };
     tree
       .window
@@ -994,12 +1035,30 @@ impl Tree {
   }
 
   #[cfg(feature = "screenshot")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn request_screenshot(
     &mut self,
     output_path: impl Into<PathBuf>,
     region: Option<crate::app::window::ScreenshotRegion>,
   ) {
-    self.pending_screenshot = Some((output_path.into(), region));
+    self.request_screenshot_capture(
+      crate::app::render_engine::RenderCaptureTarget::Path(output_path.into()),
+      region,
+    );
+  }
+
+  /// Queue a capture of the next rendered frame, delivered to `target`.
+  /// Only one capture can be pending per tree; a superseded byte-target
+  /// capture completes with an error rather than silently vanishing.
+  #[cfg(feature = "screenshot")]
+  pub(crate) fn request_screenshot_capture(
+    &mut self,
+    target: crate::app::render_engine::RenderCaptureTarget,
+    region: Option<crate::app::window::ScreenshotRegion>,
+  ) {
+    if let Some((previous, _)) = self.pending_screenshot.replace((target, region)) {
+      previous.fail("superseded by a newer capture request before a frame was rendered");
+    }
     self.request_redraw();
   }
 
@@ -1174,6 +1233,8 @@ impl Tree {
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn push_secondary_window(&mut self, mut window: SecondaryWindow) -> usize {
     let index = self.secondary_windows.len();
+    window.id = self.next_secondary_window_id;
+    self.next_secondary_window_id += 1;
     self.apply_render_engine_factory_to_secondary(&mut window);
     self.secondary_windows.push(window);
     index
@@ -1273,7 +1334,9 @@ impl Tree {
       let mut tree = Tree::new();
       (request.build)(app, &mut tree);
       self.push_secondary_window(
-        SecondaryWindow::new(request.title, request.width, request.height, tree).with_decorations(request.decorations),
+        SecondaryWindow::new(request.title, request.width, request.height, tree)
+          .with_decorations(request.decorations)
+          .with_name(request.name),
       );
       changed = true;
     }
@@ -1703,6 +1766,17 @@ impl Tree {
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
+    #[cfg(feature = "mcp")]
+    {
+      let report = self.pass_inner(app, surface);
+      self.mcp_notify_pass(&report);
+      report
+    }
+    #[cfg(not(feature = "mcp"))]
+    self.pass_inner(app, surface)
+  }
+
+  fn pass_inner(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
     let pass_started_at = Instant::now();
     self.tick_scheduled_redraw(Instant::now());
     let theme_version = self
@@ -2052,7 +2126,15 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + text_vertical_align_offset(app, text, &scaled_style, max_width, *wrap, *vertical_align, scaled_height);
+            + text_vertical_align_offset(
+              app,
+              text,
+              &scaled_style,
+              max_width,
+              *wrap,
+              *vertical_align,
+              scaled_height,
+            );
           if quad.transform.is_identity() {
             app.glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
@@ -6932,14 +7014,14 @@ impl Tree {
   }
 
   fn take_pending_screenshot(&mut self) -> Option<RenderFrameCapture> {
-    let (output_path, region) = self.pending_screenshot.take()?;
+    let (target, region) = self.pending_screenshot.take()?;
     let Some(region) = region else {
       return Some(RenderFrameCapture {
         x: 0,
         y: 0,
         width: self.viewport_physical.width.round().max(1.0) as u32,
         height: self.viewport_physical.height.round().max(1.0) as u32,
-        output_path,
+        target,
         window_clip: self.screenshot_window_clip(),
       });
     };
@@ -6949,10 +7031,9 @@ impl Tree {
       self.viewport_physical.width,
       self.viewport_physical.height,
     ) else {
-      tracing::warn!(
-        "screenshot region {region:?} has no visible area in the viewport; skipping capture to {}",
-        output_path.display()
-      );
+      target.fail(format!(
+        "screenshot region {region:?} has no visible area in the viewport"
+      ));
       return None;
     };
     // A region crop never touches the window corners, so no corner clip.
@@ -6961,17 +7042,14 @@ impl Tree {
       y,
       width,
       height,
-      output_path,
+      target,
       window_clip: None,
     })
   }
 
   fn drop_unsupported_screenshot(&mut self) {
-    if let Some((output_path, _region)) = self.pending_screenshot.take() {
-      tracing::warn!(
-        "failed to capture screenshot to {}: render engine does not support frame capture",
-        output_path.display()
-      );
+    if let Some((target, _region)) = self.pending_screenshot.take() {
+      target.fail("render engine does not support frame capture");
     }
   }
 
@@ -7043,7 +7121,7 @@ impl Tree {
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
-      output_path: request.output_path,
+      target: crate::app::render_engine::RenderCaptureTarget::Path(request.output_path),
       window_clip: bounds.window_clip.map(|clip| RenderFrameCaptureWindowClip {
         width: clip.width,
         height: clip.height,
@@ -8966,9 +9044,7 @@ fn vertical_align_offset(
 ) -> f32 {
   match align {
     VerticalAlign::Top => -extents.ink_top,
-    VerticalAlign::Center => {
-      (quad_height - (extents.optical_bottom - extents.optical_top)) * 0.5 - extents.optical_top
-    }
+    VerticalAlign::Center => (quad_height - (extents.optical_bottom - extents.optical_top)) * 0.5 - extents.optical_top,
     VerticalAlign::Bottom => quad_height - extents.ink_bottom,
   }
 }
@@ -9006,7 +9082,15 @@ fn rich_text_vertical_align_offset(
   // (mixed sizes) falls back to metric extent, which is adequate for the
   // markdown/rich cases that use it.
   if let [span] = spans {
-    return text_vertical_align_offset(app, &span.text, &span.style, max_width, wrap, vertical_align, quad_height);
+    return text_vertical_align_offset(
+      app,
+      &span.text,
+      &span.style,
+      max_width,
+      wrap,
+      vertical_align,
+      quad_height,
+    );
   }
   let measured = app.glyph_engine.measure_rich_text(spans, max_width).height;
   vertical_align_offset(

@@ -73,6 +73,9 @@ impl PartialEq for DemoProps {
   }
 }
 
+#[cfg(feature = "mcp")]
+static MCP_HANDLE: std::sync::OnceLock<lurq::mcp::McpHandle> = std::sync::OnceLock::new();
+
 struct DemoApp {
   router: RouterHandle,
 }
@@ -85,6 +88,10 @@ impl Component for DemoApp {
     let modal_open = ctx.signal(false);
     let router = ctx.router(demo_routes(theme.clone(), modal_open.clone()));
     router.replace(&ctx.props::<DemoProps>().initial_route);
+    #[cfg(feature = "mcp")]
+    if let Some(handle) = MCP_HANDLE.get() {
+      handle.set_navigator(router.navigator());
+    }
 
     Self { router }
   }
@@ -491,6 +498,17 @@ fn create_dx12_render_engine() -> Box<dyn lurq::app::render_engine::RenderEngine
 fn init_tracing() {
   let filter = tracing_subscriber::EnvFilter::try_from_default_env()
     .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,lurq=info,demo=info"));
+  #[cfg(feature = "mcp")]
+  {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    let subscriber = tracing_subscriber::fmt()
+      .with_env_filter(filter)
+      .compact()
+      .finish()
+      .with(lurq::mcp::log_layer());
+    let _ = tracing::subscriber::set_global_default(subscriber);
+  }
+  #[cfg(not(feature = "mcp"))]
   let _ = tracing_subscriber::fmt().with_env_filter(filter).compact().try_init();
 }
 
@@ -744,6 +762,36 @@ fn main() {
   lurq::app::devtools::load_fonts(&mut app);
   let renderer = set_selected_render_engine(&mut tree, &options.renderer);
   animation_demo::register_keyframes(&mut tree);
+  #[cfg(feature = "mcp")]
+  {
+    use lurq::mcp::{McpConfig, McpTool, Scope};
+    let handle = tree.enable_mcp(
+      McpConfig::new()
+        .app_name("lurq-demo")
+        .scopes([Scope::Observe, Scope::Interact, Scope::Navigate, Scope::State])
+        .scope(Scope::custom("demo"))
+        .tool(
+          McpTool::new("demo_route")
+            .description("Report the demo's current route and renderer")
+            .scope(Scope::custom("demo"))
+            .read_only()
+            .handler(|ctx, _args| {
+              Ok(serde_json::json!({
+                "scale_factor": ctx.tree.scale_factor(),
+                "frame_count": ctx.tree.frame_count(),
+              }))
+            }),
+        ),
+    );
+    eprintln!(
+      "MCP listening on http://127.0.0.1:{}/mcp (token {})",
+      handle.port(),
+      handle.token()
+    );
+    // Published before mount_root so DemoApp::create can hand over its
+    // router's navigator.
+    let _ = MCP_HANDLE.set(handle);
+  }
   tree.mount_root::<DemoApp>(
     &mut app,
     DemoProps {

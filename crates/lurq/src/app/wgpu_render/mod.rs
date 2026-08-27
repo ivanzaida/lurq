@@ -2079,7 +2079,9 @@ impl RenderEngine for WgpuRenderEngine {
     display: DisplayHandle<'_>,
     capture: Option<RenderFrameCapture>,
   ) -> bool {
-    self.pending_frame_capture = capture;
+    if let Some(previous) = std::mem::replace(&mut self.pending_frame_capture, capture) {
+      previous.target.fail("superseded before a frame was rendered");
+    }
     self.render(list, window, display)
   }
 
@@ -2122,11 +2124,17 @@ impl WgpuFrameCaptureReadback {
       match receiver.recv() {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
-          tracing::warn!("failed to map screenshot readback buffer: {error:?}");
+          self
+            .capture
+            .target
+            .fail(format!("failed to map screenshot readback buffer: {error:?}"));
           return;
         }
         Err(error) => {
-          tracing::warn!("failed to receive screenshot readback result: {error}");
+          self
+            .capture
+            .target
+            .fail(format!("failed to receive screenshot readback result: {error}"));
           return;
         }
       }
@@ -2160,6 +2168,7 @@ fn encode_wgpu_frame_capture(
   capture: RenderFrameCapture,
 ) -> Option<WgpuFrameCaptureReadback> {
   if capture.width == 0 || capture.height == 0 {
+    capture.target.fail("capture region is empty");
     return None;
   }
 
