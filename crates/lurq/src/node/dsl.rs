@@ -23,6 +23,8 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     tag_name,
     component_slot_id: None,
     component_key: None,
+    element_id: None,
+    classes: Vec::new(),
     overlay_declaration: None,
     modal_declaration: None,
     layout_neutral: false,

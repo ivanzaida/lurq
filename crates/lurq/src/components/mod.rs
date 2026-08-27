@@ -119,6 +119,26 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// HTML-like `id` attribute for `Tree::get_element_by_id` lookup.
+      /// Lookup only — never affects reconciliation or state preservation.
+      pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::id(node, id));
+        self
+      }
+
+      /// Appends an HTML-like class for `Tree::get_elements_by_class_name`
+      /// lookup. Lookup only, like `id`.
+      pub fn class(mut self, class: impl Into<std::sync::Arc<str>>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::class(node, class));
+        self
+      }
+
+      /// Appends several classes at once; see `class`.
+      pub fn classes<C: Into<std::sync::Arc<str>>>(mut self, classes: impl IntoIterator<Item = C>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::classes(node, classes));
+        self
+      }
+
       pub fn background(mut self, color: impl Into<$crate::node::BackgroundColor>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background(node, color));
         self

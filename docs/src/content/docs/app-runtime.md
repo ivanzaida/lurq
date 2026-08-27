@@ -156,6 +156,23 @@ if let Some(found) = found {
 
 Use `find_element_mut` only for imperative layout overrides. Declarative component state is the normal path.
 
+Nodes tagged with `.id("...")` / `.class("...")` support browser-style lookup, mutation, and typed interaction:
+
+```rust
+let save = tree.get_element_by_id("save");                 // first match in tree order
+let rows = tree.get_elements_by_class_name("row");         // all matches in tree order
+
+let mut handle = tree.get_element_by_id_mut("save").unwrap();
+handle.click();                                            // DOM el.click() semantics
+handle.set_background("#ef4444");                          // transient direct mutation
+
+tree.get_element_by_id_mut("email").unwrap()
+  .as_text_input().unwrap()
+  .set_value("ada@example.com");                           // signal-backed, no on_input
+```
+
+See [Retained Nodes](/retained_nodes/#ids-and-classes) for the full contract (transiency, duplicate ids, pre-layout behavior).
+
 ## Perf Overlay
 
 The runtime has a built-in frame perf overlay.

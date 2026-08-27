@@ -55,6 +55,29 @@ let items = vec![lurq::components::Text::new("a"), lurq::components::Text::new("
 lurq::components::Column::new().with_children(items)
 ```
 
+## Ids And Classes
+
+Every builder accepts HTML-like `id` and `class` attributes for browser-style lookup (`Tree::get_element_by_id`, `Tree::get_elements_by_class_name`). They are lookup-only: they never affect reconciliation, state preservation, or styling.
+
+```rust
+lurq::components::Column::new()
+  .child(lurq::components::Text::new("Title").id("headline"))
+  .child(
+    lurq::components::Rect::new(24.0, 24.0)
+      .class("icon")
+      .classes(["muted", "small"]),
+  )
+```
+
+`class` appends and deduplicates like the DOM's `classList.add`. Duplicate ids are allowed (easy to produce inside `for_each`); lookup returns the first match in tree order and warns in debug builds.
+
+The same methods exist on `Element` for components not covered by the builder macro:
+
+```rust
+let element: Element = my_component.into();
+let element = element.id("sidebar").class("panel");
+```
+
 ## Containers
 
 ```rust

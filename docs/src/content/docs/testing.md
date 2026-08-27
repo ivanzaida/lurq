@@ -103,6 +103,29 @@ Use direct tree input for deterministic hover, active, focus, scroll, text input
 
 Text input tests cover caret placement, Unicode-safe deletion, keyboard selection, multiline movement, undo/redo, and double/triple-click selection. Selectable text tests cover drag ranges, word and line selection, and transformed visual-coordinate hit testing.
 
+## Element Lookup And Typed Interaction
+
+Tag nodes with `.id("...")` in the tree under test, then address them directly instead of writing predicates:
+
+```rust
+tree.set_root(
+  Column::new()
+    .child(TextInput::new(value.clone()).id("email"))
+    .child(Button::new("Save").id("save").on_click(on_save)),
+);
+run_pass(&mut tree);
+
+// Signal-backed value write; does NOT fire on_input (DOM `el.value = x`).
+tree.get_element_by_id_mut("email").unwrap()
+  .as_text_input().unwrap()
+  .set_value("ada@example.com");
+
+// DOM el.click(): fires the node's own on_click without hit-testing.
+tree.get_element_by_id_mut("save").unwrap().click();
+```
+
+`click()` works even when the node is occluded. For pointer-fidelity coverage (hover, capture, hit testing) keep driving `tree.mouse_down` / `tree.mouse_up`, composing coordinates from the handle's `bounds().center()`.
+
 ## DevTools Tests
 
 DevTools tests construct snapshots from the tree and assert collected metadata:

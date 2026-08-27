@@ -3,7 +3,13 @@ mod cursor;
 mod double_click;
 mod drag;
 mod element_lookup {
+  mod by_class;
+  mod by_id;
   mod mutates_rect;
+  mod mutation;
+  mod synthetic_click;
+  mod transient_mutation;
+  mod typed_interaction;
 }
 mod element_ref_interaction;
 mod futures {

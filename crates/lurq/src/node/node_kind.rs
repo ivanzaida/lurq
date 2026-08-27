@@ -419,6 +419,19 @@ impl TextInputState {
     self.value.get_untracked()
   }
 
+  /// Programmatic value write, DOM `el.value = x` semantics: updates the
+  /// backing signal (the same one the app holds) and clamps caret/selection
+  /// via [`TextInputState::sync_external_value`], but does NOT fire
+  /// `on_input` handlers.
+  pub(crate) fn set_value(&self, value: impl Into<String>) {
+    let value = value.into();
+    if self.value.get_untracked() == value {
+      return;
+    }
+    self.value.set(value);
+    self.sync_external_value();
+  }
+
   pub(crate) fn set_on_input(&self, f: impl IntoTextInputEventHandler) {
     self.on_input.lock().unwrap().push(f.into_event_handler());
   }
@@ -1305,6 +1318,12 @@ impl CheckboxState {
     self.value.update(|checked| *checked = !*checked);
   }
 
+  pub(crate) fn set_checked(&self, checked: bool) {
+    if self.is_checked() != checked {
+      self.value.set(checked);
+    }
+  }
+
   pub(crate) fn set_style(&self, style: CheckboxStyle) {
     self.inner.lock().unwrap().style = style;
   }
@@ -1500,7 +1519,7 @@ impl SliderState {
     }
   }
 
-  fn value_f32(&self) -> f32 {
+  pub(crate) fn value_f32(&self) -> f32 {
     match &self.value {
       SliderValue::Int(value) => value.get_untracked() as f32,
       SliderValue::Float(value) => value.get_untracked(),
@@ -1928,7 +1947,6 @@ impl SelectState {
     self.inner.lock().unwrap().selected.contains(&index)
   }
 
-  #[cfg(feature = "form")]
   pub(crate) fn selected_labels(&self) -> Vec<Arc<str>> {
     let inner = self.inner.lock().unwrap();
     inner
