@@ -506,6 +506,36 @@ Slider::new(value)
   .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
 
+## Programmatic Interaction
+
+Nodes tagged with `.id("...")` can be driven imperatively from integration code and tests, browser-DOM style. Look the node up on `Tree` and use the handle's universal actions or a typed downcast:
+
+```rust
+Column::new()
+  .child(TextInput::new(email.clone()).id("email"))
+  .child(Checkbox::new(agree.clone()).id("agree"))
+  .child(Button::new("Save").id("save").on_click(on_save))
+```
+
+```rust
+// DOM el.click(): fires the node's own on_click at its bounds center
+// without hit-testing, focuses focusable nodes, submits for submit buttons.
+tree.get_element_by_id_mut("save").unwrap().click();
+
+// DOM el.value = x: writes the backing signal and clamps the caret,
+// but does NOT fire on_input handlers.
+tree.get_element_by_id_mut("email").unwrap()
+  .as_text_input().unwrap()
+  .set_value("ada@example.com");
+
+// Widget default actions live on the typed handles.
+tree.get_element_by_id_mut("agree").unwrap().as_checkbox().unwrap().toggle();
+```
+
+`focus()` and `blur()` route through the tree's focus machinery and fire the node's own `on_focus`/`on_blur` handlers. Typed handles exist for `TextInput`, `Checkbox`, `Slider`, and `Select`; downcasting a different node kind returns `None`.
+
+These operations write signal-backed widget state, so they behave like real user input from the app's perspective — minus the event side effects called out above. For pointer-fidelity interaction (hover, capture, hit testing), drive `tree.mouse_down` / `tree.mouse_up` instead, composing coordinates from the handle's `bounds().center()`. See [Runtime And Retained Tree](./retained_nodes/#ids-and-classes) for the lookup and mutation contract.
+
 ## Drag And Drop
 
 Use high-level DnD components when you want draggable nodes and drop zones.

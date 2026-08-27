@@ -24,7 +24,7 @@ The docs are organized around the questions that come up while building:
 - [Persistent Storage](./persistent-storage/) covers typed values that survive app restarts.
 - [Internationalization](./i18n/) covers translation resources, locale switching, interpolation, namespaces, and reactive re-rendering.
 - [Modals](./modals/) covers render-flow modal overlays, targets, and controlling visibility.
-- [App Runtime](./app-runtime/) covers `App`, `Tree`, render engine factories, windows, profiling, and frame flow.
+- [App Runtime](./app-runtime/) covers `App`, `Tree`, render engine factories, windows, profiling, frame flow, and browser-style element lookup (`get_element_by_id`, typed interaction handles).
 - [DevTools](./devtools/) covers enabling the devtools feature, mounting the secondary window, inspecting components, and profiling renders.
 
 For API lookup, keep [Ctx](./ctx/), [Typed Component API](./dsl/), and [Runtime And Retained Tree](./retained_nodes/) open.
