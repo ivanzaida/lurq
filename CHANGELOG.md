@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0 — 2026-09-10
+
+- Add the optional `canvas` feature and a browser-like Canvas 2D API through existing element refs. Owned contexts support drawing from input handlers, timers, and workers without a required draw callback.
+- Render persistent canvas surfaces on WGPU and native DX12, with shared tile antialiasing, incremental GPU updates, lazy backing allocation, and bounded queues and caches. Drawing schedules presentation without triggering layout.
+- Support solid fills and strokes, reusable paths, transforms, clipping, geometry hit tests, text, and immutable images. Add asynchronous ordered snapshots, metrics observers, lifecycle diagnostics, and explicit software rendering.
+- Separate raw raster transport from image codecs, allowing GPU canvases without image-decoder dependencies.
+- Add canvas documentation, examples, CPU/GPU correctness checks, native capture harnesses, and a reproducible performance report. Canvas preserves pixels; applications retain their own scene objects and interaction state.
+
 ## 0.18.2 — 2026-09-10
 
 - Maintenance release of the current source, including the U+2022 password mask default. No library behavior changes from 0.18.1.

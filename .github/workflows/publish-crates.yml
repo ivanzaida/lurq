@@ -25,6 +25,8 @@ jobs:
         run: |
           cargo test -p lurq_macros
           cargo check -p lurq
+          cargo test -p lurq --features canvas --test canvas_tests
+          cargo check -p lurq --features canvas,winit,wgpu
           cargo test -p lurq --test input_tests checkbox
           cargo test -p lurq --test input_tests mask
           cargo test -p lurq --lib mask
