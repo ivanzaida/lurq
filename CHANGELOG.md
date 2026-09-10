@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.2 — 2026-09-10
+
+- Maintenance release of the current source, including the U+2022 password mask default. No library behavior changes from 0.18.1.
+
 ## 0.18.1 — 2026-09-10
 
 - Add vetoable OS and app close requests for primary and secondary windows. Decisions can be retained for an asynchronous dialog; dropped requests keep the window open. Unconditional `close()` bypasses the handler.
