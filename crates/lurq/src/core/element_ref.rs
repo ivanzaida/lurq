@@ -28,6 +28,8 @@ impl ElementRect {
 
 #[derive(Default)]
 struct ElementRefInner {
+  #[cfg(feature = "canvas")]
+  canvas: Option<crate::canvas::CanvasWeak>,
   x: f32,
   y: f32,
   relative_x: f32,
@@ -45,6 +47,40 @@ struct ElementRefInner {
 }
 
 impl ElementRef {
+  /// Typed access to the attached canvas; `None` before layout or after detachment.
+  #[cfg(feature = "canvas")]
+  pub fn as_canvas(&self) -> Option<crate::canvas::CanvasHandle> {
+    let canvas = self.inner.read().unwrap().canvas.as_ref()?.upgrade()?;
+    canvas.is_attached().then_some(canvas)
+  }
+
+  #[cfg(feature = "canvas")]
+  pub(crate) fn bind_canvas(&self, canvas: &crate::canvas::CanvasHandle) {
+    let mut inner = self.inner.write().unwrap();
+    if let Some(old) = inner.canvas.as_ref().and_then(crate::canvas::CanvasWeak::upgrade)
+      && old.is_attached()
+      && old.surface_id() != canvas.surface_id()
+    {
+      tracing::warn!("an element ref cannot bind to two live canvases");
+      return;
+    }
+    inner.canvas = Some(canvas.downgrade());
+  }
+
+  #[cfg(feature = "canvas")]
+  pub(crate) fn detach_canvas(&self, id: crate::canvas::CanvasId) {
+    let mut inner = self.inner.write().unwrap();
+    if inner
+      .canvas
+      .as_ref()
+      .and_then(crate::canvas::CanvasWeak::upgrade)
+      .is_some_and(|canvas| canvas.surface_id() == id)
+    {
+      inner.canvas = None;
+      inner.attached = false;
+    }
+  }
+
   pub fn new() -> Self {
     Self::default()
   }
@@ -188,6 +224,11 @@ impl ElementRef {
 }
 
 impl ElementRefMut {
+  #[cfg(feature = "canvas")]
+  pub fn as_canvas(&self) -> Option<crate::canvas::CanvasHandle> {
+    self.as_ref().as_canvas()
+  }
+
   pub fn new() -> Self {
     Self::default()
   }

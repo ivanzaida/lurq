@@ -1,7 +1,7 @@
 #[cfg(all(feature = "image", feature = "resources"))]
 use std::sync::Arc;
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use crate::node::BackgroundSize;
 use crate::node::{
   BackgroundColor,
@@ -18,11 +18,11 @@ pub struct SliderPartStyle {
   pub(crate) color: Option<Color>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) border: Option<Borders>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) background_image: Option<crate::images::ImageData>,
   #[cfg(all(feature = "image", feature = "resources"))]
   pub(crate) background_resource_image: Option<Arc<str>>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
 }
 
@@ -34,11 +34,11 @@ impl Default for SliderPartStyle {
       color: None,
       border_radius: None,
       border: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       background_image: None,
       #[cfg(all(feature = "image", feature = "resources"))]
       background_resource_image: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       background_size: BackgroundSize::default(),
     }
   }
@@ -110,7 +110,7 @@ impl SliderPartStyle {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => {
@@ -119,7 +119,7 @@ impl SliderPartStyle {
       crate::images::ImageKind::Native(data) => {
         self.background_image = Some(data.image_data());
       }
-      #[cfg(feature = "resources")]
+      #[cfg(all(feature = "image", feature = "resources"))]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);
       }
@@ -127,18 +127,18 @@ impl SliderPartStyle {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_size(mut self, size: BackgroundSize) -> Self {
     self.background_size = size;
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_cover(self) -> Self {
     self.background_size(BackgroundSize::Cover)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_contain(self) -> Self {
     self.background_size(BackgroundSize::Contain)
   }
@@ -159,12 +159,12 @@ impl SliderPartStyle {
     if other.border.is_some() {
       self.border = other.border.clone();
     }
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       if other.background_image.is_some() {
         self.background_image = other.background_image.clone();
       }
-      #[cfg(feature = "resources")]
+      #[cfg(all(feature = "image", feature = "resources"))]
       if other.background_resource_image.is_some() {
         self.background_resource_image = other.background_resource_image.clone();
       }

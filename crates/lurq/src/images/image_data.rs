@@ -1,6 +1,7 @@
+#[cfg(feature = "image")]
+use std::io::Cursor;
 use std::{
   any::Any,
-  io::Cursor,
   sync::{
     Arc, OnceLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -12,13 +13,14 @@ use std::{
 use core_foundation_sys::base::{CFRelease, CFRetain};
 #[cfg(target_os = "macos")]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
+#[cfg(feature = "image")]
 use image::{AnimationDecoder, ImageFormat, codecs};
 use parking_lot::{Mutex, RwLock};
 
 pub enum ImageKind {
   Bytes(ImageData),
   Native(NativeImageData),
-  #[cfg(feature = "resources")]
+  #[cfg(all(feature = "image", feature = "resources"))]
   Resource(Arc<str>),
 }
 
@@ -28,21 +30,21 @@ pub enum ImagePixelFormat {
   Nv12,
 }
 
-#[cfg(feature = "resources")]
+#[cfg(all(feature = "image", feature = "resources"))]
 impl From<&str> for ImageKind {
   fn from(value: &str) -> Self {
     Self::Resource(Arc::from(value))
   }
 }
 
-#[cfg(feature = "resources")]
+#[cfg(all(feature = "image", feature = "resources"))]
 impl From<String> for ImageKind {
   fn from(value: String) -> Self {
     Self::Resource(Arc::from(value))
   }
 }
 
-#[cfg(feature = "resources")]
+#[cfg(all(feature = "image", feature = "resources"))]
 impl From<Arc<str>> for ImageKind {
   fn from(value: Arc<str>) -> Self {
     Self::Resource(value)
@@ -63,6 +65,7 @@ impl From<NativeImageData> for ImageKind {
 
 static NEXT_IMAGE_ID: AtomicU64 = AtomicU64::new(1);
 static ANIMATION_EPOCH: OnceLock<Instant> = OnceLock::new();
+#[cfg(feature = "image")]
 const MIN_ANIMATION_FRAME_MS: u64 = 10;
 const MAX_STREAMING_RECYCLED_BUFFERS: usize = 3;
 
@@ -72,6 +75,8 @@ fn animation_epoch() -> Instant {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeImageBackend {
+  #[cfg(feature = "canvas")]
+  Canvas,
   Dx12Nv12,
   #[cfg(feature = "wgpu")]
   WgpuExternalRgba,
@@ -258,6 +263,7 @@ impl ImageData {
     }
   }
 
+  #[cfg(feature = "image")]
   pub fn from_bytes(bytes: &[u8]) -> Result<Self, image::ImageError> {
     match image::guess_format(bytes)? {
       ImageFormat::Gif => Self::from_gif_bytes(bytes),
@@ -266,6 +272,7 @@ impl ImageData {
     }
   }
 
+  #[cfg(feature = "image")]
   fn from_static_bytes(bytes: &[u8]) -> Result<Self, image::ImageError> {
     let img = image::load_from_memory(bytes)?.into_rgba8();
     let width = img.width();
@@ -273,12 +280,14 @@ impl ImageData {
     Ok(Self::from_rgba(img.into_raw(), width, height))
   }
 
+  #[cfg(feature = "image")]
   fn from_gif_bytes(bytes: &[u8]) -> Result<Self, image::ImageError> {
     let decoder = codecs::gif::GifDecoder::new(Cursor::new(bytes))?;
     let frames = decoder.into_frames().collect_frames()?;
     Self::from_animation_frames(frames).or_else(|_| Self::from_static_bytes(bytes))
   }
 
+  #[cfg(feature = "image")]
   fn from_webp_bytes(bytes: &[u8]) -> Result<Self, image::ImageError> {
     let decoder = codecs::webp::WebPDecoder::new(Cursor::new(bytes))?;
     if !decoder.has_animation() {
@@ -288,6 +297,7 @@ impl ImageData {
     Self::from_animation_frames(frames).or_else(|_| Self::from_static_bytes(bytes))
   }
 
+  #[cfg(feature = "image")]
   fn from_animation_frames(frames: Vec<image::Frame>) -> Result<Self, image::ImageError> {
     let Some(first) = frames.first() else {
       return Err(image::ImageError::Decoding(image::error::DecodingError::new(
@@ -329,9 +339,20 @@ impl ImageData {
     })
   }
 
+  #[cfg(feature = "image")]
   pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, image::ImageError> {
     let bytes = std::fs::read(path).map_err(image::ImageError::IoError)?;
     Self::from_bytes(&bytes)
+  }
+
+  #[cfg(feature = "canvas")]
+  pub(crate) fn canvas_compatible(&self) -> bool {
+    self.format == ImagePixelFormat::Rgba8
+      && self.streaming.is_none()
+      && self.native.is_none()
+      && self.frames.len() == 1
+      && self.width > 0
+      && self.height > 0
   }
 
   pub fn id(&self) -> u64 {
@@ -868,6 +889,7 @@ impl StreamingImage {
   }
 }
 
+#[cfg(feature = "image")]
 fn delay_ms(delay: image::Delay) -> u64 {
   let (numerator, denominator) = delay.numer_denom_ms();
   if denominator == 0 {
@@ -882,7 +904,7 @@ fn nv12_len(width: u32, height: u32) -> usize {
   (width * height + width * height / 2) as usize
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "image"))]
 mod tests {
   use std::time::{Duration, Instant};
 

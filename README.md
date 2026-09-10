@@ -25,6 +25,7 @@ Useful optional features:
 | `dx12` | DirectX 12 renderer on Windows |
 | `image` | Image components and image-backed styles |
 | `svg` | SVG components |
+| `canvas` | Persistent Canvas 2D drawing through existing element refs; paths, text, clipping, and raw images |
 | `resources` | Resource loader and resource-backed images/SVGs |
 | `clipboard` | Clipboard shortcuts for text inputs |
 | `devtools` | In-app DevTools window |

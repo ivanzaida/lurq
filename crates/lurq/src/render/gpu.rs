@@ -48,7 +48,7 @@ pub struct GlyphInstance {
   pub shadow_sigma: f32,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ImageInstance {

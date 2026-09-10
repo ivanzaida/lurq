@@ -322,13 +322,13 @@ pub(crate) trait NodeUpdate {
   fn border_bottom(&mut self, border: Border);
   fn border_left(&mut self, border: Border);
   fn cursor(&mut self, cursor: CursorIcon);
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_image(&mut self, data: impl Into<crate::images::ImageKind>);
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_size(&mut self, size: BackgroundSize);
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_cover(&mut self);
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_contain(&mut self);
   fn hovered_style(&mut self, style: Style);
   fn active_style(&mut self, style: Style);
@@ -597,9 +597,9 @@ pub(crate) struct Node {
   pub(crate) caret_mode: Guard<Option<CaretMode>>,
   pub(crate) cursor: Option<CursorIcon>,
   pub(crate) hit_test: HitTestBehavior,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) background_image: Guard<Option<crate::images::ImageData>>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
   #[cfg(all(feature = "image", feature = "resources"))]
   pub(crate) background_resource_image: Option<Arc<str>>,
@@ -989,27 +989,27 @@ impl NodeUpdate for Node {
     self.cursor = Some(cursor);
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_image(&mut self, data: impl Into<crate::images::ImageKind>) {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => self.background_image.set(Some(data)),
       crate::images::ImageKind::Native(data) => self.background_image.set(Some(data.image_data())),
-      #[cfg(feature = "resources")]
+      #[cfg(all(feature = "image", feature = "resources"))]
       crate::images::ImageKind::Resource(path) => self.background_resource_image = Some(path),
     }
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_size(&mut self, size: BackgroundSize) {
     self.background_size = size;
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_cover(&mut self) {
     self.background_size = BackgroundSize::Cover;
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn background_contain(&mut self) {
     self.background_size = BackgroundSize::Contain;
   }
@@ -1610,9 +1610,9 @@ impl Node {
       caret_mode: Guard::new(None),
       cursor: None,
       hit_test: HitTestBehavior::default(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       background_image: Guard::new(None),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       background_size: BackgroundSize::default(),
       #[cfg(all(feature = "image", feature = "resources"))]
       background_resource_image: None,
@@ -1916,14 +1916,35 @@ impl Node {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "canvas")]
+  pub fn canvas() -> Self {
+    let mut node = Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Canvas {
+        canvas: crate::canvas::CanvasHandle::new(),
+      },
+      vec![],
+    );
+    node.intrinsic_size = Some(Size::new(300.0, 150.0));
+    node
+  }
+
+  #[cfg(feature = "canvas")]
+  pub(crate) fn canvas_handle(&self) -> Option<crate::canvas::CanvasHandle> {
+    match &self.node_kind {
+      NodeKind::Canvas { canvas } => Some(canvas.clone()),
+      _ => None,
+    }
+  }
+
+  #[cfg(feature = "raster")]
   pub fn image(data: crate::images::ImageData) -> Self {
     let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Image { data: data.clone() }, vec![]);
     node.intrinsic_size = Some(Size::new(data.width() as f32, data.height() as f32));
     node
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn video(data: crate::images::ImageData) -> Self {
     let mut node = Self::from_parts(
       LayoutKind::Leaf,
@@ -1937,7 +1958,7 @@ impl Node {
     node
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) fn set_video_fit(&mut self, next_fit: BackgroundSize) {
     if let NodeKind::Video { fit, .. } = &mut self.node_kind {
       *fit = next_fit;
@@ -2189,7 +2210,7 @@ impl Node {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => {
@@ -2198,7 +2219,7 @@ impl Node {
       crate::images::ImageKind::Native(data) => {
         self.background_image.set(Some(data.image_data()));
       }
-      #[cfg(feature = "resources")]
+      #[cfg(all(feature = "image", feature = "resources"))]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);
       }
@@ -2206,18 +2227,18 @@ impl Node {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_size(mut self, size: BackgroundSize) -> Self {
     self.background_size = size;
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_cover(self) -> Self {
     self.background_size(BackgroundSize::Cover)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn background_contain(self) -> Self {
     self.background_size(BackgroundSize::Contain)
   }
@@ -3349,11 +3370,11 @@ impl Node {
       || self.caret_mode.is_changed()
       || self.scrollbar_style.is_changed()
       || {
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         {
           self.background_image.is_changed()
         }
-        #[cfg(not(feature = "image"))]
+        #[cfg(not(feature = "raster"))]
         {
           false
         }
@@ -3477,7 +3498,7 @@ impl Node {
     self.caret_color.clear_changed();
     self.selection_color.clear_changed();
     self.caret_mode.clear_changed();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     self.background_image.clear_changed();
     self.scrollbar_style.clear_changed();
     for child in &self.children {
@@ -3499,6 +3520,14 @@ impl Node {
   }
 
   pub(crate) fn preserve_runtime_state_from(&mut self, old: &Node) {
+    #[cfg(feature = "canvas")]
+    if self.can_preserve_runtime_state_from(old)
+      && let (NodeKind::Canvas { canvas }, NodeKind::Canvas { canvas: old_canvas }) =
+        (&mut self.node_kind, &old.node_kind)
+    {
+      *canvas = old_canvas.clone();
+    }
+
     self.clear_unchanged_guard_flags_from(old);
     let own_layout_signature_matches = self.own_layout_signature_matches(old);
     if own_layout_signature_matches && self.children.len() == old.children.len() {
@@ -3551,24 +3580,24 @@ impl Node {
       }
     }
 
+    let mut claimed = vec![false; old.children.len()];
     for index in 0..self.children.len() {
-      let child_slot_id = self.children[index].component_slot_id;
-      let old_child = old
+      let child = &self.children[index];
+      let matched = old
         .children
         .get(index)
-        .filter(|old_child| self.children[index].can_preserve_runtime_state_from(old_child))
+        .filter(|old_child| !claimed[index] && child.can_preserve_runtime_state_from(old_child))
+        .map(|_| index)
         .or_else(|| {
-          child_slot_id.and_then(|slot_id| {
-            old
-              .children
-              .iter()
-              .find(|old_child| old_child.component_slot_id == Some(slot_id))
-              .filter(|old_child| self.children[index].can_preserve_runtime_state_from(old_child))
-          })
+          old
+            .children
+            .iter()
+            .enumerate()
+            .find_map(|(offset, old_child)| (!claimed[offset] && child.identity_matches(old_child)).then_some(offset))
         });
-
-      if let Some(old_child) = old_child {
-        self.children[index].preserve_runtime_state_from(old_child);
+      if let Some(offset) = matched {
+        claimed[offset] = true;
+        self.children[index].preserve_runtime_state_from(&old.children[offset]);
       }
     }
   }
@@ -3735,9 +3764,9 @@ impl Node {
       (NodeKind::Slider { state }, NodeKind::Slider { state: old_state }) => {
         state.layout_signature() == old_state.layout_signature()
       }
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       (NodeKind::Image { data }, NodeKind::Image { data: old_data }) => data.id() == old_data.id(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       (
         NodeKind::Video { data, fit },
         NodeKind::Video {
@@ -3765,8 +3794,7 @@ impl Node {
     // list). Match them to their old twin by identity so node ids — and the
     // hover/active/focus state the runtime tracks by id — follow the element
     // instead of its position. Subtrees with no such children keep the cheap
-    // positional zip. This mirrors `preserve_runtime_state_from`, which already
-    // reconciles moved children by slot id.
+    // positional zip. This mirrors the keyed/slotted matching in `preserve_runtime_state_from`.
     let reorderable = self
       .children
       .iter()
@@ -3854,7 +3882,20 @@ impl Node {
       offset: self.offset,
       align_self: self.align_self,
       flex: self.flex,
-      node_kind: self.node_kind.clone(),
+      node_kind: {
+        #[cfg(feature = "canvas")]
+        if let NodeKind::Canvas { canvas } = &self.node_kind {
+          NodeKind::Canvas {
+            canvas: canvas.clone_empty(),
+          }
+        } else {
+          self.node_kind.clone()
+        }
+        #[cfg(not(feature = "canvas"))]
+        {
+          self.node_kind.clone()
+        }
+      },
       text_content: self.text_content.clone(),
       text_wrap: self.text_wrap,
       text_overflow: self.text_overflow,
@@ -3869,9 +3910,9 @@ impl Node {
       caret_mode: self.caret_mode.clone(),
       cursor: self.cursor,
       hit_test: self.hit_test,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       background_image: self.background_image.clone(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       background_size: self.background_size,
       #[cfg(all(feature = "image", feature = "resources"))]
       background_resource_image: self.background_resource_image.clone(),

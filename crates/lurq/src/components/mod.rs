@@ -1,4 +1,6 @@
 mod button;
+#[cfg(feature = "canvas")]
+mod canvas;
 mod checkbox;
 mod column;
 mod drag_container;
@@ -6,9 +8,9 @@ mod draggable;
 mod drop_zone;
 #[cfg(feature = "form")]
 mod form;
-#[cfg(all(feature = "image", feature = "wgpu"))]
+#[cfg(all(feature = "raster", feature = "wgpu"))]
 mod gpu_viewport;
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 mod image;
 #[cfg(feature = "router")]
 mod link;
@@ -31,12 +33,14 @@ mod stack;
 mod svg;
 mod text;
 mod text_input;
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 mod video;
 mod virtualized_list;
 mod window_chrome;
 
 pub use button::Button;
+#[cfg(feature = "canvas")]
+pub use canvas::Canvas;
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
@@ -52,9 +56,9 @@ pub use form::{
   FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue, FormValues, ResolvedControl, ValidationResult,
   validators,
 };
-#[cfg(all(feature = "image", feature = "wgpu"))]
+#[cfg(all(feature = "raster", feature = "wgpu"))]
 pub use gpu_viewport::GpuViewport;
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 pub use image::Image;
 #[cfg(feature = "router")]
 pub use link::Link;
@@ -77,7 +81,7 @@ pub use stack::Stack;
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow, TextInputOverflowAnchor};
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;
 pub use window_chrome::{
@@ -400,25 +404,25 @@ macro_rules! impl_into_node {
         self
       }
 
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       pub fn background_image(mut self, data: impl Into<$crate::images::ImageKind>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background_image(node, data));
         self
       }
 
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       pub fn background_size(mut self, size: $crate::node::BackgroundSize) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background_size(node, size));
         self
       }
 
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       pub fn background_cover(mut self) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background_cover(node));
         self
       }
 
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       pub fn background_contain(mut self) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background_contain(node));
         self

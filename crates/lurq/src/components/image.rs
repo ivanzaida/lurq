@@ -7,6 +7,7 @@ impl Image {
     Self::from_node(crate::node::Node::image(data))
   }
 
+  #[cfg(feature = "image")]
   pub fn from_resource(path: &str) -> Self {
     Self::from_node(crate::node::Node::resource_image(path))
   }

@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Size {
   pub width: f32,
   pub height: f32,

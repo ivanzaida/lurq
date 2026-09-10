@@ -31,6 +31,7 @@ struct VsOut
   float2 local_px : TEXCOORD2;
   float2 size : TEXCOORD3;
   float4 radii : TEXCOORD4;
+  float canvas : TEXCOORD5;
 };
 
 float2 pick_radius(float2 p, float4 r)
@@ -86,6 +87,7 @@ VsOut vs_main(VsIn input)
   float2 uv_size = max(input.size, float2(1e-6, 1e-6));
   output.uv = input.uv_min + (local_px / uv_size) * (input.uv_max - input.uv_min);
   output.opacity = input.opacity.x;
+  output.canvas = input.opacity.y;
   output.local_px = local_px;
   output.size = input.size;
   output.radii = input.radii;
@@ -116,6 +118,10 @@ float4 ps_main(VsOut input) : SV_TARGET
   }
 
   float4 color = image_texture.Sample(image_sampler, input.uv);
+  if (input.canvas > 0.5) {
+    float3 c = color.rgb / max(color.a, 0.000001);
+    color.rgb = float3(c.r <= 0.04045 ? c.r/12.92 : pow((c.r+0.055)/1.055,2.4),c.g <= 0.04045 ? c.g/12.92 : pow((c.g+0.055)/1.055,2.4),c.b <= 0.04045 ? c.b/12.92 : pow((c.b+0.055)/1.055,2.4));
+  }
   color.a *= input.opacity * shape_alpha * clip_alpha_value;
   return color;
 }

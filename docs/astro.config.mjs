@@ -31,6 +31,7 @@ export default defineConfig({
                         'devtools',
                         'mcp',
                         'resources-media',
+                        'canvas',
                         'testing',
                     ],
                 },

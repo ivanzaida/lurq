@@ -404,6 +404,44 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
   push_shape_row(&mut rows, "node", node_kind_name(element.node.node_kind()));
   push_layout_rows(&mut rows, element.node.layout_kind());
   push_flat_layout_rows(&mut rows, element.node);
+  #[cfg(feature = "canvas")]
+  if let Some(canvas) = element.node.canvas_handle() {
+    let status = canvas.status();
+    push_shape_row(&mut rows, "surface", format!("{:?}", canvas.surface_id()));
+    push_shape_row(
+      &mut rows,
+      "canvas logical size",
+      format!("{} x {}", status.metrics.size.width, status.metrics.size.height),
+    );
+    push_shape_row(
+      &mut rows,
+      "canvas pixels",
+      format!("{} x {}", status.metrics.pixel_width, status.metrics.pixel_height),
+    );
+    push_shape_row(&mut rows, "canvas scale", format_number(status.metrics.scale_factor));
+    push_shape_row(&mut rows, "canvas revision", status.content_revision.to_string());
+    push_shape_row(
+      &mut rows,
+      "canvas renderer",
+      if status.software { "software" } else { "GPU" },
+    );
+    push_shape_row(&mut rows, "canvas pending bytes", status.pending_bytes.to_string());
+    push_shape_row(&mut rows, "canvas GPU backing bytes", status.gpu_bytes.to_string());
+    push_shape_row(&mut rows, "canvas GPU tiles", status.gpu.tiles.to_string());
+    push_shape_row(
+      &mut rows,
+      "canvas source upload bytes",
+      status.gpu.uploaded_bytes.to_string(),
+    );
+    push_shape_row(
+      &mut rows,
+      "canvas color bytes",
+      (u64::from(status.metrics.pixel_width) * u64::from(status.metrics.pixel_height) * 4).to_string(),
+    );
+    if let Some(error) = status.error {
+      push_shape_row(&mut rows, "canvas error", error.to_string());
+    }
+  }
 
   if let Some(text) = element.text_content() {
     push_shape_row(&mut rows, "text", text);
@@ -642,6 +680,8 @@ fn layout_name(layout: &LayoutKind) -> &'static str {
 fn node_kind_name(kind: &NodeKind) -> &'static str {
   match kind {
     NodeKind::Empty => "Empty",
+    #[cfg(feature = "canvas")]
+    NodeKind::Canvas { .. } => "Canvas",
     NodeKind::Text { .. } => "Text",
     #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "RichText",
@@ -649,9 +689,9 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     NodeKind::Checkbox { .. } => "Checkbox",
     NodeKind::Slider { .. } => "Slider",
     NodeKind::Select { .. } => "Select",
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     NodeKind::Image { .. } => "Image",
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     NodeKind::Video { .. } => "Video",
     #[cfg(feature = "image")]
     NodeKind::ResourceImage { .. } => "ResourceImage",

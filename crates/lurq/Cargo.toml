@@ -15,7 +15,10 @@ categories = ["gui", "rendering"]
 default = []
 clipboard = ["dep:arboard"]
 form = []
-image = ["dep:image", "dep:core-video-sys"]
+image = ["raster", "dep:image"]
+# Shared raw RGBA transport and GPU composition; no image codecs.
+raster = ["dep:core-video-sys"]
+canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
 i18n = []
 markdown = ["dep:pulldown-cmark"]
 persistent_storage = ["dep:redb"]
@@ -68,7 +71,7 @@ winit = { version = "0.30", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"], optional = true }
 usvg = { version = "0.45", optional = true }
 lyon = { version = "1", optional = true }
-tiny-skia = { version = "0.11", optional = true }
+tiny-skia = { version = "0.11", optional = true, default-features = false, features = ["std", "simd"] }
 ureq = { version = "3.3.0", optional = true }
 serde_json = { version = "1", optional = true }
 tokio = { version = "1.52.3", optional = true, features = ["rt", "rt-multi-thread", "sync"] }
@@ -129,6 +132,14 @@ required-features = ["resources"]
 [[example]]
 name = "dx12_capture_check"
 required-features = ["screenshot", "dx12"]
+
+[[example]]
+name = "canvas"
+required-features = ["canvas", "winit", "wgpu"]
+
+[[example]]
+name = "canvas_capture_check"
+required-features = ["canvas", "screenshot"]
 
 [[bench]]
 name = "layout"

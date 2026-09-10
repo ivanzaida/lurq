@@ -53,13 +53,13 @@ pub enum QuadContent {
     vertical_align: VerticalAlign,
     transform_mode: TextTransformMode,
   },
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Image {
     data: crate::images::ImageData,
     uv_min: [f32; 2],
     uv_max: [f32; 2],
   },
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Video {
     data: crate::images::ImageData,
     uv_min: [f32; 2],

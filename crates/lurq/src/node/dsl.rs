@@ -67,9 +67,9 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     caret_mode: Guard::new(None),
     cursor: None,
     hit_test: crate::node::HitTestBehavior::default(),
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     background_image: Guard::new(None),
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     background_size: crate::node::node::BackgroundSize::default(),
     #[cfg(all(feature = "image", feature = "resources"))]
     background_resource_image: None,

@@ -1,7 +1,7 @@
 #[cfg(all(feature = "image", feature = "resources"))]
 use std::sync::Arc;
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use crate::node::BackgroundSize;
 use crate::node::{
   BackgroundColor,
@@ -20,11 +20,11 @@ pub struct CheckboxStyle {
   pub(crate) border: Option<Borders>,
   pub(crate) indicator_width: Option<f32>,
   pub(crate) indicator_height: Option<f32>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) indicator_image: Option<crate::images::ImageData>,
   #[cfg(all(feature = "image", feature = "resources"))]
   pub(crate) indicator_resource_image: Option<Arc<str>>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub(crate) indicator_size: BackgroundSize,
 }
 
@@ -38,11 +38,11 @@ impl Default for CheckboxStyle {
       border: None,
       indicator_width: None,
       indicator_height: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       indicator_image: None,
       #[cfg(all(feature = "image", feature = "resources"))]
       indicator_resource_image: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       indicator_size: BackgroundSize::default(),
     }
   }
@@ -130,7 +130,7 @@ impl CheckboxStyle {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn indicator_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => {
@@ -139,7 +139,7 @@ impl CheckboxStyle {
       crate::images::ImageKind::Native(data) => {
         self.indicator_image = Some(data.image_data());
       }
-      #[cfg(feature = "resources")]
+      #[cfg(all(feature = "image", feature = "resources"))]
       crate::images::ImageKind::Resource(path) => {
         self.indicator_resource_image = Some(path);
       }
@@ -147,18 +147,18 @@ impl CheckboxStyle {
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn indicator_background_size(mut self, size: BackgroundSize) -> Self {
     self.indicator_size = size;
     self
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn indicator_cover(self) -> Self {
     self.indicator_background_size(BackgroundSize::Cover)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn indicator_contain(self) -> Self {
     self.indicator_background_size(BackgroundSize::Contain)
   }
@@ -185,12 +185,12 @@ impl CheckboxStyle {
     if other.indicator_height.is_some() {
       self.indicator_height = other.indicator_height;
     }
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       if other.indicator_image.is_some() {
         self.indicator_image = other.indicator_image.clone();
       }
-      #[cfg(feature = "resources")]
+      #[cfg(all(feature = "image", feature = "resources"))]
       if other.indicator_resource_image.is_some() {
         self.indicator_resource_image = other.indicator_resource_image.clone();
       }

@@ -1,4 +1,4 @@
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 pub(crate) mod rasterize;
 mod render;
 mod svg_data;

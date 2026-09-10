@@ -44,9 +44,9 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
 const DEFAULT_SELECT_WIDTH: f32 = 160.0;
 const DEFAULT_SELECT_HEIGHT: f32 = 32.0;
-#[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
+#[cfg(any(feature = "raster", all(feature = "svg", feature = "resources")))]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
-#[cfg(any(feature = "image", all(feature = "svg", feature = "resources")))]
+#[cfg(any(feature = "raster", all(feature = "svg", feature = "resources")))]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
 #[cfg(feature = "perf_profile")]
@@ -192,7 +192,7 @@ pub(crate) struct LayoutEngine {
   typography: RefCell<ThemeTypography>,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 struct BackgroundImagePlacement {
   x: f32,
   y: f32,
@@ -202,7 +202,7 @@ struct BackgroundImagePlacement {
   uv_max: [f32; 2],
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn background_image_placement(
   size_mode: crate::node::BackgroundSize,
   box_width: f32,
@@ -275,11 +275,11 @@ fn push_slider_part_quads(
     rect.y = rect.y.round();
   }
 
-  #[cfg(not(feature = "image"))]
+  #[cfg(not(feature = "raster"))]
   let _ = style;
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   let has_image = style.background_image.is_some();
-  #[cfg(not(feature = "image"))]
+  #[cfg(not(feature = "raster"))]
   let has_image = false;
 
   let (rect_x, rect_y, rect_transform, rect_transform_origin) = transformed_quad_frame(rect.x, rect.y, transform);
@@ -297,7 +297,7 @@ fn push_slider_part_quads(
     clip,
   });
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   if let Some(ref bg_image) = style.background_image {
     let placement = background_image_placement(
       style.background_size,
@@ -362,7 +362,7 @@ fn push_checkbox_quads(
   transform: Transform2D,
   clip: ClipRect,
 ) {
-  #[cfg(not(feature = "image"))]
+  #[cfg(not(feature = "raster"))]
   let _ = (style, checked);
 
   let (rect_x, rect_y, rect_transform, rect_transform_origin) = transformed_quad_frame(rect.x, rect.y, transform);
@@ -380,7 +380,7 @@ fn push_checkbox_quads(
     clip,
   });
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   if checked && let Some(ref indicator_image) = style.indicator_image {
     let indicator_width = style
       .indicator_width
@@ -862,7 +862,12 @@ impl LayoutEngine {
       .and_then(|gradient| crate::layout::render_list::RenderGradient::resolve(&gradient, &self.palette.borrow()));
     let resolved_border = node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow());
     let has_visual = background_color.is_some() || background_gradient.is_some() || resolved_border.is_some();
-    let defer_border_to_overlay = resolved_border.is_some() && has_visual && !node.children().is_empty();
+    #[cfg(feature = "canvas")]
+    let canvas_content = matches!(node.node_kind(), NodeKind::Canvas { .. });
+    #[cfg(not(feature = "canvas"))]
+    let canvas_content = false;
+    let defer_border_to_overlay =
+      resolved_border.is_some() && has_visual && (!node.children().is_empty() || canvas_content);
     let content = match node.node_kind() {
       NodeKind::Text {
         state,
@@ -915,13 +920,31 @@ impl LayoutEngine {
         }
       }
       NodeKind::Checkbox { .. } => QuadContent::None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "canvas")]
+      NodeKind::Canvas { canvas } => canvas.image_data().map_or_else(
+        || {
+          if has_visual {
+            QuadContent::Rect {
+              color: background_color.unwrap_or(DEFAULT_TRANSPARENT_COLOR),
+              gradient: background_gradient.clone(),
+            }
+          } else {
+            QuadContent::None
+          }
+        },
+        |data| QuadContent::Image {
+          data,
+          uv_min: [0.0, 0.0],
+          uv_max: [1.0, 1.0],
+        },
+      ),
+      #[cfg(feature = "raster")]
       NodeKind::Image { data } => QuadContent::Image {
         data: data.clone(),
         uv_min: [0.0, 0.0],
         uv_max: [1.0, 1.0],
       },
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       NodeKind::Video { data, fit } => {
         let placement = background_image_placement(
           *fit,
@@ -973,7 +996,10 @@ impl LayoutEngine {
     match &content {
       QuadContent::None => {}
       _ => {
-        if matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. }) && has_visual {
+        if (matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. })
+          || (canvas_content && !matches!(content, QuadContent::Rect { .. })))
+          && has_visual
+        {
           let (visual_x, visual_y, visual_transform, visual_transform_origin) =
             transformed_quad_frame(abs_x, abs_y, transform);
           quads.push(Quad {
@@ -1117,6 +1143,17 @@ impl LayoutEngine {
         }
 
         let (content_x, content_y, content_width, content_height, content_clip) = match node.node_kind() {
+          #[cfg(feature = "canvas")]
+          NodeKind::Canvas { .. } => {
+            let padding = self.resolved_padding_for_size(node, result.size);
+            (
+              abs_x + padding.left,
+              abs_y + padding.top,
+              (result.size.width - padding.left - padding.right).max(0.0),
+              (result.size.height - padding.top - padding.bottom).max(0.0),
+              clip,
+            )
+          }
           NodeKind::TextInput { state, .. } => {
             let padding = self.resolved_padding_for_size(node, result.size);
             let content_width = (result.size.width - padding.left - padding.right).max(0.0);
@@ -1157,7 +1194,7 @@ impl LayoutEngine {
               )
             }
           }
-          #[cfg(feature = "image")]
+          #[cfg(feature = "raster")]
           NodeKind::Video { data, fit } => {
             let placement = background_image_placement(
               *fit,
@@ -1178,7 +1215,9 @@ impl LayoutEngine {
         };
 
         let content_uses_separate_visual_rect =
-          matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. }) && has_visual;
+          (matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. })
+            || (canvas_content && !matches!(content, QuadContent::Rect { .. })))
+            && has_visual;
         let (content_x, content_y, content_transform, content_transform_origin) =
           transformed_quad_frame(content_x, content_y, transform);
         quads.push(Quad {
@@ -1190,7 +1229,7 @@ impl LayoutEngine {
           transform: content_transform,
           transform_origin: content_transform_origin,
           content,
-          border_radius: if content_uses_separate_visual_rect {
+          border_radius: if content_uses_separate_visual_rect && !canvas_content {
             None
           } else {
             node.get_border_radius(&self.radii.borrow())
@@ -1207,7 +1246,7 @@ impl LayoutEngine {
       }
     }
 
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     if let Some(ref bg_image) = *node.background_image {
       let placement = background_image_placement(
         node.background_size,
@@ -2126,7 +2165,14 @@ impl LayoutEngine {
           children: vec![],
         };
       }
-      #[cfg(feature = "image")]
+      #[cfg(feature = "canvas")]
+      NodeKind::Canvas { .. } => {
+        return LayoutResult {
+          size: constraints.constrain(node.intrinsic_size.unwrap_or(Size::new(300.0, 150.0))),
+          children: vec![],
+        };
+      }
+      #[cfg(feature = "raster")]
       NodeKind::Image { data } => {
         let preferred = node
           .intrinsic_size
@@ -2136,7 +2182,7 @@ impl LayoutEngine {
           children: vec![],
         };
       }
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       NodeKind::Video { data, .. } => {
         let preferred = node
           .intrinsic_size
@@ -3194,11 +3240,13 @@ impl LayoutEngine {
       c.max_height = height;
     }
 
-    #[cfg(feature = "image")]
-    if matches!(
-      node.node_kind(),
-      NodeKind::Image { .. } | NodeKind::Video { .. } | NodeKind::ResourceImage { .. }
-    ) {
+    #[cfg(feature = "raster")]
+    if match node.node_kind() {
+      NodeKind::Image { .. } | NodeKind::Video { .. } => true,
+      #[cfg(feature = "image")]
+      NodeKind::ResourceImage { .. } => true,
+      _ => false,
+    } {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
@@ -3249,7 +3297,7 @@ impl LayoutEngine {
     value
   }
 
-  #[cfg(any(feature = "image", feature = "svg"))]
+  #[cfg(any(feature = "raster", feature = "svg"))]
   fn apply_intrinsic_aspect_ratio(
     node: &Node,
     constraints: &mut Constraints,
@@ -3664,11 +3712,11 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.effective_transform().is_identity()
     && node.intrinsic_size.is_none()
     && {
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       {
         node.background_image.as_ref().is_none()
       }
-      #[cfg(not(feature = "image"))]
+      #[cfg(not(feature = "raster"))]
       {
         true
       }
