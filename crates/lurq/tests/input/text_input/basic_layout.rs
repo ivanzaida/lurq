@@ -45,7 +45,7 @@ fn placeholder_after_sizing_is_rendered() {
 
 #[test]
 fn mask_renders_default_mask_character_for_value() {
-  let value = Signal::new("Ada".to_owned());
+  let value = Signal::new("abc".to_owned());
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::TextInput::new(value).mask());
@@ -55,7 +55,7 @@ fn mask_renders_default_mask_character_for_value() {
   assert!(
     quads
       .iter()
-      .any(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "***")),
+      .any(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "•••")),
     "masked text input should render one default mask character per value character"
   );
 }

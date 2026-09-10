@@ -414,7 +414,7 @@ TextInput::new(endpoint.clone())
   .text_align(TextAlign::Center)
 ```
 
-Password inputs can hide their contents with `.mask()`, which renders `*` for each character instead of the typed text. Use `.mask_char(...)` for a custom mask character and `.unmask()` to clear masking:
+Password inputs can hide their contents with `.mask()`, which renders a bullet (`•`, U+2022) for each character instead of the typed text. Use `.mask_char(...)` for a custom mask character, such as `.mask_char('\u{25cf}')` for a WinUI-style heavy dot (`●`) or `.mask_char('*')` for the previous default. Use `.unmask()` to clear masking:
 
 ```rust
 TextInput::new(password.clone())
@@ -432,6 +432,8 @@ TextInput::new(visible_secret.clone())
 ```
 
 Masking only affects rendering. The signal value, clipboard copy/cut, and caret and selection behavior all operate on the real text.
+
+Mask glyphs use the normal text shaping and font fallback chain. If the selected font lacks U+2022, the shaper searches the loaded and system fallback fonts for the bullet. If no available fallback contains it, the font's missing-glyph marker may appear; Lurq does not substitute `*`. Load a font containing U+2022 or choose a supported custom mask in that case.
 
 Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
 
