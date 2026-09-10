@@ -127,6 +127,7 @@ impl WindowOpener {
 }
 
 pub struct App {
+  pub(crate) menu: super::menu::MenuController,
   pub(crate) glyph_engine: GlyphEngine,
   pub(crate) theme: Theme,
   pub(crate) window_opener: WindowOpener,
@@ -154,6 +155,7 @@ impl Default for App {
 impl App {
   pub fn new() -> Self {
     Self {
+      menu: super::menu::MenuController::default(),
       glyph_engine: GlyphEngine::new(),
       theme: Theme::new(),
       window_opener: WindowOpener::default(),
@@ -171,6 +173,24 @@ impl App {
       #[cfg(all(feature = "svg", feature = "resources"))]
       svg_resource_cache: std::collections::HashMap::new(),
     }
+  }
+
+  pub fn menu_bar_support(&self) -> super::menu::MenuBarSupport {
+    if cfg!(all(feature = "winit", target_os = "macos")) {
+      super::menu::MenuBarSupport::Native
+    } else {
+      super::menu::MenuBarSupport::Unavailable
+    }
+  }
+  /// Retains the model everywhere for headless QA; installs a native bar only on macOS.
+  pub fn set_menu_bar(&self, bar: super::menu::MenuBar) {
+    self.menu.set(bar);
+  }
+  pub fn on_menu_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
+    self.menu.on_activate(handler);
+  }
+  pub fn menu_controller(&self) -> super::menu::MenuController {
+    self.menu.clone()
   }
 
   pub fn set_scale_override(&mut self, scale: Option<f32>) {

@@ -22,7 +22,7 @@ use crate::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
     runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata},
-    window::{WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection},
+    window::{CloseRequestSource, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection},
   },
   node::{CursorIcon, color::Color},
 };
@@ -196,6 +196,7 @@ impl WinitWindow {
       })
     };
 
+    self.app.menu.set_waker(waker.clone());
     let tree = self.tree;
     tree.window().set_waker(waker.clone());
     #[cfg(feature = "mcp")]
@@ -224,6 +225,9 @@ impl WinitWindow {
       loop_cadence: WinitLoopCadence::new(Instant::now()),
       window_waker: waker,
     };
+    #[cfg(target_os = "macos")]
+    let _native =
+      crate::app::macos_menu::NativeMenu::install(handler.app.menu.clone(), handler.main.tree.window().clone());
     event_loop.run_app(&mut handler).unwrap();
     #[cfg(feature = "mcp")]
     handler.main.tree.shutdown_mcp();
@@ -359,7 +363,7 @@ impl ManagedWindow {
   }
 
   fn apply_window_commands(&mut self, event_loop: &ActiveEventLoop) -> bool {
-    let commands = self.tree.window().take_commands();
+    let commands = self.tree.window().take_shell_commands();
     if commands.is_empty() {
       return false;
     }
@@ -367,6 +371,7 @@ impl ManagedWindow {
     let mut closed = false;
     for command in commands {
       match command {
+        WindowCommand::RequestClose(_) => unreachable!("resolved by take_shell_commands"),
         WindowCommand::Close => {
           if self.close_exits {
             event_loop.exit();
@@ -628,12 +633,8 @@ impl ManagedWindow {
     self.tree.set_app_ref(app);
     match event {
       WindowEvent::CloseRequested => {
-        if self.close_exits {
-          event_loop.exit();
-        } else {
-          self.window = None;
-          self.redraw_pending = false;
-        }
+        self.tree.window().dispatch_close_request(CloseRequestSource::Os);
+        self.request_redraw();
       }
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
         self.tree.set_scale_factor(scale_factor as f32);
@@ -883,7 +884,7 @@ impl ManagedSecondaryWindow {
   }
 
   fn apply_window_commands(&mut self, tree: &mut Tree) -> bool {
-    let commands = tree.window().take_commands();
+    let commands = tree.window().take_shell_commands();
     if commands.is_empty() {
       return false;
     }
@@ -891,6 +892,7 @@ impl ManagedSecondaryWindow {
     let mut closed = false;
     for command in commands {
       match command {
+        WindowCommand::RequestClose(_) => unreachable!("resolved by take_shell_commands"),
         WindowCommand::Close => {
           self.request_close();
           closed = true;
@@ -1069,7 +1071,8 @@ impl ManagedSecondaryWindow {
     tree.set_app_ref(app);
     match event {
       WindowEvent::CloseRequested => {
-        self.request_close();
+        tree.window().dispatch_close_request(CloseRequestSource::Os);
+        self.request_redraw();
       }
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
         tree.set_scale_factor(scale_factor as f32);
@@ -1478,6 +1481,8 @@ fn window_event_name(event: &WindowEvent) -> &'static str {
 impl ApplicationHandler for WinitHandler {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop, &mut self.app);
+    #[cfg(target_os = "macos")]
+    crate::app::macos_menu::sync();
     self.sync_secondary_windows(event_loop);
   }
 
@@ -1564,6 +1569,9 @@ impl ApplicationHandler for WinitHandler {
     let _slow_scope = WinitSlowScope::new("about_to_wait", "main");
     let started_at = Instant::now();
     let stage_started_at = Instant::now();
+    #[cfg(target_os = "macos")]
+    crate::app::macos_menu::sync();
+    self.app.menu.drain(self.main.tree.window());
     self.main.tick();
     let tick = stage_started_at.elapsed();
     let stage_started_at = Instant::now();
@@ -2045,4 +2053,40 @@ fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
     SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(hit_test as usize)), Some(LPARAM(0)));
   }
   true
+}
+
+#[cfg(test)]
+mod close_runtime_tests {
+  use super::*;
+  #[test]
+  fn secondary_veto_delayed_acceptance_and_unconditional_close() {
+    let mut app = App::new();
+    let mut root = Tree::new();
+    app.window_opener().open("Preferences", 200, 200, |_, _| {});
+    root.apply_secondary_window_requests(&mut app);
+    let secondary = root.secondary_window_mut(0).unwrap();
+    let mut managed = ManagedSecondaryWindow::new(0, secondary);
+    let tree = secondary.tree_mut();
+    tree.window().handle().on_close_requested(|r| r.cancel());
+    tree.window().dispatch_close_request(CloseRequestSource::Os);
+    assert!(!managed.apply_window_commands(tree));
+    assert!(!managed.close_requested());
+    let pending = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let save = pending.clone();
+    tree
+      .window()
+      .handle()
+      .on_close_requested(move |r| *save.lock().unwrap() = Some(r));
+    tree.window().handle().request_close();
+    assert!(!managed.apply_window_commands(tree));
+    pending.lock().unwrap().take().unwrap().proceed();
+    assert!(managed.apply_window_commands(tree));
+    assert!(managed.close_requested());
+    tree
+      .window()
+      .handle()
+      .on_close_requested(|_| panic!("unconditional close called handler"));
+    tree.window().handle().close();
+    assert!(managed.apply_window_commands(tree));
+  }
 }

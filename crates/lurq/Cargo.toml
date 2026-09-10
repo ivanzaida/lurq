@@ -15,7 +15,7 @@ categories = ["gui", "rendering"]
 default = []
 clipboard = ["dep:arboard"]
 form = []
-image = ["dep:image"]
+image = ["dep:image", "dep:core-video-sys"]
 i18n = []
 markdown = ["dep:pulldown-cmark"]
 persistent_storage = ["dep:redb"]
@@ -23,7 +23,7 @@ serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
 render = ["dep:bytemuck"]
-wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:metal", "dep:wgpu-hal"]
+wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:metal", "dep:wgpu-hal", "dep:core-video-sys"]
 dx12 = ["render"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
@@ -107,9 +107,11 @@ windows = { version = "0.62.2", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation-sys = "0.8"
-core-video-sys = "0.1"
+core-video-sys = { version = "0.1", optional = true }
 metal = { version = "0.31", optional = true }
 objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject"] }
 wgpu-hal = { version = "=29.0.3", features = ["metal"], optional = true }
 
 [dev-dependencies]
@@ -144,3 +146,11 @@ harness = false
 name = "text_pipeline"
 harness = false
 required-features = ["markdown"]
+
+[[test]]
+name = "native_macos"
+harness = false
+required-features = ["winit"]
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphicsContext", "NSWindow"] }
