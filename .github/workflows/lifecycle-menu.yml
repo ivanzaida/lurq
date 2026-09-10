@@ -14,6 +14,8 @@ jobs:
       - uses: actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo test -p lurq --lib --features winit,mcp
       - run: cargo test -p lurq --test native_macos --features winit,mcp
       - run: cargo check -p demo --bin lifecycle --features mcp
@@ -27,5 +29,7 @@ jobs:
       - uses: actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo test -p lurq --lib --features winit,mcp
       - run: cargo check -p lurq --features winit,wgpu,mcp,form,persistent_storage

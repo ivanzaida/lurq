@@ -6,7 +6,9 @@ use lurq::{
     Accelerator, App, ApplicationMenu, CloseRequest, Menu, MenuAction, MenuBar, Tree, component::Component, ctx::Ctx,
     wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow,
   },
-  components::{Button, Checkbox, ChromeTitleBar, Column, Modal, Root, Row, Stack, Text, WindowChrome, WindowControls},
+  components::{
+    Button, Checkbox, ChromeTitleBar, Column, Modal, Rect, Root, Row, Stack, Text, WindowChrome, WindowControls,
+  },
   core::Signal,
   node::{Element, dimension::Dimension},
 };
@@ -133,33 +135,50 @@ impl Component for Lifecycle {
       )
       .child(
         Modal::new(
-          Column::new()
-            .id("dialog-close-window")
-            .padding(32.0)
-            .spacing(20.0)
-            .background("#ffffff")
-            .child(Text::new("Close with unsynced changes?"))
+          Stack::new()
+            .width(Dimension::Pct(100.0))
+            .height(Dimension::Pct(100.0))
+            .stack_align(lurq::layout::StackAlignment::Center)
             .child(
-              Button::new("Cancel")
-                .id("dialog-cancel")
-                .padding(12.0)
-                .on_click(move |_| {
-                  if let Some(request) = cancel_pending.lock().unwrap().take() {
-                    request.cancel();
-                  }
-                  cancel_dialog.set(false);
-                }),
+              Rect::new(Dimension::Pct(100.0), Dimension::Pct(100.0))
+                .background("#101827")
+                .opacity(0.5),
             )
             .child(
-              Button::new("Close anyway")
-                .id("dialog-confirm")
-                .padding(12.0)
-                .on_click(move |_| {
-                  if let Some(request) = confirm_pending.lock().unwrap().take() {
-                    request.proceed();
-                  }
-                  confirm_dialog.set(false);
-                }),
+              Column::new()
+                .id("dialog-close-window")
+                .width(420.0)
+                .rounded(12.0)
+                .padding(32.0)
+                .spacing(20.0)
+                .background("#ffffff")
+                .child(Text::new("Close with unsynced changes?"))
+                .child(
+                  Button::new("Cancel")
+                    .background("#edf1f8")
+                    .rounded(6.0)
+                    .id("dialog-cancel")
+                    .padding(12.0)
+                    .on_click(move |_| {
+                      if let Some(request) = cancel_pending.lock().unwrap().take() {
+                        request.cancel();
+                      }
+                      cancel_dialog.set(false);
+                    }),
+                )
+                .child(
+                  Button::new("Close anyway")
+                    .background("#fdd8d8")
+                    .rounded(6.0)
+                    .id("dialog-confirm")
+                    .padding(12.0)
+                    .on_click(move |_| {
+                      if let Some(request) = confirm_pending.lock().unwrap().take() {
+                        request.proceed();
+                      }
+                      confirm_dialog.set(false);
+                    }),
+                ),
             ),
         )
         .open(self.dialog.clone())
@@ -171,7 +190,13 @@ impl Component for Lifecycle {
     WindowChrome::new()
       .title_bar(
         ChromeTitleBar::new()
-          .title(Text::new("lurq lifecycle"))
+          .title(Text::styled(
+            "lurq lifecycle",
+            lurq::layout::text_style::TextStyle {
+              color: lurq::node::color::Color::from_hex("#f0f3ff"),
+              ..Default::default()
+            },
+          ))
           .controls(WindowControls::new().on_close(move || drawn_close.request_close())),
       )
       .content(content)
