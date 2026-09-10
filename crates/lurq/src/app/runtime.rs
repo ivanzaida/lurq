@@ -96,8 +96,11 @@ fn log_draw_image_timeline_sampled(
   image_version: u64,
   frame_index: usize,
 ) {
+  if !crate::app::profile_support::video_diagnostics_enabled() {
+    return;
+  }
   if should_log_video_timeline_sample(last_info_ms) {
-    tracing::info!(
+    crate::app::profile_support::video_log!(info,
       target: "video::timeline",
       "[video:timeline] draw_image phase={} image_id={} image_version={} frame_index={}",
       phase,
@@ -106,7 +109,7 @@ fn log_draw_image_timeline_sampled(
       frame_index
     );
   } else {
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::timeline",
       "[video:timeline] draw_image phase={} image_id={} image_version={} frame_index={}",
       phase,
@@ -135,15 +138,18 @@ fn timeline_ms(duration: Duration) -> f32 {
 }
 
 fn log_render_list_cache_miss_timeline(reason: &'static str, pass_reasons: PassReasons) {
+  if !crate::app::profile_support::video_diagnostics_enabled() {
+    return;
+  }
   if should_log_video_timeline_sample(&RENDER_LIST_CACHE_MISS_TIMELINE_LAST_INFO_MS) {
-    tracing::info!(
+    crate::app::profile_support::video_log!(info,
       target: "video::timeline",
       "[video:timeline] render_list_cache phase=miss reason={} pass_reasons={:?}",
       reason,
       pass_reasons
     );
   } else {
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::timeline",
       "[video:timeline] render_list_cache phase=miss reason={} pass_reasons={:?}",
       reason,
@@ -168,8 +174,11 @@ fn log_layout_fast_path_miss_timeline(
   root_child_count: usize,
   component_dirty: bool,
 ) {
+  if !crate::app::profile_support::video_diagnostics_enabled() {
+    return;
+  }
   if should_log_video_timeline_sample(&LAYOUT_FAST_PATH_MISS_TIMELINE_LAST_INFO_MS) {
-    tracing::info!(
+    crate::app::profile_support::video_log!(info,
       target: "video::timeline",
       "[video:timeline] layout_fast_path phase=miss animation_layout_changed={} image_resources_changed={} svg_resources_changed={} theme_changed={} has_active_overlays={} has_dirty_element_ref={} has_pending_layout_dirty={} has_runtime_layout_state={} has_last_layout={} root_cache_contains={} root_render_dirty={} root_child_count={} component_dirty={}",
       animation_layout_changed,
@@ -187,7 +196,7 @@ fn log_layout_fast_path_miss_timeline(
       component_dirty
     );
   } else {
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::timeline",
       "[video:timeline] layout_fast_path phase=miss animation_layout_changed={} image_resources_changed={} svg_resources_changed={} theme_changed={} has_active_overlays={} has_dirty_element_ref={} has_pending_layout_dirty={} has_runtime_layout_state={} has_last_layout={} root_cache_contains={} root_render_dirty={} root_child_count={} component_dirty={}",
       animation_layout_changed,
@@ -222,6 +231,9 @@ fn log_frame_pass_timeline(
   text_measure_cache: (usize, usize),
   glyph_cache: (usize, usize),
 ) {
+  if !crate::app::profile_support::video_diagnostics_enabled() {
+    return;
+  }
   // Text measurement happens during layout — a slow layout with a high
   // measure-miss count means re-shaping, not flex arithmetic.
   let caches = format!(
@@ -230,7 +242,7 @@ fn log_frame_pass_timeline(
   );
   let slow = total >= SLOW_FRAME_PASS_TIMELINE_THRESHOLD;
   if slow {
-    tracing::warn!(
+    crate::app::profile_support::video_log!(warn,
       target: "video::timeline",
       "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} {} reasons={:?}",
       path,
@@ -250,7 +262,7 @@ fn log_frame_pass_timeline(
       report.reasons
     );
   } else if should_log_video_timeline_sample(&FRAME_PASS_TIMELINE_LAST_INFO_MS) {
-    tracing::info!(
+    crate::app::profile_support::video_log!(info,
       target: "video::timeline",
       "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} {} reasons={:?}",
       path,
@@ -270,7 +282,7 @@ fn log_frame_pass_timeline(
       report.reasons
     );
   } else {
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::timeline",
       "[video:timeline] frame_pass path={} total_ms={:.1} layout_ms={:.1} quad_ms={:.1} glyph_ms={:.1} gpu_ms={:.1} rendered={} cache={} layout_updated={} layout_recalculated={} quad_count={} rect_count={} glyph_count={} {} reasons={:?}",
       path,
@@ -299,8 +311,11 @@ fn log_render_list_cache_hit_timeline(
   glyph_count: usize,
   image_count: usize,
 ) {
+  if !crate::app::profile_support::video_diagnostics_enabled() {
+    return;
+  }
   if should_log_video_timeline_sample(&RENDER_LIST_CACHE_HIT_TIMELINE_LAST_INFO_MS) {
-    tracing::info!(
+    crate::app::profile_support::video_log!(info,
       target: "video::timeline",
       "[video:timeline] render_list_cache phase=hit gpu_ms={:.1} rect_count={} glyph_count={} image_count={} pass_reasons={:?}",
       timeline_ms(gpu),
@@ -310,7 +325,7 @@ fn log_render_list_cache_hit_timeline(
       pass_reasons
     );
   } else {
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::timeline",
       "[video:timeline] render_list_cache phase=hit gpu_ms={:.1} rect_count={} glyph_count={} image_count={} pass_reasons={:?}",
       timeline_ms(gpu),
@@ -483,7 +498,7 @@ fn log_pass_breakdown(
     return;
   }
 
-  tracing::debug!(
+  crate::app::profile_support::video_log!(debug,
     target: "video::watch::lurq",
     "lurq pass breakdown path={} total_ms={:.2} setup_ms={:.2} initial_cache_ms={:.2} layout_ms={:.2} second_cache_ms={:.2} quad_ms={:.2} glyph_ms={:.2} gpu_ms={:.2} rendered={} cached={} required={} reasons={:?}",
     path,

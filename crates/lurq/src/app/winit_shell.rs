@@ -520,7 +520,7 @@ impl ManagedWindow {
       let followup = followup_started_at.elapsed();
       let total = started_at.elapsed();
       if total >= WINIT_BREAKDOWN_THRESHOLD {
-        tracing::debug!(
+        crate::app::profile_support::video_log!(debug,
           target: "video::watch::lurq",
           "winit present_now breakdown total_ms={:.2} setup_ms={:.2} pass_ms={:.2} paint_ms={:.2} followup_ms={:.2} rendered={} cached={} request_followup_redraw={} reasons={:?}",
           duration_ms(total),
@@ -1282,7 +1282,7 @@ impl WinitLoopCadence {
       return;
     }
 
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::watch::lurq",
       "winit loop cadence ticks={} max_tick_delta_ms={:.2} continuous_ticks={} redraw_pending_ticks={} direct_presents={} redraw_requests={} poll={} wait_until={} wait={}",
       self.ticks,
@@ -1323,7 +1323,7 @@ impl Drop for WinitSlowScope {
       return;
     }
 
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::watch::lurq",
       "winit slow scope name={} detail={} elapsed_ms={:.2}",
       self.name,
@@ -1501,7 +1501,7 @@ impl ApplicationHandler for WinitHandler {
         let pick = pick_started_at.elapsed();
         let total = started_at.elapsed();
         if total >= WINIT_BREAKDOWN_THRESHOLD {
-          tracing::debug!(
+          crate::app::profile_support::video_log!(debug,
             target: "video::watch::lurq",
             "winit window_event breakdown event={} total_ms={:.2} pick_ms={:.2} handle_ms=0.00 secondary_requests_ms=0.00 post_present_ms=0.00 presented=false picked=true",
             event_name,
@@ -1526,7 +1526,7 @@ impl ApplicationHandler for WinitHandler {
       let post_present = post_present_started_at.elapsed();
       let total = started_at.elapsed();
       if total >= WINIT_BREAKDOWN_THRESHOLD {
-        tracing::debug!(
+        crate::app::profile_support::video_log!(debug,
           target: "video::watch::lurq",
           "winit window_event breakdown event={} total_ms={:.2} pick_ms={:.2} handle_ms={:.2} secondary_requests_ms={:.2} post_present_ms={:.2} presented={} picked=false",
           event_name,
@@ -1698,7 +1698,7 @@ impl ApplicationHandler for WinitHandler {
     let control_flow_duration = stage_started_at.elapsed();
     let total = started_at.elapsed();
     if total >= WINIT_BREAKDOWN_THRESHOLD {
-      tracing::debug!(
+      crate::app::profile_support::video_log!(debug,
         target: "video::watch::lurq",
         "winit about_to_wait breakdown total_ms={:.2} tick_ms={:.2} main_commands_ms={:.2} secondary_requests_ms={:.2} continuous_check_ms={:.2} present_ms={:.2} post_present_ms={:.2} secondary_tick_ms={:.2} sync_secondary_ms={:.2} control_flow_ms={:.2} main_video={} secondary_video={} direct_presented={} redraw_pending={} redraw_requested={} control_flow={}",
         duration_ms(total),

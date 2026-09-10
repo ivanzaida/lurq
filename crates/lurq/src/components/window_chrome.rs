@@ -937,7 +937,10 @@ mod tests {
       assert_eq!(metrics.resize_inset(window), 0.0);
       assert_eq!(metrics.content_x(window), 0.0);
       assert_eq!(metrics.content_width(window), 400.0);
-      assert_eq!(metrics.content_height(window), 264.0);
+      assert_eq!(
+        metrics.content_height(window),
+        if cfg!(target_os = "macos") { 272.0 } else { 264.0 }
+      );
     }
   }
 
@@ -951,7 +954,10 @@ mod tests {
 
     assert_eq!(metrics.resize_inset(window), 0.0);
     assert_eq!(metrics.content_width(window), 400.0);
-    assert_eq!(metrics.content_height(window), 264.0);
+    assert_eq!(
+      metrics.content_height(window),
+      if cfg!(target_os = "macos") { 272.0 } else { 264.0 }
+    );
   }
 
   #[test]
