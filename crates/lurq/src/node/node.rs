@@ -1422,7 +1422,7 @@ impl NodeUpdate for Node {
   }
 
   fn text_input_mask(&mut self) {
-    NodeUpdate::text_input_mask_char(self, '*');
+    NodeUpdate::text_input_mask_char(self, '\u{2022}');
   }
 
   fn text_input_mask_char(&mut self, mask: char) {
@@ -2734,8 +2734,10 @@ impl Node {
     }
   }
 
-  pub fn text_input_mask(self) -> Self {
-    self.text_input_mask_char('*')
+  /// Masks each value character with `•` (U+2022).
+  pub fn text_input_mask(mut self) -> Self {
+    NodeUpdate::text_input_mask(&mut self);
+    self
   }
 
   pub fn text_input_mask_char(self, mask: char) -> Self {
@@ -4058,7 +4060,7 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
 
 #[cfg(test)]
 mod tests {
-  use super::Node;
+  use super::{Node, NodeKind, NodeUpdate};
   use crate::{
     core::Signal,
     layout::{
@@ -4066,6 +4068,33 @@ mod tests {
       layout_result::{ChildLayout, LayoutResult},
     },
   };
+
+  #[test]
+  fn text_input_mask_builders_render_bullets_and_allow_overrides() {
+    let value = Signal::new("abc".to_owned());
+    let mut updated = Node::text_input(value.clone());
+    NodeUpdate::text_input_mask(&mut updated);
+
+    for node in [Node::text_input(value.clone()).text_input_mask(), updated] {
+      let NodeKind::TextInput { state, .. } = &node.node_kind else {
+        panic!("expected text input");
+      };
+      assert_eq!(state.rendered_text_for_layout(), "•••");
+
+      let node = node.text_input_mask_char('*');
+      let NodeKind::TextInput { state, .. } = &node.node_kind else {
+        panic!("expected text input");
+      };
+      assert_eq!(state.rendered_text_for_layout(), "***");
+
+      let node = node.text_input_unmask();
+      let NodeKind::TextInput { state, .. } = &node.node_kind else {
+        panic!("expected text input");
+      };
+      assert_eq!(state.rendered_text_for_layout(), "abc");
+    }
+    assert_eq!(value.get(), "abc");
+  }
 
   #[test]
   fn changed_text_content_does_not_match_layout_cache_signature() {
