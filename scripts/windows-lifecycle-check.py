@@ -111,7 +111,9 @@ def run(binary, evidence):
     evidence.mkdir(parents=True, exist_ok=True)
     for dirty in (True, False):
         with (evidence / f"demo-{dirty}.log").open("w") as log:
-            process = subprocess.Popen([str(binary)], stdout=log, stderr=log)
+            environment = dict(os.environ, RUST_LOG="video=trace")
+            environment.pop("LURQ_VIDEO_LOGS", None)
+            process = subprocess.Popen([str(binary)], stdout=log, stderr=log, env=environment)
             discovery = Path(os.environ["LOCALAPPDATA"]) / f"lurq/mcp/{process.pid}.json"
             try:
                 wait_for(discovery.exists)
@@ -148,6 +150,8 @@ def run(binary, evidence):
                 if process.poll() is None:
                     process.terminate()
                     process.wait(timeout=5)
+        output = (evidence / f"demo-{dirty}.log").read_text()
+        assert "[video:timeline]" not in output and "video::watch::lurq" not in output, output
         print("PASS", "dirty veto, cancel, MCP, secondary, menu and confirm" if dirty else "clean native close", flush=True)
 
 

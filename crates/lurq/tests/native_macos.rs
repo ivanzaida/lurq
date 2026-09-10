@@ -95,7 +95,6 @@ mod macos {
     let controller = app.menu_controller();
     let callback = shared.clone();
     app.on_menu_activate(move |id| {
-      eprintln!("native activation: {id}");
       if id == "quit" {
         callback.window.lock().unwrap().as_ref().unwrap().request_close();
       } else {
@@ -121,24 +120,6 @@ mod macos {
         last = Instant::now();
         let app = NSApplication::sharedApplication(MainThreadMarker::new().unwrap());
         let file = app.mainMenu().unwrap().itemAtIndex(1).unwrap().submenu().unwrap();
-        eprintln!(
-          "native phase={phase} closes={} activations={}",
-          check.closes.load(Ordering::SeqCst),
-          check.activations.load(Ordering::SeqCst)
-        );
-        if matches!(phase, 4 | 5) {
-          let application = app.mainMenu().unwrap().itemAtIndex(0).unwrap().submenu().unwrap();
-          for index in 0..application.numberOfItems() {
-            let item = application.itemAtIndex(index).unwrap();
-            eprintln!(
-              "application item={} enabled={} key={} modifiers={:?}",
-              item.title(),
-              item.isEnabled(),
-              item.keyEquivalent(),
-              item.keyEquivalentModifierMask()
-            );
-          }
-        }
         match phase {
           0 => file.performActionForItemAtIndex(0),
           1 => {
@@ -147,9 +128,16 @@ mod macos {
           }
           2 => {
             assert_eq!(check.activations.load(Ordering::SeqCst), 2);
+            assert_eq!(check.keys.load(Ordering::SeqCst), 0, "menu-owned keys reached the tree");
+            send_key(&app, "x", 7);
             controller.set(bar(false));
           }
           3 => {
+            assert_eq!(
+              check.keys.load(Ordering::SeqCst),
+              2,
+              "unhandled key down/up did not reach the tree"
+            );
             let item = file.itemAtIndex(0).unwrap();
             assert_eq!(item.title().to_string(), "Nouveau");
             assert!(!item.isEnabled());
@@ -190,7 +178,7 @@ mod macos {
       .run();
     assert_eq!(shared.closes.load(Ordering::SeqCst), 3);
     assert_eq!(shared.activations.load(Ordering::SeqCst), 2);
-    assert_eq!(shared.keys.load(Ordering::SeqCst), 0);
+    assert_eq!(shared.keys.load(Ordering::SeqCst), 2);
     println!(
       "native macOS menu click, accelerator, update, Dock Quit, Cmd+Q, native close, cancel and delayed proceed passed"
     );

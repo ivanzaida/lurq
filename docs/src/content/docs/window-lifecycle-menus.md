@@ -3,14 +3,14 @@ title: Window lifecycle and native menus
 description: Veto OS close requests, defer a decision to a dialog, and install reactive macOS menus.
 ---
 
-Available in **lurq 0.19**. The `winit` shell delivers close requests and menu
+Available in **lurq 0.18.1**. The `winit` shell delivers close requests and menu
 activations on its event-loop thread. These APIs also have headless MCP coverage.
 
 ## Closing a window
 
 Register once during a component's `create`, on that component's window:
 
-```rust,ignore
+```rust
 let pending = Arc::new(Mutex::new(None::<lurq::app::CloseRequest>));
 let save_request = pending.clone();
 let show_dialog = dialog_open.clone();
@@ -146,6 +146,13 @@ cargo run -p demo --bin lifecycle --features mcp
 
 It has a dirty checkbox, a deferred confirmation dialog, drawn chrome, a
 Preferences window, and File/Edit/Help menus. Save is enabled only while dirty.
+On Windows, exercise native close and MCP together with:
+
+```sh
+cargo build -p demo --bin lifecycle --features mcp
+python scripts/windows-lifecycle-check.py target/debug/lifecycle.exe target/lifecycle-evidence
+```
+
 The main-thread native integration test runs with:
 
 ```sh

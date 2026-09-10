@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.19.0 — 2026-09-10
+## 0.18.1 — 2026-09-10
 
 - Add vetoable OS and app close requests for primary and secondary windows. Decisions can be retained for an asynchronous dialog; dropped requests keep the window open. Unconditional `close()` bypasses the handler.
 - Route macOS application termination (including Dock Quit) through the primary window close handler while preserving winit callbacks.
