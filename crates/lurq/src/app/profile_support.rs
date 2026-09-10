@@ -100,3 +100,18 @@ pub(crate) use profile_elapsed;
 pub(crate) use profile_if;
 pub(crate) use profile_scope;
 pub(crate) use profile_value;
+
+/// Noisy video/frame timing diagnostics are explicitly opt-in, independently
+/// of the host application's tracing filter. Read once to keep hot paths cheap.
+pub(crate) fn video_diagnostics_enabled() -> bool {
+  static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+  *ENABLED.get_or_init(|| std::env::var("LURQ_VIDEO_LOGS").is_ok_and(|value| value == "1"))
+}
+macro_rules! video_log {
+  ($level:ident, $($args:tt)*) => {
+    if $crate::app::profile_support::video_diagnostics_enabled() {
+      tracing::$level!($($args)*);
+    }
+  };
+}
+pub(crate) use video_log;

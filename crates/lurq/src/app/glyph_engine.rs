@@ -3420,6 +3420,44 @@ mod tests {
   }
 
   #[test]
+  fn default_mask_falls_back_when_primary_font_lacks_bullet() {
+    let mut engine = GlyphEngine::new();
+    engine.load_font(include_bytes!("../../assets/lucide.ttf").to_vec());
+    let icon_font_id = engine
+      .font_system
+      .db()
+      .faces()
+      .find(|face| face.families.iter().any(|(name, _)| name == "lucide"))
+      .expect("bundled icon font should be loaded")
+      .id;
+    let icon_font = engine.font_system.get_font(icon_font_id).unwrap();
+    assert!(icon_font.rustybuzz().glyph_index('•').is_none());
+
+    let style = crate::layout::text_style::TextStyle {
+      font_family: "lucide".into(),
+      ..crate::layout::text_style::TextStyle::default()
+    };
+    let mut buffer = engine.acquire_buffer(&style, 200.0, false);
+    super::set_buffer_text(
+      &mut buffer,
+      &mut engine.font_system,
+      "•••",
+      Attrs::new().family(Family::Name("lucide")),
+      style.text_align,
+    );
+    buffer.shape_until_scroll(&mut engine.font_system, false);
+
+    let glyphs: Vec<_> = buffer.layout_runs().flat_map(|run| run.glyphs).collect();
+    assert_eq!(glyphs.len(), 3);
+    for glyph in glyphs {
+      assert_ne!(glyph.font_id, icon_font_id, "bullet should use a fallback font");
+      assert_ne!(glyph.glyph_id, 0, "bullet should not render the missing-glyph box");
+    }
+    engine.buffer_pool.push(buffer);
+    assert_eq!(engine.rasterize_text("•••", &style, 200.0, 0.0, 0.0).len(), 3);
+  }
+
+  #[test]
   fn wrapped_glyph_y_positions_are_pixel_snapped() {
     let mut engine = GlyphEngine::new();
     let style = crate::layout::text_style::TextStyle {

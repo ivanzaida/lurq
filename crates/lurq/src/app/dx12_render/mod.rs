@@ -164,7 +164,7 @@ static DX12_IMAGE_DRAWS_DISABLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(feature = "raster")]
 fn dx12_native_image_log(message: impl std::fmt::Display) {
-  tracing::debug!("[dx12/native-image] {message}");
+  crate::app::profile_support::video_log!(debug, "[dx12/native-image] {message}");
 }
 
 fn duration_ms(duration: Duration) -> f64 {
@@ -183,7 +183,7 @@ fn log_slow_dx12_render_frame(width: u32, height: u32, init: Duration, profile: 
     return;
   }
 
-  tracing::debug!(
+  crate::app::profile_support::video_log!(debug,
     target: "video::watch::lurq",
     "dx12 render slow frame size={}x{} total_ms={:.2} work_ms={:.2} init_ms={:.2} wait_ms={:.2} upload_ms={:.2} atlas_upload_ms={:.2} image_upload_ms={:.2} encode_ms={:.2} submit_ms={:.2} present_ms={:.2} atlas_bytes={} atlas_rects={} atlas_full={}",
     width,
@@ -255,7 +255,7 @@ fn acquire_native_nv12_mutex(
   let elapsed = started_at.elapsed();
   let acquired = result.is_ok();
   if !acquired || elapsed >= Duration::from_millis(2) {
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::watch::lurq",
       "watched stream native texture mutex image_id={} version={} plane={} acquired={} wait_ms={:.2} error={:?}",
       image_id,
@@ -387,7 +387,7 @@ impl Dx12RenderEngine {
       return;
     }
 
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::watch::lurq",
       "dx12 render cadence renders={} slow={} max_render_delta_ms={:.2} max_total_ms={:.2} max_wait_ms={:.2} max_encode_ms={:.2} max_present_ms={:.2} rects={} glyphs={} images={}",
       stats.renders,
@@ -667,7 +667,7 @@ impl RenderEngine for Dx12RenderEngine {
 
     let state = self.state.as_mut().unwrap();
     if state.width != self.width || state.height != self.height {
-      tracing::debug!(
+      crate::app::profile_support::video_log!(debug,
         target: "video::watch::lurq",
         "dx12 swapchain resize old={}x{} new={}x{}",
         state.width,
@@ -3288,7 +3288,7 @@ impl Dx12State {
         }
         Some(last_stream_frame) => {
           stats.backward_stream_frames += 1;
-          tracing::debug!(
+          crate::app::profile_support::video_log!(debug,
             target: "video::watch::lurq",
             "dx12 native image frame order image={} drawn_frame={} previous_drawn_frame={} backwards=true image_version={} size={}x{}",
             image.image_id,
@@ -3311,7 +3311,7 @@ impl Dx12State {
       return;
     }
 
-    tracing::debug!(
+    crate::app::profile_support::video_log!(debug,
       target: "video::watch::lurq",
       "dx12 native image cadence image={} size={}x{} draws={} version_changes={} repeated_draws={} skipped_versions={} max_draw_delta_ms={:.2} max_version_delta={} last_version={:?} stream_frame_changes={} repeated_stream_frames={} backward_stream_frames={} skipped_stream_frames={} max_stream_frame_delta={} last_stream_frame={:?}",
       image.image_id,
@@ -3438,7 +3438,7 @@ impl Dx12State {
       _ => None,
     };
     if native_stream_frame != descriptor_stream_frame {
-      tracing::debug!(
+      crate::app::profile_support::video_log!(debug,
         target: "video::watch::lurq",
         "dx12 native image descriptor frame mismatch image={} live_frame={:?} descriptor_frame={:?} image_version={} frame_index={} descriptor={}",
         image.image_id,

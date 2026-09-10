@@ -1,6 +1,6 @@
 use std::{
   ops::Deref,
-  sync::{Arc, RwLock},
+  sync::{Arc, RwLock, Weak},
 };
 
 use crate::{core::Signal, layout::size::Size, node::color::Color};
@@ -102,6 +102,42 @@ impl WindowIcon {
   }
 }
 
+/// Origin of a vetoable close request. Programmatic `close()` bypasses this path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseRequestSource {
+  Os,
+  App,
+}
+
+/// A one-shot decision that may be moved to another thread or retained for a dialog.
+/// Dropping it, or calling `cancel`, keeps the window open. A stale request cannot
+/// close a replacement window: it refers only to its original window's queue.
+pub struct CloseRequest {
+  window: Weak<RwLock<WindowInner>>,
+  source: CloseRequestSource,
+}
+
+impl CloseRequest {
+  pub fn source(&self) -> CloseRequestSource {
+    self.source
+  }
+  pub fn proceed(self) {
+    if let Some(window) = self.window.upgrade() {
+      let waker = {
+        let mut inner = window.write().unwrap();
+        inner.commands.push(WindowCommand::Close);
+        inner.waker.clone()
+      };
+      if let Some(waker) = waker {
+        waker();
+      }
+    }
+  }
+  pub fn cancel(self) {}
+}
+
+type CloseHandler = Arc<dyn Fn(CloseRequest) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct WindowHandle {
   info: WindowInfo,
@@ -113,6 +149,23 @@ impl WindowHandle {
     self.info
   }
 
+  /// Replace this window's OS/app close handler. Runs on the event-loop thread.
+  pub fn on_close_requested(&self, handler: impl Fn(CloseRequest) + Send + Sync + 'static) {
+    self.window.inner.write().unwrap().close_handler = Some(Arc::new(handler));
+  }
+
+  pub fn clear_close_requested_handler(&self) {
+    self.window.inner.write().unwrap().close_handler = None;
+  }
+
+  /// Queue a vetoable request; unlike `close`, this invokes the handler.
+  pub fn request_close(&self) {
+    self
+      .window
+      .push_command(WindowCommand::RequestClose(CloseRequestSource::App));
+  }
+
+  /// Close unconditionally, without invoking the close handler.
   pub fn close(&self) {
     self.window.push_command(WindowCommand::Close);
   }
@@ -281,6 +334,7 @@ pub struct ScreenshotRegion {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum WindowCommand {
   Close,
+  RequestClose(CloseRequestSource),
   SetMinimized(bool),
   SetMaximized(bool),
   SetFullScreen(bool),
@@ -329,6 +383,7 @@ struct WindowInner {
   /// cross-thread `push_command` sat unprocessed while the loop idled in
   /// `ControlFlow::Wait`.
   waker: Option<WindowWaker>,
+  close_handler: Option<CloseHandler>,
 }
 
 impl Default for Window {
@@ -357,9 +412,30 @@ impl Window {
         version: 0,
         commands: Vec::new(),
         waker: None,
+        close_handler: None,
       })),
       version_signal: Signal::new(0),
     }
+  }
+
+  /// The single event-loop entry point for OS, queued app and MCP requests.
+  pub(crate) fn dispatch_close_request(&self, source: CloseRequestSource) {
+    let handler = self.inner.read().unwrap().close_handler.clone();
+    let request = CloseRequest {
+      window: Arc::downgrade(&self.inner),
+      source,
+    };
+    // Never hold the state lock across application code (which may close/register).
+    if let Some(handler) = handler {
+      handler(request);
+    } else {
+      request.proceed();
+    }
+  }
+
+  #[cfg(feature = "mcp")]
+  pub(crate) fn close_queued(&self) -> bool {
+    self.inner.read().unwrap().commands.contains(&WindowCommand::Close)
   }
 
   pub(crate) fn track_access(&self) {
@@ -385,6 +461,33 @@ impl Window {
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn take_commands(&self) -> Vec<WindowCommand> {
     std::mem::take(&mut self.inner.write().unwrap().commands)
+  }
+
+  /// Resolve one generation of app requests on the event-loop thread. Requests
+  /// queued by a callback remain for the next turn, avoiding recursive handlers.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn take_shell_commands(&self) -> Vec<WindowCommand> {
+    let mut result = Vec::new();
+    for command in self.take_commands() {
+      if let WindowCommand::RequestClose(source) = command {
+        self.dispatch_close_request(source);
+      } else {
+        result.push(command);
+      }
+    }
+    for command in self.take_commands() {
+      if matches!(command, WindowCommand::RequestClose(_)) {
+        self.push_command(command);
+      } else {
+        result.push(command);
+      }
+    }
+    result
+  }
+
+  #[cfg(all(feature = "winit", target_os = "macos"))]
+  pub(crate) fn requeue_command(&self, command: WindowCommand) {
+    self.push_command(command);
   }
 
   fn push_command(&self, command: WindowCommand) {
@@ -585,5 +688,97 @@ mod tests {
         WindowCommand::SetCornerRadius(WindowCornerRadius::Default),
       ]
     );
+  }
+}
+
+#[cfg(test)]
+mod close_tests {
+  use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+  };
+
+  use super::*;
+
+  #[test]
+  fn close_veto_cancel_drop_and_delayed_proceed() {
+    let window = Window::new();
+    window.handle().on_close_requested(|request| {
+      assert_eq!(request.source(), CloseRequestSource::Os);
+      request.cancel();
+    });
+    window.dispatch_close_request(CloseRequestSource::Os);
+    assert!(window.take_shell_commands().is_empty());
+    window.handle().on_close_requested(drop);
+    window.dispatch_close_request(CloseRequestSource::Os);
+    assert!(window.take_shell_commands().is_empty());
+    let pending = Arc::new(Mutex::new(None));
+    let save = pending.clone();
+    window
+      .handle()
+      .on_close_requested(move |request| *save.lock().unwrap() = Some(request));
+    window.handle().request_close();
+    assert!(window.take_shell_commands().is_empty());
+    let request = pending.lock().unwrap().take().unwrap();
+    assert_eq!(request.source(), CloseRequestSource::App);
+    std::thread::spawn(move || request.proceed()).join().unwrap();
+    assert_eq!(window.take_shell_commands(), vec![WindowCommand::Close]);
+  }
+
+  #[test]
+  fn close_bypasses_handler_and_no_handler_preserves_behavior() {
+    let window = Window::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    window.handle().on_close_requested(move |_| {
+      count.fetch_add(1, Ordering::SeqCst);
+    });
+    window.handle().close();
+    assert_eq!(window.take_shell_commands(), vec![WindowCommand::Close]);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    window.handle().clear_close_requested_handler();
+    for source in [CloseRequestSource::Os, CloseRequestSource::App] {
+      window.dispatch_close_request(source);
+      assert_eq!(window.take_shell_commands(), vec![WindowCommand::Close]);
+    }
+  }
+
+  #[test]
+  fn proceed_wakes_event_loop_and_request_does_not_own_window() {
+    let window = Window::new();
+    let pending = Arc::new(Mutex::new(None));
+    let save = pending.clone();
+    window
+      .handle()
+      .on_close_requested(move |r| *save.lock().unwrap() = Some(r));
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let count = wakes.clone();
+    window.set_waker(Arc::new(move || {
+      count.fetch_add(1, Ordering::SeqCst);
+    }));
+    window.dispatch_close_request(CloseRequestSource::Os);
+    pending.lock().unwrap().take().unwrap().proceed();
+    assert_eq!(wakes.load(Ordering::SeqCst), 1);
+    window.take_commands();
+    window.dispatch_close_request(CloseRequestSource::Os);
+    let stale = pending.lock().unwrap().take().unwrap();
+    drop(window);
+    stale.proceed();
+    assert_eq!(wakes.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn reentrant_requests_are_deferred_and_registration_is_reentrant() {
+    let window = Window::new();
+    let handle = window.handle();
+    let reentrant = handle.clone();
+    handle.on_close_requested(move |r| {
+      reentrant.clear_close_requested_handler();
+      reentrant.request_close();
+      r.cancel();
+    });
+    handle.request_close();
+    assert!(window.take_shell_commands().is_empty());
+    assert_eq!(window.take_shell_commands(), vec![WindowCommand::Close]);
   }
 }

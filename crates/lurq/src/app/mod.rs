@@ -39,4 +39,12 @@ pub use runtime::{
 pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers};
 #[cfg(feature = "screenshot")]
 pub use window::ScreenshotRegion;
-pub use window::{Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo, WindowResizeDirection};
+pub use window::{
+  CloseRequest, CloseRequestSource, Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo,
+  WindowResizeDirection,
+};
+
+pub mod menu;
+pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
+#[cfg(all(feature = "winit", target_os = "macos"))]
+mod macos_menu;

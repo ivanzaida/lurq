@@ -75,11 +75,13 @@ impl TextInput {
     self
   }
 
+  /// Masks each value character with `•` (U+2022).
   pub fn mask(mut self) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_input_mask(node));
     self
   }
 
+  /// Uses a custom mask, such as `'\u{25cf}'` for a WinUI-style heavy dot.
   pub fn mask_char(mut self, mask: char) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_input_mask_char(node, mask));
     self

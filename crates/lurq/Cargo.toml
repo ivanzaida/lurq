@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.18.0"
+version = "0.18.2"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -17,7 +17,7 @@ clipboard = ["dep:arboard"]
 form = []
 image = ["raster", "dep:image"]
 # Shared raw RGBA transport and GPU composition; no image codecs.
-raster = []
+raster = ["dep:core-video-sys"]
 canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
 i18n = []
 markdown = ["dep:pulldown-cmark"]
@@ -26,7 +26,7 @@ serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
 render = ["dep:bytemuck"]
-wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:metal", "dep:wgpu-hal"]
+wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:objc2-metal", "dep:wgpu-hal", "dep:core-video-sys"]
 dx12 = ["render"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
@@ -110,9 +110,11 @@ windows = { version = "0.62.2", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation-sys = "0.8"
-core-video-sys = "0.1"
-metal = { version = "0.31", optional = true }
+core-video-sys = { version = "0.1", default-features = false, optional = true }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat"], optional = true }
 objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject"] }
 wgpu-hal = { version = "=29.0.3", features = ["metal"], optional = true }
 
 [dev-dependencies]
@@ -155,3 +157,11 @@ harness = false
 name = "text_pipeline"
 harness = false
 required-features = ["markdown"]
+
+[[test]]
+name = "native_macos"
+harness = false
+required-features = ["winit"]
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphicsContext", "NSWindow"] }

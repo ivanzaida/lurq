@@ -1,0 +1,35 @@
+name: Window lifecycle and native menu
+on:
+  push:
+    branches: [master, 'codex/0.19-window-lifecycle-menu']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: cargo test -p lurq --lib --features winit,mcp
+      - run: cargo test -p lurq --test native_macos --features winit,mcp
+      - run: cargo check -p demo --bin lifecycle --features mcp
+  portable:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: cargo test -p lurq --lib --features winit,mcp
+      - run: cargo check -p lurq --features winit,wgpu,mcp,form,persistent_storage

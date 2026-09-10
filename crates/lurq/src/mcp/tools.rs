@@ -57,6 +57,13 @@ fn execute_builtin(
 ) {
   let _ = app;
   match builtin {
+    BuiltinTool::Menu => {
+      let model = app.menu.model();
+      let _ = reply.send(Ok(McpToolOutput::Json(serde_json::json!({
+        "support": format!("{:?}", app.menu_bar_support()),
+        "model": model.as_ref().map(menu_json),
+      }))));
+    }
     BuiltinTool::Windows => {
       let _ = reply.send(windows_tool(tree, state));
     }
@@ -72,7 +79,7 @@ fn execute_builtin(
     BuiltinTool::Screenshot => screenshot_tool(tree, state, &args, reply),
     BuiltinTool::Wait => wait_tool(tree, state, &args, reply),
     BuiltinTool::Interact => {
-      let _ = reply.send(interact_tool(tree, state, &args));
+      let _ = reply.send(interact_tool(tree, app, state, &args));
     }
     BuiltinTool::SetValue => {
       let _ = reply.send(set_value_tool(tree, state, &args));
@@ -826,7 +833,7 @@ fn resolve_point(
   }
 }
 
-fn interact_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
+fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json::Value) -> McpToolResult {
   let action = args
     .get("action")
     .and_then(|value| value.as_str())
@@ -842,6 +849,31 @@ fn interact_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) ->
   };
 
   match action {
+    "request_close" => {
+      let window = requested_window(args);
+      let target = window_tree_mut(tree, &window, state.include_devtools)?;
+      target
+        .window()
+        .dispatch_close_request(crate::app::CloseRequestSource::App);
+      target.request_redraw();
+      let close_queued = target.window().close_queued();
+      Ok(McpToolOutput::Json(serde_json::json!({
+        "ok": true, "window": window, "close_queued": close_queued,
+        "stayed_open": !close_queued,
+        "note": "Snapshot after handler dispatch; a retained request may proceed later. OS teardown is asynchronous."
+      })))
+    }
+    "menu_activate" => {
+      let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("menu_activate needs `id`")?;
+      let activated = app.menu.dispatch(id, tree.window());
+      tree.request_redraw();
+      Ok(McpToolOutput::Json(
+        serde_json::json!({ "id": id, "activated": activated }),
+      ))
+    }
     "click" | "double_click" | "move" => {
       let (window, point) = resolve_point(tree, state, args, "ref", "x", "y")?;
       let (x, y) = point.ok_or("this action needs a `ref` or `x`/`y` coordinates")?;
@@ -1170,4 +1202,109 @@ fn navigate_tool(state: &McpState, args: &serde_json::Value) -> McpToolResult {
 #[cfg(not(feature = "router"))]
 fn navigate_tool(_state: &McpState, _args: &serde_json::Value) -> McpToolResult {
   Err("lurq_navigate needs the `router` feature".into())
+}
+
+fn menu_json(bar: &crate::app::MenuBar) -> serde_json::Value {
+  use serde_json::{Value, json};
+
+  use crate::app::{Menu, MenuAction, MenuItem};
+  fn action(a: &MenuAction) -> Value {
+    json!({"id": a.id.as_ref(), "label": a.label.as_ref(), "enabled": a.enabled,
+      "accelerator": a.accelerator.as_ref().map(|a| json!({"key": a.key.as_ref(),
+        "display": a.display(), "shift": a.modifiers.shift, "ctrl": a.modifiers.ctrl,
+        "alt": a.modifiers.alt, "meta": a.modifiers.meta}))})
+  }
+  fn menu(m: &Menu) -> Value {
+    json!({"title": m.title.as_ref(), "items": m.items.iter().map(|i| match i {
+      MenuItem::Item(a) => action(a), MenuItem::Separator => json!({"separator": true}),
+      MenuItem::Submenu(m) => menu(m),
+    }).collect::<Vec<_>>()})
+  }
+  json!({"application": {"name": bar.application.name.as_ref(),
+    "about": bar.application.about.as_ref().map(action),
+    "preferences": bar.application.preferences.as_ref().map(action), "quit": action(&bar.application.quit)},
+    "menus": bar.menus.iter().map(menu).collect::<Vec<_>>()})
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+  use super::*;
+  use crate::mcp::{Scope, registry::ToolRegistry, shared::McpShared};
+  fn state() -> McpState {
+    let (_, receiver) = std::sync::mpsc::channel();
+    McpState {
+      shared: Arc::new(McpShared::new(
+        [Scope::Observe, Scope::Interact].into_iter().collect(),
+        Default::default(),
+        "test".into(),
+        "test".into(),
+        None,
+      )),
+      registry: Arc::new(ToolRegistry {
+        tools: super::super::registry::builtin_tools(false),
+      }),
+      receiver,
+      include_devtools: false,
+      server: None,
+      discovery_path: None,
+    }
+  }
+  fn call(tree: &mut Tree, app: &mut App, state: &McpState, tool: &str, args: serde_json::Value) -> McpToolResult {
+    let (reply, mut rx) = tokio::sync::oneshot::channel();
+    execute(
+      tree,
+      app,
+      state,
+      McpRequest {
+        tool: tool.into(),
+        args,
+        reply,
+      },
+    );
+    rx.try_recv().unwrap()
+  }
+  fn json(result: McpToolResult) -> serde_json::Value {
+    match result.unwrap() {
+      McpToolOutput::Json(v) => v,
+      _ => panic!("expected json"),
+    }
+  }
+  #[test]
+  fn mcp_close_and_menu_obey_scopes_and_report_dispatch_outcome() {
+    let mut tree = Tree::new();
+    let mut app = App::new();
+    let state = state();
+    tree.window().handle().on_close_requested(|r| {
+      assert_eq!(r.source(), crate::app::CloseRequestSource::App);
+      r.cancel();
+    });
+    let request = serde_json::json!({"action": "request_close"});
+    assert_eq!(
+      json(call(&mut tree, &mut app, &state, "lurq_interact", request.clone()))["stayed_open"],
+      true
+    );
+    tree.window().handle().clear_close_requested_handler();
+    assert_eq!(
+      json(call(&mut tree, &mut app, &state, "lurq_interact", request.clone()))["close_queued"],
+      true
+    );
+    app.set_menu_bar(crate::app::MenuBar::default());
+    assert_eq!(
+      json(call(&mut tree, &mut app, &state, "lurq_menu", serde_json::json!({})))["model"]["application"]["quit"]["id"],
+      "quit"
+    );
+    assert_eq!(
+      json(call(
+        &mut tree,
+        &mut app,
+        &state,
+        "lurq_interact",
+        serde_json::json!({"action":"menu_activate", "id":"missing"})
+      ))["activated"],
+      false
+    );
+    state.shared.remove_scope(&Scope::Interact);
+    assert!(call(&mut tree, &mut app, &state, "lurq_interact", request).is_err());
+    assert!(call(&mut tree, &mut app, &state, "lurq_menu", serde_json::json!({})).is_ok());
+  }
 }

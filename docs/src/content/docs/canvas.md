@@ -11,7 +11,7 @@ Enable `canvas` alongside your window and renderer features:
 lurq = { path = "../lurq/crates/lurq", features = ["canvas", "winit", "wgpu"] }
 ```
 
-Canvas is available in the development checkout; it is not in the published 0.18.0 release. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
+Canvas is available in the development checkout; it is not in the published 0.18.2 release. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
 
 ## Use the existing ref
 

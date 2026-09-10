@@ -27,6 +27,7 @@ export default defineConfig({
                         'i18n',
                         'modals',
                         'app-runtime',
+                        'window-lifecycle-menus',
                         'devtools',
                         'mcp',
                         'resources-media',

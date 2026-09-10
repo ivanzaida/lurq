@@ -15,6 +15,7 @@ pub(crate) enum BuiltinTool {
   FindById,
   FindByClass,
   Windows,
+  Menu,
   Wait,
   Interact,
   SetValue,
@@ -71,6 +72,12 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
   use serde_json::json;
 
   let mut tools = vec![
+    RegisteredTool {
+      name: "lurq_menu".into(), description: "Read the declarative application menu, ids, enabled state and accelerators. Activate with lurq_interact action menu_activate and id.".into(),
+      scope: Scope::Observe, read_only: true,
+      input_schema: schema(json!({"type": "object", "properties": {}})),
+      kind: ToolKind::Builtin(BuiltinTool::Menu),
+    },
     RegisteredTool {
       name: "lurq_screenshot".into(),
       description: "Capture a PNG screenshot of a window, a region of it, or a single element. \
@@ -194,7 +201,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     RegisteredTool {
       name: "lurq_interact".into(),
       description: "Drive the app with synthetic input. Actions: click, double_click, move, drag, \
-                    wheel, key, type, scroll_to. Target either a `ref` from lurq_read_tree or \
+                    wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id). Target either a `ref` from lurq_read_tree or \
                     `x`/`y` in screenshot pixels (ref carries its window; coordinates use `window`)."
         .into(),
       scope: Scope::Interact,
@@ -202,7 +209,8 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       input_schema: schema(json!({
         "type": "object",
         "properties": {
-          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to"] },
+          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate"] },
+          "id": { "type": "string", "description": "Menu item id for menu_activate" },
           "ref": { "type": "string", "description": "Element handle from lurq_read_tree" },
           "x": { "type": "number", "description": "Screenshot-pixel X (alternative to ref)" },
           "y": { "type": "number", "description": "Screenshot-pixel Y (alternative to ref)" },
