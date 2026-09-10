@@ -75,6 +75,8 @@ fn animation_epoch() -> Instant {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeImageBackend {
+  #[cfg(feature = "canvas")]
+  Canvas,
   Dx12Nv12,
   #[cfg(feature = "wgpu")]
   WgpuExternalRgba,

@@ -35,6 +35,7 @@ fn setup(w: f32, h: f32) -> (App, Tree, ElementRef) {
   let reference = ElementRef::new();
   tree.set_root(
     Canvas::new()
+      .software()
       .ref_element(reference.clone())
       .width(w)
       .height(h)
@@ -45,7 +46,7 @@ fn setup(w: f32, h: f32) -> (App, Tree, ElementRef) {
   (app, tree, reference)
 }
 fn pixel(canvas: &CanvasHandle, x: u32, y: u32) -> [u8; 4] {
-  let snapshot = canvas.snapshot();
+  let snapshot = canvas.snapshot().try_take().unwrap().unwrap();
   snapshot.rgba[((y * snapshot.width + x) * 4) as usize..((y * snapshot.width + x) * 4 + 4) as usize]
     .try_into()
     .unwrap()
@@ -96,7 +97,13 @@ fn same_size_reconciliation_preserves_pixels_and_context_state() {
   draw.set_fill_style("#ff0000");
   draw.fill_rect(2.0, 2.0, 10.0, 10.0);
   draw.translate(8.0, 0.0);
-  tree.set_root(Canvas::new().ref_element(reference.clone()).width(64.0).height(64.0));
+  tree.set_root(
+    Canvas::new()
+      .software()
+      .ref_element(reference.clone())
+      .width(64.0)
+      .height(64.0),
+  );
   tree.pass(&mut app, &support::TestSurface);
   let new = reference.as_canvas().unwrap();
   assert_eq!(old.surface_id(), new.surface_id());
@@ -113,7 +120,13 @@ fn removal_detaches_refs_and_old_context_never_retargets() {
   assert!(reference.as_canvas().is_none());
   assert!(!old.is_attached());
   tree.pass(&mut app, &support::TestSurface);
-  tree.set_root(Canvas::new().ref_element(reference.clone()).width(64.0).height(64.0));
+  tree.set_root(
+    Canvas::new()
+      .software()
+      .ref_element(reference.clone())
+      .width(64.0)
+      .height(64.0),
+  );
   tree.pass(&mut app, &support::TestSurface);
   let new = reference.as_canvas().unwrap();
   assert_ne!(old.surface_id(), new.surface_id());
@@ -124,7 +137,10 @@ fn removal_detaches_refs_and_old_context_never_retargets() {
   drop(tree);
   assert!(reference.as_canvas().is_none());
   assert!(!new.is_attached());
-  assert_eq!(draw.canvas().snapshot().rgba.len(), 64 * 64 * 4);
+  assert_eq!(
+    draw.canvas().snapshot().try_take().unwrap().unwrap().rgba.len(),
+    64 * 64 * 4
+  );
 }
 
 #[test]
@@ -132,7 +148,13 @@ fn changing_ref_binding_preserves_surface_and_invalidates_old_ref() {
   let (mut app, mut tree, reference) = setup(64.0, 64.0);
   let id = reference.as_canvas().unwrap().surface_id();
   let replacement = ElementRef::new();
-  tree.set_root(Canvas::new().ref_element(replacement.clone()).width(64.0).height(64.0));
+  tree.set_root(
+    Canvas::new()
+      .software()
+      .ref_element(replacement.clone())
+      .width(64.0)
+      .height(64.0),
+  );
   tree.pass(&mut app, &support::TestSurface);
   assert!(reference.as_canvas().is_none());
   assert_eq!(replacement.as_canvas().unwrap().surface_id(), id);
@@ -154,7 +176,16 @@ fn clear_rect_respects_transform_and_clip_but_clear_and_reset_are_distinct() {
   assert_eq!(pixel(&canvas, 15, 15)[3], 0);
   assert_eq!(pixel(&canvas, 5, 15)[3], 255);
   d.clear();
-  assert!(canvas.snapshot().rgba.iter().all(|v| *v == 0));
+  assert!(
+    canvas
+      .snapshot()
+      .try_take()
+      .unwrap()
+      .unwrap()
+      .rgba
+      .iter()
+      .all(|v| *v == 0)
+  );
   assert_eq!(d.get_transform().tx, 10.0);
   assert_eq!(d.global_alpha(), 0.1);
   d.reset();
@@ -224,7 +255,15 @@ fn fill_rules_clip_curves_and_geometry_queries() {
   d.fill_rect(0.0, 0.0, 80.0, 80.0);
   assert_eq!(pixel(&c, 40, 40)[3], 255);
   assert_eq!(pixel(&c, 22, 22)[3], 0);
-  assert!(c.snapshot().rgba.chunks_exact(4).any(|p| p[3] > 0 && p[3] < 255));
+  assert!(
+    c.snapshot()
+      .try_take()
+      .unwrap()
+      .unwrap()
+      .rgba
+      .chunks_exact(4)
+      .any(|p| p[3] > 0 && p[3] < 255)
+  );
   assert!(d.is_point_in_path(40.0, 40.0, FillRule::NonZero));
 }
 
@@ -267,11 +306,11 @@ fn logical_resize_resets_but_scale_change_preserves_pixels_and_state() {
   assert_eq!(c.pixel_size(), (80, 80));
   assert_eq!(pixel(&c, 20, 20), [255, 0, 0, 255]);
   assert_eq!(d.get_transform().tx, 3.0);
-  tree.set_root(Canvas::new().ref_element(r.clone()).width(60.0).height(40.0));
+  tree.set_root(Canvas::new().software().ref_element(r.clone()).width(60.0).height(40.0));
   tree.pass(&mut app, &support::TestSurface);
   assert_eq!(c.surface_id(), r.as_canvas().unwrap().surface_id());
   assert_eq!(c.pixel_size(), (120, 80));
-  assert!(c.snapshot().rgba.iter().all(|v| *v == 0));
+  assert!(c.snapshot().try_take().unwrap().unwrap().rgba.iter().all(|v| *v == 0));
   assert_eq!(d.get_transform(), Transform2D::IDENTITY);
   assert_eq!(notifications.lock().unwrap().len(), 3);
 }
@@ -309,7 +348,7 @@ fn detached_worker_writes_are_bounded_and_visible_worker_writes_wake_once() {
     d.fill_rect(0.0, 0.0, 5.0, 5.0);
   }
   assert_eq!(wake.load(Ordering::SeqCst), before);
-  assert_eq!(c.snapshot().rgba.len(), 32 * 32 * 4);
+  assert_eq!(c.snapshot().try_take().unwrap().unwrap().rgba.len(), 32 * 32 * 4);
 }
 
 #[test]
@@ -320,12 +359,12 @@ fn submitted_alpha_is_not_reapplied_on_window_redraw() {
   d.set_fill_style("#ff000080");
   d.fill_rect(0.0, 0.0, 32.0, 32.0);
   d.fill_rect(0.0, 0.0, 16.0, 32.0);
-  let expected = c.snapshot().rgba;
+  let expected = c.snapshot().try_take().unwrap().unwrap().rgba;
   for _ in 0..4 {
     tree.request_redraw();
     tree.pass(&mut app, &support::TestSurface);
   }
-  assert_eq!(c.snapshot().rgba, expected);
+  assert_eq!(c.snapshot().try_take().unwrap().unwrap().rgba, expected);
   assert!((i32::from(pixel(&c, 8, 8)[3]) - 192).abs() <= 1);
   assert_eq!(pixel(&c, 24, 8)[3], 128);
 }
@@ -357,7 +396,15 @@ fn text_shapes_measures_and_renders_with_alignment() {
   assert!(m.actual_bounding_box_ascent > 0.0);
   d.set_text_align(TextAlign::Center);
   d.fill_text("Canvas", 120.0, 45.0).unwrap();
-  assert!(c.snapshot().rgba.chunks_exact(4).any(|p| p[3] > 0));
+  assert!(
+    c.snapshot()
+      .try_take()
+      .unwrap()
+      .unwrap()
+      .rgba
+      .chunks_exact(4)
+      .any(|p| p[3] > 0)
+  );
   let centered = d.measure_text("Canvas").unwrap();
   assert!((centered.width - m.width).abs() < 0.01);
   assert!((centered.actual_bounding_box_left - m.actual_bounding_box_left - m.width * 0.5).abs() < 0.01);
@@ -373,6 +420,7 @@ fn padding_and_ancestor_transform_have_a_checked_pointer_conversion() {
       .transform(Transform2D::translate(20.0, 30.0))
       .child(
         Canvas::new()
+          .software()
           .ref_element(r.clone())
           .width(100.0)
           .height(80.0)
@@ -422,6 +470,7 @@ impl Component for InitialPaint {
   }
   fn render(&self, _: &mut Ctx) -> impl Into<Element> {
     Canvas::new()
+      .software()
       .ref_element(self.reference.clone())
       .width(40.0)
       .height(40.0)
@@ -445,7 +494,7 @@ fn after_layout_and_rect_observers_can_access_the_context() {
     assert!(captured.as_canvas().is_some());
     calls.fetch_add(1, Ordering::Relaxed);
   });
-  tree.set_root(Canvas::new().ref_element(r.clone()).width(40.0).height(40.0));
+  tree.set_root(Canvas::new().software().ref_element(r.clone()).width(40.0).height(40.0));
   tree.pass(&mut app, &support::TestSurface);
   assert!(count.load(Ordering::Relaxed) > 0);
   tree.mount_root::<InitialPaint>(&mut app, ());
@@ -458,8 +507,22 @@ fn after_layout_and_rect_observers_can_access_the_context() {
 fn keyed_reordering_preserves_surfaces_and_key_changes_replace_them() {
   let (mut app, mut tree, a) = setup(32.0, 32.0);
   let b = ElementRef::new();
-  let make_a = || Canvas::new().key("a").ref_element(a.clone()).width(32.0).height(32.0);
-  let make_b = || Canvas::new().key("b").ref_element(b.clone()).width(32.0).height(32.0);
+  let make_a = || {
+    Canvas::new()
+      .software()
+      .key("a")
+      .ref_element(a.clone())
+      .width(32.0)
+      .height(32.0)
+  };
+  let make_b = || {
+    Canvas::new()
+      .software()
+      .key("b")
+      .ref_element(b.clone())
+      .width(32.0)
+      .height(32.0)
+  };
   tree.set_root(Column::new().child(make_a()).child(make_b()));
   tree.pass(&mut app, &support::TestSurface);
   let first = a.as_canvas().unwrap();
@@ -471,9 +534,14 @@ fn keyed_reordering_preserves_surfaces_and_key_changes_replace_them() {
   assert_eq!(second.surface_id(), b.as_canvas().unwrap().surface_id());
   assert_eq!(pixel(&first, 10, 10)[3], 255);
   tree.set_root(
-    Column::new()
-      .child(make_b())
-      .child(Canvas::new().key("new").ref_element(a.clone()).width(32.0).height(32.0)),
+    Column::new().child(make_b()).child(
+      Canvas::new()
+        .software()
+        .key("new")
+        .ref_element(a.clone())
+        .width(32.0)
+        .height(32.0),
+    ),
   );
   tree.pass(&mut app, &support::TestSurface);
   assert_ne!(first.surface_id(), a.as_canvas().unwrap().surface_id());
@@ -483,7 +551,7 @@ fn keyed_reordering_preserves_surfaces_and_key_changes_replace_them() {
 #[test]
 fn cloned_elements_have_independent_surfaces() {
   let (mut app, mut tree, _) = setup(32.0, 32.0);
-  let element: Element = Canvas::new().width(32.0).height(32.0).into();
+  let element: Element = Canvas::new().software().width(32.0).height(32.0).into();
   tree.set_root(Column::new().child(element.clone()).child(element));
   tree.pass(&mut app, &support::TestSurface);
   let canvases: Vec<_> = tree
@@ -516,6 +584,7 @@ impl Component for ReactiveCanvas {
     Column::new()
       .child(
         Canvas::new()
+          .software()
           .ref_element(self.reference.clone())
           .id("retained")
           .width(32.0)
@@ -597,6 +666,7 @@ fn pointer_events_are_logical_at_high_display_scale() {
   let captured = point.clone();
   tree.set_root(
     Canvas::new()
+      .software()
       .ref_element(r.clone())
       .width(64.0)
       .height(64.0)
@@ -616,6 +686,7 @@ fn culled_canvas_writes_persist_without_an_idle_redraw_loop() {
   let (mut app, mut tree, r) = setup(32.0, 32.0);
   tree.set_root(
     Canvas::new()
+      .software()
       .ref_element(r.clone())
       .width(32.0)
       .height(32.0)
@@ -627,7 +698,7 @@ fn culled_canvas_writes_persist_without_an_idle_redraw_loop() {
   tree.pass(&mut app, &support::TestSurface);
   assert!(!tree.needs_redraw());
   assert_eq!(pixel(&c, 10, 10)[3], 255);
-  tree.set_root(Canvas::new().ref_element(r).width(32.0).height(32.0));
+  tree.set_root(Canvas::new().software().ref_element(r).width(32.0).height(32.0));
   tree.pass(&mut app, &support::TestSurface);
   assert_eq!(pixel(&c, 10, 10)[3], 255);
 }

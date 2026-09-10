@@ -60,6 +60,9 @@ fn main() {
     target: RenderCaptureTarget,
   }
   impl RenderEngine for Capture {
+    fn prepare_canvases(&mut self, canvases: &[lurq::canvas::CanvasHandle]) {
+      self.backend.prepare_canvases(canvases);
+    }
     fn resize(&mut self, w: u32, h: u32) {
       self.backend.resize(w, h);
     }
@@ -166,8 +169,80 @@ fn main() {
   let frame = receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
   let visible = image::RgbaImage::from_raw(frame.width, frame.height, frame.rgba).unwrap();
   assert_pixel(&visible, 74, 146, [52, 211, 153, 255]);
+  // Exercise ordered readbacks while the canvas is culled by opacity. These
+  // copies come from the GPU canvas, independently of window composition.
+  let reference = lurq::core::ElementRef::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(1024.0, 600.0))));
+  tree.set_root(
+    lurq::components::Canvas::new()
+      .ref_element(reference.clone())
+      .width(1024.0)
+      .height(600.0)
+      .opacity(0.0),
+  );
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let canvas = reference.as_canvas().unwrap();
+  let d = canvas.context_2d();
+  d.set_fill_style("#ff000080");
+  d.fill_rect(0., 0., 1024., 600.);
+  let red = canvas.snapshot();
+  d.clear();
+  d.set_fill_style("#0000ff");
+  d.fill_rect(0., 0., 1024., 600.);
+  let blue = canvas.snapshot();
+  assert_eq!(
+    canvas.snapshot().try_take().unwrap().unwrap_err(),
+    lurq::canvas::CanvasError::QueueFull
+  );
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let red = red.wait_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let blue = blue.wait_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  assert_eq!(
+    &red.rgba[((520 * red.width + 510) * 4) as usize..((520 * red.width + 510) * 4 + 4) as usize],
+    &[255, 0, 0, 128]
+  );
+  assert_eq!(
+    &blue.rgba[((520 * blue.width + 514) * 4) as usize..((520 * blue.width + 514) * 4 + 4) as usize],
+    &[0, 0, 255, 255]
+  );
+  let before = canvas.status().gpu;
+  d.set_fill_style("#ffffff");
+  d.fill_rect(20., 20., 64., 64.);
+  let white = canvas.snapshot();
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let white = white.wait_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  assert_eq!(
+    &white.rgba[((30 * white.width + 30) * 4) as usize..((30 * white.width + 30) * 4 + 4) as usize],
+    &[255; 4]
+  );
+  assert_eq!(canvas.status().gpu.tiles - before.tiles, 1);
+  assert_eq!(canvas.status().gpu.uploaded_bytes - before.uploaded_bytes, 0);
+  assert_eq!(canvas.status().gpu_bytes, 1024 * 600 * 4);
+  assert_eq!(canvas.status().pending_bytes, 0);
+  // A scale-only change resamples on GPU, including when no pixels are visible.
+  tree.set_scale_factor(2.0);
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let scaled = canvas.snapshot();
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let scaled = scaled.wait_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  assert_eq!((scaled.width, scaled.height), (2048, 1200));
+  assert_eq!(
+    &scaled.rgba[((60 * scaled.width + 60) * 4) as usize..((60 * scaled.width + 60) * 4 + 4) as usize],
+    &[255; 4]
+  );
+  tree.set_root(lurq::components::Rect::new(10., 10.));
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  assert_eq!(canvas.status().gpu_bytes, 0);
+  d.fill_rect(0., 0., 10., 10.);
+  assert_eq!(canvas.status().error, Some(lurq::canvas::CanvasError::Detached));
   println!(
-    "{backend_name} canvas capture and incremental upload passed: {}",
+    "{backend_name} GPU canvas capture, tiled updates, ordered readback, culling, and resize passed: {}",
     output.display()
   );
 }

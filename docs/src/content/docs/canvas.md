@@ -11,7 +11,7 @@ Enable `canvas` alongside your window and renderer features:
 lurq = { path = "../lurq/crates/lurq", features = ["canvas", "winit", "wgpu"] }
 ```
 
-Canvas is available in the development checkout; it is not in the published 0.18.0 release. DX12 supports the same drawing API. `canvas` enables raw RGBA image transport and tiny-skia; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
+Canvas is available in the development checkout; it is not in the published 0.18.0 release. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
 
 ## Use the existing ref
 
@@ -120,7 +120,7 @@ The current path captures the transform when geometry is added. A separate `Path
 
 Text uses lurq's font database and aliases with cosmic-text shaping and Swash rasterization. Register fonts on the app before layout. Set a typed `CanvasFont` with family, logical size, weight, and style; an empty family selects the sans-serif fallback. Text is a single line: newlines and tabs become spaces. It is neither selectable nor part of layout. `measure_text` returns advance width and ink/font bounds relative to the selected alignment and baseline. Text methods return `Result` for unavailable services or oversized work. `stroke_text`, CSS font strings, wrapping, and `max_width` are not implemented.
 
-Image sources must be immutable, nonempty CPU RGBA8 `ImageData`. Source regions use image pixels; destinations use logical canvas units. `draw_image_region` takes `[x, y, width, height]` for each region. Negative sizes extend the region in the opposite direction without mirroring; out-of-bounds source crops shrink the destination proportionally. The call copies source pixels immediately. Animated, streaming, native GPU, and video sources return `UnsupportedImage`.
+Image sources must be immutable, nonempty CPU RGBA8 `ImageData`. Source regions use image pixels; destinations use logical canvas units. `draw_image_region` takes `[x, y, width, height]` for each region. Negative sizes extend the region in the opposite direction without mirroring; out-of-bounds source crops shrink the destination proportionally. The call retains the immutable source through a shared reference. The renderer uploads and premultiplies a source once, then reuses its cached GPU texture. Animated, streaming, native GPU, and video sources return `UnsupportedImage`.
 
 ## Pointer input
 
@@ -139,26 +139,51 @@ Conversion returns `None` when detached or when the presentation transform canno
 
 ## Persistence, scheduling, and cost
 
-This first implementation rasterizes synchronously into a bounded, premultiplied RGBA8 CPU bitmap using tiny-skia. WGPU and DX12 compose the resulting image through their existing image pipelines. Internal canvas source-over blending uses sRGB channel values; the window's image composition uses its existing linear-light blending. `snapshot()` returns a synchronous copy of straight-alpha sRGB RGBA8 pixels, dimensions, and content revision. It includes canvas pixels only, without node backgrounds, borders, or ancestor presentation.
+`Canvas::new()` draws into a persistent GPU texture on both WGPU and native DX12. Calls record ordered work; paths are tessellated on the CPU, then rasterized and blended on the GPU. Text uses cached CPU shaping/glyph rasterization and GPU image drawing. The default canvas has no full-size CPU bitmap. A new blank canvas defers its backing allocation until drawing or readback needs it.
 
-Drawing updates the bitmap immediately, increments its content revision, and wakes the owning window. Calls before a paint are coalesced. Drawing alone does not mark reactive signals or layout dirty. No command history is replayed on window redraw. An idle canvas does not request continuous animation. Winit installs the waker automatically; a custom host must install `Tree::set_canvas_waker` and respond by scheduling a pass.
+The renderer processes only new commands. A shared 512 × 512 tile surface provides 4-sample antialiasing; touched tiles are seeded from the existing texture, drawn, resolved, and copied back on the GPU. A small edit does not upload, convert, or copy the whole canvas. Full clears discard obsolete queued drawing while preserving resize and snapshot barriers. Idle surfaces retain pixels without replaying history or requesting continuous frames.
 
-Methods serialize through the surface lock. A sequence such as set-style plus draw is not an atomic transaction across threads; coordinate shared multi-call sequences in the application. Callbacks and window wakeups occur after releasing internal locks.
+Internal source-over blending uses premultiplied sRGB channel values. Image sources are premultiplied before filtering. Window composition converts the result to straight linear color for the existing image pipeline, including node backgrounds, borders, clipping, radius, and ancestor opacity.
 
-After removal or window destruction, retained contexts can still draw and snapshot their original bitmap, with no window wake and no pending-command backlog. The ref loses access. Dropping the last handle releases the CPU surface. GPU device recreation can reupload the retained CPU image.
+Drawing increments the content revision, wakes the window, and coalesces presentation. It does not dirty reactive state or layout. Winit installs the waker automatically. Custom hosts must install `Tree::set_canvas_waker` and schedule a pass; custom renderer wrappers must forward `RenderEngine::prepare_canvases`, including surfaces culled from the visible image list.
 
-Each changed surface currently converts and uploads its full bitmap. Large, frequently changing canvases can consume significant CPU time and upload bandwidth. Native GPU path execution, dirty-region uploads, gradients, patterns, shadows, filters, additional blend modes, canvas-to-canvas drawing, pixel upload, and automatic animation callbacks are follow-up work.
+Methods serialize through the surface lock. A set-style plus draw sequence is not an atomic transaction across threads; coordinate multi-call sequences in the application. Callbacks and wakeups run outside internal locks.
 
-Limits are 16,384 pixels per backing dimension, 16,777,216 total backing pixels, 128 saved states, 65,536 path segments, and 64 MiB of distinct retained clips. Excess path segments are ignored; save/clip limits appear in `status().error`. An oversized logical resize has no backing bitmap and reports `SurfaceTooLarge`. If scaling exceeds the backing allocation limit, the previous backing scale and pixels are retained with `SurfaceTooLarge`; if saved clips exceed their budget, they are retained with `StateLimit`. Text has separate limits for input length, font size, cache bytes, and raster work. These are per-operation/per-surface bounds, not a global app memory budget; uploads, snapshots, and temporary raster work require additional memory.
+### Explicit snapshots
+
+`snapshot()` returns a `CanvasReadback` ticket. It captures commands before that call, excluding later drawing, node styling, and window composition. Poll from the UI thread:
+
+```rust
+let readback = canvas.snapshot();
+// After the host has rendered, in a later event/tick:
+if let Some(result) = readback.try_take() {
+  let snapshot = result?; // width, height, straight-alpha sRGB rgba, revision
+}
+```
+
+A worker can use `wait_timeout(Duration)` while the UI continues rendering. Never wait for a queued GPU readback on the rendering thread. Readbacks are bounded to two outstanding requests per canvas and eight process-wide, including in-flight GPU copies. Dropping a queued request, detaching, resizing, or losing the renderer completes its ticket with an error. A full `clear()` preserves prior snapshot requests. Submitted pixels are never reapplied following a failed window presentation.
+
+### Lifetime and resource limits
+
+Removing the node invalidates the ref and rejects further GPU drawing with `Detached`. Old handles retain their identity and never target a replacement. The renderer releases detached backing textures after pending GPU use. Device loss reports `RendererLost`; there is no retained CPU checkpoint or complete drawing history, so applications must redraw after recovery.
+
+Use `Canvas::new().software()` explicitly for the synchronous tiny-skia reference renderer, tests, or a host without GPU canvas support. Its readback ticket is ready immediately. Software mode retains the earlier detached-bitmap behavior and full-bitmap upload costs. A renderer without GPU canvas support reports `UnsupportedBackend` for the default canvas.
+
+Limits include 16,384 pixels per backing dimension (also subject to device limits), 16,777,216 backing pixels, 128 saved states/clip levels, 65,536 input path segments, and 8 MiB of distinct retained vector clips. Queued plus encoding work is charged against 64 MiB per canvas and 8,192 commands. Source/clip references are conservatively charged per queued draw. Overflow reports `QueueFull` and rejects that operation; render pending work before continuing, or clear/reset obsolete work. Tessellation expansion is capped at 1,048,576 output vertices. GPU image/text caches use a 64 MiB per-renderer charge after each frame, with at least 64 KiB charged per texture to bound small-texture overhead; shaped text has an 8 MiB app cache in addition to the bounded glyph cache. Software clips retain their separate 64 MiB limit.
+
+`status()` exposes attachment, metrics, content revision, errors, charged pending bytes, backing GPU bytes, and cumulative submitted batches, vertices, tiles, and source-upload bytes. A 3840 × 2160 backing needs 33,177,600 color bytes. Antialiasing scratch is shared across canvases and fixed in size: approximately 9 MiB with D24S8, with WGPU depth/stencil allocation depending on the backend. Queues, geometry buffers, source caches, explicit readbacks, and resources awaiting GPU fences add to those figures; these limits are not a global application memory cap.
+
+Gradients, patterns, shadows, filters, additional blend modes, canvas-to-canvas drawing, pixel upload, and automatic animation callbacks remain outside the initial subset.
 
 ## Examples and checks
 
 ```text
 cargo run -p lurq --example canvas --features canvas,winit,wgpu
 cargo test -p lurq --features canvas --test canvas_tests
+cargo test -p lurq --features canvas,wgpu --lib gpu_canvas_pixels -- --ignored
 ```
 
-On Windows, the hidden-window capture harness checks actual composition and incremental uploads on either backend:
+On Windows, the hidden-window capture harness checks actual composition, tile updates, ordered GPU readbacks, culled drawing, and scale changes on either backend:
 
 ```text
 cargo run -p lurq --example canvas_capture_check --features canvas,screenshot,wgpu -- wgpu

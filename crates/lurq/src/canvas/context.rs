@@ -13,6 +13,9 @@ impl Context2D {
         return;
       }
       s.revision += 1;
+      if let Some(native) = &s.native {
+        native.bump_version();
+      }
       s.pending_paint = true;
       if was_clean { s.window.clone() } else { None }
     };
@@ -42,6 +45,9 @@ impl Context2D {
       s.stack.clear();
       s.path = Path2D::new();
       s.error = None;
+      if !s.software {
+        return s.enqueue(gpu::Command::Clear);
+      }
       if let Some(pixels) = &mut s.pixels {
         pixels.fill(tiny_skia::Color::TRANSPARENT);
       }
@@ -51,6 +57,9 @@ impl Context2D {
   /// Erases the entire surface independently of transform and clip; keeps drawing state and path.
   pub fn clear(&self) {
     self.pixels(|s| {
+      if !s.software {
+        return s.enqueue(gpu::Command::Clear);
+      }
       if let Some(pixels) = &mut s.pixels {
         pixels.fill(tiny_skia::Color::TRANSPARENT);
         true
@@ -389,18 +398,12 @@ impl Context2D {
     if source.iter().chain(destination.iter()).any(|v| !v.is_finite()) {
       return Err(CanvasError::InvalidGeometry);
     }
-    if u64::from(image.width()) * u64::from(image.height()) > MAX_PIXELS {
+    if image.width() > 16384
+      || image.height() > 16384
+      || u64::from(image.width()) * u64::from(image.height()) > MAX_PIXELS
+    {
       return Err(CanvasError::SurfaceTooLarge);
     }
-    let mut data = image.data_arc().as_ref().clone();
-    for p in data.chunks_exact_mut(4) {
-      let a = u16::from(p[3]);
-      for c in &mut p[..3] {
-        *c = ((u16::from(*c) * a + 127) / 255) as u8;
-      }
-    }
-    let size = tiny_skia::IntSize::from_wh(image.width(), image.height()).ok_or(CanvasError::InvalidImage)?;
-    let pixels = Pixmap::from_vec(data, size).ok_or(CanvasError::InvalidImage)?;
     let [mut sx, mut sy, mut sw, mut sh] = source;
     let [mut dx, mut dy, mut dw, mut dh] = destination;
     if sw < 0.0 {
@@ -439,11 +442,51 @@ impl Context2D {
       (right - left) * fx,
       (bottom - top) * fy,
     ];
+    let mut result = Ok(());
     self.pixels(|s| {
       let matrix = Transform2D::translate(dx - sx * fx, dy - sy * fy).then(&Transform2D::scale(fx, fy));
+      if !s.software {
+        let matrix = Transform2D::scale_uniform(s.metrics.scale_factor)
+          .then(&s.state.transform)
+          .then(&matrix);
+        let accepted = s.enqueue(gpu::Command::Image {
+          asset: gpu::Asset {
+            id: image.id(),
+            width: image.width(),
+            height: image.height(),
+            data: image.data_arc(),
+            premultiplied: false,
+          },
+          matrix,
+          source: [left, top, right - left, bottom - top],
+          alpha: s.state.alpha,
+          smooth: s.state.smoothing,
+          clip: s.state.gpu_clip.clone(),
+          scale: s.metrics.scale_factor,
+        });
+        if !accepted {
+          result = Err(s.error.clone().unwrap_or(CanvasError::QueueFull));
+        }
+        return accepted;
+      }
+      let mut data = image.data_arc().as_ref().clone();
+      for p in data.chunks_exact_mut(4) {
+        let a = u16::from(p[3]);
+        for c in &mut p[..3] {
+          *c = ((u16::from(*c) * a + 127) / 255) as u8;
+        }
+      }
+      let Some(size) = tiny_skia::IntSize::from_wh(image.width(), image.height()) else {
+        result = Err(CanvasError::InvalidImage);
+        return false;
+      };
+      let Some(pixels) = Pixmap::from_vec(data, size) else {
+        result = Err(CanvasError::InvalidImage);
+        return false;
+      };
       blit(s, &pixels, matrix, Some(dest))
     });
-    Ok(())
+    result
   }
 
   pub fn set_font(&self, font: CanvasFont) {
@@ -497,6 +540,26 @@ impl Context2D {
       };
       let (ox, oy) = shaped.origin(s.state.align, s.state.baseline);
       let m = Transform2D::translate(x + ox, y + oy).then(&Transform2D::scale_uniform(1.0 / s.metrics.scale_factor));
+      if !s.software {
+        let matrix = Transform2D::scale_uniform(s.metrics.scale_factor)
+          .then(&s.state.transform)
+          .then(&m);
+        return s.enqueue(gpu::Command::Image {
+          asset: gpu::Asset {
+            id: shaped.asset_id,
+            width: pixels.width(),
+            height: pixels.height(),
+            data: shaped.data.clone(),
+            premultiplied: true,
+          },
+          matrix,
+          source: [0., 0., pixels.width() as f32, pixels.height() as f32],
+          alpha: s.state.alpha,
+          smooth: s.state.smoothing,
+          clip: s.state.gpu_clip.clone(),
+          scale: s.metrics.scale_factor,
+        });
+      }
       blit(s, pixels, m, None)
     });
     if let Some(error) = error { Err(error) } else { Ok(()) }
@@ -508,7 +571,7 @@ fn current_stroke_path(s: &Surface) -> Option<Path> {
     .finish()?
     .transform(transform(s.state.transform.inverse_affine()?))
 }
-fn stroke_outline(path: &Path, stroke: &Stroke) -> Option<Path> {
+pub(super) fn stroke_outline(path: &Path, stroke: &Stroke) -> Option<Path> {
   if let Some(dash) = &stroke.dash {
     path.dash(dash, 1.0)?.stroke(stroke, 1.0)
   } else {
@@ -517,6 +580,35 @@ fn stroke_outline(path: &Path, stroke: &Stroke) -> Option<Path> {
 }
 
 fn apply_clip(s: &mut Surface, path: Option<Path>, matrix: Transform2D, rule: FillRule) {
+  if !s.software {
+    let path = path.and_then(|p| p.transform(transform(matrix)));
+    let bytes = path.as_ref().map_or(0, |p| p.points().len() * 16) + s.state.gpu_clip.as_ref().map_or(0, |c| c.bytes);
+    let mut retained = std::collections::HashSet::new();
+    let mut retained_bytes = path.as_ref().map_or(0, |p| p.points().len() * 16);
+    for state in s.stack.iter().chain(std::iter::once(&s.state)) {
+      let mut clip = state.gpu_clip.as_ref();
+      while let Some(c) = clip {
+        if !retained.insert(Arc::as_ptr(c)) {
+          break;
+        }
+        retained_bytes += c.path.as_ref().map_or(0, |p| p.points().len() * 16);
+        clip = c.previous.as_ref();
+      }
+    }
+    let depth = s.state.gpu_clip.as_ref().map_or(1, |c| c.depth + 1);
+    if depth > MAX_SAVE_DEPTH as u32 || retained_bytes > 8 * 1024 * 1024 {
+      s.error = Some(CanvasError::StateLimit);
+      return;
+    }
+    s.state.gpu_clip = Some(Arc::new(gpu::Clip {
+      path,
+      rule,
+      previous: s.state.gpu_clip.clone(),
+      depth,
+      bytes,
+    }));
+    return;
+  }
   let (width, height) = (s.metrics.pixel_width, s.metrics.pixel_height);
   if width == 0 || height == 0 {
     return;

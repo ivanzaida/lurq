@@ -71,6 +71,13 @@ pub struct RenderFrameCaptureWindowClip {
 
 pub trait RenderEngine {
   fn resize(&mut self, width: u32, height: u32);
+  /// Includes culled canvases, which still need queued drawing and readbacks.
+  #[cfg(feature = "canvas")]
+  fn prepare_canvases(&mut self, canvases: &[crate::canvas::CanvasHandle]) {
+    for canvas in canvases {
+      canvas.unsupported();
+    }
+  }
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool;
 
   #[cfg(feature = "screenshot")]

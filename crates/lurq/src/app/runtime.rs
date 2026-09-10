@@ -572,6 +572,8 @@ pub struct Tree {
   #[cfg(feature = "svg")]
   render_svgs: Vec<crate::svg::SvgCmd>,
   cached_render_list: Option<CachedRenderList>,
+  #[cfg(feature = "canvas")]
+  canvas_registry: Vec<crate::canvas::CanvasHandle>,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
   /// Monotonic id source for secondary windows; ids are never reused so a
   /// closed window can be reported as gone instead of resolving to whatever
@@ -889,6 +891,8 @@ impl Tree {
       #[cfg(feature = "svg")]
       render_svgs: Vec::new(),
       cached_render_list: None,
+      #[cfg(feature = "canvas")]
+      canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
       next_secondary_window_id: 1,
       #[cfg(feature = "mcp")]
@@ -1874,12 +1878,10 @@ impl Tree {
     }
     self.pending_pass_reasons = PassReasons::default();
     #[cfg(feature = "canvas")]
-    if let Some(root) = self.root.as_ref() {
-      // Include submissions racing with the initial reasons snapshot. Otherwise
-      // a cached frame could acknowledge a write without exporting its pixels.
-      if consume_canvas_paint_recursive(root) {
-        report.reasons.redraw_requested = true;
-      }
+    for canvas in &self.canvas_registry {
+      // Acknowledge every canvas, including writes racing the reasons snapshot.
+      // Do not short-circuit after the first dirty surface.
+      report.reasons.redraw_requested |= canvas.consume_paint();
     }
     self.needs_redraw = false;
     self.scheduled_redraw_at = None;
@@ -2627,6 +2629,8 @@ impl Tree {
     let Some(render_engine) = &mut self.render_engine else {
       return report;
     };
+    #[cfg(feature = "canvas")]
+    render_engine.prepare_canvases(&self.canvas_registry);
     let rendered = {
       #[cfg(feature = "screenshot")]
       {
@@ -3230,7 +3234,7 @@ impl Tree {
   fn has_dirty_canvas(&self) -> bool {
     #[cfg(feature = "canvas")]
     {
-      return self.root.as_ref().is_some_and(has_dirty_canvas_recursive);
+      return self.canvas_registry.iter().any(crate::canvas::CanvasHandle::dirty);
     }
     #[cfg(not(feature = "canvas"))]
     {
@@ -4923,6 +4927,8 @@ impl Tree {
       self.cached_render_list = Some(cached);
       return Some(false);
     };
+    #[cfg(feature = "canvas")]
+    render_engine.prepare_canvases(&self.canvas_registry);
     let rendered = {
       #[cfg(feature = "devtools")]
       {
@@ -5436,6 +5442,8 @@ impl Tree {
       }
       self.last_theme_version = theme_version;
       #[cfg(feature = "canvas")]
+      self.canvas_registry.clear();
+      #[cfg(feature = "canvas")]
       if let Some(root) = self.root.as_ref() {
         let offset = root.offset_position().unwrap_or_default();
         bind_canvas_layout_recursive(
@@ -5449,6 +5457,7 @@ impl Tree {
           &self.window,
           &crate::canvas::CanvasFont::from_style(typography.default_style()),
           &mut app.glyph_engine,
+          &mut self.canvas_registry,
         );
       }
       if let Some(root) = self.root.as_mut() {
@@ -8754,20 +8763,6 @@ fn detach_canvas_recursive(node: &Node) {
 }
 
 #[cfg(feature = "canvas")]
-fn has_dirty_canvas_recursive(node: &Node) -> bool {
-  node.canvas_handle().is_some_and(|canvas| canvas.dirty()) || node.children().iter().any(has_dirty_canvas_recursive)
-}
-
-#[cfg(feature = "canvas")]
-fn consume_canvas_paint_recursive(node: &Node) -> bool {
-  let mut pending = node.canvas_handle().is_some_and(|canvas| canvas.consume_paint());
-  for child in node.children() {
-    pending |= consume_canvas_paint_recursive(child);
-  }
-  pending
-}
-
-#[cfg(feature = "canvas")]
 fn update_canvas_placement_recursive(
   node: &Node,
   layout: &LayoutResult,
@@ -8811,6 +8806,7 @@ fn bind_canvas_layout_recursive(
   window: &crate::app::window::Window,
   font: &crate::canvas::CanvasFont,
   text: &mut crate::app::glyph_engine::GlyphEngine,
+  registry: &mut Vec<crate::canvas::CanvasHandle>,
 ) {
   use crate::node::transform::Transform2D;
   let local = node
@@ -8818,6 +8814,7 @@ fn bind_canvas_layout_recursive(
     .around_origin([abs_x + layout.size.width * 0.5, abs_y + layout.size.height * 0.5]);
   let composed = inherited.then(&local);
   if let Some(canvas) = node.canvas_handle() {
+    registry.push(canvas.clone());
     let padding = engine.resolved_padding_for_size(node, layout.size);
     let size = Size::new(
       (layout.size.width - padding.left - padding.right).max(0.0),
@@ -8853,6 +8850,7 @@ fn bind_canvas_layout_recursive(
       window,
       font,
       text,
+      registry,
     );
   }
 }

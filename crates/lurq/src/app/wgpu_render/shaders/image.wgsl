@@ -62,6 +62,7 @@ struct VsOut {
     @location(2) local_px: vec2<f32>,
     @location(3) size: vec2<f32>,
     @location(4) radii: vec4<f32>,
+    @location(5) canvas: f32,
 }
 
 @vertex
@@ -84,6 +85,7 @@ fn vs_main(in: VsIn) -> VsOut {
     let uv_size = max(in.size, vec2<f32>(1e-6, 1e-6));
     out.uv = in.uv_min + (local_px / uv_size) * (in.uv_max - in.uv_min);
     out.opacity = in.opacity.x;
+    out.canvas = in.opacity.y;
     out.local_px = local_px;
     out.size = in.size;
     out.radii = in.radii;
@@ -120,6 +122,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     var color = textureSample(img_tex, img_sampler, in.uv);
+    if (in.canvas > 0.5) {
+        let c = color.rgb / max(color.a, 0.000001);
+        color = vec4<f32>(select(pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045)), color.a);
+    }
     color.a *= in.opacity * shape_alpha * clip_alpha;
     // The surface is sRGB; the texture is Rgba8UnormSrgb so the
     // hardware already decoded to linear. The sRGB surface view

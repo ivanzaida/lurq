@@ -3882,9 +3882,9 @@ impl Node {
       flex: self.flex,
       node_kind: {
         #[cfg(feature = "canvas")]
-        if matches!(self.node_kind, NodeKind::Canvas { .. }) {
+        if let NodeKind::Canvas { canvas } = &self.node_kind {
           NodeKind::Canvas {
-            canvas: crate::canvas::CanvasHandle::new(),
+            canvas: canvas.clone_empty(),
           }
         } else {
           self.node_kind.clone()

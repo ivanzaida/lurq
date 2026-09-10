@@ -73,10 +73,14 @@ pub(crate) struct CanvasTextEngine {
   fonts: FontSystem,
   aliases: HashMap<String, String>,
   swash: SwashCache,
+  shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>)>,
+  shaped_bytes: usize,
 }
 
 pub(super) struct ShapedText {
-  pub pixels: Option<Pixmap>,
+  pub pixels: Option<Arc<Pixmap>>,
+  pub data: Arc<Vec<u8>>,
+  pub asset_id: u64,
   width: f32,
   left: f32,
   top: f32,
@@ -125,10 +129,43 @@ impl CanvasTextEngine {
       fonts,
       aliases,
       swash: SwashCache::new(),
+      shaped: Default::default(),
+      shaped_bytes: 0,
     }
   }
 
   pub(super) fn shape(
+    &mut self,
+    text: &str,
+    font: &CanvasFont,
+    scale: f32,
+    color: Color,
+  ) -> Result<Arc<ShapedText>, CanvasError> {
+    if let Some(index) = self
+      .shaped
+      .iter()
+      .position(|(t, f, s, c, _)| t == text && f == font && *s == scale && *c == color)
+    {
+      let entry = self.shaped.remove(index).unwrap();
+      let result = entry.4.clone();
+      self.shaped.push_back(entry);
+      return Ok(result);
+    }
+    let result = Arc::new(self.shape_uncached(text, font, scale, color)?);
+    let bytes = result.data.len() * 2 + text.len();
+    while !self.shaped.is_empty() && (self.shaped_bytes + bytes > 8 * 1024 * 1024 || self.shaped.len() >= 256) {
+      let entry = self.shaped.pop_front().unwrap();
+      self.shaped_bytes -= entry.4.data.len() * 2 + entry.0.len();
+    }
+    if bytes <= 8 * 1024 * 1024 {
+      self.shaped_bytes += bytes;
+      self
+        .shaped
+        .push_back((text.to_owned(), font.clone(), scale, color, result.clone()));
+    }
+    Ok(result)
+  }
+  fn shape_uncached(
     &mut self,
     text: &str,
     font: &CanvasFont,
@@ -224,6 +261,8 @@ impl CanvasTextEngine {
     if glyphs.is_empty() {
       return Ok(ShapedText {
         pixels: None,
+        data: Arc::new(Vec::new()),
+        asset_id: 0,
         width,
         left: 0.0,
         top: 0.0,
@@ -269,7 +308,9 @@ impl CanvasTextEngine {
       );
     }
     Ok(ShapedText {
-      pixels: Some(pixels),
+      asset_id: super::NEXT_CANVAS_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) | (1u64 << 63),
+      data: Arc::new(pixels.data().to_vec()),
+      pixels: Some(Arc::new(pixels)),
       width,
       left: left as f32 / scale,
       top: top as f32 / scale,

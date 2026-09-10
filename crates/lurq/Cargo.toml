@@ -18,7 +18,7 @@ form = []
 image = ["raster", "dep:image"]
 # Shared raw RGBA transport and GPU composition; no image codecs.
 raster = []
-canvas = ["raster", "dep:tiny-skia"]
+canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
 i18n = []
 markdown = ["dep:pulldown-cmark"]
 persistent_storage = ["dep:redb"]

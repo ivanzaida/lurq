@@ -3,10 +3,12 @@
 //! Enable `canvas`, attach a [`crate::core::ElementRef`] to a
 //! [`crate::components::Canvas`], and call `as_canvas()` after layout. Contexts
 //! are owned handles: clones share state and drawing does not rebuild the UI.
-//! Rasterization is synchronous; presentation is coalesced through the host's
-//! event-loop waker. Both GPU backends compose the same raster surface.
+//! Drawing is queued into persistent GPU textures. Presentation is coalesced
+//! through the host event-loop waker. Readbacks are explicit and asynchronous.
 
 mod context;
+pub(crate) mod gpu;
+pub use gpu::CanvasReadback;
 mod path;
 mod text;
 
@@ -27,7 +29,7 @@ use tiny_skia::{Mask, Paint, Path, Pixmap, PixmapPaint, Point, Stroke, StrokeDas
 
 use crate::{
   app::window::Window,
-  images::{ImageData, StreamingImage},
+  images::{ImageData, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage},
   layout::Size,
   node::{color::Color, transform::Transform2D},
 };
@@ -57,6 +59,10 @@ pub struct CanvasId(u64);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CanvasError {
+  Detached,
+  QueueFull,
+  UnsupportedBackend,
+  RendererLost,
   InvalidGeometry,
   InvalidImage,
   UnsupportedImage,
@@ -68,6 +74,10 @@ pub enum CanvasError {
 impl fmt::Display for CanvasError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(match self {
+      Self::Detached => "canvas is detached",
+      Self::QueueFull => "canvas pending-work budget exceeded",
+      Self::UnsupportedBackend => "renderer does not support GPU canvas; select software explicitly",
+      Self::RendererLost => "canvas renderer or readback was released",
       Self::InvalidGeometry => "invalid canvas geometry",
       Self::InvalidImage => "invalid or empty image source",
       Self::UnsupportedImage => "canvas accepts immutable RGBA images only",
@@ -96,9 +106,25 @@ pub struct CanvasStatus {
   pub metrics: CanvasMetrics,
   pub content_revision: u64,
   pub error: Option<CanvasError>,
+  /// Conservative memory charge for queued and encoding work, including retained sources.
+  pub pending_bytes: usize,
+  /// Persistent GPU backing bytes; excludes the renderer's shared tile scratch.
+  pub gpu_bytes: usize,
+  pub software: bool,
+  pub gpu: CanvasGpuStats,
 }
 
-/// Straight-alpha sRGB RGBA8 pixels captured synchronously from the CPU surface.
+/// Cumulative work submitted for this surface. Source uploads exclude explicit
+/// readbacks; drawing solid paths never uploads a canvas bitmap.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CanvasGpuStats {
+  pub batches: u64,
+  pub vertices: u64,
+  pub tiles: u64,
+  pub uploaded_bytes: u64,
+}
+
+/// Straight-alpha sRGB RGBA8 pixels returned by an explicit readback.
 #[derive(Clone, Debug)]
 pub struct CanvasSnapshot {
   pub width: u32,
@@ -146,6 +172,7 @@ struct DrawingState {
   dash: Vec<f32>,
   dash_offset: f32,
   clip: Option<Arc<Mask>>,
+  gpu_clip: Option<Arc<gpu::Clip>>,
   font: CanvasFont,
   align: TextAlign,
   baseline: TextBaseline,
@@ -166,6 +193,7 @@ impl Default for DrawingState {
       dash: Vec::new(),
       dash_offset: 0.0,
       clip: None,
+      gpu_clip: None,
       font: CanvasFont::default(),
       align: TextAlign::Left,
       baseline: TextBaseline::Alphabetic,
@@ -178,6 +206,14 @@ struct Surface {
   id: CanvasId,
   metrics: CanvasMetrics,
   pixels: Option<Pixmap>,
+  software: bool,
+  commands: Vec<gpu::Command>,
+  command_bytes: usize,
+  inflight_bytes: usize,
+  gpu_bytes: usize,
+  gpu: CanvasGpuStats,
+  native: Option<NativeImageData>,
+  readbacks: Arc<std::sync::atomic::AtomicUsize>,
   state: DrawingState,
   defaults: DrawingState,
   stack: Vec<DrawingState>,
@@ -221,6 +257,14 @@ impl CanvasHandle {
           revision: 0,
         },
         pixels: None,
+        software: false,
+        commands: Vec::new(),
+        command_bytes: 0,
+        inflight_bytes: 0,
+        gpu_bytes: 0,
+        gpu: CanvasGpuStats::default(),
+        native: None,
+        readbacks: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         state: DrawingState::default(),
         defaults: DrawingState::default(),
         stack: Vec::new(),
@@ -268,6 +312,10 @@ impl CanvasHandle {
       metrics: s.metrics,
       content_revision: s.revision,
       error: s.error.clone(),
+      pending_bytes: s.command_bytes + s.inflight_bytes,
+      gpu_bytes: s.gpu_bytes,
+      software: s.software,
+      gpu: s.gpu,
     }
   }
 
@@ -293,20 +341,51 @@ impl CanvasHandle {
     s.to_window.inverse_affine().map(|m| m.transform_point(x, y))
   }
 
-  pub fn snapshot(&self) -> CanvasSnapshot {
-    let s = self.inner.lock();
-    CanvasSnapshot {
-      width: s.metrics.pixel_width,
-      height: s.metrics.pixel_height,
-      rgba: s.straight_pixels(),
-      revision: s.revision,
+  /// Queue an ordered GPU readback. Never wait for it on the rendering thread.
+  pub fn snapshot(&self) -> CanvasReadback {
+    let (ticket, mut done) = CanvasReadback::pair();
+    let wake = {
+      let mut s = self.inner.lock();
+      if s.software {
+        done.finish(Ok(CanvasSnapshot {
+          width: s.metrics.pixel_width,
+          height: s.metrics.pixel_height,
+          rgba: s.straight_pixels(),
+          revision: s.revision,
+        }));
+        return ticket;
+      }
+      if !s.attached {
+        done.finish(Err(CanvasError::Detached));
+        return ticket;
+      }
+      if !done.reserve(&s.readbacks) {
+        done.finish(Err(CanvasError::QueueFull));
+        return ticket;
+      }
+      let (metrics, revision) = (s.metrics, s.revision);
+      if s.enqueue(gpu::Command::Readback(done, metrics, revision)) {
+        s.pending_paint = true;
+        s.window.clone()
+      } else {
+        None
+      }
+    };
+    if let Some(window) = wake {
+      window.wake();
     }
+    ticket
   }
 
   pub(crate) fn update_placement(&self, matrix: Transform2D) {
     self.inner.lock().to_window = matrix;
   }
 
+  pub(crate) fn clone_empty(&self) -> Self {
+    let next = Self::new();
+    next.inner.lock().software = self.inner.lock().software;
+    next
+  }
   pub(crate) fn downgrade(&self) -> CanvasWeak {
     CanvasWeak {
       inner: Arc::downgrade(&self.inner),
@@ -314,11 +393,11 @@ impl CanvasHandle {
   }
   pub(crate) fn dirty(&self) -> bool {
     let s = self.inner.lock();
-    s.attached && s.pending_paint && s.pixels.is_some()
+    s.attached && s.pending_paint
   }
   pub(crate) fn consume_paint(&self) -> bool {
     let mut s = self.inner.lock();
-    let pending = s.attached && s.pending_paint && s.pixels.is_some();
+    let pending = s.attached && s.pending_paint;
     s.pending_paint = false;
     pending
   }
@@ -326,6 +405,8 @@ impl CanvasHandle {
     let mut s = self.inner.lock();
     s.attached = false;
     s.window = None;
+    s.commands.clear();
+    s.command_bytes = 0;
   }
 
   pub(crate) fn bind_layout(
@@ -364,18 +445,26 @@ impl CanvasHandle {
     } else {
       (0, 0)
     };
-    let mut next = if width > 0 && height > 0 {
+    let mut next = if s.software && width > 0 && height > 0 {
       Pixmap::new(width, height)
     } else {
       None
     };
-    s.error = if !valid || (width > 0 && height > 0 && next.is_none()) {
+    s.error = if !valid || (s.software && width > 0 && height > 0 && next.is_none()) {
       Some(CanvasError::SurfaceTooLarge)
     } else {
       None
     };
     if !resized && s.error.is_some() {
       // A display-scale allocation failure must not discard the old bitmap.
+      return None;
+    }
+    if !s.software
+      && !resized
+      && (s.commands.len() >= 8192
+        || s.command_bytes + s.inflight_bytes + std::mem::size_of::<gpu::Command>() > gpu::MAX_QUEUE_BYTES)
+    {
+      s.error = Some(CanvasError::QueueFull);
       return None;
     }
     if resized {
@@ -385,7 +474,7 @@ impl CanvasHandle {
       s.state = s.defaults.clone();
       s.stack.clear();
       s.path = Path2D::new();
-    } else {
+    } else if s.software {
       if let (Some(old), Some(next)) = (s.pixels.as_ref(), next.as_mut()) {
         next.draw_pixmap(
           0,
@@ -425,6 +514,19 @@ impl CanvasHandle {
         s.state.clip = masks[&Arc::as_ptr(mask)].clone();
       }
     }
+    if !s.software {
+      if resized {
+        s.commands.clear();
+        s.command_bytes = 0;
+      }
+      s.enqueue(gpu::Command::Resize {
+        width,
+        height,
+        preserve: !resized,
+      });
+      s.native = None;
+      s.pending_paint = true;
+    }
     s.pixels = next;
     s.image = None;
     s.revision += 1;
@@ -442,6 +544,21 @@ impl CanvasHandle {
   pub(crate) fn image_data(&self) -> Option<ImageData> {
     let mut s = self.inner.lock();
     s.pending_paint = false;
+    if !s.software {
+      if s.metrics.pixel_width == 0 || s.metrics.pixel_height == 0 {
+        return None;
+      }
+      if s.native.is_none() {
+        s.native = Some(NativeImageData::new(
+          s.metrics.pixel_width,
+          s.metrics.pixel_height,
+          ImagePixelFormat::Rgba8,
+          NativeImageBackend::Canvas,
+          self.downgrade(),
+        ));
+      }
+      return s.native.as_ref().map(NativeImageData::image_data);
+    }
     s.pixels.as_ref()?;
     if s.image.is_none() || s.revision != s.exported_revision {
       let data = s.straight_pixels();
@@ -479,6 +596,31 @@ impl Surface {
     } else {
       self.state.fill
     };
+    if !self.software {
+      let path = if stroke {
+        context::stroke_outline(path, &self.state.stroke)
+      } else {
+        Some(path.clone())
+      };
+      let matrix = transform(Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix));
+      let Some(path) = path.and_then(|p| p.transform(matrix)) else {
+        return false;
+      };
+      let alpha = f32::from(color.a()) / 255.0 * self.state.alpha;
+      return self.enqueue(gpu::Command::Path {
+        path,
+        rule,
+        color: [
+          f32::from(color.r()) / 255.0 * alpha,
+          f32::from(color.g()) / 255.0 * alpha,
+          f32::from(color.b()) / 255.0 * alpha,
+          alpha,
+        ],
+        erase: clear,
+        clip: self.state.gpu_clip.clone(),
+        scale: self.metrics.scale_factor,
+      });
+    }
     let mut paint = Paint::default();
     paint.set_color_rgba8(
       color.r(),
@@ -567,5 +709,48 @@ fn parse_color(value: &str) -> Option<Color> {
       if hex.len() == 8 { byte(6, 8)? } else { 255 },
     )),
     _ => None,
+  }
+}
+
+#[cfg(test)]
+impl CanvasHandle {
+  pub(crate) fn test_surface(width: u32, height: u32, scale: f32, software: bool) -> Self {
+    let canvas = Self::new();
+    {
+      let mut s = canvas.inner.lock();
+      s.attached = true;
+      s.software = software;
+      s.metrics = CanvasMetrics {
+        size: Size::new(width as f32 / scale, height as f32 / scale),
+        pixel_width: width,
+        pixel_height: height,
+        scale_factor: scale,
+        revision: 1,
+      };
+      s.text = Some(Arc::new(Mutex::new(CanvasTextEngine::new(
+        cosmic_text::FontSystem::new(),
+        Default::default(),
+      ))));
+      if software {
+        s.pixels = Pixmap::new(width, height);
+      } else {
+        s.enqueue(gpu::Command::Resize {
+          width,
+          height,
+          preserve: false,
+        });
+      }
+    }
+    canvas
+  }
+  pub(crate) fn test_resize(&self, width: u32, height: u32, preserve: bool) {
+    let mut s = self.inner.lock();
+    s.metrics.pixel_width = width;
+    s.metrics.pixel_height = height;
+    s.enqueue(gpu::Command::Resize {
+      width,
+      height,
+      preserve,
+    });
   }
 }

@@ -422,6 +422,19 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
     push_shape_row(&mut rows, "canvas revision", status.content_revision.to_string());
     push_shape_row(
       &mut rows,
+      "canvas renderer",
+      if status.software { "software" } else { "GPU" },
+    );
+    push_shape_row(&mut rows, "canvas pending bytes", status.pending_bytes.to_string());
+    push_shape_row(&mut rows, "canvas GPU backing bytes", status.gpu_bytes.to_string());
+    push_shape_row(&mut rows, "canvas GPU tiles", status.gpu.tiles.to_string());
+    push_shape_row(
+      &mut rows,
+      "canvas source upload bytes",
+      status.gpu.uploaded_bytes.to_string(),
+    );
+    push_shape_row(
+      &mut rows,
       "canvas color bytes",
       (u64::from(status.metrics.pixel_width) * u64::from(status.metrics.pixel_height) * 4).to_string(),
     );

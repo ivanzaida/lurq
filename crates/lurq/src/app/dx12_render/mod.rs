@@ -1,4 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
+#[cfg(feature = "canvas")]
+mod canvas;
 
 #[cfg(feature = "raster")]
 use std::collections::{HashMap, HashSet};
@@ -268,6 +270,8 @@ fn acquire_native_nv12_mutex(
 }
 
 pub struct Dx12RenderEngine {
+  #[cfg(feature = "canvas")]
+  canvases: Vec<crate::canvas::CanvasHandle>,
   state: Option<Dx12State>,
   width: u32,
   height: u32,
@@ -316,6 +320,8 @@ impl Dx12RenderEngine {
   pub fn new() -> Self {
     Self {
       state: None,
+      #[cfg(feature = "canvas")]
+      canvases: Vec::new(),
       width: 800,
       height: 600,
       render_cadence: Dx12RenderCadence::new(Instant::now()),
@@ -638,6 +644,13 @@ impl Drop for Dx12Nv12Surface {
 }
 
 impl RenderEngine for Dx12RenderEngine {
+  #[cfg(feature = "canvas")]
+  fn prepare_canvases(&mut self, canvases: &[crate::canvas::CanvasHandle]) {
+    self.canvases.clear();
+    self
+      .canvases
+      .extend(canvases.iter().filter(|c| !c.status().software).cloned());
+  }
   fn resize(&mut self, width: u32, height: u32) {
     self.width = width.max(1);
     self.height = height.max(1);
@@ -687,6 +700,11 @@ impl RenderEngine for Dx12RenderEngine {
     #[cfg(feature = "screenshot")]
     {
       state.pending_frame_capture = self.pending_frame_capture.take();
+    }
+    #[cfg(feature = "canvas")]
+    {
+      state.canvas_sources.clear();
+      state.canvas_sources.extend_from_slice(&self.canvases);
     }
     let _render_profile = match unsafe { state.render(list) } {
       Ok(profile) => profile,
@@ -773,6 +791,12 @@ impl RenderEngine for Dx12RenderEngine {
 }
 
 struct Dx12State {
+  #[cfg(feature = "canvas")]
+  canvas_sources: Vec<crate::canvas::CanvasHandle>,
+  #[cfg(feature = "canvas")]
+  canvas_renderer: Option<canvas::Renderer>,
+  #[cfg(feature = "canvas")]
+  canvas_retired: [Vec<ID3D12Resource>; FRAME_COUNT],
   device: ID3D12Device,
   command_queue: ID3D12CommandQueue,
   swapchain: IDXGISwapChain3,
@@ -2551,6 +2575,12 @@ impl Dx12State {
     let mut state = Self {
       device,
       command_queue,
+      #[cfg(feature = "canvas")]
+      canvas_sources: Vec::new(),
+      #[cfg(feature = "canvas")]
+      canvas_renderer: None,
+      #[cfg(feature = "canvas")]
+      canvas_retired: std::array::from_fn(|_| Vec::new()),
       swapchain,
       frame_latency_waitable,
       rtv_heap,
@@ -2628,6 +2658,8 @@ impl Dx12State {
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
+    #[cfg(feature = "canvas")]
+    self.canvas_retired[self.frame_index].clear();
     #[cfg(feature = "screenshot")]
     self.retired_capture_readbacks[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
@@ -2642,6 +2674,20 @@ impl Dx12State {
     let _acquire_dur = profile_elapsed!(_acquire_start);
 
     let _encode_start = profile_scope!();
+    #[cfg(feature = "canvas")]
+    if !self.canvas_sources.is_empty() || self.canvas_renderer.is_some() {
+      let mut renderer = match self.canvas_renderer.take() {
+        Some(r) => r,
+        None => canvas::Renderer::new(&self.device)?,
+      };
+      let sources = self.canvas_sources.clone();
+      let result = renderer.encode(self, &sources);
+      self.canvas_renderer = Some(renderer);
+      if let Err(error) = result {
+        let _ = self.command_list.Close();
+        return Err(error);
+      }
+    }
     let (atlas_stats, _atlas_dur) = match self.encode_frame(list) {
       Ok(result) => result,
       Err(err) => {
@@ -2659,7 +2705,15 @@ impl Dx12State {
     let _submit_start = profile_scope!();
     let command_list: ID3D12CommandList = dx12_context(self.command_list.cast(), "cast dx12 command list")?;
     self.command_queue.ExecuteCommandLists(&[Some(command_list)]);
+    #[cfg(feature = "canvas")]
+    if let Some(renderer) = &mut self.canvas_renderer {
+      renderer.submitted();
+    }
     dx12_context(self.signal_current_frame(), "signal dx12 frame fence")?;
+    #[cfg(feature = "canvas")]
+    if let Some(renderer) = &mut self.canvas_renderer {
+      renderer.finish_readbacks(&self.fence, self.fence_values[self.frame_index]);
+    }
     #[cfg(feature = "screenshot")]
     let capture_fence_value = self.fence_values[self.frame_index];
     let _submit_dur = profile_elapsed!(_submit_start);
@@ -3317,7 +3371,35 @@ impl Dx12State {
     let Some(scissor) = scissor_rect(image.clip, self.width as f32, self.height as f32) else {
       return Ok(());
     };
-    let descriptor_index = self.ensure_image_texture(image)?;
+    #[cfg(feature = "canvas")]
+    let canvas_image = image
+      .native
+      .as_ref()
+      .filter(|n| n.backend() == crate::images::NativeImageBackend::Canvas);
+    #[cfg(not(feature = "canvas"))]
+    let canvas_image: Option<&crate::images::NativeImageData> = None;
+    #[cfg(feature = "canvas")]
+    let canvas_descriptor = if let Some(native) = canvas_image {
+      let backing = native
+        .payload::<crate::canvas::CanvasWeak>()
+        .and_then(|c| c.upgrade())
+        .and_then(|c| self.canvas_renderer.as_ref()?.backing(&c));
+      let Some(backing) = backing else {
+        return Ok(());
+      };
+      let index = self.allocate_frame_image_descriptors(image.image_id, 1)?;
+      canvas::create_srv(&self.device, &backing, self.srv_heap.cpu_handle(index));
+      Some(index)
+    } else {
+      None
+    };
+    #[cfg(not(feature = "canvas"))]
+    let canvas_descriptor: Option<usize> = None;
+    let descriptor_index = if let Some(index) = canvas_descriptor {
+      index
+    } else {
+      self.ensure_image_texture(image)?
+    };
     let native_nv12_mutexes = match self.image_textures.get(&image.image_id) {
       Some(CachedImageTexture::NativeNv12 {
         y_keyed_mutex,
@@ -3433,7 +3515,7 @@ impl Dx12State {
     let instance = ImageInstance {
       pos: [image.x, image.y],
       size: [image.width, image.height],
-      opacity: [image.opacity, 0.0, 0.0, 0.0],
+      opacity: [image.opacity, if canvas_image.is_some() { 1. } else { 0. }, 0.0, 0.0],
       transform: image.transform,
       xf_origin: image.transform_origin,
       uv_min: image.uv_min,
@@ -4046,6 +4128,10 @@ impl Dx12State {
       )));
     };
     match native.backend() {
+      #[cfg(feature = "canvas")]
+      crate::images::NativeImageBackend::Canvas => {
+        return Err(dx12_invalid_arg("canvas backing unavailable".to_owned()));
+      }
       crate::images::NativeImageBackend::Dx12Nv12 => {}
       #[cfg(feature = "wgpu")]
       crate::images::NativeImageBackend::WgpuExternalRgba => {

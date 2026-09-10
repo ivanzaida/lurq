@@ -1,3 +1,5 @@
+#[cfg(feature = "canvas")]
+mod canvas;
 mod extension;
 mod vertex;
 
@@ -298,6 +300,10 @@ impl CachedImageTexture {
 }
 
 pub struct WgpuRenderEngine {
+  #[cfg(feature = "canvas")]
+  canvases: Vec<crate::canvas::CanvasHandle>,
+  #[cfg(feature = "canvas")]
+  canvas_renderer: Option<canvas::Renderer>,
   instance: wgpu::Instance,
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
@@ -378,6 +384,10 @@ impl WgpuRenderEngine {
     let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
     instance_descriptor.backends = wgpu::Backends::all();
     Self {
+      #[cfg(feature = "canvas")]
+      canvases: Vec::new(),
+      #[cfg(feature = "canvas")]
+      canvas_renderer: None,
       instance: wgpu::Instance::new(instance_descriptor),
       adapter: None,
       device: None,
@@ -561,6 +571,10 @@ impl WgpuRenderEngine {
     self.surface_config = None;
     self.surface = None;
     self.surface_format = None;
+    #[cfg(feature = "canvas")]
+    {
+      self.canvas_renderer = None;
+    }
     self.queue = None;
     self.device = None;
     self.adapter = None;
@@ -1145,6 +1159,13 @@ mod extension_tests {
 }
 
 impl RenderEngine for WgpuRenderEngine {
+  #[cfg(feature = "canvas")]
+  fn prepare_canvases(&mut self, canvases: &[crate::canvas::CanvasHandle]) {
+    self.canvases.clear();
+    self
+      .canvases
+      .extend(canvases.iter().filter(|c| !c.status().software).cloned());
+  }
   fn resize(&mut self, width: u32, height: u32) {
     self.width = width.max(1);
     self.height = height.max(1);
@@ -1166,6 +1187,15 @@ impl RenderEngine for WgpuRenderEngine {
     self.ensure_initialized(window, display);
     let _init_dur = profile_elapsed!(_init_start);
     self.prepare_frame_extensions(list);
+    #[cfg(feature = "canvas")]
+    if !self.canvases.is_empty() || self.canvas_renderer.is_some() {
+      let device = self.device.as_ref().unwrap();
+      let queue = self.queue.as_ref().unwrap();
+      let renderer = self
+        .canvas_renderer
+        .get_or_insert_with(|| canvas::Renderer::new(device, queue));
+      renderer.process(device, queue, &self.canvases);
+    }
 
     #[cfg(feature = "raster")]
     {
@@ -1496,7 +1526,7 @@ impl RenderEngine for WgpuRenderEngine {
         .extend(list.images.iter().map(|img| ImageInstance {
           pos: [img.x, img.y],
           size: [img.width, img.height],
-          opacity: [img.opacity, 0.0, 0.0, 0.0],
+          opacity: [img.opacity, canvas_image_flag(&img.native), 0.0, 0.0],
           transform: img.transform,
           xf_origin: img.transform_origin,
           uv_min: img.uv_min,
@@ -1704,6 +1734,39 @@ impl RenderEngine for WgpuRenderEngine {
               .native
               .as_ref()
               .filter(|native| native.backend() == crate::images::NativeImageBackend::WgpuExternalRgba);
+            #[cfg(feature = "canvas")]
+            let canvas_image = img
+              .native
+              .as_ref()
+              .filter(|n| n.backend() == crate::images::NativeImageBackend::Canvas);
+            #[cfg(not(feature = "canvas"))]
+            let canvas_image: Option<&crate::images::NativeImageData> = None;
+            #[cfg(feature = "canvas")]
+            if let Some(native) = canvas_image {
+              let snapshot = native
+                .payload::<crate::canvas::CanvasWeak>()
+                .and_then(|c| c.upgrade())
+                .and_then(|c| self.canvas_renderer.as_ref()?.snapshot(&c));
+              let Some(snapshot) = snapshot else {
+                continue;
+              };
+              let current = self.image_texture_cache.get(&img.image_id).is_some_and(
+                |c| matches!(c,CachedImageTexture::ExternalRgba {version,..} if *version==snapshot.version),
+              );
+              if !current {
+                self.image_texture_cache.insert(
+                  img.image_id,
+                  create_external_rgba_cached_image_texture(
+                    device,
+                    &image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    snapshot,
+                  ),
+                );
+                self.image_clip_bind_groups.clear();
+              }
+            }
             if let Some(native) = external_wgpu_image {
               let Some(snapshot) = native
                 .payload::<crate::images::WgpuExternalImageState>()
@@ -1736,16 +1799,20 @@ impl RenderEngine for WgpuRenderEngine {
                 );
                 self.image_clip_bind_groups.clear();
               }
-            } else if !self
-              .image_texture_cache
-              .get(&img.image_id)
-              .is_some_and(|cached| cached.is_compatible(img))
+            } else if canvas_image.is_none()
+              && !self
+                .image_texture_cache
+                .get(&img.image_id)
+                .is_some_and(|cached| cached.is_compatible(img))
             {
               self.image_texture_cache.remove(&img.image_id);
               self.image_clip_bind_groups.clear();
             }
 
-            if external_wgpu_image.is_none() && !self.image_texture_cache.contains_key(&img.image_id) {
+            if external_wgpu_image.is_none()
+              && canvas_image.is_none()
+              && !self.image_texture_cache.contains_key(&img.image_id)
+            {
               let _image_texture_upload_start = profile_scope!();
               let cached = match img.image_format {
                 crate::images::ImagePixelFormat::Rgba8 => Some(create_rgba_cached_image_texture(
@@ -2907,4 +2974,17 @@ mod tests {
       WgpuPresentMode::Fifo
     );
   }
+}
+
+#[cfg(feature = "raster")]
+fn canvas_image_flag(native: &Option<crate::images::NativeImageData>) -> f32 {
+  #[cfg(feature = "canvas")]
+  if native
+    .as_ref()
+    .is_some_and(|n| n.backend() == crate::images::NativeImageBackend::Canvas)
+  {
+    return 1.;
+  }
+  let _ = native;
+  0.
 }
