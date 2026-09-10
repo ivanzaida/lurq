@@ -9,3 +9,4 @@
 - Add the lifecycle demo and native macOS integration coverage.
 - Silence routine video/frame timing diagnostics by default, even under broad debug tracing. Set `LURQ_VIDEO_LOGS=1` before startup to opt in; renderer errors remain visible.
 - Correct two existing window-chrome tests that assumed Windows title-bar height on macOS.
+- Update the macOS native video-texture bridge to wgpu 29 HAL guards and objc2 Metal objects; remove unused legacy Core Video Metal dependencies.

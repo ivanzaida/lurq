@@ -14,7 +14,7 @@ use core_video_sys::pixel_buffer::CVPixelBufferRef;
 use extension::WgpuFrameExtensionEntry;
 pub use extension::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
 #[cfg(all(feature = "image", target_os = "macos"))]
-use metal::foreign_types::ForeignType;
+use objc2::{rc::Retained, runtime::ProtocolObject};
 use raw_window_handle::{DisplayHandle, WindowHandle};
 #[cfg(feature = "image")]
 use vertex::ImageInstance;
@@ -262,7 +262,7 @@ unsafe extern "C" {
     texture_cache: CVMetalTextureCacheRef,
     source_image: CVPixelBufferRef,
     texture_attributes: CFDictionaryRef,
-    pixel_format: metal::MTLPixelFormat,
+    pixel_format: objc2_metal::MTLPixelFormat,
     width: usize,
     height: usize,
     plane_index: usize,
@@ -2471,7 +2471,7 @@ fn create_macos_native_nv12_cached_image_texture(
     image.image_width,
     image.image_height,
     0,
-    metal::MTLPixelFormat::R8Unorm,
+    objc2_metal::MTLPixelFormat::R8Unorm,
     wgpu::TextureFormat::R8Unorm,
     "lurq_macos_nv12_y",
   )?;
@@ -2481,7 +2481,7 @@ fn create_macos_native_nv12_cached_image_texture(
     image.image_width / 2,
     image.image_height / 2,
     1,
-    metal::MTLPixelFormat::RG8Unorm,
+    objc2_metal::MTLPixelFormat::RG8Unorm,
     wgpu::TextureFormat::Rg8Unorm,
     "lurq_macos_nv12_uv",
   )?;
@@ -2534,24 +2534,21 @@ fn create_macos_native_plane_texture(
   width: u32,
   height: u32,
   plane_index: usize,
-  metal_format: metal::MTLPixelFormat,
+  metal_format: objc2_metal::MTLPixelFormat,
   wgpu_format: wgpu::TextureFormat,
   label: &'static str,
 ) -> Option<(wgpu::Texture, CvMetalTexture)> {
-  let mut raw_device = None;
-  unsafe {
-    device.as_hal::<wgpu_hal::api::Metal, _, _>(|hal_device| {
-      raw_device = hal_device.map(|device| device.raw_device().lock().clone());
-    });
-  }
-  let raw_device = raw_device?;
+  // wgpu 29 returns a HAL guard and uses objc2 Metal protocol objects.
+  // Clone the retained device before releasing the guard; the CoreVideo cache
+  // and textures must originate from the same Metal device as wgpu.
+  let raw_device = unsafe { device.as_hal::<wgpu_hal::api::Metal>() }?.raw_device().clone();
 
   let mut cache = std::ptr::null_mut();
   let status = unsafe {
     CVMetalTextureCacheCreate(
       kCFAllocatorDefault,
       std::ptr::null(),
-      raw_device.as_ptr().cast(),
+      Retained::as_ptr(&raw_device).cast_mut().cast(),
       std::ptr::null(),
       &mut cache,
     )
@@ -2588,15 +2585,15 @@ fn create_macos_native_plane_texture(
     }
     return None;
   }
-  let metal_texture = unsafe {
-    core_foundation_sys::base::CFRetain(metal_texture_ptr.cast::<c_void>().cast::<std::ffi::c_void>());
-    metal::Texture::from_ptr(metal_texture_ptr.cast())
-  };
+  // CVMetalTextureGetTexture returns a borrowed Objective-C texture. Retain it
+  // for wgpu independently of the CVMetalTexture owner retained below.
+  let metal_texture: Retained<ProtocolObject<dyn objc2_metal::MTLTexture>> =
+    unsafe { Retained::retain(metal_texture_ptr.cast()).expect("non-null CoreVideo Metal texture") };
   let hal_texture = unsafe {
     wgpu_hal::metal::Device::texture_from_raw(
       metal_texture,
       wgpu_format,
-      metal::MTLTextureType::D2,
+      objc2_metal::MTLTextureType::Type2D,
       1,
       1,
       wgpu_hal::CopyExtent {
