@@ -1,22 +1,22 @@
 mod extension;
 mod vertex;
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 use std::ffi::c_void;
 use std::time::Duration;
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 use core_foundation_sys::dictionary::CFDictionaryRef;
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
 use extension::WgpuFrameExtensionEntry;
 pub use extension::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 use metal::foreign_types::ForeignType;
 use raw_window_handle::{DisplayHandle, WindowHandle};
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
@@ -128,7 +128,7 @@ enum OrderedDraw {
     start: usize,
     count: usize,
   },
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Image(usize),
   #[cfg(feature = "svg")]
   Svg(usize),
@@ -138,9 +138,9 @@ enum OrderedDraw {
 enum ActivePipeline {
   Quad,
   Glyph,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Image,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Nv12Image,
   #[cfg(feature = "svg")]
   Svg,
@@ -163,14 +163,14 @@ enum ActiveIndexBuffer {
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct ClipGlobalsKey([u32; 20]);
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 enum ImageClipFormat {
   Rgba,
   Nv12,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct ImageClipBindGroupKey {
   image_id: u64,
@@ -179,14 +179,14 @@ struct ImageClipBindGroupKey {
   format: ImageClipFormat,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 struct CachedRgbaFrame {
   bind_group: wgpu::BindGroup,
   view: wgpu::TextureView,
   texture: wgpu::Texture,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 enum CachedImageTexture {
   ExternalRgba {
     bind_group: wgpu::BindGroup,
@@ -220,19 +220,19 @@ enum CachedImageTexture {
   },
 }
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 struct MacosNativeNv12Texture {
   _native: crate::images::NativeImageData,
   _y_cv_texture: CvMetalTexture,
   _uv_cv_texture: CvMetalTexture,
 }
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 struct CvMetalTexture {
   ptr: CVMetalTextureRef,
 }
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 impl Drop for CvMetalTexture {
   fn drop(&mut self) {
     unsafe {
@@ -241,12 +241,12 @@ impl Drop for CvMetalTexture {
   }
 }
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 type CVMetalTextureCacheRef = *mut c_void;
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 type CVMetalTextureRef = *mut c_void;
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 #[link(name = "CoreVideo", kind = "framework")]
 unsafe extern "C" {
   fn CVMetalTextureCacheCreate(
@@ -272,7 +272,7 @@ unsafe extern "C" {
   fn CVMetalTextureGetTexture(image: CVMetalTextureRef) -> *mut c_void;
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 impl CachedImageTexture {
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
@@ -307,9 +307,9 @@ pub struct WgpuRenderEngine {
   requested_present_mode: wgpu::PresentMode,
   quad_pipeline: Option<wgpu::RenderPipeline>,
   glyph_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   nv12_image_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "svg")]
   svg_pipeline: Option<wgpu::RenderPipeline>,
@@ -320,15 +320,15 @@ pub struct WgpuRenderEngine {
   surface_format: Option<wgpu::TextureFormat>,
   quad_bgl: Option<wgpu::BindGroupLayout>,
   glyph_bgl: Option<wgpu::BindGroupLayout>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_bgl: Option<wgpu::BindGroupLayout>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   nv12_image_bgl: Option<wgpu::BindGroupLayout>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_sampler: Option<wgpu::Sampler>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
   clip_globals_cache: std::collections::HashMap<ClipGlobalsKey, wgpu::Buffer>,
@@ -351,13 +351,13 @@ pub struct WgpuRenderEngine {
   index_buffer: Option<wgpu::Buffer>,
   rect_instance_buffer: DynamicBuffer,
   glyph_instance_buffer: DynamicBuffer,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_instance_buffer: DynamicBuffer,
   scratch_rect_instances: Vec<QuadInstance>,
   scratch_rect_draws: Vec<PreparedDraw>,
   scratch_gradient_data: Vec<[f32; 4]>,
   scratch_glyph_instances: Vec<GlyphInstance>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   scratch_image_instances: Vec<ImageInstance>,
   scratch_ordered_draws: Vec<(usize, OrderedDraw)>,
   width: u32,
@@ -387,9 +387,9 @@ impl WgpuRenderEngine {
       requested_present_mode: wgpu::PresentMode::Fifo,
       quad_pipeline: None,
       glyph_pipeline: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_pipeline: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       nv12_image_pipeline: None,
       #[cfg(feature = "svg")]
       svg_pipeline: None,
@@ -400,15 +400,15 @@ impl WgpuRenderEngine {
       surface_format: None,
       quad_bgl: None,
       glyph_bgl: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_bgl: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       nv12_image_bgl: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_sampler: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_texture_cache: std::collections::HashMap::new(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
       clip_globals_cache: std::collections::HashMap::new(),
@@ -431,13 +431,13 @@ impl WgpuRenderEngine {
       index_buffer: None,
       rect_instance_buffer: DynamicBuffer::new("lurq_ordered_rect_instances", wgpu::BufferUsages::VERTEX),
       glyph_instance_buffer: DynamicBuffer::new("lurq_ordered_glyph_instances", wgpu::BufferUsages::VERTEX),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_instance_buffer: DynamicBuffer::new("lurq_image_instances", wgpu::BufferUsages::VERTEX),
       scratch_rect_instances: Vec::new(),
       scratch_rect_draws: Vec::new(),
       scratch_gradient_data: Vec::new(),
       scratch_glyph_instances: Vec::new(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       scratch_image_instances: Vec::new(),
       scratch_ordered_draws: Vec::new(),
       width: 800,
@@ -513,7 +513,7 @@ impl WgpuRenderEngine {
       }
     }
 
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.image_texture_cache.clear();
       self.image_clip_bind_groups.clear();
@@ -524,7 +524,7 @@ impl WgpuRenderEngine {
 
     self.quad_bind_group = None;
     self.glyph_bind_group = None;
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.image_sampler = None;
       self.image_bgl = None;
@@ -542,7 +542,7 @@ impl WgpuRenderEngine {
     self.index_buffer = None;
     self.rect_instance_buffer.clear();
     self.glyph_instance_buffer.clear();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     self.image_instance_buffer.clear();
     self.globals_buffer = None;
     self.gradient_buffer = None;
@@ -778,7 +778,7 @@ impl WgpuRenderEngine {
     });
 
     // --- Image pipeline ---
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let (image_pipeline, nv12_image_pipeline, image_bgl, nv12_image_bgl, image_sampler) = {
       use vertex::ImageInstance;
       let image_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1062,7 +1062,7 @@ impl WgpuRenderEngine {
     self.queue = Some(queue);
     self.quad_pipeline = Some(quad_pipeline);
     self.glyph_pipeline = Some(glyph_pipeline);
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.image_pipeline = Some(image_pipeline);
       self.nv12_image_pipeline = Some(nv12_image_pipeline);
@@ -1074,12 +1074,12 @@ impl WgpuRenderEngine {
     }
     self.quad_bgl = Some(quad_bgl);
     self.glyph_bgl = Some(glyph_bgl);
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.image_bgl = Some(image_bgl);
       self.nv12_image_bgl = Some(nv12_image_bgl);
     }
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.image_sampler = Some(image_sampler);
     }
@@ -1151,7 +1151,7 @@ impl RenderEngine for WgpuRenderEngine {
     self.clip_globals_cache.clear();
     self.quad_clip_bind_groups.clear();
     self.glyph_clip_bind_groups.clear();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     self.image_clip_bind_groups.clear();
     if let (Some(config), Some(device), Some(surface)) = (&mut self.surface_config, &self.device, &self.surface) {
       config.width = self.width;
@@ -1166,6 +1166,17 @@ impl RenderEngine for WgpuRenderEngine {
     self.ensure_initialized(window, display);
     let _init_dur = profile_elapsed!(_init_start);
     self.prepare_frame_extensions(list);
+
+    #[cfg(feature = "raster")]
+    {
+      // Resized and removed canvases release their old image IDs. Match DX12's
+      // per-frame ownership so those backing textures cannot accumulate.
+      let live_images: std::collections::HashSet<u64> = list.images.iter().map(|image| image.image_id).collect();
+      self.image_texture_cache.retain(|id, _| live_images.contains(id));
+      self
+        .image_clip_bind_groups
+        .retain(|key, _| live_images.contains(&key.image_id));
+    }
 
     let device = self.device.as_ref().unwrap();
     let queue = self.queue.as_ref().unwrap();
@@ -1474,9 +1485,9 @@ impl RenderEngine for WgpuRenderEngine {
       .write(device, queue, &self.scratch_glyph_instances);
     _buffer_upload_dur += profile_elapsed!(_glyph_upload_start);
 
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let _image_upload_start = profile_scope!();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let image_instance_buf = {
       self.scratch_image_instances.clear();
       self.scratch_image_instances.reserve(list.images.len());
@@ -1496,7 +1507,7 @@ impl RenderEngine for WgpuRenderEngine {
         .image_instance_buffer
         .write(device, queue, &self.scratch_image_instances)
     };
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       _buffer_upload_dur += profile_elapsed!(_image_upload_start);
     }
@@ -1524,11 +1535,11 @@ impl RenderEngine for WgpuRenderEngine {
         list.rects.len()
           + list.glyphs.len()
           + {
-            #[cfg(feature = "image")]
+            #[cfg(feature = "raster")]
             {
               list.images.len()
             }
-            #[cfg(not(feature = "image"))]
+            #[cfg(not(feature = "raster"))]
             {
               0
             }
@@ -1567,7 +1578,7 @@ impl RenderEngine for WgpuRenderEngine {
         ));
         glyph_start = glyph_end;
       }
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       for (index, image) in list.images.iter().enumerate() {
         self
           .scratch_ordered_draws
@@ -1680,7 +1691,7 @@ impl RenderEngine for WgpuRenderEngine {
             }
             pass.draw_indexed(0..6, 0, 0..*count as u32);
           }
-          #[cfg(feature = "image")]
+          #[cfg(feature = "raster")]
           OrderedDraw::Image(index) => {
             let img = &list.images[*index];
             let image_bgl = self.image_bgl.as_ref().unwrap().clone();
@@ -2227,7 +2238,7 @@ fn same_clip(a: crate::layout::quad::ClipRect, b: crate::layout::quad::ClipRect)
     && a.border_radius == b.border_radius
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn create_external_rgba_cached_image_texture(
   device: &wgpu::Device,
   image_bgl: &wgpu::BindGroupLayout,
@@ -2262,7 +2273,7 @@ fn create_external_rgba_cached_image_texture(
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn create_rgba_cached_image_texture(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
@@ -2313,7 +2324,7 @@ fn create_rgba_cached_image_texture(
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn create_rgba_frame_texture(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
@@ -2365,7 +2376,7 @@ fn create_rgba_frame_texture(
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn create_nv12_cached_image_texture(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
@@ -2455,7 +2466,7 @@ fn create_nv12_cached_image_texture(
   })
 }
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 fn create_macos_native_nv12_cached_image_texture(
   device: &wgpu::Device,
   nv12_image_bgl: &wgpu::BindGroupLayout,
@@ -2527,7 +2538,7 @@ fn create_macos_native_nv12_cached_image_texture(
   })
 }
 
-#[cfg(all(feature = "image", target_os = "macos"))]
+#[cfg(all(feature = "raster", target_os = "macos"))]
 fn create_macos_native_plane_texture(
   device: &wgpu::Device,
   pixel_buffer: CVPixelBufferRef,
@@ -2628,12 +2639,12 @@ fn create_macos_native_plane_texture(
   Some((texture, CvMetalTexture { ptr: cv_texture }))
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn write_rgba_image_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, image: &crate::images::ImageCmd) {
   write_rgba_texture_data(queue, texture, image.image_width, image.image_height, &image.data);
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn write_rgba_texture_data(queue: &wgpu::Queue, texture: &wgpu::Texture, width: u32, height: u32, data: &[u8]) {
   queue.write_texture(
     wgpu::TexelCopyTextureInfo {
@@ -2656,7 +2667,7 @@ fn write_rgba_texture_data(queue: &wgpu::Queue, texture: &wgpu::Texture, width: 
   );
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn write_nv12_image_textures(
   queue: &wgpu::Queue,
   y_texture: &wgpu::Texture,

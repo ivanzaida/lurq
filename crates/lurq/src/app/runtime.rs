@@ -386,9 +386,9 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
 
 struct CachedRenderList {
   list: RenderList,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_sources: Vec<Option<crate::images::ImageData>>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   video_sources: Vec<Option<crate::images::ImageData>>,
 }
 
@@ -567,7 +567,7 @@ pub struct Tree {
   quad_scratch: Vec<Quad>,
   render_rects: Vec<RectCmd>,
   render_glyphs: Vec<GlyphCmd>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   render_images: Vec<crate::images::ImageCmd>,
   #[cfg(feature = "svg")]
   render_svgs: Vec<crate::svg::SvgCmd>,
@@ -884,7 +884,7 @@ impl Tree {
       quad_scratch: Vec::new(),
       render_rects: Vec::new(),
       render_glyphs: Vec::new(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       render_images: Vec::new(),
       #[cfg(feature = "svg")]
       render_svgs: Vec::new(),
@@ -1161,7 +1161,7 @@ impl Tree {
   }
 
   pub(crate) fn has_continuous_redraw_image(&self) -> bool {
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.cached_render_list.as_ref().is_some_and(|cached| {
         cached
@@ -1172,7 +1172,7 @@ impl Tree {
       })
     }
 
-    #[cfg(not(feature = "image"))]
+    #[cfg(not(feature = "raster"))]
     {
       false
     }
@@ -1180,7 +1180,7 @@ impl Tree {
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_continuous_redraw_video(&self) -> bool {
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       self.cached_render_list.as_ref().is_some_and(|cached| {
         cached
@@ -1191,7 +1191,7 @@ impl Tree {
       })
     }
 
-    #[cfg(not(feature = "image"))]
+    #[cfg(not(feature = "raster"))]
     {
       false
     }
@@ -1621,6 +1621,8 @@ impl Tree {
       component.on_unmounted();
     }
     if let Some(old) = &mut self.root {
+      #[cfg(feature = "canvas")]
+      detach_canvas_recursive(old);
       reset_element_ref_flags_recursive(old);
       old.free_ids(&self.id_gen);
     }
@@ -1679,6 +1681,8 @@ impl Tree {
     }
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
       let mut old_parts = self.root.take().map(|old| {
+        #[cfg(feature = "canvas")]
+        detach_canvas_recursive(&old);
         reset_element_ref_flags_recursive(&old);
         overlay_host_parts(old)
       });
@@ -1712,6 +1716,8 @@ impl Tree {
     }
     let mut old_root = self.root.take();
     if let Some(old) = &mut old_root {
+      #[cfg(feature = "canvas")]
+      detach_canvas_recursive(old);
       reset_element_ref_flags_recursive(old);
     }
     self.clear_animation_runtime_state();
@@ -1867,6 +1873,14 @@ impl Tree {
       return report;
     }
     self.pending_pass_reasons = PassReasons::default();
+    #[cfg(feature = "canvas")]
+    if let Some(root) = self.root.as_ref() {
+      // Include submissions racing with the initial reasons snapshot. Otherwise
+      // a cached frame could acknowledge a write without exporting its pixels.
+      if consume_canvas_paint_recursive(root) {
+        report.reasons.redraw_requested = true;
+      }
+    }
     self.needs_redraw = false;
     self.scheduled_redraw_at = None;
 
@@ -2034,25 +2048,25 @@ impl Tree {
     let mut glyphs = std::mem::take(&mut self.render_glyphs);
     glyphs.clear();
     glyphs.reserve(quad_count * 4);
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let mut images = {
       let mut images = std::mem::take(&mut self.render_images);
       images.clear();
       images
     };
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let image_frame_time = std::time::Instant::now();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let mut image_sources = Vec::new();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let mut video_sources = Vec::new();
-    #[cfg(all(feature = "svg", feature = "image"))]
+    #[cfg(all(feature = "svg", feature = "raster"))]
     let svgs = {
       let mut svgs = std::mem::take(&mut self.render_svgs);
       svgs.clear();
       svgs
     };
-    #[cfg(all(feature = "svg", not(feature = "image")))]
+    #[cfg(all(feature = "svg", not(feature = "raster")))]
     let mut svgs = {
       let mut svgs = std::mem::take(&mut self.render_svgs);
       svgs.clear();
@@ -2384,7 +2398,7 @@ impl Tree {
             }
           }
         }
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         QuadContent::Image { data, uv_min, uv_max } | QuadContent::Video { data, uv_min, uv_max } => {
           let is_video = matches!(&quad.content, QuadContent::Video { .. });
           let frame = data.frame_at(image_frame_time);
@@ -2445,7 +2459,7 @@ impl Tree {
           image_sources.push(Some(data.clone()));
           video_sources.push(is_video.then(|| data.clone()));
         }
-        #[cfg(all(feature = "svg", feature = "image"))]
+        #[cfg(all(feature = "svg", feature = "raster"))]
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
@@ -2483,7 +2497,7 @@ impl Tree {
           image_sources.push(None);
           video_sources.push(None);
         }
-        #[cfg(all(feature = "svg", not(feature = "image")))]
+        #[cfg(all(feature = "svg", not(feature = "raster")))]
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
@@ -2527,9 +2541,9 @@ impl Tree {
       self.drop_unsupported_screenshot();
       #[cfg(feature = "devtools")]
       {
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
-        #[cfg(not(feature = "image"))]
+        #[cfg(not(feature = "raster"))]
         self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
       }
       None
@@ -2601,7 +2615,7 @@ impl Tree {
       clear_color,
       rects,
       glyphs,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       images,
       #[cfg(feature = "svg")]
       svgs,
@@ -2624,6 +2638,7 @@ impl Tree {
       }
     };
     if !rendered {
+      self.needs_redraw = true;
       return report;
     }
     report.rendered = true;
@@ -2686,17 +2701,17 @@ impl Tree {
       report,
     );
 
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let should_cache_render_list = self.should_store_cached_render_list();
-    #[cfg(not(feature = "image"))]
+    #[cfg(not(feature = "raster"))]
     let should_cache_render_list = false;
 
     if should_cache_render_list {
       self.cached_render_list = Some(CachedRenderList {
         list,
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         image_sources,
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         video_sources,
       });
       self.scheduled_redraw_due = false;
@@ -2711,7 +2726,7 @@ impl Tree {
       clear_color: _,
       mut rects,
       mut glyphs,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       mut images,
       #[cfg(feature = "svg")]
       mut svgs,
@@ -2721,7 +2736,7 @@ impl Tree {
     glyphs.clear();
     self.render_rects = rects;
     self.render_glyphs = glyphs;
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       images.clear();
       self.render_images = images;
@@ -3207,8 +3222,25 @@ impl Tree {
     true
   }
 
+  #[cfg(feature = "canvas")]
+  pub fn set_canvas_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+    self.window.set_waker(std::sync::Arc::new(waker));
+  }
+
+  fn has_dirty_canvas(&self) -> bool {
+    #[cfg(feature = "canvas")]
+    {
+      return self.root.as_ref().is_some_and(has_dirty_canvas_recursive);
+    }
+    #[cfg(not(feature = "canvas"))]
+    {
+      false
+    }
+  }
+
   pub fn needs_redraw(&self) -> bool {
     self.needs_redraw
+      || self.has_dirty_canvas()
       || self.click_tracker.has_pending()
       || self.root_ctx.as_ref().is_some_and(Ctx::any_dirty)
       || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
@@ -3219,7 +3251,7 @@ impl Tree {
     let root_ctx = self.root_ctx.as_ref();
 
     PassReasons {
-      redraw_requested: self.needs_redraw && !self.scheduled_redraw_due,
+      redraw_requested: (self.needs_redraw && !self.scheduled_redraw_due) || self.has_dirty_canvas(),
       scheduled_redraw: self.scheduled_redraw_due,
       timer_active: root_ctx.is_some_and(Ctx::has_active_timers),
       future_active: root_ctx.is_some_and(Ctx::has_active_futures),
@@ -4844,7 +4876,7 @@ impl Tree {
     self.root.as_ref().is_some_and(|root| !root.has_render_dirty())
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn should_store_cached_render_list(&self) -> bool {
     if self.perf_overlay_enabled {
       return false;
@@ -4875,14 +4907,14 @@ impl Tree {
 
     self.needs_redraw = false;
     cached.list.clear_color = clear_color;
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     self.refresh_cached_image_frames(&mut cached, Instant::now());
     cached.list.atlas = app.glyph_engine.atlas();
     let rect_count = cached.list.rects.len();
     let glyph_count = cached.list.glyphs.len();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let image_count = cached.list.images.len();
-    #[cfg(not(feature = "image"))]
+    #[cfg(not(feature = "raster"))]
     let image_count = 0;
 
     let gpu_wall_start = Instant::now();
@@ -4936,7 +4968,7 @@ impl Tree {
     Some(true)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn refresh_cached_image_frames(&mut self, cached: &mut CachedRenderList, now: Instant) {
     for (image, source) in cached.list.images.iter_mut().zip(cached.image_sources.iter()) {
       let Some(source) = source else {
@@ -5269,6 +5301,18 @@ impl Tree {
         && root_cache_contains
       {
         self.last_theme_version = theme_version;
+        #[cfg(feature = "canvas")]
+        if let Some(layout) = self.last_layout.as_ref() {
+          let offset = root.offset_position().unwrap_or_default();
+          update_canvas_placement_recursive(
+            root,
+            layout,
+            &self.layout_engine,
+            offset.x,
+            offset.y,
+            crate::node::transform::Transform2D::IDENTITY,
+          );
+        }
         return false;
       }
       if self.has_active_timeline() || component_dirty || has_pending_layout_dirty {
@@ -5391,6 +5435,22 @@ impl Tree {
         );
       }
       self.last_theme_version = theme_version;
+      #[cfg(feature = "canvas")]
+      if let Some(root) = self.root.as_ref() {
+        let offset = root.offset_position().unwrap_or_default();
+        bind_canvas_layout_recursive(
+          root,
+          &layout,
+          &self.layout_engine,
+          offset.x,
+          offset.y,
+          crate::node::transform::Transform2D::IDENTITY,
+          self.scale_factor,
+          &self.window,
+          &crate::canvas::CanvasFont::from_style(typography.default_style()),
+          &mut app.glyph_engine,
+        );
+      }
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
         verify_scroll_offsets(root, &layout);
@@ -5568,6 +5628,8 @@ impl Tree {
     host.set_tag_name("OverlayHost");
     host.set_synthetic_role(SyntheticNodeRole::OverlayHost);
     if let Some(old_host) = old_parts.old_host.as_mut() {
+      #[cfg(feature = "canvas")]
+      detach_canvas_recursive(old_host);
       reset_element_ref_flags_recursive(old_host);
       host.preserve_ids_from(old_host);
     }
@@ -6016,6 +6078,8 @@ fn preserve_overlay_reuse_at(overlay: &mut Node, old_parts: &mut OverlayHostReus
   if let Some(used) = old_parts.old_overlay_used.get_mut(index) {
     *used = true;
   }
+  #[cfg(feature = "canvas")]
+  detach_canvas_recursive(old_overlay);
   reset_element_ref_flags_recursive(old_overlay);
   overlay.preserve_runtime_state_from(old_overlay);
   overlay.preserve_ids_from(old_overlay);
@@ -6913,6 +6977,10 @@ fn distance_squared(a: (f32, f32), b: (f32, f32)) -> f32 {
 
 impl Drop for Tree {
   fn drop(&mut self) {
+    #[cfg(feature = "canvas")]
+    if let Some(root) = &self.root {
+      detach_canvas_recursive(root);
+    }
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
     }
@@ -6940,6 +7008,10 @@ fn find_element_recursive(
 
   if predicate(element) {
     let element_ref = node.element_ref_handle();
+    #[cfg(feature = "canvas")]
+    if let Some(canvas) = node.canvas_handle() {
+      element_ref.bind_canvas(&canvas);
+    }
     element_ref.update(
       rect.x,
       rect.y,
@@ -7680,7 +7752,7 @@ impl Tree {
     })
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn save_pending_devtools_screenshot(
     &mut self,
     clear_color: Color,
@@ -7725,7 +7797,7 @@ impl Tree {
     });
   }
 
-  #[cfg(not(feature = "image"))]
+  #[cfg(not(feature = "raster"))]
   fn save_pending_devtools_screenshot(
     &mut self,
     clear_color: Color,
@@ -7864,7 +7936,7 @@ struct DevtoolsWindowClip {
 enum DevtoolsScreenshotDraw {
   Rect(usize),
   Glyph(usize),
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Image(usize),
 }
 
@@ -7875,7 +7947,7 @@ fn save_devtools_screenshot(
   clear_color: Color,
   rects: &[RectCmd],
   glyphs: &[GlyphCmd],
-  #[cfg(feature = "image")] images: &[crate::images::ImageCmd],
+  #[cfg(feature = "raster")] images: &[crate::images::ImageCmd],
   atlas: &crate::layout::render_list::GlyphAtlas,
 ) -> Result<(), image::ImageError> {
   if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
@@ -7898,11 +7970,11 @@ fn save_devtools_screenshot(
   }
 
   let draw_capacity = rects.len() + glyphs.len() + {
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       images.len()
     }
-    #[cfg(not(feature = "image"))]
+    #[cfg(not(feature = "raster"))]
     {
       0
     }
@@ -7920,7 +7992,7 @@ fn save_devtools_screenshot(
       .enumerate()
       .map(|(index, glyph)| (glyph.order, DevtoolsScreenshotDraw::Glyph(index))),
   );
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   draws.extend(
     images
       .iter()
@@ -7933,7 +8005,7 @@ fn save_devtools_screenshot(
     match draw {
       DevtoolsScreenshotDraw::Rect(index) => draw_screenshot_rect(&mut pixels, bounds, &rects[index]),
       DevtoolsScreenshotDraw::Glyph(index) => draw_screenshot_glyph(&mut pixels, bounds, &glyphs[index], atlas),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       DevtoolsScreenshotDraw::Image(index) => draw_screenshot_image(&mut pixels, bounds, &images[index]),
     }
   }
@@ -8057,7 +8129,7 @@ fn draw_screenshot_glyph(
   }
 }
 
-#[cfg(all(feature = "devtools", feature = "image"))]
+#[cfg(all(feature = "devtools", feature = "raster"))]
 fn draw_screenshot_image(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, image: &crate::images::ImageCmd) {
   if image.image_format != crate::images::ImagePixelFormat::Rgba8 || image.image_width == 0 || image.image_height == 0 {
     return;
@@ -8596,6 +8668,8 @@ fn replace_live_component_slot_everywhere(
   let mut replaced = false;
   if node.component_slot_id() == Some(slot_id) {
     let mut replacement = replacement.clone_for_reuse();
+    #[cfg(feature = "canvas")]
+    detach_canvas_recursive(node);
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
     replacement.preserve_ids_from(node);
@@ -8662,6 +8736,125 @@ fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
     || node.has_style_layout_dirty()
     || matches!(node.layout_kind(), LayoutKind::ScrollModifier { state, .. } if state.has_scroll_dirty());
   local || node.children().iter().any(has_pending_layout_dirty_recursive)
+}
+
+#[cfg(feature = "canvas")]
+fn detach_canvas_recursive(node: &Node) {
+  #[cfg(feature = "canvas")]
+  if let Some(canvas) = node.canvas_handle() {
+    if let Some(reference) = &node.element_ref {
+      reference.detach_canvas(canvas.surface_id());
+    }
+    canvas.detach();
+  }
+
+  for child in node.children() {
+    detach_canvas_recursive(child);
+  }
+}
+
+#[cfg(feature = "canvas")]
+fn has_dirty_canvas_recursive(node: &Node) -> bool {
+  node.canvas_handle().is_some_and(|canvas| canvas.dirty()) || node.children().iter().any(has_dirty_canvas_recursive)
+}
+
+#[cfg(feature = "canvas")]
+fn consume_canvas_paint_recursive(node: &Node) -> bool {
+  let mut pending = node.canvas_handle().is_some_and(|canvas| canvas.consume_paint());
+  for child in node.children() {
+    pending |= consume_canvas_paint_recursive(child);
+  }
+  pending
+}
+
+#[cfg(feature = "canvas")]
+fn update_canvas_placement_recursive(
+  node: &Node,
+  layout: &LayoutResult,
+  engine: &crate::layout::layout_engine::LayoutEngine,
+  x: f32,
+  y: f32,
+  inherited: crate::node::transform::Transform2D,
+) {
+  use crate::node::transform::Transform2D;
+  let composed = inherited.then(
+    &node
+      .effective_transform()
+      .around_origin([x + layout.size.width * 0.5, y + layout.size.height * 0.5]),
+  );
+  if let Some(canvas) = node.canvas_handle() {
+    let padding = engine.resolved_padding_for_size(node, layout.size);
+    canvas.update_placement(composed.then(&Transform2D::translate(x + padding.left, y + padding.top)));
+  }
+  for (child_layout, child) in layout.children.iter().zip(node.children()) {
+    update_canvas_placement_recursive(
+      child,
+      &child_layout.result,
+      engine,
+      x + child_layout.offset.x,
+      y + child_layout.offset.y,
+      composed,
+    );
+  }
+}
+
+#[cfg(feature = "canvas")]
+#[allow(clippy::too_many_arguments)]
+fn bind_canvas_layout_recursive(
+  node: &Node,
+  layout: &LayoutResult,
+  engine: &crate::layout::layout_engine::LayoutEngine,
+  abs_x: f32,
+  abs_y: f32,
+  inherited: crate::node::transform::Transform2D,
+  scale: f32,
+  window: &crate::app::window::Window,
+  font: &crate::canvas::CanvasFont,
+  text: &mut crate::app::glyph_engine::GlyphEngine,
+) {
+  use crate::node::transform::Transform2D;
+  let local = node
+    .effective_transform()
+    .around_origin([abs_x + layout.size.width * 0.5, abs_y + layout.size.height * 0.5]);
+  let composed = inherited.then(&local);
+  if let Some(canvas) = node.canvas_handle() {
+    let padding = engine.resolved_padding_for_size(node, layout.size);
+    let size = Size::new(
+      (layout.size.width - padding.left - padding.right).max(0.0),
+      (layout.size.height - padding.top - padding.bottom).max(0.0),
+    );
+    let to_window = composed.then(&Transform2D::translate(abs_x + padding.left, abs_y + padding.top));
+    let notification = canvas.bind_layout(
+      size,
+      scale,
+      to_window,
+      window.clone(),
+      font.clone(),
+      text.canvas_text_engine(),
+    );
+    if let Some(reference) = &node.element_ref {
+      reference.bind_canvas(&canvas);
+    }
+    if let Some((metrics, observers)) = notification {
+      for observer in observers {
+        observer(metrics);
+      }
+    }
+  }
+  for (child_layout, child) in layout.children.iter().zip(node.children()) {
+    bind_canvas_layout_recursive(
+      child,
+      &child_layout.result,
+      engine,
+      abs_x + child_layout.offset.x,
+      abs_y + child_layout.offset.y,
+      composed,
+      scale,
+      window,
+      font,
+      text,
+    );
+  }
 }
 
 fn update_element_refs_recursive(

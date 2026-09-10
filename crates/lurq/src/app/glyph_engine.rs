@@ -348,6 +348,8 @@ pub(crate) struct TextVerticalExtents {
 }
 
 pub(crate) struct GlyphEngine {
+  #[cfg(feature = "canvas")]
+  canvas_text: Option<std::sync::Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>>,
   font_system: FontSystem,
   swash_context: ScaleContext,
   transformed_scale_context: ScaleContext,
@@ -379,6 +381,8 @@ impl GlyphEngine {
 
     Self {
       font_system,
+      #[cfg(feature = "canvas")]
+      canvas_text: None,
       swash_context: ScaleContext::new(),
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
@@ -460,7 +464,26 @@ impl GlyphEngine {
     self.clear_text_caches();
   }
 
+  #[cfg(feature = "canvas")]
+  pub(crate) fn canvas_text_engine(&mut self) -> std::sync::Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>> {
+    self
+      .canvas_text
+      .get_or_insert_with(|| {
+        let fonts =
+          FontSystem::new_with_locale_and_db(self.font_system.locale().to_owned(), self.font_system.db().clone());
+        std::sync::Arc::new(parking_lot::Mutex::new(crate::canvas::CanvasTextEngine::new(
+          fonts,
+          self.font_aliases.clone(),
+        )))
+      })
+      .clone()
+  }
+
   fn clear_text_caches(&mut self) {
+    #[cfg(feature = "canvas")]
+    {
+      self.canvas_text = None;
+    }
     self.measure_cache.clear();
     self.vertical_extents_cache.clear();
     self.caret_cache.clear();
@@ -3176,7 +3199,12 @@ mod tests {
           .expect("reference raster");
 
           assert_eq!(
-            (main.placement.left, main.placement.top, main.placement.width, main.placement.height),
+            (
+              main.placement.left,
+              main.placement.top,
+              main.placement.width,
+              main.placement.height
+            ),
             (
               reference.placement.left,
               reference.placement.top,
@@ -3203,7 +3231,10 @@ mod tests {
         }
       }
     }
-    assert!(compared >= 12, "expected all test glyphs to be compared, got {compared}");
+    assert!(
+      compared >= 12,
+      "expected all test glyphs to be compared, got {compared}"
+    );
     engine.buffer_pool.push(buffer);
   }
 
@@ -3610,5 +3641,4 @@ mod tests {
     assert_eq!(engine.rich_shaped_layout_cache.len(), 1);
     assert_eq!(engine.rich_glyph_layout_cache.len(), 1);
   }
-
 }

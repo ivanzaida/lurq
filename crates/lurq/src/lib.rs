@@ -6,11 +6,13 @@ pub use lurq_macros::PersistentValue;
 
 pub mod animation;
 pub mod app;
+#[cfg(feature = "canvas")]
+pub mod canvas;
 #[cfg(feature = "clipboard")]
 pub mod clipboard;
 pub mod components;
 pub mod core;
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 pub mod images;
 pub mod layout;
 #[cfg(feature = "markdown")]

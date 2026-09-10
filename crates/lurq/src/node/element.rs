@@ -74,6 +74,12 @@ impl Default for Element {
 }
 
 impl<'a> ElementRef<'a> {
+  /// Returns an owned drawing capability for an attached canvas.
+  #[cfg(feature = "canvas")]
+  pub fn as_canvas(&self) -> Option<crate::canvas::CanvasHandle> {
+    self.node.canvas_handle().filter(|canvas| canvas.is_attached())
+  }
+
   pub(crate) fn new(node: &'a Node) -> Self {
     Self { node }
   }

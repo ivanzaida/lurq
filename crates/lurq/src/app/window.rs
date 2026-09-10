@@ -79,7 +79,7 @@ impl WindowIcon {
     Self { rgba, width, height }
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn from_image_data(image: &crate::images::ImageData) -> Self {
     Self::from_rgba((*image.data_arc()).clone(), image.width(), image.height())
   }
@@ -404,6 +404,15 @@ impl Window {
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn set_waker(&self, waker: WindowWaker) {
     self.inner.write().unwrap().waker = Some(waker);
+  }
+
+  /// Wakes the host for paint work without queuing a component/window mutation.
+  #[cfg(feature = "canvas")]
+  pub(crate) fn wake(&self) {
+    let waker = self.inner.read().unwrap().waker.clone();
+    if let Some(waker) = waker {
+      waker();
+    }
   }
 
   pub fn version(&self) -> u64 {

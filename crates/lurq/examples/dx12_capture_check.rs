@@ -88,7 +88,7 @@ fn main() {
       gradient: None,
     }],
     glyphs: Vec::new(),
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     images: Vec::new(),
     #[cfg(feature = "svg")]
     svgs: Vec::new(),
@@ -119,7 +119,7 @@ fn main() {
         y: CAPTURE_ORIGIN,
         width: CAPTURE_SIZE,
         height: CAPTURE_SIZE,
-        output_path: output_path.clone(),
+        target: lurq::app::render_engine::RenderCaptureTarget::Path(output_path.clone()),
         window_clip: None,
       }),
     ),

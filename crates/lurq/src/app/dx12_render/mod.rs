@@ -1,8 +1,8 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use std::sync::{
   Arc, Mutex,
   atomic::{AtomicBool, AtomicU64, Ordering},
@@ -17,7 +17,7 @@ use std::{
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
 #[cfg(feature = "svg")]
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_UINT;
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use windows::Win32::Graphics::{
   Direct3D12::{D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_STATE_COMMON},
   Dxgi::{
@@ -25,7 +25,7 @@ use windows::Win32::Graphics::{
     IDXGIKeyedMutex,
   },
 };
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use windows::core::PCWSTR;
 use windows::{
   Win32::{
@@ -111,7 +111,7 @@ use crate::app::{
   frame_capture::{align_capture_row_pitch, capture_rows_to_rgba, finish_capture},
   render_engine::RenderFrameCapture,
 };
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 use crate::render::gpu::ImageInstance;
 #[cfg(feature = "svg")]
 use crate::render::gpu::SvgVertexGpu;
@@ -153,14 +153,14 @@ const DX12_FRAME_NOT_READY: HRESULT = HRESULT(0x800705B4u32 as i32);
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 static DX12_IMAGE_MOD_NOT_FOUND_LOGGED: AtomicBool = AtomicBool::new(false);
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 static DX12_IMAGE_DRAWS_DISABLED: AtomicBool = AtomicBool::new(false);
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn dx12_native_image_log(message: impl std::fmt::Display) {
   tracing::debug!("[dx12/native-image] {message}");
 }
@@ -237,7 +237,7 @@ impl Dx12RenderCadence {
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn acquire_native_nv12_mutex(
   mutex: Option<&IDXGIKeyedMutex>,
   image_id: u64,
@@ -276,17 +276,17 @@ pub struct Dx12RenderEngine {
   pending_frame_capture: Option<RenderFrameCapture>,
   #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   video_surfaces: Option<Dx12VideoSurfaceAllocator>,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 #[derive(Clone, Default)]
 pub struct Dx12VideoSurfaceAllocator {
   device: Arc<Mutex<Option<ID3D12Device>>>,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 pub struct Dx12Nv12Surface {
   native: crate::images::NativeImageData,
   _y_texture: ID3D12Resource,
@@ -301,9 +301,9 @@ pub struct Dx12Nv12Surface {
   packed_nv12: bool,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 unsafe impl Send for Dx12Nv12Surface {}
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 unsafe impl Sync for Dx12Nv12Surface {}
 
 impl Default for Dx12RenderEngine {
@@ -323,12 +323,12 @@ impl Dx12RenderEngine {
       pending_frame_capture: None,
       #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       video_surfaces: None,
     }
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn with_video_surface_allocator(video_surfaces: Dx12VideoSurfaceAllocator) -> Self {
     Self {
       video_surfaces: Some(video_surfaces),
@@ -343,7 +343,7 @@ impl Dx12RenderEngine {
 
     let hwnd = hwnd_from_window(window)?;
     let state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1))? };
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     if let Some(video_surfaces) = &self.video_surfaces {
       video_surfaces.set_device(Some(state.device.clone()));
     }
@@ -368,11 +368,11 @@ impl Dx12RenderEngine {
     stats.max_present = stats.max_present.max(profile.present);
     stats.last_rects = list.rects.len();
     stats.last_glyphs = list.glyphs.len();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       stats.last_images = list.images.len();
     }
-    #[cfg(not(feature = "image"))]
+    #[cfg(not(feature = "raster"))]
     {
       stats.last_images = 0;
     }
@@ -402,7 +402,7 @@ impl Dx12RenderEngine {
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 impl Dx12VideoSurfaceAllocator {
   pub fn new() -> Self {
     Self::default()
@@ -565,7 +565,7 @@ impl Dx12VideoSurfaceAllocator {
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 impl Dx12Nv12Surface {
   pub fn image_data(&self) -> crate::images::ImageData {
     self.native.image_data()
@@ -614,7 +614,7 @@ impl Dx12Nv12Surface {
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn native_dx12_nv12_image(native: &crate::images::NativeImageData) -> Option<crate::images::Dx12Nv12Image> {
   native.payload::<crate::images::Dx12Nv12Image>().cloned().or_else(|| {
     native
@@ -623,7 +623,7 @@ fn native_dx12_nv12_image(native: &crate::images::NativeImageData) -> Option<cra
   })
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 impl Drop for Dx12Nv12Surface {
   fn drop(&mut self) {
     if self.owns_shared_handles {
@@ -709,7 +709,7 @@ impl RenderEngine for Dx12RenderEngine {
         } else {
           tracing::error!("failed to render native dx12 frame: {err:?}");
         }
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         {
           if let Some(video_surfaces) = &self.video_surfaces {
             video_surfaces.set_device(None);
@@ -757,7 +757,7 @@ impl RenderEngine for Dx12RenderEngine {
   }
 
   fn release_window_surface(&mut self) {
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       if let Some(video_surfaces) = &self.video_surfaces {
         video_surfaces.set_device(None);
@@ -784,18 +784,18 @@ struct Dx12State {
   quad_buffers: StaticQuadBuffers,
   rect_pipeline: RectPipeline,
   glyph_pipeline: GlyphPipeline,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_pipeline: ImagePipeline,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   nv12_image_pipeline: ImagePipeline,
   #[cfg(feature = "svg")]
   svg_pipeline: SvgPipeline,
   glyph_atlas: Option<GlyphAtlasTexture>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   image_textures: HashMap<u64, CachedImageTexture>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   native_image_draw_cadence: HashMap<u64, NativeImageDrawCadence>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   next_srv_index: usize,
   frame_arenas: [UploadArena; FRAME_COUNT],
   frame_uploads: [Vec<UploadBuffer>; FRAME_COUNT],
@@ -828,7 +828,7 @@ struct FrameCaptureReadback {
   frame_index: usize,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 struct NativeImageDrawCadence {
   started_at: Instant,
   draws: u32,
@@ -849,7 +849,7 @@ struct NativeImageDrawCadence {
   last_height: u32,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn stream_frame_after(frame_number: u32, previous_frame_number: u32) -> bool {
   let delta = frame_number.wrapping_sub(previous_frame_number);
   delta != 0 && delta < (u32::MAX / 2)
@@ -872,7 +872,7 @@ struct GlyphPipeline {
   pipeline_state: ID3D12PipelineState,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 struct ImagePipeline {
   root_signature: ID3D12RootSignature,
   pipeline_state: ID3D12PipelineState,
@@ -899,7 +899,7 @@ struct GlyphAtlasUploadStats {
   full_uploads: usize,
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 enum CachedImageTexture {
   Rgba {
     _texture: ID3D12Resource,
@@ -932,7 +932,7 @@ enum CachedImageTexture {
   },
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 impl CachedImageTexture {
   fn clear_descriptor_index(&mut self) {
     match self {
@@ -1390,7 +1390,7 @@ impl GlyphPipeline {
   }
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 impl ImagePipeline {
   unsafe fn new(device: &ID3D12Device, format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT) -> Result<Self> {
     Self::new_with_shader(device, format, include_bytes!("shaders/image.hlsl"), 1)
@@ -1971,7 +1971,7 @@ fn glyph_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 11] {
   ]
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn image_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
   [
     input_element(
@@ -2160,7 +2160,7 @@ unsafe fn create_r8_texture(device: &ID3D12Device, width: u32, height: u32) -> R
   resource.ok_or_else(Error::from_win32)
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 unsafe fn create_shared_texture(
   device: &ID3D12Device,
   width: u32,
@@ -2204,13 +2204,13 @@ unsafe fn create_shared_texture(
   Ok((resource, shared_handle, allocation_size))
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 unsafe fn device_adapter_luid_parts(device: &ID3D12Device) -> (u32, i32) {
   let luid = device.GetAdapterLuid();
   (luid.LowPart, luid.HighPart)
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 unsafe fn create_r8g8_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
   let heap_properties = D3D12_HEAP_PROPERTIES {
     Type: D3D12_HEAP_TYPE_DEFAULT,
@@ -2446,7 +2446,7 @@ fn dx12_invalid_arg(message: impl Into<String>) -> Error {
   Error::new(HRESULT(0x80070057u32 as i32), message.into())
 }
 
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 fn frame_image_srv_range(frame_index: usize) -> (usize, usize) {
   let image_descriptor_count = SRV_DESCRIPTOR_COUNT as usize - IMAGE_SRV_FIRST_INDEX;
   let descriptors_per_frame = image_descriptor_count / FRAME_COUNT;
@@ -2522,9 +2522,9 @@ impl Dx12State {
     let quad_buffers = StaticQuadBuffers::new(&device)?;
     let rect_pipeline = RectPipeline::new(&device, RENDER_TARGET_FORMAT)?;
     let glyph_pipeline = GlyphPipeline::new(&device, RENDER_TARGET_FORMAT)?;
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let image_pipeline = ImagePipeline::new(&device, RENDER_TARGET_FORMAT)?;
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let nv12_image_pipeline = ImagePipeline::new_nv12(&device, RENDER_TARGET_FORMAT)?;
     #[cfg(feature = "svg")]
     let svg_pipeline = SvgPipeline::new(&device, RENDER_TARGET_FORMAT)?;
@@ -2560,18 +2560,18 @@ impl Dx12State {
       quad_buffers,
       rect_pipeline,
       glyph_pipeline,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_pipeline,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       nv12_image_pipeline,
       #[cfg(feature = "svg")]
       svg_pipeline,
       glyph_atlas: None,
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       image_textures: HashMap::new(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       native_image_draw_cadence: HashMap::new(),
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       next_srv_index: 1,
       frame_arenas,
       frame_uploads: std::array::from_fn(|_| Vec::new()),
@@ -2631,7 +2631,7 @@ impl Dx12State {
     #[cfg(feature = "screenshot")]
     self.retired_capture_readbacks[self.frame_index].clear();
     self.frame_arenas[self.frame_index].reset();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     self.begin_frame_image_descriptors(list);
     self.reset_frame_command_allocator()?;
     let allocator = &self.command_allocators[self.frame_index];
@@ -2938,7 +2938,7 @@ impl Dx12State {
 
   unsafe fn draw_ordered(&mut self, list: &RenderList) -> Result<()> {
     let has_draws = !list.rects.is_empty() || !list.glyphs.is_empty();
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let has_draws = has_draws || !list.images.is_empty();
     #[cfg(feature = "svg")]
     let has_draws = has_draws || !list.svgs.is_empty();
@@ -2967,7 +2967,7 @@ impl Dx12State {
         start: usize,
         count: usize,
       },
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       Image(usize),
       #[cfg(feature = "svg")]
       Svg(usize),
@@ -2997,7 +2997,7 @@ impl Dx12State {
       ));
       glyph_start = glyph_end;
     }
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     for (index, image) in list.images.iter().enumerate() {
       ordered_draws.push((image.order, OrderedDraw::Image(index)));
     }
@@ -3017,7 +3017,7 @@ impl Dx12State {
           self.draw_glyphs(&list.glyphs[start..start + count]),
           format_args!("draw dx12 glyph run start={start} count={count}"),
         )?,
-        #[cfg(feature = "image")]
+        #[cfg(feature = "raster")]
         OrderedDraw::Image(index) => {
           if DX12_IMAGE_DRAWS_DISABLED.load(Ordering::Relaxed) {
             continue;
@@ -3171,7 +3171,7 @@ impl Dx12State {
     Ok(())
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn record_native_image_draw(&mut self, image: &crate::images::ImageCmd, stream_frame: Option<u32>) {
     let now = Instant::now();
     let stats = self
@@ -3299,7 +3299,7 @@ impl Dx12State {
     };
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn draw_image(&mut self, image: &crate::images::ImageCmd) -> Result<()> {
     let refreshed_native_image = image.native.as_ref().and_then(|native| {
       let version = native.version();
@@ -3712,7 +3712,7 @@ impl Dx12State {
     Ok(stats)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn begin_frame_image_descriptors(&mut self, list: &RenderList) {
     let (start, _) = frame_image_srv_range(self.frame_index);
     self.next_srv_index = start;
@@ -3725,7 +3725,7 @@ impl Dx12State {
     }
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   fn allocate_frame_image_descriptors(&mut self, image_id: u64, descriptors_needed: usize) -> Result<usize> {
     let (_, frame_srv_end) = frame_image_srv_range(self.frame_index);
     if self.next_srv_index + descriptors_needed > frame_srv_end {
@@ -3740,7 +3740,7 @@ impl Dx12State {
     Ok(descriptor_index)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn write_rgba_image_srv(&self, texture: &ID3D12Resource, descriptor_index: usize) {
     let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
       Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
@@ -3760,7 +3760,7 @@ impl Dx12State {
       .CreateShaderResourceView(texture, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn write_nv12_image_srvs(
     &self,
     y_texture: &ID3D12Resource,
@@ -3803,7 +3803,7 @@ impl Dx12State {
     );
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn write_native_nv12_image_srvs(&self, dx12: &crate::images::Dx12Nv12Image, descriptor_index: usize) {
     let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
       Format: DXGI_FORMAT_R8_UNORM,
@@ -3843,7 +3843,7 @@ impl Dx12State {
     );
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn ensure_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
     if image.native.is_some() {
       return self.ensure_native_image_texture(image);
@@ -4037,7 +4037,7 @@ impl Dx12State {
     Ok(descriptor_index)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn ensure_native_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
     let Some(native) = &image.native else {
       return Err(dx12_invalid_arg(format!(
@@ -4191,7 +4191,7 @@ impl Dx12State {
     Ok(descriptor_index)
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn upload_image_texture(
     &mut self,
     texture: &ID3D12Resource,
@@ -4209,7 +4209,7 @@ impl Dx12State {
     )
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn upload_nv12_image_textures(
     &mut self,
     y_texture: &ID3D12Resource,
@@ -4242,7 +4242,7 @@ impl Dx12State {
     )
   }
 
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   unsafe fn upload_texture_rows(
     &mut self,
     texture: &ID3D12Resource,
@@ -4608,7 +4608,7 @@ mod tests {
       compile_shader(include_bytes!("shaders/quad.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
       compile_shader(include_bytes!("shaders/glyph.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
       compile_shader(include_bytes!("shaders/glyph.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       {
         compile_shader(include_bytes!("shaders/image.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();

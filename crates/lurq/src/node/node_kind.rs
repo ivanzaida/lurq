@@ -49,6 +49,10 @@ pub enum TextOverflow {
 #[derive(Clone)]
 pub(crate) enum NodeKind {
   Empty,
+  #[cfg(feature = "canvas")]
+  Canvas {
+    canvas: crate::canvas::CanvasHandle,
+  },
   Text {
     state: TextState,
     style: TextStyleSource,
@@ -74,11 +78,11 @@ pub(crate) enum NodeKind {
   Select {
     state: SelectState,
   },
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Image {
     data: crate::images::ImageData,
   },
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   Video {
     data: crate::images::ImageData,
     fit: crate::node::BackgroundSize,

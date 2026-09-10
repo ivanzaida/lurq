@@ -26,7 +26,7 @@ pub struct WgpuViewportRect {
 /// Read-only information for the Lurq frame an extension is preparing.
 #[derive(Clone, Copy)]
 pub struct WgpuFrameInfo<'a> {
-  #[cfg_attr(not(feature = "image"), allow(dead_code))]
+  #[cfg_attr(not(feature = "raster"), allow(dead_code))]
   render_list: &'a RenderList,
   pub surface_width: u32,
   pub surface_height: u32,
@@ -45,7 +45,7 @@ impl<'a> WgpuFrameInfo<'a> {
   ///
   /// Pass [`WgpuExternalImageSlot::image_id`](crate::images::WgpuExternalImageSlot::image_id)
   /// to locate the corresponding `GpuViewport` in the current render list.
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub fn viewport(&self, image_id: u64) -> Option<WgpuViewportRect> {
     self
       .render_list

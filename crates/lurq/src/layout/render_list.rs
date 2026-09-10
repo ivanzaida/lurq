@@ -11,7 +11,7 @@ pub struct RenderList {
   pub clear_color: Color,
   pub rects: Vec<RectCmd>,
   pub glyphs: Vec<GlyphCmd>,
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   pub images: Vec<crate::images::ImageCmd>,
   #[cfg(feature = "svg")]
   pub svgs: Vec<crate::svg::SvgCmd>,
