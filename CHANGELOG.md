@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.1 — 2026-09-11
+
+- Reuse Canvas 2D path and clip meshes across frames on WGPU and native DX12. GPU commands keep geometry separate from the camera transform; unchanged paths no longer tessellate on every pan.
+- Cache immutable `Path2D` snapshots and recognize identical rebuilt geometry. Bound the shared mesh cache to a 32 MiB charge and 32,768 entries, with scale buckets preserving curve flattening quality under zoom and DPI changes.
+- Preserve existing stroke-width, clipping, image, text, alpha, and software-renderer behavior. Stroke outlines are still computed at recording time, and cached vertices are transformed and uploaded during preparation.
+- Add cache invalidation and memory-limit tests, camera/DPI pixel comparisons, and a reproducible 5,000-path benchmark. On the measured Ryzen 9 7950X3D, pan preparation improves from 16.34 ms to 3.97 ms (4.1×); zoom preparation improves by 3.4–3.6×. These are CPU preparation timings, not total frame timings.
+
 ## 0.19.0 — 2026-09-10
 
 - Add the optional `canvas` feature and a browser-like Canvas 2D API through existing element refs. Owned contexts support drawing from input handlers, timers, and workers without a required draw callback.

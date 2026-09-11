@@ -26,6 +26,7 @@ struct Readback {
   revision: u64,
 }
 pub(super) struct Renderer {
+  meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
   assets: HashMap<u64, AssetTexture>,
   asset_bytes: usize,
@@ -114,6 +115,7 @@ impl Renderer {
       );
     }
     Ok(Self {
+      meshes: MeshCache::default(),
       surfaces: HashMap::new(),
       assets: HashMap::new(),
       asset_bytes: 0,
@@ -233,7 +235,7 @@ impl Renderer {
             {
               group.push(commands.pop_front().unwrap());
             }
-            match Prepared::new(&group) {
+            match Prepared::new(&group, &mut self.meshes) {
               Ok(prepared) => self.draw(state, canvas.surface_id(), &prepared)?,
               Err(error) => canvas.set_gpu_error(error),
             }

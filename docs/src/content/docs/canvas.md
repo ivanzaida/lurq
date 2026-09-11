@@ -8,7 +8,7 @@ description: Persistent drawing through existing element refs, with paths, clipp
 Enable `canvas` alongside your window and renderer features:
 
 ```toml
-lurq = { version = "0.19.0", features = ["canvas", "winit", "wgpu"] }
+lurq = { version = "0.19.1", features = ["canvas", "winit", "wgpu"] }
 ```
 
 Canvas is available starting in **lurq 0.19.0**. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
@@ -141,6 +141,10 @@ Conversion returns `None` when detached or when the presentation transform canno
 
 `Canvas::new()` draws into a persistent GPU texture on both WGPU and native DX12. Calls record ordered work; paths are tessellated on the CPU, then rasterized and blended on the GPU. Text uses cached CPU shaping/glyph rasterization and GPU image drawing. The default canvas has no full-size CPU bitmap. A new blank canvas defers its backing allocation until drawing or readback needs it.
 
+GPU commands keep geometry separate from its drawing transform. Both GPU backends cache model-space triangles across frames, keyed by geometry content, fill rule, and curve flattening scale. Reusing a `Path2D` also reuses its immutable recorded snapshot; editing it invalidates that snapshot without affecting prior drawings or clones. Identical rebuilt paths can reuse triangles, but still pay construction and hashing costs. For camera movement, retain the document's `Path2D` objects, clear the surface, set the camera transform, and draw them again. Transforming and uploading the prepared vertices still costs work each frame; this is not a retained scene or a camera uniform API.
+
+Polygon meshes survive arbitrary zoom. Curves use power-of-two scale buckets based on the transform's maximum stretch, including DPI, skew, and nonuniform scale. Flattening tolerance is at most 0.1 physical pixels; entering a finer bucket tessellates once per uncached path. Stroke outlines and dashes retain their existing model-space resolution of 1.0 and are still computed when recording a stroke. The full transform scales the outline, including its width; the resulting outline's triangles are cached. Zoom does not introduce a new stroke-outline approximation policy.
+
 The renderer processes only new commands. A shared 512 × 512 tile surface provides 4-sample antialiasing; touched tiles are seeded from the existing texture, drawn, resolved, and copied back on the GPU. A small edit does not upload, convert, or copy the whole canvas. Full clears discard obsolete queued drawing while preserving resize and snapshot barriers. Idle surfaces retain pixels without replaying history or requesting continuous frames.
 
 Internal source-over blending uses premultiplied sRGB channel values. Image sources are premultiplied before filtering. Window composition converts the result to straight linear color for the existing image pipeline, including node backgrounds, borders, clipping, radius, and ancestor opacity.
@@ -172,6 +176,8 @@ Use `Canvas::new().software()` explicitly for the synchronous tiny-skia referenc
 Limits include 16,384 pixels per backing dimension (also subject to device limits), 16,777,216 backing pixels, 128 saved states/clip levels, 65,536 input path segments, and 8 MiB of distinct retained vector clips. Queued plus encoding work is charged against 64 MiB per canvas and 8,192 commands. Source/clip references are conservatively charged per queued draw. Overflow reports `QueueFull` and rejects that operation; render pending work before continuing, or clear/reset obsolete work. Tessellation expansion is capped at 1,048,576 output vertices. GPU image/text caches use a 64 MiB per-renderer charge after each frame, with at least 64 KiB charged per texture to bound small-texture overhead; shaped text has an 8 MiB app cache in addition to the bounded glyph cache. Software clips retain their separate 64 MiB limit.
 
 `status()` exposes attachment, metrics, content revision, errors, charged pending bytes, backing GPU bytes, and cumulative submitted batches, vertices, tiles, and source-upload bytes. A 3840 × 2160 backing needs 33,177,600 color bytes. Antialiasing scratch is shared across canvases and fixed in size: approximately 9 MiB with D24S8, with WGPU depth/stencil allocation depending on the backend. Queues, geometry buffers, source caches, explicit readbacks, and resources awaiting GPU fences add to those figures; these limits are not a global application memory cap.
+
+The CPU mesh cache is shared across canvases within each renderer and capped at 32 MiB of charged source geometry, triangle storage, and a metadata allowance, with an independent 32,768-entry limit. It uses FIFO eviction and bypasses retention for oversized entries. These bounds accommodate thousands of ordinary paths at several zoom levels and bound metadata for tiny paths. Clears and resizes keep reusable meshes; renderer destruction releases the cache. Mesh-cache memory is separate from `status().gpu_bytes`, which reports backing textures.
 
 Gradients, patterns, shadows, filters, additional blend modes, canvas-to-canvas drawing, pixel upload, and automatic animation callbacks remain outside the initial subset.
 

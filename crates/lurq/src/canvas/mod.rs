@@ -39,7 +39,7 @@ const MAX_SAVE_DEPTH: usize = 128;
 const MAX_CLIP_BYTES: usize = 64 * 1024 * 1024;
 static NEXT_CANVAS_ID: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FillRule {
   #[default]
   NonZero,
@@ -590,7 +590,14 @@ impl Surface {
     rgba
   }
 
-  fn paint_path(&mut self, path: &Path, matrix: Transform2D, stroke: bool, clear: bool, rule: FillRule) -> bool {
+  fn paint_path(
+    &mut self,
+    path: &path::Geometry,
+    matrix: Transform2D,
+    stroke: bool,
+    clear: bool,
+    rule: FillRule,
+  ) -> bool {
     let color = if stroke {
       self.state.stroke_color
     } else {
@@ -598,17 +605,18 @@ impl Surface {
     };
     if !self.software {
       let path = if stroke {
-        context::stroke_outline(path, &self.state.stroke)
+        context::stroke_outline(path, &self.state.stroke).map(path::Geometry::new)
       } else {
         Some(path.clone())
       };
-      let matrix = transform(Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix));
-      let Some(path) = path.and_then(|p| p.transform(matrix)) else {
+      let matrix = Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix);
+      let Some(path) = path else {
         return false;
       };
       let alpha = f32::from(color.a()) / 255.0 * self.state.alpha;
       return self.enqueue(gpu::Command::Path {
         path,
+        matrix,
         rule,
         color: [
           f32::from(color.r()) / 255.0 * alpha,

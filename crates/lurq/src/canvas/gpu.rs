@@ -7,7 +7,13 @@ use std::{collections::HashMap, ops::Range, time::Duration};
 
 use lyon::{math::point, path::Path as LyonPath, tessellation::*};
 
-use super::{FillRule, *};
+use super::{FillRule, path::Geometry, *};
+
+mod cache;
+pub(crate) use cache::MeshCache;
+
+#[cfg(test)]
+mod benchmark;
 
 pub(crate) const TILE: u32 = 512;
 pub(crate) const MAX_QUEUE_BYTES: usize = 64 * 1024 * 1024;
@@ -23,7 +29,8 @@ impl Drop for ReadbackPermit {
 
 #[derive(Clone)]
 pub(crate) struct Clip {
-  pub path: Option<Path>,
+  pub path: Option<Geometry>,
+  pub matrix: Transform2D,
   pub rule: FillRule,
   pub previous: Option<Arc<Clip>>,
   pub depth: u32,
@@ -47,7 +54,8 @@ pub(crate) enum Command {
   },
   Clear,
   Path {
-    path: Path,
+    path: Geometry,
+    matrix: Transform2D,
     rule: FillRule,
     color: [f32; 4],
     erase: bool,
@@ -282,7 +290,7 @@ pub(crate) struct Prepared {
   pub clear: bool,
 }
 impl Prepared {
-  pub fn new(commands: &[Command]) -> Result<Self, CanvasError> {
+  pub fn new(commands: &[Command], cache: &mut MeshCache) -> Result<Self, CanvasError> {
     let mut result = Self::default();
     let mut clips = HashMap::new();
     for command in commands {
@@ -312,10 +320,13 @@ impl Prepared {
         } else {
           let start = result.vertices.len() as u32;
           if let Some(path) = &clip.path {
-            let path = path.clone().transform(tiny_skia::Transform::from_scale(scale, scale));
-            if let Some(path) = path {
-              mesh(&path, clip.rule, [0.; 4], &mut result.vertices)?;
-            }
+            cache.append(
+              path,
+              Transform2D::scale_uniform(scale).then(&clip.matrix),
+              clip.rule,
+              [0.; 4],
+              &mut result.vertices,
+            )?;
           }
           let range = start..result.vertices.len() as u32;
           clips.insert(key, range.clone());
@@ -327,12 +338,13 @@ impl Prepared {
       let (asset, smooth, erase) = match command {
         Command::Path {
           path,
+          matrix,
           rule,
           color,
           erase,
           ..
         } => {
-          mesh(path, *rule, *color, &mut result.vertices)?;
+          cache.append(path, *matrix, *rule, *color, &mut result.vertices)?;
           (None, false, *erase)
         }
         Command::Image {
@@ -400,7 +412,13 @@ impl Draw {
       && self.bounds[3] > y as f32
   }
 }
-fn mesh(path: &Path, rule: FillRule, color: [f32; 4], output: &mut Vec<Vertex>) -> Result<(), CanvasError> {
+fn mesh(
+  path: &Path,
+  rule: FillRule,
+  tolerance: f32,
+  color: [f32; 4],
+  output: &mut Vec<Vertex>,
+) -> Result<(), CanvasError> {
   let mut builder = LyonPath::builder();
   let mut open = false;
   for segment in path.segments() {
@@ -434,10 +452,12 @@ fn mesh(path: &Path, rule: FillRule, color: [f32; 4], output: &mut Vec<Vertex>) 
     builder.end(true);
   }
   let path = builder.build();
-  let options = FillOptions::default().with_tolerance(0.1).with_fill_rule(match rule {
-    FillRule::NonZero => lyon::path::FillRule::NonZero,
-    FillRule::EvenOdd => lyon::path::FillRule::EvenOdd,
-  });
+  let options = FillOptions::default()
+    .with_tolerance(tolerance)
+    .with_fill_rule(match rule {
+      FillRule::NonZero => lyon::path::FillRule::NonZero,
+      FillRule::EvenOdd => lyon::path::FillRule::EvenOdd,
+    });
   // The custom builder limits expansion while tessellating, including malicious
   // self-intersecting paths whose triangulation is much larger than their input.
   let mut geometry = LimitedGeometry {

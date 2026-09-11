@@ -292,7 +292,7 @@ impl Context2D {
   fn paint_rect(&self, x: f32, y: f32, w: f32, h: f32, stroke: bool, clear: bool) {
     let mut path = Path2D::new();
     path.rect(x, y, w, h);
-    let Some(path) = path.finish() else {
+    let Some(path) = path.geometry() else {
       return;
     };
     self.pixels(|s| s.paint_path(&path, s.state.transform, stroke, clear, FillRule::NonZero));
@@ -302,7 +302,7 @@ impl Context2D {
   }
   pub fn fill_with_rule(&self, rule: FillRule) {
     self.pixels(|s| {
-      let Some(path) = s.path.finish() else {
+      let Some(path) = s.path.geometry() else {
         return false;
       };
       s.paint_path(&path, Transform2D::IDENTITY, false, false, rule)
@@ -313,17 +313,23 @@ impl Context2D {
       let Some(path) = current_stroke_path(s) else {
         return false;
       };
-      s.paint_path(&path, s.state.transform, true, false, FillRule::NonZero)
+      s.paint_path(
+        &path::Geometry::new(path),
+        s.state.transform,
+        true,
+        false,
+        FillRule::NonZero,
+      )
     });
   }
   pub fn fill_path(&self, path: &Path2D, rule: FillRule) {
-    let Some(path) = path.finish() else {
+    let Some(path) = path.geometry() else {
       return;
     };
     self.pixels(|s| s.paint_path(&path, s.state.transform, false, false, rule));
   }
   pub fn stroke_path(&self, path: &Path2D) {
-    let Some(path) = path.finish() else {
+    let Some(path) = path.geometry() else {
       return;
     };
     self.pixels(|s| s.paint_path(&path, s.state.transform, true, false, FillRule::NonZero));
@@ -334,13 +340,13 @@ impl Context2D {
   }
   pub fn clip_with_rule(&self, rule: FillRule) {
     let mut s = self.canvas.inner.lock();
-    let path = s.path.finish();
+    let path = s.path.geometry();
     apply_clip(&mut s, path, Transform2D::IDENTITY, rule);
   }
   pub fn clip_path(&self, path: &Path2D, rule: FillRule) {
     let mut s = self.canvas.inner.lock();
     let m = s.state.transform;
-    apply_clip(&mut s, path.finish(), m, rule);
+    apply_clip(&mut s, path.geometry(), m, rule);
   }
   /// Point coordinates are canvas-logical, unaffected by the current drawing transform.
   pub fn is_point_in_path(&self, x: f32, y: f32, rule: FillRule) -> bool {
@@ -579,9 +585,8 @@ pub(super) fn stroke_outline(path: &Path, stroke: &Stroke) -> Option<Path> {
   }
 }
 
-fn apply_clip(s: &mut Surface, path: Option<Path>, matrix: Transform2D, rule: FillRule) {
+fn apply_clip(s: &mut Surface, path: Option<path::Geometry>, matrix: Transform2D, rule: FillRule) {
   if !s.software {
-    let path = path.and_then(|p| p.transform(transform(matrix)));
     let bytes = path.as_ref().map_or(0, |p| p.points().len() * 16) + s.state.gpu_clip.as_ref().map_or(0, |c| c.bytes);
     let mut retained = std::collections::HashSet::new();
     let mut retained_bytes = path.as_ref().map_or(0, |p| p.points().len() * 16);
@@ -602,6 +607,7 @@ fn apply_clip(s: &mut Surface, path: Option<Path>, matrix: Transform2D, rule: Fi
     }
     s.state.gpu_clip = Some(Arc::new(gpu::Clip {
       path,
+      matrix,
       rule,
       previous: s.state.gpu_clip.clone(),
       depth,

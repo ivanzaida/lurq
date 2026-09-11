@@ -1,4 +1,9 @@
-use std::f32::consts::{FRAC_PI_2, TAU};
+use std::{
+  f32::consts::{FRAC_PI_2, TAU},
+  hash::{DefaultHasher, Hash, Hasher},
+  ops::Deref,
+  sync::{Arc, OnceLock},
+};
 
 use tiny_skia::{Path, PathBuilder, PathSegment, Point};
 
@@ -17,6 +22,7 @@ pub enum ArcDirection {
 #[derive(Clone, Default, Debug)]
 pub struct Path2D {
   builder: PathBuilder,
+  finished: OnceLock<Option<Geometry>>,
   current: Option<Point>,
   start: Option<Point>,
   segments: usize,
@@ -44,6 +50,7 @@ impl Path2D {
       return;
     }
     self.builder.move_to(x, y);
+    self.finished.take();
     self.current = Some(Point::from_xy(x, y));
     self.start = self.current;
     self.segments += 1;
@@ -58,6 +65,7 @@ impl Path2D {
       return;
     }
     self.builder.line_to(x, y);
+    self.finished.take();
     self.current = Some(Point::from_xy(x, y));
     self.segments += 1;
   }
@@ -70,6 +78,7 @@ impl Path2D {
       self.move_to(cx, cy);
     }
     self.builder.quad_to(cx, cy, x, y);
+    self.finished.take();
     self.current = Some(Point::from_xy(x, y));
     self.segments += 1;
   }
@@ -82,6 +91,7 @@ impl Path2D {
       self.move_to(c1x, c1y);
     }
     self.builder.cubic_to(c1x, c1y, c2x, c2y, x, y);
+    self.finished.take();
     self.current = Some(Point::from_xy(x, y));
     self.segments += 1;
   }
@@ -91,6 +101,7 @@ impl Path2D {
       return;
     }
     self.builder.close();
+    self.finished.take();
     self.current = self.start;
     self.segments += 1;
   }
@@ -270,6 +281,9 @@ impl Path2D {
   pub(crate) fn finish(&self) -> Option<Path> {
     self.builder.clone().finish()
   }
+  pub(crate) fn geometry(&self) -> Option<Geometry> {
+    self.finished.get_or_init(|| self.finish().map(Geometry::new)).clone()
+  }
   pub(crate) fn current(&self) -> Option<Point> {
     self.current
   }
@@ -287,6 +301,63 @@ impl Path2D {
       }
       first = false;
     }
+  }
+}
+
+/// Immutable, compact snapshot with a precomputed content hash. Equal rebuilt
+/// paths share meshes too; equality checks the geometry, never just the hash.
+#[derive(Clone, Debug)]
+pub(crate) struct Geometry(Arc<GeometryData>);
+#[derive(Debug)]
+struct GeometryData {
+  path: Path,
+  hash: u64,
+  curves: bool,
+}
+impl Geometry {
+  pub fn new(path: Path) -> Self {
+    let mut hash = DefaultHasher::new();
+    for verb in path.verbs() {
+      (*verb as u8).hash(&mut hash);
+    }
+    for p in path.points() {
+      for v in [p.x, p.y] {
+        // Path equality treats signed zero as equal.
+        (if v == 0. { 0 } else { v.to_bits() }).hash(&mut hash);
+      }
+    }
+    let curves = path
+      .segments()
+      .any(|v| matches!(v, PathSegment::QuadTo(..) | PathSegment::CubicTo(..)));
+    // Clone trims spare builder/stroker capacity before the cache retains it.
+    Self(Arc::new(GeometryData {
+      path: path.clone(),
+      hash: hash.finish(),
+      curves,
+    }))
+  }
+  pub fn bytes(&self) -> usize {
+    self.points().len() * std::mem::size_of::<Point>() + self.verbs().len() + std::mem::size_of::<GeometryData>()
+  }
+  pub fn has_curves(&self) -> bool {
+    self.0.curves
+  }
+}
+impl Deref for Geometry {
+  type Target = Path;
+  fn deref(&self) -> &Path {
+    &self.0.path
+  }
+}
+impl PartialEq for Geometry {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0, &other.0) || self.0.path == other.0.path
+  }
+}
+impl Eq for Geometry {}
+impl Hash for Geometry {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.0.hash.hash(state);
   }
 }
 
@@ -376,4 +447,42 @@ fn flatten(a: Point, b: Point, c: Point, d: Point, depth: u8, edge: &mut impl Fn
   let mid = lerp(abc, bcd, 0.5);
   flatten(a, ab, abc, mid, depth + 1, edge);
   flatten(mid, bcd, cd, d, depth + 1, edge);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn snapshots_invalidate_on_each_mutation_and_hash_collisions_check_content() {
+    let mut p = Path2D::new();
+    assert!(p.geometry().is_none());
+    p.move_to(0., 0.);
+    p.line_to(10., 10.);
+    let mut previous = p.geometry().unwrap();
+    for mutation in 0..5 {
+      match mutation {
+        0 => p.move_to(20., 20.),
+        1 => p.line_to(30., 20.),
+        2 => p.quadratic_curve_to(40., 30., 30., 40.),
+        3 => p.bezier_curve_to(20., 40., 10., 30., 10., 20.),
+        _ => p.close_path(),
+      }
+      let next = p.geometry().unwrap();
+      assert_ne!(previous, next);
+      previous = next;
+    }
+    let mut different = Path2D::new();
+    different.rect(0., 0., 5., 5.);
+    let collision = Geometry(Arc::new(GeometryData {
+      path: different.finish().unwrap(),
+      hash: previous.0.hash,
+      curves: false,
+    }));
+    let mut map = std::collections::HashMap::new();
+    map.insert(previous.clone(), 1);
+    map.insert(collision.clone(), 2);
+    assert_eq!(map[&previous], 1);
+    assert_eq!(map[&collision], 2);
+  }
 }

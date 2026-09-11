@@ -1,5 +1,7 @@
 # Canvas GPU performance record
 
+For the subsequent optimization of static scenes during camera movement, see [Canvas camera tessellation cache](canvas-retessellation.md), including the 5,000-path before/after benchmark and cache limits.
+
 Measured on 2026-09-10 in `codex/canvas-2d`, replacing the CPU prototype at `1dabe90`. Hardware: Ryzen 9 7950X3D and NVIDIA GeForce RTX 5080, driver 596.49; WGPU selected Vulkan. Release builds, four warmups and 40 measured updates per case.
 
 ## Offscreen update results
