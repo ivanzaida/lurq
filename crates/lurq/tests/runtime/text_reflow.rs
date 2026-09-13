@@ -43,22 +43,14 @@ impl Component for CardRoot {
   }
 }
 
-/// Distinct glyph rows: title + subtitle = 2. A stale-width wrap adds a third
-/// row (and overlaps the subtitle). Glyph tops within one line differ by a
-/// few px (ascenders/descenders); line steps are ~a full line-height, so
-/// cluster with a gap threshold in between.
-fn baseline_rows(snapshot: &RenderSnapshot) -> usize {
-  let mut ys: Vec<f32> = snapshot.glyphs.iter().map(|glyph| glyph.y).collect();
-  ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
-  let mut rows = 0;
-  let mut last = f32::MIN;
-  for y in ys {
-    if y - last > 9.0 {
-      rows += 1;
-    }
-    last = y;
-  }
-  rows
+// Compare against a fresh render instead of inferring rows from glyph tops:
+// underscores and ascenders can be separated by more than 9px in one line.
+fn glyph_geometry(snapshot: &RenderSnapshot) -> Vec<[u32; 4]> {
+  snapshot
+    .glyphs
+    .iter()
+    .map(|glyph| [glyph.x, glyph.y, glyph.width, glyph.height].map(f32::to_bits))
+    .collect()
 }
 
 fn title(text: &str) -> CardProps {
@@ -73,11 +65,13 @@ fn changed_text_is_measured_fresh_not_wrapped_at_stale_width() {
   tree.resize(800, 600);
 
   let snapshot = render_pass_with_app(&mut tree, &mut app);
-  assert_eq!(
-    baseline_rows(&snapshot),
-    2,
-    "short title lays as one line plus subtitle"
-  );
+  assert!(!snapshot.glyphs.is_empty());
+
+  let mut fresh_tree = Tree::new();
+  let mut fresh_app = App::new();
+  fresh_tree.mount_root::<CardRoot>(&mut fresh_app, title("Награда за доставку"));
+  fresh_tree.resize(800, 600);
+  let expected = glyph_geometry(&render_pass_with_app(&mut fresh_tree, &mut fresh_app));
 
   // Content change followed by duplicate re-renders BEFORE any paint — the
   // production pattern (a window shell re-rendering per input event).
@@ -87,14 +81,14 @@ fn changed_text_is_measured_fresh_not_wrapped_at_stale_width() {
 
   let snapshot = render_pass_with_app(&mut tree, &mut app);
   assert_eq!(
-    baseline_rows(&snapshot),
-    2,
-    "longer title must be re-measured (one line at 400px), not wrapped inside the previous title's box"
+    glyph_geometry(&snapshot),
+    expected,
+    "updated title must match a fresh layout, not wrap inside the previous title's box"
   );
 
   // And it must stay correct on subsequent paints.
   let snapshot = render_pass_with_app(&mut tree, &mut app);
-  assert_eq!(baseline_rows(&snapshot), 2);
+  assert_eq!(glyph_geometry(&snapshot), expected);
 }
 
 const DIALOGUE_CARD_COLOR: &str = "#19324c";
