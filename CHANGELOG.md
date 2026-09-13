@@ -4,6 +4,7 @@
 
 - Reuse plain-text shaping and full layouts across measurement, optical centering, caret extraction, and clipped painting. Retain unchanged paragraphs through edits and reordering, with a 48 MiB accounted cache budget and layout compaction before eviction.
 - Share immutable caret geometry and index visual rows for hit testing, selections, and vertical navigation. Large multiline edits rebuild caret geometry only for changed paragraphs; masked inputs keep their original byte offsets.
+- Keep input baselines stable for older text fonts without a cap-height metric by deriving it from the font's Latin H outline; fonts without that reference glyph retain ink centering.
 - Preserve wrapped layouts across width changes when conservative word-wrap bounds prove the layout unchanged. Unsupported alignment, bidirectional text, and glyph-fallback wrapping continue through the existing layout path.
 - Stage native DX12 glyph-atlas updates in existing frame upload arenas, avoiding routine dedicated upload allocations and an intermediate copy. Keep full-atlas transfers and the oversized-upload fallback; clear reused row padding and missing texels.
 - Extend development-only optimization overrides to font outline and hinting dependencies. Release profile settings are unchanged; consuming applications must configure development profile overrides in their own workspace.

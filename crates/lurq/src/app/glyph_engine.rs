@@ -843,16 +843,28 @@ impl GlyphEngine {
     })
   }
 
-  /// Cap height of `font_id` in pixels at `font_size`, if the font exposes a
-  /// usable one (icon/symbol fonts often report 0).
+  /// Cap height in pixels, using the Latin H outline when older text fonts
+  /// omit the metric. Fonts without that glyph still use the ink fallback.
   fn font_cap_height_px(&mut self, font_id: cosmic_text::fontdb::ID, font_size: f32) -> Option<f32> {
     let font = self.font_system.get_font(font_id)?;
     let metrics = font.as_swash().metrics(&[]);
     let upem = metrics.units_per_em as f32;
-    if upem <= 0.0 || metrics.cap_height <= 0.0 {
+    if upem <= 0.0 {
       return None;
     }
-    Some(metrics.cap_height * font_size / upem)
+    let cap_height = if metrics.cap_height > 0.0 {
+      metrics.cap_height
+    } else {
+      // A fixed reference glyph keeps the baseline independent of the current
+      // value (e.g. "as" -> "asd" in DejaVu Sans with an older OS/2 table).
+      let face = font.rustybuzz();
+      let glyph = face.glyph_index('H')?;
+      if glyph.0 == 0 {
+        return None;
+      }
+      face.glyph_bounding_box(glyph)?.y_max as f32
+    };
+    Some(cap_height * font_size / upem)
   }
 
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
