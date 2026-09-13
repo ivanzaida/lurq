@@ -9817,6 +9817,12 @@ fn text_vertical_align_offset(
   if quad_height <= 0.0 {
     return 0.0;
   }
+  if vertical_align == VerticalAlign::Center {
+    let Some((top, bottom)) = app.glyph_engine.text_optical_extents(text, style, max_width, wrap) else {
+      return 0.0;
+    };
+    return (quad_height - (bottom - top)) * 0.5 - top;
+  }
   let Some(extents) = app.glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
     return 0.0;
   };

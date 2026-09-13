@@ -17,6 +17,9 @@ use swash::{
   zeno::{Angle, Format, Transform as SwashTransform, Vector},
 };
 
+mod reflow;
+use reflow::ReflowRange;
+
 use crate::{
   app::profile_types::GlyphEngineProfile,
   layout::{
@@ -25,10 +28,17 @@ use crate::{
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
     text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
   },
-  node::{color::Color, text_selection::CaretPosition, transform::Transform2D},
+  node::{
+    color::Color,
+    text_selection::{CaretIndex, CaretPosition, CaretPositions, CaretPositionsBuilder, ParagraphCarets},
+    transform::Transform2D,
+  },
 };
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
+const PLAIN_BUFFER_CACHE_LIMIT: usize = 64;
+// Keep logical and physical document layouts together at fractional display scales.
+const PLAIN_BUFFER_CACHE_BYTES: usize = 48 * 1024 * 1024;
 const GLYPH_ATLAS_PADDING: u32 = 2;
 const GLYPH_ATLAS_BYTES_PER_PIXEL: usize = 4;
 const DIRTY_RECT_MAX_HORIZONTAL_GAP: u32 = GLYPH_ATLAS_PADDING * 4;
@@ -347,6 +357,46 @@ pub(crate) struct TextVerticalExtents {
   pub(crate) optical_bottom: f32,
 }
 
+struct CachedPlainBuffer {
+  key: CacheKey,
+  buffer: Buffer,
+  paragraphs: Vec<PlainParagraph>,
+  bytes: usize,
+  layout_ready: bool,
+}
+
+#[derive(Clone, Default)]
+struct PlainParagraph {
+  carets: Option<std::sync::Arc<ParagraphCarets>>,
+  reflow: Option<ReflowRange>,
+  fingerprint: u64,
+  shape_bytes: usize,
+  layout_bytes: usize,
+}
+
+impl CachedPlainBuffer {
+  fn refresh_bytes(&mut self) {
+    self.bytes = std::mem::size_of::<Self>()
+      + self.key.text.len()
+      + self.buffer.lines.capacity() * std::mem::size_of::<cosmic_text::BufferLine>()
+      + self.paragraphs.capacity() * std::mem::size_of::<PlainParagraph>()
+      + self
+        .paragraphs
+        .iter()
+        .map(|line| line.shape_bytes + line.layout_bytes + line.carets.as_ref().map_or(0, |carets| carets.bytes()))
+        .sum::<usize>();
+  }
+}
+
+// Callers can inspect runs, but mutations must also update the retained allocation charge.
+impl std::ops::Deref for CachedPlainBuffer {
+  type Target = Buffer;
+
+  fn deref(&self) -> &Buffer {
+    &self.buffer
+  }
+}
+
 pub(crate) struct GlyphEngine {
   #[cfg(feature = "canvas")]
   canvas_text: Option<std::sync::Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>>,
@@ -356,7 +406,8 @@ pub(crate) struct GlyphEngine {
   font_aliases: HashMap<String, String>,
   measure_cache: HashMap<u64, Vec<(CacheKey, Size)>>,
   vertical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<TextVerticalExtents>)>>,
-  caret_cache: HashMap<u64, Vec<(CacheKey, Vec<CaretPosition>)>>,
+  optical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<(f32, f32)>)>>,
+  caret_cache: HashMap<u64, Vec<(CacheKey, CaretPositions)>>,
   rich_shaped_layout_cache: HashMap<u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>>,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
   clipped_glyph_layout_cache: HashMap<ClippedCacheKey, Vec<CachedGlyph>>,
@@ -366,6 +417,11 @@ pub(crate) struct GlyphEngine {
   atlas_entries: HashMap<GlyphCacheKey, PackedGlyph>,
   transformed_atlas_entries: HashMap<TransformedGlyphKey, PackedGlyph>,
   buffer_pool: Vec<Buffer>,
+  // Full-height layouts shared by measurement, ink bounds, and clipped painting.
+  // Oldest entries are evicted first; taking and returning an entry refreshes its age.
+  plain_buffers: Vec<CachedPlainBuffer>,
+  plain_buffer_bytes: usize,
+  plain_buffer_budget: usize,
   pub(crate) measure_hits: usize,
   pub(crate) measure_misses: usize,
   pub(crate) glyph_hits: usize,
@@ -388,6 +444,7 @@ impl GlyphEngine {
       font_aliases: HashMap::new(),
       measure_cache: HashMap::new(),
       vertical_extents_cache: HashMap::new(),
+      optical_extents_cache: HashMap::new(),
       caret_cache: HashMap::new(),
       rich_shaped_layout_cache: HashMap::new(),
       glyph_layout_cache: HashMap::new(),
@@ -398,6 +455,9 @@ impl GlyphEngine {
       atlas_entries: HashMap::new(),
       transformed_atlas_entries: HashMap::new(),
       buffer_pool: Vec::new(),
+      plain_buffers: Vec::new(),
+      plain_buffer_bytes: 0,
+      plain_buffer_budget: plain_buffer_cache_budget(),
       measure_hits: 0,
       measure_misses: 0,
       glyph_hits: 0,
@@ -484,8 +544,11 @@ impl GlyphEngine {
     {
       self.canvas_text = None;
     }
+    self.plain_buffers.clear();
+    self.plain_buffer_bytes = 0;
     self.measure_cache.clear();
     self.vertical_extents_cache.clear();
+    self.optical_extents_cache.clear();
     self.caret_cache.clear();
     self.rich_shaped_layout_cache.clear();
     self.glyph_layout_cache.clear();
@@ -510,7 +573,11 @@ impl GlyphEngine {
   pub(crate) fn profile(&self) -> GlyphEngineProfile {
     #[cfg(feature = "perf_profile")]
     {
-      self.profile
+      GlyphEngineProfile {
+        plain_cache_bytes: self.plain_buffer_bytes,
+        plain_cache_budget: self.plain_buffer_budget,
+        ..self.profile
+      }
     }
     #[cfg(not(feature = "perf_profile"))]
     {
@@ -573,7 +640,13 @@ impl GlyphEngine {
       return cached;
     }
     self.measure_misses += 1;
+    #[cfg(feature = "perf_profile")]
+    let extents_start = Instant::now();
     let extents = self.compute_text_vertical_extents(text, style, max_width, wrap);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.vertical_extents += extents_start.elapsed();
+    }
     if self.vertical_extents_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
       self.vertical_extents_cache.clear();
     }
@@ -585,6 +658,107 @@ impl GlyphEngine {
     extents
   }
 
+  /// Center alignment needs the first cap height and last nonempty baseline.
+  /// Top/bottom alignment and fonts without usable cap metrics still use exact ink bounds.
+  pub(crate) fn text_optical_extents(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Option<(f32, f32)> {
+    let fingerprint = text_measure_fingerprint(text, style, max_width, wrap);
+    if let Some((_, extents)) = self.optical_extents_cache.get(&fingerprint).and_then(|bucket| {
+      bucket
+        .iter()
+        .find(|(key, _)| key.matches_measure(text, style, max_width, wrap))
+    }) {
+      self.measure_hits += 1;
+      return *extents;
+    }
+    self.measure_misses += 1;
+    #[cfg(feature = "perf_profile")]
+    let extents_start = Instant::now();
+    let extents = self.compute_text_optical_extents(text, style, max_width, wrap);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.vertical_extents += extents_start.elapsed();
+    }
+    if self.optical_extents_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.optical_extents_cache.clear();
+    }
+    self
+      .optical_extents_cache
+      .entry(fingerprint)
+      .or_default()
+      .push((CacheKey::new(text, style, max_width, wrap), extents));
+    extents
+  }
+
+  fn compute_text_optical_extents(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Option<(f32, f32)> {
+    #[cfg(feature = "perf_profile")]
+    let shape_start = Instant::now();
+    let buffer = self.full_text_buffer(text, style, max_width, wrap);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.vertical_extents_shape += shape_start.elapsed();
+    }
+    let mut first = None;
+    let mut last_line_y = 0.0;
+    let mut needs_ink = false;
+    'runs: for run in buffer.layout_runs() {
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.vertical_extents_runs += 1;
+      }
+      for glyph in run.glyphs {
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.vertical_extents_glyphs += 1;
+        }
+        if glyph_cluster_is_whitespace(run.text, glyph) {
+          continue;
+        }
+        let (key, ..) = GlyphCacheKey::new(
+          glyph.font_id,
+          glyph.glyph_id,
+          glyph.font_size,
+          (0.0, 0.0),
+          glyph.cache_key_flags,
+        );
+        if !self.get_or_pack_glyph(key).is_some_and(|packed| packed.height > 0) {
+          continue;
+        }
+        if first.is_none() {
+          let cap = self
+            .font_cap_height_px(glyph.font_id, glyph.font_size)
+            .filter(|&cap| cap > glyph.font_size * 0.4 && cap < glyph.font_size * 0.95);
+          let Some(cap) = cap else {
+            needs_ink = true;
+            break 'runs;
+          };
+          let baseline = run.line_y + glyph.y - glyph.font_size * glyph.y_offset;
+          first = Some((baseline, cap, run.line_y));
+        }
+        last_line_y = run.line_y;
+        break;
+      }
+    }
+    self.retain_plain_buffer(buffer);
+    if needs_ink {
+      return self
+        .compute_text_vertical_extents(text, style, max_width, wrap)
+        .map(|extents| (extents.optical_top, extents.optical_bottom));
+    }
+    first.map(|(baseline, cap, first_line_y)| (baseline - cap, baseline + last_line_y - first_line_y))
+  }
+
   fn compute_text_vertical_extents(
     &mut self,
     text: &str,
@@ -592,25 +766,25 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> Option<TextVerticalExtents> {
-    let mut buffer = self.acquire_buffer(style, max_width, wrap);
-    let resolved = self.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
-    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
-    buffer.shape_until_scroll(&mut self.font_system, false);
+    #[cfg(feature = "perf_profile")]
+    let shape_start = Instant::now();
+    let buffer = self.full_text_buffer(text, style, max_width, wrap);
+
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.vertical_extents_shape += shape_start.elapsed();
+    }
 
     let mut top = f32::INFINITY;
     let mut bottom = f32::NEG_INFINITY;
     let mut first: Option<(cosmic_text::fontdb::ID, f32, f32, f32)> = None;
     let mut last_line_y = None;
     for run in buffer.layout_runs() {
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.vertical_extents_runs += 1;
+        self.profile.vertical_extents_glyphs += run.glyphs.len();
+      }
       for glyph in run.glyphs.iter() {
         if glyph_cluster_is_whitespace(run.text, glyph) {
           continue;
@@ -640,7 +814,7 @@ impl GlyphEngine {
       }
     }
 
-    self.buffer_pool.push(buffer);
+    self.retain_plain_buffer(buffer);
     if bottom < top {
       return None;
     }
@@ -716,10 +890,16 @@ impl GlyphEngine {
     style: &TextStyle,
     max_width: f32,
     wrap: bool,
-  ) -> Vec<CaretPosition> {
+  ) -> CaretPositions {
     // Selectable text recomputes caret positions on every layout; cache them
     // like measurements — a full per-character shaping walk per node per pass
     // makes lists of selectable text crawl.
+    #[cfg(feature = "perf_profile")]
+    let start = Instant::now();
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.caret_requests += 1;
+    }
     let fingerprint = text_measure_fingerprint(text, style, max_width, wrap);
     if let Some(cached) = self
       .caret_cache
@@ -731,7 +911,17 @@ impl GlyphEngine {
       })
       .map(|(_, positions)| positions.clone())
     {
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.caret_hits += 1;
+        self.profile.caret_returned_positions += cached.len();
+        self.profile.caret_total += start.elapsed();
+      }
       return cached;
+    }
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.caret_misses += 1;
     }
     let positions = self.compute_caret_positions(text, style, max_width, wrap);
     if self.caret_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
@@ -742,30 +932,39 @@ impl GlyphEngine {
       .entry(fingerprint)
       .or_default()
       .push((CacheKey::new(text, style, max_width, wrap), positions.clone()));
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.caret_returned_positions += positions.len();
+      self.profile.caret_total += start.elapsed();
+    }
     positions
   }
 
-  fn compute_caret_positions(
-    &mut self,
-    text: &str,
-    style: &TextStyle,
-    max_width: f32,
-    wrap: bool,
-  ) -> Vec<CaretPosition> {
-    let mut buffer = self.acquire_buffer(style, max_width, effective_text_wrap(max_width, wrap));
-    let resolved = self.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
-    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
-    buffer.shape_until_scroll(&mut self.font_system, false);
+  fn compute_caret_positions(&mut self, text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> CaretPositions {
+    #[cfg(feature = "perf_profile")]
+    let buffer_start = Instant::now();
+    #[cfg(feature = "perf_profile")]
+    let layout_hits = self.profile.plain_buffer_hits;
+    // Carets may run before measurement. Retain their full layout so either
+    // consumer can build it first, including paragraph reuse after an edit.
+    let mut buffer = self.full_text_buffer(text, style, max_width, effective_text_wrap(max_width, wrap));
 
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.caret_buffer += buffer_start.elapsed();
+      self.profile.caret_layout_reuses += self.profile.plain_buffer_hits - layout_hits;
+    }
+    #[cfg(feature = "perf_profile")]
+    let extract_start = Instant::now();
+    if text.len() >= 1024 && text.contains(['\r', '\n']) {
+      let positions = self.paragraph_caret_positions(&mut buffer, text.len());
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.caret_extract += extract_start.elapsed();
+      }
+      self.retain_plain_buffer(buffer);
+      return positions;
+    }
     let mut line_offsets = Vec::with_capacity(buffer.lines.len());
     let mut offset = 0usize;
     for line in &buffer.lines {
@@ -774,15 +973,18 @@ impl GlyphEngine {
     }
 
     let mut positions = Vec::with_capacity(text.chars().count() + buffer.lines.len().max(1));
+    let mut index = CaretIndex::default();
     for run in buffer.layout_runs() {
       let line_offset = line_offsets.get(run.line_i).copied().unwrap_or(0);
       let y = run.line_top.max(0.0);
+      let start = positions.len();
       if run.glyphs.is_empty() {
         positions.push(CaretPosition {
           index: line_offset,
           x: 0.0,
           y,
         });
+        index.push_line(start, positions.len(), line_offset, line_offset, y);
         continue;
       }
 
@@ -798,6 +1000,13 @@ impl GlyphEngine {
           y,
         });
       }
+      index.push_line(
+        start,
+        positions.len(),
+        line_offset,
+        line_offset + buffer.lines[run.line_i].text().len(),
+        y,
+      );
     }
 
     if positions.is_empty() {
@@ -806,6 +1015,7 @@ impl GlyphEngine {
         x: 0.0,
         y: 0.0,
       });
+      index.push_line(0, 1, 0, 0, 0.0);
     }
     if !positions.iter().any(|position| position.index == text.len()) {
       let last_y = positions.last().map(|position| position.y).unwrap_or(0.0);
@@ -814,10 +1024,75 @@ impl GlyphEngine {
         x: positions.last().map(|position| position.x).unwrap_or(0.0),
         y: last_y,
       });
+      index.push_line(positions.len() - 1, positions.len(), text.len(), text.len(), last_y);
     }
 
-    self.buffer_pool.push(buffer);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.caret_built_paragraphs += buffer.lines.len();
+      self.profile.caret_built_positions += positions.len();
+    }
+    let positions = CaretPositions::with_index(positions, index);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.caret_extract += extract_start.elapsed();
+    }
+    self.retain_plain_buffer(buffer);
     positions
+  }
+
+  fn paragraph_caret_positions(&mut self, entry: &mut CachedPlainBuffer, text_len: usize) -> CaretPositions {
+    let mut offsets = Vec::with_capacity(entry.buffer.lines.len());
+    let mut offset = 0;
+    let mut runs = 0;
+    for (line, metadata) in entry.buffer.lines.iter().zip(&mut entry.paragraphs) {
+      offsets.push(offset);
+      offset += line.text().len() + line.ending().as_str().len();
+      if let Some(layouts) = line.layout_opt() {
+        runs += layouts.len();
+        if metadata.carets.is_none() {
+          let carets = ParagraphCarets::new(layouts);
+          #[cfg(feature = "perf_profile")]
+          {
+            self.profile.caret_built_paragraphs += 1;
+            self.profile.caret_built_positions += carets.len();
+          }
+          entry.bytes += carets.bytes();
+          metadata.carets = Some(std::sync::Arc::new(carets));
+        } else {
+          #[cfg(feature = "perf_profile")]
+          {
+            self.profile.caret_reused_paragraphs += 1;
+          }
+        }
+      }
+    }
+    let mut positions = CaretPositionsBuilder::new(text_len, runs);
+    let mut previous_line = usize::MAX;
+    let mut layout_index = 0;
+    for run in entry.buffer.layout_runs() {
+      if run.line_i != previous_line {
+        layout_index = 0;
+        previous_line = run.line_i;
+      }
+      let layouts = entry.buffer.lines[run.line_i].layout_opt().as_ref().unwrap();
+      // Cosmic may skip a row with a negative baseline. Match the returned
+      // glyph slice to its layout row without recomputing Cosmic's y arithmetic.
+      while layouts[layout_index].glyphs.as_ptr() != run.glyphs.as_ptr()
+        || layouts[layout_index].glyphs.len() != run.glyphs.len()
+      {
+        layout_index += 1;
+      }
+      positions.push_run(
+        entry.paragraphs[run.line_i].carets.as_ref().unwrap().clone(),
+        layout_index,
+        offsets[run.line_i],
+        run.text.len(),
+        run.line_top.max(0.0),
+      );
+      layout_index += 1;
+    }
+    positions.finish()
   }
 
   pub(crate) fn rasterize_text(
@@ -1207,23 +1482,48 @@ impl GlyphEngine {
       }
     }
 
-    let mut buffer = self.acquire_buffer(style, max_width, wrap);
-    if let Some(height) = clipped_raster_shape_height(origin_y, style, clip) {
-      buffer.set_size(&mut self.font_system, text_buffer_width(max_width), Some(height));
+    #[cfg(feature = "perf_profile")]
+    let acquire_start = Instant::now();
+    let shaped = self.take_plain_buffer(text, style, max_width, wrap);
+    let mut partial = None;
+    if shaped.is_none() {
+      let mut buffer = self.acquire_buffer(style, max_width, wrap);
+      if let Some(height) = clipped_raster_shape_height(origin_y, style, clip) {
+        buffer.set_size(&mut self.font_system, text_buffer_width(max_width), Some(height));
+      }
+      partial = Some(buffer);
     }
-    let resolved = self.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
-    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
-    buffer.shape_until_scroll(&mut self.font_system, false);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.raster_acquire_buffer += acquire_start.elapsed();
+    }
+    #[cfg(feature = "perf_profile")]
+    let text_start = Instant::now();
+    if let Some(buffer) = &mut partial {
+      let resolved = self.resolve_family(style);
+      let family = if resolved.is_empty() {
+        Family::SansSerif
+      } else {
+        Family::Name(&resolved)
+      };
+      let attrs = Attrs::new()
+        .family(family)
+        .weight(style.weight.to_cosmic())
+        .style(style.style.to_cosmic());
+      set_buffer_text(buffer, &mut self.font_system, text, attrs, style.text_align);
+      buffer.shape_until_scroll(&mut self.font_system, false);
+    }
 
+    let buffer = shaped
+      .as_ref()
+      .map(|entry| &entry.buffer)
+      .or(partial.as_ref())
+      .expect("raster buffer");
+
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.raster_set_text += text_start.elapsed();
+    }
     let mut cached = Vec::new();
     let mut skipped_run_for_clip = false;
     for run in buffer.layout_runs() {
@@ -1299,7 +1599,11 @@ impl GlyphEngine {
       }
     }
 
-    self.buffer_pool.push(buffer);
+    if let Some(entry) = shaped {
+      self.retain_plain_buffer(entry);
+    } else if let Some(buffer) = partial {
+      self.buffer_pool.push(buffer);
+    }
     let atlas_w = self.atlas_packer.width as f32;
     let atlas_h = self.atlas_packer.height as f32;
     if let Some(marker) = &debug_marker {
@@ -1690,26 +1994,7 @@ impl GlyphEngine {
     #[cfg(feature = "perf_profile")]
     let profile_start = Instant::now();
     let metrics = Metrics::new(style.font_size, style.font_size * style.line_height);
-    let mut buffer = self
-      .buffer_pool
-      .pop()
-      .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
-    buffer.set_metrics(&mut self.font_system, metrics);
-    buffer.set_size(&mut self.font_system, text_buffer_width(max_width), None);
-    buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
-
-    let resolved = self.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
-    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
-    buffer.shape_until_scroll(&mut self.font_system, false);
+    let buffer = self.full_text_buffer(text, style, max_width, wrap);
 
     let mut width = 0.0_f32;
     let mut first_line_y = 0.0_f32;
@@ -1729,12 +2014,370 @@ impl GlyphEngine {
       0.0
     };
 
-    self.buffer_pool.push(buffer);
+    self.retain_plain_buffer(buffer);
     #[cfg(feature = "perf_profile")]
     {
       self.profile.shape_text += profile_start.elapsed();
     }
     Size::new(width, height)
+  }
+
+  fn take_plain_buffer(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    max_width: f32,
+    wrap: bool,
+  ) -> Option<CachedPlainBuffer> {
+    let index = self
+      .plain_buffers
+      .iter()
+      .position(|entry| entry.key.matches_measure(text, style, max_width, wrap));
+    #[cfg(feature = "perf_profile")]
+    {
+      if index.is_some() {
+        self.profile.plain_buffer_hits += 1;
+      } else {
+        self.profile.plain_buffer_misses += 1;
+      }
+    }
+    let mut entry = self.plain_buffers.remove(index?);
+    self.plain_buffer_bytes -= entry.bytes;
+    if !entry.layout_ready {
+      #[cfg(feature = "perf_profile")]
+      let start = Instant::now();
+      for index in 0..entry.buffer.lines.len() {
+        self.layout_plain_paragraph(&mut entry.buffer, index);
+        self.update_plain_layout_metadata(&mut entry, index);
+      }
+      entry.buffer.shape_until_scroll(&mut self.font_system, false);
+      entry.layout_ready = true;
+      entry.refresh_bytes();
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.plain_buffer_build += start.elapsed();
+      }
+    }
+    Some(entry)
+  }
+
+  fn full_text_buffer(&mut self, text: &str, style: &TextStyle, max_width: f32, wrap: bool) -> CachedPlainBuffer {
+    if let Some(buffer) = self.take_plain_buffer(text, style, max_width, wrap) {
+      return buffer;
+    }
+    #[cfg(feature = "perf_profile")]
+    let build_start = Instant::now();
+    let multiline = text.len() >= 1024 && text.contains(['\r', '\n']);
+    let previous = multiline
+      .then(|| self.take_related_plain_buffer(text, style, wrap))
+      .flatten();
+    let width_changed = previous
+      .as_ref()
+      .is_some_and(|entry| entry.key.max_width_bits != max_width.to_bits());
+    let mut entry = previous.unwrap_or_else(|| CachedPlainBuffer {
+      key: CacheKey::new(text, style, max_width, wrap),
+      buffer: self.acquire_buffer(style, max_width, wrap),
+      paragraphs: Vec::new(),
+      bytes: 0,
+      layout_ready: true,
+    });
+    let resolved = self.resolve_family(style);
+    let family = if resolved.is_empty() {
+      Family::SansSerif
+    } else {
+      Family::Name(&resolved)
+    };
+    let attrs = Attrs::new()
+      .family(family)
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    if multiline {
+      let ranges = cosmic_text::LineIter::new(text).collect::<Vec<_>>();
+      let matches = |old: &cosmic_text::BufferLine, new: &(std::ops::Range<usize>, cosmic_text::LineEnding)| {
+        old.text() == &text[new.0.clone()] && old.ending() == new.1
+      };
+      let prefix = entry
+        .buffer
+        .lines
+        .iter()
+        .zip(&ranges)
+        .take_while(|(old, new)| matches(old, new))
+        .count();
+      let suffix = entry.buffer.lines[prefix..]
+        .iter()
+        .rev()
+        .zip(ranges[prefix..].iter().rev())
+        .take_while(|(old, new)| matches(old, new))
+        .count();
+      let old_end = entry.buffer.lines.len() - suffix;
+      let new_end = ranges.len() - suffix;
+      // Most edits change only a small middle. Matching boundaries retain allocations
+      // directly; moved/reordered middle paragraphs still require exact text matches.
+      let mut middle: HashMap<u64, Vec<(cosmic_text::BufferLine, PlainParagraph)>> = HashMap::new();
+      for (line, paragraph) in entry
+        .buffer
+        .lines
+        .drain(prefix..old_end)
+        .zip(entry.paragraphs.drain(prefix..old_end))
+      {
+        middle.entry(paragraph.fingerprint).or_default().push((line, paragraph));
+        #[cfg(feature = "perf_profile")]
+        {
+          self.profile.plain_reindexed_paragraphs += 1;
+        }
+      }
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.plain_retained_paragraphs += prefix + suffix;
+      }
+      let mut new_lines = Vec::with_capacity(new_end - prefix);
+      let mut new_paragraphs = Vec::with_capacity(new_end - prefix);
+      for (range, ending) in &ranges[prefix..new_end] {
+        let paragraph = &text[range.clone()];
+        let fingerprint = paragraph_fingerprint(paragraph);
+        let retained = middle.get_mut(&fingerprint).and_then(|candidates| {
+          let index = candidates
+            .iter()
+            .rposition(|(line, _)| line.text() == paragraph && line.ending() == *ending)?;
+          Some(candidates.swap_remove(index))
+        });
+        let (line, metadata) = if let Some(retained) = retained {
+          #[cfg(feature = "perf_profile")]
+          {
+            self.profile.plain_retained_paragraphs += 1;
+          }
+          retained
+        } else {
+          let mut line = cosmic_text::BufferLine::new(
+            paragraph,
+            *ending,
+            cosmic_text::AttrsList::new(attrs),
+            Shaping::Advanced,
+          );
+          line.set_align(Some(style.text_align.to_cosmic()));
+          (
+            line,
+            PlainParagraph {
+              fingerprint,
+              ..PlainParagraph::default()
+            },
+          )
+        };
+        new_lines.push(line);
+        new_paragraphs.push(metadata);
+      }
+      entry.buffer.lines.splice(prefix..prefix, new_lines);
+      entry.paragraphs.splice(prefix..prefix, new_paragraphs);
+      if width_changed {
+        // Setters may immediately shape old contents. Set the width while empty,
+        // then explicitly rewrap retained shapes so profiling covers that work.
+        let lines = std::mem::take(&mut entry.buffer.lines);
+        entry
+          .buffer
+          .set_size(&mut self.font_system, text_buffer_width(max_width), None);
+        entry.buffer.lines = lines;
+        let new_width = entry.buffer.size().0;
+        for (line, metadata) in entry.buffer.lines.iter_mut().zip(&mut entry.paragraphs) {
+          if line.layout_opt().is_some() && metadata.reflow.is_some_and(|range| range.contains(new_width)) {
+            #[cfg(feature = "perf_profile")]
+            {
+              self.profile.plain_reflow_reuses += 1;
+            }
+          } else {
+            line.reset_layout();
+            metadata.carets = None;
+            metadata.reflow = None;
+          }
+        }
+      }
+      let work = if width_changed || !entry.layout_ready {
+        0..ranges.len()
+      } else {
+        prefix..new_end
+      };
+      let mut duplicates: HashMap<u64, usize> = HashMap::new();
+      for index in 0..work.start.min(256) {
+        duplicates.insert(entry.paragraphs[index].fingerprint, index);
+      }
+      for index in work {
+        let fingerprint = entry.paragraphs[index].fingerprint;
+        let needs_shape = entry.buffer.lines[index].shape_opt().is_none();
+        if needs_shape {
+          if let Some(&prior) = duplicates.get(&fingerprint).filter(|&&prior| {
+            let old = &entry.buffer.lines[prior];
+            let new = &entry.buffer.lines[index];
+            old.text() == new.text() && old.ending() == new.ending()
+          }) {
+            entry.buffer.lines[index] = entry.buffer.lines[prior].clone();
+            #[cfg(feature = "perf_profile")]
+            {
+              self.profile.plain_reused_lines += 1;
+            }
+          }
+        }
+        let needs_layout = entry.buffer.lines[index].layout_opt().is_none();
+        if needs_layout {
+          self.layout_plain_paragraph(&mut entry.buffer, index);
+        }
+        if needs_shape {
+          // Cloning a Cosmic line can change Vec capacities, so measure the clone.
+          entry.paragraphs[index].shape_bytes = plain_line_shape_bytes(&entry.buffer.lines[index]);
+          #[cfg(feature = "perf_profile")]
+          {
+            self.profile.plain_accounted_paragraphs += 1;
+          }
+        }
+        if needs_shape || needs_layout {
+          entry.paragraphs[index].carets = None;
+          self.update_plain_layout_metadata(&mut entry, index);
+        }
+        if duplicates.len() < 256 {
+          duplicates.insert(fingerprint, index);
+        }
+      }
+      entry.buffer.set_scroll(cosmic_text::Scroll::default());
+    } else {
+      set_buffer_text(&mut entry.buffer, &mut self.font_system, text, attrs, style.text_align);
+    }
+    #[cfg(feature = "perf_profile")]
+    let finalize_start = Instant::now();
+    entry.buffer.shape_until_scroll(&mut self.font_system, false);
+    if !multiline {
+      entry.paragraphs = entry
+        .buffer
+        .lines
+        .iter()
+        .map(|line| PlainParagraph {
+          carets: None,
+          reflow: None,
+          fingerprint: paragraph_fingerprint(line.text()),
+          shape_bytes: plain_line_shape_bytes(line),
+          layout_bytes: plain_line_layout_bytes(line),
+        })
+        .collect();
+    }
+    if entry.key.text != text || width_changed {
+      entry.key = CacheKey::new(text, style, max_width, wrap);
+    }
+    entry.layout_ready = true;
+    entry.refresh_bytes();
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.plain_buffer_finalize += finalize_start.elapsed();
+      self.profile.plain_buffer_build += build_start.elapsed();
+    }
+    entry
+  }
+
+  /// Consume a recent compatible document version to reuse its independent paragraphs.
+  /// A shared first/last paragraph is a cheap candidate heuristic, never a correctness key.
+  fn take_related_plain_buffer(&mut self, text: &str, style: &TextStyle, wrap: bool) -> Option<CachedPlainBuffer> {
+    let first = text.lines().next();
+    let last = text.lines().next_back();
+    let index = self.plain_buffers.iter().rposition(|entry| {
+      entry.buffer.lines.len() > 1
+        && entry
+          .key
+          .matches_measure(&entry.key.text, style, f32::from_bits(entry.key.max_width_bits), wrap)
+        && (entry.key.text.lines().next() == first || entry.key.text.lines().next_back() == last)
+    })?;
+    let entry = self.plain_buffers.remove(index);
+    self.plain_buffer_bytes -= entry.bytes;
+    Some(entry)
+  }
+
+  fn layout_plain_paragraph(&mut self, buffer: &mut Buffer, index: usize) {
+    #[cfg(feature = "perf_profile")]
+    {
+      let start = Instant::now();
+      let needs_shape = buffer.lines[index].shape_opt().is_none();
+      buffer.line_shape(&mut self.font_system, index);
+      self.profile.plain_paragraph_shape += start.elapsed();
+      self.profile.plain_shaped_paragraphs += usize::from(needs_shape);
+    }
+    #[cfg(feature = "perf_profile")]
+    let start = Instant::now();
+    #[cfg(feature = "perf_profile")]
+    let needs_layout = buffer.lines[index].layout_opt().is_none();
+    buffer.line_layout(&mut self.font_system, index);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.plain_paragraph_layout += start.elapsed();
+      self.profile.plain_laid_out_paragraphs += usize::from(needs_layout);
+    }
+  }
+
+  fn update_plain_layout_metadata(&mut self, entry: &mut CachedPlainBuffer, index: usize) {
+    let line = &entry.buffer.lines[index];
+    entry.paragraphs[index].layout_bytes = plain_line_layout_bytes(line);
+    #[cfg(feature = "perf_profile")]
+    let start = Instant::now();
+    entry.paragraphs[index].reflow = ReflowRange::new(
+      line,
+      entry.buffer.metrics().font_size,
+      entry.buffer.size().0,
+      entry.buffer.wrap() != Wrap::None,
+    );
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.plain_reflow_analysis += start.elapsed();
+    }
+  }
+
+  fn retain_plain_buffer(&mut self, entry: CachedPlainBuffer) {
+    #[cfg(feature = "perf_profile")]
+    let start = Instant::now();
+    let bytes = entry.bytes;
+    // Oversized documents still render correctly, but cannot displace the entire bounded cache.
+    if bytes > self.plain_buffer_budget {
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.plain_buffer_retain += start.elapsed();
+        self.profile.plain_cache_bypasses += 1;
+      }
+      return;
+    }
+    // Retain expensive shaping before evicting a document. At fractional DPI the
+    // logical measurement and physical paint layouts may not both fit in full.
+    // Wrapping is rebuilt lazily if a compacted entry is used again.
+    if self.plain_buffers.len() < PLAIN_BUFFER_CACHE_LIMIT {
+      for entry in &mut self.plain_buffers {
+        if self.plain_buffer_bytes + bytes <= self.plain_buffer_budget {
+          break;
+        }
+        if entry.layout_ready {
+          for (line, paragraph) in entry.buffer.lines.iter_mut().zip(&mut entry.paragraphs) {
+            line.reset_layout();
+            paragraph.layout_bytes = 0;
+            paragraph.carets = None;
+            paragraph.reflow = None;
+          }
+          entry.layout_ready = false;
+          let old_bytes = entry.bytes;
+          entry.refresh_bytes();
+          self.plain_buffer_bytes -= old_bytes - entry.bytes;
+          #[cfg(feature = "perf_profile")]
+          {
+            self.profile.plain_cache_compactions += 1;
+          }
+        }
+      }
+    }
+    while self.plain_buffers.len() >= PLAIN_BUFFER_CACHE_LIMIT
+      || self.plain_buffer_bytes + bytes > self.plain_buffer_budget
+    {
+      self.plain_buffer_bytes -= self.plain_buffers.remove(0).bytes;
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile.plain_cache_evictions += 1;
+      }
+    }
+    self.plain_buffers.push(entry);
+    self.plain_buffer_bytes += bytes;
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profile.plain_buffer_retain += start.elapsed();
+    }
   }
 
   fn acquire_buffer(&mut self, style: &TextStyle, max_width: f32, wrap: bool) -> Buffer {
@@ -1744,6 +2387,8 @@ impl GlyphEngine {
       .buffer_pool
       .pop()
       .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
+    // Setters can shape old contents immediately. This buffer is about to receive new text.
+    buffer.lines.clear();
     buffer.set_metrics(&mut self.font_system, metrics);
     buffer.set_size(&mut self.font_system, text_buffer_width(max_width), None);
     buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
@@ -2105,8 +2750,20 @@ impl GlyphEngine {
       .values()
       .map(|glyphs| glyphs.capacity() * std::mem::size_of::<CachedTransformedGlyph>())
       .sum::<usize>();
+    let optical_cache_bytes = self.optical_extents_cache.capacity()
+      * std::mem::size_of::<(u64, Vec<(CacheKey, Option<(f32, f32)>)>)>()
+      + self
+        .optical_extents_cache
+        .values()
+        .map(|bucket| {
+          bucket.capacity() * std::mem::size_of::<(CacheKey, Option<(f32, f32)>)>()
+            + bucket.iter().map(|(key, _)| key.text.capacity()).sum::<usize>()
+        })
+        .sum::<usize>();
 
     std::mem::size_of::<Self>()
+      + self.plain_buffer_bytes
+      + optical_cache_bytes
       + self.font_aliases.capacity() * std::mem::size_of::<(String, String)>()
       + alias_heap
       + self.measure_cache.capacity() * std::mem::size_of::<(u64, Vec<(CacheKey, Size)>)>()
@@ -2141,6 +2798,61 @@ impl GlyphEngine {
       + self.transformed_atlas_entries.capacity() * std::mem::size_of::<(TransformedGlyphKey, PackedGlyph)>()
       + self.buffer_pool.capacity() * std::mem::size_of::<Buffer>()
   }
+}
+
+// Hashing narrows paragraph candidates; callers still compare their complete text.
+fn paragraph_fingerprint(text: &str) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  text.hash(&mut hasher);
+  hasher.finish()
+}
+
+fn plain_buffer_cache_budget() -> usize {
+  // Diagnostic override for comparing budgets in the same dev profiling binary.
+  // Ordinary builds, release builds, and unit tests always use the default.
+  #[cfg(all(feature = "perf_profile", debug_assertions, not(test)))]
+  if let Ok(value) = std::env::var("LURQ_TEXT_CACHE_MIB") {
+    if let Ok(mib @ 1..=1024) = value.parse::<usize>() {
+      return mib * 1024 * 1024;
+    }
+  }
+  PLAIN_BUFFER_CACHE_BYTES
+}
+
+// Public Cosmic Text storage only; its private scratch/font allocations are not exposed.
+fn plain_line_shape_bytes(line: &cosmic_text::BufferLine) -> usize {
+  let mut bytes = line.text().len();
+  if let Some(shape) = line.shape_opt() {
+    bytes += shape.spans.capacity() * std::mem::size_of::<cosmic_text::ShapeSpan>();
+    for span in &shape.spans {
+      bytes += span.words.capacity() * std::mem::size_of::<cosmic_text::ShapeWord>();
+      for word in &span.words {
+        bytes += word.glyphs.capacity() * std::mem::size_of::<cosmic_text::ShapeGlyph>();
+      }
+    }
+  }
+  bytes
+}
+
+fn plain_line_layout_bytes(line: &cosmic_text::BufferLine) -> usize {
+  let mut bytes = 0;
+  if let Some(layout) = line.layout_opt() {
+    bytes += layout.capacity() * std::mem::size_of::<cosmic_text::LayoutLine>();
+    for run in layout {
+      bytes += run.glyphs.capacity() * std::mem::size_of::<LayoutGlyph>();
+    }
+  }
+  bytes
+}
+
+#[cfg(test)]
+fn plain_buffer_memory_bytes(buffer: &Buffer) -> usize {
+  buffer.lines.capacity() * std::mem::size_of::<cosmic_text::BufferLine>()
+    + buffer
+      .lines
+      .iter()
+      .map(|line| plain_line_shape_bytes(line) + plain_line_layout_bytes(line))
+      .sum::<usize>()
 }
 
 #[derive(Clone, Copy)]
@@ -2861,15 +3573,22 @@ fn dirty_rect_area(rect: GlyphAtlasDirtyRect) -> u64 {
 
 #[cfg(test)]
 mod tests {
-  use cosmic_text::{Attrs, Family, Placement, Shaping, SwashContent, SwashImage};
+  use cosmic_text::{Attrs, Buffer, Family, Placement, Shaping, SwashContent, SwashImage};
   use swash::scale::ScaleContext;
 
   use super::{
     AtlasPacker, GLYPH_ATLAS_BYTES_PER_PIXEL, GLYPH_ATLAS_PADDING, GlyphAtlasDirtyRect, GlyphEngine,
-    cluster_is_whitespace, coalesce_dirty_rects, glyph_atlas_pixels, glyph_coverage_mask, is_bounded_text_width,
-    render_glyph_image, swash_transform_from_screen,
+    PLAIN_BUFFER_CACHE_LIMIT, cluster_is_whitespace, coalesce_dirty_rects, glyph_atlas_pixels, glyph_coverage_mask,
+    is_bounded_text_width, render_glyph_image, set_buffer_text, swash_transform_from_screen,
   };
-  use crate::{layout::quad::ClipRect, node::transform::Transform2D};
+  use crate::{
+    layout::{
+      quad::ClipRect,
+      render_list::GlyphCmd,
+      text_style::{TextAlign, TextStyle},
+    },
+    node::transform::Transform2D,
+  };
 
   #[test]
   fn empty_cluster_is_not_treated_as_whitespace() {
@@ -3479,6 +4198,778 @@ mod tests {
         glyph.y
       );
     }
+  }
+
+  #[test]
+  fn shared_plain_layout_matches_cosmic_for_repeated_and_unique_paragraphs() {
+    let mut engine = GlyphEngine::new();
+    let repeated = "office cafe\u{301} — Ελληνικά\r\nمرحبا (123)\nשלום 456\r\n漢字 😀\n\t\n".repeat(20);
+    let unique = (0..40)
+      .map(|i| format!("Row {i}: variable width text ({i:04})\n"))
+      .collect::<String>();
+    for text in [&repeated, &unique] {
+      for align in [TextAlign::Left, TextAlign::Right, TextAlign::Justified] {
+        for width in [96.0, 270.5, f32::MAX] {
+          let style = TextStyle {
+            font_size: 19.5,
+            text_align: align,
+            ..TextStyle::default()
+          };
+          let wrap = is_bounded_text_width(width);
+          let mut reference = engine.acquire_buffer(&style, width, wrap);
+          let family = engine.resolve_family(&style);
+          let attrs = Attrs::new().family(Family::Name(&family));
+          set_buffer_text(&mut reference, &mut engine.font_system, text, attrs, align);
+          reference.shape_until_scroll(&mut engine.font_system, false);
+          let actual = engine.full_text_buffer(text, &style, width, wrap);
+          let signature = |buffer: &Buffer| {
+            buffer
+              .layout_runs()
+              .map(|run| {
+                format!(
+                  "{} {:?} {} {} {} {} {:?}",
+                  run.line_i, run.rtl, run.line_y, run.line_top, run.line_height, run.line_w, run.glyphs
+                )
+              })
+              .collect::<Vec<_>>()
+          };
+          assert_eq!(
+            signature(&actual),
+            signature(&reference),
+            "shaped runs changed at width {width}"
+          );
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn incremental_paragraph_edits_and_reflow_match_fresh_layout() {
+    let mut engine = GlyphEngine::new();
+    let mut lines = (0..72)
+      .map(|index| format!("Paragraph {index}: office cafe\u{301} مرحبا שלום 漢字 ({index:04})"))
+      .collect::<Vec<_>>();
+    let mut style = TextStyle::default();
+    let mut width = 240.0;
+    let mut wrap = true;
+    for action in 0..11 {
+      match action {
+        1 => lines[35].push_str(" edited 😀"),
+        2 => lines.insert(14, "Inserted paragraph مرحبا".to_owned()),
+        3 => {
+          lines.remove(27);
+        }
+        4 => lines.swap(44, 45),
+        5 => lines[30].push_str("\nSplit paragraph שלום"),
+        6 => width = 173.5,
+        7 => style.font_size *= 1.25,
+        8 => style.text_align = TextAlign::Right,
+        9 => wrap = false,
+        _ => {}
+      }
+      let text = lines.join(if action == 10 { "\r\n" } else { "\n" });
+      engine.reset_stats();
+      let actual = engine.full_text_buffer(&text, &style, width, wrap);
+      #[cfg(feature = "perf_profile")]
+      if action == 1 {
+        assert_eq!(engine.profile.plain_shaped_paragraphs, 1);
+        assert_eq!(engine.profile.plain_retained_paragraphs, lines.len() - 1);
+        assert_eq!(engine.profile.plain_reindexed_paragraphs, 1);
+        assert_eq!(engine.profile.plain_accounted_paragraphs, 1);
+      }
+      #[cfg(feature = "perf_profile")]
+      if action == 6 {
+        assert_eq!(engine.profile.plain_shaped_paragraphs, 0);
+        assert!(engine.profile.plain_laid_out_paragraphs > 0);
+        assert_eq!(engine.profile.plain_reindexed_paragraphs, 0);
+        assert_eq!(engine.profile.plain_accounted_paragraphs, 0);
+      }
+      assert_plain_layout_matches_fresh(&mut engine, &actual, &text, &style, width, wrap);
+      engine.retain_plain_buffer(actual);
+    }
+  }
+
+  fn caret_signature(positions: &[crate::node::text_selection::CaretPosition]) -> Vec<(usize, u32, u32)> {
+    positions
+      .iter()
+      .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+      .collect()
+  }
+
+  // Reference the original fresh-buffer path, independently of retained layouts.
+  fn fresh_caret_signature(
+    engine: &mut GlyphEngine,
+    text: &str,
+    style: &TextStyle,
+    width: f32,
+    wrap: bool,
+  ) -> Vec<(usize, u32, u32)> {
+    let mut buffer = engine.acquire_buffer(style, width, super::effective_text_wrap(width, wrap));
+    let resolved = engine.resolve_family(style);
+    let family = if resolved.is_empty() {
+      Family::SansSerif
+    } else {
+      Family::Name(&resolved)
+    };
+    let attrs = Attrs::new()
+      .family(family)
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    set_buffer_text(&mut buffer, &mut engine.font_system, text, attrs, style.text_align);
+    buffer.shape_until_scroll(&mut engine.font_system, false);
+    let mut expected = Vec::new();
+    for run in buffer.layout_runs() {
+      let offset = buffer
+        .lines
+        .iter()
+        .take(run.line_i)
+        .map(|line| line.text().len() + line.ending().as_str().len())
+        .sum::<usize>();
+      let y = run.line_top.max(0.0).to_bits();
+      if run.glyphs.is_empty() {
+        expected.push((offset, 0.0_f32.to_bits(), y));
+      }
+      for glyph in run.glyphs {
+        expected.push((offset + glyph.start, glyph.x.to_bits(), y));
+        expected.push((offset + glyph.end, (glyph.x + glyph.w).to_bits(), y));
+      }
+    }
+    if expected.is_empty() {
+      expected.push((0, 0.0_f32.to_bits(), 0.0_f32.to_bits()));
+    }
+    if !expected.iter().any(|position| position.0 == text.len()) {
+      let last = *expected.last().unwrap();
+      expected.push((text.len(), last.1, last.2));
+    }
+    expected
+  }
+
+  #[test]
+  fn retained_carets_match_fresh_positions_and_keep_owned_results() {
+    let mut engine = GlyphEngine::new();
+    let texts = [
+      String::new(),
+      "\n".to_owned(),
+      "\r\n \t\n".to_owned(),
+      "office cafe\u{301} مرحبا שלום 漢字 👨‍👩‍👧‍👦".to_owned(),
+      "•••••".to_owned(),
+      "office cafe\u{301} مرحبا שלום 漢字 😀\r\n\nLast line\n".repeat(32),
+    ];
+    for text in &texts {
+      for align in [TextAlign::Left, TextAlign::Center, TextAlign::Right] {
+        for font_size in [13.0, 19.5] {
+          let style = TextStyle {
+            font_size,
+            line_height: 1.23,
+            text_align: align,
+            ..TextStyle::default()
+          };
+          for (width, wrap) in [(64.0, true), (240.0, true), (240.0, false), (f32::MAX, true)] {
+            engine.clear_text_caches();
+            let expected = fresh_caret_signature(&mut engine, text, &style, width, wrap);
+            let mut actual = engine.caret_positions(text, &style, width, wrap);
+            assert_eq!(caret_signature(&actual), expected, "width={width} wrap={wrap}");
+            assert!(actual.iter().all(|p| text.is_char_boundary(p.index)));
+            // Consumers such as masked inputs may remap the returned vector.
+            actual.make_mut()[0].index = usize::MAX;
+            actual.make_mut()[0].x = -999.0;
+            let cached = engine.caret_positions(text, &style, width, wrap);
+            assert_eq!(caret_signature(&cached), expected);
+            for entry in &engine.plain_buffers {
+              assert_plain_buffer_charge(entry);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn caret_and_measurement_share_layout_in_both_orders_and_after_edits() {
+    let mut engine = GlyphEngine::new();
+    let mut lines = (0..72)
+      .map(|i| format!("Paragraph {i}: office cafe\u{301} مرحبا 😀"))
+      .collect::<Vec<_>>();
+    let style = TextStyle::default();
+    let mut width = 240.0;
+    for action in 0..5 {
+      match action {
+        1 | 3 => lines[9].push_str(" edited"),
+        2 => width = 173.5,
+        4 => engine.clear_text_caches(),
+        _ => {}
+      }
+      let text = lines.join("\r\n");
+      let expected = fresh_caret_signature(&mut engine, &text, &style, width, true);
+      engine.reset_stats();
+      if action == 3 {
+        engine.measure_text(&text, &style, width);
+      }
+      let actual = engine.caret_positions(&text, &style, width, true);
+      assert_eq!(caret_signature(&actual), expected);
+      engine.measure_text(&text, &style, width);
+      #[cfg(feature = "perf_profile")]
+      {
+        assert_eq!(
+          engine.profile.plain_shaped_paragraphs,
+          match action {
+            0 | 4 => 72,
+            1 | 3 => 1,
+            _ => 0,
+          }
+        );
+        assert_eq!(
+          engine.profile.caret_built_paragraphs,
+          match action {
+            1 | 3 => 1,
+            _ => 72,
+          }
+        );
+        assert_eq!(
+          engine.profile.caret_reused_paragraphs,
+          match action {
+            1 | 3 => 71,
+            _ => 0,
+          }
+        );
+        assert_eq!(engine.profile.caret_layout_reuses, usize::from(action == 3));
+        assert_eq!(engine.profile.caret_misses, 1);
+      }
+      for entry in &engine.plain_buffers {
+        assert_plain_buffer_charge(entry);
+      }
+    }
+  }
+
+  #[test]
+  fn paragraph_carets_reuse_geometry_across_edits_and_keep_old_snapshots() {
+    let mut engine = GlyphEngine::new();
+    let mut lines = (0..96)
+      .map(|i| format!("{i}: office cafe\u{301} مرحبا שלום 漢字 👨‍👩‍👧‍👦 long wrapping paragraph"))
+      .collect::<Vec<_>>();
+    let mut style = TextStyle {
+      line_height: 1.23,
+      ..TextStyle::default()
+    };
+    let mut width = 173.5;
+    let mut snapshots = Vec::new();
+    for action in 0..10 {
+      let built = match action {
+        0 => 96,
+        1 => {
+          lines[0].push_str(" prefix becomes much longer and wraps again");
+          1
+        }
+        2 => {
+          lines.insert(20, "inserted paragraph 😀".to_owned());
+          1
+        }
+        3 => {
+          let tail = lines[40].split_off(6);
+          lines.insert(41, tail);
+          2
+        }
+        4 => {
+          lines.drain(10..20);
+          0
+        }
+        5 => {
+          lines[30..40].reverse();
+          0
+        }
+        6 => {
+          lines.last_mut().unwrap().push_str(" end");
+          1
+        }
+        7 => {
+          width = 239.75;
+          lines.len()
+        }
+        8 => {
+          style.font_size = 19.5;
+          lines.len()
+        }
+        _ => {
+          style.text_align = TextAlign::Right;
+          lines.len()
+        }
+      };
+      let text = lines.join("\r\n");
+      let expected = fresh_caret_signature(&mut engine, &text, &style, width, true);
+      engine.reset_stats();
+      let positions = engine.caret_positions(&text, &style, width, true);
+      assert_eq!(
+        positions
+          .iter()
+          .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+          .collect::<Vec<_>>(),
+        expected
+      );
+      #[cfg(feature = "perf_profile")]
+      {
+        let built = if action == 7 {
+          built - engine.profile.plain_reflow_reuses
+        } else {
+          built
+        };
+        assert_eq!(engine.profile.caret_built_paragraphs, built, "action {action}");
+        assert_eq!(
+          engine.profile.caret_reused_paragraphs,
+          lines.len() - built,
+          "action {action}"
+        );
+      }
+      #[cfg(not(feature = "perf_profile"))]
+      let _ = built;
+      for entry in &engine.plain_buffers {
+        assert_plain_buffer_charge(entry);
+      }
+      snapshots.push((positions, expected));
+      for (old, expected) in &snapshots {
+        assert_eq!(
+          old
+            .iter()
+            .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+            .collect::<Vec<_>>(),
+          *expected,
+          "editing must not alter older shared paragraph geometry"
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn paragraph_caret_snapshots_survive_cache_pressure_and_font_invalidation() {
+    let mut engine = GlyphEngine::new();
+    let source = (0..96)
+      .map(|i| format!("{i}: caret snapshot wrapping text cafe\u{301} مرحبا 😀"))
+      .collect::<Vec<_>>()
+      .join("\n");
+    let style = TextStyle::default();
+    let old = engine.caret_positions(&source, &style, 173.5, true);
+    let signature = old
+      .iter()
+      .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+      .collect::<Vec<_>>();
+    engine.plain_buffer_budget = engine.plain_buffer_bytes * 3 / 2;
+    engine.reset_stats();
+    let other_source = source
+      .lines()
+      .map(|s| format!("other {s}"))
+      .collect::<Vec<_>>()
+      .join("\n");
+    engine.caret_positions(&other_source, &style, 173.5, true);
+    assert!(engine.plain_buffer_bytes <= engine.plain_buffer_budget);
+    #[cfg(feature = "perf_profile")]
+    assert!(engine.profile.plain_cache_compactions + engine.profile.plain_cache_evictions > 0);
+    for entry in &engine.plain_buffers {
+      assert_plain_buffer_charge(entry);
+    }
+    assert_eq!(
+      old
+        .iter()
+        .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+        .collect::<Vec<_>>(),
+      signature
+    );
+    engine.register_font("caret-snapshot-test", "Segoe UI");
+    let current = engine.caret_positions(&source, &style, 173.5, true);
+    assert_eq!(
+      current
+        .iter()
+        .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+        .collect::<Vec<_>>(),
+      signature
+    );
+    assert_eq!(
+      old
+        .iter()
+        .map(|p| (p.index, p.x.to_bits(), p.y.to_bits()))
+        .collect::<Vec<_>>(),
+      signature
+    );
+    for entry in &engine.plain_buffers {
+      assert_plain_buffer_charge(entry);
+    }
+  }
+
+  #[test]
+  fn width_intervals_preserve_layouts_and_carets_through_reflow_and_edits() {
+    let mut engine = GlyphEngine::new();
+    let mut rows = (0..72)
+      .map(|i| format!("{i}: alpha beta gamma delta epsilon zeta eta theta iota kappa"))
+      .collect::<Vec<_>>();
+    let style = TextStyle {
+      font_size: 19.5,
+      line_height: 1.23,
+      ..TextStyle::default()
+    };
+    let mut snapshots = Vec::new();
+    for (step, width) in [
+      240.0, 240.125, 173.5, 173.625, 600.0, 600.125, 599.875, 0.0, 480.0, 479.875,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+      if step == 5 {
+        rows[17].push_str(" edited");
+        rows.swap(22, 33);
+      }
+      let text = rows.join("\r\n");
+      let expected = fresh_caret_signature(&mut engine, &text, &style, width, true);
+      engine.reset_stats();
+      let current = engine.caret_positions(&text, &style, width, true);
+      assert_eq!(caret_signature(&current), expected, "step {step}");
+      #[cfg(feature = "perf_profile")]
+      {
+        let p = engine.profile;
+        assert_eq!(p.caret_built_paragraphs + p.caret_reused_paragraphs, rows.len());
+        assert_eq!(p.plain_laid_out_paragraphs + p.plain_reflow_reuses, rows.len());
+        assert_eq!(p.caret_reused_paragraphs, p.plain_reflow_reuses);
+        if step == 1 {
+          assert!(
+            p.plain_reflow_reuses > 0,
+            "a fractional resize should reuse wrapped paragraphs"
+          );
+        }
+        if step == 5 {
+          assert_eq!(p.plain_shaped_paragraphs, 1);
+          assert!(p.plain_reflow_reuses > 0);
+        }
+      }
+      let actual = engine.full_text_buffer(&text, &style, width, true);
+      assert_plain_layout_matches_fresh(&mut engine, &actual, &text, &style, width, true);
+      engine.retain_plain_buffer(actual);
+      snapshots.push((current, expected));
+      for (old, signature) in &snapshots {
+        assert_eq!(caret_signature(old), *signature, "resize mutated an older snapshot");
+      }
+    }
+    // Compaction must discard the interval with the layout, then rebuild it.
+    let text = rows.join("\r\n");
+    let mut entry = engine.full_text_buffer(&text, &style, 479.875, true);
+    for (line, metadata) in entry.buffer.lines.iter_mut().zip(&mut entry.paragraphs) {
+      line.reset_layout();
+      metadata.layout_bytes = 0;
+      metadata.carets = None;
+      metadata.reflow = None;
+    }
+    entry.layout_ready = false;
+    entry.refresh_bytes();
+    engine.retain_plain_buffer(entry);
+    let actual = engine.full_text_buffer(&text, &style, 479.875, true);
+    assert_plain_layout_matches_fresh(&mut engine, &actual, &text, &style, 479.875, true);
+    assert!(actual.paragraphs.iter().any(|p| p.reflow.is_some()));
+  }
+
+  fn assert_plain_layout_matches_fresh(
+    engine: &mut GlyphEngine,
+    actual: &super::CachedPlainBuffer,
+    text: &str,
+    style: &TextStyle,
+    width: f32,
+    wrap: bool,
+  ) {
+    assert_plain_buffer_charge(actual);
+    let mut reference = engine.acquire_buffer(style, width, wrap);
+    let family = engine.resolve_family(style);
+    let attrs = Attrs::new()
+      .family(Family::Name(&family))
+      .weight(style.weight.to_cosmic())
+      .style(style.style.to_cosmic());
+    set_buffer_text(&mut reference, &mut engine.font_system, text, attrs, style.text_align);
+    reference.shape_until_scroll(&mut engine.font_system, false);
+    let signature = |buffer: &Buffer| {
+      buffer
+        .layout_runs()
+        .map(|run| {
+          format!(
+            "{} {:?} {} {} {} {} {:?}",
+            run.line_i, run.rtl, run.line_y, run.line_top, run.line_height, run.line_w, run.glyphs
+          )
+        })
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(
+      signature(actual),
+      signature(&reference),
+      "layout changed at width {width}"
+    );
+  }
+
+  fn assert_plain_buffer_charge(entry: &super::CachedPlainBuffer) {
+    assert_eq!(entry.paragraphs.len(), entry.buffer.lines.len());
+    let expected = super::plain_buffer_memory_bytes(&entry.buffer)
+      + entry.key.text.len()
+      + std::mem::size_of::<super::CachedPlainBuffer>()
+      + entry.paragraphs.capacity() * std::mem::size_of::<super::PlainParagraph>()
+      + entry
+        .paragraphs
+        .iter()
+        .filter_map(|p| p.carets.as_ref())
+        .map(|p| p.bytes())
+        .sum::<usize>();
+    assert_eq!(
+      entry.bytes, expected,
+      "cached charge diverged from actual public allocations"
+    );
+    for (line, metadata) in entry.buffer.lines.iter().zip(&entry.paragraphs) {
+      assert_eq!(metadata.fingerprint, super::paragraph_fingerprint(line.text()));
+      assert_eq!(metadata.shape_bytes, super::plain_line_shape_bytes(line));
+      assert_eq!(metadata.layout_bytes, super::plain_line_layout_bytes(line));
+    }
+  }
+
+  #[test]
+  fn paragraph_boundaries_duplicates_and_shrinking_match_fresh_layout() {
+    let mut engine = GlyphEngine::new();
+    let mut lines = (0..72)
+      .map(|index| format!("Paragraph {}: cafe\u{301} مرحبا שלום 😀", index % 6))
+      .collect::<Vec<_>>();
+    let style = TextStyle::default();
+    for action in 0..10 {
+      match action {
+        1 => lines[0].push_str(" first"),
+        2 => lines.last_mut().unwrap().push_str(" last"),
+        3 => lines.insert(2, lines[1].clone()),
+        4 => {
+          lines.drain(10..55);
+        }
+        5 => lines.extend(lines.clone()),
+        6 => lines.reverse(),
+        7 => {
+          lines.drain(..lines.len() - 2);
+        }
+        8 => lines.clear(),
+        9 => lines.push("\r\n\n".to_owned()),
+        _ => {}
+      }
+      let text = lines.join(if action == 6 { "\r\n" } else { "\n" });
+      let actual = engine.full_text_buffer(&text, &style, 180.5, true);
+      assert_plain_layout_matches_fresh(&mut engine, &actual, &text, &style, 180.5, true);
+      engine.retain_plain_buffer(actual);
+    }
+  }
+
+  #[test]
+  fn paragraph_fingerprint_collision_cannot_reuse_different_text() {
+    let mut engine = GlyphEngine::new();
+    let mut lines = (0..72)
+      .map(|index| format!("Paragraph {index}: cafe\u{301} مرحبا 😀"))
+      .collect::<Vec<_>>();
+    let style = TextStyle::default();
+    let original = lines.join("\n");
+    let mut cached = engine.full_text_buffer(&original, &style, 240.0, true);
+    lines[9].push_str(" changed");
+    cached.paragraphs[9].fingerprint = super::paragraph_fingerprint(&lines[9]);
+    engine.retain_plain_buffer(cached);
+    engine.reset_stats();
+    let text = lines.join("\n");
+    let actual = engine.full_text_buffer(&text, &style, 240.0, true);
+    assert_plain_layout_matches_fresh(&mut engine, &actual, &text, &style, 240.0, true);
+    #[cfg(feature = "perf_profile")]
+    assert_eq!(engine.profile.plain_shaped_paragraphs, 1);
+  }
+
+  #[test]
+  fn cache_pressure_preserves_logical_and_scaled_paragraph_shaping() {
+    let mut engine = GlyphEngine::new();
+    engine.plain_buffer_budget = 32 * 1024 * 1024;
+    let readme = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../README.md"));
+    let text = (0..24)
+      .flat_map(|copy| {
+        readme
+          .lines()
+          .enumerate()
+          .map(move |(index, line)| format!("{copy:02}/{index:03}: {line}\n"))
+      })
+      .collect::<String>();
+    let style = TextStyle::default();
+    let scaled = TextStyle {
+      font_size: style.font_size * 1.5,
+      ..style.clone()
+    };
+    for (style, width) in [(&style, 860.0 / 1.5), (&scaled, 860.0)] {
+      let buffer = engine.full_text_buffer(&text, style, width, true);
+      engine.retain_plain_buffer(buffer);
+    }
+    assert_eq!(
+      engine.plain_buffers.len(),
+      2,
+      "DPI layouts must not evict each other's shaping"
+    );
+    assert!(
+      engine.plain_buffers.iter().any(|entry| !entry.layout_ready),
+      "exercise compacted layout recovery"
+    );
+    assert!(engine.plain_buffer_bytes <= engine.plain_buffer_budget);
+    for entry in &engine.plain_buffers {
+      assert_plain_buffer_charge(entry);
+    }
+    engine.reset_stats();
+    let recovered = engine
+      .take_plain_buffer(&text, &style, 860.0 / 1.5, true)
+      .expect("logical shaping retained");
+    #[cfg(feature = "perf_profile")]
+    {
+      assert_eq!(engine.profile.plain_shaped_paragraphs, 0);
+      assert!(engine.profile.plain_laid_out_paragraphs > 0);
+    }
+    assert_plain_layout_matches_fresh(&mut engine, &recovered, &text, &style, 860.0 / 1.5, true);
+    engine.retain_plain_buffer(recovered);
+    assert_eq!(engine.plain_buffers.len(), 2);
+    assert!(engine.plain_buffer_bytes <= engine.plain_buffer_budget);
+  }
+
+  #[test]
+  fn combined_plain_layouts_fit_without_rewrapping() {
+    let mut engine = GlyphEngine::new();
+    let text = "office cafe\u{301} مرحبا שלום 漢字 😀\n".repeat(40);
+    let logical = TextStyle::default();
+    let physical = TextStyle {
+      font_size: logical.font_size * 1.5,
+      ..logical.clone()
+    };
+    let logical_buffer = engine.full_text_buffer(&text, &logical, 240.0, true);
+    let physical_buffer = engine.full_text_buffer(&text, &physical, 360.0, true);
+    // Exercise the exact charge boundary independently of platform font metrics.
+    engine.plain_buffer_budget = logical_buffer.bytes + physical_buffer.bytes;
+    engine.reset_stats();
+    engine.retain_plain_buffer(logical_buffer);
+    engine.retain_plain_buffer(physical_buffer);
+    assert_eq!(engine.plain_buffers.len(), 2);
+    assert_eq!(engine.plain_buffer_bytes, engine.plain_buffer_budget);
+    assert!(engine.plain_buffers.iter().all(|entry| entry.layout_ready));
+    #[cfg(feature = "perf_profile")]
+    {
+      assert_eq!(engine.profile().plain_cache_bytes, engine.plain_buffer_budget);
+      assert_eq!(engine.profile().plain_cache_compactions, 0);
+    }
+    for (style, width) in [(&logical, 240.0), (&physical, 360.0)] {
+      let recovered = engine.take_plain_buffer(&text, style, width, true).unwrap();
+      assert_plain_layout_matches_fresh(&mut engine, &recovered, &text, style, width, true);
+    }
+    #[cfg(feature = "perf_profile")]
+    {
+      assert_eq!(engine.profile().plain_shaped_paragraphs, 0);
+      assert_eq!(engine.profile().plain_laid_out_paragraphs, 0);
+      assert_eq!(engine.profile().plain_cache_bytes, 0);
+    }
+  }
+
+  #[test]
+  fn optical_shortcut_matches_full_ink_scan() {
+    let mut engine = GlyphEngine::new();
+    for text in [
+      "\n \t\n",
+      "Hello gjpq",
+      "\nHello\n\n  last line\n\t\n",
+      "مرحبا (123)\nשלום\nMixed 😀 office",
+      "😀\n🙂",
+      "\u{200d}\u{200b}",
+    ] {
+      for font_size in [12.0, 19.5, 32.0] {
+        let style = TextStyle {
+          font_size,
+          ..TextStyle::default()
+        };
+        for width in [48.0, 240.0] {
+          let expected = engine
+            .text_vertical_extents(text, &style, width, true)
+            .map(|e| (e.optical_top, e.optical_bottom));
+          assert_eq!(
+            engine.text_optical_extents(text, &style, width, true),
+            expected,
+            "text={text:?}"
+          );
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn full_layout_reuse_preserves_clipped_glyphs_at_different_origins() {
+    let mut engine = GlyphEngine::new();
+    let text = "First line\nMixed office cafe\u{301} مرحبا 😀\n".repeat(32);
+    let style = TextStyle::default();
+    let clip = ClipRect {
+      x: 0.0,
+      y: 0.0,
+      width: 200.0,
+      height: 75.0,
+      active: true,
+      border_radius: None,
+    };
+    for origin_y in [0.0, -120.5, -480.0] {
+      engine.clear_text_caches();
+      engine.measure_text(&text, &style, 200.0);
+      let mut cached = Vec::new();
+      engine.rasterize_text_with_wrap_clipped_into(&text, &style, 200.0, true, 0.0, origin_y, clip, &mut cached);
+      engine.clear_text_caches();
+      let mut reference = Vec::new();
+      engine.rasterize_text_with_wrap_clipped_into(&text, &style, 200.0, true, 0.0, origin_y, clip, &mut reference);
+      let signature = |glyphs: &[GlyphCmd]| {
+        glyphs
+          .iter()
+          .map(|g| {
+            (
+              [g.x, g.y, g.width, g.height],
+              g.color,
+              g.atlas_min,
+              g.atlas_max,
+              g.color_glyph,
+            )
+          })
+          .collect::<Vec<_>>()
+      };
+      assert!(!cached.is_empty());
+      assert_eq!(signature(&cached), signature(&reference));
+    }
+  }
+
+  #[test]
+  fn plain_buffer_cache_invalidates_and_evicts_without_stale_layouts() {
+    let mut engine = GlyphEngine::new();
+    engine.plain_buffer_budget = 32 * 1024 * 1024;
+    let style = TextStyle::default();
+    for index in 0..PLAIN_BUFFER_CACHE_LIMIT + 3 {
+      engine.measure_text(&format!("Entry {index}"), &style, 200.0);
+    }
+    assert_eq!(engine.plain_buffers.len(), PLAIN_BUFFER_CACHE_LIMIT);
+    assert!(engine.plain_buffer_bytes <= engine.plain_buffer_budget);
+    assert!(engine.take_plain_buffer("Entry 0", &style, 200.0, true).is_none());
+    assert!(engine.take_plain_buffer("Entry 64", &style, 201.0, true).is_none());
+    let changed_style = TextStyle {
+      font_size: 20.0,
+      ..style.clone()
+    };
+    assert!(
+      engine
+        .take_plain_buffer("Entry 64", &changed_style, 200.0, true)
+        .is_none()
+    );
+    engine.register_font("test-alias", "Segoe UI");
+    assert!(engine.plain_buffers.is_empty());
+    assert_eq!(engine.plain_buffer_bytes, 0);
+    engine.measure_text("after font change", &style, 200.0);
+    engine.text_optical_extents("after font change", &style, 200.0, true);
+    engine.install_fonts([Vec::new()], std::iter::empty::<(&str, &str)>());
+    assert!(engine.plain_buffers.is_empty());
+    assert!(engine.optical_extents_cache.is_empty());
+    assert_eq!(engine.plain_buffer_bytes, 0);
+    let large = "A bounded cache retains recently shaped document lines.\n".repeat(800);
+    for index in 0..8 {
+      let style = TextStyle {
+        font_size: 16.0 + index as f32,
+        ..TextStyle::default()
+      };
+      engine.measure_text(&large, &style, 400.0);
+      assert!(engine.plain_buffer_bytes <= engine.plain_buffer_budget);
+    }
+    assert!(
+      engine.plain_buffers.len() < 8,
+      "large layouts should trigger byte-budget eviction"
+    );
   }
 
   #[test]

@@ -1,6 +1,6 @@
 use std::num::NonZeroIsize;
 
-use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group};
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, render_engine::RenderEngine},
   components::{Column, Markdown, MarkdownProps, Text},
@@ -123,6 +123,17 @@ fn long_text_source() -> String {
   for _ in 0..24 {
     source.push_str(README);
     source.push('\n');
+  }
+  source
+}
+
+fn unique_long_text_source() -> String {
+  use std::fmt::Write;
+  let mut source = String::new();
+  for copy in 0..24 {
+    for (line, text) in README.lines().enumerate() {
+      writeln!(source, "{copy:02}/{line:03}: {text}").unwrap();
+    }
   }
   source
 }
@@ -302,8 +313,92 @@ fn bench_text_pipeline(c: &mut Criterion) {
     });
   });
 
+  group.bench_function("cold_unique_long_text_realistic_viewport/all", |b| {
+    b.iter_batched(
+      || {
+        let mut app = App::new();
+        let mut tree = realistic_viewport_tree();
+        tree.mount_root::<LongTextRoot>(&mut app, unique_long_text_source());
+        (app, tree)
+      },
+      |(mut app, mut tree)| run_pass(&mut tree, &mut app),
+      BatchSize::SmallInput,
+    );
+  });
+
+  for (name, skip, selectable) in [
+    ("edit_document_paragraph", 0, false),
+    ("resize_document", 8, false),
+    ("scroll_document", 16, false),
+    ("edit_selectable_document", 0, true),
+    ("resize_selectable_document", 8, true),
+    ("scroll_selectable_document", 16, true),
+  ] {
+    group.bench_function(name, |b| {
+      b.iter_batched(
+        || {
+          let mut app = App::new();
+          let mut tree = realistic_viewport_tree();
+          tree.resize(860, 800);
+          let mut scenario = scenario::Scenario::new().with_selectable(selectable);
+          scenario.mount(&mut tree, &mut app);
+          run_pass(&mut tree, &mut app);
+          for _ in 0..skip {
+            scenario.advance(&mut tree, false);
+            run_pass(&mut tree, &mut app);
+          }
+          scenario.advance(&mut tree, false);
+          (app, tree)
+        },
+        |(mut app, mut tree)| run_pass(&mut tree, &mut app),
+        BatchSize::PerIteration,
+      );
+    });
+  }
   group.finish();
 }
 
 criterion_group!(benches, bench_text_pipeline);
-criterion_main!(benches);
+
+#[cfg(feature = "perf_profile")]
+#[path = "text_pipeline/metrics.rs"]
+mod metrics;
+
+#[path = "text_pipeline/scenario.rs"]
+mod scenario;
+
+#[cfg(feature = "perf_profile")]
+#[path = "text_pipeline/selection.rs"]
+mod selection;
+
+fn main() {
+  if let Some(path) = std::env::var_os("LURQ_TEXT_SELECTION") {
+    #[cfg(feature = "perf_profile")]
+    {
+      selection::run(path.as_ref());
+      return;
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    panic!("LURQ_TEXT_SELECTION={path:?} requires --features perf_profile");
+  }
+  if let Some(path) = std::env::var_os("LURQ_TEXT_INTERACTIONS") {
+    #[cfg(feature = "perf_profile")]
+    {
+      metrics::run_interactions(path.as_ref());
+      return;
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    panic!("LURQ_TEXT_INTERACTIONS={path:?} requires --features perf_profile");
+  }
+  if let Some(path) = std::env::var_os("LURQ_TEXT_METRICS") {
+    #[cfg(feature = "perf_profile")]
+    {
+      metrics::run(path.as_ref());
+      return;
+    }
+    #[cfg(not(feature = "perf_profile"))]
+    panic!("LURQ_TEXT_METRICS={path:?} requires --features perf_profile");
+  }
+  benches();
+  Criterion::default().configure_from_args().final_summary();
+}

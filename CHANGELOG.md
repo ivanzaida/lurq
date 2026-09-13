@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.2 — 2026-09-13
+
+- Reuse plain-text shaping and full layouts across measurement, optical centering, caret extraction, and clipped painting. Retain unchanged paragraphs through edits and reordering, with a 48 MiB accounted cache budget and layout compaction before eviction.
+- Share immutable caret geometry and index visual rows for hit testing, selections, and vertical navigation. Large multiline edits rebuild caret geometry only for changed paragraphs; masked inputs keep their original byte offsets.
+- Preserve wrapped layouts across width changes when conservative word-wrap bounds prove the layout unchanged. Unsupported alignment, bidirectional text, and glyph-fallback wrapping continue through the existing layout path.
+- Stage native DX12 glyph-atlas updates in existing frame upload arenas, avoiding routine dedicated upload allocations and an intermediate copy. Keep full-atlas transfers and the oversized-upload fallback; clear reused row padding and missing texels.
+- Extend development-only optimization overrides to font outline and hinting dependencies. Release profile settings are unchanged; consuming applications must configure development profile overrides in their own workspace.
+- Add detailed text and atlas counters, reproducible CPU/native interaction probes, cache and caret regression tests, and pixel comparisons. Benchmark reports distinguish CPU work from complete frames and mark runs affected by concurrent builds.
+
 ## 0.19.1 — 2026-09-11
 
 - Reuse Canvas 2D path and clip meshes across frames on WGPU and native DX12. GPU commands keep geometry separate from the camera transform; unchanged paths no longer tessellate on every pan.

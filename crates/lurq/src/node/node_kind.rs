@@ -13,7 +13,7 @@ use crate::{
   node::{
     CheckboxStyle, EventHandler, IntoTextInputEventHandler, SelectStyle, SliderPartStyle, TextColor, TextTransformMode,
     text_selection::{
-      CaretPosition, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
+      CaretPosition, CaretPositions, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
       previous_char_boundary, previous_word_boundary, selection_range_indices, selection_ranges_for_positions,
       word_selection_bounds,
@@ -179,7 +179,7 @@ struct TextInner {
   selectable: bool,
   caret: usize,
   selection_anchor: Option<usize>,
-  caret_positions: Vec<CaretPosition>,
+  caret_positions: CaretPositions,
   display_text: Option<String>,
   render_wrap: bool,
 }
@@ -195,7 +195,8 @@ impl TextState {
           index: 0,
           x: 0.0,
           y: 0.0,
-        }],
+        }]
+        .into(),
         display_text: None,
         render_wrap: false,
       })),
@@ -287,7 +288,7 @@ impl TextState {
     selection_ranges_for_positions(&inner.caret_positions, start, end, 0.0, 0.0)
   }
 
-  pub(crate) fn set_caret_positions(&self, positions: Vec<CaretPosition>) {
+  pub(crate) fn set_caret_positions(&self, positions: CaretPositions) {
     self.inner.lock().unwrap().caret_positions = positions;
   }
 
@@ -354,7 +355,7 @@ struct TextInputInner {
   caret_x: f32,
   caret_y: f32,
   caret_height: f32,
-  caret_positions: Vec<CaretPosition>,
+  caret_positions: CaretPositions,
   scroll_x: f32,
   scroll_y: f32,
   unfocused_overflow_anchor: TextInputOverflowAnchor,
@@ -402,7 +403,8 @@ impl TextInputState {
           index: 0,
           x: 0.0,
           y: 0.0,
-        }],
+        }]
+        .into(),
         scroll_x: 0.0,
         scroll_y: 0.0,
         unfocused_overflow_anchor: TextInputOverflowAnchor::default(),
@@ -534,7 +536,7 @@ impl TextInputState {
   /// Caret positions are computed over the masked string, so their `index` is a
   /// byte offset into the mask — not the real value. Remap each back to the real
   /// value's char boundaries so editing and hit-testing stay correct.
-  pub(crate) fn remap_caret_positions(&self, positions: &mut [CaretPosition]) {
+  pub(crate) fn remap_caret_positions(&self, positions: &mut CaretPositions) {
     let Some(mask) = self.mask() else {
       return;
     };
@@ -545,7 +547,7 @@ impl TextInputState {
       .map(|(index, _)| index)
       .chain(std::iter::once(value.len()))
       .collect();
-    for position in positions.iter_mut() {
+    for position in positions.make_mut().iter_mut() {
       let char_index = position.index / mask_len;
       position.index = boundaries.get(char_index).copied().unwrap_or(value.len());
     }
@@ -981,7 +983,7 @@ impl TextInputState {
     self.inner.lock().unwrap().caret_height
   }
 
-  pub(crate) fn set_caret_positions(&self, positions: Vec<CaretPosition>) {
+  pub(crate) fn set_caret_positions(&self, positions: CaretPositions) {
     self.inner.lock().unwrap().caret_positions = positions;
   }
 

@@ -25,6 +25,58 @@ pub struct FrameProfile {
 #[derive(Clone, Copy, Default)]
 pub struct GlyphEngineProfile {
   pub shape_text: Duration,
+  /// Complete caret request, including cache lookup, extraction, and result copies.
+  pub caret_total: Duration,
+  pub caret_buffer: Duration,
+  pub caret_extract: Duration,
+  pub caret_requests: usize,
+  pub caret_hits: usize,
+  pub caret_misses: usize,
+  pub caret_returned_positions: usize,
+  /// Caret cache misses served from an exact retained full-layout hit.
+  pub caret_layout_reuses: usize,
+  /// Paragraph-local caret geometry built/reused on caret cache misses.
+  pub caret_built_paragraphs: usize,
+  pub caret_reused_paragraphs: usize,
+  pub caret_built_positions: usize,
+  /// Cache-miss ink/optical bounds calculation; includes shaping, glyph visits, and raster misses.
+  pub vertical_extents: Duration,
+  /// Buffer preparation and shaping inside `vertical_extents` (inclusive sub-timer).
+  pub vertical_extents_shape: Duration,
+  pub vertical_extents_runs: usize,
+  pub vertical_extents_glyphs: usize,
+  pub raster_acquire_buffer: Duration,
+  /// Text replacement and shaping for a plain-text raster cache miss.
+  pub raster_set_text: Duration,
+  pub plain_buffer_hits: usize,
+  pub plain_buffer_misses: usize,
+  pub plain_reused_lines: usize,
+  /// Full plain-buffer construction, including the paragraph sub-timers below.
+  pub plain_buffer_build: Duration,
+  /// Cosmic paragraph shaping, including BiDi analysis and font matching/fallback.
+  pub plain_paragraph_shape: Duration,
+  /// Wrapping/positioning after paragraph shaping has completed.
+  pub plain_paragraph_layout: Duration,
+  pub plain_buffer_finalize: Duration,
+  pub plain_buffer_retain: Duration,
+  pub plain_shaped_paragraphs: usize,
+  pub plain_laid_out_paragraphs: usize,
+  /// Wrapped paragraph layouts preserved across a width change.
+  pub plain_reflow_reuses: usize,
+  /// Computing conservative width intervals after fresh paragraph layouts.
+  pub plain_reflow_analysis: Duration,
+  pub plain_retained_paragraphs: usize,
+  /// Old paragraphs indexed for edits/reordering outside matching boundaries.
+  pub plain_reindexed_paragraphs: usize,
+  /// Paragraphs whose shape allocations were recounted during multiline construction.
+  pub plain_accounted_paragraphs: usize,
+  /// Retained public Cosmic storage, keys, and shared paragraph carets; excludes transient/private allocations.
+  pub plain_cache_bytes: usize,
+  pub plain_cache_budget: usize,
+  /// Entries whose wrapped layouts were discarded this frame, preserving shaping.
+  pub plain_cache_compactions: usize,
+  pub plain_cache_evictions: usize,
+  pub plain_cache_bypasses: usize,
   pub shape_rich_text: Duration,
   pub rich_acquire_buffer: Duration,
   pub rich_set_text: Duration,
@@ -56,6 +108,10 @@ pub struct RenderProfile {
   pub glyph_atlas_upload_bytes: usize,
   pub glyph_atlas_upload_rects: usize,
   pub glyph_atlas_full_uploads: usize,
+  /// Glyph-atlas uploads staged in the existing frame arena.
+  pub glyph_atlas_arena_uploads: usize,
+  /// New dedicated upload resources allocated for glyph-atlas updates.
+  pub glyph_atlas_dedicated_uploads: usize,
   pub buffer_upload: Duration,
   pub image_upload: Duration,
   pub encode: Duration,
@@ -139,6 +195,55 @@ impl std::fmt::Display for FrameProfile {
       self.text_measure_hit_rate() * 100.0,
       self.glyph_cache_hit_rate() * 100.0,
       self.memory,
+    )?;
+    write!(
+      f,
+      " | text_bounds={:.2}ms(shape={:.2}ms runs={} glyphs={}) raster_buffer={:.2}ms raster_text={:.2}ms buffers={}/{} hit/miss reused_lines={}",
+      self.glyph_engine.vertical_extents.as_secs_f64() * 1000.0,
+      self.glyph_engine.vertical_extents_shape.as_secs_f64() * 1000.0,
+      self.glyph_engine.vertical_extents_runs,
+      self.glyph_engine.vertical_extents_glyphs,
+      self.glyph_engine.raster_acquire_buffer.as_secs_f64() * 1000.0,
+      self.glyph_engine.raster_set_text.as_secs_f64() * 1000.0,
+      self.glyph_engine.plain_buffer_hits,
+      self.glyph_engine.plain_buffer_misses,
+      self.glyph_engine.plain_reused_lines,
+    )?;
+    write!(
+      f,
+      " plain_build={:.2}ms(shape={:.2}ms/{} wrap={:.2}ms/{} finish={:.2}ms) retain={:.2}ms reused_paragraphs={} cache={}/{}B compact/evict/bypass={}/{}/{} reindexed/accounted={}/{} reflow_reuses={} reflow_analysis={:.2}ms",
+      self.glyph_engine.plain_buffer_build.as_secs_f64() * 1000.0,
+      self.glyph_engine.plain_paragraph_shape.as_secs_f64() * 1000.0,
+      self.glyph_engine.plain_shaped_paragraphs,
+      self.glyph_engine.plain_paragraph_layout.as_secs_f64() * 1000.0,
+      self.glyph_engine.plain_laid_out_paragraphs,
+      self.glyph_engine.plain_buffer_finalize.as_secs_f64() * 1000.0,
+      self.glyph_engine.plain_buffer_retain.as_secs_f64() * 1000.0,
+      self.glyph_engine.plain_retained_paragraphs,
+      self.glyph_engine.plain_cache_bytes,
+      self.glyph_engine.plain_cache_budget,
+      self.glyph_engine.plain_cache_compactions,
+      self.glyph_engine.plain_cache_evictions,
+      self.glyph_engine.plain_cache_bypasses,
+      self.glyph_engine.plain_reindexed_paragraphs,
+      self.glyph_engine.plain_accounted_paragraphs,
+      self.glyph_engine.plain_reflow_reuses,
+      self.glyph_engine.plain_reflow_analysis.as_secs_f64() * 1000.0,
+    )?;
+    write!(
+      f,
+      " caret={:.2}ms(buffer={:.2}ms extract={:.2}ms) requests/hits/misses={}/{}/{} positions={} layout_reuses={} paragraphs_built/reused={}/{} positions_built={}",
+      self.glyph_engine.caret_total.as_secs_f64() * 1000.0,
+      self.glyph_engine.caret_buffer.as_secs_f64() * 1000.0,
+      self.glyph_engine.caret_extract.as_secs_f64() * 1000.0,
+      self.glyph_engine.caret_requests,
+      self.glyph_engine.caret_hits,
+      self.glyph_engine.caret_misses,
+      self.glyph_engine.caret_returned_positions,
+      self.glyph_engine.caret_layout_reuses,
+      self.glyph_engine.caret_built_paragraphs,
+      self.glyph_engine.caret_reused_paragraphs,
+      self.glyph_engine.caret_built_positions,
     )
   }
 }

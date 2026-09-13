@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.19.1"
+version = "0.19.2"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -140,6 +140,14 @@ required-features = ["canvas", "winit", "wgpu"]
 [[example]]
 name = "canvas_capture_check"
 required-features = ["canvas", "screenshot"]
+
+[[example]]
+name = "text_interaction_probe"
+required-features = ["winit", "dx12", "perf_profile"]
+
+[[example]]
+name = "dx12_glyph_atlas_probe"
+required-features = ["screenshot", "dx12", "perf_profile"]
 
 [[bench]]
 name = "layout"

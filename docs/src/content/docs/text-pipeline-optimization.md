@@ -5,6 +5,26 @@ description: Benchmark notes and improvement log for text layout and rasterizati
 
 This page tracks text pipeline benchmark results and optimization work.
 
+For development builds and package `opt-level` comparisons, see [Dev Text Pipeline Profiling](/lurq/text-pipeline-dev-profiling/). The historical Criterion results below use optimized bench builds.
+
+The September 12 [CPU Text Pipeline Optimization](/lurq/text-pipeline-cpu-optimization/) shares full plain-text layouts, reduces optical centering work, and adds three dev-only font dependency overrides. In a repeated dev-profile comparison, cold README improved from 18.13 to 8.64 ms and column-flow long text from 143.18 to 17.90 ms. That report includes a unique-paragraph control, memory costs, and the remaining full-layout bottleneck.
+
+The follow-up [Text Interaction Optimization](/lurq/text-interaction-optimization/) reuses unchanged paragraphs across edits and width changes. At 150% desktop scaling, native DX12 edit latency improved from 95.42 to 20.56 ms and window resize latency from 136.57 to 30.92 ms. The report includes CPU and native results, cache compaction, and the measured cost of DX12's full-atlas upload workaround.
+
+The subsequent [Text Cache Budget](/lurq/text-cache-budget/) comparison raises the retained-storage limit to 48 MiB. Keeping logical and physical wrapped layouts together reduces native edit latency at 150% scaling from 19.81 to 10.29 ms in that experiment, with 5.73 MiB more charged storage during edits. A 64 MiB trial retained the same data.
+
+[Text Cache Bookkeeping](/lurq/text-cache-bookkeeping/) then removes full-document paragraph indexing on small edits and repeated glyph-allocation scans on buffer returns. At the same 48 MiB budget, native edit latency improves from 9.73 to 3.82 ms and resize latency from 24.49 to 18.55 ms in its alternating comparison.
+
+[Caret Layout Reuse](/lurq/text-caret-layout-reuse/) covers selectable text, whose caret calculation still shaped a separate buffer. Sharing its layout with measurement reduces native selectable-document edit latency from 52.92 to 6.79 ms and resize latency from 69.14 to 21.37 ms at 150% scaling. The report includes caret-coordinate validation and input tests.
+
+[Caret and Selection Indexing](/lurq/text-selection-optimization/) shares caret geometry and indexes visual rows. In the CPU event-to-render benchmark at 150% scale near the document bottom, input drag falls from 2.89 to 0.30 ms and Up/Down navigation from 3.05 to 0.30 ms. The report includes first-click costs, exact lookup validation, and native edit/resize regression checks.
+
+[Paragraph Caret Reuse](/lurq/text-paragraph-carets/) then replaces full caret-vector reconstruction on multiline edits with shared paragraph geometry. In the 1,728-paragraph fixture, an edit rebuilds one paragraph and reuses the other 1,727. The report separates validated work counts from preliminary timings affected by other compiler activity.
+
+[Stable Text Reflow](/lurq/text-stable-reflow/) preserves wrapped layouts and caret geometry while width changes stay within unchanged wrap decisions. At 150% scale, CPU resizing rebuilds a median 72 of 1,728 paragraphs for the caret layout. The report includes native DX12 checks, the 54 KiB metadata cost, and separately labeled timing observations under external compiler load.
+
+[DX12 Atlas Upload Reuse](/lurq/text-atlas-upload/) stages full atlas updates in existing frame memory. It removes the temporary atlas-sized vector and dedicated upload allocation in the normal path. All 24 before/after pixel captures match exactly; the native comparison observes scroll atlas preparation/upload falling from 3.90 to 0.25 ms under external compiler load.
+
 ## Benchmark
 
 The primary benchmark is `text_pipeline`, which renders the workspace root `README.md` through the real `Markdown` component. This keeps the workload close to a document-heavy app path: Markdown parsing, Markdown rendering, rich text layout, glyph rasterization, atlas population, and render-list generation.
@@ -23,7 +43,7 @@ cargo bench -p lurq --bench text_pipeline --features markdown -- --sample-size 1
 
 The short command is useful for direction, but final claims should use the normal Criterion run.
 
-## Current Results
+## Historical Criterion Results
 
 Full Criterion run from June 16, 2026 after the kept text/layout changes:
 
@@ -103,6 +123,8 @@ This moved the short-run `cold_readme_markdown_first_pass/all` case from about 6
 ### Atlas Dirty Rect Tracking
 
 Added dirty rect tracking to the glyph atlas snapshot. `AtlasPacker` records packed regions, `GlyphAtlas` carries those regions, and the WGPU and DX12 renderers upload dirty subrectangles when the atlas size is unchanged. Texture creation and resize still use full-atlas uploads.
+
+This section describes the historical implementation. DX12 currently forces full uploads when the atlas changes to avoid a known missing-glyph defect in its partial-copy path; see the [current native measurements](/lurq/text-interaction-optimization/#remaining-renderer-cost).
 
 The README Criterion benchmark uses a no-op render engine, so this optimization is not reflected in the CPU-only benchmark table above.
 
@@ -391,9 +413,11 @@ The experiment was not kept. The stateless whitespace-cluster skip covers the re
 
 ## Current Storage Model
 
-Cosmic text layout runs are not stored directly. They are produced from `Buffer::layout_runs()` while measuring or rasterizing, then discarded when the buffer returns to the pool.
+Fully shaped plain-text Cosmic buffers are retained across measurement, vertical alignment, and painting. This cache holds at most 64 entries under a 48 MiB charged-storage budget; see the [budget comparison and memory accounting limits](/lurq/text-cache-budget/). Identical complete paragraphs can also reuse shaped data within a newly built full buffer. Buffers containing only a clipped prefix are not retained as full layouts.
 
-The engine stores derived glyph layout data:
+Unchanged paragraphs can transfer from a compatible prior document version after an edit or width change. Under memory pressure, older entries can discard wrapped layout while retaining paragraph shaping; full layout is reconstructed before use. This lets logical and physical text sizes share the budget at fractional DPI.
+
+The engine additionally stores derived glyph layout data:
 
 - plain text: `CacheKey -> Vec<CachedGlyph>`
 - rich text: `RichTextCacheKey -> Vec<CachedRichGlyph>`
@@ -403,10 +427,10 @@ Markdown input stores rich text spans. It does not store shaped runs.
 
 ## Next Candidates
 
-1. Reduce successful Swash glyph image generation cost without changing glyph source priority or adding per-pass worker overhead.
-2. Explore a persistent-worker or queued raster path for cold text-heavy frames; per-pass scoped thread spawning regressed.
-3. Reduce exact full-height measurement cost for non-tight flow text with an explicit layout/overflow model.
-4. Run the full `text_pipeline` Criterion suite after the next kept optimization and replace short-run direction numbers with final local results.
+1. Reduce the remaining full-layout cost for unique long documents with incremental layout or an explicit viewport/overflow contract that preserves required flow height.
+2. Reproduce and fix DX12's partial atlas upload defect before removing its full-upload workaround, now measured at roughly 3–4 ms per affected native interaction.
+3. Reassess persistent workers or GPU glyph generation if new workloads show rasterization dominating; after the dev font dependency changes it is under 1 ms in the measured regular viewport cases.
+4. Refresh optimized Criterion results separately from the development-profile measurements above.
 
 ## Updating This Page
 

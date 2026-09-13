@@ -26,11 +26,13 @@ jobs:
           cargo test -p lurq_macros
           cargo check -p lurq
           cargo test -p lurq --features canvas --test canvas_tests
-          cargo test -p lurq --features canvas --lib canvas::
+          cargo test -p lurq --features canvas,perf_profile --lib
           cargo check -p lurq --features canvas,winit,wgpu
           cargo test -p lurq --test input_tests checkbox
           cargo test -p lurq --test input_tests mask
-          cargo test -p lurq --lib mask
+          cargo test -p lurq --test input_tests text
+          cargo test -p lurq --test layout_tests text_centering
+          cargo test -p lurq --test runtime_tests text
           cargo test -p lurq --features resources --test resources_tests
           cargo test -p lurq --features svg --test svg_tests
           cargo test -p lurq --features svg --lib rasterize

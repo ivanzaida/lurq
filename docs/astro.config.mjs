@@ -33,6 +33,7 @@ export default defineConfig({
                         'resources-media',
                         'canvas',
                         'testing',
+                        'text-pipeline-optimization',
                     ],
                 },
                 {

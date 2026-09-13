@@ -2133,6 +2133,8 @@ impl RenderEngine for WgpuRenderEngine {
         glyph_atlas_upload_bytes: _atlas_upload_bytes,
         glyph_atlas_upload_rects: _atlas_upload_rects,
         glyph_atlas_full_uploads: _atlas_full_uploads,
+        glyph_atlas_arena_uploads: 0,
+        glyph_atlas_dedicated_uploads: 0,
         buffer_upload: _buffer_upload_dur,
         image_upload: _image_texture_upload_dur,
         encode: _encode_dur,

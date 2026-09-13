@@ -921,6 +921,8 @@ struct GlyphAtlasUploadStats {
   bytes: usize,
   rects: usize,
   full_uploads: usize,
+  arena_uploads: usize,
+  dedicated_uploads: usize,
 }
 
 #[cfg(feature = "raster")]
@@ -1211,19 +1213,7 @@ impl UploadArena {
       return None;
     }
 
-    for row in 0..height {
-      let src_start = row * row_bytes;
-      if src_start >= data.len() {
-        break;
-      }
-      let src_end = (src_start + row_bytes).min(data.len());
-      let dst_start = start + row * row_pitch;
-      ptr::copy_nonoverlapping(
-        data[src_start..src_end].as_ptr(),
-        self.mapped.add(dst_start),
-        src_end - src_start,
-      );
-    }
+    copy_upload_rows(data, self.mapped.add(start), row_bytes, row_pitch, height);
     self.offset = end;
     Some(UploadSlice {
       resource: self._resource.clone(),
@@ -1231,6 +1221,21 @@ impl UploadArena {
       gpu_address: self.gpu_address + start as u64,
       size_in_bytes: padded_size as u32,
     })
+  }
+}
+
+// `destination` must hold row_pitch * height writable bytes, disjoint from data.
+// Reused upload memory must not expose old texels when the source ends mid-row.
+unsafe fn copy_upload_rows(data: &[u8], destination: *mut u8, row_bytes: usize, row_pitch: usize, height: usize) {
+  assert!(row_pitch >= row_bytes);
+  for row in 0..height {
+    let src_start = row * row_bytes;
+    let copied = data.len().saturating_sub(src_start).min(row_bytes);
+    let dst = destination.add(row * row_pitch);
+    if copied > 0 {
+      ptr::copy_nonoverlapping(data.as_ptr().add(src_start), dst, copied);
+    }
+    ptr::write_bytes(dst.add(copied), 0, row_pitch - copied);
   }
 }
 
@@ -2737,6 +2742,8 @@ impl Dx12State {
       glyph_atlas_upload_bytes: atlas_stats.bytes,
       glyph_atlas_upload_rects: atlas_stats.rects,
       glyph_atlas_full_uploads: atlas_stats.full_uploads,
+      glyph_atlas_arena_uploads: atlas_stats.arena_uploads,
+      glyph_atlas_dedicated_uploads: atlas_stats.dedicated_uploads,
       encode: _encode_dur,
       submit: _submit_dur,
       present: _present_dur,
@@ -2970,15 +2977,7 @@ impl Dx12State {
 
     let upload_size = row_pitch * height;
     let mut upload_bytes = vec![0u8; upload_size];
-    for row in 0..height {
-      let src_start = row * row_bytes;
-      if src_start >= data.len() {
-        break;
-      }
-      let src_end = (src_start + row_bytes).min(data.len());
-      let dst_start = row * row_pitch;
-      upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&data[src_start..src_end]);
-    }
+    copy_upload_rows(data, upload_bytes.as_mut_ptr(), row_bytes, row_pitch, height);
     self.upload_frame_bytes(&upload_bytes, alignment)
   }
 
@@ -3687,29 +3686,26 @@ impl Dx12State {
       let row_bytes = atlas.width as usize * 4;
       let row_pitch = align_up(row_bytes, 256);
       let upload_size = row_pitch * atlas.height as usize;
-      let mut upload_bytes = vec![0u8; upload_size];
-      for row in 0..atlas.height as usize {
-        let src_start = row * row_bytes;
-        if src_start >= atlas.data.len() {
-          break;
-        }
-        let src_end = (src_start + row_bytes).min(atlas.data.len());
-        let dst_start = row * row_pitch;
-        upload_bytes[dst_start..dst_start + (src_end - src_start)].copy_from_slice(&atlas.data[src_start..src_end]);
-      }
-
-      let upload = UploadBuffer::from_bytes(&self.device, &upload_bytes)?;
+      let dedicated_before = self.frame_uploads[self.frame_index].len();
+      // Frame arenas are reset only after their GPU fence completes. Normal
+      // atlases have aligned rows, so copy directly into the mapped arena once.
+      // Oversized uploads retain the existing dedicated-buffer fallback.
+      let upload = if row_pitch == row_bytes && atlas.data.len() >= upload_size {
+        self.upload_frame_bytes(&atlas.data[..upload_size], 512)?
+      } else {
+        self.upload_frame_rows(&atlas.data, row_bytes, row_pitch, atlas.height as usize, 512)?
+      };
       let mut dst = D3D12_TEXTURE_COPY_LOCATION {
         pResource: ManuallyDrop::new(Some(texture.clone())),
         Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
         Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
       };
       let mut src = D3D12_TEXTURE_COPY_LOCATION {
-        pResource: ManuallyDrop::new(Some(upload._resource.clone())),
+        pResource: ManuallyDrop::new(Some(upload.resource.clone())),
         Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
         Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
           PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
-            Offset: 0,
+            Offset: upload.offset,
             Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
               Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
               Width: atlas.width,
@@ -3726,7 +3722,9 @@ impl Dx12State {
       stats.bytes += upload_size;
       stats.rects += 1;
       stats.full_uploads += 1;
-      self.frame_uploads[self.frame_index].push(upload);
+      let dedicated = self.frame_uploads[self.frame_index].len() - dedicated_before;
+      stats.dedicated_uploads += dedicated;
+      stats.arena_uploads += usize::from(dedicated == 0);
     } else {
       for rect in pending.unwrap_or_default() {
         if rect.width == 0 || rect.height == 0 || rect.x >= atlas.width || rect.y >= atlas.height {
@@ -3777,6 +3775,7 @@ impl Dx12State {
         ManuallyDrop::drop(&mut src.pResource);
         stats.bytes += upload_size;
         stats.rects += 1;
+        stats.dedicated_uploads += 1;
         self.frame_uploads[self.frame_index].push(upload);
       }
     }
@@ -4658,6 +4657,36 @@ fn offset_gpu_handle(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn upload_rows_clear_missing_texels_and_padding_without_overwriting_neighbors() {
+    for (row_bytes, row_pitch, height) in [(12, 12, 3), (12, 256, 4), (1028, 1280, 3)] {
+      for length in [
+        0,
+        1,
+        row_bytes - 1,
+        row_bytes + 3,
+        row_bytes * height,
+        row_bytes * height + 7,
+      ] {
+        let source = (0..length).map(|i| (i % 251 + 1) as u8).collect::<Vec<_>>();
+        let mut memory = vec![0xa5; 17 + row_pitch * height + 19];
+        unsafe {
+          copy_upload_rows(&source, memory.as_mut_ptr().add(17), row_bytes, row_pitch, height);
+        }
+        let mut expected = Vec::new();
+        for chunk in source.chunks(row_bytes).take(height) {
+          let mut row = chunk.to_vec();
+          row.resize(row_pitch, 0);
+          expected.extend(row);
+        }
+        expected.resize(row_pitch * height, 0);
+        assert_eq!(&memory[..17], &[0xa5; 17]);
+        assert_eq!(&memory[17..17 + expected.len()], expected);
+        assert_eq!(&memory[17 + expected.len()..], &[0xa5; 19]);
+      }
+    }
+  }
 
   #[test]
   fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {
