@@ -9,6 +9,8 @@ description: Async data fetching with futures, imperative actions, and timer-bas
 
 `ctx.future` runs an async operation that automatically re-executes when its dependencies change. The returned `FutureHandle` exposes a reactive `Signal<FutureState<T, E>>`.
 
+For requests whose data should be shared across components and retained across navigation, enable the `query` feature and use [Queries](./queries/). Queries add a shared cache, freshness, request deduplication, and invalidation to finite async reads.
+
 Use `ctx.future` for finite async work that resolves to one result, such as loading a page, querying an endpoint, or submitting a request. Do not use it to manually chain a continuous subscription by changing a dependency after every completion. For watch receivers, sockets, event feeds, and other multi-item sources, use [`ctx.stream`](#streams).
 
 ```rust
@@ -178,7 +180,7 @@ When using the `form` feature, `FormProps::submit_action(action)` wires a `Futur
 Enable the `tokio` feature to run futures on a real async runtime instead of polling them manually each frame.
 
 ```toml
-lurq = { version = "0.19.2", features = ["tokio"] }
+lurq = { version = "0.19.3", features = ["tokio"] }
 ```
 
 Pass a tokio handle when creating the `App`:

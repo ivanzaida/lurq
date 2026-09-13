@@ -25,9 +25,13 @@ jobs:
         run: |
           cargo test -p lurq_macros
           cargo check -p lurq
+          cargo test -p lurq --features query --lib query::tests
+          cargo test -p lurq --features query --test query_tests
+          cargo test -p lurq --features query,tokio --lib query::tests
+          cargo test -p lurq --features query,tokio --test query_tests --test runtime_tests --test reactivity_tests
           cargo test -p lurq --features canvas --test canvas_tests
           cargo test -p lurq --features canvas,perf_profile --lib
-          cargo check -p lurq --features canvas,winit,wgpu
+          cargo check -p lurq --features canvas,winit,wgpu,query,tokio
           cargo test -p lurq --test input_tests checkbox
           cargo test -p lurq --test input_tests mask
           cargo test -p lurq --test input_tests text

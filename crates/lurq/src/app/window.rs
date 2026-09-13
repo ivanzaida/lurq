@@ -518,6 +518,17 @@ impl Window {
     }
   }
 
+  #[cfg(feature = "query")]
+  pub(crate) fn query_waker(&self) -> WindowWaker {
+    let window = Arc::downgrade(&self.inner);
+    Arc::new(move || {
+      let wake = window.upgrade().and_then(|window| window.read().unwrap().waker.clone());
+      if let Some(wake) = wake {
+        wake();
+      }
+    })
+  }
+
   pub fn version(&self) -> u64 {
     self.inner.read().unwrap().version
   }

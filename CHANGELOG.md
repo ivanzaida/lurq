@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.3 — 2026-09-13
+
+- Add the optional `query` feature with named async queries through `#[lurq::query]`, lazy typed descriptors, reactive handles, shared cached results, and request deduplication. Publish the accompanying macro in `lurq_macros` 0.1.2.
+- Support exact-query and whole-definition invalidation, background refreshes that retain successful data, configurable freshness and inactive retention, and cancellation of obsolete requests.
+- Let applications choose cache scope: `QueryClient::new()` creates an independent cache, while clones share data, requests, and invalidation across components and trees. Closing one tree preserves work used by surviving trees.
+- Wake each attached tree for ready work and deliver reactive notifications on its own UI tick. Support cooperative futures and optional Tokio execution, including recovery when a shared request's runtime shuts down.
+- Add query documentation and regression coverage for cache identity, invalidation, retention, provider scopes, concurrent trees, event-loop wakeups, and runtime lifetimes. Writes continue to use `future_action` with explicit invalidation after success.
+
 ## 0.19.2 — 2026-09-13
 
 - Reuse plain-text shaping and full layouts across measurement, optical centering, caret extraction, and clipped painting. Retain unchanged paragraphs through edits and reordering, with a 48 MiB accounted cache budget and layout compaction before eviction.

@@ -616,6 +616,21 @@ action.run("go".to_owned());
 
 See [Futures And Timers](./futures-timers/) for full details.
 
+## Queries
+
+Requires the `query` feature. Provide a `QueryClient` once in a stable component's `create` method, then observe named query descriptors during render:
+
+```rust
+let user = ctx.query(get_user(user_id));
+let data = user.data();
+
+let queries = ctx.query_client();
+queries.invalidate(get_user(user_id));
+queries.invalidate(get_user::all());
+```
+
+The `#[lurq::query]` macro defines the descriptor constructor and its `all()` selector. Queries share cached results and running requests across components. See [Queries](./queries/) for setup, state, invalidation, and lifecycle details.
+
 ## Forms
 
 Requires the `form` feature.

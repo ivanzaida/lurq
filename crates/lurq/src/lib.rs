@@ -3,6 +3,8 @@ extern crate self as lurq;
 pub use lurq_macros::DevtoolsInspectable;
 #[cfg(feature = "persistent_storage")]
 pub use lurq_macros::PersistentValue;
+#[cfg(feature = "query")]
+pub use lurq_macros::query;
 
 pub mod animation;
 pub mod app;
@@ -20,6 +22,8 @@ pub mod markdown;
 pub mod node;
 #[cfg(feature = "persistent_storage")]
 pub mod persistent_storage;
+#[cfg(feature = "query")]
+pub mod query;
 #[cfg(feature = "render")]
 pub(crate) mod render;
 pub mod responsive;

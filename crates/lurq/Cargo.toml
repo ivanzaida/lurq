@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.19.2"
+version = "0.19.3"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -22,6 +22,7 @@ canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
 i18n = []
 markdown = ["dep:pulldown-cmark"]
 persistent_storage = ["dep:redb"]
+query = []
 serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
@@ -76,7 +77,7 @@ ureq = { version = "3.3.0", optional = true }
 serde_json = { version = "1", optional = true }
 tokio = { version = "1.52.3", optional = true, features = ["rt", "rt-multi-thread", "sync"] }
 tracing.workspace = true
-lurq_macros = { version = "0.1.1", path = "../lurq_macros" }
+lurq_macros = { version = "0.1.2", path = "../lurq_macros" }
 
 # MCP server (feature `mcp`); all optional so the default build stays lean.
 rmcp = { version = "3.1", features = ["server", "transport-streamable-http-server"], optional = true }

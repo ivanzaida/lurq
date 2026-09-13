@@ -1089,7 +1089,17 @@ impl Tree {
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn next_scheduled_redraw(&self) -> Option<Instant> {
-    self.scheduled_redraw_at
+    #[cfg(feature = "query")]
+    {
+      self.scheduled_redraw_at
+        .into_iter()
+        .chain(self.root_ctx.as_ref().and_then(Ctx::next_query_deadline))
+        .min()
+    }
+    #[cfg(not(feature = "query"))]
+    {
+      self.scheduled_redraw_at
+    }
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]

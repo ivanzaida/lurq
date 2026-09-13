@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.19.2"
+lurq = "0.19.3"
 ```
 
 Enable the runtime/rendering features you need:
 
 ```toml
 [dependencies]
-lurq = { version = "0.19.2", features = ["winit", "wgpu"] }
+lurq = { version = "0.19.3", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:
@@ -27,6 +27,7 @@ Useful optional features:
 | `svg` | SVG components |
 | `canvas` | Persistent Canvas 2D drawing through existing element refs; paths, text, clipping, and raw images |
 | `resources` | Resource loader and resource-backed images/SVGs |
+| `query` | Shared typed async queries, caching, and invalidation |
 | `clipboard` | Clipboard shortcuts for text inputs |
 | `devtools` | In-app DevTools window |
 | `mcp` | Embeddable MCP server for AI agents to drive and inspect a running app |

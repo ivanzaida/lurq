@@ -1031,6 +1031,14 @@ pub struct Ctx {
   effects: Vec<Effect>,
   timers: Vec<Timer>,
   future_slots: Vec<FutureSlot>,
+  #[cfg(feature = "query")]
+  query_registry: crate::query::QueryRegistry,
+  #[cfg(feature = "query")]
+  query_slots: Vec<crate::query::Observer>,
+  #[cfg(feature = "query")]
+  query_cursor: usize,
+  #[cfg(feature = "query")]
+  provided_query_client: Option<crate::query::QueryClient>,
   element_refs: Vec<ElementRefMut>,
   click_outside_registry: Arc<Mutex<Vec<ClickOutsideEntry>>>,
   click_outside_cursor: usize,
@@ -1432,6 +1440,14 @@ impl Ctx {
       effects: Vec::new(),
       timers: Vec::new(),
       future_slots: Vec::new(),
+      #[cfg(feature = "query")]
+      query_registry: crate::query::QueryRegistry::default(),
+      #[cfg(feature = "query")]
+      query_slots: Vec::new(),
+      #[cfg(feature = "query")]
+      query_cursor: 0,
+      #[cfg(feature = "query")]
+      provided_query_client: None,
       element_refs: Vec::new(),
       click_outside_registry: Arc::new(Mutex::new(Vec::new())),
       click_outside_cursor: 0,
@@ -1910,6 +1926,46 @@ impl Ctx {
     handle
   }
 
+  /// Returns the client provided by a stable ancestor or this root context.
+  #[cfg(feature = "query")]
+  pub fn query_client(&mut self) -> crate::query::QueryClient {
+    let client = self
+      .use_context::<crate::query::QueryClient>()
+      .expect("QueryClient is missing: call ctx.provide(QueryClient::new()) in the root component's create method");
+    self.query_registry.attach(
+      &client,
+      self.window.as_ref().map(|window| window.query_waker()),
+      #[cfg(feature = "tokio")]
+      self.runtime_future_handle.clone(),
+    );
+    client
+  }
+
+  /// Observe a typed query during render. Repeated renders reuse the observer;
+  /// equal descriptors in different components share their cache and request.
+  #[cfg(feature = "query")]
+  pub fn query<D: crate::query::QueryDefinition>(
+    &mut self,
+    query: crate::query::Query<D>,
+  ) -> crate::query::QueryHandle<D::Data, D::Error> {
+    assert!(self.rendering, "ctx.query must be called during render");
+    let client = self.query_client();
+    let cursor = self.query_cursor;
+    self.query_cursor += 1;
+    if let Some(observer) = self.query_slots.get(cursor) {
+      if observer.matches(&client, &query) {
+        return observer.handle::<D>();
+      }
+    }
+    let (handle, observer) = client.observe(query, Instant::now());
+    if cursor < self.query_slots.len() {
+      self.query_slots[cursor] = observer;
+    } else {
+      self.query_slots.push(observer);
+    }
+    handle
+  }
+
   /// Runs a continuous async producer and updates the handle state for every emitted item.
   ///
   /// The stream task starts on first render, restarts when `deps` changes between
@@ -2042,6 +2098,10 @@ impl Ctx {
   // --- Context (Dependency Injection) ---
 
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+    #[cfg(feature = "query")]
+    if let Some(client) = (&value as &dyn Any).downcast_ref::<crate::query::QueryClient>() {
+      self.provided_query_client = Some(client.clone());
+    }
     #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
     self.context_map.provide(value);
@@ -2434,6 +2494,10 @@ impl Ctx {
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
     }
+    #[cfg(feature = "query")]
+    {
+      child_ctx.query_registry = self.query_registry.clone();
+    }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
     #[cfg(feature = "i18n")]
     {
@@ -2517,6 +2581,10 @@ impl Ctx {
       #[cfg(feature = "tokio")]
       {
         group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
+      }
+      #[cfg(feature = "query")]
+      {
+        group_ctx.query_registry = self.query_registry.clone();
       }
       group_ctx.click_outside_registry = self.click_outside_registry.clone();
       #[cfg(feature = "i18n")]
@@ -2606,6 +2674,10 @@ impl Ctx {
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
     }
+    #[cfg(feature = "query")]
+    {
+      child_ctx.query_registry = self.query_registry.clone();
+    }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
     #[cfg(feature = "i18n")]
     {
@@ -2658,12 +2730,24 @@ impl Ctx {
   // --- Render lifecycle ---
 
   pub fn begin_render(&mut self) {
+    #[cfg(feature = "query")]
+    if let Some(client) = &self.provided_query_client {
+      // Reconciliation refreshes inherited context values. Preserve a client's
+      // local provider scope before rendering this component's descendants.
+      if self.context_map.get::<crate::query::QueryClient>().as_ref() != Some(client) {
+        self.context_map.provide(client.clone());
+      }
+    }
     self.clear_dirty();
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
     self.click_outside_cursor = 0;
     self.click_outside_active_cursors.clear();
     self.future_cursor = 0;
+    #[cfg(feature = "query")]
+    {
+      self.query_cursor = 0;
+    }
     tracking::start_tracking();
     self.rendering = true;
   }
@@ -2726,6 +2810,8 @@ impl Ctx {
       slot.task.cancel();
     }
     self.future_slots.truncate(self.future_cursor);
+    #[cfg(feature = "query")]
+    self.query_slots.truncate(self.query_cursor);
     self.rendering = false;
     let deps = tracking::stop_tracking();
     let dirty = self.dirty.clone();
@@ -2769,6 +2855,10 @@ impl Ctx {
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_futures(&self) -> bool {
+    #[cfg(feature = "query")]
+    if self.query_registry.ready() {
+      return true;
+    }
     self.future_slots.iter().any(|slot| slot.task.is_active())
       || self
         .children
@@ -2790,7 +2880,28 @@ impl Ctx {
   pub(crate) fn tick_futures(&mut self) -> bool {
     let waker = noop_waker();
     let mut cx = TaskContext::from_waker(&waker);
-    self.poll_futures(&mut cx)
+    #[cfg(feature = "query")]
+    let query_changed = self.query_registry.tick(Instant::now(), &mut cx) | self.publish_query_updates();
+    #[cfg(not(feature = "query"))]
+    let query_changed = false;
+    self.poll_futures(&mut cx) | query_changed
+  }
+
+  #[cfg(feature = "query")]
+  pub(crate) fn next_query_deadline(&self) -> Option<Instant> {
+    self.query_registry.deadline()
+  }
+
+  #[cfg(feature = "query")]
+  fn publish_query_updates(&self) -> bool {
+    let mut changed = false;
+    for observer in &self.query_slots {
+      changed |= observer.publish();
+    }
+    for slot in &self.children {
+      changed |= slot.ctx.publish_query_updates();
+    }
+    changed
   }
 
   fn poll_futures(&mut self, cx: &mut TaskContext<'_>) -> bool {

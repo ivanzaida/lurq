@@ -23,6 +23,7 @@ export default defineConfig({
                         'forms',
                         'routing',
                         'futures-timers',
+                        'queries',
                         'persistent-storage',
                         'i18n',
                         'modals',

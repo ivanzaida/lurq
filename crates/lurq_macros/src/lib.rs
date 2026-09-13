@@ -5,6 +5,16 @@ use syn::{
   PathArguments, Type,
 };
 
+mod query;
+
+/// Defines a typed, cached query for lurq's optional `query` feature.
+#[proc_macro_attribute]
+pub fn query(args: TokenStream, input: TokenStream) -> TokenStream {
+  query::expand(args.into(), input.into())
+    .unwrap_or_else(syn::Error::into_compile_error)
+    .into()
+}
+
 #[proc_macro_derive(Accessors)]
 pub fn derive_accessors(input: TokenStream) -> TokenStream {
   let input = parse_macro_input!(input as DeriveInput);
