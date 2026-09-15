@@ -70,7 +70,6 @@ const DEFAULT_CHECKBOX_CHECKED_COLOR: Color = Color::new(34, 197, 94, 255);
 const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
 const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
-const DEFAULT_CARET_COLOR: Color = Color::new(15, 23, 42, 255);
 fn text_input_display_style<'a>(
   state: &crate::node::node_kind::TextInputState,
   style: &'a TextStyle,
@@ -1297,7 +1296,7 @@ impl LayoutEngine {
           .caret_color_value()
           .and_then(|color| color.resolve(&palette))
           .or_else(|| style.caret_color.as_ref().and_then(|color| color.resolve(&palette)))
-          .unwrap_or(DEFAULT_CARET_COLOR);
+          .unwrap_or(style.color);
         let (caret_x, caret_y, caret_transform, caret_transform_origin) =
           transformed_quad_frame(caret_x, caret_y, transform);
         quads.push(Quad {

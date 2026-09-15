@@ -315,6 +315,41 @@ fn text_style_caret_color_sets_rendered_caret_color() {
 }
 
 #[test]
+fn caret_defaults_to_text_color_for_empty_input() {
+  let expected = Color::from_hex("#e5e7eb");
+  let mut runtime = Tree::new();
+
+  runtime.set_root(
+    lurq::components::TextInput::styled(
+      Signal::new(String::new()),
+      TextStyle {
+        color: expected,
+        ..TextStyle::default()
+      },
+    )
+    .placeholder("you@example.com")
+    .height(40.0),
+  );
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  pointer_click(
+    &mut runtime,
+    rect.x + 1.0,
+    rect.y + rect.height / 2.0,
+    MouseButton::Left,
+  );
+
+  let snapshot = render_pass(&mut runtime);
+  let caret = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .expect("focused empty text input should render a caret");
+
+  assert_eq!(caret.color, expected);
+}
+
+#[test]
 fn fixed_height_multiline_caret_stays_on_new_line_after_typing() {
   let value = Signal::new("A".to_owned());
   let mut runtime = Tree::new();
