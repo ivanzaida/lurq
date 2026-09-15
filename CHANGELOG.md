@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.4 — 2026-09-15
+
+- Let a text input's default insertion caret inherit its resolved text color, keeping focused fields visible on dark themes while preserving explicit node and text-style caret colors.
+- Add regression coverage for a focused empty input with placeholder text.
+
 ## 0.19.3 — 2026-09-13
 
 - Add the optional `query` feature with named async queries through `#[lurq::query]`, lazy typed descriptors, reactive handles, shared cached results, and request deduplication. Publish the accompanying macro in `lurq_macros` 0.1.2.
