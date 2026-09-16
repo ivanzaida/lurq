@@ -122,6 +122,15 @@ pub struct CanvasGpuStats {
   pub vertices: u64,
   pub tiles: u64,
   pub uploaded_bytes: u64,
+  /// Cumulative CPU mesh-cache work while preparing this canvas, including
+  /// attempted batches that later fail to submit.
+  pub mesh_cache_hits: u64,
+  pub mesh_cache_misses: u64,
+  pub mesh_cache_evictions: u64,
+  /// Shared renderer cache occupancy at this canvas's last preparation.
+  /// Bytes include source geometry, triangle positions and estimated metadata.
+  pub mesh_cache_entries: usize,
+  pub mesh_cache_bytes: usize,
 }
 
 /// Straight-alpha sRGB RGBA8 pixels returned by an explicit readback.

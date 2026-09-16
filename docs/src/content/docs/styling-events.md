@@ -169,6 +169,10 @@ The hook listens for left clicks outside the referenced element's measured bound
 
 Keyboard events go to the focused node.
 
+Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation.
+
+Retained input value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
+
 ```rust
 use lurq::app::events::KeyboardEvent;
 
@@ -432,6 +436,8 @@ TextInput::new(visible_secret.clone())
 ```
 
 Masking only affects rendering. The signal value, clipboard copy/cut, and caret and selection behavior all operate on the real text.
+
+Built-in MCP and DevTools inspection returns the displayed mask and `masked=true`, including tree text, lookup/find data, shape details and set-value replies. Underlying editing/form values remain intact. Typed `TextInputHandle::mask()` and `is_masked()` expose the configuration; direct application access to `value()` still returns the real value. An empty masked field can still display its ordinary placeholder.
 
 Mask glyphs use the normal text shaping and font fallback chain. If the selected font lacks U+2022, the shaper searches the loaded and system fallback fonts for the bullet. If no available fallback contains it, the font's missing-glyph marker may appear; Lurq does not substitute `*`. Load a font containing U+2022 or choose a supported custom mask in that case.
 

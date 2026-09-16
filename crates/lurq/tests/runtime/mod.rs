@@ -1,3 +1,4 @@
+mod app_lifetime;
 mod click;
 mod cursor;
 mod double_click;
@@ -12,6 +13,8 @@ mod element_lookup {
   mod typed_interaction;
 }
 mod element_ref_interaction;
+#[cfg(feature = "form")]
+mod focus_reconciliation;
 mod futures {
   mod future_action_runs_on_run;
   mod future_resolves;

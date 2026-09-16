@@ -226,6 +226,14 @@ impl CanvasHandle {
   pub(crate) fn set_gpu_error(&self, error: CanvasError) {
     self.inner.lock().error = Some(error);
   }
+  pub(crate) fn record_mesh_cache(&self, before: cache::MeshCacheStats, after: cache::MeshCacheStats) {
+    let mut surface = self.inner.lock();
+    surface.gpu.mesh_cache_hits += after.hits - before.hits;
+    surface.gpu.mesh_cache_misses += after.misses - before.misses;
+    surface.gpu.mesh_cache_evictions += after.evictions - before.evictions;
+    surface.gpu.mesh_cache_entries = after.entries;
+    surface.gpu.mesh_cache_bytes = after.bytes;
+  }
   pub(crate) fn record_gpu_update(&self, vertices: usize, tiles: usize, uploaded: usize) {
     let mut s = self.inner.lock();
     s.gpu.batches += 1;

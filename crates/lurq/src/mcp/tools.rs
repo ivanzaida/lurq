@@ -58,7 +58,7 @@ fn execute_builtin(
   let _ = app;
   match builtin {
     BuiltinTool::Menu => {
-      let model = app.menu.model();
+      let model = app.shared.menu.model();
       let _ = reply.send(Ok(McpToolOutput::Json(serde_json::json!({
         "support": format!("{:?}", app.menu_bar_support()),
         "model": model.as_ref().map(menu_json),
@@ -238,6 +238,7 @@ fn is_interactive(node: &Node) -> bool {
 
 fn node_value_summary(node: &Node) -> Option<String> {
   match node.node_kind() {
+    NodeKind::TextInput { state, .. } if state.is_masked() => Some(format!("value={:?}", state.caret_source_text())),
     NodeKind::TextInput { state, .. } => Some(format!("value={:?}", state.value())),
     NodeKind::Checkbox { state } => Some(format!("checked={}", state.is_checked())),
     NodeKind::Slider { state } => Some(format!("value={}", state.value_string())),
@@ -304,11 +305,11 @@ fn snapshot_node(
   }
 
   let interactive = is_interactive(node);
-  let attrs = node.debug_attrs();
+  let attrs = inspection_attrs(node);
   let element_id = node.element_id().map(|id| id.to_owned());
   let classes: Vec<String> = node.class_list().iter().map(|class| class.to_string()).collect();
   let labeled = element_id.is_some() || !classes.is_empty();
-  let text = node.text_content().map(|text| text.to_owned());
+  let text = node.inspection_text();
   let value = node_value_summary(node);
   let interesting = interactive || labeled || !attrs.is_empty() || text.is_some() || value.is_some();
   if !ctx.all && !interesting && child_lines.is_empty() {
@@ -476,16 +477,24 @@ fn lookup_hit(node: &Node) -> LookupHit {
   LookupHit {
     node_id: node.node_id(),
     tag: node.tag_name().to_owned(),
-    text: node.text_content().map(|text| text.to_owned()),
+    text: node.inspection_text(),
     element_id: node.element_id().map(|id| id.to_owned()),
     classes: node.class_list().iter().map(|class| class.to_string()).collect(),
-    attrs: node
-      .debug_attrs()
-      .iter()
-      .map(|(name, value)| (name.to_string(), value.to_string()))
-      .collect(),
+    attrs: inspection_attrs(node),
     interactive: is_interactive(node),
   }
+}
+
+fn inspection_attrs(node: &Node) -> Vec<(String, String)> {
+  let mut attrs: Vec<_> = node
+    .debug_attrs()
+    .iter()
+    .map(|(name, value)| (name.to_string(), value.to_string()))
+    .collect();
+  if node.is_masked_input() {
+    attrs.push(("masked".to_owned(), "true".to_owned()));
+  }
+  attrs
 }
 
 /// Mint a fresh actionable ref for a lookup hit. Appended to the ref table,
@@ -868,7 +877,7 @@ fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("menu_activate needs `id`")?;
-      let activated = app.menu.dispatch(id, tree.window());
+      let activated = app.shared.menu.dispatch(id, tree.window());
       tree.request_redraw();
       Ok(McpToolOutput::Json(
         serde_json::json!({ "id": id, "activated": activated }),
@@ -1091,7 +1100,11 @@ fn set_value_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -
     NodeKind::TextInput { state, .. } => match value.as_str() {
       Some(text) => {
         state.set_value_external(text.to_owned());
-        Ok(serde_json::json!({ "ok": true, "kind": "TextInput", "value": text }))
+        if state.is_masked() {
+          Ok(serde_json::json!({ "ok": true, "kind": "TextInput", "masked": true, "value": state.caret_source_text() }))
+        } else {
+          Ok(serde_json::json!({ "ok": true, "kind": "TextInput", "value": text }))
+        }
       }
       None => Err("TextInput takes a string value".to_owned()),
     },
@@ -1227,84 +1240,5 @@ fn menu_json(bar: &crate::app::MenuBar) -> serde_json::Value {
 }
 
 #[cfg(test)]
-mod lifecycle_tests {
-  use super::*;
-  use crate::mcp::{Scope, registry::ToolRegistry, shared::McpShared};
-  fn state() -> McpState {
-    let (_, receiver) = std::sync::mpsc::channel();
-    McpState {
-      shared: Arc::new(McpShared::new(
-        [Scope::Observe, Scope::Interact].into_iter().collect(),
-        Default::default(),
-        "test".into(),
-        "test".into(),
-        None,
-      )),
-      registry: Arc::new(ToolRegistry {
-        tools: super::super::registry::builtin_tools(false),
-      }),
-      receiver,
-      include_devtools: false,
-      server: None,
-      discovery_path: None,
-    }
-  }
-  fn call(tree: &mut Tree, app: &mut App, state: &McpState, tool: &str, args: serde_json::Value) -> McpToolResult {
-    let (reply, mut rx) = tokio::sync::oneshot::channel();
-    execute(
-      tree,
-      app,
-      state,
-      McpRequest {
-        tool: tool.into(),
-        args,
-        reply,
-      },
-    );
-    rx.try_recv().unwrap()
-  }
-  fn json(result: McpToolResult) -> serde_json::Value {
-    match result.unwrap() {
-      McpToolOutput::Json(v) => v,
-      _ => panic!("expected json"),
-    }
-  }
-  #[test]
-  fn mcp_close_and_menu_obey_scopes_and_report_dispatch_outcome() {
-    let mut tree = Tree::new();
-    let mut app = App::new();
-    let state = state();
-    tree.window().handle().on_close_requested(|r| {
-      assert_eq!(r.source(), crate::app::CloseRequestSource::App);
-      r.cancel();
-    });
-    let request = serde_json::json!({"action": "request_close"});
-    assert_eq!(
-      json(call(&mut tree, &mut app, &state, "lurq_interact", request.clone()))["stayed_open"],
-      true
-    );
-    tree.window().handle().clear_close_requested_handler();
-    assert_eq!(
-      json(call(&mut tree, &mut app, &state, "lurq_interact", request.clone()))["close_queued"],
-      true
-    );
-    app.set_menu_bar(crate::app::MenuBar::default());
-    assert_eq!(
-      json(call(&mut tree, &mut app, &state, "lurq_menu", serde_json::json!({})))["model"]["application"]["quit"]["id"],
-      "quit"
-    );
-    assert_eq!(
-      json(call(
-        &mut tree,
-        &mut app,
-        &state,
-        "lurq_interact",
-        serde_json::json!({"action":"menu_activate", "id":"missing"})
-      ))["activated"],
-      false
-    );
-    state.shared.remove_scope(&Scope::Interact);
-    assert!(call(&mut tree, &mut app, &state, "lurq_interact", request).is_err());
-    assert!(call(&mut tree, &mut app, &state, "lurq_menu", serde_json::json!({})).is_ok());
-  }
-}
+#[path = "tools_tests.rs"]
+mod tests;

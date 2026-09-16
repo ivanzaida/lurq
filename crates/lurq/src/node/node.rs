@@ -2647,6 +2647,23 @@ impl Node {
     self.text_content.as_deref()
   }
 
+  /// Text safe to expose through built-in inspectors. Layout/editing keep the
+  /// underlying value; inspector boundaries follow the input's mask instead.
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  pub(crate) fn inspection_text(&self) -> Option<String> {
+    match self.node_kind() {
+      NodeKind::TextInput { state, .. } if state.is_masked() => {
+        state.rendered_text().map(|_| state.rendered_text_for_layout())
+      }
+      _ => self.text_content().map(str::to_owned),
+    }
+  }
+
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  pub(crate) fn is_masked_input(&self) -> bool {
+    matches!(self.node_kind(), NodeKind::TextInput { state, .. } if state.is_masked())
+  }
+
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   pub(crate) fn is_focusable(&self) -> bool {
     self.focusable
@@ -3603,6 +3620,11 @@ impl Node {
   }
 
   fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
+    // A canvas can keep its backing surface when its lookup id or ref binding
+    // changes. Input editing state, however, belongs to the identified field.
+    if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+      return self.can_reuse_id_from(old);
+    }
     std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
       && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
       && self.component_slot_id == old.component_slot_id
@@ -3795,10 +3817,7 @@ impl Node {
     // hover/active/focus state the runtime tracks by id — follow the element
     // instead of its position. Subtrees with no such children keep the cheap
     // positional zip. This mirrors the keyed/slotted matching in `preserve_runtime_state_from`.
-    let reorderable = self
-      .children
-      .iter()
-      .any(|child| child.component_key.is_some() || child.component_slot_id.is_some());
+    let reorderable = self.children.iter().any(Node::has_stable_identity);
     if !reorderable {
       for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
         child.preserve_ids_from(old_child);
@@ -3830,19 +3849,35 @@ impl Node {
   fn can_reuse_id_from(&self, old: &Node) -> bool {
     self.component_slot_id == old.component_slot_id
       && self.component_key == old.component_key
+      && self.element_id == old.element_id
       && std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
       && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
+      && (self.component_slot_id.is_some()
+        || self.component_key.is_some()
+        || self.element_id.is_some()
+        || match (&self.node_kind, &old.node_kind) {
+          (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: previous, .. }) => {
+            state.same_value(previous)
+          }
+          _ => match (&self.element_ref, &old.element_ref) {
+            (Some(current), Some(previous)) => current.same_handle(previous),
+            _ => true,
+          },
+        })
   }
 
-  /// A moved keyed/slotted child's twin in the old children: only nodes that
-  /// carry a stable identity (key or component slot) match across a reorder;
-  /// unkeyed nodes fall back to positional pairing in `preserve_ids_from`.
+  fn has_stable_identity(&self) -> bool {
+    self.component_slot_id.is_some()
+      || self.component_key.is_some()
+      || self.element_id.is_some()
+      || self.element_ref.is_some()
+      || matches!(self.node_kind, NodeKind::TextInput { .. })
+  }
+
+  /// Match explicit keys/slots/IDs, retained refs, or input value signals across
+  /// a reorder. Anonymous nodes still use positional pairing.
   fn identity_matches(&self, old: &Node) -> bool {
-    (self.component_key.is_some() || self.component_slot_id.is_some())
-      && self.component_slot_id == old.component_slot_id
-      && self.component_key == old.component_key
-      && std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
-      && std::mem::discriminant(&self.layout_kind) == std::mem::discriminant(&old.layout_kind)
+    self.has_stable_identity() && old.has_stable_identity() && self.can_reuse_id_from(old)
   }
 
   pub(crate) fn clone_for_reuse(&self) -> Self {

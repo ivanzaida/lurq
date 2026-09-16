@@ -8,7 +8,7 @@ description: Persistent drawing through existing element refs, with paths, clipp
 Enable `canvas` alongside your window and renderer features:
 
 ```toml
-lurq = { version = "0.19.4", features = ["canvas", "winit", "wgpu"] }
+lurq = { version = "0.19.5", features = ["canvas", "winit", "wgpu"] }
 ```
 
 Canvas is available starting in **lurq 0.19.0**. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
@@ -177,7 +177,7 @@ Limits include 16,384 pixels per backing dimension (also subject to device limit
 
 `status()` exposes attachment, metrics, content revision, errors, charged pending bytes, backing GPU bytes, and cumulative submitted batches, vertices, tiles, and source-upload bytes. A 3840 × 2160 backing needs 33,177,600 color bytes. Antialiasing scratch is shared across canvases and fixed in size: approximately 9 MiB with D24S8, with WGPU depth/stencil allocation depending on the backend. Queues, geometry buffers, source caches, explicit readbacks, and resources awaiting GPU fences add to those figures; these limits are not a global application memory cap.
 
-The CPU mesh cache is shared across canvases within each renderer and capped at 32 MiB of charged source geometry, triangle storage, and a metadata allowance, with an independent 32,768-entry limit. It uses FIFO eviction and bypasses retention for oversized entries. These bounds accommodate thousands of ordinary paths at several zoom levels and bound metadata for tiny paths. Clears and resizes keep reusable meshes; renderer destruction releases the cache. Mesh-cache memory is separate from `status().gpu_bytes`, which reports backing textures.
+The CPU mesh cache is shared across canvases within each renderer and capped at 32 MiB of charged source geometry, triangle storage, and a metadata allowance, with an independent 32,768-entry limit. It uses random eviction and bypasses retention for oversized entries. Random victims prevent repeated ordered scans above capacity from evicting every next-needed mesh, while keeping hits and individual evictions constant-time. It does not guarantee a particular hit ratio for every workload. These bounds accommodate thousands of ordinary paths at several zoom levels and bound metadata for tiny paths. Clears and resizes keep reusable meshes; renderer destruction releases the cache. Mesh-cache memory is separate from `status().gpu_bytes`, which reports backing textures. `status().gpu` exposes cumulative `mesh_cache_hits`, `mesh_cache_misses`, and `mesh_cache_evictions` attributed to this canvas during CPU preparation, including batches that later fail to submit. `mesh_cache_entries` and `mesh_cache_bytes` are shared-renderer occupancy snapshots at that canvas's last preparation. Charged bytes include source geometry and metadata as well as triangle positions; multiplying submitted vertices by eight does not measure cache occupancy. Curveless paths use one scale bucket but still consume cache entries and bytes.
 
 Gradients, patterns, shadows, filters, additional blend modes, canvas-to-canvas drawing, pixel upload, and automatic animation callbacks remain outside the initial subset.
 

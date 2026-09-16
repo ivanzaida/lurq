@@ -40,6 +40,7 @@ struct ElementRefInner {
   hovered: bool,
   active: bool,
   focused: bool,
+  focus_signal: Option<crate::core::Signal<bool>>,
   override_rect: Option<ElementRect>,
   override_cleared: bool,
   layout_dirty: bool,
@@ -137,7 +138,17 @@ impl ElementRef {
   }
 
   pub fn focused(&self) -> bool {
-    self.inner.read().unwrap().focused
+    self.focus_signal().get()
+  }
+
+  /// Reactive focus state. Reading `focused()` during render subscribes too.
+  pub fn focus_signal(&self) -> crate::core::Signal<bool> {
+    let mut inner = self.inner.write().unwrap();
+    let focused = inner.focused;
+    inner
+      .focus_signal
+      .get_or_insert_with(|| crate::core::Signal::new(focused))
+      .clone()
   }
 
   pub(crate) fn update(&self, x: f32, y: f32, relative_x: f32, relative_y: f32, width: f32, height: f32) {
@@ -219,7 +230,17 @@ impl ElementRef {
   }
 
   pub(crate) fn set_focused(&self, focused: bool) {
-    self.inner.write().unwrap().focused = focused;
+    let signal = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.focused == focused {
+        return;
+      }
+      inner.focused = focused;
+      inner.focus_signal.clone()
+    };
+    if let Some(signal) = signal {
+      signal.set(focused);
+    }
   }
 }
 
@@ -319,6 +340,10 @@ impl ElementRefMut {
 
   pub fn focused(&self) -> bool {
     self.as_ref().focused()
+  }
+
+  pub fn focus_signal(&self) -> crate::core::Signal<bool> {
+    self.as_ref().focus_signal()
   }
 }
 

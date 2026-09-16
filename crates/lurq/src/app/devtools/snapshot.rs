@@ -57,6 +57,15 @@ pub struct DevToolsNode {
   pub children: Vec<DevToolsNode>,
 }
 
+impl DevToolsNode {
+  pub fn is_masked(&self) -> bool {
+    self
+      .attrs
+      .iter()
+      .any(|(name, value)| name == "masked" && value == "true")
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DevToolsRect {
   pub x: f32,
@@ -227,7 +236,7 @@ fn snapshot_node(
     kind,
     key: element.component_key().map(str::to_owned),
     attrs: element_attrs(element),
-    text: element.text_content().map(str::to_owned),
+    text: element.node.inspection_text(),
     color: element.color().map(|color| color.to_hex()),
     props,
     signals,
@@ -265,6 +274,9 @@ fn snapshot_node(
 /// `class` first (mirroring browser devtools), then the debug attrs.
 fn element_attrs(element: ElementRef<'_>) -> Vec<(String, String)> {
   let mut attrs = Vec::new();
+  if element.node.is_masked_input() {
+    attrs.push(("masked".to_owned(), "true".to_owned()));
+  }
   if let Some(id) = element.id() {
     attrs.push(("id".to_owned(), id.to_owned()));
   }
@@ -309,7 +321,7 @@ fn snapshot_node_for_selection(
     kind,
     key: element.component_key().map(str::to_owned),
     attrs: element_attrs(element),
-    text: element.text_content().map(str::to_owned),
+    text: element.node.inspection_text(),
     color: element.color().map(|color| color.to_hex()),
     props: include_inspector_details.then(|| props_ref.cloned()).flatten(),
     signals: signals_ref.to_vec(),
@@ -443,7 +455,7 @@ fn shape_rows(element: ElementRef<'_>) -> Vec<DevToolsShapeRow> {
     }
   }
 
-  if let Some(text) = element.text_content() {
+  if let Some(text) = element.node.inspection_text() {
     push_shape_row(&mut rows, "text", text);
   }
   if let Some(color) = element.color() {

@@ -22,34 +22,35 @@ pub struct IdGenerator {
 
 struct IdPool {
   current: u64,
-  freed: Vec<u64>,
 }
 
 impl IdGenerator {
   pub fn new() -> Self {
     Self {
-      pool: Arc::new(Mutex::new(IdPool {
-        current: 1,
-        freed: Vec::new(),
-      })),
+      pool: Arc::new(Mutex::new(IdPool { current: 1 })),
     }
   }
 
   pub fn next(&self) -> NodeId {
     let mut pool = self.pool.lock().unwrap();
-    let id = if let Some(id) = pool.freed.pop() {
-      id
-    } else {
-      let id = pool.current;
-      pool.current += 1;
-      id
-    };
+    let id = pool.current;
+    pool.current = pool.current.checked_add(1).expect("node IDs exhausted");
     NodeId(id)
   }
 
-  pub fn free(&self, id: NodeId) {
-    if id.is_assigned() {
-      self.pool.lock().unwrap().freed.push(id.0);
-    }
+  /// IDs are never reused: focus, input events and inspector refs may outlive
+  /// the node they identify. Keeping retired IDs costs no additional storage.
+  pub fn free(&self, _id: NodeId) {}
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  #[test]
+  fn retired_ids_never_alias_new_nodes() {
+    let ids = IdGenerator::new();
+    let old = ids.next();
+    ids.free(old);
+    assert_ne!(old, ids.next());
   }
 }
