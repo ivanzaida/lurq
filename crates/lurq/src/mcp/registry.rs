@@ -108,7 +108,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       description: "Read a window's element tree as an indented outline. Interactive elements get \
                     stable `ref_N` handles for lurq_interact / lurq_set_value / lurq_screenshot. \
                     Bounds are `@x,y WxH` in screenshot pixels. Refs are replaced on each call — \
-                    re-read after significant UI changes."
+                    re-read after significant UI changes. Masked inputs expose only their mask and masked=true."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -232,7 +232,8 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     RegisteredTool {
       name: "lurq_set_value".into(),
       description: "Set a form control's value directly (no keystroke simulation): TextInput \
-                    (string), Checkbox (boolean), Slider (number), Select (option label or index)."
+                    (string), Checkbox (boolean), Slider (number), Select (option label or index). \
+                    Masked input replies contain the mask and masked=true, never the underlying value."
         .into(),
       scope: Scope::Interact,
       read_only: false,

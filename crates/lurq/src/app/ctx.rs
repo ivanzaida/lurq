@@ -9,7 +9,6 @@ use std::{
   collections::HashSet,
   future::Future,
   pin::Pin,
-  ptr::NonNull,
   sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -1016,7 +1015,8 @@ pub struct Ctx {
   breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
   #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
-  app: Option<NonNull<App>>,
+  app: Option<App>,
+  focus_request: Arc<Mutex<Option<ElementRef>>>,
   #[cfg(feature = "tokio")]
   runtime_future_handle: RuntimeFutureHandle,
   context_map: ContextMap,
@@ -1426,6 +1426,7 @@ impl Ctx {
       #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
+      focus_request: Arc::new(Mutex::new(None)),
       #[cfg(feature = "tokio")]
       runtime_future_handle: None,
       context_map: ContextMap::default(),
@@ -1489,7 +1490,7 @@ impl Ctx {
   }
 
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
-    self.app = Some(NonNull::from(&mut *app));
+    self.app = Some(app.clone());
     #[cfg(feature = "tokio")]
     {
       self.runtime_future_handle = app.tokio_handle();
@@ -2194,8 +2195,10 @@ impl Ctx {
     value.resolve(self.breakpoint()).clone()
   }
 
+  /// Shared application services retained by this component. The handle stays
+  /// valid if the App passed to the tree is moved or dropped.
   pub fn app_ref(&self) -> &App {
-    unsafe { self.app.expect("app ref not set").as_ref() }
+    self.app.as_ref().expect("app ref not set")
   }
 
   /// Cloneable handle for opening secondary OS windows; safe to capture in
@@ -2204,8 +2207,9 @@ impl Ctx {
     self.app_ref().window_opener()
   }
 
+  /// Mutates the same shared services as the App passed to the tree.
   pub fn app_ref_mut(&mut self) -> &mut App {
-    unsafe { self.app.expect("app ref not set").as_mut() }
+    self.app.as_mut().expect("app ref not set")
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -2307,6 +2311,28 @@ impl Ctx {
 
   pub fn element_ref(&mut self) -> ElementRef {
     self.element_ref_mut().as_ref()
+  }
+
+  /// Requests focus after the current render is reconciled. The ref may be
+  /// attached by the render that follows this call (for example after navigation).
+  /// Requests for refs absent from that tree are ignored. The last request wins.
+  pub fn focus(&self, element: &ElementRef) {
+    *self.focus_request.lock() = Some(element.clone());
+    if let Some(window) = &self.window {
+      window.wake();
+    }
+  }
+
+  pub(crate) fn has_focus_request(&self) -> bool {
+    self.focus_request.lock().is_some()
+  }
+
+  pub(crate) fn focus_request(&self) -> Option<ElementRef> {
+    self.focus_request.lock().clone()
+  }
+
+  pub(crate) fn take_focus_request(&self) -> Option<ElementRef> {
+    self.focus_request.lock().take()
   }
 
   pub fn element_ref_mut(&mut self) -> ElementRefMut {
@@ -2489,7 +2515,8 @@ impl Ctx {
     child_ctx.theme = self.theme.clone();
     child_ctx.window = self.window.clone();
     child_ctx.breakpoint = self.breakpoint.clone();
-    child_ctx.app = self.app;
+    child_ctx.app = self.app.clone();
+    child_ctx.focus_request = self.focus_request.clone();
     #[cfg(feature = "tokio")]
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -2577,7 +2604,8 @@ impl Ctx {
       group_ctx.theme = self.theme.clone();
       group_ctx.window = self.window.clone();
       group_ctx.breakpoint = self.breakpoint.clone();
-      group_ctx.app = self.app;
+      group_ctx.app = self.app.clone();
+      group_ctx.focus_request = self.focus_request.clone();
       #[cfg(feature = "tokio")]
       {
         group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -2669,7 +2697,8 @@ impl Ctx {
     child_ctx.theme = self.theme.clone();
     child_ctx.window = self.window.clone();
     child_ctx.breakpoint = self.breakpoint.clone();
-    child_ctx.app = self.app;
+    child_ctx.app = self.app.clone();
+    child_ctx.focus_request = self.focus_request.clone();
     #[cfg(feature = "tokio")]
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();

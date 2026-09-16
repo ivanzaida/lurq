@@ -9,6 +9,8 @@ The public runtime surface is split between `App`, `Tree`, and the shell.
 
 ## App
 
+`App` is a cloneable handle to shared application services. Mounted component contexts retain those services, so timer, future and input-event renders can use `ctx.app_ref()` and `ctx.app_ref_mut()` after the caller moves or drops its handle. Clones observe changes to fonts, scale, resource configuration and storage-backend selection. `persistent_storage()` returns an owned clone of the currently selected backend handle; an already returned handle continues to refer to that backend if the App later selects another.
+
 `App` stores services shared by a tree pass:
 
 - glyph engine and loaded fonts,
@@ -62,6 +64,15 @@ tree.set_render_engine_factory(|| {
   Box::new(lurq::app::wgpu_render::WgpuRenderEngine::new())
 });
 ```
+
+WGPU creates its instance on the first frame. On Windows it defaults to DX12, avoiding the reported Vulkan-loader race when independent windows render and tear down concurrently. Other platforms retain the full backend selection. Select backends before the first frame if your host needs a different configuration:
+
+```rust
+use lurq::app::wgpu_render::{WgpuBackends, WgpuRenderEngine};
+let engine = WgpuRenderEngine::new().with_backends(WgpuBackends::DX12);
+```
+
+Excluded backend loaders are never initialized by that engine. Explicitly opting into Vulkan on Windows also opts back into its platform loader behavior.
 
 On Windows with `dx12`:
 

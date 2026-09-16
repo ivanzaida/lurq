@@ -250,7 +250,10 @@ impl Renderer {
             {
               group.push(commands.pop_front().unwrap());
             }
-            match Prepared::new(&group, &mut self.meshes) {
+            let before = self.meshes.stats();
+            let prepared = Prepared::new(&group, &mut self.meshes);
+            canvas.record_mesh_cache(before, self.meshes.stats());
+            match prepared {
               Ok(prepared) => self.draw(device, queue, canvas.surface_id(), &prepared),
               Err(error) => canvas.set_gpu_error(error),
             }

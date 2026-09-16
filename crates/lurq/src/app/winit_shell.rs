@@ -196,7 +196,7 @@ impl WinitWindow {
       })
     };
 
-    self.app.menu.set_waker(waker.clone());
+    self.app.shared.menu.set_waker(waker.clone());
     let tree = self.tree;
     tree.window().set_waker(waker.clone());
     #[cfg(feature = "mcp")]
@@ -227,7 +227,7 @@ impl WinitWindow {
     };
     #[cfg(target_os = "macos")]
     let _native =
-      crate::app::macos_menu::NativeMenu::install(handler.app.menu.clone(), handler.main.tree.window().clone());
+      crate::app::macos_menu::NativeMenu::install(handler.app.shared.menu.clone(), handler.main.tree.window().clone());
     event_loop.run_app(&mut handler).unwrap();
     #[cfg(feature = "mcp")]
     handler.main.tree.shutdown_mcp();
@@ -1571,7 +1571,7 @@ impl ApplicationHandler for WinitHandler {
     let stage_started_at = Instant::now();
     #[cfg(target_os = "macos")]
     crate::app::macos_menu::sync();
-    self.app.menu.drain(self.main.tree.window());
+    self.app.shared.menu.drain(self.main.tree.window());
     self.main.tick();
     let tick = stage_started_at.elapsed();
     let stage_started_at = Instant::now();

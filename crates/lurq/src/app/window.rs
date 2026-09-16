@@ -510,7 +510,6 @@ impl Window {
   }
 
   /// Wakes the host for paint work without queuing a component/window mutation.
-  #[cfg(feature = "canvas")]
   pub(crate) fn wake(&self) {
     let waker = self.inner.read().unwrap().waker.clone();
     if let Some(waker) = waker {

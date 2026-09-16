@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use super::*;
 
 #[cfg(test)]
@@ -23,17 +21,48 @@ struct CachedMesh {
   bytes: usize,
 }
 
-/// FIFO eviction has constant amortized insertion cost, including workloads
-/// larger than the cache. Hits do not grow an access log or scan the cache.
+/// Random eviction keeps a useful sample during repeated ordered scans larger
+/// than the cache. FIFO/LRU evict each next-needed mesh in that workload and
+/// miss on every path. Hits and each eviction remain O(1), without an access log.
 #[derive(Default)]
 pub(crate) struct MeshCache {
   entries: HashMap<Key, CachedMesh>,
-  order: VecDeque<Key>,
+  keys: Vec<Key>,
+  random: u64,
+  hits: u64,
+  evictions: u64,
   bytes: usize,
-  #[cfg(test)]
-  pub(super) misses: usize,
+  pub(super) misses: u64,
+}
+#[derive(Clone, Copy)]
+pub(crate) struct MeshCacheStats {
+  pub hits: u64,
+  pub misses: u64,
+  pub evictions: u64,
+  pub entries: usize,
+  pub bytes: usize,
 }
 impl MeshCache {
+  pub(crate) fn stats(&self) -> MeshCacheStats {
+    MeshCacheStats {
+      hits: self.hits,
+      misses: self.misses,
+      evictions: self.evictions,
+      entries: self.entries.len(),
+      bytes: self.bytes,
+    }
+  }
+
+  fn eviction_index(&mut self) -> usize {
+    // SplitMix64: deterministic, local state; no locking or entropy source on
+    // the render thread. This only chooses cache victims, not security tokens.
+    self.random = self.random.wrapping_add(0x9e3779b97f4a7c15);
+    let mut value = self.random;
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    ((value ^ (value >> 31)) % self.keys.len() as u64) as usize
+  }
+
   pub(super) fn append(
     &mut self,
     path: &Geometry,
@@ -52,12 +81,10 @@ impl MeshCache {
       tolerance: tolerance.to_bits(),
     };
     let positions = if let Some(mesh) = self.entries.get(&key) {
+      self.hits += 1;
       mesh.positions.clone()
     } else {
-      #[cfg(test)]
-      {
-        self.misses += 1;
-      }
+      self.misses += 1;
       let mut vertices = Vec::new();
       mesh(path, rule, tolerance, [0.; 4], &mut vertices)?;
       let positions: Arc<[[f32; 2]]> = vertices.iter().map(|v| v.position).collect();
@@ -84,11 +111,13 @@ impl MeshCache {
       return;
     }
     while self.bytes + bytes > MAX_CACHE_BYTES || self.entries.len() >= MAX_CACHE_ENTRIES {
-      let oldest = self.order.pop_front().unwrap();
-      self.bytes -= self.entries.remove(&oldest).unwrap().bytes;
+      let index = self.eviction_index();
+      let victim = self.keys.swap_remove(index);
+      self.bytes -= self.entries.remove(&victim).unwrap().bytes;
+      self.evictions += 1;
     }
     self.bytes += bytes;
-    self.order.push_back(key.clone());
+    self.keys.push(key.clone());
     self.entries.insert(key, CachedMesh { positions, bytes });
   }
 }

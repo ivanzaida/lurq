@@ -1,6 +1,8 @@
-use std::path::Path;
 #[cfg(any(feature = "persistent_storage", feature = "resources"))]
 use std::path::PathBuf;
+use std::{path::Path, sync::Arc};
+
+use parking_lot::Mutex;
 
 #[cfg(feature = "i18n")]
 use crate::app::i18n::I18n;
@@ -126,24 +128,31 @@ impl WindowOpener {
   }
 }
 
+/// A handle to shared application services. Moving or cloning it does not move
+/// the state used by mounted components; trees retain that state while needed.
+#[derive(Clone)]
 pub struct App {
+  pub(crate) shared: Arc<AppShared>,
+}
+
+pub(crate) struct AppShared {
   pub(crate) menu: super::menu::MenuController,
-  pub(crate) glyph_engine: GlyphEngine,
+  pub(crate) glyph_engine: Mutex<GlyphEngine>,
   pub(crate) theme: Theme,
   pub(crate) window_opener: WindowOpener,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
-  pub(crate) scale_override: Option<f32>,
+  pub(crate) scale_override: Mutex<Option<f32>>,
   #[cfg(feature = "tokio")]
-  pub(crate) tokio_handle: Option<tokio::runtime::Handle>,
+  pub(crate) tokio_handle: Mutex<Option<tokio::runtime::Handle>>,
   #[cfg(feature = "resources")]
-  pub(crate) resource_loader: crate::resources::ResourceLoader,
+  pub(crate) resource_loader: Mutex<crate::resources::ResourceLoader>,
   #[cfg(feature = "persistent_storage")]
-  pub(crate) persistent_storage: crate::persistent_storage::PersistentStorage,
+  pub(crate) persistent_storage: Mutex<crate::persistent_storage::PersistentStorage>,
   #[cfg(all(feature = "image", feature = "resources"))]
-  pub(crate) image_resource_cache: std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>,
+  pub(crate) image_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>>,
   #[cfg(all(feature = "svg", feature = "resources"))]
-  pub(crate) svg_resource_cache: std::collections::HashMap<std::sync::Arc<str>, crate::svg::SvgData>,
+  pub(crate) svg_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::svg::SvgData>>,
 }
 
 impl Default for App {
@@ -155,23 +164,25 @@ impl Default for App {
 impl App {
   pub fn new() -> Self {
     Self {
-      menu: super::menu::MenuController::default(),
-      glyph_engine: GlyphEngine::new(),
-      theme: Theme::new(),
-      window_opener: WindowOpener::default(),
-      #[cfg(feature = "i18n")]
-      i18n: I18n::new(),
-      scale_override: None,
-      #[cfg(feature = "tokio")]
-      tokio_handle: None,
-      #[cfg(feature = "resources")]
-      resource_loader: crate::resources::ResourceLoader::new(),
-      #[cfg(feature = "persistent_storage")]
-      persistent_storage: crate::persistent_storage::PersistentStorage::memory(),
-      #[cfg(all(feature = "image", feature = "resources"))]
-      image_resource_cache: std::collections::HashMap::new(),
-      #[cfg(all(feature = "svg", feature = "resources"))]
-      svg_resource_cache: std::collections::HashMap::new(),
+      shared: Arc::new(AppShared {
+        menu: super::menu::MenuController::default(),
+        glyph_engine: Mutex::new(GlyphEngine::new()),
+        theme: Theme::new(),
+        window_opener: WindowOpener::default(),
+        #[cfg(feature = "i18n")]
+        i18n: I18n::new(),
+        scale_override: Mutex::new(None),
+        #[cfg(feature = "tokio")]
+        tokio_handle: Mutex::new(None),
+        #[cfg(feature = "resources")]
+        resource_loader: Mutex::new(crate::resources::ResourceLoader::new()),
+        #[cfg(feature = "persistent_storage")]
+        persistent_storage: Mutex::new(crate::persistent_storage::PersistentStorage::memory()),
+        #[cfg(all(feature = "image", feature = "resources"))]
+        image_resource_cache: Mutex::new(std::collections::HashMap::new()),
+        #[cfg(all(feature = "svg", feature = "resources"))]
+        svg_resource_cache: Mutex::new(std::collections::HashMap::new()),
+      }),
     }
   }
 
@@ -184,69 +195,69 @@ impl App {
   }
   /// Retains the model everywhere for headless QA; installs a native bar only on macOS.
   pub fn set_menu_bar(&self, bar: super::menu::MenuBar) {
-    self.menu.set(bar);
+    self.shared.menu.set(bar);
   }
   pub fn on_menu_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
-    self.menu.on_activate(handler);
+    self.shared.menu.on_activate(handler);
   }
   pub fn menu_controller(&self) -> super::menu::MenuController {
-    self.menu.clone()
+    self.shared.menu.clone()
   }
 
   pub fn set_scale_override(&mut self, scale: Option<f32>) {
-    self.scale_override = scale;
-    self.glyph_engine.clear_cache();
+    *self.shared.scale_override.lock() = scale;
+    self.shared.glyph_engine.lock().clear_cache();
   }
 
   #[cfg(feature = "tokio")]
-  pub fn with_tokio_handle(mut self, handle: tokio::runtime::Handle) -> Self {
-    self.tokio_handle = Some(handle);
+  pub fn with_tokio_handle(self, handle: tokio::runtime::Handle) -> Self {
+    *self.shared.tokio_handle.lock() = Some(handle);
     self
   }
 
   #[cfg(feature = "tokio")]
   pub fn set_tokio_handle(&mut self, handle: tokio::runtime::Handle) {
-    self.tokio_handle = Some(handle);
+    *self.shared.tokio_handle.lock() = Some(handle);
   }
 
   #[cfg(feature = "tokio")]
   pub fn clear_tokio_handle(&mut self) {
-    self.tokio_handle = None;
+    *self.shared.tokio_handle.lock() = None;
   }
 
   #[cfg(feature = "tokio")]
   pub(crate) fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
-    self.tokio_handle.clone()
+    self.shared.tokio_handle.lock().clone()
   }
 
   pub fn theme(&self) -> &Theme {
-    &self.theme
+    &self.shared.theme
   }
 
   /// Handle for opening secondary OS windows (see [`WindowOpener`]).
   pub fn window_opener(&self) -> WindowOpener {
-    self.window_opener.clone()
+    self.shared.window_opener.clone()
   }
 
   #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
-    &self.i18n
+    &self.shared.i18n
   }
 
   pub fn load_font(&mut self, data: Vec<u8>) {
-    self.glyph_engine.load_font(data);
+    self.shared.glyph_engine.lock().load_font(data);
   }
 
   pub fn load_font_file(&mut self, path: &Path) {
-    self.glyph_engine.load_font_file(path);
+    self.shared.glyph_engine.lock().load_font_file(path);
   }
 
   pub fn load_fonts_dir(&mut self, path: &Path) {
-    self.glyph_engine.load_fonts_dir(path);
+    self.shared.glyph_engine.lock().load_fonts_dir(path);
   }
 
   pub fn register_font(&mut self, name: &str, family: &str) {
-    self.glyph_engine.register_font(name, family);
+    self.shared.glyph_engine.lock().register_font(name, family);
   }
 
   /// Installs multiple font faces and aliases with one text-cache invalidation.
@@ -259,17 +270,18 @@ impl App {
     N: AsRef<str>,
     F: AsRef<str>,
   {
-    self.glyph_engine.install_fonts(fonts, aliases);
+    self.shared.glyph_engine.lock().install_fonts(fonts, aliases);
   }
 
   #[cfg(feature = "resources")]
   pub fn set_resource_root(&mut self, root: PathBuf) {
-    self.resource_loader.set_root(root);
+    self.shared.resource_loader.lock().set_root(root);
   }
 
   #[cfg(feature = "persistent_storage")]
-  pub fn persistent_storage(&self) -> &crate::persistent_storage::PersistentStorage {
-    &self.persistent_storage
+  /// Returns a shared handle to the currently selected storage backend.
+  pub fn persistent_storage(&self) -> crate::persistent_storage::PersistentStorage {
+    self.shared.persistent_storage.lock().clone()
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -277,13 +289,13 @@ impl App {
     &mut self,
     path: impl Into<PathBuf>,
   ) -> Result<(), crate::persistent_storage::PersistentStorageError> {
-    self.persistent_storage = crate::persistent_storage::PersistentStorage::open(path.into())?;
+    *self.shared.persistent_storage.lock() = crate::persistent_storage::PersistentStorage::open(path.into())?;
     Ok(())
   }
 
   #[cfg(feature = "persistent_storage")]
   pub fn persistent_value<T: crate::persistent_storage::PersistentValue>(&self, key: &str) -> Option<T> {
-    self.persistent_storage.value(key)
+    self.persistent_storage().value(key)
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -292,7 +304,7 @@ impl App {
     key: &str,
     value: T,
   ) -> Result<(), crate::persistent_storage::PersistentStorageError> {
-    self.persistent_storage.set_value(key, value)
+    self.persistent_storage().set_value(key, value)
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -304,7 +316,7 @@ impl App {
     I: IntoIterator<Item = K>,
     K: AsRef<str>,
   {
-    self.persistent_storage.read_bulk(keys)
+    self.persistent_storage().read_bulk(keys)
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -317,7 +329,7 @@ impl App {
     I: IntoIterator<Item = K>,
     K: AsRef<str>,
   {
-    self.persistent_storage.read_bulk_values(keys)
+    self.persistent_storage().read_bulk_values(keys)
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -326,6 +338,6 @@ impl App {
     I: IntoIterator<Item = E>,
     E: crate::persistent_storage::IntoPersistentWrite,
   {
-    self.persistent_storage.write_bulk(entries)
+    self.persistent_storage().write_bulk(entries)
   }
 }

@@ -22,7 +22,9 @@ use raw_window_handle::{DisplayHandle, WindowHandle};
 use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
-pub use wgpu::{Features as WgpuFeatures, Limits as WgpuLimits, PresentMode as WgpuPresentMode};
+pub use wgpu::{
+  Backends as WgpuBackends, Features as WgpuFeatures, Limits as WgpuLimits, PresentMode as WgpuPresentMode,
+};
 
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::RenderProfile;
@@ -304,7 +306,8 @@ pub struct WgpuRenderEngine {
   canvases: Vec<crate::canvas::CanvasHandle>,
   #[cfg(feature = "canvas")]
   canvas_renderer: Option<canvas::Renderer>,
-  instance: wgpu::Instance,
+  instance: Option<wgpu::Instance>,
+  backends: wgpu::Backends,
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
@@ -373,6 +376,17 @@ pub struct WgpuRenderEngine {
   pending_frame_capture: Option<RenderFrameCapture>,
 }
 
+fn default_backends() -> WgpuBackends {
+  #[cfg(windows)]
+  {
+    WgpuBackends::DX12
+  }
+  #[cfg(not(windows))]
+  {
+    WgpuBackends::all()
+  }
+}
+
 impl Default for WgpuRenderEngine {
   fn default() -> Self {
     WgpuRenderEngine::new()
@@ -381,14 +395,13 @@ impl Default for WgpuRenderEngine {
 
 impl WgpuRenderEngine {
   pub fn new() -> Self {
-    let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-    instance_descriptor.backends = wgpu::Backends::all();
     Self {
       #[cfg(feature = "canvas")]
       canvases: Vec::new(),
       #[cfg(feature = "canvas")]
       canvas_renderer: None,
-      instance: wgpu::Instance::new(instance_descriptor),
+      instance: None,
+      backends: default_backends(),
       adapter: None,
       device: None,
       queue: None,
@@ -458,6 +471,19 @@ impl WgpuRenderEngine {
     }
   }
 
+  /// Select backends before rendering the first frame. Instance creation is lazy,
+  /// so excluded backend loaders are never initialized by this engine.
+  ///
+  /// Windows defaults to DX12: independent Vulkan instances can race in the
+  /// platform loader during concurrent window teardown. Other platforms retain
+  /// wgpu's full backend selection. Vulkan remains an explicit opt-in on Windows.
+  /// Panics if this engine has already initialized a GPU instance.
+  pub fn with_backends(mut self, backends: WgpuBackends) -> Self {
+    assert!(self.instance.is_none(), "select WGPU backends before rendering");
+    self.backends = backends;
+    self
+  }
+
   pub fn with_frame_extension(mut self, extension: impl WgpuFrameExtension + 'static) -> Self {
     self.add_frame_extension(extension);
     self
@@ -486,7 +512,7 @@ impl WgpuRenderEngine {
 
   fn shared_context(&self) -> Option<SharedWgpuContext> {
     Some(SharedWgpuContext {
-      instance: self.instance.clone(),
+      instance: self.instance.clone()?,
       adapter: self.adapter.clone()?,
       device: self.device.clone()?,
       queue: self.queue.clone()?,
@@ -583,7 +609,7 @@ impl WgpuRenderEngine {
   fn create_surface(&self, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> wgpu::Surface<'static> {
     let handles = WindowDisplayPair { window, display };
     let surface_target = unsafe { wgpu::SurfaceTargetUnsafe::from_display_and_window(&handles, &handles) }.unwrap();
-    unsafe { self.instance.create_surface_unsafe(surface_target) }.unwrap()
+    unsafe { self.instance.as_ref().unwrap().create_surface_unsafe(surface_target) }.unwrap()
   }
 
   fn configure_surface(
@@ -621,6 +647,11 @@ impl WgpuRenderEngine {
       return;
     }
 
+    if self.instance.is_none() {
+      let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+      descriptor.backends = self.backends;
+      self.instance = Some(wgpu::Instance::new(descriptor));
+    }
     let surface = self.create_surface(window, display);
 
     if let (Some(adapter), Some(device)) = (self.adapter.clone(), self.device.clone()) {
@@ -628,11 +659,17 @@ impl WgpuRenderEngine {
       return;
     }
 
-    let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
-      power_preference: wgpu::PowerPreference::default(),
-      compatible_surface: Some(&surface),
-      force_fallback_adapter: false,
-    }))
+    let adapter = pollster::block_on(
+      self
+        .instance
+        .as_ref()
+        .unwrap()
+        .request_adapter(&wgpu::RequestAdapterOptions {
+          power_preference: wgpu::PowerPreference::default(),
+          compatible_surface: Some(&surface),
+          force_fallback_adapter: false,
+        }),
+    )
     .expect("no suitable GPU adapter found");
 
     let required_features = adapter.features() & self.optional_device_features;
@@ -2920,6 +2957,17 @@ fn align_up_usize(value: usize, alignment: usize) -> usize {
 #[cfg(test)]
 mod tests {
   use crate::{app::render_engine::RenderEngine, layout::quad::ClipRect};
+
+  #[test]
+  fn backends_are_selected_without_initializing_excluded_loaders() {
+    let engine = super::WgpuRenderEngine::new();
+    assert!(engine.instance.is_none());
+    #[cfg(windows)]
+    assert_eq!(engine.backends, super::WgpuBackends::DX12);
+    let engine = engine.with_backends(super::WgpuBackends::VULKAN);
+    assert!(engine.instance.is_none());
+    assert_eq!(engine.backends, super::WgpuBackends::VULKAN);
+  }
 
   #[test]
   fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {

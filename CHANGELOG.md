@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.5 — 2026-09-16
+
+- Retain shared `App` services in component contexts instead of a raw App pointer. Timers, futures and event-driven renders remain safe after the caller moves or drops its handle. `App` is cloneable; `persistent_storage()` now returns a cloned backend handle.
+- Redact masked TextInput values throughout MCP tree/lookup/find data, set-value replies and DevTools snapshots, including shape details. Inspectors expose `masked=true`; typed input handles expose `mask()` and `is_masked()`.
+- Preserve focused inputs across sibling insertion, stop recycling node IDs, and deliver blur when a focused control is removed or its tree is dropped. Add `Ctx::focus(&ElementRef)` requests and reactive `ElementRef::focused()` / `focus_signal()` queries.
+- Initialize WGPU instances lazily and add `WgpuRenderEngine::with_backends`. Windows defaults to DX12 to avoid the reported concurrent Vulkan-loader teardown crash; other platforms retain their existing backend selection.
+- Replace Canvas mesh-cache FIFO eviction with constant-time random eviction so ordered scans above capacity retain useful hits. Expose preparation hits, misses, evictions and shared-cache occupancy in `CanvasGpuStats`; retain the 32 MiB and 32,768-entry limits.
+
 ## 0.19.4 — 2026-09-15
 
 - Let a text input's default insertion caret inherit its resolved text color, keeping focused fields visible on dark themes while preserving explicit node and text-style caret colors.

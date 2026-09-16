@@ -517,6 +517,52 @@ fn log_pass_breakdown(
   );
 }
 
+// Retain callbacks and external state so removal can blur the old control even
+// after reconciliation has dropped its Node. Never recover focus by an old path.
+#[derive(Default)]
+struct FocusMemory {
+  blur: Vec<VoidEventHandler>,
+  refs: Vec<OwnedElementRef>,
+  interactions: Vec<crate::node::interaction_state::InteractionState>,
+  input: Option<TextInputState>,
+}
+impl FocusMemory {
+  fn capture(root: &Node, input_id: NodeId, event_id: NodeId) -> Self {
+    let mut memory = Self::default();
+    for id in [input_id, event_id] {
+      if let Some(node) = find_node_by_id(root, id) {
+        if let Some(reference) = &node.element_ref {
+          memory.refs.push(reference.clone());
+        }
+        if let Some(state) = &node.interaction {
+          memory.interactions.push(state.clone());
+        }
+        if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          memory.input = Some(state.clone());
+        }
+      }
+    }
+    memory.blur = find_node_by_id(root, event_id)
+      .map(|node| node.events.on_blur.clone())
+      .unwrap_or_default();
+    memory
+  }
+  fn clear(self) {
+    for reference in self.refs {
+      reference.set_focused(false);
+    }
+    for state in self.interactions {
+      state.set_focused(false);
+    }
+    if let Some(input) = self.input {
+      input.set_focused(false);
+    }
+    for handler in self.blur {
+      handler.call();
+    }
+  }
+}
+
 pub struct Tree {
   id_gen: IdGenerator,
   layout_engine: LayoutEngine,
@@ -536,6 +582,7 @@ pub struct Tree {
   dragging_slider: Option<SliderDrag>,
   dragging_text_selection: Option<TextSelectionDrag>,
   active_drag: Option<ActiveDrag>,
+  focus_memory: FocusMemory,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
@@ -858,6 +905,7 @@ impl Tree {
       dragging_slider: None,
       dragging_text_selection: None,
       active_drag: None,
+      focus_memory: FocusMemory::default(),
       focused_node: None,
       focused_event_node: None,
       focused_path: None,
@@ -1020,7 +1068,8 @@ impl Tree {
     };
 
     if should_sample {
-      self.last_memory_profile = self.memory_profile_with_glyph(app.glyph_engine.estimated_memory_bytes());
+      self.last_memory_profile =
+        self.memory_profile_with_glyph(app.shared.glyph_engine.lock().estimated_memory_bytes());
       self.last_memory_profile_sample = Some(now);
     }
 
@@ -1091,7 +1140,8 @@ impl Tree {
   pub(crate) fn next_scheduled_redraw(&self) -> Option<Instant> {
     #[cfg(feature = "query")]
     {
-      self.scheduled_redraw_at
+      self
+        .scheduled_redraw_at
         .into_iter()
         .chain(self.root_ctx.as_ref().and_then(Ctx::next_query_deadline))
         .min()
@@ -1360,7 +1410,7 @@ impl Tree {
     // User-requested windows (see `WindowOpener`): build each tree with the
     // caller's mount closure and register it open — the shell creates the OS
     // window on the next sync.
-    for request in app.window_opener.take() {
+    for request in app.shared.window_opener.take() {
       let mut tree = Tree::new();
       (request.build)(app, &mut tree);
       self.push_secondary_window(
@@ -1645,6 +1695,7 @@ impl Tree {
   }
 
   pub fn mount_root<C: Component>(&mut self, app: &mut App, props: C::Props) {
+    self.clear_focus();
     self.clear_hover_path();
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
@@ -1686,6 +1737,7 @@ impl Tree {
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
+    self.apply_focus_request();
   }
 
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
@@ -1736,9 +1788,11 @@ impl Tree {
       self.cached_render_list = None;
       self.refresh_interaction_state();
     }
+    self.apply_focus_request();
   }
 
   pub fn set_root(&mut self, element: impl Into<Element>) {
+    self.clear_focus();
     self.clear_hover_path();
     if let Some(component) = self.root_component.take() {
       component.on_unmounted();
@@ -1861,6 +1915,7 @@ impl Tree {
   }
 
   fn pass_inner(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
+    self.set_app_ref(app);
     let pass_started_at = Instant::now();
     self.tick_scheduled_redraw(Instant::now());
     let theme_version = self
@@ -1911,13 +1966,12 @@ impl Tree {
     self.needs_redraw = false;
     self.scheduled_redraw_at = None;
 
-    self.set_app_ref(app);
     let frame_wall_start = Instant::now();
     let _frame_start = profile_scope!();
     let scale = self.scale_factor();
     // Cheap counter reset; the cache hit/miss stats feed the frame timeline
     // log (and the perf overlay when profiling).
-    app.glyph_engine.reset_stats();
+    app.shared.glyph_engine.lock().reset_stats();
     self.update_perf_overlay_stats();
 
     let now = Instant::now();
@@ -2067,6 +2121,7 @@ impl Tree {
 
     self.last_layout = Some(result);
 
+    let mut glyph_engine = app.shared.glyph_engine.lock();
     let glyph_wall_start = Instant::now();
     let _glyph_start = profile_scope!();
     let mut rects = std::mem::take(&mut self.render_rects);
@@ -2217,7 +2272,7 @@ impl Tree {
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
             + text_vertical_align_offset(
-              app,
+              &mut glyph_engine,
               text,
               &scaled_style,
               max_width,
@@ -2226,7 +2281,7 @@ impl Tree {
               scaled_height,
             );
           if quad.transform.is_identity() {
-            app.glyph_engine.rasterize_text_with_wrap_clipped_into(
+            glyph_engine.rasterize_text_with_wrap_clipped_into(
               text,
               &scaled_style,
               max_width,
@@ -2237,7 +2292,7 @@ impl Tree {
               &mut glyphs,
             );
           } else if *transform_mode == TextTransformMode::Rasterized {
-            app.glyph_engine.rasterize_text_with_baked_transform_into(
+            glyph_engine.rasterize_text_with_baked_transform_into(
               text,
               &scaled_style,
               max_width,
@@ -2259,7 +2314,7 @@ impl Tree {
             let raster_x = quad.x * scale * raster_scale;
             let raster_y = text_y * raster_scale;
             let unsnapped_start = glyphs.len();
-            app.glyph_engine.rasterize_text_unsnapped_with_wrap_into(
+            glyph_engine.rasterize_text_unsnapped_with_wrap_into(
               text,
               &scaled_style,
               raster_max_width,
@@ -2357,9 +2412,16 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + rich_text_vertical_align_offset(app, &scaled_spans, max_width, *wrap, *vertical_align, scaled_height);
+            + rich_text_vertical_align_offset(
+              &mut glyph_engine,
+              &scaled_spans,
+              max_width,
+              *wrap,
+              *vertical_align,
+              scaled_height,
+            );
           if quad.transform.is_identity() {
-            app.glyph_engine.rasterize_rich_text_with_wrap_clipped_into(
+            glyph_engine.rasterize_rich_text_with_wrap_clipped_into(
               &scaled_spans,
               max_width,
               *wrap,
@@ -2369,7 +2431,7 @@ impl Tree {
               &mut glyphs,
             );
           } else if *transform_mode == TextTransformMode::Rasterized {
-            app.glyph_engine.rasterize_rich_text_with_baked_transform_into(
+            glyph_engine.rasterize_rich_text_with_baked_transform_into(
               &scaled_spans,
               max_width,
               *wrap,
@@ -2392,7 +2454,7 @@ impl Tree {
             let raster_x = quad.x * scale * raster_scale;
             let raster_y = text_y * raster_scale;
             let unsnapped_start = glyphs.len();
-            app.glyph_engine.rasterize_rich_text_unsnapped_with_wrap_into(
+            glyph_engine.rasterize_rich_text_unsnapped_with_wrap_into(
               &scaled_spans,
               raster_max_width,
               *wrap,
@@ -2569,9 +2631,9 @@ impl Tree {
       #[cfg(feature = "devtools")]
       {
         #[cfg(feature = "raster")]
-        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &app.glyph_engine.atlas());
+        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &glyph_engine.atlas());
         #[cfg(not(feature = "raster"))]
-        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &app.glyph_engine.atlas());
+        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &glyph_engine.atlas());
       }
       None
     };
@@ -2581,7 +2643,7 @@ impl Tree {
       push_devtools_overlay(
         &mut rects,
         &mut glyphs,
-        &mut app.glyph_engine,
+        &mut glyph_engine,
         devtools_overlay,
         quad_count,
         scale,
@@ -2599,7 +2661,7 @@ impl Tree {
     push_perf_meter(
       &mut rects,
       &mut glyphs,
-      &mut app.glyph_engine,
+      &mut glyph_engine,
       perf_overlay,
       quad_count + 20_000,
       scale,
@@ -2646,8 +2708,10 @@ impl Tree {
       images,
       #[cfg(feature = "svg")]
       svgs,
-      atlas: app.glyph_engine.atlas(),
+      atlas: glyph_engine.atlas(),
     };
+
+    drop(glyph_engine);
 
     let gpu_wall_start = Instant::now();
     let _gpu_start = profile_scope!();
@@ -2678,8 +2742,16 @@ impl Tree {
     let _gpu_dur = profile_elapsed!(_gpu_start);
     let renderer_wants_redraw = render_engine.wants_redraw();
 
+    let (measure_stats, glyph_stats) = {
+      let engine = app.shared.glyph_engine.lock();
+      (
+        (engine.measure_hits, engine.measure_misses),
+        (engine.glyph_hits, engine.glyph_misses),
+      )
+    };
     profile_if! {
       let render_profile = render_engine.last_profile().unwrap_or_default();
+      let glyph_engine_profile = app.shared.glyph_engine.lock().profile();
       self.last_profile = FrameProfile {
         layout: _layout_dur,
         layout_recalculated: _layout_recalculated,
@@ -2691,11 +2763,11 @@ impl Tree {
         quad_count,
         rect_count: _rect_count,
         glyph_count: _glyph_count,
-        glyph_cache_hits: app.glyph_engine.glyph_hits,
-        glyph_cache_misses: app.glyph_engine.glyph_misses,
-        text_measure_cache_hits: app.glyph_engine.measure_hits,
-        text_measure_cache_misses: app.glyph_engine.measure_misses,
-        glyph_engine: app.glyph_engine.profile(),
+        glyph_cache_hits: glyph_stats.0,
+        glyph_cache_misses: glyph_stats.1,
+        text_measure_cache_hits: measure_stats.0,
+        text_measure_cache_misses: measure_stats.1,
+        glyph_engine: glyph_engine_profile,
         memory: self.cached_memory_profile(app),
       };
       crate::app::profiler::notify_frame_profile(&self.last_profile);
@@ -2714,8 +2786,8 @@ impl Tree {
       quad_count,
       list.rects.len(),
       list.glyphs.len(),
-      (app.glyph_engine.measure_hits, app.glyph_engine.measure_misses),
-      (app.glyph_engine.glyph_hits, app.glyph_engine.glyph_misses),
+      measure_stats,
+      glyph_stats,
     );
     log_pass_breakdown(
       "full",
@@ -3271,7 +3343,10 @@ impl Tree {
     self.needs_redraw
       || self.has_dirty_canvas()
       || self.click_tracker.has_pending()
-      || self.root_ctx.as_ref().is_some_and(Ctx::any_dirty)
+      || self
+        .root_ctx
+        .as_ref()
+        .is_some_and(|ctx| ctx.any_dirty() || ctx.has_focus_request())
       || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
@@ -3291,7 +3366,7 @@ impl Tree {
       input_interaction: self.has_active_input_interaction(),
       text_input_caret: self.has_focused_blinking_text_input(caret_mode),
       theme_changed: self.last_theme_version != theme_version,
-      component_dirty: root_ctx.is_some_and(Ctx::any_dirty),
+      component_dirty: root_ctx.is_some_and(|ctx| ctx.any_dirty() || ctx.has_focus_request()),
       element_ref_dirty: root.is_some_and(has_dirty_element_ref_recursive),
       layout_dirty: root.is_some_and(has_pending_layout_dirty_recursive),
       ..PassReasons::default()
@@ -4510,6 +4585,52 @@ impl Tree {
       .map(|(node, _)| (node.node_id(), node.events.on_drop.clone()))
   }
 
+  fn apply_focus_request(&mut self) {
+    self.apply_focus_request_inner(false);
+  }
+
+  fn apply_focus_request_inner(&mut self, discard_missing: bool) {
+    let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
+      return;
+    };
+    fn find(root: &Node, reference: &OwnedElementRef) -> Option<FocusTarget> {
+      if root
+        .element_ref
+        .as_ref()
+        .is_some_and(|current| current.same_handle(reference))
+      {
+        fn control(node: &Node) -> Option<NodeId> {
+          if node.is_focusable()
+            || node.button_kind_value().is_some()
+            || matches!(
+              node.node_kind(),
+              NodeKind::TextInput { .. }
+                | NodeKind::Checkbox { .. }
+                | NodeKind::Slider { .. }
+                | NodeKind::Select { .. }
+            )
+          {
+            Some(node.node_id())
+          } else {
+            node.children().iter().find_map(control)
+          }
+        }
+        return control(root).map(|input_id| FocusTarget {
+          input_id,
+          event_id: root.node_id(),
+        });
+      }
+      root.children().iter().find_map(|child| find(child, reference))
+    }
+    let target = self.root.as_ref().and_then(|root| find(root, &reference));
+    if target.is_some() || discard_missing {
+      self.root_ctx.as_ref().unwrap().take_focus_request();
+    }
+    if let Some(target) = target {
+      self.focus_node(target);
+    }
+  }
+
   fn focus_node(&mut self, target: FocusTarget) {
     let Some(root) = self.root.as_ref() else {
       return;
@@ -4518,77 +4639,24 @@ impl Tree {
       return;
     };
     let event_path = find_path_by_id(root, target.event_id).unwrap_or_else(|| input_path.clone());
-
-    if self.focused_path.as_ref() == Some(&input_path) && self.focused_event_path.as_ref() == Some(&event_path) {
+    if self.focused_node == Some(target.input_id) && self.focused_event_node == Some(target.event_id) {
       return;
     }
-
-    let blur = self
-      .focused_event_path
-      .as_deref()
-      .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      .map(|node| node.events.on_blur.clone())
-      .unwrap_or_default();
-    let focus = self
-      .root
-      .as_ref()
-      .and_then(|root| find_node_by_path(root, &event_path))
+    let memory = FocusMemory::capture(root, target.input_id, target.event_id);
+    let focus = find_node_by_path(root, &event_path)
       .map(|node| node.events.on_focus.clone())
       .unwrap_or_default();
-
-    if let Some(node) = self
-      .root
-      .as_ref()
-      .and_then(|root| self.focused_node.and_then(|id| find_node_by_id(root, id)))
-      .or_else(|| {
-        self
-          .focused_path
-          .as_deref()
-          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      })
-    {
-      set_node_focused(node, false);
-      self.cached_render_list = None;
-      if let NodeKind::TextInput { state, .. } = node.node_kind() {
-        state.set_focused(false);
-      }
-    }
-    if let Some(node) = self
-      .root
-      .as_ref()
-      .and_then(|root| self.focused_event_node.and_then(|id| find_node_by_id(root, id)))
-      .or_else(|| {
-        self
-          .focused_event_path
-          .as_deref()
-          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      })
-    {
-      set_node_focused(node, false);
-      self.cached_render_list = None;
-    }
-    if let Some(node) = self.root.as_ref().and_then(|root| find_node_by_path(root, &input_path)) {
-      set_node_focused(node, true);
-      self.cached_render_list = None;
-      if let NodeKind::TextInput { state, .. } = node.node_kind() {
-        state.set_focused(true);
-      }
-    }
-    if let Some(node) = self.root.as_ref().and_then(|root| find_node_by_path(root, &event_path)) {
-      set_node_focused(node, true);
-      self.cached_render_list = None;
-    }
-
-    for handler in blur {
-      handler.call();
-    }
+    self.clear_focus();
     self.focused_node = Some(target.input_id);
     self.focused_event_node = Some(target.event_id);
     self.focused_path = Some(input_path);
     self.focused_event_path = Some(event_path);
+    self.focus_memory = memory;
+    self.refresh_focus_ids();
     for handler in focus {
       handler.call();
     }
+    self.needs_redraw = true;
     self.reset_text_input_caret_blink();
   }
 
@@ -4925,6 +4993,9 @@ impl Tree {
     display: DisplayHandle<'_>,
     reasons: PassReasons,
   ) -> Option<bool> {
+    if self.root_ctx.as_ref().is_some_and(Ctx::has_focus_request) {
+      return None;
+    }
     if !self.can_reuse_cached_render_list(reasons) {
       log_render_list_cache_miss_timeline("gate", reasons);
       return None;
@@ -4938,7 +5009,7 @@ impl Tree {
     cached.list.clear_color = clear_color;
     #[cfg(feature = "raster")]
     self.refresh_cached_image_frames(&mut cached, Instant::now());
-    cached.list.atlas = app.glyph_engine.atlas();
+    cached.list.atlas = app.shared.glyph_engine.lock().atlas();
     let rect_count = cached.list.rects.len();
     let glyph_count = cached.list.glyphs.len();
     #[cfg(feature = "raster")]
@@ -5102,6 +5173,7 @@ impl Tree {
       self.needs_redraw = true;
       self.rebuild_if_dirty();
     }
+    self.apply_focus_request();
   }
 
   fn reset_text_input_caret_blink(&mut self) {
@@ -5250,6 +5322,7 @@ impl Tree {
     self.cached_render_list = None;
     self.needs_redraw = true;
     self.refresh_interaction_state();
+    self.apply_focus_request();
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
@@ -5260,6 +5333,8 @@ impl Tree {
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();
     self.animation_engine.begin_frame();
+    self.rebuild_if_dirty();
+    self.apply_focus_request();
     self.rebuild_if_dirty();
     self.sync_dynamic_content();
     #[cfg(all(feature = "image", feature = "resources"))]
@@ -5344,6 +5419,7 @@ impl Tree {
             crate::node::transform::Transform2D::IDENTITY,
           );
         }
+        self.apply_focus_request_inner(true);
         return false;
       }
       if self.has_active_timeline() || component_dirty || has_pending_layout_dirty {
@@ -5421,7 +5497,7 @@ impl Tree {
         .unwrap_or_else(|| app.theme().border_sizes().clone());
       let theme_changed = self.last_theme_version != theme_version;
       let (mut layout, base_overlay_index) = self.layout_engine.compute_with_overlay_index(
-        &mut app.glyph_engine,
+        &mut app.shared.glyph_engine.lock(),
         root,
         constraints,
         palette.clone(),
@@ -5436,7 +5512,7 @@ impl Tree {
       self.sync_overlay_host_from_layout(
         overlay_parts,
         base_overlay_index,
-        &mut app.glyph_engine,
+        &mut app.shared.glyph_engine.lock(),
         constraints,
         palette.clone(),
         border_sizes,
@@ -5447,12 +5523,23 @@ impl Tree {
         typography.clone(),
         theme_changed,
       );
+      // Focus/blur callbacks may mutate App services; the glyph lock used to
+      // construct the overlay host must be released before dispatching them.
+      if had_overlay_host
+        || self
+          .root
+          .as_ref()
+          .is_some_and(|root| root.has_synthetic_role(SyntheticNodeRole::OverlayHost))
+      {
+        self.refresh_interaction_state();
+      }
+      self.apply_focus_request_inner(true);
       self.tick_overlay_subtrees(now);
       if let Some(root) = self.root.as_ref()
         && root.has_synthetic_role(SyntheticNodeRole::OverlayHost)
       {
         layout = self.layout_engine.compute(
-          &mut app.glyph_engine,
+          &mut app.shared.glyph_engine.lock(),
           root,
           constraints,
           palette.clone(),
@@ -5471,6 +5558,7 @@ impl Tree {
       #[cfg(feature = "canvas")]
       if let Some(root) = self.root.as_ref() {
         let offset = root.offset_position().unwrap_or_default();
+        let canvas_text = app.shared.glyph_engine.lock().canvas_text_engine();
         bind_canvas_layout_recursive(
           root,
           &layout,
@@ -5481,7 +5569,7 @@ impl Tree {
           self.scale_factor,
           &self.window,
           &crate::canvas::CanvasFont::from_style(typography.default_style()),
-          &mut app.glyph_engine,
+          &canvas_text,
           &mut self.canvas_registry,
         );
       }
@@ -5671,7 +5759,6 @@ impl Tree {
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
     self.overlay_dismiss_entries = dismiss_entries;
-    self.refresh_interaction_state();
   }
 
   fn sync_dynamic_content(&mut self) {
@@ -5683,7 +5770,11 @@ impl Tree {
   #[cfg(all(feature = "image", feature = "resources"))]
   fn resolve_resource_images(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
-      let changed = Self::resolve_resource_images_recursive(root, &app.resource_loader, &mut app.image_resource_cache);
+      let changed = Self::resolve_resource_images_recursive(
+        root,
+        &app.shared.resource_loader.lock(),
+        &mut app.shared.image_resource_cache.lock(),
+      );
       if changed {
         self.needs_redraw = true;
       }
@@ -5769,7 +5860,11 @@ impl Tree {
   #[cfg(all(feature = "svg", feature = "resources"))]
   fn resolve_resource_svgs(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
-      let changed = Self::resolve_resource_svgs_recursive(root, &app.resource_loader, &mut app.svg_resource_cache);
+      let changed = Self::resolve_resource_svgs_recursive(
+        root,
+        &app.shared.resource_loader.lock(),
+        &mut app.shared.svg_resource_cache.lock(),
+      );
       if changed {
         self.needs_redraw = true;
       }
@@ -5905,63 +6000,29 @@ impl Tree {
   }
 
   fn clear_focus(&mut self) {
-    if let Some(node) = self
-      .root
-      .as_ref()
-      .and_then(|root| self.focused_node.and_then(|id| find_node_by_id(root, id)))
-      .or_else(|| {
-        self
-          .focused_path
-          .as_deref()
-          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      })
-    {
-      set_node_focused(node, false);
-      self.cached_render_list = None;
-      if let NodeKind::TextInput { state, .. } = node.node_kind() {
-        state.set_focused(false);
+    let had_focus = self.focused_node.is_some() || self.focused_event_node.is_some();
+    if let Some(root) = &self.root {
+      for id in [self.focused_node, self.focused_event_node].into_iter().flatten() {
+        if let Some(node) = find_node_by_id(root, id) {
+          set_node_focused(node, false);
+        }
       }
-    }
-    if let Some(node) = self
-      .root
-      .as_ref()
-      .and_then(|root| self.focused_event_node.and_then(|id| find_node_by_id(root, id)))
-      .or_else(|| {
-        self
-          .focused_event_path
-          .as_deref()
-          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      })
-    {
-      set_node_focused(node, false);
-      self.cached_render_list = None;
     }
     self.focused_node = None;
     self.focused_event_node = None;
     self.focused_path = None;
     self.focused_event_path = None;
+    if had_focus {
+      self.cached_render_list = None;
+    }
+    std::mem::take(&mut self.focus_memory).clear();
   }
 
   fn blur_focus(&mut self) -> bool {
     if self.focused_node.is_none() {
       return false;
     }
-    let blur = self
-      .root
-      .as_ref()
-      .and_then(|root| self.focused_event_node.and_then(|id| find_node_by_id(root, id)))
-      .or_else(|| {
-        self
-          .focused_event_path
-          .as_deref()
-          .and_then(|path| self.root.as_ref().and_then(|root| find_node_by_path(root, path)))
-      })
-      .map(|node| node.events.on_blur.clone())
-      .unwrap_or_default();
     self.clear_focus();
-    for handler in blur {
-      handler.call();
-    }
     self.needs_redraw = true;
     true
   }
@@ -5983,6 +6044,13 @@ impl Tree {
     let event_id = self.focused_event_node.unwrap_or(focused_node);
     let event_path = find_path_by_id(root, event_id).unwrap_or_else(|| input_path.clone());
 
+    let memory = FocusMemory::capture(root, focused_node, event_id);
+    for old in &self.focus_memory.refs {
+      if !memory.refs.iter().any(|current| old.same_handle(current)) {
+        old.set_focused(false);
+      }
+    }
+    self.focus_memory = memory;
     self.focused_path = Some(input_path.clone());
     self.focused_event_path = Some(event_path.clone());
 
@@ -7011,6 +7079,7 @@ fn distance_squared(a: (f32, f32), b: (f32, f32)) -> f32 {
 
 impl Drop for Tree {
   fn drop(&mut self) {
+    self.clear_focus();
     #[cfg(feature = "canvas")]
     if let Some(root) = &self.root {
       detach_canvas_recursive(root);
@@ -7372,6 +7441,14 @@ pub struct TextInputHandle<'t> {
 }
 
 impl TextInputHandle<'_> {
+  pub fn mask(&self) -> Option<char> {
+    self.state().and_then(TextInputState::mask)
+  }
+
+  pub fn is_masked(&self) -> bool {
+    self.state().is_some_and(TextInputState::is_masked)
+  }
+
   fn state(&self) -> Option<&TextInputState> {
     match self.inner.node()?.node_kind() {
       NodeKind::TextInput { state, .. } => Some(state),
@@ -8686,7 +8763,6 @@ fn reset_element_ref_flags_recursive(node: &Node) {
   if let Some(ref element_ref) = node.element_ref {
     element_ref.set_hovered(false);
     element_ref.set_active(false);
-    element_ref.set_focused(false);
   }
   for child in node.children() {
     reset_element_ref_flags_recursive(child);
@@ -8830,7 +8906,7 @@ fn bind_canvas_layout_recursive(
   scale: f32,
   window: &crate::app::window::Window,
   font: &crate::canvas::CanvasFont,
-  text: &mut crate::app::glyph_engine::GlyphEngine,
+  text: &Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>,
   registry: &mut Vec<crate::canvas::CanvasHandle>,
 ) {
   use crate::node::transform::Transform2D;
@@ -8846,14 +8922,7 @@ fn bind_canvas_layout_recursive(
       (layout.size.height - padding.top - padding.bottom).max(0.0),
     );
     let to_window = composed.then(&Transform2D::translate(abs_x + padding.left, abs_y + padding.top));
-    let notification = canvas.bind_layout(
-      size,
-      scale,
-      to_window,
-      window.clone(),
-      font.clone(),
-      text.canvas_text_engine(),
-    );
+    let notification = canvas.bind_layout(size, scale, to_window, window.clone(), font.clone(), text.clone());
     if let Some(reference) = &node.element_ref {
       reference.bind_canvas(&canvas);
     }
@@ -9816,7 +9885,7 @@ fn vertical_align_offset(
 }
 
 fn text_vertical_align_offset(
-  app: &mut App,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
   text: &str,
   style: &TextStyle,
   max_width: f32,
@@ -9828,19 +9897,19 @@ fn text_vertical_align_offset(
     return 0.0;
   }
   if vertical_align == VerticalAlign::Center {
-    let Some((top, bottom)) = app.glyph_engine.text_optical_extents(text, style, max_width, wrap) else {
+    let Some((top, bottom)) = glyph_engine.text_optical_extents(text, style, max_width, wrap) else {
       return 0.0;
     };
     return (quad_height - (bottom - top)) * 0.5 - top;
   }
-  let Some(extents) = app.glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
+  let Some(extents) = glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
     return 0.0;
   };
   vertical_align_offset(vertical_align, extents, quad_height)
 }
 
 fn rich_text_vertical_align_offset(
-  app: &mut App,
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
   spans: &[crate::layout::quad::RichTextSpan],
   max_width: f32,
   wrap: bool,
@@ -9855,7 +9924,7 @@ fn rich_text_vertical_align_offset(
   // markdown/rich cases that use it.
   if let [span] = spans {
     return text_vertical_align_offset(
-      app,
+      glyph_engine,
       &span.text,
       &span.style,
       max_width,
@@ -9864,7 +9933,7 @@ fn rich_text_vertical_align_offset(
       quad_height,
     );
   }
-  let measured = app.glyph_engine.measure_rich_text(spans, max_width).height;
+  let measured = glyph_engine.measure_rich_text(spans, max_width).height;
   vertical_align_offset(
     vertical_align,
     crate::app::glyph_engine::TextVerticalExtents {

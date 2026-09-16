@@ -386,6 +386,9 @@ pub(crate) struct TextInputLayoutSignature {
 }
 
 impl TextInputState {
+  pub(crate) fn same_value(&self, other: &Self) -> bool {
+    self.value.id() == other.value.id()
+  }
   pub(crate) fn new(value: Signal<String>) -> Self {
     let initial_value = value.get_untracked();
     let caret = initial_value.len();
@@ -563,8 +566,13 @@ impl TextInputState {
     self.mark_layout_dirty();
   }
 
-  pub(crate) fn mask(&self) -> Option<char> {
+  /// The configured display mask, if this is a masked input.
+  pub fn mask(&self) -> Option<char> {
     self.inner.lock().unwrap().mask
+  }
+
+  pub fn is_masked(&self) -> bool {
+    self.mask().is_some()
   }
 
   pub(crate) fn insert(&self, text: &str, keyboard: &KeyboardEvent) -> bool {

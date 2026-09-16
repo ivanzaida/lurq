@@ -157,10 +157,10 @@ fn cache_eviction_bounds_payload_metadata_and_oversized_entries() {
   for i in 0..10 {
     cache.insert(key(i), positions.clone());
     assert!(cache.bytes <= MAX_CACHE_BYTES);
-    assert_eq!(cache.order.len(), cache.entries.len());
+    assert_eq!(cache.keys.len(), cache.entries.len());
   }
   assert_eq!(cache.entries.len(), 3);
-  assert!(!cache.entries.contains_key(&key(0)));
+  assert!(cache.evictions > 0);
   let oversized: Arc<[[f32; 2]]> = vec![[0.; 2]; MAX_CACHE_BYTES / 8].into();
   cache.insert(key(50), oversized);
   assert_eq!(cache.entries.len(), 3, "oversized entries bypass retention");
@@ -169,9 +169,9 @@ fn cache_eviction_bounds_payload_metadata_and_oversized_entries() {
     cache.insert(key(i), Arc::from([]));
   }
   assert_eq!(cache.entries.len(), MAX_CACHE_ENTRIES);
-  assert_eq!(cache.order.len(), MAX_CACHE_ENTRIES);
+  assert_eq!(cache.keys.len(), MAX_CACHE_ENTRIES);
   assert!(cache.bytes <= MAX_CACHE_BYTES);
-  assert!(!cache.entries.contains_key(&key(0)));
+  assert!(cache.evictions > 0);
 }
 
 #[test]
@@ -199,4 +199,60 @@ fn cached_meshes_preserve_vertex_limit_and_reject_nonfinite_transforms() {
     )
     .unwrap();
   assert!(output.is_empty());
+}
+
+#[test]
+fn repeated_over_capacity_scans_keep_useful_meshes() {
+  let paths: Vec<_> = (0..MAX_CACHE_ENTRIES + MAX_CACHE_ENTRIES / 5)
+    .map(|i| rect(i as f32).geometry().unwrap())
+    .collect();
+  let mut cache = MeshCache::default();
+  let mut vertices = Vec::new();
+  for frame in 0..3 {
+    let before = cache.stats();
+    for path in &paths {
+      vertices.clear();
+      cache
+        .append(
+          path,
+          Transform2D::translate(frame as f32, 0.),
+          FillRule::NonZero,
+          [1.; 4],
+          &mut vertices,
+        )
+        .unwrap();
+      assert!((area(&vertices) - 100.).abs() < 0.01);
+    }
+    let after = cache.stats();
+    assert!(after.entries <= MAX_CACHE_ENTRIES && after.bytes <= MAX_CACHE_BYTES);
+    if frame > 0 {
+      let hits = after.hits - before.hits;
+      assert!(
+        hits > paths.len() as u64 / 2,
+        "warm scan hit only {hits}/{} paths",
+        paths.len()
+      );
+      assert!(after.misses > before.misses, "the working set exceeds capacity");
+    }
+  }
+}
+
+#[test]
+fn cache_counters_are_attributed_to_the_canvas_being_prepared() {
+  let first = canvas();
+  let second = canvas();
+  let path = rect(0.);
+  let mut cache = MeshCache::default();
+  for owner in [&first, &second, &first] {
+    owner.context_2d().fill_path(&path, FillRule::NonZero);
+    let before = cache.stats();
+    prepare(owner, &mut cache);
+    owner.record_mesh_cache(before, cache.stats());
+  }
+  let first = first.status().gpu;
+  let second = second.status().gpu;
+  assert_eq!((first.mesh_cache_hits, first.mesh_cache_misses), (1, 1));
+  assert_eq!((second.mesh_cache_hits, second.mesh_cache_misses), (1, 0));
+  assert_eq!(first.mesh_cache_entries, 1);
+  assert!(first.mesh_cache_bytes > 0);
 }
