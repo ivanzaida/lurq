@@ -632,6 +632,22 @@ impl Draw {
     touches(self.bounds, tile)
   }
 }
+/// The deepest isolation a batch opens, which is how many tile-sized copies a
+/// backend has to hold while it draws it.
+pub(crate) fn layer_depth(prepared: &Prepared) -> usize {
+  let (mut depth, mut deepest) = (0usize, 0usize);
+  for step in &prepared.steps {
+    match step {
+      Step::Begin { .. } => {
+        depth += 1;
+        deepest = deepest.max(depth);
+      }
+      Step::End => depth = depth.saturating_sub(1),
+      Step::Draw(_) => {}
+    }
+  }
+  deepest
+}
 /// Whether work bounded by `bounds` can change anything in `tile`.
 pub(crate) fn touches(bounds: [f32; 4], [x, y, w, h]: [u32; 4]) -> bool {
   bounds[0] < (x + w) as f32 && bounds[1] < (y + h) as f32 && bounds[2] > x as f32 && bounds[3] > y as f32

@@ -1261,10 +1261,11 @@ fn parse_color(value: &str) -> Option<Color> {
 }
 
 /// One scene exercising every paint and effect this module adds, shared by the
-/// software suite and both native backends so a difference is a difference in
-/// the backend rather than in the fixture.
-#[cfg(test)]
-pub(crate) fn effects_scene(d: &Context2D) {
+/// software suite, the wgpu suite and the `canvas_capture_check` example that
+/// covers dx12, so a difference between them is a difference in the backend
+/// rather than in the fixture. Not part of the drawing API.
+#[doc(hidden)]
+pub fn effects_scene(d: &Context2D) {
   d.reset();
   d.set_fill_style("#101820");
   d.fill_rect(0., 0., 512., 512.);

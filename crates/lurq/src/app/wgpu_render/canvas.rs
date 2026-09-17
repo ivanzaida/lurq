@@ -711,22 +711,6 @@ enum Seed<'a> {
   /// writes every channel of the tile itself.
   Nothing,
 }
-/// The deepest isolation this batch opens, which is how many tile-sized copies
-/// the renderer has to hold while it draws.
-fn layer_depth(prepared: &Prepared) -> usize {
-  let (mut depth, mut deepest) = (0usize, 0usize);
-  for step in &prepared.steps {
-    match step {
-      Step::Begin { .. } => {
-        depth += 1;
-        deepest = deepest.max(depth);
-      }
-      Step::End => depth = depth.saturating_sub(1),
-      Step::Draw(_) => {}
-    }
-  }
-  deepest
-}
 fn copy_tile(encoder: &mut CommandEncoder, source: &wgpu::Texture, target: &wgpu::Texture, tile: [u32; 4]) {
   encoder.copy_texture_to_texture(
     source.as_image_copy(),
