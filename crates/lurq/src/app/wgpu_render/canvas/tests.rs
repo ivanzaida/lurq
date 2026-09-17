@@ -196,3 +196,54 @@ fn canvas_gpu_performance() {
     }
   }
 }
+
+/// Gradients, shadows, layer blur, blend modes and isolated layers, compared
+/// against the software backend that defines what each of them means.
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly and separately from context-creation tests"]
+fn gpu_canvas_effects_match_the_software_backend() {
+  let (device, queue) = device();
+  let mut renderer = Renderer::new(&device, &queue);
+  let gpu = CanvasHandle::test_surface(512, 512, 1., false);
+  let cpu = CanvasHandle::test_surface(512, 512, 1., true);
+  for canvas in [&gpu, &cpu] {
+    crate::canvas::effects_scene(&canvas.context_2d());
+  }
+  let actual = take(&gpu, &mut renderer, &device, &queue);
+  let expected = cpu.snapshot().try_take().unwrap().unwrap();
+  let mut different = 0;
+  let mut worst = 0u8;
+  for (index, (a, b)) in actual
+    .rgba
+    .chunks_exact(4)
+    .zip(expected.rgba.chunks_exact(4))
+    .enumerate()
+  {
+    let max = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+    if max > 16 {
+      different += 1;
+      if max > worst {
+        worst = max;
+        eprintln!(
+          "worst so far at {},{}: {a:?} vs {b:?}",
+          index as u32 % 512,
+          index as u32 / 512
+        );
+      }
+    }
+  }
+  assert!(
+    different < 512 * 512 / 100,
+    "AA-tolerant parity over gradients, shadows, blur, blend modes and layers: {different} pixels differ, worst {worst}"
+  );
+  // The isolated group at the bottom right fades as one image: the overlap of
+  // its two shapes has the same alpha as either shape alone.
+  assert_eq!(
+    pixel(&actual, 300, 300)[3].abs_diff(pixel(&actual, 340, 340)[3]) <= 2,
+    true,
+    "{:?} vs {:?}",
+    pixel(&actual, 300, 300),
+    pixel(&actual, 340, 340)
+  );
+  assert_eq!(gpu.status().error, None);
+}

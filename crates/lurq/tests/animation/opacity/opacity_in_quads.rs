@@ -51,10 +51,9 @@ fn a_plain_wrapper_passes_inherited_opacity_through() {
   // A logical wrapper takes the fast path in quad collection; the inherited
   // opacity must survive it.
   let mut rt = Tree::new();
-  let node = lurq::components::Column::new().opacity(0.25).child(
-    lurq::components::Column::new()
-      .child(lurq::components::Rect::new(100.0, 50.0).background("#ff0000")),
-  );
+  let node = lurq::components::Column::new()
+    .opacity(0.25)
+    .child(lurq::components::Column::new().child(lurq::components::Rect::new(100.0, 50.0).background("#ff0000")));
   rt.set_root(node);
 
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));

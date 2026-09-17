@@ -1260,6 +1260,92 @@ fn parse_color(value: &str) -> Option<Color> {
   }
 }
 
+/// One scene exercising every paint and effect this module adds, shared by the
+/// software suite and both native backends so a difference is a difference in
+/// the backend rather than in the fixture.
+#[cfg(test)]
+pub(crate) fn effects_scene(d: &Context2D) {
+  d.reset();
+  d.set_fill_style("#101820");
+  d.fill_rect(0., 0., 512., 512.);
+  // Gradient fills: linear, radial and angular, each over its own box.
+  d.set_fill_style(
+    Gradient::linear()
+      .stop(0., "#2563eb")
+      .stop(1., "#f43f5e")
+      .rotation(0.6)
+      .in_box(20., 20., 130., 100.),
+  );
+  d.fill_rect(20., 20., 130., 100.);
+  d.set_fill_style(
+    Gradient::radial()
+      .stop(0., "#fde68a")
+      .stop(1., "#7c3aed")
+      .in_box(170., 20., 130., 100.),
+  );
+  d.fill_rect(170., 20., 130., 100.);
+  d.set_fill_style(
+    Gradient::angular()
+      .stop(0., "#22d3ee")
+      .stop(0.5, "#0f172a")
+      .stop(1., "#22d3ee")
+      .in_box(320., 20., 130., 100.),
+  );
+  d.fill_rect(320., 20., 130., 100.);
+  // A gradient stroke, and a shadow cast by a rounded rectangle.
+  d.set_line_width(6.);
+  d.set_stroke_style(
+    Gradient::linear()
+      .stop(0., "#34d399")
+      .stop(1., "#f59e0b")
+      .in_box(20., 150., 200., 80.),
+  );
+  d.stroke_rect(20., 150., 200., 80.);
+  d.set_shadow(Some(
+    Shadow::new(Color::new(0, 0, 0, 200))
+      .offset(8., 10.)
+      .blur(14.)
+      .spread(2.),
+  ));
+  d.set_fill_style("#e2e8f0");
+  d.round_rect(260., 150., 180., 80., 16.).unwrap();
+  d.fill();
+  d.set_shadow(None);
+  // An inner shadow, and a layer blur.
+  d.set_shadow(Some(
+    Shadow::new(Color::new(0, 0, 0, 220))
+      .offset(6., 6.)
+      .blur(10.)
+      .inset(true),
+  ));
+  d.set_fill_style("#94a3b8");
+  d.fill_rect(20., 260., 140., 110.);
+  d.set_shadow(None);
+  d.set_filter(Filter::Blur(10.));
+  d.set_fill_style("#f97316");
+  d.fill_rect(190., 270., 90., 90.);
+  d.set_filter(Filter::None);
+  // Every blend mode over the same backdrop, as a row of swatches.
+  d.set_fill_style("#334155");
+  d.fill_rect(20., 400., 468., 40.);
+  for (index, mode) in BlendMode::ALL.iter().enumerate() {
+    d.set_global_composite_operation(*mode);
+    d.set_fill_style("#9ae6b4");
+    d.fill_rect(20. + index as f32 * 26., 400., 26., 40.);
+  }
+  d.set_global_composite_operation(BlendMode::Normal);
+  // An isolated group: two overlapping shapes fade together, and a nested
+  // layer composites with a blend mode of its own.
+  d.begin_layer(0.5, BlendMode::Normal).unwrap();
+  d.set_fill_style("#ef4444");
+  d.fill_rect(280., 280., 80., 80.);
+  d.begin_layer(1., BlendMode::Multiply).unwrap();
+  d.set_fill_style("#60a5fa");
+  d.fill_rect(320., 320., 80., 80.);
+  d.end_layer().unwrap();
+  d.end_layer().unwrap();
+}
+
 #[cfg(test)]
 impl CanvasHandle {
   pub(crate) fn test_surface(width: u32, height: u32, scale: f32, software: bool) -> Self {
