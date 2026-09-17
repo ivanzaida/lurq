@@ -14,10 +14,9 @@
 //!
 //! [`WindowCommand`]: crate::app::window::WindowCommand
 
-use crate::app::{
-  events::{MouseButton, ScrollPhase},
-  runtime::Tree,
-};
+use crate::app::events::MouseButton;
+use crate::app::runtime::Tree;
+use crate::app::events::ScrollPhase;
 
 /// Modifier state to apply to a synthetic event, matching what the shell would
 /// have read from `ModifiersChanged`.
@@ -152,7 +151,12 @@ impl SyntheticInput {
   }
 
   pub fn wheel(x: f32, y: f32, delta_x: f32, delta_y: f32) -> Self {
-    Self::new(SyntheticInputKind::Wheel { x, y, delta_x, delta_y })
+    Self::new(SyntheticInputKind::Wheel {
+      x,
+      y,
+      delta_x,
+      delta_y,
+    })
   }
 
   /// A named key such as `Enter`, `Tab`, `Escape`, `ArrowDown`, or a single
@@ -210,7 +214,12 @@ pub fn apply(tree: &mut Tree, input: &SyntheticInput) {
       tree.mouse_down_with_modifiers(*x, *y, *button, m.shift, m.ctrl, m.alt);
       tree.mouse_up_with_modifiers(*x, *y, *button, m.shift, m.ctrl, m.alt);
     }
-    SyntheticInputKind::Wheel { x, y, delta_x, delta_y } => {
+    SyntheticInputKind::Wheel {
+      x,
+      y,
+      delta_x,
+      delta_y,
+    } => {
       // A wheel notch is a complete gesture: scroll containers latch on Start
       // and release on End, so omitting either leaves one latched.
       tree.mouse_move_with_modifiers(*x, *y, m.shift, m.ctrl, m.alt);
@@ -272,7 +281,8 @@ mod tests {
 
   #[test]
   fn modifiers_are_carried_with_the_event() {
-    let event = SyntheticInput::click(1.0, 2.0).with_modifiers(SyntheticModifiers::default().shift().ctrl());
+    let event = SyntheticInput::click(1.0, 2.0)
+      .with_modifiers(SyntheticModifiers::default().shift().ctrl());
     assert!(event.modifiers().shift);
     assert!(event.modifiers().ctrl);
     assert!(!event.modifiers().alt);

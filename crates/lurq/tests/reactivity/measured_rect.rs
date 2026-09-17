@@ -51,7 +51,10 @@ impl Component for MeasureHost {
       .width(Dimension::full())
       .height(Dimension::full())
       .ref_element(self.target.clone())
-      .child(lurq::components::Rect::new(probe, PROBE_HEIGHT).background(lurq::node::color::Color::from_hex("#c82828")))
+      .child(
+        lurq::components::Rect::new(probe, PROBE_HEIGHT)
+          .background(lurq::node::color::Color::from_hex("#c82828")),
+      )
   }
 }
 

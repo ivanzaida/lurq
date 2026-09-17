@@ -238,9 +238,8 @@ fn gpu_canvas_effects_match_the_software_backend() {
   );
   // The isolated group at the bottom right fades as one image: the overlap of
   // its two shapes has the same alpha as either shape alone.
-  assert_eq!(
+  assert!(
     pixel(&actual, 300, 300)[3].abs_diff(pixel(&actual, 340, 340)[3]) <= 2,
-    true,
     "{:?} vs {:?}",
     pixel(&actual, 300, 300),
     pixel(&actual, 340, 340)

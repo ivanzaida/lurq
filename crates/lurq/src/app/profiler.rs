@@ -26,19 +26,18 @@ mod observer {
 }
 
 #[cfg(feature = "perf_profile")]
-pub(crate) use observer::notify_frame_profile;
-#[cfg(feature = "perf_profile")]
 pub use observer::set_frame_profile_observer;
+
+#[cfg(feature = "perf_profile")]
+pub(crate) use observer::notify_frame_profile;
 
 #[cfg(all(test, feature = "perf_profile"))]
 mod tests {
-  use std::{
-    sync::{
-      Arc,
-      atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
+  use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
   };
+  use std::time::Duration;
 
   use super::FrameProfile;
 

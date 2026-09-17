@@ -237,7 +237,7 @@ fn box_blur_axis(source: &[u8], target: &mut [u8], width: usize, height: usize, 
 
 /// Three box passes, which is the usual Gaussian approximation and what CSS and
 /// the design tools this matches are specified against.
-fn blur_alpha(buffer: &mut Vec<u8>, width: usize, height: usize, radius: u32) {
+fn blur_alpha(buffer: &mut [u8], width: usize, height: usize, radius: u32) {
   if radius == 0 || width == 0 || height == 0 {
     return;
   }
