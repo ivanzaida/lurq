@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.19.5"
+lurq = "0.20.0"
 ```
 
 Enable the runtime/rendering features you need:
 
 ```toml
 [dependencies]
-lurq = { version = "0.19.5", features = ["winit", "wgpu"] }
+lurq = { version = "0.20.0", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:
@@ -25,7 +25,7 @@ Useful optional features:
 | `dx12` | DirectX 12 renderer on Windows |
 | `image` | Image components and image-backed styles |
 | `svg` | SVG components |
-| `canvas` | Persistent Canvas 2D drawing through existing element refs; paths, text, clipping, and raw images |
+| `canvas` | Persistent Canvas 2D drawing through existing element refs; paths, gradients, shadows, blur, blend modes, isolated layers, text, clipping, and raw images |
 | `resources` | Resource loader and resource-backed images/SVGs |
 | `query` | Shared typed async queries, caching, and invalidation |
 | `clipboard` | Clipboard shortcuts for text inputs |

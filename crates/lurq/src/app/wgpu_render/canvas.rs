@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use wgpu::*;
 
 use super::DynamicBuffer;
-use crate::canvas::{CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, gpu::*};
+use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
 
 struct Texture {
   texture: wgpu::Texture,
@@ -30,6 +30,7 @@ pub(super) struct Renderer {
   generation: u64,
   globals_layout: BindGroupLayout,
   image_layout: BindGroupLayout,
+  blend_layout: BindGroupLayout,
   nearest: Sampler,
   linear: Sampler,
   _scratch: wgpu::Texture,
@@ -47,6 +48,19 @@ pub(super) struct Renderer {
 
   premul: RenderPipeline,
   erase: RenderPipeline,
+  gradient_linear: RenderPipeline,
+  gradient_radial: RenderPipeline,
+  gradient_angular: RenderPipeline,
+  /// Composites a finished isolated layer onto what was under it, source-over.
+  compose: RenderPipeline,
+  /// Puts a saved tile back as the base of the pass that composites over it.
+  restore: RenderPipeline,
+  /// The same composite for the other seventeen blend modes, which read the
+  /// backdrop instead of relying on fixed-function blending.
+  blend: RenderPipeline,
+  /// Tile-sized copies for isolated layers, allocated on first use.
+  saved: Vec<Texture>,
+  layer: Option<Texture>,
   vertices: DynamicBuffer,
   globals: DynamicBuffer,
 }
@@ -56,7 +70,8 @@ impl Renderer {
       label: Some("canvas globals"),
       entries: &[BindGroupLayoutEntry {
         binding: 0,
-        visibility: ShaderStages::VERTEX,
+        // The blend composite reads its mode from the same constants.
+        visibility: ShaderStages::VERTEX_FRAGMENT,
         ty: BindingType::Buffer {
           ty: BufferBindingType::Uniform,
           has_dynamic_offset: true,
@@ -86,6 +101,37 @@ impl Renderer {
         },
       ],
     });
+    let blend_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+      label: Some("canvas blend"),
+      entries: &[
+        BindGroupLayoutEntry {
+          binding: 0,
+          visibility: ShaderStages::FRAGMENT,
+          ty: BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D2,
+            multisampled: false,
+          },
+          count: None,
+        },
+        BindGroupLayoutEntry {
+          binding: 1,
+          visibility: ShaderStages::FRAGMENT,
+          ty: BindingType::Sampler(SamplerBindingType::Filtering),
+          count: None,
+        },
+        BindGroupLayoutEntry {
+          binding: 2,
+          visibility: ShaderStages::FRAGMENT,
+          ty: BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D2,
+            multisampled: false,
+          },
+          count: None,
+        },
+      ],
+    });
     let nearest = device.create_sampler(&SamplerDescriptor::default());
     let linear = device.create_sampler(&SamplerDescriptor {
       mag_filter: FilterMode::Linear,
@@ -101,6 +147,11 @@ impl Renderer {
       bind_group_layouts: &[Some(&globals_layout), Some(&image_layout)],
       immediate_size: 0,
     });
+    let blend_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+      label: Some("canvas blend"),
+      bind_group_layouts: &[Some(&globals_layout), Some(&blend_layout)],
+      immediate_size: 0,
+    });
     let make = |vs, fs, samples, mode| pipeline(device, &layout, &shader, vs, fs, samples, mode);
     let seed = make("vs_seed", "fs_premul", 4, 0);
     let resample = make("vs_seed", "fs_premul", 1, 0);
@@ -110,6 +161,12 @@ impl Renderer {
 
     let premul = make("vs_main", "fs_premul", 4, 3);
     let erase = make("vs_main", "fs_solid", 4, 4);
+    let gradient_linear = make("vs_main", "fs_gradient_linear", 4, 3);
+    let gradient_radial = make("vs_main", "fs_gradient_radial", 4, 3);
+    let gradient_angular = make("vs_main", "fs_gradient_angular", 4, 3);
+    let compose = make("vs_tile", "fs_premul", 4, 5);
+    let restore = make("vs_tile", "fs_tile", 4, 6);
+    let blend = pipeline(device, &blend_pipeline_layout, &shader, "vs_tile", "fs_blend", 4, 6);
     let texture = |format, samples| {
       device.create_texture(&TextureDescriptor {
         label: Some("canvas shared tile"),
@@ -161,6 +218,7 @@ impl Renderer {
       generation: 0,
       globals_layout,
       image_layout,
+      blend_layout,
       nearest,
       linear,
       _scratch: scratch,
@@ -177,6 +235,14 @@ impl Renderer {
       solid,
       premul,
       erase,
+      gradient_linear,
+      gradient_radial,
+      gradient_angular,
+      compose,
+      restore,
+      blend,
+      saved: Vec::new(),
+      layer: None,
       vertices: DynamicBuffer::new("canvas vertices", BufferUsages::VERTEX),
       globals: DynamicBuffer::new("canvas globals", BufferUsages::UNIFORM),
     }
@@ -320,13 +386,42 @@ impl Renderer {
     );
     canvas.set_gpu_bytes(width as usize * height as usize * 4);
   }
+  /// Tile-sized copies an isolated layer needs: `saved[d]` is what was under the
+  /// layer opened at depth `d`, and one shared `layer` holds the finished layer
+  /// being composited. Allocated on first use, so a canvas that never opens a
+  /// layer pays nothing; each is TILE × TILE × 4 bytes.
+  fn reserve_layers(&mut self, device: &Device, depth: usize) {
+    while self.saved.len() < depth {
+      self.saved.push(Texture::new(
+        device,
+        &self.image_layout,
+        &self.nearest,
+        &self.linear,
+        TILE,
+        TILE,
+      ));
+    }
+    if depth > 0 && self.layer.is_none() {
+      self.layer = Some(Texture::new(
+        device,
+        &self.image_layout,
+        &self.nearest,
+        &self.linear,
+        TILE,
+        TILE,
+      ));
+    }
+  }
+
   fn draw(&mut self, device: &Device, queue: &Queue, id: CanvasId, prepared: &Prepared) {
+    let depth = layer_depth(prepared);
+    self.reserve_layers(device, depth);
     let Some(backing) = self.surfaces.get(&id) else {
       return;
     };
     let (width, height) = (backing.image.texture.width(), backing.image.texture.height());
     let mut uploaded = 0;
-    if prepared.draws.iter().filter_map(|d| d.asset.as_ref()).any(|a| {
+    if prepared.draws().filter_map(|d| d.asset.as_ref()).any(|a| {
       a.width > device.limits().max_texture_dimension_2d || a.height > device.limits().max_texture_dimension_2d
     }) {
       if let Some(canvas) = backing.owner.upgrade() {
@@ -334,7 +429,7 @@ impl Renderer {
       }
       return;
     }
-    for draw in &prepared.draws {
+    for draw in prepared.draws() {
       if let Some(asset) = &draw.asset {
         if !self.assets.contains_key(&asset.id) {
           let image = Texture::new(
@@ -387,6 +482,7 @@ impl Renderer {
         self.assets.get_mut(&asset.id).unwrap().last = self.tick;
       }
     }
+    let backing = &self.surfaces[&id];
     let mut encoder = device.create_command_encoder(&Default::default());
     if prepared.clear {
       let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -405,7 +501,10 @@ impl Renderer {
     }
     let tiles = prepared.tiles(width, height);
     if !tiles.is_empty() {
+      // One constant slot per tile, then one per layer boundary carrying that
+      // layer's own blend mode and alpha.
       let alignment = device.limits().min_uniform_buffer_offset_alignment as usize / 4;
+      let mut slots: HashMap<usize, usize> = HashMap::new();
       let mut constants = vec![0f32; tiles.len() * alignment];
       for (index, tile) in tiles.iter().enumerate() {
         constants[index * alignment..index * alignment + 8].copy_from_slice(&[
@@ -419,71 +518,162 @@ impl Renderer {
           0.,
         ]);
       }
+      for (index, step) in prepared.steps.iter().enumerate() {
+        if let Step::Begin { alpha, blend, .. } = step {
+          slots.insert(index, constants.len() / alignment);
+          constants.resize(constants.len() + alignment, 0.);
+          let base = constants.len() - alignment;
+          constants[base..base + 8].copy_from_slice(&[0., 0., 1., 1., 1., 1., blend.index() as f32, *alpha]);
+        }
+      }
       let globals = global_group(
         device,
         &self.globals_layout,
         self.globals.write(device, queue, &constants).unwrap(),
       );
+      let blend_groups: Vec<BindGroup> = (0..depth)
+        .map(|level| {
+          blend_group(
+            device,
+            &self.blend_layout,
+            &self.layer.as_ref().unwrap().view,
+            &self.saved[level].view,
+            &self.nearest,
+          )
+        })
+        .collect();
       let vertices = self.vertices.write(device, queue, &prepared.vertices).unwrap();
       for (index, tile) in tiles.iter().copied().enumerate() {
-        {
-          let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("canvas dirty tile"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-              view: &self.scratch_view,
-              depth_slice: None,
-              resolve_target: Some(&self.resolve_view),
-              ops: Operations {
-                load: LoadOp::Clear(Color::TRANSPARENT),
-                store: StoreOp::Discard,
-              },
-            })],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-              view: &self.stencil_view,
-              depth_ops: None,
-              stencil_ops: Some(Operations {
-                load: LoadOp::Clear(0),
-                store: StoreOp::Discard,
+        let tile_offset = (index * alignment * 4) as u32;
+        let mut step = 0usize;
+        let mut level = 0usize;
+        let mut stack: Vec<(usize, BlendMode)> = Vec::new();
+        let mut seed = Seed::Surface(&backing.image);
+        let mut composite: Option<(usize, u32, BlendMode)> = None;
+        loop {
+          {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+              label: Some("canvas dirty tile"),
+              color_attachments: &[Some(RenderPassColorAttachment {
+                view: &self.scratch_view,
+                depth_slice: None,
+                resolve_target: Some(&self.resolve_view),
+                ops: Operations {
+                  load: LoadOp::Clear(Color::TRANSPARENT),
+                  store: StoreOp::Discard,
+                },
+              })],
+              depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: &self.stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(Operations {
+                  load: LoadOp::Clear(0),
+                  store: StoreOp::Discard,
+                }),
               }),
-            }),
-            ..Default::default()
-          });
-          pass.set_scissor_rect(0, 0, tile[2], tile[3]);
-          pass.set_bind_group(0, &globals, &[(index * alignment * 4) as u32]);
-          pass.set_bind_group(1, &backing.image.nearest, &[]);
-          pass.set_pipeline(&self.seed);
-          pass.draw(0..3, 0..1);
-          pass.set_vertex_buffer(0, vertices.slice(..));
-          let mut clips: Option<&Vec<std::ops::Range<u32>>> = None;
-          for draw in prepared.draws.iter().filter(|d| d.intersects(tile)) {
-            if clips != Some(&draw.clips) {
-              pass.set_bind_group(1, &self.white.nearest, &[]);
-              pass.set_pipeline(&self.reset_stencil);
-              pass.set_stencil_reference(0);
-              pass.draw(0..3, 0..1);
-              pass.set_pipeline(&self.clip);
-              for (level, range) in draw.clips.iter().enumerate() {
-                pass.set_stencil_reference(level as u32);
-                pass.draw(range.clone(), 0..1);
+              ..Default::default()
+            });
+            pass.set_scissor_rect(0, 0, tile[2], tile[3]);
+            pass.set_bind_group(0, &globals, &[tile_offset]);
+            match seed {
+              // The backing is surface-sized, so it is sampled through the tile
+              // rectangle; a saved layer tile is already the size of the tile.
+              Seed::Surface(texture) => {
+                pass.set_bind_group(1, &texture.nearest, &[]);
+                pass.set_pipeline(&self.seed);
+                pass.draw(0..3, 0..1);
               }
-              clips = Some(&draw.clips);
+              Seed::Tile(texture) => {
+                pass.set_bind_group(1, &texture.nearest, &[]);
+                pass.set_pipeline(&self.restore);
+                pass.draw(0..3, 0..1);
+              }
+              Seed::Nothing => {}
             }
-            pass.set_stencil_reference(draw.clips.len() as u32);
-            let pipeline = if draw.erase {
-              &self.erase
-            } else if draw.asset.is_some() {
-              &self.premul
-            } else {
-              &self.solid
-            };
-            pass.set_pipeline(pipeline);
-            let texture = draw
-              .asset
-              .as_ref()
-              .map(|a| &self.assets[&a.id].image)
-              .unwrap_or(&self.white);
-            pass.set_bind_group(1, if draw.smooth { &texture.linear } else { &texture.nearest }, &[]);
-            pass.draw(draw.vertices.clone(), 0..1);
+            if let Some((at, slot, blend)) = composite.take() {
+              pass.set_bind_group(0, &globals, &[slot]);
+              if blend.is_normal() {
+                pass.set_bind_group(1, &self.layer.as_ref().unwrap().nearest, &[]);
+                pass.set_pipeline(&self.compose);
+              } else {
+                pass.set_bind_group(1, &blend_groups[at], &[]);
+                pass.set_pipeline(&self.blend);
+              }
+              pass.draw(0..3, 0..1);
+              pass.set_bind_group(0, &globals, &[tile_offset]);
+            }
+            pass.set_vertex_buffer(0, vertices.slice(..));
+            let mut clips: Option<&Vec<std::ops::Range<u32>>> = None;
+            while step < prepared.steps.len() {
+              match &prepared.steps[step] {
+                Step::Begin { bounds, end, .. } => {
+                  if touches(*bounds, tile) {
+                    break;
+                  }
+                  step = end + 1;
+                }
+                Step::End => break,
+                Step::Draw(draw) => {
+                  step += 1;
+                  if !draw.intersects(tile) {
+                    continue;
+                  }
+                  if clips != Some(&draw.clips) {
+                    pass.set_bind_group(1, &self.white.nearest, &[]);
+                    pass.set_pipeline(&self.reset_stencil);
+                    pass.set_stencil_reference(0);
+                    pass.draw(0..3, 0..1);
+                    pass.set_pipeline(&self.clip);
+                    for (stencil, range) in draw.clips.iter().enumerate() {
+                      pass.set_stencil_reference(stencil as u32);
+                      pass.draw(range.clone(), 0..1);
+                    }
+                    clips = Some(&draw.clips);
+                  }
+                  pass.set_stencil_reference(draw.clips.len() as u32);
+                  pass.set_pipeline(match draw.kind {
+                    _ if draw.erase => &self.erase,
+                    DrawKind::Solid => &self.solid,
+                    DrawKind::Image => &self.premul,
+                    DrawKind::Gradient(GradientKind::Linear) => &self.gradient_linear,
+                    DrawKind::Gradient(GradientKind::Radial) => &self.gradient_radial,
+                    DrawKind::Gradient(GradientKind::Angular) => &self.gradient_angular,
+                  });
+                  let texture = draw
+                    .asset
+                    .as_ref()
+                    .map(|a| &self.assets[&a.id].image)
+                    .unwrap_or(&self.white);
+                  pass.set_bind_group(1, if draw.smooth { &texture.linear } else { &texture.nearest }, &[]);
+                  pass.draw(draw.vertices.clone(), 0..1);
+                }
+              }
+            }
+          }
+          if step >= prepared.steps.len() {
+            break;
+          }
+          match &prepared.steps[step] {
+            Step::Begin { blend, .. } => {
+              copy_tile(&mut encoder, &self.resolve, &self.saved[level].texture, tile);
+              stack.push((slots[&step], *blend));
+              level += 1;
+              seed = Seed::Nothing;
+              step += 1;
+            }
+            Step::End => {
+              copy_tile(&mut encoder, &self.resolve, &self.layer.as_ref().unwrap().texture, tile);
+              level -= 1;
+              let (slot, blend) = stack.pop().unwrap();
+              seed = if blend.is_normal() {
+                Seed::Tile(&self.saved[level])
+              } else {
+                Seed::Nothing
+              };
+              composite = Some((level, (slot * alignment * 4) as u32, blend));
+              step += 1;
+            }
+            Step::Draw(_) => unreachable!("a draw never ends a pass"),
           }
         }
         encoder.copy_texture_to_texture(
@@ -510,6 +700,29 @@ impl Renderer {
     }
   }
 }
+/// What a tile pass starts from.
+#[derive(Clone, Copy)]
+enum Seed<'a> {
+  /// The canvas backing, sampled through this tile's rectangle.
+  Surface(&'a Texture),
+  /// A saved tile-sized copy, sampled one to one.
+  Tile(&'a Texture),
+  /// Nothing: an isolated layer starts transparent, and a blended composite
+  /// writes every channel of the tile itself.
+  Nothing,
+}
+fn copy_tile(encoder: &mut CommandEncoder, source: &wgpu::Texture, target: &wgpu::Texture, tile: [u32; 4]) {
+  encoder.copy_texture_to_texture(
+    source.as_image_copy(),
+    target.as_image_copy(),
+    Extent3d {
+      width: tile[2],
+      height: tile[3],
+      depth_or_array_layers: 1,
+    },
+  );
+}
+
 impl Texture {
   fn new(
     device: &Device,
@@ -563,6 +776,32 @@ impl Texture {
     }
   }
 }
+fn blend_group(
+  device: &Device,
+  layout: &BindGroupLayout,
+  source: &TextureView,
+  backdrop: &TextureView,
+  sampler: &Sampler,
+) -> BindGroup {
+  device.create_bind_group(&BindGroupDescriptor {
+    label: Some("canvas blend"),
+    layout,
+    entries: &[
+      BindGroupEntry {
+        binding: 0,
+        resource: BindingResource::TextureView(source),
+      },
+      BindGroupEntry {
+        binding: 1,
+        resource: BindingResource::Sampler(sampler),
+      },
+      BindGroupEntry {
+        binding: 2,
+        resource: BindingResource::TextureView(backdrop),
+      },
+    ],
+  })
+}
 fn global_group(device: &Device, layout: &BindGroupLayout, buffer: &Buffer) -> BindGroup {
   device.create_bind_group(&BindGroupDescriptor {
     label: Some("canvas globals"),
@@ -593,7 +832,9 @@ fn pipeline(
     attributes: &attributes,
   }];
   let stencil = StencilFaceState {
-    compare: if mode == 1 || mode == 0 {
+    // A whole-tile composite ignores the stencil: its own clipping was already
+    // applied to the draws inside the layer.
+    compare: if matches!(mode, 0 | 1 | 5 | 6) {
       CompareFunction::Always
     } else {
       CompareFunction::Equal
@@ -606,7 +847,7 @@ fn pipeline(
       _ => StencilOperation::Keep,
     },
   };
-  let blend = if mode == 3 {
+  let blend = if mode == 3 || mode == 5 {
     Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING)
   } else if mode == 4 {
     Some(BlendState {
@@ -631,7 +872,7 @@ fn pipeline(
       module: shader,
       entry_point: Some(vs),
       compilation_options: Default::default(),
-      buffers: if vs == "vs_seed" { &[] } else { &buffers },
+      buffers: if vs == "vs_main" { &buffers } else { &[] },
     },
     fragment: Some(FragmentState {
       module: shader,

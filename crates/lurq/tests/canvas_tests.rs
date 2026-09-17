@@ -9,7 +9,10 @@ use std::sync::{
 
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, render_engine::RenderEngine},
-  canvas::{ArcDirection, CanvasError, CanvasFont, CanvasHandle, Context2D, FillRule, Path2D, TextAlign},
+  canvas::{
+    ArcDirection, BlendMode, CanvasError, CanvasFont, CanvasHandle, Context2D, FillRule, Filter, Gradient,
+    MAX_BLUR_RADIUS, MAX_GRADIENT_STOPS, MAX_LAYER_DEPTH, Path2D, Shadow, TextAlign,
+  },
   components::{Canvas, Column, Rect},
   core::ElementRef,
   images::ImageData,
@@ -211,7 +214,7 @@ fn save_restore_does_not_restore_the_path_or_erase_pixels() {
   assert_eq!(pixel(&c, 5, 5)[3], 0);
   assert_eq!(pixel(&c, 25, 5), [255, 0, 0, 255]);
   d.restore();
-  assert_eq!(d.fill_style().r(), 255);
+  assert_eq!(d.fill_style().color().unwrap().r(), 255);
 }
 
 #[test]
@@ -770,4 +773,280 @@ fn writes_after_frame_snapshot_schedule_another_frame() {
   assert_eq!(pixel(&c, 5, 5)[3], 255);
   assert!(tree.pass(&mut app, &support::TestSurface).rendered);
   assert!(!tree.needs_redraw());
+}
+
+#[test]
+fn linear_gradients_run_across_their_box_and_follow_the_transform() {
+  let (_app, _tree, r) = setup(120.0, 40.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  let ramp = Gradient::linear().stop(0.0, "#ff0000").stop(1.0, "#0000ff");
+  d.set_fill_style(ramp.clone().in_box(0.0, 0.0, 120.0, 40.0));
+  d.fill_rect(0.0, 0.0, 120.0, 40.0);
+  let left = pixel(&c, 2, 20);
+  let right = pixel(&c, 117, 20);
+  let middle = pixel(&c, 60, 20);
+  assert!(left[0] > 240 && left[2] < 16, "{left:?}");
+  assert!(right[2] > 240 && right[0] < 16, "{right:?}");
+  assert!(
+    middle[0] > 100 && middle[2] > 100,
+    "the middle mixes both stops: {middle:?}"
+  );
+  // A quarter turn puts the same ramp along y instead of x.
+  d.clear();
+  d.set_fill_style(ramp.rotation(std::f32::consts::FRAC_PI_2).in_box(0.0, 0.0, 120.0, 40.0));
+  d.fill_rect(0.0, 0.0, 120.0, 40.0);
+  assert!(pixel(&c, 60, 2)[0] > 200, "{:?}", pixel(&c, 60, 2));
+  assert!(pixel(&c, 60, 37)[2] > 200, "{:?}", pixel(&c, 60, 37));
+}
+
+#[test]
+fn radial_and_angular_gradients_read_their_own_parameter() {
+  let (_app, _tree, r) = setup(80.0, 80.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_fill_style(
+    Gradient::radial()
+      .stop(0.0, "#ffffff")
+      .stop(1.0, "#000000")
+      .in_box(0.0, 0.0, 80.0, 80.0),
+  );
+  d.fill_rect(0.0, 0.0, 80.0, 80.0);
+  assert!(pixel(&c, 40, 40)[0] > 240, "the centre is the first stop");
+  assert!(pixel(&c, 40, 4)[0] < 40, "the rim is the last stop");
+  assert!(pixel(&c, 40, 22)[0].abs_diff(128) < 40, "and it falls off with radius");
+  d.clear();
+  d.set_fill_style(
+    Gradient::angular()
+      .stop(0.0, "#ff0000")
+      .stop(0.5, "#00ff00")
+      .stop(1.0, "#ff0000")
+      .in_box(0.0, 0.0, 80.0, 80.0),
+  );
+  d.fill_rect(0.0, 0.0, 80.0, 80.0);
+  // t is 0 along +x and half a turn to its left, where the middle stop is.
+  assert!(pixel(&c, 76, 40)[0] > 200, "{:?}", pixel(&c, 76, 40));
+  assert!(pixel(&c, 4, 40)[1] > 200, "{:?}", pixel(&c, 4, 40));
+}
+
+#[test]
+fn gradients_paint_strokes_and_an_invalid_one_paints_nothing() {
+  let (_app, _tree, r) = setup(60.0, 60.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_line_width(8.0);
+  d.set_stroke_style(
+    Gradient::linear()
+      .stop(0.0, "#00ff00")
+      .stop(1.0, "#00ff00")
+      .in_box(0.0, 0.0, 60.0, 60.0),
+  );
+  d.stroke_rect(10.0, 10.0, 40.0, 40.0);
+  assert!(pixel(&c, 30, 10)[1] > 200, "the stroke takes the gradient");
+  assert_eq!(pixel(&c, 30, 30)[3], 0, "and only the stroke");
+  d.clear();
+  let one_stop = Gradient::linear().stop(0.0, "#ff0000");
+  assert!(!one_stop.is_valid());
+  d.set_fill_style(one_stop.in_box(0.0, 0.0, 60.0, 60.0));
+  d.fill_rect(0.0, 0.0, 60.0, 60.0);
+  assert_eq!(pixel(&c, 30, 30)[3], 0, "an unusable paint draws nothing at all");
+  let too_many = (0..MAX_GRADIENT_STOPS + 4).fold(Gradient::linear(), |g, i| {
+    g.stop(i as f32 / (MAX_GRADIENT_STOPS + 4) as f32, "#123456")
+  });
+  assert_eq!(
+    too_many.stops().len(),
+    MAX_GRADIENT_STOPS,
+    "stops are capped, not grown"
+  );
+}
+
+#[test]
+fn an_outer_shadow_falls_behind_the_shape_and_an_inner_one_inside_it() {
+  let (_app, _tree, r) = setup(120.0, 120.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_shadow(Some(
+    Shadow::new(lurq::node::color::Color::new(0, 0, 0, 255))
+      .offset(10.0, 10.0)
+      .blur(8.0),
+  ));
+  d.set_fill_style("#ffffff");
+  d.fill_rect(30.0, 30.0, 40.0, 40.0);
+  assert_eq!(pixel(&c, 50, 50), [255, 255, 255, 255], "the shape is not darkened");
+  let cast = pixel(&c, 76, 76);
+  assert!(
+    cast[3] > 20 && cast[0] < 80,
+    "the shadow falls down and right: {cast:?}"
+  );
+  assert_eq!(pixel(&c, 10, 10)[3], 0, "and not up and left");
+  d.clear();
+  d.set_shadow(Some(
+    Shadow::new(lurq::node::color::Color::new(0, 0, 0, 255))
+      .offset(8.0, 8.0)
+      .blur(6.0)
+      .inset(true),
+  ));
+  d.fill_rect(30.0, 30.0, 60.0, 60.0);
+  let inside_edge = pixel(&c, 34, 34);
+  let inside_far = pixel(&c, 84, 84);
+  assert!(
+    inside_edge[0] < 160,
+    "the inner shadow darkens the near edge: {inside_edge:?}"
+  );
+  assert!(inside_far[0] > 230, "and not the far one: {inside_far:?}");
+  assert_eq!(pixel(&c, 20, 20)[3], 0, "an inner shadow never leaves the shape");
+}
+
+#[test]
+fn a_layer_blur_spreads_a_shape_beyond_its_own_edge() {
+  let (_app, _tree, r) = setup(100.0, 100.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_fill_style("#ff0000");
+  d.set_filter(Filter::Blur(12.0));
+  assert_eq!(d.filter(), Filter::Blur(12.0));
+  d.fill_rect(30.0, 30.0, 40.0, 40.0);
+  assert!(pixel(&c, 50, 50)[3] > 230, "the middle stays nearly opaque");
+  assert!(pixel(&c, 26, 50)[3] > 10, "coverage reaches outside the shape");
+  assert!(pixel(&c, 50, 50)[3] > pixel(&c, 31, 50)[3], "and the edge is softened");
+  d.set_filter(Filter::Blur(MAX_BLUR_RADIUS * 2.0));
+  assert_eq!(d.filter(), Filter::Blur(12.0), "an out-of-range radius is refused");
+}
+
+#[test]
+fn blend_modes_follow_the_specification_and_are_part_of_the_saved_state() {
+  let (_app, _tree, r) = setup(40.0, 40.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_fill_style("#804020");
+  d.fill_rect(0.0, 0.0, 40.0, 40.0);
+  d.save();
+  d.set_global_composite_operation(BlendMode::Multiply);
+  d.set_fill_style("#808080");
+  d.fill_rect(0.0, 0.0, 40.0, 40.0);
+  let multiplied = pixel(&c, 20, 20);
+  assert_eq!(multiplied[0], 64, "0x80 * 0x80 over an opaque backdrop: {multiplied:?}");
+  assert_eq!(multiplied[1], 32);
+  d.restore();
+  assert_eq!(
+    d.global_composite_operation(),
+    BlendMode::Normal,
+    "restore takes it back"
+  );
+  d.clear();
+  d.set_fill_style("#404040");
+  d.fill_rect(0.0, 0.0, 40.0, 40.0);
+  d.set_global_composite_operation(BlendMode::Screen);
+  d.set_fill_style("#404040");
+  d.fill_rect(0.0, 0.0, 40.0, 40.0);
+  assert_eq!(pixel(&c, 20, 20)[0], 112, "screen lightens: 0x40 + 0x40 - 0x40*0x40");
+  assert_eq!(BlendMode::ALL.len(), 18);
+}
+
+#[test]
+fn an_isolated_layer_fades_overlapping_shapes_as_one_image() {
+  let (_app, _tree, r) = setup(100.0, 100.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  // Per-draw alpha darkens the overlap; that is the behaviour a group cannot use.
+  d.set_global_alpha(0.5);
+  d.set_fill_style("#ff0000");
+  d.fill_rect(10.0, 10.0, 40.0, 40.0);
+  d.fill_rect(30.0, 30.0, 40.0, 40.0);
+  let per_draw_overlap = pixel(&c, 40, 40);
+  assert!(
+    per_draw_overlap[3] > 170,
+    "overlapping alpha accumulates: {per_draw_overlap:?}"
+  );
+  d.clear();
+  d.set_global_alpha(1.0);
+  d.begin_layer(0.5, BlendMode::Normal).unwrap();
+  d.fill_rect(10.0, 10.0, 40.0, 40.0);
+  d.fill_rect(30.0, 30.0, 40.0, 40.0);
+  d.end_layer().unwrap();
+  let alone = pixel(&c, 20, 20);
+  let overlap = pixel(&c, 40, 40);
+  assert_eq!(alone, overlap, "the group fades as one: {alone:?} vs {overlap:?}");
+  assert!(overlap[3].abs_diff(128) <= 1, "and by exactly its own opacity");
+  assert_eq!(d.end_layer(), Err(CanvasError::UnbalancedLayer));
+}
+
+#[test]
+fn layers_nest_to_a_stated_depth_and_carry_a_blend_mode() {
+  let (_app, _tree, r) = setup(40.0, 40.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_fill_style("#ffffff");
+  d.fill_rect(0.0, 0.0, 40.0, 40.0);
+  d.begin_layer(1.0, BlendMode::Multiply).unwrap();
+  d.set_fill_style("#ff0000");
+  d.fill_rect(0.0, 0.0, 40.0, 40.0);
+  d.end_layer().unwrap();
+  assert_eq!(pixel(&c, 20, 20), [255, 0, 0, 255], "red multiplied into white is red");
+  for _ in 0..MAX_LAYER_DEPTH {
+    d.begin_layer(1.0, BlendMode::Normal).unwrap();
+  }
+  assert_eq!(d.begin_layer(1.0, BlendMode::Normal), Err(CanvasError::StateLimit));
+  for _ in 0..MAX_LAYER_DEPTH {
+    d.end_layer().unwrap();
+  }
+}
+
+#[test]
+fn a_gradient_is_refused_for_text_rather_than_reduced_to_one_of_its_colours() {
+  let (_app, _tree, r) = setup(120.0, 40.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_font(CanvasFont::new("", 16.0));
+  d.set_fill_style(
+    Gradient::linear()
+      .stop(0.0, "#ff0000")
+      .stop(1.0, "#0000ff")
+      .in_box(0.0, 0.0, 120.0, 40.0),
+  );
+  assert_eq!(d.fill_text("gradient", 4.0, 24.0), Err(CanvasError::UnsupportedPaint));
+  assert!(matches!(d.measure_text("gradient"), Err(CanvasError::UnsupportedPaint)));
+}
+
+#[test]
+fn shaped_text_casts_the_shadow_in_force_and_blurs_with_the_filter() {
+  let (_app, _tree, r) = setup(200.0, 60.0);
+  let c = r.as_canvas().unwrap();
+  let d = c.context_2d();
+  d.set_font(CanvasFont::new("", 28.0));
+  d.set_fill_style("#ffffff");
+  d.fill_text("Shadow", 10.0, 40.0).unwrap();
+  let plain: u64 = c
+    .snapshot()
+    .try_take()
+    .unwrap()
+    .unwrap()
+    .rgba
+    .chunks_exact(4)
+    .map(|p| u64::from(p[3]))
+    .sum();
+  d.clear();
+  d.set_shadow(Some(
+    Shadow::new(lurq::node::color::Color::new(0, 0, 0, 255))
+      .offset(3.0, 3.0)
+      .blur(6.0),
+  ));
+  d.fill_text("Shadow", 10.0, 40.0).unwrap();
+  let with_shadow: u64 = c
+    .snapshot()
+    .try_take()
+    .unwrap()
+    .unwrap()
+    .rgba
+    .chunks_exact(4)
+    .map(|p| u64::from(p[3]))
+    .sum();
+  assert!(
+    with_shadow > plain,
+    "the shadow adds coverage: {plain} -> {with_shadow}"
+  );
+  d.save();
+  d.set_shadow(None);
+  d.restore();
+  assert!(d.shadow().is_some(), "the shadow is part of the saved state");
 }

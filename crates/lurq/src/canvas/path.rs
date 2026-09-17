@@ -342,6 +342,10 @@ impl Geometry {
   pub fn has_curves(&self) -> bool {
     self.0.curves
   }
+  /// The precomputed content hash. Effects key their rasters on it.
+  pub fn content_hash(&self) -> u64 {
+    self.0.hash
+  }
 }
 impl Deref for Geometry {
   type Target = Path;

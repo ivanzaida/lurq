@@ -6,12 +6,16 @@
 //! Drawing is queued into persistent GPU textures. Presentation is coalesced
 //! through the host event-loop waker. Readbacks are explicit and asynchronous.
 
+mod blend;
 mod context;
+mod effect;
 pub(crate) mod gpu;
-pub use gpu::CanvasReadback;
+pub use blend::BlendMode;
+pub use effect::{Filter, MAX_BLUR_RADIUS, MAX_EFFECT_PIXELS, MAX_SHADOW_BLUR, MAX_SHADOW_SPREAD, Shadow};
+pub use gpu::{CanvasReadback, MAX_LAYER_DEPTH};
+mod paint;
 mod path;
 mod text;
-
 use std::{
   fmt,
   sync::{
@@ -20,12 +24,13 @@ use std::{
   },
 };
 
+pub use paint::{CanvasPaint, Gradient, GradientKind, MAX_GRADIENT_STOPS, MIN_GRADIENT_STOPS, Paint, RAMP_TEXELS};
 use parking_lot::Mutex;
 pub use path::{ArcDirection, Path2D};
 pub(crate) use text::CanvasTextEngine;
 pub use text::{CanvasFont, TextAlign, TextBaseline, TextMetrics};
 pub use tiny_skia::{LineCap, LineJoin};
-use tiny_skia::{Mask, Paint, Path, Pixmap, PixmapPaint, Point, Stroke, StrokeDash};
+use tiny_skia::{Mask, Paint as SkiaPaint, Path, Pixmap, PixmapPaint, Point, Stroke, StrokeDash};
 
 use crate::{
   app::window::Window,
@@ -70,6 +75,8 @@ pub enum CanvasError {
   StateLimit,
   TextUnavailable,
   TextTooLarge,
+  UnsupportedPaint,
+  UnbalancedLayer,
 }
 impl fmt::Display for CanvasError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -85,6 +92,8 @@ impl fmt::Display for CanvasError {
       Self::StateLimit => "canvas path, clip, or saved-state limit exceeded",
       Self::TextUnavailable => "canvas text service is not attached yet",
       Self::TextTooLarge => "canvas text exceeds its rasterization limit",
+      Self::UnsupportedPaint => "this canvas operation accepts a solid colour only",
+      Self::UnbalancedLayer => "canvas layer was ended without being begun",
     })
   }
 }
@@ -173,9 +182,12 @@ pub struct Context2D {
 
 #[derive(Clone)]
 struct DrawingState {
-  fill: Color,
-  stroke_color: Color,
+  fill: Paint,
+  stroke_paint: Paint,
   alpha: f32,
+  blend: BlendMode,
+  shadow: Option<Shadow>,
+  filter: Filter,
   transform: Transform2D,
   stroke: Stroke,
   dash: Vec<f32>,
@@ -191,9 +203,12 @@ struct DrawingState {
 impl Default for DrawingState {
   fn default() -> Self {
     Self {
-      fill: Color::new(0, 0, 0, 255),
-      stroke_color: Color::new(0, 0, 0, 255),
+      fill: Paint::Solid(Color::new(0, 0, 0, 255)),
+      stroke_paint: Paint::Solid(Color::new(0, 0, 0, 255)),
       alpha: 1.0,
+      blend: BlendMode::Normal,
+      shadow: None,
+      filter: Filter::None,
       transform: Transform2D::IDENTITY,
       stroke: Stroke {
         miter_limit: 10.0,
@@ -218,6 +233,12 @@ struct Surface {
   software: bool,
   commands: Vec<gpu::Command>,
   command_bytes: usize,
+  /// Work held in open isolated layers, charged against the same budget.
+  layers: Vec<gpu::LayerFrame>,
+  layer_bytes: usize,
+  layer_commands: usize,
+  /// Software backend only: one pixmap per open layer, innermost last.
+  software_layers: Vec<SoftwareLayer>,
   inflight_bytes: usize,
   gpu_bytes: usize,
   gpu: CanvasGpuStats,
@@ -269,6 +290,10 @@ impl CanvasHandle {
         software: false,
         commands: Vec::new(),
         command_bytes: 0,
+        layers: Vec::new(),
+        layer_bytes: 0,
+        layer_commands: 0,
+        software_layers: Vec::new(),
         inflight_bytes: 0,
         gpu_bytes: 0,
         gpu: CanvasGpuStats::default(),
@@ -321,7 +346,7 @@ impl CanvasHandle {
       metrics: s.metrics,
       content_revision: s.revision,
       error: s.error.clone(),
-      pending_bytes: s.command_bytes + s.inflight_bytes,
+      pending_bytes: s.command_bytes + s.layer_bytes + s.inflight_bytes,
       gpu_bytes: s.gpu_bytes,
       software: s.software,
       gpu: s.gpu,
@@ -416,6 +441,8 @@ impl CanvasHandle {
     s.window = None;
     s.commands.clear();
     s.command_bytes = 0;
+    s.discard_layers();
+    s.software_layers.clear();
   }
 
   pub(crate) fn bind_layout(
@@ -470,8 +497,9 @@ impl CanvasHandle {
     }
     if !s.software
       && !resized
-      && (s.commands.len() >= 8192
-        || s.command_bytes + s.inflight_bytes + std::mem::size_of::<gpu::Command>() > gpu::MAX_QUEUE_BYTES)
+      && (s.commands.len() + s.layer_commands >= gpu::MAX_COMMANDS
+        || s.command_bytes + s.layer_bytes + s.inflight_bytes + std::mem::size_of::<gpu::Command>()
+          > gpu::MAX_QUEUE_BYTES)
     {
       s.error = Some(CanvasError::QueueFull);
       return None;
@@ -483,6 +511,8 @@ impl CanvasHandle {
       s.state = s.defaults.clone();
       s.stack.clear();
       s.path = Path2D::new();
+      s.discard_layers();
+      s.software_layers.clear();
     } else if s.software {
       if let (Some(old), Some(next)) = (s.pixels.as_ref(), next.as_mut()) {
         next.draw_pixmap(
@@ -586,6 +616,50 @@ impl CanvasHandle {
   }
 }
 
+/// One open isolated layer on the software backend. The GPU backends keep their
+/// layers as recorded commands instead; see `gpu::LayerFrame`.
+struct SoftwareLayer {
+  /// `None` only for a zero-sized surface, where the layer still has to exist so
+  /// that `end_layer` stays balanced with `begin_layer`.
+  pixels: Option<Pixmap>,
+  alpha: f32,
+  blend: BlendMode,
+}
+
+/// A paint with its geometry resolved against the box it was given and the
+/// transform in force: what both backends draw from.
+enum ResolvedPaint {
+  Solid(Color),
+  Gradient {
+    gradient: Gradient,
+    /// Model coordinates to the gradient's own frame, for GPU vertices.
+    frame_from_model: Transform2D,
+    /// The gradient's own frame to user coordinates, for a software shader.
+    user_from_frame: Transform2D,
+  },
+}
+
+impl ResolvedPaint {
+  fn identity(&self) -> u64 {
+    match self {
+      Self::Solid(color) => {
+        (u64::from(color.r()) << 24) | (u64::from(color.g()) << 16) | (u64::from(color.b()) << 8) | u64::from(color.a())
+      }
+      Self::Gradient {
+        gradient,
+        frame_from_model,
+        ..
+      } => {
+        gradient.ramp().id
+          ^ (u64::from(frame_from_model.a.to_bits()) << 8)
+          ^ (u64::from(frame_from_model.d.to_bits()) << 16)
+          ^ (u64::from(frame_from_model.tx.to_bits()) << 24)
+          ^ (u64::from(frame_from_model.ty.to_bits()) << 32)
+      }
+    }
+  }
+}
+
 impl Surface {
   fn straight_pixels(&self) -> Vec<u8> {
     let Some(pixels) = &self.pixels else {
@@ -599,6 +673,147 @@ impl Surface {
     rgba
   }
 
+  /// Where a software draw lands: the innermost open layer, or the surface.
+  pub(super) fn target_pixels(&mut self) -> Option<&mut Pixmap> {
+    match self.software_layers.last_mut() {
+      Some(layer) => layer.pixels.as_mut(),
+      None => self.pixels.as_mut(),
+    }
+  }
+
+  fn surface_size(&self) -> (u32, u32) {
+    (self.metrics.pixel_width, self.metrics.pixel_height)
+  }
+
+  /// One user unit as device pixels, including rotation and skew. Shadow offsets,
+  /// blur radii and spreads are written in user units and scaled by this.
+  fn user_to_device(&self) -> Transform2D {
+    Transform2D::scale_uniform(self.metrics.scale_factor).then(&self.state.transform.linear_part())
+  }
+
+  pub(super) fn begin_layer(&mut self, alpha: f32, blend: BlendMode) -> Result<(), CanvasError> {
+    if !self.software {
+      return self.open_layer(alpha, blend);
+    }
+    if !self.attached {
+      self.error = Some(CanvasError::Detached);
+      return Err(CanvasError::Detached);
+    }
+    if self.software_layers.len() >= MAX_LAYER_DEPTH {
+      self.error = Some(CanvasError::StateLimit);
+      return Err(CanvasError::StateLimit);
+    }
+    let (width, height) = self.surface_size();
+    self.software_layers.push(SoftwareLayer {
+      pixels: Pixmap::new(width, height),
+      alpha,
+      blend,
+    });
+    Ok(())
+  }
+
+  /// Composites the innermost layer onto its parent. `false` when there was
+  /// nothing to composite, which is what tells the caller no pixels changed.
+  pub(super) fn end_layer(&mut self) -> bool {
+    if !self.software {
+      return self.close_layer();
+    }
+    let Some(layer) = self.software_layers.pop() else {
+      return false;
+    };
+    let (alpha, blend) = (layer.alpha, layer.blend);
+    let Some(source) = layer.pixels else {
+      return false;
+    };
+    let Some(target) = self.target_pixels() else {
+      return false;
+    };
+    blend::composite_premultiplied(target.data_mut(), source.data(), alpha, blend);
+    true
+  }
+
+  /// One already rasterised premultiplied source — shaped text — with the blend
+  /// mode, shadow and filter in force. `matrix` maps its own pixels into user
+  /// space. Spread has no meaning for a raster and is not applied.
+  fn paint_pixmap(&mut self, pixels: &Pixmap, data: &Arc<Vec<u8>>, id: u64, matrix: Transform2D) -> bool {
+    let blend = self.state.blend;
+    let isolated = !blend.is_normal() && self.begin_layer(1.0, blend).is_ok();
+    let device = Transform2D::scale_uniform(self.metrics.scale_factor)
+      .then(&self.state.transform)
+      .then(&matrix);
+    let user = self.user_to_device();
+    let shadow = self.state.shadow.filter(Shadow::is_valid);
+    let mut drew = false;
+    if let Some(shadow) = shadow.filter(|s| !s.inset) {
+      drew |= self.pixmap_shadow(pixels, id, device, user, &shadow);
+    }
+    let radius = self.state.filter.radius();
+    drew |= if self.state.filter.is_valid() && radius > 0.0 {
+      match effect::pixmap_blur(pixels, id, device, user, self.surface_size(), radius) {
+        Ok(Some(image)) => self.draw_effect(&image),
+        Ok(None) => false,
+        Err(error) => {
+          self.error = Some(error);
+          false
+        }
+      }
+    } else {
+      self.draw_source(pixels, data, id, matrix)
+    };
+    if let Some(shadow) = shadow.filter(|s| s.inset) {
+      drew |= self.pixmap_shadow(pixels, id, device, user, &shadow);
+    }
+    if isolated {
+      drew |= self.end_layer();
+    }
+    drew
+  }
+
+  fn pixmap_shadow(
+    &mut self,
+    pixels: &Pixmap,
+    id: u64,
+    device: Transform2D,
+    user: Transform2D,
+    shadow: &Shadow,
+  ) -> bool {
+    match effect::pixmap_shadow(pixels, id, device, user, self.surface_size(), shadow) {
+      Ok(Some(image)) => self.draw_effect(&image),
+      Ok(None) => false,
+      Err(error) => {
+        self.error = Some(error);
+        false
+      }
+    }
+  }
+
+  fn draw_source(&mut self, pixels: &Pixmap, data: &Arc<Vec<u8>>, id: u64, matrix: Transform2D) -> bool {
+    if !self.software {
+      let device = Transform2D::scale_uniform(self.metrics.scale_factor)
+        .then(&self.state.transform)
+        .then(&matrix);
+      return self.enqueue(gpu::Command::Image {
+        asset: gpu::Asset {
+          id,
+          width: pixels.width(),
+          height: pixels.height(),
+          data: data.clone(),
+          premultiplied: true,
+        },
+        matrix: device,
+        source: [0., 0., pixels.width() as f32, pixels.height() as f32],
+        alpha: self.state.alpha,
+        smooth: self.state.smoothing,
+        clip: self.state.gpu_clip.clone(),
+        scale: self.metrics.scale_factor,
+      });
+    }
+    context::blit(self, pixels, matrix, None)
+  }
+
+  /// A fill or a stroke with the paint, blend mode, shadow and filter in force.
+  /// The order is the one a design tool draws in: the drop shadow, the shape,
+  /// then the inner shadow, all inside one isolation when a blend mode is set.
   fn paint_path(
     &mut self,
     path: &path::Geometry,
@@ -607,58 +822,374 @@ impl Surface {
     clear: bool,
     rule: FillRule,
   ) -> bool {
-    let color = if stroke {
-      self.state.stroke_color
+    if clear {
+      return self.paint_direct(path, matrix, stroke, true, rule);
+    }
+    let blend = self.state.blend;
+    let isolated = !blend.is_normal() && self.begin_layer(1.0, blend).is_ok();
+    let shadow = self.state.shadow.filter(Shadow::is_valid);
+    let mut drew = false;
+    if let Some(shadow) = shadow.filter(|s| !s.inset) {
+      drew |= self.paint_shadow(path, matrix, stroke, rule, &shadow);
+    }
+    drew |= if self.state.filter.is_valid() && self.state.filter.radius() > 0.0 {
+      self.paint_filtered(path, matrix, stroke, rule)
     } else {
-      self.state.fill
+      self.paint_direct(path, matrix, stroke, false, rule)
     };
+    if let Some(shadow) = shadow.filter(|s| s.inset) {
+      drew |= self.paint_shadow(path, matrix, stroke, rule, &shadow);
+    }
+    if isolated {
+      drew |= self.end_layer();
+    }
+    drew
+  }
+
+  /// The geometry an effect is cast from: a stroke's own outline, or the fill.
+  fn effect_geometry(&self, path: &path::Geometry, stroke: bool, rule: FillRule) -> Option<(path::Geometry, FillRule)> {
+    if !stroke {
+      return Some((path.clone(), rule));
+    }
+    context::stroke_outline(path, &self.state.stroke).map(|outline| (path::Geometry::new(outline), FillRule::NonZero))
+  }
+
+  fn paint_shadow(
+    &mut self,
+    path: &path::Geometry,
+    matrix: Transform2D,
+    stroke: bool,
+    rule: FillRule,
+    shadow: &Shadow,
+  ) -> bool {
+    let Some((geometry, rule)) = self.effect_geometry(path, stroke, rule) else {
+      return false;
+    };
+    let device = Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix);
+    let user = self.user_to_device();
+    match effect::shadow_image(&geometry, rule, device, user, self.surface_size(), shadow) {
+      Ok(Some(image)) => self.draw_effect(&image),
+      Ok(None) => false,
+      Err(error) => {
+        self.error = Some(error);
+        false
+      }
+    }
+  }
+
+  /// A layer blur: the shape is rasterised with its own paint into a reduced
+  /// raster, blurred there, and drawn as one image.
+  fn paint_filtered(&mut self, path: &path::Geometry, matrix: Transform2D, stroke: bool, rule: FillRule) -> bool {
+    let Some((geometry, rule)) = self.effect_geometry(path, stroke, rule) else {
+      return false;
+    };
+    let radius = self.state.filter.radius();
+    let device = Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix);
+    let user = self.user_to_device();
+    let Some(paint) = self.resolved_paint(stroke, matrix) else {
+      return false;
+    };
+    let planned = match effect::blur_plan(&geometry, device, user, self.surface_size(), radius) {
+      Ok(Some(planned)) => planned,
+      Ok(None) => return false,
+      Err(error) => {
+        self.error = Some(error);
+        return false;
+      }
+    };
+    let key = effect::blur_identity(&[
+      geometry.content_hash(),
+      u64::from(rule == FillRule::EvenOdd),
+      u64::from(device.a.to_bits()) ^ (u64::from(device.b.to_bits()) << 32),
+      u64::from(device.c.to_bits()) ^ (u64::from(device.d.to_bits()) << 32),
+      ((planned.image.origin.0 as i64) as u64) ^ (((planned.image.origin.1 as i64) as u64) << 32),
+      (u64::from(planned.image.width) << 32) | u64::from(planned.image.height),
+      u64::from(planned.radius) ^ (u64::from(planned.image.reduction) << 32),
+      paint.identity(),
+    ]);
+    let image = match effect::lookup(key) {
+      Some(image) => image,
+      None => {
+        let effect::BlurPlan {
+          mut pixmap,
+          image,
+          radius,
+          raster,
+        } = planned;
+        let raster_from_device = Transform2D::scale_uniform(1.0 / image.reduction as f32)
+          .then(&Transform2D::translate(-image.origin.0 as f32, -image.origin.1 as f32));
+        let frame_to_raster = raster_from_device.then(&self.device_from_frame(&paint));
+        let conic = self.angular_pattern(&paint, frame_to_raster, (0, 0), image.width, image.height);
+        let skia = paint_of(&paint, frame_to_raster, conic.as_ref().map(|p| (p, (0, 0))), 1.0);
+        pixmap.fill_path(&geometry, &skia, rule.skia(), transform(raster), None);
+        drop(skia);
+        drop(conic);
+        let image = effect::blur_finish(pixmap, image, radius, key);
+        effect::store(key, &image);
+        image
+      }
+    };
+    self.draw_effect(&image)
+  }
+
+  /// Places a rasterised effect in device pixels, under the current clip and
+  /// global alpha but under no drawing transform: it is already rasterised.
+  fn draw_effect(&mut self, image: &effect::EffectImage) -> bool {
+    if image.width == 0 || image.height == 0 {
+      return false;
+    }
+    let alpha = self.state.alpha;
+    let smooth = image.reduction > 1;
+    if !self.software {
+      return self.enqueue(gpu::Command::Image {
+        asset: gpu::Asset {
+          id: image.id,
+          width: image.width,
+          height: image.height,
+          data: image.data.clone(),
+          premultiplied: true,
+        },
+        matrix: image.matrix(),
+        source: [0., 0., image.width as f32, image.height as f32],
+        alpha,
+        smooth,
+        clip: self.state.gpu_clip.clone(),
+        scale: self.metrics.scale_factor,
+      });
+    }
+    let Some(size) = tiny_skia::IntSize::from_wh(image.width, image.height) else {
+      return false;
+    };
+    let Some(source) = Pixmap::from_vec(image.data.as_ref().clone(), size) else {
+      return false;
+    };
+    let matrix = transform(image.matrix());
+    let clip = self.state.clip.clone();
+    let Some(target) = self.target_pixels() else {
+      return false;
+    };
+    target.draw_pixmap(
+      0,
+      0,
+      source.as_ref(),
+      &PixmapPaint {
+        opacity: alpha,
+        quality: if smooth {
+          tiny_skia::FilterQuality::Bilinear
+        } else {
+          tiny_skia::FilterQuality::Nearest
+        },
+        ..Default::default()
+      },
+      matrix,
+      clip.as_deref(),
+    );
+    true
+  }
+
+  /// The paint a fill or stroke uses. `None` when a gradient cannot be placed,
+  /// in which case nothing is drawn rather than something else in its place.
+  fn resolved_paint(&self, stroke: bool, matrix: Transform2D) -> Option<ResolvedPaint> {
+    let paint = if stroke {
+      &self.state.stroke_paint
+    } else {
+      &self.state.fill
+    };
+    let Some((gradient, bounds)) = paint.gradient() else {
+      return Some(ResolvedPaint::Solid(paint.color().unwrap_or(Color::new(0, 0, 0, 255))));
+    };
+    if !gradient.is_valid() {
+      return None;
+    }
+    let frame_from_user = gradient.frame_from_box(bounds)?;
+    let user_from_model = self.state.transform.inverse_affine()?.then(&matrix);
+    Some(ResolvedPaint::Gradient {
+      gradient: gradient.clone(),
+      frame_from_model: frame_from_user.then(&user_from_model),
+      user_from_frame: frame_from_user.inverse_affine()?,
+    })
+  }
+
+  /// Maps the gradient's own frame onto device pixels.
+  fn device_from_frame(&self, paint: &ResolvedPaint) -> Transform2D {
+    match paint {
+      ResolvedPaint::Solid(_) => Transform2D::IDENTITY,
+      ResolvedPaint::Gradient { user_from_frame, .. } => Transform2D::scale_uniform(self.metrics.scale_factor)
+        .then(&self.state.transform)
+        .then(user_from_frame),
+    }
+  }
+
+  /// An angular gradient has no tiny-skia shader, so the software backend
+  /// evaluates one into a pattern bounded by the raster it paints into.
+  fn angular_pattern(
+    &self,
+    paint: &ResolvedPaint,
+    frame_to_target: Transform2D,
+    origin: (i32, i32),
+    width: u32,
+    height: u32,
+  ) -> Option<Pixmap> {
+    let ResolvedPaint::Gradient { gradient, .. } = paint else {
+      return None;
+    };
+    if gradient.kind() != GradientKind::Angular || width == 0 || height == 0 {
+      return None;
+    }
+    paint::angular_pixmap(gradient, frame_to_target.inverse_affine()?, origin, width, height)
+  }
+
+  fn paint_direct(
+    &mut self,
+    path: &path::Geometry,
+    matrix: Transform2D,
+    stroke: bool,
+    clear: bool,
+    rule: FillRule,
+  ) -> bool {
+    let Some(paint) = self.resolved_paint(stroke, matrix) else {
+      return false;
+    };
+    let alpha = self.state.alpha;
+    let device = Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix);
     if !self.software {
       let path = if stroke {
         context::stroke_outline(path, &self.state.stroke).map(path::Geometry::new)
       } else {
         Some(path.clone())
       };
-      let matrix = Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix);
       let Some(path) = path else {
         return false;
       };
-      let alpha = f32::from(color.a()) / 255.0 * self.state.alpha;
+      let (color, gradient) = match &paint {
+        ResolvedPaint::Solid(color) => {
+          let a = f32::from(color.a()) / 255.0 * alpha;
+          (
+            [
+              f32::from(color.r()) / 255.0 * a,
+              f32::from(color.g()) / 255.0 * a,
+              f32::from(color.b()) / 255.0 * a,
+              a,
+            ],
+            None,
+          )
+        }
+        ResolvedPaint::Gradient {
+          gradient,
+          frame_from_model,
+          ..
+        } => {
+          let ramp = gradient.ramp();
+          (
+            [alpha; 4],
+            Some(gpu::GradientPaint {
+              kind: gradient.kind(),
+              ramp: gpu::Asset {
+                id: ramp.id,
+                width: RAMP_TEXELS as u32,
+                height: 1,
+                data: ramp.texels.clone(),
+                premultiplied: true,
+              },
+              frame: *frame_from_model,
+            }),
+          )
+        }
+      };
       return self.enqueue(gpu::Command::Path {
         path,
-        matrix,
+        matrix: device,
         rule,
-        color: [
-          f32::from(color.r()) / 255.0 * alpha,
-          f32::from(color.g()) / 255.0 * alpha,
-          f32::from(color.b()) / 255.0 * alpha,
-          alpha,
-        ],
+        color,
+        gradient,
         erase: clear,
         clip: self.state.gpu_clip.clone(),
         scale: self.metrics.scale_factor,
       });
     }
-    let mut paint = Paint::default();
-    paint.set_color_rgba8(
-      color.r(),
-      color.g(),
-      color.b(),
-      (f32::from(color.a()) * self.state.alpha).round() as u8,
+    let frame_to_device = self.device_from_frame(&paint);
+    let (origin, width, height) = device_window(path, device, self.surface_size());
+    let conic = self.angular_pattern(&paint, frame_to_device, origin, width, height);
+    let mut skia = paint_of(
+      &paint,
+      frame_to_device,
+      conic.as_ref().map(|pixmap| (pixmap, origin)),
+      alpha,
     );
     if clear {
-      paint.blend_mode = tiny_skia::BlendMode::Clear;
+      skia.blend_mode = tiny_skia::BlendMode::Clear;
     }
-    let matrix = transform(Transform2D::scale_uniform(self.metrics.scale_factor).then(&matrix));
-    let Some(pixels) = &mut self.pixels else {
+    let stroke_params = self.state.stroke.clone();
+    let clip = self.state.clip.clone();
+    let matrix = transform(device);
+    let Some(pixels) = self.target_pixels() else {
       return false;
     };
     if stroke {
-      pixels.stroke_path(path, &paint, &self.state.stroke, matrix, self.state.clip.as_deref());
+      pixels.stroke_path(path, &skia, &stroke_params, matrix, clip.as_deref());
     } else {
-      pixels.fill_path(path, &paint, rule.skia(), matrix, self.state.clip.as_deref());
+      pixels.fill_path(path, &skia, rule.skia(), matrix, clip.as_deref());
     }
     true
   }
+}
+
+/// The tiny-skia paint for a resolved paint, with the global alpha applied once.
+fn paint_of<'a>(
+  paint: &ResolvedPaint,
+  frame_to_target: Transform2D,
+  conic: Option<(&'a Pixmap, (i32, i32))>,
+  alpha: f32,
+) -> SkiaPaint<'a> {
+  let mut skia = SkiaPaint {
+    anti_alias: true,
+    ..SkiaPaint::default()
+  };
+  match paint {
+    ResolvedPaint::Solid(color) => skia.set_color_rgba8(
+      color.r(),
+      color.g(),
+      color.b(),
+      (f32::from(color.a()) * alpha).round() as u8,
+    ),
+    ResolvedPaint::Gradient { gradient, .. } => {
+      if let Some(mut shader) = paint::skia_shader(gradient, frame_to_target, conic) {
+        shader.apply_opacity(alpha);
+        skia.shader = shader;
+      }
+    }
+  }
+  skia
+}
+
+/// The device-pixel window a path can touch, clipped to the surface.
+fn device_window(path: &path::Geometry, matrix: Transform2D, surface: (u32, u32)) -> ((i32, i32), u32, u32) {
+  let b = path.bounds();
+  let mut box_ = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+  for (x, y) in [
+    (b.left(), b.top()),
+    (b.right(), b.top()),
+    (b.right(), b.bottom()),
+    (b.left(), b.bottom()),
+  ] {
+    let (x, y) = matrix.transform_point(x, y);
+    if !x.is_finite() || !y.is_finite() {
+      return ((0, 0), 0, 0);
+    }
+    box_[0] = box_[0].min(x);
+    box_[1] = box_[1].min(y);
+    box_[2] = box_[2].max(x);
+    box_[3] = box_[3].max(y);
+  }
+  let left = box_[0].floor().max(0.0).min(surface.0 as f32);
+  let top = box_[1].floor().max(0.0).min(surface.1 as f32);
+  let right = (box_[2].ceil() + 1.0).max(0.0).min(surface.0 as f32);
+  let bottom = (box_[3].ceil() + 1.0).max(0.0).min(surface.1 as f32);
+  (
+    (left as i32, top as i32),
+    (right - left).max(0.0) as u32,
+    (bottom - top).max(0.0) as u32,
+  )
 }
 
 fn rescale_clip(mask: &Mask, width: u32, height: u32, factor: f32) -> Option<Arc<Mask>> {
@@ -727,6 +1258,93 @@ fn parse_color(value: &str) -> Option<Color> {
     )),
     _ => None,
   }
+}
+
+/// One scene exercising every paint and effect this module adds, shared by the
+/// software suite, the wgpu suite and the `canvas_capture_check` example that
+/// covers dx12, so a difference between them is a difference in the backend
+/// rather than in the fixture. Not part of the drawing API.
+#[doc(hidden)]
+pub fn effects_scene(d: &Context2D) {
+  d.reset();
+  d.set_fill_style("#101820");
+  d.fill_rect(0., 0., 512., 512.);
+  // Gradient fills: linear, radial and angular, each over its own box.
+  d.set_fill_style(
+    Gradient::linear()
+      .stop(0., "#2563eb")
+      .stop(1., "#f43f5e")
+      .rotation(0.6)
+      .in_box(20., 20., 130., 100.),
+  );
+  d.fill_rect(20., 20., 130., 100.);
+  d.set_fill_style(
+    Gradient::radial()
+      .stop(0., "#fde68a")
+      .stop(1., "#7c3aed")
+      .in_box(170., 20., 130., 100.),
+  );
+  d.fill_rect(170., 20., 130., 100.);
+  d.set_fill_style(
+    Gradient::angular()
+      .stop(0., "#22d3ee")
+      .stop(0.5, "#0f172a")
+      .stop(1., "#22d3ee")
+      .in_box(320., 20., 130., 100.),
+  );
+  d.fill_rect(320., 20., 130., 100.);
+  // A gradient stroke, and a shadow cast by a rounded rectangle.
+  d.set_line_width(6.);
+  d.set_stroke_style(
+    Gradient::linear()
+      .stop(0., "#34d399")
+      .stop(1., "#f59e0b")
+      .in_box(20., 150., 200., 80.),
+  );
+  d.stroke_rect(20., 150., 200., 80.);
+  d.set_shadow(Some(
+    Shadow::new(Color::new(0, 0, 0, 200))
+      .offset(8., 10.)
+      .blur(14.)
+      .spread(2.),
+  ));
+  d.set_fill_style("#e2e8f0");
+  d.round_rect(260., 150., 180., 80., 16.).unwrap();
+  d.fill();
+  d.set_shadow(None);
+  // An inner shadow, and a layer blur.
+  d.set_shadow(Some(
+    Shadow::new(Color::new(0, 0, 0, 220))
+      .offset(6., 6.)
+      .blur(10.)
+      .inset(true),
+  ));
+  d.set_fill_style("#94a3b8");
+  d.fill_rect(20., 260., 140., 110.);
+  d.set_shadow(None);
+  d.set_filter(Filter::Blur(10.));
+  d.set_fill_style("#f97316");
+  d.fill_rect(190., 270., 90., 90.);
+  d.set_filter(Filter::None);
+  // Every blend mode over the same backdrop, as a row of swatches.
+  d.set_fill_style("#334155");
+  d.fill_rect(20., 400., 468., 40.);
+  for (index, mode) in BlendMode::ALL.iter().enumerate() {
+    d.set_global_composite_operation(*mode);
+    d.set_fill_style("#9ae6b4");
+    d.fill_rect(20. + index as f32 * 26., 400., 26., 40.);
+  }
+  d.set_global_composite_operation(BlendMode::Normal);
+  // An isolated group: two overlapping shapes fade together, and a nested
+  // layer composites with a blend mode of its own.
+  d.begin_layer(0.5, BlendMode::Normal).unwrap();
+  d.set_fill_style("#ef4444");
+  d.fill_rect(280., 280., 80., 80.);
+  d.begin_layer(1., BlendMode::Multiply).unwrap();
+  d.set_fill_style("#60a5fa");
+  d.fill_rect(320., 320., 80., 80.);
+  d.end_layer().unwrap();
+  d.end_layer().unwrap();
 }
 
 #[cfg(test)]

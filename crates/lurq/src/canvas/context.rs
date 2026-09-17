@@ -45,6 +45,8 @@ impl Context2D {
       s.stack.clear();
       s.path = Path2D::new();
       s.error = None;
+      s.discard_layers();
+      s.software_layers.clear();
       if !s.software {
         return s.enqueue(gpu::Command::Clear);
       }
@@ -60,7 +62,8 @@ impl Context2D {
       if !s.software {
         return s.enqueue(gpu::Command::Clear);
       }
-      if let Some(pixels) = &mut s.pixels {
+      // Inside a layer this erases the layer's own work, as it does on the GPU.
+      if let Some(pixels) = s.target_pixels() {
         pixels.fill(tiny_skia::Color::TRANSPARENT);
         true
       } else {
@@ -69,21 +72,85 @@ impl Context2D {
     });
   }
 
-  pub fn set_fill_style(&self, color: impl CanvasColor) {
-    if let Some(c) = color.canvas_color() {
-      self.canvas.inner.lock().state.fill = c;
+  /// A colour, a parseable colour string, or a [`Paint`] carrying a gradient.
+  /// A value that cannot be resolved leaves the current paint alone.
+  pub fn set_fill_style(&self, paint: impl CanvasPaint) {
+    if let Some(paint) = paint.canvas_paint() {
+      self.canvas.inner.lock().state.fill = paint;
     }
   }
-  pub fn fill_style(&self) -> Color {
-    self.canvas.inner.lock().state.fill
+  pub fn fill_style(&self) -> Paint {
+    self.canvas.inner.lock().state.fill.clone()
   }
-  pub fn set_stroke_style(&self, color: impl CanvasColor) {
-    if let Some(c) = color.canvas_color() {
-      self.canvas.inner.lock().state.stroke_color = c;
+  pub fn set_stroke_style(&self, paint: impl CanvasPaint) {
+    if let Some(paint) = paint.canvas_paint() {
+      self.canvas.inner.lock().state.stroke_paint = paint;
     }
   }
-  pub fn stroke_style(&self) -> Color {
-    self.canvas.inner.lock().state.stroke_color
+  pub fn stroke_style(&self) -> Paint {
+    self.canvas.inner.lock().state.stroke_paint.clone()
+  }
+
+  /// The shadow cast by every following fill, stroke and text draw, or `None`.
+  /// Part of the saved drawing state. An invalid shadow is ignored, as an
+  /// unparseable colour is; see [`Shadow`] for the bounds it is checked against.
+  pub fn set_shadow(&self, shadow: Option<Shadow>) {
+    self.canvas.inner.lock().state.shadow = shadow.filter(Shadow::is_valid);
+  }
+  pub fn shadow(&self) -> Option<Shadow> {
+    self.canvas.inner.lock().state.shadow
+  }
+  /// Blurs what the following draws paint. Part of the saved drawing state.
+  pub fn set_filter(&self, filter: Filter) {
+    if filter.is_valid() {
+      self.canvas.inner.lock().state.filter = filter;
+    }
+  }
+  pub fn filter(&self) -> Filter {
+    self.canvas.inner.lock().state.filter
+  }
+  /// How following draws composite with what is beneath them. Part of the saved
+  /// drawing state, like the global alpha. A draw with a mode other than
+  /// `Normal` is isolated before it blends, so its own shadow does not blend
+  /// with the shape that casts it.
+  pub fn set_global_composite_operation(&self, blend: BlendMode) {
+    self.canvas.inner.lock().state.blend = blend;
+  }
+  pub fn global_composite_operation(&self) -> BlendMode {
+    self.canvas.inner.lock().state.blend
+  }
+
+  /// Begins an isolated layer: following draws composite into a target of their
+  /// own at full alpha, and [`Context2D::end_layer`] composites that target onto
+  /// the parent once, with `alpha` and `blend`. That is what makes a group of
+  /// overlapping shapes fade as one image rather than through each other.
+  ///
+  /// Layers nest to [`MAX_LAYER_DEPTH`]. They are not the save stack:
+  /// `restore` does not close one, and a layer left open when the canvas is
+  /// reset, resized or detached is discarded with its contents.
+  pub fn begin_layer(&self, alpha: f32, blend: BlendMode) -> Result<(), CanvasError> {
+    if !(0.0..=1.0).contains(&alpha) {
+      return Err(CanvasError::InvalidGeometry);
+    }
+    self.canvas.inner.lock().begin_layer(alpha, blend)
+  }
+  /// Composites the innermost open layer. Ending a layer that was never begun
+  /// is an error rather than a silent discard.
+  pub fn end_layer(&self) -> Result<(), CanvasError> {
+    let mut open = false;
+    self.pixels(|s| {
+      open = if s.software {
+        !s.software_layers.is_empty()
+      } else {
+        !s.layers.is_empty()
+      };
+      open && s.end_layer()
+    });
+    if open {
+      Ok(())
+    } else {
+      Err(CanvasError::UnbalancedLayer)
+    }
   }
   pub fn set_global_alpha(&self, alpha: f32) {
     if (0.0..=1.0).contains(&alpha) {
@@ -450,47 +517,53 @@ impl Context2D {
     ];
     let mut result = Ok(());
     self.pixels(|s| {
-      let matrix = Transform2D::translate(dx - sx * fx, dy - sy * fy).then(&Transform2D::scale(fx, fy));
-      if !s.software {
-        let matrix = Transform2D::scale_uniform(s.metrics.scale_factor)
-          .then(&s.state.transform)
-          .then(&matrix);
-        let accepted = s.enqueue(gpu::Command::Image {
-          asset: gpu::Asset {
-            id: image.id(),
-            width: image.width(),
-            height: image.height(),
-            data: image.data_arc(),
-            premultiplied: false,
-          },
-          matrix,
-          source: [left, top, right - left, bottom - top],
-          alpha: s.state.alpha,
-          smooth: s.state.smoothing,
-          clip: s.state.gpu_clip.clone(),
-          scale: s.metrics.scale_factor,
-        });
-        if !accepted {
-          result = Err(s.error.clone().unwrap_or(CanvasError::QueueFull));
+      // An image is a paint like any other, so a blend mode isolates it first.
+      let blend = s.state.blend;
+      let isolated = !blend.is_normal() && s.begin_layer(1.0, blend).is_ok();
+      let drew = (|s: &mut Surface| {
+        let matrix = Transform2D::translate(dx - sx * fx, dy - sy * fy).then(&Transform2D::scale(fx, fy));
+        if !s.software {
+          let matrix = Transform2D::scale_uniform(s.metrics.scale_factor)
+            .then(&s.state.transform)
+            .then(&matrix);
+          let accepted = s.enqueue(gpu::Command::Image {
+            asset: gpu::Asset {
+              id: image.id(),
+              width: image.width(),
+              height: image.height(),
+              data: image.data_arc(),
+              premultiplied: false,
+            },
+            matrix,
+            source: [left, top, right - left, bottom - top],
+            alpha: s.state.alpha,
+            smooth: s.state.smoothing,
+            clip: s.state.gpu_clip.clone(),
+            scale: s.metrics.scale_factor,
+          });
+          if !accepted {
+            result = Err(s.error.clone().unwrap_or(CanvasError::QueueFull));
+          }
+          return accepted;
         }
-        return accepted;
-      }
-      let mut data = image.data_arc().as_ref().clone();
-      for p in data.chunks_exact_mut(4) {
-        let a = u16::from(p[3]);
-        for c in &mut p[..3] {
-          *c = ((u16::from(*c) * a + 127) / 255) as u8;
+        let mut data = image.data_arc().as_ref().clone();
+        for p in data.chunks_exact_mut(4) {
+          let a = u16::from(p[3]);
+          for c in &mut p[..3] {
+            *c = ((u16::from(*c) * a + 127) / 255) as u8;
+          }
         }
-      }
-      let Some(size) = tiny_skia::IntSize::from_wh(image.width(), image.height()) else {
-        result = Err(CanvasError::InvalidImage);
-        return false;
-      };
-      let Some(pixels) = Pixmap::from_vec(data, size) else {
-        result = Err(CanvasError::InvalidImage);
-        return false;
-      };
-      blit(s, &pixels, matrix, Some(dest))
+        let Some(size) = tiny_skia::IntSize::from_wh(image.width(), image.height()) else {
+          result = Err(CanvasError::InvalidImage);
+          return false;
+        };
+        let Some(pixels) = Pixmap::from_vec(data, size) else {
+          result = Err(CanvasError::InvalidImage);
+          return false;
+        };
+        blit(s, &pixels, matrix, Some(dest))
+      })(s);
+      if isolated { s.end_layer() | drew } else { drew }
     });
     result
   }
@@ -518,7 +591,8 @@ impl Context2D {
   pub fn measure_text(&self, text: &str) -> Result<TextMetrics, CanvasError> {
     let s = self.canvas.inner.lock();
     let engine = s.text.as_ref().ok_or(CanvasError::TextUnavailable)?;
-    let shaped = engine.lock().shape(text, &s.state.font, 1.0, s.state.fill)?;
+    let color = s.state.fill.color().ok_or(CanvasError::UnsupportedPaint)?;
+    let shaped = engine.lock().shape(text, &s.state.font, 1.0, color)?;
     Ok(shaped.metrics(s.state.align, s.state.baseline))
   }
   pub fn fill_text(&self, text: &str, x: f32, y: f32) -> Result<(), CanvasError> {
@@ -531,10 +605,11 @@ impl Context2D {
         error = Some(CanvasError::TextUnavailable);
         return false;
       };
-      let shaped = match engine
-        .lock()
-        .shape(text, &s.state.font, s.metrics.scale_factor, s.state.fill)
-      {
+      let Some(color) = s.state.fill.color() else {
+        error = Some(CanvasError::UnsupportedPaint);
+        return false;
+      };
+      let shaped = match engine.lock().shape(text, &s.state.font, s.metrics.scale_factor, color) {
         Ok(shaped) => shaped,
         Err(e) => {
           error = Some(e);
@@ -546,27 +621,9 @@ impl Context2D {
       };
       let (ox, oy) = shaped.origin(s.state.align, s.state.baseline);
       let m = Transform2D::translate(x + ox, y + oy).then(&Transform2D::scale_uniform(1.0 / s.metrics.scale_factor));
-      if !s.software {
-        let matrix = Transform2D::scale_uniform(s.metrics.scale_factor)
-          .then(&s.state.transform)
-          .then(&m);
-        return s.enqueue(gpu::Command::Image {
-          asset: gpu::Asset {
-            id: shaped.asset_id,
-            width: pixels.width(),
-            height: pixels.height(),
-            data: shaped.data.clone(),
-            premultiplied: true,
-          },
-          matrix,
-          source: [0., 0., pixels.width() as f32, pixels.height() as f32],
-          alpha: s.state.alpha,
-          smooth: s.state.smoothing,
-          clip: s.state.gpu_clip.clone(),
-          scale: s.metrics.scale_factor,
-        });
-      }
-      blit(s, pixels, m, None)
+      let pixels = pixels.clone();
+      let data = shaped.data.clone();
+      s.paint_pixmap(&pixels, &data, shaped.asset_id, m)
     });
     if let Some(error) = error { Err(error) } else { Ok(()) }
   }
@@ -652,7 +709,7 @@ fn apply_clip(s: &mut Surface, path: Option<path::Geometry>, matrix: Transform2D
   s.state.clip = Some(Arc::new(mask));
 }
 
-fn blit(s: &mut Surface, pixels: &Pixmap, matrix: Transform2D, clip_rect: Option<[f32; 4]>) -> bool {
+pub(super) fn blit(s: &mut Surface, pixels: &Pixmap, matrix: Transform2D, clip_rect: Option<[f32; 4]>) -> bool {
   let mut mask = None;
   if let Some([x, y, w, h]) = clip_rect {
     let mut p = Path2D::new();
@@ -677,7 +734,10 @@ fn blit(s: &mut Surface, pixels: &Pixmap, matrix: Transform2D, clip_rect: Option
       .then(&s.state.transform)
       .then(&matrix),
   );
-  let Some(target) = &mut s.pixels else {
+  let opacity = s.state.alpha;
+  let smoothing = s.state.smoothing;
+  let clip = s.state.clip.clone();
+  let Some(target) = s.target_pixels() else {
     return false;
   };
   target.draw_pixmap(
@@ -685,8 +745,8 @@ fn blit(s: &mut Surface, pixels: &Pixmap, matrix: Transform2D, clip_rect: Option
     0,
     pixels.as_ref(),
     &PixmapPaint {
-      opacity: s.state.alpha,
-      quality: if s.state.smoothing {
+      opacity,
+      quality: if smoothing {
         tiny_skia::FilterQuality::Bilinear
       } else {
         tiny_skia::FilterQuality::Nearest
@@ -694,7 +754,7 @@ fn blit(s: &mut Surface, pixels: &Pixmap, matrix: Transform2D, clip_rect: Option
       ..Default::default()
     },
     transform,
-    mask.as_ref().or(s.state.clip.as_deref()),
+    mask.as_ref().or(clip.as_deref()),
   );
   true
 }

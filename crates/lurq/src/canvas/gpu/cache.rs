@@ -63,12 +63,16 @@ impl MeshCache {
     ((value ^ (value >> 31)) % self.keys.len() as u64) as usize
   }
 
+  /// `frame` maps the path's own model coordinates onto a gradient's frame; it
+  /// is written into `uv` while the cached mesh is copied out, exactly as the
+  /// colour is, so a paint never enters the cache key.
   pub(super) fn append(
     &mut self,
     path: &Geometry,
     matrix: Transform2D,
     rule: FillRule,
     color: [f32; 4],
+    frame: Option<Transform2D>,
     output: &mut Vec<Vertex>,
   ) -> Result<(), CanvasError> {
     if !finite_bounds(path, matrix) {
@@ -95,10 +99,14 @@ impl MeshCache {
       return Err(CanvasError::StateLimit);
     }
     output.extend(positions.iter().map(|[x, y]| {
+      let uv = frame.map_or([0.; 2], |frame| {
+        let (u, v) = frame.transform_point(*x, *y);
+        [u, v]
+      });
       let (x, y) = matrix.transform_point(*x, *y);
       Vertex {
         position: [x, y],
-        uv: [0.; 2],
+        uv,
         color,
       }
     }));

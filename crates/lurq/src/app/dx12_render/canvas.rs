@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use windows::Win32::Graphics::{Direct3D12::*, Dxgi::Common::*};
 
 use super::*;
-use crate::canvas::{CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, gpu::*};
+use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
 
 struct Backing {
   owner: CanvasWeak,
@@ -46,19 +46,40 @@ pub(super) struct Renderer {
   solid: ID3D12PipelineState,
   image: ID3D12PipelineState,
   erase: ID3D12PipelineState,
+  gradient_linear: ID3D12PipelineState,
+  gradient_radial: ID3D12PipelineState,
+  gradient_angular: ID3D12PipelineState,
+  /// Composites a finished isolated layer onto what was under it, source-over.
+  compose: ID3D12PipelineState,
+  /// Puts a saved tile back as the base of the draw that composites over it.
+  restore: ID3D12PipelineState,
+  /// The same composite for the other seventeen blend modes, which read the
+  /// backdrop instead of relying on fixed-function blending.
+  blend: ID3D12PipelineState,
+  /// Tile-sized copies for isolated layers, allocated on first use.
+  saved: Vec<ID3D12Resource>,
+  layer: Option<ID3D12Resource>,
   batches: Vec<Batch>,
   readbacks: Vec<Readback>,
   pending_stats: Vec<(CanvasWeak, usize, usize, usize)>,
 }
 impl Renderer {
   pub unsafe fn new(device: &ID3D12Device) -> Result<Self> {
-    let root = create_image_root_signature(device, 1)?;
+    // Two shader resources: every pipeline binds a pair so that one root
+    // signature serves the blend composite, which needs its backdrop, as well.
+    let root = create_image_root_signature(device, 2)?;
     let seed = pipeline(device, &root, b"vs_seed\0", b"ps_premul\0", 4, 0)?;
     let resample = pipeline(device, &root, b"vs_seed\0", b"ps_premul\0", 1, 0)?;
     let clip = pipeline(device, &root, b"vs_main\0", b"ps_solid\0", 4, 2)?;
     let solid = pipeline(device, &root, b"vs_main\0", b"ps_solid\0", 4, 3)?;
     let image = pipeline(device, &root, b"vs_main\0", b"ps_premul\0", 4, 3)?;
     let erase = pipeline(device, &root, b"vs_main\0", b"ps_solid\0", 4, 4)?;
+    let gradient_linear = pipeline(device, &root, b"vs_main\0", b"ps_gradient_linear\0", 4, 3)?;
+    let gradient_radial = pipeline(device, &root, b"vs_main\0", b"ps_gradient_radial\0", 4, 3)?;
+    let gradient_angular = pipeline(device, &root, b"vs_main\0", b"ps_gradient_angular\0", 4, 3)?;
+    let compose = pipeline(device, &root, b"vs_tile\0", b"ps_premul\0", 4, 5)?;
+    let restore = pipeline(device, &root, b"vs_tile\0", b"ps_tile\0", 4, 6)?;
+    let blend = pipeline(device, &root, b"vs_tile\0", b"ps_blend\0", 4, 6)?;
     let scratch = texture(device, TILE, TILE, 4, false, D3D12_RESOURCE_STATE_RENDER_TARGET)?;
     let resolve = texture(device, TILE, TILE, 1, false, D3D12_RESOURCE_STATE_COPY_SOURCE)?;
     let stencil = texture(device, TILE, TILE, 4, true, D3D12_RESOURCE_STATE_DEPTH_WRITE)?;
@@ -135,6 +156,14 @@ impl Renderer {
       solid,
       image,
       erase,
+      gradient_linear,
+      gradient_radial,
+      gradient_angular,
+      compose,
+      restore,
+      blend,
+      saved: Vec::new(),
+      layer: None,
       batches: Vec::new(),
       readbacks: Vec::new(),
       pending_stats: Vec::new(),
@@ -307,13 +336,24 @@ impl Renderer {
     }
   }
   unsafe fn srv(&mut self, state: &Dx12State, texture: &ID3D12Resource) -> Result<D3D12_GPU_DESCRIPTOR_HANDLE> {
-    if self.descriptor >= 16384 {
+    self.srv_pair(state, texture, texture)
+  }
+  /// Two adjacent descriptors, because the root signature's table is a pair.
+  /// Only the blend composite reads the second one.
+  unsafe fn srv_pair(
+    &mut self,
+    state: &Dx12State,
+    texture: &ID3D12Resource,
+    backdrop: &ID3D12Resource,
+  ) -> Result<D3D12_GPU_DESCRIPTOR_HANDLE> {
+    if self.descriptor + 2 > 16384 {
       return Err(dx12_invalid_arg("canvas descriptor budget exceeded".to_owned()));
     }
     let heap = &self.srvs[state.frame_index];
     let index = self.descriptor;
-    self.descriptor += 1;
+    self.descriptor += 2;
     create_srv(&state.device, texture, heap.cpu_handle(index));
+    create_srv(&state.device, backdrop, heap.cpu_handle(index + 1));
     Ok(heap.gpu_handle(index))
   }
   unsafe fn resize(
@@ -388,7 +428,96 @@ impl Renderer {
     canvas.set_gpu_bytes(width as usize * height as usize * 4);
     Ok(())
   }
+  /// Tile-sized copies an isolated layer needs: `saved[d]` is what was under the
+  /// layer opened at depth `d`, and one shared `layer` holds the finished layer
+  /// being composited. Allocated on first use, so a canvas that never opens a
+  /// layer pays nothing; each is TILE × TILE × 4 bytes.
+  unsafe fn reserve_layers(&mut self, device: &ID3D12Device, depth: usize) -> Result<()> {
+    while self.saved.len() < depth {
+      self.saved.push(texture(
+        device,
+        TILE,
+        TILE,
+        1,
+        false,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+      )?);
+    }
+    if depth > 0 && self.layer.is_none() {
+      self.layer = Some(texture(
+        device,
+        TILE,
+        TILE,
+        1,
+        false,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+      )?);
+    }
+    Ok(())
+  }
+
+  /// Resolves the multisampled tile into `self.resolve`, which the caller then
+  /// copies wherever this segment belongs.
+  unsafe fn resolve_tile(&self, state: &mut Dx12State) {
+    state.transition_resource(
+      &self.scratch,
+      D3D12_RESOURCE_STATE_RENDER_TARGET,
+      D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
+    );
+    state.transition_resource(
+      &self.resolve,
+      D3D12_RESOURCE_STATE_COPY_SOURCE,
+      D3D12_RESOURCE_STATE_RESOLVE_DEST,
+    );
+    state
+      .command_list
+      .ResolveSubresource(&self.resolve, 0, &self.scratch, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    state.transition_resource(
+      &self.scratch,
+      D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
+      D3D12_RESOURCE_STATE_RENDER_TARGET,
+    );
+    state.transition_resource(
+      &self.resolve,
+      D3D12_RESOURCE_STATE_RESOLVE_DEST,
+      D3D12_RESOURCE_STATE_COPY_SOURCE,
+    );
+  }
+
+  unsafe fn copy_resolved(
+    &self,
+    state: &mut Dx12State,
+    target: &ID3D12Resource,
+    from: D3D12_RESOURCE_STATES,
+    at: (u32, u32),
+    tile: [u32; 4],
+  ) {
+    state.transition_resource(target, from, D3D12_RESOURCE_STATE_COPY_DEST);
+    let mut src = copy_location(&self.resolve);
+    let mut dst = copy_location(target);
+    state.command_list.CopyTextureRegion(
+      &dst,
+      at.0,
+      at.1,
+      0,
+      &src,
+      Some(&D3D12_BOX {
+        left: 0,
+        top: 0,
+        front: 0,
+        right: tile[2],
+        bottom: tile[3],
+        back: 1,
+      }),
+    );
+    ManuallyDrop::drop(&mut src.pResource);
+    ManuallyDrop::drop(&mut dst.pResource);
+    state.transition_resource(target, D3D12_RESOURCE_STATE_COPY_DEST, from);
+  }
+
   unsafe fn draw(&mut self, state: &mut Dx12State, id: CanvasId, prepared: &Prepared) -> Result<()> {
+    let depth = layer_depth(prepared);
+    self.reserve_layers(&state.device.clone(), depth)?;
     let Some(b) = self.surfaces.get(&id) else {
       return Ok(());
     };
@@ -396,7 +525,7 @@ impl Renderer {
     let seed_srv = self.srv(state, &backing)?;
     let mut assets = HashMap::new();
     let mut uploaded = 0;
-    for draw in &prepared.draws {
+    for draw in prepared.draws() {
       if let Some(asset) = &draw.asset {
         if !self.assets.contains_key(&asset.id) {
           let texture = texture(
@@ -467,116 +596,154 @@ impl Renderer {
         0.,
         0.,
       ])?;
-      state.command_list.OMSetRenderTargets(1, Some(&rtv), false, Some(&dsv));
-      viewport(&state.command_list, TILE, TILE);
-      state.command_list.ClearRenderTargetView(rtv, &[0.; 4], None);
-      state.command_list.RSSetScissorRects(&[RECT {
-        left: 0,
-        top: 0,
-        right: tile[2] as i32,
-        bottom: tile[3] as i32,
-      }]);
-      state
-        .command_list
-        .SetGraphicsRootConstantBufferView(0, globals.gpu_address);
-      state.command_list.SetGraphicsRootDescriptorTable(1, seed_srv);
-      state
-        .command_list
-        .SetGraphicsRootDescriptorTable(2, self.samplers.gpu_handle(0));
-      state.command_list.SetPipelineState(&self.seed);
-      state.command_list.DrawInstanced(3, 1, 0, 0);
-      state
-        .command_list
-        .IASetVertexBuffers(0, Some(&[vertices.vertex_view::<Vertex>()]));
-      let mut clips: Option<&Vec<std::ops::Range<u32>>> = None;
-      for draw in prepared.draws.iter().filter(|d| d.intersects(tile)) {
-        if clips != Some(&draw.clips) {
+      let mut step = 0usize;
+      let mut level = 0usize;
+      let mut stack: Vec<(f32, BlendMode)> = Vec::new();
+      let mut seed = Some(backing.clone());
+      let mut seed_is_surface = true;
+      let mut composite: Option<(usize, f32, BlendMode)> = None;
+      loop {
+        state.command_list.OMSetRenderTargets(1, Some(&rtv), false, Some(&dsv));
+        viewport(&state.command_list, TILE, TILE);
+        state.command_list.ClearRenderTargetView(rtv, &[0.; 4], None);
+        state.command_list.RSSetScissorRects(&[RECT {
+          left: 0,
+          top: 0,
+          right: tile[2] as i32,
+          bottom: tile[3] as i32,
+        }]);
+        state
+          .command_list
+          .SetGraphicsRootConstantBufferView(0, globals.gpu_address);
+        state
+          .command_list
+          .SetGraphicsRootDescriptorTable(2, self.samplers.gpu_handle(0));
+        if let Some(source) = seed.clone() {
+          // The backing is surface-sized and sampled through this tile's
+          // rectangle; a saved layer tile is already the size of the tile.
+          let handle = if seed_is_surface {
+            seed_srv
+          } else {
+            self.srv(state, &source)?
+          };
+          state.command_list.SetGraphicsRootDescriptorTable(1, handle);
           state
             .command_list
-            .ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_STENCIL, 1., 0, None);
-          state.command_list.SetPipelineState(&self.clip);
-          for (level, range) in draw.clips.iter().enumerate() {
-            state.command_list.OMSetStencilRef(level as u32);
-            state
-              .command_list
-              .DrawInstanced(range.end - range.start, 1, range.start, 0);
-          }
-          clips = Some(&draw.clips);
+            .SetPipelineState(if seed_is_surface { &self.seed } else { &self.restore });
+          state.command_list.DrawInstanced(3, 1, 0, 0);
         }
-        state.command_list.OMSetStencilRef(draw.clips.len() as u32);
-        state.command_list.SetPipelineState(if draw.erase {
-          &self.erase
-        } else if draw.asset.is_some() {
-          &self.image
-        } else {
-          &self.solid
-        });
-        if let Some(asset) = &draw.asset {
-          state.command_list.SetGraphicsRootDescriptorTable(1, assets[&asset.id]);
+        if let Some((at, alpha, blend)) = composite.take() {
+          let constants = state.upload_frame_constant(&[0., 0., 1., 1., 1., 1., blend.index() as f32, alpha])?;
           state
             .command_list
-            .SetGraphicsRootDescriptorTable(2, self.samplers.gpu_handle(usize::from(draw.smooth)));
+            .SetGraphicsRootConstantBufferView(0, constants.gpu_address);
+          let layer = self.layer.clone().unwrap();
+          let handle = if blend.is_normal() {
+            self.srv(state, &layer)?
+          } else {
+            let saved = self.saved[at].clone();
+            self.srv_pair(state, &layer, &saved)?
+          };
+          state.command_list.SetGraphicsRootDescriptorTable(1, handle);
+          state
+            .command_list
+            .SetPipelineState(if blend.is_normal() { &self.compose } else { &self.blend });
+          state.command_list.DrawInstanced(3, 1, 0, 0);
+          state
+            .command_list
+            .SetGraphicsRootConstantBufferView(0, globals.gpu_address);
         }
         state
           .command_list
-          .DrawInstanced(draw.vertices.end - draw.vertices.start, 1, draw.vertices.start, 0);
+          .IASetVertexBuffers(0, Some(&[vertices.vertex_view::<Vertex>()]));
+        let mut clips: Option<&Vec<std::ops::Range<u32>>> = None;
+        while step < prepared.steps.len() {
+          match &prepared.steps[step] {
+            Step::Begin { bounds, end, .. } => {
+              if touches(*bounds, tile) {
+                break;
+              }
+              step = end + 1;
+            }
+            Step::End => break,
+            Step::Draw(draw) => {
+              step += 1;
+              if !draw.intersects(tile) {
+                continue;
+              }
+              if clips != Some(&draw.clips) {
+                state
+                  .command_list
+                  .ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_STENCIL, 1., 0, None);
+                state.command_list.SetPipelineState(&self.clip);
+                for (stencil, range) in draw.clips.iter().enumerate() {
+                  state.command_list.OMSetStencilRef(stencil as u32);
+                  state
+                    .command_list
+                    .DrawInstanced(range.end - range.start, 1, range.start, 0);
+                }
+                clips = Some(&draw.clips);
+              }
+              state.command_list.OMSetStencilRef(draw.clips.len() as u32);
+              state.command_list.SetPipelineState(match draw.kind {
+                _ if draw.erase => &self.erase,
+                DrawKind::Solid => &self.solid,
+                DrawKind::Image => &self.image,
+                DrawKind::Gradient(GradientKind::Linear) => &self.gradient_linear,
+                DrawKind::Gradient(GradientKind::Radial) => &self.gradient_radial,
+                DrawKind::Gradient(GradientKind::Angular) => &self.gradient_angular,
+              });
+              if let Some(asset) = &draw.asset {
+                state.command_list.SetGraphicsRootDescriptorTable(1, assets[&asset.id]);
+                state
+                  .command_list
+                  .SetGraphicsRootDescriptorTable(2, self.samplers.gpu_handle(usize::from(draw.smooth)));
+              }
+              state
+                .command_list
+                .DrawInstanced(draw.vertices.end - draw.vertices.start, 1, draw.vertices.start, 0);
+            }
+          }
+        }
+        self.resolve_tile(state);
+        if step >= prepared.steps.len() {
+          break;
+        }
+        match &prepared.steps[step] {
+          Step::Begin { alpha, blend, .. } => {
+            let saved = self.saved[level].clone();
+            self.copy_resolved(state, &saved, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, (0, 0), tile);
+            stack.push((*alpha, *blend));
+            level += 1;
+            seed = None;
+            seed_is_surface = false;
+            step += 1;
+          }
+          Step::End => {
+            let layer = self.layer.clone().unwrap();
+            self.copy_resolved(state, &layer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, (0, 0), tile);
+            level -= 1;
+            let (alpha, blend) = stack.pop().unwrap();
+            seed = blend.is_normal().then(|| self.saved[level].clone());
+            seed_is_surface = false;
+            composite = Some((level, alpha, blend));
+            step += 1;
+          }
+          Step::Draw(_) => unreachable!("a draw never ends a pass"),
+        }
       }
-      state.transition_resource(
-        &self.scratch,
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
-        D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
-      );
-      state.transition_resource(
-        &self.resolve,
-        D3D12_RESOURCE_STATE_COPY_SOURCE,
-        D3D12_RESOURCE_STATE_RESOLVE_DEST,
-      );
-      state
-        .command_list
-        .ResolveSubresource(&self.resolve, 0, &self.scratch, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
-      state.transition_resource(
-        &self.scratch,
-        D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
-      );
-      state.transition_resource(
-        &self.resolve,
-        D3D12_RESOURCE_STATE_RESOLVE_DEST,
-        D3D12_RESOURCE_STATE_COPY_SOURCE,
-      );
-      state.transition_resource(
+      self.copy_resolved(
+        state,
         &backing,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-        D3D12_RESOURCE_STATE_COPY_DEST,
-      );
-      let mut src = copy_location(&self.resolve);
-      let mut dst = copy_location(&backing);
-      state.command_list.CopyTextureRegion(
-        &dst,
-        tile[0],
-        tile[1],
-        0,
-        &src,
-        Some(&D3D12_BOX {
-          left: 0,
-          top: 0,
-          front: 0,
-          right: tile[2],
-          bottom: tile[3],
-          back: 1,
-        }),
-      );
-      ManuallyDrop::drop(&mut src.pResource);
-      ManuallyDrop::drop(&mut dst.pResource);
-      state.transition_resource(
-        &backing,
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        (tile[0], tile[1]),
+        tile,
       );
     }
     Ok(())
   }
 }
+
 impl Drop for Renderer {
   fn drop(&mut self) {
     for backing in self.surfaces.values() {
@@ -817,7 +984,8 @@ unsafe fn pipeline(
     ..Default::default()
   });
   let blend = D3D12_RENDER_TARGET_BLEND_DESC {
-    BlendEnable: if mode >= 3 { TRUE } else { FALSE },
+    // Mode 6 writes the finished composite itself, so it must not be blended.
+    BlendEnable: if mode >= 3 && mode != 6 { TRUE } else { FALSE },
     SrcBlend: if mode == 4 { D3D12_BLEND_ZERO } else { D3D12_BLEND_ONE },
     DestBlend: if mode == 4 {
       D3D12_BLEND_ZERO
@@ -844,7 +1012,9 @@ unsafe fn pipeline(
     } else {
       D3D12_STENCIL_OP_KEEP
     },
-    StencilFunc: if mode == 0 {
+    // A whole-tile composite ignores the stencil: the draws inside the layer
+    // were already clipped when they were drawn.
+    StencilFunc: if mode == 0 || mode >= 5 {
       D3D12_COMPARISON_FUNC_ALWAYS
     } else {
       D3D12_COMPARISON_FUNC_EQUAL
@@ -879,7 +1049,7 @@ unsafe fn pipeline(
       FrontFace: face,
       BackFace: face,
     },
-    InputLayout: if vs_entry == b"vs_seed\0" {
+    InputLayout: if vs_entry == b"vs_seed\0" || vs_entry == b"vs_tile\0" {
       Default::default()
     } else {
       D3D12_INPUT_LAYOUT_DESC {

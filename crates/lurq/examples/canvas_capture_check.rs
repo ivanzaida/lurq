@@ -235,6 +235,74 @@ fn main() {
     &scaled.rgba[((60 * scaled.width + 60) * 4) as usize..((60 * scaled.width + 60) * 4 + 4) as usize],
     &[255; 4]
   );
+  // Gradients, shadows, layer blur, blend modes and isolated layers, compared
+  // against the software backend that defines what each of them means. The
+  // fixture is the one the in-crate suites use.
+  tree.set_scale_factor(1.0);
+  let native = lurq::core::ElementRef::new();
+  let software = lurq::core::ElementRef::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(512.0, 1024.0))));
+  tree.set_root(
+    lurq::components::Column::new()
+      .child(
+        lurq::components::Canvas::new()
+          .ref_element(native.clone())
+          .width(512.0)
+          .height(512.0)
+          .opacity(0.0),
+      )
+      .child(
+        lurq::components::Canvas::new()
+          .software()
+          .ref_element(software.clone())
+          .width(512.0)
+          .height(512.0)
+          .opacity(0.0),
+      ),
+  );
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let native = native.as_canvas().unwrap();
+  let software = software.as_canvas().unwrap();
+  for handle in [&native, &software] {
+    lurq::canvas::effects_scene(&handle.context_2d());
+  }
+  let effects = native.snapshot();
+  assert!(tree.pass(&mut app, &surface).rendered);
+  receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let effects = effects.wait_timeout(Duration::from_secs(15)).unwrap().unwrap();
+  let reference = software.snapshot().try_take().unwrap().unwrap();
+  assert_eq!((effects.width, effects.height), (512, 512));
+  let mut different = 0usize;
+  for (a, b) in effects.rgba.chunks_exact(4).zip(reference.rgba.chunks_exact(4)) {
+    if a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap() > 16 {
+      different += 1;
+    }
+  }
+  assert!(
+    different < 512 * 512 / 100,
+    "{backend_name}: AA-tolerant parity over gradients, shadows, blur, blend modes and layers: {different} pixels differ"
+  );
+  let at = |x: u32, y: u32| {
+    let i = ((y * effects.width + x) * 4) as usize;
+    [
+      effects.rgba[i],
+      effects.rgba[i + 1],
+      effects.rgba[i + 2],
+      effects.rgba[i + 3],
+    ]
+  };
+  // The isolated group fades as one image: its overlap is not more opaque than
+  // either shape alone. That is the GroupOpacity refusal this slice removes.
+  assert!(
+    at(300, 300)[3].abs_diff(at(340, 340)[3]) <= 2,
+    "{:?} {:?}",
+    at(300, 300),
+    at(340, 340)
+  );
+  assert_eq!(native.status().error, None);
+  println!("{backend_name} canvas effects parity passed: {different} of 262144 subpixels outside tolerance");
+
   tree.set_root(lurq::components::Rect::new(10., 10.));
   assert!(tree.pass(&mut app, &surface).rendered);
   receiver.recv_timeout(Duration::from_secs(15)).unwrap().unwrap();

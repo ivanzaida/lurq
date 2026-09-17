@@ -40,7 +40,7 @@ fn camera_color_rule_and_edits_use_the_right_mesh() {
     d.fill_path(&path, FillRule::EvenOdd);
     let p = prepare(&canvas, &mut cache);
     assert!((area(&p.vertices) - 64. * 6.).abs() < 0.01);
-    assert_eq!(p.draws[0].bounds, [i as f32, -27., i as f32 + 20., 3.]);
+    assert_eq!(p.steps[0].draw().unwrap().bounds, [i as f32, -27., i as f32 + 20., 3.]);
     assert_eq!(p.vertices[0].color[1], if i % 2 == 0 { 0. } else { 1. });
   }
   assert_eq!(
@@ -80,14 +80,14 @@ fn curves_follow_scale_buckets_including_dpi_skew_and_rotation() {
   for scale in [1.1, 1.5, 1.9, 1.2] {
     let m = Transform2D::translate(73., -8.).then(&Transform2D::scale_uniform(scale));
     cache
-      .append(&path, m, FillRule::NonZero, [1.; 4], &mut Vec::new())
+      .append(&path, m, FillRule::NonZero, [1.; 4], None, &mut Vec::new())
       .unwrap();
     assert_eq!(tolerance(&path, m), 0.05);
   }
   assert_eq!(cache.misses, 1);
   let m = Transform2D::scale_uniform(2.).then(&Transform2D::scale_uniform(1.1));
   cache
-    .append(&path, m, FillRule::NonZero, [1.; 4], &mut Vec::new())
+    .append(&path, m, FillRule::NonZero, [1.; 4], None, &mut Vec::new())
     .unwrap();
   assert_eq!(cache.misses, 2, "DPI participates in flattening scale");
   assert_eq!(tolerance(&path, m), 0.025);
@@ -117,7 +117,7 @@ fn clip_transform_is_frozen_and_stroke_style_changes_invalidate() {
   d.set_line_width(2.);
   d.stroke_path(&path);
   let p = prepare(&canvas, &mut cache);
-  let clip = p.draws[0].clips[0].clone();
+  let clip = p.steps[0].draw().unwrap().clips[0].clone();
   let clip_vertices = &p.vertices[clip.start as usize..clip.end as usize];
   assert!((area(clip_vertices) - 400.).abs() < 0.01);
   assert!(
@@ -125,7 +125,7 @@ fn clip_transform_is_frozen_and_stroke_style_changes_invalidate() {
       .iter()
       .all(|v| v.position[0] >= 10. && v.position[0] <= 30. && v.position[1] >= 14. && v.position[1] <= 34.)
   );
-  assert_eq!(p.draws[0].bounds, [-6., -6., 66., 66.]);
+  assert_eq!(p.steps[0].draw().unwrap().bounds, [-6., -6., 66., 66.]);
   let misses = cache.misses;
   d.translate(4., 0.);
   d.stroke_path(&path);
@@ -180,11 +180,25 @@ fn cached_meshes_preserve_vertex_limit_and_reject_nonfinite_transforms() {
   let path = rect(0.).geometry().unwrap();
   let mut output = Vec::new();
   cache
-    .append(&path, Transform2D::IDENTITY, FillRule::NonZero, [1.; 4], &mut output)
+    .append(
+      &path,
+      Transform2D::IDENTITY,
+      FillRule::NonZero,
+      [1.; 4],
+      None,
+      &mut output,
+    )
     .unwrap();
   output.resize(MAX_VERTICES - 3, output[0]);
   assert_eq!(
-    cache.append(&path, Transform2D::IDENTITY, FillRule::NonZero, [1.; 4], &mut output),
+    cache.append(
+      &path,
+      Transform2D::IDENTITY,
+      FillRule::NonZero,
+      [1.; 4],
+      None,
+      &mut output
+    ),
     Err(CanvasError::StateLimit)
   );
   assert_eq!(cache.misses, 1, "the limit applies on cache hits");
@@ -195,6 +209,7 @@ fn cached_meshes_preserve_vertex_limit_and_reject_nonfinite_transforms() {
       Transform2D::scale_uniform(f32::MAX),
       FillRule::NonZero,
       [1.; 4],
+      None,
       &mut output,
     )
     .unwrap();
@@ -218,6 +233,7 @@ fn repeated_over_capacity_scans_keep_useful_meshes() {
           Transform2D::translate(frame as f32, 0.),
           FillRule::NonZero,
           [1.; 4],
+          None,
           &mut vertices,
         )
         .unwrap();
