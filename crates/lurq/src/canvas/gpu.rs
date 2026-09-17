@@ -7,7 +7,7 @@ use std::{collections::HashMap, ops::Range, time::Duration};
 
 use lyon::{math::point, path::Path as LyonPath, tessellation::*};
 
-use super::{FillRule, path::Geometry, *};
+use super::{BlendMode, FillRule, GradientKind, path::Geometry, *};
 
 mod cache;
 pub(crate) use cache::MeshCache;
@@ -18,6 +18,11 @@ mod benchmark;
 pub(crate) const TILE: u32 = 512;
 pub(crate) const MAX_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_VERTICES: usize = 1_048_576;
+/// Commands one surface may hold, an open layer's own commands included.
+pub(crate) const MAX_COMMANDS: usize = 8192;
+/// Isolated layers that may be open at once. Each costs one tile-sized save
+/// and one tile-sized layer target in the renderer, not a surface-sized one.
+pub const MAX_LAYER_DEPTH: usize = 8;
 static READBACKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 struct ReadbackPermit(Arc<std::sync::atomic::AtomicUsize>);
 impl Drop for ReadbackPermit {
@@ -35,6 +40,16 @@ pub(crate) struct Clip {
   pub previous: Option<Arc<Clip>>,
   pub depth: u32,
   pub bytes: usize,
+}
+
+/// A gradient paint: the ramp to sample, and the map from the path's own model
+/// coordinates onto the gradient's frame. The ramp is an ordinary asset, so it
+/// is uploaded once and shared by every draw that names it.
+#[derive(Clone)]
+pub(crate) struct GradientPaint {
+  pub kind: GradientKind,
+  pub ramp: Asset,
+  pub frame: Transform2D,
 }
 
 #[derive(Clone)]
@@ -58,6 +73,7 @@ pub(crate) enum Command {
     matrix: Transform2D,
     rule: FillRule,
     color: [f32; 4],
+    gradient: Option<GradientPaint>,
     erase: bool,
     clip: Option<Arc<Clip>>,
     scale: f32,
@@ -71,6 +87,14 @@ pub(crate) enum Command {
     clip: Option<Arc<Clip>>,
     scale: f32,
   },
+  /// Opens an isolated layer. Everything until the matching `EndLayer` composites
+  /// into a target of its own at full alpha; the layer then composites onto its
+  /// parent once, with `alpha` and `blend`.
+  BeginLayer {
+    alpha: f32,
+    blend: BlendMode,
+  },
+  EndLayer,
   Readback(Completion, CanvasMetrics, u64),
 }
 
@@ -78,7 +102,13 @@ impl Command {
   pub fn bytes(&self) -> usize {
     std::mem::size_of::<Self>()
       + match self {
-        Self::Path { path, clip, .. } => path.points().len() * 16 + clip.as_ref().map_or(0, |c| c.bytes),
+        Self::Path {
+          path, gradient, clip, ..
+        } => {
+          path.points().len() * 16
+            + clip.as_ref().map_or(0, |c| c.bytes)
+            + gradient.as_ref().map_or(0, |g| g.ramp.data.len())
+        }
         Self::Image { asset, clip, .. } => asset.data.len() + clip.as_ref().map_or(0, |c| c.bytes),
         _ => 0,
       }
@@ -246,13 +276,80 @@ impl CanvasHandle {
   }
 }
 
+/// Commands recorded while an isolated layer is open. They are held here rather
+/// than in the surface queue so a layer always reaches the renderer whole: a
+/// batch taken mid-layer would otherwise carry an unmatched `BeginLayer`.
+pub(crate) struct LayerFrame {
+  pub alpha: f32,
+  pub blend: BlendMode,
+  pub commands: Vec<Command>,
+  pub bytes: usize,
+}
+
 impl Surface {
+  pub(super) fn open_layer(&mut self, alpha: f32, blend: BlendMode) -> Result<(), CanvasError> {
+    if !self.attached {
+      self.error = Some(CanvasError::Detached);
+      return Err(CanvasError::Detached);
+    }
+    if self.layers.len() >= MAX_LAYER_DEPTH {
+      self.error = Some(CanvasError::StateLimit);
+      return Err(CanvasError::StateLimit);
+    }
+    self.layers.push(LayerFrame {
+      alpha,
+      blend,
+      commands: Vec::new(),
+      bytes: 0,
+    });
+    Ok(())
+  }
+
+  /// Closes the innermost layer and hands its recorded work to its parent as one
+  /// `BeginLayer … EndLayer` run. An empty layer composites nothing and is dropped.
+  pub(super) fn close_layer(&mut self) -> bool {
+    let Some(frame) = self.layers.pop() else {
+      return false;
+    };
+    self.layer_bytes -= frame.bytes;
+    self.layer_commands -= frame.commands.len();
+    if frame.commands.is_empty() {
+      return false;
+    }
+    if !self.enqueue(Command::BeginLayer {
+      alpha: frame.alpha,
+      blend: frame.blend,
+    }) {
+      return false;
+    }
+    for command in frame.commands {
+      if !self.enqueue(command) {
+        return false;
+      }
+    }
+    self.enqueue(Command::EndLayer)
+  }
+
+  pub(super) fn discard_layers(&mut self) {
+    self.layers.clear();
+    self.layer_bytes = 0;
+    self.layer_commands = 0;
+  }
+
   pub(super) fn enqueue(&mut self, command: Command) -> bool {
     if !self.attached {
       self.error = Some(CanvasError::Detached);
       return false;
     }
     if matches!(command, Command::Clear) {
+      if let Some(frame) = self.layers.last_mut() {
+        // A layer starts transparent, so clearing it only discards its own work.
+        self.layer_bytes -= frame.bytes;
+        self.layer_commands -= frame.commands.len();
+        frame.bytes = 0;
+        frame.commands.clear();
+        return true;
+      }
       // Preserve snapshot barriers; everything after the last one is obsolete.
       let keep = self
         .commands
@@ -263,12 +360,20 @@ impl Surface {
       self.command_bytes = self.commands.iter().map(Command::bytes).sum();
     }
     let bytes = command.bytes();
-    if self.commands.len() >= 8192 || self.command_bytes + self.inflight_bytes + bytes > MAX_QUEUE_BYTES {
+    let queued = self.commands.len() + self.layer_commands;
+    if queued >= MAX_COMMANDS || self.command_bytes + self.layer_bytes + self.inflight_bytes + bytes > MAX_QUEUE_BYTES {
       self.error = Some(CanvasError::QueueFull);
       if let Command::Readback(done, ..) = command {
         done.finish(Err(CanvasError::QueueFull));
       }
       return false;
+    }
+    if let Some(frame) = self.layers.last_mut() {
+      frame.bytes += bytes;
+      frame.commands.push(command);
+      self.layer_bytes += bytes;
+      self.layer_commands += 1;
+      return true;
     }
     self.command_bytes += bytes;
     self.commands.push(command);
@@ -283,6 +388,17 @@ pub(crate) struct Vertex {
   pub uv: [f32; 2],
   pub color: [f32; 4],
 }
+/// What a draw's fragments are coloured by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DrawKind {
+  /// The vertex colour, premultiplied.
+  Solid,
+  /// A premultiplied RGBA asset sampled through `uv`, scaled by the vertex colour.
+  Image,
+  /// A gradient ramp sampled at the parameter `uv` carries in the gradient's frame.
+  Gradient(GradientKind),
+}
+
 pub(crate) struct Draw {
   pub vertices: Range<u32>,
   pub clips: Vec<Range<u32>>,
@@ -290,25 +406,75 @@ pub(crate) struct Draw {
   pub asset: Option<Asset>,
   pub smooth: bool,
   pub erase: bool,
+  pub kind: DrawKind,
 }
+/// One entry of a prepared batch, in order: a draw, or an isolated layer's
+/// boundary.
+pub(crate) enum Step {
+  Draw(Draw),
+  /// `end` is the index of the matching [`Step::End`]; `bounds` covers every
+  /// draw inside, so a tile the layer does not touch skips the whole run.
+  Begin {
+    alpha: f32,
+    blend: BlendMode,
+    bounds: [f32; 4],
+    end: usize,
+  },
+  End,
+}
+impl Step {
+  pub fn draw(&self) -> Option<&Draw> {
+    match self {
+      Self::Draw(draw) => Some(draw),
+      _ => None,
+    }
+  }
+}
+const NO_BOUNDS: [f32; 4] = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+fn cover(into: &mut [f32; 4], with: [f32; 4]) {
+  into[0] = into[0].min(with[0]);
+  into[1] = into[1].min(with[1]);
+  into[2] = into[2].max(with[2]);
+  into[3] = into[3].max(with[3]);
+}
+
 #[derive(Default)]
 pub(crate) struct Prepared {
   pub vertices: Vec<Vertex>,
-  pub draws: Vec<Draw>,
+  pub steps: Vec<Step>,
   pub clear: bool,
 }
 impl Prepared {
   pub fn new(commands: &[Command], cache: &mut MeshCache) -> Result<Self, CanvasError> {
     let mut result = Self::default();
     let mut clips = HashMap::new();
+    let mut open: Vec<(usize, [f32; 4])> = Vec::new();
     for command in commands {
-      if matches!(command, Command::Clear) {
-        result = Self {
-          clear: true,
-          ..Self::default()
-        };
-        clips.clear();
-        continue;
+      match command {
+        Command::Clear => {
+          result = Self {
+            clear: true,
+            ..Self::default()
+          };
+          clips.clear();
+          open.clear();
+          continue;
+        }
+        Command::BeginLayer { alpha, blend } => {
+          open.push((result.steps.len(), NO_BOUNDS));
+          result.steps.push(Step::Begin {
+            alpha: *alpha,
+            blend: *blend,
+            bounds: NO_BOUNDS,
+            end: 0,
+          });
+          continue;
+        }
+        Command::EndLayer => {
+          close_layer(&mut result.steps, &mut open);
+          continue;
+        }
+        _ => {}
       }
       let (clip, scale) = match command {
         Command::Path { clip, scale, .. } | Command::Image { clip, scale, .. } => (clip, *scale),
@@ -333,6 +499,7 @@ impl Prepared {
               Transform2D::scale_uniform(scale).then(&clip.matrix),
               clip.rule,
               [0.; 4],
+              None,
               &mut result.vertices,
             )?;
           }
@@ -343,17 +510,33 @@ impl Prepared {
         clip_ranges.push(range);
       }
       let start = result.vertices.len() as u32;
-      let (asset, smooth, erase) = match command {
+      let (asset, smooth, erase, kind) = match command {
         Command::Path {
           path,
           matrix,
           rule,
           color,
+          gradient,
           erase,
           ..
         } => {
-          cache.append(path, *matrix, *rule, *color, &mut result.vertices)?;
-          (None, false, *erase)
+          cache.append(
+            path,
+            *matrix,
+            *rule,
+            *color,
+            gradient.as_ref().map(|g| g.frame),
+            &mut result.vertices,
+          )?;
+          match gradient {
+            Some(gradient) => (
+              Some(gradient.ramp.clone()),
+              true,
+              *erase,
+              DrawKind::Gradient(gradient.kind),
+            ),
+            None => (None, false, *erase, DrawKind::Solid),
+          }
         }
         Command::Image {
           asset,
@@ -373,7 +556,7 @@ impl Prepared {
               color: [*alpha; 4],
             });
           }
-          (Some(asset.clone()), *smooth, false)
+          (Some(asset.clone()), *smooth, false, DrawKind::Image)
         }
         _ => unreachable!(),
       };
@@ -381,30 +564,43 @@ impl Prepared {
       if end as usize > MAX_VERTICES {
         return Err(CanvasError::StateLimit);
       }
-      let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+      let mut bounds = NO_BOUNDS;
       for v in &result.vertices[start as usize..end as usize] {
         bounds[0] = bounds[0].min(v.position[0]);
         bounds[1] = bounds[1].min(v.position[1]);
         bounds[2] = bounds[2].max(v.position[0]);
         bounds[3] = bounds[3].max(v.position[1]);
       }
-      result.draws.push(Draw {
+      for layer in &mut open {
+        cover(&mut layer.1, bounds);
+      }
+      result.steps.push(Step::Draw(Draw {
         vertices: start..end,
         clips: clip_ranges,
         bounds,
         asset,
         smooth,
         erase,
-      });
+        kind,
+      }));
+    }
+    // A batch is taken whole, so an unmatched `BeginLayer` cannot normally reach
+    // a backend. Closing one here keeps a backend's own layer stack balanced
+    // rather than making every backend defend itself.
+    while !open.is_empty() {
+      close_layer(&mut result.steps, &mut open);
     }
     Ok(result)
+  }
+  pub fn draws(&self) -> impl Iterator<Item = &Draw> {
+    self.steps.iter().filter_map(Step::draw)
   }
   pub fn tiles(&self, width: u32, height: u32) -> Vec<[u32; 4]> {
     let mut result = Vec::new();
     for y in (0..height).step_by(TILE as usize) {
       for x in (0..width).step_by(TILE as usize) {
         let tile = [x, y, TILE.min(width - x), TILE.min(height - y)];
-        if self.draws.iter().any(|d| d.intersects(tile)) {
+        if self.draws().any(|d| d.intersects(tile)) {
           result.push(tile);
         }
       }
@@ -412,13 +608,33 @@ impl Prepared {
     result
   }
 }
-impl Draw {
-  pub fn intersects(&self, [x, y, w, h]: [u32; 4]) -> bool {
-    self.bounds[0] < (x + w) as f32
-      && self.bounds[1] < (y + h) as f32
-      && self.bounds[2] > x as f32
-      && self.bounds[3] > y as f32
+fn close_layer(steps: &mut Vec<Step>, open: &mut Vec<(usize, [f32; 4])>) {
+  let Some((begin, bounds)) = open.pop() else {
+    return;
+  };
+  let end = steps.len();
+  steps.push(Step::End);
+  if let Some(Step::Begin {
+    bounds: slot,
+    end: index,
+    ..
+  }) = steps.get_mut(begin)
+  {
+    *slot = bounds;
+    *index = end;
   }
+  if let Some(parent) = open.last_mut() {
+    cover(&mut parent.1, bounds);
+  }
+}
+impl Draw {
+  pub fn intersects(&self, tile: [u32; 4]) -> bool {
+    touches(self.bounds, tile)
+  }
+}
+/// Whether work bounded by `bounds` can change anything in `tile`.
+pub(crate) fn touches(bounds: [f32; 4], [x, y, w, h]: [u32; 4]) -> bool {
+  bounds[0] < (x + w) as f32 && bounds[1] < (y + h) as f32 && bounds[2] > x as f32 && bounds[3] > y as f32
 }
 fn mesh(
   path: &Path,
