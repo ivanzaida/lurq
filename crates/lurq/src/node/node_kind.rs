@@ -154,11 +154,7 @@ impl TextStyleSource {
   pub(crate) fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
     let mut style = match &self.base {
       TextStyleBase::Default => typography.default_style().clone(),
-      // A missing extra style falls back to the default style, as an unresolved
-      // palette color leaves the style's own color in place.
-      TextStyleBase::Typography(style) => typography
-        .try_resolve(*style)
-        .unwrap_or_else(|| typography.default_style().clone()),
+      TextStyleBase::Typography(style) => typography.resolve_or_default(*style),
       TextStyleBase::Explicit(style) => style.clone(),
     };
     if let Some(color) = self.color.as_ref().and_then(|color| color.resolve(palette)) {

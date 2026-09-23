@@ -132,6 +132,12 @@ impl ThemeTypography {
   pub fn try_resolve(&self, style: impl Into<TypographyStyle>) -> Option<TextStyle> {
     self.try_get(style)
   }
+
+  /// Node resolution: a missing extra style falls back to the default style, as
+  /// an unresolved palette color leaves a node's own color in place.
+  pub(crate) fn resolve_or_default(&self, style: TypographyStyle) -> TextStyle {
+    self.try_get(style).unwrap_or_else(|| self.default_style().clone())
+  }
 }
 
 impl Default for ThemeTypography {
