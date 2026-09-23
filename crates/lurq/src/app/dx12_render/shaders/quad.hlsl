@@ -170,6 +170,13 @@ float aa_width(float dist)
   return max(fwidth(dist), 1.0);
 }
 
+// Ramp width for one of the four half-pixel subsamples: half a pixel, so a
+// pixel fully inside an axis-aligned edge gets full coverage. Matches quad.wgsl.
+float subsample_aa_width(float dist)
+{
+  return 0.5 * aa_width(dist);
+}
+
 float rounded_clip_alpha(float2 frag_pos)
 {
   if (clip_active.x <= 0.5)
@@ -188,7 +195,7 @@ float rounded_fill_alpha(float2 local, float2 half_size, float4 radii_h, float4 
 {
   float2 radius = pick_radius(local, radii_h, radii_v);
   float dist = sd_rounded_box(local, half_size, radius);
-  return saturate(0.5 - dist / aa_width(dist));
+  return saturate(0.5 - dist / subsample_aa_width(dist));
 }
 
 float rounded_stroke_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float max_stroke)
@@ -206,7 +213,7 @@ float rounded_stroke_alpha(float2 local, float2 half_size, float4 radii_h, float
   float2 inner_radius = max(radius - float2(max_stroke, max_stroke), float2(0.0, 0.0));
   float inner_dist = sd_rounded_box(local - inner_center, inner_half, inner_radius);
   float dist = max(outer_dist, -inner_dist);
-  return saturate(0.5 - dist / aa_width(dist));
+  return saturate(0.5 - dist / subsample_aa_width(dist));
 }
 
 float supersampled_fill_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v)

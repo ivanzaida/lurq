@@ -1,6 +1,8 @@
 #[cfg(feature = "canvas")]
 mod canvas;
 mod extension;
+#[cfg(test)]
+mod quad_tests;
 mod vertex;
 
 #[cfg(all(feature = "raster", target_os = "macos"))]

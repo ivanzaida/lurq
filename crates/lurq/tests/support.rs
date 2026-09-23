@@ -46,6 +46,7 @@ pub fn pointer_click(tree: &mut Tree, x: f32, y: f32, button: MouseButton) {
 
 #[derive(Clone, Debug)]
 pub struct RenderSnapshot {
+  pub clear_color: Color,
   pub rects: Vec<RectSnapshot>,
   pub glyphs: Vec<GlyphSnapshot>,
   pub glyph_count: usize,
@@ -126,6 +127,7 @@ impl RenderEngine for CapturingRenderEngine {
     let rects = list.rects.iter().map(rect_snapshot).collect();
     let glyphs = list.glyphs.iter().map(glyph_snapshot).collect();
     *self.capture.lock().unwrap() = Some(RenderSnapshot {
+      clear_color: list.clear_color,
       rects,
       glyphs,
       glyph_count: list.glyphs.len(),
@@ -142,6 +144,7 @@ impl RenderEngine for CapturingRenderEngine {
 
 fn empty_snapshot() -> RenderSnapshot {
   RenderSnapshot {
+    clear_color: Color::new(0, 0, 0, 0),
     rects: vec![],
     glyphs: vec![],
     glyph_count: 0,

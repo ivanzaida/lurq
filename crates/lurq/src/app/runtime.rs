@@ -73,6 +73,23 @@ const SLOW_FRAME_PASS_TIMELINE_THRESHOLD: Duration = Duration::from_millis(16);
 const PASS_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
+
+/// The frame clear colour: the app root's background, with palette roles
+/// resolved through the theme. The synthetic overlay host that wraps the root
+/// while modals or overlays are mounted is skipped. Only a root without a
+/// resolvable background falls back to white. Root rect edges are anti-aliased
+/// against this colour, so clearing a dark app to white could show a light seam
+/// at the window edge.
+fn root_clear_color(root: Option<&Node>, app: &App) -> Color {
+  let base = match root {
+    Some(host) if host.has_synthetic_role(SyntheticNodeRole::OverlayHost) => host.children.first(),
+    root => root,
+  };
+  base
+    .and_then(Node::background_color)
+    .and_then(|color| color.resolve(&app.theme().palette()))
+    .unwrap_or(DEFAULT_CLEAR_COLOR)
+}
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
@@ -1979,7 +1996,7 @@ impl Tree {
 
     let initial_cache_start = Instant::now();
     let initial_cache_result = if self.root.is_some() && self.render_engine.is_some() {
-      let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
+      let clear_color = root_clear_color(self.root.as_ref(), app);
       let window = surface.window_handle().unwrap();
       let display = surface.display_handle().unwrap();
       self.try_render_cached_render_list(app, clear_color, window, display, report.reasons)
@@ -2039,7 +2056,7 @@ impl Tree {
     if self.render_engine.is_none() {
       return report;
     }
-    let clear_color = self.root.as_ref().and_then(Node::color).unwrap_or(DEFAULT_CLEAR_COLOR);
+    let clear_color = root_clear_color(self.root.as_ref(), app);
 
     let window = surface.window_handle().unwrap();
     let display = surface.display_handle().unwrap();

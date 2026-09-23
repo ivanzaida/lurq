@@ -347,3 +347,80 @@ fn default_title_bar_paints_its_bottom_border() {
 
   assert!(thin_lines(&snapshot).contains(&title_border));
 }
+
+// Physical 1440x992 logical window at scale 1.5 with palette-coloured chrome,
+// like an app that takes every color from its theme.
+struct ThemedChrome;
+
+impl Component for ThemedChrome {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .border(ChromeBorderPolicy::Hidden)
+      .title_bar(
+        ChromeTitleBar::new()
+          .height(TITLE_HEIGHT)
+          .background(PaletteColor::extra("chrome_bar"))
+          .border_bottom(None),
+      )
+      .content(
+        Column::new()
+          .width(Dimension::Pct(100.0))
+          .height(Dimension::Pct(100.0))
+          .background(PaletteColor::extra("chrome_content")),
+      )
+      .mount(ctx)
+  }
+}
+
+#[test]
+fn themed_chrome_edges_are_covered_by_background_colors_only() {
+  let (bar, content) = (Color::from_hex("#101010"), Color::from_hex("#1a1a1a"));
+  let (width, height) = (2160.0, 1488.0);
+  let mut app = App::new();
+  app.theme().set_palette_color(PaletteColor::extra("chrome_bar"), bar);
+  app
+    .theme()
+    .set_palette_color(PaletteColor::extra("chrome_content"), content);
+  let mut tree = Tree::new();
+  tree.set_scale_factor(1.5);
+  tree.resize(width as u32, height as u32);
+  tree.mount_root::<ThemedChrome>(&mut app, ());
+  let snapshot = render_pass_with_app(&mut tree, &mut app);
+
+  // Rect edges are anti-aliased against the clear colour, so it must be the
+  // resolved frame background, not the white fallback for unresolved roots.
+  assert_eq!(snapshot.clear_color, content);
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| (rect.x, rect.y, rect.width, rect.height, rect.color) == (0.0, 0.0, width, height, content)),
+    "frame background covers the whole physical viewport"
+  );
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| (rect.x, rect.y, rect.width, rect.height, rect.color) == (0.0, 0.0, width, TITLE_HEIGHT * 1.5, bar)),
+    "title bar spans the full width from the top edge"
+  );
+
+  let edge_rects = snapshot.rects.iter().filter(|rect| {
+    rect.color.a() > 0
+      && (rect.x <= 0.0 || rect.y <= 0.0 || rect.x + rect.width >= width || rect.y + rect.height >= height)
+  });
+  for rect in edge_rects {
+    assert!(rect.color == bar || rect.color == content, "edge rect {rect:?}");
+    assert_eq!(rect.stroke, [0.0; 4], "edge rect {rect:?}");
+    for edge in [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height] {
+      assert_eq!(edge, edge.round(), "edge rects sit on whole physical pixels: {rect:?}");
+    }
+  }
+}

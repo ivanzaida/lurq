@@ -210,10 +210,20 @@ fn aa_width(d: f32) -> f32 {
     return max(fwidth(d), 1.0);
 }
 
+/// Ramp width for one of the four half-pixel subsamples below. Each
+/// subsample stands for a 0.5 px square, so its ramp is half a pixel wide:
+/// a full-pixel ramp per subsample blurred every edge twice, leaving pixels
+/// fully inside an axis-aligned edge at 87.5% coverage and bleeding 12.5%
+/// into the pixel outside (a faint line against the clear colour at the
+/// window edge).
+fn subsample_aa_width(d: f32) -> f32 {
+    return 0.5 * aa_width(d);
+}
+
 fn rounded_fill_alpha(local: vec2<f32>, half_size: vec2<f32>, radii_h: vec4<f32>, radii_v: vec4<f32>) -> f32 {
     let radius = pick_radius(local, radii_h, radii_v);
     let dist = sd_rounded_box(local, half_size, radius);
-    return clamp(0.5 - dist / aa_width(dist), 0.0, 1.0);
+    return clamp(0.5 - dist / subsample_aa_width(dist), 0.0, 1.0);
 }
 
 fn rounded_stroke_alpha(
@@ -240,7 +250,7 @@ fn rounded_stroke_alpha(
     );
     let inner_dist = sd_rounded_box(local - inner_centre, inner_half, inner_r);
     let dist = max(outer_dist, -inner_dist);
-    return clamp(0.5 - dist / aa_width(dist), 0.0, 1.0);
+    return clamp(0.5 - dist / subsample_aa_width(dist), 0.0, 1.0);
 }
 
 fn supersampled_fill_alpha(local: vec2<f32>, half_size: vec2<f32>, radii_h: vec4<f32>, radii_v: vec4<f32>) -> f32 {
