@@ -644,6 +644,26 @@ impl WgpuRenderEngine {
     format
   }
 
+  /// Whether the next `render` reconfigures the surface to the latest `resize`.
+  fn surface_size_pending(&self) -> bool {
+    self
+      .surface_config
+      .as_ref()
+      .is_some_and(|config| (config.width, config.height) != (self.width, self.height))
+  }
+
+  /// Reconfigures the surface once for however many `resize` calls arrived since the last frame.
+  fn apply_pending_surface_size(&mut self) {
+    if !self.surface_size_pending() {
+      return;
+    }
+    if let (Some(config), Some(device), Some(surface)) = (&mut self.surface_config, &self.device, &self.surface) {
+      config.width = self.width;
+      config.height = self.height;
+      surface.configure(device, config);
+    }
+  }
+
   fn ensure_initialized(&mut self, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
     if self.device.is_some() && self.surface.is_some() {
       return;
@@ -1213,17 +1233,16 @@ impl RenderEngine for WgpuRenderEngine {
     self.glyph_clip_bind_groups.clear();
     #[cfg(feature = "raster")]
     self.image_clip_bind_groups.clear();
-    if let (Some(config), Some(device), Some(surface)) = (&mut self.surface_config, &self.device, &self.surface) {
-      config.width = self.width;
-      config.height = self.height;
-      surface.configure(device, config);
-    }
+    // The surface is reconfigured by the next `render`, not here. Reconfiguring waits for the GPU and
+    // recreates the swapchain, and a live resize can deliver hundreds of size events per frame (Windows
+    // replays the ones queued during a modal sizing loop back to back), which stalled for seconds.
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     self.ensure_initialized(window, display);
+    self.apply_pending_surface_size();
     let _init_dur = profile_elapsed!(_init_start);
     self.prepare_frame_extensions(list);
     #[cfg(feature = "canvas")]
@@ -2988,6 +3007,34 @@ mod tests {
       ),
       Some((10, 20, 31, 41))
     );
+  }
+
+  #[test]
+  fn resize_defers_surface_reconfiguration_to_the_next_frame() {
+    let mut engine = super::WgpuRenderEngine::new();
+    engine.surface_config = Some(wgpu::SurfaceConfiguration {
+      usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+      format: wgpu::TextureFormat::Bgra8UnormSrgb,
+      width: 800,
+      height: 600,
+      present_mode: wgpu::PresentMode::Fifo,
+      alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+      view_formats: vec![],
+      desired_maximum_frame_latency: 1,
+    });
+
+    // A burst of size events (a live resize) only records the latest size.
+    for width in (804..=1400).step_by(4) {
+      engine.resize(width, 600);
+    }
+
+    let config = engine.surface_config.as_ref().unwrap();
+    assert_eq!((config.width, config.height), (800, 600));
+    assert_eq!((engine.width, engine.height), (1400, 600));
+    assert!(engine.surface_size_pending());
+
+    engine.resize(800, 600);
+    assert!(!engine.surface_size_pending(), "back at the configured size");
   }
 
   #[test]

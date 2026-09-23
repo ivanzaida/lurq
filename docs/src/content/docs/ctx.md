@@ -380,7 +380,8 @@ event.stop_immediate_propagation();
 ```
 
 With the winit shell, `start_drag()` and `start_resize(...)` use native platform APIs where possible. On Windows, the
-shell falls back to non-client mouse messages for custom chrome drag and resize behavior.
+shell posts a non-client mouse press at the cursor position, so the system move or size loop runs from the event loop
+rather than inside your handler. The window repaints at each new size during a live edge drag.
 
 ### Frame Capture
 

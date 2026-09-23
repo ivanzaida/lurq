@@ -656,6 +656,16 @@ impl ManagedWindow {
         self.tree.resize(size.width, size.height);
         self.notify_size_changed(size.width, size.height);
         self.sync_window_state();
+        // Paint the new size from inside the event: during a live edge drag Windows runs a modal sizing
+        // loop that keeps delivering WM_SIZE, but WM_PAINT (and so `RedrawRequested`) only when the
+        // queue is idle, and DWM stretches the previous frame until a new one is presented.
+        // Only for the current size: size events queued while winit was busy arrive back to back, and
+        // painting each stale one would replay the whole drag.
+        let current = self.window.as_ref().is_some_and(|w| w.inner_size() == size);
+        if current && size.width > 0 && size.height > 0 && self.present_now(app, false) {
+          self.apply_window_commands(event_loop);
+          return true;
+        }
         self.request_redraw();
       }
       WindowEvent::Focused(focused) => {
@@ -1099,7 +1109,11 @@ impl ManagedSecondaryWindow {
       WindowEvent::Resized(size) => {
         tree.resize(size.width, size.height);
         self.sync_window_state(tree);
-        self.request_redraw();
+        // Paint inside the event, as the main window does, so a live resize is not stretched.
+        let current = self.window.as_ref().is_some_and(|w| w.inner_size() == size);
+        if !current || size.width == 0 || size.height == 0 || !self.present_now(app, tree) {
+          self.request_redraw();
+        }
       }
       WindowEvent::Focused(focused) => {
         tree.window().set_focused(focused);
@@ -2055,13 +2069,21 @@ fn begin_native_window_resize(window: &Window, direction: WindowResizeDirection)
   false
 }
 
+/// Starts the native move/size loop the way a press on a real frame would.
+///
+/// The message is posted, not sent: `SendMessageW` ran the whole modal loop inside the lurq event
+/// handler that issued the command, where winit buffers every event. No frame was drawn for the
+/// entire drag (DWM stretched the last one) and the buffered size events were replayed afterwards.
+/// Posted, the loop runs from winit's own message pump, which delivers `Resized` and paints during
+/// the drag. The start point is the cursor position in screen coordinates, which the loop uses as
+/// the drag origin (for example to place a maximized window restored by dragging its caption).
 #[cfg(windows)]
 fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
   use windows::Win32::{
-    Foundation::{HWND, LPARAM, WPARAM},
+    Foundation::{HWND, LPARAM, POINT, WPARAM},
     UI::{
       Input::KeyboardAndMouse::ReleaseCapture,
-      WindowsAndMessaging::{SendMessageW, WM_NCLBUTTONDOWN},
+      WindowsAndMessaging::{GetCursorPos, PostMessageW, WM_NCLBUTTONDOWN},
     },
   };
 
@@ -2076,11 +2098,43 @@ fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
     return false;
   }
 
+  let mut cursor = POINT::default();
   unsafe {
+    if GetCursorPos(&mut cursor).is_err() {
+      return false;
+    }
     let _ = ReleaseCapture();
-    SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(hit_test as usize)), Some(LPARAM(0)));
+    PostMessageW(
+      Some(hwnd),
+      WM_NCLBUTTONDOWN,
+      WPARAM(hit_test as usize),
+      LPARAM(screen_point_lparam(cursor.x, cursor.y)),
+    )
+    .is_ok()
   }
-  true
+}
+
+/// `MAKELPARAM` of a screen point, as `WM_NC*` mouse messages carry it: signed 16-bit x and y.
+#[cfg(windows)]
+fn screen_point_lparam(x: i32, y: i32) -> isize {
+  let x = x as i16 as u16 as u32;
+  let y = y as i16 as u16 as u32;
+  ((y << 16) | x) as i32 as isize
+}
+
+#[cfg(all(test, windows))]
+mod native_drag_tests {
+  use super::screen_point_lparam;
+
+  #[test]
+  fn screen_point_lparam_packs_signed_coordinates() {
+    assert_eq!(screen_point_lparam(0, 0), 0);
+    assert_eq!(screen_point_lparam(1440, 900), (900 << 16) | 1440);
+    // Monitors left of or above the primary have negative screen coordinates.
+    let packed = screen_point_lparam(-100, -20) as u32;
+    assert_eq!((packed & 0xffff) as u16 as i16, -100);
+    assert_eq!((packed >> 16) as u16 as i16, -20);
+  }
 }
 
 #[cfg(test)]
