@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.22.0 — 2026-09-23
 
 - Make `WindowControls` styleable. `button_width`, `button_height`, and `button_size` size the Windows-style buttons (default 46 wide, title-bar height). `content(WindowControlKind, WindowControlContent)` replaces what a control draws: a glyph in a typography role (`WindowControlContent::glyph`, for example an icon-font code point with an `Extra` typography role) or an app-built element (`WindowControlContent::element`, which receives the foreground color). `foreground`, `background`, `hover_background`, and `active_background` set every control at once, including close, so the red close hover can be replaced; `colors` and `control_colors` take a `WindowControlColors` for all controls or one. Colors accept `Color`, hex strings, and `PaletteColor` roles, including `PaletteColor::Extra`. Hover and active change the background only; the foreground stays constant. Without these calls the controls look as before. `WindowControls` moves to its own module; the `lurq::components` paths are unchanged.
 - Make the macOS traffic lights configurable with `WindowControls::traffic_lights(TrafficLightColors)`. The default minimize color changes from `#ffbd2e` (the pre-Big Sur value) to `#febc2e`, matching the macOS 11+ close `#ff5f57` and zoom `#28c840` lurq already used. Apple does not publish these colors; they are sampled from the system controls.
