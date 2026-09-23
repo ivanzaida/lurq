@@ -2970,6 +2970,41 @@ impl Tree {
     self.synthesize_click(x, y, button, modifiers);
   }
 
+  /// Ends a press the OS took over, for example to run a native window move or resize loop.
+  ///
+  /// Such a loop consumes the release, so the shell calls this once the loop owns the button. The
+  /// release takes the normal mouse-up path, clearing active styles, scrollbar, slider, and text
+  /// selection drags, but produces no click: the press moved the window, it did not press the element.
+  /// An `on_drag_*` session ends as a miss without reaching a drop target. Does nothing unless
+  /// `button` is held.
+  pub fn mouse_press_taken_by_os(&mut self, x: f32, y: f32, button: MouseButton) {
+    let pressed = self.click_press.as_ref().is_some_and(|press| press.button == button)
+      || self.active_drag.as_ref().is_some_and(|drag| drag.button == button)
+      || self.dragging_scroll.is_some()
+      || self.dragging_slider.is_some()
+      || self.dragging_text_selection.is_some();
+    if !pressed {
+      return;
+    }
+
+    self.click_press = None;
+    if self.active_drag.as_ref().is_some_and(|drag| drag.button == button) {
+      let drag = self.active_drag.take().unwrap();
+      let scale = self.scale_factor();
+      let event = drag.event(x / scale, y / scale, Some(DropResult::Missed));
+      for handler in drag.on_end {
+        handler.call(&event);
+      }
+    }
+    self.dispatch_mouse(x, y, button, MouseEventKind::Up, MouseModifiers::default());
+    self.clear_active_path();
+    // Drags that end on release arm a suppression for the click that release would produce. There
+    // is no such click here, so the suppression would swallow the next real one instead.
+    self.suppressed_click = None;
+    self.needs_redraw = true;
+    self.apply_reactive_updates_after_event();
+  }
+
   fn synthesize_click(&mut self, x: f32, y: f32, button: MouseButton, modifiers: MouseModifiers) {
     let now = Instant::now();
     let position = (x, y);

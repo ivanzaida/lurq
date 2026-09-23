@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix a press that stayed held after moving or resizing the window from custom chrome. The native move or size loop (Windows `WM_NCLBUTTONDOWN`, macOS `performWindowDragWithEvent:`, X11/Wayland `drag_window`) consumes the button release, so lurq never saw it. The pressed element stayed active, and a text-selection, slider, scrollbar or `on_drag_*` session begun by the press kept following the pointer. The next release then completed the stale press and could fire a click or a drop. When `start_drag` or `start_resize` hands the press to a native loop, the winit shell now ends it with the new `Tree::mouse_press_taken_by_os`. That runs the normal mouse-up path without a click, ends drag sessions as a miss, and clears the click suppression they arm. Present since custom chrome was added.
+
 ## 0.22.0 — 2026-09-23
 
 - Make `WindowControls` styleable. `button_width`, `button_height`, and `button_size` size the Windows-style buttons (default 46 wide, title-bar height). `content(WindowControlKind, WindowControlContent)` replaces what a control draws: a glyph in a typography role (`WindowControlContent::glyph`, for example an icon-font code point with an `Extra` typography role) or an app-built element (`WindowControlContent::element`, which receives the foreground color). `foreground`, `background`, `hover_background`, and `active_background` set every control at once, including close, so the red close hover can be replaced; `colors` and `control_colors` take a `WindowControlColors` for all controls or one. Colors accept `Color`, hex strings, and `PaletteColor` roles, including `PaletteColor::Extra`. Hover and active change the background only; the foreground stays constant. Without these calls the controls look as before. `WindowControls` moves to its own module; the `lurq::components` paths are unchanged.

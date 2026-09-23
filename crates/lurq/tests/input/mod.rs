@@ -57,3 +57,7 @@ mod slider {
   mod suppresses_parent_click;
   mod updates_from_click;
 }
+
+mod pointer {
+  mod native_window_gesture;
+}

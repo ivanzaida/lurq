@@ -443,17 +443,19 @@ impl ManagedWindow {
           self.notify_size_changed(width, height);
         }
         WindowCommand::StartDrag => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_drag(window) {
-              let _ = window.drag_window();
-            }
+          if self.window.as_ref().is_some_and(start_native_window_drag) {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            self.tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StartResize(direction) => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_resize(window, direction) {
-              let _ = window.drag_resize_window(to_winit_resize_direction(direction));
-            }
+          if self
+            .window
+            .as_ref()
+            .is_some_and(|window| start_native_window_resize(window, direction))
+          {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            self.tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StopDrag => {}
@@ -973,17 +975,19 @@ impl ManagedSecondaryWindow {
           }
         }
         WindowCommand::StartDrag => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_drag(window) {
-              let _ = window.drag_window();
-            }
+          if self.window.as_ref().is_some_and(start_native_window_drag) {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StartResize(direction) => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_resize(window, direction) {
-              let _ = window.drag_resize_window(to_winit_resize_direction(direction));
-            }
+          if self
+            .window
+            .as_ref()
+            .is_some_and(|window| start_native_window_resize(window, direction))
+          {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StopDrag => {}
@@ -2029,6 +2033,21 @@ fn to_winit_resize_direction(direction: WindowResizeDirection) -> WinitResizeDir
     WindowResizeDirection::SouthWest => WinitResizeDirection::SouthWest,
     WindowResizeDirection::West => WinitResizeDirection::West,
   }
+}
+
+/// Starts the native window move loop. True once the OS owns the left-button press: the loop consumes
+/// its release, so lurq never receives it (the caller ends the press with
+/// [`Tree::mouse_press_taken_by_os`]). This holds for the Windows loop, `performWindowDragWithEvent` on
+/// macOS, and the X11 and Wayland compositor moves behind `drag_window`.
+fn start_native_window_drag(window: &Window) -> bool {
+  begin_native_window_drag(window) || window.drag_window().is_ok()
+}
+
+/// Starts the native window resize loop; see [`start_native_window_drag`]. macOS has none, so a resize
+/// handle there keeps its press and gets the real release.
+fn start_native_window_resize(window: &Window, direction: WindowResizeDirection) -> bool {
+  begin_native_window_resize(window, direction)
+    || window.drag_resize_window(to_winit_resize_direction(direction)).is_ok()
 }
 
 #[cfg(windows)]
