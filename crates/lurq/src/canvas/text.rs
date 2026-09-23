@@ -5,7 +5,7 @@ use tiny_skia::{Pixmap, PixmapPaint};
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
-  app::glyph_engine::FaceWeights,
+  app::glyph_engine::{FaceWeights, with_letter_spacing},
   layout::text_style::{FontStyle, FontWeight, TextStyle},
   node::color::Color,
 };
@@ -16,6 +16,9 @@ pub struct CanvasFont {
   pub size: f32,
   pub weight: FontWeight,
   pub style: FontStyle,
+  /// Extra space after every glyph in logical pixels, like
+  /// [`TextStyle::letter_spacing`]; scales with the canvas transform like `size`.
+  pub letter_spacing: f32,
 }
 impl CanvasFont {
   pub fn new(family: impl Into<Arc<str>>, size: f32) -> Self {
@@ -24,6 +27,7 @@ impl CanvasFont {
       size,
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
+      letter_spacing: 0.0,
     }
   }
   pub(crate) fn from_style(style: &TextStyle) -> Self {
@@ -32,6 +36,7 @@ impl CanvasFont {
       size: style.font_size,
       weight: style.weight,
       style: style.style,
+      letter_spacing: style.letter_spacing,
     }
   }
 }
@@ -202,6 +207,7 @@ impl CanvasTextEngine {
       })
       .weight(weight)
       .style(font.style.to_cosmic());
+    let attrs = with_letter_spacing(attrs, font.letter_spacing, font.size);
     let text = text.replace(['\n', '\r', '\t'], " ");
     buffer.set_text(&text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut self.fonts, false);

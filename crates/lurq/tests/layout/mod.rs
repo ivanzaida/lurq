@@ -29,6 +29,7 @@ mod flex_constraints;
 mod font_weight;
 mod frame;
 mod frame_constraints;
+mod letter_spacing;
 mod nested;
 mod node_ids;
 mod offscreen_clipping;

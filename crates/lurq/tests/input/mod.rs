@@ -15,6 +15,7 @@ mod text_input {
   mod editing;
   mod empty_value;
   mod focus;
+  mod letter_spacing;
   mod masked_editing;
   mod overflow_anchor;
   mod preserves_editing_state_across_render;

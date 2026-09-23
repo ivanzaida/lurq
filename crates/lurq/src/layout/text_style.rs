@@ -36,6 +36,12 @@ pub struct TextStyle {
   /// Lets a caller pick one readable `line_height` for both single- and
   /// multi-line text without inflating single-line vertical rhythm.
   pub trim_line_box: bool,
+  /// Extra space added after every glyph, in logical pixels, like CSS
+  /// `letter-spacing` (including after the last glyph of a line). Negative values
+  /// tighten text. It scales with the display scale factor like `font_size`, and
+  /// measurement, wrapping, painting, carets and hit testing all use the spaced
+  /// advances. Non-finite values are treated as `0.0`.
+  pub letter_spacing: f32,
   pub color: Color,
   pub caret_color: Option<TextColor>,
   pub shadow: Option<TextShadow>,
@@ -52,10 +58,20 @@ impl Default for TextStyle {
       text_align: TextAlign::Left,
       vertical_align: VerticalAlign::default(),
       trim_line_box: false,
+      letter_spacing: 0.0,
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
       shadow: None,
     }
+  }
+}
+
+impl TextStyle {
+  /// Scales the pixel metrics (font size and letter spacing) for shaping at
+  /// `factor` device pixels per logical pixel.
+  pub(crate) fn scale_pixels(&mut self, factor: f32) {
+    self.font_size *= factor;
+    self.letter_spacing *= factor;
   }
 }
 

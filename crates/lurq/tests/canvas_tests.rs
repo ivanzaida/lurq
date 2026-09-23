@@ -415,6 +415,42 @@ fn text_shapes_measures_and_renders_with_alignment() {
 }
 
 #[test]
+fn text_letter_spacing_widens_measured_advances() {
+  // The weight-probe "a" advances 5px at 10px; spacing follows every glyph.
+  let mut app = App::new();
+  app.install_fonts(
+    [include_bytes!("assets/weight_probe/LurqWeightProbe-Regular.ttf").to_vec()],
+    std::iter::empty::<(&str, &str)>(),
+  );
+  let mut tree = Tree::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(512.0, 512.0))));
+  tree.set_render_engine_factory(|| Box::new(Sink));
+  let r = ElementRef::new();
+  tree.set_root(
+    Canvas::new()
+      .software()
+      .ref_element(r.clone())
+      .width(100.0)
+      .height(40.0),
+  );
+  tree.pass(&mut app, &support::TestSurface);
+  let d = r.as_canvas().unwrap().context_2d();
+  for (letter_spacing, width) in [(0.0, 20.0), (1.5, 26.0), (-1.0, 16.0)] {
+    d.set_font(CanvasFont {
+      letter_spacing,
+      ..CanvasFont::new("Lurq Weight Probe", 10.0)
+    });
+    let measured = d.measure_text("aaaa").unwrap().width;
+    assert!((measured - width).abs() < 0.01, "{letter_spacing}: {measured}");
+  }
+  d.scale(2.0, 2.0);
+  assert!(
+    (d.measure_text("aaaa").unwrap().width - 16.0).abs() < 0.01,
+    "measured in user space"
+  );
+}
+
+#[test]
 fn padding_and_ancestor_transform_have_a_checked_pointer_conversion() {
   let (mut app, mut tree, r) = setup(100.0, 80.0);
   tree.set_root(

@@ -2252,7 +2252,7 @@ impl Tree {
         } => {
           let glyph_start = glyphs.len();
           let mut scaled_style = style.clone();
-          scaled_style.font_size *= scale;
+          scaled_style.scale_pixels(scale);
           // Layout shapes in logical pixels, while paint reshapes at the DPI-scaled
           // font size. Round outward so subpixel scaling cannot add a paint-only line.
           let max_width =
@@ -2305,7 +2305,7 @@ impl Tree {
             );
           } else {
             let raster_scale = transformed_text_raster_scale(quad.transform);
-            scaled_style.font_size *= raster_scale;
+            scaled_style.scale_pixels(raster_scale);
             let raster_max_width = if max_width.is_finite() {
               max_width * raster_scale
             } else {
@@ -2391,7 +2391,7 @@ impl Tree {
           let glyph_start = glyphs.len();
           let mut scaled_spans = spans.clone();
           for span in &mut scaled_spans {
-            span.style.font_size *= scale;
+            span.style.scale_pixels(scale);
           }
           let align = scaled_spans
             .first()
@@ -2444,7 +2444,7 @@ impl Tree {
           } else {
             let raster_scale = transformed_text_raster_scale(quad.transform);
             for span in &mut scaled_spans {
-              span.style.font_size *= raster_scale;
+              span.style.scale_pixels(raster_scale);
             }
             let raster_max_width = if max_width.is_finite() {
               max_width * raster_scale

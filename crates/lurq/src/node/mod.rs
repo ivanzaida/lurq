@@ -10,6 +10,7 @@ pub mod element;
 pub mod gradient;
 pub mod interaction_state;
 pub(crate) mod layout_cache;
+mod letter_spacing;
 pub(crate) mod node;
 pub(crate) mod node_kind;
 pub mod padding;

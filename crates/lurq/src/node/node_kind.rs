@@ -106,6 +106,7 @@ pub(crate) struct TextStyleSource {
   base: TextStyleBase,
   color: Option<TextColor>,
   text_align: Option<TextAlign>,
+  letter_spacing: Option<f32>,
   shadow: Option<crate::layout::text_style::TextShadow>,
 }
 
@@ -122,6 +123,7 @@ impl TextStyleSource {
       base: TextStyleBase::Default,
       color: None,
       text_align: None,
+      letter_spacing: None,
       shadow: None,
     }
   }
@@ -131,6 +133,7 @@ impl TextStyleSource {
       base: TextStyleBase::Explicit(style),
       color: None,
       text_align: None,
+      letter_spacing: None,
       shadow: None,
     }
   }
@@ -145,6 +148,10 @@ impl TextStyleSource {
 
   pub(crate) fn set_text_align(&mut self, align: impl Into<TextAlign>) {
     self.text_align = Some(align.into());
+  }
+
+  pub(crate) fn set_letter_spacing(&mut self, letter_spacing: f32) {
+    self.letter_spacing = Some(letter_spacing);
   }
 
   pub(crate) fn set_shadow(&mut self, shadow: crate::layout::text_style::TextShadow) {
@@ -162,6 +169,9 @@ impl TextStyleSource {
     }
     if let Some(text_align) = self.text_align {
       style.text_align = text_align;
+    }
+    if let Some(letter_spacing) = self.letter_spacing {
+      style.letter_spacing = letter_spacing;
     }
     if let Some(shadow) = self.shadow {
       style.shadow = Some(shadow);

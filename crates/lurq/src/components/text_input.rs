@@ -32,6 +32,14 @@ impl TextInput {
     self
   }
 
+  /// Extra space after every glyph of the value and placeholder, in logical
+  /// pixels (negative tightens). Like `text_align`, a later `text_style` or
+  /// `placeholder_style` replaces it.
+  pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
+    self.update_node(|node| node.set_text_input_letter_spacing(letter_spacing));
+    self
+  }
+
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::placeholder(node, placeholder));
     self

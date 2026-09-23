@@ -11,6 +11,8 @@ pub struct MarkdownTextStyle {
   pub font_size: Option<f32>,
   pub font_size_scale: Option<f32>,
   pub line_height: Option<f32>,
+  /// Letter spacing in logical pixels; not multiplied by `font_size_scale`.
+  pub letter_spacing: Option<f32>,
   pub weight: Option<FontWeight>,
   pub style: Option<FontStyle>,
   pub color: Option<Color>,
@@ -34,6 +36,9 @@ impl MarkdownTextStyle {
     }
     if let Some(line_height) = self.line_height {
       style.line_height = line_height;
+    }
+    if let Some(letter_spacing) = self.letter_spacing {
+      style.letter_spacing = letter_spacing;
     }
     if let Some(weight) = self.weight {
       style.weight = weight;

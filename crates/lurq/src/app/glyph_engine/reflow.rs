@@ -1,4 +1,4 @@
-//! Conservative width intervals for Cosmic Text 0.12's word wrapping.
+//! Conservative width intervals for Cosmic Text's word wrapping (0.12 through 0.19).
 //!
 //! A left-aligned, single LTR span has width-independent glyph coordinates when
 //! its wrap decisions stay the same. Record the bounds of those decisions once

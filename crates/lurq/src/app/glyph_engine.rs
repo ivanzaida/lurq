@@ -19,10 +19,13 @@ use swash::{
 
 mod cap_height;
 mod face_weight;
+mod letter_spacing;
 mod reflow;
 mod scaler;
 use cap_height::GlyphFace;
 pub(crate) use face_weight::FaceWeights;
+use letter_spacing::letter_spacing_bits;
+pub(crate) use letter_spacing::with_letter_spacing;
 use reflow::ReflowRange;
 
 use crate::{
@@ -56,6 +59,7 @@ struct CacheKey {
   font_family: std::sync::Arc<str>,
   font_size_bits: u32,
   line_height_bits: u32,
+  letter_spacing_bits: u32,
   max_width_bits: u32,
   weight: u16,
   style: u8,
@@ -73,6 +77,7 @@ impl Hash for CacheKey {
     self.font_family.hash(state);
     self.font_size_bits.hash(state);
     self.line_height_bits.hash(state);
+    self.letter_spacing_bits.hash(state);
     self.max_width_bits.hash(state);
     self.weight.hash(state);
     self.style.hash(state);
@@ -90,6 +95,7 @@ impl CacheKey {
       font_family: style.font_family.clone(),
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
+      letter_spacing_bits: letter_spacing_bits(style.letter_spacing),
       max_width_bits: max_width.to_bits(),
       weight: style.weight.value(),
       style: style_to_u8(style.style),
@@ -118,6 +124,7 @@ impl CacheKey {
       && self.font_family == style.font_family
       && self.font_size_bits == style.font_size.to_bits()
       && self.line_height_bits == style.line_height.to_bits()
+      && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing)
       && self.max_width_bits == max_width.to_bits()
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
@@ -133,6 +140,7 @@ fn text_measure_fingerprint(text: &str, style: &TextStyle, max_width: f32, wrap:
   style.font_family.hash(&mut hasher);
   style.font_size.to_bits().hash(&mut hasher);
   style.line_height.to_bits().hash(&mut hasher);
+  letter_spacing_bits(style.letter_spacing).hash(&mut hasher);
   max_width.to_bits().hash(&mut hasher);
   style.weight.value().hash(&mut hasher);
   style_to_u8(style.style).hash(&mut hasher);
@@ -240,6 +248,7 @@ struct RichTextSpanCacheKey {
   font_family: std::sync::Arc<str>,
   font_size_bits: u32,
   line_height_bits: u32,
+  letter_spacing_bits: u32,
   weight: u16,
   style: u8,
   text_align: u8,
@@ -254,6 +263,7 @@ impl RichTextSpanCacheKey {
       font_family: style.font_family.clone(),
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
+      letter_spacing_bits: letter_spacing_bits(style.letter_spacing),
       weight: style.weight.value(),
       style: style_to_u8(style.style),
       text_align: text_align_to_u8(style.text_align),
@@ -267,6 +277,7 @@ impl RichTextSpanCacheKey {
       && self.font_family == style.font_family
       && self.font_size_bits == style.font_size.to_bits()
       && self.line_height_bits == style.line_height.to_bits()
+      && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing)
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
       && self.text_align == text_align_to_u8(style.text_align)
@@ -303,6 +314,7 @@ fn hash_rich_text_spans(spans: &[RichTextSpan], hasher: &mut DefaultHasher) {
     style.font_family.hash(hasher);
     style.font_size.to_bits().hash(hasher);
     style.line_height.to_bits().hash(hasher);
+    letter_spacing_bits(style.letter_spacing).hash(hasher);
     style.weight.value().hash(hasher);
     style_to_u8(style.style).hash(hasher);
     text_align_to_u8(style.text_align).hash(hasher);
@@ -2527,7 +2539,12 @@ impl GlyphEngine {
       let phase_start = Instant::now();
       if self.font_aliases.is_empty() {
         let weight = self.face_weight(first.style.font_family.as_ref(), &first.style);
-        let attrs = attrs_for_style(&first.style, first.style.font_family.as_ref(), weight);
+        let attrs = attrs_for_style(
+          &first.style,
+          first.style.font_family.as_ref(),
+          weight,
+          first.style.font_size,
+        );
         #[cfg(feature = "perf_profile")]
         {
           self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2543,7 +2560,7 @@ impl GlyphEngine {
       } else {
         let family = self.resolve_family(&first.style);
         let weight = self.face_weight(&family, &first.style);
-        let attrs = attrs_for_style(&first.style, &family, weight);
+        let attrs = attrs_for_style(&first.style, &family, weight, first.style.font_size);
         #[cfg(feature = "perf_profile")]
         {
           self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2572,12 +2589,18 @@ impl GlyphEngine {
               &span.style,
               span.style.font_family.as_ref(),
               self.face_weight(span.style.font_family.as_ref(), &span.style),
+              first.style.font_size,
             ),
           )
         })
         .collect();
       let default_weight = self.face_weight(first.style.font_family.as_ref(), &first.style);
-      let default_attrs = attrs_for_style(&first.style, first.style.font_family.as_ref(), default_weight);
+      let default_attrs = attrs_for_style(
+        &first.style,
+        first.style.font_family.as_ref(),
+        default_weight,
+        first.style.font_size,
+      );
       #[cfg(feature = "perf_profile")]
       {
         self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2600,13 +2623,18 @@ impl GlyphEngine {
         .map(|(span, family)| {
           (
             span.text.as_str(),
-            attrs_for_style(&span.style, family, self.face_weight(family, &span.style)),
+            attrs_for_style(
+              &span.style,
+              family,
+              self.face_weight(family, &span.style),
+              first.style.font_size,
+            ),
           )
         })
         .collect();
       let default_family = self.resolve_family(&first.style);
       let default_weight = self.face_weight(&default_family, &first.style);
-      let default_attrs = attrs_for_style(&first.style, &default_family, default_weight);
+      let default_attrs = attrs_for_style(&first.style, &default_family, default_weight, first.style.font_size);
       #[cfg(feature = "perf_profile")]
       {
         self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2667,7 +2695,7 @@ impl GlyphEngine {
 
   fn style_attrs<'a>(&mut self, style: &TextStyle, resolved_family: &'a str) -> Attrs<'a> {
     let weight = self.face_weight(resolved_family, style);
-    plain_attrs(style, resolved_family, weight)
+    plain_attrs(style, resolved_family, weight, style.font_size)
   }
 
   fn resolve_family(&self, style: &TextStyle) -> std::sync::Arc<str> {
@@ -2997,8 +3025,14 @@ fn text_buffer_width(max_width: f32) -> Option<f32> {
   is_bounded_text_width(max_width).then_some(max_width)
 }
 
-fn attrs_for_style<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_text::Weight) -> Attrs<'a> {
-  plain_attrs(style, resolved_family, weight).color(CosmicColor::rgba(
+/// `em_px` is the buffer's font size; see [`with_letter_spacing`].
+fn attrs_for_style<'a>(
+  style: &TextStyle,
+  resolved_family: &'a str,
+  weight: cosmic_text::Weight,
+  em_px: f32,
+) -> Attrs<'a> {
+  plain_attrs(style, resolved_family, weight, em_px).color(CosmicColor::rgba(
     style.color.r(),
     style.color.g(),
     style.color.b(),
@@ -3006,17 +3040,19 @@ fn attrs_for_style<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosm
   ))
 }
 
-/// `weight` is the matched face weight from [`FaceWeights`], not the requested one.
-fn plain_attrs<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_text::Weight) -> Attrs<'a> {
+/// `weight` is the matched face weight from [`FaceWeights`], not the requested
+/// one; `em_px` is the buffer's font size.
+fn plain_attrs<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_text::Weight, em_px: f32) -> Attrs<'a> {
   let family = if resolved_family.is_empty() {
     Family::SansSerif
   } else {
     Family::Name(resolved_family)
   };
-  Attrs::new()
+  let attrs = Attrs::new()
     .family(family)
     .weight(weight)
-    .style(style.style.to_cosmic())
+    .style(style.style.to_cosmic());
+  with_letter_spacing(attrs, style.letter_spacing, em_px)
 }
 
 fn glyph_color(color: Option<CosmicColor>, default: Color) -> [f32; 4] {

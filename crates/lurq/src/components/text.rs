@@ -42,6 +42,13 @@ impl Text {
     self
   }
 
+  /// Extra space after every glyph in logical pixels (negative tightens),
+  /// overriding the style's [`TextStyle::letter_spacing`].
+  pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
+    self.update_node(|node| node.set_text_letter_spacing(letter_spacing));
+    self
+  }
+
   pub fn text_overflow(mut self, overflow: TextOverflow) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_overflow(node, overflow));
     self
