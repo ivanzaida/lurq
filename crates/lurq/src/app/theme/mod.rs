@@ -18,6 +18,7 @@ mod form;
 mod markdown;
 mod palette;
 mod radius;
+mod role_name;
 mod spacing;
 mod typography;
 

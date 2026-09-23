@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
+use super::role_name::intern;
 use crate::layout::text_style::{FontWeight, TextStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -14,9 +15,16 @@ pub enum TypographyStyle {
   Button,
   Link,
   Mono,
+  /// An application-defined style stored in [`ThemeTypography::extra`].
+  Extra(&'static str),
 }
 
 impl TypographyStyle {
+  /// An application-defined style. The name is interned (see [`TypographyStyle::Extra`]).
+  pub fn extra(name: impl AsRef<str>) -> Self {
+    Self::Extra(intern(name.as_ref()))
+  }
+
   pub const fn as_str(self) -> &'static str {
     match self {
       Self::Heading => "heading",
@@ -29,7 +37,20 @@ impl TypographyStyle {
       Self::Button => "button",
       Self::Link => "link",
       Self::Mono => "mono",
+      Self::Extra(name) => name,
     }
+  }
+}
+
+impl From<&str> for TypographyStyle {
+  fn from(name: &str) -> Self {
+    Self::extra(name)
+  }
+}
+
+impl From<Arc<str>> for TypographyStyle {
+  fn from(name: Arc<str>) -> Self {
+    Self::extra(name)
   }
 }
 
@@ -45,6 +66,7 @@ pub struct ThemeTypography {
   pub button: TextStyle,
   pub link: TextStyle,
   pub mono: TextStyle,
+  pub extra: HashMap<Arc<str>, TextStyle>,
 }
 
 impl ThemeTypography {
@@ -52,19 +74,29 @@ impl ThemeTypography {
     Self::default()
   }
 
+  /// Panics when a [`TypographyStyle::Extra`] name is not in [`Self::extra`]; see [`Self::try_get`].
   pub fn get(&self, style: impl Into<TypographyStyle>) -> TextStyle {
-    match style.into() {
-      TypographyStyle::Heading => self.heading.clone(),
-      TypographyStyle::Title => self.title.clone(),
-      TypographyStyle::Body => self.body.clone(),
-      TypographyStyle::Description => self.description.clone(),
-      TypographyStyle::Caption => self.caption.clone(),
-      TypographyStyle::Label => self.label.clone(),
-      TypographyStyle::FieldLabel => self.field_label.clone(),
-      TypographyStyle::Button => self.button.clone(),
-      TypographyStyle::Link => self.link.clone(),
-      TypographyStyle::Mono => self.mono.clone(),
-    }
+    let style = style.into();
+    self
+      .try_get(style)
+      .unwrap_or_else(|| panic!("typography style not found: {}", style.as_str()))
+  }
+
+  pub fn try_get(&self, style: impl Into<TypographyStyle>) -> Option<TextStyle> {
+    let style = match style.into() {
+      TypographyStyle::Heading => &self.heading,
+      TypographyStyle::Title => &self.title,
+      TypographyStyle::Body => &self.body,
+      TypographyStyle::Description => &self.description,
+      TypographyStyle::Caption => &self.caption,
+      TypographyStyle::Label => &self.label,
+      TypographyStyle::FieldLabel => &self.field_label,
+      TypographyStyle::Button => &self.button,
+      TypographyStyle::Link => &self.link,
+      TypographyStyle::Mono => &self.mono,
+      TypographyStyle::Extra(name) => self.extra.get(name)?,
+    };
+    Some(style.clone())
   }
 
   pub fn set(&mut self, style: impl Into<TypographyStyle>, value: TextStyle) {
@@ -79,6 +111,9 @@ impl ThemeTypography {
       TypographyStyle::Button => self.button = value,
       TypographyStyle::Link => self.link = value,
       TypographyStyle::Mono => self.mono = value,
+      TypographyStyle::Extra(name) => {
+        self.extra.insert(Arc::from(name), value);
+      }
     }
   }
 
@@ -92,6 +127,10 @@ impl ThemeTypography {
 
   pub fn resolve(&self, style: impl Into<TypographyStyle>) -> TextStyle {
     self.get(style)
+  }
+
+  pub fn try_resolve(&self, style: impl Into<TypographyStyle>) -> Option<TextStyle> {
+    self.try_get(style)
   }
 }
 
@@ -138,6 +177,7 @@ impl Default for ThemeTypography {
         font_family: Arc::from("monospace"),
         ..body
       },
+      extra: HashMap::new(),
     }
   }
 }

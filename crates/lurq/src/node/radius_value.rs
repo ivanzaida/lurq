@@ -7,10 +7,12 @@ pub enum RadiusValue {
 }
 
 impl RadiusValue {
+  /// A [`RadiusSize::Extra`] missing from the theme resolves to `0.0` (square
+  /// corners), as an unresolved palette color paints nothing.
   pub fn resolve(&self, radii: &ThemeRadii) -> f32 {
     match self {
       Self::Px(value) => *value,
-      Self::Theme(size) => radii.get(*size),
+      Self::Theme(size) => radii.try_get(*size).unwrap_or(0.0),
     }
   }
 
