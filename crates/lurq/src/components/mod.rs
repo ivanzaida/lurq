@@ -37,6 +37,7 @@ mod text_input;
 mod video;
 mod virtualized_list;
 mod window_chrome;
+mod window_controls;
 
 pub use button::Button;
 #[cfg(feature = "canvas")]
@@ -85,8 +86,11 @@ pub use text_input::{TextInput, TextInputOverflow, TextInputOverflowAnchor};
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;
 pub use window_chrome::{
-  ChromeBorderPolicy, ChromeTitleBar, ResizeHandlePolicy, WindowChrome, WindowChromeMetrics, WindowChromeMode,
-  WindowChromeProps, WindowControlStyle, WindowControls,
+  ChromeBorderPolicy, ChromeTitleBar, ResizeHandlePlacement, ResizeHandlePolicy, WindowChrome, WindowChromeMetrics,
+  WindowChromeMode, WindowChromeProps,
+};
+pub use window_controls::{
+  TrafficLightColors, WindowControlColors, WindowControlContent, WindowControlKind, WindowControlStyle, WindowControls,
 };
 
 pub use crate::app::ctx::{CollisionStrategy, Modal, ModalTarget, OpenState, Overlay, Parent, Placement, Root};

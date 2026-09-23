@@ -308,6 +308,7 @@ window.set_decorations(false);
 window.set_title_bar_color(lurq::node::color::Color::from_hex("#101215"));
 window.set_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1));
 window.set_corner_radius(lurq::app::WindowCornerRadius::RoundedSmall);
+window.set_border_color(lurq::app::WindowBorderColor::None);
 window.resize(1280, 720);
 window.move_to(120, 80);
 ```
@@ -322,12 +323,16 @@ direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for nor
 `set_icon` accepts a `WindowIcon` built from RGBA pixels. `set_title_bar_color` and `set_corner_radius` customize native
 window chrome where the platform supports it; with the winit shell, title bar color maps to the Windows title background
 API, while corner radius maps to the Windows corner preference API and macOS AppKit content-view layer clipping.
-Unsupported platforms no-op. Use `clear_icon()`, `clear_title_bar_color()`, and `reset_corner_radius()` to return those
-settings to the platform default.
+`set_border_color` sets the 1px compositor border Windows 11 (build 22000+) draws around every window, including
+undecorated ones (`DWMWA_BORDER_COLOR`): `WindowBorderColor::Default`, `None`, or `Color(...)`. `border_color()` returns
+the value the shell last applied. Unsupported platforms no-op. Use `clear_icon()`, `clear_title_bar_color()`,
+`reset_corner_radius()`, and `set_border_color(WindowBorderColor::Default)` to return those settings to the platform
+default.
 
 For normal custom desktop chrome, prefer `WindowChrome`. It disables native decorations when custom chrome is active,
 renders the draggable title bar and content area, owns resize hit zones, handles standard window controls, and uses the
-active shell's native drag/resize behavior where available.
+active shell's native drag/resize behavior where available. It also hides the compositor border, because
+`ChromeBorderPolicy` decides the frame outline.
 
 ```rust
 use lurq::{

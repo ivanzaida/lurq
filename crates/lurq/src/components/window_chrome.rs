@@ -3,19 +3,16 @@ use std::{
   time::{Duration, Instant},
 };
 
+use super::WindowControls;
 use crate::{
   app::{
     ctx::{Ctx, Modal, ModalTarget},
     events::{MouseButton, MouseEvent},
-    theme::TypographyStyle,
-    window::{WindowHandle, WindowInfo, WindowResizeDirection},
+    window::{WindowBorderColor, WindowHandle, WindowInfo, WindowResizeDirection},
   },
-  components::{Column, Row, Stack, Text},
-  layout::{Alignment, layout_kind::Justify},
-  node::{
-    BackgroundColor, CursorIcon, Element, HitTestBehavior, Style, TextColor, border::Border, color::Color,
-    dimension::Dimension,
-  },
+  components::{Column, Row, Stack},
+  layout::Alignment,
+  node::{BackgroundColor, CursorIcon, Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension},
 };
 
 const WINDOWS_CHROME_HEIGHT: f32 = 36.0;
@@ -37,6 +34,7 @@ pub struct WindowChrome {
 pub struct WindowChromeProps {
   pub mode: WindowChromeMode,
   pub resize_handles: ResizeHandlePolicy,
+  pub resize_placement: ResizeHandlePlacement,
   pub border: ChromeBorderPolicy,
   pub windows_height: f32,
   pub macos_height: f32,
@@ -55,6 +53,17 @@ pub enum ResizeHandlePolicy {
   PlatformDefault,
   Enabled { size: f32 },
   Disabled,
+}
+
+/// Where resize hit zones sit relative to the application content.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResizeHandlePlacement {
+  /// Invisible hit zones overlay the outermost pixels of the content; content fills the window.
+  #[default]
+  Overlay,
+  /// Content is inset by the handle size on the left, right and bottom, and the gutter is painted
+  /// with the frame background. This was the behavior before `ResizeHandlePlacement` existed.
+  Inset,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -76,20 +85,6 @@ pub struct ChromeTitleBar {
   border_bottom: Option<Border>,
 }
 
-#[derive(Clone)]
-pub struct WindowControls {
-  style: WindowControlStyle,
-  on_close: Option<Arc<dyn Fn() + Send + Sync>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WindowControlStyle {
-  Platform,
-  Windows,
-  Macos,
-  Hidden,
-}
-
 #[derive(Clone, Copy)]
 struct TitlebarClick {
   time: Instant,
@@ -102,6 +97,7 @@ pub struct WindowChromeMetrics {
   pub enabled: bool,
   pub height: f32,
   pub resize_handle_size: f32,
+  pub resize_placement: ResizeHandlePlacement,
   pub border_size: f32,
 }
 
@@ -110,6 +106,7 @@ impl Default for WindowChromeProps {
     Self {
       mode: WindowChromeMode::PlatformDefault,
       resize_handles: ResizeHandlePolicy::PlatformDefault,
+      resize_placement: ResizeHandlePlacement::Overlay,
       border: ChromeBorderPolicy::PlatformDefault,
       windows_height: WINDOWS_CHROME_HEIGHT,
       macos_height: MACOS_CHROME_HEIGHT,
@@ -118,12 +115,6 @@ impl Default for WindowChromeProps {
 }
 
 impl Default for ChromeTitleBar {
-  fn default() -> Self {
-    Self::new()
-  }
-}
-
-impl Default for WindowControls {
   fn default() -> Self {
     Self::new()
   }
@@ -155,12 +146,18 @@ impl WindowChrome {
     self
   }
 
+  pub fn resize_placement(mut self, placement: ResizeHandlePlacement) -> Self {
+    self.props.resize_placement = placement;
+    self
+  }
+
   pub fn border(mut self, border: ChromeBorderPolicy) -> Self {
     self.props.border = border;
     self
   }
 
-  /// Overrides the color painted behind the client-area inset used by resize handles.
+  /// Overrides the color painted behind the client-area inset used by
+  /// [`ResizeHandlePlacement::Inset`] resize handles.
   /// By default, chrome uses the content root background and falls back to the
   /// title-bar background when the content root is transparent.
   pub fn frame_background(mut self, background: impl Into<BackgroundColor>) -> Self {
@@ -202,10 +199,16 @@ impl WindowChrome {
     if window.is_decorated {
       window.set_decorations(false);
     }
+    // `ChromeBorderPolicy` owns the frame outline. Windows 11 DWM still draws its own 1px border around
+    // undecorated windows, which would show even with `ChromeBorderPolicy::Hidden`.
+    if window.border_color() != WindowBorderColor::None {
+      window.set_border_color(WindowBorderColor::None);
+    }
 
-    // App-owned hit targets stay inside the resize perimeter, matching the separation
-    // between native client content and a platform-managed sizing frame.
+    // Resize hit zones always sit above content and overlays. `Inset` placement additionally keeps
+    // app-owned hit targets inside the resize perimeter; `Overlay` lets content fill the window.
     let resize_inset = metrics.resize_inset(window.info());
+    let resize_handle_size = metrics.resize_handle_size_for(window.info());
     let frame_background = self
       .frame_background
       .clone()
@@ -255,7 +258,7 @@ impl WindowChrome {
     for layer in border_layers(&window, &self.props.border) {
       chrome_overlay = chrome_overlay.child(layer);
     }
-    for layer in resize_handle_layers(&window, resize_inset) {
+    for layer in resize_handle_layers(&window, resize_handle_size) {
       chrome_overlay = chrome_overlay.child(layer);
     }
 
@@ -298,6 +301,11 @@ impl WindowChromeProps {
     self
   }
 
+  pub fn resize_placement(mut self, placement: ResizeHandlePlacement) -> Self {
+    self.resize_placement = placement;
+    self
+  }
+
   pub fn border(mut self, border: ChromeBorderPolicy) -> Self {
     self.border = border;
     self
@@ -333,6 +341,7 @@ impl WindowChromeProps {
       enabled,
       height: platform_chrome_height(self.windows_height, self.macos_height),
       resize_handle_size,
+      resize_placement: self.resize_placement,
       border_size: self.border.size(),
     }
   }
@@ -471,123 +480,19 @@ impl ChromeTitleBar {
   }
 }
 
-impl WindowControls {
-  pub fn new() -> Self {
-    Self {
-      style: WindowControlStyle::Platform,
-      on_close: None,
-    }
-  }
-
-  pub fn style(mut self, style: WindowControlStyle) -> Self {
-    self.style = style;
-    self
-  }
-
-  pub fn on_close(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_close = Some(Arc::new(f));
-    self
-  }
-
-  fn render(self, window: &WindowHandle, height: f32) -> Element {
-    match self.resolved_style() {
-      WindowControlStyle::Platform | WindowControlStyle::Windows => self.render_windows(window, height),
-      WindowControlStyle::Macos => self.render_macos(window, height),
-      WindowControlStyle::Hidden => Row::new().height(height).into(),
-    }
-  }
-
-  fn resolved_style(&self) -> WindowControlStyle {
-    match self.style {
-      WindowControlStyle::Platform if cfg!(target_os = "macos") => WindowControlStyle::Macos,
-      WindowControlStyle::Platform => WindowControlStyle::Windows,
-      style => style,
-    }
-  }
-
-  fn render_windows(self, window: &WindowHandle, height: f32) -> Element {
-    let minimize_window = window.clone();
-    let maximize_window = window.clone();
-    let close_window = window.clone();
-    let on_close = self.on_close.clone();
-    let maximized = window.is_maximized;
-
-    Row::new()
-      .height(height)
-      .align_items(Alignment::Center)
-      .child(
-        control_button("-", height, ControlTone::Default).on_click(move |event: MouseEvent| {
-          minimize_window.set_minimized(true);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
-      )
-      .child(
-        control_button(if maximized { "▢" } else { "□" }, height, ControlTone::Default).on_click(
-          move |event: MouseEvent| {
-            maximize_window.set_maximized(!maximized);
-            event.prevent_default();
-            event.stop_immediate_propagation();
-          },
-        ),
-      )
-      .child(
-        control_button("x", height, ControlTone::Danger).on_click(move |event: MouseEvent| {
-          if let Some(on_close) = &on_close {
-            on_close();
-          }
-          close_window.close();
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
-      )
-      .into()
-  }
-
-  fn render_macos(self, window: &WindowHandle, height: f32) -> Element {
-    let close_window = window.clone();
-    let minimize_window = window.clone();
-    let maximize_window = window.clone();
-    let on_close = self.on_close.clone();
-    let maximized = window.is_maximized;
-
-    Row::new()
-      .height(height)
-      .align_items(Alignment::Center)
-      .spacing(0.0)
-      .padding_left(8.0)
-      .child(
-        macos_control_button("#ff5f57", "#e2463f").on_click(move |event: MouseEvent| {
-          if let Some(on_close) = &on_close {
-            on_close();
-          }
-          close_window.close();
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
-      )
-      .child(
-        macos_control_button("#ffbd2e", "#e0a11b").on_click(move |event: MouseEvent| {
-          minimize_window.set_minimized(true);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
-      )
-      .child(
-        macos_control_button("#28c840", "#1ead34").on_click(move |event: MouseEvent| {
-          maximize_window.set_maximized(!maximized);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
-      )
-      .into()
-  }
-}
-
 impl WindowChromeMetrics {
-  /// Logical pixels reserved for resize handles in the current window state.
-  pub fn resize_inset(&self, window: WindowInfo) -> f32 {
+  /// Logical pixels of resize hit zone along each edge in the current window state.
+  pub fn resize_handle_size_for(&self, window: WindowInfo) -> f32 {
     active_resize_handle_size(window, self.resize_handle_size)
+  }
+
+  /// Logical pixels the content is inset by resize handles in the current window state. Zero for
+  /// [`ResizeHandlePlacement::Overlay`].
+  pub fn resize_inset(&self, window: WindowInfo) -> f32 {
+    match self.resize_placement {
+      ResizeHandlePlacement::Overlay => 0.0,
+      ResizeHandlePlacement::Inset => self.resize_handle_size_for(window),
+    }
   }
 
   /// Horizontal origin of application content inside the custom frame.
@@ -612,64 +517,6 @@ impl WindowChromeMetrics {
   pub fn modal_y(&self, y: f32) -> f32 {
     (y - self.height).max(0.0)
   }
-}
-
-#[derive(Clone, Copy)]
-enum ControlTone {
-  Default,
-  Danger,
-}
-
-fn control_button(label: &'static str, height: f32, tone: ControlTone) -> Row {
-  let hover = match tone {
-    ControlTone::Default => BackgroundColor::Color(Color::from_hex("#232934")),
-    ControlTone::Danger => BackgroundColor::Color(Color::from_hex("#c0392b")),
-  };
-  let active = match tone {
-    ControlTone::Default => BackgroundColor::Color(Color::from_hex("#2d3440")),
-    ControlTone::Danger => BackgroundColor::Color(Color::from_hex("#922b21")),
-  };
-
-  Row::new()
-    .width(46.0)
-    .height(height)
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .background(BackgroundColor::Color(Color::new(0, 0, 0, 0)))
-    .cursor(CursorIcon::Pointer)
-    .hovered_style(Style::new().background(hover))
-    .active_style(Style::new().background(active))
-    .on_mouse_down(|event: MouseEvent| {
-      event.prevent_default();
-      event.stop_immediate_propagation();
-    })
-    .child(
-      Text::new(label)
-        .variant(TypographyStyle::Caption)
-        .color(TextColor::Color(Color::from_hex("#d9dee7"))),
-    )
-}
-
-fn macos_control_button(color: &'static str, active_color: &'static str) -> Row {
-  Row::new()
-    .width(20.0)
-    .height(Dimension::Pct(100.0))
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .cursor(CursorIcon::Pointer)
-    .on_mouse_down(|event: MouseEvent| {
-      event.prevent_default();
-      event.stop_immediate_propagation();
-    })
-    .child(
-      Row::new()
-        .width(12.0)
-        .height(12.0)
-        .rounded(6.0)
-        .background(Color::from_hex(color))
-        .hovered_style(Style::new().background(Color::from_hex(color)))
-        .active_style(Style::new().background(Color::from_hex(active_color))),
-    )
 }
 
 fn border_layers(window: &WindowHandle, policy: &ChromeBorderPolicy) -> Vec<Element> {
@@ -837,6 +684,7 @@ fn platform_chrome_height(windows_height: f32, macos_height: f32) -> f32 {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::app::window::WindowCommand;
 
   fn window_info() -> WindowInfo {
     WindowInfo {
@@ -853,7 +701,7 @@ mod tests {
     }
   }
 
-  fn mounted_chrome(maximized: bool) -> Element {
+  fn mounted_chrome(maximized: bool, placement: ResizeHandlePlacement) -> Element {
     let window = crate::app::window::Window::new();
     window.set_resolved_size(800.0, 600.0);
     window.set_scale_factor(2.0);
@@ -863,6 +711,7 @@ mod tests {
 
     WindowChrome::new()
       .mode(WindowChromeMode::AlwaysCustom)
+      .resize_placement(placement)
       .content(Row::new())
       .mount(&mut ctx)
   }
@@ -910,6 +759,7 @@ mod tests {
       enabled: true,
       height: 36.0,
       resize_handle_size: 3.0,
+      resize_placement: ResizeHandlePlacement::Inset,
       border_size: 1.0,
     };
     let window = window_info();
@@ -961,8 +811,8 @@ mod tests {
   }
 
   #[test]
-  fn mounted_chrome_separates_client_layers_from_resize_edges() {
-    let root = mounted_chrome(false).node;
+  fn inset_chrome_separates_client_layers_from_resize_edges() {
+    let root = mounted_chrome(false, ResizeHandlePlacement::Inset).node;
     assert_eq!(root.color(), Some(Color::from_hex("#101215")));
     let expected_inset = crate::node::SpacingValue::from(RESIZE_HANDLE_SIZE);
     let no_top_inset = crate::node::SpacingValue::default();
@@ -990,7 +840,7 @@ mod tests {
 
   #[test]
   fn mounted_maximized_chrome_has_no_resize_gutter_or_handles() {
-    let root = mounted_chrome(true).node;
+    let root = mounted_chrome(true, ResizeHandlePlacement::Inset).node;
     let no_inset = crate::node::SpacingValue::from(0.0);
     let content_layer = &root.children[0];
     assert_eq!(content_layer.padding.left, no_inset);
@@ -1009,6 +859,27 @@ mod tests {
         .filter(|node| node.cursor.is_some())
         .count(),
       0
+    );
+  }
+
+  #[test]
+  fn overlay_chrome_keeps_full_content_and_all_resize_handles() {
+    let root = mounted_chrome(false, ResizeHandlePlacement::Overlay).node;
+    let no_inset = crate::node::SpacingValue::from(0.0);
+    let content_layer = &root.children[0];
+    assert_eq!(content_layer.padding.left, no_inset);
+    assert_eq!(content_layer.padding.right, no_inset);
+    assert_eq!(content_layer.padding.bottom, no_inset);
+
+    let chrome_overlay = &root.children[1].modal_declaration.as_ref().unwrap().node;
+    assert_eq!(chrome_overlay.children[0].padding.left, no_inset);
+    assert_eq!(
+      chrome_overlay
+        .children
+        .iter()
+        .filter(|node| node.cursor.is_some())
+        .count(),
+      8
     );
   }
 
@@ -1047,6 +918,26 @@ mod tests {
       .node;
 
     assert_eq!(root.color(), Some(frame_background));
+  }
+
+  #[test]
+  fn mounted_chrome_hides_the_compositor_border_once() {
+    let window = crate::app::window::Window::new();
+    window.set_resolved_size(800.0, 600.0);
+    window.set_decorated(false);
+    let mut ctx = Ctx::new().with_window(window.clone());
+    let chrome = || WindowChrome::new().mode(WindowChromeMode::AlwaysCustom);
+
+    chrome().mount(&mut ctx);
+    assert_eq!(
+      window.take_commands(),
+      vec![WindowCommand::SetBorderColor(WindowBorderColor::None)]
+    );
+
+    // The shell records the applied border; later mounts leave it alone.
+    window.set_border_color(WindowBorderColor::None);
+    chrome().mount(&mut ctx);
+    assert_eq!(window.take_commands(), vec![]);
   }
 
   #[test]

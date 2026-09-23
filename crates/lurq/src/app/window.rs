@@ -66,6 +66,18 @@ pub enum WindowCornerRadius {
   RoundedSmall,
 }
 
+/// The 1px frame the OS compositor draws around a window. Windows 11 draws it around undecorated
+/// windows too (DWM `DWMWA_BORDER_COLOR`); other platforms ignore it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowBorderColor {
+  /// The system color.
+  #[default]
+  Default,
+  /// No compositor border.
+  None,
+  Color(Color),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowIcon {
   rgba: Vec<u8>,
@@ -196,6 +208,16 @@ impl WindowHandle {
 
   pub fn clear_title_bar_color(&self) {
     self.set_title_bar_color(None);
+  }
+
+  /// The compositor border last applied by the shell.
+  pub fn border_color(&self) -> WindowBorderColor {
+    self.window.inner.read().unwrap().border_color
+  }
+
+  /// Sets the compositor border drawn around the window. Supported on Windows 11 (build 22000+).
+  pub fn set_border_color(&self, color: WindowBorderColor) {
+    self.window.push_command(WindowCommand::SetBorderColor(color));
   }
 
   pub fn set_icon(&self, icon: impl Into<Option<WindowIcon>>) {
@@ -340,6 +362,7 @@ pub(crate) enum WindowCommand {
   SetFullScreen(bool),
   SetDecorated(bool),
   SetTitleBarColor(Option<Color>),
+  SetBorderColor(WindowBorderColor),
   SetIcon(Option<WindowIcon>),
   SetCornerRadius(WindowCornerRadius),
   Move {
@@ -377,6 +400,7 @@ pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
 struct WindowInner {
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
+  border_color: WindowBorderColor,
   version: u64,
   commands: Vec<WindowCommand>,
   /// Registered by the shell once its event loop exists. Without it, a
@@ -409,6 +433,7 @@ impl Window {
           is_focused: true,
         },
         corner_radius: WindowCornerRadius::Default,
+        border_color: WindowBorderColor::Default,
         version: 0,
         commands: Vec::new(),
         waker: None,
@@ -648,6 +673,19 @@ impl Window {
     self.version_signal.set(version);
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_border_color(&self, color: WindowBorderColor) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.border_color == color {
+        return;
+      }
+      inner.border_color = color;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
   fn bump_version(inner: &mut WindowInner) -> u64 {
     inner.version = inner.version.wrapping_add(1);
     inner.version
@@ -683,6 +721,7 @@ mod tests {
     handle.set_title_bar_color(color);
     handle.set_icon(icon.clone());
     handle.set_corner_radius(WindowCornerRadius::RoundedSmall);
+    handle.set_border_color(WindowBorderColor::None);
     handle.clear_title_bar_color();
     handle.clear_icon();
     handle.reset_corner_radius();
@@ -693,6 +732,7 @@ mod tests {
         WindowCommand::SetTitleBarColor(Some(color)),
         WindowCommand::SetIcon(Some(icon)),
         WindowCommand::SetCornerRadius(WindowCornerRadius::RoundedSmall),
+        WindowCommand::SetBorderColor(WindowBorderColor::None),
         WindowCommand::SetTitleBarColor(None),
         WindowCommand::SetIcon(None),
         WindowCommand::SetCornerRadius(WindowCornerRadius::Default),

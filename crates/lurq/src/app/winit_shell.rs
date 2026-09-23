@@ -22,7 +22,9 @@ use crate::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
     runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata},
-    window::{CloseRequestSource, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection},
+    window::{
+      CloseRequestSource, WindowBorderColor, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection,
+    },
   },
   node::{CursorIcon, color::Color},
 };
@@ -409,6 +411,12 @@ impl ManagedWindow {
           if let Some(window) = &self.window {
             set_title_bar_color(window, color);
           }
+        }
+        WindowCommand::SetBorderColor(color) => {
+          if let Some(window) = &self.window {
+            set_border_color(window, color);
+          }
+          self.tree.window().set_border_color(color);
         }
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
@@ -925,6 +933,12 @@ impl ManagedSecondaryWindow {
           if let Some(window) = &self.window {
             set_title_bar_color(window, color);
           }
+        }
+        WindowCommand::SetBorderColor(color) => {
+          if let Some(window) = &self.window {
+            set_border_color(window, color);
+          }
+          tree.window().set_border_color(color);
         }
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
@@ -1894,6 +1908,20 @@ fn set_title_bar_color(window: &Window, color: Option<Color>) {
 
 #[cfg(not(windows))]
 fn set_title_bar_color(window: &Window, color: Option<Color>) {
+  let _ = (window, color);
+}
+
+#[cfg(windows)]
+fn set_border_color(window: &Window, color: WindowBorderColor) {
+  window.set_border_color(match color {
+    WindowBorderColor::Default => Some(WinitWindowsColor::SYSTEM_DEFAULT),
+    WindowBorderColor::None => None,
+    WindowBorderColor::Color(color) => Some(to_winit_windows_color(color)),
+  });
+}
+
+#[cfg(not(windows))]
+fn set_border_color(window: &Window, color: WindowBorderColor) {
   let _ = (window, color);
 }
 

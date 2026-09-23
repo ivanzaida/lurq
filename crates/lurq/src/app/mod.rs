@@ -40,8 +40,8 @@ pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers
 #[cfg(feature = "screenshot")]
 pub use window::ScreenshotRegion;
 pub use window::{
-  CloseRequest, CloseRequestSource, Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo,
-  WindowResizeDirection,
+  CloseRequest, CloseRequestSource, Window, WindowBorderColor, WindowCornerRadius, WindowHandle, WindowIcon,
+  WindowInfo, WindowResizeDirection,
 };
 
 pub mod menu;
