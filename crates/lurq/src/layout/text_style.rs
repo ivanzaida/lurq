@@ -95,31 +95,88 @@ fn default_font_family() -> Arc<str> {
   }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+/// CSS font weight. The named variants carry the CSS keyword values (`Thin` =
+/// 100 … `Black` = 900); `Numeric` accepts any other weight and is clamped to
+/// CSS's `1..=1000` range. Weights compare, hash and cache by numeric value, so
+/// `FontWeight::Numeric(600) == FontWeight::SemiBold`.
+///
+/// Text is drawn with the loaded face of the requested family chosen by CSS
+/// font matching (as implemented by fontdb): an exact weight first; for a
+/// request of 400–449, then 500; for 450–500, then 400; otherwise the nearest
+/// lighter face for requests up to 500 and the nearest heavier face above 500,
+/// then the nearest face on the other side. Faces are never synthesized, so
+/// `SemiBold` renders with the Bold face when the family has no 600 face.
+#[derive(Clone, Copy, Debug, Default)]
 pub enum FontWeight {
   Thin,
+  ExtraLight,
   Light,
   #[default]
   Normal,
   Medium,
+  SemiBold,
   Bold,
+  ExtraBold,
   Black,
+  Numeric(u16),
 }
 
 impl FontWeight {
-  pub fn to_cosmic(&self) -> cosmic_text::Weight {
+  pub const MIN_VALUE: u16 = 1;
+  pub const MAX_VALUE: u16 = 1000;
+
+  /// The CSS numeric weight, clamped to `1..=1000`.
+  pub const fn value(self) -> u16 {
     match self {
-      Self::Thin => cosmic_text::Weight(100),
-      Self::Light => cosmic_text::Weight(300),
-      Self::Normal => cosmic_text::Weight(400),
-      Self::Medium => cosmic_text::Weight(400),
-      Self::Bold => cosmic_text::Weight(700),
-      Self::Black => cosmic_text::Weight(900),
+      Self::Thin => 100,
+      Self::ExtraLight => 200,
+      Self::Light => 300,
+      Self::Normal => 400,
+      Self::Medium => 500,
+      Self::SemiBold => 600,
+      Self::Bold => 700,
+      Self::ExtraBold => 800,
+      Self::Black => 900,
+      Self::Numeric(value) => {
+        if value < Self::MIN_VALUE {
+          Self::MIN_VALUE
+        } else if value > Self::MAX_VALUE {
+          Self::MAX_VALUE
+        } else {
+          value
+        }
+      }
     }
+  }
+
+  /// The requested weight. Layout passes the weight of the nearest loaded face
+  /// instead, because cosmic-text only selects faces of exactly this weight.
+  pub fn to_cosmic(&self) -> cosmic_text::Weight {
+    cosmic_text::Weight(self.value())
   }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+impl PartialEq for FontWeight {
+  fn eq(&self, other: &Self) -> bool {
+    self.value() == other.value()
+  }
+}
+
+impl Eq for FontWeight {}
+
+impl std::hash::Hash for FontWeight {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.value().hash(state);
+  }
+}
+
+impl From<u16> for FontWeight {
+  fn from(value: u16) -> Self {
+    Self::Numeric(value)
+  }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FontStyle {
   #[default]
   Normal,

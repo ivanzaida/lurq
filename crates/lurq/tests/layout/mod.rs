@@ -26,6 +26,7 @@ mod constraints;
 mod edge_cases;
 mod flex;
 mod flex_constraints;
+mod font_weight;
 mod frame;
 mod frame_constraints;
 mod nested;

@@ -5,6 +5,7 @@ use tiny_skia::{Pixmap, PixmapPaint};
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
+  app::glyph_engine::FaceWeights,
   layout::text_style::{FontStyle, FontWeight, TextStyle},
   node::color::Color,
 };
@@ -72,6 +73,8 @@ pub struct TextMetrics {
 pub(crate) struct CanvasTextEngine {
   fonts: FontSystem,
   aliases: HashMap<String, String>,
+  // The engine owns a snapshot of the font database, so this never needs clearing.
+  face_weights: FaceWeights,
   swash: SwashCache,
   shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>)>,
   shaped_bytes: usize,
@@ -128,6 +131,7 @@ impl CanvasTextEngine {
     Self {
       fonts,
       aliases,
+      face_weights: FaceWeights::default(),
       swash: SwashCache::new(),
       shaped: Default::default(),
       shaped_bytes: 0,
@@ -187,13 +191,16 @@ impl CanvasTextEngine {
       .get(font.family.as_ref())
       .map(String::as_str)
       .unwrap_or(&font.family);
+    let weight = self
+      .face_weights
+      .resolve(self.fonts.db(), family, font.weight, font.style);
     let attrs = Attrs::new()
       .family(if family.is_empty() {
         Family::SansSerif
       } else {
         Family::Name(family)
       })
-      .weight(font.weight.to_cosmic())
+      .weight(weight)
       .style(font.style.to_cosmic());
     let text = text.replace(['\n', '\r', '\t'], " ");
     buffer.set_text(&mut self.fonts, &text, attrs, Shaping::Advanced);

@@ -17,7 +17,9 @@ use swash::{
   zeno::{Angle, Format, Transform as SwashTransform, Vector},
 };
 
+mod face_weight;
 mod reflow;
+pub(crate) use face_weight::FaceWeights;
 use reflow::ReflowRange;
 
 use crate::{
@@ -26,7 +28,7 @@ use crate::{
     Size,
     quad::{ClipRect, RichTextSpan},
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
-    text_style::{FontStyle, FontWeight, TextAlign, TextStyle},
+    text_style::{FontStyle, TextAlign, TextStyle},
   },
   node::{
     color::Color,
@@ -52,7 +54,7 @@ struct CacheKey {
   font_size_bits: u32,
   line_height_bits: u32,
   max_width_bits: u32,
-  weight: u8,
+  weight: u16,
   style: u8,
   text_align: u8,
   wrap: bool,
@@ -86,7 +88,7 @@ impl CacheKey {
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
       max_width_bits: max_width.to_bits(),
-      weight: weight_to_u8(style.weight),
+      weight: style.weight.value(),
       style: style_to_u8(style.style),
       text_align: text_align_to_u8(style.text_align),
       wrap,
@@ -114,7 +116,7 @@ impl CacheKey {
       && self.font_size_bits == style.font_size.to_bits()
       && self.line_height_bits == style.line_height.to_bits()
       && self.max_width_bits == max_width.to_bits()
-      && self.weight == weight_to_u8(style.weight)
+      && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
       && self.text_align == text_align_to_u8(style.text_align)
       && self.wrap == wrap
@@ -129,7 +131,7 @@ fn text_measure_fingerprint(text: &str, style: &TextStyle, max_width: f32, wrap:
   style.font_size.to_bits().hash(&mut hasher);
   style.line_height.to_bits().hash(&mut hasher);
   max_width.to_bits().hash(&mut hasher);
-  weight_to_u8(style.weight).hash(&mut hasher);
+  style.weight.value().hash(&mut hasher);
   style_to_u8(style.style).hash(&mut hasher);
   text_align_to_u8(style.text_align).hash(&mut hasher);
   wrap.hash(&mut hasher);
@@ -235,7 +237,7 @@ struct RichTextSpanCacheKey {
   font_family: std::sync::Arc<str>,
   font_size_bits: u32,
   line_height_bits: u32,
-  weight: u8,
+  weight: u16,
   style: u8,
   text_align: u8,
   color: [u8; 4],
@@ -249,7 +251,7 @@ impl RichTextSpanCacheKey {
       font_family: style.font_family.clone(),
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
-      weight: weight_to_u8(style.weight),
+      weight: style.weight.value(),
       style: style_to_u8(style.style),
       text_align: text_align_to_u8(style.text_align),
       color: [style.color.r(), style.color.g(), style.color.b(), style.color.a()],
@@ -262,7 +264,7 @@ impl RichTextSpanCacheKey {
       && self.font_family == style.font_family
       && self.font_size_bits == style.font_size.to_bits()
       && self.line_height_bits == style.line_height.to_bits()
-      && self.weight == weight_to_u8(style.weight)
+      && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
       && self.text_align == text_align_to_u8(style.text_align)
       && self.color == [style.color.r(), style.color.g(), style.color.b(), style.color.a()]
@@ -298,21 +300,10 @@ fn hash_rich_text_spans(spans: &[RichTextSpan], hasher: &mut DefaultHasher) {
     style.font_family.hash(hasher);
     style.font_size.to_bits().hash(hasher);
     style.line_height.to_bits().hash(hasher);
-    weight_to_u8(style.weight).hash(hasher);
+    style.weight.value().hash(hasher);
     style_to_u8(style.style).hash(hasher);
     text_align_to_u8(style.text_align).hash(hasher);
     [style.color.r(), style.color.g(), style.color.b(), style.color.a()].hash(hasher);
-  }
-}
-
-fn weight_to_u8(w: FontWeight) -> u8 {
-  match w {
-    FontWeight::Thin => 0,
-    FontWeight::Light => 1,
-    FontWeight::Normal => 2,
-    FontWeight::Medium => 3,
-    FontWeight::Bold => 4,
-    FontWeight::Black => 5,
   }
 }
 
@@ -404,6 +395,7 @@ pub(crate) struct GlyphEngine {
   swash_context: ScaleContext,
   transformed_scale_context: ScaleContext,
   font_aliases: HashMap<String, String>,
+  face_weights: FaceWeights,
   measure_cache: HashMap<u64, Vec<(CacheKey, Size)>>,
   vertical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<TextVerticalExtents>)>>,
   optical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<(f32, f32)>)>>,
@@ -442,6 +434,7 @@ impl GlyphEngine {
       swash_context: ScaleContext::new(),
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
+      face_weights: FaceWeights::default(),
       measure_cache: HashMap::new(),
       vertical_extents_cache: HashMap::new(),
       optical_extents_cache: HashMap::new(),
@@ -544,6 +537,7 @@ impl GlyphEngine {
     {
       self.canvas_text = None;
     }
+    self.face_weights.clear();
     self.plain_buffers.clear();
     self.plain_buffer_bytes = 0;
     self.measure_cache.clear();
@@ -1280,15 +1274,7 @@ impl GlyphEngine {
 
     let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = self.style_attrs(style, &resolved);
     set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
@@ -1513,15 +1499,7 @@ impl GlyphEngine {
     let text_start = Instant::now();
     if let Some(buffer) = &mut partial {
       let resolved = self.resolve_family(style);
-      let family = if resolved.is_empty() {
-        Family::SansSerif
-      } else {
-        Family::Name(&resolved)
-      };
-      let attrs = Attrs::new()
-        .family(family)
-        .weight(style.weight.to_cosmic())
-        .style(style.style.to_cosmic());
+      let attrs = self.style_attrs(style, &resolved);
       set_buffer_text(buffer, &mut self.font_system, text, attrs, style.text_align);
       buffer.shape_until_scroll(&mut self.font_system, false);
     }
@@ -2094,15 +2072,7 @@ impl GlyphEngine {
       layout_ready: true,
     });
     let resolved = self.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = self.style_attrs(style, &resolved);
     if multiline {
       let ranges = cosmic_text::LineIter::new(text).collect::<Vec<_>>();
       let matches = |old: &cosmic_text::BufferLine, new: &(std::ops::Range<usize>, cosmic_text::LineEnding)| {
@@ -2561,7 +2531,8 @@ impl GlyphEngine {
       #[cfg(feature = "perf_profile")]
       let phase_start = Instant::now();
       if self.font_aliases.is_empty() {
-        let attrs = attrs_for_style(&first.style, first.style.font_family.as_ref());
+        let weight = self.face_weight(first.style.font_family.as_ref(), &first.style);
+        let attrs = attrs_for_style(&first.style, first.style.font_family.as_ref(), weight);
         #[cfg(feature = "perf_profile")]
         {
           self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2582,7 +2553,8 @@ impl GlyphEngine {
         }
       } else {
         let family = self.resolve_family(&first.style);
-        let attrs = attrs_for_style(&first.style, &family);
+        let weight = self.face_weight(&family, &first.style);
+        let attrs = attrs_for_style(&first.style, &family, weight);
         #[cfg(feature = "perf_profile")]
         {
           self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2613,11 +2585,16 @@ impl GlyphEngine {
         .map(|span| {
           (
             span.text.as_str(),
-            attrs_for_style(&span.style, span.style.font_family.as_ref()),
+            attrs_for_style(
+              &span.style,
+              span.style.font_family.as_ref(),
+              self.face_weight(span.style.font_family.as_ref(), &span.style),
+            ),
           )
         })
         .collect();
-      let default_attrs = attrs_for_style(&first.style, first.style.font_family.as_ref());
+      let default_weight = self.face_weight(first.style.font_family.as_ref(), &first.style);
+      let default_attrs = attrs_for_style(&first.style, first.style.font_family.as_ref(), default_weight);
       #[cfg(feature = "perf_profile")]
       {
         self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2637,10 +2614,16 @@ impl GlyphEngine {
       let rich_spans: Vec<_> = spans
         .iter()
         .zip(families.iter())
-        .map(|(span, family)| (span.text.as_str(), attrs_for_style(&span.style, family)))
+        .map(|(span, family)| {
+          (
+            span.text.as_str(),
+            attrs_for_style(&span.style, family, self.face_weight(family, &span.style)),
+          )
+        })
         .collect();
       let default_family = self.resolve_family(&first.style);
-      let default_attrs = attrs_for_style(&first.style, &default_family);
+      let default_weight = self.face_weight(&default_family, &first.style);
+      let default_attrs = attrs_for_style(&first.style, &default_family, default_weight);
       #[cfg(feature = "perf_profile")]
       {
         self.profile.rich_prepare_spans += phase_start.elapsed();
@@ -2690,6 +2673,18 @@ impl GlyphEngine {
       shadow_sigma: 0.0,
       clip: crate::layout::quad::ClipRect::default(),
     });
+  }
+
+  /// Weight of the loaded face nearest to `style.weight` in `family`; see [`FaceWeights`].
+  fn face_weight(&mut self, family: &str, style: &TextStyle) -> cosmic_text::Weight {
+    self
+      .face_weights
+      .resolve(self.font_system.db(), family, style.weight, style.style)
+  }
+
+  fn style_attrs<'a>(&mut self, style: &TextStyle, resolved_family: &'a str) -> Attrs<'a> {
+    let weight = self.face_weight(resolved_family, style);
+    plain_attrs(style, resolved_family, weight)
   }
 
   fn resolve_family(&self, style: &TextStyle) -> std::sync::Arc<str> {
@@ -3023,7 +3018,17 @@ fn text_buffer_width(max_width: f32) -> Option<f32> {
   is_bounded_text_width(max_width).then_some(max_width)
 }
 
-fn attrs_for_style<'a>(style: &TextStyle, resolved_family: &'a str) -> Attrs<'a> {
+fn attrs_for_style<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_text::Weight) -> Attrs<'a> {
+  plain_attrs(style, resolved_family, weight).color(CosmicColor::rgba(
+    style.color.r(),
+    style.color.g(),
+    style.color.b(),
+    style.color.a(),
+  ))
+}
+
+/// `weight` is the matched face weight from [`FaceWeights`], not the requested one.
+fn plain_attrs<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_text::Weight) -> Attrs<'a> {
   let family = if resolved_family.is_empty() {
     Family::SansSerif
   } else {
@@ -3031,14 +3036,8 @@ fn attrs_for_style<'a>(style: &TextStyle, resolved_family: &'a str) -> Attrs<'a>
   };
   Attrs::new()
     .family(family)
-    .weight(style.weight.to_cosmic())
+    .weight(weight)
     .style(style.style.to_cosmic())
-    .color(CosmicColor::rgba(
-      style.color.r(),
-      style.color.g(),
-      style.color.b(),
-      style.color.a(),
-    ))
 }
 
 fn glyph_color(color: Option<CosmicColor>, default: Color) -> [f32; 4] {
@@ -3841,10 +3840,7 @@ mod tests {
     };
     let mut buffer = engine.acquire_buffer(&style, 42.0, true);
     let resolved = engine.resolve_family(&style);
-    let attrs = Attrs::new()
-      .family(Family::Name(&resolved))
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = engine.style_attrs(&style, &resolved);
     buffer.set_text(&mut engine.font_system, "key=\"a\"", attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut engine.font_system, false);
 
@@ -3890,10 +3886,7 @@ mod tests {
     };
     let mut buffer = engine.acquire_buffer(&style, 100.0, false);
     let resolved = engine.resolve_family(&style);
-    let attrs = Attrs::new()
-      .family(Family::Name(&resolved))
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = engine.style_attrs(&style, &resolved);
     buffer.set_text(&mut engine.font_system, "Hml", attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut engine.font_system, false);
 
@@ -3988,10 +3981,7 @@ mod tests {
         };
         let mut buffer = engine.acquire_buffer(&style, 100.0, true);
         let resolved = engine.resolve_family(&style);
-        let attrs = Attrs::new()
-          .family(Family::Name(&resolved))
-          .weight(style.weight.to_cosmic())
-          .style(style.style.to_cosmic());
+        let attrs = engine.style_attrs(&style, &resolved);
         buffer.set_text(&mut engine.font_system, "2363", attrs, Shaping::Advanced);
         buffer.shape_until_scroll(&mut engine.font_system, false);
 
@@ -4128,10 +4118,7 @@ mod tests {
     };
     let mut buffer = engine.acquire_buffer(&style, 72.0, true);
     let resolved = engine.resolve_family(&style);
-    let attrs = Attrs::new()
-      .family(Family::Name(&resolved))
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = engine.style_attrs(&style, &resolved);
     buffer.set_text(&mut engine.font_system, "Name", attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut engine.font_system, false);
 
@@ -4318,15 +4305,7 @@ mod tests {
   ) -> Vec<(usize, u32, u32)> {
     let mut buffer = engine.acquire_buffer(style, width, super::effective_text_wrap(width, wrap));
     let resolved = engine.resolve_family(style);
-    let family = if resolved.is_empty() {
-      Family::SansSerif
-    } else {
-      Family::Name(&resolved)
-    };
-    let attrs = Attrs::new()
-      .family(family)
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = engine.style_attrs(style, &resolved);
     set_buffer_text(&mut buffer, &mut engine.font_system, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut engine.font_system, false);
     let mut expected = Vec::new();
@@ -4685,10 +4664,7 @@ mod tests {
     assert_plain_buffer_charge(actual);
     let mut reference = engine.acquire_buffer(style, width, wrap);
     let family = engine.resolve_family(style);
-    let attrs = Attrs::new()
-      .family(Family::Name(&family))
-      .weight(style.weight.to_cosmic())
-      .style(style.style.to_cosmic());
+    let attrs = engine.style_attrs(style, &family);
     set_buffer_text(&mut reference, &mut engine.font_system, text, attrs, style.text_align);
     reference.shape_until_scroll(&mut engine.font_system, false);
     let signature = |buffer: &Buffer| {
