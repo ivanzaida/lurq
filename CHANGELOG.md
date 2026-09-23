@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add the full CSS named font-weight set (`ExtraLight`, `SemiBold`, `ExtraBold` join the existing names) and `FontWeight::Numeric(u16)` for any weight, clamped to `1..=1000`. `FontWeight::value()` returns the number; weights compare, hash, and key text caches by value, so `Numeric(600) == SemiBold`. `Medium` now requests 500 instead of 400.
+- Select the nearest loaded face for every weight. cosmic-text 0.12 only takes a face from the requested family when its weight matches exactly and otherwise falls through to fallback families (which is why `Medium` used to request 400). Text and canvas text now resolve the weight with fontdb's CSS font-matching query first, cached per family and cleared when fonts load. Loaded Medium and SemiBold faces render; a family without them uses its nearest face instead of another family. Text styled `Medium` changes appearance only where the family has a 500 face.
+- Add application-defined `Extra` roles to `TypographyStyle`, `RadiusSize`, `SpacingSize`, and `BorderSize`, stored in new `extra` maps on `ThemeTypography`, `ThemeRadii`, `ThemeSpacing`, and `ThemeBorderSizes`. Each role has an `extra(name)` constructor and converts from `&str` and `Arc<str>`; the tables gain `try_get`, `resolve`, and `try_resolve`. Names are interned so these roles stay `Copy`. A missing name follows the palette: table `get`/`resolve` panic, while nodes resolve an unknown radius, spacing, or border size to `0` and an unknown typography variant to the default text style. `Breakpoint` has no extras because `Responsive` orders overrides by the enum.
+- Document `PaletteColor::Extra`, the new extras, and font-weight matching in the Theme guide.
+- Letter spacing is not included. cosmic-text 0.12 cannot adjust advances before wrapping, so it would need lurq-owned layouts for every text consumer; cosmic-text 0.14 adds letter spacing to `Attrs`.
+- Breaking: exhaustive matches on `FontWeight`, `TypographyStyle`, `RadiusSize`, `SpacingSize`, and `BorderSize` need the new variants. `ThemeTypography`, `ThemeRadii`, `ThemeSpacing`, and `ThemeBorderSizes` struct literals need `extra` or `..Default::default()`. `ThemeRadii`, `ThemeSpacing`, and `ThemeBorderSizes` are no longer `Copy`.
+
 ## 0.20.0 — 2026-09-17
 
 - Add gradient paints to `Context2D` fills and strokes: linear, radial and angular, 2 to 16 stops, with a centre, a size and a rotation normalised to a box. A gradient is a fragment-shader paint — one 256-texel ramp per distinct stop list, and paint coordinates carried in the vertex `uv` solid paths leave unused — so the mesh-cache key and the per-batch vertex charge are unchanged. An unusable gradient draws nothing rather than a colour of its own choosing, and is refused for shaped text with `UnsupportedPaint`.

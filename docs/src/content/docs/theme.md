@@ -1,11 +1,11 @@
 ---
 title: Theme
-description: Strict palette, typography, radius, spacing, scrollbar, border size, and form theme roles.
+description: Semantic palette, typography, radius, spacing, scrollbar, border size, and form theme roles, with named extras.
 ---
 
 # Theme
 
-The runtime theme is a strict set of semantic roles. There is no dynamic token registry: palette colors, typography styles, radius sizes, spacing sizes, scrollbar style, and border sizes are closed enums with matching fields on the theme structs.
+The runtime theme is a set of semantic roles. Palette colors, typography styles, radius sizes, spacing sizes, and border sizes are enums with a matching field on the theme structs for each built-in role, plus an `Extra` variant for application-defined roles (see [Extra Roles](#extra-roles)). The scrollbar style and breakpoints have no extras.
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
@@ -121,6 +121,15 @@ Available roles:
 | `Info` | `info` | `#0284c7` |
 | `InfoMuted` | `info_muted` | `#e0f2fe` |
 
+`PaletteColor::Extra(name)` names an application-defined color stored in `ThemePalette::extra`, a `HashMap<Arc<str>, Color>`. Build one with `PaletteColor::extra("brand")`; a `&str` or `Arc<str>` converts into it, so the theme setters accept names directly:
+
+```rust
+use lurq::{app::theme::PaletteColor, node::color::Color};
+
+app.theme().set_palette_color("brand", Color::from_hex("#7c3aed"));
+let brand = app.theme().palette_color(PaletteColor::extra("brand"));
+```
+
 Palette roles can be passed anywhere a background or text color accepts a theme color:
 
 ```rust
@@ -163,6 +172,8 @@ Available roles:
 | `Link` | `link` | body defaults |
 | `Mono` | `mono` | body defaults with `monospace` family |
 
+`TypographyStyle::Extra(name)` names an application-defined style stored in `ThemeTypography::extra`, a `HashMap<Arc<str>, TextStyle>`; see [Extra Roles](#extra-roles).
+
 `Text::new` uses `TypographyStyle::Body`. Use `.variant(...)` for themed text, and `Text::styled(...)` for a one-off style that should not follow a typography role.
 
 `TextStyle::text_align` supports `TextAlign::Left`, `Center`, `Right`, `Justified`, and `End`. `Text::text_align(...)` aligns text inside the text node's box, and `TextInput::text_align(...)` applies the same alignment to value and placeholder text inside the input content box. Both builders also accept layout `Alignment`.
@@ -179,6 +190,43 @@ Text::new("Headline").variant(TypographyStyle::Heading);
 Text::new("Caption").variant(TypographyStyle::Caption);
 Text::new("Long endpoint name").text_overflow(TextOverflow::Elipsis);
 ```
+
+### Font Weight
+
+`FontWeight` has the CSS named weights and a numeric escape hatch:
+
+| `FontWeight` | Weight |
+| --- | --- |
+| `Thin` | `100` |
+| `ExtraLight` | `200` |
+| `Light` | `300` |
+| `Normal` | `400` (default) |
+| `Medium` | `500` |
+| `SemiBold` | `600` |
+| `Bold` | `700` |
+| `ExtraBold` | `800` |
+| `Black` | `900` |
+| `Numeric(n)` | `n`, clamped to `1..=1000` |
+
+`FontWeight::value()` returns the number. Weights compare and hash by value, so `FontWeight::Numeric(600) == FontWeight::SemiBold`, and `FontWeight::from(600)` builds a numeric weight.
+
+Text uses the loaded face of the requested family chosen by CSS font matching, as implemented by fontdb. An exact weight wins. Otherwise a request of 400–449 tries 500 next and one of 450–500 tries 400 next; then requests up to 500 take the nearest lighter face and requests above 500 the nearest heavier face, falling back to the nearest face on the other side. Faces are never synthesized: with only Regular and Bold loaded, `Medium` renders Regular and `SemiBold` renders Bold. Load every weight the design uses, for example:
+
+```rust
+app.install_fonts(
+  [
+    include_bytes!("../assets/fonts/Inter-Regular.ttf").to_vec(),
+    include_bytes!("../assets/fonts/Inter-Medium.ttf").to_vec(),
+    include_bytes!("../assets/fonts/Inter-SemiBold.ttf").to_vec(),
+    include_bytes!("../assets/fonts/Inter-Bold.ttf").to_vec(),
+  ],
+  [("ui", "Inter")],
+);
+```
+
+The resolved weight is cached per family and cleared whenever fonts are loaded. A family with no loaded faces is matched against the generic sans-serif family, where its text falls back.
+
+`TextStyle` has no letter-spacing field yet. The text engine (cosmic-text 0.12) cannot space glyphs before wrapping, so tracking would disagree between wrapping, measurement, carets, and hit testing.
 
 `ThemeFonts` remains as a compatibility shape with `body`, `heading`, and `mono`. Converting it into `ThemeTypography` only fills those three roles and leaves the rest at defaults.
 
@@ -258,6 +306,51 @@ Rect::new(100.0, 40.0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
   .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
 ```
+
+## Extra Roles
+
+Every role enum except `Breakpoint` has an `Extra` variant for roles the built-in set does not cover, such as a design system's overline or card radius. Each theme struct stores extras in a public `extra` map keyed by `Arc<str>`:
+
+| Role | Extra variant | Storage |
+| --- | --- | --- |
+| `PaletteColor` | `Extra(Arc<str>)` | `ThemePalette::extra: HashMap<Arc<str>, Color>` |
+| `TypographyStyle` | `Extra(&'static str)` | `ThemeTypography::extra: HashMap<Arc<str>, TextStyle>` |
+| `RadiusSize` | `Extra(&'static str)` | `ThemeRadii::extra: HashMap<Arc<str>, f32>` |
+| `SpacingSize` | `Extra(&'static str)` | `ThemeSpacing::extra: HashMap<Arc<str>, Dimension>` |
+| `BorderSize` | `Extra(&'static str)` | `ThemeBorderSizes::extra: HashMap<Arc<str>, f32>` |
+
+Build a role with `extra(name)`, or convert a `&str` or `Arc<str>`. The theme setters therefore take names directly:
+
+```rust
+use lurq::{
+  app::theme::{RadiusSize, SpacingSize, TypographyStyle},
+  components::{Column, Rect, Text},
+  layout::text_style::{FontWeight, TextStyle},
+};
+
+let theme = app.theme();
+theme.set_typography_style("overline", TextStyle {
+  font_size: 9.0,
+  weight: FontWeight::SemiBold,
+  ..TextStyle::default()
+});
+theme.set_radius_value("card", 10.0);
+theme.set_spacing_value("gutter", 20.0);
+
+Column::new()
+  .padding(SpacingSize::extra("gutter"))
+  .child(Text::new("RECENT").variant("overline"))
+  .child(Rect::new(200.0, 120.0).rounded(RadiusSize::extra("card")));
+```
+
+Radius, spacing, border-size, and typography roles are `Copy` and nest in `Copy` values such as `Padding`, so their names are interned: each distinct name is stored once for the life of the process. Use a fixed vocabulary of role names, not per-item data.
+
+A missing extra name follows the palette:
+
+- The theme tables' `get` and `resolve` panic, for example `radius size not found: card`. `try_get` and `try_resolve` return `None`. The `Theme` accessors (`palette_color`, `typography_style`, `radius_value`, `spacing_value`, `border_size_value`) call `get`.
+- Nodes never panic. As an unresolved palette color paints nothing, an unresolved radius, spacing, or border size resolves to `0`, and an unresolved typography variant uses the default text style.
+
+`Breakpoint` has no extras: `Responsive` orders overrides by the `Breakpoint` enum, not by threshold, so a named threshold could not be placed in that order.
 
 ## Scrollbar
 

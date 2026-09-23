@@ -231,7 +231,7 @@ retrieves the reactive context and subscribes the consuming context to changes.
 
 `theme()` returns the current runtime theme. Root and child contexts get the theme from `Tree::mount_root`.
 
-Theme typography exposes strict named text styles. `Text::new` uses `theme.typography().body`, and
+Theme typography exposes named text styles. `Text::new` uses `theme.typography().body`, and
 `Text::new("Label").variant(TypographyStyle::Label)` resolves the named style during layout.
 See [Theme](../theme/) for the full palette, typography, radius, spacing, and form role tables.
 

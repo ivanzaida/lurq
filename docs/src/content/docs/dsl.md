@@ -289,7 +289,7 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 ## Text Styling
 
-Theme palettes, typography, radii, and spacing expose strict named values:
+Theme palettes, typography, radii, and spacing expose named values:
 
 ```rust
 use lurq::{
@@ -311,7 +311,7 @@ lurq::components::Row::new()
   .spacing(SpacingSize::Sm);
 ```
 
-Plain text resolves its style from the active theme. `Text::new` uses the theme body text style, and `variant` selects one of the strict named typography styles.
+Plain text resolves its style from the active theme. `Text::new` uses the theme body text style, and `variant` selects a named typography style.
 
 ```rust
 use lurq::layout::text_style::{FontWeight, TextStyle};
@@ -334,7 +334,7 @@ lurq::components::Text::new("Headline")
   .variant(TypographyStyle::Heading)
 ```
 
-Text variants are closed over the `TypographyStyle` names. Radius variants are closed over `RadiusSize::Sm`, `RadiusSize::Md`, and `RadiusSize::Lg`. Spacing variants are closed over `SpacingSize::Xs`, `SpacingSize::Sm`, `SpacingSize::Md`, `SpacingSize::Lg`, `SpacingSize::Xl`, and `SpacingSize::Section`. Border-size variants are closed over `BorderSize::Sm`, `BorderSize::Md`, and `BorderSize::Lg`.
+The built-in text variants are the `TypographyStyle` names. The built-in radius variants are `RadiusSize::Sm`, `RadiusSize::Md`, and `RadiusSize::Lg`; spacing variants are `SpacingSize::Xs`, `SpacingSize::Sm`, `SpacingSize::Md`, `SpacingSize::Lg`, `SpacingSize::Xl`, and `SpacingSize::Section`; border-size variants are `BorderSize::Sm`, `BorderSize::Md`, and `BorderSize::Lg`. Each enum also has an `Extra` variant for application-defined roles, such as `Text::new("RECENT").variant("overline")`; see [Extra Roles](../theme/#extra-roles).
 
 Use `Text::styled` for a one-off style that should ignore theme typography:
 
