@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 — 2026-09-23
 
 - Add the full CSS named font-weight set (`ExtraLight`, `SemiBold`, `ExtraBold` join the existing names) and `FontWeight::Numeric(u16)` for any weight, clamped to `1..=1000`. `FontWeight::value()` returns the number; weights compare, hash, and key text caches by value, so `Numeric(600) == SemiBold`. `Medium` now requests 500 instead of 400.
 - Select the nearest loaded face for every weight. cosmic-text (0.12, and still 0.19 for static faces) only takes a face from the requested family when its weight matches exactly and otherwise falls through to fallback families (which is why `Medium` used to request 400). Text and canvas text now resolve the weight with fontdb's CSS font-matching query first, cached per family and cleared when fonts load. Loaded Medium and SemiBold faces render; a family without them uses its nearest face instead of another family. Text styled `Medium` changes appearance only where the family has a 500 face.
