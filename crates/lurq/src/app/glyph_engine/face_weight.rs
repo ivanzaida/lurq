@@ -1,9 +1,10 @@
 //! Nearest-face weight resolution.
 //!
-//! cosmic-text 0.12 only takes a face from the requested family when its weight
-//! equals the requested weight exactly; any other request falls through to the
-//! script and common fallback families, which on Windows can land on a symbol
-//! font. Resolving the weight first with fontdb's CSS font-matching query and
+//! cosmic-text (checked through 0.19) only takes a face from the requested
+//! family when its weight equals the requested weight exactly, or when it is a
+//! variable face whose `wght` axis covers it; any other request falls through
+//! to the script and common fallback families, which on Windows can land on a
+//! symbol font. Resolving the weight first with fontdb's CSS font-matching query and
 //! shaping with the matched face's own weight keeps text in its family and
 //! selects the nearest loaded face — Medium and SemiBold faces included.
 

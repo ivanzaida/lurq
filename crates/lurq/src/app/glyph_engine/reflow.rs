@@ -19,8 +19,8 @@ impl ReflowRange {
   }
 
   pub(super) fn new(line: &BufferLine, font_size: f32, width: Option<f32>, wrap: bool) -> Option<Self> {
-    line.layout_opt().as_ref()?;
-    let shape = line.shape_opt().as_ref()?;
+    line.layout_opt()?;
+    let shape = line.shape_opt()?;
     if line.align() != Some(Align::Left)
       || shape.rtl
       || shape.spans.len() > 1
@@ -78,7 +78,7 @@ impl ReflowRange {
 
 #[cfg(test)]
 mod tests {
-  use cosmic_text::{Attrs, AttrsList, BufferLine, Family, LineEnding, Shaping, Wrap};
+  use cosmic_text::{Attrs, AttrsList, BufferLine, Ellipsize, Family, Hinting, LineEnding, Shaping, Wrap};
 
   use super::*;
 
@@ -104,7 +104,7 @@ mod tests {
           let mut line = BufferLine::new(
             text,
             LineEnding::Lf,
-            AttrsList::new(Attrs::new().family(Family::SansSerif)),
+            AttrsList::new(&Attrs::new().family(Family::SansSerif)),
             Shaping::Advanced,
           );
           line.set_align(Some(Align::Left));
@@ -113,15 +113,17 @@ mod tests {
             font_size,
             Some(width),
             Wrap::WordOrGlyph,
+            Ellipsize::None,
             None,
             8,
+            Hinting::Disabled,
           );
           let Some(range) = ReflowRange::new(&line, font_size, Some(width), true) else {
             continue;
           };
           assert!(range.contains(Some(width)));
           certified += 1;
-          wrapped += usize::from(line.layout_opt().as_ref().unwrap().len() > 1);
+          wrapped += usize::from(line.layout_opt().unwrap().len() > 1);
           let expected = format!("{:?}", line.layout_opt());
           let mut candidates = (0..80).map(|i| i as f32 * 7.125).collect::<Vec<_>>();
           for bound in [range.min, range.max, width] {
@@ -140,8 +142,10 @@ mod tests {
               font_size,
               Some(candidate),
               Wrap::WordOrGlyph,
+              Ellipsize::None,
               None,
               8,
+              Hinting::Disabled,
             );
             assert_eq!(
               format!("{:?}", fresh.layout_opt()),
@@ -170,11 +174,20 @@ mod tests {
       let mut line = BufferLine::new(
         text,
         LineEnding::None,
-        AttrsList::new(Attrs::new().family(Family::SansSerif)),
+        AttrsList::new(&Attrs::new().family(Family::SansSerif)),
         Shaping::Advanced,
       );
       line.set_align(Some(align));
-      line.layout(&mut engine.font_system, 16.0, Some(width), Wrap::WordOrGlyph, None, 8);
+      line.layout(
+        &mut engine.font_system,
+        16.0,
+        Some(width),
+        Wrap::WordOrGlyph,
+        Ellipsize::None,
+        None,
+        8,
+        Hinting::Disabled,
+      );
       assert!(
         ReflowRange::new(&line, 16.0, Some(width), true).is_none(),
         "{text:?} {align:?}"
@@ -189,18 +202,36 @@ mod tests {
       let mut line = BufferLine::new(
         text,
         LineEnding::None,
-        AttrsList::new(Attrs::new().family(Family::SansSerif)),
+        AttrsList::new(&Attrs::new().family(Family::SansSerif)),
         Shaping::Advanced,
       );
       line.set_align(Some(Align::Left));
-      line.layout(&mut engine.font_system, 19.5, Some(80.0), Wrap::None, None, 8);
+      line.layout(
+        &mut engine.font_system,
+        19.5,
+        Some(80.0),
+        Wrap::None,
+        Ellipsize::None,
+        None,
+        8,
+        Hinting::Disabled,
+      );
       let range = ReflowRange::new(&line, 19.5, Some(80.0), false).unwrap();
       let expected = format!("{:?}", line.layout_opt());
       for width in [Some(0.0), Some(1.0), Some(79.875), Some(480.0), None] {
         assert!(range.contains(width));
         let mut fresh = line.clone();
         fresh.reset_layout();
-        fresh.layout(&mut engine.font_system, 19.5, width, Wrap::None, None, 8);
+        fresh.layout(
+          &mut engine.font_system,
+          19.5,
+          width,
+          Wrap::None,
+          Ellipsize::None,
+          None,
+          8,
+          Hinting::Disabled,
+        );
         assert_eq!(format!("{:?}", fresh.layout_opt()), expected);
       }
     }

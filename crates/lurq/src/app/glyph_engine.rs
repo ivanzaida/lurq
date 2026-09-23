@@ -17,8 +17,11 @@ use swash::{
   zeno::{Angle, Format, Transform as SwashTransform, Vector},
 };
 
+mod cap_height;
 mod face_weight;
 mod reflow;
+mod scaler;
+use cap_height::GlyphFace;
 pub(crate) use face_weight::FaceWeights;
 use reflow::ReflowRange;
 
@@ -324,10 +327,18 @@ fn text_align_to_u8(align: TextAlign) -> u8 {
   }
 }
 
-fn set_buffer_text(buffer: &mut Buffer, font_system: &mut FontSystem, text: &str, attrs: Attrs, text_align: TextAlign) {
-  buffer.set_text(font_system, text, attrs, Shaping::Advanced);
-  for line in &mut buffer.lines {
-    line.set_align(Some(text_align.to_cosmic()));
+/// Buffer setters only mark the buffer dirty; readers shape it with `shape_until_scroll`.
+fn set_buffer_text(buffer: &mut Buffer, text: &str, attrs: Attrs, text_align: TextAlign) {
+  buffer.set_text(text, &attrs, Shaping::Advanced, Some(text_align.to_cosmic()));
+  // Cosmic appends an empty line after a trailing line break. Paragraph caches,
+  // rich text and caret extraction all end at the last line break instead.
+  if buffer.lines.len() > 1
+    && buffer
+      .lines
+      .last()
+      .is_some_and(|line| line.text().is_empty() && line.ending() == cosmic_text::LineEnding::None)
+  {
+    buffer.lines.pop();
   }
 }
 
@@ -724,6 +735,7 @@ impl GlyphEngine {
           glyph.glyph_id,
           glyph.font_size,
           (0.0, 0.0),
+          glyph.font_weight,
           glyph.cache_key_flags,
         );
         if !self.get_or_pack_glyph(key).is_some_and(|packed| packed.height > 0) {
@@ -731,7 +743,7 @@ impl GlyphEngine {
         }
         if first.is_none() {
           let cap = self
-            .font_cap_height_px(glyph.font_id, glyph.font_size)
+            .font_cap_height_px(GlyphFace::of(glyph))
             .filter(|&cap| cap > glyph.font_size * 0.4 && cap < glyph.font_size * 0.95);
           let Some(cap) = cap else {
             needs_ink = true;
@@ -771,7 +783,7 @@ impl GlyphEngine {
 
     let mut top = f32::INFINITY;
     let mut bottom = f32::NEG_INFINITY;
-    let mut first: Option<(cosmic_text::fontdb::ID, f32, f32, f32)> = None;
+    let mut first: Option<(GlyphFace, f32, f32)> = None;
     let mut last_line_y = None;
     for run in buffer.layout_runs() {
       #[cfg(feature = "perf_profile")]
@@ -789,6 +801,7 @@ impl GlyphEngine {
           glyph.glyph_id,
           glyph.font_size,
           (0.0, 0.0),
+          glyph.font_weight,
           glyph.cache_key_flags,
         );
         let Some(packed) = self.get_or_pack_glyph(cache_key) else {
@@ -802,7 +815,7 @@ impl GlyphEngine {
         top = top.min(glyph_top);
         bottom = bottom.max(glyph_top + packed.height as f32);
         if first.is_none() {
-          first = Some((glyph.font_id, baseline, glyph.font_size, run.line_y));
+          first = Some((GlyphFace::of(glyph), baseline, run.line_y));
         }
         last_line_y = Some(run.line_y);
       }
@@ -819,8 +832,9 @@ impl GlyphEngine {
     // downward and lets its final line escape a trimmed line box. Icon fonts
     // usually report no usable cap height, so fall back to the ink box for them.
     let (optical_top, optical_bottom) = first
-      .and_then(|(font_id, baseline, font_size, first_line_y)| {
-        let cap_px = self.font_cap_height_px(font_id, font_size)?;
+      .and_then(|(glyph, baseline, first_line_y)| {
+        let font_size = glyph.font_size;
+        let cap_px = self.font_cap_height_px(glyph)?;
         // Only trust a plausible text cap height. Icon/symbol fonts report 0 or
         // a full-em value; those fall back to ink so the glyph shape itself is
         // centered (which keeps icons aligned with adjacent cap-centered text).
@@ -837,28 +851,9 @@ impl GlyphEngine {
     })
   }
 
-  /// Cap height in pixels, using the Latin H outline when older text fonts
-  /// omit the metric. Fonts without that glyph still use the ink fallback.
-  fn font_cap_height_px(&mut self, font_id: cosmic_text::fontdb::ID, font_size: f32) -> Option<f32> {
-    let font = self.font_system.get_font(font_id)?;
-    let metrics = font.as_swash().metrics(&[]);
-    let upem = metrics.units_per_em as f32;
-    if upem <= 0.0 {
-      return None;
-    }
-    let cap_height = if metrics.cap_height > 0.0 {
-      metrics.cap_height
-    } else {
-      // A fixed reference glyph keeps the baseline independent of the current
-      // value (e.g. "as" -> "asd" in DejaVu Sans with an older OS/2 table).
-      let face = font.rustybuzz();
-      let glyph = face.glyph_index('H')?;
-      if glyph.0 == 0 {
-        return None;
-      }
-      face.glyph_bounding_box(glyph)?.y_max as f32
-    };
-    Some(cap_height * font_size / upem)
+  fn font_cap_height_px(&mut self, glyph: GlyphFace) -> Option<f32> {
+    let font = self.font_system.get_font(glyph.font_id, glyph.weight)?;
+    cap_height::cap_height_px(self.font_system.db(), &font, glyph.weight, glyph.font_size)
   }
 
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
@@ -1081,7 +1076,7 @@ impl GlyphEngine {
         layout_index = 0;
         previous_line = run.line_i;
       }
-      let layouts = entry.buffer.lines[run.line_i].layout_opt().as_ref().unwrap();
+      let layouts = entry.buffer.lines[run.line_i].layout_opt().unwrap();
       // Cosmic may skip a row with a negative baseline. Match the returned
       // glyph slice to its layout row without recomputing Cosmic's y arithmetic.
       while layouts[layout_index].glyphs.as_ptr() != run.glyphs.as_ptr()
@@ -1275,7 +1270,7 @@ impl GlyphEngine {
     let mut buffer = self.acquire_buffer(style, max_width, wrap);
     let resolved = self.resolve_family(style);
     let attrs = self.style_attrs(style, &resolved);
-    set_buffer_text(&mut buffer, &mut self.font_system, text, attrs, style.text_align);
+    set_buffer_text(&mut buffer, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut self.font_system, false);
 
     let mut cached = Vec::new();
@@ -1291,6 +1286,7 @@ impl GlyphEngine {
           glyph.glyph_id,
           glyph.font_size,
           (0.0, 0.0),
+          glyph.font_weight,
           glyph.cache_key_flags,
         );
         cached.push(CachedTransformedGlyph {
@@ -1365,6 +1361,7 @@ impl GlyphEngine {
           glyph.glyph_id,
           glyph.font_size,
           (0.0, 0.0),
+          glyph.font_weight,
           glyph.cache_key_flags,
         );
         let Some(packed) = self.get_or_pack_transformed_glyph(cache_key, swash_transform) else {
@@ -1487,7 +1484,7 @@ impl GlyphEngine {
     if shaped.is_none() {
       let mut buffer = self.acquire_buffer(style, max_width, wrap);
       if let Some(height) = clipped_raster_shape_height(origin_y, style, clip) {
-        buffer.set_size(&mut self.font_system, text_buffer_width(max_width), Some(height));
+        buffer.set_size(text_buffer_width(max_width), Some(height));
       }
       partial = Some(buffer);
     }
@@ -1500,7 +1497,7 @@ impl GlyphEngine {
     if let Some(buffer) = &mut partial {
       let resolved = self.resolve_family(style);
       let attrs = self.style_attrs(style, &resolved);
-      set_buffer_text(buffer, &mut self.font_system, text, attrs, style.text_align);
+      set_buffer_text(buffer, text, attrs, style.text_align);
       buffer.shape_until_scroll(&mut self.font_system, false);
     }
 
@@ -1562,6 +1559,7 @@ impl GlyphEngine {
             glyph.glyph_id,
             glyph.font_size,
             (0.0, 0.0),
+            glyph.font_weight,
             glyph.cache_key_flags,
           );
           let Some(packed) = self.get_or_pack_glyph(cache_key) else {
@@ -1775,6 +1773,7 @@ impl GlyphEngine {
             glyph.glyph_id,
             glyph.font_size,
             (0.0, 0.0),
+            glyph.font_weight,
             glyph.cache_key_flags,
           );
           let Some(packed) = self.get_or_pack_glyph(cache_key) else {
@@ -1868,7 +1867,7 @@ impl GlyphEngine {
       return Some(packed);
     }
 
-    let font = self.font_system.get_font(cache_key.font_id)?;
+    let font = self.font_system.get_font(cache_key.font_id, cache_key.font_weight)?;
     #[cfg(feature = "perf_profile")]
     {
       self.profile.swash_requests += 1;
@@ -1921,13 +1920,8 @@ impl GlyphEngine {
       return Some(packed);
     }
 
-    let font = self.font_system.get_font(cache_key.font_id)?;
-    let mut scaler = self
-      .transformed_scale_context
-      .builder(font.as_swash())
-      .size(f32::from_bits(cache_key.font_size_bits))
-      .hint(false)
-      .build();
+    let font = self.font_system.get_font(cache_key.font_id, cache_key.font_weight)?;
+    let mut scaler = scaler::unhinted_scaler(&mut self.transformed_scale_context, &font, cache_key).build();
     let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
     let transform = if cache_key.flags.contains(cosmic_text::CacheKeyFlags::FAKE_ITALIC) {
       SwashTransform::skew(Angle::from_degrees(14.0), Angle::from_degrees(0.0)).then(&transform)
@@ -2133,7 +2127,7 @@ impl GlyphEngine {
           let mut line = cosmic_text::BufferLine::new(
             paragraph,
             *ending,
-            cosmic_text::AttrsList::new(attrs),
+            cosmic_text::AttrsList::new(&attrs),
             Shaping::Advanced,
           );
           line.set_align(Some(style.text_align.to_cosmic()));
@@ -2151,12 +2145,13 @@ impl GlyphEngine {
       entry.buffer.lines.splice(prefix..prefix, new_lines);
       entry.paragraphs.splice(prefix..prefix, new_paragraphs);
       if width_changed {
-        // Setters may immediately shape old contents. Set the width while empty,
-        // then explicitly rewrap retained shapes so profiling covers that work.
+        // The setter marks every laid-out line for relayout on the next shape
+        // pass. Set the width while empty and settle that flag there, then
+        // explicitly rewrap retained shapes so reflow reuse survives and
+        // profiling covers that work.
         let lines = std::mem::take(&mut entry.buffer.lines);
-        entry
-          .buffer
-          .set_size(&mut self.font_system, text_buffer_width(max_width), None);
+        entry.buffer.set_size(text_buffer_width(max_width), None);
+        entry.buffer.shape_until_scroll(&mut self.font_system, false);
         entry.buffer.lines = lines;
         let new_width = entry.buffer.size().0;
         for (line, metadata) in entry.buffer.lines.iter_mut().zip(&mut entry.paragraphs) {
@@ -2219,7 +2214,7 @@ impl GlyphEngine {
       }
       entry.buffer.set_scroll(cosmic_text::Scroll::default());
     } else {
-      set_buffer_text(&mut entry.buffer, &mut self.font_system, text, attrs, style.text_align);
+      set_buffer_text(&mut entry.buffer, text, attrs, style.text_align);
     }
     #[cfg(feature = "perf_profile")]
     let finalize_start = Instant::now();
@@ -2369,11 +2364,11 @@ impl GlyphEngine {
       .buffer_pool
       .pop()
       .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
-    // Setters can shape old contents immediately. This buffer is about to receive new text.
+    // This buffer is about to receive new text; drop the old lines so they are never shaped.
     buffer.lines.clear();
-    buffer.set_metrics(&mut self.font_system, metrics);
-    buffer.set_size(&mut self.font_system, text_buffer_width(max_width), None);
-    buffer.set_wrap(&mut self.font_system, if wrap { Wrap::WordOrGlyph } else { Wrap::None });
+    buffer.set_metrics(metrics);
+    buffer.set_size(text_buffer_width(max_width), None);
+    buffer.set_wrap(if wrap { Wrap::WordOrGlyph } else { Wrap::None });
     buffer
   }
 
@@ -2540,13 +2535,7 @@ impl GlyphEngine {
 
         #[cfg(feature = "perf_profile")]
         let phase_start = Instant::now();
-        set_buffer_text(
-          buffer,
-          &mut self.font_system,
-          &first.text,
-          attrs,
-          first.style.text_align,
-        );
+        set_buffer_text(buffer, &first.text, attrs, first.style.text_align);
         #[cfg(feature = "perf_profile")]
         {
           self.profile.rich_buffer_set_text += phase_start.elapsed();
@@ -2562,13 +2551,7 @@ impl GlyphEngine {
 
         #[cfg(feature = "perf_profile")]
         let phase_start = Instant::now();
-        set_buffer_text(
-          buffer,
-          &mut self.font_system,
-          &first.text,
-          attrs,
-          first.style.text_align,
-        );
+        set_buffer_text(buffer, &first.text, attrs, first.style.text_align);
         #[cfg(feature = "perf_profile")]
         {
           self.profile.rich_buffer_set_text += phase_start.elapsed();
@@ -2602,7 +2585,7 @@ impl GlyphEngine {
 
       #[cfg(feature = "perf_profile")]
       let phase_start = Instant::now();
-      buffer.set_rich_text(&mut self.font_system, rich_spans, default_attrs, Shaping::Advanced);
+      buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, None);
       #[cfg(feature = "perf_profile")]
       {
         self.profile.rich_buffer_set_text += phase_start.elapsed();
@@ -2631,7 +2614,7 @@ impl GlyphEngine {
 
       #[cfg(feature = "perf_profile")]
       let phase_start = Instant::now();
-      buffer.set_rich_text(&mut self.font_system, rich_spans, default_attrs, Shaping::Advanced);
+      buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, None);
       #[cfg(feature = "perf_profile")]
       {
         self.profile.rich_buffer_set_text += phase_start.elapsed();
@@ -2984,11 +2967,7 @@ fn render_glyph_image(context: &mut ScaleContext, font: &Font, cache_key: GlyphC
   // instances match (the transformed-glyph path below renders unhinted for the
   // same reason, as do DirectWrite's "natural" modes, which pair subpixel
   // positioning with unhinted horizontal metrics).
-  let mut scaler = context
-    .builder(font.as_swash())
-    .size(f32::from_bits(cache_key.font_size_bits))
-    .hint(false)
-    .build();
+  let mut scaler = scaler::unhinted_scaler(context, font, cache_key).build();
   let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
   let transform = cache_key
     .flags
@@ -3841,7 +3820,7 @@ mod tests {
     let mut buffer = engine.acquire_buffer(&style, 42.0, true);
     let resolved = engine.resolve_family(&style);
     let attrs = engine.style_attrs(&style, &resolved);
-    buffer.set_text(&mut engine.font_system, "key=\"a\"", attrs, Shaping::Advanced);
+    buffer.set_text("key=\"a\"", &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut engine.font_system, false);
 
     let y_glyph = buffer
@@ -3852,7 +3831,7 @@ mod tests {
     let physical = y_glyph.1.physical((0.0, y_glyph.0), 1.0);
     let font = engine
       .font_system
-      .get_font(physical.cache_key.font_id)
+      .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
       .expect("the y glyph font should be available");
     let mut context = ScaleContext::new();
     let image = render_glyph_image(&mut context, &font, physical.cache_key).expect("the y glyph should rasterize");
@@ -3887,7 +3866,7 @@ mod tests {
     let mut buffer = engine.acquire_buffer(&style, 100.0, false);
     let resolved = engine.resolve_family(&style);
     let attrs = engine.style_attrs(&style, &resolved);
-    buffer.set_text(&mut engine.font_system, "Hml", attrs, Shaping::Advanced);
+    buffer.set_text("Hml", &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut engine.font_system, false);
 
     let mut compared = 0;
@@ -3899,9 +3878,13 @@ mod tests {
             glyph.glyph_id,
             glyph.font_size,
             (bin, 0.0),
+            glyph.font_weight,
             glyph.cache_key_flags,
           );
-          let font = engine.font_system.get_font(cache_key.font_id).expect("font");
+          let font = engine
+            .font_system
+            .get_font(cache_key.font_id, cache_key.font_weight)
+            .expect("font");
           let mut context = ScaleContext::new();
           let main = render_glyph_image(&mut context, &font, cache_key).expect("main raster");
 
@@ -3982,7 +3965,7 @@ mod tests {
         let mut buffer = engine.acquire_buffer(&style, 100.0, true);
         let resolved = engine.resolve_family(&style);
         let attrs = engine.style_attrs(&style, &resolved);
-        buffer.set_text(&mut engine.font_system, "2363", attrs, Shaping::Advanced);
+        buffer.set_text("2363", &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(&mut engine.font_system, false);
 
         let mut glyph_count = 0;
@@ -3996,7 +3979,7 @@ mod tests {
                 let physical = glyph.physical((x_offset, run.line_y + y_offset), 1.0);
                 let font = engine
                   .font_system
-                  .get_font(physical.cache_key.font_id)
+                  .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
                   .expect("glyph font should be available");
                 let mut context = ScaleContext::new();
                 let image = render_glyph_image(&mut context, &font, physical.cache_key);
@@ -4119,7 +4102,7 @@ mod tests {
     let mut buffer = engine.acquire_buffer(&style, 72.0, true);
     let resolved = engine.resolve_family(&style);
     let attrs = engine.style_attrs(&style, &resolved);
-    buffer.set_text(&mut engine.font_system, "Name", attrs, Shaping::Advanced);
+    buffer.set_text("Name", &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut engine.font_system, false);
 
     for run in buffer.layout_runs() {
@@ -4148,8 +4131,11 @@ mod tests {
       .find(|face| face.families.iter().any(|(name, _)| name == "lucide"))
       .expect("bundled icon font should be loaded")
       .id;
-    let icon_font = engine.font_system.get_font(icon_font_id).unwrap();
-    assert!(icon_font.rustybuzz().glyph_index('•').is_none());
+    let icon_font = engine
+      .font_system
+      .get_font(icon_font_id, cosmic_text::Weight::NORMAL)
+      .unwrap();
+    assert_eq!(icon_font.as_swash().charmap().map('•'), 0);
 
     let style = crate::layout::text_style::TextStyle {
       font_family: "lucide".into(),
@@ -4158,7 +4144,6 @@ mod tests {
     let mut buffer = engine.acquire_buffer(&style, 200.0, false);
     super::set_buffer_text(
       &mut buffer,
-      &mut engine.font_system,
       "•••",
       Attrs::new().family(Family::Name("lucide")),
       style.text_align,
@@ -4218,7 +4203,7 @@ mod tests {
           let mut reference = engine.acquire_buffer(&style, width, wrap);
           let family = engine.resolve_family(&style);
           let attrs = Attrs::new().family(Family::Name(&family));
-          set_buffer_text(&mut reference, &mut engine.font_system, text, attrs, align);
+          set_buffer_text(&mut reference, text, attrs, align);
           reference.shape_until_scroll(&mut engine.font_system, false);
           let actual = engine.full_text_buffer(text, &style, width, wrap);
           let signature = |buffer: &Buffer| {
@@ -4306,7 +4291,7 @@ mod tests {
     let mut buffer = engine.acquire_buffer(style, width, super::effective_text_wrap(width, wrap));
     let resolved = engine.resolve_family(style);
     let attrs = engine.style_attrs(style, &resolved);
-    set_buffer_text(&mut buffer, &mut engine.font_system, text, attrs, style.text_align);
+    set_buffer_text(&mut buffer, text, attrs, style.text_align);
     buffer.shape_until_scroll(&mut engine.font_system, false);
     let mut expected = Vec::new();
     for run in buffer.layout_runs() {
@@ -4665,7 +4650,7 @@ mod tests {
     let mut reference = engine.acquire_buffer(style, width, wrap);
     let family = engine.resolve_family(style);
     let attrs = engine.style_attrs(style, &family);
-    set_buffer_text(&mut reference, &mut engine.font_system, text, attrs, style.text_align);
+    set_buffer_text(&mut reference, text, attrs, style.text_align);
     reference.shape_until_scroll(&mut engine.font_system, false);
     let signature = |buffer: &Buffer| {
       buffer

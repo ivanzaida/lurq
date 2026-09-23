@@ -184,8 +184,8 @@ impl CanvasTextEngine {
       self.swash.image_cache.clear();
     }
     let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(font.size, font.size * 1.2));
-    buffer.set_size(&mut self.fonts, None, None);
-    buffer.set_wrap(&mut self.fonts, Wrap::None);
+    buffer.set_size(None, None);
+    buffer.set_wrap(Wrap::None);
     let family = self
       .aliases
       .get(font.family.as_ref())
@@ -203,7 +203,7 @@ impl CanvasTextEngine {
       .weight(weight)
       .style(font.style.to_cosmic());
     let text = text.replace(['\n', '\r', '\t'], " ");
-    buffer.set_text(&mut self.fonts, &text, attrs, Shaping::Advanced);
+    buffer.set_text(&text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut self.fonts, false);
     let mut glyphs = Vec::new();
     let mut glyph_bytes = 0usize;
@@ -212,7 +212,7 @@ impl CanvasTextEngine {
     for run in buffer.layout_runs() {
       width = width.max(run.line_w);
       for glyph in run.glyphs {
-        if let Some(face) = self.fonts.get_font(glyph.font_id) {
+        if let Some(face) = self.fonts.get_font(glyph.font_id, glyph.font_weight) {
           let metrics = face.as_swash().metrics(&[]).scale(font.size);
           ascent = ascent.max(metrics.ascent);
           descent = descent.max(metrics.descent.abs());
