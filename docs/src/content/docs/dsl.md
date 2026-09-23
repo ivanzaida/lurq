@@ -377,6 +377,8 @@ lurq::components::TextInput::new(endpoint.clone())
   .text_align(TextAlign::Center)
 ```
 
+Tighten or loosen tracking with `.letter_spacing(...)` in logical pixels on `Text` and `TextInput`, or with `TextStyle::letter_spacing`; see [Letter Spacing](../theme/#letter-spacing).
+
 Use text overflow when a fixed-width label should stay on one line:
 
 ```rust

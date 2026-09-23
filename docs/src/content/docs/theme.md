@@ -226,7 +226,29 @@ app.install_fonts(
 
 The resolved weight is cached per family and cleared whenever fonts are loaded. A family with no loaded faces is matched against the generic sans-serif family, where its text falls back.
 
-`TextStyle` has no letter-spacing field yet. The text engine (cosmic-text 0.12) cannot space glyphs before wrapping, so tracking would disagree between wrapping, measurement, carets, and hit testing.
+### Letter Spacing
+
+`TextStyle::letter_spacing` adds space after every glyph, in logical pixels; negative values tighten text. The default is `0.0`. As with CSS `letter-spacing`, spaces are spaced too and the last glyph of a line keeps its trailing spacing, so `"abcd"` with `-1.0` measures 4px narrower. Spacing scales with the display scale factor like `font_size`, and measurement, wrapping, painting, carets, hit testing, and selection all use the spaced advances.
+
+```rust
+use lurq::{
+  app::theme::TypographyStyle,
+  components::{Text, TextInput},
+  layout::text_style::{FontWeight, TextStyle},
+};
+
+app.theme().set_typography_style(TypographyStyle::Heading, TextStyle {
+  font_size: 28.0,
+  weight: FontWeight::Bold,
+  letter_spacing: -0.5,
+  ..TextStyle::default()
+});
+
+Text::new("Overview").variant(TypographyStyle::Heading).letter_spacing(-1.0);
+TextInput::new(query.clone()).letter_spacing(0.5);
+```
+
+`Text::letter_spacing(...)` overrides the spacing of whatever style the text resolves to, including typography roles. `TextInput::letter_spacing(...)` sets it on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces it, as with `text_align(...)`. Markdown styles take `MarkdownTextStyle::letter_spacing`, which `font_size_scale` does not scale, and canvas text takes `CanvasFont::letter_spacing`. Within rich text every span's spacing is in pixels, whatever its font size. Non-finite values are treated as `0.0`.
 
 `ThemeFonts` remains as a compatibility shape with `body`, `heading`, and `mono`. Converting it into `ThemeTypography` only fills those three roles and leaves the rest at defaults.
 
