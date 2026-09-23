@@ -4706,6 +4706,16 @@ mod tests {
     );
   }
 
+  /// Charge of `entry` once compaction has dropped its wrapped layouts and carets.
+  fn shaping_only_bytes(entry: &super::CachedPlainBuffer) -> usize {
+    let layout_bytes = entry
+      .paragraphs
+      .iter()
+      .map(|paragraph| paragraph.layout_bytes + paragraph.carets.as_ref().map_or(0, |carets| carets.bytes()))
+      .sum::<usize>();
+    entry.bytes - layout_bytes
+  }
+
   fn assert_plain_buffer_charge(entry: &super::CachedPlainBuffer) {
     assert_eq!(entry.paragraphs.len(), entry.buffer.lines.len());
     let expected = super::plain_buffer_memory_bytes(&entry.buffer)
@@ -4783,7 +4793,6 @@ mod tests {
   #[test]
   fn cache_pressure_preserves_logical_and_scaled_paragraph_shaping() {
     let mut engine = GlyphEngine::new();
-    engine.plain_buffer_budget = 32 * 1024 * 1024;
     let readme = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../README.md"));
     let text = (0..24)
       .flat_map(|copy| {
@@ -4798,8 +4807,15 @@ mod tests {
       font_size: style.font_size * 1.5,
       ..style.clone()
     };
-    for (style, width) in [(&style, 860.0 / 1.5), (&scaled, 860.0)] {
-      let buffer = engine.full_text_buffer(&text, style, width, true);
+    let buffers = [(&style, 860.0 / 1.5), (&scaled, 860.0)]
+      .map(|(style, width)| engine.full_text_buffer(&text, style, width, true));
+    // The budget is derived from the actual charges, not a fixed size: shaping sizes depend on the
+    // platform's fonts and on cosmic-text's glyph layout. It holds either document fully laid out
+    // next to the other one compacted to shaping only, but never both fully laid out.
+    let [logical, physical] = buffers.each_ref().map(|entry| (entry.bytes, shaping_only_bytes(entry)));
+    engine.plain_buffer_budget = (logical.0 + physical.1).max(logical.1 + physical.0);
+    assert!(logical.0 + physical.0 > engine.plain_buffer_budget);
+    for buffer in buffers {
       engine.retain_plain_buffer(buffer);
     }
     assert_eq!(
