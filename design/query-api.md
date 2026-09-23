@@ -1,6 +1,6 @@
 # Query API proposal
 
-Status: core implemented behind the optional `query` feature. This document records the original proposal and remaining design work. See the [Queries guide](../docs/src/content/docs/queries.md) for the implemented API and current behavior.
+Status: core released in 0.19.3 behind the optional `query` feature and included in 0.20.0. This document records the original proposal and remaining design work. See the [Queries guide](../docs/src/content/docs/queries.md) for the implemented API and current behavior; the proposal's open questions and recommendations below are historical.
 
 Implemented: descriptor macros, shared clients and observers, typed cache identity, exact/family invalidation, refresh, freshness/retention, cooperative and Tokio execution, and metadata inspection. Client defaults use `QueryClient::with_options(QueryClientOptions { ... })`. Saved handles become empty and inert after eviction. Client clones can be shared across trees; `new()` creates an independent cache. Payloads do not require DevTools inspection traits. A dedicated mutation API, prefetch, persistence, and a DevTools query panel remain future work.
 

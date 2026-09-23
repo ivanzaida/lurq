@@ -135,14 +135,15 @@ macro_rules! impl_into_node {
       }
 
       /// HTML-like `id` attribute for `Tree::get_element_by_id` lookup.
-      /// Lookup only — never affects reconciliation or state preservation.
+      /// Also participates in retained-node identity across sibling changes.
+      /// Keep IDs stable; changing one can reset the node's runtime state.
       pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::id(node, id));
         self
       }
 
       /// Appends an HTML-like class for `Tree::get_elements_by_class_name`
-      /// lookup. Lookup only, like `id`.
+      /// lookup. Classes do not affect reconciliation or styling.
       pub fn class(mut self, class: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::class(node, class));
         self

@@ -32,6 +32,11 @@ Typed components are the public UI builders. `Element` is the erased return/tran
 | `TextInput::new(signal)` | Controlled editable text input |
 | `Checkbox::new(signal)` | Controlled boolean checkbox |
 | `Slider::new(signal)` | Controlled integer slider |
+| `Slider::new_f32(signal)` | Controlled floating-point slider; use `.range_f32(...)` and `.step(...)` |
+| `Select::new(signal)` | Controlled single-select dropdown; use `Select::multiple(signal)` for multiple values |
+| `Button::new(label)` | Clickable button; form submission requires `form` |
+| `Canvas::new()` | Persistent Canvas 2D surface; requires `canvas` |
+| `Markdown::mount(ctx, props)` | Markdown component; requires `markdown` |
 | `Rect::new(width, height)` | Fixed-size rectangle leaf |
 | `Spacer::new()` | Empty leaf, often used with `.flex(1.0)` |
 | `ScrollVertical::new(child)` | Vertical scroll container |
@@ -57,7 +62,7 @@ lurq::components::Column::new().with_children(items)
 
 ## Ids And Classes
 
-Every builder accepts HTML-like `id` and `class` attributes for browser-style lookup (`Tree::get_element_by_id`, `Tree::get_elements_by_class_name`). They are lookup-only: they never affect reconciliation, state preservation, or styling.
+Every builder accepts HTML-like `id` and `class` attributes for browser-style lookup (`Tree::get_element_by_id`, `Tree::get_elements_by_class_name`). Explicit IDs also help preserve node identity across sibling changes. Classes are lookup labels only, and neither attribute applies styling.
 
 ```rust
 lurq::components::Column::new()

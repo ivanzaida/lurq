@@ -1,7 +1,6 @@
 # KONTUR-153 — gradients, shadows, blur, blend modes and isolated layers on `Context2D`
 
-Branch `codex/kontur-153-canvas-effects`, crate version **0.20.0, unpublished**
-(the user publishes; nothing was pushed to crates.io and no tag was created).
+Merged into `master` by `a7e0873` and tagged **v0.20.0**. This is the implementation handoff from `codex/kontur-153-canvas-effects`; the evidence below records that branch's validation. The original handoff preceded the merge and tag. Registry publication is managed separately by the repository's publish workflow.
 
 Closes lurq [#15](https://github.com/ivanzaida/lurq/issues/15) (gradients),
 [#16](https://github.com/ivanzaida/lurq/issues/16) (shadows),
@@ -50,7 +49,7 @@ composite is the same formula in Rust.
 
 | | |
 | --- | --- |
-| Gradient geometry | `in_box(x, y, w, h)` is in the **user space at draw time**, as HTML Canvas gradient coordinates are. The box is normalised, then rotated, then divided by `size`, so a rotation means the same thing in a wide box as in a square one. |
+| Gradient geometry | `in_box(x, y, w, h)` is in the **user space at draw time**; the paint does not capture the context transform at construction. The box is normalised, then rotated, then divided by `size`, so a rotation means the same thing in a wide box as in a square one. |
 | Gradient interpolation | Colour and alpha separately, premultiplied afterwards — what the software backend's own gradients do, so the two agree. |
 | Shadow units | Offset, blur and spread are in **user space** and scale and rotate with the transform. This deliberately differs from HTML Canvas, where shadows ignore the transform: a design tool's shadow belongs to the node and has to follow it when the view zooms. |
 | Placement | A blurred raster is placed on whole device pixels, so a shadow can sit up to half a pixel from where a sub-pixel pan would put it. That is what lets a pan reuse the cached raster. |

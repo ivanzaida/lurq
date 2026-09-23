@@ -3,6 +3,9 @@ title: DX12 Atlas Upload Reuse
 description: Reusing frame upload memory for glyph atlases without changing their pixels or transfer size.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 13, 2026
 
 DX12 now stages full glyph-atlas updates in its existing frame upload arena. A normal 4 MiB atlas needs one CPU copy into mapped memory, with no temporary atlas-sized vector and no new dedicated upload resource. The uploaded texture data and shader behavior remain the same.

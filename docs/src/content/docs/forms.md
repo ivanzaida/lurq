@@ -8,10 +8,10 @@ description: Form handling, field binding, submission, and the Button component.
 Requires the `form` feature flag.
 
 ```toml
-lurq = { version = "0.19.5", features = ["form"] }
+lurq = { version = "0.20.0", features = ["form"] }
 ```
 
-Compound form controls read their defaults from `theme.form()`. See [Theme](./theme/#form-theme) for the strict form field, input, checkbox, slider, and button roles.
+Compound form controls read their defaults from `theme.form()`. See [Theme](../theme/#form-theme) for the strict form field, input, checkbox, slider, and button roles.
 
 ## Creating A Form
 
@@ -75,20 +75,24 @@ let active: Signal<bool> = form.bool("active");
 Bind these signals to input components:
 
 ```rust
-use lurq::components::{Column, TextInput, Checkbox, Slider};
+use lurq::components::{Column, TextInput, Checkbox, FormSliderInput, FormSliderInputProps};
 
 fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-  ctx.form_view(self.form.clone(), |_ctx| {
+  ctx.form_view(self.form.clone(), |ctx| {
     Column::new()
       .child(TextInput::new(self.form.string("user")).name("user"))
       .child(TextInput::new(self.form.string("email")).name("email"))
       .child(Checkbox::new(self.form.bool("notifications")).name("notifications"))
-      .child(Slider::new(self.form.number("volume")).name("volume"))
+      .child(ctx.mount::<FormSliderInput>(
+        FormSliderInputProps::new(self.form.number_control("volume")).range(0, 100),
+      ))
   })
 }
 ```
 
 Give each input a `.name(...)` so the form can collect its value on submission. Inputs without a name are ignored during submit.
+
+`form.number(...)` returns `Signal<f64>`. Use `FormSliderInput` to bridge a numeric form field to an integer slider; the plain `Slider::new` expects `Signal<i32>`, while `Slider::new_f32` expects `Signal<f32>`.
 
 Here is the same pattern as a complete settings form with validation and inline errors:
 
@@ -290,7 +294,7 @@ let active = form.bool_control("active");
 
 Forms submit when:
 
-- A focused input receives `Enter`.
+- A focused single-line text input receives `Enter` (multiline inputs insert a newline).
 - A `Button::submit()` inside the form is clicked.
 
 ```rust

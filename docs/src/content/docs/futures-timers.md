@@ -9,7 +9,7 @@ description: Async data fetching with futures, imperative actions, and timer-bas
 
 `ctx.future` runs an async operation that automatically re-executes when its dependencies change. The returned `FutureHandle` exposes a reactive `Signal<FutureState<T, E>>`.
 
-For requests whose data should be shared across components and retained across navigation, enable the `query` feature and use [Queries](./queries/). Queries add a shared cache, freshness, request deduplication, and invalidation to finite async reads.
+For requests whose data should be shared across components and retained across navigation, enable the `query` feature and use [Queries](../queries/). Queries add a shared cache, freshness, request deduplication, and invalidation to finite async reads.
 
 Use `ctx.future` for finite async work that resolves to one result, such as loading a page, querying an endpoint, or submitting a request. Do not use it to manually chain a continuous subscription by changing a dependency after every completion. For watch receivers, sockets, event feeds, and other multi-item sources, use [`ctx.stream`](#streams).
 
@@ -84,6 +84,8 @@ Convenience methods: `is_idle()`, `is_pending()`, `is_fulfilled()`, `is_rejected
 
 Use streams for `watch::Receiver`, websocket subscriptions, event feeds, filesystem watchers, and other sources that can produce more than one value.
 
+The example below uses a Tokio watch channel. Add a direct `tokio` dependency with the `sync` feature. Wrap the receiver in props that satisfy `PartialEq` and DevTools inspection bounds; increment `source_id` when replacing its channel so the stream restarts.
+
 ```rust
 use lurq::{
   app::{
@@ -97,14 +99,28 @@ use tokio::sync::watch;
 
 struct ServerEvents;
 
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct ServerEventsProps {
+  source_id: u64,
+  #[devtools_ignore]
+  receiver: watch::Receiver<String>,
+}
+
+impl PartialEq for ServerEventsProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.source_id == other.source_id
+  }
+}
+
 impl Component for ServerEvents {
-  type Props = watch::Receiver<String>;
+  type Props = ServerEventsProps;
 
   fn create(_ctx: &mut Ctx) -> Self { Self }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let receiver = ctx.props::<Self::Props>().clone();
-    let handle = ctx.stream((), move |_, emitter: StreamEmitter<String, String>| {
+    let props = ctx.props::<Self::Props>().clone();
+    let receiver = props.receiver;
+    let handle = ctx.stream(props.source_id, move |_, emitter: StreamEmitter<String, String>| {
       let mut receiver = receiver.clone();
       async move {
         loop {
@@ -177,10 +193,11 @@ When using the `form` feature, `FormProps::submit_action(action)` wires a `Futur
 
 ## Tokio Integration
 
-Enable the `tokio` feature to run futures on a real async runtime instead of polling them manually each frame.
+Enable `tokio` and configure a live runtime handle to spawn futures and streams on Tokio. Add a direct Tokio dependency when application code uses its APIs:
 
 ```toml
-lurq = { version = "0.19.5", features = ["tokio"] }
+lurq = { version = "0.20.0", features = ["tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 ```
 
 Pass a tokio handle when creating the `App`:
@@ -192,7 +209,7 @@ let app = App::new().with_tokio_handle(tokio_rt.handle().clone());
 
 With a tokio handle, futures and streams spawn onto the tokio runtime and complete independently. Results are delivered back to the UI thread on the next `tree.tick_futures()` call.
 
-Without the `tokio` feature, futures and streams are polled cooperatively during `tree.tick_futures()`.
+Keep `tokio_rt` alive for as long as the UI uses its tasks. Without a configured Tokio handle, futures and streams are polled cooperatively during `tree.tick_futures()`, even if the Cargo feature is enabled. Tokio I/O and timers require an appropriately configured runtime.
 
 ## Timers
 

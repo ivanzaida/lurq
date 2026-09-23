@@ -10,7 +10,7 @@ description: Component structure, props, mounting, state, effects, and lifecycle
 Components are structs that implement `Component`. They hold persistent state and return an `Element` tree from
 `render`.
 
-See [Ctx](./ctx/) for the full `Ctx` API used inside `create` and `render`, and [Reactivity](./reactivity/) for signals,
+See [Ctx](../ctx/) for the full `Ctx` API used inside `create` and `render`, and [Reactivity](../reactivity/) for signals,
 stores, memos, effects, and contexts.
 
 ```rust
@@ -74,6 +74,7 @@ pub trait Component: Send + Sync + 'static {
   fn create(ctx: &mut Ctx) -> Self;
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element>;
 
+  fn after_layout(&self) {}
   fn on_mounted(&self) {}
   fn on_unmounted(&self) {}
 }
@@ -83,6 +84,7 @@ pub trait Component: Send + Sync + 'static {
 |----------------|------------------------------------------|-------------------------------------------|
 | `create`       | Once, when the component is mounted      | Initialize persistent state               |
 | `render`       | On mount and when the component is dirty | Return the current element tree           |
+| `after_layout` | After a committed layout, with element refs updated | Read measurements or initialize Canvas drawing |
 | `on_mounted`   | After first render                       | Setup hooks that need a mounted component |
 | `on_unmounted` | Before the component is removed          | Cleanup                                   |
 
@@ -92,11 +94,9 @@ Components receive props through the `Props` associated type. The current props 
 can be read with `ctx.props::<Self::Props>()`.
 
 ```rust
-struct Greeting {
-  name: String,
-}
+struct Greeting;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct GreetingProps {
   name: String,
 }
@@ -104,19 +104,21 @@ struct GreetingProps {
 impl Component for Greeting {
   type Props = GreetingProps;
 
-  fn create(ctx: &mut Ctx) -> Self {
-    let props = ctx.props::<Self::Props>();
-    Self { name: props.name.clone() }
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
   }
 
-  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
-    lurq::components::Text::new(&format!("Hello, {}!", self.name))
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>();
+    lurq::components::Text::new(&format!("Hello, {}!", props.name))
   }
 }
 ```
 
 Use `()` for components with no props. Reused components rerender when their props compare unequal, so custom props must
 implement `PartialEq`.
+
+Read changing props in `render`; copying them into the struct only in `create` would keep the initial value after a parent updates them.
 
 When the `devtools` feature is enabled, props must also implement `DevtoolsInspectable`.
 
@@ -152,9 +154,9 @@ slot, its instance is reused. The child rerenders when its props change or its o
 
 ```rust
 lurq::components::Column::new().with_children(
-self .items.get().iter().map( | item| {
-ctx.mount_keyed::< TodoItem > ( & item.id, item.clone())
-})
+  self.items.get().iter().map(|item| {
+    ctx.mount_keyed::<TodoItem>(&item.id, item.clone())
+  }),
 )
 ```
 
@@ -164,7 +166,7 @@ Use `mount_with` or `mount_keyed_with` when a component needs children supplied 
 
 ```rust
 ctx.mount_with::<Panel>(PanelProps { title: "Tools" }, vec![
-  lurq::components::Text::new("content"),
+  lurq::components::Text::new("content").into(),
 ])
 ```
 
@@ -195,6 +197,8 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     .mount(ctx)
 }
 ```
+
+`WindowControls::on_close` is a cleanup callback before unconditional close. For a confirmation dialog, use a custom button calling `window.request_close()` as shown in [Window lifecycle](../window-lifecycle-menus/#closing-a-window).
 
 Apps provide title-bar slots and content. They should not manually call `window.start_drag()` or render resize handles for
 normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, resize edge and corner hit zones,
@@ -299,7 +303,7 @@ count.with( | n| format!("{n}")); // tracked borrow
 ```
 
 Writing to a signal marks the owning component dirty. Runtime rebuilds dirty component output before layout, rendering,
-event dispatch, and element lookup.
+event dispatch, and by-ID/by-class element lookup.
 
 ### Memo
 
@@ -325,6 +329,8 @@ let current = handle.get();
 ```
 
 Refs persist across renders but are not reactive.
+
+Create signals, stores, memos, refs, effects, and watchers in `create` and retain their handles on the component. Calling these constructors repeatedly during `render` creates new state or subscriptions. Render-scoped APIs such as `ctx.future`, `ctx.stream`, `ctx.future_action`, and `ctx.query` retain their own call slots.
 
 ### Store
 

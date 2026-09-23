@@ -3,6 +3,9 @@ title: Caret Layout Reuse
 description: Sharing paragraph layouts between caret calculation, measurement, and painting for selectable text.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 Caret calculation now shares retained plain-text layouts with measurement and painting. The baseline includes the [48 MiB cache and paragraph bookkeeping optimizations](/lurq/text-cache-bookkeeping/). Both versions use the same development dependency overrides and cache budget. Release compiler settings and DX12 rendering are unchanged.

@@ -9,9 +9,11 @@ Media APIs are feature-gated. Enable only what the app needs.
 
 | Feature | Public APIs |
 | --- | --- |
-| `image` | `Image`, `ImageData`, background images. |
+| `raster` | `Image`, `ImageData`, `StreamingImage`, `Video`, and raw RGBA/native image transport. |
+| `image` | Enables `raster` plus image decoding and image-backed style helpers. |
 | `svg` | `Svg`, `SvgData`. |
 | `resources` | `ResourceLoader`, resource-backed image/SVG constructors, resource roots. |
+| `markdown` | Markdown parsing and `Markdown::mount`. |
 
 ## Fonts
 
@@ -43,6 +45,7 @@ Text::styled(
     weight: FontWeight::Bold,
     style: FontStyle::Normal,
     color: Color::from_hex("#e5e7eb"),
+    ..TextStyle::default()
   },
 )
 ```
@@ -60,7 +63,7 @@ Image::new(image).size(240.0, 160.0)
 
 Supported formats come from the `image` dependency configuration: PNG, JPEG, WebP, GIF, BMP, and TIFF. GIF and animated WebP preserve animation frames.
 
-Raw RGBA:
+Raw RGBA only requires `raster` (also enabled by `canvas` and `image`):
 
 ```rust
 let pixels = vec![255; 64 * 64 * 4];
@@ -169,3 +172,20 @@ match loader.load_resource(&path, Some(ResourceConfig { ttl: 60, retries: 1 })) 
 ```
 
 Most app code should prefer the higher-level resource-backed `Image` and `Svg` constructors.
+
+## Markdown
+
+Enable `markdown` to parse and render Markdown through a retained component:
+
+```rust
+use lurq::components::{Markdown, MarkdownProps};
+
+Markdown::mount(
+  ctx,
+  MarkdownProps::new("# Notes\n\nRead the **release notes**.")
+    .selectable(true)
+    .on_link_click(|link| println!("{}", link.destination())),
+)
+```
+
+Use `MarkdownProps::style(...)` for the base text style, `.theme(...)` for block styling, and `.width(...)` for a width constraint. Link callbacks decide how the application opens or routes destinations. The demo's `/markdown` route exercises the component.

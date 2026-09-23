@@ -75,6 +75,12 @@ application code rarely needs this directly. It is useful for tests and low-leve
 
 Standalone contexts do not have a runtime theme unless one is attached internally by `Tree`.
 
+## Shared App Services
+
+Mounted contexts retain a clone of the shared `App` handle. `ctx.app_ref()` and `ctx.app_ref_mut()` access those services safely even after the caller moves or drops its original handle. A standalone `Ctx::new_root()` has no app services until attached by the runtime.
+
+With `persistent_storage`, use `ctx.persistent_value::<T>(key)`, `ctx.set_persistent_value(key, value)`, `ctx.read_bulk(...)`, and `ctx.write_bulk(...)` for app-wide storage. Storage reads are not reactive; see [Persistent Storage](../persistent-storage/) for typed values, file configuration, and bulk operations.
+
 ## Signals
 
 ```rust
@@ -107,7 +113,7 @@ count.set(2);
 ## Stores And Lenses
 
 ```rust
-#[derive(Clone)]
+#[derive(Clone, lurq::DevtoolsInspectable)]
 struct User {
   name: String,
   age: u32,
@@ -227,7 +233,7 @@ retrieves the reactive context and subscribes the consuming context to changes.
 
 Theme typography exposes strict named text styles. `Text::new` uses `theme.typography().body`, and
 `Text::new("Label").variant(TypographyStyle::Label)` resolves the named style during layout.
-See [Theme](./theme/) for the full palette, typography, radius, spacing, and form role tables.
+See [Theme](../theme/) for the full palette, typography, radius, spacing, and form role tables.
 
 ```rust
 use lurq::{
@@ -305,6 +311,10 @@ window.set_corner_radius(lurq::app::WindowCornerRadius::RoundedSmall);
 window.resize(1280, 720);
 window.move_to(120, 80);
 ```
+
+`close()` bypasses close handlers. Use `request_close()` for a vetoable request and `on_close_requested(...)` to retain, accept, or cancel it. See [Window lifecycle and native menus](../window-lifecycle-menus/).
+
+Use `ctx.window_opener()` for a cloneable handle that opens secondary windows. `ctx.breakpoint()` and `ctx.responsive(...)` subscribe to viewport breakpoint changes; see [Theme](../theme/#breakpoints).
 
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so
 direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
@@ -417,7 +427,7 @@ Parents pass slot children with `mount_with` or `mount_keyed_with`:
 
 ```rust
 ctx.mount_with::<Panel>(PanelProps { title: "Info" }, vec![
-  lurq::components::Text::new("Panel body"),
+  lurq::components::Text::new("Panel body").into(),
 ])
 ```
 
@@ -438,7 +448,7 @@ ctx.has_children();
 ctx.children();
 ```
 
-`children()` returns an empty slice when no slot children were provided.
+`children()` returns an empty slice when no slot children were provided. Clone elements from this slice when forwarding them into a container, for example `Column::new().with_children(ctx.children().iter().cloned())`.
 
 ## Element Refs
 
@@ -462,6 +472,10 @@ let focused = element_ref.focused();
 Use element refs when code outside normal layout traversal needs an element's measured rect or current interaction
 flags.
 
+Request focus with `ctx.focus(&element_ref)` after retaining the ref in `create` or obtaining its render slot. The request runs after reconciliation, including for newly mounted fields; the last request wins, and absent targets are ignored. `element_ref.focused()` tracks focus reactively during render; `focus_signal()` exposes the same state as a signal.
+
+Refs created during render are retained by call position. Refs created in `create` must be stored on the component. Attach each ref to one live node.
+
 Element refs can also scope outside-click hooks:
 
 ```rust
@@ -477,13 +491,13 @@ lurq::components::Rect::new(240.0, 160.0)
 `on_click_outside` fires on left clicks whose pointer position is outside the referenced element's measured bounds. The
 hook is render-scoped: if the component stops calling it, the listener is removed on the next render.
 
-Mutable element refs use the same handle type as `Tree::find_element_mut`:
+`ctx.element_ref_mut()` returns an owned `core::ElementRefMut`, the same type returned by `Tree::find_element_mut`. These refs can be retained across passes; the borrowed `ElementHandle` returned by `Tree::get_element_by_id_mut` must be resolved again for each lookup:
 
 ```rust
 let element_ref = ctx.element_ref_mut();
 
 lurq::components::Rect::new(100.0, 40.0)
-.ref_element(element_ref.clone())
+.ref_element(element_ref.clone());
 
 element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
 ```
@@ -516,7 +530,7 @@ ctx.mount_keyed::<TodoItem>(todo.id.as_str(), todo.clone());
 ```
 
 - `mount` matches children by slot position and component type.
-- `mount_keyed` matches by slot position, key, and component type.
+- `mount_keyed` matches by key and component type within the parent context, allowing keyed children to move between slots.
 - Matching children reuse the existing component instance and context.
 - Non-matching children are unmounted and replaced.
 
@@ -525,11 +539,13 @@ Use keyed mounts for dynamic lists where identity matters.
 ## Mounting With Slot Children
 
 ```rust
-ctx.mount_with::<Panel>(props, vec![lurq::components::Text::new("body")]);
-ctx.mount_keyed_with::<Panel>("settings", props, vec![lurq::components::Text::new("body")]);
+ctx.mount_with::<Panel>(props.clone(), vec![lurq::components::Text::new("body").into()]);
+ctx.mount_keyed_with::<Panel>("settings", props, vec![lurq::components::Text::new("body").into()]);
 ```
 
 These work like `mount` and `mount_keyed`, but pass slot children into the child context.
+
+`mount_offstage::<C>(props, active)` and `mount_keyed_offstage::<C>(key, props, active)` retain a component while excluding its output when `active` is false. Offstage components keep state but do not participate in layout, painting, hit testing, dirty refreshes, timers, or future polling until active again.
 
 ## Keyed List Helper
 
@@ -575,7 +591,7 @@ interval.start();
 `Timeout` has `.start()`, `.restart()`, `.cancel()`, and `.is_active()`. `Interval` has `.start()`, `.restart()`,
 `.stop()`, and `.is_active()`. Create timers in `Component::create` and store them in the struct.
 
-See [Futures And Timers](./futures-timers/) for full details.
+See [Futures And Timers](../futures-timers/) for full details.
 
 ## Futures
 
@@ -614,7 +630,7 @@ action.run("go".to_owned());
 
 `ctx.future_action` creates a future that only runs when `.run(args)` is called.
 
-See [Futures And Timers](./futures-timers/) for full details.
+See [Futures And Timers](../futures-timers/) for full details.
 
 ## Queries
 
@@ -629,7 +645,7 @@ queries.invalidate(get_user(user_id));
 queries.invalidate(get_user::all());
 ```
 
-The `#[lurq::query]` macro defines the descriptor constructor and its `all()` selector. Queries share cached results and running requests across components. See [Queries](./queries/) for setup, state, invalidation, and lifecycle details.
+The `#[lurq::query]` macro defines the descriptor constructor and its `all()` selector. Queries share cached results and running requests across components. See [Queries](../queries/) for setup, state, invalidation, and lifecycle details.
 
 ## Forms
 
@@ -641,7 +657,7 @@ let form = ctx
 .on_submit( | values| { /* handle submission */ });
 ```
 
-Returns a `FormHandle` that owns field signals and a submit callback. See [Forms](./forms/) for full details.
+Returns a `FormHandle` that owns field signals and a submit callback. See [Forms](../forms/) for full details.
 
 ## Routing
 
@@ -657,7 +673,7 @@ let params = ctx.route_params();
 `ctx.router` creates a `RouterHandle` from a route table. `ctx.navigator` reads the current router navigator from
 context, and `route_path` / `route_params` expose the current match during render.
 
-See [Routing](./routing/) for route definitions, layouts, links, guards, and testing patterns.
+See [Routing](../routing/) for route definitions, layouts, links, guards, and testing patterns.
 
 ## Internationalization
 
@@ -670,7 +686,7 @@ let ns_label = ctx.t_ns("errors", "not_found");
 let i18n = ctx.i18n();
 ```
 
-Translation lookups are reactive — components re-render when the locale changes. See [Internationalization](./i18n/) for
+Translation lookups are reactive — components re-render when the locale changes. See [Internationalization](../i18n/) for
 full details.
 
 ## Modals
@@ -682,7 +698,7 @@ lurq::components::Modal::new(lurq::components::Text::new("Modal content"))
 ```
 
 Modals are render-flow components. Use `Modal::new(...).open(signal)` and choose a target with `Parent`, `Root`, or an
-`ElementRef`. See [Modals](./modals/) for full details.
+`ElementRef`. See [Modals](../modals/) for full details.
 
 ## Render Lifecycle Methods
 

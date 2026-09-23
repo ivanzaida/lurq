@@ -3,6 +3,9 @@ title: Text Cache Budget
 description: Comparing 32, 48, and 64 MiB of retained text layouts in development builds.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 This report records the budget comparison. The subsequent [Text Cache Bookkeeping](/lurq/text-cache-bookkeeping/) optimization keeps the 48 MiB limit while reducing paragraph indexing and allocation-accounting work.

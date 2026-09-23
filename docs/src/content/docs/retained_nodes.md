@@ -5,13 +5,13 @@ description: Retained tree behavior, dirty tracking, layout caching, element loo
 
 # Runtime And Retained Tree
 
-This page is the lower-level reference for `Tree`. Start with [Mental Model](./mental-model/) and [App Runtime](./app-runtime/) first.
+This page is the lower-level reference for `Tree`. Start with [Mental Model](../mental-model/) and [App Runtime](../app-runtime/) first.
 
 ## Public Types
 
 `lurq` uses these runtime-facing types:
 
-- `App`: fonts, theme, resources, profiling setting.
+- `App`: shared fonts, theme, resources, storage, menus, and optional Tokio runtime.
 - `Tree`: retained UI tree, components, layout, input, render engine, DevTools, profiling.
 - `Element`: public erased UI value returned from components.
 - `Node`: crate-private retained layout/render/input node.
@@ -65,7 +65,7 @@ State changes mark the owning context dirty:
 - reactive context changes,
 - imperative element-ref layout mutations.
 
-Before layout, rendering, hit testing, or element lookup, `Tree` rebuilds dirty component subtrees. Clean component subtrees keep their previous retained output.
+Before layout, rendering, hit testing, or by-ID/by-class lookup, `Tree` rebuilds dirty component subtrees. Clean component subtrees keep their previous retained output. Predicate-based `find_element` and `find_element_mut` use the last completed layout instead; run a pass before relying on updated geometry.
 
 Dirty tracking does not happen at individual element-builder calls. If a component rerenders, all plain elements built by that component's `render` function are rebuilt as fresh `Node` descriptions. Runtime state, node IDs, and layout caches are then preserved where the new and old nodes match.
 
@@ -95,7 +95,7 @@ If new props are unequal to stored props, the child context is marked dirty.
 
 ## Retained Node IDs
 
-Every retained node has a `NodeId`. IDs are assigned by the tree id generator and released when nodes are removed.
+Every retained node has a `NodeId`. IDs are assigned by the tree's monotonic generator and are never recycled after removal. Compatible nodes preserve their IDs across reconciliation; keys, component slots, explicit IDs, retained refs, and input value signals help match controls across sibling changes.
 
 Node IDs are used for:
 
@@ -151,7 +151,7 @@ Use this sparingly. Declarative component state should remain the default way to
 
 ### Ids and Classes
 
-Every builder accepts HTML-like `id` and `class` attributes. They exist purely for lookup — they never affect reconciliation, state preservation, or styling (there is no selector engine).
+Every builder accepts HTML-like `id` and `class` attributes for lookup. Explicit IDs also participate in reconciliation and state preservation: keep them stable for controls that move among siblings. Classes do not participate in identity. Neither attribute applies styling; there is no selector engine.
 
 ```rust
 Column::new()
@@ -264,7 +264,7 @@ if let Some(layout) = tree.last_layout() {
 }
 ```
 
-Use `last_profile()` for frame timings and memory counters.
+With `perf_profile` enabled, use `last_profile()` for frame timings and memory counters.
 
 ```rust
 let profile = tree.last_profile();

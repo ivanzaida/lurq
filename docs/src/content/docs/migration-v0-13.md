@@ -5,6 +5,8 @@ description: Migrating modal, popup, and overlay code to lurq v0.13.
 
 # Migration To v0.13
 
+This is a historical migration guide for applications upgrading from pre-0.13 APIs. New applications should start with [Getting Started](../getting-started/) and [Modals](../modals/). The old APIs in the "Before" examples are intentionally unavailable in 0.20.0.
+
 v0.13 removes the legacy context-owned modal API and moves modals, popups, and overlays into normal render declarations. The main migration is to replace imperative `ctx.modal(...)` calls with `Modal` children.
 
 ## Modals

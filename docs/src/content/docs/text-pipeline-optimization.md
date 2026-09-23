@@ -5,6 +5,17 @@ description: Benchmark notes and improvement log for text layout and rasterizati
 
 This page tracks text pipeline benchmark results and optimization work.
 
+## Current implementation in 0.20.0
+
+- Plain-text buffers retain shaping and full layouts with a 48 MiB accounted budget and a 64-entry limit per glyph engine. Cache pressure can compact layouts while preserving shaping.
+- Unchanged paragraphs and immutable caret geometry are reused across edits. Conservative wrap intervals preserve eligible layouts across width changes; visual-row indexes accelerate caret and selection lookup.
+- DX12 stages full glyph-atlas uploads in frame upload arenas. The full-upload correctness workaround remains, but the later staging optimization replaces the older allocation/copy path.
+- Detailed counters require `perf_profile`. The workspace's eleven development dependency overrides do not propagate to consuming applications; configure their own workspace profiles when reproducing those dev-build measurements.
+
+The measurements below and in linked reports are historical observations from their stated fixtures, revisions, and machines. They are not new measurements of 0.20.0. Absolute `F:/codex-tmp/...` paths identify original local artifacts, which are not shipped with the repository.
+
+## Measurement history
+
 For development builds and package `opt-level` comparisons, see [Dev Text Pipeline Profiling](/lurq/text-pipeline-dev-profiling/). The historical Criterion results below use optimized bench builds.
 
 The September 12 [CPU Text Pipeline Optimization](/lurq/text-pipeline-cpu-optimization/) shares full plain-text layouts, reduces optical centering work, and adds three dev-only font dependency overrides. In a repeated dev-profile comparison, cold README improved from 18.13 to 8.64 ms and column-flow long text from 143.18 to 17.90 ms. That report includes a unique-paragraph control, memory costs, and the remaining full-layout bottleneck.
@@ -28,6 +39,8 @@ The subsequent [Text Cache Budget](/lurq/text-cache-budget/) comparison raises t
 ## Benchmark
 
 The primary benchmark is `text_pipeline`, which renders the workspace root `README.md` through the real `Markdown` component. This keeps the workload close to a document-heavy app path: Markdown parsing, Markdown rendering, rich text layout, glyph rasterization, atlas population, and render-list generation.
+
+Changing the README also changes these fixtures. Preserve the same README contents in both compared revisions when measuring an implementation change, and record its size or hash with the results.
 
 Run it with:
 
@@ -428,7 +441,7 @@ Markdown input stores rich text spans. It does not store shaped runs.
 ## Next Candidates
 
 1. Reduce the remaining full-layout cost for unique long documents with incremental layout or an explicit viewport/overflow contract that preserves required flow height.
-2. Reproduce and fix DX12's partial atlas upload defect before removing its full-upload workaround, now measured at roughly 3–4 ms per affected native interaction.
+2. Reproduce and fix DX12's partial atlas upload defect before removing its full-upload workaround. The later [atlas upload report](/lurq/text-atlas-upload/) reduced staging cost to 0.25 ms in its measured scroll fixture; the earlier 3–4 ms figure describes the old staging path, not the current implementation.
 3. Reassess persistent workers or GPU glyph generation if new workloads show rasterization dominating; after the dev font dependency changes it is under 1 ms in the measured regular viewport cases.
 4. Refresh optimized Criterion results separately from the development-profile measurements above.
 

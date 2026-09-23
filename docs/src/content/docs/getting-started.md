@@ -5,27 +5,34 @@ description: Feature flags, demo commands, and the smallest useful lurq app.
 
 # Getting Started
 
-`lurq` is currently a workspace crate. The main library lives in `crates/lurq`, the demo app lives in `crates/demo`, and derive macros live in `crates/lurq_macros`.
+This guide targets **lurq 0.20.0**. Add the crate with the shell and renderer used by the example below:
+
+```toml
+[dependencies]
+lurq = { version = "0.20.0", features = ["winit", "wgpu"] }
+```
+
+Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the demo in `crates/demo`, and macros in `crates/lurq_macros`.
 
 ## Run The Demo
 
 The demo is the best executable reference because it exercises layout, sizing, positioning, scrolling, input, events, reactivity, components, contexts, animation, transforms, resources, and DevTools.
 
 ```powershell
-cargo run -p demo --features "lurq/winit lurq/wgpu lurq/image lurq/svg lurq/resources lurq/devtools lurq/clipboard"
+cargo run -p demo
 ```
 
 On Windows, the demo can also use the DirectX 12 renderer:
 
 ```powershell
-cargo run -p demo --features "lurq/winit lurq/dx12 lurq/image lurq/svg lurq/resources lurq/devtools lurq/clipboard" -- --renderer dx12
+cargo run -p demo -- --renderer dx12
 ```
 
-The default demo renderer is `wgpu`. Pass `--renderer wgpu` or `--renderer dx12` to choose explicitly.
+The demo manifest already enables its UI and renderer features. Its default renderer is `wgpu`; pass `--renderer wgpu` or `--renderer dx12` to choose explicitly. Add `--features perf_profile` for frame timings or `--features mcp` for the demo's MCP integration.
 
 ## Feature Flags
 
-`lurq` keeps optional subsystems behind Cargo features.
+`lurq` has no default features. Optional subsystems are enabled explicitly:
 
 | Feature | Enables |
 | --- | --- |
@@ -33,12 +40,23 @@ The default demo renderer is `wgpu`. Pass `--renderer wgpu` or `--renderer dx12`
 | `render` | Shared render data types. Usually enabled through `wgpu` or `dx12`. |
 | `wgpu` | WGPU render engine. |
 | `dx12` | DirectX 12 render engine on Windows. |
+| `raster` | Raw RGBA/native image transport, `Image`, `StreamingImage`, and `Video`; no image codecs. |
+| `canvas` | Persistent Canvas 2D, including gradients and effects; enables `raster` and `render`. |
 | `image` | `Image`, background images, and image decoding. |
 | `svg` | `Svg` and SVG tessellation/rendering. |
 | `resources` | Async local/remote resource loading. |
+| `form` | Form handles, validation, submission, and compound form controls. |
+| `router` | Routes, links, outlets, and navigation history. |
+| `markdown` | Markdown parsing and the `Markdown` component. |
+| `i18n` | Translation resources, locale switching, and reactive lookups. |
+| `serde` | JSON translation resources when combined with `i18n`. |
+| `persistent_storage` | Typed app storage, with in-memory defaults and optional `redb` files. |
+| `query` | Shared async reads, cache retention, and typed invalidation. |
+| `tokio` | Optional execution on a Tokio handle configured on `App`. |
+| `perf_profile` | Frame timing/memory instrumentation and `Tree::last_profile`; independent of `devtools`. |
 | `devtools` | Component metadata, signal values, profiler data, and the DevTools secondary window. |
 | `screenshot` | GPU capture of the next fully composed window frame to PNG. `devtools` enables it automatically. |
-| `mcp` | Embeddable [MCP server](./mcp/) so AI agents can drive and inspect a running app. Off by default; nothing listens unless the app calls `Tree::enable_mcp`. |
+| `mcp` | Embeddable [MCP server](../mcp/) so AI agents can drive and inspect a running app. Off by default; nothing listens unless the app calls `Tree::enable_mcp`. |
 | `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts. |
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:
@@ -55,7 +73,7 @@ struct CardProps {
 
 Most apps wire three objects:
 
-- `App`: shared runtime services such as fonts, theme, resources, and profiling.
+- `App`: shared runtime services such as fonts, theme, resources, storage, and optional Tokio execution.
 - `Tree`: retained UI tree, component state, layout, input, rendering, devtools, and profiling state.
 - `WinitWindow`: desktop shell that owns the event loop and forwards window/input events to the tree.
 
@@ -113,11 +131,13 @@ fn main() {
 
 ## Docs Commands
 
-The documentation site uses Yarn and Astro Starlight.
+The documentation site uses Yarn 1.22.22 and Astro Starlight. Node.js 22.12+ is required by the locked Astro version. Run these commands from the repository root:
 
 ```powershell
 cd docs
-yarn install
+yarn install --frozen-lockfile
 yarn dev
 yarn build
 ```
+
+The Rust examples are Markdown code blocks: building the site does not compile them. See [Testing](../testing/) for Rust checks.

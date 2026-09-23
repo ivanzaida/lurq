@@ -1,6 +1,6 @@
 # Canvas camera tessellation cache
 
-Implemented on `codex/canvas-retessellation`, based on lurq 0.19.0 (`d243196`). This addresses the toolkit work in `lurq-canvas-retessellation-handoff.md`; it does not change Kontur's paint scheduling.
+Released in 0.19.1 and merged into `master`, originally implemented on `codex/canvas-retessellation` from lurq 0.19.0 (`d243196`). This addresses the toolkit's camera tessellation work; it does not change Kontur's paint scheduling. The measurements below describe the original 2026-09-11 comparison. Version 0.19.5 replaced FIFO with random eviction and added public counters; see the [current Canvas guide](../docs/src/content/docs/canvas.md).
 
 ## Behavior
 
@@ -16,7 +16,7 @@ Polygon meshes are independent of zoom. For curves, the cache rounds the transfo
 
 Stroke outlines and dash geometry keep the existing `stroke_outline(..., resolution=1.0)` behavior in model space. Recording a stroke still calculates its outline. The complete transform scales that outline and its width, including nonuniform scaling. The cache stores its triangles; changes to width, cap, join, miter, dash or offset change the outline content and therefore the cache key. This does not improve the pre-existing stroke-outline approximation at extreme zoom.
 
-Each renderer shares one cache across its canvases: **32 MiB charged storage and at most 32,768 entries**, including source snapshots, packed triangle positions and a 256-byte metadata allowance per entry. FIFO eviction avoids a full-cache scan on each insertion; hits do not accumulate bookkeeping. Oversized entries are drawn without retention. The bounds accommodate thousands of normal paths at several scale buckets while independently limiting tiny-entry metadata. Allocation overhead and transient tessellation/preparation buffers are separate; the existing 1,048,576-vertex expansion limit still applies on misses and hits. Clears and resizes retain meshes, renderer destruction releases them, and the cache remains bounded after surfaces detach. Caller-owned `Path2D` objects retain at most one snapshot apiece, subject to their existing segment limit.
+Each renderer shares one cache across its canvases: **32 MiB charged storage and at most 32,768 entries**, including source snapshots, packed triangle positions and a 256-byte metadata allowance per entry. The original 0.19.1 implementation used FIFO; 0.19.5 replaced it with constant-time random eviction to retain useful hits during repeated scans above capacity. Oversized entries are drawn without retention. The bounds accommodate thousands of normal paths at several scale buckets while independently limiting tiny-entry metadata. Allocation overhead and transient tessellation/preparation buffers are separate; the existing 1,048,576-vertex expansion limit still applies on misses and hits. Clears and resizes retain meshes, renderer destruction releases them, and the cache remains bounded after surfaces detach. Caller-owned `Path2D` objects retain at most one snapshot apiece, subject to their existing segment limit.
 
 ## Measured before and after
 

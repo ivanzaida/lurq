@@ -1,5 +1,7 @@
 # Canvas GPU performance record
 
+Historical measurements for the initial 0.19.0 GPU implementation. For current features, limits, backend defaults, and effects, use the [Canvas guide](../docs/src/content/docs/canvas.md). In 0.20.0, WGPU defaults to DX12 on Windows; the Vulkan measurements below record the original run.
+
 For the subsequent optimization of static scenes during camera movement, see [Canvas camera tessellation cache](canvas-retessellation.md), including the 5,000-path before/after benchmark and cache limits.
 
 Measured on 2026-09-10 in `codex/canvas-2d`, replacing the CPU prototype at `1dabe90`. Hardware: Ryzen 9 7950X3D and NVIDIA GeForce RTX 5080, driver 596.49; WGPU selected Vulkan. Release builds, four warmups and 40 measured updates per case.

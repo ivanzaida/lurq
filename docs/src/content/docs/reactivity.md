@@ -7,6 +7,8 @@ description: Signals, stores, lenses, memos, refs, effects, watchers, contexts, 
 
 Use reactive state when a value change should update UI. Use refs when a value should persist without rendering.
 
+Create component-owned signals, stores, memos, refs, effects, and watchers in `Component::create` and retain the handles. These constructors do not reuse a call slot on each render; repeatedly calling them in `render` creates new state or subscriptions. Element refs and the async render hooks have separate retained-slot behavior.
+
 ## Signals
 
 `Signal<T>` is the basic reactive cell.

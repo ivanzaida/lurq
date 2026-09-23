@@ -7,7 +7,7 @@ description: Visual modifiers, state styles, cursors, inputs, event handlers, sc
 
 Most visual and input behavior is expressed as chainable modifiers on typed components.
 
-Use [Theme](./theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, and compound form controls. Use concrete values for isolated one-off visuals.
+Use [Theme](../theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, and compound form controls. Use concrete values for isolated one-off visuals.
 
 ## Visual Modifiers
 
@@ -435,7 +435,7 @@ TextInput::new(visible_secret.clone())
   .unmask()
 ```
 
-Masking only affects rendering. The signal value, clipboard copy/cut, and caret and selection behavior all operate on the real text.
+Masking changes displayed text and built-in node inspection. The signal value, clipboard copy/cut, and caret and selection behavior all operate on the real text.
 
 Built-in MCP and DevTools inspection returns the displayed mask and `masked=true`, including tree text, lookup/find data, shape details and set-value replies. Underlying editing/form values remain intact. Typed `TextInputHandle::mask()` and `is_masked()` expose the configuration; direct application access to `value()` still returns the real value. An empty masked field can still display its ordinary placeholder.
 
@@ -447,7 +447,12 @@ With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X
 
 ### Slider Styling
 
-Sliders use integer signals. Pointer input maps the track position to the nearest integer in the configured range, and arrow keys nudge by `1`.
+`Slider::new` uses `Signal<i32>`. Pointer input maps the track position into the range, and the default keyboard step is `1`. Use `Slider::new_f32` with `Signal<f32>` and `.range_f32(min, max)` for fractional values; `.step(value)` controls snapping and keyboard increments.
+
+```rust
+let gain = lurq::core::Signal::new(0.5_f32);
+lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
+```
 
 The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`.
 
@@ -542,7 +547,7 @@ tree.get_element_by_id_mut("agree").unwrap().as_checkbox().unwrap().toggle();
 
 `focus()` and `blur()` route through the tree's focus machinery and fire the node's own `on_focus`/`on_blur` handlers. Typed handles exist for `TextInput`, `Checkbox`, `Slider`, and `Select`; downcasting a different node kind returns `None`.
 
-These operations write signal-backed widget state, so they behave like real user input from the app's perspective — minus the event side effects called out above. For pointer-fidelity interaction (hover, capture, hit testing), drive `tree.mouse_down` / `tree.mouse_up` instead, composing coordinates from the handle's `bounds().center()`. See [Runtime And Retained Tree](./retained_nodes/#ids-and-classes) for the lookup and mutation contract.
+These operations write signal-backed widget state, so they behave like real user input from the app's perspective — minus the event side effects called out above. For pointer-fidelity interaction (hover, capture, hit testing), drive `tree.mouse_down` / `tree.mouse_up` instead, composing coordinates from the handle's `bounds().center()`. See [Runtime And Retained Tree](../retained_nodes/#ids-and-classes) for the lookup and mutation contract.
 
 ## Drag And Drop
 

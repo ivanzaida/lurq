@@ -3,6 +3,9 @@ title: Dev Text Pipeline Profiling
 description: Reproducible development-profile measurements of text shaping, alignment, rasterization, and caching.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 This page records the investigation before the CPU optimizations. See [CPU Text Pipeline Optimization](/lurq/text-pipeline-cpu-optimization/) for the implemented changes, the current cache model, and a subsequent before/after comparison. “Current” below refers to the original eight-package preset, not the updated workspace manifest.

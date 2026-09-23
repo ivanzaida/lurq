@@ -15,16 +15,15 @@ The public runtime surface is split between `App`, `Tree`, and the shell.
 
 - glyph engine and loaded fonts,
 - theme,
-- profiling enabled flag,
 - optional scale override,
-- optional resource loader and decoded image/SVG caches.
+- optional resource loader and decoded image/SVG caches,
+- menus, secondary-window requests, optional storage and Tokio runtime handles.
 
 ```rust
 let mut app = lurq::app::App::new();
 
 app.load_font_file(std::path::Path::new("assets/Inter.ttf"));
 app.register_font("ui", "Inter");
-app.set_profiling_enabled(true);
 
 #[cfg(feature = "resources")]
 app.set_resource_root(std::path::PathBuf::from("assets"));
@@ -98,9 +97,9 @@ WinitWindow::new(app, tree)
   .run();
 ```
 
-The shell runs a steady redraw tick automatically. Use `on_tick` only for custom per-frame app work.
+The shell drives timers, async work, animation deadlines, and requested redraws. It waits when idle; continuous video or an installed `on_tick` callback can keep the loop polling. Use `on_tick` only when the app needs continuous custom work.
 
-Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](./ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
+Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](../ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
 
 ## Frame And Redraw Flow
 
@@ -156,6 +155,8 @@ tree.set_layout_constraints_override(Some(lurq::layout::Constraints::tight(
 
 Use `find_element` when integration code or tests need a computed rect.
 
+Predicate-based `find_element` and `find_element_mut` use the last completed layout and do not flush pending component renders. Run a pass first when state has changed. The by-ID/by-class lookups below flush dirty subtrees themselves.
+
 ```rust
 let found = tree.find_element(|el| el.text_content() == Some("Save"));
 
@@ -182,7 +183,7 @@ tree.get_element_by_id_mut("email").unwrap()
   .set_value("ada@example.com");                           // signal-backed, no on_input
 ```
 
-See [Retained Nodes](./retained_nodes/#ids-and-classes) for the full contract (transiency, duplicate ids, pre-layout behavior).
+See [Retained Nodes](../retained_nodes/#ids-and-classes) for the full contract (transiency, duplicate ids, pre-layout behavior).
 
 ## Perf Overlay
 
@@ -192,7 +193,7 @@ The runtime has a built-in frame perf overlay.
 tree.draw_perf_overlay();
 ```
 
-Profiling data is available through:
+Enable the `perf_profile` Cargo feature for frame timing and memory instrumentation. It is independent of `devtools`; there is no runtime `App::set_profiling_enabled` switch. With that feature, profiling data is available through:
 
 ```rust
 let profile = tree.last_profile();
@@ -202,9 +203,7 @@ The profile records high-level timings such as layout, resolve, glyph, upload, e
 
 ## Performance Notes
 
-Current text-page scroll profiles show that baked transformed text no longer spends frame time reshaping text after `GlyphEngine` hits `transformed_glyph_layout_cache`. The remaining CPU target is transformed glyph atlas lookup and packing in `GlyphEngine::get_or_pack_transformed_glyph`, with occasional normal text cache misses when newly visible text enters the viewport.
-
-The next optimization pass should reduce per-frame transformed glyph work. Likely directions are caching transformed glyph command templates per stable text layout and transform, or tracking visible text runs so scroll frames mostly update origins and clips instead of visiting every transformed glyph through the atlas path.
+The plain-text pipeline reuses shaped paragraphs, wrapped layouts, and caret geometry. The current cache has a 48 MiB accounted budget per glyph engine and a 64-entry limit. See [Text Pipeline Optimization](../text-pipeline-optimization/) for implementation details and dated measurements; profile the current app and renderer before choosing the next optimization.
 
 ## DevTools Window
 
@@ -212,7 +211,6 @@ With `devtools` enabled:
 
 ```rust
 lurq::app::devtools::load_fonts(&mut app);
-app.set_profiling_enabled(true);
 tree.mount_devtools(&mut app);
 ```
 

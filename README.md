@@ -9,7 +9,7 @@
 lurq = "0.20.0"
 ```
 
-Enable the runtime/rendering features you need:
+There are no default features. Enable the window shell and renderer to run the example below:
 
 ```toml
 [dependencies]
@@ -23,27 +23,37 @@ Useful optional features:
 | `winit` | Window shell integration |
 | `wgpu` | WGPU renderer |
 | `dx12` | DirectX 12 renderer on Windows |
+| `raster` | Raw image/video transport and composition without image codecs |
 | `image` | Image components and image-backed styles |
 | `svg` | SVG components |
 | `canvas` | Persistent Canvas 2D drawing through existing element refs; paths, gradients, shadows, blur, blend modes, isolated layers, text, clipping, and raw images |
 | `resources` | Resource loader and resource-backed images/SVGs |
 | `query` | Shared typed async queries, caching, and invalidation |
+| `form` | Form state, validation, and compound form controls |
+| `router` | In-process routing, nested layouts, and navigation |
+| `markdown` | Markdown parsing and components |
+| `i18n` | Reactive translations and locale switching |
+| `serde` | JSON translation-resource loading with `i18n` |
+| `persistent_storage` | Typed in-memory or file-backed app storage |
+| `tokio` | Run component futures, streams, and queries on a configured Tokio runtime |
 | `clipboard` | Clipboard shortcuts for text inputs |
 | `devtools` | In-app DevTools window |
 | `mcp` | Embeddable MCP server for AI agents to drive and inspect a running app |
 | `screenshot` | Capture the next fully composed window frame to PNG; enabled automatically by `devtools` |
+| `perf_profile` | Frame timing and memory counters, including `Tree::last_profile` |
 
 ## Example
 
 ```rust
 use lurq::{
-  app::{App, Tree, winit_shell::WinitWindow},
+  app::{App, Tree, wgpu_render::WgpuRenderEngine, winit_shell::WinitWindow},
   components::{Column, Text},
 };
 
 fn main() {
   let app = App::new();
   let mut tree = Tree::new();
+  tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
 
   tree.set_root(
     Column::new()
@@ -62,6 +72,7 @@ fn main() {
 
 - Guide: <https://ivanzaida.github.io/lurq/>
 - API docs: <https://docs.rs/lurq>
+- Local documentation build and maintenance: [docs/README.md](docs/README.md)
 
 ## Publishing
 

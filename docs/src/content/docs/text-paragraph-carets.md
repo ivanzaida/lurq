@@ -3,6 +3,9 @@ title: Paragraph Caret Reuse
 description: Reusing paragraph-local caret geometry across edits without rebuilding a flat document vector.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 Large multiline text now retains caret geometry per paragraph. An edit builds positions for the changed paragraph and reuses the others. The document stores references, byte offsets, and exact visual-row coordinates instead of copying every position into a new flat vector.

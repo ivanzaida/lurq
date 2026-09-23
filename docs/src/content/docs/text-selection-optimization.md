@@ -3,6 +3,9 @@ title: Caret and Selection Indexing
 description: Measured dev-build improvements to pointer selection, caret navigation, and shared caret storage.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 Caret lookups now use visual-line ranges, and cached caret geometry is shared with node state. This follows [Caret Layout Reuse](/lurq/text-caret-layout-reuse/), which removed redundant full-document shaping for selectable text. The baseline here already includes that change, the eleven dev dependency overrides, and the 48 MiB plain-buffer cache.

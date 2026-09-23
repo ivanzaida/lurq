@@ -86,14 +86,17 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_find_by_id` | observe | Live lookup of the element with an `.id("...")`, returning a fresh actionable ref. |
 | `lurq_find_by_class` | observe | Live lookup of every element with a `.class("...")`, in tree order. |
 | `lurq_windows` | observe | List windows: id, name, title, kind, focus, size, scale factor. |
+| `lurq_menu` | observe | Inspect the native-menu model, command IDs, enabled state, and platform support. |
 | `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
-| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`. |
+| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; also `request_close` and `menu_activate`. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
 | `lurq_resize` | interact | Resize a window. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
 
 ### Coordinates and refs
+
+Masked text inputs expose the displayed mask and `masked=true` in tree reads, lookup/find results, and set-value replies. Direct application access and form submission still use the underlying value. App-authored annotations, custom tool responses, and logs remain the application's responsibility. See [Window lifecycle and native menus](../window-lifecycle-menus/#mcp-and-verification) for close and menu action semantics.
 
 The MCP surface speaks exactly one coordinate space: **pixels of the last screenshot** (physical pixels). `read_tree` bounds, `interact` coordinates, `screenshot` regions, and `resize` dimensions all use it; the server converts internally, so an agent can click what it sees without thinking about scale factors.
 
@@ -147,7 +150,7 @@ opener.open_with(
 
 ## Making Your App Agent-Friendly
 
-Agents work with what the tree shows them. Three annotation channels, all zero-cost unless a tooling feature is enabled:
+Agents work with what the tree shows them. `id` and `class` are ordinary runtime attributes available without tooling features. `describe` stores tooling annotations only when `mcp` or `devtools` is enabled:
 
 ```rust
 Row::new()
@@ -242,7 +245,7 @@ tree.shutdown_mcp(); // stops the listener, removes the discovery file
 
 | Combination | Effect |
 | --- | --- |
-| `mcp` alone | Tree reading, input, forms, windows, custom tools. Screenshots error at call time without a render backend. |
+| `mcp` alone | Tree reading, input, windows, menu-model inspection, and custom tools. Form components additionally require `form`; screenshots error without a render backend. |
 | `mcp` + `wgpu` / `dx12` | `lurq_screenshot` returns PNG bytes captured from the GPU. |
 | `mcp` + `router` | `lurq_navigate` is registered. |
 | `mcp` + `devtools` | Nothing extra today; the DevTools window stays hidden from agents unless `include_devtools(true)`. |

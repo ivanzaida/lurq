@@ -3,7 +3,7 @@ title: Window lifecycle and native menus
 description: Veto OS close requests, defer a decision to a dialog, and install reactive macOS menus.
 ---
 
-Available in **lurq 0.18.1**. The `winit` shell delivers close requests and menu
+Introduced in **lurq 0.18.1**; the behavior below describes **0.20.0**. The `winit` shell delivers close requests and menu
 activations on its event-loop thread. These APIs also have headless MCP coverage.
 
 ## Closing a window
@@ -43,8 +43,25 @@ if let Some(request) = pending.lock().unwrap().take() {
 - With no handler (or after `clear_close_requested_handler()`), requests close
   immediately as in previous releases.
 
-Use `WindowControls::on_close(move || window.request_close())` to route drawn
-chrome through the same decision. Handlers should return promptly; display a
+The built-in `WindowControls` close button invokes its optional `on_close`
+callback and then calls unconditional `close()`. That callback cannot veto
+closing in 0.20.0. For drawn chrome that needs confirmation, replace the built-in
+controls with your own button:
+
+```rust
+use lurq::components::{Button, ChromeTitleBar};
+
+let window = ctx.window();
+let title_bar = ChromeTitleBar::new()
+    .without_controls()
+    .trailing(Button::new("Close").on_click(move |event: lurq::app::events::MouseEvent| {
+        window.request_close();
+        event.prevent_default();
+        event.stop_immediate_propagation();
+    }));
+```
+
+Pass `title_bar` to `WindowChrome::title_bar`. Handlers should return promptly; display a
 dialog instead of blocking the event loop. Repeated OS requests are delivered
 individually, so an application can keep or replace its pending decision.
 
@@ -146,6 +163,9 @@ cargo run -p demo --bin lifecycle --features mcp
 
 It has a dirty checkbox, a deferred confirmation dialog, drawn chrome, a
 Preferences window, and File/Edit/Help menus. Save is enabled only while dirty.
+Use its explicit request-close action or an OS close request to test vetoes;
+the demo's built-in chrome close button still has the unconditional-close
+behavior described above.
 On Windows, exercise native close and MCP together with:
 
 ```sh

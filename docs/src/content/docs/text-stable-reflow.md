@@ -3,6 +3,9 @@ title: Stable Text Reflow
 description: Preserving wrapped paragraph layouts and caret geometry while their line breaks remain unchanged.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Change
 
 Plain multiline text now retains a conservative width interval for each eligible paragraph. Resizing within that interval preserves both Cosmic's wrapped layout and the paragraph-local caret geometry. Only paragraphs outside their interval need wrapping and caret extraction again.

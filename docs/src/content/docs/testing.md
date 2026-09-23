@@ -20,6 +20,18 @@ cargo test -p lurq --features "image svg resources devtools"
 cargo test -p lurq --features "winit wgpu image svg resources devtools clipboard"
 ```
 
+The combinations above do not enable every subsystem. Check feature-specific behavior explicitly:
+
+```powershell
+cargo test -p lurq --features query,tokio --test query_tests
+cargo test -p lurq --features form,router,persistent_storage,i18n --lib --tests
+cargo test -p lurq --all-features --doc
+cargo test -p lurq --features canvas --test canvas_tests
+cargo check --workspace --all-features --all-targets --locked
+```
+
+The publish workflow in `.github/workflows/publish-crates.yml` defines release validation. Native GPU and window checks need the matching platform and a usable graphics environment; see [Canvas 2D](../canvas/#examples-and-checks) and [Window lifecycle](../window-lifecycle-menus/#mcp-and-verification). Ignored hardware tests are not run by an ordinary `cargo test`.
+
 Run one area:
 
 ```powershell
@@ -49,7 +61,7 @@ assert_eq!(result.size.width, 100.0);
 assert_eq!(result.size.height, 50.0);
 ```
 
-`pass_layout` is a test extension used in the test modules. Production app code normally lets `Tree::pass` drive layout.
+This snippet runs inside the layout test modules, where `use super::PassLayoutExt;` imports the helper from `tests/layout/mod.rs`. `pass_layout` is not a public `Tree` method. Production app code normally lets `Tree::pass` drive layout.
 
 ## Render Snapshot Tests
 
@@ -154,6 +166,12 @@ Benchmarks live in `crates/lurq/benches`:
 cargo bench -p lurq
 ```
 
-Current benches cover layout, tree build, render-list generation, and the Markdown-backed text pipeline. Use them when changing layout caching, smart relayout, retained-node reconciliation, render command generation, or text rasterization.
+Current benches cover layout, tree build, render-list generation, and the Markdown-backed text pipeline. The text benchmark requires its feature explicitly:
+
+```powershell
+cargo bench -p lurq --bench text_pipeline --features markdown
+```
+
+Its fixtures include the root `README.md`, so documentation changes can alter workload size. Compare the same fixture and source/toolchain metadata before interpreting historical numbers. Use benchmarks when changing layout caching, smart relayout, retained-node reconciliation, render command generation, or text rasterization.
 
 Text pipeline optimization notes and benchmark history live in [Text Pipeline Optimization](/lurq/text-pipeline-optimization/).

@@ -14,7 +14,7 @@ WinitWindow
   requests redraws
 
 App
-  fonts, theme, resource loader, profiling setting
+  shared fonts, theme, resources, storage, optional Tokio runtime, menus
 
 Tree
   root component/static root
@@ -113,7 +113,7 @@ Text::new("Save")
   })
 ```
 
-Nodes can also carry HTML-like `id`/`class` attributes (`.id("save")`, `.class("row")`). They never affect reconciliation or styling — they exist so integration code and tests can address nodes browser-style: `tree.get_element_by_id("save")` for reads, `tree.get_element_by_id_mut("save")` for direct mutation and typed interaction (`click()`, `as_text_input().set_value(..)`). See [Runtime And Retained Tree](./retained_nodes/#ids-and-classes).
+Nodes can also carry HTML-like `id`/`class` attributes (`.id("save")`, `.class("row")`) for browser-style lookup: `tree.get_element_by_id("save")` for reads and `tree.get_element_by_id_mut("save")` for mutation and typed interaction (`click()`, `as_text_input().set_value(..)`). A stable explicit ID also participates in node reconciliation, helping focus follow a control across sibling insertion or reordering. Classes only label nodes for lookup; neither attribute is a CSS styling selector. See [Runtime And Retained Tree](../retained_nodes/#ids-and-classes).
 
 ## DevTools Is Just Another Tree
 

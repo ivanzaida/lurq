@@ -3,6 +3,9 @@ title: CPU Text Pipeline Optimization
 description: Measured improvements to cold development-build text layout, optical alignment, and glyph generation.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 This page records the first cold-pass optimization. The subsequent [Text Interaction Optimization](/lurq/text-interaction-optimization/) adds reuse across edits and resizing, cache compaction for fractional DPI, and native DX12 measurements.

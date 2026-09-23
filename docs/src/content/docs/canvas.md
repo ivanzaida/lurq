@@ -1,6 +1,6 @@
 ---
 title: Canvas 2D
-description: Persistent drawing through existing element refs, with paths, clipping, text, and images.
+description: Persistent drawing through existing element refs, with paths, gradients, effects, layers, text, and images.
 ---
 
 # Canvas 2D
@@ -144,9 +144,11 @@ draw.set_fill_style(
 draw.fill_rect(20.0, 20.0, 200.0, 120.0);
 ```
 
+Since 0.20.0, `fill_style()` and `stroke_style()` return `Paint` instead of `Color`. Use `paint.color()` to obtain `Some(Color)` for a solid paint; gradients return `None`. Existing solid-color setter calls continue to work.
+
 A gradient is written the way an authoring tool writes one. `in_box(x, y, w, h)`
-gives it a box in the **user space in force when the paint is used** — the same
-rule HTML Canvas gradient coordinates follow. Inside that box:
+gives it a box in the **user space in force when the paint is used**. The paint
+does not capture the context transform when it is constructed. Inside that box:
 
 | Field | Meaning |
 | --- | --- |
@@ -199,8 +201,7 @@ and paint together. Backdrop blur — blurring what is already **under** a
 shape — is not in this release; it needs to read the surface it writes, and that
 ordering is not yet stated. See [lurq#17](https://github.com/ivanzaida/lurq/issues/17).
 
-`set_global_composite_operation` takes the eighteen modes of W3C compositing and
-blending level 1: `Normal`, `Darken`, `Multiply`, `LinearBurn`, `ColorBurn`,
+`set_global_composite_operation` supports eighteen blend modes: `Normal`, `Darken`, `Multiply`, `LinearBurn`, `ColorBurn`,
 `Lighten`, `Screen`, `LinearDodge`, `ColorDodge`, `Overlay`, `SoftLight`,
 `HardLight`, `Difference`, `Exclusion`, `Hue`, `Saturation`, `Color` and
 `Luminosity`. Non-separable modes operate on non-premultiplied colours, as the
@@ -223,9 +224,11 @@ draw.fill_rect(60.0, 60.0, 80.0, 80.0);   // the overlap is not darker
 draw.end_layer()?;
 ```
 
-Draws between the two calls composite into a target of their own at full alpha;
-`end_layer` composites that target onto the parent once, with `alpha` and
-`blend`. Layers nest to `MAX_LAYER_DEPTH` (8) and are **not** the save stack:
+Draws between the two calls composite into a target of their own using the
+current drawing state, including `global_alpha`. `end_layer` then composites
+that target onto the parent once, with the layer's `alpha` and `blend`. Keep
+`global_alpha` at 1 when only the group's opacity should change. Layers nest
+to `MAX_LAYER_DEPTH` (8) and are **not** the save stack:
 `restore` does not close one, `end_layer` without a matching `begin_layer` is
 `UnbalancedLayer`, and a layer still open when the canvas is reset, resized or
 detached is discarded with its contents. A layer's commands are held on the

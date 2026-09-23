@@ -7,12 +7,10 @@
 //! and modifier state, so a bare button-press arrives with no hover established
 //! and lands on whatever the toolkit last thought was under the pointer.
 //!
-//! These events are queued through the same [`WindowCommand`] channel the
+//! These events are queued through the same internal window-command channel the
 //! window's own controls use and are drained by the shell inside its event
 //! loop, so they reach exactly the entry points real winit events reach and
 //! observe the same ordering guarantees.
-//!
-//! [`WindowCommand`]: crate::app::window::WindowCommand
 
 use crate::app::events::MouseButton;
 use crate::app::runtime::Tree;

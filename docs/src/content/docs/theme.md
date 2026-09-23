@@ -33,7 +33,8 @@ Column::new()
 
 ```rust
 let theme = app.theme();
-tree.mount_root::<Root>(theme.clone(), ());
+theme.set_palette_color(PaletteColor::Accent, lurq::node::color::Color::from_hex("#2563eb"));
+tree.mount_root::<Root>(&mut app, ());
 ```
 
 Inside components:
@@ -310,11 +311,11 @@ Inside components, read the current breakpoint with `ctx.breakpoint()`. It resol
 ```rust
 use lurq::{app::theme::Breakpoint, components::{Column, Row}};
 
-fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+fn render(&self, ctx: &mut Ctx) -> Element {
   if ctx.breakpoint() >= Some(Breakpoint::Lg) {
-    Row::new().child(nav).child(content)
+    Row::new().child(nav).child(content).into()
   } else {
-    Column::new().child(nav).child(content)
+    Column::new().child(nav).child(content).into()
   }
 }
 ```
@@ -337,7 +338,7 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 Form theme roles require the `form` feature:
 
 ```toml
-lurq = { version = "0.19.5", features = ["form"] }
+lurq = { version = "0.20.0", features = ["form"] }
 ```
 
 `FormTheme` groups compound form styling into semantic roles:

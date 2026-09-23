@@ -9,7 +9,7 @@ DevTools is feature-gated. Without the `devtools` Cargo feature, the app does no
 
 ## Enable It
 
-Build with `lurq/devtools` and mount DevTools from the main tree.
+Build with `lurq/devtools` and mount DevTools from the main tree. For the WGPU desktop example, also enable `winit` and `wgpu`. Add `perf_profile` for frame timings and memory counters; `devtools` does not enable that feature automatically.
 
 ```rust
 use lurq::app::{App, Tree};
@@ -18,7 +18,6 @@ let mut app = App::new();
 let mut tree = Tree::new();
 
 lurq::app::devtools::load_fonts(&mut app);
-app.set_profiling_enabled(true);
 
 tree.set_render_engine_factory(|| Box::new(lurq::app::wgpu_render::WgpuRenderEngine::new()));
 tree.mount_root::<Root>(&mut app, RootProps);
@@ -111,6 +110,8 @@ struct Credentials {
 
 Enums show their current variant.
 
+Masked text inputs expose their displayed mask and `masked=true` in node text and shape snapshots. This does not redact arbitrary application props, signals, custom annotations, or logs; use `#[devtools_ignore]` for sensitive fields you expose to inspection.
+
 ## Inspectable Signals And Memos
 
 With `devtools`, signal and memo values must be inspectable too:
@@ -153,10 +154,10 @@ The main tree exposes this through internal tree methods such as debug overlay s
 
 ## Profiler
 
-Enable profiling on `App`:
+Enable frame profiling at compile time:
 
-```rust
-app.set_profiling_enabled(true);
+```toml
+lurq = { version = "0.20.0", features = ["winit", "wgpu", "devtools", "perf_profile"] }
 ```
 
 The profiler tab uses frame snapshots from the tree. A commit records:
@@ -170,7 +171,7 @@ The profiler tab uses frame snapshots from the tree. A commit records:
 - render triggers such as signal changes and memo recomputes,
 - perf overlay timings when available.
 
-`Tree::last_profile()` returns the latest low-level frame profile for custom tooling.
+With `perf_profile`, `Tree::last_profile()` returns the latest low-level frame profile for custom tooling. Without it, the DevTools frame profile contains default values.
 
 ## Perf Overlay
 
@@ -180,7 +181,7 @@ The perf overlay is separate from DevTools but feeds data that DevTools can show
 tree.draw_perf_overlay();
 ```
 
-The overlay enables the frame profiling it needs, samples FPS once per second, and shows frame stage timings such as layout, resolve, glyph, acquire, upload, encode, submit, and present.
+The overlay samples FPS once per second. Enable `perf_profile` to include frame stage timings such as layout, resolve, glyph, acquire, upload, encode, submit, and present.
 
 ## Common Issues
 

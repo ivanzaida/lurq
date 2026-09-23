@@ -1,6 +1,6 @@
 # Canvas 2D API proposal
 
-Status: approved for implementation on 2026-09-10. Implementation is in the separate `codex/canvas-2d` worktree.
+Status: implemented and merged into `master`, released in 0.19.0. Version 0.19.1 added cross-frame mesh reuse, 0.19.5 added random eviction and cache counters, and 0.20.0 added paints, effects, blend modes, and isolated layers. The proposal below records the original 2026-09-10 design review.
 
 ## Implementation record
 
@@ -19,7 +19,7 @@ The initial CPU prototype was replaced following the performance review. The cur
 - **Software:** `Canvas::new().software()` explicitly selects the CPU reference and its immediate snapshots. Unsupported custom GPU renderers report `UnsupportedBackend`; renderer wrappers must forward `prepare_canvases`.
 - **Diagnostics:** `CanvasStatus` reports charged pending bytes, persistent backing bytes, cumulative batches/vertices/tiles/source uploads, and errors. The ordinary node presentation still supplies background, borders, radius, transform, and inherited opacity.
 
-The supported drawing subset is unchanged: solid styles, source-over alpha, save/restore, transforms, rectangles, paths/arcs/curves, fill rules, dashes, clipping, hit testing, single-line text, and immutable image crops. The [guide](../docs/src/content/docs/canvas.md) describes limits and deliberate browser differences. The [performance record](canvas-gpu-performance.md) contains measurements and reproduction commands.
+The initial subset included solid styles, source-over alpha, save/restore, transforms, rectangles, paths/arcs/curves, fill rules, dashes, clipping, hit testing, single-line text, and immutable image crops. Version 0.20.0 also supports linear/radial/angular gradients, shadows, layer blur, eighteen blend modes, and isolated layers. Backdrop blur remains unsupported. The [guide](../docs/src/content/docs/canvas.md) describes current limits and deliberate browser differences. The [performance record](canvas-gpu-performance.md) contains historical measurements and reproduction commands.
 
 Validation covers the existing 28 software lifecycle/semantic tests, bounded queue/readback tests, a GPU pixel comparison against the reference, and native WGPU/DX12 captures with tile boundaries, ordered readback, hidden drawing, scale preservation, and resource retirement. The guide and checks are updated for the asynchronous snapshot API.
 

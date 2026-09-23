@@ -3,6 +3,9 @@ title: Text Cache Bookkeeping
 description: Measured reductions in paragraph indexing and retained-allocation accounting during edits and resizing.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 This report measures ordinary `Text`. The later [Caret Layout Reuse](/lurq/text-caret-layout-reuse/) report adds a selectable-text benchmark and shares its caret layout with measurement and painting.

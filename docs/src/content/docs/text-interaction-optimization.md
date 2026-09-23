@@ -3,6 +3,9 @@ title: Text Interaction Optimization
 description: Paragraph reuse across edits and resizing, measured in CPU benchmarks and a native DX12 window.
 ---
 
+> Historical benchmark report. Numbers and test counts below describe the dated source versions, toolchains, and fixtures in this report, not a new run of 0.20.0. See [Text Pipeline Optimization](../text-pipeline-optimization/) for the current implementation. Absolute artifact paths refer to the original local measurements and are not included in a fresh checkout.
+
+
 ## Results — September 12, 2026
 
 This report records the paragraph-reuse comparison with a 32 MiB cache. The later [Text Cache Budget](/lurq/text-cache-budget/) experiment raises the default to 48 MiB and measures the resulting reduction in repeated wrapping.

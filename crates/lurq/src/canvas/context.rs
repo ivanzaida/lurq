@@ -121,9 +121,10 @@ impl Context2D {
   }
 
   /// Begins an isolated layer: following draws composite into a target of their
-  /// own at full alpha, and [`Context2D::end_layer`] composites that target onto
-  /// the parent once, with `alpha` and `blend`. That is what makes a group of
-  /// overlapping shapes fade as one image rather than through each other.
+  /// own using the current drawing state, including global alpha.
+  /// [`Context2D::end_layer`] composites that target onto the parent once, with
+  /// `alpha` and `blend`. Keep global alpha at 1 when only the group's opacity
+  /// should change, so overlapping shapes fade as one image.
   ///
   /// Layers nest to [`MAX_LAYER_DEPTH`]. They are not the save stack:
   /// `restore` does not close one, and a layer left open when the canvas is

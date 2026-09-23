@@ -554,10 +554,9 @@ pub(crate) struct Node {
   pub(crate) tag_name: Arc<str>,
   pub(crate) component_slot_id: Option<u64>,
   pub(crate) component_key: Option<Arc<str>>,
-  /// Author-supplied HTML-like `id` attribute. Lookup only — never
-  /// participates in reconciliation or state preservation.
+  /// Author-supplied HTML-like `id` attribute for lookup and retained identity.
   pub(crate) element_id: Option<Arc<str>>,
-  /// Author-supplied HTML-like class list. Lookup only, like `element_id`.
+  /// Author-supplied HTML-like class list. Used for lookup, not retained identity.
   pub(crate) classes: Vec<Arc<str>>,
   pub(crate) overlay_declaration: Option<Box<crate::app::ctx::OverlaySpec>>,
   pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
@@ -1662,7 +1661,8 @@ impl Node {
   }
 
   /// HTML-like `id` attribute for [`Tree::get_element_by_id`] lookup.
-  /// Lookup only — never affects reconciliation or state preservation.
+  /// Also participates in retained-node identity across sibling changes.
+  /// Keep IDs stable; changing one can reset the node's runtime state.
   ///
   /// [`Tree::get_element_by_id`]: crate::app::Tree::get_element_by_id
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
@@ -1671,7 +1671,7 @@ impl Node {
   }
 
   /// Appends an HTML-like class for [`Tree::get_elements_by_class_name`]
-  /// lookup. Lookup only, like [`Node::id`].
+  /// lookup. Classes do not affect reconciliation or styling.
   ///
   /// [`Tree::get_elements_by_class_name`]: crate::app::Tree::get_elements_by_class_name
   pub fn class(mut self, class: impl Into<Arc<str>>) -> Self {

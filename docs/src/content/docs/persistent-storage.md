@@ -10,7 +10,7 @@ Persistent storage is an app-level key/value store for small values that should 
 Enable it with the `persistent_storage` feature:
 
 ```toml
-lurq = { version = "0.19.5", features = ["persistent_storage"] }
+lurq = { version = "0.20.0", features = ["persistent_storage"] }
 ```
 
 The feature uses `redb` as the file-backed store. Values are stored as typed bytes, not JSON.
@@ -43,7 +43,9 @@ impl Component for Preferences {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
-    ctx.set_persistent_value("sidebar_open", true).unwrap();
+    if ctx.persistent_value::<bool>("sidebar_open").is_none() {
+      ctx.set_persistent_value("sidebar_open", true).unwrap();
+    }
     Self
   }
 
