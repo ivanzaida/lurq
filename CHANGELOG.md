@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.24.0 — 2026-09-24
 
 - Make Tab work outside forms. Tab and Shift+Tab used to move focus only inside a form and did nothing anywhere else, including after a click on a toolbar button. `tab_index` now follows HTML `tabindex`: outside a form, elements with `tab_index(0)` or higher are stops (positive values first, in ascending order, then `0` in tree order) and elements without one are not; inside a form, controls stay stops without a tab index. `tab_index(-1)` skips an element but a click still focuses it. The scope is the topmost open modal, else the whole window, and Tab wraps at its ends. Forms are part of that order like in a browser: Tab enters a form, and Tab from its last control (Shift+Tab from its first) leaves it. When focus is on an element that is not a stop, Tab continues from its place in the tree. Traversal no longer needs the `form` feature.
 - Trap Tab in modals. An open `Modal` confines Tab and Shift+Tab to its own stops, with or without a form; focus left on the page behind it moves into the modal on the next Tab, and a modal without stops keeps Tab from reaching the page.
