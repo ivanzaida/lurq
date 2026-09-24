@@ -34,6 +34,21 @@ impl ContextMap {
   pub(crate) fn revision(&self) -> u64 {
     self.revision
   }
+
+  /// `inherited` with `provided` layered on top: a component's own values
+  /// shadow those of its ancestors. The result gets a fresh revision when
+  /// `provided` is non-empty so descendants notice the inherited change.
+  pub(crate) fn layered(inherited: &ContextMap, provided: &ContextMap) -> ContextMap {
+    let mut map = inherited.clone();
+    if provided.values.is_empty() {
+      return map;
+    }
+    map
+      .values
+      .extend(provided.values.iter().map(|(id, value)| (*id, value.clone())));
+    map.revision = NEXT_CONTEXT_REVISION.fetch_add(1, Ordering::Relaxed);
+    map
+  }
 }
 
 #[derive(Clone)]

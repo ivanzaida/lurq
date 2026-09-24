@@ -174,6 +174,11 @@ if let Some(locale) = ctx.use_context::<Locale>() {
 
 Use static context for values that do not need to notify consumers when changed.
 
+A value provided in `create` stays provided for the provider's lifetime: ancestor re-renders refresh the inherited
+contexts and layer the provider's own values back on top. A value provided in `render` lasts for that render and is
+provided again by the next one, or removed if the next render does not provide it. See
+[Ctx](../ctx/#context-values) for the details.
+
 ## Reactive Context
 
 Reactive context is a typed context value that can notify consumers.

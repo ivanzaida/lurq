@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix contexts provided in `create` disappearing when an ancestor re-rendered. Reusing a child replaced its whole context map with the parent's, dropping the values the child had provided, so descendants got `None` from `use_context` and lost `consume_context` subscriptions. A component's `create`-time values now persist for its lifetime, layered over the inherited contexts whenever those change. A value provided during `render` belongs to that render: it is dropped when a later render does not provide it again (it used to linger until the parent re-rendered). Providers whose inherited contexts did not change are no longer re-rendered, with their subtree, on every parent re-render. The `QueryClient`-only workaround for this is removed. The Ctx and Reactivity guides describe the lifetime rules.
+
 ## 0.22.1 — 2026-09-24
 
 - Fix a press that stayed held after moving or resizing the window from custom chrome. The native move or size loop (Windows `WM_NCLBUTTONDOWN`, macOS `performWindowDragWithEvent:`, X11/Wayland `drag_window`) consumes the button release, so lurq never saw it. The pressed element stayed active, and a text-selection, slider, scrollbar or `on_drag_*` session begun by the press kept following the pointer. The next release then completed the stale press and could fire a click or a drop. When `start_drag` or `start_resize` hands the press to a native loop, the winit shell now ends it with the new `Tree::mouse_press_taken_by_os`. That runs the normal mouse-up path without a click, ends drag sessions as a miss, and clears the click suppression they arm. Present since custom chrome was added.

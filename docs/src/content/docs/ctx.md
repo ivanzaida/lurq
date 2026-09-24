@@ -206,7 +206,21 @@ println ! ("locale = {}", locale.0);
 }
 ```
 
-`provide` stores a cloned value by type. `use_context` returns `None` if no ancestor provided that type.
+`provide` stores a cloned value by type. `use_context` returns `None` if neither this component nor an ancestor
+provided that type. A provided value shadows an ancestor's value of the same type for this component and its
+descendants.
+
+How long a value stays provided depends on where it is provided:
+
+- In `create`: for the component's lifetime. It survives re-renders of the component and of its ancestors (the
+  inherited contexts are refreshed and the component's own values are layered back on top) until the component
+  provides another value of the same type.
+- In `render`: for that render. Code after the `provide` call and the children mounted by that render see it; the
+  next render starts from the inherited and `create`-time values, so a value the render no longer provides is removed
+  for the children it mounts from then on. Providing in `render` gives the value a new revision, which re-renders
+  the reused children that receive it.
+
+`create_context` follows the same rules.
 
 ### Reactive Context
 

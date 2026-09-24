@@ -1020,6 +1020,14 @@ pub struct Ctx {
   #[cfg(feature = "tokio")]
   runtime_future_handle: RuntimeFutureHandle,
   context_map: ContextMap,
+  /// Values this component provided outside render (in `create`). They are
+  /// re-applied on top of the inherited contexts whenever those change.
+  provided_contexts: ContextMap,
+  /// Inherited contexts with `provided_contexts` on top: what every render of
+  /// this component starts from.
+  base_contexts: ContextMap,
+  /// Revision of the parent's context map the inherited values were taken from.
+  inherited_context_revision: u64,
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
@@ -1037,8 +1045,6 @@ pub struct Ctx {
   query_slots: Vec<crate::query::Observer>,
   #[cfg(feature = "query")]
   query_cursor: usize,
-  #[cfg(feature = "query")]
-  provided_query_client: Option<crate::query::QueryClient>,
   element_refs: Vec<ElementRefMut>,
   click_outside_registry: Arc<Mutex<Vec<ClickOutsideEntry>>>,
   click_outside_cursor: usize,
@@ -1430,6 +1436,9 @@ impl Ctx {
       #[cfg(feature = "tokio")]
       runtime_future_handle: None,
       context_map: ContextMap::default(),
+      provided_contexts: ContextMap::default(),
+      base_contexts: ContextMap::default(),
+      inherited_context_revision: 0,
       slot_children: None,
       children: Vec::new(),
       child_cursor: 0,
@@ -1447,8 +1456,6 @@ impl Ctx {
       query_slots: Vec::new(),
       #[cfg(feature = "query")]
       query_cursor: 0,
-      #[cfg(feature = "query")]
-      provided_query_client: None,
       element_refs: Vec::new(),
       click_outside_registry: Arc::new(Mutex::new(Vec::new())),
       click_outside_cursor: 0,
@@ -2098,14 +2105,29 @@ impl Ctx {
 
   // --- Context (Dependency Injection) ---
 
+  /// Provides `value` to this component and its descendants, shadowing a
+  /// value of the same type from an ancestor.
+  ///
+  /// A value provided in `create` stays provided for the component's lifetime,
+  /// across re-renders of the component and of its ancestors, until it
+  /// provides another value of the same type. A value provided during `render`
+  /// belongs to that render: later code in the render and the children it
+  /// mounts see it, and the next render starts without it unless it is
+  /// provided again.
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
-    #[cfg(feature = "query")]
-    if let Some(client) = (&value as &dyn Any).downcast_ref::<crate::query::QueryClient>() {
-      self.provided_query_client = Some(client.clone());
-    }
     #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
-    self.context_map.provide(value);
+    self.store_context(value);
+  }
+
+  fn store_context<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+    if self.rendering {
+      self.context_map.provide(value);
+      return;
+    }
+    self.provided_contexts.provide(value.clone());
+    self.base_contexts.provide(value);
+    self.context_map = self.base_contexts.clone();
   }
 
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
@@ -2121,7 +2143,7 @@ impl Ctx {
       std::any::type_name::<ReactiveContext<T>>(),
     );
     let ctx = ReactiveContext::new(value);
-    self.context_map.provide(ctx.clone());
+    self.store_context(ctx.clone());
     let dirty = self.dirty.clone();
     let subtree_dirty = self.subtree_dirty.clone();
     let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
@@ -2147,6 +2169,19 @@ impl Ctx {
       Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     Some(ctx)
+  }
+
+  /// Takes the contexts `parent` passes down, keeping the values this
+  /// component provided on top. Returns whether the inherited contexts changed
+  /// since the last call.
+  fn inherit_contexts(&mut self, parent: &ContextMap) -> bool {
+    if self.inherited_context_revision == parent.revision() {
+      return false;
+    }
+    self.inherited_context_revision = parent.revision();
+    self.base_contexts = ContextMap::layered(parent, &self.provided_contexts);
+    self.context_map = self.base_contexts.clone();
+    true
   }
 
   #[cfg(feature = "devtools")]
@@ -2464,8 +2499,7 @@ impl Ctx {
       let slot = &mut self.children[cursor];
       let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
       let props_changed = slot.ctx.props_changed(&props);
-      let context_changed = slot.ctx.context_map.revision() != self.context_map.revision();
-      slot.ctx.context_map = self.context_map.clone();
+      let context_changed = slot.ctx.inherit_contexts(&self.context_map);
       slot.ctx.slot_children = slot_children;
       if props_changed {
         slot.ctx.set_props(props);
@@ -2530,7 +2564,7 @@ impl Ctx {
     {
       child_ctx.i18n = self.i18n.clone();
     }
-    child_ctx.context_map = self.context_map.clone();
+    child_ctx.inherit_contexts(&self.context_map);
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
     child_ctx.scope_id = slot_id;
@@ -2619,7 +2653,7 @@ impl Ctx {
       {
         group_ctx.i18n = self.i18n.clone();
       }
-      group_ctx.context_map = self.context_map.clone();
+      group_ctx.inherit_contexts(&self.context_map);
       group_ctx.scope_id = slot_id;
       let slot = ChildSlot {
         id: slot_id,
@@ -2635,7 +2669,7 @@ impl Ctx {
     }
 
     let slot = &mut self.children[cursor];
-    slot.ctx.context_map = self.context_map.clone();
+    slot.ctx.inherit_contexts(&self.context_map);
     slot.ctx.begin_render();
     let elements = items
       .into_iter()
@@ -2674,7 +2708,7 @@ impl Ctx {
 
     if can_reuse {
       let slot = &mut self.children[cursor];
-      slot.ctx.context_map = self.context_map.clone();
+      slot.ctx.inherit_contexts(&self.context_map);
       slot.ctx.begin_render();
       let mut element = component_fn(&mut slot.ctx, item);
       slot.ctx.end_render();
@@ -2712,7 +2746,7 @@ impl Ctx {
     {
       child_ctx.i18n = self.i18n.clone();
     }
-    child_ctx.context_map = self.context_map.clone();
+    child_ctx.inherit_contexts(&self.context_map);
     child_ctx.scope_id = slot_id;
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);
@@ -2759,13 +2793,10 @@ impl Ctx {
   // --- Render lifecycle ---
 
   pub fn begin_render(&mut self) {
-    #[cfg(feature = "query")]
-    if let Some(client) = &self.provided_query_client {
-      // Reconciliation refreshes inherited context values. Preserve a client's
-      // local provider scope before rendering this component's descendants.
-      if self.context_map.get::<crate::query::QueryClient>().as_ref() != Some(client) {
-        self.context_map.provide(client.clone());
-      }
+    // Values provided by the previous render are dropped; `render` provides
+    // them again if it still wants to.
+    if self.context_map.revision() != self.base_contexts.revision() {
+      self.context_map = self.base_contexts.clone();
     }
     self.clear_dirty();
     self.child_cursor = 0;

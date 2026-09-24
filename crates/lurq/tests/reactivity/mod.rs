@@ -20,6 +20,7 @@ mod i18n;
 mod memo;
 mod modal;
 mod offstage;
+mod provided_context;
 mod signal;
 mod store;
 mod theme;
