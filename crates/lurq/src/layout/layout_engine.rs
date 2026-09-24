@@ -785,7 +785,7 @@ impl LayoutEngine {
       }
 
       let (child_clip, child_cull_clip, child_culling_enabled) =
-        if node.overflow == Overflow::Hidden && inherited_transform.is_identity() {
+        if node.overflow == Overflow::Hidden && inherited_transform.is_axis_aligned() {
           let overflow_clip = intersect_clip(
             clip,
             ClipRect {
@@ -795,7 +795,8 @@ impl LayoutEngine {
               height: result.size.height,
               active: true,
               border_radius: None,
-            },
+            }
+            .transformed(inherited_transform),
           );
           let child_cull_clip = if culling_enabled {
             intersect_clip(cull_clip, overflow_clip)
@@ -1115,7 +1116,8 @@ impl LayoutEngine {
               height: content_height,
               active: true,
               border_radius: None,
-            },
+            }
+            .transformed(transform),
           );
           for selection in state.selection_ranges() {
             let selection_x = abs_x + padding.left + selection.x;
@@ -1180,7 +1182,8 @@ impl LayoutEngine {
                     height: content_height,
                     active: true,
                     border_radius: None,
-                  },
+                  }
+                  .transformed(transform),
                 ),
               )
             } else {
@@ -1322,7 +1325,8 @@ impl LayoutEngine {
               height: content_height,
               active: true,
               border_radius: None,
-            },
+            }
+            .transformed(transform),
           ),
         });
       }
@@ -1503,44 +1507,37 @@ impl LayoutEngine {
 
     let (child_clip, child_cull_clip, child_culling_enabled) =
       if let LayoutKind::ScrollModifier { state, culling, .. } = node.layout_kind() {
-        let viewport_clip = intersect_clip(
-          clip,
-          ClipRect {
-            x: abs_x,
-            y: abs_y,
-            width: state.viewport_width(),
-            height: state.viewport_height(),
-            active: true,
-            border_radius: node
-              .get_border_radius(&self.radii.borrow())
-              .map(|radius| radius.clamped_to_rect(state.viewport_width(), state.viewport_height())),
-          },
-        );
-        let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
+        let viewport = ClipRect {
+          x: abs_x,
+          y: abs_y,
+          width: state.viewport_width(),
+          height: state.viewport_height(),
+          active: true,
+          border_radius: node
+            .get_border_radius(&self.radii.borrow())
+            .map(|radius| radius.clamped_to_rect(state.viewport_width(), state.viewport_height())),
+        };
+        let child_clip = content_clip(clip, viewport, resolved_border, transform);
         let child_cull_clip = if *culling {
-          inset_clip_for_border(intersect_clip(cull_clip, viewport_clip), resolved_border)
+          content_clip(intersect_clip(cull_clip, clip), viewport, resolved_border, transform)
         } else {
           ClipRect::default()
         };
         (child_clip, child_cull_clip, *culling)
       } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
-        let overflow_clip = intersect_clip(
-          clip,
-          ClipRect {
-            x: abs_x,
-            y: abs_y,
-            width: result.size.width,
-            height: result.size.height,
-            active: true,
-            border_radius: node
-              .get_border_radius(&self.radii.borrow())
-              .map(|radius| radius.clamped_to_rect(result.size.width, result.size.height)),
-          },
-        );
-        let child_clip = inset_clip_for_border(overflow_clip, resolved_border);
+        let bounds = ClipRect {
+          x: abs_x,
+          y: abs_y,
+          width: result.size.width,
+          height: result.size.height,
+          active: true,
+          border_radius: node
+            .get_border_radius(&self.radii.borrow())
+            .map(|radius| radius.clamped_to_rect(result.size.width, result.size.height)),
+        };
+        let child_clip = content_clip(clip, bounds, resolved_border, transform);
         let child_cull_clip = if culling_enabled {
-          let cull_overflow_clip = intersect_clip(cull_clip, overflow_clip);
-          inset_clip_for_border(cull_overflow_clip, resolved_border)
+          content_clip(intersect_clip(cull_clip, clip), bounds, resolved_border, transform)
         } else {
           ClipRect::default()
         };
@@ -3722,8 +3719,26 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     }
 }
 
+/// Under a rotation or skew a clip can only be the bounding box of the
+/// transformed rect, so a node without a visual of its own (a transformed text
+/// node, for example) does not clip there.
 fn hidden_overflow_creates_clip(has_visual: bool, transform: Transform2D) -> bool {
-  transform.is_identity() || has_visual
+  transform.is_axis_aligned() || has_visual
+}
+
+/// The clip a node's `bounds` (in layout coordinates) give its children: inset
+/// by the node's border, mapped into screen space through the node's
+/// `transform`, and intersected with the inherited `parent` clip.
+fn content_clip(
+  parent: ClipRect,
+  bounds: ClipRect,
+  border: Option<ResolvedBorders>,
+  transform: Transform2D,
+) -> ClipRect {
+  if transform.is_identity() {
+    return inset_clip_for_border(intersect_clip(parent, bounds), border);
+  }
+  intersect_clip(parent, inset_clip_for_border(bounds, border).transformed(transform))
 }
 
 fn border_can_paint_outside(node: &Node) -> bool {
