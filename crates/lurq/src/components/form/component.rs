@@ -104,7 +104,7 @@ fn form_node(props: FormProps, child: Element) -> Element {
     node = node.form(move |data| form.submit(data));
   }
 
-  Element::from_node(node.child(child.node))
+  Element::from_node(node.child(child.into_node()))
 }
 
 fn form_child(ctx: &Ctx, props: &FormProps) -> Element {

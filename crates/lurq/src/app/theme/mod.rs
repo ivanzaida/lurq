@@ -34,6 +34,7 @@ pub use form::{
 pub use markdown::{MarkdownBlockStyle, MarkdownInlineStyle, MarkdownTextStyle, ThemeMarkdown};
 pub use palette::{PaletteColor, ThemePalette};
 pub use radius::{RadiusSize, ThemeRadii};
+pub use role_name::RoleName;
 pub use spacing::{SpacingSize, ThemeSpacing};
 pub use typography::{ThemeFonts, ThemeTypography, TypographyStyle};
 

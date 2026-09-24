@@ -31,6 +31,7 @@ mod perf_overlay;
 #[cfg(feature = "image")]
 mod render_order;
 mod scroll_state;
+mod stack_depth;
 mod text_reflow;
 mod text_scale_wrap;
 mod text_shadow;

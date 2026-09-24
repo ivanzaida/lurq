@@ -781,7 +781,7 @@ macro_rules! impl_into_node {
 
     impl From<$struct_name> for $crate::node::Element {
       fn from(component: $struct_name) -> Self {
-        $crate::node::Element::from_node(*component.node)
+        $crate::node::Element::from_boxed_node(component.node)
       }
     }
   };

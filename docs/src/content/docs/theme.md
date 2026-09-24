@@ -336,10 +336,10 @@ Every role enum except `Breakpoint` has an `Extra` variant for roles the built-i
 | Role | Extra variant | Storage |
 | --- | --- | --- |
 | `PaletteColor` | `Extra(Arc<str>)` | `ThemePalette::extra: HashMap<Arc<str>, Color>` |
-| `TypographyStyle` | `Extra(&'static str)` | `ThemeTypography::extra: HashMap<Arc<str>, TextStyle>` |
-| `RadiusSize` | `Extra(&'static str)` | `ThemeRadii::extra: HashMap<Arc<str>, f32>` |
-| `SpacingSize` | `Extra(&'static str)` | `ThemeSpacing::extra: HashMap<Arc<str>, Dimension>` |
-| `BorderSize` | `Extra(&'static str)` | `ThemeBorderSizes::extra: HashMap<Arc<str>, f32>` |
+| `TypographyStyle` | `Extra(RoleName)` | `ThemeTypography::extra: HashMap<Arc<str>, TextStyle>` |
+| `RadiusSize` | `Extra(RoleName)` | `ThemeRadii::extra: HashMap<Arc<str>, f32>` |
+| `SpacingSize` | `Extra(RoleName)` | `ThemeSpacing::extra: HashMap<Arc<str>, Dimension>` |
+| `BorderSize` | `Extra(RoleName)` | `ThemeBorderSizes::extra: HashMap<Arc<str>, f32>` |
 
 Build a role with `extra(name)`, or convert a `&str` or `Arc<str>`. The theme setters therefore take names directly:
 
@@ -365,7 +365,7 @@ Column::new()
   .child(Rect::new(200.0, 120.0).rounded(RadiusSize::extra("card")));
 ```
 
-Radius, spacing, border-size, and typography roles are `Copy` and nest in `Copy` values such as `Padding`, so their names are interned: each distinct name is stored once for the life of the process. Use a fixed vocabulary of role names, not per-item data.
+Radius, spacing, border-size, and typography roles are `Copy`, nest in `Copy` values such as `Padding`, and are stored many times in every element, so their names are interned: `RoleName` is a 4-byte handle to a name stored once for the life of the process, and each of these roles is 8 bytes. `RoleName` dereferences to `str` and compares equal to a `&str`; `as_str()` returns the name. Use a fixed vocabulary of role names, not per-item data.
 
 A missing extra name follows the palette:
 
