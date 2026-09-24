@@ -125,7 +125,7 @@ fn tab_does_not_focus_controls_outside_form() {
 }
 
 #[test]
-fn tab_from_focused_control_outside_form_does_not_enter_form() {
+fn tab_from_focused_control_outside_form_enters_the_form() {
   let outside_focus = Arc::new(AtomicUsize::new(0));
   let form_focus = Arc::new(AtomicUsize::new(0));
   let mut runtime = lurq::app::Tree::new();
@@ -167,8 +167,10 @@ fn tab_from_focused_control_outside_form_does_not_enter_form() {
   );
   runtime.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
 
+  // The outside input has no tab index, so it is not a stop, but Tab
+  // continues from it into the form that follows it.
   assert_eq!(outside_focus.load(Ordering::SeqCst), 1);
-  assert_eq!(form_focus.load(Ordering::SeqCst), 0);
+  assert_eq!(form_focus.load(Ordering::SeqCst), 1);
 }
 
 #[test]

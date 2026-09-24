@@ -727,11 +727,22 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether the element can take focus. Buttons, text inputs,
+      /// checkboxes, sliders, selects and elements with a `tab_index` are
+      /// focusable by default. `focusable(true)` makes any element focusable
+      /// by click and `Ctx::focus`; `focusable(false)` keeps it from ever
+      /// taking focus, by click, Tab or request.
       pub fn focusable(mut self, focusable: bool) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::focusable(node, focusable));
         self
       }
 
+      /// HTML `tabindex`. Inside a form, controls are in the Tab order
+      /// without one; outside a form, only elements with `tab_index(0)` or
+      /// higher are. Positive values come first in ascending order, then `0`
+      /// (and unset form controls) in tree order. `-1` removes the element
+      /// from the Tab order but keeps it focusable by click. Setting a tab
+      /// index makes the element focusable unless it is `focusable(false)`.
       pub fn tab_index(mut self, tab_index: i32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::tab_index(node, tab_index));
         self

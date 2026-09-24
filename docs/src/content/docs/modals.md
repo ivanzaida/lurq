@@ -73,3 +73,4 @@ Modal::new(content).open(open.clone()).target(panel_ref);
 - Setting the signal back to `false` removes the modal on the next render pass.
 - Multiple render-flow modals stack in declaration/layer order.
 - Signal-backed modals close on `Escape` by default.
+- An open modal traps Tab and Shift+Tab: they cycle the topmost modal's stops (elements with `tab_index(0)` or higher, and form controls) and never reach the page behind it, with or without a form. See [Modal Focus Trap](../focus-navigation/#modal-focus-trap).

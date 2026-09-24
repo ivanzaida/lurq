@@ -85,6 +85,18 @@ impl Slider {
     self.update_node(|node| crate::node::NodeUpdate::slider_thumb_hovered_style(node, f(SliderPartStyle::new())));
     self
   }
+
+  /// Thumb style while the slider has focus, layered under the hovered
+  /// style. Size is ignored: focus changes paint, never layout.
+  pub fn thumb_focused_style(mut self, style: SliderPartStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_thumb_focused_style(node, style));
+    self
+  }
+
+  pub fn thumb_focused(mut self, f: impl FnOnce(SliderPartStyle) -> SliderPartStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_thumb_focused_style(node, f(SliderPartStyle::new())));
+    self
+  }
 }
 
 impl Default for Slider {

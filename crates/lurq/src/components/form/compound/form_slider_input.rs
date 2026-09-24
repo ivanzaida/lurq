@@ -90,6 +90,7 @@ impl crate::app::component::Component for FormSliderInput {
       .track_hovered_style(slider_style.track_hovered_style(&palette))
       .thumb_style(slider_style.thumb_style(&palette))
       .thumb_hovered_style(slider_style.thumb_hovered_style(&palette))
+      .thumb_focused_style(slider_style.thumb_focused_style())
       .on_blur(move || {
         blur_control.mark_touched();
         blur_control.validate();

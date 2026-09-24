@@ -62,6 +62,24 @@ use crate::{
   },
 };
 
+mod tab_navigation;
+
+/// Surface of [`Tree::pass_headless`]: it has no window, so passes stop
+/// after layout.
+struct HeadlessSurface;
+
+impl HasWindowHandle for HeadlessSurface {
+  fn window_handle(&self) -> Result<WindowHandle<'_>, raw_window_handle::HandleError> {
+    Err(raw_window_handle::HandleError::Unavailable)
+  }
+}
+
+impl HasDisplayHandle for HeadlessSurface {
+  fn display_handle(&self) -> Result<DisplayHandle<'_>, raw_window_handle::HandleError> {
+    Err(raw_window_handle::HandleError::Unavailable)
+  }
+}
+
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
@@ -1844,6 +1862,19 @@ impl Tree {
     self.root.as_ref().map(ElementRef::new)
   }
 
+  /// DOM `document.activeElement`: the element that has focus (the control
+  /// itself, not the wrapper that owns its `on_focus` handler), or `None`.
+  pub fn focused_element(&self) -> Option<ElementRef<'_>> {
+    let root = self.root.as_ref()?;
+    let node = match self.focused_path.as_deref() {
+      Some(path) => find_node_by_path(root, path).filter(|node| Some(node.node_id()) == self.focused_node),
+      None => None,
+    };
+    node
+      .or_else(|| find_node_by_id(root, self.focused_node?))
+      .map(ElementRef::new)
+  }
+
   pub fn find_element(&mut self, predicate: impl for<'a> Fn(ElementRef<'a>) -> bool) -> Option<OwnedElementRef> {
     let root = self.root.as_mut()?;
     let layout = self.last_layout.as_ref()?;
@@ -1918,6 +1949,16 @@ impl Tree {
       engine.resize(width, height);
     }
     self.invalidate_viewport_layout();
+  }
+
+  /// Runs a pass without a window: rebuilds dirty components, lays out the
+  /// tree (overlays and modals included) and updates hit-testing, focus and
+  /// scroll state, but draws nothing and never touches the render engine.
+  /// For headless tests of input, focus and layout; call [`Tree::resize`]
+  /// first to choose the viewport.
+  pub fn pass_headless(&mut self, app: &mut App) -> PassReport {
+    self.request_redraw();
+    self.pass(app, &HeadlessSurface)
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
@@ -1995,10 +2036,11 @@ impl Tree {
     self.flush_due_pending_click(now);
 
     let initial_cache_start = Instant::now();
-    let initial_cache_result = if self.root.is_some() && self.render_engine.is_some() {
+    let initial_cache_result = if self.root.is_some()
+      && self.render_engine.is_some()
+      && let (Ok(window), Ok(display)) = (surface.window_handle(), surface.display_handle())
+    {
       let clear_color = root_clear_color(self.root.as_ref(), app);
-      let window = surface.window_handle().unwrap();
-      let display = surface.display_handle().unwrap();
       self.try_render_cached_render_list(app, clear_color, window, display, report.reasons)
     } else {
       None
@@ -2058,8 +2100,10 @@ impl Tree {
     }
     let clear_color = root_clear_color(self.root.as_ref(), app);
 
-    let window = surface.window_handle().unwrap();
-    let display = surface.display_handle().unwrap();
+    // A surface without handles (`pass_headless`) gets layout only.
+    let (Ok(window), Ok(display)) = (surface.window_handle(), surface.display_handle()) else {
+      return report;
+    };
 
     let mut second_cache = Duration::ZERO;
     if report.layout_recalculated {
@@ -3092,14 +3136,7 @@ impl Tree {
     }
     if !evt.default_prevented() {
       let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
-        #[cfg(feature = "form")]
-        {
-          self.focus_form_tab(shift)
-        }
-        #[cfg(not(feature = "form"))]
-        {
-          false
-        }
+        self.focus_tab(shift)
       } else if matches!(
         (key.as_str(), code.as_str()),
         ("Enter" | " ", _) | (_, "Enter" | "Space")
@@ -3207,44 +3244,31 @@ impl Tree {
     clear_selectable_text_selections(root)
   }
 
-  #[cfg(feature = "form")]
-  fn focus_form_tab(&mut self, reverse: bool) -> bool {
-    let target = {
-      let Some(root) = &self.root else {
-        return false;
-      };
-      let form_path = match self.focused_path.as_deref() {
-        Some(path) => nearest_form_path_for_path(root, path),
-        None => first_form_path(root),
-      };
-      let Some(form_path) = form_path else {
-        return false;
-      };
-      let Some(form) = find_node_by_path(root, &form_path) else {
-        return false;
-      };
-      let mut candidates = Vec::new();
-      collect_focus_candidates(form, None, &mut candidates);
-      sort_focus_candidates(&mut candidates);
-      if candidates.is_empty() {
-        return false;
-      }
-
-      let current_index = self
-        .focused_node
-        .and_then(|id| candidates.iter().position(|candidate| candidate.input_id == id));
-      let next_index = match (current_index, reverse) {
-        (Some(0), true) => candidates.len() - 1,
-        (Some(index), true) => index - 1,
-        (Some(index), false) => (index + 1) % candidates.len(),
-        (None, true) => candidates.len() - 1,
-        (None, false) => 0,
-      };
-      candidates[next_index].target()
+  /// Tab / Shift+Tab: moves focus to the next stop in the current Tab scope
+  /// (see [`tab_navigation`]) and scrolls it into view.
+  fn focus_tab(&mut self, reverse: bool) -> bool {
+    let Some(root) = &self.root else {
+      return false;
     };
+    let focused = self.focused_node.zip(self.focused_path.as_deref());
+    match tab_navigation::tab_move(root, focused, reverse) {
+      tab_navigation::TabMove::Focus(target) => {
+        self.focus_node(target);
+        self.scroll_focused_into_view();
+        true
+      }
+      tab_navigation::TabMove::Stay => true,
+      tab_navigation::TabMove::Unhandled => false,
+    }
+  }
 
-    self.focus_node(target);
-    true
+  fn scroll_focused_into_view(&mut self) {
+    let (Some(root), Some(layout), Some(focused)) = (&self.root, &self.last_layout, self.focused_node) else {
+      return;
+    };
+    if tab_navigation::scroll_into_view(root, layout, focused) {
+      self.needs_redraw = true;
+    }
   }
 
   #[cfg(feature = "form")]
@@ -4652,16 +4676,7 @@ impl Tree {
         .is_some_and(|current| current.same_handle(reference))
       {
         fn control(node: &Node) -> Option<NodeId> {
-          if node.is_focusable()
-            || node.button_kind_value().is_some()
-            || matches!(
-              node.node_kind(),
-              NodeKind::TextInput { .. }
-                | NodeKind::Checkbox { .. }
-                | NodeKind::Slider { .. }
-                | NodeKind::Select { .. }
-            )
-          {
+          if node.is_focusable() {
             Some(node.node_id())
           } else {
             node.children().iter().find_map(control)
@@ -4690,6 +4705,9 @@ impl Tree {
     let Some(input_path) = find_path_by_id(root, target.input_id) else {
       return;
     };
+    if find_node_by_path(root, &input_path).is_some_and(Node::is_focus_disabled) {
+      return;
+    }
     let event_path = find_path_by_id(root, target.event_id).unwrap_or_else(|| input_path.clone());
     if self.focused_node == Some(target.input_id) && self.focused_event_node == Some(target.event_id) {
       return;
@@ -6390,6 +6408,7 @@ fn build_modal_node(spec: ModalSpec, target: ElementRect) -> Node {
       Some(Dimension::Px(target.height)),
     );
   modal.set_tag_name("Modal");
+  modal.set_synthetic_role(SyntheticNodeRole::Modal);
   modal
 }
 
@@ -7410,12 +7429,7 @@ impl<'t> ElementHandle<'t> {
   pub fn click(&mut self) {
     let center = self.bounds().map(|bounds| bounds.center()).unwrap_or((0.0, 0.0));
     let Some(node) = self.node() else { return };
-    let focusable = node.is_focusable()
-      || node.button_kind_value().is_some()
-      || matches!(
-        node.node_kind(),
-        NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. }
-      );
+    let focusable = node.is_focusable();
     let button_kind = node.button_kind_value();
     let handlers = node.events.on_click.clone();
     if focusable {
@@ -8729,25 +8743,6 @@ struct FocusTarget {
   event_id: NodeId,
 }
 
-#[derive(Clone)]
-#[cfg(feature = "form")]
-struct FocusCandidate {
-  input_id: NodeId,
-  event_id: NodeId,
-  tab_index: i32,
-  order: usize,
-}
-
-#[cfg(feature = "form")]
-impl FocusCandidate {
-  fn target(&self) -> FocusTarget {
-    FocusTarget {
-      input_id: self.input_id,
-      event_id: self.event_id,
-    }
-  }
-}
-
 fn set_node_hovered(node: &Node, hovered: bool) {
   node.set_style_hovered(hovered);
   if let Some(state) = node.slider_state() {
@@ -9033,20 +9028,6 @@ fn update_element_refs_recursive(
 }
 
 #[cfg(feature = "form")]
-fn first_form_path(root: &Node) -> Option<Vec<usize>> {
-  if root.events.on_submit.is_some() {
-    return Some(Vec::new());
-  }
-  for (index, child) in root.children().iter().enumerate() {
-    if let Some(mut path) = first_form_path(child) {
-      path.insert(0, index);
-      return Some(path);
-    }
-  }
-  None
-}
-
-#[cfg(feature = "form")]
 fn nearest_form_path_for_path(root: &Node, path: &[usize]) -> Option<Vec<usize>> {
   for len in (0..=path.len()).rev() {
     let candidate = &path[..len];
@@ -9095,49 +9076,6 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
   }
 }
 
-#[cfg(feature = "form")]
-fn collect_focus_candidates(node: &Node, focus_event_id: Option<NodeId>, candidates: &mut Vec<FocusCandidate>) {
-  let focus_event_id = if !node.events.on_focus.is_empty() || !node.events.on_blur.is_empty() {
-    Some(node.node_id())
-  } else {
-    focus_event_id
-  };
-  let tab_index = node.tab_index_value().unwrap_or(0);
-  if tab_index >= 0 && is_tabbable(node) {
-    candidates.push(FocusCandidate {
-      input_id: node.node_id(),
-      event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
-      tab_index,
-      order: candidates.len(),
-    });
-    if node.button_kind_value().is_some() {
-      return;
-    }
-  }
-
-  for child in node.children() {
-    collect_focus_candidates(child, focus_event_id, candidates);
-  }
-}
-
-#[cfg(feature = "form")]
-fn sort_focus_candidates(candidates: &mut [FocusCandidate]) {
-  candidates.sort_by_key(|candidate| {
-    let positive_rank = if candidate.tab_index > 0 { 0 } else { 1 };
-    (positive_rank, candidate.tab_index.max(0), candidate.order)
-  });
-}
-
-#[cfg(feature = "form")]
-fn is_tabbable(node: &Node) -> bool {
-  node.is_focusable()
-    || node.button_kind_value().is_some()
-    || matches!(
-      node.node_kind(),
-      NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. }
-    )
-}
-
 fn dispatch_builtin_pointer(
   hits: &[(&Node, crate::app::hit_test::HitRect)],
   x: f32,
@@ -9160,7 +9098,8 @@ fn dispatch_builtin_pointer(
       });
     }
     match node.node_kind() {
-      NodeKind::TextInput { .. } => {}
+      // Focused on press, before the click.
+      NodeKind::TextInput { .. } | NodeKind::Select { .. } => return None,
       NodeKind::Checkbox { state } => {
         state.toggle();
         return Some(FocusTarget {
@@ -9180,6 +9119,13 @@ fn dispatch_builtin_pointer(
         let ratio = state.pointer_ratio(x, track_rect, thumb_rect);
         state.set_from_ratio(ratio);
         state.clear_drag_ratio();
+        return Some(FocusTarget {
+          input_id: node.node_id(),
+          event_id: event_id.unwrap_or_else(|| node.node_id()),
+        });
+      }
+      // `focusable(true)` or a tab index: a click focuses it, like a browser.
+      _ if node.is_focusable() => {
         return Some(FocusTarget {
           input_id: node.node_id(),
           event_id: event_id.unwrap_or_else(|| node.node_id()),

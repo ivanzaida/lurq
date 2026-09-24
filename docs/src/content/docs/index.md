@@ -20,6 +20,7 @@ The docs are organized around the questions that come up while building:
 - [Theme](./theme/) covers palette, typography, radius, spacing, and form theme roles, including application-defined extras.
 - [Animation And Transforms](./animation-transforms/) covers transitions, keyframes, easing, transform composition, transform animation, and transformed text.
 - [Styling And Events](./styling-events/) covers visual modifiers, hover/active/focus styles, cursor state, handlers, text selection, inputs, clipboard behavior, and drag and drop.
+- [Focus And Keyboard Navigation](./focus-navigation/) covers focusable elements, `tab_index`, Tab scopes, modal focus traps, focused styles, and testing focus headlessly.
 - [Forms](./forms/) covers form handles, field binding, submission, `FormValues`, and the `Button` component.
 - [Routing](./routing/) covers declarative routes, nested layouts, links, params, guards, and history navigation.
 - [Futures And Timers](./futures-timers/) covers async data fetching, dependency-driven re-execution, streams, future actions, tokio integration, timeouts, and intervals.

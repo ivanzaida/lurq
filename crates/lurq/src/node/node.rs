@@ -428,10 +428,12 @@ pub(crate) trait NodeUpdate {
   fn slider_fill_hovered_style(&mut self, style: SliderPartStyle);
   fn slider_thumb_style(&mut self, style: SliderPartStyle);
   fn slider_thumb_hovered_style(&mut self, style: SliderPartStyle);
+  fn slider_thumb_focused_style(&mut self, style: SliderPartStyle);
   fn checkbox_box_style(&mut self, style: CheckboxStyle);
   fn checkbox_checked_box_style(&mut self, style: CheckboxStyle);
   fn checkbox_box_hovered_style(&mut self, style: CheckboxStyle);
   fn checkbox_checked_box_hovered_style(&mut self, style: CheckboxStyle);
+  fn checkbox_box_focused_style(&mut self, style: CheckboxStyle);
   fn clip(&mut self);
   fn overflow_visible(&mut self);
   fn intrinsic(&mut self, width: f32, height: f32);
@@ -520,6 +522,8 @@ pub enum HitTestBehavior {
 pub(crate) enum SyntheticNodeRole {
   OverlayHost,
   SelectMenu,
+  /// An open `Modal`'s container, a direct child of the overlay host.
+  Modal,
 }
 
 #[derive(Default, Clone)]
@@ -611,7 +615,9 @@ pub(crate) struct Node {
   pub(crate) element_ref: Option<CoreElementRef>,
   pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
   pub(crate) interaction: Option<InteractionState>,
-  pub(crate) focusable: bool,
+  /// `None` follows the node kind (buttons and form controls are focusable)
+  /// and `tab_index`; `Some` overrides both.
+  pub(crate) focusable: Option<bool>,
   pub(crate) tab_index: Option<i32>,
   pub(crate) button_kind: Option<ButtonKind>,
   #[cfg(feature = "form")]
@@ -1332,7 +1338,7 @@ impl NodeUpdate for Node {
   }
 
   fn focusable(&mut self, focusable: bool) {
-    self.focusable = focusable;
+    self.focusable = Some(focusable);
   }
 
   fn tab_index(&mut self, tab_index: i32) {
@@ -1341,7 +1347,6 @@ impl NodeUpdate for Node {
 
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
-    self.focusable = true;
   }
 
   #[cfg(feature = "form")]
@@ -1522,6 +1527,12 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn slider_thumb_focused_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_thumb_focused_style(style);
+    }
+  }
+
   fn checkbox_box_style(&mut self, style: CheckboxStyle) {
     if let Some(state) = self.checkbox_state() {
       state.set_style(style);
@@ -1543,6 +1554,12 @@ impl NodeUpdate for Node {
   fn checkbox_checked_box_hovered_style(&mut self, style: CheckboxStyle) {
     if let Some(state) = self.checkbox_state() {
       state.set_checked_hovered_style(style);
+    }
+  }
+
+  fn checkbox_box_focused_style(&mut self, style: CheckboxStyle) {
+    if let Some(state) = self.checkbox_state() {
+      state.set_focused_style(style);
     }
   }
 
@@ -1624,7 +1641,7 @@ impl Node {
       element_ref: None,
       drag_payload: None,
       interaction: None,
-      focusable: false,
+      focusable: None,
       tab_index: None,
       button_kind: None,
       #[cfg(feature = "form")]
@@ -2619,11 +2636,22 @@ impl Node {
     self
   }
 
+  /// Whether the node can take focus. Buttons, text inputs, checkboxes,
+  /// sliders, selects and nodes with a `tab_index` are focusable by default.
+  /// `focusable(true)` makes any node focusable by click and
+  /// [`Ctx::focus`](crate::app::ctx::Ctx::focus); `focusable(false)` keeps a
+  /// node from ever taking focus, by click, Tab or request.
   pub fn focusable(mut self, focusable: bool) -> Self {
-    self.focusable = focusable;
+    self.focusable = Some(focusable);
     self
   }
 
+  /// HTML `tabindex`. Inside a form, controls are in the Tab order without
+  /// one; outside a form, only nodes with `tab_index(0)` or higher are.
+  /// Positive values come first, in ascending order, then `0` and (in forms)
+  /// unset in tree order. `-1` removes the node from the Tab order but keeps
+  /// it focusable by click. Setting a tab index makes the node focusable
+  /// unless it is `focusable(false)`.
   pub fn tab_index(mut self, tab_index: i32) -> Self {
     self.tab_index = Some(tab_index);
     self
@@ -2631,7 +2659,6 @@ impl Node {
 
   pub fn button_kind(mut self, kind: ButtonKind) -> Self {
     self.button_kind = Some(kind);
-    self.focusable = true;
     self
   }
 
@@ -2668,12 +2695,22 @@ impl Node {
     matches!(self.node_kind(), NodeKind::TextInput { state, .. } if state.is_masked())
   }
 
-  #[cfg_attr(not(feature = "form"), allow(dead_code))]
   pub(crate) fn is_focusable(&self) -> bool {
-    self.focusable
+    self.focusable.unwrap_or_else(|| {
+      self.tab_index.is_some()
+        || self.button_kind.is_some()
+        || matches!(
+          self.node_kind(),
+          NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. } | NodeKind::Select { .. }
+        )
+    })
   }
 
-  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  /// `focusable(false)`: the node never takes focus.
+  pub(crate) fn is_focus_disabled(&self) -> bool {
+    self.focusable == Some(false)
+  }
+
   pub(crate) fn tab_index_value(&self) -> Option<i32> {
     self.tab_index
   }
@@ -3405,6 +3442,10 @@ impl Node {
 
   pub(crate) fn is_style_hovered(&self) -> bool {
     self.style_state.is_hovered()
+  }
+
+  pub(crate) fn is_style_focused(&self) -> bool {
+    self.style_state.is_focused()
   }
 
   pub(crate) fn set_style_hovered(&self, hovered: bool) -> bool {

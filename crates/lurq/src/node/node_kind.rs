@@ -1317,6 +1317,7 @@ struct CheckboxInner {
   checked_style: Option<CheckboxStyle>,
   hovered_style: Option<CheckboxStyle>,
   checked_hovered_style: Option<CheckboxStyle>,
+  focused_style: Option<CheckboxStyle>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1340,6 +1341,7 @@ impl CheckboxState {
         checked_style: None,
         hovered_style: None,
         checked_hovered_style: None,
+        focused_style: None,
       })),
     }
   }
@@ -1374,11 +1376,23 @@ impl CheckboxState {
     self.inner.lock().unwrap().checked_hovered_style = Some(style);
   }
 
-  pub(crate) fn style(&self, checked: bool, hovered: bool) -> CheckboxStyle {
+  pub(crate) fn set_focused_style(&self, style: CheckboxStyle) {
+    self.inner.lock().unwrap().focused_style = Some(style);
+  }
+
+  /// Layers: base, checked, focused (paint only; its size is ignored so focus
+  /// never moves layout), hovered, checked and hovered.
+  pub(crate) fn style(&self, checked: bool, hovered: bool, focused: bool) -> CheckboxStyle {
     let inner = self.inner.lock().unwrap();
     let mut style = inner.style.clone();
     if checked && let Some(checked_style) = &inner.checked_style {
       style.merge_from(checked_style);
+    }
+    if focused && let Some(focused_style) = &inner.focused_style {
+      let (width, height) = (style.width, style.height);
+      style.merge_from(focused_style);
+      style.width = width;
+      style.height = height;
     }
     if hovered && let Some(hovered_style) = &inner.hovered_style {
       style.merge_from(hovered_style);
@@ -1456,6 +1470,9 @@ impl CheckboxState {
     if let Some(style) = &mut inner.checked_hovered_style {
       changed |= resolve_style(style, &mut resolve);
     }
+    if let Some(style) = &mut inner.focused_style {
+      changed |= resolve_style(style, &mut resolve);
+    }
     changed
   }
 }
@@ -1482,6 +1499,7 @@ struct SliderInner {
   fill_hovered_style: Option<SliderPartStyle>,
   thumb_style: SliderPartStyle,
   thumb_hovered_style: Option<SliderPartStyle>,
+  thumb_focused_style: Option<SliderPartStyle>,
   hovered: bool,
   drag_ratio: Option<f32>,
 }
@@ -1520,6 +1538,7 @@ impl SliderState {
         fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
+        thumb_focused_style: None,
         hovered: false,
         drag_ratio: None,
       })),
@@ -1539,6 +1558,7 @@ impl SliderState {
         fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
+        thumb_focused_style: None,
         hovered: false,
         drag_ratio: None,
       })),
@@ -1712,9 +1732,21 @@ impl SliderState {
     Some(style)
   }
 
-  pub(crate) fn thumb_style(&self, hovered: bool) -> SliderPartStyle {
+  pub(crate) fn set_thumb_focused_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().thumb_focused_style = Some(style);
+  }
+
+  /// Layers: base, focused (paint only; its size is ignored so focus never
+  /// moves the thumb), hovered.
+  pub(crate) fn thumb_style(&self, hovered: bool, focused: bool) -> SliderPartStyle {
     let inner = self.inner.lock().unwrap();
     let mut style = inner.thumb_style.clone();
+    if focused && let Some(focused_style) = &inner.thumb_focused_style {
+      let (width, height) = (style.width, style.height);
+      style.merge_from(focused_style);
+      style.width = width;
+      style.height = height;
+    }
     if hovered && let Some(hovered_style) = &inner.thumb_hovered_style {
       style.merge_from(hovered_style);
     }
@@ -1826,6 +1858,9 @@ impl SliderState {
     if let Some(style) = &mut inner.thumb_hovered_style {
       changed |= resolve_style(style, &mut resolve);
     }
+    if let Some(style) = &mut inner.thumb_focused_style {
+      changed |= resolve_style(style, &mut resolve);
+    }
     changed
   }
 
@@ -1839,7 +1874,8 @@ impl SliderState {
     default_thumb_size: f32,
   ) -> (SliderPartRect, SliderPartRect) {
     let track_style = self.track_style(hovered);
-    let thumb_style = self.thumb_style(hovered);
+    // Only the size is read, and the focused layer never changes it.
+    let thumb_style = self.thumb_style(hovered, false);
     let track_width = track_style.width.unwrap_or(bounds_width).max(0.0);
     let track_height = track_style.height.unwrap_or(bounds_height).max(0.0);
     let thumb_width = thumb_style

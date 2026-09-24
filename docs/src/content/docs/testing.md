@@ -115,6 +115,19 @@ Use direct tree input for deterministic hover, active, focus, scroll, text input
 
 Text input tests cover caret placement, Unicode-safe deletion, keyboard selection, multiline movement, undo/redo, and double/triple-click selection. Selectable text tests cover drag ranges, word and line selection, and transformed visual-coordinate hit testing.
 
+## Headless Passes And Focus
+
+`tree.pass_headless(&mut app)` lays out the tree, overlays and modals included, without a window handle or render engine, so input, hit testing, focus, and Tab work in tests without the `unsafe` test surface. `tree.focused_element()` returns the focused control:
+
+```rust
+tree.set_root(Column::new().child(Button::new("Save").id("save").tab_index(0)));
+tree.pass_headless(&mut App::new());
+tree.key_down("Tab".into(), "Tab".into(), false, false, false);
+assert_eq!(tree.focused_element().and_then(|element| element.id()), Some("save"));
+```
+
+Use the render snapshot helpers when a test asserts on drawn output. See [Testing Focus](../focus-navigation/#testing-focus).
+
 ## Element Lookup And Typed Interaction
 
 Tag nodes with `.id("...")` in the tree under test, then address them directly instead of writing predicates:

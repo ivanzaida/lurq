@@ -50,6 +50,8 @@ pub struct FormCheckboxStyle {
   pub checked_background: PaletteColor,
   pub checked_border: PaletteColor,
   pub checked_background_hover: PaletteColor,
+  /// Box border while the checkbox has focus, checked or not.
+  pub border_focus: PaletteColor,
   pub radius: RadiusSize,
 }
 
@@ -59,6 +61,8 @@ pub struct FormSliderStyle {
   pub track_hover: PaletteColor,
   pub thumb: PaletteColor,
   pub thumb_hover: PaletteColor,
+  /// Thumb border while the slider has focus.
+  pub thumb_border_focus: PaletteColor,
 }
 
 #[derive(Clone, PartialEq)]
@@ -79,6 +83,8 @@ pub struct FormButtonRole {
   pub border_hover: PaletteColor,
   pub background_active: PaletteColor,
   pub border_active: PaletteColor,
+  /// Border while the button has focus, by click or Tab.
+  pub border_focus: PaletteColor,
   pub text: FormTextRole,
 }
 
@@ -113,6 +119,10 @@ impl FormCheckboxStyle {
   pub fn checked_box_hovered_style(&self, palette: &ThemePalette) -> CheckboxStyle {
     CheckboxStyle::new().background(palette.resolve(&self.checked_background_hover))
   }
+
+  pub fn box_focused_style(&self) -> CheckboxStyle {
+    CheckboxStyle::new().border_inside(BorderSize::Sm, &self.border_focus)
+  }
 }
 
 impl FormSliderStyle {
@@ -136,6 +146,10 @@ impl FormSliderStyle {
 
   pub fn thumb_hovered_style(&self, palette: &ThemePalette) -> SliderPartStyle {
     SliderPartStyle::new().background(palette.resolve(&self.thumb_hover))
+  }
+
+  pub fn thumb_focused_style(&self) -> SliderPartStyle {
+    SliderPartStyle::new().border_inside(BorderSize::Sm, &self.thumb_border_focus)
   }
 }
 
@@ -204,6 +218,7 @@ impl Default for FormCheckboxStyle {
       checked_background: PaletteColor::Accent,
       checked_border: PaletteColor::Accent,
       checked_background_hover: PaletteColor::AccentHover,
+      border_focus: PaletteColor::BorderFocus,
       radius: RadiusSize::Sm,
     }
   }
@@ -216,6 +231,7 @@ impl Default for FormSliderStyle {
       track_hover: PaletteColor::BorderStrong,
       thumb: PaletteColor::Accent,
       thumb_hover: PaletteColor::AccentHover,
+      thumb_border_focus: PaletteColor::BorderFocus,
     }
   }
 }
@@ -242,6 +258,7 @@ impl FormButtonRole {
       border_hover: PaletteColor::AccentHover,
       background_active: PaletteColor::AccentHover,
       border_active: PaletteColor::AccentHover,
+      border_focus: PaletteColor::BorderFocus,
       text: FormTextRole {
         typography: TypographyStyle::Button,
         color: PaletteColor::TextInverse,
@@ -261,6 +278,7 @@ impl FormButtonRole {
       border_hover: PaletteColor::BorderStrong,
       background_active: PaletteColor::Border,
       border_active: PaletteColor::BorderStrong,
+      border_focus: PaletteColor::BorderFocus,
       text: FormTextRole {
         typography: TypographyStyle::Button,
         color: PaletteColor::TextPrimary,

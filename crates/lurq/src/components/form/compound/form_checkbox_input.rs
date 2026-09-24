@@ -55,6 +55,7 @@ impl crate::app::component::Component for FormCheckboxInput {
       .checked_box_style(checkbox_style.checked_box_style(&palette))
       .box_hovered_style(checkbox_style.box_hovered_style())
       .checked_box_hovered_style(checkbox_style.checked_box_hovered_style(&palette))
+      .box_focused_style(checkbox_style.box_focused_style())
       .on_blur(move || {
         blur_control.mark_touched();
         blur_control.validate();

@@ -111,6 +111,8 @@ Text::new("Save")
   .focused(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
 
+The focused style shows whenever the node has focus, whether a click, Tab, or a focus request put it there; there is no separate keyboard-only focus state. Checkboxes and sliders also have part-level focused styles, see [Focused Styles](../focus-navigation/#focused-styles).
+
 State styles can affect layout if they change frame, padding, or flex. That is supported, but it can force relayout when interaction state changes.
 
 Use `ctx.interaction()` when component code needs to read the current interaction state:
@@ -171,7 +173,7 @@ The hook listens for left clicks outside the referenced element's measured bound
 
 ## Keyboard And Focus
 
-Keyboard events go to the focused node.
+Keyboard events go to the focused node. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).
 
 Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation.
 
@@ -351,7 +353,7 @@ TextInput::new(command.clone())
 
 ### Checkbox Styling
 
-Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator.
+Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has focus, checked or not; it changes paint only.
 
 ```rust
 use lurq::{components::Checkbox, core::Signal, node::color::Color};
@@ -458,7 +460,7 @@ let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
-The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`.
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has focus and changes paint only.
 
 ```rust
 use lurq::{components::Slider, core::Signal, node::color::Color};

@@ -1429,7 +1429,7 @@ impl LayoutEngine {
       NodeKind::Checkbox { state } => {
         let checked = state.is_checked();
         let hovered = node.is_style_hovered();
-        let style = state.style(checked, hovered);
+        let style = state.style(checked, hovered, node.is_style_focused());
         let width = style.width.unwrap_or(result.size.width).min(result.size.width).max(0.0);
         let height = style
           .height
@@ -1474,7 +1474,7 @@ impl LayoutEngine {
         let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
         let fill_style = state.fill_style(hovered);
-        let thumb_style = state.thumb_style(hovered);
+        let thumb_style = state.thumb_style(hovered, node.is_style_focused());
         let (track_rect, thumb_rect) = state.part_rects(
           abs_x,
           abs_y,
