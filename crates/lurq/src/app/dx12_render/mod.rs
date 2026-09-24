@@ -153,7 +153,9 @@ const DX12_SLOW_FRAME_THRESHOLD: Duration = Duration::from_millis(12);
 const DX12_SLOW_PHASE_THRESHOLD: Duration = Duration::from_millis(6);
 const DX12_FRAME_NOT_READY: HRESULT = HRESULT(0x800705B4u32 as i32);
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
-const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+/// Not sRGB: pixel shaders write sRGB-encoded colour, so alpha blending mixes
+/// encoded values like CSS instead of linear light.
+const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = SWAPCHAIN_FORMAT;
 
 #[cfg(feature = "raster")]
 static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -2763,7 +2765,7 @@ impl Dx12State {
     self.command_list.OMSetRenderTargets(1, Some(&rtv), false, None);
     self
       .command_list
-      .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
+      .ClearRenderTargetView(rtv, &list.clear_color.to_f32_array(), None);
 
     let _atlas_start = profile_scope!();
     let atlas_stats = dx12_context(self.update_glyph_atlas(list), "update dx12 glyph atlas")?;
@@ -2795,7 +2797,7 @@ impl Dx12State {
 
   /// Record a copy of the capture rect from the back buffer into a fresh
   /// readback buffer. The back buffer bytes are already sRGB-encoded RGBA8
-  /// (UNORM swapchain written through an sRGB render target view), so the
+  /// (the pixel shaders encode before the UNORM render target blends), so the
   /// readback maps straight to PNG pixels.
   #[cfg(feature = "screenshot")]
   unsafe fn encode_frame_capture(&mut self, capture: &RenderFrameCapture) -> Result<FrameCaptureReadback> {

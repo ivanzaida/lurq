@@ -9,17 +9,25 @@ use crate::node::color::Color;
 
 const WIDTH: u32 = 64;
 const HEIGHT: u32 = 48;
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// The production target: an sRGB surface rendered through its non-sRGB view.
+fn target_format() -> wgpu::TextureFormat {
+  super::render_target_format(wgpu::TextureFormat::Rgba8UnormSrgb)
+}
 
-fn device() -> (wgpu::Device, wgpu::Queue) {
-  let instance = wgpu::Instance::default();
-  let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    .expect("GPU adapter required for quad coverage tests");
-  pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-    label: Some("quad coverage tests"),
-    ..Default::default()
-  }))
-  .unwrap()
+/// One device for every test in this module: creating and dropping devices on
+/// parallel test threads crashes some drivers.
+fn device() -> &'static (wgpu::Device, wgpu::Queue) {
+  static DEVICE: std::sync::OnceLock<(wgpu::Device, wgpu::Queue)> = std::sync::OnceLock::new();
+  DEVICE.get_or_init(|| {
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+      .expect("GPU adapter required for quad coverage tests");
+    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+      label: Some("quad coverage tests"),
+      ..Default::default()
+    }))
+    .unwrap()
+  })
 }
 
 fn fill(x: f32, y: f32, width: f32, height: f32, color: Color, radius: f32) -> QuadInstance {
@@ -39,7 +47,7 @@ fn fill(x: f32, y: f32, width: f32, height: f32, color: Color, radius: f32) -> Q
 }
 
 /// Draws `quads` over a `clear` background with the production quad shader and
-/// returns tight RGBA8 (sRGB) pixels.
+/// target format and returns tight RGBA8 (sRGB-encoded) pixels.
 fn render(clear: Color, quads: &[QuadInstance]) -> Vec<u8> {
   let (device, queue) = device();
   let uniform = wgpu::BindingType::Buffer {
@@ -91,7 +99,7 @@ fn render(clear: Color, quads: &[QuadInstance]) -> Vec<u8> {
       module: &shader,
       entry_point: Some("fs_main"),
       targets: &[Some(wgpu::ColorTargetState {
-        format: FORMAT,
+        format: target_format(),
         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
         write_mask: wgpu::ColorWrites::ALL,
       })],
@@ -149,7 +157,7 @@ fn render(clear: Color, quads: &[QuadInstance]) -> Vec<u8> {
     mip_level_count: 1,
     sample_count: 1,
     dimension: wgpu::TextureDimension::D2,
-    format: FORMAT,
+    format: target_format(),
     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
     view_formats: &[],
   });
@@ -272,4 +280,56 @@ fn pixel_aligned_rect_does_not_bleed_and_rounded_corners_stay_smooth() {
   assert!(corner > 0 && corner < 255, "anti-aliased arc pixel, got {corner}");
   assert_eq!(pixel(&pixels, 32, 32), rgb(clear), "outside the arc");
   assert_eq!(pixel(&pixels, 44, 20), rgb(white), "interior");
+}
+
+/// CSS source-over of a straight-alpha `source` onto an opaque `backdrop`,
+/// computed on the sRGB-encoded channels as browsers and design tools do.
+fn css_source_over(backdrop: Color, source: Color) -> [u8; 3] {
+  let alpha = f32::from(source.a()) / 255.0;
+  let channel = |back: u8, front: u8| (f32::from(front) * alpha + f32::from(back) * (1.0 - alpha)).round() as u8;
+  [
+    channel(backdrop.r(), source.r()),
+    channel(backdrop.g(), source.g()),
+    channel(backdrop.b(), source.b()),
+  ]
+}
+
+fn assert_close(actual: [u8; 3], expected: [u8; 3], what: &str) {
+  let close = actual.iter().zip(expected).all(|(a, e)| a.abs_diff(e) <= 1);
+  assert!(close, "{what}: got {actual:?}, expected {expected:?}");
+}
+
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly"]
+fn translucent_quads_blend_like_css() {
+  let cases = [
+    // A modal scrim over light text: #EEEEEE under #000000A6 is #535353.
+    (Color::from_hex("#eeeeee"), Color::from_hex("#000000a6")),
+    (Color::from_hex("#000000"), Color::from_hex("#ffffff80")),
+    (Color::from_hex("#ffffff"), Color::from_hex("#3366cc80")),
+    (Color::from_hex("#202830"), Color::from_hex("#f0a0404d")),
+  ];
+  for (backdrop, source) in cases {
+    let pixels = render(backdrop, &[fill(0.0, 0.0, WIDTH as f32, HEIGHT as f32, source, 0.0)]);
+    let expected = css_source_over(backdrop, source);
+    assert_close(
+      pixel(&pixels, WIDTH / 2, HEIGHT / 2),
+      expected,
+      &format!("{source:?} over {backdrop:?}"),
+    );
+  }
+  assert_eq!(
+    css_source_over(Color::from_hex("#eeeeee"), Color::from_hex("#000000a6")),
+    [0x53; 3]
+  );
+}
+
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly"]
+fn opaque_quads_and_the_clear_keep_their_exact_colour() {
+  let clear = Color::from_hex("#8a8f96");
+  let fill_color = Color::from_hex("#1e5b3c");
+  let pixels = render(clear, &[fill(0.0, 0.0, 16.0, 16.0, fill_color, 0.0)]);
+  assert_eq!(pixel(&pixels, 8, 8), rgb(fill_color));
+  assert_eq!(pixel(&pixels, 40, 30), rgb(clear));
 }

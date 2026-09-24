@@ -1,4 +1,12 @@
 pub mod app_state;
+#[cfg(all(
+  test,
+  windows,
+  feature = "raster",
+  feature = "screenshot",
+  any(feature = "wgpu", feature = "dx12")
+))]
+mod blend_readback_tests;
 pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]

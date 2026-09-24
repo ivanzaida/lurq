@@ -301,7 +301,7 @@ Polygon meshes survive arbitrary zoom. Curves use power-of-two scale buckets bas
 
 The renderer processes only new commands. A shared 512 × 512 tile surface provides 4-sample antialiasing; touched tiles are seeded from the existing texture, drawn, resolved, and copied back on the GPU. A small edit does not upload, convert, or copy the whole canvas. Full clears discard obsolete queued drawing while preserving resize and snapshot barriers. Idle surfaces retain pixels without replaying history or requesting continuous frames.
 
-Internal source-over blending uses premultiplied sRGB channel values. Image sources are premultiplied before filtering. Window composition converts the result to straight linear color for the existing image pipeline, including node backgrounds, borders, clipping, radius, and ancestor opacity.
+Internal source-over blending uses premultiplied sRGB channel values. Image sources are premultiplied before filtering. Window composition passes the result through the existing image pipeline, including node backgrounds, borders, clipping, radius, and ancestor opacity, which blends it over the window on sRGB-encoded channels like every other translucent color.
 
 Drawing increments the content revision, wakes the window, and coalesces presentation. It does not dirty reactive state or layout. Winit installs the waker automatically. Custom hosts must install `Tree::set_canvas_waker` and schedule a pass; custom renderer wrappers must forward `RenderEngine::prepare_canvases`, including surfaces culled from the visible image list.
 

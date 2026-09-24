@@ -113,6 +113,17 @@ float rounded_clip_alpha(float2 frag_pos)
   return saturate(0.5 - dist / max(fwidth(dist), 1.0));
 }
 
+// The render target is not sRGB, so the fixed-function blend mixes
+// sRGB-encoded values, as CSS and design tools do. `ps_main` works in linear
+// light like the rest of the pipeline and encodes each result it returns.
+float4 encode_srgb(float4 color)
+{
+  float3 c = saturate(color.rgb);
+  float3 low = c * 12.92;
+  float3 high = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+  return float4(c <= 0.0031308 ? low : high, color.a);
+}
+
 float4 ps_main(VsOut input) : SV_TARGET
 {
   float clip_alpha_value = rounded_clip_alpha(input.position.xy);
@@ -149,15 +160,15 @@ float4 ps_main(VsOut input) : SV_TARGET
       }
     }
     float shadow_coverage = sum / max(weight_sum, 1e-6);
-    return float4(input.color.rgb, input.color.a * shadow_coverage * clip_alpha_value);
+    return encode_srgb(float4(input.color.rgb, input.color.a * shadow_coverage * clip_alpha_value));
   }
 
   if (input.color_glyph > 0.5)
   {
-    return float4(sample.rgb, sample.a * input.color.a * clip_alpha_value);
+    return encode_srgb(float4(sample.rgb, sample.a * input.color.a * clip_alpha_value));
   }
 
   float coverage = sample.a;
   coverage = saturate((coverage - 0.5) * max(input.sharpness, 1.0) + 0.5);
-  return float4(input.color.rgb, input.color.a * coverage * clip_alpha_value);
+  return encode_srgb(float4(input.color.rgb, input.color.a * coverage * clip_alpha_value));
 }

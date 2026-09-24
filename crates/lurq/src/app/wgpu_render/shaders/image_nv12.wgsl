@@ -92,6 +92,16 @@ fn vs_main(in: VsIn) -> VsOut {
     return out;
 }
 
+// The render target is not sRGB, so the fixed-function blend mixes
+// sRGB-encoded values, as CSS and design tools do. `fs_main` works in linear
+// light like the rest of the pipeline and encodes each result it returns.
+fn encode_srgb(color: vec4<f32>) -> vec4<f32> {
+    let c = clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = c * 12.92;
+    let high = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055;
+    return vec4<f32>(select(high, low, c <= vec3<f32>(0.0031308)), color.a);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var clip_alpha = 1.0;
@@ -131,5 +141,5 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         1.164383 * c + 2.112402 * u,
     );
     let color = vec4<f32>(srgb_to_linear(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0))), 1.0);
-    return vec4<f32>(color.rgb, color.a * in.opacity * shape_alpha * clip_alpha);
+    return encode_srgb(vec4<f32>(color.rgb, color.a * in.opacity * shape_alpha * clip_alpha));
 }

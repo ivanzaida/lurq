@@ -92,6 +92,16 @@ fn vs_main(in: VsIn) -> VsOut {
     return out;
 }
 
+// The render target is not sRGB, so the fixed-function blend mixes
+// sRGB-encoded values, as CSS and design tools do. `fs_main` works in linear
+// light like the rest of the pipeline and encodes each result it returns.
+fn encode_srgb(color: vec4<f32>) -> vec4<f32> {
+    let c = clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = c * 12.92;
+    let high = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055;
+    return vec4<f32>(select(high, low, c <= vec3<f32>(0.0031308)), color.a);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var clip_alpha = 1.0;
@@ -127,8 +137,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         color = vec4<f32>(select(pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045)), color.a);
     }
     color.a *= in.opacity * shape_alpha * clip_alpha;
-    // The surface is sRGB; the texture is Rgba8UnormSrgb so the
-    // hardware already decoded to linear. The sRGB surface view
-    // re-encodes on write. Just output linear RGBA.
-    return color;
+    // The texture is Rgba8UnormSrgb, so the hardware already decoded to
+    // linear; encode once for the non-sRGB target.
+    return encode_srgb(color);
 }

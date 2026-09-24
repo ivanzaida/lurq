@@ -35,6 +35,10 @@ Common visual modifiers:
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |
 
+Translucent colors (`"#000000a6"`, `.opacity(...)`, anti-aliased edges, text, images) blend on the sRGB-encoded
+channels, as CSS and design tools do: a `#000000a6` scrim over `#eeeeee` shows `#535353`. Both native backends render
+through a non-sRGB target to get this; the devtools screenshot renderer blends the same way.
+
 ## Gradients
 
 `.background_gradient(...)` fills an element with a CSS-like gradient. It is separate from `.background(color)`; if both are set, the gradient paints the fill. Gradients respect the element's rounded corners, clipping, and `.opacity(...)` just like a solid background.
@@ -73,7 +77,7 @@ Gradient::linear(90.0, [
 ]);
 ```
 
-Omitted positions follow the CSS rules: the first defaults to `0.0`, the last to `1.0`, and runs of omitted stops are spread evenly between their defined neighbors. Colors are interpolated in linear space.
+Omitted positions follow the CSS rules: the first defaults to `0.0`, the last to `1.0`, and runs of omitted stops are spread evenly between their defined neighbors. Colors are interpolated in linear space (CSS interpolates in sRGB, so midpoints are lighter than a browser's); the result then blends over what is below like any other translucent color.
 
 ### Center And Shape
 

@@ -624,8 +624,9 @@ impl WgpuRenderEngine {
     let format = self
       .surface_format
       .filter(|format| caps.formats.contains(format))
-      .or_else(|| caps.formats.iter().copied().find(wgpu::TextureFormat::is_srgb))
+      .or_else(|| caps.formats.iter().copied().find(|format| !format.is_srgb()))
       .unwrap_or(caps.formats[0]);
+    let target_format = render_target_format(format);
 
     let config = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
@@ -634,14 +635,18 @@ impl WgpuRenderEngine {
       height: self.height.max(1),
       present_mode: supported_present_mode(self.requested_present_mode, &caps.present_modes),
       alpha_mode: caps.alpha_modes[0],
-      view_formats: vec![],
+      view_formats: if target_format == format {
+        vec![]
+      } else {
+        vec![target_format]
+      },
       desired_maximum_frame_latency: 1,
     };
     surface.configure(device, &config);
     self.surface = Some(surface);
     self.surface_config = Some(config);
     self.surface_format = Some(format);
-    format
+    target_format
   }
 
   /// Whether the next `render` reconfigures the surface to the latest `resize`.
@@ -1299,7 +1304,10 @@ impl RenderEngine for WgpuRenderEngine {
         return false;
       }
     };
-    let view = output.texture.create_view(&Default::default());
+    let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
+      format: Some(render_target_format(config.format)),
+      ..Default::default()
+    });
     let _acquire_dur = profile_elapsed!(_acquire_start);
 
     let vw = config.width as f32;
@@ -2844,8 +2852,16 @@ fn write_nv12_image_textures(
   true
 }
 
+/// The format lurq renders the surface through: the surface's own format
+/// without an sRGB suffix. Shaders write sRGB-encoded colour, so alpha blending
+/// mixes encoded values like CSS instead of linear light.
+fn render_target_format(surface_format: wgpu::TextureFormat) -> wgpu::TextureFormat {
+  surface_format.remove_srgb_suffix()
+}
+
+/// The clear value for the non-sRGB render target: the colour's sRGB channels.
 fn wgpu_clear_color(color: crate::node::color::Color) -> wgpu::Color {
-  let [r, g, b, a] = color.to_linear_f32_array();
+  let [r, g, b, a] = color.to_f32_array();
   wgpu::Color {
     r: r as f64,
     g: g as f64,
