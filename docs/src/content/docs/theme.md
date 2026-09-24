@@ -517,7 +517,7 @@ Both button roles own layout values (`width`, `height`, `padding`) and semantic 
 | `primary` | `Accent` | `Accent` | `Button` + `TextInverse` |
 | `secondary` | `SurfaceInput` | `BorderStrong` | `Button` + `TextPrimary` |
 
-Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`.
+Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`. Both roles draw a `border_focus` border (`BorderFocus`) while the button has focus, by click or by Tab.
 
 ### Checkbox And Slider Roles
 
@@ -531,6 +531,7 @@ Compound checkbox defaults:
 | `checked_background` | `Accent` |
 | `checked_border` | `Accent` |
 | `checked_background_hover` | `AccentHover` |
+| `border_focus` | `BorderFocus` |
 | `radius` | `RadiusSize::Sm` |
 
 Compound slider defaults:
@@ -541,6 +542,7 @@ Compound slider defaults:
 | `track_hover` | `BorderStrong` |
 | `thumb` | `Accent` |
 | `thumb_hover` | `AccentHover` |
+| `thumb_border_focus` | `BorderFocus` |
 
 ### Updating Form Roles
 

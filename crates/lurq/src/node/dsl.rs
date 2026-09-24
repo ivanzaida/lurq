@@ -78,7 +78,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     element_ref: None,
     drag_payload: None,
     interaction: None,
-    focusable: false,
+    focusable: None,
     tab_index: None,
     button_kind: None,
     #[cfg(feature = "form")]

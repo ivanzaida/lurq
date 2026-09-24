@@ -24,6 +24,7 @@ mod futures {
   #[cfg(feature = "tokio")]
   mod tokio_future_uses_runtime;
 }
+mod headless_pass;
 mod mouse_leave;
 mod overlay;
 mod pass_report;

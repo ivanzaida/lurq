@@ -51,7 +51,7 @@ where
 {
   pub fn new(value: Signal<T>) -> Self {
     Self {
-      node: Box::new(Node::select().focusable(true)),
+      node: Box::new(Node::select()),
       binding: Binding::Single(value),
       options: Vec::new(),
       placeholder: None,
@@ -62,7 +62,7 @@ where
 
   pub fn multiple(value: Signal<Vec<T>>) -> Self {
     Self {
-      node: Box::new(Node::select().focusable(true)),
+      node: Box::new(Node::select()),
       binding: Binding::Multiple(value),
       options: Vec::new(),
       placeholder: None,
@@ -118,6 +118,12 @@ where
 
   pub fn tab_index(mut self, tab_index: i32) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::tab_index(node, tab_index));
+    self
+  }
+
+  /// `false` keeps the select from taking focus, by click, Tab or request.
+  pub fn focusable(mut self, focusable: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::focusable(node, focusable));
     self
   }
 
