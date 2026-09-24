@@ -6,25 +6,11 @@
 //
 // cargo test -p lurq --features wgpu,dx12,raster,screenshot --lib blend_readback -- --ignored --test-threads=1
 
-use std::{
-  num::NonZeroIsize,
-  sync::{Arc, Once, mpsc},
-  time::Duration,
-};
+use std::sync::Arc;
 
-use raw_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
-use windows::{
-  Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-    UI::WindowsAndMessaging::{
-      CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP,
-    },
-  },
-  core::w,
-};
-
+use super::readback_window;
 use crate::{
-  app::render_engine::{CapturedFrame, RenderCaptureTarget, RenderEngine, RenderFrameCapture},
+  app::render_engine::{CapturedFrame, RenderEngine},
   layout::{
     quad::ClipRect,
     render_list::{GlyphAtlas, GlyphCmd, RectCmd, RenderList},
@@ -37,66 +23,6 @@ const HEIGHT: u32 = 32;
 /// Each pipeline paints one 32 px column (quad, glyph, image); the last
 /// column shows the clear colour.
 const COLUMN: f32 = 32.0;
-
-struct HiddenWindow(HWND);
-
-impl HiddenWindow {
-  fn new() -> Self {
-    static REGISTER: Once = Once::new();
-    let name = w!("LurqBlendReadbackTest");
-    // SAFETY: registers a class whose procedure only forwards to
-    // `DefWindowProcW`, then creates a hidden popup of that class. The class
-    // name is a static wide string.
-    unsafe {
-      REGISTER.call_once(|| {
-        let class = WNDCLASSW {
-          lpfnWndProc: Some(procedure),
-          lpszClassName: name,
-          ..Default::default()
-        };
-        assert_ne!(RegisterClassW(&class), 0);
-      });
-      let hwnd = CreateWindowExW(
-        WINDOW_EX_STYLE::default(),
-        name,
-        name,
-        WS_POPUP,
-        0,
-        0,
-        WIDTH as i32,
-        HEIGHT as i32,
-        None,
-        None,
-        None,
-        None,
-      )
-      .expect("hidden test window");
-      Self(hwnd)
-    }
-  }
-
-  fn window_handle(&self) -> WindowHandle<'_> {
-    let raw = Win32WindowHandle::new(NonZeroIsize::new(self.0.0 as isize).expect("non-null HWND"));
-    // SAFETY: the HWND stays valid until `self` is dropped, which outlives the
-    // borrowed handle.
-    unsafe { WindowHandle::borrow_raw(raw.into()) }
-  }
-}
-
-extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-  // SAFETY: forwards the message unchanged to the default procedure.
-  unsafe { DefWindowProcW(hwnd, msg, w, l) }
-}
-
-impl Drop for HiddenWindow {
-  fn drop(&mut self) {
-    // SAFETY: the window was created by `new` on this thread and is destroyed once.
-    // A failure only leaks a hidden test window until the process exits.
-    if let Err(error) = unsafe { DestroyWindow(self.0) } {
-      eprintln!("failed to destroy the blend test window: {error}");
-    }
-  }
-}
 
 fn rect(x: f32, color: Color) -> RectCmd {
   RectCmd {
@@ -183,33 +109,6 @@ fn scene(backdrop: Color, scrim: Color, image_id: u64) -> RenderList {
   }
 }
 
-/// Renders `list` until the engine delivers a capture of the whole window.
-fn capture(engine: &mut dyn RenderEngine, list: &RenderList) -> CapturedFrame {
-  let window = HiddenWindow::new();
-  engine.resize(WIDTH, HEIGHT);
-  let (sender, receiver) = mpsc::channel();
-  for _ in 0..5 {
-    let sender = sender.clone();
-    let target = RenderCaptureTarget::Bytes(Arc::new(move |frame| {
-      // The receiver may already have a frame from an earlier attempt.
-      let _ = sender.send(frame);
-    }));
-    let request = RenderFrameCapture {
-      x: 0,
-      y: 0,
-      width: WIDTH,
-      height: HEIGHT,
-      target,
-      window_clip: None,
-    };
-    engine.render_with_capture(list, window.window_handle(), DisplayHandle::windows(), Some(request));
-    if let Ok(Ok(frame)) = receiver.recv_timeout(Duration::from_secs(10)) {
-      return frame;
-    }
-  }
-  panic!("the engine never delivered a frame capture");
-}
-
 /// CSS source-over of a straight-alpha `source` onto an opaque `backdrop`.
 fn css_source_over(backdrop: Color, source: Color) -> [u8; 3] {
   let alpha = f32::from(source.a()) / 255.0;
@@ -219,6 +118,10 @@ fn css_source_over(backdrop: Color, source: Color) -> [u8; 3] {
     channel(backdrop.g(), source.g()),
     channel(backdrop.b(), source.b()),
   ]
+}
+
+fn capture(engine: &mut dyn RenderEngine, list: &RenderList) -> CapturedFrame {
+  readback_window::capture(engine, list, WIDTH, HEIGHT)
 }
 
 fn assert_blends_like_css(engine: &mut dyn RenderEngine, backend: &str) {

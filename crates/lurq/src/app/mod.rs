@@ -30,6 +30,8 @@ pub(crate) mod profile_support;
 pub(crate) mod profile_types;
 #[cfg(feature = "perf_profile")]
 pub mod profiler;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod readback_window;
 pub mod render_engine;
 pub mod runtime;
 pub mod synthetic_input;
