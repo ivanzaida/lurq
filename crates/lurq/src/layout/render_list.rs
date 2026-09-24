@@ -33,6 +33,39 @@ pub struct RectCmd {
   pub transform_origin: [f32; 2],
   pub clip: ClipRect,
   pub gradient: Option<RenderGradient>,
+  /// Paints a box shadow of this rect instead of filling it; `color` is the
+  /// shadow colour and `stroke`/`gradient` are unused. See [`RectShadow`].
+  pub shadow: Option<RectShadow>,
+}
+
+/// A box shadow cast by a [`RectCmd`]'s box (x, y, width, height, `radii`).
+/// Lengths are physical pixels.
+///
+/// An outer shadow's shape is the box grown by `spread` and moved by `offset`;
+/// it paints only outside the box. An inset shadow's box is the element's
+/// padding box; the shape is that box shrunk by `spread` and moved by
+/// `offset`, and the shadow paints inside the box and outside the shape.
+/// `shape_radii` are the shape's corner radii (CSS-adjusted for spread, see
+/// [`spread_radius`](crate::layout::box_shadow::spread_radius)). The shape is
+/// blurred by a Gaussian of standard deviation `sigma`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RectShadow {
+  pub inset: bool,
+  pub offset: [f32; 2],
+  pub spread: f32,
+  pub sigma: f32,
+  pub shape_radii: [f32; 4],
+}
+
+impl RectShadow {
+  /// How far the shadow can paint outside its rect on any side.
+  pub fn outset(&self) -> f32 {
+    if self.inset {
+      return 0.0;
+    }
+    let reach = self.spread + crate::layout::box_shadow::BLUR_EXTENT_SIGMAS * self.sigma;
+    (reach + self.offset[0].abs().max(self.offset[1].abs())).max(0.0)
+  }
 }
 
 /// A palette-resolved, encode-ready gradient attached to a rect fill.

@@ -1,4 +1,5 @@
 pub mod alignment;
+pub mod box_shadow;
 pub mod constraints;
 pub mod flex_direction;
 pub mod layout_engine;

@@ -62,6 +62,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     gradient: Guard::new(None),
     border_radius: Guard::new(None),
     border: Guard::new(None),
+    box_shadow: Guard::new(None),
     caret_color: Guard::new(None),
     selection_color: Guard::new(None),
     caret_mode: Guard::new(None),

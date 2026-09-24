@@ -17,8 +17,8 @@ static NAMES: LazyLock<RwLock<Names>> = LazyLock::new(Default::default);
 
 /// The interned name of an application-defined theme role, carried by the
 /// `Extra` variants of [`SpacingSize`](super::SpacingSize),
-/// [`RadiusSize`](super::RadiusSize), [`BorderSize`](super::BorderSize) and
-/// [`TypographyStyle`](super::TypographyStyle).
+/// [`RadiusSize`](super::RadiusSize), [`BorderSize`](super::BorderSize),
+/// [`TypographyStyle`](super::TypographyStyle) and [`ShadowStyle`](super::ShadowStyle).
 ///
 /// Those roles are `Copy`, nest in `Copy` values such as `Padding`, and are
 /// stored many times in every element, so the name is a 4-byte handle into a

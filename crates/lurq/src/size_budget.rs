@@ -15,7 +15,7 @@
 use std::mem::size_of;
 
 use crate::{
-  app::theme::{BorderSize, RadiusSize, RoleName, SpacingSize, TypographyStyle},
+  app::theme::{BorderSize, RadiusSize, RoleName, ShadowStyle, SpacingSize, TypographyStyle},
   components::{ChromeTitleBar, WindowChrome},
   node::{Element, Node, SpacingValue, padding::Padding},
 };
@@ -25,6 +25,7 @@ const _: () = assert!(size_of::<SpacingSize>() <= 8);
 const _: () = assert!(size_of::<RadiusSize>() <= 8);
 const _: () = assert!(size_of::<BorderSize>() <= 8);
 const _: () = assert!(size_of::<TypographyStyle>() <= 8);
+const _: () = assert!(size_of::<ShadowStyle>() <= 8);
 const _: () = assert!(size_of::<SpacingValue>() <= 12);
 const _: () = assert!(size_of::<Padding>() <= 48);
 

@@ -40,11 +40,30 @@ struct VsOut
   float4 radii_v : TEXCOORD3;
   float4 stroke : TEXCOORD4;
   float gradient_offset : TEXCOORD5;
+  float4 pattern : TEXCOORD6;
+  float shadow_sigma : TEXCOORD7;
 };
+
+// Box shadows. The same formula as `blurred_rounded_rect_coverage` in
+// `layout/box_shadow.rs` and `quad.wgsl`; keep the three in step. A shadow
+// instance has no stroke and `pattern.x` = 1 (outer) or 2 (inset); `radii_h`
+// are the element box's radii, `radii_v` the shadow shape's, `pattern.yz` the
+// shape offset, `pattern.w` the spread and `shadow_sigma` the Gaussian's
+// standard deviation.
+static const int SHADOW_Y_SAMPLES = 8;
+static const float SHADOW_EXTENT_SIGMAS = 3.0;
+static const float SHADOW_MIN_SIGMA = 0.1;
 
 VsOut vs_main(VsIn input)
 {
   float aa_outset = 2.0;
+  float max_stroke = max(max(input.stroke.x, input.stroke.y), max(input.stroke.z, input.stroke.w));
+  if (max_stroke <= 0.0 && input.pattern.x > 0.5 && input.pattern.x < 1.5)
+  {
+    // An outer shadow paints beyond its element box.
+    aa_outset += max(input.pattern.w, 0.0) + max(abs(input.pattern.y), abs(input.pattern.z))
+      + SHADOW_EXTENT_SIGMAS * input.shadow_sigma;
+  }
   float2 local_px = input.corner * (input.size + float2(aa_outset * 2.0, aa_outset * 2.0))
     - float2(aa_outset, aa_outset);
   float2 centered = local_px - input.xf_origin;
@@ -64,6 +83,8 @@ VsOut vs_main(VsIn input)
   output.radii_v = input.radii_v;
   output.stroke = input.stroke;
   output.gradient_offset = input.gradient_offset;
+  output.pattern = input.pattern;
+  output.shadow_sigma = input.shadow_sigma;
   return output;
 }
 
@@ -236,6 +257,84 @@ float supersampled_stroke_alpha(float2 local, float2 half_size, float4 radii_h, 
   ) * 0.25;
 }
 
+float2 shadow_erf(float2 x)
+{
+  float2 s = sign(x);
+  float2 a = abs(x);
+  float2 r = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
+  r = r * r;
+  return s - s / (r * r);
+}
+
+float shadow_gaussian(float x, float sigma)
+{
+  return exp(-(x * x) / (2.0 * sigma * sigma)) / (2.5066283 * sigma);
+}
+
+// A row of the rounded rect at height `y`, convolved along x with the
+// Gaussian: the difference of two `erf`s at the row's curved ends.
+float shadow_blur_along_x(float x, float y, float sigma, float corner, float2 half_size)
+{
+  float delta = min(half_size.y - corner - abs(y), 0.0);
+  float curved = half_size.x - corner + sqrt(max(corner * corner - delta * delta, 0.0));
+  float2 integral = 0.5 + 0.5 * shadow_erf((float2(x, x) + float2(-curved, curved)) * (0.70710678 / sigma));
+  return integral.y - integral.x;
+}
+
+// Coverage of a rounded rect (half extent `half_size`, circular corner
+// `radii`) blurred by `sigma`, at centre-relative `p`; the y convolution is a
+// midpoint sum over +/- 3 sigma.
+float blurred_rounded_box(float2 p, float2 half_size, float4 radii, float sigma)
+{
+  if (half_size.x <= 0.0 || half_size.y <= 0.0)
+  {
+    return 0.0;
+  }
+  float corner = max(min(pick_radius(p, radii, radii).x, min(half_size.x, half_size.y)), 0.0);
+  float extent = SHADOW_EXTENT_SIGMAS * sigma;
+  float start = clamp(-extent, p.y - half_size.y, p.y + half_size.y);
+  float end = clamp(extent, p.y - half_size.y, p.y + half_size.y);
+  float step = (end - start) / (float)SHADOW_Y_SAMPLES;
+  float y = start + step * 0.5;
+  float coverage = 0.0;
+  [unroll]
+  for (int i = 0; i < SHADOW_Y_SAMPLES; i = i + 1)
+  {
+    coverage += shadow_blur_along_x(p.x, p.y - y, sigma, corner, half_size) * shadow_gaussian(y, sigma) * step;
+    y += step;
+  }
+  return saturate(coverage);
+}
+
+float shadow_shape_alpha(float2 p, float2 half_size, float4 radii, float sigma)
+{
+  if (sigma < SHADOW_MIN_SIGMA)
+  {
+    if (half_size.x <= 0.0 || half_size.y <= 0.0)
+    {
+      return 0.0;
+    }
+    return supersampled_fill_alpha(p, half_size, radii, radii);
+  }
+  return blurred_rounded_box(p, half_size, radii, sigma);
+}
+
+// An outer shadow covers its shape outside the element box; an inset one
+// covers the box outside its shape.
+float box_shadow_alpha(float2 local, float2 half_size, float4 box_radii, float4 shape_radii, float4 params, float sigma)
+{
+  float2 offset = params.yz;
+  float spread = params.w;
+  float box_alpha = supersampled_fill_alpha(local, half_size, box_radii, box_radii);
+  if (params.x < 1.5)
+  {
+    float2 shape_half = max(half_size + float2(spread, spread), float2(0.0, 0.0));
+    return shadow_shape_alpha(local - offset, shape_half, shape_radii, sigma) * (1.0 - box_alpha);
+  }
+  float2 shape_half = max(half_size - float2(spread, spread), float2(0.0, 0.0));
+  return box_alpha * (1.0 - shadow_shape_alpha(local - offset, shape_half, shape_radii, sigma));
+}
+
 // The render target is not sRGB, so the fixed-function blend mixes
 // sRGB-encoded values, as CSS and design tools do. `ps_main` works in linear
 // light like the rest of the pipeline and encodes each result it returns.
@@ -268,6 +367,15 @@ float4 ps_main(VsOut input) : SV_TARGET
   float max_stroke = max(max(input.stroke.x, input.stroke.y), max(input.stroke.z, input.stroke.w));
   if (max_stroke <= 0.0)
   {
+    if (input.pattern.x > 0.5)
+    {
+      float shadow_alpha = box_shadow_alpha(input.local, input.half_size, input.radii_h, input.radii_v, input.pattern, input.shadow_sigma);
+      if (shadow_alpha <= 0.0)
+      {
+        discard;
+      }
+      return encode_srgb(float4(base_color.rgb, base_color.a * shadow_alpha * clip_alpha_value));
+    }
     float fill_alpha = supersampled_fill_alpha(input.local, input.half_size, input.radii_h, input.radii_v);
     return encode_srgb(float4(base_color.rgb, base_color.a * fill_alpha * clip_alpha_value));
   }

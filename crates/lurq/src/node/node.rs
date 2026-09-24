@@ -26,6 +26,7 @@ use crate::{
     BackgroundColor, TextColor, TextTransformMode,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     border_size_value::BorderSizeValue,
+    box_shadow::BoxShadowValue,
     checkbox_style::CheckboxStyle,
     color::Color,
     cursor::CursorIcon,
@@ -322,6 +323,7 @@ pub(crate) trait NodeUpdate {
   fn border_right(&mut self, border: Border);
   fn border_bottom(&mut self, border: Border);
   fn border_left(&mut self, border: Border);
+  fn box_shadow(&mut self, shadow: impl Into<BoxShadowValue>);
   fn cursor(&mut self, cursor: CursorIcon);
   #[cfg(feature = "raster")]
   fn background_image(&mut self, data: impl Into<crate::images::ImageKind>);
@@ -595,6 +597,8 @@ pub(crate) struct Node {
   pub(crate) gradient: Guard<Option<Gradient>>,
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
+  /// Boxed: most nodes have no shadow, and `Node` size is budgeted (lurq#25).
+  pub(crate) box_shadow: Guard<Option<Box<BoxShadowValue>>>,
   pub(crate) caret_color: Guard<Option<TextColor>>,
   pub(crate) selection_color: Guard<Option<TextColor>>,
   pub(crate) caret_mode: Guard<Option<CaretMode>>,
@@ -986,6 +990,10 @@ impl NodeUpdate for Node {
     let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.left = Some(border);
     self.border.set(Some(borders));
+  }
+
+  fn box_shadow(&mut self, shadow: impl Into<BoxShadowValue>) {
+    self.box_shadow.set(Some(Box::new(shadow.into())));
   }
 
   fn cursor(&mut self, cursor: CursorIcon) {
@@ -1608,6 +1616,7 @@ impl Node {
       gradient: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
+      box_shadow: Guard::new(None),
       caret_color: Guard::new(None),
       selection_color: Guard::new(None),
       caret_mode: Guard::new(None),
@@ -2206,6 +2215,11 @@ impl Node {
     let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.left = Some(border);
     self.border.set(Some(borders));
+    self
+  }
+
+  pub fn box_shadow(mut self, shadow: impl Into<BoxShadowValue>) -> Self {
+    NodeUpdate::box_shadow(&mut self, shadow);
     self
   }
 
@@ -3247,6 +3261,19 @@ impl Node {
       .and_then(|color| color.resolve(palette))
   }
 
+  /// The box shadow in effect: the innermost matching state style (active,
+  /// then hovered, then focused) over the node's own.
+  pub(crate) fn effective_box_shadow(&self) -> Option<&BoxShadowValue> {
+    fn state_shadow(applies: bool, style: &Option<Style>) -> Option<&BoxShadowValue> {
+      style.as_ref().filter(|_| applies)?.box_shadow.as_deref()
+    }
+    let states = &*self.state_styles;
+    state_shadow(self.style_state.is_active(), &states.active)
+      .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
+      .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
+      .or(self.box_shadow.as_deref())
+  }
+
   pub(crate) fn resolved_gradient(&self) -> Option<Gradient> {
     <Option<Gradient> as Clone>::clone(&self.gradient)
   }
@@ -3386,6 +3413,7 @@ impl Node {
       || self.gradient.is_changed()
       || self.border_radius.is_changed()
       || self.border.is_changed()
+      || self.box_shadow.is_changed()
       || self.caret_color.is_changed()
       || self.selection_color.is_changed()
       || self.caret_mode.is_changed()
@@ -3516,6 +3544,7 @@ impl Node {
     self.gradient.clear_changed();
     self.border_radius.clear_changed();
     self.border.clear_changed();
+    self.box_shadow.clear_changed();
     self.caret_color.clear_changed();
     self.selection_color.clear_changed();
     self.caret_mode.clear_changed();
@@ -3650,6 +3679,9 @@ impl Node {
     }
     if self.border.as_ref() == old.border.as_ref() {
       self.border.clear_changed();
+    }
+    if self.box_shadow.as_ref() == old.box_shadow.as_ref() {
+      self.box_shadow.clear_changed();
     }
     if self.caret_color.as_ref() == old.caret_color.as_ref() {
       self.caret_color.clear_changed();
@@ -3955,6 +3987,7 @@ impl Node {
       gradient: self.gradient.clone(),
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
+      box_shadow: self.box_shadow.clone(),
       caret_color: self.caret_color.clone(),
       selection_color: self.selection_color.clone(),
       caret_mode: self.caret_mode.clone(),

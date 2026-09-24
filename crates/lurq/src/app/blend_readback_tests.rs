@@ -39,6 +39,7 @@ fn rect(x: f32, color: Color) -> RectCmd {
     transform_origin: [0.0; 2],
     clip: ClipRect::default(),
     gradient: None,
+    shadow: None,
   }
 }
 

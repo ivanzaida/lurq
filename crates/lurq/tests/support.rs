@@ -84,6 +84,7 @@ pub struct RectSnapshot {
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
   pub clip: ClipSnapshot,
+  pub shadow: Option<lurq::layout::render_list::RectShadow>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -184,6 +185,7 @@ fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
     transform: rect.transform,
     transform_origin: rect.transform_origin,
     clip: clip_snapshot(rect.clip),
+    shadow: rect.shadow,
   }
 }
 

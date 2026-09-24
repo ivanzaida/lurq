@@ -21,6 +21,8 @@ impl PassLayoutExt for Tree {
 
 mod absolute_position;
 mod borders;
+mod box_shadow;
+mod box_shadow_math;
 mod column;
 mod constraints;
 mod edge_cases;
