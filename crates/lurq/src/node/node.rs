@@ -524,7 +524,8 @@ pub enum HitTestBehavior {
 pub(crate) enum SyntheticNodeRole {
   OverlayHost,
   SelectMenu,
-  /// An open `Modal`'s container, a direct child of the overlay host.
+  /// An open dialog `Modal`'s container, a direct child of the overlay host.
+  /// `WindowChrome`'s layer is built like a modal but never gets this role.
   Modal,
 }
 

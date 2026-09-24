@@ -206,11 +206,23 @@ impl From<ElementRefMut> for ModalTarget {
   }
 }
 
+/// What an open modal layer is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModalLayer {
+  /// A dialog declared with `Modal`: the topmost one is the Tab scope and traps Tab.
+  Dialog,
+  /// `WindowChrome`'s title bar and resize zones: window decoration over the
+  /// page, not a dialog, so it never becomes a Tab scope. Its stops, if any,
+  /// are part of the window's order.
+  WindowChrome,
+}
+
 pub(crate) struct ModalSpec {
   pub(crate) target: ModalTarget,
   pub(crate) node: Node,
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_escape: bool,
+  pub(crate) layer: ModalLayer,
 }
 
 impl ModalSpec {
@@ -220,6 +232,7 @@ impl ModalSpec {
       node: self.node.clone_for_reuse(),
       open_signal: self.open_signal.clone(),
       dismiss_on_escape: self.dismiss_on_escape,
+      layer: self.layer,
     }
   }
 }
@@ -247,6 +260,7 @@ pub struct Modal {
   open: OpenState,
   target: ModalTarget,
   dismiss_on_escape: bool,
+  layer: ModalLayer,
 }
 
 impl Modal {
@@ -256,6 +270,7 @@ impl Modal {
       open: OpenState::Static(true),
       target: ModalTarget::Parent,
       dismiss_on_escape: true,
+      layer: ModalLayer::Dialog,
     }
   }
 
@@ -279,6 +294,12 @@ impl Modal {
     self
   }
 
+  /// Marks this layer as `WindowChrome`'s decoration instead of a dialog.
+  pub(crate) fn window_chrome_layer(mut self) -> Self {
+    self.layer = ModalLayer::WindowChrome;
+    self
+  }
+
   fn into_spec(self) -> Option<ModalSpec> {
     if !self.open.is_open() {
       return None;
@@ -289,6 +310,7 @@ impl Modal {
       node: *self.node,
       open_signal: self.open.signal(),
       dismiss_on_escape: self.dismiss_on_escape,
+      layer: self.layer,
     })
   }
 }

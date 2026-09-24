@@ -5,6 +5,7 @@ mod focusable;
 mod forms_in_scope;
 mod modal_trap;
 mod scroll_into_view;
+mod window_chrome;
 mod window_scope;
 
 fn tab(tree: &mut Tree) {

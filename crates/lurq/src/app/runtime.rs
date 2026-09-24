@@ -27,7 +27,7 @@ use crate::{
   app::{
     app_state::App,
     component::Component,
-    ctx::{CollisionStrategy, Ctx, ModalSpec, ModalTarget, OverlaySpec, Placement, component_tag_name},
+    ctx::{CollisionStrategy, Ctx, ModalLayer, ModalSpec, ModalTarget, OverlaySpec, Placement, component_tag_name},
     events::{
       DragEvent, DropEvent, DropResult, EventControl, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind,
       ScrollEvent, ScrollPhase,
@@ -6398,6 +6398,7 @@ fn modal_target_rect_from_index(
 }
 
 fn build_modal_node(spec: ModalSpec, target: ElementRect) -> Node {
+  let layer = spec.layer;
   let content = spec.node;
   let mut modal = Node::stack(crate::layout::StackAlignment::TopStart, vec![content])
     .hit_test(HitTestBehavior::ContentOnly)
@@ -6407,8 +6408,13 @@ fn build_modal_node(spec: ModalSpec, target: ElementRect) -> Node {
       Some(Dimension::Px(target.width)),
       Some(Dimension::Px(target.height)),
     );
-  modal.set_tag_name("Modal");
-  modal.set_synthetic_role(SyntheticNodeRole::Modal);
+  match layer {
+    ModalLayer::Dialog => {
+      modal.set_tag_name("Modal");
+      modal.set_synthetic_role(SyntheticNodeRole::Modal);
+    }
+    ModalLayer::WindowChrome => modal.set_tag_name("WindowChromeLayer"),
+  }
   modal
 }
 

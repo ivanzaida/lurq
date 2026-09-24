@@ -265,7 +265,8 @@ impl WindowChrome {
     frame = frame.child(
       Modal::new(chrome_overlay)
         .target(ModalTarget::Parent)
-        .dismiss_on_escape(false),
+        .dismiss_on_escape(false)
+        .window_chrome_layer(),
     );
 
     frame.into()

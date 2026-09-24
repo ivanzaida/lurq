@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix Tab doing nothing in apps that use `WindowChrome` (a 0.24.0 regression). The chrome draws its title bar and resize zones in a layer built like a `Modal`, which is always open and stacked over the page, so 0.24.0 took it for the topmost open modal: it became the Tab scope and, having no stops, kept focus where it was, on pages and in dialogs declared in the page. That layer is now window decoration, not a modal: it never becomes a Tab scope, pages under it get the window order again (forms included, wrapping at the ends), and the topmost real `Modal` traps Tab whether it is declared in the page or passed to `WindowChrome::overlay`. Stops placed in the title bar follow the page's stops. The layer's tag in the element tree (DevTools, MCP `lurq_read_tree`) is now `WindowChromeLayer` instead of `Modal`, so an open chrome no longer looks like an open dialog.
+
 ## 0.24.0 — 2026-09-24
 
 - Make Tab work outside forms. Tab and Shift+Tab used to move focus only inside a form and did nothing anywhere else, including after a click on a toolbar button. `tab_index` now follows HTML `tabindex`: outside a form, elements with `tab_index(0)` or higher are stops (positive values first, in ascending order, then `0` in tree order) and elements without one are not; inside a form, controls stay stops without a tab index. `tab_index(-1)` skips an element but a click still focuses it. The scope is the topmost open modal, else the whole window, and Tab wraps at its ends. Forms are part of that order like in a browser: Tab enters a form, and Tab from its last control (Shift+Tab from its first) leaves it. When focus is on an element that is not a stop, Tab continues from its place in the tree. Traversal no longer needs the `form` feature.

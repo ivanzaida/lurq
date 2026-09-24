@@ -53,7 +53,8 @@ pub(super) fn tab_move(root: &Node, focused: Option<(NodeId, &[usize])>, reverse
 }
 
 /// Path of the topmost open modal. Modals are direct children of the overlay
-/// host, after the base tree, in stacking order.
+/// host, after the base tree, in stacking order. `WindowChrome`'s layer is
+/// built like a modal but has no modal role, so it is never the scope.
 fn top_modal_path(root: &Node) -> Option<Vec<usize>> {
   if !root.has_synthetic_role(SyntheticNodeRole::OverlayHost) {
     return None;
