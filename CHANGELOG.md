@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.24.1 — 2026-09-24
 
 - Fix Tab doing nothing in apps that use `WindowChrome` (a 0.24.0 regression). The chrome draws its title bar and resize zones in a layer built like a `Modal`, which is always open and stacked over the page, so 0.24.0 took it for the topmost open modal: it became the Tab scope and, having no stops, kept focus where it was, on pages and in dialogs declared in the page. That layer is now window decoration, not a modal: it never becomes a Tab scope, pages under it get the window order again (forms included, wrapping at the ends), and the topmost real `Modal` traps Tab whether it is declared in the page or passed to `WindowChrome::overlay`. Stops placed in the title bar follow the page's stops. The layer's tag in the element tree (DevTools, MCP `lurq_read_tree`) is now `WindowChromeLayer` instead of `Modal`, so an open chrome no longer looks like an open dialog.
 

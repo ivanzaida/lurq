@@ -495,7 +495,7 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 Form theme roles require the `form` feature:
 
 ```toml
-lurq = { version = "0.24.0", features = ["form"] }
+lurq = { version = "0.24.1", features = ["form"] }
 ```
 
 `FormTheme` groups compound form styling into semantic roles:
