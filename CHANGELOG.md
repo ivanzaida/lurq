@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.23.0 — 2026-09-24
 
 - Fix main-thread stack overflows in debug builds (lurq#25, lurq#26). An unoptimized build gives every temporary its own stack slot, and lurq rebuilds dirty components inside the input event, so a whole-window rebuild ran on the event's stack with several copies of every element per component level. Kontur's desktop overflowed the 1 MiB Windows main-thread stack on its first click on 0.22.1 (1,006,584 bytes on a path that took 767,336 on 0.20.0). The new `stack_depth` regression test (an editor-sized screen under `WindowChrome`, ten nested component levels, laid out, painted and re-rendered from a key event on a 1 MiB thread) needed 1104 KiB on 0.22.1 and needs 208 KiB now; the build and rebuild part alone needs 144 KiB. `scripts/stack-depth-probe.py` measures the smallest stack it passes on.
   - `Element` holds its root node on the heap and is now 8 bytes instead of 3616. Component builders already boxed their node, so converting one into an `Element` moves a pointer. `WindowChrome` shrinks from 19,112 to 872 bytes and `ChromeTitleBar` from 15,368 to 760; `Modal` and `Overlay` also box their content.
