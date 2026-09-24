@@ -69,12 +69,11 @@ fn element_with_tab_index_is_focusable_by_click_and_tab() {
 
   click_id(&mut tree, "plain");
   assert_eq!(
-    focused_id(&tree).as_deref(),
-    Some("card"),
-    "a plain rect does not take focus"
+    focused_id(&tree),
+    None,
+    "a plain rect does not take focus; the press blurs"
   );
 
-  tree.get_element_by_id_mut("card").unwrap().blur();
   click_id(&mut tree, "card");
   assert_eq!(focused_id(&tree).as_deref(), Some("card"));
 }

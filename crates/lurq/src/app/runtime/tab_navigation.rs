@@ -1,12 +1,8 @@
 //! Tab / Shift+Tab traversal and scrolling the focused node into view.
 //!
-//! The Tab scope is chosen from the current focus:
-//!
-//! - focus inside a form (the nearest node with a submit handler) cycles that form, where controls are in the order
-//!   without a `tab_index`;
-//! - otherwise the scope is the topmost open modal, or the whole window when no modal is open. Outside forms only nodes
-//!   with an explicit `tab_index >= 0` are stops; forms inside the scope contribute their controls under form rules, so
-//!   Tab can enter a form, and from then on cycles it.
+//! The Tab scope is the topmost open modal, or the whole window when no modal is open, and Tab wraps around at its
+//! ends. Only nodes with an explicit `tab_index >= 0` are stops, except inside forms, where controls are stops without
+//! one. A form is part of its scope's order like in a browser: Tab from its last control moves on to the next stop.
 //!
 //! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
 
@@ -45,22 +41,11 @@ pub(super) fn tab_move(root: &Node, focused: Option<(NodeId, &[usize])>, reverse
   let modal = top_modal_path(root);
   let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
 
-  #[cfg(feature = "form")]
-  if let Some((_, path)) = focused
-    && let Some(form_path) = super::nearest_form_path_for_path(root, path)
-    && let Some(form) = find_node_by_path(root, &form_path)
-  {
-    return match next_stop(form, true, focused.map(|(id, _)| id), reverse) {
-      Some(target) => TabMove::Focus(target),
-      None => TabMove::Unhandled,
-    };
-  }
-
   let scope = match &modal {
     Some(path) => find_node_by_path(root, path),
     None => Some(root),
   };
-  match scope.and_then(|scope| next_stop(scope, false, focused.map(|(id, _)| id), reverse)) {
+  match scope.and_then(|scope| next_stop(scope, focused.map(|(id, _)| id), reverse)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
@@ -80,14 +65,14 @@ fn top_modal_path(root: &Node) -> Option<Vec<usize>> {
     .map(|index| vec![index])
 }
 
-fn next_stop(scope: &Node, in_form: bool, focused: Option<NodeId>, reverse: bool) -> Option<FocusTarget> {
+fn next_stop(scope: &Node, focused: Option<NodeId>, reverse: bool) -> Option<FocusTarget> {
   let mut walk = Walk {
     focused,
     focused_order: None,
     visited: 0,
     stops: Vec::new(),
   };
-  collect_stops(scope, None, in_form, &mut walk);
+  collect_stops(scope, None, false, &mut walk);
   let stops = &mut walk.stops;
   if stops.is_empty() {
     return None;

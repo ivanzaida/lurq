@@ -125,7 +125,7 @@ fn tab_does_not_focus_controls_outside_form() {
 }
 
 #[test]
-fn tab_from_focused_control_outside_form_enters_the_form() {
+fn tab_from_focused_control_outside_form_enters_the_form_and_leaves_it() {
   let outside_focus = Arc::new(AtomicUsize::new(0));
   let form_focus = Arc::new(AtomicUsize::new(0));
   let mut runtime = lurq::app::Tree::new();
@@ -151,7 +151,8 @@ fn tab_from_focused_control_outside_form_enters_the_form() {
             form_focus.fetch_add(1, Ordering::SeqCst);
           }
         })),
-      )),
+      ))
+      .child(Button::new("After").id("after").tab_index(0)),
   );
   run_pass(&mut runtime);
 
@@ -171,6 +172,12 @@ fn tab_from_focused_control_outside_form_enters_the_form() {
   // continues from it into the form that follows it.
   assert_eq!(outside_focus.load(Ordering::SeqCst), 1);
   assert_eq!(form_focus.load(Ordering::SeqCst), 1);
+  // A page form does not trap Tab: from its last control Tab moves on.
+  runtime.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+  assert_eq!(
+    runtime.focused_element().and_then(|element| element.id()),
+    Some("after")
+  );
 }
 
 #[test]

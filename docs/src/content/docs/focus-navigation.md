@@ -9,10 +9,10 @@ One element has focus at a time. It receives keyboard events, shows its focused 
 
 ## Focusable Elements
 
-Buttons, text inputs, checkboxes, sliders, selects, and any element with a `tab_index` are focusable. A click on one focuses it, and a click on its content (a button's label) focuses the nearest focusable ancestor.
+Buttons, text inputs, checkboxes, sliders, selects, and any element with a `tab_index` are focusable. A click on one focuses it, and a click on its content (a button's label) focuses the nearest focusable ancestor. A press where nothing can take focus (empty space, a plain row, a label) blurs the focused element, button or input, like HTML.
 
 - `.focusable(true)` makes any element focusable by click and by request. It does not put the element in the Tab order outside a form; add `.tab_index(0)` for that.
-- `.focusable(false)` keeps an element from ever taking focus: not by click, not by Tab, not by `ctx.focus`. Its click handlers still run, and a checkbox still toggles. Use it for toolbar buttons that must leave focus in an editor.
+- `.focusable(false)` keeps an element from ever taking focus: not by click, not by Tab, not by `ctx.focus`. A click on it does not change focus either: whatever had focus keeps it. Its click handlers still run, and a checkbox still toggles. Use it for toolbar buttons that must leave focus in an editor.
 
 ```rust
 use lurq::components::Button;
@@ -49,24 +49,23 @@ Row::new()
 
 Tab and Shift+Tab move through one scope and wrap around at its ends:
 
-1. **Focus inside a form**: the form. Tab cycles the form's controls and does not leave it; click or `ctx.focus` elsewhere to leave.
-2. **Otherwise, a modal is open**: the topmost open modal (see [Modal Focus Trap](#modal-focus-trap)).
-3. **Otherwise**: the whole window, including open popups and overlays after the page, in tree order.
+1. **A modal is open**: the topmost open modal (see [Modal Focus Trap](#modal-focus-trap)).
+2. **Otherwise**: the whole window, including open popups and overlays after the page, in tree order.
 
-A form inside the window or modal scope takes part under form rules: its controls are stops even without a tab index, in tree order among the scope's other stops. So Tab from a toolbar button reaches the first field of a form that follows it, and from there Tab cycles the form.
+Forms do not have a scope of their own. A form's controls are stops without a tab index, in tree order among the scope's other stops, and the form is passed through like in a browser: Tab from a toolbar button reaches the form's first field, Tab from its last control moves on to the next stop after the form, and Shift+Tab from its first control goes back to the stop before it. A form cycles only when it is all its scope contains, for example the only content of a modal.
 
 When the focused element is not a stop itself (a clicked button without a tab index, or a text input outside a form), Tab continues from its place in the tree, like a browser: Tab goes to the next stop after it, Shift+Tab to the previous one. With nothing focused, Tab goes to the first stop and Shift+Tab to the last.
 
 Tab with no stops in scope outside a modal is not handled, so it reaches other keyboard defaults. An `on_key_down` handler that calls `prevent_default()` on Tab replaces traversal entirely (see [Keyboard And Focus](../styling-events/#keyboard-and-focus)).
 
-Tab traversal does not need the `form` feature. Without it there are no forms, so only the window and modal scopes apply.
+Tab traversal does not need the `form` feature; without it there are no forms, and only elements with a tab index are stops.
 
 ## Modal Focus Trap
 
 An open `Modal` confines Tab and Shift+Tab to itself, whether or not it contains a form:
 
 - Focus behind the modal is never a stop. When focus is still on the page behind it (the button that opened it), the next Tab moves into the modal.
-- Stops inside the modal follow the same rules: `tab_index(0)` or higher, and form controls inside a form in the modal.
+- Stops inside the modal follow the same rules: `tab_index(0)` or higher, and form controls inside a form in the modal. A form in a modal cycles inside the modal, together with the modal's other stops.
 - A modal without stops consumes Tab and keeps focus where it is, so Tab never reaches the page behind it.
 - With nested or stacked modals, the topmost one traps.
 - When the modal closes, the window scope applies again.

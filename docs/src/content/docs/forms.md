@@ -292,7 +292,7 @@ let active = form.bool_control("active");
 
 ## Keyboard Navigation
 
-Inside a form, Tab and Shift+Tab cycle the form's controls: text inputs, checkboxes, sliders, selects, and buttons are stops without a `tab_index`, in tree order after any positive tab indices, and `tab_index(-1)` skips one. Once focus is in a form, Tab stays in it. Tab from outside (a toolbar button with `tab_index(0)`, or with nothing focused) reaches the form's controls in tree order. See [Focus And Keyboard Navigation](../focus-navigation/).
+A form's text inputs, checkboxes, sliders, selects, and buttons are Tab stops without a `tab_index`, in tree order after any positive tab indices; `tab_index(-1)` skips one. A form does not trap Tab: its controls are part of the window's order (or the open modal's), so Tab from the last control moves on to the next stop after the form and Shift+Tab from the first goes back before it. Only a modal traps. See [Focus And Keyboard Navigation](../focus-navigation/).
 
 ## Submission
 

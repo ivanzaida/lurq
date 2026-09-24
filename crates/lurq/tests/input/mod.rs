@@ -62,5 +62,6 @@ mod pointer {
   mod native_window_gesture;
 }
 
+mod focus_on_press;
 mod focused_style;
 mod tab_order;

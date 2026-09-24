@@ -3822,8 +3822,7 @@ impl Tree {
     let mut pending_slider_drag = None;
     let mut pending_text_selection_drag = None;
     let mut reset_text_input_caret_blink = false;
-    let mut blur_focused_select = false;
-    let mut blur_focused_text_input = false;
+    let mut blur_on_press = false;
     let is_left_button = evt.button == MouseButton::Left;
     let is_left_click = matches!(evt.kind, MouseEventKind::Click) && is_left_button;
     let is_left_down = matches!(evt.kind, MouseEventKind::Down) && is_left_button;
@@ -3949,43 +3948,16 @@ impl Tree {
       {
         builtin_needs_redraw = true;
       }
-      let on_select = hits
-        .iter()
-        .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }));
       let on_open_trigger = hits
         .iter()
         .any(|(node, _)| matches!(node.node_kind(), NodeKind::Select { state } if state.is_open()));
       if !on_menu && !on_open_trigger && close_all_open_selects(root) {
         builtin_needs_redraw = true;
       }
-      if !on_menu && !on_select {
-        blur_focused_select = self
-          .focused_node
-          .and_then(|focused| find_node_by_id(root, focused))
-          .or_else(|| {
-            self
-              .focused_path
-              .as_deref()
-              .and_then(|path| find_node_by_path(root, path))
-          })
-          .is_some_and(|node| matches!(node.node_kind(), NodeKind::Select { .. }));
-      }
-
-      let on_text_input = hits
-        .iter()
-        .any(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }));
-      if !on_text_input {
-        blur_focused_text_input = self
-          .focused_node
-          .and_then(|focused| find_node_by_id(root, focused))
-          .or_else(|| {
-            self
-              .focused_path
-              .as_deref()
-              .and_then(|path| find_node_by_path(root, path))
-          })
-          .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }));
-      }
+      // Like HTML: a press where nothing can take focus blurs the focused
+      // element. A press on a focusable element leaves focus to its own
+      // focusing (on press or click); `focusable(false)` keeps focus.
+      blur_on_press = !on_menu && press_blurs_focus(&hits);
     }
 
     if !evt.default_prevented() && (is_left_click || is_left_down) {
@@ -4338,7 +4310,7 @@ impl Tree {
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
     }
-    if blur_focused_select || blur_focused_text_input {
+    if blur_on_press {
       self.blur_focus();
     }
     if clear_active_after_dispatch {
@@ -9074,6 +9046,14 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
   for child in node.children() {
     collect_form_data(child, data);
   }
+}
+
+/// Whether a press on `hits` (innermost first) blurs the focused element:
+/// only when neither a focusable nor a `focusable(false)` node is hit.
+fn press_blurs_focus(hits: &[(&Node, crate::app::hit_test::HitRect)]) -> bool {
+  !hits
+    .iter()
+    .any(|(node, _)| node.is_focusable() || node.is_focus_disabled())
 }
 
 fn dispatch_builtin_pointer(

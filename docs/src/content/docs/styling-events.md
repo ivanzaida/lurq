@@ -173,7 +173,7 @@ The hook listens for left clicks outside the referenced element's measured bound
 
 ## Keyboard And Focus
 
-Keyboard events go to the focused node. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).
+Keyboard events go to the focused node. A press where nothing can take focus blurs it; a press on a `focusable(false)` element keeps it. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).
 
 Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation.
 
