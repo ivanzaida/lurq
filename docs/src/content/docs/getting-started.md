@@ -69,6 +69,18 @@ struct CardProps {
 }
 ```
 
+## Dev Profile
+
+Text shaping, font parsing, and glyph rasterization run in dependencies (cosmic-text, harfrust, swash, skrifa, fontdb, and others). At `opt-level = 0` they make text-heavy screens noticeably slow in debug builds. Cargo reads `[profile]` sections only from the workspace being built and ignores the ones in dependencies, so lurq cannot set this for you. Add it to your workspace's root `Cargo.toml`:
+
+```toml
+# Optimize every dependency in dev builds; your own crates stay at opt-level 0 and debug normally.
+[profile.dev.package."*"]
+opt-level = 2
+```
+
+The wildcard does not match workspace members, so stepping through your own code is unaffected. The first debug build of the dependencies takes longer; after that they come from the build cache. The wildcard also keeps working when lurq's text stack changes, which a list of individual crates does not.
+
 ## Minimal App
 
 Most apps wire three objects:
