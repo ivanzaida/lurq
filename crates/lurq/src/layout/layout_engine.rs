@@ -568,6 +568,31 @@ impl LayoutEngine {
       height: layout.size.height,
     };
 
+    Self::index_node_layout(node, rect, index);
+
+    for (child_layout, child) in layout.children.iter().zip(node.children()) {
+      if child.modal_declaration().is_some() {
+        Self::index_child_modal(child, rect, index);
+      }
+
+      Self::collect_overlay_index_recursive(
+        child,
+        &child_layout.result,
+        abs_x + child_layout.offset.x,
+        abs_y + child_layout.offset.y,
+        abs_x,
+        abs_y,
+        index,
+      );
+    }
+  }
+
+  /// Records a node's element ref, open select menu and overlay. Split from
+  /// the recursion in [`Self::collect_overlay_index_recursive`] so that the
+  /// records, which carry whole nodes, are not held in every level's frame
+  /// in an unoptimized build (lurq#25).
+  #[inline(never)]
+  fn index_node_layout(node: &Node, rect: ElementRect, index: &mut OverlayLayoutIndex) {
     if let Some(element_ref) = node.element_ref.as_ref() {
       index.elements.push(ElementLayoutRecord {
         element_ref: element_ref.clone(),
@@ -597,28 +622,19 @@ impl LayoutEngine {
         spec: spec.clone_for_reuse(),
       });
     }
+  }
 
-    for (child_layout, child) in layout.children.iter().zip(node.children()) {
-      if let Some(spec) = child.modal_declaration() {
-        index.overlays.push(OverlayLayoutRecord::Modal {
-          reuse_key: spec
-            .node
-            .component_key()
-            .map(|key| Arc::<str>::from(format!("modal:{key}"))),
-          spec: spec.clone_for_reuse(),
-          parent: rect,
-        });
-      }
-
-      Self::collect_overlay_index_recursive(
-        child,
-        &child_layout.result,
-        abs_x + child_layout.offset.x,
-        abs_y + child_layout.offset.y,
-        abs_x,
-        abs_y,
-        index,
-      );
+  #[inline(never)]
+  fn index_child_modal(child: &Node, parent: ElementRect, index: &mut OverlayLayoutIndex) {
+    if let Some(spec) = child.modal_declaration() {
+      index.overlays.push(OverlayLayoutRecord::Modal {
+        reuse_key: spec
+          .node
+          .component_key()
+          .map(|key| Arc::<str>::from(format!("modal:{key}"))),
+        spec: spec.clone_for_reuse(),
+        parent,
+      });
     }
   }
 
@@ -845,6 +861,86 @@ impl LayoutEngine {
       return;
     }
 
+    let frame = self.push_node_quads(
+      node,
+      result,
+      abs_x,
+      abs_y,
+      parent_x,
+      parent_y,
+      inherited_transform,
+      inherited_opacity,
+      clip,
+      cull_clip,
+      culling_enabled,
+      quads,
+    );
+    let NodeQuadFrame {
+      transform,
+      opacity,
+      child_clip,
+      child_cull_clip,
+      child_culling_enabled,
+      ..
+    } = frame;
+
+    for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
+      let child_abs_x = abs_x + child_layout.offset.x;
+      let child_abs_y = abs_y + child_layout.offset.y;
+      if child_culling_enabled
+        && clipped_subtree_is_hidden(
+          child_node,
+          &child_layout.result,
+          child_abs_x,
+          child_abs_y,
+          transform,
+          child_cull_clip,
+        )
+      {
+        continue;
+      }
+
+      self.collect_quads(
+        child_node,
+        &child_layout.result,
+        child_abs_x,
+        child_abs_y,
+        abs_x,
+        abs_y,
+        transform,
+        opacity,
+        child_clip,
+        child_cull_clip,
+        child_culling_enabled,
+        quads,
+      );
+    }
+
+    self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
+  }
+
+  /// The quads a node paints under its children, and what its children
+  /// inherit. Split from [`Self::collect_quads`], which recurses once per tree
+  /// level: an unoptimized build gives every temporary of this body its own
+  /// stack slot, and keeping them out of the recursive frame keeps deep trees
+  /// within the main thread's stack (lurq#25).
+  #[inline(never)]
+  #[allow(clippy::too_many_arguments)]
+  fn push_node_quads(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    abs_x: f32,
+    abs_y: f32,
+    parent_x: f32,
+    parent_y: f32,
+    inherited_transform: Transform2D,
+    inherited_opacity: f32,
+    clip: ClipRect,
+    cull_clip: ClipRect,
+    culling_enabled: bool,
+    quads: &mut Vec<Quad>,
+  ) -> NodeQuadFrame {
     if let Some(ref element_ref) = node.element_ref {
       element_ref.update(
         abs_x,
@@ -1546,39 +1642,36 @@ impl LayoutEngine {
         (clip, cull_clip, culling_enabled)
       };
 
-    for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
-      let child_abs_x = abs_x + child_layout.offset.x;
-      let child_abs_y = abs_y + child_layout.offset.y;
-      if child_culling_enabled
-        && clipped_subtree_is_hidden(
-          child_node,
-          &child_layout.result,
-          child_abs_x,
-          child_abs_y,
-          transform,
-          child_cull_clip,
-        )
-      {
-        continue;
-      }
-
-      self.collect_quads(
-        child_node,
-        &child_layout.result,
-        child_abs_x,
-        child_abs_y,
-        abs_x,
-        abs_y,
-        transform,
-        opacity,
-        child_clip,
-        child_cull_clip,
-        child_culling_enabled,
-        quads,
-      );
+    NodeQuadFrame {
+      transform,
+      opacity,
+      child_clip,
+      child_cull_clip,
+      child_culling_enabled,
+      deferred_border: resolved_border.filter(|_| defer_border_to_overlay),
     }
+  }
 
-    if defer_border_to_overlay {
+  /// The quads a node paints over its children: a border deferred past them
+  /// and scrollbars. See [`Self::push_node_quads`].
+  #[inline(never)]
+  fn push_node_overlay_quads(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    abs_x: f32,
+    abs_y: f32,
+    frame: &NodeQuadFrame,
+    clip: ClipRect,
+    quads: &mut Vec<Quad>,
+  ) {
+    let NodeQuadFrame {
+      transform,
+      opacity,
+      deferred_border,
+      ..
+    } = *frame;
+    if deferred_border.is_some() {
       let (border_x, border_y, border_transform, border_transform_origin) =
         transformed_quad_frame(abs_x, abs_y, transform);
       quads.push(Quad {
@@ -1594,7 +1687,7 @@ impl LayoutEngine {
           gradient: None,
         },
         border_radius: node.get_border_radius(&self.radii.borrow()),
-        border: resolved_border,
+        border: deferred_border,
         clip,
       });
     }
@@ -3616,6 +3709,19 @@ fn same_clip_rect(clip: ClipRect, x1: f32, y1: f32, x2: f32, y2: f32) -> bool {
     && (clip.y + clip.height - y2).abs() <= EPSILON
 }
 
+/// What [`LayoutEngine::push_node_quads`] hands back to the recursion in
+/// `collect_quads`: the transform, opacity and clips a node's children inherit,
+/// and a border to paint after them.
+#[derive(Clone, Copy)]
+struct NodeQuadFrame {
+  transform: Transform2D,
+  opacity: f32,
+  child_clip: ClipRect,
+  child_cull_clip: ClipRect,
+  child_culling_enabled: bool,
+  deferred_border: Option<ResolvedBorders>,
+}
+
 fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> ClipRect {
   if !clip.active {
     return clip;
@@ -3898,11 +4004,11 @@ mod tests {
       )
     };
 
-    let old: Node = crate::node::Element::from(crate::components::Spacer::new().height(2000.0)).node;
+    let old: Node = crate::node::Element::from(crate::components::Spacer::new().height(2000.0)).into_node();
     let laid = compute(&engine, &mut glyph_engine, &old);
     assert_eq!(laid.size.height, 2000.0);
 
-    let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).node;
+    let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
     // The transplant: previously laid cache adopted across a frame change,
     // flags cleared (what `preserve_from` does). Guards are cleared like the
     // retained diff does for unchanged content.
@@ -3952,7 +4058,7 @@ mod tests {
           .child(crate::components::Spacer::new().height(spacer_height))
           .child(crate::components::Spacer::new().height(50.0)),
       )
-      .node
+      .into_node()
     };
 
     let old = column(2000.0);
@@ -3988,7 +4094,8 @@ mod tests {
     let constraints = Constraints::loose(Size::new(400.0, 400.0));
 
     let mut root: Node =
-      crate::node::Element::from(crate::components::Row::new().child(crate::components::Rect::new(40.0, 40.0))).node;
+      crate::node::Element::from(crate::components::Row::new().child(crate::components::Rect::new(40.0, 40.0)))
+        .into_node();
     let mut anchor = Node::logical();
     anchor.set_layout_neutral(true);
     root.children.push(anchor);
@@ -4121,7 +4228,7 @@ mod tests {
           .size(400.0, 300.0)
           .child(crate::components::Rect::new(50.0, 50.0).absolute_position(x, y)),
       )
-      .node
+      .into_node()
     };
 
     let old = stack(10.0, 20.0);

@@ -99,7 +99,7 @@ fn extra_roles_stay_copy_and_compare_by_name() {
   let radius = RadiusSize::from(owned.as_str());
   let copy = radius;
   assert_eq!(radius, copy);
-  assert_eq!(radius, RadiusSize::Extra("card"));
+  assert_eq!(radius, RadiusSize::extra("card"));
   assert_eq!(radius, RadiusSize::from(Arc::<str>::from("card")));
   assert_eq!(radius.as_str(), "card");
   assert_ne!(radius, RadiusSize::extra("panel"));

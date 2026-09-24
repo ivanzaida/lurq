@@ -1743,7 +1743,7 @@ impl Tree {
     #[cfg(feature = "devtools")]
     set_component_debug_metadata(&mut node, &ctx);
     wrapper.on_mounted();
-    self.root = Some(node);
+    self.root = Some(*node);
     if let Some(root) = &mut self.root {
       root.assign_ids(&self.id_gen);
     }
@@ -1795,8 +1795,8 @@ impl Tree {
         node.preserve_ids_from(&mut parts.base);
       }
       self.root = Some(match old_parts {
-        Some(parts) => root_with_preserved_overlay_parts(node, parts, &self.id_gen),
-        None => node,
+        Some(parts) => root_with_preserved_overlay_parts(*node, parts, &self.id_gen),
+        None => *node,
       });
       if let Some(root) = &mut self.root {
         root.assign_ids(&self.id_gen);
@@ -1821,7 +1821,7 @@ impl Tree {
       reset_element_ref_flags_recursive(old);
     }
     self.clear_animation_runtime_state();
-    let mut node = element.into().node;
+    let mut node = element.into().into_node();
     let old_parts = old_root.map(overlay_host_parts);
     if let Some(mut parts) = old_parts {
       node.preserve_runtime_state_from(&mut parts.base);

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::role_name::intern;
+use super::role_name::RoleName;
 use crate::layout::text_style::{FontWeight, TextStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -16,16 +16,16 @@ pub enum TypographyStyle {
   Link,
   Mono,
   /// An application-defined style stored in [`ThemeTypography::extra`].
-  Extra(&'static str),
+  Extra(RoleName),
 }
 
 impl TypographyStyle {
   /// An application-defined style. The name is interned (see [`TypographyStyle::Extra`]).
   pub fn extra(name: impl AsRef<str>) -> Self {
-    Self::Extra(intern(name.as_ref()))
+    Self::Extra(RoleName::new(name))
   }
 
-  pub const fn as_str(self) -> &'static str {
+  pub fn as_str(self) -> &'static str {
     match self {
       Self::Heading => "heading",
       Self::Title => "title",
@@ -37,7 +37,7 @@ impl TypographyStyle {
       Self::Button => "button",
       Self::Link => "link",
       Self::Mono => "mono",
-      Self::Extra(name) => name,
+      Self::Extra(name) => name.as_str(),
     }
   }
 }
@@ -94,7 +94,7 @@ impl ThemeTypography {
       TypographyStyle::Button => &self.button,
       TypographyStyle::Link => &self.link,
       TypographyStyle::Mono => &self.mono,
-      TypographyStyle::Extra(name) => self.extra.get(name)?,
+      TypographyStyle::Extra(name) => self.extra.get(name.as_str())?,
     };
     Some(style.clone())
   }
@@ -112,7 +112,7 @@ impl ThemeTypography {
       TypographyStyle::Link => self.link = value,
       TypographyStyle::Mono => self.mono = value,
       TypographyStyle::Extra(name) => {
-        self.extra.insert(Arc::from(name), value);
+        self.extra.insert(Arc::from(name.as_str()), value);
       }
     }
   }

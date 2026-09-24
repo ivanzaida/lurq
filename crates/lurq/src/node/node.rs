@@ -32,6 +32,7 @@ use crate::{
     dimension::Dimension,
     gradient::Gradient,
     interaction_state::InteractionState,
+    lazy_box::{LazyBox, empty_default},
     node_kind::{
       CheckboxState, NodeKind, SelectChangeCallback, SelectState, SliderState, TextInputState, TextOverflow, TextState,
       TextStyleSource,
@@ -549,6 +550,9 @@ pub struct EventHandlers {
   pub on_scroll_reach_bottom: Vec<Callback<ScrollEvent>>,
 }
 
+empty_default!(EventHandlers);
+empty_default!(StateStyles);
+
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
   pub(crate) tag_name: Arc<str>,
@@ -613,7 +617,7 @@ pub(crate) struct Node {
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
   pub(crate) style_state: InteractionState,
-  pub(crate) state_styles: StateStyles,
+  pub(crate) state_styles: LazyBox<StateStyles>,
   pub(crate) opacity: f32,
   pub(crate) transform: Transform2D,
   pub(crate) animation_overrides: Vec<(crate::animation::AnimatableProperty, crate::animation::AnimatableValue)>,
@@ -621,7 +625,7 @@ pub(crate) struct Node {
   pub(crate) animation: Option<Animation>,
   pub(crate) layout_cache: crate::node::layout_cache::LayoutCache,
   pub(crate) children: Vec<Node>,
-  pub(crate) events: EventHandlers,
+  pub(crate) events: LazyBox<EventHandlers>,
 }
 
 impl Default for Node {
@@ -1626,7 +1630,7 @@ impl Node {
       #[cfg(feature = "form")]
       form_name: None,
       style_state: InteractionState::new(),
-      state_styles: StateStyles::default(),
+      state_styles: LazyBox::new(),
       opacity: DEFAULT_OPACITY,
       transform: Transform2D::IDENTITY,
       animation_overrides: Vec::new(),
@@ -1634,7 +1638,7 @@ impl Node {
       animation: None,
       layout_cache: Default::default(),
       children,
-      events: EventHandlers::default(),
+      events: LazyBox::new(),
     }
   }
 
@@ -3880,6 +3884,17 @@ impl Node {
     self.has_stable_identity() && old.has_stable_identity() && self.can_reuse_id_from(old)
   }
 
+  /// A plain loop rather than `iter().map(..).collect()`: in an unoptimized
+  /// build every iterator adapter between the recursive calls would add a
+  /// frame holding a `Node` for each tree level.
+  fn clone_children_for_reuse(&self) -> Vec<Node> {
+    let mut children = Vec::with_capacity(self.children.len());
+    for child in &self.children {
+      children.push(child.clone_for_reuse());
+    }
+    children
+  }
+
   pub(crate) fn clone_for_reuse(&self) -> Self {
     Self {
       node_id: NodeId::UNASSIGNED,
@@ -3969,21 +3984,37 @@ impl Node {
       transitions: self.transitions.clone(),
       animation: self.animation.clone(),
       layout_cache: Default::default(),
-      children: self.children.iter().map(Node::clone_for_reuse).collect(),
+      children: self.clone_children_for_reuse(),
       events: self.events.clone(),
     }
   }
 
-  pub(crate) fn replace_component_slot(&mut self, slot_id: u64, replacement: Node) -> bool {
+  /// [`Self::clone_for_reuse`] onto the heap. The clone is built in this
+  /// frame, so callers on the component render path (which recurses once per
+  /// component level) never hold a `Node` temporary in their own frames.
+  pub(crate) fn clone_boxed(&self) -> Box<Node> {
+    Box::new(self.clone_for_reuse())
+  }
+
+  /// Moves `replacement` into `self`. Kept out of the recursive
+  /// [`Self::replace_component_slot_in`] so that its frame holds no `Node`.
+  #[inline(never)]
+  fn replace_with(&mut self, replacement: Box<Node>) {
+    *self = *replacement;
+  }
+
+  pub(crate) fn replace_component_slot(&mut self, slot_id: u64, replacement: Box<Node>) -> bool {
     let mut replacement = Some(replacement);
     self.replace_component_slot_in(slot_id, &mut replacement)
   }
 
-  pub(crate) fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Node>) -> bool {
+  pub(crate) fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Box<Node>>) -> bool {
     if self.component_slot_id == Some(slot_id) {
-      *self = replacement
-        .take()
-        .expect("component replacement should be available when matching slot is found");
+      self.replace_with(
+        replacement
+          .take()
+          .expect("component replacement should be available when matching slot is found"),
+      );
       return true;
     }
 

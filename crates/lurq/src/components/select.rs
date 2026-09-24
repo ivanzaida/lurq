@@ -189,7 +189,7 @@ where
     };
     let trigger = self
       .trigger
-      .map(|render| render(trigger_state.clone()).node)
+      .map(|render| render(trigger_state.clone()).into_node())
       .unwrap_or_else(|| default_trigger(trigger_state, &self.style));
 
     (*self.node)

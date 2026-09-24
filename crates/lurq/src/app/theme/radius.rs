@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::role_name::intern;
+use super::role_name::RoleName;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RadiusSize {
@@ -8,21 +8,21 @@ pub enum RadiusSize {
   Md,
   Lg,
   /// An application-defined radius stored in [`ThemeRadii::extra`].
-  Extra(&'static str),
+  Extra(RoleName),
 }
 
 impl RadiusSize {
   /// An application-defined radius. The name is interned (see [`RadiusSize::Extra`]).
   pub fn extra(name: impl AsRef<str>) -> Self {
-    Self::Extra(intern(name.as_ref()))
+    Self::Extra(RoleName::new(name))
   }
 
-  pub const fn as_str(self) -> &'static str {
+  pub fn as_str(self) -> &'static str {
     match self {
       Self::Sm => "sm",
       Self::Md => "md",
       Self::Lg => "lg",
-      Self::Extra(name) => name,
+      Self::Extra(name) => name.as_str(),
     }
   }
 }
@@ -65,7 +65,7 @@ impl ThemeRadii {
       RadiusSize::Sm => Some(self.sm),
       RadiusSize::Md => Some(self.md),
       RadiusSize::Lg => Some(self.lg),
-      RadiusSize::Extra(name) => self.extra.get(name).copied(),
+      RadiusSize::Extra(name) => self.extra.get(name.as_str()).copied(),
     }
   }
 
@@ -75,7 +75,7 @@ impl ThemeRadii {
       RadiusSize::Md => self.md = value,
       RadiusSize::Lg => self.lg = value,
       RadiusSize::Extra(name) => {
-        self.extra.insert(Arc::from(name), value);
+        self.extra.insert(Arc::from(name.as_str()), value);
       }
     }
   }

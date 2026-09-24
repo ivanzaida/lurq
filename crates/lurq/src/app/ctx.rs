@@ -52,14 +52,14 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
 }
 
 fn attach_component_metadata(
-  mut node: Node,
+  mut node: Box<Node>,
   tag_name: Arc<str>,
   slot_id: u64,
   key: Option<&str>,
   #[cfg(feature = "devtools")] ctx: &Ctx,
-) -> Node {
+) -> Box<Node> {
   if node.component_slot_id().is_some() {
-    node = Node::logical().child(node);
+    node = Box::new(Node::logical().child(*node));
   }
 
   node.set_tag_name(tag_name);
@@ -243,7 +243,7 @@ impl OverlaySpec {
 }
 
 pub struct Modal {
-  node: Node,
+  node: Box<Node>,
   open: OpenState,
   target: ModalTarget,
   dismiss_on_escape: bool,
@@ -286,7 +286,7 @@ impl Modal {
 
     Some(ModalSpec {
       target: self.target,
-      node: self.node,
+      node: *self.node,
       open_signal: self.open.signal(),
       dismiss_on_escape: self.dismiss_on_escape,
     })
@@ -306,7 +306,7 @@ impl From<Modal> for Element {
 
 pub struct Overlay {
   anchor: Option<ElementRef>,
-  node: Node,
+  node: Box<Node>,
   open: OpenState,
   placement: Placement,
   offset_x: f32,
@@ -395,7 +395,7 @@ impl Overlay {
 
     Some(OverlaySpec {
       anchor: self.anchor?,
-      node: self.node,
+      node: *self.node,
       placement: self.placement,
       offset_x: self.offset_x,
       offset_y: self.offset_y,
@@ -1358,7 +1358,7 @@ struct ChildSlot {
   key: Option<String>,
   component: Box<dyn AnyComponent>,
   ctx: Ctx,
-  rendered: Option<Node>,
+  rendered: Option<Box<Node>>,
   mounted: bool,
   offstage: bool,
   offstage_dirty: bool,
@@ -2536,10 +2536,10 @@ impl Ctx {
         if let Some(previous) = previous.as_ref() {
           element.node.preserve_runtime_state_from(previous);
         }
-        slot.rendered = Some(element.node.clone_for_reuse());
+        slot.rendered = Some(element.node.clone_boxed());
         return element;
       }
-      return Element::from_node(slot.rendered.as_ref().unwrap().clone_for_reuse());
+      return Element::from_boxed_node(slot.rendered.as_ref().unwrap().clone_boxed());
     }
 
     let slot_id = next_component_slot_id();
@@ -2583,7 +2583,7 @@ impl Ctx {
         #[cfg(feature = "devtools")]
         &child_ctx,
       );
-      Some(element.node.clone_for_reuse())
+      Some(element.node.clone_boxed())
     } else {
       child_ctx.clear_dirty();
       None
@@ -2720,7 +2720,7 @@ impl Ctx {
         #[cfg(feature = "devtools")]
         &slot.ctx,
       );
-      slot.rendered = Some(element.node.clone_for_reuse());
+      slot.rendered = Some(element.node.clone_boxed());
       return element;
     }
 
@@ -2765,7 +2765,7 @@ impl Ctx {
       key: Some(key),
       component: Box::new(ForEachSlot),
       ctx: child_ctx,
-      rendered: Some(element.node.clone_for_reuse()),
+      rendered: Some(element.node.clone_boxed()),
       mounted: false,
       offstage: false,
       offstage_dirty: false,
@@ -2975,7 +2975,7 @@ impl Ctx {
     completed
   }
 
-  pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Node)> {
+  pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Box<Node>)> {
     let mut replacements = Vec::new();
     let dirty_child_slot_ids = self.take_dirty_child_slot_ids();
 
@@ -3010,7 +3010,7 @@ impl Ctx {
         if let Some(old) = old_rendered.as_ref() {
           element.node.preserve_runtime_state_from(old);
         }
-        slot.rendered = Some(element.node.clone_for_reuse());
+        slot.rendered = Some(element.node.clone_boxed());
         replacements.push((slot.id, element.node));
         if needs_followup_refresh {
           Self::mark_dirty_child_slot(&self.dirty_child_slots, dirty_slot_id);
@@ -3020,7 +3020,7 @@ impl Ctx {
         let nested_replacements = slot.ctx.refresh_dirty_subtrees();
         if let Some(rendered) = &mut slot.rendered {
           for (slot_id, replacement) in nested_replacements {
-            let mut cached_replacement = Some(replacement.clone_for_reuse());
+            let mut cached_replacement = Some(replacement.clone_boxed());
             let _ = rendered.replace_component_slot_in(slot_id, &mut cached_replacement);
             replacements.push((slot_id, replacement));
           }

@@ -6,7 +6,7 @@ use crate::{
   },
   node::{
     dimension::Dimension,
-    node::{EventHandlers, Node},
+    node::Node,
     node_kind::{NodeKind, TextOverflow},
     padding::Padding,
     spacing_value::SpacingValue,
@@ -84,7 +84,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     #[cfg(feature = "form")]
     form_name: None,
     style_state: crate::node::interaction_state::InteractionState::new(),
-    state_styles: crate::node::style::StateStyles::default(),
+    state_styles: crate::node::lazy_box::LazyBox::new(),
     opacity: DEFAULT_SCROLL_OPACITY,
     transform: crate::node::transform::Transform2D::IDENTITY,
     animation_overrides: Vec::new(),
@@ -92,7 +92,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     animation: None,
     layout_cache: Default::default(),
     children: vec![child],
-    events: EventHandlers::default(),
+    events: crate::node::lazy_box::LazyBox::new(),
   }
 }
 

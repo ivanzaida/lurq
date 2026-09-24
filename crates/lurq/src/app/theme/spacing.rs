@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::role_name::intern;
+use super::role_name::RoleName;
 use crate::node::dimension::Dimension;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -12,16 +12,16 @@ pub enum SpacingSize {
   Xl,
   Section,
   /// An application-defined spacing stored in [`ThemeSpacing::extra`].
-  Extra(&'static str),
+  Extra(RoleName),
 }
 
 impl SpacingSize {
   /// An application-defined spacing. The name is interned (see [`SpacingSize::Extra`]).
   pub fn extra(name: impl AsRef<str>) -> Self {
-    Self::Extra(intern(name.as_ref()))
+    Self::Extra(RoleName::new(name))
   }
 
-  pub const fn as_str(self) -> &'static str {
+  pub fn as_str(self) -> &'static str {
     match self {
       Self::Xs => "xs",
       Self::Sm => "sm",
@@ -29,7 +29,7 @@ impl SpacingSize {
       Self::Lg => "lg",
       Self::Xl => "xl",
       Self::Section => "section",
-      Self::Extra(name) => name,
+      Self::Extra(name) => name.as_str(),
     }
   }
 }
@@ -78,7 +78,7 @@ impl ThemeSpacing {
       SpacingSize::Lg => Some(self.lg),
       SpacingSize::Xl => Some(self.xl),
       SpacingSize::Section => Some(self.section),
-      SpacingSize::Extra(name) => self.extra.get(name).copied(),
+      SpacingSize::Extra(name) => self.extra.get(name.as_str()).copied(),
     }
   }
 
@@ -91,7 +91,7 @@ impl ThemeSpacing {
       SpacingSize::Xl => self.xl = value.into(),
       SpacingSize::Section => self.section = value.into(),
       SpacingSize::Extra(name) => {
-        self.extra.insert(Arc::from(name), value.into());
+        self.extra.insert(Arc::from(name.as_str()), value.into());
       }
     }
   }

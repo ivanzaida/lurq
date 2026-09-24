@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::role_name::intern;
+use super::role_name::RoleName;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BorderSize {
@@ -8,21 +8,21 @@ pub enum BorderSize {
   Md,
   Lg,
   /// An application-defined border width stored in [`ThemeBorderSizes::extra`].
-  Extra(&'static str),
+  Extra(RoleName),
 }
 
 impl BorderSize {
   /// An application-defined border width. The name is interned (see [`BorderSize::Extra`]).
   pub fn extra(name: impl AsRef<str>) -> Self {
-    Self::Extra(intern(name.as_ref()))
+    Self::Extra(RoleName::new(name))
   }
 
-  pub const fn as_str(self) -> &'static str {
+  pub fn as_str(self) -> &'static str {
     match self {
       Self::Sm => "sm",
       Self::Md => "md",
       Self::Lg => "lg",
-      Self::Extra(name) => name,
+      Self::Extra(name) => name.as_str(),
     }
   }
 }
@@ -65,7 +65,7 @@ impl ThemeBorderSizes {
       BorderSize::Sm => Some(self.sm),
       BorderSize::Md => Some(self.md),
       BorderSize::Lg => Some(self.lg),
-      BorderSize::Extra(name) => self.extra.get(name).copied(),
+      BorderSize::Extra(name) => self.extra.get(name.as_str()).copied(),
     }
   }
 
@@ -75,7 +75,7 @@ impl ThemeBorderSizes {
       BorderSize::Md => self.md = value,
       BorderSize::Lg => self.lg = value,
       BorderSize::Extra(name) => {
-        self.extra.insert(Arc::from(name), value);
+        self.extra.insert(Arc::from(name.as_str()), value);
       }
     }
   }
