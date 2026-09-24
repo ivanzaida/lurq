@@ -1,11 +1,11 @@
 ---
 title: Theme
-description: Semantic palette, typography, radius, spacing, scrollbar, border size, and form theme roles, with named extras.
+description: Semantic palette, typography, radius, spacing, border size, shadow, scrollbar, and form theme roles, with named extras.
 ---
 
 # Theme
 
-The runtime theme is a set of semantic roles. Palette colors, typography styles, radius sizes, spacing sizes, and border sizes are enums with a matching field on the theme structs for each built-in role, plus an `Extra` variant for application-defined roles (see [Extra Roles](#extra-roles)). The scrollbar style and breakpoints have no extras.
+The runtime theme is a set of semantic roles. Palette colors, typography styles, radius sizes, spacing sizes, border sizes, and shadow styles are enums with a matching field on the theme structs for each built-in role, plus an `Extra` variant for application-defined roles (see [Extra Roles](#extra-roles)). The scrollbar style and breakpoints have no extras.
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
@@ -61,6 +61,8 @@ The main theme accessors are:
 | `theme.spacing_value(key)` / `theme.set_spacing_value(key, value)` | Read or set one spacing role. |
 | `theme.border_sizes()` / `theme.set_border_sizes(...)` | Read or replace `ThemeBorderSizes`. |
 | `theme.border_size_value(key)` / `theme.set_border_size_value(key, value)` | Read or set one border-size role. |
+| `theme.shadows()` / `theme.set_shadows(...)` | Read or replace `ThemeShadows`. |
+| `theme.shadow_style(key)` / `theme.set_shadow_style(key, shadows)` | Read or set one shadow role (a list of `BoxShadow`s). |
 | `theme.scrollbar()` / `theme.set_scrollbar(...)` | Read or replace the default `ScrollBarStyle`. |
 | `theme.breakpoints()` / `theme.set_breakpoints(...)` | Read or replace `ThemeBreakpoints`. |
 | `theme.breakpoint_value(key)` / `theme.set_breakpoint_value(key, value)` | Read or set one breakpoint threshold. |
@@ -329,6 +331,39 @@ Rect::new(100.0, 40.0)
   .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
 ```
 
+## Shadow
+
+Shadow (elevation) roles are named by `ShadowStyle` and stored as public fields on `ThemeShadows`. Each role is a list of [box shadows](../styling-events/#box-shadows), painted first on top, so one role can stack a tight contact shadow over a soft ambient one. Lists are shared `Arc<[BoxShadow]>` values: reading a role or cloning the table does not copy them.
+
+| `ShadowStyle` | `ThemeShadows` field | Default (`offset_x offset_y blur spread color`) |
+| --- | --- | --- |
+| `Sm` | `sm` | `0 1 2 0 #0000000d` |
+| `Md` | `md` | `0 4 6 -1 #0000001a`, `0 2 4 -2 #0000001a` |
+| `Lg` | `lg` | `0 10 15 -3 #0000001a`, `0 4 6 -4 #0000001a` |
+
+Use shadow roles anywhere a box shadow is accepted, including hover, active, and focus styles:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, RadiusSize, ShadowStyle},
+  components::Rect,
+  node::{BoxShadow, color::Color},
+};
+
+app.theme().set_palette_color(PaletteColor::extra("shadow"), Color::from_hex("#0f172a33"));
+app.theme().set_shadow_style(ShadowStyle::Md, vec![
+  BoxShadow::new(0.0, 4.0, 12.0, PaletteColor::extra("shadow")).spread(-2.0),
+]);
+
+Rect::new(240.0, 120.0)
+  .background(PaletteColor::SurfaceRaised)
+  .rounded(RadiusSize::Lg)
+  .box_shadow(ShadowStyle::Md)
+  .hovered(|style| style.box_shadow(ShadowStyle::Lg));
+```
+
+A shadow's color is a `BackgroundColor`, so a palette role (as above) keeps shadows in step with light and dark palettes. Setting a role to an empty list removes that elevation everywhere it is used. Changing a shadow role repaints; it never relayouts, because shadows do not take part in layout.
+
 ## Extra Roles
 
 Every role enum except `Breakpoint` has an `Extra` variant for roles the built-in set does not cover, such as a design system's overline or card radius. Each theme struct stores extras in a public `extra` map keyed by `Arc<str>`:
@@ -340,14 +375,16 @@ Every role enum except `Breakpoint` has an `Extra` variant for roles the built-i
 | `RadiusSize` | `Extra(RoleName)` | `ThemeRadii::extra: HashMap<Arc<str>, f32>` |
 | `SpacingSize` | `Extra(RoleName)` | `ThemeSpacing::extra: HashMap<Arc<str>, Dimension>` |
 | `BorderSize` | `Extra(RoleName)` | `ThemeBorderSizes::extra: HashMap<Arc<str>, f32>` |
+| `ShadowStyle` | `Extra(RoleName)` | `ThemeShadows::extra: HashMap<Arc<str>, Arc<[BoxShadow]>>` |
 
 Build a role with `extra(name)`, or convert a `&str` or `Arc<str>`. The theme setters therefore take names directly:
 
 ```rust
 use lurq::{
-  app::theme::{RadiusSize, SpacingSize, TypographyStyle},
+  app::theme::{RadiusSize, ShadowStyle, SpacingSize, TypographyStyle},
   components::{Column, Rect, Text},
   layout::text_style::{FontWeight, TextStyle},
+  node::BoxShadow,
 };
 
 let theme = app.theme();
@@ -358,19 +395,24 @@ theme.set_typography_style("overline", TextStyle {
 });
 theme.set_radius_value("card", 10.0);
 theme.set_spacing_value("gutter", 20.0);
+theme.set_shadow_style("popover", vec![BoxShadow::new(0.0, 12.0, 32.0, "#0f172a40").spread(-4.0)]);
 
 Column::new()
   .padding(SpacingSize::extra("gutter"))
   .child(Text::new("RECENT").variant("overline"))
-  .child(Rect::new(200.0, 120.0).rounded(RadiusSize::extra("card")));
+  .child(
+    Rect::new(200.0, 120.0)
+      .rounded(RadiusSize::extra("card"))
+      .box_shadow(ShadowStyle::extra("popover")),
+  );
 ```
 
-Radius, spacing, border-size, and typography roles are `Copy`, nest in `Copy` values such as `Padding`, and are stored many times in every element, so their names are interned: `RoleName` is a 4-byte handle to a name stored once for the life of the process, and each of these roles is 8 bytes. `RoleName` dereferences to `str` and compares equal to a `&str`; `as_str()` returns the name. Use a fixed vocabulary of role names, not per-item data.
+Radius, spacing, border-size, typography, and shadow roles are `Copy`, nest in `Copy` values such as `Padding`, and are stored many times in every element, so their names are interned: `RoleName` is a 4-byte handle to a name stored once for the life of the process, and each of these roles is 8 bytes. `RoleName` dereferences to `str` and compares equal to a `&str`; `as_str()` returns the name. Use a fixed vocabulary of role names, not per-item data.
 
 A missing extra name follows the palette:
 
-- The theme tables' `get` and `resolve` panic, for example `radius size not found: card`. `try_get` and `try_resolve` return `None`. The `Theme` accessors (`palette_color`, `typography_style`, `radius_value`, `spacing_value`, `border_size_value`) call `get`.
-- Nodes never panic. As an unresolved palette color paints nothing, an unresolved radius, spacing, or border size resolves to `0`, and an unresolved typography variant uses the default text style.
+- The theme tables' `get` and `resolve` panic, for example `radius size not found: card`. `try_get` and `try_resolve` return `None`. The `Theme` accessors (`palette_color`, `typography_style`, `radius_value`, `spacing_value`, `border_size_value`, `shadow_style`) call `get`.
+- Nodes never panic. As an unresolved palette color paints nothing, an unresolved radius, spacing, or border size resolves to `0`, an unresolved shadow style paints no shadow, and an unresolved typography variant uses the default text style.
 
 `Breakpoint` has no extras: `Responsive` orders overrides by the `Breakpoint` enum, not by threshold, so a named threshold could not be placed in that order.
 
@@ -581,4 +623,4 @@ Rect::new(80.0, 32.0)
   .border_inside(1.0, Color::from_hex("#334155"));
 ```
 
-Prefer concrete values for isolated drawings, debug visuals, or one-off component details. Prefer theme roles for app surfaces, text, controls, repeated spacing, repeated border widths, and reusable component defaults.
+Prefer concrete values for isolated drawings, debug visuals, or one-off component details. Prefer theme roles for app surfaces, text, controls, repeated spacing, repeated border widths, elevations, and reusable component defaults.

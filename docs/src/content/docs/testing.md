@@ -32,6 +32,13 @@ cargo check --workspace --all-features --all-targets --locked
 
 The publish workflow in `.github/workflows/publish-crates.yml` defines release validation. Native GPU and window checks need the matching platform and a usable graphics environment; see [Canvas 2D](../canvas/#examples-and-checks) and [Window lifecycle](../window-lifecycle-menus/#mcp-and-verification). Ignored hardware tests are not run by an ordinary `cargo test`.
 
+On Windows, the render readback tests draw into a hidden window of their own and compare both native backends with CSS blending and with the box-shadow formula; the box-shadow capture check runs a themed scene through layout and both backends and requires identical captures:
+
+```powershell
+cargo test -p lurq --features wgpu,dx12,raster,screenshot --lib readback -- --ignored --test-threads=1
+cargo run -p lurq --example box_shadow_capture_check --features screenshot,wgpu,dx12
+```
+
 Run one area:
 
 ```powershell

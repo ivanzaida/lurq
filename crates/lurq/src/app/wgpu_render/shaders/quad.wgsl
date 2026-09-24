@@ -15,6 +15,12 @@
 //                stroke width.
 // In both modes a ~1-pixel anti-alias band keeps edges smooth.
 //
+// Box-shadow instances (no stroke, `pattern.x` = 1 outer / 2 inset) paint a
+// Gaussian-blurred rounded rect instead; see `box_shadow_alpha`. For them
+// `radii_h` are the element box's radii, `radii_v` the shadow shape's,
+// `pattern.yz` the shape offset, `pattern.w` the spread and `shadow_sigma`
+// the Gaussian's standard deviation.
+//
 // The corner zone uses a gradient-corrected ellipse SDF so corners can
 // be elliptical (h != v); when h == v it reduces to the usual circular
 // case.
@@ -70,7 +76,13 @@ fn vs_main(in: VsIn) -> VsOut {
     // expanded slightly so transformed edges have fragments on both
     // sides of the SDF boundary; otherwise the rasterizer clips away
     // the outer half of the AA band.
-    let aa_outset = 2.0;
+    var aa_outset = 2.0;
+    let max_stroke = max(max(in.stroke.x, in.stroke.y), max(in.stroke.z, in.stroke.w));
+    if (max_stroke <= 0.0 && in.pattern.x > 0.5 && in.pattern.x < 1.5) {
+        // An outer shadow paints beyond its element box.
+        aa_outset = aa_outset + max(in.pattern.w, 0.0) + max(abs(in.pattern.y), abs(in.pattern.z))
+            + SHADOW_EXTENT_SIGMAS * in.shadow_sigma;
+    }
     let local_px = in.corner * (in.size + vec2<f32>(aa_outset * 2.0, aa_outset * 2.0))
                  - vec2<f32>(aa_outset, aa_outset);
     // Apply 2x2 transform around xf_origin.
@@ -278,6 +290,85 @@ fn supersampled_stroke_alpha(
     ) * 0.25;
 }
 
+// Box shadows. The same formula as `blurred_rounded_rect_coverage` in
+// `layout/box_shadow.rs` and `quad.hlsl`; keep the three in step.
+const SHADOW_Y_SAMPLES: i32 = 8;
+const SHADOW_EXTENT_SIGMAS: f32 = 3.0;
+const SHADOW_MIN_SIGMA: f32 = 0.1;
+
+fn shadow_erf(x: vec2<f32>) -> vec2<f32> {
+    let s = sign(x);
+    let a = abs(x);
+    var r = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
+    r = r * r;
+    return s - s / (r * r);
+}
+
+fn shadow_gaussian(x: f32, sigma: f32) -> f32 {
+    return exp(-(x * x) / (2.0 * sigma * sigma)) / (2.5066283 * sigma);
+}
+
+/// A row of the rounded rect at height `y`, convolved along x with the
+/// Gaussian: the difference of two `erf`s at the row's curved ends.
+fn shadow_blur_along_x(x: f32, y: f32, sigma: f32, corner: f32, half: vec2<f32>) -> f32 {
+    let delta = min(half.y - corner - abs(y), 0.0);
+    let curved = half.x - corner + sqrt(max(corner * corner - delta * delta, 0.0));
+    let integral = 0.5 + 0.5 * shadow_erf((vec2<f32>(x, x) + vec2<f32>(-curved, curved)) * (0.70710678 / sigma));
+    return integral.y - integral.x;
+}
+
+/// Coverage of a rounded rect (half extent `half`, circular corner `radii`)
+/// blurred by `sigma`, at centre-relative `p`; the y convolution is a
+/// midpoint sum over +/- 3 sigma.
+fn blurred_rounded_box(p: vec2<f32>, half: vec2<f32>, radii: vec4<f32>, sigma: f32) -> f32 {
+    if (half.x <= 0.0 || half.y <= 0.0) {
+        return 0.0;
+    }
+    let corner = max(min(pick_radius(p, radii, radii).x, min(half.x, half.y)), 0.0);
+    let extent = SHADOW_EXTENT_SIGMAS * sigma;
+    let start = clamp(-extent, p.y - half.y, p.y + half.y);
+    let end = clamp(extent, p.y - half.y, p.y + half.y);
+    let step = (end - start) / f32(SHADOW_Y_SAMPLES);
+    var y = start + step * 0.5;
+    var coverage = 0.0;
+    for (var i: i32 = 0; i < SHADOW_Y_SAMPLES; i = i + 1) {
+        coverage = coverage + shadow_blur_along_x(p.x, p.y - y, sigma, corner, half) * shadow_gaussian(y, sigma) * step;
+        y = y + step;
+    }
+    return clamp(coverage, 0.0, 1.0);
+}
+
+fn shadow_shape_alpha(p: vec2<f32>, half: vec2<f32>, radii: vec4<f32>, sigma: f32) -> f32 {
+    if (sigma < SHADOW_MIN_SIGMA) {
+        if (half.x <= 0.0 || half.y <= 0.0) {
+            return 0.0;
+        }
+        return supersampled_fill_alpha(p, half, radii, radii);
+    }
+    return blurred_rounded_box(p, half, radii, sigma);
+}
+
+/// An outer shadow covers its shape outside the element box; an inset one
+/// covers the box outside its shape.
+fn box_shadow_alpha(
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    box_radii: vec4<f32>,
+    shape_radii: vec4<f32>,
+    params: vec4<f32>,
+    sigma: f32,
+) -> f32 {
+    let offset = params.yz;
+    let spread = params.w;
+    let box_alpha = supersampled_fill_alpha(local, half_size, box_radii, box_radii);
+    if (params.x < 1.5) {
+        let shape_half = max(half_size + vec2<f32>(spread, spread), vec2<f32>(0.0, 0.0));
+        return shadow_shape_alpha(local - offset, shape_half, shape_radii, sigma) * (1.0 - box_alpha);
+    }
+    let shape_half = max(half_size - vec2<f32>(spread, spread), vec2<f32>(0.0, 0.0));
+    return box_alpha * (1.0 - shadow_shape_alpha(local - offset, shape_half, shape_radii, sigma));
+}
+
 /// Evaluate a CSS-like gradient for a fragment at centre-relative pixel
 /// `local`, within a box of half-extent `half`. `off` is the vec4 index of
 /// the gradient header in the `gradients` storage buffer. Layout:
@@ -402,37 +493,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let max_stroke = max(max(in.stroke.x, in.stroke.y), max(in.stroke.z, in.stroke.w));
 
     if (max_stroke <= 0.0) {
+        if (in.pattern.x > 0.5) {
+            let shadow_alpha = box_shadow_alpha(in.local, in.half_size, in.radii_h, in.radii_v, in.pattern, in.shadow_sigma);
+            if (shadow_alpha <= 0.0) { discard; }
+            return encode_srgb(vec4<f32>(base_color.rgb, base_color.a * shadow_alpha * clip_alpha));
+        }
         let alpha = supersampled_fill_alpha(in.local, in.half_size, in.radii_h, in.radii_v);
-        // Shadow mode: soft Gaussian-like falloff.
-        let sigma = in.shadow_sigma;
-        if (sigma > 0.0) {
-            let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
-            let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
-            let t = clamp(-outer_dist / sigma, 0.0, 1.0);
-            let alpha = t * t * (3.0 - 2.0 * t) * base_color.a * clip_alpha;
-            if (alpha <= 0.001) { discard; }
-            return encode_srgb(vec4<f32>(base_color.rgb, alpha));
-        }
-        if (sigma < 0.0) {
-            // Inset shadow: fade inward from an inner reference shape.
-            // pattern.xy = offset, pattern.z = spread.
-            let sigma_abs = -sigma;
-            let offset = in.pattern.xy;
-            let spread = in.pattern.z;
-            let inner_half = in.half_size - vec2<f32>(spread, spread);
-            let inner_local = in.local - offset;
-            let inner_r_raw = pick_radius(inner_local, in.radii_h, in.radii_v);
-            let inner_r = max(inner_r_raw - vec2<f32>(spread, spread), vec2<f32>(0.0, 0.0));
-            let inner_dist = sd_rounded_box(inner_local, inner_half, inner_r);
-            let outer_r = pick_radius(in.local, in.radii_h, in.radii_v);
-            let outer_dist = sd_rounded_box(in.local, in.half_size, outer_r);
-            let aa = aa_width(outer_dist);
-            let t = clamp(inner_dist / sigma_abs, 0.0, 1.0);
-            let outer_mask = clamp(0.5 - outer_dist / aa, 0.0, 1.0);
-            let alpha = t * t * (3.0 - 2.0 * t) * outer_mask * base_color.a * clip_alpha;
-            if (alpha <= 0.001) { discard; }
-            return encode_srgb(vec4<f32>(base_color.rgb, alpha));
-        }
         // Filled mode.
         if (alpha <= 0.0) { discard; }
         return encode_srgb(vec4<f32>(base_color.rgb, base_color.a * alpha * clip_alpha));

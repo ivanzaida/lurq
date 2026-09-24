@@ -169,6 +169,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// CSS-like `box-shadow`: a [`ShadowStyle`](crate::app::theme::ShadowStyle)
+      /// theme role, one [`BoxShadow`](crate::node::BoxShadow), or a list
+      /// (the first on top). Paint only: it does not change layout or hit testing.
+      pub fn box_shadow(mut self, shadow: impl Into<$crate::node::BoxShadowValue>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::box_shadow(node, shadow));
+        self
+      }
+
       pub fn size(
         mut self,
         width: impl Into<$crate::node::dimension::Dimension>,

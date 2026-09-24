@@ -86,6 +86,7 @@ fn main() {
       transform_origin: [0.0, 0.0],
       clip: ClipRect::default(),
       gradient: None,
+      shadow: None,
     }],
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]

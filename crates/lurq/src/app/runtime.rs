@@ -2249,9 +2249,20 @@ impl Tree {
       } else {
         scaled_clip
       };
+      // A shadow paints beyond its quad.
+      let cull_outset = match &quad.content {
+        QuadContent::BoxShadow(shadow) => shadow.outset() * scale,
+        _ => 0.0,
+      };
       if quad.transform.is_identity()
         && cull_clip.active
-        && !rect_intersects_clip(scaled_x, scaled_y, scaled_width, scaled_height, cull_clip)
+        && !rect_intersects_clip(
+          scaled_x - cull_outset,
+          scaled_y - cull_outset,
+          scaled_width + 2.0 * cull_outset,
+          scaled_height + 2.0 * cull_outset,
+          cull_clip,
+        )
       {
         continue;
       }
@@ -2284,6 +2295,7 @@ impl Tree {
             transform_origin: xf_origin,
             clip: scaled_clip,
             gradient,
+            shadow: None,
           });
 
           if let Some(borders) = quad.border {
@@ -2672,6 +2684,15 @@ impl Tree {
             mesh: std::sync::Arc::new(mesh),
             clip: scaled_clip,
           });
+        }
+        QuadContent::BoxShadow(shadow) => {
+          rects.push(crate::layout::box_shadow::shadow_rect_cmd(
+            order,
+            quad,
+            shadow,
+            scale,
+            scaled_clip,
+          ));
         }
         QuadContent::None => {}
       }
@@ -5502,6 +5523,13 @@ impl Tree {
         .as_ref()
         .map(|ctx| ctx.theme().version())
         .unwrap_or_else(|| app.theme().version());
+      self.layout_engine.set_shadows(
+        self
+          .root_ctx
+          .as_ref()
+          .map(|ctx| ctx.theme().shared_shadows())
+          .unwrap_or_else(|| app.theme().shared_shadows()),
+      );
       let typography = self
         .root_ctx
         .as_ref()
@@ -7350,6 +7378,12 @@ impl<'t> ElementHandle<'t> {
     self.invalidate_render();
   }
 
+  pub fn set_box_shadow(&mut self, shadow: impl Into<crate::node::BoxShadowValue>) {
+    let Some(node) = self.node_mut() else { return };
+    NodeUpdate::box_shadow(node, shadow);
+    self.invalidate_render();
+  }
+
   pub fn set_border(&mut self, border: crate::node::border::Border) {
     let Some(node) = self.node_mut() else { return };
     NodeUpdate::border(node, border);
@@ -8171,6 +8205,10 @@ fn save_devtools_screenshot(
 
 #[cfg(feature = "devtools")]
 fn draw_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: &RectCmd) {
+  if let Some(shadow) = &rect.shadow {
+    draw_screenshot_box_shadow(pixels, bounds, rect, shadow);
+    return;
+  }
   let Some(draw) = screenshot_draw_rect(bounds, rect.x, rect.y, rect.width, rect.height, rect.clip) else {
     return;
   };
@@ -8208,6 +8246,48 @@ fn draw_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rec
   ];
   if rect.stroke.iter().any(|width| *width > 0.0) && stroke[3] > 0 {
     draw_screenshot_stroke(pixels, bounds, rect, stroke);
+  }
+}
+
+#[cfg(feature = "devtools")]
+fn draw_screenshot_box_shadow(
+  pixels: &mut [u8],
+  bounds: DevtoolsScreenshotBounds,
+  rect: &RectCmd,
+  shadow: &crate::layout::render_list::RectShadow,
+) {
+  let outset = shadow.outset();
+  let Some(draw) = screenshot_draw_rect(
+    bounds,
+    rect.x - outset,
+    rect.y - outset,
+    rect.width + 2.0 * outset,
+    rect.height + 2.0 * outset,
+    rect.clip,
+  ) else {
+    return;
+  };
+  let color = [rect.color.r(), rect.color.g(), rect.color.b(), rect.color.a()];
+  for py in draw.y0..draw.y1 {
+    for px in draw.x0..draw.x1 {
+      let world_x = bounds.x as f32 + px as f32 + 0.5;
+      let world_y = bounds.y as f32 + py as f32 + 0.5;
+      if !screenshot_window_clip_contains(bounds, world_x, world_y)
+        || !screenshot_clip_contains(rect.clip, world_x, world_y)
+      {
+        continue;
+      }
+      let coverage = crate::layout::box_shadow::rect_shadow_coverage(rect, shadow, world_x, world_y);
+      if coverage > 0.0 {
+        blend_screenshot_pixel(
+          pixels,
+          bounds.width,
+          px,
+          py,
+          screenshot_color_with_coverage(color, coverage),
+        );
+      }
+    }
   }
 }
 
@@ -9630,6 +9710,7 @@ fn devtools_overlay_rect_cmd(order: usize, rect: DevtoolsOverlayRect, color: Col
     transform_origin: [0.0, 0.0],
     clip: ClipRect::default(),
     gradient: None,
+    shadow: None,
   }
 }
 
@@ -9686,6 +9767,7 @@ fn push_devtools_size_label(
     transform_origin: [0.0, 0.0],
     clip: ClipRect::default(),
     gradient: None,
+    shadow: None,
   });
 
   let mut label_glyphs =
@@ -9734,6 +9816,7 @@ fn push_perf_meter(
     transform_origin: [0.0, 0.0],
     clip: ClipRect::default(),
     gradient: None,
+    shadow: None,
   });
 
   let rows = [
@@ -10083,6 +10166,7 @@ fn push_border_rect(
     transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
     clip,
     gradient: None,
+    shadow: None,
   });
 }
 
@@ -10146,6 +10230,7 @@ fn push_single_side_border_rect(
     transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
     clip,
     gradient: None,
+    shadow: None,
   });
 }
 

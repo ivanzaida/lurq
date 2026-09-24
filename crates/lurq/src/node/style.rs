@@ -4,6 +4,7 @@ use crate::{
     background_color::BackgroundColor,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     border_size_value::BorderSizeValue,
+    box_shadow::BoxShadowValue,
     cursor::CursorIcon,
     dimension::Dimension,
     padding::Padding,
@@ -17,6 +18,7 @@ pub struct Style {
   pub(crate) color: Option<BackgroundColor>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) border: Option<Borders>,
+  pub(crate) box_shadow: Option<Box<BoxShadowValue>>,
   pub(crate) cursor: Option<CursorIcon>,
   pub(crate) frame: Option<FrameConstraints>,
   pub(crate) padding: Option<Padding>,
@@ -250,6 +252,14 @@ impl Style {
     self
   }
 
+  /// The box shadow while this style applies, for example a higher
+  /// [`ShadowStyle`](crate::app::theme::ShadowStyle) on hover.
+  /// [`BoxShadowValue::none`] removes the element's own shadow.
+  pub fn box_shadow(mut self, shadow: impl Into<BoxShadowValue>) -> Self {
+    self.box_shadow = Some(Box::new(shadow.into()));
+    self
+  }
+
   pub fn cursor(mut self, cursor: CursorIcon) -> Self {
     self.cursor = Some(cursor);
     self
@@ -264,6 +274,9 @@ impl Style {
     }
     if other.border.is_some() {
       self.border = other.border.clone();
+    }
+    if other.box_shadow.is_some() {
+      self.box_shadow = other.box_shadow.clone();
     }
     if other.cursor.is_some() {
       self.cursor = other.cursor;

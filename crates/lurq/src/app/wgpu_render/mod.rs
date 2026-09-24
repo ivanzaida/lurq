@@ -1467,6 +1467,11 @@ impl RenderEngine for WgpuRenderEngine {
     self.scratch_gradient_data.clear();
     for r in &list.rects {
       let start = self.scratch_rect_instances.len();
+      if let Some(shadow) = &r.shadow {
+        self.scratch_rect_instances.push(QuadInstance::box_shadow(r, shadow));
+        self.scratch_rect_draws.push(PreparedDraw { start, count: 1 });
+        continue;
+      }
       let gradient_offset = match &r.gradient {
         Some(gradient) => crate::layout::render_list::encode_gradient(&mut self.scratch_gradient_data, gradient),
         None => -1.0,

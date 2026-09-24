@@ -9,7 +9,9 @@ use crate::{
   app::{
     ctx::{ModalSpec, OverlaySpec},
     glyph_engine::GlyphEngine,
-    theme::{CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
+    theme::{
+      CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeShadows, ThemeSpacing, ThemeTypography,
+    },
   },
   core::{ElementRect, ElementRef},
   layout::{
@@ -35,6 +37,8 @@ use crate::{
     transform::Transform2D,
   },
 };
+
+mod box_shadow_quads;
 
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
@@ -189,6 +193,7 @@ pub(crate) struct LayoutEngine {
   caret: RefCell<ThemeCaret>,
   scrollbar: RefCell<ScrollBarStyle>,
   typography: RefCell<ThemeTypography>,
+  shadows: RefCell<Arc<ThemeShadows>>,
 }
 
 #[cfg(feature = "raster")]
@@ -451,6 +456,7 @@ impl LayoutEngine {
       caret: RefCell::new(ThemeCaret::default()),
       scrollbar: RefCell::new(ScrollBarStyle::default()),
       typography: RefCell::new(ThemeTypography::default()),
+      shadows: RefCell::new(Arc::new(ThemeShadows::default())),
     }
   }
 
@@ -835,6 +841,7 @@ impl LayoutEngine {
             child_abs_y,
             inherited_transform,
             child_cull_clip,
+            self.box_shadow_outset(child_node),
           )
         {
           continue;
@@ -895,6 +902,7 @@ impl LayoutEngine {
           child_abs_y,
           transform,
           child_cull_clip,
+          self.box_shadow_outset(child_node),
         )
       {
         continue;
@@ -962,8 +970,11 @@ impl LayoutEngine {
     let canvas_content = matches!(node.node_kind(), NodeKind::Canvas { .. });
     #[cfg(not(feature = "canvas"))]
     let canvas_content = false;
+    // Inset shadows paint between the background and the border, so a border
+    // that would share the background's quad moves after them.
+    let has_inset_shadow = self.has_inset_box_shadow(node);
     let defer_border_to_overlay =
-      resolved_border.is_some() && has_visual && (!node.children().is_empty() || canvas_content);
+      resolved_border.is_some() && has_visual && (!node.children().is_empty() || canvas_content || has_inset_shadow);
     let content = match node.node_kind() {
       NodeKind::Text {
         state,
@@ -1088,6 +1099,9 @@ impl LayoutEngine {
     } else {
       inherited_transform.then(&local_affine)
     };
+
+    let content_is_background = matches!(content, QuadContent::Rect { .. } | QuadContent::None);
+    self.push_box_shadow_quads(node, result, abs_x, abs_y, false, opacity, transform, clip, quads);
 
     match &content {
       QuadContent::None => {}
@@ -1318,6 +1332,9 @@ impl LayoutEngine {
             && has_visual;
         let (content_x, content_y, content_transform, content_transform_origin) =
           transformed_quad_frame(content_x, content_y, transform);
+        if has_inset_shadow && !content_is_background {
+          self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
+        }
         quads.push(Quad {
           x: content_x,
           y: content_y,
@@ -1374,6 +1391,10 @@ impl LayoutEngine {
         border: None,
         clip,
       });
+    }
+
+    if has_inset_shadow && content_is_background {
+      self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
     }
 
     match node.node_kind() {
@@ -3783,6 +3804,7 @@ fn clipped_subtree_is_hidden(
   abs_y: f32,
   inherited_transform: Transform2D,
   clip: ClipRect,
+  shadow_outset: f32,
 ) -> bool {
   if !clip.active
     || !inherited_transform.is_identity()
@@ -3793,7 +3815,13 @@ fn clipped_subtree_is_hidden(
     return false;
   }
 
-  !rect_intersects_clip(abs_x, abs_y, result.size.width, result.size.height, clip)
+  !rect_intersects_clip(
+    abs_x - shadow_outset,
+    abs_y - shadow_outset,
+    result.size.width + 2.0 * shadow_outset,
+    result.size.height + 2.0 * shadow_outset,
+    clip,
+  )
 }
 
 fn node_is_plain_logical_wrapper(node: &Node) -> bool {
@@ -3803,6 +3831,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.gradient.as_ref().is_none()
     && node.border_radius.as_ref().is_none()
     && node.border.as_ref().is_none()
+    && node.box_shadow.as_ref().is_none()
     && node.caret_color.as_ref().is_none()
     && node.caret_mode.as_ref().is_none()
     && node.scrollbar_style.as_ref().is_none()

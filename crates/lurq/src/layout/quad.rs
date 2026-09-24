@@ -129,6 +129,9 @@ pub enum QuadContent {
   Svg {
     data: crate::svg::SvgData,
   },
+  /// A box shadow cast by the quad's box (its `border_radius` included). For
+  /// an inset shadow the box is the element's padding box.
+  BoxShadow(crate::node::box_shadow::ResolvedBoxShadow),
   None,
 }
 

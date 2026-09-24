@@ -2306,9 +2306,14 @@ unsafe fn create_rgba_texture(device: &ID3D12Device, width: u32, height: u32) ->
   resource.ok_or_else(Error::from_win32)
 }
 
-fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
-  let mut instances = Vec::with_capacity(2);
-  instances.push(QuadInstance {
+/// A rect's instances: its fill and, when it has one, its stroke; or its box
+/// shadow. Returned inline with a count so drawing a rect does not allocate.
+fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> ([QuadInstance; 2], usize) {
+  if let Some(shadow) = &rect.shadow {
+    let instance = QuadInstance::box_shadow(rect, shadow);
+    return ([instance, instance], 1);
+  }
+  let fill = QuadInstance {
     pos: [rect.x, rect.y],
     size: [rect.width, rect.height],
     color: rect.color.to_linear_f32_array(),
@@ -2320,9 +2325,9 @@ fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
     xf_origin: rect.transform_origin,
     shadow_sigma: 0.0,
     gradient_offset,
-  });
+  };
   if rect.stroke.iter().any(|width| *width > 0.0) {
-    instances.push(QuadInstance {
+    let stroke = QuadInstance {
       pos: [rect.x, rect.y],
       size: [rect.width, rect.height],
       color: rect.stroke_color.to_linear_f32_array(),
@@ -2334,9 +2339,10 @@ fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
       xf_origin: rect.transform_origin,
       shadow_sigma: 0.0,
       gradient_offset: -1.0,
-    });
+    };
+    return ([fill, stroke], 2);
   }
-  instances
+  ([fill, fill], 1)
 }
 
 fn same_clip(a: ClipRect, b: ClipRect) -> bool {
@@ -3124,10 +3130,12 @@ impl Dx12State {
       Some(gradient) => crate::layout::render_list::encode_gradient(&mut gradient_data, gradient),
       None => -1.0,
     };
-    if gradient_data.is_empty() {
-      gradient_data.push([0.0; 4]);
-    }
-    let gradient_upload = self.upload_frame_pod_slice(&gradient_data, 16)?;
+    const NO_GRADIENT: [[f32; 4]; 1] = [[0.0; 4]];
+    let gradient_upload = if gradient_data.is_empty() {
+      self.upload_frame_pod_slice(&NO_GRADIENT, 16)?
+    } else {
+      self.upload_frame_pod_slice(&gradient_data, 16)?
+    };
     let globals = globals_for_clip(rect.clip, self.width as f32, self.height as f32);
     let globals_upload = self.upload_frame_constant(&globals)?;
 
@@ -3142,8 +3150,9 @@ impl Dx12State {
       .command_list
       .SetGraphicsRootShaderResourceView(1, gradient_upload.gpu_address);
 
-    let instances = rect_instances(rect, gradient_offset);
-    let instance_upload = self.upload_frame_pod_slice(&instances, 16)?;
+    let (instances, instance_count) = rect_instances(rect, gradient_offset);
+    let instances = &instances[..instance_count];
+    let instance_upload = self.upload_frame_pod_slice(instances, 16)?;
     let instance_view = instance_upload.vertex_view::<QuadInstance>();
 
     let vertex_views = [self.quad_buffers.vertex_view, instance_view];

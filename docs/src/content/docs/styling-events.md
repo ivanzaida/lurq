@@ -7,7 +7,7 @@ description: Visual modifiers, state styles, cursors, inputs, event handlers, sc
 
 Most visual and input behavior is expressed as chainable modifiers on typed components.
 
-Use [Theme](../theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, and compound form controls. Use concrete values for isolated one-off visuals.
+Use [Theme](../theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, shadows, and compound form controls. Use concrete values for isolated one-off visuals.
 
 ## Visual Modifiers
 
@@ -31,6 +31,7 @@ Common visual modifiers:
 | `.border_inside(width, color)` | Border inside the element bounds from a concrete width or `BorderSize`. |
 | `.border_center(width, color)` | Border centered on the element edge from a concrete width or `BorderSize`. |
 | `.border_outside(width, color)` | Border outside the element bounds from a concrete width or `BorderSize`. |
+| `.box_shadow(shadow)` | Drop or inset shadows from a `ShadowStyle` role, a `BoxShadow`, or a list. See [Box Shadows](#box-shadows). |
 | `.opacity(value)` | Draw opacity. |
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |
@@ -92,6 +93,56 @@ Gradient::conic(45.0, ["#f43f5e", "#8b5cf6", "#06b6d4", "#f43f5e"]);
 ```
 
 `.center(x, y)` moves the radial/conic origin; coordinates are normalized `0.0..=1.0` within the element (default `(0.5, 0.5)`).
+
+## Box Shadows
+
+`.box_shadow(...)` gives an element CSS-like `box-shadow`s. It takes a `ShadowStyle` [theme role](../theme/#shadow), which is what app UI should use, or concrete `BoxShadow` values for one-off visuals:
+
+```rust
+use lurq::{
+  app::theme::ShadowStyle,
+  components::Rect,
+  node::BoxShadow,
+};
+
+// A theme elevation.
+Rect::new(240.0, 120.0).background("#ffffff").rounded(12.0).box_shadow(ShadowStyle::Md);
+
+// offset_x, offset_y, blur, color; spread and inset are optional.
+Rect::new(240.0, 120.0)
+  .background("#ffffff")
+  .rounded(12.0)
+  .box_shadow([
+    BoxShadow::new(0.0, 1.0, 2.0, "#0f172a1f"),
+    BoxShadow::new(0.0, 12.0, 32.0, "#0f172a40").spread(-4.0),
+  ]);
+
+// An inset well.
+Rect::new(240.0, 40.0)
+  .background("#ffffff")
+  .box_shadow(BoxShadow::new(0.0, 2.0, 6.0, "#0000004d").inset());
+```
+
+A `BoxShadow` follows CSS and design tools such as Figma and Pencil:
+
+| Field | Meaning |
+| --- | --- |
+| `offset_x`, `offset_y` | Moves the shadow, in logical pixels. |
+| `blur` | CSS blur radius: a Gaussian with a standard deviation of `blur / 2`. `0` is a hard edge. |
+| `spread` | Grows the shadow shape (negative shrinks it) before the blur. Corner radii grow and shrink with it as CSS specifies, so square corners stay square. |
+| `color` | A `Color`, hex string, or `PaletteColor` role. |
+| `inset` | Paints inside the element instead of beneath it (`.inset()`). |
+
+How shadows paint:
+
+- A list paints first on top. Outer shadows paint beneath the element's background; inset shadows above the background and below the border and the children, inside the padding box (within an inside or centered border).
+- An outer shadow follows the element's corner radii and paints only outside its box, so it never shows through a translucent background.
+- Shadows never change layout and are not hit-tested: a click on a shadow goes to whatever is under it.
+- Shadows take the element's `.opacity(...)` and transform, and its clip: an ancestor that clips its children clips their shadows too. Containers clip by default, so give a shadow room with padding, or call `.overflow_visible()` on the containers it should escape (as with any child that paints outside its parent).
+- Values scale with the display like every other length.
+- Hover, active, and focus styles can change the shadow, for example to raise a card on hover with `.hovered(|style| style.box_shadow(ShadowStyle::Lg))`; `BoxShadowValue::none()` removes it.
+
+Both native backends evaluate the blurred rounded rect analytically in the quad shader (a closed-form `erf` along one axis, eight samples along the other), so a shadow is one more instance in the quad pipeline: no offscreen pass and no blur texture. wgpu and DX12 render the same pixels; the devtools screenshot renderer uses the same formula on the CPU.
 
 ## Hover, Active, And Focus Styles
 
