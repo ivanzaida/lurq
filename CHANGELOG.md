@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.27.0 — 2026-09-25
 
 - Add OpenType font feature settings, like CSS `font-feature-settings`. `TextStyle::font_features` is a `FontFeatures` list of `FontFeature` settings (a four-byte tag and a value, e.g. `FontFeature::disable(*b"liga")`); the default is empty and shapes as before. Settings are passed to cosmic-text/harfrust shaping and are part of every text cache key; they are kept sorted by tag with the last setting of a tag winning, so equal settings cache alike. `Text::font_features(...)` overrides the resolved style (typography roles included), `TextInput::font_features(...)` sets the value and placeholder styles, and `MarkdownTextStyle::font_features` and `CanvasFont::font_features` cover Markdown and canvas text. This lets an app turn off programming ligatures that misrender commands: Geist Mono's `liga` shapes `--` into one cell-wide glyph drawn over the preceding cell, so `login --hostname` rendered as `login--hostname`.
 - Breaking: `TextStyle`, `MarkdownTextStyle`, and `CanvasFont` struct literals without `..Default::default()` (or `CanvasFont::new`) need `font_features`.

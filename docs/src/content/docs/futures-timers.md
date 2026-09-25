@@ -198,7 +198,7 @@ When using the `form` feature, `FormProps::submit_action(action)` wires a `Futur
 Enable `tokio` and configure a live runtime handle to spawn futures and streams on Tokio. Add a direct Tokio dependency when application code uses its APIs:
 
 ```toml
-lurq = { version = "0.26.0", features = ["tokio"] }
+lurq = { version = "0.27.0", features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 ```
 
