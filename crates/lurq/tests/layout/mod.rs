@@ -28,6 +28,7 @@ mod constraints;
 mod edge_cases;
 mod flex;
 mod flex_constraints;
+mod flex_shrink_relayout;
 mod font_features;
 mod font_weight;
 mod frame;

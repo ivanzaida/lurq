@@ -244,6 +244,27 @@ Flex layout:
 3. Divide remaining space by flex factor.
 4. Lay out flex children with tight constraints for their assigned size.
 
+In an unbounded main axis (for example a column inside `ScrollVertical`, or a column measured by its own content) there
+is no remaining space: a flex child gets its `basis`, or its natural size when it has none.
+
+### Shrink
+
+`.flex_shrink(factor)` (or `.flex_full(grow, shrink, basis)`) lets a child give up main-axis space when the children
+overflow the row or column. The overflow is split by shrink factor, never below a child's `min_width`/`min_height`.
+Each shrunk child is then laid out again with its shrunk size as a tight constraint, so its content matches the box it
+got: a shrunk scroll container reports the shrunk viewport and scrolls to its last row, and a shrunk column distributes
+its own flex children inside the smaller height.
+
+```rust
+lurq::components::Column::new()
+  .height(300.0)
+  .child(header)
+  .child(lurq::components::ScrollVertical::new(rows).flex_shrink(1.0))
+  .child(footer)
+```
+
+The scroll area takes its content height while that fits, and the space between header and footer otherwise.
+
 ## Scroll
 
 ```rust
@@ -256,7 +277,17 @@ lurq::components::ScrollVertical::new(
 ```
 
 Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during
-layout/rendering.
+layout/rendering. Without a fixed size on the scroll axis, a scroll container takes its content's size within its
+constraints, so `.max_height(...)` makes it grow with its content up to the cap and scroll beyond it.
+
+`VirtualizedList` sizes the same way: `.height(...)` or `.flex(...)` gives it a fixed viewport, while `.max_height(...)`
+alone lets a short list take its content height and a long one stop at the cap.
+
+```rust
+VirtualizedList::new(ctx, items)
+  .max_height(240.0)
+  .mount_keyed::<ItemRow, _, _, _>(|item| item.id, |item| item.clone())
+```
 
 ## Text
 

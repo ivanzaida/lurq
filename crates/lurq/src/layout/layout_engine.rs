@@ -39,7 +39,10 @@ use crate::{
 };
 
 mod box_shadow_quads;
+mod flex_shrink;
 mod select_quads;
+
+use flex_shrink::FlexShrinkLine;
 
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
@@ -1812,7 +1815,7 @@ impl LayoutEngine {
     // the intrinsic size change from this flex parent. Re-run the parent from
     // its original constraints so the child is measured naturally before it
     // is stretched again.
-    if Self::has_dirty_stretched_intrinsic_child(node) {
+    if Self::has_dirty_stretched_intrinsic_child(node) || Self::has_dirty_shrunk_child(node) {
       return None;
     }
 
@@ -1861,6 +1864,7 @@ impl LayoutEngine {
       let size_changed = repaired.size != cached.children[index].result.size;
       if size_changed
         && (!Self::layout_kind_can_patch_child_size_change(node.layout_kind())
+          || Self::scroll_sized_by_content(node, constraints)
           || !Self::child_fits_cached_parent(original_offset, repaired.size, cached.size))
       {
         return Some(self.layout_node_uncached_with_child_overrides(
@@ -1935,6 +1939,12 @@ impl LayoutEngine {
       && offset.y >= -EPSILON
       && offset.x + child_size.width <= parent_size.width + EPSILON
       && offset.y + child_size.height <= parent_size.height + EPSILON
+  }
+
+  /// A scroll container under loose constraints takes its content's size, so
+  /// a content size change must re-measure it rather than patch the child in.
+  fn scroll_sized_by_content(node: &Node, constraints: Constraints) -> bool {
+    matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. }) && !constraints_are_tight(constraints)
   }
 
   fn layout_kind_can_patch_child_size_change(layout_kind: &LayoutKind) -> bool {
@@ -2660,9 +2670,17 @@ impl LayoutEngine {
         results.push(existing);
       } else {
         let params = &flex_params_list[i];
+        // An unbounded main axis has no free space to grow into: a growing
+        // child gets its basis, or its natural size without one. Growing by
+        // an infinite remainder would lay it out at an infinite size.
+        if !remaining.is_finite() && params.basis.is_none() {
+          let child_constraints = Self::non_flex_child_constraints(child, constraints, vertical);
+          results.push(self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints));
+          continue;
+        }
         let basis_size = params.basis.unwrap_or(0.0);
-        let flex_size = if remaining > 0.0 && grow_total > 0.0 {
-          basis_size + remaining.max(0.0) * (params.grow / grow_total)
+        let flex_size = if remaining.is_finite() && remaining > 0.0 && grow_total > 0.0 {
+          basis_size + remaining * (params.grow / grow_total)
         } else {
           basis_size
         };
@@ -2685,81 +2703,20 @@ impl LayoutEngine {
       }
     }
 
-    if shrink_total > 0.0 {
-      let total_children_main: f32 = results
-        .iter()
-        .zip(children.iter())
-        .filter(|(_, child)| !child.is_overlay_declaration())
-        .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
-        .sum();
-      let overflow = total_children_main + total_spacing - max_main;
-      if overflow > 0.0 {
-        let mut remaining_overflow = overflow;
-        let mut remaining_shrink = shrink_total;
-        let mut frozen = vec![false; children.len()];
-
-        loop {
-          let mut any_clamped = false;
-          for i in 0..children.len() {
-            if frozen[i] {
-              continue;
-            }
-            let params = &flex_params_list[i];
-            if params.shrink <= 0.0 {
-              continue;
-            }
-            let child_main = if vertical {
-              results[i].size.height
-            } else {
-              results[i].size.width
-            };
-            let shrink_amount = remaining_overflow * (params.shrink / remaining_shrink);
-            let min_main = children[i].min_main_size(vertical);
-            let new_main = (child_main - shrink_amount).max(min_main);
-            if new_main > child_main - shrink_amount {
-              frozen[i] = true;
-              let actual_shrink = child_main - new_main;
-              remaining_overflow -= actual_shrink;
-              remaining_shrink -= params.shrink;
-              any_clamped = true;
-              if vertical {
-                results[i].size.height = new_main;
-              } else {
-                results[i].size.width = new_main;
-              }
-            }
-          }
-          if !any_clamped {
-            break;
-          }
-          if remaining_shrink <= 0.0 {
-            break;
-          }
-        }
-
-        for i in 0..children.len() {
-          if frozen[i] {
-            continue;
-          }
-          let params = &flex_params_list[i];
-          if params.shrink <= 0.0 {
-            continue;
-          }
-          let child_main = if vertical {
-            results[i].size.height
-          } else {
-            results[i].size.width
-          };
-          let shrink_amount = remaining_overflow * (params.shrink / remaining_shrink);
-          let new_main = (child_main - shrink_amount).max(0.0);
-          if vertical {
-            results[i].size.height = new_main;
-          } else {
-            results[i].size.width = new_main;
-          }
-        }
-      }
-    }
+    self.shrink_flex_line(
+      glyph_engine,
+      &FlexShrinkLine {
+        children,
+        params: &flex_params_list,
+        constraints,
+        max_main,
+        total_spacing,
+        shrink_total,
+        vertical,
+      },
+      &mut results,
+      child_overrides,
+    );
 
     let max_cross: f32 = results
       .iter()

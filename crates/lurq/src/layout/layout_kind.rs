@@ -59,6 +59,16 @@ enum PendingScroll {
   },
 }
 
+/// Scroll position and range when the current layout pass first measured
+/// this scroll container.
+#[derive(Clone, Copy)]
+struct ScrollPassStart {
+  scroll_x: f32,
+  scroll_y: f32,
+  max_scroll_x: f32,
+  max_scroll_y: f32,
+}
+
 struct ScrollStateInner {
   scroll_x: f32,
   scroll_y: f32,
@@ -74,6 +84,14 @@ struct ScrollStateInner {
   viewport_height: f32,
   viewport_abs_x: f32,
   viewport_abs_y: f32,
+  /// Viewport top in layout space (the space of `ElementRef` positions), set
+  /// when element refs are updated after layout — unlike `viewport_abs_y`,
+  /// which is set while painting and lags one frame behind layout.
+  layout_viewport_y: f32,
+  /// Set by the first measurement of a layout pass; later measurements in the
+  /// same pass (a flex parent re-laying out a shrunk or stretched child)
+  /// restart from it, so the final measurement decides the offset.
+  pass_start: Option<ScrollPassStart>,
   thumb_hovered: bool,
   dragging: bool,
   drag_start_x: f32,
@@ -103,6 +121,8 @@ impl ScrollState {
         viewport_height: 0.0,
         viewport_abs_x: 0.0,
         viewport_abs_y: 0.0,
+        layout_viewport_y: 0.0,
+        pass_start: None,
         thumb_hovered: false,
         dragging: false,
         drag_start_x: 0.0,
@@ -269,11 +289,6 @@ impl ScrollState {
   /// Whether two handles share the same underlying scroll state.
   pub(crate) fn ptr_eq(&self, other: &ScrollState) -> bool {
     Arc::ptr_eq(&self.inner, &other.inner)
-  }
-
-  /// Absolute (window-space) top of the scroll viewport, set during layout.
-  pub(crate) fn viewport_abs_y(&self) -> f32 {
-    self.inner.lock().unwrap().viewport_abs_y
   }
 
   pub fn style(&self) -> ScrollBarStyle {
@@ -489,6 +504,12 @@ impl ScrollState {
     self.inner.lock().unwrap().scroll_dirty
   }
 
+  /// Record one measurement of the scroll container. A layout pass can
+  /// measure a container more than once (a flex parent re-lays out a child it
+  /// shrank or stretched); every measurement resolves the pending scroll and
+  /// the stick-to-end behaviour from the state the pass started with, so only
+  /// the final measurement counts. [`Self::finish_layout_pass`] then drops the
+  /// resolved pending scroll.
   pub(crate) fn update_layout_with_container(
     &self,
     content_w: f32,
@@ -499,10 +520,15 @@ impl ScrollState {
     container_h: f32,
   ) {
     let mut inner = self.inner.lock().unwrap();
-    let was_at_right = inner.max_scroll_x > 0.0 && inner.max_scroll_x - inner.scroll_x <= SCROLL_END_EPSILON;
-    let was_at_bottom = inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON;
-    let pending_scroll_x = inner.pending_scroll_x.take();
-    let pending_scroll_y = inner.pending_scroll_y.take();
+    let start = inner.pass_start.unwrap_or(ScrollPassStart {
+      scroll_x: inner.scroll_x,
+      scroll_y: inner.scroll_y,
+      max_scroll_x: inner.max_scroll_x,
+      max_scroll_y: inner.max_scroll_y,
+    });
+    inner.pass_start = Some(start);
+    let was_at_right = start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON;
+    let was_at_bottom = start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON;
 
     inner.content_width = content_w;
     inner.content_height = content_h;
@@ -512,30 +538,50 @@ impl ScrollState {
     inner.viewport_height = viewport_h.max(0.0);
     inner.max_scroll_x = (content_w - inner.viewport_width).max(0.0);
     inner.max_scroll_y = (content_h - inner.viewport_height).max(0.0);
-    if let Some(pending) = pending_scroll_x {
-      inner.scroll_x = resolve_pending_scroll(
+    inner.scroll_x = match inner.pending_scroll_x {
+      Some(pending) => resolve_pending_scroll(
         pending,
         inner.content_width,
         inner.max_scroll_x,
-        inner.scroll_x,
+        start.scroll_x,
         inner.viewport_width,
-      );
-    } else if was_at_right {
-      inner.scroll_x = inner.max_scroll_x;
-    }
-    if let Some(pending) = pending_scroll_y {
-      inner.scroll_y = resolve_pending_scroll(
+      ),
+      None if was_at_right => inner.max_scroll_x,
+      None => start.scroll_x,
+    };
+    inner.scroll_y = match inner.pending_scroll_y {
+      Some(pending) => resolve_pending_scroll(
         pending,
         inner.content_height,
         inner.max_scroll_y,
-        inner.scroll_y,
+        start.scroll_y,
         inner.viewport_height,
-      );
-    } else if was_at_bottom {
-      inner.scroll_y = inner.max_scroll_y;
-    }
+      ),
+      None if was_at_bottom => inner.max_scroll_y,
+      None => start.scroll_y,
+    };
     inner.scroll_x = inner.scroll_x.clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = inner.scroll_y.clamp(0.0, inner.max_scroll_y);
+  }
+
+  /// End the current layout pass: the last measurement's offset stands and
+  /// the pending scroll it resolved is consumed. No-op when the container was
+  /// not measured in this pass (its pending scroll keeps waiting).
+  pub(crate) fn finish_layout_pass(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    if inner.pass_start.take().is_some() {
+      inner.pending_scroll_x = None;
+      inner.pending_scroll_y = None;
+    }
+  }
+
+  pub(crate) fn set_layout_viewport_y(&self, y: f32) {
+    self.inner.lock().unwrap().layout_viewport_y = y;
+  }
+
+  /// Viewport top in layout space; see `ScrollStateInner::layout_viewport_y`.
+  pub(crate) fn layout_viewport_y(&self) -> f32 {
+    self.inner.lock().unwrap().layout_viewport_y
   }
 
   pub(crate) fn set_viewport_position(&self, x: f32, y: f32) {

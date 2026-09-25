@@ -3629,6 +3629,11 @@ impl Node {
     #[cfg(feature = "raster")]
     self.background_image.clear_changed();
     self.scrollbar_style.clear_changed();
+    // Runs once after every layout computation: the last measurement of each
+    // scroll container in that pass stands.
+    if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind {
+      state.finish_layout_pass();
+    }
     for child in &self.children {
       child.clear_guards();
     }

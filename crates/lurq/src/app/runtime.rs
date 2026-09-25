@@ -8939,6 +8939,11 @@ fn update_element_refs_recursive(
       layout.size.height,
     );
   }
+  // Same space as the element refs above, so after-layout hooks can compare
+  // a scroll viewport with the rows inside it.
+  if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+    state.set_layout_viewport_y(abs_y);
+  }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
     update_element_refs_recursive(
