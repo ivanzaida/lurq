@@ -527,6 +527,11 @@ pub(crate) enum SyntheticNodeRole {
   /// An open dialog `Modal`'s container, a direct child of the overlay host.
   /// `WindowChrome`'s layer is built like a modal but never gets this role.
   Modal,
+  /// A `Select` trigger's chevron for one open state. Painting skips it while
+  /// the enclosing select's open state differs.
+  SelectChevron {
+    open: bool,
+  },
 }
 
 #[derive(Default, Clone)]
@@ -1878,6 +1883,14 @@ impl Node {
     self
   }
 
+  pub(crate) fn select_options_meta(self, details: Vec<Option<std::sync::Arc<str>>>, disabled: Vec<bool>) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_details(details);
+      state.set_disabled(disabled);
+    }
+    self
+  }
+
   pub fn select_selected(self, selected: Vec<usize>) -> Self {
     if let Some(state) = self.select_state() {
       state.set_selected(selected);
@@ -1934,6 +1947,12 @@ impl Node {
     }
     if let Some(radius) = part.border_radius {
       self.border_radius.set(Some(radius));
+    }
+    if let Some(shadow) = &part.box_shadow {
+      self = self.box_shadow(shadow.clone());
+    }
+    if let Some(opacity) = part.opacity {
+      self = self.opacity(opacity);
     }
     if let Some(padding) = &part.padding {
       self = self.padding_custom(padding.clone());
@@ -3142,6 +3161,14 @@ impl Node {
 
   pub(crate) fn has_synthetic_role(&self, role: SyntheticNodeRole) -> bool {
     self.synthetic_role == Some(role)
+  }
+
+  /// The open state a `Select` chevron node is drawn for, if it is one.
+  pub(crate) fn select_chevron_open(&self) -> Option<bool> {
+    match self.synthetic_role {
+      Some(SyntheticNodeRole::SelectChevron { open }) => Some(open),
+      _ => None,
+    }
   }
 
   pub(crate) fn set_component_key(&mut self, key: Option<&str>) {

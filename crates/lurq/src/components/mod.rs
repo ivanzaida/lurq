@@ -73,7 +73,7 @@ pub use rect::Rect;
 pub use router_component::{Router, RouterProps};
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
-pub use select::Select;
+pub use select::{Select, SelectOption};
 pub use slider::Slider;
 pub use slot::Slot;
 pub use spacer::Spacer;

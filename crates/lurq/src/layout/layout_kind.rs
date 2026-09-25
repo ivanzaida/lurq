@@ -52,6 +52,11 @@ enum PendingScroll {
     previous_content: f32,
     previous_scroll: f32,
   },
+  /// Scroll by the least amount that shows `[start, end]` of the content.
+  Reveal {
+    start: f32,
+    end: f32,
+  },
 }
 
 struct ScrollStateInner {
@@ -131,6 +136,14 @@ impl ScrollState {
     let mut inner = self.inner.lock().unwrap();
     inner.pending_scroll_x = Some(PendingScroll::Offset(x.max(0.0)));
     inner.pending_scroll_y = Some(PendingScroll::Offset(y.max(0.0)));
+    inner.scroll_dirty = true;
+  }
+
+  /// Queue the smallest vertical scroll that shows content rows
+  /// `start..end`, resolved after the next layout measurement.
+  pub(crate) fn reveal_y_pending(&self, start: f32, end: f32) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.pending_scroll_y = Some(PendingScroll::Reveal { start, end });
     inner.scroll_dirty = true;
   }
 
@@ -500,12 +513,24 @@ impl ScrollState {
     inner.max_scroll_x = (content_w - inner.viewport_width).max(0.0);
     inner.max_scroll_y = (content_h - inner.viewport_height).max(0.0);
     if let Some(pending) = pending_scroll_x {
-      inner.scroll_x = resolve_pending_scroll(pending, inner.content_width, inner.max_scroll_x);
+      inner.scroll_x = resolve_pending_scroll(
+        pending,
+        inner.content_width,
+        inner.max_scroll_x,
+        inner.scroll_x,
+        inner.viewport_width,
+      );
     } else if was_at_right {
       inner.scroll_x = inner.max_scroll_x;
     }
     if let Some(pending) = pending_scroll_y {
-      inner.scroll_y = resolve_pending_scroll(pending, inner.content_height, inner.max_scroll_y);
+      inner.scroll_y = resolve_pending_scroll(
+        pending,
+        inner.content_height,
+        inner.max_scroll_y,
+        inner.scroll_y,
+        inner.viewport_height,
+      );
     } else if was_at_bottom {
       inner.scroll_y = inner.max_scroll_y;
     }
@@ -520,7 +545,13 @@ impl ScrollState {
   }
 }
 
-fn resolve_pending_scroll(pending: PendingScroll, content_size: f32, max_scroll: f32) -> f32 {
+fn resolve_pending_scroll(
+  pending: PendingScroll,
+  content_size: f32,
+  max_scroll: f32,
+  current: f32,
+  viewport: f32,
+) -> f32 {
   match pending {
     PendingScroll::Offset(offset) => offset,
     PendingScroll::Start => 0.0,
@@ -529,6 +560,15 @@ fn resolve_pending_scroll(pending: PendingScroll, content_size: f32, max_scroll:
       previous_content,
       previous_scroll,
     } => previous_scroll + (content_size - previous_content),
+    PendingScroll::Reveal { start, end } => {
+      if start < current || end - start > viewport {
+        start
+      } else if end > current + viewport {
+        end - viewport
+      } else {
+        current
+      }
+    }
   }
 }
 

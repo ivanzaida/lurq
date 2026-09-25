@@ -576,6 +576,91 @@ Slider::new(value)
   .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
 
+### Select
+
+`Select::new` binds a `Signal<T>` for one value and `Select::multiple` a `Signal<Vec<T>>`. Options are `(value, label)` tuples or `SelectOption`s, which add a detail line under the label and a disabled state:
+
+```rust
+use lurq::components::{Select, SelectOption};
+
+Select::new(plan.clone())
+  .placeholder("Plan")
+  .options([
+    SelectOption::new(Plan::Free, "Free"),
+    SelectOption::new(Plan::Team, "Team"),
+    SelectOption::new(Plan::Enterprise, "Enterprise")
+      .detail("Contact sales to enable")
+      .disabled(true),
+  ])
+```
+
+A disabled option cannot be chosen by pointer or keyboard, never takes the hover or keyboard highlight, and is skipped by arrow keys, `Home`/`End` and type-ahead.
+
+A pointer press on the trigger opens the menu without a highlight. On the focused select:
+
+| Key | Closed | Open |
+| --- | --- | --- |
+| `ArrowDown`, `ArrowUp` (with or without `Alt`) | Open with the selected option highlighted, else the first enabled one | Move the highlight over enabled options, stopping at the ends. After a pointer open, the first arrow highlights the selected option, else the first enabled one |
+| `Home`, `End` | | Highlight the first or last enabled option |
+| `Enter`, `Space` | Open like the arrows | Choose the highlighted option: single-select closes, multi-select toggles it and stays open. With no highlight the menu closes without a change |
+| Letters | | Type-ahead: highlight the next enabled option whose label starts with the typed text. Repeating one letter cycles through its options; typing within a second extends the text, `Space` included |
+| `Escape`, `Tab` | | Close without a change |
+
+The highlighted option scrolls into view, and opening scrolls the selected option into view. Focus stays on the select throughout. A press outside closes the menu without a change and follows the usual press rule: it blurs the select, or focuses the pressed element if that can take focus.
+
+`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, ShadowStyle, TypographyStyle},
+  node::{BoxShadow, SelectCheckmarkPosition, SelectIcon, SelectPartStyle, SelectStyle, padding::Padding},
+};
+
+// "icon" is an app typography role that selects the icon font at 14 px.
+let icon = |glyph: &str| SelectIcon::glyph(glyph, TypographyStyle::extra("icon"));
+let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::BorderFocus).spread(1.0).inset();
+
+SelectStyle::new()
+  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::BorderFocus))
+  .chevron(icon("\u{e06d}"))
+  .chevron_open(icon("\u{e070}"))
+  .chevron_color(PaletteColor::TextMuted)
+  .menu(
+    SelectPartStyle::new()
+      .background(PaletteColor::SurfaceRaised)
+      .border_inside(1.0, PaletteColor::Border)
+      .rounded(11.0)
+      .padding(Padding::all(4.0))
+      .box_shadow(ShadowStyle::Lg),
+  )
+  .max_menu_height(266.0)
+  .option(
+    SelectPartStyle::new()
+      .min_height(32.0)
+      .padding(Padding::symmetric(8.0, 0.0))
+      .rounded(7.0)
+      .typography(TypographyStyle::Body),
+  )
+  .option_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_selected(SelectPartStyle::new())
+  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_highlighted(SelectPartStyle::new().box_shadow(ring))
+  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::TextMuted))
+  .single_checkmark(true)
+  .checkmark(icon("\u{e06c}"))
+  .checkmark_size(14.0)
+  .checkmark_position(SelectCheckmarkPosition::Trailing)
+  .checkmark_color(PaletteColor::Accent)
+```
+
+- An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.
+- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar. The menu's padding insets the options and scrolls with them.
+- Option rows are at least 34 px tall unless the option part sets `min_height`. The default option part pads labels by 10 px horizontally, like the trigger.
+- The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
+- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
+- `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection.
+
 ## Programmatic Interaction
 
 Nodes tagged with `.id("...")` can be driven imperatively from integration code and tests, browser-DOM style. Look the node up on `Tree` and use the handle's universal actions or a typed downcast:

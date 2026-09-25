@@ -39,6 +39,7 @@ use crate::{
 };
 
 mod box_shadow_quads;
+mod select_quads;
 
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
@@ -194,6 +195,8 @@ pub(crate) struct LayoutEngine {
   scrollbar: RefCell<ScrollBarStyle>,
   typography: RefCell<ThemeTypography>,
   shadows: RefCell<Arc<ThemeShadows>>,
+  /// Open state of the `Select` whose trigger is being painted, if any.
+  select_open: Cell<Option<bool>>,
 }
 
 #[cfg(feature = "raster")]
@@ -457,6 +460,7 @@ impl LayoutEngine {
       scrollbar: RefCell::new(ScrollBarStyle::default()),
       typography: RefCell::new(ThemeTypography::default()),
       shadows: RefCell::new(Arc::new(ThemeShadows::default())),
+      select_open: Cell::new(None),
     }
   }
 
@@ -794,6 +798,9 @@ impl LayoutEngine {
     culling_enabled: bool,
     quads: &mut Vec<Quad>,
   ) {
+    if self.is_hidden_select_chevron(node) {
+      return;
+    }
     if node_is_plain_logical_wrapper(node) {
       if let Some(ref element_ref) = node.element_ref {
         element_ref.update(
@@ -891,6 +898,7 @@ impl LayoutEngine {
       ..
     } = frame;
 
+    let select_scope = self.enter_select_scope(node);
     for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
       let child_abs_x = abs_x + child_layout.offset.x;
       let child_abs_y = abs_y + child_layout.offset.y;
@@ -923,6 +931,7 @@ impl LayoutEngine {
         quads,
       );
     }
+    self.leave_select_scope(select_scope);
 
     self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
   }
@@ -1581,43 +1590,7 @@ impl LayoutEngine {
         );
       }
       NodeKind::Select { state } => {
-        let style = state.style();
-        let hovered = node.style_state.is_hovered();
-        let focused = node.style_state.is_focused();
-        let open = state.is_open();
-        let trigger = style.resolved_trigger(hovered, focused, open);
-
-        let background = {
-          let palette = self.palette.borrow();
-          trigger.background.as_ref().and_then(|color| color.resolve(&palette))
-        };
-        let radius = trigger
-          .border_radius
-          .map(|radius| radius.resolve(&self.radii.borrow()))
-          .or_else(|| node.get_border_radius(&self.radii.borrow()));
-        let border = trigger
-          .border
-          .as_ref()
-          .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
-          .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
-
-        let (bg_x, bg_y, bg_transform, bg_origin) = transformed_quad_frame(abs_x, abs_y, transform);
-        quads.push(Quad {
-          x: bg_x,
-          y: bg_y,
-          width: result.size.width,
-          height: result.size.height,
-          opacity,
-          transform: bg_transform,
-          transform_origin: bg_origin,
-          content: QuadContent::Rect {
-            color: background.unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR),
-            gradient: None,
-          },
-          border_radius: radius,
-          border,
-          clip,
-        });
+        self.push_select_trigger_quads(node, state, result, (abs_x, abs_y), opacity, transform, clip, quads);
       }
       _ => {}
     }

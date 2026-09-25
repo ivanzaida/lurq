@@ -17,6 +17,8 @@ pub(crate) mod node;
 pub(crate) mod node_kind;
 pub mod padding;
 pub mod radius_value;
+pub mod select_icon;
+pub(crate) mod select_state;
 pub mod select_style;
 pub mod slider_style;
 pub mod spacing_value;
@@ -48,6 +50,7 @@ pub use node::{
 };
 pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole};
 pub use radius_value::RadiusValue;
+pub use select_icon::{SelectCheckmarkPosition, SelectIcon};
 pub use select_style::{SelectPartStyle, SelectStyle};
 pub use slider_style::SliderPartStyle;
 pub use spacing_value::SpacingValue;

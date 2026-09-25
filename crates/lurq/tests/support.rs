@@ -198,3 +198,18 @@ fn clip_snapshot(clip: lurq::layout::quad::ClipRect) -> ClipSnapshot {
     active: clip.active,
   }
 }
+
+/// Like [`render_pass_with_app`] but without requesting a redraw first: the
+/// pass only draws when the tree itself asked for one, so a missing
+/// invalidation shows up as a stale (or absent) snapshot.
+pub fn render_pass_if_needed(tree: &mut Tree, app: &mut App) -> Option<RenderSnapshot> {
+  let capture = Arc::new(Mutex::new(None));
+  let render_capture = capture.clone();
+  tree.set_render_engine_factory(move || {
+    Box::new(CapturingRenderEngine {
+      capture: render_capture.clone(),
+    })
+  });
+  tree.pass(app, &TestSurface);
+  capture.lock().unwrap().clone()
+}

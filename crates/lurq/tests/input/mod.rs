@@ -8,6 +8,8 @@ mod synthetic {
 
 mod select {
   mod interaction;
+  mod keyboard;
+  mod style;
 }
 
 mod text_input {

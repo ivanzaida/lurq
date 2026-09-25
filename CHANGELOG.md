@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Fix `Select` keyboard navigation.
+  - The keyboard highlight now composes with the selection. A highlighted selected option used to be drawn as merely selected, so moving onto it, or opening a menu whose selected option was highlighted, showed no change.
+  - After a pointer open the menu has no highlight, and the first arrow key highlights the selected option, or the first enabled one. It used to wrap to the last or first option. The arrows now stop at the first and last options instead of wrapping.
+  - Moving the highlight marks the select for relayout, so the menu redraws on every highlight change.
+  - The highlighted option is scrolled into view, and opening scrolls the selected option into view. Both used to stay wherever the menu was scrolled.
+  - `Home` and `End` highlight the first and last enabled options. Typing highlights the next enabled option whose label starts with the typed text (type-ahead; typing within a second extends the text).
+  - `Enter` or `Space` with nothing highlighted closes the menu without a change; it used to choose the first option. `Tab` on an open menu closes it and keeps focus on the select, like `Escape`.
+- Add disabled options and detail lines. `Select::options` takes `(value, label)` tuples as before, or `SelectOption`s: `SelectOption::new(value, label).detail("...").disabled(true)`. A disabled option cannot be chosen, takes no hover or highlight, and is skipped by arrows, `Home`/`End` and type-ahead. A detail line draws under the label in `SelectStyle::option_detail` (default `Caption` in `TextMuted`).
+- Add `Select` styling for app designs:
+  - `option_highlighted` and `option_selected_highlighted` give the keyboard highlight its own look, for example an inset ring that composes with the hover fill. Without them the highlight looks like the hover, as before. `option_disabled` styles disabled options (default `opacity(0.45)`).
+  - `single_checkmark(true)` shows the checkmark on a single-select's selected option. It stays off by default. `checkmark` (a `SelectIcon`), `checkmark_size`, `checkmark_position` (`SelectCheckmarkPosition::Leading` or `Trailing`) and `checkmark_gap` place the checkmark. Every option reserves the slot, so labels do not shift.
+  - `chevron` replaces the `▾` glyph and `chevron_open` draws a different chevron while the menu is open. A `SelectIcon` is a glyph in the part's text style (`SelectIcon::text`), a glyph in a typography role such as an icon font (`SelectIcon::glyph`), or an app-built element (`SelectIcon::element`, which receives the configured colour).
+  - `chevron_color` and `checkmark_color` accept `PaletteColor` roles as well as colours.
+  - `SelectPartStyle` gains `box_shadow` (a `ShadowStyle` role or `BoxShadow`s, outer and inset, on the trigger, menu and options), `typography`, `text_color` and `opacity`. The pointer hover applies its fill, border and shadow.
+  - `menu_scrollbar` sets the menu's scrollbar. The menu's padding now insets the options and scrolls with them.
+  - The menu is measured before it is placed, so it flips above the trigger based on its real height, including padding, custom row heights and detail lines. It used to estimate 34 px per option.
+- The default option part pads labels by 10 px horizontally, like the trigger; they used to touch the menu's edge. An app that sets its own `option` part is unaffected.
+- The Styling And Events guide documents `Select`: options, keys, the style parts and icons.
+
 ## 0.24.2 — 2026-09-25
 
 - Fix a UI-thread hang when a callback writes the signal it observes. `Signal::set` and `Signal::update` called the signal's subscribers while holding its value and subscriber locks. So a `ctx.watch` callback that set its own signal never returned, and neither did subscribing to or dropping a subscription of that signal from a callback. A common case was restarting a `FutureAction` from a watch on its own state: the completion set the state, the watch called `run`, and `run` set the state to `Pending`. Cooperative (non-Tokio) futures hung a second time, because `AsyncTask` was polled while holding the task lock that `run` takes. A notification now holds no lock while it calls observers, and the task lock is released before polling.

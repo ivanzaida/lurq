@@ -12,7 +12,8 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
   },
   node::{
-    border::{BorderPlacement, BorderRadius, ResolvedBorder},
+    BoxShadowValue,
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     node::Node,
     transform::Transform2D,
   },
@@ -67,23 +68,68 @@ impl LayoutEngine {
     let Some(value) = node.effective_box_shadow() else {
       return;
     };
+    let rect = ShadowRect {
+      x: abs_x,
+      y: abs_y,
+      width: result.size.width,
+      height: result.size.height,
+      radius: node.get_border_radius(&self.radii.borrow()),
+    };
+    let border = if inset {
+      node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow())
+    } else {
+      None
+    };
+    self.push_shadow_list(value, rect, border, inset, opacity, transform, clip, quads);
+  }
+
+  /// Pushes the outer or inset shadows of `value` for a box that is not a
+  /// node of its own, such as a `Select` trigger drawn from its part style.
+  #[allow(clippy::too_many_arguments)]
+  pub(super) fn push_part_box_shadow_quads(
+    &self,
+    value: &BoxShadowValue,
+    (x, y, width, height): (f32, f32, f32, f32),
+    radius: Option<BorderRadius>,
+    border: Option<ResolvedBorders>,
+    inset: bool,
+    opacity: f32,
+    transform: Transform2D,
+    clip: ClipRect,
+    quads: &mut Vec<Quad>,
+  ) {
+    let rect = ShadowRect {
+      x,
+      y,
+      width,
+      height,
+      radius,
+    };
+    let border = if inset { border } else { None };
+    self.push_shadow_list(value, rect, border, inset, opacity, transform, clip, quads);
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn push_shadow_list(
+    &self,
+    value: &BoxShadowValue,
+    rect: ShadowRect,
+    border: Option<ResolvedBorders>,
+    inset: bool,
+    opacity: f32,
+    transform: Transform2D,
+    clip: ClipRect,
+    quads: &mut Vec<Quad>,
+  ) {
     let shadows = self.shadows.borrow();
     let list = value.shadows(&shadows);
     if !list.iter().any(|shadow| shadow.inset == inset) {
       return;
     }
-    let radius = node.get_border_radius(&self.radii.borrow());
-    let mut rect = ShadowRect {
-      x: abs_x,
-      y: abs_y,
-      width: result.size.width,
-      height: result.size.height,
-      radius,
+    let rect = match border {
+      Some(border) => rect.inside_border(Some([border.top, border.right, border.bottom, border.left])),
+      None => rect,
     };
-    if inset {
-      let border = node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow());
-      rect = rect.inside_border(border.map(|border| [border.top, border.right, border.bottom, border.left]));
-    }
     let (x, y, quad_transform, transform_origin) = transformed_quad_frame(rect.x, rect.y, transform);
     let palette = self.palette.borrow();
     for shadow in list.iter().rev().filter(|shadow| shadow.inset == inset) {

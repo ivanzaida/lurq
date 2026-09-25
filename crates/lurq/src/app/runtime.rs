@@ -52,16 +52,16 @@ use crate::{
   node::{
     Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SyntheticNodeRole, TextTransformMode,
     VoidEventHandler,
-    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders, ThemedBorderRadius},
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
     node_kind::{CheckboxState, NodeKind, SelectState, SliderState, TextInputOverflow, TextInputState, TextState},
-    radius_value::RadiusValue,
     transform::Transform2D,
   },
 };
 
+mod select_menu;
 mod tab_navigation;
 
 /// Surface of [`Tree::pass_headless`]: it has no window, so passes stop
@@ -3156,7 +3156,16 @@ impl Tree {
       fire_keyboard_recursive(root, &mut evt);
     }
     if !evt.default_prevented() {
-      let handled = if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
+      let select_key = select_menu::SelectKey {
+        key: &key,
+        code: &code,
+        alt,
+        ctrl,
+        meta,
+      };
+      let handled = if self.dispatch_select_key(select_key) {
+        true
+      } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
         self.focus_tab(shift)
       } else if matches!(
         (key.as_str(), code.as_str()),
@@ -3180,8 +3189,6 @@ impl Tree {
       };
 
       if handled {
-        self.needs_redraw = true;
-      } else if self.dispatch_select_key(&key, &code) {
         self.needs_redraw = true;
       } else if self.dismiss_top_overlay_on_escape(&key, &code) {
         self.needs_redraw = true;
@@ -3309,54 +3316,6 @@ impl Tree {
       matches!(node.map(Node::node_kind), Some(NodeKind::TextInput { state, .. }) if state.overflow() != TextInputOverflow::Multiline)
     };
     is_single_line && self.submit_nearest_form_for_node_id(focused)
-  }
-
-  fn dispatch_select_key(&mut self, key: &str, code: &str) -> bool {
-    let Some(focused) = self.focused_node else {
-      return false;
-    };
-    let Some(root) = &self.root else {
-      return false;
-    };
-    let Some(node) = find_node_by_id(root, focused) else {
-      return false;
-    };
-    let NodeKind::Select { state } = node.node_kind() else {
-      return false;
-    };
-
-    let down = matches!(key, "ArrowDown") || code == "ArrowDown";
-    let up = matches!(key, "ArrowUp") || code == "ArrowUp";
-    let activate = matches!(key, "Enter" | " ") || matches!(code, "Enter" | "Space");
-    let escape = matches!(key, "Escape") || code == "Escape";
-
-    if escape {
-      if state.is_open() {
-        state.set_open(false);
-        return true;
-      }
-      return false;
-    }
-    if !state.is_open() {
-      if down || up || activate {
-        state.open_with_highlight();
-        return true;
-      }
-      return false;
-    }
-    if down {
-      state.move_highlight(1);
-      return true;
-    }
-    if up {
-      state.move_highlight(-1);
-      return true;
-    }
-    if activate {
-      state.activate();
-      return true;
-    }
-    false
   }
 
   fn activate_focused_button(&mut self) -> bool {
@@ -6286,7 +6245,26 @@ fn build_overlays_from_layout_index(
         state,
         bounds,
       } => {
-        let mut menu = build_select_menu(&state, bounds, viewport);
+        let mut measure = |menu: &Node| {
+          let measure_constraints = Constraints::loose(Size::new(
+            constraints.max_width.min(viewport.width).max(0.0),
+            constraints.max_height.min(viewport.height).max(0.0),
+          ));
+          layout_engine.compute(
+            glyph_engine,
+            &menu.clone_for_reuse(),
+            measure_constraints,
+            palette.clone(),
+            border_sizes.clone(),
+            spacing.clone(),
+            radii.clone(),
+            caret,
+            scrollbar.clone(),
+            typography.clone(),
+            theme_changed,
+          )
+        };
+        let mut menu = select_menu::build_select_menu(&state, bounds, viewport, &mut measure);
         set_overlay_reuse_key(&mut menu, reuse_key.as_deref());
         overlays.push(menu);
       }
@@ -6601,117 +6579,6 @@ fn clamp_overlay_position(x: f32, y: f32, overlay: Size, viewport: Size) -> (f32
   let max_x = (viewport.width - overlay.width).max(0.0);
   let max_y = (viewport.height - overlay.height).max(0.0);
   (x.clamp(0.0, max_x), y.clamp(0.0, max_y))
-}
-
-const SELECT_OPTION_ROW_HEIGHT: f32 = 34.0;
-
-fn build_select_menu(
-  state: &crate::node::node_kind::SelectState,
-  bounds: crate::core::ElementRect,
-  viewport: Size,
-) -> Node {
-  use crate::node::dimension::Dimension;
-  let style = state.style();
-  let labels = state.labels();
-  let multiple = state.multiple();
-  let highlighted = state.highlighted();
-  let checkmark_color = style.checkmark_color;
-
-  let mut options = Vec::with_capacity(labels.len());
-  for (index, label) in labels.iter().enumerate() {
-    let selected = state.is_selected(index);
-    let active = highlighted == Some(index);
-    let mut part = style.resolved_option(active && !selected, selected);
-    apply_select_menu_edge_radius(&mut part, &style.menu, index, labels.len());
-    let text_style = part.text.clone();
-
-    let label_node = text_style
-      .as_ref()
-      .map(|style| Node::text_styled(label, style.clone()))
-      .unwrap_or_else(|| Node::text(label))
-      .text_wrap(false)
-      .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
-      .min_width(0.0)
-      .flex(1.0);
-    let mut row = if multiple {
-      let mut check_style = text_style.clone().unwrap_or_default();
-      if let Some(color) = checkmark_color {
-        check_style.color = color;
-      }
-      let mark = if selected { "\u{2713}" } else { " " };
-      let check_node = Node::text_styled(mark, check_style).width(Dimension::Px(16.0));
-      Node::row(6.0, crate::layout::Alignment::Center, vec![check_node, label_node])
-    } else {
-      Node::row(0.0, crate::layout::Alignment::Center, vec![label_node])
-    };
-
-    row = row.width(Dimension::Pct(100.0)).apply_select_part(&part);
-    if part.min_height.is_none() {
-      row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
-    }
-    let commit_state = state.clone();
-    row
-      .events
-      .on_mouse_down
-      .push(EventHandler::new(move |event: &MouseEvent| {
-        if event.button == MouseButton::Left {
-          commit_state.commit(index);
-        }
-      }));
-    if let Some(hover) = style.resolved_option(true, selected).background {
-      row = row.hovered(move |s| s.background(hover));
-    }
-    options.push(row);
-  }
-
-  let list = Node::column(0.0, crate::layout::Alignment::Start, options).width(Dimension::Pct(100.0));
-  let mut menu = crate::node::dsl::scroll_vertical(list).apply_select_part(&style.menu);
-  menu.set_tag_name("SelectMenu");
-  menu.set_synthetic_role(SyntheticNodeRole::SelectMenu);
-
-  // Estimate height before final layout, then use the shared popup placement
-  // helpers so selects behave like other anchored overlays.
-  let estimated = (labels.len() as f32 * SELECT_OPTION_ROW_HEIGHT).min(style.max_menu_height);
-  let width = bounds.width.min(viewport.width.max(0.0));
-  let overlay_size = Size::new(width, estimated);
-  let placement = resolve_overlay_collision(
-    Placement::BottomStart,
-    bounds,
-    overlay_size,
-    viewport,
-    0.0,
-    style.menu_gap,
-    CollisionStrategy::FlipThenClamp,
-  );
-  let (x, y) = overlay_position(bounds, overlay_size, placement, 0.0, style.menu_gap);
-  let (x, y) = clamp_overlay_position(x, y, overlay_size, viewport);
-
-  menu
-    .max_height(Dimension::Px(style.max_menu_height))
-    .absolute_positioned(x, y, Some(Dimension::Px(width)), None)
-}
-
-fn apply_select_menu_edge_radius(
-  part: &mut crate::node::select_style::SelectPartStyle,
-  menu: &crate::node::select_style::SelectPartStyle,
-  index: usize,
-  count: usize,
-) {
-  if count == 0 || part.border_radius.is_some() {
-    return;
-  }
-  let Some(menu_radius) = menu.border_radius else {
-    return;
-  };
-  let zero = RadiusValue::Px(0.0);
-  let first = index == 0;
-  let last = index + 1 == count;
-  part.border_radius = Some(ThemedBorderRadius::new(
-    if first { menu_radius.top_left } else { zero },
-    if first { menu_radius.top_right } else { zero },
-    if last { menu_radius.bottom_right } else { zero },
-    if last { menu_radius.bottom_left } else { zero },
-  ));
 }
 
 /// Close every open select; returns whether any were open.
