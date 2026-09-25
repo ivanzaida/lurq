@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.28.0 — 2026-09-25
 
 - Fix flex shrink in `Row` and `Column`. A shrunk child only had its box resized and kept the layout of its unshrunk size inside it: a `ScrollVertical` with `flex_shrink` in a column that could not fit its content kept a full-height viewport, so it could not scroll and its last rows were clipped, and a shrunk column kept its own flex children and bottom rows at the old height. Each shrunk child is now laid out again with its shrunk size as a tight constraint, in rows, columns, nested flex and grow+shrink combinations. A child that later changes size under a retained layout is measured again at its natural size and the overflow is split again, instead of being kept at the previously shrunk size.
 - Fix a flex-grow child in an unbounded main axis (a column measured by its content, such as a shrinkable panel with a growing scroll area inside) being laid out at an infinite size, which collapsed the parent to zero height. Without free space a growing child now gets its `basis`, or its natural size when it has none.
