@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.24.2 — 2026-09-25
 
 - Fix a UI-thread hang when a callback writes the signal it observes. `Signal::set` and `Signal::update` called the signal's subscribers while holding its value and subscriber locks. So a `ctx.watch` callback that set its own signal never returned, and neither did subscribing to or dropping a subscription of that signal from a callback. A common case was restarting a `FutureAction` from a watch on its own state: the completion set the state, the watch called `run`, and `run` set the state to `Pending`. Cooperative (non-Tokio) futures hung a second time, because `AsyncTask` was polled while holding the task lock that `run` takes. A notification now holds no lock while it calls observers, and the task lock is released before polling.
   - Writes from callbacks follow one rule. The value changes at once, and the notification comes after the current one. Every observer first receives the current value, then all of them are notified again with the latest value. Several writes during one notification produce one more notification. Writes from other threads during a notification are delivered by the thread that is already notifying. A watcher added during a notification starts with the next one. A watcher dropped during a notification is not called again.
