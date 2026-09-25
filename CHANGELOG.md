@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.26.0 — 2026-09-25
 
 - Fix a `Select`'s open menu, keyboard highlight and focus passing to another select when its parent re-renders. Selects were matched to their previous render by position, so inserting or removing a sibling before a select (a note that appears when a background check finishes, a relaid-out inspector) handed its open menu, highlight and node id to whichever select now sat at that position: the other select's menu opened under its trigger, `Escape` closed the wrong one, and `Enter` or a press on the menu could set the other select's value. A select is now identified by the signal it binds, like a `TextInput`: its state and node id follow that signal across sibling changes and never land on a select bound to another signal. A select whose signal is recreated every render therefore starts closed on every render. A retained `ref_element` set on a re-render is no longer replaced by the previous render's ref.
 - A select's keyboard highlight survives a re-render only while its row shows the same enabled option. It used to be clamped to the new option count, so after the options were replaced `Enter` chose an option the user had not moved to; it now closes without a change.
