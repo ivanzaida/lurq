@@ -883,7 +883,10 @@ impl AsyncTask {
   }
 
   fn poll(&self, cx: &mut TaskContext<'_>) -> bool {
-    if let Some(mut future) = self.inner.lock().future.take() {
+    // Release the task lock before polling: a completing future sets its state
+    // signal, and an observer of that signal may start this task again.
+    let future = self.inner.lock().future.take();
+    if let Some(mut future) = future {
       match future.as_mut().poll(cx) {
         Poll::Ready(()) => return true,
         Poll::Pending => {

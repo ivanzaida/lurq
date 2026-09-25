@@ -153,6 +153,33 @@ ctx.batch(|| {
 });
 ```
 
+## Writes From Callbacks
+
+Watcher callbacks, effects, and memos may write the signals they observe, subscribe new watchers, and drop subscriptions. lurq holds no lock while it calls them.
+
+```rust
+ctx.watch(&status, {
+  let status = status.clone();
+  move |value| {
+    if *value == Status::Failed {
+      status.set(Status::Retrying);
+    }
+  }
+});
+```
+
+A write inside a callback takes effect at once: `get()` returns the new value right after `set`. Its notification comes after the current one. lurq first delivers the current value to every observer of the signal, then notifies them all again with the latest value. Every observer sees the values in the same order. Several writes during one notification produce one more notification, carrying the last value. A write from another thread during a notification is handled the same way: the thread that is already notifying delivers it.
+
+A watcher added during a notification starts with the next one. A watcher dropped during a notification is not called for the rest of it.
+
+An effect that writes a signal it reads runs again with the new value, including when it writes during its first run.
+
+`set` does not compare values, so a callback or effect that writes its own signal on every notification never settles. Compare before writing. lurq stops such a loop after 100 consecutive notifications caused by the signal's own observers, and the `set` that started the notifications panics. The signal keeps working afterwards.
+
+Inside a `ctx.watch` callback, use `set` on the watched signal, not `update`. The callback still borrows the value it received, so `update` on that signal panics there. `update` works from effects, from memos, and on other signals.
+
+Do not write a signal inside its own `with` closure. That closure holds the signal's read lock.
+
 ## Static Context
 
 Static context stores a cloned value by type.

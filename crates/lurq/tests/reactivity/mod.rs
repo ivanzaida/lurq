@@ -21,6 +21,7 @@ mod memo;
 mod modal;
 mod offstage;
 mod provided_context;
+mod reentrant_writes;
 mod signal;
 mod store;
 mod theme;

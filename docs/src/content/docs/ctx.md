@@ -187,6 +187,8 @@ println ! ("count changed to {value}");
 
 Use `watch` when you want an explicit callback for one signal instead of automatic dependency tracking.
 
+The callback may set the watched signal. Its notification comes after the current one; see [writes from callbacks](../reactivity/#writes-from-callbacks).
+
 ## Context Values
 
 ### Static Context

@@ -5,10 +5,16 @@ use std::sync::{
 
 use parking_lot::Mutex;
 
-use crate::core::tracking;
+use crate::core::{notify::NotifyLoop, tracking};
 
 static NEXT_EFFECT_ID: AtomicUsize = AtomicUsize::new(1);
 
+/// Runs a closure now and again whenever a signal it read changes.
+///
+/// The closure may write the signals it reads. A write that lands while the
+/// effect is running, including its own, schedules exactly one more run after
+/// the current one instead of re-entering it; an effect that re-triggers itself
+/// on 100 consecutive runs panics instead of looping forever.
 pub struct Effect {
   id: usize,
   _subscriptions: Arc<Mutex<Vec<Box<dyn Send + Sync>>>>,
@@ -27,24 +33,27 @@ impl Effect {
     let self_ref: Arc<Mutex<Weak<dyn Fn() + Send + Sync>>> = Arc::new(Mutex::new(Weak::<fn()>::new()));
 
     let self_ref_clone = self_ref.clone();
+    let runs = NotifyLoop::default();
     let rerun: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-      if !alive_clone.load(Ordering::Relaxed) {
-        return;
-      }
-      let mut subs = subs_clone.lock();
-      subs.clear();
-
-      tracking::start_tracking();
-      compute();
-      let deps = tracking::stop_tracking();
-
-      let strong = self_ref_clone.lock().upgrade();
-      if let Some(rerun_arc) = strong {
-        for entry in deps {
-          let guard = (entry.subscribe_fn)(rerun_arc.clone());
-          subs.push(guard);
+      runs.run("effect", id, || {
+        if !alive_clone.load(Ordering::Relaxed) {
+          return;
         }
-      }
+        let mut subs = subs_clone.lock();
+        subs.clear();
+
+        tracking::start_tracking();
+        compute();
+        let deps = tracking::stop_tracking();
+
+        let strong = self_ref_clone.lock().upgrade();
+        if let Some(rerun_arc) = strong {
+          for entry in deps {
+            let guard = (entry.subscribe_fn)(rerun_arc.clone());
+            subs.push(guard);
+          }
+        }
+      });
     });
 
     *self_ref.lock() = Arc::downgrade(&rerun);
