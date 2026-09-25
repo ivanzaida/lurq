@@ -1929,6 +1929,15 @@ impl Node {
     self
   }
 
+  /// Binds the select to the signal it edits; that signal identifies the
+  /// select across re-renders.
+  pub(crate) fn select_binding(self, signal_id: usize) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_binding(signal_id);
+    }
+    self
+  }
+
   pub fn select_on_change(self, on_change: SelectChangeCallback) -> Self {
     if let Some(state) = self.select_state() {
       state.set_on_change(on_change);
@@ -3677,7 +3686,9 @@ impl Node {
       }
       (NodeKind::Select { state, .. }, NodeKind::Select { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);
-        self.element_ref = old.element_ref.clone();
+        if self.element_ref.is_none() {
+          self.element_ref = old.element_ref.clone();
+        }
       }
       (NodeKind::Slider { state }, NodeKind::Slider { state: old_state }) => {
         state.copy_runtime_state_from(old_state);
@@ -3723,8 +3734,9 @@ impl Node {
 
   fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
     // A canvas can keep its backing surface when its lookup id or ref binding
-    // changes. Input editing state, however, belongs to the identified field.
-    if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+    // changes. Input editing state and an open select menu, however, belong
+    // to the identified field.
+    if matches!(self.node_kind, NodeKind::TextInput { .. } | NodeKind::Select { .. }) {
       return self.can_reuse_id_from(old);
     }
     std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
@@ -3964,10 +3976,12 @@ impl Node {
           (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: previous, .. }) => {
             state.same_value(previous)
           }
-          _ => match (&self.element_ref, &old.element_ref) {
-            (Some(current), Some(previous)) => current.same_handle(previous),
-            _ => true,
-          },
+          (NodeKind::Select { state }, NodeKind::Select { state: previous })
+            if state.has_binding() || previous.has_binding() =>
+          {
+            state.same_binding(previous) && refs_compatible(self.element_ref.as_ref(), old.element_ref.as_ref())
+          }
+          _ => refs_compatible(self.element_ref.as_ref(), old.element_ref.as_ref()),
         })
   }
 
@@ -3977,9 +3991,10 @@ impl Node {
       || self.element_id.is_some()
       || self.element_ref.is_some()
       || matches!(self.node_kind, NodeKind::TextInput { .. })
+      || matches!(&self.node_kind, NodeKind::Select { state } if state.has_binding())
   }
 
-  /// Match explicit keys/slots/IDs, retained refs, or input value signals across
+  /// Match explicit keys/slots/IDs, retained refs, or input/select value signals across
   /// a reorder. Anonymous nodes still use positional pairing.
   fn identity_matches(&self, old: &Node) -> bool {
     self.has_stable_identity() && old.has_stable_identity() && self.can_reuse_id_from(old)
@@ -4265,6 +4280,15 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
     base.max_height = overlay.max_height;
   }
   base
+}
+
+/// Two retained refs name the same element only when they are one handle; a
+/// missing ref on either side does not tell the elements apart.
+fn refs_compatible(current: Option<&CoreElementRef>, previous: Option<&CoreElementRef>) -> bool {
+  match (current, previous) {
+    (Some(current), Some(previous)) => current.same_handle(previous),
+    _ => true,
+  }
 }
 
 #[cfg(test)]

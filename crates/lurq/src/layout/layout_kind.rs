@@ -335,7 +335,7 @@ impl ScrollState {
 
     match axis {
       ScrollAxis::Horizontal => {
-        let track_width = inner.viewport_width - style.padding * 2.0;
+        let track_width = inner.viewport_width - style.resolved_end_inset() * 2.0;
         if track_width <= 0.0 {
           return;
         }
@@ -351,7 +351,7 @@ impl ScrollState {
         inner.scroll_x = (inner.drag_start_scroll_x + scroll_delta).clamp(0.0, inner.max_scroll_x);
       }
       ScrollAxis::Vertical => {
-        let track_height = inner.viewport_height - style.padding * 2.0;
+        let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
         if track_height <= 0.0 {
           return;
         }
@@ -372,9 +372,9 @@ impl ScrollState {
 
   pub fn thumb_rect(&self, style: &crate::layout::scrollbar::ScrollBarStyle) -> (f32, f32, f32, f32) {
     let inner = self.inner.lock().unwrap();
-    let track_x = inner.viewport_abs_x + inner.viewport_width - style.width - style.padding;
-    let track_y = inner.viewport_abs_y + style.padding;
-    let track_height = inner.viewport_height - style.padding * 2.0;
+    let track_x = inner.viewport_abs_x + inner.viewport_width - style.width - style.resolved_edge_inset();
+    let track_y = inner.viewport_abs_y + style.resolved_end_inset();
+    let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
 
     let ratio = inner.viewport_height / inner.content_height.max(1.0);
     let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
@@ -416,9 +416,9 @@ impl ScrollState {
 
     match axis {
       ScrollAxis::Horizontal => {
-        let track_x = inner.viewport_abs_x + style.padding;
-        let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.padding;
-        let track_width = inner.viewport_width - style.padding * 2.0;
+        let track_x = inner.viewport_abs_x + style.resolved_end_inset();
+        let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.resolved_edge_inset();
+        let track_width = inner.viewport_width - style.resolved_end_inset() * 2.0;
         let track_height = style.width;
         if track_width <= 0.0 || track_height <= 0.0 {
           return None;
@@ -446,10 +446,10 @@ impl ScrollState {
         })
       }
       ScrollAxis::Vertical => {
-        let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.padding;
-        let track_y = inner.viewport_abs_y + style.padding;
+        let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.resolved_edge_inset();
+        let track_y = inner.viewport_abs_y + style.resolved_end_inset();
         let track_width = style.width;
-        let track_height = inner.viewport_height - style.padding * 2.0;
+        let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
         if track_width <= 0.0 || track_height <= 0.0 {
           return None;
         }

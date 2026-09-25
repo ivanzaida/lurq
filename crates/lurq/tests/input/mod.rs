@@ -9,6 +9,7 @@ mod synthetic {
 mod select {
   mod interaction;
   mod keyboard;
+  mod rerender;
   mod style;
 }
 

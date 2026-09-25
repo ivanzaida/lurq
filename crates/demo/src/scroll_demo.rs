@@ -46,6 +46,7 @@ fn scrollbar(placement: ScrollBarPlacement) -> ScrollBarStyle {
     track_color: Color::from_hex("#0f172a66"),
     track_radius: 4.0,
     padding: 3.0,
+    ..ScrollBarStyle::default()
   }
 }
 

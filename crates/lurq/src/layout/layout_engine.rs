@@ -3643,7 +3643,7 @@ fn should_reserve_scrollbar(style: &ScrollBarStyle, direction: ScrollDirection, 
 }
 
 fn reserved_scrollbar_size(style: &ScrollBarStyle) -> f32 {
-  style.width + style.padding * 2.0
+  style.width + style.resolved_edge_inset() * 2.0
 }
 
 fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bool {

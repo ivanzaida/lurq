@@ -7,6 +7,7 @@ use lurq::{
   app::{App, Tree, events::MouseButton},
   components::{Column, Rect, Select, SelectOption, Text},
   core::{ElementRef, Signal},
+  layout::scrollbar::{ScrollBarStyle, ScrollBarVisibility},
   node::{
     BoxShadow, Element, SelectCheckmarkPosition, SelectIcon, SelectPartStyle, SelectStyle, color::Color,
     padding::Padding,
@@ -353,4 +354,74 @@ fn option_detail_renders_under_the_label() {
     "the detail line is below the label"
   );
   assert_eq!(detail.x, label.x);
+}
+
+#[test]
+fn menu_scrollbar_insets_clear_the_menu_corners() {
+  let thumb = Color::from_hex("#22c55e");
+  let options: Vec<SelectOption<String>> = (0..12)
+    .map(|index| SelectOption::new(format!("v{index}"), format!("Option {index}")))
+    .collect();
+  let style = SelectStyle::new()
+    .menu(
+      SelectPartStyle::new()
+        .background(Color::from_hex("#111827"))
+        .border_inside(1.0, Color::from_hex("#334155"))
+        .rounded(11.0),
+    )
+    .option(SelectPartStyle::new().min_height(20.0))
+    .max_menu_height(120.0)
+    .menu_scrollbar(
+      ScrollBarStyle {
+        width: 4.0,
+        thumb_radius: 2.0,
+        min_thumb_length: 24.0,
+        thumb_color: thumb,
+        track_color: Color::new(0, 0, 0, 0),
+        visible: ScrollBarVisibility::Auto,
+        ..ScrollBarStyle::default()
+      }
+      .insets(3.0, 11.0),
+    );
+  let mut fixture = Fixture::with_options("v0", options, style);
+  let snapshot = fixture.pointer_open();
+  let menu = fixture.menu_bounds();
+  assert_eq!(menu.height, 120.0, "the menu is capped and scrolls");
+
+  let bar = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == thumb)
+    .expect("the thumb paints");
+  assert_eq!(
+    bar.x + bar.width,
+    menu.x + menu.width - 3.0,
+    "3px from the outer right edge"
+  );
+  assert_eq!(bar.width, 4.0);
+  assert_eq!(bar.y, menu.y + 11.0, "11px below the outer top edge");
+  let track = menu.height - 22.0;
+  let expected = (track * 120.0 / (12.0 * 20.0)).max(24.0);
+  assert!(
+    (bar.height - expected).abs() < 0.01,
+    "thumb {} vs {expected}",
+    bar.height
+  );
+  assert!(
+    !snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.color == Color::new(0, 0, 0, 0) && rect.width == 4.0),
+    "no track paints"
+  );
+}
+
+#[test]
+fn scrollbar_insets_default_to_padding() {
+  let style = ScrollBarStyle::default();
+  assert_eq!(style.resolved_edge_inset(), style.padding);
+  assert_eq!(style.resolved_end_inset(), style.padding);
+  let inset = ScrollBarStyle::default().insets(3.0, 11.0);
+  assert_eq!(inset.resolved_edge_inset(), 3.0);
+  assert_eq!(inset.resolved_end_inset(), 11.0);
 }

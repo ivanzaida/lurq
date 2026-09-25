@@ -33,6 +33,9 @@ struct SelectInner {
   placeholder: Option<Arc<str>>,
   style: SelectStyle,
   on_change: Option<SelectChangeCallback>,
+  /// The id of the signal the select is bound to: its identity across
+  /// re-renders, like a text input's value signal.
+  binding: Option<usize>,
   // Runtime state, preserved across re-renders via `copy_runtime_state_from`.
   open: bool,
   highlighted: Option<usize>,
@@ -115,6 +118,7 @@ impl SelectState {
         placeholder: None,
         style: SelectStyle::new(),
         on_change: None,
+        binding: None,
         open: false,
         highlighted: None,
         menu_scroll: ScrollState::new(),
@@ -156,6 +160,24 @@ impl SelectState {
 
   pub(crate) fn set_on_change(&self, on_change: SelectChangeCallback) {
     self.inner.lock().unwrap().on_change = Some(on_change);
+  }
+
+  pub(crate) fn set_binding(&self, signal_id: usize) {
+    self.inner.lock().unwrap().binding = Some(signal_id);
+  }
+
+  pub(crate) fn has_binding(&self) -> bool {
+    self.inner.lock().unwrap().binding.is_some()
+  }
+
+  /// Whether both selects are bound to the same signal. Unbound selects
+  /// (a bare `Node::select`) match any unbound select.
+  pub(crate) fn same_binding(&self, other: &SelectState) -> bool {
+    if Arc::ptr_eq(&self.inner, &other.inner) {
+      return true;
+    }
+    let binding = self.inner.lock().unwrap().binding;
+    binding == other.inner.lock().unwrap().binding
   }
 
   pub(crate) fn labels(&self) -> Vec<Arc<str>> {
@@ -373,10 +395,13 @@ impl SelectState {
     let old_inner = old.inner.lock().unwrap();
     let mut inner = self.inner.lock().unwrap();
     inner.open = old_inner.open;
-    let count = inner.labels.len();
-    inner.highlighted = old_inner
+    // The highlight names an option, not a row: it survives only while that
+    // row still shows the same enabled option, so Enter never commits an
+    // option the user did not move to.
+    let highlighted = old_inner
       .highlighted
-      .and_then(|index| if count == 0 { None } else { Some(index.min(count - 1)) });
+      .filter(|index| inner.is_enabled(*index) && inner.labels.get(*index) == old_inner.labels.get(*index));
+    inner.highlighted = highlighted;
     inner.menu_scroll = old_inner.menu_scroll.clone();
     inner.reveal = old_inner.reveal;
     inner.type_ahead = old_inner.type_ahead.clone();

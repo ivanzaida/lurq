@@ -228,7 +228,7 @@ Keyboard events go to the focused node. A press where nothing can take focus blu
 
 Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation.
 
-Retained input value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
+Retained input and select value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
 
 ```rust
 use lurq::app::events::KeyboardEvent;
@@ -317,6 +317,8 @@ ScrollVertical::new(content)
   })
   .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex("#94a3b8")))
 ```
+
+`padding` (default 2) is the gap around the bar. `edge_inset` overrides the gap between the bar and the edge it runs along (right for a vertical bar, bottom for a horizontal one), and `end_inset` the gap between each end of the track and the container's edge; `.insets(edge, end)` sets both. Both are measured from the scroll container's outer bounds, border included, so a thumb clears an 11 px rounded corner with `end_inset` 11, and the track is the container's length minus twice `end_inset`. The thumb is `track × visible / content` long, at least `min_thumb_length`. A `Reserved` gutter is `width` plus twice the edge inset.
 
 `.scrollbar_hovered(...)` receives the effective style, so it applies to either the theme default or the component override.
 
@@ -608,6 +610,8 @@ A pointer press on the trigger opens the menu without a highlight. On the focuse
 
 The highlighted option scrolls into view, and opening scrolls the selected option into view. Focus stays on the select throughout. A press outside closes the menu without a change and follows the usual press rule: it blurs the select, or focuses the pressed element if that can take focus.
 
+A select is identified across re-renders by the signal it binds, like a `TextInput`: its open menu, keyboard highlight and focus stay with it when siblings are inserted, removed or reordered, and never pass to another select. Create the signal once (in `create` or as a field), not per render; a new signal each render is a new select, so its menu closes on every re-render. The highlight survives a re-render only while its row shows the same enabled option; when options are replaced it is cleared, so `Enter` closes without a change.
+
 `SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles:
 
 ```rust
@@ -655,7 +659,7 @@ SelectStyle::new()
 
 - An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.
 - `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
-- The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar. The menu's padding insets the options and scrolls with them.
+- The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar; its insets are measured from the menu's outer bounds, border included (see [Scroll](#scroll) for `edge_inset`/`end_inset`). The menu's padding insets the options and scrolls with them.
 - Option rows are at least 34 px tall unless the option part sets `min_height`. The default option part pads labels by 10 px horizontally, like the trigger.
 - The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
 - Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.

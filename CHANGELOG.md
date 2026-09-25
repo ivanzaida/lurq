@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix a `Select`'s open menu, keyboard highlight and focus passing to another select when its parent re-renders. Selects were matched to their previous render by position, so inserting or removing a sibling before a select (a note that appears when a background check finishes, a relaid-out inspector) handed its open menu, highlight and node id to whichever select now sat at that position: the other select's menu opened under its trigger, `Escape` closed the wrong one, and `Enter` or a press on the menu could set the other select's value. A select is now identified by the signal it binds, like a `TextInput`: its state and node id follow that signal across sibling changes and never land on a select bound to another signal. A select whose signal is recreated every render therefore starts closed on every render. A retained `ref_element` set on a re-render is no longer replaced by the previous render's ref.
+- A select's keyboard highlight survives a re-render only while its row shows the same enabled option. It used to be clamped to the new option count, so after the options were replaced `Enter` chose an option the user had not moved to; it now closes without a change.
+- Add `ScrollBarStyle::edge_inset` and `end_inset` (and `.insets(edge, end)`): the gap between the bar and the edge it runs along, and between each track end and the container's edges, measured from the scroll container's outer bounds. `None` (the default) keeps using `padding` for both, as before. A select's `menu_scrollbar` can now keep its thumb clear of the menu's rounded corners. `ScrollBarStyle` literals must now end with `..ScrollBarStyle::default()` or name the new fields.
+
 ## 0.25.0 — 2026-09-25
 
 - Fix `Select` keyboard navigation.

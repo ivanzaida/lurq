@@ -28,7 +28,19 @@ pub struct ScrollBarStyle {
   pub thumb_color: Color,
   pub thumb_radius: f32,
   pub track_radius: f32,
+  /// The gap around the bar: from the edge it runs along and from the two
+  /// edges its track ends at. [`Self::edge_inset`] and [`Self::end_inset`]
+  /// override each side.
   pub padding: f32,
+  /// The gap between the bar and the edge it runs along (the right edge for
+  /// a vertical bar, the bottom edge for a horizontal one), measured from the
+  /// scroll container's outer bounds. `None` uses [`Self::padding`].
+  pub edge_inset: Option<f32>,
+  /// The gap between each end of the track and the container's outer edge
+  /// (top and bottom for a vertical bar), e.g. to clear rounded corners: the
+  /// track is the container's length minus twice this. `None` uses
+  /// [`Self::padding`].
+  pub end_inset: Option<f32>,
   pub visible: ScrollBarVisibility,
   pub placement: ScrollBarPlacement,
 }
@@ -58,6 +70,8 @@ impl Default for ScrollBarStyle {
       thumb_radius: DEFAULT_SCROLLBAR_THUMB_RADIUS,
       track_radius: DEFAULT_SCROLLBAR_TRACK_RADIUS,
       padding: DEFAULT_SCROLLBAR_PADDING,
+      edge_inset: None,
+      end_inset: None,
       visible: ScrollBarVisibility::Auto,
       placement: ScrollBarPlacement::Overlay,
     }
@@ -85,6 +99,23 @@ impl ScrollBarStyle {
       padding: WIDE_SCROLLBAR_PADDING,
       ..Self::default()
     }
+  }
+
+  /// Sets [`Self::edge_inset`] and [`Self::end_inset`].
+  pub fn insets(mut self, edge: f32, end: f32) -> Self {
+    self.edge_inset = Some(edge);
+    self.end_inset = Some(end);
+    self
+  }
+
+  /// The resolved gap between the bar and the edge it runs along.
+  pub fn resolved_edge_inset(&self) -> f32 {
+    self.edge_inset.unwrap_or(self.padding)
+  }
+
+  /// The resolved gap between each track end and the container's edge.
+  pub fn resolved_end_inset(&self) -> f32 {
+    self.end_inset.unwrap_or(self.padding)
   }
 
   pub fn hidden() -> Self {
@@ -121,10 +152,10 @@ pub fn compute_vertical_scrollbar(
     _ => {}
   }
 
-  let track_x = viewport_x + viewport_width - style.width - style.padding;
-  let track_y = viewport_y + style.padding;
+  let track_x = viewport_x + viewport_width - style.width - style.resolved_edge_inset();
+  let track_y = viewport_y + style.resolved_end_inset();
   let track_width = style.width;
-  let track_height = viewport_height - style.padding * 2.0;
+  let track_height = viewport_height - style.resolved_end_inset() * 2.0;
 
   let ratio = viewport_height / content_height.max(1.0);
   let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
@@ -159,9 +190,9 @@ pub fn compute_horizontal_scrollbar(
     _ => {}
   }
 
-  let track_x = viewport_x + style.padding;
-  let track_y = viewport_y + viewport_height - style.width - style.padding;
-  let track_width = viewport_width - style.padding * 2.0;
+  let track_x = viewport_x + style.resolved_end_inset();
+  let track_y = viewport_y + viewport_height - style.width - style.resolved_edge_inset();
+  let track_width = viewport_width - style.resolved_end_inset() * 2.0;
   let track_height = style.width;
 
   let ratio = viewport_width / content_width.max(1.0);

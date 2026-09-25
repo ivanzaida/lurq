@@ -190,8 +190,9 @@ where
     let disabled: Vec<bool> = self.options.iter().map(|option| option.disabled).collect();
     let values: Vec<T> = self.options.into_iter().map(|option| option.value).collect();
 
-    let (selected, multiple, on_change) = match self.binding {
+    let (selected, multiple, on_change, binding) = match self.binding {
       Binding::Single(signal) => {
+        let binding = signal.id();
         let current = signal.get();
         let selected: Vec<usize> = values.iter().position(|value| *value == current).into_iter().collect();
         let option_values = values.clone();
@@ -200,9 +201,10 @@ where
             signal.set(value.clone());
           }
         });
-        (selected, false, on_change)
+        (selected, false, on_change, binding)
       }
       Binding::Multiple(signal) => {
+        let binding = signal.id();
         let current = signal.get();
         let selected: Vec<usize> = values
           .iter()
@@ -222,7 +224,7 @@ where
             });
           }
         });
-        (selected, true, on_change)
+        (selected, true, on_change, binding)
       }
     };
     let selected_labels: Vec<Arc<str>> = selected
@@ -256,6 +258,7 @@ where
       .select_placeholder(self.placeholder)
       .select_style(self.style)
       .select_on_change(on_change)
+      .select_binding(binding)
   }
 }
 
