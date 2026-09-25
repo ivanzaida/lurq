@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.25.0 — 2026-09-25
 
 - Fix `Select` keyboard navigation.
   - The keyboard highlight now composes with the selection. A highlighted selected option used to be drawn as merely selected, so moving onto it, or opening a menu whose selected option was highlighted, showed no change.
