@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-  layout::text_style::{FontStyle, FontWeight, TextStyle},
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle},
   node::color::Color,
 };
 
@@ -13,6 +13,8 @@ pub struct MarkdownTextStyle {
   pub line_height: Option<f32>,
   /// Letter spacing in logical pixels; not multiplied by `font_size_scale`.
   pub letter_spacing: Option<f32>,
+  /// OpenType feature settings; replaces the base style's settings.
+  pub font_features: Option<FontFeatures>,
   pub weight: Option<FontWeight>,
   pub style: Option<FontStyle>,
   pub color: Option<Color>,
@@ -39,6 +41,9 @@ impl MarkdownTextStyle {
     }
     if let Some(letter_spacing) = self.letter_spacing {
       style.letter_spacing = letter_spacing;
+    }
+    if let Some(font_features) = &self.font_features {
+      style.font_features = font_features.clone();
     }
     if let Some(weight) = self.weight {
       style.weight = weight;

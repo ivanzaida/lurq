@@ -13,12 +13,12 @@ use lurq::{
     Alignment, Constraints, Size,
     layout_result::LayoutResult,
     quad::QuadContent,
-    text_style::{FontStyle, FontWeight, TextStyle},
+    text_style::{FontFeature, FontFeatures, FontStyle, FontWeight, TextStyle},
   },
   node::{ElementRef, color::Color, dimension::Dimension},
 };
 
-use crate::support::{TestSurface, pointer_click};
+use crate::support::{TestSurface, pointer_click, render_pass_with_app};
 
 struct MarkdownRoot;
 
@@ -62,6 +62,85 @@ fn markdown_component_renders_rich_inline_spans() {
   assert!(matches!(spans[1].style.weight, FontWeight::Bold));
   assert!(matches!(spans[3].style.style, FontStyle::Italic));
   assert_eq!(&*spans[5].style.font_family, "monospace");
+}
+
+#[test]
+fn markdown_inline_code_font_features_shape_their_span() {
+  // The ligature-probe face shapes "--" into one glyph unless liga is off.
+  let render = |inline_code_features: Option<FontFeatures>| {
+    let mut app = App::new();
+    app.install_fonts(
+      [include_bytes!("../assets/ligature_probe/LurqLigatureProbe-Regular.ttf").to_vec()],
+      std::iter::empty::<(&str, &str)>(),
+    );
+    let mut markdown = ThemeMarkdown::default();
+    markdown.inline_code = MarkdownInlineStyle::default();
+    markdown.inline_code.text.font_features = inline_code_features;
+    app.theme().set_markdown(markdown);
+    let mut tree = Tree::new();
+    tree.resize(400, 100);
+    tree.mount_root::<MarkdownRoot>(
+      &mut app,
+      MarkdownProps::new("a `a --a`")
+        .style(TextStyle {
+          font_family: "Lurq Ligature Probe".into(),
+          font_size: 10.0,
+          ..TextStyle::default()
+        })
+        .width(320.0),
+    );
+    let glyphs = render_pass_with_app(&mut tree, &mut app).glyphs.len();
+    let quads = tree.resolve_quads(tree.last_layout().expect("layout"));
+    let features = quads
+      .iter()
+      .find_map(|quad| match &quad.content {
+        QuadContent::RichText { spans, .. } => Some(
+          spans
+            .iter()
+            .map(|span| span.style.font_features.clone())
+            .collect::<Vec<_>>(),
+        ),
+        _ => None,
+      })
+      .expect("rich text");
+    (glyphs, features)
+  };
+
+  let no_ligatures = FontFeatures::from([FontFeature::disable(*b"liga")]);
+  let (glyphs, features) = render(Some(no_ligatures.clone()));
+  assert_eq!(features, [FontFeatures::default(), no_ligatures]);
+  assert_eq!(glyphs, 5, "a + a, -, -, a");
+  let (glyphs, features) = render(None);
+  assert!(features.iter().all(FontFeatures::is_empty), "{features:?}");
+  assert_eq!(glyphs, 4, "a + a, ligature, a");
+}
+
+#[test]
+fn markdown_reshapes_when_only_font_features_change() {
+  let mut app = App::new();
+  app.install_fonts(
+    [include_bytes!("../assets/ligature_probe/LurqLigatureProbe-Regular.ttf").to_vec()],
+    std::iter::empty::<(&str, &str)>(),
+  );
+  let mut tree = Tree::new();
+  tree.resize(400, 100);
+  let no_ligatures = FontFeatures::from([FontFeature::disable(*b"liga")]);
+  for (font_features, glyphs) in [
+    (FontFeatures::default(), 4),
+    (no_ligatures.clone(), 5),
+    (FontFeatures::default(), 4),
+    (no_ligatures, 5),
+  ] {
+    let style = TextStyle {
+      font_family: "Lurq Ligature Probe".into(),
+      font_size: 10.0,
+      font_features: font_features.clone(),
+      ..TextStyle::default()
+    };
+    tree.mount_root::<MarkdownRoot>(&mut app, MarkdownProps::new("a *a --a*").style(style).width(320.0));
+    let painted = render_pass_with_app(&mut tree, &mut app).glyphs.len();
+    assert_eq!(painted, glyphs, "{font_features:?}");
+  }
 }
 
 #[test]

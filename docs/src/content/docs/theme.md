@@ -252,6 +252,35 @@ TextInput::new(query.clone()).letter_spacing(0.5);
 
 `Text::letter_spacing(...)` overrides the spacing of whatever style the text resolves to, including typography roles. `TextInput::letter_spacing(...)` sets it on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces it, as with `text_align(...)`. Markdown styles take `MarkdownTextStyle::letter_spacing`, which `font_size_scale` does not scale, and canvas text takes `CanvasFont::letter_spacing`. Within rich text every span's spacing is in pixels, whatever its font size. Non-finite values are treated as `0.0`.
 
+### Font Features
+
+`TextStyle::font_features` holds OpenType feature settings, like CSS `font-feature-settings`. Each `FontFeature` is a four-byte tag and a value: `0` turns the feature off, `1` turns it on, and features that pick an alternate (`salt`, `cvNN`) take its index. The default is empty, which keeps the shaper's default features, including standard ligatures (`liga`), contextual alternates (`calt`), and kerning.
+
+Programming ligatures can misrender commands and code. Geist Mono, for example, shapes `--` into one cell-wide glyph drawn over the preceding cell, so `gh auth login --hostname` shows as `login--hostname` and the line is one cell shorter. Define a mono role with them off:
+
+```rust
+use lurq::{
+  app::theme::TypographyStyle,
+  components::Text,
+  layout::text_style::{FontFeature, FontFeatures, TextStyle},
+};
+
+let no_ligatures = FontFeatures::new([FontFeature::disable(*b"liga"), FontFeature::disable(*b"calt")]);
+app.theme().set_typography_style(TypographyStyle::Mono, TextStyle {
+  font_family: "Geist Mono".into(),
+  font_size: 13.0,
+  font_features: no_ligatures.clone(),
+  ..TextStyle::default()
+});
+
+Text::new("gh auth login --hostname github.com").variant(TypographyStyle::Mono);
+Text::new("a -> b").variant(TypographyStyle::Mono).font_features(FontFeatures::default());
+```
+
+Settings are stored sorted by tag with one setting per tag; when a tag appears more than once the last setting wins, so equal settings compare and cache alike in any order. Font features are part of every text cache key, and measurement, wrapping, painting, carets, hit testing, and selection all use the shaped glyphs. Tags a font does not have are ignored.
+
+`Text::font_features(...)` overrides the settings of whatever style the text resolves to, including typography roles. `TextInput::font_features(...)` sets them on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces them. Markdown styles take `MarkdownTextStyle::font_features` (for example on `ThemeMarkdown::inline_code` and `code_block`), which replaces the base style's settings, and canvas text takes `CanvasFont::font_features`. In rich text, cosmic-text shapes a word whose spans share a font as one run with the first span's features, so give spans that meet inside a word the same settings.
+
 `ThemeFonts` remains as a compatibility shape with `body`, `heading`, and `mono`. Converting it into `ThemeTypography` only fills those three roles and leaves the rest at defaults.
 
 ## Radius

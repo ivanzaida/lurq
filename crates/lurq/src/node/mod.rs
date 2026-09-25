@@ -8,6 +8,7 @@ pub mod cursor;
 pub mod dimension;
 pub(crate) mod dsl;
 pub mod element;
+mod font_features;
 pub mod gradient;
 pub mod interaction_state;
 pub(crate) mod layout_cache;

@@ -2,7 +2,7 @@ pub use crate::node::node_kind::TextOverflow;
 use crate::{
   app::theme::TypographyStyle,
   impl_into_node,
-  layout::text_style::{TextAlign, TextStyle},
+  layout::text_style::{FontFeatures, TextAlign, TextStyle},
   node::{TextColor, TextTransformMode},
 };
 
@@ -46,6 +46,14 @@ impl Text {
   /// overriding the style's [`TextStyle::letter_spacing`].
   pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
     self.update_node(|node| node.set_text_letter_spacing(letter_spacing));
+    self
+  }
+
+  /// OpenType feature settings, overriding the style's
+  /// [`TextStyle::font_features`] (typography roles included).
+  pub fn font_features(mut self, font_features: impl Into<FontFeatures>) -> Self {
+    let font_features = font_features.into();
+    self.update_node(|node| node.set_text_font_features(font_features));
     self
   }
 

@@ -377,7 +377,7 @@ lurq::components::TextInput::new(endpoint.clone())
   .text_align(TextAlign::Center)
 ```
 
-Tighten or loosen tracking with `.letter_spacing(...)` in logical pixels on `Text` and `TextInput`, or with `TextStyle::letter_spacing`; see [Letter Spacing](../theme/#letter-spacing).
+Tighten or loosen tracking with `.letter_spacing(...)` in logical pixels on `Text` and `TextInput`, or with `TextStyle::letter_spacing`; see [Letter Spacing](../theme/#letter-spacing). Turn OpenType features such as ligatures on or off with `.font_features(...)` or `TextStyle::font_features`; see [Font Features](../theme/#font-features).
 
 Use text overflow when a fixed-width label should stay on one line:
 

@@ -16,7 +16,11 @@ use lurq::{
   components::{Canvas, Column, Rect},
   core::ElementRef,
   images::ImageData,
-  layout::{Constraints, Size, render_list::RenderList},
+  layout::{
+    Constraints, Size,
+    render_list::RenderList,
+    text_style::{FontFeature, FontFeatures},
+  },
   node::{Element, transform::Transform2D},
 };
 use raw_window_handle::{DisplayHandle, WindowHandle};
@@ -448,6 +452,42 @@ fn text_letter_spacing_widens_measured_advances() {
     (d.measure_text("aaaa").unwrap().width - 16.0).abs() < 0.01,
     "measured in user space"
   );
+}
+
+#[test]
+fn text_font_features_reach_canvas_shaping() {
+  // The ligature-probe face shapes "--" into one 5px cell unless liga is off.
+  let mut app = App::new();
+  app.install_fonts(
+    [include_bytes!("assets/ligature_probe/LurqLigatureProbe-Regular.ttf").to_vec()],
+    std::iter::empty::<(&str, &str)>(),
+  );
+  let mut tree = Tree::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(512.0, 512.0))));
+  tree.set_render_engine_factory(|| Box::new(Sink));
+  let r = ElementRef::new();
+  tree.set_root(
+    Canvas::new()
+      .software()
+      .ref_element(r.clone())
+      .width(100.0)
+      .height(40.0),
+  );
+  tree.pass(&mut app, &support::TestSurface);
+  let d = r.as_canvas().unwrap().context_2d();
+  let no_ligatures = FontFeatures::from([FontFeature::disable(*b"liga")]);
+  for (font_features, width) in [
+    (FontFeatures::default(), 20.0),
+    (no_ligatures, 25.0),
+    (FontFeatures::default(), 20.0),
+  ] {
+    d.set_font(CanvasFont {
+      font_features: font_features.clone(),
+      ..CanvasFont::new("Lurq Ligature Probe", 10.0)
+    });
+    let measured = d.measure_text("a --a").unwrap().width;
+    assert!((measured - width).abs() < 0.01, "{font_features:?}: {measured}");
+  }
 }
 
 #[test]

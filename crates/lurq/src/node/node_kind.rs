@@ -108,6 +108,7 @@ pub(crate) struct TextStyleSource {
   color: Option<TextColor>,
   text_align: Option<TextAlign>,
   letter_spacing: Option<f32>,
+  font_features: Option<crate::layout::text_style::FontFeatures>,
   shadow: Option<crate::layout::text_style::TextShadow>,
 }
 
@@ -125,6 +126,7 @@ impl TextStyleSource {
       color: None,
       text_align: None,
       letter_spacing: None,
+      font_features: None,
       shadow: None,
     }
   }
@@ -135,6 +137,7 @@ impl TextStyleSource {
       color: None,
       text_align: None,
       letter_spacing: None,
+      font_features: None,
       shadow: None,
     }
   }
@@ -155,6 +158,10 @@ impl TextStyleSource {
     self.letter_spacing = Some(letter_spacing);
   }
 
+  pub(crate) fn set_font_features(&mut self, font_features: crate::layout::text_style::FontFeatures) {
+    self.font_features = Some(font_features);
+  }
+
   pub(crate) fn set_shadow(&mut self, shadow: crate::layout::text_style::TextShadow) {
     self.shadow = Some(shadow);
   }
@@ -173,6 +180,9 @@ impl TextStyleSource {
     }
     if let Some(letter_spacing) = self.letter_spacing {
       style.letter_spacing = letter_spacing;
+    }
+    if let Some(font_features) = &self.font_features {
+      style.font_features = font_features.clone();
     }
     if let Some(shadow) = self.shadow {
       style.shadow = Some(shadow);

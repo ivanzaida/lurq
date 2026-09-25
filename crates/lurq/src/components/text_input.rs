@@ -3,7 +3,7 @@ use crate::{
   app::theme::CaretMode,
   core::Signal,
   impl_into_node,
-  layout::text_style::{TextAlign, TextStyle},
+  layout::text_style::{FontFeatures, TextAlign, TextStyle},
 };
 
 impl_into_node!(TextInput);
@@ -37,6 +37,14 @@ impl TextInput {
   /// `placeholder_style` replaces it.
   pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
     self.update_node(|node| node.set_text_input_letter_spacing(letter_spacing));
+    self
+  }
+
+  /// OpenType feature settings of the value and placeholder. Like
+  /// `letter_spacing`, a later `text_style` or `placeholder_style` replaces them.
+  pub fn font_features(mut self, font_features: impl Into<FontFeatures>) -> Self {
+    let font_features = font_features.into();
+    self.update_node(|node| node.set_text_input_font_features(font_features));
     self
   }
 

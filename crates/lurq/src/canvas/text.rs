@@ -6,7 +6,7 @@ use tiny_skia::{Pixmap, PixmapPaint};
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
   app::glyph_engine::{FaceWeights, with_letter_spacing},
-  layout::text_style::{FontStyle, FontWeight, TextStyle},
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle},
   node::color::Color,
 };
 
@@ -19,6 +19,8 @@ pub struct CanvasFont {
   /// Extra space after every glyph in logical pixels, like
   /// [`TextStyle::letter_spacing`]; scales with the canvas transform like `size`.
   pub letter_spacing: f32,
+  /// OpenType feature settings, like [`TextStyle::font_features`].
+  pub font_features: FontFeatures,
 }
 impl CanvasFont {
   pub fn new(family: impl Into<Arc<str>>, size: f32) -> Self {
@@ -28,6 +30,7 @@ impl CanvasFont {
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
       letter_spacing: 0.0,
+      font_features: FontFeatures::default(),
     }
   }
   pub(crate) fn from_style(style: &TextStyle) -> Self {
@@ -37,6 +40,7 @@ impl CanvasFont {
       weight: style.weight,
       style: style.style,
       letter_spacing: style.letter_spacing,
+      font_features: style.font_features.clone(),
     }
   }
 }
@@ -199,7 +203,7 @@ impl CanvasTextEngine {
     let weight = self
       .face_weights
       .resolve(self.fonts.db(), family, font.weight, font.style);
-    let attrs = Attrs::new()
+    let mut attrs = Attrs::new()
       .family(if family.is_empty() {
         Family::SansSerif
       } else {
@@ -207,6 +211,9 @@ impl CanvasTextEngine {
       })
       .weight(weight)
       .style(font.style.to_cosmic());
+    if !font.font_features.is_empty() {
+      attrs = attrs.font_features(font.font_features.to_cosmic());
+    }
     let attrs = with_letter_spacing(attrs, font.letter_spacing, font.size);
     let text = text.replace(['\n', '\r', '\t'], " ");
     buffer.set_text(&text, &attrs, Shaping::Advanced, None);

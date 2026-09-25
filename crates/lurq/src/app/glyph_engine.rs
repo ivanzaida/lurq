@@ -34,7 +34,7 @@ use crate::{
     Size,
     quad::{ClipRect, RichTextSpan},
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
-    text_style::{FontStyle, TextAlign, TextStyle},
+    text_style::{FontFeatures, FontStyle, TextAlign, TextStyle},
   },
   node::{
     color::Color,
@@ -60,6 +60,7 @@ struct CacheKey {
   font_size_bits: u32,
   line_height_bits: u32,
   letter_spacing_bits: u32,
+  font_features: FontFeatures,
   max_width_bits: u32,
   weight: u16,
   style: u8,
@@ -78,6 +79,7 @@ impl Hash for CacheKey {
     self.font_size_bits.hash(state);
     self.line_height_bits.hash(state);
     self.letter_spacing_bits.hash(state);
+    self.font_features.hash(state);
     self.max_width_bits.hash(state);
     self.weight.hash(state);
     self.style.hash(state);
@@ -96,6 +98,7 @@ impl CacheKey {
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
       letter_spacing_bits: letter_spacing_bits(style.letter_spacing),
+      font_features: style.font_features.clone(),
       max_width_bits: max_width.to_bits(),
       weight: style.weight.value(),
       style: style_to_u8(style.style),
@@ -125,6 +128,7 @@ impl CacheKey {
       && self.font_size_bits == style.font_size.to_bits()
       && self.line_height_bits == style.line_height.to_bits()
       && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing)
+      && self.font_features == style.font_features
       && self.max_width_bits == max_width.to_bits()
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
@@ -141,6 +145,7 @@ fn text_measure_fingerprint(text: &str, style: &TextStyle, max_width: f32, wrap:
   style.font_size.to_bits().hash(&mut hasher);
   style.line_height.to_bits().hash(&mut hasher);
   letter_spacing_bits(style.letter_spacing).hash(&mut hasher);
+  style.font_features.hash(&mut hasher);
   max_width.to_bits().hash(&mut hasher);
   style.weight.value().hash(&mut hasher);
   style_to_u8(style.style).hash(&mut hasher);
@@ -249,6 +254,7 @@ struct RichTextSpanCacheKey {
   font_size_bits: u32,
   line_height_bits: u32,
   letter_spacing_bits: u32,
+  font_features: FontFeatures,
   weight: u16,
   style: u8,
   text_align: u8,
@@ -264,6 +270,7 @@ impl RichTextSpanCacheKey {
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
       letter_spacing_bits: letter_spacing_bits(style.letter_spacing),
+      font_features: style.font_features.clone(),
       weight: style.weight.value(),
       style: style_to_u8(style.style),
       text_align: text_align_to_u8(style.text_align),
@@ -278,6 +285,7 @@ impl RichTextSpanCacheKey {
       && self.font_size_bits == style.font_size.to_bits()
       && self.line_height_bits == style.line_height.to_bits()
       && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing)
+      && self.font_features == style.font_features
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
       && self.text_align == text_align_to_u8(style.text_align)
@@ -315,6 +323,7 @@ fn hash_rich_text_spans(spans: &[RichTextSpan], hasher: &mut DefaultHasher) {
     style.font_size.to_bits().hash(hasher);
     style.line_height.to_bits().hash(hasher);
     letter_spacing_bits(style.letter_spacing).hash(hasher);
+    style.font_features.hash(hasher);
     style.weight.value().hash(hasher);
     style_to_u8(style.style).hash(hasher);
     text_align_to_u8(style.text_align).hash(hasher);
@@ -3048,10 +3057,13 @@ fn plain_attrs<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_t
   } else {
     Family::Name(resolved_family)
   };
-  let attrs = Attrs::new()
+  let mut attrs = Attrs::new()
     .family(family)
     .weight(weight)
     .style(style.style.to_cosmic());
+  if !style.font_features.is_empty() {
+    attrs = attrs.font_features(style.font_features.to_cosmic());
+  }
   with_letter_spacing(attrs, style.letter_spacing, em_px)
 }
 

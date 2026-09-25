@@ -5,6 +5,9 @@ use crate::{
   node::{TextColor, color::Color},
 };
 
+mod font_features;
+pub use font_features::{FontFeature, FontFeatures};
+
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
 const DEFAULT_TEXT_COLOR: Color = Color::new(0, 0, 0, 255);
@@ -42,6 +45,13 @@ pub struct TextStyle {
   /// measurement, wrapping, painting, carets and hit testing all use the spaced
   /// advances. Non-finite values are treated as `0.0`.
   pub letter_spacing: f32,
+  /// OpenType feature settings for shaping, like CSS `font-feature-settings`.
+  /// Empty by default, which keeps the shaper's default features — including
+  /// ligatures and contextual alternates. Programming ligatures can misrender
+  /// commands and code (Geist Mono shapes `--` into one cell-wide glyph drawn
+  /// over the preceding space, so ` --flag` reads as `--flag`); turn them off with
+  /// `FontFeatures::new([FontFeature::disable(*b"liga"), FontFeature::disable(*b"calt")])`.
+  pub font_features: FontFeatures,
   pub color: Color,
   pub caret_color: Option<TextColor>,
   pub shadow: Option<TextShadow>,
@@ -59,6 +69,7 @@ impl Default for TextStyle {
       vertical_align: VerticalAlign::default(),
       trim_line_box: false,
       letter_spacing: 0.0,
+      font_features: FontFeatures::default(),
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
       shadow: None,

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add OpenType font feature settings, like CSS `font-feature-settings`. `TextStyle::font_features` is a `FontFeatures` list of `FontFeature` settings (a four-byte tag and a value, e.g. `FontFeature::disable(*b"liga")`); the default is empty and shapes as before. Settings are passed to cosmic-text/harfrust shaping and are part of every text cache key; they are kept sorted by tag with the last setting of a tag winning, so equal settings cache alike. `Text::font_features(...)` overrides the resolved style (typography roles included), `TextInput::font_features(...)` sets the value and placeholder styles, and `MarkdownTextStyle::font_features` and `CanvasFont::font_features` cover Markdown and canvas text. This lets an app turn off programming ligatures that misrender commands: Geist Mono's `liga` shapes `--` into one cell-wide glyph drawn over the preceding cell, so `login --hostname` rendered as `login--hostname`.
+- Breaking: `TextStyle`, `MarkdownTextStyle`, and `CanvasFont` struct literals without `..Default::default()` (or `CanvasFont::new`) need `font_features`.
+
 ## 0.26.0 — 2026-09-25
 
 - Fix a `Select`'s open menu, keyboard highlight and focus passing to another select when its parent re-renders. Selects were matched to their previous render by position, so inserting or removing a sibling before a select (a note that appears when a background check finishes, a relaid-out inspector) handed its open menu, highlight and node id to whichever select now sat at that position: the other select's menu opened under its trigger, `Escape` closed the wrong one, and `Enter` or a press on the menu could set the other select's value. A select is now identified by the signal it binds, like a `TextInput`: its state and node id follow that signal across sibling changes and never land on a select bound to another signal. A select whose signal is recreated every render therefore starts closed on every render. A retained `ref_element` set on a re-render is no longer replaced by the previous render's ref.
