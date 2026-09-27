@@ -220,6 +220,10 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::SetBorderColor(color));
   }
 
+  /// Sets the window's icon, or clears it with `None`. On Windows it is both
+  /// the small icon (title bar) and the big one (taskbar button, Alt+Tab). On
+  /// macOS this does nothing: the Dock and the app switcher show the
+  /// application bundle's icon.
   pub fn set_icon(&self, icon: impl Into<Option<WindowIcon>>) {
     self.window.push_command(WindowCommand::SetIcon(icon.into()));
   }

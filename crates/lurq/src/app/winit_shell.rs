@@ -115,8 +115,12 @@ impl WinitWindow {
     self
   }
 
+  /// The window's icon. On Windows it is both the small icon (title bar) and
+  /// the big one (taskbar button, Alt+Tab); Windows scales the image to each
+  /// size. On macOS this does nothing: the Dock and the app switcher show the
+  /// application bundle's icon.
   pub fn with_icon(mut self, icon: impl Into<Option<WindowIcon>>) -> Self {
-    self.attrs = self.attrs.with_window_icon(icon.into().and_then(to_winit_icon));
+    self.attrs = with_window_icons(self.attrs, icon.into().and_then(to_winit_icon));
     self
   }
 
@@ -420,7 +424,7 @@ impl ManagedWindow {
         }
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
-            window.set_window_icon(icon.and_then(to_winit_icon));
+            set_window_icons(window, icon.and_then(to_winit_icon));
           }
         }
         WindowCommand::SetCornerRadius(radius) => {
@@ -954,7 +958,7 @@ impl ManagedSecondaryWindow {
         }
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
-            window.set_window_icon(icon.and_then(to_winit_icon));
+            set_window_icons(window, icon.and_then(to_winit_icon));
           }
         }
         WindowCommand::SetCornerRadius(radius) => {
@@ -1908,6 +1912,34 @@ fn to_winit_icon(icon: WindowIcon) -> Option<WinitIcon> {
   WinitIcon::from_rgba(rgba, width, height).ok()
 }
 
+/// winit's window icon is only Windows' small icon (`ICON_SMALL`, the title
+/// bar); the taskbar button and Alt+Tab show the big one (`ICON_BIG`), which
+/// would otherwise stay the executable's icon. Both get the same image.
+#[cfg(windows)]
+fn with_window_icons(attrs: WindowAttributes, icon: Option<WinitIcon>) -> WindowAttributes {
+  attrs.with_window_icon(icon.clone()).with_taskbar_icon(icon)
+}
+
+/// macOS ignores window icons (the bundle's icon stands for the app); X11
+/// takes this one for the title bar and the task switcher.
+#[cfg(not(windows))]
+fn with_window_icons(attrs: WindowAttributes, icon: Option<WinitIcon>) -> WindowAttributes {
+  attrs.with_window_icon(icon)
+}
+
+/// See [`with_window_icons`].
+#[cfg(windows)]
+fn set_window_icons(window: &Window, icon: Option<WinitIcon>) {
+  window.set_taskbar_icon(icon.clone());
+  window.set_window_icon(icon);
+}
+
+/// See [`with_window_icons`].
+#[cfg(not(windows))]
+fn set_window_icons(window: &Window, icon: Option<WinitIcon>) {
+  window.set_window_icon(icon);
+}
+
 #[cfg(windows)]
 fn with_title_bar_color(attrs: WindowAttributes, color: Option<Color>) -> WindowAttributes {
   attrs.with_title_background_color(color.map(to_winit_windows_color))
@@ -2189,5 +2221,47 @@ mod close_runtime_tests {
       .on_close_requested(|_| panic!("unconditional close called handler"));
     tree.window().handle().close();
     assert!(managed.apply_window_commands(tree));
+  }
+}
+
+#[cfg(all(test, windows))]
+mod window_icon_tests {
+  use windows::Win32::{
+    Foundation::{HWND, LPARAM, WPARAM},
+    UI::WindowsAndMessaging::{ICON_BIG, ICON_SMALL, SendMessageW, WM_GETICON},
+  };
+  use winit::platform::windows::EventLoopBuilderExtWindows;
+
+  use super::*;
+
+  /// The window's `ICON_SMALL` or `ICON_BIG` handle, 0 when unset.
+  fn icon_handle(window: &Window, kind: u32) -> isize {
+    let RawWindowHandle::Win32(handle) = window.window_handle().expect("window handle").as_raw() else {
+      panic!("not a Win32 window");
+    };
+    let hwnd = HWND(handle.hwnd.get() as *mut std::ffi::c_void);
+    // SAFETY: `hwnd` is the test's own live window; WM_GETICON only reads it.
+    unsafe { SendMessageW(hwnd, WM_GETICON, Some(WPARAM(kind as usize)), Some(LPARAM(0))).0 }
+  }
+
+  #[test]
+  fn the_window_icon_is_also_the_taskbar_icon() {
+    // The test's only event loop: winit allows one per process.
+    let event_loop = EventLoop::builder().with_any_thread(true).build().expect("event loop");
+    let icon = || to_winit_icon(WindowIcon::from_rgba(vec![200; 32 * 32 * 4], 32, 32));
+    let attributes = with_window_icons(WindowAttributes::default().with_visible(false), icon());
+    // A hidden window of the test's own, outside `run_app`.
+    #[allow(deprecated)]
+    let window = event_loop.create_window(attributes).expect("hidden test window");
+    assert_ne!(icon_handle(&window, ICON_SMALL), 0, "title bar icon");
+    assert_ne!(icon_handle(&window, ICON_BIG), 0, "taskbar and Alt+Tab icon");
+
+    set_window_icons(&window, None);
+    assert_eq!(icon_handle(&window, ICON_SMALL), 0);
+    assert_eq!(icon_handle(&window, ICON_BIG), 0);
+
+    set_window_icons(&window, icon());
+    assert_ne!(icon_handle(&window, ICON_SMALL), 0);
+    assert_ne!(icon_handle(&window, ICON_BIG), 0);
   }
 }

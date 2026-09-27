@@ -336,7 +336,9 @@ Use `ctx.window_opener()` for a cloneable handle that opens secondary windows. `
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so
 direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
 
-`set_icon` accepts a `WindowIcon` built from RGBA pixels. `set_title_bar_color` and `set_corner_radius` customize native
+`set_icon` accepts a `WindowIcon` built from RGBA pixels (`None` clears it). On Windows the icon is both the small
+title-bar icon and the big icon of the taskbar button and Alt+Tab, scaled by Windows to each size; on macOS it does
+nothing, since the Dock and the app switcher show the application bundle's icon. `set_title_bar_color` and `set_corner_radius` customize native
 window chrome where the platform supports it; with the winit shell, title bar color maps to the Windows title background
 API, while corner radius maps to the Windows corner preference API and macOS AppKit content-view layer clipping.
 `set_border_color` sets the 1px compositor border Windows 11 (build 22000+) draws around every window, including

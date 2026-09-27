@@ -9,6 +9,7 @@
   - Both the wgpu and the DX12 engine paint every layer into its own texture before the target it is composited into, then the window. The devtools screenshot renderer flattens the same way.
   - Tests: layout and render-list tests for layers, nesting, folding, bounds at 1.25x and 1.5x, clipping and hit testing, and GPU readback tests on both engines for the button (exact colours, no ring), nested layers, layers matching single primitives with their own alpha, and texture pooling.
 - Breaking: `RenderList` has a `layers` field (`Vec<LayerCmd>`, see `lurq::layout::opacity_layer`); struct literals must set it (`layers: Vec::new()`). A custom `RenderEngine` that ignores it draws faded subtrees at full opacity. `Quad::opacity` from `Tree::resolve_quads` is now the opacity within the quad's layer rather than the product of all ancestor opacities, and `ImageCmd::opacity` likewise.
+- Fix the taskbar button and Alt+Tab ignoring the window icon on Windows. `WinitWindow::with_icon` and `WindowHandle::set_icon` (`ctx.window().set_icon(...)`) set only winit's window icon, which on Windows is the small icon (`ICON_SMALL`, the title bar); the taskbar and Alt+Tab show the big icon (`ICON_BIG`), which stayed the executable's icon or the generic one. Both now set the big icon too, from the same image, and `None` clears both. On macOS both calls still do nothing (the Dock shows the bundle's icon), now documented.
 
 ## 0.28.0 — 2026-09-25
 
