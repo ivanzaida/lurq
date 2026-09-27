@@ -77,9 +77,12 @@ fn vs_main(in: VsIn) -> VsOut {
         in.transform.y * centered.x + in.transform.w * centered.y,
     );
     let world = in.pos + rotated + in.xf_origin;
+    // `viewport.zw` is the target's origin in window pixels (non-zero when
+    // painting into an opacity layer).
     let viewport = globals.viewport.xy;
-    let ndc_x = (world.x / viewport.x) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (world.y / viewport.y) * 2.0;
+    let target_px = world - globals.viewport.zw;
+    let ndc_x = (target_px.x / viewport.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (target_px.y / viewport.y) * 2.0;
 
     var out: VsOut;
     out.clip = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);

@@ -56,10 +56,12 @@ pub struct RenderSnapshot {
   pub image_opacities: Vec<f32>,
   #[cfg(feature = "svg")]
   pub svg_orders: Vec<usize>,
+  pub layers: Vec<lurq::layout::opacity_layer::LayerCmd>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct GlyphSnapshot {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,
@@ -73,6 +75,7 @@ pub struct GlyphSnapshot {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectSnapshot {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,
@@ -138,6 +141,7 @@ impl RenderEngine for CapturingRenderEngine {
       image_opacities: list.images.iter().map(|image| image.opacity).collect(),
       #[cfg(feature = "svg")]
       svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
+      layers: list.layers.clone(),
     });
     true
   }
@@ -155,11 +159,13 @@ fn empty_snapshot() -> RenderSnapshot {
     image_opacities: vec![],
     #[cfg(feature = "svg")]
     svg_orders: vec![],
+    layers: vec![],
   }
 }
 
 fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
   GlyphSnapshot {
+    order: glyph.order,
     x: glyph.x,
     y: glyph.y,
     width: glyph.width,
@@ -174,6 +180,7 @@ fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
 
 fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
   RectSnapshot {
+    order: rect.order,
     x: rect.x,
     y: rect.y,
     width: rect.width,

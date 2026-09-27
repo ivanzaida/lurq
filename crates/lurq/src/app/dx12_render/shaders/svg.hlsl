@@ -21,7 +21,10 @@ struct VsOut
 
 VsOut vs_main(VsIn input)
 {
-  float2 ndc = float2((input.position.x / viewport.x) * 2.0 - 1.0, 1.0 - (input.position.y / viewport.y) * 2.0);
+  // `viewport.zw` is the target's origin in window pixels (non-zero when
+  // painting into an opacity layer).
+  float2 target_px = input.position - viewport.zw;
+  float2 ndc = float2((target_px.x / viewport.x) * 2.0 - 1.0, 1.0 - (target_px.y / viewport.y) * 2.0);
 
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);

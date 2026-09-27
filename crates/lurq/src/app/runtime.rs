@@ -668,6 +668,8 @@ pub struct Tree {
   render_images: Vec<crate::images::ImageCmd>,
   #[cfg(feature = "svg")]
   render_svgs: Vec<crate::svg::SvgCmd>,
+  render_layers: Vec<crate::layout::opacity_layer::LayerCmd>,
+  opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
   cached_render_list: Option<CachedRenderList>,
   #[cfg(feature = "canvas")]
   canvas_registry: Vec<crate::canvas::CanvasHandle>,
@@ -988,6 +990,8 @@ impl Tree {
       render_images: Vec::new(),
       #[cfg(feature = "svg")]
       render_svgs: Vec::new(),
+      render_layers: Vec::new(),
+      opacity_groups: Vec::new(),
       cached_render_list: None,
       #[cfg(feature = "canvas")]
       canvas_registry: Vec::new(),
@@ -2174,6 +2178,8 @@ impl Tree {
     self
       .layout_engine
       .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
+    let mut opacity_groups = std::mem::take(&mut self.opacity_groups);
+    self.layout_engine.take_opacity_groups(&mut opacity_groups);
     let quad_wall_dur = quad_wall_start.elapsed();
     let _quad_dur = profile_elapsed!(_quad_start);
     let quad_count = quads.len();
@@ -2701,6 +2707,21 @@ impl Tree {
     quads.clear();
     self.quad_scratch = quads;
 
+    let mut layers = std::mem::take(&mut self.render_layers);
+    crate::layout::opacity_layer::resolve_layers(
+      &opacity_groups,
+      quad_count,
+      [self.viewport_physical.width, self.viewport_physical.height],
+      &rects,
+      &glyphs,
+      #[cfg(feature = "raster")]
+      &images,
+      #[cfg(feature = "svg")]
+      &svgs,
+      &mut layers,
+    );
+    self.opacity_groups = opacity_groups;
+
     #[cfg(feature = "screenshot")]
     let frame_capture = if self
       .render_engine
@@ -2713,9 +2734,9 @@ impl Tree {
       #[cfg(feature = "devtools")]
       {
         #[cfg(feature = "raster")]
-        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &glyph_engine.atlas());
+        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &images, &layers, &glyph_engine.atlas());
         #[cfg(not(feature = "raster"))]
-        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &glyph_engine.atlas());
+        self.save_pending_devtools_screenshot(clear_color, &rects, &glyphs, &layers, &glyph_engine.atlas());
       }
       None
     };
@@ -2790,6 +2811,7 @@ impl Tree {
       images,
       #[cfg(feature = "svg")]
       svgs,
+      layers,
       atlas: glyph_engine.atlas(),
     };
 
@@ -2913,12 +2935,15 @@ impl Tree {
       mut images,
       #[cfg(feature = "svg")]
       mut svgs,
+      mut layers,
       atlas: _,
     } = list;
     rects.clear();
     glyphs.clear();
+    layers.clear();
     self.render_rects = rects;
     self.render_glyphs = glyphs;
+    self.render_layers = layers;
     #[cfg(feature = "raster")]
     {
       images.clear();
@@ -7815,6 +7840,7 @@ impl Tree {
     rects: &[RectCmd],
     glyphs: &[GlyphCmd],
     images: &[crate::images::ImageCmd],
+    layers: &[crate::layout::opacity_layer::LayerCmd],
     atlas: &crate::layout::render_list::GlyphAtlas,
   ) {
     let Some(mut request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
@@ -7839,10 +7865,19 @@ impl Tree {
     let rects = rects.to_vec();
     let glyphs = glyphs.to_vec();
     let images = images.to_vec();
+    let layers = layers.to_vec();
     let atlas = atlas.clone();
     std::thread::spawn(move || {
-      if let Err(error) = save_devtools_screenshot(&output_path, bounds, clear_color, &rects, &glyphs, &images, &atlas)
-      {
+      if let Err(error) = save_devtools_screenshot(
+        &output_path,
+        bounds,
+        clear_color,
+        &rects,
+        &glyphs,
+        &images,
+        &layers,
+        &atlas,
+      ) {
         tracing::warn!(
           "failed to save devtools node screenshot to {}: {error}",
           output_path.display()
@@ -7859,6 +7894,7 @@ impl Tree {
     clear_color: Color,
     rects: &[RectCmd],
     glyphs: &[GlyphCmd],
+    layers: &[crate::layout::opacity_layer::LayerCmd],
     atlas: &crate::layout::render_list::GlyphAtlas,
   ) {
     let Some(mut request) = self.devtools_state.screenshot_request.lock().unwrap().take() else {
@@ -7882,9 +7918,11 @@ impl Tree {
     let output_path = request.output_path;
     let rects = rects.to_vec();
     let glyphs = glyphs.to_vec();
+    let layers = layers.to_vec();
     let atlas = atlas.clone();
     std::thread::spawn(move || {
-      if let Err(error) = save_devtools_screenshot(&output_path, bounds, clear_color, &rects, &glyphs, &atlas) {
+      if let Err(error) = save_devtools_screenshot(&output_path, bounds, clear_color, &rects, &glyphs, &layers, &atlas)
+      {
         tracing::warn!(
           "failed to save devtools node screenshot to {}: {error}",
           output_path.display()
@@ -8004,6 +8042,7 @@ fn save_devtools_screenshot(
   rects: &[RectCmd],
   glyphs: &[GlyphCmd],
   #[cfg(feature = "raster")] images: &[crate::images::ImageCmd],
+  layers: &[crate::layout::opacity_layer::LayerCmd],
   atlas: &crate::layout::render_list::GlyphAtlas,
 ) -> Result<(), image::ImageError> {
   if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
@@ -8057,12 +8096,43 @@ fn save_devtools_screenshot(
   );
   draws.sort_by_key(|(order, _)| *order);
 
-  for (_, draw) in draws {
-    match draw {
-      DevtoolsScreenshotDraw::Rect(index) => draw_screenshot_rect(&mut pixels, bounds, &rects[index]),
-      DevtoolsScreenshotDraw::Glyph(index) => draw_screenshot_glyph(&mut pixels, bounds, &glyphs[index], atlas),
-      #[cfg(feature = "raster")]
-      DevtoolsScreenshotDraw::Image(index) => draw_screenshot_image(&mut pixels, bounds, &images[index]),
+  // Faded subtrees paint into transparent layers of the capture's size,
+  // composited once at their opacity (see `layout::opacity_layer`).
+  let mut plan = crate::layout::opacity_layer::LayerPlan::default();
+  plan.build(draws.len(), |index| draws[index].0, layers);
+  let mut finished: Vec<Option<Vec<u8>>> = vec![None; plan.targets().len()];
+  for (target_index, target) in plan.targets().iter().enumerate() {
+    let mut target_pixels = match target.layer {
+      Some(_) => vec![0_u8; pixels.len()],
+      None => std::mem::take(&mut pixels),
+    };
+    for step in plan.steps(target) {
+      match step {
+        crate::layout::opacity_layer::LayerStep::Draws(range) => {
+          for (_, draw) in &draws[range.clone()] {
+            match *draw {
+              DevtoolsScreenshotDraw::Rect(index) => draw_screenshot_rect(&mut target_pixels, bounds, &rects[index]),
+              DevtoolsScreenshotDraw::Glyph(index) => {
+                draw_screenshot_glyph(&mut target_pixels, bounds, &glyphs[index], atlas)
+              }
+              #[cfg(feature = "raster")]
+              DevtoolsScreenshotDraw::Image(index) => draw_screenshot_image(&mut target_pixels, bounds, &images[index]),
+            }
+          }
+        }
+        crate::layout::opacity_layer::LayerStep::Composite(child) => {
+          let child_target = &plan.targets()[*child];
+          let (Some(layer), Some(layer_pixels)) = (child_target.layer, finished[*child].take()) else {
+            continue;
+          };
+          composite_screenshot_layer(&mut target_pixels, &layer_pixels, bounds.width, layers[layer].opacity);
+        }
+      }
+    }
+    if target.layer.is_some() {
+      finished[target_index] = Some(target_pixels);
+    } else {
+      pixels = target_pixels;
     }
   }
 
@@ -8617,6 +8687,20 @@ fn screenshot_point_in_corner(x: f32, y: f32, center_x: f32, center_y: f32, radi
 }
 
 #[cfg(feature = "devtools")]
+/// Composites a layer painted like `pixels` (straight alpha, same size) over
+/// them at `opacity`.
+#[cfg(feature = "devtools")]
+fn composite_screenshot_layer(pixels: &mut [u8], layer: &[u8], width: u32, opacity: f32) {
+  for (index, source) in layer.chunks_exact(4).enumerate() {
+    let alpha = (f32::from(source[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
+    if alpha == 0 {
+      continue;
+    }
+    let (x, y) = (index as u32 % width, index as u32 / width);
+    blend_screenshot_pixel(pixels, width, x, y, [source[0], source[1], source[2], alpha]);
+  }
+}
+
 fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
   let source_alpha = source[3] as f32 / 255.0;
   if source_alpha <= 0.0 {

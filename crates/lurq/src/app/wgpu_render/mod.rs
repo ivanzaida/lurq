@@ -1,6 +1,7 @@
 #[cfg(feature = "canvas")]
 mod canvas;
 mod extension;
+mod layers;
 #[cfg(test)]
 mod quad_tests;
 mod vertex;
@@ -37,7 +38,10 @@ use crate::{
     profile_support::{profile_elapsed, profile_if, profile_scope},
     render_engine::RenderEngine,
   },
-  layout::render_list::RenderList,
+  layout::{
+    opacity_layer::{LayerPlan, LayerStep, TargetSpace},
+    render_list::RenderList,
+  },
 };
 
 struct DynamicBuffer {
@@ -150,6 +154,7 @@ enum ActivePipeline {
   Nv12Image,
   #[cfg(feature = "svg")]
   Svg,
+  Layer,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -342,7 +347,7 @@ pub struct WgpuRenderEngine {
   #[cfg(feature = "raster")]
   image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
-  clip_globals_cache: std::collections::HashMap<ClipGlobalsKey, wgpu::Buffer>,
+  clip_globals: ClipGlobalsCache,
   quad_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
   glyph_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
   gradient_buffer: Option<wgpu::Buffer>,
@@ -371,6 +376,11 @@ pub struct WgpuRenderEngine {
   #[cfg(feature = "raster")]
   scratch_image_instances: Vec<ImageInstance>,
   scratch_ordered_draws: Vec<(usize, OrderedDraw)>,
+  layer_plan: LayerPlan,
+  /// Offscreen targets of faded subtrees; created by the first frame that
+  /// has one.
+  layer_compositor: Option<layers::LayerCompositor>,
+  scratch_layer_slots: Vec<Option<usize>>,
   width: u32,
   height: u32,
   frame_extensions: Vec<WgpuFrameExtensionEntry>,
@@ -436,7 +446,7 @@ impl WgpuRenderEngine {
       #[cfg(feature = "raster")]
       image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
-      clip_globals_cache: std::collections::HashMap::new(),
+      clip_globals: ClipGlobalsCache::default(),
       quad_clip_bind_groups: std::collections::HashMap::new(),
       glyph_clip_bind_groups: std::collections::HashMap::new(),
       gradient_buffer: None,
@@ -465,12 +475,24 @@ impl WgpuRenderEngine {
       #[cfg(feature = "raster")]
       scratch_image_instances: Vec::new(),
       scratch_ordered_draws: Vec::new(),
+      layer_plan: LayerPlan::default(),
+      layer_compositor: None,
+      scratch_layer_slots: Vec::new(),
       width: 800,
       height: 600,
       frame_extensions: Vec::new(),
       #[cfg(feature = "screenshot")]
       pending_frame_capture: None,
     }
+  }
+
+  /// Opacity-layer textures the engine keeps pooled.
+  #[cfg(all(test, feature = "screenshot"))]
+  pub(crate) fn layer_texture_count(&self) -> usize {
+    self
+      .layer_compositor
+      .as_ref()
+      .map_or(0, layers::LayerCompositor::texture_count)
   }
 
   /// Select backends before rendering the first frame. Instance creation is lazy,
@@ -556,12 +578,13 @@ impl WgpuRenderEngine {
       self.image_texture_cache.clear();
       self.image_clip_bind_groups.clear();
     }
-    self.clip_globals_cache.clear();
+    self.clip_globals.clear();
     self.quad_clip_bind_groups.clear();
     self.glyph_clip_bind_groups.clear();
 
     self.quad_bind_group = None;
     self.glyph_bind_group = None;
+    self.layer_compositor = None;
     #[cfg(feature = "raster")]
     {
       self.image_sampler = None;
@@ -1233,7 +1256,7 @@ impl RenderEngine for WgpuRenderEngine {
   fn resize(&mut self, width: u32, height: u32) {
     self.width = width.max(1);
     self.height = height.max(1);
-    self.clip_globals_cache.clear();
+    self.clip_globals.clear();
     self.quad_clip_bind_groups.clear();
     self.glyph_clip_bind_groups.clear();
     #[cfg(feature = "raster")]
@@ -1613,567 +1636,653 @@ impl RenderEngine for WgpuRenderEngine {
       _buffer_upload_dur += profile_elapsed!(_image_upload_start);
     }
 
-    let mut encoder = device.create_command_encoder(&Default::default());
+    // Draws in paint order, across the pipelines.
+    self.scratch_ordered_draws.clear();
+    self.scratch_ordered_draws.reserve(
+      list.rects.len()
+        + list.glyphs.len()
+        + {
+          #[cfg(feature = "raster")]
+          {
+            list.images.len()
+          }
+          #[cfg(not(feature = "raster"))]
+          {
+            0
+          }
+        }
+        + {
+          #[cfg(feature = "svg")]
+          {
+            list.svgs.len()
+          }
+          #[cfg(not(feature = "svg"))]
+          {
+            0
+          }
+        },
+    );
+    for (index, rect) in list.rects.iter().enumerate() {
+      self.scratch_ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
+    }
+    let mut glyph_start = 0;
+    while glyph_start < list.glyphs.len() {
+      let order = list.glyphs[glyph_start].order;
+      let clip = list.glyphs[glyph_start].clip;
+      let mut glyph_end = glyph_start + 1;
+      while glyph_end < list.glyphs.len()
+        && list.glyphs[glyph_end].order == order
+        && same_clip(list.glyphs[glyph_end].clip, clip)
+      {
+        glyph_end += 1;
+      }
+      self.scratch_ordered_draws.push((
+        order,
+        OrderedDraw::Glyph {
+          start: glyph_start,
+          count: glyph_end - glyph_start,
+        },
+      ));
+      glyph_start = glyph_end;
+    }
+    #[cfg(feature = "raster")]
+    for (index, image) in list.images.iter().enumerate() {
+      self
+        .scratch_ordered_draws
+        .push((image.order, OrderedDraw::Image(index)));
+    }
+    #[cfg(feature = "svg")]
+    for (index, svg) in list.svgs.iter().enumerate() {
+      self.scratch_ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
+    }
+    self.scratch_ordered_draws.sort_by_key(|(order, _)| *order);
+    let ordered_draws = std::mem::take(&mut self.scratch_ordered_draws);
 
-    // --- Single render pass with scissor-based clipping ---
-    {
+    // Faded subtrees paint into offscreen layers first, each before the
+    // target it is composited into; the window's pass comes last. Without
+    // layers the plan is the window's pass alone.
+    let mut layer_plan = std::mem::take(&mut self.layer_plan);
+    layer_plan.build(ordered_draws.len(), |index| ordered_draws[index].0, &list.layers);
+    self.scratch_layer_slots.clear();
+    if layer_plan.has_layers() {
+      let format = render_target_format(config.format);
+      if self
+        .layer_compositor
+        .as_ref()
+        .is_none_or(|compositor| compositor.format() != format)
+      {
+        self.layer_compositor = Some(layers::LayerCompositor::new(device, format));
+      }
+    }
+    if let Some(compositor) = self.layer_compositor.as_mut() {
+      compositor.begin_frame();
+      for target in layer_plan.targets() {
+        self.scratch_layer_slots.push(target.layer.map(|layer| {
+          let bounds = list.layers[layer].bounds;
+          compositor.acquire(device, bounds.width, bounds.height)
+        }));
+      }
+    }
+
+    let mut encoder = device.create_command_encoder(&Default::default());
+    for (target_index, target) in layer_plan.targets().iter().enumerate() {
+      let layer_slot = self.scratch_layer_slots.get(target_index).copied().flatten();
+      let (space, target_view, clear) = match (target.layer, layer_slot, self.layer_compositor.as_ref()) {
+        (Some(layer), Some(slot), Some(compositor)) => (
+          compositor.space(slot, &list.layers[layer]),
+          compositor.view(slot).clone(),
+          wgpu::Color::TRANSPARENT,
+        ),
+        _ => (
+          TargetSpace::window(vw, vh),
+          view.clone(),
+          wgpu_clear_color(list.clear_color),
+        ),
+      };
       let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("lurq_pass"),
+        label: Some(if target.layer.is_some() {
+          "lurq_layer_pass"
+        } else {
+          "lurq_pass"
+        }),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-          view: &view,
+          view: &target_view,
           depth_slice: None,
           resolve_target: None,
           ops: wgpu::Operations {
-            load: wgpu::LoadOp::Clear(wgpu_clear_color(list.clear_color)),
+            load: wgpu::LoadOp::Clear(clear),
             store: wgpu::StoreOp::Store,
           },
         })],
         ..Default::default()
       });
 
-      self.scratch_ordered_draws.clear();
-      self.scratch_ordered_draws.reserve(
-        list.rects.len()
-          + list.glyphs.len()
-          + {
-            #[cfg(feature = "raster")]
-            {
-              list.images.len()
-            }
-            #[cfg(not(feature = "raster"))]
-            {
-              0
-            }
-          }
-          + {
-            #[cfg(feature = "svg")]
-            {
-              list.svgs.len()
-            }
-            #[cfg(not(feature = "svg"))]
-            {
-              0
-            }
-          },
-      );
-      for (index, rect) in list.rects.iter().enumerate() {
-        self.scratch_ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
-      }
-      let mut glyph_start = 0;
-      while glyph_start < list.glyphs.len() {
-        let order = list.glyphs[glyph_start].order;
-        let clip = list.glyphs[glyph_start].clip;
-        let mut glyph_end = glyph_start + 1;
-        while glyph_end < list.glyphs.len()
-          && list.glyphs[glyph_end].order == order
-          && same_clip(list.glyphs[glyph_end].clip, clip)
-        {
-          glyph_end += 1;
-        }
-        self.scratch_ordered_draws.push((
-          order,
-          OrderedDraw::Glyph {
-            start: glyph_start,
-            count: glyph_end - glyph_start,
-          },
-        ));
-        glyph_start = glyph_end;
-      }
-      #[cfg(feature = "raster")]
-      for (index, image) in list.images.iter().enumerate() {
-        self
-          .scratch_ordered_draws
-          .push((image.order, OrderedDraw::Image(index)));
-      }
-      #[cfg(feature = "svg")]
-      for (index, svg) in list.svgs.iter().enumerate() {
-        self.scratch_ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
-      }
-      self.scratch_ordered_draws.sort_by_key(|(order, _)| *order);
-
       let mut active_pipeline = None;
       let mut active_vertex_buffer = None;
       let mut active_index_buffer = None;
 
-      for (_, draw) in &self.scratch_ordered_draws {
-        match draw {
-          OrderedDraw::Rect(index) => {
-            let r = &list.rects[*index];
-            if !set_scissor(&mut pass, r.clip, vw, vh) {
-              continue;
-            }
-            let prepared = &self.scratch_rect_draws[*index];
-            let start = (prepared.start * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
-            let end = ((prepared.start + prepared.count) * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
-            if active_pipeline != Some(ActivePipeline::Quad) {
-              pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
-              active_pipeline = Some(ActivePipeline::Quad);
-            }
-            if rounded_clip_needs_shader(r.clip) {
-              let (clip_key, clip_globals) =
-                globals_buffer_for_clip(&mut self.clip_globals_cache, device, r.clip, vw, vh);
-              let clip_bind_group = self.quad_clip_bind_groups.entry(clip_key).or_insert_with(|| {
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                  label: Some("lurq_quad_clip_bg"),
-                  layout: self.quad_bgl.as_ref().unwrap(),
-                  entries: &[
-                    wgpu::BindGroupEntry {
-                      binding: 0,
-                      resource: clip_globals.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                      binding: 1,
-                      resource: gradient_buf.as_entire_binding(),
-                    },
-                  ],
-                })
-              });
-              pass.set_bind_group(0, &*clip_bind_group, &[]);
-            } else {
-              pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
-            }
-            if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
-              pass.set_vertex_buffer(0, vtx_buf.slice(..));
-              active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
-            }
-            pass.set_vertex_buffer(1, rect_instance_buf.unwrap().slice(start..end));
-            if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
-              pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
-              active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
-            }
-            pass.draw_indexed(0..6, 0, 0..prepared.count as u32);
-          }
-          OrderedDraw::Glyph { start, count } => {
-            let glyph_slice = &list.glyphs[*start..*start + *count];
-            if glyph_slice.is_empty() || !set_scissor(&mut pass, glyph_slice[0].clip, vw, vh) {
-              continue;
-            }
-            let start_byte = (*start * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
-            let end_byte = ((*start + *count) * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
-            if active_pipeline != Some(ActivePipeline::Glyph) {
-              pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
-              active_pipeline = Some(ActivePipeline::Glyph);
-            }
-            if rounded_clip_needs_shader(glyph_slice[0].clip) {
-              let (clip_key, clip_globals) =
-                globals_buffer_for_clip(&mut self.clip_globals_cache, device, glyph_slice[0].clip, vw, vh);
-              let clip_bind_group = self.glyph_clip_bind_groups.entry(clip_key).or_insert_with(|| {
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                  label: Some("lurq_glyph_clip_bg"),
-                  layout: self.glyph_bgl.as_ref().unwrap(),
-                  entries: &[
-                    wgpu::BindGroupEntry {
-                      binding: 0,
-                      resource: clip_globals.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                      binding: 1,
-                      resource: wgpu::BindingResource::TextureView(self.atlas_view.as_ref().unwrap()),
-                    },
-                    wgpu::BindGroupEntry {
-                      binding: 2,
-                      resource: wgpu::BindingResource::Sampler(self.atlas_sampler.as_ref().unwrap()),
-                    },
-                  ],
-                })
-              });
-              pass.set_bind_group(0, &*clip_bind_group, &[]);
-            } else {
-              pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
-            }
-            if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
-              pass.set_vertex_buffer(0, vtx_buf.slice(..));
-              active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
-            }
-            pass.set_vertex_buffer(1, glyph_instance_buf.unwrap().slice(start_byte..end_byte));
-            if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
-              pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
-              active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
-            }
-            pass.draw_indexed(0..6, 0, 0..*count as u32);
-          }
-          #[cfg(feature = "raster")]
-          OrderedDraw::Image(index) => {
-            let img = &list.images[*index];
-            let image_bgl = self.image_bgl.as_ref().unwrap().clone();
-            let nv12_image_bgl = self.nv12_image_bgl.as_ref().unwrap().clone();
-            let image_sampler = self.image_sampler.as_ref().unwrap().clone();
-            let image_pipeline = self.image_pipeline.as_ref().unwrap().clone();
-            let nv12_image_pipeline = self.nv12_image_pipeline.as_ref().unwrap().clone();
-
-            let external_wgpu_image = img
-              .native
-              .as_ref()
-              .filter(|native| native.backend() == crate::images::NativeImageBackend::WgpuExternalRgba);
-            #[cfg(feature = "canvas")]
-            let canvas_image = img
-              .native
-              .as_ref()
-              .filter(|n| n.backend() == crate::images::NativeImageBackend::Canvas);
-            #[cfg(not(feature = "canvas"))]
-            let canvas_image: Option<&crate::images::NativeImageData> = None;
-            #[cfg(feature = "canvas")]
-            if let Some(native) = canvas_image {
-              let snapshot = native
-                .payload::<crate::canvas::CanvasWeak>()
-                .and_then(|c| c.upgrade())
-                .and_then(|c| self.canvas_renderer.as_ref()?.snapshot(&c));
-              let Some(snapshot) = snapshot else {
-                continue;
-              };
-              let current = self.image_texture_cache.get(&img.image_id).is_some_and(
-                |c| matches!(c,CachedImageTexture::ExternalRgba {version,..} if *version==snapshot.version),
-              );
-              if !current {
-                self.image_texture_cache.insert(
-                  img.image_id,
-                  create_external_rgba_cached_image_texture(
-                    device,
-                    &image_bgl,
-                    &image_sampler,
-                    globals_buffer,
-                    snapshot,
-                  ),
-                );
-                self.image_clip_bind_groups.clear();
-              }
-            }
-            if let Some(native) = external_wgpu_image {
-              let Some(snapshot) = native
-                .payload::<crate::images::WgpuExternalImageState>()
-                .and_then(crate::images::WgpuExternalImageState::snapshot)
-              else {
-                self.image_texture_cache.remove(&img.image_id);
-                continue;
-              };
-              let is_current = self.image_texture_cache.get(&img.image_id).is_some_and(|cached| {
-                matches!(
-                  cached,
-                  CachedImageTexture::ExternalRgba {
-                    width,
-                    height,
-                    version,
-                    ..
-                  } if *width == snapshot.width && *height == snapshot.height && *version == snapshot.version
-                )
-              });
-              if !is_current {
-                self.image_texture_cache.insert(
-                  img.image_id,
-                  create_external_rgba_cached_image_texture(
-                    device,
-                    &image_bgl,
-                    &image_sampler,
-                    globals_buffer,
-                    snapshot,
-                  ),
-                );
-                self.image_clip_bind_groups.clear();
-              }
-            } else if canvas_image.is_none()
-              && !self
-                .image_texture_cache
-                .get(&img.image_id)
-                .is_some_and(|cached| cached.is_compatible(img))
-            {
-              self.image_texture_cache.remove(&img.image_id);
-              self.image_clip_bind_groups.clear();
-            }
-
-            if external_wgpu_image.is_none()
-              && canvas_image.is_none()
-              && !self.image_texture_cache.contains_key(&img.image_id)
-            {
-              let _image_texture_upload_start = profile_scope!();
-              let cached = match img.image_format {
-                crate::images::ImagePixelFormat::Rgba8 => Some(create_rgba_cached_image_texture(
-                  device,
-                  queue,
-                  &image_bgl,
-                  &image_sampler,
-                  globals_buffer,
-                  img,
-                )),
-                crate::images::ImagePixelFormat::Nv12 => {
-                  create_nv12_cached_image_texture(device, queue, &nv12_image_bgl, &image_sampler, globals_buffer, img)
-                }
-              };
-              _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
-              let Some(cached) = cached else {
-                continue;
-              };
-              self.image_texture_cache.insert(img.image_id, cached);
-              self.image_clip_bind_groups.clear();
-            }
-
-            let Some(cached) = self.image_texture_cache.get_mut(&img.image_id) else {
+      for step in layer_plan.steps(target) {
+        let range = match step {
+          LayerStep::Draws(range) => range.clone(),
+          LayerStep::Composite(child) => {
+            let child_layer = layer_plan.targets()[*child].layer;
+            let child_slot = self.scratch_layer_slots.get(*child).copied().flatten();
+            let (Some(layer), Some(slot), Some(compositor)) = (child_layer, child_slot, self.layer_compositor.as_ref())
+            else {
               continue;
             };
-            match cached {
-              CachedImageTexture::ExternalRgba { .. } => {}
-              CachedImageTexture::Rgba {
-                texture,
-                animation_frames,
-                frame_index,
-                version,
-                ..
-              } => {
-                if animation_frames.is_some() {
-                  *frame_index = img.frame_index;
-                  *version = img.version;
-                } else if *frame_index != img.frame_index || *version != img.version {
-                  let _image_texture_upload_start = profile_scope!();
-                  write_rgba_image_texture(queue, texture, img);
-                  _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
-                  *frame_index = img.frame_index;
-                  *version = img.version;
-                }
-              }
-              CachedImageTexture::Nv12 {
-                y_texture,
-                uv_texture,
-                frame_index,
-                version,
-                ..
-              } => {
-                if *frame_index != img.frame_index || *version != img.version {
-                  let _image_texture_upload_start = profile_scope!();
-                  if !write_nv12_image_textures(queue, y_texture, uv_texture, img) {
-                    _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
-                    continue;
-                  }
-                  _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
-                  *frame_index = img.frame_index;
-                  *version = img.version;
-                }
-              }
-            }
-
-            if !set_scissor(&mut pass, img.clip, vw, vh) {
+            let layer = &list.layers[layer];
+            if !set_scissor(&mut pass, space.layer_rect(layer.bounds), &space) {
               continue;
             }
-
-            match cached {
-              CachedImageTexture::ExternalRgba { bind_group, view, .. } => {
-                if active_pipeline != Some(ActivePipeline::Image) {
-                  pass.set_pipeline(&image_pipeline);
-                  active_pipeline = Some(ActivePipeline::Image);
-                }
-                if rounded_clip_needs_shader(img.clip) {
-                  let (clip_key, clip_globals) =
-                    globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
-                  let bind_key = ImageClipBindGroupKey {
-                    image_id: img.image_id,
-                    frame_index: 0,
-                    clip: clip_key,
-                    format: ImageClipFormat::Rgba,
-                  };
-                  let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                      label: Some("lurq_external_image_clip_bg"),
-                      layout: &image_bgl,
-                      entries: &[
-                        wgpu::BindGroupEntry {
-                          binding: 0,
-                          resource: clip_globals.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 1,
-                          resource: wgpu::BindingResource::TextureView(view),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 2,
-                          resource: wgpu::BindingResource::Sampler(&image_sampler),
-                        },
-                      ],
-                    })
-                  });
-                  pass.set_bind_group(0, &*clip_bind_group, &[]);
-                } else {
-                  pass.set_bind_group(0, &*bind_group, &[]);
-                }
-              }
-              CachedImageTexture::Rgba {
-                bind_group,
-                view,
-                animation_frames,
-                ..
-              } => {
-                let (bind_group, view) = animation_frames
-                  .as_ref()
-                  .and_then(|frames| frames.get(img.frame_index))
-                  .map(|frame| (&frame.bind_group, &frame.view))
-                  .unwrap_or((bind_group, view));
-                if active_pipeline != Some(ActivePipeline::Image) {
-                  pass.set_pipeline(&image_pipeline);
-                  active_pipeline = Some(ActivePipeline::Image);
-                }
-                if rounded_clip_needs_shader(img.clip) {
-                  let (clip_key, clip_globals) =
-                    globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
-                  let bind_key = ImageClipBindGroupKey {
-                    image_id: img.image_id,
-                    frame_index: img.frame_index,
-                    clip: clip_key,
-                    format: ImageClipFormat::Rgba,
-                  };
-                  let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                      label: Some("lurq_image_clip_bg"),
-                      layout: &image_bgl,
-                      entries: &[
-                        wgpu::BindGroupEntry {
-                          binding: 0,
-                          resource: clip_globals.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 1,
-                          resource: wgpu::BindingResource::TextureView(view),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 2,
-                          resource: wgpu::BindingResource::Sampler(&image_sampler),
-                        },
-                      ],
-                    })
-                  });
-                  pass.set_bind_group(0, &*clip_bind_group, &[]);
-                } else {
-                  pass.set_bind_group(0, &*bind_group, &[]);
-                }
-              }
-              CachedImageTexture::Nv12 {
-                bind_group,
-                y_view,
-                uv_view,
-                ..
-              } => {
-                if active_pipeline != Some(ActivePipeline::Nv12Image) {
-                  pass.set_pipeline(&nv12_image_pipeline);
-                  active_pipeline = Some(ActivePipeline::Nv12Image);
-                }
-                if rounded_clip_needs_shader(img.clip) {
-                  let (clip_key, clip_globals) =
-                    globals_buffer_for_clip(&mut self.clip_globals_cache, device, img.clip, vw, vh);
-                  let bind_key = ImageClipBindGroupKey {
-                    image_id: img.image_id,
-                    frame_index: img.frame_index,
-                    clip: clip_key,
-                    format: ImageClipFormat::Nv12,
-                  };
-                  let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                      label: Some("lurq_nv12_image_clip_bg"),
-                      layout: &nv12_image_bgl,
-                      entries: &[
-                        wgpu::BindGroupEntry {
-                          binding: 0,
-                          resource: clip_globals.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 1,
-                          resource: wgpu::BindingResource::TextureView(y_view),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 2,
-                          resource: wgpu::BindingResource::TextureView(uv_view),
-                        },
-                        wgpu::BindGroupEntry {
-                          binding: 3,
-                          resource: wgpu::BindingResource::Sampler(&image_sampler),
-                        },
-                      ],
-                    })
-                  });
-                  pass.set_bind_group(0, &*clip_bind_group, &[]);
-                } else {
-                  pass.set_bind_group(0, &*bind_group, &[]);
-                }
-              }
-            }
-            let image_instance_stride = std::mem::size_of::<ImageInstance>() as wgpu::BufferAddress;
-            let image_instance_start = *index as wgpu::BufferAddress * image_instance_stride;
-            let image_instance_end = image_instance_start + image_instance_stride;
             if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
               pass.set_vertex_buffer(0, vtx_buf.slice(..));
               active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
             }
-            pass.set_vertex_buffer(
-              1,
-              image_instance_buf
-                .unwrap()
-                .slice(image_instance_start..image_instance_end),
-            );
             if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
               pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
               active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
             }
-            pass.draw_indexed(0..6, 0, 0..1);
+            compositor.composite(queue, &mut pass, slot, layer, &space);
+            active_pipeline = Some(ActivePipeline::Layer);
+            continue;
           }
-          #[cfg(feature = "svg")]
-          OrderedDraw::Svg(index) => {
-            use vertex::SvgVertexGpu;
-
-            let svg_cmd = &list.svgs[*index];
-            if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
-              continue;
+        };
+        for (_, draw) in &ordered_draws[range] {
+          match draw {
+            OrderedDraw::Rect(index) => {
+              let r = &list.rects[*index];
+              if !set_scissor(&mut pass, space.clip(r.clip), &space) {
+                continue;
+              }
+              let prepared = &self.scratch_rect_draws[*index];
+              let start = (prepared.start * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
+              let end =
+                ((prepared.start + prepared.count) * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
+              if active_pipeline != Some(ActivePipeline::Quad) {
+                pass.set_pipeline(self.quad_pipeline.as_ref().unwrap());
+                active_pipeline = Some(ActivePipeline::Quad);
+              }
+              if needs_clip_globals(r.clip, &space) {
+                let (clip_key, clip_globals) = self.clip_globals.get(device, r.clip, &space);
+                let clip_bind_group = self.quad_clip_bind_groups.entry(clip_key).or_insert_with(|| {
+                  device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("lurq_quad_clip_bg"),
+                    layout: self.quad_bgl.as_ref().unwrap(),
+                    entries: &[
+                      wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: clip_globals.as_entire_binding(),
+                      },
+                      wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: gradient_buf.as_entire_binding(),
+                      },
+                    ],
+                  })
+                });
+                pass.set_bind_group(0, &*clip_bind_group, &[]);
+              } else {
+                pass.set_bind_group(0, self.quad_bind_group.as_ref().unwrap(), &[]);
+              }
+              if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
+                pass.set_vertex_buffer(0, vtx_buf.slice(..));
+                active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
+              }
+              pass.set_vertex_buffer(1, rect_instance_buf.unwrap().slice(start..end));
+              if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
+                pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+                active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
+              }
+              pass.draw_indexed(0..6, 0, 0..prepared.count as u32);
             }
-
-            let svg_globals = globals_for_clip(svg_cmd.clip, vw, vh);
-            let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-              label: Some("lurq_svg_globals"),
-              contents: bytemuck::bytes_of(&svg_globals),
-              usage: wgpu::BufferUsages::UNIFORM,
-            });
-
-            let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-              label: Some("lurq_svg_bg"),
-              layout: self.svg_bgl.as_ref().unwrap(),
-              entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: svg_globals_buf.as_entire_binding(),
-              }],
-            });
-
-            if !set_scissor(&mut pass, svg_cmd.clip, vw, vh) {
-              continue;
+            OrderedDraw::Glyph { start, count } => {
+              let glyph_slice = &list.glyphs[*start..*start + *count];
+              if glyph_slice.is_empty() || !set_scissor(&mut pass, space.clip(glyph_slice[0].clip), &space) {
+                continue;
+              }
+              let start_byte = (*start * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
+              let end_byte = ((*start + *count) * std::mem::size_of::<GlyphInstance>()) as wgpu::BufferAddress;
+              if active_pipeline != Some(ActivePipeline::Glyph) {
+                pass.set_pipeline(self.glyph_pipeline.as_ref().unwrap());
+                active_pipeline = Some(ActivePipeline::Glyph);
+              }
+              if needs_clip_globals(glyph_slice[0].clip, &space) {
+                let (clip_key, clip_globals) = self.clip_globals.get(device, glyph_slice[0].clip, &space);
+                let clip_bind_group = self.glyph_clip_bind_groups.entry(clip_key).or_insert_with(|| {
+                  device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("lurq_glyph_clip_bg"),
+                    layout: self.glyph_bgl.as_ref().unwrap(),
+                    entries: &[
+                      wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: clip_globals.as_entire_binding(),
+                      },
+                      wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(self.atlas_view.as_ref().unwrap()),
+                      },
+                      wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(self.atlas_sampler.as_ref().unwrap()),
+                      },
+                    ],
+                  })
+                });
+                pass.set_bind_group(0, &*clip_bind_group, &[]);
+              } else {
+                pass.set_bind_group(0, self.glyph_bind_group.as_ref().unwrap(), &[]);
+              }
+              if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
+                pass.set_vertex_buffer(0, vtx_buf.slice(..));
+                active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
+              }
+              pass.set_vertex_buffer(1, glyph_instance_buf.unwrap().slice(start_byte..end_byte));
+              if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
+                pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+                active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
+              }
+              pass.draw_indexed(0..6, 0, 0..*count as u32);
             }
+            #[cfg(feature = "raster")]
+            OrderedDraw::Image(index) => {
+              let img = &list.images[*index];
+              let image_bgl = self.image_bgl.as_ref().unwrap().clone();
+              let nv12_image_bgl = self.nv12_image_bgl.as_ref().unwrap().clone();
+              let image_sampler = self.image_sampler.as_ref().unwrap().clone();
+              let image_pipeline = self.image_pipeline.as_ref().unwrap().clone();
+              let nv12_image_pipeline = self.nv12_image_pipeline.as_ref().unwrap().clone();
 
-            let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
-              .mesh
-              .vertices
-              .iter()
-              .map(|v| SvgVertexGpu {
-                position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
-                color: v.color,
-              })
-              .collect();
+              let external_wgpu_image = img
+                .native
+                .as_ref()
+                .filter(|native| native.backend() == crate::images::NativeImageBackend::WgpuExternalRgba);
+              #[cfg(feature = "canvas")]
+              let canvas_image = img
+                .native
+                .as_ref()
+                .filter(|n| n.backend() == crate::images::NativeImageBackend::Canvas);
+              #[cfg(not(feature = "canvas"))]
+              let canvas_image: Option<&crate::images::NativeImageData> = None;
+              #[cfg(feature = "canvas")]
+              if let Some(native) = canvas_image {
+                let snapshot = native
+                  .payload::<crate::canvas::CanvasWeak>()
+                  .and_then(|c| c.upgrade())
+                  .and_then(|c| self.canvas_renderer.as_ref()?.snapshot(&c));
+                let Some(snapshot) = snapshot else {
+                  continue;
+                };
+                let current = self.image_texture_cache.get(&img.image_id).is_some_and(
+                  |c| matches!(c,CachedImageTexture::ExternalRgba {version,..} if *version==snapshot.version),
+                );
+                if !current {
+                  self.image_texture_cache.insert(
+                    img.image_id,
+                    create_external_rgba_cached_image_texture(
+                      device,
+                      &image_bgl,
+                      &image_sampler,
+                      globals_buffer,
+                      snapshot,
+                    ),
+                  );
+                  self.image_clip_bind_groups.clear();
+                }
+              }
+              if let Some(native) = external_wgpu_image {
+                let Some(snapshot) = native
+                  .payload::<crate::images::WgpuExternalImageState>()
+                  .and_then(crate::images::WgpuExternalImageState::snapshot)
+                else {
+                  self.image_texture_cache.remove(&img.image_id);
+                  continue;
+                };
+                let is_current = self.image_texture_cache.get(&img.image_id).is_some_and(|cached| {
+                  matches!(
+                    cached,
+                    CachedImageTexture::ExternalRgba {
+                      width,
+                      height,
+                      version,
+                      ..
+                    } if *width == snapshot.width && *height == snapshot.height && *version == snapshot.version
+                  )
+                });
+                if !is_current {
+                  self.image_texture_cache.insert(
+                    img.image_id,
+                    create_external_rgba_cached_image_texture(
+                      device,
+                      &image_bgl,
+                      &image_sampler,
+                      globals_buffer,
+                      snapshot,
+                    ),
+                  );
+                  self.image_clip_bind_groups.clear();
+                }
+              } else if canvas_image.is_none()
+                && !self
+                  .image_texture_cache
+                  .get(&img.image_id)
+                  .is_some_and(|cached| cached.is_compatible(img))
+              {
+                self.image_texture_cache.remove(&img.image_id);
+                self.image_clip_bind_groups.clear();
+              }
 
-            let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-              label: Some("lurq_svg_vb"),
-              contents: bytemuck::cast_slice(&gpu_verts),
-              usage: wgpu::BufferUsages::VERTEX,
-            });
-            let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-              label: Some("lurq_svg_ib"),
-              contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
-              usage: wgpu::BufferUsages::INDEX,
-            });
+              if external_wgpu_image.is_none()
+                && canvas_image.is_none()
+                && !self.image_texture_cache.contains_key(&img.image_id)
+              {
+                let _image_texture_upload_start = profile_scope!();
+                let cached = match img.image_format {
+                  crate::images::ImagePixelFormat::Rgba8 => Some(create_rgba_cached_image_texture(
+                    device,
+                    queue,
+                    &image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    img,
+                  )),
+                  crate::images::ImagePixelFormat::Nv12 => create_nv12_cached_image_texture(
+                    device,
+                    queue,
+                    &nv12_image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    img,
+                  ),
+                };
+                _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                let Some(cached) = cached else {
+                  continue;
+                };
+                self.image_texture_cache.insert(img.image_id, cached);
+                self.image_clip_bind_groups.clear();
+              }
 
-            if active_pipeline != Some(ActivePipeline::Svg) {
-              pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
-              active_pipeline = Some(ActivePipeline::Svg);
+              let Some(cached) = self.image_texture_cache.get_mut(&img.image_id) else {
+                continue;
+              };
+              match cached {
+                CachedImageTexture::ExternalRgba { .. } => {}
+                CachedImageTexture::Rgba {
+                  texture,
+                  animation_frames,
+                  frame_index,
+                  version,
+                  ..
+                } => {
+                  if animation_frames.is_some() {
+                    *frame_index = img.frame_index;
+                    *version = img.version;
+                  } else if *frame_index != img.frame_index || *version != img.version {
+                    let _image_texture_upload_start = profile_scope!();
+                    write_rgba_image_texture(queue, texture, img);
+                    _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                    *frame_index = img.frame_index;
+                    *version = img.version;
+                  }
+                }
+                CachedImageTexture::Nv12 {
+                  y_texture,
+                  uv_texture,
+                  frame_index,
+                  version,
+                  ..
+                } => {
+                  if *frame_index != img.frame_index || *version != img.version {
+                    let _image_texture_upload_start = profile_scope!();
+                    if !write_nv12_image_textures(queue, y_texture, uv_texture, img) {
+                      _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                      continue;
+                    }
+                    _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                    *frame_index = img.frame_index;
+                    *version = img.version;
+                  }
+                }
+              }
+
+              if !set_scissor(&mut pass, space.clip(img.clip), &space) {
+                continue;
+              }
+
+              match cached {
+                CachedImageTexture::ExternalRgba { bind_group, view, .. } => {
+                  if active_pipeline != Some(ActivePipeline::Image) {
+                    pass.set_pipeline(&image_pipeline);
+                    active_pipeline = Some(ActivePipeline::Image);
+                  }
+                  if needs_clip_globals(img.clip, &space) {
+                    let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
+                    let bind_key = ImageClipBindGroupKey {
+                      image_id: img.image_id,
+                      frame_index: 0,
+                      clip: clip_key,
+                      format: ImageClipFormat::Rgba,
+                    };
+                    let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                      device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("lurq_external_image_clip_bg"),
+                        layout: &image_bgl,
+                        entries: &[
+                          wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: clip_globals.as_entire_binding(),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(view),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&image_sampler),
+                          },
+                        ],
+                      })
+                    });
+                    pass.set_bind_group(0, &*clip_bind_group, &[]);
+                  } else {
+                    pass.set_bind_group(0, &*bind_group, &[]);
+                  }
+                }
+                CachedImageTexture::Rgba {
+                  bind_group,
+                  view,
+                  animation_frames,
+                  ..
+                } => {
+                  let (bind_group, view) = animation_frames
+                    .as_ref()
+                    .and_then(|frames| frames.get(img.frame_index))
+                    .map(|frame| (&frame.bind_group, &frame.view))
+                    .unwrap_or((bind_group, view));
+                  if active_pipeline != Some(ActivePipeline::Image) {
+                    pass.set_pipeline(&image_pipeline);
+                    active_pipeline = Some(ActivePipeline::Image);
+                  }
+                  if needs_clip_globals(img.clip, &space) {
+                    let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
+                    let bind_key = ImageClipBindGroupKey {
+                      image_id: img.image_id,
+                      frame_index: img.frame_index,
+                      clip: clip_key,
+                      format: ImageClipFormat::Rgba,
+                    };
+                    let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                      device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("lurq_image_clip_bg"),
+                        layout: &image_bgl,
+                        entries: &[
+                          wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: clip_globals.as_entire_binding(),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(view),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&image_sampler),
+                          },
+                        ],
+                      })
+                    });
+                    pass.set_bind_group(0, &*clip_bind_group, &[]);
+                  } else {
+                    pass.set_bind_group(0, &*bind_group, &[]);
+                  }
+                }
+                CachedImageTexture::Nv12 {
+                  bind_group,
+                  y_view,
+                  uv_view,
+                  ..
+                } => {
+                  if active_pipeline != Some(ActivePipeline::Nv12Image) {
+                    pass.set_pipeline(&nv12_image_pipeline);
+                    active_pipeline = Some(ActivePipeline::Nv12Image);
+                  }
+                  if needs_clip_globals(img.clip, &space) {
+                    let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
+                    let bind_key = ImageClipBindGroupKey {
+                      image_id: img.image_id,
+                      frame_index: img.frame_index,
+                      clip: clip_key,
+                      format: ImageClipFormat::Nv12,
+                    };
+                    let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                      device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("lurq_nv12_image_clip_bg"),
+                        layout: &nv12_image_bgl,
+                        entries: &[
+                          wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: clip_globals.as_entire_binding(),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(y_view),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(uv_view),
+                          },
+                          wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&image_sampler),
+                          },
+                        ],
+                      })
+                    });
+                    pass.set_bind_group(0, &*clip_bind_group, &[]);
+                  } else {
+                    pass.set_bind_group(0, &*bind_group, &[]);
+                  }
+                }
+              }
+              let image_instance_stride = std::mem::size_of::<ImageInstance>() as wgpu::BufferAddress;
+              let image_instance_start = *index as wgpu::BufferAddress * image_instance_stride;
+              let image_instance_end = image_instance_start + image_instance_stride;
+              if active_vertex_buffer != Some(ActiveVertexBuffer::CommonQuad) {
+                pass.set_vertex_buffer(0, vtx_buf.slice(..));
+                active_vertex_buffer = Some(ActiveVertexBuffer::CommonQuad);
+              }
+              pass.set_vertex_buffer(
+                1,
+                image_instance_buf
+                  .unwrap()
+                  .slice(image_instance_start..image_instance_end),
+              );
+              if active_index_buffer != Some(ActiveIndexBuffer::CommonU16) {
+                pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
+                active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
+              }
+              pass.draw_indexed(0..6, 0, 0..1);
             }
-            pass.set_bind_group(0, &svg_bg, &[]);
-            pass.set_vertex_buffer(0, vb.slice(..));
-            active_vertex_buffer = Some(ActiveVertexBuffer::Svg);
-            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-            active_index_buffer = Some(ActiveIndexBuffer::SvgU32);
-            pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
+            #[cfg(feature = "svg")]
+            OrderedDraw::Svg(index) => {
+              use vertex::SvgVertexGpu;
+
+              let svg_cmd = &list.svgs[*index];
+              if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
+                continue;
+              }
+
+              let svg_globals = globals_for_clip(space.clip(svg_cmd.clip), &space);
+              let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lurq_svg_globals"),
+                contents: bytemuck::bytes_of(&svg_globals),
+                usage: wgpu::BufferUsages::UNIFORM,
+              });
+
+              let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_svg_bg"),
+                layout: self.svg_bgl.as_ref().unwrap(),
+                entries: &[wgpu::BindGroupEntry {
+                  binding: 0,
+                  resource: svg_globals_buf.as_entire_binding(),
+                }],
+              });
+
+              if !set_scissor(&mut pass, space.clip(svg_cmd.clip), &space) {
+                continue;
+              }
+
+              let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
+                .mesh
+                .vertices
+                .iter()
+                .map(|v| SvgVertexGpu {
+                  position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
+                  color: v.color,
+                })
+                .collect();
+
+              let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lurq_svg_vb"),
+                contents: bytemuck::cast_slice(&gpu_verts),
+                usage: wgpu::BufferUsages::VERTEX,
+              });
+              let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lurq_svg_ib"),
+                contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
+                usage: wgpu::BufferUsages::INDEX,
+              });
+
+              if active_pipeline != Some(ActivePipeline::Svg) {
+                pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
+                active_pipeline = Some(ActivePipeline::Svg);
+              }
+              pass.set_bind_group(0, &svg_bg, &[]);
+              pass.set_vertex_buffer(0, vb.slice(..));
+              active_vertex_buffer = Some(ActiveVertexBuffer::Svg);
+              pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+              active_index_buffer = Some(ActiveIndexBuffer::SvgU32);
+              pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
+            }
           }
         }
       }
     }
+    if let Some(compositor) = self.layer_compositor.as_mut() {
+      compositor.end_frame();
+    }
+    if self.clip_globals.end_frame() {
+      let clip_globals = &self.clip_globals;
+      self.quad_clip_bind_groups.retain(|key, _| clip_globals.contains(key));
+      self.glyph_clip_bind_groups.retain(|key, _| clip_globals.contains(key));
+      #[cfg(feature = "raster")]
+      self
+        .image_clip_bind_groups
+        .retain(|key, _| clip_globals.contains(&key.clip));
+    }
+    self.scratch_ordered_draws = ordered_draws;
+    self.layer_plan = layer_plan;
     let _encode_dur = profile_elapsed!(_encode_start);
 
     #[cfg(feature = "screenshot")]
@@ -2875,15 +2984,16 @@ fn wgpu_clear_color(color: crate::node::color::Color) -> wgpu::Color {
   }
 }
 
-fn globals_for_clip(clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> Globals {
+/// Globals for a draw clipped by `clip`, already in `space`'s pixels.
+fn globals_for_clip(clip: crate::layout::quad::ClipRect, space: &TargetSpace) -> Globals {
   let radius = clip.border_radius.unwrap_or_default();
   let radii = radius.to_array();
   Globals {
-    viewport: [vw, vh, 0.0, 0.0],
+    viewport: space.viewport(),
     clip_rect: if clip.active {
       [clip.x, clip.y, clip.width, clip.height]
     } else {
-      [0.0, 0.0, vw, vh]
+      [0.0, 0.0, space.width, space.height]
     },
     clip_radii_h: radii,
     clip_radii_v: radii,
@@ -2903,23 +3013,66 @@ fn rounded_clip_needs_shader(clip: crate::layout::quad::ClipRect) -> bool {
     && (radius.top_left > 0.0 || radius.top_right > 0.0 || radius.bottom_right > 0.0 || radius.bottom_left > 0.0)
 }
 
-fn globals_buffer_for_clip<'a>(
-  cache: &'a mut std::collections::HashMap<ClipGlobalsKey, wgpu::Buffer>,
-  device: &wgpu::Device,
-  clip: crate::layout::quad::ClipRect,
-  vw: f32,
-  vh: f32,
-) -> (ClipGlobalsKey, &'a wgpu::Buffer) {
-  let globals = globals_for_clip(clip, vw, vh);
-  let key = clip_globals_key(&globals);
-  let buffer = cache.entry(key).or_insert_with(|| {
-    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("lurq_clip_globals"),
-      contents: bytemuck::bytes_of(&globals),
-      usage: wgpu::BufferUsages::UNIFORM,
-    })
-  });
-  (key, buffer)
+/// Whether a draw into `space` needs globals of its own: the shared ones
+/// describe the whole window and no rounded clip.
+fn needs_clip_globals(clip: crate::layout::quad::ClipRect, space: &TargetSpace) -> bool {
+  !space.is_window() || rounded_clip_needs_shader(clip)
+}
+
+/// Frames a clip's globals may stay unused before their buffer is released.
+/// Layers that move create globals of their own every frame.
+const CLIP_GLOBALS_IDLE_FRAMES: u64 = 120;
+
+/// Uniform buffers holding the globals of clipped draws and of draws into
+/// layers, keyed by their contents.
+#[derive(Default)]
+struct ClipGlobalsCache {
+  buffers: std::collections::HashMap<ClipGlobalsKey, (wgpu::Buffer, u64)>,
+  frame: u64,
+}
+
+impl ClipGlobalsCache {
+  /// The globals of a draw into `space` clipped by `clip` (window pixels).
+  fn get(
+    &mut self,
+    device: &wgpu::Device,
+    clip: crate::layout::quad::ClipRect,
+    space: &TargetSpace,
+  ) -> (ClipGlobalsKey, &wgpu::Buffer) {
+    let globals = globals_for_clip(space.clip(clip), space);
+    let key = clip_globals_key(&globals);
+    let frame = self.frame;
+    let (buffer, last_used) = self.buffers.entry(key).or_insert_with(|| {
+      let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("lurq_clip_globals"),
+        contents: bytemuck::bytes_of(&globals),
+        usage: wgpu::BufferUsages::UNIFORM,
+      });
+      (buffer, frame)
+    });
+    *last_used = frame;
+    (key, buffer)
+  }
+
+  fn contains(&self, key: &ClipGlobalsKey) -> bool {
+    self.buffers.contains_key(key)
+  }
+
+  fn clear(&mut self) {
+    self.buffers.clear();
+  }
+
+  /// Releases globals unused for a while; returns whether any were, so bind
+  /// groups built on them can be dropped too.
+  fn end_frame(&mut self) -> bool {
+    let frame = self.frame;
+    self.frame += 1;
+    let before = self.buffers.len();
+    self
+      .buffers
+      .retain(|_, (_, last_used)| frame - *last_used <= CLIP_GLOBALS_IDLE_FRAMES);
+    self.buffers.len() != before
+  }
 }
 
 fn clip_globals_key(globals: &Globals) -> ClipGlobalsKey {
@@ -2950,8 +3103,9 @@ fn clip_globals_key(globals: &Globals) -> ClipGlobalsKey {
   )
 }
 
-fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: crate::layout::quad::ClipRect, vw: f32, vh: f32) -> bool {
-  let Some((x, y, width, height)) = scissor_rect(clip, vw, vh) else {
+/// Scissors to `clip`, already in `space`'s pixels.
+fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: crate::layout::quad::ClipRect, space: &TargetSpace) -> bool {
+  let Some((x, y, width, height)) = scissor_rect(clip, space.width, space.height) else {
     return false;
   };
   pass.set_scissor_rect(x, y, width, height);

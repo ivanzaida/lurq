@@ -32,13 +32,50 @@ Common visual modifiers:
 | `.border_center(width, color)` | Border centered on the element edge from a concrete width or `BorderSize`. |
 | `.border_outside(width, color)` | Border outside the element bounds from a concrete width or `BorderSize`. |
 | `.box_shadow(shadow)` | Drop or inset shadows from a `ShadowStyle` role, a `BoxShadow`, or a list. See [Box Shadows](#box-shadows). |
-| `.opacity(value)` | Draw opacity. |
+| `.opacity(value)` | Fade the element and its subtree as one group. See [Opacity](#opacity). |
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |
 
 Translucent colors (`"#000000a6"`, `.opacity(...)`, anti-aliased edges, text, images) blend on the sRGB-encoded
 channels, as CSS and design tools do: a `#000000a6` scrim over `#eeeeee` shows `#535353`. Both native backends render
 through a non-sRGB target to get this; the devtools screenshot renderer blends the same way.
+
+## Opacity
+
+`.opacity(value)` fades an element together with everything inside it, as CSS `opacity`, Figma and Pencil do: the
+subtree is painted into an offscreen layer as if it were opaque, and the layer is then blended over what is behind it
+once, at `value`. Content inside the group blends only with other content of the group. A dark label on a light fill
+at `opacity(0.4)` keeps its contrast against the faded fill, and a border drawn over the fill's edge adds no lighter
+ring:
+
+```rust
+use lurq::components::{Stack, Text};
+
+// Disabled primary button over a #1c1c1c window: the fill shows #6c6c6c and the
+// label #1a1a1a, the colours a design tool shows for the same group.
+Stack::new()
+  .size(100.0, 36.0)
+  .background("#e4e4e4")
+  .border_inside(1.0, "#e4e4e4")
+  .rounded(6.0)
+  .opacity(0.4)
+  .child(Text::new("Save").color("#171717"))
+```
+
+- Nested opacities compose: a group at `0.5` inside a group at `0.5` shows its content at `0.25` where it covers
+  nothing else of the outer group.
+- A group that paints a single primitive (a fill without a border, one text run without a shadow, an image, a
+  rasterized SVG, a box shadow) looks the same either way, so it fades that primitive directly and needs no layer.
+  Opacity `1` (the default) never makes a layer.
+- A layer covers the group's painted pixels in whole physical pixels, within its clips and the window, and maps one to
+  one onto the window's pixels: it is never resampled, so it stays sharp at fractional scale factors such as 1.25 and
+  1.5. Layer textures are pooled and reused across frames; a group that is clipped away or at `opacity(0.0)` paints
+  nothing.
+- Opacity changes painting only. Layout, clipping, scrolling, transforms and hit testing are the same at any opacity: a
+  faded element still takes clicks unless it is disabled some other way.
+- `RenderList::layers` lists the layers of a frame (`LayerCmd`: the render orders a layer groups, its opacity and pixel
+  bounds). A custom `RenderEngine` composites each layer's draws into its own target, or draws them without a layer
+  and loses the flattening.
 
 ## Gradients
 

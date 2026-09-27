@@ -99,6 +99,7 @@ fn scene(backdrop: Color, scrim: Color, image_id: u64) -> RenderList {
     images: vec![image(COLUMN * 2.0, scrim, image_id)],
     #[cfg(feature = "svg")]
     svgs: Vec::new(),
+    layers: Vec::new(),
     atlas: GlyphAtlas {
       data: Arc::from([255_u8; 4 * 4 * 4].as_slice()),
       width: 4,

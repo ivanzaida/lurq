@@ -86,6 +86,10 @@ pub struct Quad {
   pub y: f32,
   pub width: f32,
   pub height: f32,
+  /// Opacity within the quad's opacity layer. A node with `opacity < 1`
+  /// fades its subtree as one layer (`RenderList::layers`), so its quads
+  /// keep `1.0` here, unless the node paints a single primitive, which takes
+  /// the node's opacity directly (see [`crate::layout::opacity_layer`]).
   pub opacity: f32,
   pub transform: Transform2D,
   pub transform_origin: Option<[f32; 2]>,

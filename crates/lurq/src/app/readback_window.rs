@@ -87,8 +87,34 @@ impl Drop for HiddenWindow {
 /// Renders `list` into a hidden `width` x `height` window until the engine
 /// delivers a capture of the whole window.
 pub(super) fn capture(engine: &mut dyn RenderEngine, list: &RenderList, width: u32, height: u32) -> CapturedFrame {
+  capture_each(engine, &[list], width, height)
+    .pop()
+    .expect("one capture per list")
+}
+
+/// Renders each of `lists` in turn into one hidden `width` x `height` window,
+/// as consecutive frames of the same engine, capturing each.
+pub(super) fn capture_each(
+  engine: &mut dyn RenderEngine,
+  lists: &[&RenderList],
+  width: u32,
+  height: u32,
+) -> Vec<CapturedFrame> {
   let window = HiddenWindow::new(width, height);
   engine.resize(width, height);
+  lists
+    .iter()
+    .map(|list| capture_frame(engine, &window, list, width, height))
+    .collect()
+}
+
+fn capture_frame(
+  engine: &mut dyn RenderEngine,
+  window: &HiddenWindow,
+  list: &RenderList,
+  width: u32,
+  height: u32,
+) -> CapturedFrame {
   let (sender, receiver) = mpsc::channel();
   for _ in 0..5 {
     let sender = sender.clone();

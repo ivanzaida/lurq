@@ -72,7 +72,10 @@ VsOut vs_main(VsIn input)
     input.transform.y * centered.x + input.transform.w * centered.y
   );
   float2 px = input.pos + transformed + input.xf_origin;
-  float2 ndc = float2((px.x / viewport.x) * 2.0 - 1.0, 1.0 - (px.y / viewport.y) * 2.0);
+  // `viewport.zw` is the target's origin in window pixels (non-zero when
+  // painting into an opacity layer).
+  float2 target_px = px - viewport.zw;
+  float2 ndc = float2((target_px.x / viewport.x) * 2.0 - 1.0, 1.0 - (target_px.y / viewport.y) * 2.0);
 
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);

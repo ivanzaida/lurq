@@ -85,7 +85,11 @@ assert_eq!(snapshot.rects.len(), 1);
 assert_eq!(snapshot.rects[0].width, 100.0);
 ```
 
-This is useful for border, radius, opacity, image order, SVG order, and render-list regressions.
+This is useful for border, radius, opacity, image order, SVG order, and render-list regressions. `snapshot.layers` lists the frame's opacity layers (see [Opacity](../styling-events/#opacity)); rects and glyphs record their `order`, so a test can tell which layer holds them. The pixels of layers are checked through both render engines by the `opacity_layer_readback` tests:
+
+```powershell
+cargo test -p lurq --features wgpu,dx12,screenshot --lib opacity_layer_readback -- --ignored --test-threads=1
+```
 
 ## Reactivity Tests
 

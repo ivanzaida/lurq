@@ -40,6 +40,7 @@ use crate::{
 
 mod box_shadow_quads;
 mod flex_shrink;
+mod opacity_groups;
 mod select_quads;
 
 use flex_shrink::FlexShrinkLine;
@@ -200,6 +201,8 @@ pub(crate) struct LayoutEngine {
   shadows: RefCell<Arc<ThemeShadows>>,
   /// Open state of the `Select` whose trigger is being painted, if any.
   select_open: Cell<Option<bool>>,
+  /// Opacity groups recorded by the last quad resolution.
+  opacity_groups: RefCell<Vec<crate::layout::opacity_layer::OpacityGroup>>,
 }
 
 #[cfg(feature = "raster")]
@@ -464,6 +467,7 @@ impl LayoutEngine {
       typography: RefCell::new(ThemeTypography::default()),
       shadows: RefCell::new(Arc::new(ThemeShadows::default())),
       select_open: Cell::new(None),
+      opacity_groups: RefCell::new(Vec::new()),
     }
   }
 
@@ -770,6 +774,7 @@ impl LayoutEngine {
     quads: &mut Vec<Quad>,
   ) {
     let root_offset = node.offset_position().unwrap_or_default();
+    self.opacity_groups.borrow_mut().clear();
     self.collect_quads(
       node,
       result,
@@ -778,7 +783,6 @@ impl LayoutEngine {
       0.0,
       0.0,
       Transform2D::IDENTITY,
-      1.0,
       viewport,
       viewport,
       true,
@@ -795,7 +799,6 @@ impl LayoutEngine {
     parent_x: f32,
     parent_y: f32,
     inherited_transform: Transform2D,
-    inherited_opacity: f32,
     clip: ClipRect,
     cull_clip: ClipRect,
     culling_enabled: bool,
@@ -865,10 +868,6 @@ impl LayoutEngine {
           abs_x,
           abs_y,
           inherited_transform,
-          // A plain wrapper never carries opacity of its own (the fast-path
-          // check above requires the default), so the inherited value passes
-          // through unchanged.
-          inherited_opacity,
           child_clip,
           child_cull_clip,
           child_culling_enabled,
@@ -878,6 +877,9 @@ impl LayoutEngine {
       return;
     }
 
+    // A plain wrapper never carries opacity (the fast path above requires
+    // the default), so only here can a node open an opacity group.
+    let group_start = quads.len();
     let frame = self.push_node_quads(
       node,
       result,
@@ -886,7 +888,6 @@ impl LayoutEngine {
       parent_x,
       parent_y,
       inherited_transform,
-      inherited_opacity,
       clip,
       cull_clip,
       culling_enabled,
@@ -894,7 +895,6 @@ impl LayoutEngine {
     );
     let NodeQuadFrame {
       transform,
-      opacity,
       child_clip,
       child_cull_clip,
       child_culling_enabled,
@@ -927,7 +927,6 @@ impl LayoutEngine {
         abs_x,
         abs_y,
         transform,
-        opacity,
         child_clip,
         child_cull_clip,
         child_culling_enabled,
@@ -937,6 +936,9 @@ impl LayoutEngine {
     self.leave_select_scope(select_scope);
 
     self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
+    if node.opacity < DEFAULT_QUAD_OPACITY {
+      self.close_opacity_group(node.opacity, group_start, quads);
+    }
   }
 
   /// The quads a node paints under its children, and what its children
@@ -955,7 +957,6 @@ impl LayoutEngine {
     parent_x: f32,
     parent_y: f32,
     inherited_transform: Transform2D,
-    inherited_opacity: f32,
     clip: ClipRect,
     cull_clip: ClipRect,
     culling_enabled: bool,
@@ -1092,9 +1093,10 @@ impl LayoutEngine {
       _ => QuadContent::None,
     };
 
-    // Group opacity composes multiplicatively down the tree, the same way
-    // inherited transforms do — fading a container fades everything in it.
-    let opacity = node.opacity * inherited_opacity;
+    // Quads paint at full opacity within their opacity group: a node with
+    // `opacity < 1` fades its whole subtree as one layer, or folds its opacity
+    // into its only quad (see `close_opacity_group`).
+    let opacity = DEFAULT_QUAD_OPACITY;
     let local_transform = node.effective_transform();
     let local_transform_origin_abs = [abs_x + result.size.width * 0.5, abs_y + result.size.height * 0.5];
     let local_affine = if local_transform.is_identity() {

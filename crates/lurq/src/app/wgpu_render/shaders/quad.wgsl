@@ -93,10 +93,13 @@ fn vs_main(in: VsIn) -> VsOut {
     );
     let px = in.pos + rotated + in.xf_origin;
 
+    // `viewport.zw` is the target's origin in window pixels (non-zero when
+    // painting into an opacity layer).
     let viewport = globals.viewport.xy;
+    let target_px = px - globals.viewport.zw;
     let ndc = vec2<f32>(
-        (px.x / viewport.x) * 2.0 - 1.0,
-        1.0 - (px.y / viewport.y) * 2.0,
+        (target_px.x / viewport.x) * 2.0 - 1.0,
+        1.0 - (target_px.y / viewport.y) * 2.0,
     );
 
     var out: VsOut;

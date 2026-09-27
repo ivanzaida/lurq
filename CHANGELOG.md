@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Flatten group opacity, like CSS `opacity`, Figma and Pencil. `.opacity(value)` below 1 used to fade every piece of a subtree on its own: a label drew at the opacity over its already faded fill, and a border drew at the opacity over the fill's anti-aliased edge. A disabled primary button (light fill and border, dark label, `opacity(0.4)` over a dark window) showed its label as #4A4A4A instead of #1A1A1A over a #6C6C6C fill, with a lighter #9C9C9C ring along the border. A faded subtree now paints into an offscreen layer at full opacity, and the layer is composited once at the group's opacity.
+  - Nested groups compose. Clipping, scrolling, transforms, layout and hit testing are unchanged: a faded element still takes clicks.
+  - A group that paints a single primitive (a fill without a border, a text run without a shadow, an image, a rasterized SVG, a box shadow) fades that primitive directly, which gives the same pixels without a layer; a group around exactly one layer multiplies into it. Opacity 1 adds no work.
+  - Layers cover their content in whole physical pixels, clipped to their clips and the window, and composite texel for texel with premultiplied alpha, so they are not resampled or blurred at fractional scale factors (1.25, 1.5). Invisible layers (clipped away, `opacity(0.0)`) paint nothing. Layer textures are pooled per engine and reused across frames; textures unused for 120 frames are released.
+  - Both the wgpu and the DX12 engine paint every layer into its own texture before the target it is composited into, then the window. The devtools screenshot renderer flattens the same way.
+  - Tests: layout and render-list tests for layers, nesting, folding, bounds at 1.25x and 1.5x, clipping and hit testing, and GPU readback tests on both engines for the button (exact colours, no ring), nested layers, layers matching single primitives with their own alpha, and texture pooling.
+- Breaking: `RenderList` has a `layers` field (`Vec<LayerCmd>`, see `lurq::layout::opacity_layer`); struct literals must set it (`layers: Vec::new()`). A custom `RenderEngine` that ignores it draws faded subtrees at full opacity. `Quad::opacity` from `Tree::resolve_quads` is now the opacity within the quad's layer rather than the product of all ancestor opacities, and `ImageCmd::opacity` likewise.
+
 ## 0.28.0 — 2026-09-25
 
 - Fix flex shrink in `Row` and `Column`. A shrunk child only had its box resized and kept the layout of its unshrunk size inside it: a `ScrollVertical` with `flex_shrink` in a column that could not fit its content kept a full-height viewport, so it could not scroll and its last rows were clipped, and a shrunk column kept its own flex children and bottom rows at the old height. Each shrunk child is now laid out again with its shrunk size as a tight constraint, in rows, columns, nested flex and grow+shrink combinations. A child that later changes size under a retained layout is measured again at its natural size and the overflow is split again, instead of being kept at the previously shrunk size.

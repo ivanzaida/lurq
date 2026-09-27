@@ -1,0 +1,484 @@
+//! Offscreen targets for flattened group opacity (see
+//! [`crate::layout::opacity_layer`]) and the pipeline that composites them.
+//!
+//! Layer textures are pooled across frames: a frame takes the smallest free
+//! texture that fits each layer, creating one (rounded up to
+//! [`LAYER_SIZE_STEP`]) only when none does. Textures unused for
+//! [`LAYER_IDLE_FRAMES`] frames are retired and released once the GPU is done
+//! with the frame that last used them. Nothing is created until a frame has
+//! a layer.
+
+use std::{mem::ManuallyDrop, ptr};
+
+use windows::{
+  Win32::{
+    Foundation::{FALSE, TRUE},
+    Graphics::{
+      Direct3D12::{
+        D3D_ROOT_SIGNATURE_VERSION_1, D3D12_BLEND_DESC, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_ONE, D3D12_BLEND_OP_ADD,
+        D3D12_CLEAR_VALUE, D3D12_CLEAR_VALUE_0, D3D12_COLOR_WRITE_ENABLE_ALL, D3D12_COMPARISON_FUNC_ALWAYS,
+        D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF, D3D12_CPU_PAGE_PROPERTY_UNKNOWN, D3D12_CULL_MODE_NONE,
+        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING, D3D12_DEPTH_STENCIL_DESC, D3D12_DEPTH_WRITE_MASK_ZERO,
+        D3D12_DESCRIPTOR_HEAP_FLAG_NONE, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_RANGE,
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_FILL_MODE_SOLID,
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+        D3D12_INPUT_LAYOUT_DESC, D3D12_LOGIC_OP_NOOP, D3D12_MEMORY_POOL_UNKNOWN, D3D12_PIPELINE_STATE_FLAG_NONE,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC,
+        D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_ROOT_CONSTANTS,
+        D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
+        D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+        D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_SHADER_BYTECODE,
+        D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0, D3D12_SHADER_VISIBILITY_ALL,
+        D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_TEX2D_SRV, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VIEWPORT,
+        D3D12SerializeRootSignature, ID3D12Device, ID3D12PipelineState, ID3D12Resource, ID3D12RootSignature,
+      },
+      Dxgi::Common::{DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC},
+    },
+  },
+  core::{Error, Result},
+};
+
+use super::{
+  CpuDescriptorHeap, Dx12State, FRAME_COUNT, RENDER_TARGET_FORMAT, SRV_DESCRIPTOR_COUNT, Win32ErrorCompat, blob_bytes,
+  blob_message, compile_shader, input_element, render_target_view_desc, shader_bytecode,
+};
+use crate::layout::opacity_layer::{LayerCmd, LayerComposite, TargetSpace};
+
+/// Layer textures grow in steps of this many pixels, so a layer that changes
+/// size a little (an animation) keeps its texture.
+const LAYER_SIZE_STEP: u32 = 64;
+/// Frames a pooled layer texture may stay unused before it is released.
+const LAYER_IDLE_FRAMES: u64 = 120;
+/// Shader-visible descriptors each frame slot has for the layers it
+/// composites; they follow the image descriptors in the SRV heap.
+pub(super) const LAYER_SRVS_PER_FRAME: usize = 1024;
+/// Most textures a single dimension may have (D3D12's 2D texture limit).
+const MAX_TEXTURE_DIMENSION: u32 = 16384;
+
+pub(super) struct LayerCompositor {
+  root_signature: ID3D12RootSignature,
+  pipeline_state: ID3D12PipelineState,
+  slots: Vec<LayerSlot>,
+  /// Released slots, kept alive until their frame slot's fence passes.
+  retired: [Vec<LayerSlot>; FRAME_COUNT],
+  frame: u64,
+  next_srv: usize,
+}
+
+struct LayerSlot {
+  resource: ID3D12Resource,
+  rtv_heap: CpuDescriptorHeap,
+  width: u32,
+  height: u32,
+  in_use: bool,
+  last_used: u64,
+}
+
+impl LayerCompositor {
+  unsafe fn new(device: &ID3D12Device) -> Result<Self> {
+    let root_signature = create_layer_root_signature(device)?;
+    let shader = include_bytes!("shaders/layer.hlsl");
+    let vs = compile_shader(shader, b"vs_main\0", b"vs_5_0\0")?;
+    let ps = compile_shader(shader, b"ps_main\0", b"ps_5_0\0")?;
+    let input_elements = [input_element(
+      0,
+      DXGI_FORMAT_R32G32_FLOAT,
+      0,
+      0,
+      D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+      0,
+    )];
+    let mut rtv_formats = [DXGI_FORMAT_UNKNOWN; 8];
+    rtv_formats[0] = RENDER_TARGET_FORMAT;
+    // Premultiplied source-over: the layer holds premultiplied colour.
+    let blend = D3D12_RENDER_TARGET_BLEND_DESC {
+      BlendEnable: TRUE,
+      LogicOpEnable: FALSE,
+      SrcBlend: D3D12_BLEND_ONE,
+      DestBlend: D3D12_BLEND_INV_SRC_ALPHA,
+      BlendOp: D3D12_BLEND_OP_ADD,
+      SrcBlendAlpha: D3D12_BLEND_ONE,
+      DestBlendAlpha: D3D12_BLEND_INV_SRC_ALPHA,
+      BlendOpAlpha: D3D12_BLEND_OP_ADD,
+      LogicOp: D3D12_LOGIC_OP_NOOP,
+      RenderTargetWriteMask: D3D12_COLOR_WRITE_ENABLE_ALL.0 as u8,
+    };
+    let mut desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
+      pRootSignature: ManuallyDrop::new(Some(root_signature.clone())),
+      VS: shader_bytecode(&vs),
+      PS: shader_bytecode(&ps),
+      DS: D3D12_SHADER_BYTECODE::default(),
+      HS: D3D12_SHADER_BYTECODE::default(),
+      GS: D3D12_SHADER_BYTECODE::default(),
+      StreamOutput: Default::default(),
+      BlendState: D3D12_BLEND_DESC {
+        AlphaToCoverageEnable: FALSE,
+        IndependentBlendEnable: FALSE,
+        RenderTarget: [blend; 8],
+      },
+      SampleMask: u32::MAX,
+      RasterizerState: D3D12_RASTERIZER_DESC {
+        FillMode: D3D12_FILL_MODE_SOLID,
+        CullMode: D3D12_CULL_MODE_NONE,
+        FrontCounterClockwise: FALSE,
+        DepthBias: 0,
+        DepthBiasClamp: 0.0,
+        SlopeScaledDepthBias: 0.0,
+        DepthClipEnable: TRUE,
+        MultisampleEnable: FALSE,
+        AntialiasedLineEnable: FALSE,
+        ForcedSampleCount: 0,
+        ConservativeRaster: D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF,
+      },
+      DepthStencilState: D3D12_DEPTH_STENCIL_DESC {
+        DepthEnable: FALSE,
+        DepthWriteMask: D3D12_DEPTH_WRITE_MASK_ZERO,
+        DepthFunc: D3D12_COMPARISON_FUNC_ALWAYS,
+        StencilEnable: FALSE,
+        StencilReadMask: 0,
+        StencilWriteMask: 0,
+        FrontFace: Default::default(),
+        BackFace: Default::default(),
+      },
+      InputLayout: D3D12_INPUT_LAYOUT_DESC {
+        pInputElementDescs: input_elements.as_ptr(),
+        NumElements: input_elements.len() as u32,
+      },
+      IBStripCutValue: D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+      PrimitiveTopologyType: D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+      NumRenderTargets: 1,
+      RTVFormats: rtv_formats,
+      DSVFormat: DXGI_FORMAT_UNKNOWN,
+      SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+      NodeMask: 0,
+      CachedPSO: Default::default(),
+      Flags: D3D12_PIPELINE_STATE_FLAG_NONE,
+    };
+    let pipeline_state = device.CreateGraphicsPipelineState(&desc);
+    ManuallyDrop::drop(&mut desc.pRootSignature);
+    Ok(Self {
+      root_signature,
+      pipeline_state: pipeline_state?,
+      slots: Vec::new(),
+      retired: std::array::from_fn(|_| Vec::new()),
+      frame: 0,
+      next_srv: 0,
+    })
+  }
+
+  /// A free texture of at least `width` x `height` for this frame.
+  unsafe fn acquire(&mut self, device: &ID3D12Device, width: u32, height: u32) -> Result<usize> {
+    let fitting = self
+      .slots
+      .iter()
+      .enumerate()
+      .filter(|(_, slot)| !slot.in_use && slot.width >= width && slot.height >= height)
+      .min_by_key(|(_, slot)| u64::from(slot.width) * u64::from(slot.height))
+      .map(|(index, _)| index);
+    let index = match fitting {
+      Some(index) => index,
+      None => {
+        let size = |value: u32| {
+          value
+            .div_ceil(LAYER_SIZE_STEP)
+            .saturating_mul(LAYER_SIZE_STEP)
+            .min(MAX_TEXTURE_DIMENSION)
+        };
+        self.slots.push(create_slot(device, size(width), size(height))?);
+        self.slots.len() - 1
+      }
+    };
+    let slot = &mut self.slots[index];
+    slot.in_use = true;
+    slot.last_used = self.frame;
+    Ok(index)
+  }
+}
+
+unsafe fn create_slot(device: &ID3D12Device, width: u32, height: u32) -> Result<LayerSlot> {
+  let heap_properties = D3D12_HEAP_PROPERTIES {
+    Type: D3D12_HEAP_TYPE_DEFAULT,
+    CPUPageProperty: D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    MemoryPoolPreference: D3D12_MEMORY_POOL_UNKNOWN,
+    CreationNodeMask: 1,
+    VisibleNodeMask: 1,
+  };
+  let desc = D3D12_RESOURCE_DESC {
+    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+    Alignment: 0,
+    Width: u64::from(width),
+    Height: height,
+    DepthOrArraySize: 1,
+    MipLevels: 1,
+    Format: RENDER_TARGET_FORMAT,
+    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+    Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+    Flags: D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+  };
+  let clear = D3D12_CLEAR_VALUE {
+    Format: RENDER_TARGET_FORMAT,
+    Anonymous: D3D12_CLEAR_VALUE_0 { Color: [0.0; 4] },
+  };
+  let mut resource = None;
+  device.CreateCommittedResource(
+    &heap_properties,
+    D3D12_HEAP_FLAG_NONE,
+    &desc,
+    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+    Some(&clear),
+    &mut resource,
+  )?;
+  let resource: ID3D12Resource = resource.ok_or_else(Error::from_win32)?;
+  let rtv_heap = CpuDescriptorHeap::new(
+    device,
+    D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+    1,
+    D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+  )?;
+  device.CreateRenderTargetView(&resource, Some(&render_target_view_desc()), rtv_heap.cpu_handle(0));
+  Ok(LayerSlot {
+    resource,
+    rtv_heap,
+    width,
+    height,
+    in_use: false,
+    last_used: 0,
+  })
+}
+
+unsafe fn create_layer_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature> {
+  let srv_range = D3D12_DESCRIPTOR_RANGE {
+    RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+    NumDescriptors: 1,
+    BaseShaderRegister: 0,
+    RegisterSpace: 0,
+    OffsetInDescriptorsFromTableStart: D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+  };
+  let root_parameters = [
+    // b0: the `LayerComposite` uniforms as root constants.
+    D3D12_ROOT_PARAMETER {
+      ParameterType: D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
+      Anonymous: D3D12_ROOT_PARAMETER_0 {
+        Constants: D3D12_ROOT_CONSTANTS {
+          ShaderRegister: 0,
+          RegisterSpace: 0,
+          Num32BitValues: (std::mem::size_of::<LayerComposite>() / 4) as u32,
+        },
+      },
+      ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
+    },
+    // t0: the layer texture.
+    D3D12_ROOT_PARAMETER {
+      ParameterType: D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+      Anonymous: D3D12_ROOT_PARAMETER_0 {
+        DescriptorTable: D3D12_ROOT_DESCRIPTOR_TABLE {
+          NumDescriptorRanges: 1,
+          pDescriptorRanges: &srv_range,
+        },
+      },
+      ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
+    },
+  ];
+  let desc = D3D12_ROOT_SIGNATURE_DESC {
+    NumParameters: root_parameters.len() as u32,
+    pParameters: root_parameters.as_ptr(),
+    NumStaticSamplers: 0,
+    pStaticSamplers: ptr::null(),
+    Flags: D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
+  };
+  let mut blob = None;
+  let mut errors = None;
+  D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &mut blob, Some(&mut errors)).map_err(|err| {
+    Error::new(
+      err.code(),
+      format!(
+        "failed to serialize dx12 layer root signature{}",
+        blob_message(errors.as_ref())
+      ),
+    )
+  })?;
+  let blob = blob.ok_or_else(Error::from_win32)?;
+  device.CreateRootSignature(0, blob_bytes(&blob))
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+impl LayerCompositor {
+  pub(super) fn texture_count(&self) -> usize {
+    self.slots.len()
+  }
+}
+
+/// The first SRV descriptor of `frame_index`'s layer range.
+fn layer_srv_start(frame_index: usize) -> usize {
+  SRV_DESCRIPTOR_COUNT as usize + frame_index * LAYER_SRVS_PER_FRAME
+}
+
+impl Dx12State {
+  /// Starts a frame whose plan has layers: takes a texture for each target
+  /// that is a layer (`None` for the window). Releases the textures of the
+  /// frame that last used this frame slot's retired list.
+  pub(super) unsafe fn begin_layer_frame(
+    &mut self,
+    layers: &[Option<&LayerCmd>],
+    slots: &mut Vec<Option<usize>>,
+  ) -> Result<()> {
+    slots.clear();
+    if self.layer_compositor.is_none() {
+      self.layer_compositor = Some(LayerCompositor::new(&self.device)?);
+    }
+    let Some(compositor) = self.layer_compositor.as_mut() else {
+      return Ok(());
+    };
+    compositor.frame += 1;
+    compositor.next_srv = 0;
+    for slot in &mut compositor.slots {
+      slot.in_use = false;
+    }
+    for layer in layers {
+      slots.push(match layer {
+        Some(layer) => Some(compositor.acquire(&self.device, layer.bounds.width, layer.bounds.height)?),
+        None => None,
+      });
+    }
+    Ok(())
+  }
+
+  /// Retires layer textures unused for a while; they are released when this
+  /// frame slot comes round again.
+  pub(super) fn end_layer_frame(&mut self) {
+    let frame_index = self.frame_index;
+    let Some(compositor) = self.layer_compositor.as_mut() else {
+      return;
+    };
+    let frame = compositor.frame;
+    let (kept, idle): (Vec<_>, Vec<_>) = std::mem::take(&mut compositor.slots)
+      .into_iter()
+      .partition(|slot| slot.in_use || frame.saturating_sub(slot.last_used) <= LAYER_IDLE_FRAMES);
+    compositor.slots = kept;
+    compositor.retired[frame_index].extend(idle);
+  }
+
+  /// Drops the layer textures retired by the frame that last used this frame
+  /// slot; its fence has been waited on.
+  pub(super) fn release_retired_layers(&mut self) {
+    let frame_index = self.frame_index;
+    if let Some(compositor) = self.layer_compositor.as_mut() {
+      compositor.retired[frame_index].clear();
+    }
+  }
+
+  /// Makes the window's back buffer the render target.
+  pub(super) unsafe fn begin_window_target(&mut self) {
+    let rtv = self.current_rtv_handle();
+    self.command_list.OMSetRenderTargets(1, Some(&rtv), false, None);
+    self.set_target_viewport(TargetSpace::window(self.width as f32, self.height as f32));
+  }
+
+  /// Makes `slot`'s texture the render target, cleared to transparent, for
+  /// painting `layer`.
+  pub(super) unsafe fn begin_layer_target(&mut self, slot: usize, layer: &LayerCmd) {
+    let Some(compositor) = self.layer_compositor.as_ref() else {
+      return;
+    };
+    let slot = &compositor.slots[slot];
+    let (resource, rtv) = (slot.resource.clone(), slot.rtv_heap.cpu_handle(0));
+    let space = TargetSpace::layer(layer.bounds, slot.width, slot.height);
+    self.transition_resource(
+      &resource,
+      D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+      D3D12_RESOURCE_STATE_RENDER_TARGET,
+    );
+    self.command_list.OMSetRenderTargets(1, Some(&rtv), false, None);
+    self.command_list.ClearRenderTargetView(rtv, &[0.0; 4], None);
+    self.set_target_viewport(space);
+  }
+
+  /// Finishes painting `slot`'s layer so it can be composited.
+  pub(super) unsafe fn end_layer_target(&mut self, slot: usize) {
+    let Some(compositor) = self.layer_compositor.as_ref() else {
+      return;
+    };
+    let resource = compositor.slots[slot].resource.clone();
+    self.transition_resource(
+      &resource,
+      D3D12_RESOURCE_STATE_RENDER_TARGET,
+      D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+    );
+  }
+
+  unsafe fn set_target_viewport(&mut self, space: TargetSpace) {
+    let viewport = D3D12_VIEWPORT {
+      TopLeftX: 0.0,
+      TopLeftY: 0.0,
+      Width: space.width,
+      Height: space.height,
+      MinDepth: 0.0,
+      MaxDepth: 1.0,
+    };
+    self.command_list.RSSetViewports(std::slice::from_ref(&viewport));
+    self.space = space;
+  }
+
+  /// Draws `slot`, holding `layer`, into the current target.
+  pub(super) unsafe fn composite_layer(&mut self, slot: usize, layer: &LayerCmd) -> Result<()> {
+    let parent = self.space;
+    let Some(scissor) = super::scissor_rect(parent.layer_rect(layer.bounds), parent.width, parent.height) else {
+      return Ok(());
+    };
+    let frame_index = self.frame_index;
+    let Some(compositor) = self.layer_compositor.as_mut() else {
+      return Ok(());
+    };
+    if compositor.next_srv >= LAYER_SRVS_PER_FRAME {
+      tracing::error!("dx12: more than {LAYER_SRVS_PER_FRAME} opacity layers in one frame; the rest are not drawn");
+      return Ok(());
+    }
+    let descriptor = layer_srv_start(frame_index) + compositor.next_srv;
+    compositor.next_srv += 1;
+    let resource = compositor.slots[slot].resource.clone();
+    let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: RENDER_TARGET_FORMAT,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
+    };
+    self
+      .device
+      .CreateShaderResourceView(&resource, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor));
+
+    let constants = LayerComposite::new(layer, &parent);
+    let Some(compositor) = self.layer_compositor.as_ref() else {
+      return Ok(());
+    };
+    let descriptor_heaps = [Some(self.srv_heap.heap.clone()), Some(self.sampler_heap.heap.clone())];
+    self.command_list.SetDescriptorHeaps(&descriptor_heaps);
+    self.command_list.SetPipelineState(&compositor.pipeline_state);
+    self.command_list.SetGraphicsRootSignature(&compositor.root_signature);
+    self.command_list.SetGraphicsRoot32BitConstants(
+      0,
+      (std::mem::size_of::<LayerComposite>() / 4) as u32,
+      ptr::from_ref(&constants).cast(),
+      0,
+    );
+    self
+      .command_list
+      .SetGraphicsRootDescriptorTable(1, self.srv_heap.gpu_handle(descriptor));
+    self.command_list.RSSetScissorRects(std::slice::from_ref(&scissor));
+    self
+      .command_list
+      .IASetVertexBuffers(0, Some(std::slice::from_ref(&self.quad_buffers.vertex_view)));
+    self
+      .command_list
+      .DrawIndexedInstanced(crate::render::gpu::QuadVertex::INDICES.len() as u32, 1, 0, 0, 0);
+    Ok(())
+  }
+}

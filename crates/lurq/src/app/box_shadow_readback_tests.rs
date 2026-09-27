@@ -111,6 +111,7 @@ fn render_list(rects: Vec<RectCmd>) -> RenderList {
     images: Vec::new(),
     #[cfg(feature = "svg")]
     svgs: Vec::new(),
+    layers: Vec::new(),
     atlas: GlyphAtlas {
       data: Arc::from([0_u8; 4 * 4 * 4].as_slice()),
       width: 4,
