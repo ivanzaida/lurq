@@ -321,6 +321,7 @@ window.close();
 window.set_minimized(true);
 window.set_full_screen(true);
 window.set_decorations(false);
+window.set_title("Report.md - Editor");
 window.set_title_bar_color(lurq::node::color::Color::from_hex("#101215"));
 window.set_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1));
 window.set_corner_radius(lurq::app::WindowCornerRadius::RoundedSmall);
@@ -335,6 +336,12 @@ Use `ctx.window_opener()` for a cloneable handle that opens secondary windows. `
 
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so
 direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
+
+`set_title` changes the OS window title after the window has opened: the title bar text, the taskbar button and
+Alt+Tab on Windows, and the Window menu and Mission Control on macOS. `title()` returns the title last requested, or the
+title the window was created with (`WinitWindow::with_title`, the secondary window's title); it does not subscribe the
+component. Setting the title the window already has queues nothing, so a component can call
+`ctx.window().set_title(...)` from `render` with a title derived from its state, for example the active tab.
 
 `set_icon` accepts a `WindowIcon` built from RGBA pixels (`None` clears it). On Windows the icon is both the small
 title-bar icon and the big icon of the taskbar button and Alt+Tab, scaled by Windows to each size; on macOS it does

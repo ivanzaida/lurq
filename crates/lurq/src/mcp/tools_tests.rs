@@ -218,3 +218,16 @@ fn mcp_close_and_menu_obey_scopes_and_report_dispatch_outcome() {
   assert!(call(&mut tree, &mut app, &state, "lurq_interact", request).is_err());
   assert!(call(&mut tree, &mut app, &state, "lurq_menu", serde_json::json!({})).is_ok());
 }
+#[test]
+fn windows_report_the_title_set_at_runtime() {
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  let windows = |tree: &mut Tree, app: &mut App| json(call(tree, app, &state, "lurq_windows", serde_json::json!({})));
+  assert_eq!(
+    windows(&mut tree, &mut app)["windows"][0]["title"],
+    serde_json::Value::Null
+  );
+  tree.window().handle().set_title("Tasks - Orchester");
+  assert_eq!(windows(&mut tree, &mut app)["windows"][0]["title"], "Tasks - Orchester");
+}

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `WindowHandle::set_title` (`ctx.window().set_title(...)`) to change the OS window title after the window has opened: the title bar, the taskbar button and Alt+Tab on Windows, and the Window menu and Mission Control on macOS. It maps to winit's `Window::set_title` on the main and secondary windows. Before, the title could only be given once, with `WinitWindow::with_title` or when opening a secondary window. `WindowHandle::title()` returns the title last requested or the one the window was created with, without subscribing. Setting the current title queues nothing, so a component can set a title derived from its state in `render`. `lurq_windows` in the MCP server reports the main window's title too, and a secondary window's current title.
+
 ## 0.29.0 — 2026-09-27
 
 - Flatten group opacity, like CSS `opacity`, Figma and Pencil. `.opacity(value)` below 1 used to fade every piece of a subtree on its own: a label drew at the opacity over its already faded fill, and a border drew at the opacity over the fill's anti-aliased edge. A disabled primary button (light fill and border, dark label, `opacity(0.4)` over a dark window) showed its label as #4A4A4A instead of #1A1A1A over a #6C6C6C fill, with a lighter #9C9C9C ring along the border. A faded subtree now paints into an offscreen layer at full opacity, and the layer is composited once at the group's opacity.

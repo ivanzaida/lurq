@@ -731,10 +731,12 @@ pub(crate) struct DevToolsWindow {
 impl SecondaryWindow {
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn new(title: impl Into<String>, width: u32, height: u32, tree: Tree) -> Self {
+    let title = title.into();
+    tree.window().record_initial_title(&title);
     Self {
       id: 0,
       name: None,
-      title: title.into(),
+      title,
       width,
       height,
       decorations: true,

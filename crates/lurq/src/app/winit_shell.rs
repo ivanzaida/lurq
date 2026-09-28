@@ -308,6 +308,7 @@ impl ManagedWindow {
     }
 
     let attrs = self.attrs.take().unwrap_or_default();
+    self.tree.window().record_initial_title(&attrs.title);
     let show_after_first_present = attrs.visible;
     let attrs = if show_after_first_present {
       attrs.with_visible(false)
@@ -410,6 +411,11 @@ impl ManagedWindow {
             window.set_decorations(decorated);
           }
           self.tree.window().set_decorated(decorated);
+        }
+        WindowCommand::SetTitle(title) => {
+          if let Some(window) = &self.window {
+            window.set_title(&title);
+          }
         }
         WindowCommand::SetTitleBarColor(color) => {
           if let Some(window) = &self.window {
@@ -944,6 +950,11 @@ impl ManagedSecondaryWindow {
             window.set_decorations(decorated);
           }
           tree.window().set_decorated(decorated);
+        }
+        WindowCommand::SetTitle(title) => {
+          if let Some(window) = &self.window {
+            window.set_title(&title);
+          }
         }
         WindowCommand::SetTitleBarColor(color) => {
           if let Some(window) = &self.window {
@@ -2225,7 +2236,7 @@ mod close_runtime_tests {
 }
 
 #[cfg(all(test, windows))]
-mod window_icon_tests {
+mod native_window_tests {
   use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     UI::WindowsAndMessaging::{ICON_BIG, ICON_SMALL, SendMessageW, WM_GETICON},
@@ -2244,8 +2255,9 @@ mod window_icon_tests {
     unsafe { SendMessageW(hwnd, WM_GETICON, Some(WPARAM(kind as usize)), Some(LPARAM(0))).0 }
   }
 
+  /// One test: winit allows one event loop per process.
   #[test]
-  fn the_window_icon_is_also_the_taskbar_icon() {
+  fn a_hidden_window_takes_icons_and_runtime_titles() {
     // The test's only event loop: winit allows one per process.
     let event_loop = EventLoop::builder().with_any_thread(true).build().expect("event loop");
     let icon = || to_winit_icon(WindowIcon::from_rgba(vec![200; 32 * 32 * 4], 32, 32));
@@ -2263,5 +2275,30 @@ mod window_icon_tests {
     set_window_icons(&window, icon());
     assert_ne!(icon_handle(&window, ICON_SMALL), 0);
     assert_ne!(icon_handle(&window, ICON_BIG), 0);
+
+    runtime_title_reaches_the_os_window(window);
+  }
+
+  /// `WindowHandle::set_title` is applied by the shell to the live window.
+  fn runtime_title_reaches_the_os_window(window: Window) {
+    let mut app = App::new();
+    let mut root = Tree::new();
+    app.window_opener().open("Preferences", 200, 200, |_, _| {});
+    root.apply_secondary_window_requests(&mut app);
+    let secondary = root.secondary_window_mut(0).expect("opened secondary window");
+    let mut managed = ManagedSecondaryWindow::new(0, secondary);
+    let tree = secondary.tree_mut();
+    assert_eq!(tree.window().handle().title().as_deref(), Some("Preferences"));
+    managed.window = Some(window);
+
+    tree.window().handle().set_title("Tasks - Orchester");
+    managed.apply_window_commands(tree);
+    let os_title = |managed: &ManagedSecondaryWindow| managed.window.as_ref().expect("test window").title();
+    assert_eq!(os_title(&managed), "Tasks - Orchester");
+    assert_eq!(tree.window().handle().title().as_deref(), Some("Tasks - Orchester"));
+
+    tree.window().handle().set_title("Run 12 - Orchester");
+    managed.apply_window_commands(tree);
+    assert_eq!(os_title(&managed), "Run 12 - Orchester");
   }
 }

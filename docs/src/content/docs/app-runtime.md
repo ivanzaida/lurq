@@ -101,7 +101,7 @@ WinitWindow::new(app, tree)
 
 The shell drives timers, async work, animation deadlines, and requested redraws. It waits when idle; continuous video or an installed `on_tick` callback can keep the loop polling. Use `on_tick` only when the app needs continuous custom work.
 
-Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](../ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
+Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, the window title, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](../ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
 
 ## Frame And Redraw Flow
 
