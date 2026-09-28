@@ -1,9 +1,14 @@
+use std::sync::{
+  Arc,
+  atomic::{AtomicUsize, Ordering},
+};
+
 use lurq::{
   app::{
     Tree,
     events::{MouseButton, ScrollPhase},
   },
-  components::{Column, Rect, Select, Text},
+  components::{Button, Column, OutsidePress, Rect, Select, Text},
   core::{ElementRef, Signal},
   node::{SelectPartStyle, SelectStyle, color::Color},
 };
@@ -76,9 +81,10 @@ fn custom_trigger_slot_renders_selected_state() {
 }
 
 #[test]
-fn clicking_outside_blurs_focused_select_and_closes_menu() {
+fn clicking_outside_closes_menu_then_blurs_focused_select() {
   let value = Signal::new("md".to_owned());
   let select_ref = ElementRef::new();
+  let clicks = Arc::new(AtomicUsize::new(0));
   let mut tree = Tree::new();
   tree.set_root(
     Column::new()
@@ -90,7 +96,7 @@ fn clicking_outside_blurs_focused_select_and_closes_menu() {
           .height(40.0)
           .ref_element(select_ref.clone()),
       )
-      .child(Rect::new(200.0, 40.0).background("#ef4444")),
+      .child(counting_button(&clicks)),
   );
   run_pass(&mut tree);
 
@@ -101,49 +107,151 @@ fn clicking_outside_blurs_focused_select_and_closes_menu() {
   assert!(select_ref.focused());
   assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_some());
 
+  // Like Escape: the press only closes the menu, and the select keeps focus.
   pointer_click(&mut tree, 500.0, 500.0, MouseButton::Left);
   run_pass(&mut tree);
 
-  assert!(!select_ref.focused());
+  assert!(select_ref.focused());
   assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_none());
+
+  pointer_click(&mut tree, 500.0, 500.0, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(!select_ref.focused(), "a press with no menu open blurs as usual");
+  assert_eq!(clicks.load(Ordering::SeqCst), 0);
 }
 
 #[test]
-fn opening_another_select_blurs_previous_select() {
-  let first_ref = ElementRef::new();
-  let second_ref = ElementRef::new();
+fn pressing_an_element_outside_the_menu_only_closes_it() {
+  let select_ref = ElementRef::new();
+  let clicks = Arc::new(AtomicUsize::new(0));
   let mut tree = Tree::new();
   tree.set_root(
     Column::new()
-      .spacing(180.0)
+      .spacing(200.0)
       .child(
         Select::new(Signal::new("md".to_owned()))
-          .options(named_options("First"))
+          .options(options())
           .width(200.0)
           .height(40.0)
-          .ref_element(first_ref.clone()),
+          .ref_element(select_ref.clone()),
       )
+      .child(counting_button(&clicks)),
+  );
+  run_pass(&mut tree);
+  let (x, y) = select_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_some());
+
+  let (bx, by) = button_center(&mut tree);
+  pointer_click(&mut tree, bx, by, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_none());
+  assert_eq!(clicks.load(Ordering::SeqCst), 0, "the closing press is consumed");
+  assert!(select_ref.focused());
+
+  pointer_click(&mut tree, bx, by, MouseButton::Left);
+  run_pass(&mut tree);
+  assert_eq!(clicks.load(Ordering::SeqCst), 1, "the next press reaches the button");
+}
+
+#[test]
+fn pass_through_select_delivers_the_closing_press() {
+  let select_ref = ElementRef::new();
+  let clicks = Arc::new(AtomicUsize::new(0));
+  let mut tree = Tree::new();
+  tree.set_root(
+    Column::new()
+      .spacing(200.0)
       .child(
-        Select::new(Signal::new("sm".to_owned()))
-          .options(named_options("Second"))
+        Select::new(Signal::new("md".to_owned()))
+          .options(options())
+          .outside_press(OutsidePress::PassThrough)
           .width(200.0)
           .height(40.0)
-          .ref_element(second_ref.clone()),
-      ),
+          .ref_element(select_ref.clone()),
+      )
+      .child(counting_button(&clicks)),
   );
+  run_pass(&mut tree);
+  let (x, y) = select_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+
+  let (bx, by) = button_center(&mut tree);
+  pointer_click(&mut tree, bx, by, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(tree.find_element(|el| el.text_content() == Some("Large")).is_none());
+  assert_eq!(clicks.load(Ordering::SeqCst), 1);
+  assert!(!select_ref.focused(), "the press follows the usual focus rule");
+}
+
+fn two_selects(first_ref: &ElementRef, second_ref: &ElementRef, outside_press: OutsidePress) -> Column {
+  Column::new()
+    .spacing(180.0)
+    .child(
+      Select::new(Signal::new("md".to_owned()))
+        .options(named_options("First"))
+        .outside_press(outside_press)
+        .width(200.0)
+        .height(40.0)
+        .ref_element(first_ref.clone()),
+    )
+    .child(
+      Select::new(Signal::new("sm".to_owned()))
+        .options(named_options("Second"))
+        .width(200.0)
+        .height(40.0)
+        .ref_element(second_ref.clone()),
+    )
+}
+
+fn menu_open(tree: &mut Tree, prefix: &str) -> bool {
+  let label = format!("{prefix} Large");
+  tree
+    .find_element(|el| el.text_content() == Some(label.as_str()))
+    .is_some()
+}
+
+#[test]
+fn pressing_another_select_closes_the_open_menu_first() {
+  let first_ref = ElementRef::new();
+  let second_ref = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(two_selects(&first_ref, &second_ref, OutsidePress::Consume));
   run_pass(&mut tree);
 
   let (x, y) = first_ref.bounds().center();
   pointer_click(&mut tree, x, y, MouseButton::Left);
   run_pass(&mut tree);
   assert!(first_ref.focused());
-  assert!(
-    tree
-      .find_element(|el| el.text_content() == Some("First Large"))
-      .is_some(),
-    "first menu should open"
-  );
+  assert!(menu_open(&mut tree, "First"), "first menu should open");
 
+  let (x, y) = second_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(!menu_open(&mut tree, "First"), "the press closes the first menu");
+  assert!(!menu_open(&mut tree, "Second"), "and does not reach the second select");
+  assert!(first_ref.focused());
+
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(second_ref.focused());
+  assert!(!first_ref.focused());
+  assert!(menu_open(&mut tree, "Second"), "the next press opens the second menu");
+}
+
+#[test]
+fn pass_through_select_lets_another_select_open_in_one_press() {
+  let first_ref = ElementRef::new();
+  let second_ref = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(two_selects(&first_ref, &second_ref, OutsidePress::PassThrough));
+  run_pass(&mut tree);
+
+  let (x, y) = first_ref.bounds().center();
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  run_pass(&mut tree);
   let (x, y) = second_ref.bounds().center();
   pointer_click(&mut tree, x, y, MouseButton::Left);
   run_pass(&mut tree);
@@ -151,17 +259,29 @@ fn opening_another_select_blurs_previous_select() {
   assert!(!first_ref.focused());
   assert!(second_ref.focused());
   assert!(
-    tree
-      .find_element(|el| el.text_content() == Some("First Large"))
-      .is_none(),
-    "opening the second select should close the first menu"
+    !menu_open(&mut tree, "First"),
+    "opening the second select closes the first menu"
   );
-  assert!(
-    tree
-      .find_element(|el| el.text_content() == Some("Second Large"))
-      .is_some(),
-    "second menu should stay open"
-  );
+  assert!(menu_open(&mut tree, "Second"), "second menu should stay open");
+}
+
+fn counting_button(clicks: &Arc<AtomicUsize>) -> Button {
+  let clicks = clicks.clone();
+  Button::new("Behind")
+    .id("behind")
+    .width(200.0)
+    .height(40.0)
+    .on_click(move |_| {
+      clicks.fetch_add(1, Ordering::SeqCst);
+    })
+}
+
+fn button_center(tree: &mut Tree) -> (f32, f32) {
+  tree
+    .find_element(|el| el.id() == Some("behind"))
+    .expect("button")
+    .bounds()
+    .center()
 }
 
 #[test]

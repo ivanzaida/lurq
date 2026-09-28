@@ -27,7 +27,10 @@ use crate::{
   app::{
     app_state::App,
     component::Component,
-    ctx::{CollisionStrategy, Ctx, ModalLayer, ModalSpec, ModalTarget, OverlaySpec, Placement, component_tag_name},
+    ctx::{
+      CollisionStrategy, Ctx, ModalLayer, ModalSpec, ModalTarget, OutsidePress, OverlaySpec, Placement,
+      component_tag_name,
+    },
     events::{
       DragEvent, DropEvent, DropResult, EventControl, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind,
       ScrollEvent, ScrollPhase,
@@ -61,6 +64,7 @@ use crate::{
   },
 };
 
+mod outside_press;
 mod select_menu;
 mod tab_navigation;
 
@@ -628,6 +632,9 @@ pub struct Tree {
   click_tracker: ClickTracker,
   text_click_tracker: TextClickTracker,
   click_press: Option<ClickPress>,
+  /// A left press that only closed popups (`OutsidePress::Consume`); its
+  /// release is swallowed too.
+  swallowed_press: Option<MouseButton>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   tree_rebuilt_since_layout: bool,
@@ -691,7 +698,12 @@ struct OverlayDismissEntry {
   bounds: ElementRect,
   open: Signal<bool>,
   dismiss_on_outside_click: bool,
+  outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  /// The overlay's index among the overlay host's children (the page is 0).
+  /// A press on a layer above it, such as a select menu or a popup opened
+  /// from inside it, is not outside it.
+  layer: usize,
 }
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -955,6 +967,7 @@ impl Tree {
       click_tracker: ClickTracker::default(),
       text_click_tracker: TextClickTracker::default(),
       click_press: None,
+      swallowed_press: None,
       suppressed_click: None,
       needs_redraw: true,
       tree_rebuilt_since_layout: false,
@@ -2992,6 +3005,18 @@ impl Tree {
 
   pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
     let modifiers = MouseModifiers { shift, ctrl, alt };
+    if self.swallowed_press == Some(button) {
+      // Its release never arrived (the OS took it); this is a new press.
+      self.swallowed_press = None;
+    }
+    let scale = self.scale_factor();
+    if button == MouseButton::Left && self.consume_outside_press(x / scale, y / scale) {
+      self.swallowed_press = Some(button);
+      self.click_press = None;
+      self.click_tracker.take_pending();
+      self.apply_reactive_updates_after_event();
+      return;
+    }
     let position = (x, y);
     let target_ids = self.hit_target_ids_at(x, y);
     let transient_root = self.root.as_ref().and_then(|root| {
@@ -3037,6 +3062,13 @@ impl Tree {
 
   pub fn mouse_up_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
     let modifiers = MouseModifiers { shift, ctrl, alt };
+    if self.swallowed_press == Some(button) {
+      self.swallowed_press = None;
+      // The pointer now hovers whatever the closed popup exposed.
+      self.dispatch_mouse(x, y, button, MouseEventKind::Move, modifiers);
+      self.apply_reactive_updates_after_event();
+      return;
+    }
     let transient_root = self
       .click_press
       .as_ref()
@@ -3257,17 +3289,6 @@ impl Tree {
     };
     fire_keyboard_up_recursive(root, &mut evt);
     self.apply_reactive_updates_after_event();
-  }
-
-  fn overlay_dismiss_signals_at(&self, x: f32, y: f32) -> Vec<Signal<bool>> {
-    self
-      .overlay_dismiss_entries
-      .iter()
-      .filter(|entry| entry.dismiss_on_outside_click)
-      .filter(|entry| !point_in_element_rect(x, y, entry.anchor.bounds()))
-      .filter(|entry| !point_in_element_rect(x, y, entry.bounds))
-      .map(|entry| entry.open.clone())
-      .collect()
   }
 
   fn dismiss_top_overlay_on_escape(&mut self, key: &str, code: &str) -> bool {
@@ -5773,7 +5794,8 @@ impl Tree {
           Position::Static => (0.0, 0.0),
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
-        build_overlays_from_layout_index(
+        let nested_entries_start = dismiss_entries.len();
+        let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
           viewport,
           glyph_engine,
@@ -5788,7 +5810,12 @@ impl Tree {
           typography.clone(),
           theme_changed,
           &mut dismiss_entries,
-        )
+        );
+        // Nested overlays are appended after the ones built so far.
+        for entry in &mut dismiss_entries[nested_entries_start..] {
+          entry.layer += overlays.len();
+        }
+        nested
       };
 
       for mut nested_overlay in nested_overlays {
@@ -6305,6 +6332,7 @@ fn build_overlays_from_layout_index(
         let dismiss_anchor = spec.anchor.clone();
         let dismiss_signal = spec.open_signal.clone();
         let dismiss_on_outside_click = spec.dismiss_on_outside_click;
+        let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
         let (mut overlay, bounds) = build_overlay_node(
           spec,
@@ -6331,7 +6359,9 @@ fn build_overlays_from_layout_index(
             bounds,
             open,
             dismiss_on_outside_click,
+            outside_press,
             dismiss_on_escape,
+            layer: overlays.len() + 1,
           });
         }
         overlays.push(overlay);
@@ -6357,7 +6387,9 @@ fn build_overlays_from_layout_index(
             bounds: target,
             open,
             dismiss_on_outside_click: false,
+            outside_press: OutsidePress::default(),
             dismiss_on_escape,
+            layer: overlays.len() + 1,
           });
         }
         overlays.push(modal);

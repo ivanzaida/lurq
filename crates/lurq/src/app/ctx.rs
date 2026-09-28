@@ -155,6 +155,25 @@ impl Default for CollisionStrategy {
   }
 }
 
+/// What a left press outside an open popup does besides closing it, for
+/// overlays with `dismiss_on_outside_click(true)` (`Popup`, `Popover`,
+/// `Overlay`) and for `Select` menus.
+///
+/// A press is outside a popup when it lands neither on the popup, nor on its
+/// anchor (a select's trigger), nor on a layer opened above it, such as a
+/// select menu or a popup opened from inside it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutsidePress {
+  /// The press only closes the popup, like a native menu: the element under
+  /// the pointer receives no press, release or click, and focus does not move.
+  /// Pressing again reaches it.
+  #[default]
+  Consume,
+  /// The press closes the popup and is also delivered to the element under
+  /// the pointer, like a light-dismiss web popover.
+  PassThrough,
+}
+
 pub(crate) struct OverlaySpec {
   pub(crate) anchor: ElementRef,
   pub(crate) node: Node,
@@ -166,6 +185,7 @@ pub(crate) struct OverlaySpec {
   pub(crate) hit_test: HitTestBehavior,
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_outside_click: bool,
+  pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
 }
 
@@ -250,6 +270,7 @@ impl OverlaySpec {
       hit_test: self.hit_test,
       open_signal: self.open_signal.clone(),
       dismiss_on_outside_click: self.dismiss_on_outside_click,
+      outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
     }
   }
@@ -337,6 +358,7 @@ pub struct Overlay {
   collision: CollisionStrategy,
   hit_test: HitTestBehavior,
   dismiss_on_outside_click: bool,
+  outside_press: OutsidePress,
   dismiss_on_escape: bool,
 }
 
@@ -353,6 +375,7 @@ impl Overlay {
       collision: CollisionStrategy::default(),
       hit_test: HitTestBehavior::Auto,
       dismiss_on_outside_click: false,
+      outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
     }
   }
@@ -398,8 +421,17 @@ impl Overlay {
     self
   }
 
+  /// Closes the overlay on a left press outside it and its anchor. Needs a
+  /// signal-backed open state.
   pub fn dismiss_on_outside_click(mut self, dismiss: bool) -> Self {
     self.dismiss_on_outside_click = dismiss;
+    self
+  }
+
+  /// Whether the press that closes the overlay also reaches the element under
+  /// the pointer. Defaults to [`OutsidePress::Consume`].
+  pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
+    self.outside_press = outside_press;
     self
   }
 
@@ -426,6 +458,7 @@ impl Overlay {
       hit_test: self.hit_test,
       open_signal,
       dismiss_on_outside_click: self.dismiss_on_outside_click,
+      outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
     })
   }

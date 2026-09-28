@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+  app::ctx::OutsidePress,
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, StackAlignment, layout_kind::Justify},
   node::{
@@ -81,6 +82,7 @@ where
   placeholder: Option<Arc<str>>,
   style: SelectStyle,
   trigger: Option<Arc<dyn Fn(SelectTriggerState) -> Element + Send + Sync>>,
+  outside_press: OutsidePress,
 }
 
 #[derive(Clone)]
@@ -105,6 +107,7 @@ where
       placeholder: None,
       style: SelectStyle::new(),
       trigger: None,
+      outside_press: OutsidePress::default(),
     }
   }
 
@@ -116,6 +119,7 @@ where
       placeholder: None,
       style: SelectStyle::new(),
       trigger: None,
+      outside_press: OutsidePress::default(),
     }
   }
 
@@ -170,6 +174,14 @@ where
   /// `false` keeps the select from taking focus, by click, Tab or request.
   pub fn focusable(mut self, focusable: bool) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::focusable(node, focusable));
+    self
+  }
+
+  /// Whether the press outside the open menu that closes it also reaches the
+  /// element under the pointer. Defaults to [`OutsidePress::Consume`]: the
+  /// press only closes the menu, and the select keeps focus.
+  pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
+    self.outside_press = outside_press;
     self
   }
 
@@ -259,6 +271,7 @@ where
       .select_style(self.style)
       .select_on_change(on_change)
       .select_binding(binding)
+      .select_outside_press(self.outside_press)
   }
 }
 

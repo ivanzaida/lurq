@@ -1905,6 +1905,13 @@ impl Node {
     self
   }
 
+  pub(crate) fn select_outside_press(self, outside_press: crate::app::ctx::OutsidePress) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_outside_press(outside_press);
+    }
+    self
+  }
+
   pub fn select_placeholder(self, placeholder: Option<std::sync::Arc<str>>) -> Self {
     if let Some(state) = self.select_state() {
       state.set_placeholder(placeholder);

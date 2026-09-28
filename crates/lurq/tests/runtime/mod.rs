@@ -27,6 +27,7 @@ mod futures {
 }
 mod headless_pass;
 mod mouse_leave;
+mod outside_press;
 mod overlay;
 mod pass_report;
 mod perf_overlay;

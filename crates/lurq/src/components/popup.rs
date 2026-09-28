@@ -1,5 +1,5 @@
 use crate::{
-  app::ctx::{CollisionStrategy, OpenState, Overlay, Placement},
+  app::ctx::{CollisionStrategy, OpenState, OutsidePress, Overlay, Placement},
   core::{ElementRef, Signal},
   node::{Element, HitTestBehavior},
 };
@@ -65,6 +65,14 @@ impl Popup {
 
   pub fn dismiss_on_outside_click(mut self, dismiss: bool) -> Self {
     self.overlay = self.overlay.dismiss_on_outside_click(dismiss);
+    self
+  }
+
+  /// Whether the press that closes the popup also reaches the element under
+  /// the pointer. Defaults to [`OutsidePress::Consume`]: the press only
+  /// closes it.
+  pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
+    self.overlay = self.overlay.outside_press(outside_press);
     self
   }
 

@@ -10,7 +10,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use crate::{layout::layout_kind::ScrollState, node::SelectStyle};
+use crate::{app::ctx::OutsidePress, layout::layout_kind::ScrollState, node::SelectStyle};
 
 pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;
 
@@ -36,6 +36,7 @@ struct SelectInner {
   /// The id of the signal the select is bound to: its identity across
   /// re-renders, like a text input's value signal.
   binding: Option<usize>,
+  outside_press: OutsidePress,
   // Runtime state, preserved across re-renders via `copy_runtime_state_from`.
   open: bool,
   highlighted: Option<usize>,
@@ -119,6 +120,7 @@ impl SelectState {
         style: SelectStyle::new(),
         on_change: None,
         binding: None,
+        outside_press: OutsidePress::default(),
         open: false,
         highlighted: None,
         menu_scroll: ScrollState::new(),
@@ -160,6 +162,14 @@ impl SelectState {
 
   pub(crate) fn set_on_change(&self, on_change: SelectChangeCallback) {
     self.inner.lock().unwrap().on_change = Some(on_change);
+  }
+
+  pub(crate) fn set_outside_press(&self, outside_press: OutsidePress) {
+    self.inner.lock().unwrap().outside_press = outside_press;
+  }
+
+  pub(crate) fn outside_press(&self) -> OutsidePress {
+    self.inner.lock().unwrap().outside_press
   }
 
   pub(crate) fn set_binding(&self, signal_id: usize) {
