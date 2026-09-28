@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.2 — 2026-09-28
+
+- Add `SelectStyle::min_menu_width(width)` for a select menu that needs more room than its trigger. The default remains the trigger's width; a configured minimum widens the menu without resizing the trigger, caps it at the viewport width, and positions it inside the viewport.
+
 ## 0.30.1 — 2026-09-28
 
 - Fix `OutsidePress::Consume` allowing a press on a custom `WindowChrome` title-bar control to activate that control while dismissing a popup opened from the window content. The persistent chrome layer no longer counts as a popup stacked above the content popup: the first press closes only the popup, and a second press activates the title-bar control. Popups and select menus genuinely stacked above another popup still receive presses without dismissing it.
