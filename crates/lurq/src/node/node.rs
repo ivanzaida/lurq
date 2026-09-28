@@ -527,6 +527,8 @@ pub(crate) enum SyntheticNodeRole {
   /// An open dialog `Modal`'s container, a direct child of the overlay host.
   /// `WindowChrome`'s layer is built like a modal but never gets this role.
   Modal,
+  /// The persistent title bar layer, which is not a popup above page content.
+  WindowChromeLayer,
   /// A `Select` trigger's chevron for one open state. Painting skips it while
   /// the enclosing select's open state differs.
   SelectChevron {

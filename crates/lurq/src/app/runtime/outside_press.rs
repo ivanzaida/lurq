@@ -86,7 +86,7 @@ fn is_outside(entry: &OverlayDismissEntry, x: f32, y: f32, pressed_layer: usize)
 }
 
 /// The overlay host child the topmost element at `(x, y)` belongs to: `0`
-/// for the page (or nothing), `n` for the host's `n`th overlay layer.
+/// for the page or window chrome (or nothing), `n` for the host's `n`th other overlay layer.
 fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32) -> usize {
   if !root.has_synthetic_role(SyntheticNodeRole::OverlayHost) {
     return 0;
@@ -98,6 +98,7 @@ fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32) -> usize {
     .enumerate()
     .skip(1)
     .rev()
+    .filter(|(_, (layer, _))| !layer.has_synthetic_role(SyntheticNodeRole::WindowChromeLayer))
     .find(|(_, (layer, layout))| {
       let mut hits = Vec::new();
       hit_test_tree(layer, &layout.result, layout.offset.x, layout.offset.y, x, y, &mut hits);

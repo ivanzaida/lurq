@@ -25,6 +25,7 @@ struct Counts {
   inside_clicks: AtomicUsize,
   behind_presses: AtomicUsize,
   behind_clicks: AtomicUsize,
+  title_presses: AtomicUsize,
   title_clicks: AtomicUsize,
 }
 
@@ -35,18 +36,23 @@ impl Counts {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+enum PopupMount {
+  Page,
+  ChromeContent,
+  ChromeTitleBar,
+}
+
+#[derive(Clone, Copy, PartialEq)]
 struct Setup {
   outside_press: OutsidePress,
   dismiss: bool,
-  /// The anchor and its popup sit in a `WindowChrome` title bar, whose layer
-  /// lies over the page and under the popup.
-  in_title_bar: bool,
+  mount: PopupMount,
 }
 
 const DEFAULT: Setup = Setup {
   outside_press: OutsidePress::Consume,
   dismiss: true,
-  in_title_bar: false,
+  mount: PopupMount::Page,
 };
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
@@ -136,26 +142,37 @@ impl Component for Page {
       .on_click(move |_| clicked());
     let field = TextInput::new(Signal::new(String::new())).id("field").width(200.0);
     let menu = Row::new().child(self.anchor_button(&props)).child(self.popup(&props));
-    if !props.setup.in_title_bar {
-      return Column::new()
-        .child(menu)
-        .child(Spacer::new().height(300.0))
-        .child(behind)
-        .child(field)
-        .into();
-    }
+    let (title_menu, content_menu) = match props.setup.mount {
+      PopupMount::Page => {
+        return Column::new()
+          .child(menu)
+          .child(Spacer::new().height(300.0))
+          .child(behind)
+          .child(field)
+          .into();
+      }
+      PopupMount::ChromeContent => (None, Some(menu)),
+      PopupMount::ChromeTitleBar => (Some(menu), None),
+    };
+    let title_pressed = counted(|counts| &counts.title_presses, props.counts.clone());
     let title_clicked = counted(|counts| &counts.title_clicks, props.counts.clone());
     let title_bar = ChromeTitleBar::new().leading(
       Row::new()
-        .child(menu)
+        .with_children(title_menu)
         .child(Spacer::new().width(300.0))
-        .child(Button::new("Tab").id("title-button").on_click(move |_| title_clicked())),
+        .child(
+          Button::new("Tab")
+            .id("title-button")
+            .on_mouse_down(move |_| title_pressed())
+            .on_click(move |_| title_clicked()),
+        ),
     );
     WindowChrome::new()
       .mode(WindowChromeMode::AlwaysCustom)
       .title_bar(title_bar)
       .content(
         Column::new()
+          .with_children(content_menu)
           .child(Spacer::new().height(300.0))
           .child(behind)
           .child(field),
@@ -390,7 +407,7 @@ fn an_open_select_menu_in_the_popup_consumes_a_press_on_the_popup() {
 #[test]
 fn a_press_on_the_title_bar_under_a_title_bar_popup_is_consumed() {
   let mut fixture = Fixture::new(Setup {
-    in_title_bar: true,
+    mount: PopupMount::ChromeTitleBar,
     ..DEFAULT
   });
   assert!(fixture.popup_visible());
@@ -411,4 +428,31 @@ fn a_press_on_the_title_bar_under_a_title_bar_popup_is_consumed() {
     0,
     "the page under the chrome too"
   );
+}
+
+#[test]
+fn a_press_on_the_title_bar_above_a_content_popup_is_consumed() {
+  let mut fixture = Fixture::new(Setup {
+    mount: PopupMount::ChromeContent,
+    ..DEFAULT
+  });
+  assert!(fixture.popup_visible());
+
+  fixture.click_id("title-button");
+
+  assert!(!fixture.open.get(), "the content popup closes");
+  assert_eq!(
+    Counts::get(&fixture.counts.title_presses),
+    0,
+    "no press reaches the title bar"
+  );
+  assert_eq!(
+    Counts::get(&fixture.counts.title_clicks),
+    0,
+    "no click reaches the title bar"
+  );
+
+  fixture.click_id("title-button");
+  assert_eq!(Counts::get(&fixture.counts.title_presses), 1);
+  assert_eq!(Counts::get(&fixture.counts.title_clicks), 1);
 }

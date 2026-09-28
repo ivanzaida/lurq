@@ -6455,7 +6455,10 @@ fn build_modal_node(spec: ModalSpec, target: ElementRect) -> Node {
       modal.set_tag_name("Modal");
       modal.set_synthetic_role(SyntheticNodeRole::Modal);
     }
-    ModalLayer::WindowChrome => modal.set_tag_name("WindowChromeLayer"),
+    ModalLayer::WindowChrome => {
+      modal.set_tag_name("WindowChromeLayer");
+      modal.set_synthetic_role(SyntheticNodeRole::WindowChromeLayer);
+    }
   }
   modal
 }
