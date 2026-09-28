@@ -48,7 +48,7 @@ pub(super) fn build_select_menu(
   if let Some(padding) = menu_part.padding.take() {
     list = list.padding_custom(padding);
   }
-  let width = bounds.width.min(viewport.width.max(0.0));
+  let width = bounds.width.max(style.min_menu_width).min(viewport.width.max(0.0));
   let mut menu = crate::node::dsl::scroll_vertical(list)
     .with_scroll_state(state.menu_scroll())
     .apply_select_part(&menu_part)

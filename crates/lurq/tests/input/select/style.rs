@@ -338,6 +338,27 @@ fn menu_flips_above_the_trigger_without_room_below() {
 }
 
 #[test]
+fn menu_min_width_expands_past_trigger_and_fits_viewport() {
+  let mut default = Fixture::new("sm", SelectStyle::new());
+  default.pointer_open();
+  assert_eq!(default.menu_bounds().width, default.select.bounds().width);
+
+  let mut wide = Fixture::new("sm", SelectStyle::new().min_menu_width(260.0));
+  wide.pointer_open();
+  let trigger = wide.select.bounds();
+  let menu = wide.menu_bounds();
+  assert_eq!(trigger.width, 200.0);
+  assert_eq!(menu.width, 260.0);
+  assert_eq!(menu.x, trigger.x);
+
+  wide.tree.resize(240, 600);
+  wide.render();
+  let menu = wide.menu_bounds();
+  assert_eq!(menu.width, 240.0);
+  assert_eq!(menu.x, 0.0);
+}
+
+#[test]
 fn option_detail_renders_under_the_label() {
   let options = vec![
     SelectOption::new("sm".to_owned(), "Small"),

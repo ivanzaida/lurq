@@ -213,6 +213,7 @@ pub struct SelectStyle {
   pub(crate) checkmark_position: SelectCheckmarkPosition,
   pub(crate) checkmark_gap: SpacingValue,
   pub(crate) single_checkmark: bool,
+  pub(crate) min_menu_width: f32,
   pub(crate) max_menu_height: f32,
   pub(crate) menu_gap: f32,
 }
@@ -290,6 +291,7 @@ impl SelectStyle {
       checkmark_position: SelectCheckmarkPosition::Leading,
       checkmark_gap: SpacingValue::from(6.0),
       single_checkmark: false,
+      min_menu_width: 0.0,
       max_menu_height: 240.0,
       menu_gap: 4.0,
     }
@@ -457,6 +459,13 @@ impl SelectStyle {
 
   pub fn max_menu_height(mut self, height: f32) -> Self {
     self.max_menu_height = height;
+    self
+  }
+
+  /// Keeps the open menu at least this wide when its trigger is narrower.
+  /// The menu still fits inside the viewport.
+  pub fn min_menu_width(mut self, width: f32) -> Self {
+    self.min_menu_width = width;
     self
   }
 
