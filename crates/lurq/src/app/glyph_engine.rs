@@ -872,6 +872,21 @@ impl GlyphEngine {
     })
   }
 
+  /// Where the glyphs of a line in `style` sit in its line box by the font's
+  /// metrics, as `(top, height)`: its ascent plus descent, centered in the
+  /// line height as cosmic-text places them. Unlike ink bounds it does not
+  /// depend on which glyphs the line holds.
+  pub(crate) fn line_content_band(&mut self, style: &TextStyle) -> Option<(f32, f32)> {
+    let buffer = self.full_text_buffer("H", style, f32::MAX, false);
+    let band = buffer.layout_runs().next().and_then(|run| {
+      let line = buffer.lines.get(run.line_i)?.layout_opt()?.first()?;
+      let height = line.max_ascent + line.max_descent;
+      (height > 0.0).then_some(((run.line_height - height) * 0.5, height))
+    });
+    self.retain_plain_buffer(buffer);
+    band
+  }
+
   fn font_cap_height_px(&mut self, glyph: GlyphFace) -> Option<f32> {
     let font = self.font_system.get_font(glyph.font_id, glyph.weight)?;
     cap_height::cap_height_px(self.font_system.db(), &font, glyph.weight, glyph.font_size)

@@ -9938,6 +9938,7 @@ fn vertical_align_offset(
     VerticalAlign::Top => -extents.ink_top,
     VerticalAlign::Center => (quad_height - (extents.optical_bottom - extents.optical_top)) * 0.5 - extents.optical_top,
     VerticalAlign::Bottom => quad_height - extents.ink_bottom,
+    VerticalAlign::LineBox => 0.0,
   }
 }
 
@@ -9950,7 +9951,7 @@ fn text_vertical_align_offset(
   vertical_align: VerticalAlign,
   quad_height: f32,
 ) -> f32 {
-  if quad_height <= 0.0 {
+  if quad_height <= 0.0 || vertical_align == VerticalAlign::LineBox {
     return 0.0;
   }
   if vertical_align == VerticalAlign::Center {

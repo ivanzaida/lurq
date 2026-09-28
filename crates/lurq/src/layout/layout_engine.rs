@@ -79,6 +79,8 @@ const DEFAULT_CHECKBOX_CHECKED_COLOR: Color = Color::new(34, 197, 94, 255);
 const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
 const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
+/// Width of a text input's caret, in logical pixels.
+const TEXT_INPUT_CARET_WIDTH: f32 = 1.0;
 fn text_input_display_style<'a>(
   state: &crate::node::node_kind::TextInputState,
   style: &'a TextStyle,
@@ -1025,9 +1027,10 @@ impl LayoutEngine {
         // optical cap-height box, same as static text) so the baseline stays
         // put while the value's ink changes — ink centering made the text jump
         // when typing added the first ascender/descender. Multi-line inputs
-        // flow from the top and scroll.
+        // flow from the top in the line boxes their carets and selections
+        // use; aligning the ink top made them jump the same way.
         let vertical_align = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
-          crate::layout::text_style::VerticalAlign::Top
+          crate::layout::text_style::VerticalAlign::LineBox
         } else {
           display_style.vertical_align
         };
@@ -1229,8 +1232,11 @@ impl LayoutEngine {
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_width = (result.size.width - padding.left - padding.right).max(0.0);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
-          let selection_height = state.caret_height().min(content_height).max(1.0);
-          let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+          // Selections cover the glyphs' band in each line box (the font's
+          // ascent and descent), not the leading around it.
+          let (band_top, band_height) = state.text_band();
+          let selection_height = band_height.min(content_height).max(1.0);
+          let vertical_offset = padding.top + text_input_vertical_offset(state, content_height) + band_top;
           let selection_clip = intersect_clip(
             clip,
             ClipRect {
@@ -1423,7 +1429,20 @@ impl LayoutEngine {
         let caret_height = style.font_size.min(caret_line_height).min(content_height).max(1.0);
         let caret_leading = ((caret_line_height - caret_height) * 0.5).max(0.0);
         let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
-        let caret_x = abs_x + padding.left + state.caret_x();
+        // The caret starts at its insertion point, after the glyph before it.
+        // At the start of a line nothing precedes it, so it ends there
+        // instead: drawn from the line's left edge it covered the first
+        // glyph (of the value or the placeholder), whose side bearing is
+        // about zero. Where an ancestor clips right at that edge it stays at
+        // the edge rather than disappear.
+        let insertion_x = abs_x + padding.left + state.caret_x();
+        let before_x = insertion_x - TEXT_INPUT_CARET_WIDTH;
+        let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
+        let caret_x = if state.caret_at_line_start() && room_before {
+          before_x
+        } else {
+          insertion_x
+        };
         let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
         let palette = self.palette.borrow();
         let caret_color = node
@@ -1436,7 +1455,7 @@ impl LayoutEngine {
         quads.push(Quad {
           x: caret_x,
           y: caret_y,
-          width: 1.0,
+          width: TEXT_INPUT_CARET_WIDTH,
           height: caret_height,
           opacity,
           transform: caret_transform,
@@ -1450,9 +1469,10 @@ impl LayoutEngine {
           clip: intersect_clip(
             clip,
             ClipRect {
-              x: abs_x + padding.left,
+              // Room for a caret at the start of a line.
+              x: abs_x + padding.left - TEXT_INPUT_CARET_WIDTH,
               y: abs_y + padding.top,
-              width: content_width,
+              width: content_width + TEXT_INPUT_CARET_WIDTH,
               height: content_height,
               active: true,
               border_radius: None,
@@ -2524,6 +2544,7 @@ impl LayoutEngine {
     state.set_caret_positions(caret_positions);
 
     state.set_caret_height(line_height);
+    state.set_text_band(glyph_engine.line_content_band(style));
     state.sync_caret_metrics_to_position(line_height);
     let caret_x = state.caret_x() + state.scroll_x();
     let caret_y = state.caret_y() + state.scroll_y();

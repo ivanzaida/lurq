@@ -376,6 +376,9 @@ struct TextInputInner {
   caret_x: f32,
   caret_y: f32,
   caret_height: f32,
+  /// Where a line's glyphs sit in its line box by the font's ascent and
+  /// descent, as `(top, height)`; selections cover it.
+  text_band: Option<(f32, f32)>,
   caret_positions: CaretPositions,
   scroll_x: f32,
   scroll_y: f32,
@@ -423,6 +426,7 @@ impl TextInputState {
         caret_x: 0.0,
         caret_y: 0.0,
         caret_height: 0.0,
+        text_band: None,
         caret_positions: vec![CaretPosition {
           index: 0,
           x: 0.0,
@@ -946,6 +950,7 @@ impl TextInputState {
     let old_caret_x = old_inner.caret_x;
     let old_caret_y = old_inner.caret_y;
     let old_caret_height = old_inner.caret_height;
+    let old_text_band = old_inner.text_band;
     let old_caret_positions = old_inner.caret_positions.clone();
     let old_scroll_x = old_inner.scroll_x;
     let old_scroll_y = old_inner.scroll_y;
@@ -968,6 +973,7 @@ impl TextInputState {
     inner.caret_x = old_caret_x;
     inner.caret_y = old_caret_y;
     inner.caret_height = old_caret_height;
+    inner.text_band = old_text_band;
     inner.caret_positions = old_caret_positions;
     inner.scroll_x = old_scroll_x;
     inner.scroll_y = old_scroll_y;
@@ -999,6 +1005,12 @@ impl TextInputState {
     inner.caret_x - inner.scroll_x
   }
 
+  /// Whether the caret is at the left edge of its line's text box (the start
+  /// of a left-aligned line), with no glyph before it.
+  pub(crate) fn caret_at_line_start(&self) -> bool {
+    self.inner.lock().unwrap().caret_x <= 0.0
+  }
+
   pub(crate) fn caret_y(&self) -> f32 {
     let inner = self.inner.lock().unwrap();
     inner.caret_y - inner.scroll_y
@@ -1010,6 +1022,18 @@ impl TextInputState {
 
   pub(crate) fn caret_height(&self) -> f32 {
     self.inner.lock().unwrap().caret_height
+  }
+
+  pub(crate) fn set_text_band(&self, band: Option<(f32, f32)>) {
+    self.inner.lock().unwrap().text_band = band;
+  }
+
+  /// `(top, height)` of the glyphs' band within a line box: the font's ascent
+  /// and descent, centered in the line height. The whole line box until the
+  /// input has been laid out.
+  pub(crate) fn text_band(&self) -> (f32, f32) {
+    let inner = self.inner.lock().unwrap();
+    inner.text_band.unwrap_or((0.0, inner.caret_height))
   }
 
   pub(crate) fn set_caret_positions(&self, positions: CaretPositions) {

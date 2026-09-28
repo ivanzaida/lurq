@@ -246,12 +246,16 @@ impl TextAlign {
 /// - `Top`: the top of the glyph ink meets the top of the box.
 /// - `Bottom`: the bottom of the glyph ink meets the bottom of the box.
 /// - `Center`: the ink is centered — `offset = (box_height - ink_height) / 2`.
+/// - `LineBox`: no ink at all: the first line box starts at the top of the box, and each line's glyphs sit on the
+///   baseline the font's ascent, descent and the line height give it, like CSS text. The run keeps its position when
+///   its glyphs change, and carets and selections line up with it. Text inputs place their lines this way.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum VerticalAlign {
   Top,
   #[default]
   Center,
   Bottom,
+  LineBox,
 }
 
 impl From<Alignment> for TextAlign {

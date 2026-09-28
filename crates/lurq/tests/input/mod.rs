@@ -26,6 +26,7 @@ mod text_input {
   mod soft_wrap_selection;
   mod style;
   mod typing_updates_value;
+  mod line_metrics;
 }
 
 mod checkbox {

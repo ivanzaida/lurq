@@ -503,6 +503,8 @@ Text::new("No endpoints yet")
 
 `TextInput` keeps editing state internally while the string value remains signal-owned. Clicking focuses the input and places the caret. Dragging selects a range; double-click selects a word; triple-click selects a line. Multiline inputs support vertical caret movement and per-row selection highlights.
 
+Lines, the caret and selections follow the font's metrics, not the ink of the glyphs shown: a multi-line input's lines sit in line boxes of the style's `line_height` from the top of the content box (`VerticalAlign::LineBox`), so a line does not move when a taller glyph is typed. The caret is `font_size` tall and a selection covers the font's ascent and descent, both centered in the line box, so the leading of a relaxed `line_height` stays unpainted. The caret starts at its insertion point; at the start of a left-aligned line it ends there instead, so it never covers the first glyph of the value or the placeholder (unless an ancestor clips right at that edge).
+
 Single-line inputs can align value and placeholder text inside their content box:
 
 ```rust
