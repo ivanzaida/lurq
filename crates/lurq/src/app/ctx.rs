@@ -2471,7 +2471,10 @@ impl Ctx {
   /// from the active tree. Offstage components keep their slots, signals,
   /// futures, and last rendered node, but do not participate in layout,
   /// painting, hit testing, dirty refreshes, timers, or future polling until
-  /// they become active again.
+  /// they become active again. When it becomes active again, its output
+  /// takes back the runtime state it had: scroll offsets (including those of
+  /// scroll areas whose `ScrollState` the component does not hold), text-input
+  /// carets and selections, open selects and canvases.
   pub fn mount_offstage<C: Component>(&mut self, props: C::Props, active: bool) -> Element {
     self.mount_inner::<C>(None, props, None, active)
   }
@@ -2537,7 +2540,7 @@ impl Ctx {
         return Element::new();
       }
 
-      let resumed = std::mem::replace(&mut slot.offstage, false);
+      slot.offstage = false;
       let needs_render = has_slot_children
         || props_changed
         || context_changed
@@ -2546,7 +2549,12 @@ impl Ctx {
         || slot.offstage_dirty;
       slot.offstage_dirty = false;
       if needs_render {
-        let previous = resumed.then(|| slot.rendered.take()).flatten();
+        // Carry runtime state over from the previous render, as a dirty
+        // refresh does, so `rendered` keeps sharing the live scroll states
+        // with the active tree. A slot resuming from offstage has no node in
+        // the active tree, so this is the only place its scroll offsets,
+        // text-input carets and selections come back from.
+        let previous = slot.rendered.take();
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();

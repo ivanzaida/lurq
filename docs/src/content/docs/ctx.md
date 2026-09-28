@@ -576,7 +576,7 @@ ctx.mount_keyed_with::<Panel>("settings", props, vec![lurq::components::Text::ne
 
 These work like `mount` and `mount_keyed`, but pass slot children into the child context.
 
-`mount_offstage::<C>(props, active)` and `mount_keyed_offstage::<C>(key, props, active)` retain a component while excluding its output when `active` is false. Offstage components keep state but do not participate in layout, painting, hit testing, dirty refreshes, timers, or future polling until active again.
+`mount_offstage::<C>(props, active)` and `mount_keyed_offstage::<C>(key, props, active)` retain a component while excluding its output when `active` is false. Offstage components keep state but do not participate in layout, painting, hit testing, dirty refreshes, timers, or future polling until active again. When a component becomes active again, its output takes back the runtime state it had when it went offstage: scroll offsets, text-input carets and selections, open selects, and canvases. This includes scroll areas whose `ScrollState` the component does not hold, so a tabbed page does not need to keep one per scroll area to keep its scroll position. `Router::mount_offstage` behaves the same for the routed page.
 
 ## Keyed List Helper
 

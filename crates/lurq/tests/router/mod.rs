@@ -41,6 +41,10 @@ mod state {
   mod push_with_state;
 }
 
+mod offstage {
+  mod keeps_runtime_state;
+}
+
 mod link {
   mod click_navigates;
 }
