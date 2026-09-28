@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix the caret of a focused text input not blinking in a running app. The blink phase was only recomputed during a pass, and nothing requested a pass when the phase changed, so the winit shell kept showing the caret; it only blinked while something else redrew the window. A pass with a focused blinking input now schedules a redraw at the next toggle, and the shell waits for it.
 - Fix multi-line text inputs placing their lines by the ink of the glyphs shown. The run was aligned so that its topmost ink touched the top of the content box: "as" sat about 3 px higher than "asd", so a line jumped when a letter with an ascender was typed, and the text (and a placeholder starting with a capital) sat off the caret, which follows the font's metrics. Lines now sit in their line boxes as the font's ascent, descent and `line_height` place them, like the caret, with the new `VerticalAlign::LineBox`.
 - A text input's selection now covers the font's ascent and descent in each line instead of the whole line box: with a relaxed `line_height` (1.7 at 13 px) it was a 22 px block around 13 px text. The caret and selection share the line box's center.
 - The caret at the start of a left-aligned line (an empty field with a placeholder, or before a line's first glyph) is drawn just before the line instead of over its first glyph, which has about no side bearing. Elsewhere it still starts at its insertion point. Where an ancestor clips right at the line's edge it stays at the edge.

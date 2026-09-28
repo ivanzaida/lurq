@@ -64,6 +64,8 @@ use crate::{
   },
 };
 
+#[cfg(test)]
+mod caret_blink_tests;
 mod outside_press;
 mod select_menu;
 mod tab_navigation;
@@ -1185,7 +1187,6 @@ impl Tree {
     self.request_redraw();
   }
 
-  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn request_redraw_at(&mut self, at: Instant) {
     self.scheduled_redraw_at = Some(self.scheduled_redraw_at.map_or(at, |current| current.min(at)));
   }
@@ -5258,8 +5259,12 @@ impl Tree {
     }
 
     let interval_ms = TEXT_INPUT_CARET_BLINK_INTERVAL.as_millis().max(1);
-    let visible = (now.duration_since(self.text_input_caret_blink_started_at).as_millis() / interval_ms) % 2 == 0;
-    self.set_text_input_caret_visible(visible);
+    let phase = now.duration_since(self.text_input_caret_blink_started_at).as_millis() / interval_ms;
+    self.set_text_input_caret_visible(phase.is_multiple_of(2));
+    // Nothing else redraws an idle window: without a redraw at the next
+    // toggle the shell never repainted the caret, so it never blinked.
+    let next_toggle = self.text_input_caret_blink_started_at + TEXT_INPUT_CARET_BLINK_INTERVAL * (phase as u32 + 1);
+    self.request_redraw_at(next_toggle);
   }
 
   fn set_text_input_caret_visible(&mut self, visible: bool) {
