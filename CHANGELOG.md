@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.1 — 2026-09-28
+
+- Fix `OutsidePress::Consume` allowing a press on a custom `WindowChrome` title-bar control to activate that control while dismissing a popup opened from the window content. The persistent chrome layer no longer counts as a popup stacked above the content popup: the first press closes only the popup, and a second press activates the title-bar control. Popups and select menus genuinely stacked above another popup still receive presses without dismissing it.
+
 ## 0.30.0 — 2026-09-28
 
 - Fix the caret of a focused text input not blinking in a running app. The blink phase was only recomputed during a pass, and nothing requested a pass when the phase changed, so the winit shell kept showing the caret; it only blinked while something else redrew the window. A pass with a focused blinking input now schedules a redraw at the next toggle, and the shell waits for it.
