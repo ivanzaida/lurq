@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.4 — 2026-09-29
+
+- Fix text selection disappearing on mouse release at fractional display scaling. Drag handlers stored click suppression in logical coordinates, but the release compared physical coordinates and dispatched a click that cleared the selection. The comparison now uses logical coordinates, so a completed drag keeps its selection and a following ordinary click still works.
+
 ## 0.30.3 — 2026-09-29
 
 - Add `WinitWindow::with_start_without_focus(true)` for automation-driven windows that must open without taking keyboard focus. On Windows and macOS, the initial window is created visible and inactive; the normal startup path is unchanged.

@@ -3134,7 +3134,10 @@ impl Tree {
     let now = Instant::now();
     let position = (x, y);
 
-    if self.should_suppress_click(now, position, button) {
+    // Drag handlers record suppression after dispatch converts pointer coordinates to logical units.
+    let scale = self.scale_factor();
+    let logical_position = (x / scale, y / scale);
+    if self.should_suppress_click(now, logical_position, button) {
       self.click_press = None;
       self.click_tracker.take_pending();
       self.apply_reactive_updates_after_event();
