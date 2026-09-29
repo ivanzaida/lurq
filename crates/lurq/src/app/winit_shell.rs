@@ -1,6 +1,8 @@
 use std::time::{Duration, Instant};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
+#[cfg(target_os = "macos")]
+use winit::platform::macos::EventLoopBuilderExtMacOS;
 #[cfg(windows)]
 use winit::platform::windows::{
   Color as WinitWindowsColor, CornerPreference as WinitCornerPreference, WindowAttributesExtWindows, WindowExtWindows,
@@ -47,6 +49,7 @@ pub struct WinitWindow {
   app: App,
   tree: Tree,
   attrs: WindowAttributes,
+  start_without_focus: bool,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
   on_paint: Option<PaintFn>,
@@ -60,6 +63,7 @@ impl WinitWindow {
       app,
       tree,
       attrs: WindowAttributes::default(),
+      start_without_focus: false,
       corner_radius: None,
       on_tick: None,
       on_paint: None,
@@ -144,6 +148,15 @@ impl WinitWindow {
     self
   }
 
+  /// Show the initial window without activating the application or taking keyboard focus.
+  /// Intended for app instances driven through automation rather than local input.
+  /// Winit supports this startup behavior on Windows and macOS.
+  pub fn with_start_without_focus(mut self, start_without_focus: bool) -> Self {
+    self.start_without_focus = start_without_focus;
+    self.attrs = self.attrs.with_active(!start_without_focus);
+    self
+  }
+
   /// Runs during event-loop ticking before paint and may mutate the tree.
   pub fn on_tick<F>(mut self, tick: F) -> Self
   where
@@ -187,7 +200,12 @@ impl WinitWindow {
   }
 
   pub fn run(self) {
-    let event_loop = EventLoop::new().unwrap();
+    let mut event_loop_builder = EventLoop::builder();
+    #[cfg(target_os = "macos")]
+    if self.start_without_focus {
+      event_loop_builder.with_activate_ignoring_other_apps(false);
+    }
+    let event_loop = event_loop_builder.build().unwrap();
 
     // Waker for commands pushed from other threads: without it a queued
     // command waits for the next OS event while the loop idles in
@@ -220,6 +238,7 @@ impl WinitWindow {
       main: ManagedWindow::new(
         tree,
         self.attrs,
+        self.start_without_focus,
         self.corner_radius,
         self.on_tick,
         self.on_paint,
@@ -247,6 +266,7 @@ struct ManagedWindow {
   cursor: CursorIcon,
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
+  start_without_focus: bool,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
   on_paint: Option<PaintFn>,
@@ -266,6 +286,7 @@ impl ManagedWindow {
   fn new(
     tree: Tree,
     attrs: WindowAttributes,
+    start_without_focus: bool,
     corner_radius: Option<WindowCornerRadius>,
     on_tick: Option<TickFn>,
     on_paint: Option<PaintFn>,
@@ -280,6 +301,7 @@ impl ManagedWindow {
       cursor: CursorIcon::Default,
       modifiers: ModifiersState::empty(),
       attrs: Some(attrs),
+      start_without_focus,
       corner_radius,
       on_tick,
       on_paint,
@@ -309,7 +331,8 @@ impl ManagedWindow {
 
     let attrs = self.attrs.take().unwrap_or_default();
     self.tree.window().record_initial_title(&attrs.title);
-    let show_after_first_present = attrs.visible;
+    // macOS set_visible(true) makes a window key even when it was created inactive.
+    let show_after_first_present = attrs.visible && !self.start_without_focus;
     let attrs = if show_after_first_present {
       attrs.with_visible(false)
     } else {
@@ -352,6 +375,7 @@ impl ManagedWindow {
     let minimized = window.is_minimized();
     let maximized = window.is_maximized();
     let full_screen = window.fullscreen().is_some();
+    let focused = window.has_focus();
     let current = self.tree.window().info();
     let size_changed =
       current.resolved_width.round() as u32 != size.width || current.resolved_height.round() as u32 != size.height;
@@ -365,6 +389,7 @@ impl ManagedWindow {
     }
     self.tree.window().set_maximized(maximized);
     self.tree.window().set_full_screen(full_screen);
+    self.tree.window().set_focused(focused);
 
     size_changed
   }
@@ -910,6 +935,7 @@ impl ManagedSecondaryWindow {
       tree.window().set_maximized(window.is_maximized());
       tree.window().set_full_screen(window.fullscreen().is_some());
       tree.window().set_decorated(window.is_decorated());
+      tree.window().set_focused(window.has_focus());
     }
   }
 

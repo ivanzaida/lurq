@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.3 — 2026-09-29
+
+- Add `WinitWindow::with_start_without_focus(true)` for automation-driven windows that must open without taking keyboard focus. On Windows and macOS, the initial window is created visible and inactive; the normal startup path is unchanged.
+- Read the native focus state when main and secondary windows are created, so `WindowHandle::info().is_focused` and MCP `lurq_windows` report an inactive window correctly from the first query.
+
 ## 0.30.2 — 2026-09-28
 
 - Add `SelectStyle::min_menu_width(width)` for a select menu that needs more room than its trigger. The default remains the trigger's width; a configured minimum widens the menu without resizing the trigger, caps it at the viewport width, and positions it inside the viewport.
