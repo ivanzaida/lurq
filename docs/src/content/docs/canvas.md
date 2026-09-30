@@ -289,7 +289,57 @@ Canvas::new().ref_element(canvas_ref).on_click(move |event: lurq::app::events::M
 });
 ```
 
-Conversion returns `None` when detached or when the presentation transform cannot be inverted. It does not invert the drawing transform or clamp to canvas bounds. Individual painted shapes have no automatic event targets; use geometry hit tests or overlay normal controls. Keep accessible labels and controls in ordinary UI nodes.
+Conversion returns `None` when detached or when the presentation transform cannot be inverted. It does not invert the drawing transform or clamp to canvas bounds. Individual painted shapes have no automatic event targets; describe the ones that matter as [items](#describing-what-you-drew) and hit-test those, use geometry hit tests, or overlay normal controls. Keep controls that need focus and keyboard input in ordinary UI nodes.
+
+## Describing what you drew
+
+Pixels carry no structure. Register one `CanvasItem` per drawn thing that matters (a bar, a point, a series, an axis label) with a stable id, a role, an optional label and value text, and its shape in content coordinates, the space `point_from_window` returns:
+
+```rust
+use lurq::canvas::{CanvasHandle, CanvasItem};
+
+fn draw(canvas: &CanvasHandle, runs: &[(&str, &str, f32)]) {
+  let draw = canvas.context_2d();
+  draw.reset();
+  draw.set_fill_style("#60a5fa");
+  let mut items = Vec::new();
+  for (index, (id, label, value)) in runs.iter().enumerate() {
+    let (x, height) = (20.0 + index as f32 * 70.0, value * 8.0);
+    draw.fill_rect(x, 170.0 - height, 50.0, height);
+    items.push(
+      CanvasItem::rect(*id, "bar", x, 170.0 - height, 50.0, height)
+        .label(*label)
+        .value(format!("{value} runs")),
+    );
+  }
+  canvas.set_items(items); // replaces the whole set
+}
+```
+
+| API | Does |
+| --- | --- |
+| `CanvasItem::rect(id, role, x, y, width, height)` | A rectangle; negative extents are normalized. |
+| `CanvasItem::point(id, role, x, y, radius)` | A point that hits within `radius`. |
+| `.label(text)` / `.value(text)` | Accessible name (`"Tue"`) and displayed value (`"18 runs"`). The fields are public. |
+| `canvas.set_items(items)` | Replace the canvas's items. Cheap; it does not repaint. |
+| `canvas.items()` | The current items, shared (`Arc<[CanvasItem]>`). |
+| `canvas.item_at(x, y)` | The last registered item containing a content point, so later items count as drawn on top. |
+| `canvas.item_window_bounds(id)` | Window-logical `(x, y, width, height)`, like `ElementRef::rect`, for anchoring a tooltip. |
+
+Call `set_items` from the same code that draws, so items and pixels change together. A logical resize discards the items with the pixels; the redraw that follows registers them again. A display-scale change keeps both. Item coordinates ignore the drawing transform (`translate`, `scale` on the context), like `point_from_window`; register them in the space you hit-test in. Window bounds include padding, scrolling and ancestor transforms; a rotated placement yields the enclosing box.
+
+Hover tooltips hit-test the same items:
+
+```rust
+let reference = canvas_ref.clone();
+Canvas::new().ref_element(canvas_ref).on_mouse_move(move |event: lurq::app::events::MouseEvent| {
+  let Some(canvas) = reference.as_canvas() else { return; };
+  let item = canvas.point_from_window(event.x, event.y).and_then(|(x, y)| canvas.item_at(x, y));
+  hovered.set(item.map(|item| item.id));
+});
+```
+
+With the `mcp` feature, agents see the items as children of the canvas in `lurq_read_tree` and `lurq_inspect`, and can hover, click and screenshot them by ref; see [Canvas content](../mcp/#canvas-content). Items are plain data on the canvas handle and cost nothing else when MCP is off.
 
 ## Persistence, scheduling, and cost
 
@@ -339,7 +389,9 @@ Patterns, backdrop blur, canvas-to-canvas drawing, pixel upload, and automatic a
 
 ```text
 cargo run -p lurq --example canvas --features canvas,winit,wgpu
+cargo run -p lurq --example canvas_chart --features canvas,winit,wgpu,mcp
 cargo test -p lurq --features canvas --test canvas_tests
+cargo test -p lurq --features canvas,mcp --test mcp_canvas_tests
 cargo test -p lurq --features canvas,wgpu --lib gpu_canvas_pixels -- --ignored
 cargo test -p lurq --features canvas,wgpu --lib gpu_canvas_effects -- --ignored
 ```

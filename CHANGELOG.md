@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add semantic items to `Canvas` so charts and other drawings can be hit-tested and read by tooling. `CanvasHandle::set_items` replaces the canvas's set of `CanvasItem`s: `CanvasItem::rect` or `CanvasItem::point` with a stable id, a role (`"bar"`, `"point"`, `"label"`, …), an optional `.label(...)` and `.value(...)`, in content coordinates (the space `point_from_window` returns). `item_at(x, y)` hit-tests them for hover tooltips, `items()` returns them and `item_window_bounds(id)` gives an item's window-logical box, including padding, scrolling and ancestor transforms. A logical resize discards the items together with the pixels. New example: `canvas_chart`.
+- MCP: canvas items appear as children of their canvas in `lurq_read_tree` (`- bar #tue [ref_3] "Tue" @159,63 75x216 {value=18 runs}`), with refs, labels, values and bounds in screenshot pixels; the canvas shows `{items=N}`. Item refs work with `lurq_interact` (`move`, `click`, `double_click`, `drag` at the item's center; `scroll_to` scrolls the item into view), `lurq_screenshot` (crops to the item) and `lurq_find`; `lurq_find_by_id` falls back to item ids when no element has the id. Actions re-resolve the item's live bounds, so a ref follows its item across redraws and fails once the app stops registering it. Pointer input reaches the canvas's own handlers, so the app's hover tooltips open.
+- MCP: add `lurq_inspect`, a structured semantic view of a window (role, accessible name, state, bounds, actions and refs; with `query`/`role`, the matching nodes and their ancestor paths), and `lurq_act`, which invokes a ref without coordinates after checking its live role, name and hittability. Masked input values stay redacted. Canvas items are children of their canvas node there too (`canvas_item: true`, `state.value`), and match `query` and `role`.
+- MCP: `lurq_act` accepts `hover` besides `invoke`: it moves the pointer to the center of an element or canvas item whose element has mouse-move or mouse-enter handlers. Each `lurq_inspect` node lists the actions it accepts in `actions`. A clickable `Canvas` has the role `canvas` instead of `button`.
+
 ## 0.30.4 — 2026-09-29
 
 - Fix text selection disappearing on mouse release at fractional display scaling. Drag handlers stored click suppression in logical coordinates, but the release compared physical coordinates and dispatched a click that cleared the selection. The comparison now uses logical coordinates, so a completed drag keeps its selection and a following ordinary click still works.
