@@ -46,6 +46,10 @@ pub(crate) struct RefRecord {
   pub(crate) node_id: NodeId,
   pub(crate) tag: String,
   pub(crate) text: Option<String>,
+  /// Semantic identity captured when the ref was minted. `lurq_act` compares
+  /// these with the live node before invoking it.
+  pub(crate) role: String,
+  pub(crate) name: Option<String>,
   /// HTML-like `id`/classes from the `.id()` / `.class()` builders.
   pub(crate) element_id: Option<String>,
   pub(crate) classes: Vec<String>,

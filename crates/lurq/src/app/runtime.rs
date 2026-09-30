@@ -4944,6 +4944,11 @@ impl Tree {
     self.last_layout.as_ref()
   }
 
+  #[cfg(feature = "mcp")]
+  pub(crate) fn layout_is_stale(&self) -> bool {
+    self.tree_rebuilt_since_layout
+  }
+
   fn can_reuse_cached_render_list(&self, reasons: PassReasons) -> bool {
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       return false;
@@ -5280,7 +5285,7 @@ impl Tree {
     }
   }
 
-  fn refresh_dirty_subtrees(&mut self) {
+  pub(crate) fn refresh_dirty_subtrees(&mut self) {
     let (replacements, dirty_after_refresh) = match &mut self.root_ctx {
       Some(ctx) => {
         let replacements = ctx.refresh_dirty_subtrees();

@@ -1,6 +1,130 @@
 use super::*;
 use crate::mcp::{Scope, registry::ToolRegistry, shared::McpShared};
 
+struct TestSurface;
+
+impl raw_window_handle::HasWindowHandle for TestSurface {
+  fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+    let handle = raw_window_handle::Win32WindowHandle::new(std::num::NonZeroIsize::new(1).unwrap());
+    Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(handle.into()) })
+  }
+}
+
+impl raw_window_handle::HasDisplayHandle for TestSurface {
+  fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+    Ok(unsafe { raw_window_handle::DisplayHandle::borrow_raw(raw_window_handle::WindowsDisplayHandle::new().into()) })
+  }
+}
+
+#[test]
+fn semantic_inspect_finds_button_by_child_label_and_act_invokes_ref() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use crate::components::{Button, Column};
+
+  let count = Arc::new(AtomicUsize::new(0));
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.resize(400, 200);
+  tree.set_root(
+    Column::new()
+      .child(Button::new("Save").id("save").on_click({
+        let count = count.clone();
+        move |_| {
+          count.fetch_add(1, Ordering::SeqCst);
+        }
+      }))
+      .child(Button::new("Save").id("save-other")),
+  );
+  tree.pass(&mut app, &TestSurface);
+
+  let inspected = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"query": "save", "role": "button"}),
+  ));
+  let matches = inspected["matches"].as_array().unwrap();
+  assert_eq!(matches.len(), 2);
+  let save = matches.iter().find(|element| element["id"] == "save").unwrap();
+  assert_eq!(save["name"], "Save");
+  assert_eq!(save["actions"], serde_json::json!(["invoke"]));
+  let ref_id = save["ref"].as_str().unwrap().to_owned();
+
+  let result = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_act",
+    serde_json::json!({"ref": ref_id, "action": "invoke"}),
+  ));
+  assert_eq!(result["dispatched"], true);
+  assert_eq!(count.load(Ordering::SeqCst), 1);
+
+  // A new snapshot replaces its predecessor's refs, so an old handle cannot
+  // accidentally invoke a different element after a UI change.
+  json(call(&mut tree, &mut app, &state, "lurq_inspect", serde_json::json!({})));
+  assert!(
+    call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_act",
+      serde_json::json!({"ref": ref_id, "action": "invoke"}),
+    )
+    .is_err()
+  );
+}
+
+#[test]
+fn semantic_inspect_keeps_masked_input_value_private() {
+  use crate::{components::TextInput, core::Signal};
+  let secret = "private-inspect-secret";
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(
+    TextInput::new(Signal::new(secret.to_owned()))
+      .mask()
+      .placeholder("Password"),
+  );
+  let result = json(call(&mut tree, &mut app, &state, "lurq_inspect", serde_json::json!({})));
+  assert!(!result.to_string().contains(secret));
+  assert_eq!(result["tree"]["role"], "textbox");
+  assert_eq!(result["tree"]["name"], "Password");
+  assert_eq!(result["tree"]["state"]["masked"], true);
+}
+
+#[test]
+fn semantic_act_rejects_a_ref_whose_name_changed() {
+  use crate::components::{Button, Text};
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(Button::empty().child(Text::new("Save").id("label")));
+  let inspected = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"role": "button"}),
+  ));
+  let ref_id = inspected["matches"][0]["ref"].as_str().unwrap().to_owned();
+  tree.get_element_by_id_mut("label").unwrap().set_text_content("Delete");
+  let error = call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_act",
+    serde_json::json!({"ref": ref_id, "action": "invoke"}),
+  )
+  .err()
+  .unwrap();
+  assert!(error.contains("changed role or name"), "{error}");
+}
+
 fn output_text(result: McpToolResult) -> String {
   match result.unwrap() {
     McpToolOutput::Text(text) => text,
