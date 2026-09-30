@@ -135,29 +135,62 @@ impl CanvasHandle {
 
   /// Window-logical `(x, y, width, height)` of the item with this id, like
   /// `ElementRef::rect`: padding, scrolling and ancestor transforms applied,
-  /// the drawing transform not. A rotated placement yields the enclosing
-  /// axis-aligned box. `None` while detached or for an unknown id.
+  /// the drawing transform not, clipped to the canvas's content box. A rotated
+  /// placement yields the enclosing axis-aligned box. `None` while detached,
+  /// for an unknown id, or when the item lies entirely outside the canvas.
   pub fn item_window_bounds(&self, id: &str) -> Option<(f32, f32, f32, f32)> {
-    let (item, placement) = {
-      let s = self.inner.lock();
-      let item = s.items.iter().find(|item| item.id == id)?.clone();
-      (item, s.attached.then_some(s.to_window)?)
-    };
-    let [x, y, width, height] = item.window_bounds(placement)?;
+    let (_, bounds) = self.item_in_window(id)?;
+    let [x, y, width, height] = bounds?;
     Some((x, y, width, height))
   }
 
-  /// Items with their window-logical bounds, including padding, scrolling and
-  /// ancestor transforms. Bounds are `None` while detached or for non-finite geometry.
+  /// The item with this id and its window-logical bounds clipped to the
+  /// content box. Only that item is copied and transformed.
+  pub(crate) fn item_in_window(&self, id: &str) -> Option<(CanvasItem, Option<[f32; 4]>)> {
+    let s = self.inner.lock();
+    let item = s.items.iter().find(|item| item.id == id)?.clone();
+    let bounds = s
+      .window_placement()
+      .and_then(|(placement, content)| clip(item.window_bounds(placement)?, content));
+    Some((item, bounds))
+  }
+
+  /// Items with their window-logical bounds clipped to the content box.
+  /// Bounds are `None` while detached, for non-finite geometry, or outside the canvas.
   #[cfg(feature = "mcp")]
   pub(crate) fn items_in_window(&self) -> Vec<(CanvasItem, Option<[f32; 4]>)> {
     let (items, placement) = {
       let s = self.inner.lock();
-      (s.items.clone(), s.attached.then_some(s.to_window))
+      (s.items.clone(), s.window_placement())
     };
     items
       .iter()
-      .map(|item| (item.clone(), placement.and_then(|matrix| item.window_bounds(matrix))))
+      .map(|item| {
+        let bounds = placement.and_then(|(matrix, content)| clip(item.window_bounds(matrix)?, content));
+        (item.clone(), bounds)
+      })
       .collect()
   }
+}
+
+impl super::Surface {
+  /// Content-to-window transform and the content box in window coordinates, while attached.
+  fn window_placement(&self) -> Option<(Transform2D, [f32; 4])> {
+    if !self.attached {
+      return None;
+    }
+    let size = self.metrics.size;
+    let content = CanvasItem::rect("", "", 0.0, 0.0, size.width, size.height).window_bounds(self.to_window)?;
+    Some((self.to_window, content))
+  }
+}
+
+/// Intersection of two `[x, y, width, height]` boxes; `None` when they are
+/// disjoint. Touching or zero-size results are kept.
+fn clip(bounds: [f32; 4], to: [f32; 4]) -> Option<[f32; 4]> {
+  let left = bounds[0].max(to[0]);
+  let top = bounds[1].max(to[1]);
+  let right = (bounds[0] + bounds[2]).min(to[0] + to[2]);
+  let bottom = (bounds[1] + bounds[3]).min(to[1] + to[3]);
+  (right >= left && bottom >= top).then_some([left, top, right - left, bottom - top])
 }

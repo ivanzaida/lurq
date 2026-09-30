@@ -324,7 +324,7 @@ fn draw(canvas: &CanvasHandle, runs: &[(&str, &str, f32)]) {
 | `canvas.set_items(items)` | Replace the canvas's items. Cheap; it does not repaint. |
 | `canvas.items()` | The current items, shared (`Arc<[CanvasItem]>`). |
 | `canvas.item_at(x, y)` | The last registered item containing a content point, so later items count as drawn on top. |
-| `canvas.item_window_bounds(id)` | Window-logical `(x, y, width, height)`, like `ElementRef::rect`, for anchoring a tooltip. |
+| `canvas.item_window_bounds(id)` | Window-logical `(x, y, width, height)`, like `ElementRef::rect`, clipped to the canvas, for anchoring a tooltip; `None` when the item lies outside the canvas. |
 
 Call `set_items` from the same code that draws, so items and pixels change together. A logical resize discards the items with the pixels; the redraw that follows registers them again. A display-scale change keeps both. Item coordinates ignore the drawing transform (`translate`, `scale` on the context), like `point_from_window`; register them in the space you hit-test in. Window bounds include padding, scrolling and ancestor transforms; a rotated placement yields the enclosing box.
 

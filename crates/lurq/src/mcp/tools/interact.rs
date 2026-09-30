@@ -1,7 +1,7 @@
 //! `lurq_interact`: synthetic pointer and keyboard input, and `scroll_to`.
 
 use super::{
-  resolve::{ref_bounds, ref_center_physical, resolve_ref},
+  resolve::{ref_center_physical, ref_scroll_bounds, resolve_ref},
   windows::{requested_window, window_tree_mut},
 };
 use crate::{
@@ -216,7 +216,7 @@ pub(super) fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: 
       let resolved = resolve_ref(state, ref_id)?;
       let target = window_tree_mut(tree, &resolved.window, state.include_devtools)?;
       let item_bounds = match resolved.canvas_item {
-        Some(_) => Some(ref_bounds(target, &resolved, ref_id)?),
+        Some(_) => Some(ref_scroll_bounds(target, &resolved, ref_id)?),
         None => None,
       };
       scroll_into_view(target, resolved.node_id, item_bounds, ref_id)?;

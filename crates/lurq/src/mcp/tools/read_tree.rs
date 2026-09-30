@@ -16,6 +16,8 @@ use crate::{
 };
 
 pub(super) struct SnapshotCtx<'a> {
+  /// The tree being read, for canvas items' visible regions.
+  pub(super) tree: &'a Tree,
   pub(super) window: String,
   pub(super) scale: f32,
   pub(super) all: bool,
@@ -155,6 +157,7 @@ pub(super) fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
       return Err(format!("window {window:?} has no mounted tree"));
     };
     let mut ctx = SnapshotCtx {
+      tree: target,
       window: window.clone(),
       scale,
       all,

@@ -3,13 +3,12 @@
 use super::{
   canvas_items,
   interact::interact_tool,
-  resolve::{find_node, locate_node},
+  resolve::{ResolvedRef, find_node, hits_node, locate_node, ref_bounds},
   semantics::{can_hover, can_invoke, inspection_attrs, semantic_actions, semantic_name, semantic_role},
   windows::{requested_window, window_tree_mut},
 };
 use crate::{
-  app::{App, Tree, hit_test::hit_test_tree},
-  core::NodeId,
+  app::{App, Tree},
   layout::layout_result::LayoutResult,
   mcp::{
     McpState,
@@ -19,6 +18,8 @@ use crate::{
 };
 
 pub(super) struct InspectCtx<'a> {
+  /// The tree being inspected, for canvas items' visible regions.
+  pub(super) tree: &'a Tree,
   pub(super) window: &'a str,
   pub(super) scale: f32,
   pub(super) query: Option<String>,
@@ -195,6 +196,7 @@ pub(super) fn inspect_tool(tree: &mut Tree, state: &McpState, args: &serde_json:
   let mut refs = state.shared.refs.lock().unwrap();
   let mut mint = || refs.mint();
   let mut ctx = InspectCtx {
+    tree: target,
     window: &window,
     scale: target.scale_factor(),
     query: args
@@ -264,7 +266,7 @@ pub(super) fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serd
     // A canvas item's identity is its registered role and label; it acts
     // through its canvas's handlers.
     let (role, name) = match &record.canvas_item {
-      Some(item_id) => canvas_items::item_identity(node, item_id).ok_or_else(stale)?,
+      Some(item_id) => canvas_items::item_identity(target, node, item_id).ok_or_else(stale)?,
       None => (semantic_role(node), semantic_name(node)),
     };
     if role != record.role || name != record.name {
@@ -281,28 +283,19 @@ pub(super) fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serd
     if target.layout_is_stale() {
       return Err("UI changed since the last layout; wait for a frame and inspect again".into());
     }
-    let [x, y, width, height] = match &record.canvas_item {
-      Some(item_id) => canvas_items::item_bounds(node, item_id).ok_or_else(stale)?,
-      None => {
-        let bounds =
-          locate_node(target, record.node_id).ok_or("no layout available yet; wait for a frame before invoking")?;
-        if bounds[2] <= 0.0 || bounds[3] <= 0.0 {
-          return Err(format!("ref {ref_id:?} has no clickable area"));
-        }
-        bounds
-      }
+    let resolved = ResolvedRef {
+      window: record.window.clone(),
+      node_id: record.node_id,
+      canvas_item: record.canvas_item.clone(),
     };
-    let (center_x, center_y) = (x + width * 0.5, y + height * 0.5);
-    let root = target.root().ok_or("window has no mounted tree")?;
-    let layout = target
-      .last_layout()
-      .ok_or("no layout available yet; wait for a frame before invoking")?;
-    let mut hits = Vec::new();
-    hit_test_tree(root.node, layout, 0.0, 0.0, center_x, center_y, &mut hits);
-    fn contains_id(node: &Node, id: NodeId) -> bool {
-      node.node_id() == id || node.children().iter().any(|child| contains_id(child, id))
+    let [x, y, width, height] = match &record.canvas_item {
+      Some(_) => ref_bounds(target, &resolved, ref_id)?,
+      None => locate_node(target, record.node_id).ok_or("no layout available yet; wait for a frame before invoking")?,
+    };
+    if width <= 0.0 || height <= 0.0 {
+      return Err(format!("ref {ref_id:?} has no clickable area"));
     }
-    if !hits.iter().any(|(hit, _)| contains_id(node, hit.node_id())) {
+    if !hits_node(target, node, x + width * 0.5, y + height * 0.5) {
       return Err(format!(
         "ref {ref_id:?} is not hittable at its center; scroll or inspect again"
       ));
