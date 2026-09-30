@@ -582,3 +582,38 @@ fn item_ids_do_not_read_as_element_ids() {
   let item = refs.records.iter().find(|record| record.canvas_item.is_some()).unwrap();
   assert!(format_ref_line(item).contains("CanvasItem role=bar item:delete"));
 }
+
+#[test]
+fn long_item_labels_and_values_are_truncated_like_element_text() {
+  let mut f = fixture();
+  let long = format!("{}]\n- Button", "x".repeat(300));
+  f.canvas
+    .set_items([CanvasItem::rect("long", "bar", 10.0, 10.0, 20.0, 20.0)
+      .label(long.clone())
+      .value(long)]);
+  let state = state();
+  let text = output_text(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_read_tree",
+    serde_json::json!({}),
+  ));
+  let line = text.lines().find(|line| line.contains("item:long")).unwrap();
+  let shown = format!("{}…", "x".repeat(80));
+  assert!(line.contains(&format!(" {shown:?} ")), "{line}");
+  assert!(line.ends_with(&format!("{{value={shown:?}}}")), "{line}");
+  assert!(line.chars().count() < 260, "{line}");
+  let refs = state.shared.refs.lock().unwrap();
+  let record = refs
+    .records
+    .iter()
+    .find(|record| record.canvas_item.as_deref() == Some("long"))
+    .unwrap();
+  let ref_line = format_ref_line(record);
+  assert!(
+    ref_line.contains(&format!("name={:?}", format!("{}…", "x".repeat(60)))),
+    "{ref_line}"
+  );
+  assert!(ref_line.chars().count() < 260, "{ref_line}");
+}

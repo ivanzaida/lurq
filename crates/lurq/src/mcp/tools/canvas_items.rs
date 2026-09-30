@@ -14,7 +14,7 @@ use super::resolve::{Visibility, intersect, visible_clip};
 use super::{
   inspect::InspectCtx,
   read_tree::SnapshotCtx,
-  semantics::{attr, semantic_actions, token},
+  semantics::{attr, semantic_actions, token, truncate_text},
 };
 use crate::{app::Tree, core::NodeId, mcp::shared::RefRecord, node::node::Node};
 
@@ -139,7 +139,7 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
       record.id
     );
     if let Some(label) = &record.name {
-      line.push_str(&format!(" {label:?}"));
+      line.push_str(&format!(" {:?}", truncate_text(label, 80)));
     }
     if let Some([x, y, width, height]) = record.bounds {
       line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));

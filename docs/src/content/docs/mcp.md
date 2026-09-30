@@ -175,7 +175,7 @@ Row::new()
   .describe("role", "commits the form") // free-form key=value shown on the element
 ```
 
-`id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref.
+`id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref. Attribute values, item labels and element text are cut at 80 characters and names in lookup lines at 60, ending in `…`.
 
 ### Canvas content
 

@@ -175,7 +175,8 @@ pub(super) fn token(text: &str) -> std::borrow::Cow<'_, str> {
   }
 }
 
-/// ` {name=value}` with both sides as [`token`]s.
+/// ` {name=value}` with both sides as [`token`]s; values longer than 80
+/// characters end in an ellipsis, like element text.
 pub(super) fn attr(name: &str, value: &str) -> String {
-  format!(" {{{}={}}}", token(name), token(value))
+  format!(" {{{}={}}}", token(name), token(&truncate_text(value, 80)))
 }
