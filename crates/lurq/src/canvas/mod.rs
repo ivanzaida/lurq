@@ -1358,7 +1358,8 @@ pub fn effects_scene(d: &Context2D) {
   d.end_layer().unwrap();
 }
 
-#[cfg(test)]
+/// Surfaces for the wgpu renderer's canvas tests, which use them without a tree.
+#[cfg(all(test, feature = "wgpu"))]
 impl CanvasHandle {
   pub(crate) fn test_surface(width: u32, height: u32, scale: f32, software: bool) -> Self {
     let canvas = Self::new();
