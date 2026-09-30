@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::{
-  format_ref_line,
+  McpState, McpToolResult, format_ref_line,
   tests::{call, json, output_text, state},
 };
 use crate::{
@@ -125,7 +125,7 @@ fn read_tree_lists_items_under_their_canvas_in_screenshot_pixels() {
     .unwrap();
   let line = format_ref_line(record);
   assert!(
-    line.contains("[main] bar role=bar #tue name=\"Tue\" {value=18 runs} @110,70 40x140 (canvas item)"),
+    line.contains("[main] CanvasItem role=bar #tue name=\"Tue\" {value=18 runs} @110,70 40x140"),
     "{line}"
   );
 }
@@ -175,7 +175,7 @@ fn item_refs_track_redraws_and_find_by_id_reaches_items() {
     "lurq_find_by_id",
     serde_json::json!({"id": "tue"}),
   ));
-  assert!(found.contains("bar role=bar #tue name=\"Tue\""), "{found}");
+  assert!(found.contains("CanvasItem role=bar #tue name=\"Tue\""), "{found}");
   let tue = ref_of(&found, "#tue");
 
   // The next draw moves "tue" and drops "mon": the ref follows the live item.
@@ -251,4 +251,153 @@ fn scroll_to_an_item_ref_brings_the_item_into_the_viewport() {
   let (_, y, _, height) = canvas.item_window_bounds("deep").unwrap();
   assert!(scroll.scroll_y() > 1000.0, "{}", scroll.scroll_y());
   assert!(y >= 0.0 && y + height <= 200.0, "item at {y}");
+}
+
+fn find_by_id<'v>(node: &'v serde_json::Value, id: &str) -> Option<&'v serde_json::Value> {
+  if node["id"] == id {
+    return Some(node);
+  }
+  node["children"]
+    .as_array()?
+    .iter()
+    .find_map(|child| find_by_id(child, id))
+}
+
+#[test]
+fn inspect_lists_items_as_semantic_children_and_matches_role_and_query() {
+  let mut f = fixture();
+  let state = state();
+  let inspected = json(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({}),
+  ));
+  let chart = find_by_id(&inspected["tree"], "chart").expect("canvas node");
+  assert_eq!(chart["role"], "canvas");
+  assert!(chart["attrs"].to_string().contains(r#"["items","2"]"#), "{chart}");
+  let mon = &chart["children"][0];
+  assert_eq!(mon["role"], "bar");
+  assert_eq!(mon["name"], "Mon");
+  assert_eq!(mon["id"], "mon");
+  assert_eq!(mon["canvas_item"], true);
+  assert_eq!(mon["state"], serde_json::json!({"value": "12 runs"}));
+  assert_eq!(mon["actions"], serde_json::json!(["invoke", "hover"]));
+  assert_eq!(mon["bounds"], serde_json::json!([50.0, 110.0, 40.0, 100.0]));
+  assert!(mon["ref"].as_str().unwrap().starts_with("ref_"));
+
+  let bars = json(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"role": "bar"}),
+  ));
+  let names: Vec<_> = bars["matches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|item| item["name"].as_str().unwrap())
+    .collect();
+  assert_eq!(names, ["Mon", "Tue"]);
+  assert_eq!(bars["matches"][0]["path"], serde_json::json!(["canvas \"chart\""]));
+  let tue = json(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"query": "TUE"}),
+  ));
+  assert_eq!(tue["matches"].as_array().unwrap().len(), 1, "{tue}");
+  assert_eq!(tue["matches"][0]["id"], "tue");
+}
+
+fn inspect_ref(f: &mut Fixture, state: &McpState, query: &str) -> String {
+  let found = json(call(
+    &mut f.tree,
+    &mut f.app,
+    state,
+    "lurq_inspect",
+    serde_json::json!({"query": query, "role": "bar"}),
+  ));
+  found["matches"][0]["ref"]
+    .as_str()
+    .unwrap_or_else(|| panic!("{query} in {found}"))
+    .to_owned()
+}
+
+fn act(f: &mut Fixture, state: &McpState, ref_id: &str, action: &str) -> McpToolResult {
+  call(
+    &mut f.tree,
+    &mut f.app,
+    state,
+    "lurq_act",
+    serde_json::json!({"ref": ref_id, "action": action}),
+  )
+}
+
+#[test]
+fn act_hovers_and_invokes_items_and_rejects_changed_or_unreachable_ones() {
+  let mut f = fixture();
+  let state = state();
+  let tue = inspect_ref(&mut f, &state, "tue");
+  let reply = json(act(&mut f, &state, &tue, "hover"));
+  assert_eq!(reply["dispatched"], true);
+  assert_eq!(f.hovered.lock().unwrap().last().map(String::as_str), Some("tue"));
+  assert!(f.clicked.lock().unwrap().is_empty());
+  let mon = inspect_ref(&mut f, &state, "mon");
+  json(act(&mut f, &state, &mon, "invoke"));
+  assert_eq!(*f.clicked.lock().unwrap(), ["mon"]);
+
+  // Redrawn with a new label: the ref no longer names the same thing.
+  f.canvas
+    .set_items([CanvasItem::rect("mon", "bar", 10.0, 40.0, 20.0, 50.0).label("Monday")]);
+  let error = act(&mut f, &state, &mon, "invoke").err().unwrap();
+  assert!(error.contains("changed role or name"), "{error}");
+
+  // Outside the canvas, the pointer would land on something else.
+  f.canvas
+    .set_items([CanvasItem::rect("off", "bar", 400.0, 40.0, 20.0, 50.0)]);
+  let off = inspect_ref(&mut f, &state, "off");
+  let error = act(&mut f, &state, &off, "invoke").err().unwrap();
+  assert!(error.contains("not hittable"), "{error}");
+}
+
+#[test]
+fn items_of_a_canvas_without_handlers_offer_no_actions() {
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let reference = ElementRef::new();
+  tree.resize(400, 300);
+  tree.set_root(
+    Canvas::new()
+      .software()
+      .ref_element(reference.clone())
+      .width(200.0)
+      .height(100.0),
+  );
+  tree.pass_headless(&mut app);
+  reference
+    .as_canvas()
+    .unwrap()
+    .set_items([CanvasItem::point("p", "point", 20.0, 20.0, 4.0).label("Peak")]);
+  let state = state();
+  let found = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"role": "point"}),
+  ));
+  let item = &found["matches"][0];
+  assert_eq!(item["actions"], serde_json::json!([]));
+  let reply = call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_act",
+    serde_json::json!({"ref": item["ref"], "action": "hover"}),
+  );
+  assert!(reply.err().unwrap().contains("does not support hover"));
 }

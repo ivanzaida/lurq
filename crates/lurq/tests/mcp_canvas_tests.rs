@@ -231,7 +231,12 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
     let tue = ref_on_line(&tree_text, "#tue");
     let moved = client.tool("lurq_interact", json!({"action": "move", "ref": tue}));
     let after_hover = client.tool("lurq_read_tree", json!({}));
-    (tree_text, moved, after_hover)
+    // The semantic route: find the bar by role and name, hover it without coordinates.
+    let wed: Value =
+      serde_json::from_str(&client.tool("lurq_inspect", json!({"role": "bar", "query": "wed"}))).unwrap();
+    let acted = client.tool("lurq_act", json!({"ref": wed["matches"][0]["ref"], "action": "hover"}));
+    let tooltip = client.tool("lurq_inspect", json!({"query": "tooltip"}));
+    (tree_text, moved, after_hover, (wed, acted, tooltip))
   });
 
   let deadline = Instant::now() + Duration::from_secs(60);
@@ -243,7 +248,7 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
     std::thread::sleep(Duration::from_millis(2));
   }
   tree.shutdown_mcp();
-  let (tree_text, moved, after_hover) = agent.join().expect("agent thread");
+  let (tree_text, moved, after_hover, (wed, acted, tooltip)) = agent.join().expect("agent thread");
 
   // Canvas at (8, 8); "tue" is x 80..120, y 20..110 in the canvas.
   assert!(tree_text.contains("- Canvas #runs-chart ["), "{tree_text}");
@@ -257,4 +262,15 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
     after_hover.contains("#tooltip [") && after_hover.contains("\"Tue: 18 runs\""),
     "{after_hover}"
   );
+
+  let wed = &wed["matches"][0];
+  assert_eq!(
+    (&wed["name"], &wed["state"]["value"]),
+    (&json!("Wed"), &json!("7 runs"))
+  );
+  assert_eq!(wed["bounds"], json!([148.0, 83.0, 40.0, 35.0]));
+  assert_eq!(wed["actions"], json!(["hover"]));
+  assert_eq!(serde_json::from_str::<Value>(&acted).unwrap()["dispatched"], true);
+  let tooltip: Value = serde_json::from_str(&tooltip).unwrap();
+  assert_eq!(tooltip["matches"][0]["name"], "Wed: 7 runs", "{tooltip}");
 }

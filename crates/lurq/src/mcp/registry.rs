@@ -130,7 +130,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_inspect".into(),
-      description: "Read the live Lurq UI as structured semantic nodes (role, accessible name, state, bounds and refs), without a screenshot. With query, return matching nodes and their ancestor path. Replaces this window's refs; call lurq_act to invoke a returned ref."
+      description: "Read the live Lurq UI as structured semantic nodes (role, accessible name, state, bounds and refs), without a screenshot. With query, return matching nodes and their ancestor path. Items an app described on a Canvas (bars, points, labels) are children of the canvas node with canvas_item=true and match query and role like elements. Replaces this window's refs; call lurq_act to invoke or hover a returned ref."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -257,7 +257,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_act".into(),
-      description: "Invoke a semantic element ref from lurq_inspect without supplying coordinates. Re-checks its live role and name before dispatch; stale or changed refs fail."
+      description: "Invoke (click) or hover (move the pointer onto) a semantic element or canvas item ref from lurq_inspect without supplying coordinates. Allowed actions are listed in the ref's `actions`. Re-checks its live role and name and that it is hittable before dispatch; stale or changed refs fail."
         .into(),
       scope: Scope::Interact,
       read_only: false,
@@ -265,7 +265,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "type": "object",
         "properties": {
           "ref": { "type": "string", "description": "Element ref from lurq_inspect" },
-          "action": { "type": "string", "enum": ["invoke"], "description": "Semantic action (currently invoke)" }
+          "action": { "type": "string", "enum": ["invoke", "hover"], "description": "invoke clicks the element's center; hover moves the pointer there (opens hover tooltips)" }
         },
         "required": ["ref", "action"]
       })),

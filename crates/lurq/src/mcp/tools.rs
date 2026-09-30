@@ -259,6 +259,9 @@ fn semantic_role(node: &Node) -> String {
     NodeKind::Text { .. } => "text".into(),
     #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "text".into(),
+    // A clickable canvas is a drawing surface, not a button; its items carry the semantics.
+    #[cfg(feature = "canvas")]
+    NodeKind::Canvas { .. } => "canvas".into(),
     _ if !node.events.on_click.is_empty() || !node.events.on_mouse_click.is_empty() => "button".into(),
     _ => node.tag_name().to_ascii_lowercase(),
   }
@@ -307,6 +310,19 @@ fn semantic_name(node: &Node) -> Option<String> {
     }
   }
   None
+}
+
+/// Pointer-move consumers: hovering opens their tooltips or highlights.
+fn can_hover(node: &Node) -> bool {
+  !node.events.on_mouse_move.is_empty() || !node.events.on_mouse_enter.is_empty()
+}
+
+/// Semantic actions `lurq_act` accepts for an element with these capabilities.
+fn semantic_actions(invoke: bool, hover: bool) -> Vec<&'static str> {
+  [("invoke", invoke), ("hover", hover)]
+    .into_iter()
+    .filter_map(|(action, available)| available.then_some(action))
+    .collect()
 }
 
 fn can_invoke(node: &Node) -> bool {
@@ -536,6 +552,31 @@ struct InspectCtx<'a> {
   mint: &'a mut dyn FnMut() -> String,
 }
 
+impl InspectCtx<'_> {
+  /// Keep `value` (with its ancestor `path`) when a query or role filter is set and it matches.
+  fn record_match(
+    &mut self,
+    value: &serde_json::Value,
+    role: &str,
+    name: Option<&str>,
+    element_id: Option<&str>,
+    classes: &[String],
+    path: &[String],
+  ) {
+    let matches_role = self.role.as_deref().is_none_or(|expected| expected == role);
+    let matches_query = self.query.as_ref().is_none_or(|query| {
+      name.is_some_and(|name| name.to_lowercase().contains(query))
+        || element_id.is_some_and(|id| id.to_lowercase().contains(query))
+        || classes.iter().any(|class| class.to_lowercase().contains(query))
+    });
+    if (self.query.is_some() || self.role.is_some()) && matches_role && matches_query {
+      let mut match_value = value.clone();
+      match_value["path"] = serde_json::json!(path);
+      self.matches.push(match_value);
+    }
+  }
+}
+
 fn semantic_state(node: &Node) -> serde_json::Value {
   let mut state = serde_json::Map::new();
   if node.style_state.is_focused() {
@@ -597,7 +638,7 @@ fn inspect_node(
     ]
   });
   let ref_id = (ctx.mint)();
-  let actions = if can_invoke(node) { vec!["invoke"] } else { Vec::new() };
+  let actions = semantic_actions(can_invoke(node), can_hover(node));
   ctx.records.push(RefRecord {
     id: ref_id.clone(),
     window: ctx.window.to_owned(),
@@ -629,17 +670,7 @@ fn inspect_node(
     value["attrs"] = serde_json::json!(attrs);
   }
 
-  let matches_role = ctx.role.as_ref().is_none_or(|expected| expected == &role);
-  let matches_query = ctx.query.as_ref().is_none_or(|query| {
-    name.as_ref().is_some_and(|name| name.to_lowercase().contains(query))
-      || element_id.as_ref().is_some_and(|id| id.to_lowercase().contains(query))
-      || classes.iter().any(|class| class.to_lowercase().contains(query))
-  });
-  if (ctx.query.is_some() || ctx.role.is_some()) && matches_role && matches_query {
-    let mut match_value = value.clone();
-    match_value["path"] = serde_json::json!(path);
-    ctx.matches.push(match_value);
-  }
+  ctx.record_match(&value, &role, name.as_deref(), element_id.as_deref(), &classes, path);
 
   let mut child_path = path.to_vec();
   if let Some(label) = name.as_ref().or(element_id.as_ref()) {
@@ -647,6 +678,7 @@ fn inspect_node(
   }
   let mut children = Vec::new();
   if depth < ctx.max_depth {
+    children.extend(canvas_items::inspect_items(ctx, node, &child_path));
     for (index, child) in node.children().iter().enumerate() {
       let child_layout = layout.and_then(|layout| layout.children.get(index));
       let child_abs = child_layout
@@ -745,9 +777,6 @@ pub(crate) fn format_ref_line(record: &RefRecord) -> String {
   }
   let [x, y, width, height] = record.bounds;
   line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));
-  if record.canvas_item.is_some() {
-    line.push_str(" (canvas item)");
-  }
   if !record.interactive {
     line.push_str(" (not interactive)");
   }
@@ -1331,7 +1360,7 @@ fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json::Val
     .get("action")
     .and_then(|value| value.as_str())
     .ok_or("`action` is required")?;
-  if action != "invoke" {
+  if !matches!(action, "invoke" | "hover") {
     return Err(format!("unsupported semantic action {action:?}"));
   }
   let record = state
@@ -1345,22 +1374,39 @@ fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json::Val
   {
     let target = window_tree_mut(tree, &record.window, state.include_devtools)?;
     target.refresh_dirty_subtrees();
-    let node = find_node(target, record.node_id)
-      .ok_or_else(|| format!("ref {ref_id:?} no longer resolves to a live element; call lurq_inspect again"))?;
-    if semantic_role(node) != record.role || semantic_name(node) != record.name {
+    let stale = || format!("ref {ref_id:?} no longer resolves to a live element; call lurq_inspect again");
+    let node = find_node(target, record.node_id).ok_or_else(stale)?;
+    // A canvas item's identity is its registered role and label; it acts
+    // through its canvas's handlers.
+    let (role, name) = match &record.canvas_item {
+      Some(item_id) => canvas_items::item_identity(node, item_id).ok_or_else(stale)?,
+      None => (semantic_role(node), semantic_name(node)),
+    };
+    if role != record.role || name != record.name {
       return Err(format!("ref {ref_id:?} changed role or name; call lurq_inspect again"));
     }
-    if !can_invoke(node) {
-      return Err(format!("ref {ref_id:?} does not support invoke"));
+    let supported = if action == "invoke" {
+      can_invoke(node)
+    } else {
+      can_hover(node)
+    };
+    if !supported {
+      return Err(format!("ref {ref_id:?} does not support {action}"));
     }
     if target.layout_is_stale() {
       return Err("UI changed since the last layout; wait for a frame and inspect again".into());
     }
-    let [x, y, width, height] =
-      locate_node(target, record.node_id).ok_or("no layout available yet; wait for a frame before invoking")?;
-    if width <= 0.0 || height <= 0.0 {
-      return Err(format!("ref {ref_id:?} has no clickable area"));
-    }
+    let [x, y, width, height] = match &record.canvas_item {
+      Some(item_id) => canvas_items::item_bounds(node, item_id).ok_or_else(stale)?,
+      None => {
+        let bounds =
+          locate_node(target, record.node_id).ok_or("no layout available yet; wait for a frame before invoking")?;
+        if bounds[2] <= 0.0 || bounds[3] <= 0.0 {
+          return Err(format!("ref {ref_id:?} has no clickable area"));
+        }
+        bounds
+      }
+    };
     let (center_x, center_y) = (x + width * 0.5, y + height * 0.5);
     let root = target.root().ok_or("window has no mounted tree")?;
     let layout = target
@@ -1377,7 +1423,8 @@ fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json::Val
       ));
     }
   }
-  interact_tool(tree, app, state, &serde_json::json!({"action": "click", "ref": ref_id}))?;
+  let input = if action == "invoke" { "click" } else { "move" };
+  interact_tool(tree, app, state, &serde_json::json!({"action": input, "ref": ref_id}))?;
   Ok(McpToolOutput::Json(serde_json::json!({
     "dispatched": true,
     "action": action,

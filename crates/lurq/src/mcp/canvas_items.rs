@@ -1,12 +1,16 @@
 //! Canvas semantic items ([`crate::canvas::CanvasItem`]) as MCP tree children.
 //!
-//! Items are listed under their canvas in `lurq_read_tree`, get refs like
-//! elements, and resolve to live window bounds through the canvas placement,
-//! which already includes padding, scrolling and ancestor transforms. Without
-//! the `canvas` feature every function here reports no items.
+//! Items are listed under their canvas in `lurq_read_tree` and `lurq_inspect`,
+//! get refs like elements, and resolve to live window bounds through the
+//! canvas placement, which already includes padding, scrolling and ancestor
+//! transforms. They act through their canvas's pointer handlers. Without the
+//! `canvas` feature every function here reports no items.
 
-use super::{RefRecord, SnapshotCtx};
+use super::{InspectCtx, RefRecord, SnapshotCtx, semantic_actions};
 use crate::{app::Tree, core::NodeId, node::node::Node};
+
+/// Tag of item refs in lookup output; the item's own role is its `role`.
+const ITEM_TAG: &str = "CanvasItem";
 
 /// A canvas item found by id, with what its ref record needs.
 pub(super) struct ItemHit {
@@ -14,13 +18,15 @@ pub(super) struct ItemHit {
   pub(super) record: ItemRecord,
 }
 
+/// One item with its live window-logical bounds and its canvas's capabilities.
 pub(super) struct ItemRecord {
   id: String,
   role: String,
   label: Option<String>,
   value: Option<String>,
   bounds: Option<[f32; 4]>,
-  interactive: bool,
+  invoke: bool,
+  hover: bool,
 }
 
 /// `items=N` for canvas nodes, so an agent can tell a described canvas from opaque pixels.
@@ -45,7 +51,7 @@ fn item_records(node: &Node) -> Vec<ItemRecord> {
     let Some(canvas) = node.canvas_handle() else {
       return Vec::new();
     };
-    let interactive = item_interactive(node);
+    let (invoke, hover) = (super::can_invoke(node), super::can_hover(node));
     canvas
       .items_in_window()
       .into_iter()
@@ -55,7 +61,8 @@ fn item_records(node: &Node) -> Vec<ItemRecord> {
         label: item.label,
         value: item.value,
         bounds,
-        interactive,
+        invoke,
+        hover,
       })
       .collect()
   }
@@ -64,13 +71,6 @@ fn item_records(node: &Node) -> Vec<ItemRecord> {
     let _ = node;
     Vec::new()
   }
-}
-
-/// Items act through their canvas's handlers; hover-only canvases count, since
-/// moving the pointer onto an item is how their tooltips open.
-#[cfg(feature = "canvas")]
-fn item_interactive(node: &Node) -> bool {
-  super::is_interactive(node) || !node.events.on_mouse_move.is_empty() || !node.events.on_mouse_enter.is_empty()
 }
 
 /// Outline lines for a canvas node's items, one level below it, minting a ref per item.
@@ -86,11 +86,11 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
     let mut line = format!(
       "{}- {} #{} [{}]",
       "  ".repeat(depth + 1),
-      record.tag,
+      record.role,
       record.canvas_item.as_deref().unwrap_or_default(),
       record.id
     );
-    if let Some(label) = &record.text {
+    if let Some(label) = &record.name {
       line.push_str(&format!(" {label:?}"));
     }
     if has_bounds {
@@ -106,14 +106,56 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
   lines
 }
 
-/// The item's ref: role as tag, item id as `#id`, label as text, value as an attribute.
+/// Semantic nodes for a canvas node's items, as children in `lurq_inspect`.
+/// They count toward `max_nodes` and match `query`/`role` like elements.
+pub(super) fn inspect_items(ctx: &mut InspectCtx<'_>, node: &Node, path: &[String]) -> Vec<serde_json::Value> {
+  let mut values = Vec::new();
+  for item in item_records(node) {
+    if ctx.visited >= ctx.max_nodes {
+      ctx.truncated = true;
+      break;
+    }
+    ctx.visited += 1;
+    let has_bounds = item.bounds.is_some();
+    let actions = semantic_actions(item.invoke, item.hover);
+    let state = match &item.value {
+      Some(value) => serde_json::json!({ "value": value }),
+      None => serde_json::json!({}),
+    };
+    let record = to_ref_record((ctx.mint)(), ctx.window, node.node_id(), item, ctx.scale);
+    let value = serde_json::json!({
+      "ref": record.id,
+      "role": record.role,
+      "name": record.name,
+      "id": record.canvas_item,
+      "canvas_item": true,
+      "state": state,
+      "actions": actions,
+      "bounds": has_bounds.then_some(record.bounds),
+    });
+    ctx.record_match(
+      &value,
+      &record.role,
+      record.name.as_deref(),
+      record.canvas_item.as_deref(),
+      &[],
+      path,
+    );
+    ctx.records.push(record);
+    values.push(value);
+  }
+  values
+}
+
+/// The item's ref: `CanvasItem` tag, its role and label as role and name, its
+/// id as `#id`, its value as an attribute, bounds in screenshot pixels.
 fn to_ref_record(ref_id: String, window: &str, node_id: NodeId, item: ItemRecord, scale: f32) -> RefRecord {
   RefRecord {
     id: ref_id,
     window: window.to_owned(),
     node_id,
-    tag: item.role.clone(),
-    text: item.label.clone(),
+    tag: ITEM_TAG.to_owned(),
+    text: None,
     role: item.role,
     name: item.label,
     element_id: Some(item.id.clone()),
@@ -125,7 +167,7 @@ fn to_ref_record(ref_id: String, window: &str, node_id: NodeId, item: ItemRecord
     bounds: item
       .bounds
       .map_or([0.0; 4], |bounds| bounds.map(|value| (value * scale).round())),
-    interactive: item.interactive,
+    interactive: item.invoke || item.hover,
     canvas_item: Some(item.id),
   }
 }
@@ -149,10 +191,16 @@ pub(super) fn lookup_record(ref_id: String, window: &str, hit: ItemHit, scale: f
   to_ref_record(ref_id, window, hit.node_id, hit.record, scale)
 }
 
+fn live_item(node: &Node, item_id: &str) -> Option<ItemRecord> {
+  item_records(node).into_iter().find(|record| record.id == item_id)
+}
+
 /// Live window-logical bounds of a canvas item, re-resolved at action time.
 pub(super) fn item_bounds(node: &Node, item_id: &str) -> Option<[f32; 4]> {
-  item_records(node)
-    .into_iter()
-    .find(|record| record.id == item_id)
-    .and_then(|record| record.bounds)
+  live_item(node, item_id).and_then(|record| record.bounds)
+}
+
+/// Live `(role, name)` of a canvas item, compared with its ref before `lurq_act`.
+pub(super) fn item_identity(node: &Node, item_id: &str) -> Option<(String, Option<String>)> {
+  live_item(node, item_id).map(|record| (record.role, record.label))
 }
