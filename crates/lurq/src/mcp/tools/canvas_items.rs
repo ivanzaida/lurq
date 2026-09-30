@@ -11,7 +11,11 @@
 
 #[cfg(feature = "canvas")]
 use super::resolve::{intersect, visible_clip};
-use super::{inspect::InspectCtx, read_tree::SnapshotCtx, semantics::semantic_actions};
+use super::{
+  inspect::InspectCtx,
+  read_tree::SnapshotCtx,
+  semantics::{attr, semantic_actions, token},
+};
 use crate::{app::Tree, core::NodeId, mcp::shared::RefRecord, node::node::Node};
 
 /// Tag of item refs in lookup output; the item's own role is its `role`.
@@ -126,8 +130,8 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
     let mut line = format!(
       "{}- {} #{} [{}]",
       "  ".repeat(depth + 1),
-      record.role,
-      record.canvas_item.as_deref().unwrap_or_default(),
+      token(&record.role),
+      token(record.canvas_item.as_deref().unwrap_or_default()),
       record.id
     );
     if let Some(label) = &record.name {
@@ -140,7 +144,7 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
       line.push_str(" (not visible)");
     }
     for (name, value) in &record.attrs {
-      line.push_str(&format!(" {{{name}={value}}}"));
+      line.push_str(&attr(name, value));
     }
     lines.push(line);
     ctx.records.push(record);

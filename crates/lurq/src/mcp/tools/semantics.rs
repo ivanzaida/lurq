@@ -158,3 +158,24 @@ pub(super) fn inspection_attrs(node: &Node) -> Vec<(String, String)> {
   attrs.extend(canvas_items::canvas_attrs(node));
   attrs
 }
+
+/// App-provided text (ids, classes, roles, tags, attribute names and values,
+/// window names) as one outline token: as-is when it is a plain word of
+/// letters, digits and `-_.:/`, otherwise quoted with escapes, so it can never
+/// end its line, bracket or brace and forge an element or ref.
+pub(super) fn token(text: &str) -> std::borrow::Cow<'_, str> {
+  let plain = !text.is_empty()
+    && text
+      .chars()
+      .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_' | '.' | ':' | '/'));
+  if plain {
+    std::borrow::Cow::Borrowed(text)
+  } else {
+    std::borrow::Cow::Owned(format!("{text:?}"))
+  }
+}
+
+/// ` {name=value}` with both sides as [`token`]s.
+pub(super) fn attr(name: &str, value: &str) -> String {
+  format!(" {{{}={}}}", token(name), token(value))
+}

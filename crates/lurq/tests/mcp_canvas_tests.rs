@@ -255,7 +255,7 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
   assert!(tree_text.contains("{items=3}"), "{tree_text}");
   let tue_line = tree_text.lines().find(|line| line.contains("#tue")).unwrap();
   assert!(tue_line.contains("- bar #tue [ref_"), "{tue_line}");
-  assert!(tue_line.ends_with("\"Tue\" @88,28 40x90 {value=18 runs}"), "{tue_line}");
+  assert!(tue_line.ends_with("\"Tue\" @88,28 40x90 {value=\"18 runs\"}"), "{tue_line}");
   let moved: Value = serde_json::from_str(&moved).unwrap();
   assert_eq!((moved["x"].as_f64(), moved["y"].as_f64()), (Some(108.0), Some(73.0)));
   assert!(

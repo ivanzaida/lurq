@@ -112,7 +112,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
                     Bounds are `@x,y WxH` in screenshot pixels. Refs are replaced on each call — \
                     re-read after significant UI changes. Masked inputs expose only their mask and masked=true. \
                     A Canvas shows {items=N}; items the app described (bars, points, labels) are listed \
-                    under it as `- role #item-id [ref_N] \"label\" @bounds {value=...}`, and their refs \
+                    under it as `- role #item-id [ref_N] \"label\" @bounds {value=\"...\"}`, and their refs \
                     work with every ref-taking tool (hover with move, click, screenshot)."
         .into(),
       scope: Scope::Observe,

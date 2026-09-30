@@ -175,7 +175,7 @@ Row::new()
   .describe("role", "commits the form") // free-form key=value shown on the element
 ```
 
-`id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role=commits the form}` in `read_tree` output; all three are matched by `lurq_find`.
+`id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref.
 
 ### Canvas content
 
@@ -185,9 +185,9 @@ Canvas pixels are opaque to the tree. Describe what you drew with [canvas items]
 window: main (630x450 @1.5x)
 - Chart @0,0 630x450
   - Canvas #runs-chart [ref_11] @24,24 540x300 {items=10}
-    - bar #mon [ref_1] "Mon" @54,135 75x144 {value=12 runs}
+    - bar #mon [ref_1] "Mon" @54,135 75x144 {value="12 runs"}
     - label #mon-label [ref_2] "Mon" @54,288 75x27
-    - bar #tue [ref_3] "Tue" @159,63 75x216 {value=18 runs}
+    - bar #tue [ref_3] "Tue" @159,63 75x216 {value="18 runs"}
     …
   - Text #tooltip [ref_12] "Hover a bar" @24,336 124x29
 ```
@@ -206,7 +206,7 @@ lurq_act {"ref":"ref_9","action":"hover"}
 
 Item bounds are what the pointer can reach: the item clipped to its canvas and to what scroll viewports, clipping ancestors and the window leave visible. An item with nothing visible is listed as `(not visible)` (`bounds: null`, `state.hidden: true` in `lurq_inspect`); input, screenshots and `lurq_act` refuse it, and `scroll_to` brings the part inside its canvas into view. Input by item ref also requires the item's center to hit its canvas, so it never lands on a control beside or above it.
 
-Item refs work wherever element refs do. Actions re-resolve the item's live bounds through the canvas's current placement, so a ref follows its item across redraws, scrolling and ancestor transforms, and errors once the app stops registering that id. `lurq_interact` `move`/`click`/`double_click`/`drag` target the item's center, `scroll_to` scrolls the item itself into view, and `lurq_screenshot` with an item ref crops to it. Pointer input goes through the app's normal handling: the canvas's own handlers receive it and hit-test with `CanvasHandle::item_at`, so the app's hover tooltips open as they do for a mouse. The canvas's handlers decide the item's `actions`; `lurq_act` also checks that the item's role and label are unchanged and that its center is on the canvas. In `lurq_find` and lookup results an item appears as `CanvasItem role=bar #tue name="Tue" {value=18 runs}`.
+Item refs work wherever element refs do. Actions re-resolve the item's live bounds through the canvas's current placement, so a ref follows its item across redraws, scrolling and ancestor transforms, and errors once the app stops registering that id. `lurq_interact` `move`/`click`/`double_click`/`drag` target the item's center, `scroll_to` scrolls the item itself into view, and `lurq_screenshot` with an item ref crops to it. Pointer input goes through the app's normal handling: the canvas's own handlers receive it and hit-test with `CanvasHandle::item_at`, so the app's hover tooltips open as they do for a mouse. The canvas's handlers decide the item's `actions`; `lurq_act` also checks that the item's role and label are unchanged and that its center is on the canvas. In `lurq_find` and lookup results an item appears as `CanvasItem role=bar #tue name="Tue" {value="18 runs"}`.
 
 ## Custom Tools
 

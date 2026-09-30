@@ -2,7 +2,9 @@
 
 use super::{
   canvas_items,
-  semantics::{inspection_attrs, is_interactive, node_value_summary, semantic_name, semantic_role, truncate_text},
+  semantics::{
+    attr, inspection_attrs, is_interactive, node_value_summary, semantic_name, semantic_role, token, truncate_text,
+  },
   windows::{requested_window, window_tree_mut},
 };
 use crate::{
@@ -75,12 +77,12 @@ pub(super) fn snapshot_node(
     ]
   });
 
-  let mut line = format!("{}- {}", "  ".repeat(depth), node.tag_name());
+  let mut line = format!("{}- {}", "  ".repeat(depth), token(node.tag_name()));
   if let Some(element_id) = &element_id {
-    line.push_str(&format!(" #{element_id}"));
+    line.push_str(&format!(" #{}", token(element_id)));
   }
   for class in &classes {
-    line.push_str(&format!(" .{class}"));
+    line.push_str(&format!(" .{}", token(class)));
   }
 
   if interactive || labeled || !attrs.is_empty() {
@@ -117,7 +119,7 @@ pub(super) fn snapshot_node(
     line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));
   }
   for (name, attr_value) in attrs {
-    line.push_str(&format!(" {{{name}={attr_value}}}"));
+    line.push_str(&attr(&name, &attr_value));
   }
   let mut states = Vec::new();
   if node.style_state.is_hovered() {
@@ -170,7 +172,8 @@ pub(super) fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
   state.shared.refs.lock().unwrap().replace_window(&window, records);
 
   let header = format!(
-    "window: {window} ({}x{} @{}x)\n",
+    "window: {} ({}x{} @{}x)\n",
+    token(&window),
     info.resolved_width.round(),
     info.resolved_height.round(),
     scale
@@ -191,12 +194,18 @@ pub(super) fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
 }
 
 pub(crate) fn format_ref_line(record: &RefRecord) -> String {
-  let mut line = format!("{} [{}] {} role={}", record.id, record.window, record.tag, record.role);
+  let mut line = format!(
+    "{} [{}] {} role={}",
+    record.id,
+    token(&record.window),
+    token(&record.tag),
+    token(&record.role)
+  );
   if let Some(element_id) = &record.element_id {
-    line.push_str(&format!(" #{element_id}"));
+    line.push_str(&format!(" #{}", token(element_id)));
   }
   for class in &record.classes {
-    line.push_str(&format!(" .{class}"));
+    line.push_str(&format!(" .{}", token(class)));
   }
   if let Some(name) = &record.name {
     line.push_str(&format!(" name={:?}", truncate_text(name, 60)));
@@ -207,7 +216,7 @@ pub(crate) fn format_ref_line(record: &RefRecord) -> String {
     line.push_str(&format!(" {:?}", truncate_text(text, 60)));
   }
   for (name, value) in &record.attrs {
-    line.push_str(&format!(" {{{name}={value}}}"));
+    line.push_str(&attr(name, value));
   }
   let [x, y, width, height] = record.bounds;
   line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));
