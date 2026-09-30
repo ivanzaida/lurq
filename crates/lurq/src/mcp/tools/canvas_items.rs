@@ -163,8 +163,10 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
 
 /// Semantic nodes for a canvas node's items, as children in `lurq_inspect`.
 /// They match `query`/`role` like elements. In the tree they count toward
-/// `max_nodes`; a search checks every item and mints refs only for matches,
-/// so a chart with thousands of points stays searchable.
+/// `max_nodes`; a search checks every item without counting it, returns at
+/// most `max_nodes` matches (then marks the result truncated) and mints refs
+/// only for returned matches, so a chart with thousands of points stays
+/// searchable without flooding the reply.
 pub(super) fn inspect_items(ctx: &mut InspectCtx<'_>, node: &Node, path: &[String]) -> Vec<serde_json::Value> {
   let searching = ctx.searching();
   let mut values = Vec::new();
@@ -172,6 +174,9 @@ pub(super) fn inspect_items(ctx: &mut InspectCtx<'_>, node: &Node, path: &[Strin
     if searching {
       if !ctx.matches(&item.role, item.label.as_deref(), Some(&item.id), &[]) {
         continue;
+      }
+      if ctx.matches_full() {
+        break;
       }
     } else if ctx.visited >= ctx.max_nodes {
       ctx.truncated = true;

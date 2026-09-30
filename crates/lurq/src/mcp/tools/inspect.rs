@@ -34,6 +34,14 @@ pub(super) struct InspectCtx<'a> {
 }
 
 impl InspectCtx<'_> {
+  /// Whether a search already holds `max_nodes` matches; a further match
+  /// marks the result truncated instead of being added.
+  pub(super) fn matches_full(&mut self) -> bool {
+    let full = self.matches.len() >= self.max_nodes;
+    self.truncated |= full;
+    full
+  }
+
   /// Whether a `query` or `role` filter is set, so only matches are returned.
   pub(super) fn searching(&self) -> bool {
     self.query.is_some() || self.role.is_some()
@@ -61,6 +69,9 @@ impl InspectCtx<'_> {
     path: &[String],
   ) {
     if self.searching() && self.matches(role, name, element_id, classes) {
+      if self.matches_full() {
+        return;
+      }
       let mut match_value = value.clone();
       match_value["path"] = serde_json::json!(path);
       self.matches.push(match_value);

@@ -661,3 +661,48 @@ fn inspect_searches_reach_every_item_past_max_nodes() {
   ));
   assert_eq!(tree["truncated"], true);
 }
+
+#[test]
+fn broad_inspect_searches_return_at_most_max_nodes_matches() {
+  let mut f = fixture();
+  f.canvas.set_items((0..20_000).map(|index| {
+    CanvasItem::point(
+      format!("p{index}"),
+      "point",
+      (index % 200) as f32,
+      (index / 200) as f32,
+      1.0,
+    )
+  }));
+  let state = state();
+  let search = |f: &mut Fixture, args: serde_json::Value| {
+    let found = json(call(&mut f.tree, &mut f.app, &state, "lurq_inspect", args));
+    let item_refs = state
+      .shared
+      .refs
+      .lock()
+      .unwrap()
+      .records
+      .iter()
+      .filter(|record| record.canvas_item.is_some())
+      .count();
+    (
+      found["matches"].as_array().unwrap().len(),
+      found["truncated"].clone(),
+      item_refs,
+    )
+  };
+  assert_eq!(
+    search(&mut f, serde_json::json!({"role": "point"})),
+    (500, serde_json::json!(true), 500)
+  );
+  assert_eq!(
+    search(&mut f, serde_json::json!({"role": "point", "max_nodes": 10})),
+    (10, serde_json::json!(true), 10)
+  );
+  // A targeted query still scans every item.
+  assert_eq!(
+    search(&mut f, serde_json::json!({"role": "point", "query": "p19999"})),
+    (1, serde_json::json!(false), 1)
+  );
+}

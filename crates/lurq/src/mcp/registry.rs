@@ -142,7 +142,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "query": { "type": "string", "description": "Case-insensitive substring of accessible name, id, or class" },
           "role": { "type": "string", "description": "Optional exact semantic role, e.g. button or textbox" },
           "max_depth": { "type": "integer", "minimum": 1, "description": "Maximum tree depth (default 12)" },
-          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes (default 500)" }
+          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes (default 500); with query or role, also the maximum number of matches returned (then truncated is true)" }
         }
       })),
       kind: ToolKind::Builtin(BuiltinTool::Inspect),
