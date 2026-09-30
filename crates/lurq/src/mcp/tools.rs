@@ -277,10 +277,10 @@ fn is_text_node(node: &Node) -> bool {
 }
 
 fn descendant_label(node: &Node, parts: &mut Vec<String>) {
-  if is_text_node(node) {
-    if let Some(text) = node.inspection_text().filter(|text| !text.trim().is_empty()) {
-      parts.push(text);
-    }
+  if is_text_node(node)
+    && let Some(text) = node.inspection_text().filter(|text| !text.trim().is_empty())
+  {
+    parts.push(text);
   }
   for child in node.children() {
     descendant_label(child, parts);
@@ -750,8 +750,8 @@ fn inspect_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> 
   } else {
     serde_json::json!({"window": window, "tree": semantic_tree, "truncated": ctx.truncated})
   };
+  // Ends the ref table borrow held through `mint`.
   drop(ctx);
-  drop(mint);
   refs.replace_window(&window, records);
   Ok(McpToolOutput::Json(result))
 }
