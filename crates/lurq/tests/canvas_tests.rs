@@ -1,5 +1,9 @@
 #![cfg(feature = "canvas")]
 
+#[path = "canvas/items.rs"]
+mod items;
+#[path = "canvas/rerender.rs"]
+mod rerender;
 mod support;
 
 use std::sync::{

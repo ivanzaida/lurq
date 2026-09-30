@@ -110,7 +110,10 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       description: "Read a window's element tree as an indented outline. Interactive elements get \
                     stable `ref_N` handles for lurq_interact / lurq_set_value / lurq_screenshot. \
                     Bounds are `@x,y WxH` in screenshot pixels. Refs are replaced on each call — \
-                    re-read after significant UI changes. Masked inputs expose only their mask and masked=true."
+                    re-read after significant UI changes. Masked inputs expose only their mask and masked=true. \
+                    A Canvas shows {items=N}; items the app described (bars, points, labels) are listed \
+                    under it as `- role item:item-id [ref_N] \"label\" @bounds {value=\"...\"}`, and their refs \
+                    work with every ref-taking tool (hover with move, click, screenshot)."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -120,14 +123,15 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "window": { "type": "string", "description": WINDOW_PROP },
           "filter": { "type": "string", "enum": ["interactive", "all"], "description": "interactive (default): prune branches without interactive elements or text; all: every element" },
           "max_depth": { "type": "integer", "description": "Limit tree depth" },
-          "max_chars": { "type": "integer", "description": "Truncate output after this many characters (default 30000)" }
+          "max_chars": { "type": "integer", "description": "Truncate output after this many characters (default 30000)" },
+          "max_items": { "type": "integer", "description": "Canvas items listed per canvas; the rest are counted (default 200)" }
         }
       })),
       kind: ToolKind::Builtin(BuiltinTool::ReadTree),
     },
     RegisteredTool {
       name: "lurq_inspect".into(),
-      description: "Read the live Lurq UI as structured semantic nodes (role, accessible name, state, bounds and refs), without a screenshot. With query, return matching nodes and their ancestor path. Replaces this window's refs; call lurq_act to invoke a returned ref."
+      description: "Read the live Lurq UI as structured semantic nodes (role, accessible name, state, bounds and refs), without a screenshot. With query, return matching nodes and their ancestor path. Items an app described on a Canvas (bars, points, labels) are children of the canvas node with canvas_item=true and match query and role like elements. Replaces this window's refs; call lurq_act to invoke or hover a returned ref."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -138,7 +142,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "query": { "type": "string", "description": "Case-insensitive substring of accessible name, id, or class" },
           "role": { "type": "string", "description": "Optional exact semantic role, e.g. button or textbox" },
           "max_depth": { "type": "integer", "minimum": 1, "description": "Maximum tree depth (default 12)" },
-          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes (default 500)" }
+          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes (default 500); with query or role, also the maximum number of matches returned (then truncated is true)" }
         }
       })),
       kind: ToolKind::Builtin(BuiltinTool::Inspect),
@@ -161,7 +165,10 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_find_by_id".into(),
-      description: "Look up the element carrying an HTML-like id (set with the `.id(...)` builder)                     in the live tree and return a fresh actionable ref for it. Duplicate ids                     resolve to the first match in tree order, like the DOM."
+      description: "Look up the element carrying an HTML-like id (set with the `.id(...)` builder) \
+                    in the live tree and return a fresh actionable ref for it. Duplicate ids \
+                    resolve to the first match in tree order, like the DOM. When no element has \
+                    the id, canvas item ids are searched the same way."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -251,7 +258,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_act".into(),
-      description: "Invoke a semantic element ref from lurq_inspect without supplying coordinates. Re-checks its live role and name before dispatch; stale or changed refs fail."
+      description: "Invoke (click) or hover (move the pointer onto) a semantic element or canvas item ref from lurq_inspect without supplying coordinates. Allowed actions are listed in the ref's `actions`. Re-checks its live role and name and that it is hittable before dispatch; stale or changed refs fail."
         .into(),
       scope: Scope::Interact,
       read_only: false,
@@ -259,7 +266,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "type": "object",
         "properties": {
           "ref": { "type": "string", "description": "Element ref from lurq_inspect" },
-          "action": { "type": "string", "enum": ["invoke"], "description": "Semantic action (currently invoke)" }
+          "action": { "type": "string", "enum": ["invoke", "hover"], "description": "invoke clicks the element's center; hover moves the pointer there (opens hover tooltips)" }
         },
         "required": ["ref", "action"]
       })),

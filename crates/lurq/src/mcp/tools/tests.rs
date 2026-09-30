@@ -1,5 +1,11 @@
+use std::sync::Arc;
+
 use super::*;
-use crate::mcp::{Scope, registry::ToolRegistry, shared::McpShared};
+use crate::mcp::{
+  Scope,
+  registry::ToolRegistry,
+  shared::{McpShared, McpToolResult},
+};
 
 struct TestSurface;
 
@@ -125,7 +131,7 @@ fn semantic_act_rejects_a_ref_whose_name_changed() {
   assert!(error.contains("changed role or name"), "{error}");
 }
 
-fn output_text(result: McpToolResult) -> String {
+pub(super) fn output_text(result: McpToolResult) -> String {
   match result.unwrap() {
     McpToolOutput::Text(text) => text,
     McpToolOutput::Json(value) => value.to_string(),
@@ -265,7 +271,7 @@ fn devtools_redacts_masked_node_text_and_inspector_shape() {
     assert!(!format!("{snapshot:?}").contains(secret));
   }
 }
-fn state() -> McpState {
+pub(super) fn state() -> McpState {
   let (_, receiver) = std::sync::mpsc::channel();
   McpState {
     shared: Arc::new(McpShared::new(
@@ -284,7 +290,13 @@ fn state() -> McpState {
     discovery_path: None,
   }
 }
-fn call(tree: &mut Tree, app: &mut App, state: &McpState, tool: &str, args: serde_json::Value) -> McpToolResult {
+pub(super) fn call(
+  tree: &mut Tree,
+  app: &mut App,
+  state: &McpState,
+  tool: &str,
+  args: serde_json::Value,
+) -> McpToolResult {
   let (reply, mut rx) = tokio::sync::oneshot::channel();
   execute(
     tree,
@@ -298,7 +310,7 @@ fn call(tree: &mut Tree, app: &mut App, state: &McpState, tool: &str, args: serd
   );
   rx.try_recv().unwrap()
 }
-fn json(result: McpToolResult) -> serde_json::Value {
+pub(super) fn json(result: McpToolResult) -> serde_json::Value {
   match result.unwrap() {
     McpToolOutput::Json(v) => v,
     _ => panic!("expected json"),
@@ -354,4 +366,90 @@ fn windows_report_the_title_set_at_runtime() {
   );
   tree.window().handle().set_title("Tasks - Orchester");
   assert_eq!(windows(&mut tree, &mut app)["windows"][0]["title"], "Tasks - Orchester");
+}
+
+#[test]
+fn lookups_before_layout_say_the_bounds_are_unknown() {
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(crate::components::Rect::new(10.0, 10.0).id("fresh"));
+  let found = output_text(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_find_by_id",
+    serde_json::json!({"id": "fresh"}),
+  ));
+  assert!(found.contains("(bounds unknown: not laid out yet)"), "{found}");
+  assert!(!found.contains("@0,0"), "{found}");
+}
+
+/// Screenshot-pixel `(x, y, width, height)` from a lookup line's `@x,y WxH`.
+pub(super) fn line_bounds(line: &str) -> (f32, f32, f32, f32) {
+  let at = &line[line.find(" @").expect("line has bounds") + 2..];
+  let mut parts = at.split([',', ' ', 'x']).map(|part| part.parse::<f32>().unwrap());
+  let mut next = || parts.next().unwrap();
+  (next(), next(), next(), next())
+}
+
+#[test]
+fn scroll_to_through_nested_scroll_containers_lands_the_element_in_view() {
+  use crate::{
+    components::{Column, Rect, ScrollVertical, Spacer},
+    layout::layout_kind::ScrollState,
+  };
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let (outer, inner) = (ScrollState::new(), ScrollState::new());
+  tree.resize(400, 400);
+  tree.set_root(
+    ScrollVertical::new(
+      Column::new()
+        .child(Spacer::new().height(100.0))
+        .child(
+          ScrollVertical::new(
+            Column::new()
+              .child(Spacer::new().height(500.0))
+              .child(Rect::new(20.0, 20.0).id("target"))
+              .child(Spacer::new().height(500.0)),
+          )
+          .with_scroll_state(inner.clone())
+          .height(200.0),
+        )
+        .child(Spacer::new().height(600.0)),
+    )
+    .with_scroll_state(outer.clone())
+    .height(200.0),
+  );
+  tree.pass_headless(&mut app);
+  let state = state();
+  let find = |tree: &mut Tree, app: &mut App| {
+    output_text(call(
+      tree,
+      app,
+      &state,
+      "lurq_find_by_id",
+      serde_json::json!({"id": "target"}),
+    ))
+  };
+  let found = find(&mut tree, &mut app);
+  let ref_id = found.split(' ').next().unwrap().to_owned();
+  call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_interact",
+    serde_json::json!({"action": "scroll_to", "ref": ref_id}),
+  )
+  .unwrap();
+  tree.pass_headless(&mut app);
+  let (_, y, _, height) = line_bounds(&find(&mut tree, &mut app));
+  assert!(inner.scroll_y() > 0.0 && outer.scroll_y() > 0.0);
+  assert!(
+    y >= 0.0 && y + height <= 200.0,
+    "target at {y}, outer {} inner {}",
+    outer.scroll_y(),
+    inner.scroll_y()
+  );
 }

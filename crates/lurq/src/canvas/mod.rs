@@ -10,9 +10,11 @@ mod blend;
 mod context;
 mod effect;
 pub(crate) mod gpu;
+mod items;
 pub use blend::BlendMode;
 pub use effect::{Filter, MAX_BLUR_RADIUS, MAX_EFFECT_PIXELS, MAX_SHADOW_BLUR, MAX_SHADOW_SPREAD, Shadow};
 pub use gpu::{CanvasReadback, MAX_LAYER_DEPTH};
+pub use items::{CanvasItem, CanvasItemShape};
 mod paint;
 mod path;
 mod text;
@@ -258,6 +260,11 @@ struct Surface {
   observers: Vec<Weak<MetricsCallback>>,
   text: Option<Arc<Mutex<CanvasTextEngine>>>,
   error: Option<CanvasError>,
+  /// Semantic items registered by the app, replaced as a whole.
+  items: Arc<[CanvasItem]>,
+  /// Fingerprint of the duplicated ids last warned about, so a redraw that
+  /// repeats the same duplicates every frame warns once.
+  warned_duplicates: Option<u64>,
 }
 
 impl fmt::Debug for CanvasHandle {
@@ -313,6 +320,8 @@ impl CanvasHandle {
         observers: Vec::new(),
         text: None,
         error: None,
+        items: Arc::from([]),
+        warned_duplicates: None,
       })),
     }
   }
@@ -513,6 +522,8 @@ impl CanvasHandle {
       s.path = Path2D::new();
       s.discard_layers();
       s.software_layers.clear();
+      // The pixels the items described are gone; the redraw registers new ones.
+      s.items = Arc::from([]);
     } else if s.software {
       if let (Some(old), Some(next)) = (s.pixels.as_ref(), next.as_mut()) {
         next.draw_pixmap(
@@ -1347,7 +1358,8 @@ pub fn effects_scene(d: &Context2D) {
   d.end_layer().unwrap();
 }
 
-#[cfg(test)]
+/// Surfaces for the wgpu renderer's canvas tests, which use them without a tree.
+#[cfg(all(test, feature = "wgpu"))]
 impl CanvasHandle {
   pub(crate) fn test_surface(width: u32, height: u32, scale: f32, software: bool) -> Self {
     let canvas = Self::new();

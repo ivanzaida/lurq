@@ -143,6 +143,10 @@ name = "canvas"
 required-features = ["canvas", "winit", "wgpu"]
 
 [[example]]
+name = "canvas_chart"
+required-features = ["canvas", "winit", "wgpu", "mcp"]
+
+[[example]]
 name = "canvas_capture_check"
 required-features = ["canvas", "screenshot"]
 
