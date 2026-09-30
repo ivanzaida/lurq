@@ -206,7 +206,9 @@ pub(crate) fn format_ref_line(record: &RefRecord) -> String {
     token(&record.role)
   );
   if let Some(element_id) = &record.element_id {
-    line.push_str(&format!(" #{}", token(element_id)));
+    // Canvas item ids are not element ids: `item:` keeps `#id` patterns from matching them.
+    let marker = if record.canvas_item.is_some() { "item:" } else { "#" };
+    line.push_str(&format!(" {marker}{}", token(element_id)));
   }
   for class in &record.classes {
     line.push_str(&format!(" .{}", token(class)));

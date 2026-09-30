@@ -228,7 +228,7 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
     };
     client.initialize();
     let tree_text = client.tool("lurq_read_tree", json!({}));
-    let tue = ref_on_line(&tree_text, "#tue");
+    let tue = ref_on_line(&tree_text, "item:tue");
     let moved = client.tool("lurq_interact", json!({"action": "move", "ref": tue}));
     let after_hover = client.tool("lurq_read_tree", json!({}));
     // The semantic route: find the bar by role and name, hover it without coordinates.
@@ -253,8 +253,8 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
   // Canvas at (8, 8); "tue" is x 80..120, y 20..110 in the canvas.
   assert!(tree_text.contains("- Canvas #runs-chart ["), "{tree_text}");
   assert!(tree_text.contains("{items=3}"), "{tree_text}");
-  let tue_line = tree_text.lines().find(|line| line.contains("#tue")).unwrap();
-  assert!(tue_line.contains("- bar #tue [ref_"), "{tue_line}");
+  let tue_line = tree_text.lines().find(|line| line.contains("item:tue")).unwrap();
+  assert!(tue_line.contains("- bar item:tue [ref_"), "{tue_line}");
   assert!(
     tue_line.ends_with("\"Tue\" @88,28 40x90 {value=\"18 runs\"}"),
     "{tue_line}"

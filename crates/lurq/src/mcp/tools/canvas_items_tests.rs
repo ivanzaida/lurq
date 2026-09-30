@@ -111,8 +111,8 @@ fn read_tree_lists_items_under_their_canvas_in_screenshot_pixels() {
   // 30 screenshot pixels at 2x. "mon" is at (10, 40) 20x50 in the canvas.
   assert!(text.contains("- Canvas #chart ["), "{text}");
   assert!(text.contains("{items=2}"), "{text}");
-  let mon_line = text.lines().find(|line| line.contains("#mon")).unwrap();
-  assert!(mon_line.starts_with("    - bar #mon [ref_"), "{text}");
+  let mon_line = text.lines().find(|line| line.contains("item:mon")).unwrap();
+  assert!(mon_line.starts_with("    - bar item:mon [ref_"), "{text}");
   assert!(
     mon_line.ends_with("\"Mon\" @50,110 40x100 {value=\"12 runs\"}"),
     "{mon_line}"
@@ -126,7 +126,7 @@ fn read_tree_lists_items_under_their_canvas_in_screenshot_pixels() {
     .unwrap();
   let line = format_ref_line(record);
   assert!(
-    line.contains("[main] CanvasItem role=bar #tue name=\"Tue\" {value=\"18 runs\"} @110,70 40x140"),
+    line.contains("[main] CanvasItem role=bar item:tue name=\"Tue\" {value=\"18 runs\"} @110,70 40x140"),
     "{line}"
   );
 }
@@ -142,7 +142,7 @@ fn move_and_click_by_item_ref_drive_the_canvas_handlers_at_the_item() {
     "lurq_read_tree",
     serde_json::json!({}),
   ));
-  let tue = ref_of(&text, "#tue");
+  let tue = ref_of(&text, "item:tue");
   let reply = json(call(
     &mut f.tree,
     &mut f.app,
@@ -153,7 +153,7 @@ fn move_and_click_by_item_ref_drive_the_canvas_handlers_at_the_item() {
   assert_eq!((reply["x"].as_f64(), reply["y"].as_f64()), (Some(130.0), Some(140.0)));
   assert_eq!(f.hovered.lock().unwrap().last().map(String::as_str), Some("tue"));
 
-  let mon = ref_of(&text, "#mon");
+  let mon = ref_of(&text, "item:mon");
   call(
     &mut f.tree,
     &mut f.app,
@@ -176,8 +176,8 @@ fn item_refs_track_redraws_and_find_by_id_reaches_items() {
     "lurq_find_by_id",
     serde_json::json!({"id": "tue"}),
   ));
-  assert!(found.contains("CanvasItem role=bar #tue name=\"Tue\""), "{found}");
-  let tue = ref_of(&found, "#tue");
+  assert!(found.contains("CanvasItem role=bar item:tue name=\"Tue\""), "{found}");
+  let tue = ref_of(&found, "item:tue");
 
   // The next draw moves "tue" and drops "mon": the ref follows the live item.
   f.canvas
@@ -239,7 +239,7 @@ fn scroll_to_an_item_ref_brings_the_item_into_the_viewport() {
     "lurq_read_tree",
     serde_json::json!({}),
   ));
-  let deep = ref_of(&text, "#deep");
+  let deep = ref_of(&text, "item:deep");
   call(
     &mut tree,
     &mut app,
@@ -462,7 +462,7 @@ fn app_text_cannot_forge_lines_in_tree_or_ref_output() {
     "{text}"
   );
   assert!(
-    text.contains(r#"- "bar {x}\n- Button" #"id}\n- Button #ok3" [ref_"#),
+    text.contains(r#"- "bar {x}\n- Button" item:"id}\n- Button #ok3" [ref_"#),
     "{text}"
   );
   let refs = state.shared.refs.lock().unwrap();
@@ -508,7 +508,7 @@ fn read_tree_lists_a_bounded_number_of_items_per_canvas() {
     "lurq_read_tree",
     serde_json::json!({"max_items": 2}),
   ));
-  assert!(text.contains("#bar1 [") && !text.contains("#bar2 ["), "{text}");
+  assert!(text.contains("item:bar1 [") && !text.contains("item:bar2 ["), "{text}");
   assert!(text.contains("    - … +3 more items (raise max_items"), "{text}");
   assert!(text.contains("{items=5}"), "{text}");
 }
@@ -542,4 +542,43 @@ fn decorative_canvases_stay_out_of_the_outline() {
   let text = read(&mut tree, &mut app);
   assert_eq!(text.matches("- Canvas").count(), 1, "{text}");
   assert!(text.contains("{items=1}"), "{text}");
+}
+
+#[test]
+fn item_ids_do_not_read_as_element_ids() {
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let reference = ElementRef::new();
+  tree.resize(400, 300);
+  tree.set_root(
+    Column::new()
+      .child(
+        Canvas::new()
+          .software()
+          .ref_element(reference.clone())
+          .width(200.0)
+          .height(100.0),
+      )
+      .child(Rect::new(20.0, 20.0).id("delete").on_click(|_| {})),
+  );
+  tree.pass_headless(&mut app);
+  reference
+    .as_canvas()
+    .unwrap()
+    .set_items([CanvasItem::rect("delete", "bar", 10.0, 10.0, 20.0, 20.0)]);
+  let state = state();
+  let text = output_text(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_read_tree",
+    serde_json::json!({}),
+  ));
+  let element_lines: Vec<_> = text.lines().filter(|line| line.contains("#delete [")).collect();
+  assert_eq!(element_lines.len(), 1, "{text}");
+  assert!(element_lines[0].trim_start().starts_with("- Rect #delete"), "{text}");
+  assert!(text.contains("- bar item:delete [ref_"), "{text}");
+  let refs = state.shared.refs.lock().unwrap();
+  let item = refs.records.iter().find(|record| record.canvas_item.is_some()).unwrap();
+  assert!(format_ref_line(item).contains("CanvasItem role=bar item:delete"));
 }

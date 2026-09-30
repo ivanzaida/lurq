@@ -179,15 +179,15 @@ Row::new()
 
 ### Canvas content
 
-Canvas pixels are opaque to the tree. Describe what you drew with [canvas items](../canvas/#describing-what-you-drew) (`CanvasHandle::set_items`, `canvas` feature) and agents get one child per item under the canvas, with a ref, its role, label, value and bounds in screenshot pixels. A canvas with items or pointer handlers shows `{items=N}`, so an agent can tell a described canvas from an opaque one; purely decorative canvases stay out of the outline. `lurq_read_tree` lists up to `max_items` items per canvas (default 200) and counts the rest in a `… +N more items` line; `lurq_inspect` with `role` or `query` reaches every item. This excerpt is `lurq_read_tree` of `examples/canvas_chart.rs` at 1.5x:
+Canvas pixels are opaque to the tree. Describe what you drew with [canvas items](../canvas/#describing-what-you-drew) (`CanvasHandle::set_items`, `canvas` feature) and agents get one child per item under the canvas, with a ref, its role, label, value and bounds in screenshot pixels. Item ids are written `item:<id>`, never `#<id>`, so a pattern looking for an element id cannot match an item; `lurq_find_by_id` still finds items by their id when no element has it. A canvas with items or pointer handlers shows `{items=N}`, so an agent can tell a described canvas from an opaque one; purely decorative canvases stay out of the outline. `lurq_read_tree` lists up to `max_items` items per canvas (default 200) and counts the rest in a `… +N more items` line; `lurq_inspect` with `role` or `query` reaches every item. This excerpt is `lurq_read_tree` of `examples/canvas_chart.rs` at 1.5x:
 
 ```text
 window: main (630x450 @1.5x)
 - Chart @0,0 630x450
   - Canvas #runs-chart [ref_11] @24,24 540x300 {items=10}
-    - bar #mon [ref_1] "Mon" @54,135 75x144 {value="12 runs"}
-    - label #mon-label [ref_2] "Mon" @54,288 75x27
-    - bar #tue [ref_3] "Tue" @159,63 75x216 {value="18 runs"}
+    - bar item:mon [ref_1] "Mon" @54,135 75x144 {value="12 runs"}
+    - label item:mon-label [ref_2] "Mon" @54,288 75x27
+    - bar item:tue [ref_3] "Tue" @159,63 75x216 {value="18 runs"}
     …
   - Text #tooltip [ref_12] "Hover a bar" @24,336 124x29
 ```
@@ -208,7 +208,7 @@ lurq_act {"ref":"ref_9","action":"hover"}
 
 Item bounds are what the pointer can reach: the item clipped to its canvas and to what scroll viewports, clipping ancestors and the window leave visible, with every ancestor placed through its transform as hit testing does. An item with nothing visible is listed as `(not visible)` (`bounds: null`, `state.hidden: true` in `lurq_inspect`); input, screenshots and `lurq_act` refuse it, and `scroll_to` brings the part inside its canvas into view. Input by item ref also requires the item's center to hit its canvas, so it never lands on a control beside or above it.
 
-Item refs work wherever element refs do. Actions re-resolve the item's live bounds through the canvas's current placement, so a ref follows its item across redraws, scrolling and ancestor transforms, and errors once the app stops registering that id. `lurq_interact` `move`/`click`/`double_click`/`drag` target the item's center, `scroll_to` scrolls the item itself into view, and `lurq_screenshot` with an item ref crops to it. Pointer input goes through the app's normal handling: the canvas's own handlers receive it and hit-test with `CanvasHandle::item_at`, so the app's hover tooltips open as they do for a mouse. The canvas's handlers decide the item's `actions`; `lurq_act` also checks that the item's role and label are unchanged and that its center is on the canvas. In `lurq_find` and lookup results an item appears as `CanvasItem role=bar #tue name="Tue" {value="18 runs"}`.
+Item refs work wherever element refs do. Actions re-resolve the item's live bounds through the canvas's current placement, so a ref follows its item across redraws, scrolling and ancestor transforms, and errors once the app stops registering that id. `lurq_interact` `move`/`click`/`double_click`/`drag` target the item's center, `scroll_to` scrolls the item itself into view, and `lurq_screenshot` with an item ref crops to it. Pointer input goes through the app's normal handling: the canvas's own handlers receive it and hit-test with `CanvasHandle::item_at`, so the app's hover tooltips open as they do for a mouse. The canvas's handlers decide the item's `actions`; `lurq_act` also checks that the item's role and label are unchanged and that its center is on the canvas. In `lurq_find` and lookup results an item appears as `CanvasItem role=bar item:tue name="Tue" {value="18 runs"}`.
 
 ## Custom Tools
 

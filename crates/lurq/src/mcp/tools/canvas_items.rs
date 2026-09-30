@@ -132,7 +132,7 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
   for item in records.into_iter().take(ctx.max_items) {
     let record = to_ref_record((ctx.mint)(), &ctx.window, node.node_id(), item, ctx.scale);
     let mut line = format!(
-      "{}- {} #{} [{}]",
+      "{}- {} item:{} [{}]",
       "  ".repeat(depth + 1),
       token(&record.role),
       token(record.canvas_item.as_deref().unwrap_or_default()),

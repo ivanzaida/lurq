@@ -82,16 +82,16 @@ fn item_bounds_are_clipped_to_the_canvas_and_input_never_lands_beside_it() {
     serde_json::json!({}),
   ));
   // Only the 10 px of "tall" inside the canvas are reported; "below" is off it.
-  assert!(text.contains("#tall [") && text.contains("@10,90 20x10"), "{text}");
+  assert!(text.contains("item:tall [") && text.contains("@10,90 20x10"), "{text}");
   assert!(
     text
       .lines()
-      .any(|line| line.contains("#below [") && line.ends_with("(not visible)")),
+      .any(|line| line.contains("item:below [") && line.ends_with("(not visible)")),
     "{text}"
   );
 
-  let tall = ref_of(&text, "#tall");
-  let below = ref_of(&text, "#below");
+  let tall = ref_of(&text, "item:tall");
+  let below = ref_of(&text, "item:below");
   let interact = |f: &mut Overhang, action: &str, ref_id: &str| {
     call(
       &mut f.tree,
@@ -162,7 +162,7 @@ fn items_scrolled_out_of_view_are_not_visible_until_scrolled_to() {
     serde_json::json!({}),
   ));
   assert!(text.contains("(not visible)"), "{text}");
-  let deep = ref_of(&text, "#deep");
+  let deep = ref_of(&text, "item:deep");
   let click = |tree: &mut Tree, app: &mut App| {
     call(
       tree,
@@ -247,8 +247,8 @@ fn items_under_a_transformed_ancestor_above_a_scroll_viewport_stay_reachable() {
     "lurq_read_tree",
     serde_json::json!({}),
   ));
-  assert!(text.contains("#a [") && text.contains("@260,10 20x20"), "{text}");
-  let a = ref_of(&text, "#a");
+  assert!(text.contains("item:a [") && text.contains("@260,10 20x20"), "{text}");
+  let a = ref_of(&text, "item:a");
   call(
     &mut tree,
     &mut app,
@@ -294,10 +294,10 @@ fn items_whose_clipping_ancestor_is_scrolled_away_are_not_visible() {
   assert!(
     text
       .lines()
-      .any(|line| line.contains("#a [") && line.ends_with("(not visible)")),
+      .any(|line| line.contains("item:a [") && line.ends_with("(not visible)")),
     "{text}"
   );
-  let a = ref_of(&text, "#a");
+  let a = ref_of(&text, "item:a");
   for (tool, args) in [
     ("lurq_interact", serde_json::json!({"action": "click", "ref": a})),
     ("lurq_screenshot", serde_json::json!({"ref": a})),
@@ -343,7 +343,7 @@ fn scroll_to_an_item_in_nested_scroll_containers_makes_it_clickable() {
     "lurq_read_tree",
     serde_json::json!({}),
   ));
-  let deep = ref_of(&text, "#deep");
+  let deep = ref_of(&text, "item:deep");
   let interact = |tree: &mut Tree, app: &mut App, action: &str| {
     call(
       tree,
