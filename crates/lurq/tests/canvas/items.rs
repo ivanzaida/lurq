@@ -126,3 +126,56 @@ fn items_sharing_an_id_keep_the_last_one_everywhere() {
   assert_eq!(canvas.item_at(45.0, 5.0).unwrap().label.as_deref(), Some("second"));
   assert_bounds(canvas.item_window_bounds("a"), (40.0, 0.0, 10.0, 10.0));
 }
+
+/// Counts warnings, to check how often duplicates are reported.
+#[derive(Default)]
+struct WarningCounter(std::sync::atomic::AtomicUsize);
+
+impl tracing::Subscriber for WarningCounter {
+  fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+    *metadata.level() == tracing::Level::WARN
+  }
+  fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+    tracing::span::Id::from_u64(1)
+  }
+  fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+  fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+  fn event(&self, event: &tracing::Event<'_>) {
+    if event.metadata().target().starts_with("lurq::canvas") {
+      self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+  }
+  fn enter(&self, _: &tracing::span::Id) {}
+  fn exit(&self, _: &tracing::span::Id) {}
+}
+
+#[test]
+fn duplicate_ids_are_reported_once_per_set_not_every_redraw() {
+  let (_app, _tree, r) = setup(64.0, 64.0);
+  let canvas = r.as_canvas().unwrap();
+  let items = |second: &str| {
+    [
+      CanvasItem::rect("a", "bar", 0.0, 0.0, 4.0, 4.0),
+      CanvasItem::rect(second, "bar", 8.0, 0.0, 4.0, 4.0),
+      CanvasItem::rect("a", "bar", 16.0, 0.0, 4.0, 4.0),
+    ]
+  };
+  let counter = std::sync::Arc::new(WarningCounter::default());
+  let count = || counter.0.load(std::sync::atomic::Ordering::SeqCst);
+  tracing::subscriber::with_default(counter.clone(), || {
+    for _ in 0..5 {
+      canvas.set_items(items("b"));
+    }
+    assert_eq!(count(), 1);
+    canvas.set_items(items("a"));
+    assert_eq!(count(), 1, "the same duplicated ids in another layout");
+    canvas.set_items([
+      CanvasItem::rect("b", "bar", 0.0, 0.0, 4.0, 4.0),
+      CanvasItem::rect("b", "bar", 8.0, 0.0, 4.0, 4.0),
+    ]);
+    assert_eq!(count(), 2, "a different duplicate set is reported");
+    canvas.set_items([CanvasItem::rect("a", "bar", 0.0, 0.0, 4.0, 4.0)]);
+    canvas.set_items(items("b"));
+    assert_eq!(count(), 3, "duplicates that come back are reported again");
+  });
+}

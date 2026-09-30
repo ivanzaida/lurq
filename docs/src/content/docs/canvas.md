@@ -321,7 +321,7 @@ fn draw(canvas: &CanvasHandle, runs: &[(&str, &str, f32)]) {
 | `CanvasItem::rect(id, role, x, y, width, height)` | A rectangle; negative extents are normalized. |
 | `CanvasItem::point(id, role, x, y, radius)` | A point that hits within `radius`. |
 | `.label(text)` / `.value(text)` | Accessible name (`"Tue"`) and displayed value (`"18 runs"`). The fields are public to read; build items with the constructors, as more fields may follow. |
-| `canvas.set_items(items)` | Replace the canvas's items. Cheap; it does not repaint. Ids are unique per canvas: of items sharing an id, the last is kept (and a warning logged). |
+| `canvas.set_items(items)` | Replace the canvas's items. Cheap; it does not repaint. Ids are unique per canvas: of items sharing an id, the last is kept, and a warning is logged once per set of duplicated ids. |
 | `canvas.items()` | The current items, shared (`Arc<[CanvasItem]>`). |
 | `canvas.item_at(x, y)` | The last registered item containing a content point, so later items count as drawn on top. |
 | `canvas.item_window_bounds(id)` | Window-logical `(x, y, width, height)`, like `ElementRef::rect`, clipped to the canvas, for anchoring a tooltip; `None` when the item lies outside the canvas. |

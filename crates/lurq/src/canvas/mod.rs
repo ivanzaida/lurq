@@ -262,6 +262,9 @@ struct Surface {
   error: Option<CanvasError>,
   /// Semantic items registered by the app, replaced as a whole.
   items: Arc<[CanvasItem]>,
+  /// Fingerprint of the duplicated ids last warned about, so a redraw that
+  /// repeats the same duplicates every frame warns once.
+  warned_duplicates: Option<u64>,
 }
 
 impl fmt::Debug for CanvasHandle {
@@ -318,6 +321,7 @@ impl CanvasHandle {
         text: None,
         error: None,
         items: Arc::from([]),
+        warned_duplicates: None,
       })),
     }
   }
