@@ -20,6 +20,8 @@ mod windows;
 
 #[cfg(all(test, feature = "canvas"))]
 mod canvas_items_tests;
+#[cfg(all(test, feature = "canvas"))]
+mod canvas_visibility_tests;
 
 use inspect::{act_tool, inspect_tool};
 use interact::interact_tool;

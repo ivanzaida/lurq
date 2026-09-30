@@ -44,27 +44,53 @@ pub(super) fn intersect(a: [f32; 4], b: [f32; 4]) -> Option<[f32; 4]> {
   (right >= left && bottom >= top).then_some([left, top, right - left, bottom - top])
 }
 
-/// Logical region in which a node's content can be seen and hit: the window,
-/// narrowed by every ancestor that clips its overflow (scroll viewports
-/// included), as hit testing sees them. Transforms are ignored, as in
-/// [`locate_node`]. `None` when the node is not laid out or fully clipped.
+/// Where a node's content can be seen and hit.
 #[cfg(feature = "canvas")]
-pub(super) fn visible_clip(tree: &Tree, node_id: NodeId) -> Option<[f32; 4]> {
-  use crate::layout::layout_kind::Overflow;
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Visibility {
+  /// The node is not laid out yet (or not in the tree): no clip is known.
+  Unknown,
+  /// A clipping ancestor or the window cuts all of it off.
+  Hidden,
+  /// The window-logical region its content can occupy.
+  Region([f32; 4]),
+}
 
-  fn walk(node: &Node, layout: &LayoutResult, abs: (f32, f32), clip: [f32; 4], node_id: NodeId) -> Option<[f32; 4]> {
+/// Where a node's content can be seen and hit: the window, narrowed by every
+/// ancestor that clips its overflow (scroll viewports included), each placed
+/// with its ancestors' transforms and its own, the way hit testing and canvas
+/// placement compose them.
+#[cfg(feature = "canvas")]
+pub(super) fn visible_clip(tree: &Tree, node_id: NodeId) -> Visibility {
+  use crate::{layout::layout_kind::Overflow, node::transform::Transform2D};
+
+  /// `None` when `node_id` is not in this subtree; `Some(None)` when it is but
+  /// is clipped away.
+  fn walk(
+    node: &Node,
+    layout: &LayoutResult,
+    abs: (f32, f32),
+    inherited: Transform2D,
+    clip: Option<[f32; 4]>,
+    node_id: NodeId,
+  ) -> Option<Option<[f32; 4]>> {
     if node.node_id() == node_id {
       return Some(clip);
     }
+    let (width, height) = (layout.size.width, layout.size.height);
+    let local = node
+      .effective_transform()
+      .around_origin([abs.0 + width * 0.5, abs.1 + height * 0.5]);
+    let composed = inherited.then(&local);
     let clip = if node.overflow == Overflow::Visible {
       clip
     } else {
-      intersect(clip, [abs.0, abs.1, layout.size.width, layout.size.height])?
+      clip.and_then(|clip| intersect(clip, transformed_box(composed, [abs.0, abs.1, width, height])))
     };
     node.children().iter().enumerate().find_map(|(index, child)| {
       let child_layout = layout.children.get(index)?;
       let offset = (abs.0 + child_layout.offset.x, abs.1 + child_layout.offset.y);
-      walk(child, &child_layout.result, offset, clip, node_id)
+      walk(child, &child_layout.result, offset, composed, clip, node_id)
     })
   }
   let info = tree.window().info();
@@ -74,7 +100,36 @@ pub(super) fn visible_clip(tree: &Tree, node_id: NodeId) -> Option<[f32; 4]> {
   } else {
     [f32::MIN / 4.0, f32::MIN / 4.0, f32::MAX / 2.0, f32::MAX / 2.0]
   };
-  walk(tree.root()?.node, tree.last_layout()?, (0.0, 0.0), window, node_id)
+  let (Some(root), Some(layout)) = (tree.root(), tree.last_layout()) else {
+    return Visibility::Unknown;
+  };
+  match walk(
+    root.node,
+    layout,
+    (0.0, 0.0),
+    Transform2D::IDENTITY,
+    Some(window),
+    node_id,
+  ) {
+    None => Visibility::Unknown,
+    Some(None) => Visibility::Hidden,
+    Some(Some(region)) => Visibility::Region(region),
+  }
+}
+
+/// Axis-aligned box enclosing `[x, y, width, height]` after `transform`.
+#[cfg(feature = "canvas")]
+fn transformed_box(transform: crate::node::transform::Transform2D, [x, y, width, height]: [f32; 4]) -> [f32; 4] {
+  if transform.is_identity() {
+    return [x, y, width, height];
+  }
+  let corners = [(x, y), (x + width, y), (x, y + height), (x + width, y + height)]
+    .map(|(corner_x, corner_y)| transform.transform_point(corner_x, corner_y));
+  let left = corners.iter().map(|corner| corner.0).fold(f32::INFINITY, f32::min);
+  let top = corners.iter().map(|corner| corner.1).fold(f32::INFINITY, f32::min);
+  let right = corners.iter().map(|corner| corner.0).fold(f32::NEG_INFINITY, f32::max);
+  let bottom = corners.iter().map(|corner| corner.1).fold(f32::NEG_INFINITY, f32::max);
+  [left, top, right - left, bottom - top]
 }
 
 /// Whether a pointer at the window-logical point would hit `node` or one of

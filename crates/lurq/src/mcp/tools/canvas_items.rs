@@ -10,7 +10,7 @@
 //! reports no items.
 
 #[cfg(feature = "canvas")]
-use super::resolve::{intersect, visible_clip};
+use super::resolve::{Visibility, intersect, visible_clip};
 use super::{
   inspect::InspectCtx,
   read_tree::SnapshotCtx,
@@ -90,12 +90,14 @@ fn to_item_record(node: &Node, item: crate::canvas::CanvasItem, bounds: Option<[
   }
 }
 
-/// Canvas-clipped bounds further clipped by the canvas's visible region, when known.
+/// Canvas-clipped bounds further clipped by the canvas's visible region: none
+/// when the canvas is clipped away, unchanged when no clip is known yet.
 #[cfg(feature = "canvas")]
-fn visible(bounds: Option<[f32; 4]>, clip: Option<[f32; 4]>) -> Option<[f32; 4]> {
+fn visible(bounds: Option<[f32; 4]>, clip: Visibility) -> Option<[f32; 4]> {
   match clip {
-    Some(clip) => intersect(bounds?, clip),
-    None => bounds,
+    Visibility::Region(clip) => intersect(bounds?, clip),
+    Visibility::Hidden => None,
+    Visibility::Unknown => bounds,
   }
 }
 
