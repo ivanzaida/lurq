@@ -296,7 +296,7 @@ pub(super) fn scroll_into_view(
   }
 
   const MARGIN: f32 = 8.0;
-  let [target_x, target_y, target_w, target_h] = target;
+  let [mut target_x, mut target_y, target_w, target_h] = target;
   for ancestor in ancestors.iter().rev() {
     let [view_x, view_y, view_w, view_h] = ancestor.viewport;
     let mut delta_x = 0.0;
@@ -315,10 +315,12 @@ pub(super) fn scroll_into_view(
       let state = ancestor.state;
       let max_x = (state.content_width() - state.viewport_width()).max(0.0);
       let max_y = (state.content_height() - state.viewport_height()).max(0.0);
-      state.set_scroll(
-        (state.scroll_x() + delta_x).clamp(0.0, max_x),
-        (state.scroll_y() + delta_y).clamp(0.0, max_y),
-      );
+      let (old_x, old_y) = (state.scroll_x(), state.scroll_y());
+      let (new_x, new_y) = ((old_x + delta_x).clamp(0.0, max_x), (old_y + delta_y).clamp(0.0, max_y));
+      state.set_scroll(new_x, new_y);
+      // The inner scroll moved the target; outer containers must see where it is now.
+      target_x -= new_x - old_x;
+      target_y -= new_y - old_y;
     }
   }
   Ok(())

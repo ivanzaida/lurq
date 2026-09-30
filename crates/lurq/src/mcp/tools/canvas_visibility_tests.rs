@@ -315,3 +315,48 @@ fn items_whose_clipping_ancestor_is_scrolled_away_are_not_visible() {
   ));
   assert_eq!(inspected["matches"][0]["state"]["hidden"], true);
 }
+
+#[test]
+fn scroll_to_an_item_in_nested_scroll_containers_makes_it_clickable() {
+  let (mut tree, mut app) = (Tree::new(), App::new());
+  let (reference, log) = (ElementRef::new(), Seen::default());
+  tree.resize(400, 400);
+  tree.set_root(
+    ScrollVertical::new(
+      Column::new()
+        .child(Spacer::new().height(100.0))
+        .child(ScrollVertical::new(logged_canvas(&reference, &log, 200.0, 600.0)).height(200.0))
+        .child(Spacer::new().height(600.0)),
+    )
+    .height(200.0),
+  );
+  tree.pass_headless(&mut app);
+  reference
+    .as_canvas()
+    .unwrap()
+    .set_items([CanvasItem::rect("deep", "bar", 10.0, 500.0, 20.0, 20.0)]);
+  let state = state();
+  let text = output_text(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_read_tree",
+    serde_json::json!({}),
+  ));
+  let deep = ref_of(&text, "#deep");
+  let interact = |tree: &mut Tree, app: &mut App, action: &str| {
+    call(
+      tree,
+      app,
+      &state,
+      "lurq_interact",
+      serde_json::json!({"action": action, "ref": deep}),
+    )
+  };
+  interact(&mut tree, &mut app, "scroll_to").unwrap();
+  tree.pass_headless(&mut app);
+  let (_, y, _, height) = reference.as_canvas().unwrap().item_window_bounds("deep").unwrap();
+  assert!(y >= 0.0 && y + height <= 200.0, "item at {y}");
+  interact(&mut tree, &mut app, "click").unwrap();
+  assert_eq!(*log.lock().unwrap(), ["deep"]);
+}
