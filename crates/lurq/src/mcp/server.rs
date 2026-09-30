@@ -67,9 +67,12 @@ impl LurqMcpServer {
   fn output_to_result(output: McpToolOutput) -> CallToolResult {
     match output {
       McpToolOutput::Text(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
-      McpToolOutput::Json(value) => CallToolResult::success(vec![ContentBlock::text(
-        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
-      )]),
+      McpToolOutput::Json(value) => {
+        let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        result.structured_content = Some(value);
+        result
+      }
       McpToolOutput::Image { data, mime } => {
         use base64::Engine as _;
         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
@@ -90,8 +93,10 @@ impl LurqMcpServer {
         let mut lines = Vec::new();
         for record in &refs.records {
           let haystack = format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {} {}",
             record.tag,
+            record.role,
+            record.name.as_deref().unwrap_or(""),
             record.element_id.as_deref().unwrap_or(""),
             record.classes.join(" "),
             record.text.as_deref().unwrap_or(""),
@@ -108,7 +113,7 @@ impl LurqMcpServer {
         }
         if lines.is_empty() {
           Some(Ok(McpToolOutput::Text(format!(
-            "No matches for {query:?}. Refs come from the last lurq_read_tree per window — call it first or broaden the query."
+            "No matches for {query:?}. Refs come from the last lurq_inspect or lurq_read_tree per window — call one first or broaden the query."
           ))))
         } else {
           Some(Ok(McpToolOutput::Text(lines.join("\n"))))
@@ -141,9 +146,9 @@ impl ServerHandler for LurqMcpServer {
       "Embedded MCP server for the lurq app {:?}. Drive and inspect the running UI.\n\
        Conventions:\n\
        - All coordinates and sizes are pixels of the last lurq_screenshot image (physical pixels).\n\
-       - Workflow: lurq_read_tree to get `ref_N` handles -> lurq_interact / lurq_set_value by ref -> \
-         lurq_wait -> lurq_screenshot to verify.\n\
-       - Refs are replaced by each lurq_read_tree of the same window; stale refs error.\n\
+       - Prefer lurq_inspect (optionally with query and role) -> lurq_act by ref -> lurq_inspect \
+         to verify. Use lurq_screenshot only when semantic inspection is insufficient.\n\
+       - Refs are replaced by each lurq_inspect or lurq_read_tree of the same window; stale refs error.\n\
        - Multi-window: every window-touching tool takes `window` (default \"main\"); \
          list windows with lurq_windows. Ref-based calls need no `window`.",
       self.shared.app_name

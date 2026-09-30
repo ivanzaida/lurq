@@ -112,8 +112,10 @@ fn to_ref_record(ref_id: String, window: &str, node_id: NodeId, item: ItemRecord
     id: ref_id,
     window: window.to_owned(),
     node_id,
-    tag: item.role,
-    text: item.label,
+    tag: item.role.clone(),
+    text: item.label.clone(),
+    role: item.role,
+    name: item.label,
     element_id: Some(item.id.clone()),
     classes: Vec::new(),
     attrs: item

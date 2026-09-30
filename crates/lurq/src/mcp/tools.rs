@@ -14,6 +14,7 @@ use crate::{
   app::{
     App, Tree,
     events::MouseButton,
+    hit_test::hit_test_tree,
     synthetic_input::{self, SyntheticInput, SyntheticModifiers},
   },
   core::NodeId,
@@ -70,6 +71,9 @@ fn execute_builtin(
     BuiltinTool::ReadTree => {
       let _ = reply.send(read_tree_tool(tree, state, &args));
     }
+    BuiltinTool::Inspect => {
+      let _ = reply.send(inspect_tool(tree, state, &args));
+    }
     BuiltinTool::FindById => {
       let _ = reply.send(find_by_id_tool(tree, state, &args));
     }
@@ -80,6 +84,9 @@ fn execute_builtin(
     BuiltinTool::Wait => wait_tool(tree, state, &args, reply),
     BuiltinTool::Interact => {
       let _ = reply.send(interact_tool(tree, app, state, &args));
+    }
+    BuiltinTool::Act => {
+      let _ = reply.send(act_tool(tree, app, state, &args));
     }
     BuiltinTool::SetValue => {
       let _ = reply.send(set_value_tool(tree, state, &args));
@@ -237,6 +244,81 @@ fn is_interactive(node: &Node) -> bool {
     || matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. })
 }
 
+fn semantic_role(node: &Node) -> String {
+  if let Some((_, role)) = node.debug_attrs().iter().find(|(key, _)| key.as_ref() == "a11y_role") {
+    return role.to_string();
+  }
+  if node.button_kind_value().is_some() {
+    return "button".into();
+  }
+  match node.node_kind() {
+    NodeKind::TextInput { .. } => "textbox".into(),
+    NodeKind::Checkbox { .. } => "checkbox".into(),
+    NodeKind::Slider { .. } => "slider".into(),
+    NodeKind::Select { .. } => "combobox".into(),
+    NodeKind::Text { .. } => "text".into(),
+    #[cfg(feature = "markdown")]
+    NodeKind::RichText { .. } => "text".into(),
+    _ if !node.events.on_click.is_empty() || !node.events.on_mouse_click.is_empty() => "button".into(),
+    _ => node.tag_name().to_ascii_lowercase(),
+  }
+}
+
+fn is_text_node(node: &Node) -> bool {
+  match node.node_kind() {
+    NodeKind::Text { .. } => true,
+    #[cfg(feature = "markdown")]
+    NodeKind::RichText { .. } => true,
+    _ => false,
+  }
+}
+
+fn descendant_label(node: &Node, parts: &mut Vec<String>) {
+  if is_text_node(node) {
+    if let Some(text) = node.inspection_text().filter(|text| !text.trim().is_empty()) {
+      parts.push(text);
+    }
+  }
+  for child in node.children() {
+    descendant_label(child, parts);
+  }
+}
+
+fn semantic_name(node: &Node) -> Option<String> {
+  if let Some((_, name)) = node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| matches!(key.as_ref(), "a11y_name" | "aria-label"))
+  {
+    return Some(name.to_string());
+  }
+  if let NodeKind::TextInput { state, .. } = node.node_kind() {
+    return state.placeholder().map(|placeholder| placeholder.to_string());
+  }
+  if is_text_node(node) {
+    return node.inspection_text().filter(|text| !text.trim().is_empty());
+  }
+  if semantic_role(node) == "button" {
+    let mut parts = Vec::new();
+    descendant_label(node, &mut parts);
+    let joined = parts.join(" ");
+    if !joined.is_empty() {
+      return Some(joined);
+    }
+  }
+  None
+}
+
+fn can_invoke(node: &Node) -> bool {
+  node.button_kind_value().is_some()
+    || !node.events.on_click.is_empty()
+    || !node.events.on_mouse_click.is_empty()
+    || matches!(
+      node.node_kind(),
+      NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. } | NodeKind::Select { .. }
+    )
+}
+
 fn node_value_summary(node: &Node) -> Option<String> {
   match node.node_kind() {
     NodeKind::TextInput { state, .. } if state.is_masked() => Some(format!("value={:?}", state.caret_source_text())),
@@ -343,6 +425,8 @@ fn snapshot_node(
       node_id: node.node_id(),
       tag: node.tag_name().to_owned(),
       text: text.clone(),
+      role: semantic_role(node),
+      name: semantic_name(node),
       element_id,
       classes,
       attrs: attrs
@@ -438,15 +522,222 @@ fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -
   Ok(McpToolOutput::Text(format!("{header}{body}")))
 }
 
+struct InspectCtx<'a> {
+  window: &'a str,
+  scale: f32,
+  query: Option<String>,
+  role: Option<String>,
+  max_depth: usize,
+  max_nodes: usize,
+  visited: usize,
+  truncated: bool,
+  matches: Vec<serde_json::Value>,
+  records: &'a mut Vec<RefRecord>,
+  mint: &'a mut dyn FnMut() -> String,
+}
+
+fn semantic_state(node: &Node) -> serde_json::Value {
+  let mut state = serde_json::Map::new();
+  if node.style_state.is_focused() {
+    state.insert("focused".into(), serde_json::json!(true));
+  }
+  match node.node_kind() {
+    NodeKind::TextInput { state: input, .. } if input.is_masked() => {
+      state.insert("value".into(), serde_json::json!(input.caret_source_text()));
+      state.insert("masked".into(), serde_json::json!(true));
+    }
+    NodeKind::TextInput { state: input, .. } => {
+      state.insert("value".into(), serde_json::json!(input.value()));
+    }
+    NodeKind::Checkbox { state: checkbox } => {
+      state.insert("checked".into(), serde_json::json!(checkbox.is_checked()));
+    }
+    NodeKind::Slider { state: slider } => {
+      state.insert("value".into(), serde_json::json!(slider.value_string()));
+    }
+    NodeKind::Select { state: select } => {
+      let labels = select.labels();
+      let selected: Vec<_> = select
+        .selected_indices()
+        .into_iter()
+        .filter_map(|index| labels.get(index).map(|label| label.to_string()))
+        .collect();
+      state.insert("selected".into(), serde_json::json!(selected));
+      state.insert("expanded".into(), serde_json::json!(select.is_open()));
+    }
+    _ => {}
+  }
+  serde_json::Value::Object(state)
+}
+
+fn inspect_node(
+  ctx: &mut InspectCtx<'_>,
+  node: &Node,
+  layout: Option<&LayoutResult>,
+  abs: (f32, f32),
+  depth: usize,
+  path: &[String],
+) -> Option<serde_json::Value> {
+  if ctx.visited >= ctx.max_nodes {
+    ctx.truncated = true;
+    return None;
+  }
+  ctx.visited += 1;
+  let role = semantic_role(node);
+  let name = semantic_name(node);
+  let element_id = node.element_id().map(str::to_owned);
+  let classes: Vec<String> = node.class_list().iter().map(ToString::to_string).collect();
+  let attrs = inspection_attrs(node);
+  let bounds = layout.map(|layout| {
+    [
+      (abs.0 * ctx.scale).round(),
+      (abs.1 * ctx.scale).round(),
+      (layout.size.width * ctx.scale).round(),
+      (layout.size.height * ctx.scale).round(),
+    ]
+  });
+  let ref_id = (ctx.mint)();
+  let actions = if can_invoke(node) { vec!["invoke"] } else { Vec::new() };
+  ctx.records.push(RefRecord {
+    id: ref_id.clone(),
+    window: ctx.window.to_owned(),
+    node_id: node.node_id(),
+    tag: node.tag_name().to_owned(),
+    text: node.inspection_text(),
+    role: role.clone(),
+    name: name.clone(),
+    element_id: element_id.clone(),
+    classes: classes.clone(),
+    attrs: attrs.clone(),
+    bounds: bounds.unwrap_or([0.0; 4]),
+    interactive: can_invoke(node),
+    canvas_item: None,
+  });
+  let mut value = serde_json::json!({
+    "ref": ref_id,
+    "role": role,
+    "name": name,
+    "id": element_id,
+    "state": semantic_state(node),
+    "actions": actions,
+    "bounds": bounds,
+  });
+  if !classes.is_empty() {
+    value["classes"] = serde_json::json!(classes);
+  }
+  if !attrs.is_empty() {
+    value["attrs"] = serde_json::json!(attrs);
+  }
+
+  let matches_role = ctx.role.as_ref().is_none_or(|expected| expected == &role);
+  let matches_query = ctx.query.as_ref().is_none_or(|query| {
+    name.as_ref().is_some_and(|name| name.to_lowercase().contains(query))
+      || element_id.as_ref().is_some_and(|id| id.to_lowercase().contains(query))
+      || classes.iter().any(|class| class.to_lowercase().contains(query))
+  });
+  if (ctx.query.is_some() || ctx.role.is_some()) && matches_role && matches_query {
+    let mut match_value = value.clone();
+    match_value["path"] = serde_json::json!(path);
+    ctx.matches.push(match_value);
+  }
+
+  let mut child_path = path.to_vec();
+  if let Some(label) = name.as_ref().or(element_id.as_ref()) {
+    child_path.push(format!("{role} {label:?}"));
+  }
+  let mut children = Vec::new();
+  if depth < ctx.max_depth {
+    for (index, child) in node.children().iter().enumerate() {
+      let child_layout = layout.and_then(|layout| layout.children.get(index));
+      let child_abs = child_layout
+        .map(|child_layout| (abs.0 + child_layout.offset.x, abs.1 + child_layout.offset.y))
+        .unwrap_or(abs);
+      if let Some(child) = inspect_node(
+        ctx,
+        child,
+        child_layout.map(|child_layout| child_layout.result.as_ref()),
+        child_abs,
+        depth + 1,
+        &child_path,
+      ) {
+        children.push(child);
+      }
+    }
+  } else if !node.children().is_empty() {
+    ctx.truncated = true;
+  }
+  if !children.is_empty() {
+    value["children"] = serde_json::json!(children);
+  }
+  Some(value)
+}
+
+fn inspect_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
+  let window = requested_window(args);
+  let target = window_tree_mut(tree, &window, state.include_devtools)?;
+  target.refresh_dirty_subtrees();
+  let root = target
+    .root()
+    .ok_or_else(|| format!("window {window:?} has no mounted tree"))?;
+  let mut records = Vec::new();
+  let mut refs = state.shared.refs.lock().unwrap();
+  let mut mint = || refs.mint();
+  let mut ctx = InspectCtx {
+    window: &window,
+    scale: target.scale_factor(),
+    query: args
+      .get("query")
+      .and_then(|value| value.as_str())
+      .map(str::to_lowercase),
+    role: args.get("role").and_then(|value| value.as_str()).map(str::to_owned),
+    max_depth: args
+      .get("max_depth")
+      .and_then(|value| value.as_u64())
+      .unwrap_or(12)
+      .clamp(1, 100) as usize,
+    max_nodes: args
+      .get("max_nodes")
+      .and_then(|value| value.as_u64())
+      .unwrap_or(500)
+      .clamp(1, 5000) as usize,
+    visited: 0,
+    truncated: false,
+    matches: Vec::new(),
+    records: &mut records,
+    mint: &mut mint,
+  };
+  let layout = if target.layout_is_stale() {
+    None
+  } else {
+    target.last_layout()
+  };
+  let semantic_tree = inspect_node(&mut ctx, root.node, layout, (0.0, 0.0), 0, &[]);
+  let searching = ctx.query.is_some() || ctx.role.is_some();
+  let result = if searching {
+    serde_json::json!({"window": window, "matches": ctx.matches, "truncated": ctx.truncated})
+  } else {
+    serde_json::json!({"window": window, "tree": semantic_tree, "truncated": ctx.truncated})
+  };
+  drop(ctx);
+  drop(mint);
+  refs.replace_window(&window, records);
+  Ok(McpToolOutput::Json(result))
+}
+
 pub(crate) fn format_ref_line(record: &RefRecord) -> String {
-  let mut line = format!("{} [{}] {}", record.id, record.window, record.tag);
+  let mut line = format!("{} [{}] {} role={}", record.id, record.window, record.tag, record.role);
   if let Some(element_id) = &record.element_id {
     line.push_str(&format!(" #{element_id}"));
   }
   for class in &record.classes {
     line.push_str(&format!(" .{class}"));
   }
-  if let Some(text) = &record.text {
+  if let Some(name) = &record.name {
+    line.push_str(&format!(" name={:?}", truncate_text(name, 60)));
+  }
+  if let Some(text) = &record.text
+    && record.name.as_ref() != Some(text)
+  {
     line.push_str(&format!(" {:?}", truncate_text(text, 60)));
   }
   for (name, value) in &record.attrs {
@@ -472,6 +763,8 @@ struct LookupHit {
   node_id: NodeId,
   tag: String,
   text: Option<String>,
+  role: String,
+  name: Option<String>,
   element_id: Option<String>,
   classes: Vec<String>,
   attrs: Vec<(String, String)>,
@@ -483,6 +776,8 @@ fn lookup_hit(node: &Node) -> LookupHit {
     node_id: node.node_id(),
     tag: node.tag_name().to_owned(),
     text: node.inspection_text(),
+    role: semantic_role(node),
+    name: semantic_name(node),
     element_id: node.element_id().map(|id| id.to_owned()),
     classes: node.class_list().iter().map(|class| class.to_string()).collect(),
     attrs: inspection_attrs(node),
@@ -524,6 +819,8 @@ fn register_lookup_ref(target: &Tree, window: &str, hit: LookupHit, state: &McpS
     node_id: hit.node_id,
     tag: hit.tag,
     text: hit.text,
+    role: hit.role,
+    name: hit.name,
     element_id: hit.element_id,
     classes: hit.classes,
     attrs: hit.attrs,
@@ -1023,6 +1320,70 @@ fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json
     }
     other => Err(format!("unknown action {other:?}")),
   }
+}
+
+fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json::Value) -> McpToolResult {
+  let ref_id = args
+    .get("ref")
+    .and_then(|value| value.as_str())
+    .ok_or("`ref` is required")?;
+  let action = args
+    .get("action")
+    .and_then(|value| value.as_str())
+    .ok_or("`action` is required")?;
+  if action != "invoke" {
+    return Err(format!("unsupported semantic action {action:?}"));
+  }
+  let record = state
+    .shared
+    .refs
+    .lock()
+    .unwrap()
+    .get(ref_id)
+    .cloned()
+    .ok_or_else(|| format!("unknown or stale ref {ref_id:?}; call lurq_inspect again"))?;
+  {
+    let target = window_tree_mut(tree, &record.window, state.include_devtools)?;
+    target.refresh_dirty_subtrees();
+    let node = find_node(target, record.node_id)
+      .ok_or_else(|| format!("ref {ref_id:?} no longer resolves to a live element; call lurq_inspect again"))?;
+    if semantic_role(node) != record.role || semantic_name(node) != record.name {
+      return Err(format!("ref {ref_id:?} changed role or name; call lurq_inspect again"));
+    }
+    if !can_invoke(node) {
+      return Err(format!("ref {ref_id:?} does not support invoke"));
+    }
+    if target.layout_is_stale() {
+      return Err("UI changed since the last layout; wait for a frame and inspect again".into());
+    }
+    let [x, y, width, height] =
+      locate_node(target, record.node_id).ok_or("no layout available yet; wait for a frame before invoking")?;
+    if width <= 0.0 || height <= 0.0 {
+      return Err(format!("ref {ref_id:?} has no clickable area"));
+    }
+    let (center_x, center_y) = (x + width * 0.5, y + height * 0.5);
+    let root = target.root().ok_or("window has no mounted tree")?;
+    let layout = target
+      .last_layout()
+      .ok_or("no layout available yet; wait for a frame before invoking")?;
+    let mut hits = Vec::new();
+    hit_test_tree(root.node, layout, 0.0, 0.0, center_x, center_y, &mut hits);
+    fn contains_id(node: &Node, id: NodeId) -> bool {
+      node.node_id() == id || node.children().iter().any(|child| contains_id(child, id))
+    }
+    if !hits.iter().any(|(hit, _)| contains_id(node, hit.node_id())) {
+      return Err(format!(
+        "ref {ref_id:?} is not hittable at its center; scroll or inspect again"
+      ));
+    }
+  }
+  interact_tool(tree, app, state, &serde_json::json!({"action": "click", "ref": ref_id}))?;
+  Ok(McpToolOutput::Json(serde_json::json!({
+    "dispatched": true,
+    "action": action,
+    "ref": ref_id,
+    "window": record.window,
+  })))
 }
 
 /// Adjust every scroll container on the path to `node_id` so the node's

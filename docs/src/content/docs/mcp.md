@@ -81,6 +81,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | Tool | Scope | Does |
 | --- | --- | --- |
 | `lurq_screenshot` | observe | PNG of a window, a region, or one element (by ref). |
+| `lurq_inspect` | observe | Structured semantic tree, or matches for `query`/`role`, with roles, names, state, bounds, and `ref_N` handles. |
 | `lurq_read_tree` | observe | Element outline with `ref_N` handles, bounds, text, form values, `#id`/`.class` markers, and `.describe` attributes. |
 | `lurq_find` | observe | Substring search over the refs from the last `read_tree` (answered without touching the app). |
 | `lurq_find_by_id` | observe | Live lookup of the element with an `.id("...")`, returning a fresh actionable ref. |
@@ -90,6 +91,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
 | `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; also `request_close` and `menu_activate`. |
+| `lurq_act` | interact | Invoke a ref from `lurq_inspect` by semantic action, without agent-supplied coordinates. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
 | `lurq_resize` | interact | Resize a window. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
@@ -100,7 +102,21 @@ Masked text inputs expose the displayed mask and `masked=true` in tree reads, lo
 
 The MCP surface speaks exactly one coordinate space: **pixels of the last screenshot** (physical pixels). `read_tree` bounds, `interact` coordinates, `screenshot` regions, and `resize` dimensions all use it; the server converts internally, so an agent can click what it sees without thinking about scale factors.
 
-`lurq_read_tree` hands out `ref_N` handles for interactive elements, labeled elements (`.describe`, `.id`, `.class`), and form controls:
+For a task such as “click Save”, use the semantic tools first:
+
+```text
+lurq_inspect {"query":"Save","role":"button"}
+→ {"window":"main","matches":[{"ref":"ref_17","role":"button","name":"Save",
+   "id":"save-button","state":{},"actions":["invoke"],"bounds":[20,20,100,40],"path":[]}],
+   "truncated":false}
+
+lurq_act {"ref":"ref_17","action":"invoke"}
+→ {"dispatched":true,"action":"invoke","ref":"ref_17","window":"main"}
+```
+
+Without `query` or `role`, `lurq_inspect` returns a nested `tree`. It derives button names from child text; `a11y_name` and `a11y_role` annotations set with `.describe(...)` override the derived values. Pending reactive changes are refreshed before inspection. `bounds` is `null` before the first layout pass or while a refreshed tree awaits layout. `lurq_act` requires live layout, checks that the ref's role and name have not changed and that its center is hittable, then dispatches a normal synthetic click. `dispatched` means the input was sent; inspect again to verify the resulting app state. When several controls match, the tool returns all of them with their ancestor paths so the agent can choose deliberately. This server inspects only the Lurq app that embeds it, not other desktop windows.
+
+`lurq_read_tree` remains useful for a compact text outline. It hands out `ref_N` handles for interactive elements, labeled elements (`.describe`, `.id`, `.class`), and form controls:
 
 ```text
 window: main (800x600 @1.5x)
@@ -109,14 +125,14 @@ window: main (800x600 @1.5x)
 - TextInput [ref_68] value="Ada" @384,350 152x47
 ```
 
-Refs are the preferred targeting mechanism: a ref carries its window, and ref-based actions re-resolve the element's live bounds at execution time, so a ref stays valid across scrolling. Each `read_tree` of a window replaces that window's refs (numbering is monotonic, so a stale ref errors with a re-read hint instead of silently aliasing a new element). Refs minted by `lurq_find_by_id` / `lurq_find_by_class` are appended and leave existing refs valid.
+Refs are the preferred targeting mechanism: a ref carries its window, and ref-based actions re-resolve the element's live bounds at execution time, so a ref stays valid across scrolling. Each `inspect` or `read_tree` of a window replaces that window's refs (numbering is monotonic, so a stale ref errors with a re-read hint instead of silently aliasing a new element). Refs minted by `lurq_find_by_id` / `lurq_find_by_class` are appended and leave existing refs valid.
 
 The typical agent loop:
 
 ```text
-lurq_read_tree  →  lurq_interact { action: "click", ref: "ref_23" }
-                →  lurq_wait { frames: 2 }
-                →  lurq_screenshot   (verify)
+lurq_inspect { query: "Open modal", role: "button" }
+              →  lurq_act { action: "invoke", ref: "ref_23" }
+              →  lurq_inspect   (verify)
 ```
 
 ## Runtime Control

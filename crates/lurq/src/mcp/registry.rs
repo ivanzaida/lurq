@@ -11,6 +11,7 @@ use super::{McpToolCtx, Scope};
 pub(crate) enum BuiltinTool {
   Screenshot,
   ReadTree,
+  Inspect,
   Find,
   FindById,
   FindByClass,
@@ -18,6 +19,7 @@ pub(crate) enum BuiltinTool {
   Menu,
   Wait,
   Interact,
+  Act,
   SetValue,
   Resize,
   Logs,
@@ -127,8 +129,26 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       kind: ToolKind::Builtin(BuiltinTool::ReadTree),
     },
     RegisteredTool {
+      name: "lurq_inspect".into(),
+      description: "Read the live Lurq UI as structured semantic nodes (role, accessible name, state, bounds and refs), without a screenshot. With query, return matching nodes and their ancestor path. Replaces this window's refs; call lurq_act to invoke a returned ref."
+        .into(),
+      scope: Scope::Observe,
+      read_only: true,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "window": { "type": "string", "description": WINDOW_PROP },
+          "query": { "type": "string", "description": "Case-insensitive substring of accessible name, id, or class" },
+          "role": { "type": "string", "description": "Optional exact semantic role, e.g. button or textbox" },
+          "max_depth": { "type": "integer", "minimum": 1, "description": "Maximum tree depth (default 12)" },
+          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes (default 500)" }
+        }
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::Inspect),
+    },
+    RegisteredTool {
       name: "lurq_find".into(),
-      description: "Search the refs handed out by the last lurq_read_tree of each window (no app \
+      description: "Search the refs handed out by the last lurq_inspect or lurq_read_tree of each window (no app \
                     roundtrip). Case-insensitive substring match against tag, text, and attributes."
         .into(),
       scope: Scope::Observe,
@@ -207,7 +227,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     RegisteredTool {
       name: "lurq_interact".into(),
       description: "Drive the app with synthetic input. Actions: click, double_click, move, drag, \
-                    wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id). Target either a `ref` from lurq_read_tree or \
+                    wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id). Target either a `ref` from lurq_inspect/lurq_read_tree or \
                     `x`/`y` in screenshot pixels (ref carries its window; coordinates use `window`)."
         .into(),
       scope: Scope::Interact,
@@ -234,6 +254,22 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "required": ["action"]
       })),
       kind: ToolKind::Builtin(BuiltinTool::Interact),
+    },
+    RegisteredTool {
+      name: "lurq_act".into(),
+      description: "Invoke a semantic element ref from lurq_inspect without supplying coordinates. Re-checks its live role and name before dispatch; stale or changed refs fail."
+        .into(),
+      scope: Scope::Interact,
+      read_only: false,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "ref": { "type": "string", "description": "Element ref from lurq_inspect" },
+          "action": { "type": "string", "enum": ["invoke"], "description": "Semantic action (currently invoke)" }
+        },
+        "required": ["ref", "action"]
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::Act),
     },
     RegisteredTool {
       name: "lurq_set_value".into(),

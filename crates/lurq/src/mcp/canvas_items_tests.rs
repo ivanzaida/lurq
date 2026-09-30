@@ -125,7 +125,7 @@ fn read_tree_lists_items_under_their_canvas_in_screenshot_pixels() {
     .unwrap();
   let line = format_ref_line(record);
   assert!(
-    line.contains("[main] bar #tue \"Tue\" {value=18 runs} @110,70 40x140 (canvas item)"),
+    line.contains("[main] bar role=bar #tue name=\"Tue\" {value=18 runs} @110,70 40x140 (canvas item)"),
     "{line}"
   );
 }
@@ -175,7 +175,7 @@ fn item_refs_track_redraws_and_find_by_id_reaches_items() {
     "lurq_find_by_id",
     serde_json::json!({"id": "tue"}),
   ));
-  assert!(found.contains("bar #tue \"Tue\""), "{found}");
+  assert!(found.contains("bar role=bar #tue name=\"Tue\""), "{found}");
   let tue = ref_of(&found, "#tue");
 
   // The next draw moves "tue" and drops "mon": the ref follows the live item.
