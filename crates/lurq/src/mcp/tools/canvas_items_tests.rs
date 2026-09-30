@@ -617,3 +617,47 @@ fn long_item_labels_and_values_are_truncated_like_element_text() {
   );
   assert!(ref_line.chars().count() < 260, "{ref_line}");
 }
+
+#[test]
+fn inspect_searches_reach_every_item_past_max_nodes() {
+  let mut f = fixture();
+  f.canvas.set_items((0..2_000).map(|index| {
+    CanvasItem::point(
+      format!("p{index}"),
+      "point",
+      (index % 200) as f32,
+      (index / 200) as f32,
+      1.0,
+    )
+  }));
+  let state = state();
+  let found = json(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"role": "point", "query": "p1999", "max_nodes": 50}),
+  ));
+  let matches = found["matches"].as_array().unwrap();
+  assert_eq!(matches.len(), 1, "{found}");
+  assert_eq!(matches[0]["id"], "p1999");
+  // Only the match got a ref, and it acts.
+  let refs = state.shared.refs.lock().unwrap();
+  assert_eq!(
+    refs
+      .records
+      .iter()
+      .filter(|record| record.canvas_item.is_some())
+      .count(),
+    1
+  );
+  drop(refs);
+  let tree = json(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"max_nodes": 50}),
+  ));
+  assert_eq!(tree["truncated"], true);
+}

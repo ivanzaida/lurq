@@ -162,15 +162,23 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
 }
 
 /// Semantic nodes for a canvas node's items, as children in `lurq_inspect`.
-/// They count toward `max_nodes` and match `query`/`role` like elements.
+/// They match `query`/`role` like elements. In the tree they count toward
+/// `max_nodes`; a search checks every item and mints refs only for matches,
+/// so a chart with thousands of points stays searchable.
 pub(super) fn inspect_items(ctx: &mut InspectCtx<'_>, node: &Node, path: &[String]) -> Vec<serde_json::Value> {
+  let searching = ctx.searching();
   let mut values = Vec::new();
   for item in item_records(ctx.tree, node) {
-    if ctx.visited >= ctx.max_nodes {
+    if searching {
+      if !ctx.matches(&item.role, item.label.as_deref(), Some(&item.id), &[]) {
+        continue;
+      }
+    } else if ctx.visited >= ctx.max_nodes {
       ctx.truncated = true;
       break;
+    } else {
+      ctx.visited += 1;
     }
-    ctx.visited += 1;
     let has_bounds = item.bounds.is_some();
     let actions = semantic_actions(item.invoke, item.hover);
     let mut state = serde_json::Map::new();
@@ -200,7 +208,9 @@ pub(super) fn inspect_items(ctx: &mut InspectCtx<'_>, node: &Node, path: &[Strin
       path,
     );
     ctx.records.push(record);
-    values.push(value);
+    if !searching {
+      values.push(value);
+    }
   }
   values
 }

@@ -34,6 +34,22 @@ pub(super) struct InspectCtx<'a> {
 }
 
 impl InspectCtx<'_> {
+  /// Whether a `query` or `role` filter is set, so only matches are returned.
+  pub(super) fn searching(&self) -> bool {
+    self.query.is_some() || self.role.is_some()
+  }
+
+  /// Whether a node with this role, name, id and classes passes the filters.
+  pub(super) fn matches(&self, role: &str, name: Option<&str>, element_id: Option<&str>, classes: &[String]) -> bool {
+    let matches_role = self.role.as_deref().is_none_or(|expected| expected == role);
+    let matches_query = self.query.as_ref().is_none_or(|query| {
+      name.is_some_and(|name| name.to_lowercase().contains(query))
+        || element_id.is_some_and(|id| id.to_lowercase().contains(query))
+        || classes.iter().any(|class| class.to_lowercase().contains(query))
+    });
+    matches_role && matches_query
+  }
+
   /// Keep `value` (with its ancestor `path`) when a query or role filter is set and it matches.
   pub(super) fn record_match(
     &mut self,
@@ -44,13 +60,7 @@ impl InspectCtx<'_> {
     classes: &[String],
     path: &[String],
   ) {
-    let matches_role = self.role.as_deref().is_none_or(|expected| expected == role);
-    let matches_query = self.query.as_ref().is_none_or(|query| {
-      name.is_some_and(|name| name.to_lowercase().contains(query))
-        || element_id.is_some_and(|id| id.to_lowercase().contains(query))
-        || classes.iter().any(|class| class.to_lowercase().contains(query))
-    });
-    if (self.query.is_some() || self.role.is_some()) && matches_role && matches_query {
+    if self.searching() && self.matches(role, name, element_id, classes) {
       let mut match_value = value.clone();
       match_value["path"] = serde_json::json!(path);
       self.matches.push(match_value);
