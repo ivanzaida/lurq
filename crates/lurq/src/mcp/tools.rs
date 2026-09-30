@@ -286,7 +286,7 @@ fn snapshot_node(
   abs: (f32, f32),
   depth: usize,
 ) -> Vec<String> {
-  let mut child_lines = Vec::new();
+  let mut child_lines = canvas_items::snapshot_item_lines(ctx, node, depth);
   if ctx.max_depth == 0 || depth < ctx.max_depth {
     let children = node.children();
     for (index, child) in children.iter().enumerate() {
@@ -351,6 +351,7 @@ fn snapshot_node(
         .collect(),
       bounds: bounds.unwrap_or([0.0; 4]),
       interactive,
+      canvas_item: None,
     });
   }
 
@@ -453,6 +454,9 @@ pub(crate) fn format_ref_line(record: &RefRecord) -> String {
   }
   let [x, y, width, height] = record.bounds;
   line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));
+  if record.canvas_item.is_some() {
+    line.push_str(" (canvas item)");
+  }
   if !record.interactive {
     line.push_str(" (not interactive)");
   }
@@ -495,6 +499,7 @@ fn inspection_attrs(node: &Node) -> Vec<(String, String)> {
   if node.is_masked_input() {
     attrs.push(("masked".to_owned(), "true".to_owned()));
   }
+  attrs.extend(canvas_items::canvas_attrs(node));
   attrs
 }
 
@@ -524,6 +529,7 @@ fn register_lookup_ref(target: &Tree, window: &str, hit: LookupHit, state: &McpS
     attrs: hit.attrs,
     bounds,
     interactive: hit.interactive,
+    canvas_item: None,
   };
   refs.append(vec![record.clone()]);
   record
@@ -537,12 +543,20 @@ fn find_by_id_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) 
   let window = requested_window(args);
   let target = window_tree_mut(tree, &window, state.include_devtools)?;
   let hit = target.get_element_by_id(id).map(|element| lookup_hit(element.node));
-  let Some(hit) = hit else {
-    return Ok(McpToolOutput::Text(format!(
-      "no element with id {id:?} in window {window:?}"
-    )));
+  let record = match hit {
+    Some(hit) => register_lookup_ref(target, &window, hit, state),
+    None => {
+      let Some(item) = canvas_items::find_item_by_id(target, id) else {
+        return Ok(McpToolOutput::Text(format!(
+          "no element or canvas item with id {id:?} in window {window:?}"
+        )));
+      };
+      let mut refs = state.shared.refs.lock().unwrap();
+      let record = canvas_items::lookup_record(refs.mint(), &window, item, target.scale_factor());
+      refs.append(vec![record.clone()]);
+      record
+    }
   };
-  let record = register_lookup_ref(target, &window, hit, state);
   Ok(McpToolOutput::Text(format_ref_line(&record)))
 }
 
@@ -613,6 +627,7 @@ fn find_node(tree: &Tree, node_id: NodeId) -> Option<&Node> {
 struct ResolvedRef {
   window: String,
   node_id: NodeId,
+  canvas_item: Option<String>,
 }
 
 fn resolve_ref(state: &McpState, ref_id: &str) -> Result<ResolvedRef, String> {
@@ -621,6 +636,7 @@ fn resolve_ref(state: &McpState, ref_id: &str) -> Result<ResolvedRef, String> {
     Some(record) => Ok(ResolvedRef {
       window: record.window.clone(),
       node_id: record.node_id,
+      canvas_item: record.canvas_item.clone(),
     }),
     None => Err(format!(
       "unknown or stale ref {ref_id:?}; refs are replaced by each lurq_read_tree — call it again"
@@ -628,10 +644,21 @@ fn resolve_ref(state: &McpState, ref_id: &str) -> Result<ResolvedRef, String> {
   }
 }
 
-/// Physical-pixel center of a ref's node, resolved against the live layout.
-fn ref_center_physical(tree: &Tree, node_id: NodeId, ref_id: &str) -> Result<(f32, f32), String> {
-  let [x, y, width, height] = locate_node(tree, node_id)
-    .ok_or_else(|| format!("ref {ref_id:?} no longer resolves to a live element; call lurq_read_tree again"))?;
+/// Live logical bounds of a ref: its node from the last layout, or a canvas
+/// item from its canvas's current placement.
+fn ref_bounds(tree: &Tree, resolved: &ResolvedRef, ref_id: &str) -> Result<[f32; 4], String> {
+  let stale = || format!("ref {ref_id:?} no longer resolves to a live element; call lurq_read_tree again");
+  match &resolved.canvas_item {
+    Some(item_id) => find_node(tree, resolved.node_id)
+      .and_then(|canvas| canvas_items::item_bounds(canvas, item_id))
+      .ok_or_else(stale),
+    None => locate_node(tree, resolved.node_id).ok_or_else(stale),
+  }
+}
+
+/// Physical-pixel center of a ref, resolved against the live layout.
+fn ref_center_physical(tree: &Tree, resolved: &ResolvedRef, ref_id: &str) -> Result<(f32, f32), String> {
+  let [x, y, width, height] = ref_bounds(tree, resolved, ref_id)?;
   let scale = tree.scale_factor();
   Ok(((x + width * 0.5) * scale, (y + height * 0.5) * scale))
 }
@@ -664,11 +691,9 @@ fn prepare_screenshot(
       Ok(target) => target,
       Err(message) => return Err((reply, message)),
     };
-    let Some(bounds) = locate_node(target, resolved.node_id) else {
-      return Err((
-        reply,
-        format!("ref {ref_id:?} no longer resolves to a live element; call lurq_read_tree again"),
-      ));
+    let bounds = match ref_bounds(target, &resolved, ref_id) {
+      Ok(bounds) => bounds,
+      Err(message) => return Err((reply, message)),
     };
     (
       resolved.window,
@@ -833,7 +858,7 @@ fn resolve_point(
   if let Some(ref_id) = args.get(ref_key).and_then(|value| value.as_str()) {
     let resolved = resolve_ref(state, ref_id)?;
     let target = window_tree_mut(tree, &resolved.window, state.include_devtools)?;
-    let point = ref_center_physical(target, resolved.node_id, ref_id)?;
+    let point = ref_center_physical(target, &resolved, ref_id)?;
     return Ok((resolved.window, Some(point)));
   }
   let window = requested_window(args);
@@ -985,7 +1010,11 @@ fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json
         .ok_or("scroll_to needs a `ref`")?;
       let resolved = resolve_ref(state, ref_id)?;
       let target = window_tree_mut(tree, &resolved.window, state.include_devtools)?;
-      scroll_into_view(target, resolved.node_id, ref_id)?;
+      let item_bounds = match resolved.canvas_item {
+        Some(_) => Some(ref_bounds(target, &resolved, ref_id)?),
+        None => None,
+      };
+      scroll_into_view(target, resolved.node_id, item_bounds, ref_id)?;
       target.request_redraw();
       Ok(McpToolOutput::Json(serde_json::json!({
         "ok": true, "action": "scroll_to", "window": resolved.window,
@@ -997,9 +1026,10 @@ fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json
 }
 
 /// Adjust every scroll container on the path to `node_id` so the node's
-/// bounds land inside its viewport (innermost adjustments win because outer
-/// containers position the viewport, not the node).
-fn scroll_into_view(tree: &Tree, node_id: NodeId, ref_id: &str) -> Result<(), String> {
+/// bounds (or `target_bounds` inside it, for a canvas item) land inside its
+/// viewport (innermost adjustments win because outer containers position the
+/// viewport, not the node).
+fn scroll_into_view(tree: &Tree, node_id: NodeId, target_bounds: Option<[f32; 4]>, ref_id: &str) -> Result<(), String> {
   struct ScrollAncestor<'n> {
     state: &'n crate::layout::layout_kind::ScrollState,
     viewport: [f32; 4],
@@ -1048,8 +1078,9 @@ fn scroll_into_view(tree: &Tree, node_id: NodeId, ref_id: &str) -> Result<(), St
     .last_layout()
     .ok_or("no layout available yet; wait for a frame first")?;
   let mut ancestors = Vec::new();
-  let target = walk(root.node, layout, (0.0, 0.0), node_id, &mut ancestors)
+  let node_bounds = walk(root.node, layout, (0.0, 0.0), node_id, &mut ancestors)
     .ok_or_else(|| format!("ref {ref_id:?} no longer resolves to a live element; call lurq_read_tree again"))?;
+  let target = target_bounds.unwrap_or(node_bounds);
   if ancestors.is_empty() {
     return Ok(());
   }
@@ -1240,6 +1271,13 @@ fn menu_json(bar: &crate::app::MenuBar) -> serde_json::Value {
     "menus": bar.menus.iter().map(menu).collect::<Vec<_>>()})
 }
 
+#[path = "canvas_items.rs"]
+mod canvas_items;
+
 #[cfg(test)]
 #[path = "tools_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "canvas"))]
+#[path = "canvas_items_tests.rs"]
+mod canvas_items_tests;

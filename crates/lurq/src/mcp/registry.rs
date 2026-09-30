@@ -108,7 +108,10 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       description: "Read a window's element tree as an indented outline. Interactive elements get \
                     stable `ref_N` handles for lurq_interact / lurq_set_value / lurq_screenshot. \
                     Bounds are `@x,y WxH` in screenshot pixels. Refs are replaced on each call — \
-                    re-read after significant UI changes. Masked inputs expose only their mask and masked=true."
+                    re-read after significant UI changes. Masked inputs expose only their mask and masked=true. \
+                    A Canvas shows {items=N}; items the app described (bars, points, labels) are listed \
+                    under it as `- role #item-id [ref_N] \"label\" @bounds {value=...}`, and their refs \
+                    work with every ref-taking tool (hover with move, click, screenshot)."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -141,7 +144,10 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_find_by_id".into(),
-      description: "Look up the element carrying an HTML-like id (set with the `.id(...)` builder)                     in the live tree and return a fresh actionable ref for it. Duplicate ids                     resolve to the first match in tree order, like the DOM."
+      description: "Look up the element carrying an HTML-like id (set with the `.id(...)` builder) \
+                    in the live tree and return a fresh actionable ref for it. Duplicate ids \
+                    resolve to the first match in tree order, like the DOM. When no element has \
+                    the id, canvas item ids are searched the same way."
         .into(),
       scope: Scope::Observe,
       read_only: true,

@@ -1,7 +1,7 @@
 use super::*;
 use crate::mcp::{Scope, registry::ToolRegistry, shared::McpShared};
 
-fn output_text(result: McpToolResult) -> String {
+pub(super) fn output_text(result: McpToolResult) -> String {
   match result.unwrap() {
     McpToolOutput::Text(text) => text,
     McpToolOutput::Json(value) => value.to_string(),
@@ -141,7 +141,7 @@ fn devtools_redacts_masked_node_text_and_inspector_shape() {
     assert!(!format!("{snapshot:?}").contains(secret));
   }
 }
-fn state() -> McpState {
+pub(super) fn state() -> McpState {
   let (_, receiver) = std::sync::mpsc::channel();
   McpState {
     shared: Arc::new(McpShared::new(
@@ -160,7 +160,13 @@ fn state() -> McpState {
     discovery_path: None,
   }
 }
-fn call(tree: &mut Tree, app: &mut App, state: &McpState, tool: &str, args: serde_json::Value) -> McpToolResult {
+pub(super) fn call(
+  tree: &mut Tree,
+  app: &mut App,
+  state: &McpState,
+  tool: &str,
+  args: serde_json::Value,
+) -> McpToolResult {
   let (reply, mut rx) = tokio::sync::oneshot::channel();
   execute(
     tree,
@@ -174,7 +180,7 @@ fn call(tree: &mut Tree, app: &mut App, state: &McpState, tool: &str, args: serd
   );
   rx.try_recv().unwrap()
 }
-fn json(result: McpToolResult) -> serde_json::Value {
+pub(super) fn json(result: McpToolResult) -> serde_json::Value {
   match result.unwrap() {
     McpToolOutput::Json(v) => v,
     _ => panic!("expected json"),

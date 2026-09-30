@@ -54,6 +54,8 @@ pub(crate) struct RefRecord {
   /// re-resolves live bounds by `node_id`; these are for `lurq_find` output.
   pub(crate) bounds: [f32; 4],
   pub(crate) interactive: bool,
+  /// Set for a canvas item: its id within the canvas at `node_id`.
+  pub(crate) canvas_item: Option<String>,
 }
 
 /// All refs currently handed out, replaced per window on each
