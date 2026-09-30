@@ -125,7 +125,6 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
   let records = item_records(ctx.tree, node);
   let mut lines = Vec::with_capacity(records.len());
   for item in records {
-    let has_bounds = item.bounds.is_some();
     let record = to_ref_record((ctx.mint)(), &ctx.window, node.node_id(), item, ctx.scale);
     let mut line = format!(
       "{}- {} #{} [{}]",
@@ -137,8 +136,7 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
     if let Some(label) = &record.name {
       line.push_str(&format!(" {label:?}"));
     }
-    if has_bounds {
-      let [x, y, width, height] = record.bounds;
+    if let Some([x, y, width, height]) = record.bounds {
       line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));
     } else {
       line.push_str(" (not visible)");
@@ -180,7 +178,7 @@ pub(super) fn inspect_items(ctx: &mut InspectCtx<'_>, node: &Node, path: &[Strin
       "canvas_item": true,
       "state": state,
       "actions": actions,
-      "bounds": has_bounds.then_some(record.bounds),
+      "bounds": record.bounds,
     });
     ctx.record_match(
       &value,
@@ -213,9 +211,7 @@ fn to_ref_record(ref_id: String, window: &str, node_id: NodeId, item: ItemRecord
       .value
       .map(|value| vec![("value".to_owned(), value)])
       .unwrap_or_default(),
-    bounds: item
-      .bounds
-      .map_or([0.0; 4], |bounds| bounds.map(|value| (value * scale).round())),
+    bounds: item.bounds.map(|bounds| bounds.map(|value| (value * scale).round())),
     interactive: item.invoke || item.hover,
     canvas_item: Some(item.id),
   }

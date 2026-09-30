@@ -131,7 +131,7 @@ pub(super) fn inspect_node(
     element_id: element_id.clone(),
     classes: classes.clone(),
     attrs: attrs.clone(),
-    bounds: bounds.unwrap_or([0.0; 4]),
+    bounds,
     interactive: can_invoke(node),
     canvas_item: None,
   });

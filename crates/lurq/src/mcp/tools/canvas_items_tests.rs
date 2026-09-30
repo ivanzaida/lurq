@@ -663,3 +663,18 @@ fn a_duplicated_item_id_yields_one_ref_that_acts_on_the_kept_item() {
   assert_eq!(reply["dispatched"], true);
   assert_eq!(*f.clicked.lock().unwrap(), ["mon"]);
 }
+
+#[test]
+fn lookups_say_when_an_item_has_nothing_visible() {
+  let mut f = overhang();
+  let state = state();
+  let found = output_text(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_find_by_id",
+    serde_json::json!({"id": "below"}),
+  ));
+  assert!(found.ends_with("(not visible)"), "{found}");
+  assert!(!found.contains("@0,0"), "{found}");
+}

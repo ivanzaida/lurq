@@ -102,7 +102,7 @@ pub(super) fn snapshot_node(
         .iter()
         .map(|(name, attr_value)| (name.to_string(), attr_value.to_string()))
         .collect(),
-      bounds: bounds.unwrap_or([0.0; 4]),
+      bounds,
       interactive,
       canvas_item: None,
     });
@@ -218,8 +218,11 @@ pub(crate) fn format_ref_line(record: &RefRecord) -> String {
   for (name, value) in &record.attrs {
     line.push_str(&attr(name, value));
   }
-  let [x, y, width, height] = record.bounds;
-  line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}"));
+  match (record.bounds, record.canvas_item.is_some()) {
+    (Some([x, y, width, height]), _) => line.push_str(&format!(" @{x:.0},{y:.0} {width:.0}x{height:.0}")),
+    (None, true) => line.push_str(" (not visible)"),
+    (None, false) => line.push_str(" (bounds unknown: not laid out yet)"),
+  }
   if !record.interactive {
     line.push_str(" (not interactive)");
   }

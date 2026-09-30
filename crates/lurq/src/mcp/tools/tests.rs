@@ -367,3 +367,20 @@ fn windows_report_the_title_set_at_runtime() {
   tree.window().handle().set_title("Tasks - Orchester");
   assert_eq!(windows(&mut tree, &mut app)["windows"][0]["title"], "Tasks - Orchester");
 }
+
+#[test]
+fn lookups_before_layout_say_the_bounds_are_unknown() {
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(crate::components::Rect::new(10.0, 10.0).id("fresh"));
+  let found = output_text(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_find_by_id",
+    serde_json::json!({"id": "fresh"}),
+  ));
+  assert!(found.contains("(bounds unknown: not laid out yet)"), "{found}");
+  assert!(!found.contains("@0,0"), "{found}");
+}

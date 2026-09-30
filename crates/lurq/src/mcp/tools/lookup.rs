@@ -49,16 +49,14 @@ pub(super) fn lookup_hit(node: &Node) -> LookupHit {
 /// leaving the window's `read_tree` refs valid.
 pub(super) fn register_lookup_ref(target: &Tree, window: &str, hit: LookupHit, state: &McpState) -> RefRecord {
   let scale = target.scale_factor();
-  let bounds = locate_node(target, hit.node_id)
-    .map(|[x, y, width, height]| {
-      [
-        (x * scale).round(),
-        (y * scale).round(),
-        (width * scale).round(),
-        (height * scale).round(),
-      ]
-    })
-    .unwrap_or([0.0; 4]);
+  let bounds = locate_node(target, hit.node_id).map(|[x, y, width, height]| {
+    [
+      (x * scale).round(),
+      (y * scale).round(),
+      (width * scale).round(),
+      (height * scale).round(),
+    ]
+  });
   let mut refs = state.shared.refs.lock().unwrap();
   let record = RefRecord {
     id: refs.mint(),
