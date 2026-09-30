@@ -28,8 +28,6 @@ struct Chart {
   reference: ElementRef,
   hovered: Signal<Option<String>>,
   observer: Mutex<Option<CanvasObserver>>,
-  /// The hovered bar of the last paint, so `after_layout` repaints only on change.
-  painted: Mutex<Option<String>>,
 }
 
 impl Component for Chart {
@@ -40,7 +38,6 @@ impl Component for Chart {
       reference: ctx.element_ref(),
       hovered: ctx.signal(None),
       observer: Mutex::new(None),
-      painted: Mutex::new(None),
     }
   }
 
@@ -69,6 +66,7 @@ impl Component for Chart {
               .and_then(|(x, y)| canvas.item_at(x, y));
             let bar = item.filter(|item| item.role == "bar").map(|item| item.id);
             if hovered.get_untracked() != bar {
+              draw(&canvas, bar.as_deref());
               hovered.set(bar);
             }
           }),
@@ -80,20 +78,12 @@ impl Component for Chart {
       )
   }
 
-  /// Paint here rather than in the pointer handler: the hover highlight
-  /// follows the same state as the tooltip, once the re-render is laid out.
   fn after_layout(&self) {
-    let canvas = self.reference.as_canvas().expect("canvas is bound after layout");
     let mut observer = self.observer.lock().unwrap();
     if observer.is_none() {
+      let canvas = self.reference.as_canvas().expect("canvas is bound after layout");
       let (target, hovered) = (canvas.clone(), self.hovered.clone());
       *observer = Some(canvas.observe_metrics(move |_| draw(&target, hovered.get_untracked().as_deref())));
-    }
-    let hovered = self.hovered.get_untracked();
-    let mut painted = self.painted.lock().unwrap();
-    if *painted != hovered {
-      draw(&canvas, hovered.as_deref());
-      *painted = hovered;
     }
   }
 }

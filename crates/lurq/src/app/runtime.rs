@@ -1816,9 +1816,9 @@ impl Tree {
       return;
     }
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
+      #[cfg(feature = "canvas")]
+      let old_canvases = self.root.as_ref().map(canvas_bindings).unwrap_or_default();
       let mut old_parts = self.root.take().map(|old| {
-        #[cfg(feature = "canvas")]
-        detach_canvas_recursive(&old);
         reset_element_ref_flags_recursive(&old);
         overlay_host_parts(old)
       });
@@ -1837,6 +1837,8 @@ impl Tree {
         None => *node,
       });
       if let Some(root) = &mut self.root {
+        #[cfg(feature = "canvas")]
+        detach_canvases_not_carried(old_canvases, root);
         root.assign_ids(&self.id_gen);
       }
       self.tree_rebuilt_since_layout = true;
@@ -1853,9 +1855,9 @@ impl Tree {
       component.on_unmounted();
     }
     let mut old_root = self.root.take();
+    #[cfg(feature = "canvas")]
+    let old_canvases = old_root.as_ref().map(canvas_bindings).unwrap_or_default();
     if let Some(old) = &mut old_root {
-      #[cfg(feature = "canvas")]
-      detach_canvas_recursive(old);
       reset_element_ref_flags_recursive(old);
     }
     self.clear_animation_runtime_state();
@@ -1866,6 +1868,8 @@ impl Tree {
       node.preserve_ids_from(&mut parts.base);
       node = root_with_preserved_overlay_parts(node, parts, &self.id_gen);
     }
+    #[cfg(feature = "canvas")]
+    detach_canvases_not_carried(old_canvases, &node);
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = None;
@@ -6276,10 +6280,10 @@ fn preserve_overlay_reuse_at(overlay: &mut Node, old_parts: &mut OverlayHostReus
   if let Some(used) = old_parts.old_overlay_used.get_mut(index) {
     *used = true;
   }
-  #[cfg(feature = "canvas")]
-  detach_canvas_recursive(old_overlay);
   reset_element_ref_flags_recursive(old_overlay);
   overlay.preserve_runtime_state_from(old_overlay);
+  #[cfg(feature = "canvas")]
+  detach_canvases_not_carried(canvas_bindings(old_overlay), overlay);
   overlay.preserve_ids_from(old_overlay);
   if old_layout_dirty {
     invalidate_layout_cache_recursive(overlay);
@@ -8884,10 +8888,10 @@ fn replace_live_component_slot_everywhere(
   let mut replaced = false;
   if node.component_slot_id() == Some(slot_id) {
     let mut replacement = replacement.clone_for_reuse();
-    #[cfg(feature = "canvas")]
-    detach_canvas_recursive(node);
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
+    #[cfg(feature = "canvas")]
+    detach_canvases_not_carried(canvas_bindings(node), &replacement);
     replacement.preserve_ids_from(node);
     node.free_ids(id_gen);
     replacement.assign_ids(id_gen);
@@ -8966,6 +8970,51 @@ fn detach_canvas_recursive(node: &Node) {
 
   for child in node.children() {
     detach_canvas_recursive(child);
+  }
+}
+
+/// Canvas surfaces of a subtree about to be replaced, with the refs bound to them.
+#[cfg(feature = "canvas")]
+type CanvasBindings = Vec<(crate::canvas::CanvasHandle, Option<crate::core::ElementRef>)>;
+
+#[cfg(feature = "canvas")]
+fn canvas_bindings(node: &Node) -> CanvasBindings {
+  fn collect(node: &Node, bindings: &mut CanvasBindings) {
+    if let Some(canvas) = node.canvas_handle() {
+      bindings.push((canvas, node.element_ref.clone()));
+    }
+    for child in node.children() {
+      collect(child, bindings);
+    }
+  }
+  let mut bindings = Vec::new();
+  collect(node, &mut bindings);
+  bindings
+}
+
+/// Unbind the replaced subtree's refs from their canvases and detach the
+/// canvases its replacement did not carry over. A carried-over surface stays
+/// attached with its queued drawing and state: detaching it would drop drawing
+/// queued earlier in the same frame (for example by the handler whose state
+/// change caused the re-render). The next layout binds it and its new node's
+/// ref again.
+#[cfg(feature = "canvas")]
+fn detach_canvases_not_carried(old: CanvasBindings, replacement: &Node) {
+  if old.is_empty() {
+    return;
+  }
+  let kept: std::collections::HashSet<_> = canvas_bindings(replacement)
+    .iter()
+    .map(|(canvas, _)| canvas.surface_id())
+    .collect();
+  for (canvas, reference) in old {
+    let id = canvas.surface_id();
+    if let Some(reference) = reference {
+      reference.detach_canvas(id);
+    }
+    if !kept.contains(&id) {
+      canvas.detach();
+    }
   }
 }
 
