@@ -38,13 +38,15 @@ pub(super) struct ItemRecord {
   hover: bool,
 }
 
-/// `items=N` for canvas nodes, so an agent can tell a described canvas from opaque pixels.
+/// `items=N` for a canvas with items or pointer handlers, so an agent can tell
+/// a described canvas from opaque pixels. Decorative canvases stay unlabelled
+/// and get no ref of their own.
 pub(super) fn canvas_attrs(node: &Node) -> Option<(String, String)> {
   #[cfg(feature = "canvas")]
   {
-    node
-      .canvas_handle()
-      .map(|canvas| ("items".to_owned(), canvas.items().len().to_string()))
+    let count = node.canvas_handle()?.items().len();
+    let reachable = super::semantics::can_invoke(node) || super::semantics::can_hover(node);
+    (count > 0 || reachable).then(|| ("items".to_owned(), count.to_string()))
   }
   #[cfg(not(feature = "canvas"))]
   {

@@ -696,3 +696,34 @@ fn read_tree_lists_a_bounded_number_of_items_per_canvas() {
   assert!(text.contains("    - … +3 more items (raise max_items"), "{text}");
   assert!(text.contains("{items=5}"), "{text}");
 }
+
+#[test]
+fn decorative_canvases_stay_out_of_the_outline() {
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let reference = ElementRef::new();
+  tree.resize(400, 300);
+  tree.set_root(
+    Column::new()
+      .child(Canvas::new().software().width(50.0).height(50.0))
+      .child(
+        Canvas::new()
+          .software()
+          .ref_element(reference.clone())
+          .width(50.0)
+          .height(50.0),
+      ),
+  );
+  tree.pass_headless(&mut app);
+  let state = state();
+  let read =
+    |tree: &mut Tree, app: &mut App| output_text(call(tree, app, &state, "lurq_read_tree", serde_json::json!({})));
+  assert!(!read(&mut tree, &mut app).contains("Canvas"));
+  reference
+    .as_canvas()
+    .unwrap()
+    .set_items([CanvasItem::point("p", "point", 5.0, 5.0, 2.0)]);
+  let text = read(&mut tree, &mut app);
+  assert_eq!(text.matches("- Canvas").count(), 1, "{text}");
+  assert!(text.contains("{items=1}"), "{text}");
+}
