@@ -15,6 +15,7 @@ use crate::node::transform::Transform2D;
 /// from the content box's top-left corner, before the drawing transform (the
 /// space [`CanvasHandle::point_from_window`] returns).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum CanvasItemShape {
   /// An axis-aligned rectangle. Negative extents are normalized.
   Rect { x: f32, y: f32, width: f32, height: f32 },
@@ -24,8 +25,10 @@ pub enum CanvasItemShape {
 
 /// One drawn thing that matters, with a stable id, a role such as `"bar"`,
 /// `"point"`, `"series"` or `"label"`, an optional accessible label and value
-/// text, and its shape.
+/// text, and its shape. Build it with [`Self::rect`], [`Self::point`] or
+/// [`Self::new`]; fields may be added in later versions.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct CanvasItem {
   pub id: String,
   pub role: String,

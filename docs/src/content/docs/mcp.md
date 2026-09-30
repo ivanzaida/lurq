@@ -192,6 +192,8 @@ window: main (630x450 @1.5x)
   - Text #tooltip [ref_12] "Hover a bar" @24,336 124x29
 ```
 
+Item ids, roles, labels and values reach every client with the observe scope as the app registered them; unlike masked text inputs, nothing is redacted, so keep secrets out of them.
+
 In `lurq_inspect`, items are children of the canvas node (role `canvas`) with `canvas_item: true`, count toward `max_nodes`, and match `query` (label or id) and `role` like elements:
 
 ```text

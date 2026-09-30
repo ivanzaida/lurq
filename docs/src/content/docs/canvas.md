@@ -320,7 +320,7 @@ fn draw(canvas: &CanvasHandle, runs: &[(&str, &str, f32)]) {
 | --- | --- |
 | `CanvasItem::rect(id, role, x, y, width, height)` | A rectangle; negative extents are normalized. |
 | `CanvasItem::point(id, role, x, y, radius)` | A point that hits within `radius`. |
-| `.label(text)` / `.value(text)` | Accessible name (`"Tue"`) and displayed value (`"18 runs"`). The fields are public. |
+| `.label(text)` / `.value(text)` | Accessible name (`"Tue"`) and displayed value (`"18 runs"`). The fields are public to read; build items with the constructors, as more fields may follow. |
 | `canvas.set_items(items)` | Replace the canvas's items. Cheap; it does not repaint. Ids are unique per canvas: of items sharing an id, the last is kept (and a warning logged). |
 | `canvas.items()` | The current items, shared (`Arc<[CanvasItem]>`). |
 | `canvas.item_at(x, y)` | The last registered item containing a content point, so later items count as drawn on top. |
@@ -339,7 +339,7 @@ Canvas::new().ref_element(canvas_ref).on_mouse_move(move |event: lurq::app::even
 });
 ```
 
-With the `mcp` feature, agents see the items as children of the canvas in `lurq_read_tree` and `lurq_inspect`, and can hover, click and screenshot them by ref; see [Canvas content](../mcp/#canvas-content). Items are plain data on the canvas handle and cost nothing else when MCP is off.
+With the `mcp` feature, agents see the items as children of the canvas in `lurq_read_tree` and `lurq_inspect`, and can hover, click and screenshot them by ref; see [Canvas content](../mcp/#canvas-content). Item ids, roles, labels and values are shown to any MCP client with the observe scope, unmasked; do not put secrets in them. Items are plain data on the canvas handle and cost nothing else when MCP is off.
 
 ## Persistence, scheduling, and cost
 
