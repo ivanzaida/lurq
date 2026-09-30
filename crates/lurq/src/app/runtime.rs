@@ -1838,7 +1838,7 @@ impl Tree {
       });
       if let Some(root) = &mut self.root {
         #[cfg(feature = "canvas")]
-        detach_canvases_not_carried(old_canvases, root);
+        detach_canvases_not_carried(old_canvases, Some(root));
         root.assign_ids(&self.id_gen);
       }
       self.tree_rebuilt_since_layout = true;
@@ -1869,7 +1869,7 @@ impl Tree {
       node = root_with_preserved_overlay_parts(node, parts, &self.id_gen);
     }
     #[cfg(feature = "canvas")]
-    detach_canvases_not_carried(old_canvases, &node);
+    detach_canvases_not_carried(old_canvases, Some(&node));
     node.assign_ids(&self.id_gen);
     self.root = Some(node);
     self.root_component = None;
@@ -5750,6 +5750,8 @@ impl Tree {
     theme_changed: bool,
   ) {
     let Some(base) = self.root.take() else {
+      #[cfg(feature = "canvas")]
+      detach_canvases_not_carried(old_parts.unused_canvas_bindings(), None);
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
       return;
@@ -5775,6 +5777,8 @@ impl Tree {
     );
 
     if overlays.is_empty() {
+      #[cfg(feature = "canvas")]
+      detach_canvases_not_carried(old_parts.unused_canvas_bindings(), Some(&base));
       old_parts.free_ids(&self.id_gen);
       self.root = Some(base);
       self.overlay_dismiss_entries.clear();
@@ -5855,6 +5859,8 @@ impl Tree {
       reset_element_ref_flags_recursive(old_host);
       host.preserve_ids_from(old_host);
     }
+    #[cfg(feature = "canvas")]
+    detach_canvases_not_carried(old_parts.unused_canvas_bindings(), Some(&host));
     old_parts.free_ids(&self.id_gen);
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
@@ -6182,6 +6188,19 @@ struct OverlayHostReuse {
 }
 
 impl OverlayHostReuse {
+  /// Canvases of the old overlays that no new overlay reused. Their nodes are
+  /// dropped after the rebuild, so their surfaces must be detached.
+  #[cfg(feature = "canvas")]
+  fn unused_canvas_bindings(&self) -> CanvasBindings {
+    self
+      .old_overlays
+      .iter()
+      .enumerate()
+      .filter(|(index, _)| !self.old_overlay_used.get(*index).copied().unwrap_or(false))
+      .flat_map(|(_, overlay)| canvas_bindings(overlay))
+      .collect()
+  }
+
   fn free_ids(&mut self, id_gen: &IdGenerator) {
     if let Some(old_host) = &mut self.old_host {
       old_host.free_ids(id_gen);
@@ -6283,7 +6302,7 @@ fn preserve_overlay_reuse_at(overlay: &mut Node, old_parts: &mut OverlayHostReus
   reset_element_ref_flags_recursive(old_overlay);
   overlay.preserve_runtime_state_from(old_overlay);
   #[cfg(feature = "canvas")]
-  detach_canvases_not_carried(canvas_bindings(old_overlay), overlay);
+  detach_canvases_not_carried(canvas_bindings(old_overlay), Some(overlay));
   overlay.preserve_ids_from(old_overlay);
   if old_layout_dirty {
     invalidate_layout_cache_recursive(overlay);
@@ -8891,7 +8910,7 @@ fn replace_live_component_slot_everywhere(
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
     #[cfg(feature = "canvas")]
-    detach_canvases_not_carried(canvas_bindings(node), &replacement);
+    detach_canvases_not_carried(canvas_bindings(node), Some(&replacement));
     replacement.preserve_ids_from(node);
     node.free_ids(id_gen);
     replacement.assign_ids(id_gen);
@@ -8993,17 +9012,19 @@ fn canvas_bindings(node: &Node) -> CanvasBindings {
 }
 
 /// Unbind the replaced subtree's refs from their canvases and detach the
-/// canvases its replacement did not carry over. A carried-over surface stays
-/// attached with its queued drawing and state: detaching it would drop drawing
-/// queued earlier in the same frame (for example by the handler whose state
-/// change caused the re-render). The next layout binds it and its new node's
-/// ref again.
+/// canvases its replacement (if any) did not carry over. A carried-over surface
+/// stays attached with its queued drawing and state: detaching it would drop
+/// drawing queued earlier in the same frame (for example by the handler whose
+/// state change caused the re-render). The next layout binds it and its new
+/// node's ref again.
 #[cfg(feature = "canvas")]
-fn detach_canvases_not_carried(old: CanvasBindings, replacement: &Node) {
+fn detach_canvases_not_carried(old: CanvasBindings, replacement: Option<&Node>) {
   if old.is_empty() {
     return;
   }
-  let kept: std::collections::HashSet<_> = canvas_bindings(replacement)
+  let kept: std::collections::HashSet<_> = replacement
+    .map(canvas_bindings)
+    .unwrap_or_default()
     .iter()
     .map(|(canvas, _)| canvas.surface_id())
     .collect();
