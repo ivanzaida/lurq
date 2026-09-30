@@ -9,7 +9,9 @@ use crate::{
   app::{
     ctx::{ModalSpec, OverlaySpec},
     glyph_engine::GlyphEngine,
-    theme::{CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeSpacing, ThemeTypography},
+    theme::{
+      CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeShadows, ThemeSpacing, ThemeTypography,
+    },
   },
   core::{ElementRect, ElementRef},
   layout::{
@@ -35,6 +37,13 @@ use crate::{
     transform::Transform2D,
   },
 };
+
+mod box_shadow_quads;
+mod flex_shrink;
+mod opacity_groups;
+mod select_quads;
+
+use flex_shrink::FlexShrinkLine;
 
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
@@ -70,6 +79,8 @@ const DEFAULT_CHECKBOX_CHECKED_COLOR: Color = Color::new(34, 197, 94, 255);
 const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
 const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
+/// Width of a text input's caret, in logical pixels.
+const TEXT_INPUT_CARET_WIDTH: f32 = 1.0;
 fn text_input_display_style<'a>(
   state: &crate::node::node_kind::TextInputState,
   style: &'a TextStyle,
@@ -189,6 +200,11 @@ pub(crate) struct LayoutEngine {
   caret: RefCell<ThemeCaret>,
   scrollbar: RefCell<ScrollBarStyle>,
   typography: RefCell<ThemeTypography>,
+  shadows: RefCell<Arc<ThemeShadows>>,
+  /// Open state of the `Select` whose trigger is being painted, if any.
+  select_open: Cell<Option<bool>>,
+  /// Opacity groups recorded by the last quad resolution.
+  opacity_groups: RefCell<Vec<crate::layout::opacity_layer::OpacityGroup>>,
 }
 
 #[cfg(feature = "raster")]
@@ -451,6 +467,9 @@ impl LayoutEngine {
       caret: RefCell::new(ThemeCaret::default()),
       scrollbar: RefCell::new(ScrollBarStyle::default()),
       typography: RefCell::new(ThemeTypography::default()),
+      shadows: RefCell::new(Arc::new(ThemeShadows::default())),
+      select_open: Cell::new(None),
+      opacity_groups: RefCell::new(Vec::new()),
     }
   }
 
@@ -568,6 +587,31 @@ impl LayoutEngine {
       height: layout.size.height,
     };
 
+    Self::index_node_layout(node, rect, index);
+
+    for (child_layout, child) in layout.children.iter().zip(node.children()) {
+      if child.modal_declaration().is_some() {
+        Self::index_child_modal(child, rect, index);
+      }
+
+      Self::collect_overlay_index_recursive(
+        child,
+        &child_layout.result,
+        abs_x + child_layout.offset.x,
+        abs_y + child_layout.offset.y,
+        abs_x,
+        abs_y,
+        index,
+      );
+    }
+  }
+
+  /// Records a node's element ref, open select menu and overlay. Split from
+  /// the recursion in [`Self::collect_overlay_index_recursive`] so that the
+  /// records, which carry whole nodes, are not held in every level's frame
+  /// in an unoptimized build (lurq#25).
+  #[inline(never)]
+  fn index_node_layout(node: &Node, rect: ElementRect, index: &mut OverlayLayoutIndex) {
     if let Some(element_ref) = node.element_ref.as_ref() {
       index.elements.push(ElementLayoutRecord {
         element_ref: element_ref.clone(),
@@ -597,28 +641,19 @@ impl LayoutEngine {
         spec: spec.clone_for_reuse(),
       });
     }
+  }
 
-    for (child_layout, child) in layout.children.iter().zip(node.children()) {
-      if let Some(spec) = child.modal_declaration() {
-        index.overlays.push(OverlayLayoutRecord::Modal {
-          reuse_key: spec
-            .node
-            .component_key()
-            .map(|key| Arc::<str>::from(format!("modal:{key}"))),
-          spec: spec.clone_for_reuse(),
-          parent: rect,
-        });
-      }
-
-      Self::collect_overlay_index_recursive(
-        child,
-        &child_layout.result,
-        abs_x + child_layout.offset.x,
-        abs_y + child_layout.offset.y,
-        abs_x,
-        abs_y,
-        index,
-      );
+  #[inline(never)]
+  fn index_child_modal(child: &Node, parent: ElementRect, index: &mut OverlayLayoutIndex) {
+    if let Some(spec) = child.modal_declaration() {
+      index.overlays.push(OverlayLayoutRecord::Modal {
+        reuse_key: spec
+          .node
+          .component_key()
+          .map(|key| Arc::<str>::from(format!("modal:{key}"))),
+        spec: spec.clone_for_reuse(),
+        parent,
+      });
     }
   }
 
@@ -741,6 +776,7 @@ impl LayoutEngine {
     quads: &mut Vec<Quad>,
   ) {
     let root_offset = node.offset_position().unwrap_or_default();
+    self.opacity_groups.borrow_mut().clear();
     self.collect_quads(
       node,
       result,
@@ -749,7 +785,6 @@ impl LayoutEngine {
       0.0,
       0.0,
       Transform2D::IDENTITY,
-      1.0,
       viewport,
       viewport,
       true,
@@ -766,12 +801,14 @@ impl LayoutEngine {
     parent_x: f32,
     parent_y: f32,
     inherited_transform: Transform2D,
-    inherited_opacity: f32,
     clip: ClipRect,
     cull_clip: ClipRect,
     culling_enabled: bool,
     quads: &mut Vec<Quad>,
   ) {
+    if self.is_hidden_select_chevron(node) {
+      return;
+    }
     if node_is_plain_logical_wrapper(node) {
       if let Some(ref element_ref) = node.element_ref {
         element_ref.update(
@@ -785,7 +822,7 @@ impl LayoutEngine {
       }
 
       let (child_clip, child_cull_clip, child_culling_enabled) =
-        if node.overflow == Overflow::Hidden && inherited_transform.is_identity() {
+        if node.overflow == Overflow::Hidden && inherited_transform.is_axis_aligned() {
           let overflow_clip = intersect_clip(
             clip,
             ClipRect {
@@ -795,7 +832,8 @@ impl LayoutEngine {
               height: result.size.height,
               active: true,
               border_radius: None,
-            },
+            }
+            .transformed(inherited_transform),
           );
           let child_cull_clip = if culling_enabled {
             intersect_clip(cull_clip, overflow_clip)
@@ -818,6 +856,7 @@ impl LayoutEngine {
             child_abs_y,
             inherited_transform,
             child_cull_clip,
+            self.box_shadow_outset(child_node),
           )
         {
           continue;
@@ -831,10 +870,6 @@ impl LayoutEngine {
           abs_x,
           abs_y,
           inherited_transform,
-          // A plain wrapper never carries opacity of its own (the fast-path
-          // check above requires the default), so the inherited value passes
-          // through unchanged.
-          inherited_opacity,
           child_clip,
           child_cull_clip,
           child_culling_enabled,
@@ -844,6 +879,91 @@ impl LayoutEngine {
       return;
     }
 
+    // A plain wrapper never carries opacity (the fast path above requires
+    // the default), so only here can a node open an opacity group.
+    let group_start = quads.len();
+    let frame = self.push_node_quads(
+      node,
+      result,
+      abs_x,
+      abs_y,
+      parent_x,
+      parent_y,
+      inherited_transform,
+      clip,
+      cull_clip,
+      culling_enabled,
+      quads,
+    );
+    let NodeQuadFrame {
+      transform,
+      child_clip,
+      child_cull_clip,
+      child_culling_enabled,
+      ..
+    } = frame;
+
+    let select_scope = self.enter_select_scope(node);
+    for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
+      let child_abs_x = abs_x + child_layout.offset.x;
+      let child_abs_y = abs_y + child_layout.offset.y;
+      if child_culling_enabled
+        && clipped_subtree_is_hidden(
+          child_node,
+          &child_layout.result,
+          child_abs_x,
+          child_abs_y,
+          transform,
+          child_cull_clip,
+          self.box_shadow_outset(child_node),
+        )
+      {
+        continue;
+      }
+
+      self.collect_quads(
+        child_node,
+        &child_layout.result,
+        child_abs_x,
+        child_abs_y,
+        abs_x,
+        abs_y,
+        transform,
+        child_clip,
+        child_cull_clip,
+        child_culling_enabled,
+        quads,
+      );
+    }
+    self.leave_select_scope(select_scope);
+
+    self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
+    if node.opacity < DEFAULT_QUAD_OPACITY {
+      self.close_opacity_group(node.opacity, group_start, quads);
+    }
+  }
+
+  /// The quads a node paints under its children, and what its children
+  /// inherit. Split from [`Self::collect_quads`], which recurses once per tree
+  /// level: an unoptimized build gives every temporary of this body its own
+  /// stack slot, and keeping them out of the recursive frame keeps deep trees
+  /// within the main thread's stack (lurq#25).
+  #[inline(never)]
+  #[allow(clippy::too_many_arguments)]
+  fn push_node_quads(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    abs_x: f32,
+    abs_y: f32,
+    parent_x: f32,
+    parent_y: f32,
+    inherited_transform: Transform2D,
+    clip: ClipRect,
+    cull_clip: ClipRect,
+    culling_enabled: bool,
+    quads: &mut Vec<Quad>,
+  ) -> NodeQuadFrame {
     if let Some(ref element_ref) = node.element_ref {
       element_ref.update(
         abs_x,
@@ -865,8 +985,11 @@ impl LayoutEngine {
     let canvas_content = matches!(node.node_kind(), NodeKind::Canvas { .. });
     #[cfg(not(feature = "canvas"))]
     let canvas_content = false;
+    // Inset shadows paint between the background and the border, so a border
+    // that would share the background's quad moves after them.
+    let has_inset_shadow = self.has_inset_box_shadow(node);
     let defer_border_to_overlay =
-      resolved_border.is_some() && has_visual && (!node.children().is_empty() || canvas_content);
+      resolved_border.is_some() && has_visual && (!node.children().is_empty() || canvas_content || has_inset_shadow);
     let content = match node.node_kind() {
       NodeKind::Text {
         state,
@@ -904,9 +1027,10 @@ impl LayoutEngine {
         // optical cap-height box, same as static text) so the baseline stays
         // put while the value's ink changes — ink centering made the text jump
         // when typing added the first ascender/descender. Multi-line inputs
-        // flow from the top and scroll.
+        // flow from the top in the line boxes their carets and selections
+        // use; aligning the ink top made them jump the same way.
         let vertical_align = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
-          crate::layout::text_style::VerticalAlign::Top
+          crate::layout::text_style::VerticalAlign::LineBox
         } else {
           display_style.vertical_align
         };
@@ -972,9 +1096,10 @@ impl LayoutEngine {
       _ => QuadContent::None,
     };
 
-    // Group opacity composes multiplicatively down the tree, the same way
-    // inherited transforms do — fading a container fades everything in it.
-    let opacity = node.opacity * inherited_opacity;
+    // Quads paint at full opacity within their opacity group: a node with
+    // `opacity < 1` fades its whole subtree as one layer, or folds its opacity
+    // into its only quad (see `close_opacity_group`).
+    let opacity = DEFAULT_QUAD_OPACITY;
     let local_transform = node.effective_transform();
     let local_transform_origin_abs = [abs_x + result.size.width * 0.5, abs_y + result.size.height * 0.5];
     let local_affine = if local_transform.is_identity() {
@@ -991,6 +1116,9 @@ impl LayoutEngine {
     } else {
       inherited_transform.then(&local_affine)
     };
+
+    let content_is_background = matches!(content, QuadContent::Rect { .. } | QuadContent::None);
+    self.push_box_shadow_quads(node, result, abs_x, abs_y, false, opacity, transform, clip, quads);
 
     match &content {
       QuadContent::None => {}
@@ -1104,8 +1232,11 @@ impl LayoutEngine {
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_width = (result.size.width - padding.left - padding.right).max(0.0);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
-          let selection_height = state.caret_height().min(content_height).max(1.0);
-          let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+          // Selections cover the glyphs' band in each line box (the font's
+          // ascent and descent), not the leading around it.
+          let (band_top, band_height) = state.text_band();
+          let selection_height = band_height.min(content_height).max(1.0);
+          let vertical_offset = padding.top + text_input_vertical_offset(state, content_height) + band_top;
           let selection_clip = intersect_clip(
             clip,
             ClipRect {
@@ -1115,7 +1246,8 @@ impl LayoutEngine {
               height: content_height,
               active: true,
               border_radius: None,
-            },
+            }
+            .transformed(transform),
           );
           for selection in state.selection_ranges() {
             let selection_x = abs_x + padding.left + selection.x;
@@ -1180,7 +1312,8 @@ impl LayoutEngine {
                     height: content_height,
                     active: true,
                     border_radius: None,
-                  },
+                  }
+                  .transformed(transform),
                 ),
               )
             } else {
@@ -1219,6 +1352,9 @@ impl LayoutEngine {
             && has_visual;
         let (content_x, content_y, content_transform, content_transform_origin) =
           transformed_quad_frame(content_x, content_y, transform);
+        if has_inset_shadow && !content_is_background {
+          self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
+        }
         quads.push(Quad {
           x: content_x,
           y: content_y,
@@ -1277,6 +1413,10 @@ impl LayoutEngine {
       });
     }
 
+    if has_inset_shadow && content_is_background {
+      self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
+    }
+
     match node.node_kind() {
       NodeKind::TextInput { state, style, .. } if state.is_focused() && self.should_render_text_input_caret(node) => {
         let padding = self.resolved_padding_for_size(node, result.size);
@@ -1289,7 +1429,20 @@ impl LayoutEngine {
         let caret_height = style.font_size.min(caret_line_height).min(content_height).max(1.0);
         let caret_leading = ((caret_line_height - caret_height) * 0.5).max(0.0);
         let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
-        let caret_x = abs_x + padding.left + state.caret_x();
+        // The caret starts at its insertion point, after the glyph before it.
+        // At the start of a line nothing precedes it, so it ends there
+        // instead: drawn from the line's left edge it covered the first
+        // glyph (of the value or the placeholder), whose side bearing is
+        // about zero. Where an ancestor clips right at that edge it stays at
+        // the edge rather than disappear.
+        let insertion_x = abs_x + padding.left + state.caret_x();
+        let before_x = insertion_x - TEXT_INPUT_CARET_WIDTH;
+        let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
+        let caret_x = if state.caret_at_line_start() && room_before {
+          before_x
+        } else {
+          insertion_x
+        };
         let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
         let palette = self.palette.borrow();
         let caret_color = node
@@ -1302,7 +1455,7 @@ impl LayoutEngine {
         quads.push(Quad {
           x: caret_x,
           y: caret_y,
-          width: 1.0,
+          width: TEXT_INPUT_CARET_WIDTH,
           height: caret_height,
           opacity,
           transform: caret_transform,
@@ -1316,20 +1469,22 @@ impl LayoutEngine {
           clip: intersect_clip(
             clip,
             ClipRect {
-              x: abs_x + padding.left,
+              // Room for a caret at the start of a line.
+              x: abs_x + padding.left - TEXT_INPUT_CARET_WIDTH,
               y: abs_y + padding.top,
-              width: content_width,
+              width: content_width + TEXT_INPUT_CARET_WIDTH,
               height: content_height,
               active: true,
               border_radius: None,
-            },
+            }
+            .transformed(transform),
           ),
         });
       }
       NodeKind::Checkbox { state } => {
         let checked = state.is_checked();
         let hovered = node.is_style_hovered();
-        let style = state.style(checked, hovered);
+        let style = state.style(checked, hovered, node.is_style_focused());
         let width = style.width.unwrap_or(result.size.width).min(result.size.width).max(0.0);
         let height = style
           .height
@@ -1374,7 +1529,7 @@ impl LayoutEngine {
         let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
         let fill_style = state.fill_style(hovered);
-        let thumb_style = state.thumb_style(hovered);
+        let thumb_style = state.thumb_style(hovered, node.is_style_focused());
         let (track_rect, thumb_rect) = state.part_rects(
           abs_x,
           abs_y,
@@ -1460,87 +1615,44 @@ impl LayoutEngine {
         );
       }
       NodeKind::Select { state } => {
-        let style = state.style();
-        let hovered = node.style_state.is_hovered();
-        let focused = node.style_state.is_focused();
-        let open = state.is_open();
-        let trigger = style.resolved_trigger(hovered, focused, open);
-
-        let background = {
-          let palette = self.palette.borrow();
-          trigger.background.as_ref().and_then(|color| color.resolve(&palette))
-        };
-        let radius = trigger
-          .border_radius
-          .map(|radius| radius.resolve(&self.radii.borrow()))
-          .or_else(|| node.get_border_radius(&self.radii.borrow()));
-        let border = trigger
-          .border
-          .as_ref()
-          .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
-          .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
-
-        let (bg_x, bg_y, bg_transform, bg_origin) = transformed_quad_frame(abs_x, abs_y, transform);
-        quads.push(Quad {
-          x: bg_x,
-          y: bg_y,
-          width: result.size.width,
-          height: result.size.height,
-          opacity,
-          transform: bg_transform,
-          transform_origin: bg_origin,
-          content: QuadContent::Rect {
-            color: background.unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR),
-            gradient: None,
-          },
-          border_radius: radius,
-          border,
-          clip,
-        });
+        self.push_select_trigger_quads(node, state, result, (abs_x, abs_y), opacity, transform, clip, quads);
       }
       _ => {}
     }
 
     let (child_clip, child_cull_clip, child_culling_enabled) =
       if let LayoutKind::ScrollModifier { state, culling, .. } = node.layout_kind() {
-        let viewport_clip = intersect_clip(
-          clip,
-          ClipRect {
-            x: abs_x,
-            y: abs_y,
-            width: state.viewport_width(),
-            height: state.viewport_height(),
-            active: true,
-            border_radius: node
-              .get_border_radius(&self.radii.borrow())
-              .map(|radius| radius.clamped_to_rect(state.viewport_width(), state.viewport_height())),
-          },
-        );
-        let child_clip = inset_clip_for_border(viewport_clip, resolved_border);
+        let viewport = ClipRect {
+          x: abs_x,
+          y: abs_y,
+          width: state.viewport_width(),
+          height: state.viewport_height(),
+          active: true,
+          border_radius: node
+            .get_border_radius(&self.radii.borrow())
+            .map(|radius| radius.clamped_to_rect(state.viewport_width(), state.viewport_height())),
+        };
+        let child_clip = content_clip(clip, viewport, resolved_border, transform);
         let child_cull_clip = if *culling {
-          inset_clip_for_border(intersect_clip(cull_clip, viewport_clip), resolved_border)
+          content_clip(intersect_clip(cull_clip, clip), viewport, resolved_border, transform)
         } else {
           ClipRect::default()
         };
         (child_clip, child_cull_clip, *culling)
       } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
-        let overflow_clip = intersect_clip(
-          clip,
-          ClipRect {
-            x: abs_x,
-            y: abs_y,
-            width: result.size.width,
-            height: result.size.height,
-            active: true,
-            border_radius: node
-              .get_border_radius(&self.radii.borrow())
-              .map(|radius| radius.clamped_to_rect(result.size.width, result.size.height)),
-          },
-        );
-        let child_clip = inset_clip_for_border(overflow_clip, resolved_border);
+        let bounds = ClipRect {
+          x: abs_x,
+          y: abs_y,
+          width: result.size.width,
+          height: result.size.height,
+          active: true,
+          border_radius: node
+            .get_border_radius(&self.radii.borrow())
+            .map(|radius| radius.clamped_to_rect(result.size.width, result.size.height)),
+        };
+        let child_clip = content_clip(clip, bounds, resolved_border, transform);
         let child_cull_clip = if culling_enabled {
-          let cull_overflow_clip = intersect_clip(cull_clip, overflow_clip);
-          inset_clip_for_border(cull_overflow_clip, resolved_border)
+          content_clip(intersect_clip(cull_clip, clip), bounds, resolved_border, transform)
         } else {
           ClipRect::default()
         };
@@ -1549,39 +1661,36 @@ impl LayoutEngine {
         (clip, cull_clip, culling_enabled)
       };
 
-    for (child_layout, child_node) in result.children.iter().zip(node.children().iter()) {
-      let child_abs_x = abs_x + child_layout.offset.x;
-      let child_abs_y = abs_y + child_layout.offset.y;
-      if child_culling_enabled
-        && clipped_subtree_is_hidden(
-          child_node,
-          &child_layout.result,
-          child_abs_x,
-          child_abs_y,
-          transform,
-          child_cull_clip,
-        )
-      {
-        continue;
-      }
-
-      self.collect_quads(
-        child_node,
-        &child_layout.result,
-        child_abs_x,
-        child_abs_y,
-        abs_x,
-        abs_y,
-        transform,
-        opacity,
-        child_clip,
-        child_cull_clip,
-        child_culling_enabled,
-        quads,
-      );
+    NodeQuadFrame {
+      transform,
+      opacity,
+      child_clip,
+      child_cull_clip,
+      child_culling_enabled,
+      deferred_border: resolved_border.filter(|_| defer_border_to_overlay),
     }
+  }
 
-    if defer_border_to_overlay {
+  /// The quads a node paints over its children: a border deferred past them
+  /// and scrollbars. See [`Self::push_node_quads`].
+  #[inline(never)]
+  fn push_node_overlay_quads(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    abs_x: f32,
+    abs_y: f32,
+    frame: &NodeQuadFrame,
+    clip: ClipRect,
+    quads: &mut Vec<Quad>,
+  ) {
+    let NodeQuadFrame {
+      transform,
+      opacity,
+      deferred_border,
+      ..
+    } = *frame;
+    if deferred_border.is_some() {
       let (border_x, border_y, border_transform, border_transform_origin) =
         transformed_quad_frame(abs_x, abs_y, transform);
       quads.push(Quad {
@@ -1597,7 +1706,7 @@ impl LayoutEngine {
           gradient: None,
         },
         border_radius: node.get_border_radius(&self.radii.borrow()),
-        border: resolved_border,
+        border: deferred_border,
         clip,
       });
     }
@@ -1728,7 +1837,7 @@ impl LayoutEngine {
     // the intrinsic size change from this flex parent. Re-run the parent from
     // its original constraints so the child is measured naturally before it
     // is stretched again.
-    if Self::has_dirty_stretched_intrinsic_child(node) {
+    if Self::has_dirty_stretched_intrinsic_child(node) || Self::has_dirty_shrunk_child(node) {
       return None;
     }
 
@@ -1777,6 +1886,7 @@ impl LayoutEngine {
       let size_changed = repaired.size != cached.children[index].result.size;
       if size_changed
         && (!Self::layout_kind_can_patch_child_size_change(node.layout_kind())
+          || Self::scroll_sized_by_content(node, constraints)
           || !Self::child_fits_cached_parent(original_offset, repaired.size, cached.size))
       {
         return Some(self.layout_node_uncached_with_child_overrides(
@@ -1851,6 +1961,12 @@ impl LayoutEngine {
       && offset.y >= -EPSILON
       && offset.x + child_size.width <= parent_size.width + EPSILON
       && offset.y + child_size.height <= parent_size.height + EPSILON
+  }
+
+  /// A scroll container under loose constraints takes its content's size, so
+  /// a content size change must re-measure it rather than patch the child in.
+  fn scroll_sized_by_content(node: &Node, constraints: Constraints) -> bool {
+    matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. }) && !constraints_are_tight(constraints)
   }
 
   fn layout_kind_can_patch_child_size_change(layout_kind: &LayoutKind) -> bool {
@@ -2428,6 +2544,7 @@ impl LayoutEngine {
     state.set_caret_positions(caret_positions);
 
     state.set_caret_height(line_height);
+    state.set_text_band(glyph_engine.line_content_band(style));
     state.sync_caret_metrics_to_position(line_height);
     let caret_x = state.caret_x() + state.scroll_x();
     let caret_y = state.caret_y() + state.scroll_y();
@@ -2576,9 +2693,17 @@ impl LayoutEngine {
         results.push(existing);
       } else {
         let params = &flex_params_list[i];
+        // An unbounded main axis has no free space to grow into: a growing
+        // child gets its basis, or its natural size without one. Growing by
+        // an infinite remainder would lay it out at an infinite size.
+        if !remaining.is_finite() && params.basis.is_none() {
+          let child_constraints = Self::non_flex_child_constraints(child, constraints, vertical);
+          results.push(self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints));
+          continue;
+        }
         let basis_size = params.basis.unwrap_or(0.0);
-        let flex_size = if remaining > 0.0 && grow_total > 0.0 {
-          basis_size + remaining.max(0.0) * (params.grow / grow_total)
+        let flex_size = if remaining.is_finite() && remaining > 0.0 && grow_total > 0.0 {
+          basis_size + remaining * (params.grow / grow_total)
         } else {
           basis_size
         };
@@ -2601,81 +2726,20 @@ impl LayoutEngine {
       }
     }
 
-    if shrink_total > 0.0 {
-      let total_children_main: f32 = results
-        .iter()
-        .zip(children.iter())
-        .filter(|(_, child)| !child.is_overlay_declaration())
-        .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
-        .sum();
-      let overflow = total_children_main + total_spacing - max_main;
-      if overflow > 0.0 {
-        let mut remaining_overflow = overflow;
-        let mut remaining_shrink = shrink_total;
-        let mut frozen = vec![false; children.len()];
-
-        loop {
-          let mut any_clamped = false;
-          for i in 0..children.len() {
-            if frozen[i] {
-              continue;
-            }
-            let params = &flex_params_list[i];
-            if params.shrink <= 0.0 {
-              continue;
-            }
-            let child_main = if vertical {
-              results[i].size.height
-            } else {
-              results[i].size.width
-            };
-            let shrink_amount = remaining_overflow * (params.shrink / remaining_shrink);
-            let min_main = children[i].min_main_size(vertical);
-            let new_main = (child_main - shrink_amount).max(min_main);
-            if new_main > child_main - shrink_amount {
-              frozen[i] = true;
-              let actual_shrink = child_main - new_main;
-              remaining_overflow -= actual_shrink;
-              remaining_shrink -= params.shrink;
-              any_clamped = true;
-              if vertical {
-                results[i].size.height = new_main;
-              } else {
-                results[i].size.width = new_main;
-              }
-            }
-          }
-          if !any_clamped {
-            break;
-          }
-          if remaining_shrink <= 0.0 {
-            break;
-          }
-        }
-
-        for i in 0..children.len() {
-          if frozen[i] {
-            continue;
-          }
-          let params = &flex_params_list[i];
-          if params.shrink <= 0.0 {
-            continue;
-          }
-          let child_main = if vertical {
-            results[i].size.height
-          } else {
-            results[i].size.width
-          };
-          let shrink_amount = remaining_overflow * (params.shrink / remaining_shrink);
-          let new_main = (child_main - shrink_amount).max(0.0);
-          if vertical {
-            results[i].size.height = new_main;
-          } else {
-            results[i].size.width = new_main;
-          }
-        }
-      }
-    }
+    self.shrink_flex_line(
+      glyph_engine,
+      &FlexShrinkLine {
+        children,
+        params: &flex_params_list,
+        constraints,
+        max_main,
+        total_spacing,
+        shrink_total,
+        vertical,
+      },
+      &mut results,
+      child_overrides,
+    );
 
     let max_cross: f32 = results
       .iter()
@@ -3559,7 +3623,7 @@ fn should_reserve_scrollbar(style: &ScrollBarStyle, direction: ScrollDirection, 
 }
 
 fn reserved_scrollbar_size(style: &ScrollBarStyle) -> f32 {
-  style.width + style.padding * 2.0
+  style.width + style.resolved_edge_inset() * 2.0
 }
 
 fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bool {
@@ -3617,6 +3681,19 @@ fn same_clip_rect(clip: ClipRect, x1: f32, y1: f32, x2: f32, y2: f32) -> bool {
     && (clip.y - y1).abs() <= EPSILON
     && (clip.x + clip.width - x2).abs() <= EPSILON
     && (clip.y + clip.height - y2).abs() <= EPSILON
+}
+
+/// What [`LayoutEngine::push_node_quads`] hands back to the recursion in
+/// `collect_quads`: the transform, opacity and clips a node's children inherit,
+/// and a border to paint after them.
+#[derive(Clone, Copy)]
+struct NodeQuadFrame {
+  transform: Transform2D,
+  opacity: f32,
+  child_clip: ClipRect,
+  child_cull_clip: ClipRect,
+  child_culling_enabled: bool,
+  deferred_border: Option<ResolvedBorders>,
 }
 
 fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> ClipRect {
@@ -3680,6 +3757,7 @@ fn clipped_subtree_is_hidden(
   abs_y: f32,
   inherited_transform: Transform2D,
   clip: ClipRect,
+  shadow_outset: f32,
 ) -> bool {
   if !clip.active
     || !inherited_transform.is_identity()
@@ -3690,7 +3768,13 @@ fn clipped_subtree_is_hidden(
     return false;
   }
 
-  !rect_intersects_clip(abs_x, abs_y, result.size.width, result.size.height, clip)
+  !rect_intersects_clip(
+    abs_x - shadow_outset,
+    abs_y - shadow_outset,
+    result.size.width + 2.0 * shadow_outset,
+    result.size.height + 2.0 * shadow_outset,
+    clip,
+  )
 }
 
 fn node_is_plain_logical_wrapper(node: &Node) -> bool {
@@ -3700,6 +3784,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.gradient.as_ref().is_none()
     && node.border_radius.as_ref().is_none()
     && node.border.as_ref().is_none()
+    && node.box_shadow.as_ref().is_none()
     && node.caret_color.as_ref().is_none()
     && node.caret_mode.as_ref().is_none()
     && node.scrollbar_style.as_ref().is_none()
@@ -3722,8 +3807,26 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     }
 }
 
+/// Under a rotation or skew a clip can only be the bounding box of the
+/// transformed rect, so a node without a visual of its own (a transformed text
+/// node, for example) does not clip there.
 fn hidden_overflow_creates_clip(has_visual: bool, transform: Transform2D) -> bool {
-  transform.is_identity() || has_visual
+  transform.is_axis_aligned() || has_visual
+}
+
+/// The clip a node's `bounds` (in layout coordinates) give its children: inset
+/// by the node's border, mapped into screen space through the node's
+/// `transform`, and intersected with the inherited `parent` clip.
+fn content_clip(
+  parent: ClipRect,
+  bounds: ClipRect,
+  border: Option<ResolvedBorders>,
+  transform: Transform2D,
+) -> ClipRect {
+  if transform.is_identity() {
+    return inset_clip_for_border(intersect_clip(parent, bounds), border);
+  }
+  intersect_clip(parent, inset_clip_for_border(bounds, border).transformed(transform))
 }
 
 fn border_can_paint_outside(node: &Node) -> bool {
@@ -3883,11 +3986,11 @@ mod tests {
       )
     };
 
-    let old: Node = crate::node::Element::from(crate::components::Spacer::new().height(2000.0)).node;
+    let old: Node = crate::node::Element::from(crate::components::Spacer::new().height(2000.0)).into_node();
     let laid = compute(&engine, &mut glyph_engine, &old);
     assert_eq!(laid.size.height, 2000.0);
 
-    let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).node;
+    let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
     // The transplant: previously laid cache adopted across a frame change,
     // flags cleared (what `preserve_from` does). Guards are cleared like the
     // retained diff does for unchanged content.
@@ -3937,7 +4040,7 @@ mod tests {
           .child(crate::components::Spacer::new().height(spacer_height))
           .child(crate::components::Spacer::new().height(50.0)),
       )
-      .node
+      .into_node()
     };
 
     let old = column(2000.0);
@@ -3973,7 +4076,8 @@ mod tests {
     let constraints = Constraints::loose(Size::new(400.0, 400.0));
 
     let mut root: Node =
-      crate::node::Element::from(crate::components::Row::new().child(crate::components::Rect::new(40.0, 40.0))).node;
+      crate::node::Element::from(crate::components::Row::new().child(crate::components::Rect::new(40.0, 40.0)))
+        .into_node();
     let mut anchor = Node::logical();
     anchor.set_layout_neutral(true);
     root.children.push(anchor);
@@ -4106,7 +4210,7 @@ mod tests {
           .size(400.0, 300.0)
           .child(crate::components::Rect::new(50.0, 50.0).absolute_position(x, y)),
       )
-      .node
+      .into_node()
     };
 
     let old = stack(10.0, 20.0);

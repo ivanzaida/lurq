@@ -6,7 +6,7 @@ impl_into_node!(ScrollBoth);
 
 impl ScrollVertical {
   pub fn new(child: impl Into<Element>) -> Self {
-    Self::from_node(crate::node::dsl::scroll_vertical(child.into().node))
+    Self::from_node(crate::node::dsl::scroll_vertical(child.into().into_node()))
   }
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
@@ -28,7 +28,7 @@ impl Default for ScrollVertical {
 
 impl ScrollHorizontal {
   pub fn new(child: impl Into<Element>) -> Self {
-    Self::from_node(crate::node::dsl::scroll_horizontal(child.into().node))
+    Self::from_node(crate::node::dsl::scroll_horizontal(child.into().into_node()))
   }
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
@@ -50,7 +50,7 @@ impl Default for ScrollHorizontal {
 
 impl ScrollBoth {
   pub fn new(child: impl Into<Element>) -> Self {
-    Self::from_node(crate::node::dsl::scroll_both(child.into().node))
+    Self::from_node(crate::node::dsl::scroll_both(child.into().into_node()))
   }
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {

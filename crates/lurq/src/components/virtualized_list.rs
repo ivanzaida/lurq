@@ -144,6 +144,28 @@ impl<'a, T> VirtualizedList<'a, T> {
     self
   }
 
+  pub fn min_width(mut self, width: impl Into<Dimension>) -> Self {
+    self.options.frame.min_width = Some(width.into());
+    self
+  }
+
+  pub fn max_width(mut self, width: impl Into<Dimension>) -> Self {
+    self.options.frame.max_width = Some(width.into());
+    self
+  }
+
+  pub fn min_height(mut self, height: impl Into<Dimension>) -> Self {
+    self.options.frame.min_height = Some(height.into());
+    self
+  }
+
+  /// Cap the list height. Without a fixed `height` (or `flex`), the list
+  /// sizes to its content up to this cap and scrolls beyond it.
+  pub fn max_height(mut self, height: impl Into<Dimension>) -> Self {
+    self.options.frame.max_height = Some(height.into());
+    self
+  }
+
   pub fn flex(mut self, flex: f32) -> Self {
     self.options.flex = Some(flex);
     self
@@ -477,7 +499,7 @@ where
       // is a windowing/layout failure; a hole the user sees WITHOUT this
       // warning is a renderer failure.
       if viewport_height > 0.0 && !runtime.rendered_refs.is_empty() {
-        let viewport_top = scroll_state.viewport_abs_y();
+        let viewport_top = scroll_state.layout_viewport_y();
         let viewport_bottom = viewport_top + viewport_height;
         let mut spans: Vec<(f32, f32)> = runtime
           .rendered_refs

@@ -1,4 +1,14 @@
 pub mod app_state;
+#[cfg(all(
+  test,
+  windows,
+  feature = "raster",
+  feature = "screenshot",
+  any(feature = "wgpu", feature = "dx12")
+))]
+mod blend_readback_tests;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod box_shadow_readback_tests;
 pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]
@@ -18,10 +28,14 @@ pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;
 #[cfg(feature = "i18n")]
 pub mod i18n;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod opacity_layer_readback_tests;
 pub(crate) mod profile_support;
 pub(crate) mod profile_types;
 #[cfg(feature = "perf_profile")]
 pub mod profiler;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod readback_window;
 pub mod render_engine;
 pub mod runtime;
 pub mod synthetic_input;
@@ -40,8 +54,8 @@ pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers
 #[cfg(feature = "screenshot")]
 pub use window::ScreenshotRegion;
 pub use window::{
-  CloseRequest, CloseRequestSource, Window, WindowCornerRadius, WindowHandle, WindowIcon, WindowInfo,
-  WindowResizeDirection,
+  CloseRequest, CloseRequestSource, Window, WindowBorderColor, WindowCornerRadius, WindowHandle, WindowIcon,
+  WindowInfo, WindowResizeDirection,
 };
 
 pub mod menu;

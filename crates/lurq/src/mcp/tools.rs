@@ -197,6 +197,7 @@ fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
   windows.push(serde_json::json!({
     "id": "main",
     "kind": "main",
+    "title": tree.window().handle().title(),
     "open": true,
     "focused": main_info.is_focused,
     "width": main_info.resolved_width.round(),
@@ -211,7 +212,7 @@ fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
     windows.push(serde_json::json!({
       "id": format!("w{}", secondary.id()),
       "name": secondary.name(),
-      "title": secondary.title(),
+      "title": secondary.tree().window().handle().title().unwrap_or_else(|| secondary.title().to_owned()),
       "kind": if is_devtools_index(tree, index) { "devtools" } else { "secondary" },
       "open": true,
       "focused": info.is_focused,

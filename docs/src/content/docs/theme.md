@@ -1,11 +1,11 @@
 ---
 title: Theme
-description: Strict palette, typography, radius, spacing, scrollbar, border size, and form theme roles.
+description: Semantic palette, typography, radius, spacing, border size, shadow, scrollbar, and form theme roles, with named extras.
 ---
 
 # Theme
 
-The runtime theme is a strict set of semantic roles. There is no dynamic token registry: palette colors, typography styles, radius sizes, spacing sizes, scrollbar style, and border sizes are closed enums with matching fields on the theme structs.
+The runtime theme is a set of semantic roles. Palette colors, typography styles, radius sizes, spacing sizes, border sizes, and shadow styles are enums with a matching field on the theme structs for each built-in role, plus an `Extra` variant for application-defined roles (see [Extra Roles](#extra-roles)). The scrollbar style and breakpoints have no extras.
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
@@ -61,6 +61,8 @@ The main theme accessors are:
 | `theme.spacing_value(key)` / `theme.set_spacing_value(key, value)` | Read or set one spacing role. |
 | `theme.border_sizes()` / `theme.set_border_sizes(...)` | Read or replace `ThemeBorderSizes`. |
 | `theme.border_size_value(key)` / `theme.set_border_size_value(key, value)` | Read or set one border-size role. |
+| `theme.shadows()` / `theme.set_shadows(...)` | Read or replace `ThemeShadows`. |
+| `theme.shadow_style(key)` / `theme.set_shadow_style(key, shadows)` | Read or set one shadow role (a list of `BoxShadow`s). |
 | `theme.scrollbar()` / `theme.set_scrollbar(...)` | Read or replace the default `ScrollBarStyle`. |
 | `theme.breakpoints()` / `theme.set_breakpoints(...)` | Read or replace `ThemeBreakpoints`. |
 | `theme.breakpoint_value(key)` / `theme.set_breakpoint_value(key, value)` | Read or set one breakpoint threshold. |
@@ -121,6 +123,15 @@ Available roles:
 | `Info` | `info` | `#0284c7` |
 | `InfoMuted` | `info_muted` | `#e0f2fe` |
 
+`PaletteColor::Extra(name)` names an application-defined color stored in `ThemePalette::extra`, a `HashMap<Arc<str>, Color>`. Build one with `PaletteColor::extra("brand")`; a `&str` or `Arc<str>` converts into it, so the theme setters accept names directly:
+
+```rust
+use lurq::{app::theme::PaletteColor, node::color::Color};
+
+app.theme().set_palette_color("brand", Color::from_hex("#7c3aed"));
+let brand = app.theme().palette_color(PaletteColor::extra("brand"));
+```
+
 Palette roles can be passed anywhere a background or text color accepts a theme color:
 
 ```rust
@@ -163,6 +174,8 @@ Available roles:
 | `Link` | `link` | body defaults |
 | `Mono` | `mono` | body defaults with `monospace` family |
 
+`TypographyStyle::Extra(name)` names an application-defined style stored in `ThemeTypography::extra`, a `HashMap<Arc<str>, TextStyle>`; see [Extra Roles](#extra-roles).
+
 `Text::new` uses `TypographyStyle::Body`. Use `.variant(...)` for themed text, and `Text::styled(...)` for a one-off style that should not follow a typography role.
 
 `TextStyle::text_align` supports `TextAlign::Left`, `Center`, `Right`, `Justified`, and `End`. `Text::text_align(...)` aligns text inside the text node's box, and `TextInput::text_align(...)` applies the same alignment to value and placeholder text inside the input content box. Both builders also accept layout `Alignment`.
@@ -179,6 +192,94 @@ Text::new("Headline").variant(TypographyStyle::Heading);
 Text::new("Caption").variant(TypographyStyle::Caption);
 Text::new("Long endpoint name").text_overflow(TextOverflow::Elipsis);
 ```
+
+### Font Weight
+
+`FontWeight` has the CSS named weights and a numeric escape hatch:
+
+| `FontWeight` | Weight |
+| --- | --- |
+| `Thin` | `100` |
+| `ExtraLight` | `200` |
+| `Light` | `300` |
+| `Normal` | `400` (default) |
+| `Medium` | `500` |
+| `SemiBold` | `600` |
+| `Bold` | `700` |
+| `ExtraBold` | `800` |
+| `Black` | `900` |
+| `Numeric(n)` | `n`, clamped to `1..=1000` |
+
+`FontWeight::value()` returns the number. Weights compare and hash by value, so `FontWeight::Numeric(600) == FontWeight::SemiBold`, and `FontWeight::from(600)` builds a numeric weight.
+
+Text uses the loaded face of the requested family chosen by CSS font matching, as implemented by fontdb. An exact weight wins. Otherwise a request of 400–449 tries 500 next and one of 450–500 tries 400 next; then requests up to 500 take the nearest lighter face and requests above 500 the nearest heavier face, falling back to the nearest face on the other side. Faces are never synthesized: with only Regular and Bold loaded, `Medium` renders Regular and `SemiBold` renders Bold. Load every weight the design uses, for example:
+
+```rust
+app.install_fonts(
+  [
+    include_bytes!("../assets/fonts/Inter-Regular.ttf").to_vec(),
+    include_bytes!("../assets/fonts/Inter-Medium.ttf").to_vec(),
+    include_bytes!("../assets/fonts/Inter-SemiBold.ttf").to_vec(),
+    include_bytes!("../assets/fonts/Inter-Bold.ttf").to_vec(),
+  ],
+  [("ui", "Inter")],
+);
+```
+
+The resolved weight is cached per family and cleared whenever fonts are loaded. A family with no loaded faces is matched against the generic sans-serif family, where its text falls back.
+
+### Letter Spacing
+
+`TextStyle::letter_spacing` adds space after every glyph, in logical pixels; negative values tighten text. The default is `0.0`. As with CSS `letter-spacing`, spaces are spaced too and the last glyph of a line keeps its trailing spacing, so `"abcd"` with `-1.0` measures 4px narrower. Spacing scales with the display scale factor like `font_size`, and measurement, wrapping, painting, carets, hit testing, and selection all use the spaced advances.
+
+```rust
+use lurq::{
+  app::theme::TypographyStyle,
+  components::{Text, TextInput},
+  layout::text_style::{FontWeight, TextStyle},
+};
+
+app.theme().set_typography_style(TypographyStyle::Heading, TextStyle {
+  font_size: 28.0,
+  weight: FontWeight::Bold,
+  letter_spacing: -0.5,
+  ..TextStyle::default()
+});
+
+Text::new("Overview").variant(TypographyStyle::Heading).letter_spacing(-1.0);
+TextInput::new(query.clone()).letter_spacing(0.5);
+```
+
+`Text::letter_spacing(...)` overrides the spacing of whatever style the text resolves to, including typography roles. `TextInput::letter_spacing(...)` sets it on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces it, as with `text_align(...)`. Markdown styles take `MarkdownTextStyle::letter_spacing`, which `font_size_scale` does not scale, and canvas text takes `CanvasFont::letter_spacing`. Within rich text every span's spacing is in pixels, whatever its font size. Non-finite values are treated as `0.0`.
+
+### Font Features
+
+`TextStyle::font_features` holds OpenType feature settings, like CSS `font-feature-settings`. Each `FontFeature` is a four-byte tag and a value: `0` turns the feature off, `1` turns it on, and features that pick an alternate (`salt`, `cvNN`) take its index. The default is empty, which keeps the shaper's default features, including standard ligatures (`liga`), contextual alternates (`calt`), and kerning.
+
+Programming ligatures can misrender commands and code. Geist Mono, for example, shapes `--` into one cell-wide glyph drawn over the preceding cell, so `gh auth login --hostname` shows as `login--hostname` and the line is one cell shorter. Define a mono role with them off:
+
+```rust
+use lurq::{
+  app::theme::TypographyStyle,
+  components::Text,
+  layout::text_style::{FontFeature, FontFeatures, TextStyle},
+};
+
+let no_ligatures = FontFeatures::new([FontFeature::disable(*b"liga"), FontFeature::disable(*b"calt")]);
+app.theme().set_typography_style(TypographyStyle::Mono, TextStyle {
+  font_family: "Geist Mono".into(),
+  font_size: 13.0,
+  font_features: no_ligatures.clone(),
+  ..TextStyle::default()
+});
+
+Text::new("gh auth login --hostname github.com").variant(TypographyStyle::Mono);
+Text::new("a -> b").variant(TypographyStyle::Mono).font_features(FontFeatures::default());
+```
+
+Settings are stored sorted by tag with one setting per tag; when a tag appears more than once the last setting wins, so equal settings compare and cache alike in any order. Font features are part of every text cache key, and measurement, wrapping, painting, carets, hit testing, and selection all use the shaped glyphs. Tags a font does not have are ignored.
+
+`Text::font_features(...)` overrides the settings of whatever style the text resolves to, including typography roles. `TextInput::font_features(...)` sets them on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces them. Markdown styles take `MarkdownTextStyle::font_features` (for example on `ThemeMarkdown::inline_code` and `code_block`), which replaces the base style's settings, and canvas text takes `CanvasFont::font_features`. In rich text, cosmic-text shapes a word whose spans share a font as one run with the first span's features, so give spans that meet inside a word the same settings.
 
 `ThemeFonts` remains as a compatibility shape with `body`, `heading`, and `mono`. Converting it into `ThemeTypography` only fills those three roles and leaves the rest at defaults.
 
@@ -259,6 +360,91 @@ Rect::new(100.0, 40.0)
   .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
 ```
 
+## Shadow
+
+Shadow (elevation) roles are named by `ShadowStyle` and stored as public fields on `ThemeShadows`. Each role is a list of [box shadows](../styling-events/#box-shadows), painted first on top, so one role can stack a tight contact shadow over a soft ambient one. Lists are shared `Arc<[BoxShadow]>` values: reading a role or cloning the table does not copy them.
+
+| `ShadowStyle` | `ThemeShadows` field | Default (`offset_x offset_y blur spread color`) |
+| --- | --- | --- |
+| `Sm` | `sm` | `0 1 2 0 #0000000d` |
+| `Md` | `md` | `0 4 6 -1 #0000001a`, `0 2 4 -2 #0000001a` |
+| `Lg` | `lg` | `0 10 15 -3 #0000001a`, `0 4 6 -4 #0000001a` |
+
+Use shadow roles anywhere a box shadow is accepted, including hover, active, and focus styles:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, RadiusSize, ShadowStyle},
+  components::Rect,
+  node::{BoxShadow, color::Color},
+};
+
+app.theme().set_palette_color(PaletteColor::extra("shadow"), Color::from_hex("#0f172a33"));
+app.theme().set_shadow_style(ShadowStyle::Md, vec![
+  BoxShadow::new(0.0, 4.0, 12.0, PaletteColor::extra("shadow")).spread(-2.0),
+]);
+
+Rect::new(240.0, 120.0)
+  .background(PaletteColor::SurfaceRaised)
+  .rounded(RadiusSize::Lg)
+  .box_shadow(ShadowStyle::Md)
+  .hovered(|style| style.box_shadow(ShadowStyle::Lg));
+```
+
+A shadow's color is a `BackgroundColor`, so a palette role (as above) keeps shadows in step with light and dark palettes. Setting a role to an empty list removes that elevation everywhere it is used. Changing a shadow role repaints; it never relayouts, because shadows do not take part in layout.
+
+## Extra Roles
+
+Every role enum except `Breakpoint` has an `Extra` variant for roles the built-in set does not cover, such as a design system's overline or card radius. Each theme struct stores extras in a public `extra` map keyed by `Arc<str>`:
+
+| Role | Extra variant | Storage |
+| --- | --- | --- |
+| `PaletteColor` | `Extra(Arc<str>)` | `ThemePalette::extra: HashMap<Arc<str>, Color>` |
+| `TypographyStyle` | `Extra(RoleName)` | `ThemeTypography::extra: HashMap<Arc<str>, TextStyle>` |
+| `RadiusSize` | `Extra(RoleName)` | `ThemeRadii::extra: HashMap<Arc<str>, f32>` |
+| `SpacingSize` | `Extra(RoleName)` | `ThemeSpacing::extra: HashMap<Arc<str>, Dimension>` |
+| `BorderSize` | `Extra(RoleName)` | `ThemeBorderSizes::extra: HashMap<Arc<str>, f32>` |
+| `ShadowStyle` | `Extra(RoleName)` | `ThemeShadows::extra: HashMap<Arc<str>, Arc<[BoxShadow]>>` |
+
+Build a role with `extra(name)`, or convert a `&str` or `Arc<str>`. The theme setters therefore take names directly:
+
+```rust
+use lurq::{
+  app::theme::{RadiusSize, ShadowStyle, SpacingSize, TypographyStyle},
+  components::{Column, Rect, Text},
+  layout::text_style::{FontWeight, TextStyle},
+  node::BoxShadow,
+};
+
+let theme = app.theme();
+theme.set_typography_style("overline", TextStyle {
+  font_size: 9.0,
+  weight: FontWeight::SemiBold,
+  ..TextStyle::default()
+});
+theme.set_radius_value("card", 10.0);
+theme.set_spacing_value("gutter", 20.0);
+theme.set_shadow_style("popover", vec![BoxShadow::new(0.0, 12.0, 32.0, "#0f172a40").spread(-4.0)]);
+
+Column::new()
+  .padding(SpacingSize::extra("gutter"))
+  .child(Text::new("RECENT").variant("overline"))
+  .child(
+    Rect::new(200.0, 120.0)
+      .rounded(RadiusSize::extra("card"))
+      .box_shadow(ShadowStyle::extra("popover")),
+  );
+```
+
+Radius, spacing, border-size, typography, and shadow roles are `Copy`, nest in `Copy` values such as `Padding`, and are stored many times in every element, so their names are interned: `RoleName` is a 4-byte handle to a name stored once for the life of the process, and each of these roles is 8 bytes. `RoleName` dereferences to `str` and compares equal to a `&str`; `as_str()` returns the name. Use a fixed vocabulary of role names, not per-item data.
+
+A missing extra name follows the palette:
+
+- The theme tables' `get` and `resolve` panic, for example `radius size not found: card`. `try_get` and `try_resolve` return `None`. The `Theme` accessors (`palette_color`, `typography_style`, `radius_value`, `spacing_value`, `border_size_value`, `shadow_style`) call `get`.
+- Nodes never panic. As an unresolved palette color paints nothing, an unresolved radius, spacing, or border size resolves to `0`, an unresolved shadow style paints no shadow, and an unresolved typography variant uses the default text style.
+
+`Breakpoint` has no extras: `Responsive` orders overrides by the `Breakpoint` enum, not by threshold, so a named threshold could not be placed in that order.
+
 ## Scrollbar
 
 `theme.scrollbar()` is the default style for scroll components. Set it once to make scrollbars consistent across the app:
@@ -338,7 +524,7 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 Form theme roles require the `form` feature:
 
 ```toml
-lurq = { version = "0.20.0", features = ["form"] }
+lurq = { version = "0.30.4", features = ["form"] }
 ```
 
 `FormTheme` groups compound form styling into semantic roles:
@@ -402,7 +588,7 @@ Both button roles own layout values (`width`, `height`, `padding`) and semantic 
 | `primary` | `Accent` | `Accent` | `Button` + `TextInverse` |
 | `secondary` | `SurfaceInput` | `BorderStrong` | `Button` + `TextPrimary` |
 
-Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`.
+Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`. Both roles draw a `border_focus` border (`BorderFocus`) while the button has focus, by click or by Tab.
 
 ### Checkbox And Slider Roles
 
@@ -416,6 +602,7 @@ Compound checkbox defaults:
 | `checked_background` | `Accent` |
 | `checked_border` | `Accent` |
 | `checked_background_hover` | `AccentHover` |
+| `border_focus` | `BorderFocus` |
 | `radius` | `RadiusSize::Sm` |
 
 Compound slider defaults:
@@ -426,6 +613,7 @@ Compound slider defaults:
 | `track_hover` | `BorderStrong` |
 | `thumb` | `Accent` |
 | `thumb_hover` | `AccentHover` |
+| `thumb_border_focus` | `BorderFocus` |
 
 ### Updating Form Roles
 
@@ -464,4 +652,4 @@ Rect::new(80.0, 32.0)
   .border_inside(1.0, Color::from_hex("#334155"));
 ```
 
-Prefer concrete values for isolated drawings, debug visuals, or one-off component details. Prefer theme roles for app surfaces, text, controls, repeated spacing, repeated border widths, and reusable component defaults.
+Prefer concrete values for isolated drawings, debug visuals, or one-off component details. Prefer theme roles for app surfaces, text, controls, repeated spacing, repeated border widths, elevations, and reusable component defaults.

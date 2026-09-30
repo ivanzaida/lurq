@@ -1,10 +1,12 @@
 pub mod alignment;
+pub mod box_shadow;
 pub mod constraints;
 pub mod flex_direction;
 pub mod layout_engine;
 pub mod layout_kind;
 pub mod layout_result;
 pub mod offset;
+pub mod opacity_layer;
 pub mod quad;
 pub mod render_list;
 pub mod scrollbar;

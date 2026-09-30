@@ -131,7 +131,7 @@ The timings inside `FrameProfile` are **inclusive**, not additive:
 - `glyph_rasterize` includes vertical alignment, shaping for paint, rasterization, and command generation.
 - `vertical_extents` includes buffer preparation/shaping (`vertical_extents_shape`), all glyph visits, and any glyph raster/atlas misses encountered while finding ink bounds.
 - `swash_lookup` and `atlas_pack` include calls made from the bounds calculation as well as paint. Do not add them to `vertical_extents` to estimate total work.
-- `rich_buffer_set_text` includes shaping: Cosmic Text 0.12.1 calls `shape_until_scroll` inside text setters. A small explicit `rich_cosmic_shape` timer does not mean shaping was cheap.
+- `rich_buffer_set_text` includes shaping: Cosmic Text 0.12.1 calls `shape_until_scroll` inside text setters. A small explicit `rich_cosmic_shape` timer does not mean shaping was cheap. Since the Cosmic Text 0.19 upgrade, setters only mark the buffer dirty, so rich shaping is counted in `rich_cosmic_shape` instead.
 
 With `perf_profile`, the ordinary frame log now includes `text_bounds=...` with shaping duration, run count, and visited glyph count, plus `raster_buffer` and `raster_text` timers. The optimization also adds full-buffer hit/miss and reused-paragraph counts to that log. All new hot-path timers and counter updates are compiled out without that feature.
 

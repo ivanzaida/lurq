@@ -7,10 +7,12 @@ pub enum BorderSizeValue {
 }
 
 impl BorderSizeValue {
+  /// A [`BorderSize::Extra`] missing from the theme resolves to `0.0` (no
+  /// border), as an unresolved palette color paints nothing.
   pub fn resolve(&self, border_sizes: &ThemeBorderSizes) -> f32 {
     match self {
       Self::Px(value) => *value,
-      Self::Theme(size) => border_sizes.get(*size),
+      Self::Theme(size) => border_sizes.try_get(*size).unwrap_or(0.0),
     }
   }
 

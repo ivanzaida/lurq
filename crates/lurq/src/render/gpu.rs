@@ -33,6 +33,33 @@ pub struct QuadInstance {
   pub gradient_offset: f32,
 }
 
+impl QuadInstance {
+  /// The instance of a box-shadow rect (see the quad shaders' header).
+  pub fn box_shadow(
+    rect: &crate::layout::render_list::RectCmd,
+    shadow: &crate::layout::render_list::RectShadow,
+  ) -> Self {
+    Self {
+      pos: [rect.x, rect.y],
+      size: [rect.width, rect.height],
+      color: rect.color.to_linear_f32_array(),
+      radii_h: rect.radii,
+      radii_v: shadow.shape_radii,
+      stroke: [0.0; 4],
+      pattern: [
+        if shadow.inset { 2.0 } else { 1.0 },
+        shadow.offset[0],
+        shadow.offset[1],
+        shadow.spread,
+      ],
+      transform: rect.transform,
+      xf_origin: rect.transform_origin,
+      shadow_sigma: shadow.sigma.max(0.0),
+      gradient_offset: -1.0,
+    }
+  }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GlyphInstance {

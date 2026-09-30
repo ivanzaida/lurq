@@ -32,6 +32,13 @@ cargo check --workspace --all-features --all-targets --locked
 
 The publish workflow in `.github/workflows/publish-crates.yml` defines release validation. Native GPU and window checks need the matching platform and a usable graphics environment; see [Canvas 2D](../canvas/#examples-and-checks) and [Window lifecycle](../window-lifecycle-menus/#mcp-and-verification). Ignored hardware tests are not run by an ordinary `cargo test`.
 
+On Windows, the render readback tests draw into a hidden window of their own and compare both native backends with CSS blending and with the box-shadow formula; the box-shadow capture check runs a themed scene through layout and both backends and requires identical captures:
+
+```powershell
+cargo test -p lurq --features wgpu,dx12,raster,screenshot --lib readback -- --ignored --test-threads=1
+cargo run -p lurq --example box_shadow_capture_check --features screenshot,wgpu,dx12
+```
+
 Run one area:
 
 ```powershell
@@ -78,7 +85,11 @@ assert_eq!(snapshot.rects.len(), 1);
 assert_eq!(snapshot.rects[0].width, 100.0);
 ```
 
-This is useful for border, radius, opacity, image order, SVG order, and render-list regressions.
+This is useful for border, radius, opacity, image order, SVG order, and render-list regressions. `snapshot.layers` lists the frame's opacity layers (see [Opacity](../styling-events/#opacity)); rects and glyphs record their `order`, so a test can tell which layer holds them. The pixels of layers are checked through both render engines by the `opacity_layer_readback` tests:
+
+```powershell
+cargo test -p lurq --features wgpu,dx12,screenshot --lib opacity_layer_readback -- --ignored --test-threads=1
+```
 
 ## Reactivity Tests
 
@@ -114,6 +125,19 @@ Click handlers run from a matching pointer down/up pair; tests should not inject
 Use direct tree input for deterministic hover, active, focus, scroll, text input, selectable text, slider, checkbox, drag, and drop behavior.
 
 Text input tests cover caret placement, Unicode-safe deletion, keyboard selection, multiline movement, undo/redo, and double/triple-click selection. Selectable text tests cover drag ranges, word and line selection, and transformed visual-coordinate hit testing.
+
+## Headless Passes And Focus
+
+`tree.pass_headless(&mut app)` lays out the tree, overlays and modals included, without a window handle or render engine, so input, hit testing, focus, and Tab work in tests without the `unsafe` test surface. `tree.focused_element()` returns the focused control:
+
+```rust
+tree.set_root(Column::new().child(Button::new("Save").id("save").tab_index(0)));
+tree.pass_headless(&mut App::new());
+tree.key_down("Tab".into(), "Tab".into(), false, false, false);
+assert_eq!(tree.focused_element().and_then(|element| element.id()), Some("save"));
+```
+
+Use the render snapshot helpers when a test asserts on drawn output. See [Testing Focus](../focus-navigation/#testing-focus).
 
 ## Element Lookup And Typed Interaction
 

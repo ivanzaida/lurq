@@ -1,6 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #[cfg(feature = "canvas")]
 mod canvas;
+mod layers;
 
 #[cfg(feature = "raster")]
 use std::collections::{HashMap, HashSet};
@@ -124,6 +125,7 @@ use crate::{
     render_engine::RenderEngine,
   },
   layout::{
+    opacity_layer::{LayerPlan, LayerStep, TargetSpace},
     quad::ClipRect,
     render_list::{GlyphCmd, RectCmd, RenderList},
   },
@@ -153,7 +155,9 @@ const DX12_SLOW_FRAME_THRESHOLD: Duration = Duration::from_millis(12);
 const DX12_SLOW_PHASE_THRESHOLD: Duration = Duration::from_millis(6);
 const DX12_FRAME_NOT_READY: HRESULT = HRESULT(0x800705B4u32 as i32);
 const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
-const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+/// Not sRGB: pixel shaders write sRGB-encoded colour, so alpha blending mixes
+/// encoded values like CSS instead of linear light.
+const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = SWAPCHAIN_FORMAT;
 
 #[cfg(feature = "raster")]
 static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -332,6 +336,16 @@ impl Dx12RenderEngine {
       #[cfg(feature = "raster")]
       video_surfaces: None,
     }
+  }
+
+  /// Opacity-layer textures the engine keeps pooled.
+  #[cfg(all(test, feature = "screenshot"))]
+  pub(crate) fn layer_texture_count(&self) -> usize {
+    self
+      .state
+      .as_ref()
+      .and_then(|state| state.layer_compositor.as_ref())
+      .map_or(0, layers::LayerCompositor::texture_count)
   }
 
   #[cfg(feature = "raster")]
@@ -840,6 +854,13 @@ struct Dx12State {
   /// again at the start of a later frame.
   #[cfg(feature = "screenshot")]
   retired_capture_readbacks: [Vec<ID3D12Resource>; FRAME_COUNT],
+  /// The pixel space draws currently target: the window or an opacity layer.
+  space: TargetSpace,
+  layer_plan: LayerPlan,
+  layer_slots: Vec<Option<usize>>,
+  /// Offscreen targets of faded subtrees; created by the first frame that
+  /// has one.
+  layer_compositor: Option<layers::LayerCompositor>,
 }
 
 /// A recorded-but-not-yet-read screenshot: the readback buffer the back
@@ -2304,9 +2325,14 @@ unsafe fn create_rgba_texture(device: &ID3D12Device, width: u32, height: u32) ->
   resource.ok_or_else(Error::from_win32)
 }
 
-fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
-  let mut instances = Vec::with_capacity(2);
-  instances.push(QuadInstance {
+/// A rect's instances: its fill and, when it has one, its stroke; or its box
+/// shadow. Returned inline with a count so drawing a rect does not allocate.
+fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> ([QuadInstance; 2], usize) {
+  if let Some(shadow) = &rect.shadow {
+    let instance = QuadInstance::box_shadow(rect, shadow);
+    return ([instance, instance], 1);
+  }
+  let fill = QuadInstance {
     pos: [rect.x, rect.y],
     size: [rect.width, rect.height],
     color: rect.color.to_linear_f32_array(),
@@ -2318,9 +2344,9 @@ fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
     xf_origin: rect.transform_origin,
     shadow_sigma: 0.0,
     gradient_offset,
-  });
+  };
   if rect.stroke.iter().any(|width| *width > 0.0) {
-    instances.push(QuadInstance {
+    let stroke = QuadInstance {
       pos: [rect.x, rect.y],
       size: [rect.width, rect.height],
       color: rect.stroke_color.to_linear_f32_array(),
@@ -2332,9 +2358,23 @@ fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> Vec<QuadInstance> {
       xf_origin: rect.transform_origin,
       shadow_sigma: 0.0,
       gradient_offset: -1.0,
-    });
+    };
+    return ([fill, stroke], 2);
   }
-  instances
+  ([fill, fill], 1)
+}
+
+/// A draw of the render list, in paint order.
+enum OrderedDraw {
+  Rect(usize),
+  Glyph {
+    start: usize,
+    count: usize,
+  },
+  #[cfg(feature = "raster")]
+  Image(usize),
+  #[cfg(feature = "svg")]
+  Svg(usize),
 }
 
 fn same_clip(a: ClipRect, b: ClipRect) -> bool {
@@ -2346,15 +2386,16 @@ fn same_clip(a: ClipRect, b: ClipRect) -> bool {
     && a.border_radius == b.border_radius
 }
 
-fn globals_for_clip(clip: ClipRect, width: f32, height: f32) -> Globals {
+/// Globals for a draw clipped by `clip`, already in `space`'s pixels.
+fn globals_for_clip(clip: ClipRect, space: &TargetSpace) -> Globals {
   let radius = clip.border_radius.unwrap_or_default();
   let radii = radius.to_array();
   Globals {
-    viewport: [width, height, 0.0, 0.0],
+    viewport: space.viewport(),
     clip_rect: if clip.active {
       [clip.x, clip.y, clip.width, clip.height]
     } else {
-      [0.0, 0.0, width, height]
+      [0.0, 0.0, space.width, space.height]
     },
     clip_radii_h: radii,
     clip_radii_v: radii,
@@ -2534,10 +2575,11 @@ impl Dx12State {
       FRAME_COUNT as u32,
       D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
     )?;
+    // Image descriptors, then each frame slot's opacity-layer descriptors.
     let srv_heap = CpuDescriptorHeap::new(
       &device,
       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-      SRV_DESCRIPTOR_COUNT,
+      SRV_DESCRIPTOR_COUNT + (layers::LAYER_SRVS_PER_FRAME * FRAME_COUNT) as u32,
       D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
     )?;
     let sampler_heap = CpuDescriptorHeap::new(
@@ -2624,6 +2666,10 @@ impl Dx12State {
       pending_frame_capture: None,
       #[cfg(feature = "screenshot")]
       retired_capture_readbacks: std::array::from_fn(|_| Vec::new()),
+      space: TargetSpace::window(width.max(1) as f32, height.max(1) as f32),
+      layer_plan: LayerPlan::default(),
+      layer_slots: Vec::new(),
+      layer_compositor: None,
     };
     state.create_render_targets()?;
     state.frame_index = state.swapchain.GetCurrentBackBufferIndex() as usize;
@@ -2667,6 +2713,7 @@ impl Dx12State {
     self.canvas_retired[self.frame_index].clear();
     #[cfg(feature = "screenshot")]
     self.retired_capture_readbacks[self.frame_index].clear();
+    self.release_retired_layers();
     self.frame_arenas[self.frame_index].reset();
     #[cfg(feature = "raster")]
     self.begin_frame_image_descriptors(list);
@@ -2763,7 +2810,7 @@ impl Dx12State {
     self.command_list.OMSetRenderTargets(1, Some(&rtv), false, None);
     self
       .command_list
-      .ClearRenderTargetView(rtv, &list.clear_color.to_linear_f32_array(), None);
+      .ClearRenderTargetView(rtv, &list.clear_color.to_f32_array(), None);
 
     let _atlas_start = profile_scope!();
     let atlas_stats = dx12_context(self.update_glyph_atlas(list), "update dx12 glyph atlas")?;
@@ -2795,7 +2842,7 @@ impl Dx12State {
 
   /// Record a copy of the capture rect from the back buffer into a fresh
   /// readback buffer. The back buffer bytes are already sRGB-encoded RGBA8
-  /// (UNORM swapchain written through an sRGB render target view), so the
+  /// (the pixel shaders encode before the UNORM render target blends), so the
   /// readback maps straight to PNG pixels.
   #[cfg(feature = "screenshot")]
   unsafe fn encode_frame_capture(&mut self, capture: &RenderFrameCapture) -> Result<FrameCaptureReadback> {
@@ -3008,23 +3055,12 @@ impl Dx12State {
       MaxDepth: 1.0,
     };
     self.command_list.RSSetViewports(std::slice::from_ref(&viewport));
+    self.space = TargetSpace::window(self.width as f32, self.height as f32);
 
     self
       .command_list
       .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     self.command_list.IASetIndexBuffer(Some(&self.quad_buffers.index_view));
-
-    enum OrderedDraw {
-      Rect(usize),
-      Glyph {
-        start: usize,
-        count: usize,
-      },
-      #[cfg(feature = "raster")]
-      Image(usize),
-      #[cfg(feature = "svg")]
-      Svg(usize),
-    }
 
     let mut ordered_draws = Vec::new();
     for (index, rect) in list.rects.iter().enumerate() {
@@ -3060,57 +3096,116 @@ impl Dx12State {
     }
     ordered_draws.sort_by_key(|(order, _)| *order);
 
-    for (_, draw) in ordered_draws {
-      match draw {
-        OrderedDraw::Rect(index) => dx12_context(
-          self.draw_rect(&list.rects[index]),
-          format_args!("draw dx12 rect #{index}"),
-        )?,
-        OrderedDraw::Glyph { start, count } => dx12_context(
-          self.draw_glyphs(&list.glyphs[start..start + count]),
-          format_args!("draw dx12 glyph run start={start} count={count}"),
-        )?,
-        #[cfg(feature = "raster")]
-        OrderedDraw::Image(index) => {
-          if DX12_IMAGE_DRAWS_DISABLED.load(Ordering::Relaxed) {
-            continue;
-          }
-          let image = &list.images[index];
-          let result = dx12_context(
-            self.draw_image(image),
-            format_args!(
-              "draw dx12 image #{} id={} format={:?} native={}",
-              index,
-              image.image_id,
-              image.image_format,
-              image.native.is_some()
-            ),
-          );
-          if let Err(err) = result {
-            if is_error_mod_not_found(&err) {
-              DX12_IMAGE_DRAWS_DISABLED.store(true, Ordering::Relaxed);
-              if !DX12_IMAGE_MOD_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
-                tracing::error!(
-                  "disabling dx12 image draws after ERROR_MOD_NOT_FOUND; continuing frame so non-image UI can render"
-                );
-              }
-              continue;
+    // Faded subtrees paint into offscreen layers first, each before the
+    // target it is composited into; the window comes last. Without layers the
+    // plan is the window's draws alone.
+    let mut plan = std::mem::take(&mut self.layer_plan);
+    let mut slots = std::mem::take(&mut self.layer_slots);
+    plan.build(ordered_draws.len(), |index| ordered_draws[index].0, &list.layers);
+    let result = self.draw_planned(list, &ordered_draws, &plan, &mut slots);
+    self.layer_plan = plan;
+    self.layer_slots = slots;
+    result
+  }
+
+  unsafe fn draw_planned(
+    &mut self,
+    list: &RenderList,
+    draws: &[(usize, OrderedDraw)],
+    plan: &LayerPlan,
+    slots: &mut Vec<Option<usize>>,
+  ) -> Result<()> {
+    slots.clear();
+    if plan.has_layers() {
+      let targets: Vec<_> = plan
+        .targets()
+        .iter()
+        .map(|target| target.layer.map(|layer| &list.layers[layer]))
+        .collect();
+      dx12_context(self.begin_layer_frame(&targets, slots), "prepare dx12 opacity layers")?;
+    }
+    for (target_index, target) in plan.targets().iter().enumerate() {
+      let layer_slot = slots.get(target_index).copied().flatten();
+      match (target.layer, layer_slot) {
+        (Some(layer), Some(slot)) => self.begin_layer_target(slot, &list.layers[layer]),
+        _ if plan.has_layers() => self.begin_window_target(),
+        _ => {}
+      }
+      for step in plan.steps(target) {
+        match step {
+          LayerStep::Draws(range) => {
+            for (_, draw) in &draws[range.clone()] {
+              self.draw_one(list, draw)?;
             }
-            return Err(err);
           }
-        }
-        #[cfg(feature = "svg")]
-        OrderedDraw::Svg(index) => {
-          dx12_context(self.draw_svg(&list.svgs[index]), format_args!("draw dx12 svg #{index}"))?
+          LayerStep::Composite(child) => {
+            let child_layer = plan.targets()[*child].layer;
+            if let (Some(layer), Some(slot)) = (child_layer, slots.get(*child).copied().flatten()) {
+              dx12_context(
+                self.composite_layer(slot, &list.layers[layer]),
+                "composite dx12 opacity layer",
+              )?;
+            }
+          }
         }
       }
+      if let (Some(_), Some(slot)) = (target.layer, layer_slot) {
+        self.end_layer_target(slot);
+      }
     }
-
+    if plan.has_layers() {
+      self.end_layer_frame();
+    }
     Ok(())
   }
 
+  unsafe fn draw_one(&mut self, list: &RenderList, draw: &OrderedDraw) -> Result<()> {
+    match *draw {
+      OrderedDraw::Rect(index) => dx12_context(
+        self.draw_rect(&list.rects[index]),
+        format_args!("draw dx12 rect #{index}"),
+      ),
+      OrderedDraw::Glyph { start, count } => dx12_context(
+        self.draw_glyphs(&list.glyphs[start..start + count]),
+        format_args!("draw dx12 glyph run start={start} count={count}"),
+      ),
+      #[cfg(feature = "raster")]
+      OrderedDraw::Image(index) => {
+        if DX12_IMAGE_DRAWS_DISABLED.load(Ordering::Relaxed) {
+          return Ok(());
+        }
+        let image = &list.images[index];
+        let result = dx12_context(
+          self.draw_image(image),
+          format_args!(
+            "draw dx12 image #{} id={} format={:?} native={}",
+            index,
+            image.image_id,
+            image.image_format,
+            image.native.is_some()
+          ),
+        );
+        if let Err(err) = result {
+          if is_error_mod_not_found(&err) {
+            DX12_IMAGE_DRAWS_DISABLED.store(true, Ordering::Relaxed);
+            if !DX12_IMAGE_MOD_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
+              tracing::error!(
+                "disabling dx12 image draws after ERROR_MOD_NOT_FOUND; continuing frame so non-image UI can render"
+              );
+            }
+            return Ok(());
+          }
+          return Err(err);
+        }
+        Ok(())
+      }
+      #[cfg(feature = "svg")]
+      OrderedDraw::Svg(index) => dx12_context(self.draw_svg(&list.svgs[index]), format_args!("draw dx12 svg #{index}")),
+    }
+  }
+
   unsafe fn draw_rect(&mut self, rect: &RectCmd) -> Result<()> {
-    let Some(scissor) = scissor_rect(rect.clip, self.width as f32, self.height as f32) else {
+    let Some(scissor) = scissor_rect(self.space.clip(rect.clip), self.space.width, self.space.height) else {
       return Ok(());
     };
 
@@ -3122,11 +3217,13 @@ impl Dx12State {
       Some(gradient) => crate::layout::render_list::encode_gradient(&mut gradient_data, gradient),
       None => -1.0,
     };
-    if gradient_data.is_empty() {
-      gradient_data.push([0.0; 4]);
-    }
-    let gradient_upload = self.upload_frame_pod_slice(&gradient_data, 16)?;
-    let globals = globals_for_clip(rect.clip, self.width as f32, self.height as f32);
+    const NO_GRADIENT: [[f32; 4]; 1] = [[0.0; 4]];
+    let gradient_upload = if gradient_data.is_empty() {
+      self.upload_frame_pod_slice(&NO_GRADIENT, 16)?
+    } else {
+      self.upload_frame_pod_slice(&gradient_data, 16)?
+    };
+    let globals = globals_for_clip(self.space.clip(rect.clip), &self.space);
     let globals_upload = self.upload_frame_constant(&globals)?;
 
     self.command_list.SetPipelineState(&self.rect_pipeline.pipeline_state);
@@ -3140,8 +3237,9 @@ impl Dx12State {
       .command_list
       .SetGraphicsRootShaderResourceView(1, gradient_upload.gpu_address);
 
-    let instances = rect_instances(rect, gradient_offset);
-    let instance_upload = self.upload_frame_pod_slice(&instances, 16)?;
+    let (instances, instance_count) = rect_instances(rect, gradient_offset);
+    let instances = &instances[..instance_count];
+    let instance_upload = self.upload_frame_pod_slice(instances, 16)?;
     let instance_view = instance_upload.vertex_view::<QuadInstance>();
 
     let vertex_views = [self.quad_buffers.vertex_view, instance_view];
@@ -3169,7 +3267,7 @@ impl Dx12State {
       }
       return Ok(());
     }
-    let Some(scissor) = scissor_rect(glyphs[0].clip, self.width as f32, self.height as f32) else {
+    let Some(scissor) = scissor_rect(self.space.clip(glyphs[0].clip), self.space.width, self.space.height) else {
       if crate::app::glyph_engine::glyph_debug_marker().is_some() {
         let clip = glyphs[0].clip;
         eprintln!(
@@ -3195,7 +3293,7 @@ impl Dx12State {
       .collect();
     let instance_upload = self.upload_frame_pod_slice(&instances, 16)?;
     let instance_view = instance_upload.vertex_view::<GlyphInstance>();
-    let globals = globals_for_clip(glyphs[0].clip, self.width as f32, self.height as f32);
+    let globals = globals_for_clip(self.space.clip(glyphs[0].clip), &self.space);
     let globals_upload = self.upload_frame_constant(&globals)?;
 
     let descriptor_heaps = [Some(self.srv_heap.heap.clone()), Some(self.sampler_heap.heap.clone())];
@@ -3367,7 +3465,7 @@ impl Dx12State {
     if image.image_width == 0 || image.image_height == 0 {
       return Ok(());
     }
-    let Some(scissor) = scissor_rect(image.clip, self.width as f32, self.height as f32) else {
+    let Some(scissor) = scissor_rect(self.space.clip(image.clip), self.space.width, self.space.height) else {
       return Ok(());
     };
     #[cfg(feature = "canvas")]
@@ -3523,7 +3621,7 @@ impl Dx12State {
     };
     let instance_upload = self.upload_frame_pod_slice(&[instance], 16)?;
     let instance_view = instance_upload.vertex_view::<ImageInstance>();
-    let globals = globals_for_clip(image.clip, self.width as f32, self.height as f32);
+    let globals = globals_for_clip(self.space.clip(image.clip), &self.space);
     let globals_upload = self.upload_frame_constant(&globals)?;
 
     let descriptor_heaps = [Some(self.srv_heap.heap.clone()), Some(self.sampler_heap.heap.clone())];
@@ -3575,7 +3673,7 @@ impl Dx12State {
     if svg.mesh.vertices.is_empty() || svg.mesh.indices.is_empty() {
       return Ok(());
     }
-    let Some(scissor) = scissor_rect(svg.clip, self.width as f32, self.height as f32) else {
+    let Some(scissor) = scissor_rect(self.space.clip(svg.clip), self.space.width, self.space.height) else {
       return Ok(());
     };
 
@@ -3590,7 +3688,7 @@ impl Dx12State {
       .collect();
     let vertex_upload = self.upload_frame_pod_slice(&vertices, 16)?;
     let index_upload = self.upload_frame_pod_slice(&svg.mesh.indices, 4)?;
-    let globals = globals_for_clip(svg.clip, self.width as f32, self.height as f32);
+    let globals = globals_for_clip(self.space.clip(svg.clip), &self.space);
     let globals_upload = self.upload_frame_constant(&globals)?;
     let vertex_view = vertex_upload.vertex_view::<SvgVertexGpu>();
     let index_view = D3D12_INDEX_BUFFER_VIEW {
@@ -4723,6 +4821,8 @@ mod tests {
       compile_shader(include_bytes!("shaders/quad.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
       compile_shader(include_bytes!("shaders/glyph.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
       compile_shader(include_bytes!("shaders/glyph.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
+      compile_shader(include_bytes!("shaders/layer.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
+      compile_shader(include_bytes!("shaders/layer.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
       #[cfg(feature = "raster")]
       {
         compile_shader(include_bytes!("shaders/image.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();

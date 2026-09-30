@@ -8,6 +8,9 @@ mod synthetic {
 
 mod select {
   mod interaction;
+  mod keyboard;
+  mod rerender;
+  mod style;
 }
 
 mod text_input {
@@ -15,6 +18,7 @@ mod text_input {
   mod editing;
   mod empty_value;
   mod focus;
+  mod letter_spacing;
   mod masked_editing;
   mod overflow_anchor;
   mod preserves_editing_state_across_render;
@@ -22,6 +26,7 @@ mod text_input {
   mod soft_wrap_selection;
   mod style;
   mod typing_updates_value;
+  mod line_metrics;
 }
 
 mod checkbox {
@@ -56,3 +61,11 @@ mod slider {
   mod suppresses_parent_click;
   mod updates_from_click;
 }
+
+mod pointer {
+  mod native_window_gesture;
+}
+
+mod focus_on_press;
+mod focused_style;
+mod tab_order;

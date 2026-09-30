@@ -6,7 +6,7 @@ use std::{
 use crate::{
   core::Signal,
   layout::{scrollbar::ScrollBarStyle, text_style::TextStyle},
-  node::{color::Color, dimension::Dimension},
+  node::{box_shadow::BoxShadow, color::Color, dimension::Dimension},
 };
 
 mod border;
@@ -18,6 +18,8 @@ mod form;
 mod markdown;
 mod palette;
 mod radius;
+mod role_name;
+mod shadow;
 mod spacing;
 mod typography;
 
@@ -33,6 +35,8 @@ pub use form::{
 pub use markdown::{MarkdownBlockStyle, MarkdownInlineStyle, MarkdownTextStyle, ThemeMarkdown};
 pub use palette::{PaletteColor, ThemePalette};
 pub use radius::{RadiusSize, ThemeRadii};
+pub use role_name::RoleName;
+pub use shadow::{ShadowStyle, ThemeShadows};
 pub use spacing::{SpacingSize, ThemeSpacing};
 pub use typography::{ThemeFonts, ThemeTypography, TypographyStyle};
 
@@ -47,6 +51,7 @@ struct ThemeInner {
   border_sizes: ThemeBorderSizes,
   spacing: ThemeSpacing,
   radii: ThemeRadii,
+  shadows: Arc<ThemeShadows>,
   breakpoints: ThemeBreakpoints,
   caret: ThemeCaret,
   scrollbar: ScrollBarStyle,
@@ -79,6 +84,7 @@ impl Default for Theme {
         border_sizes: ThemeBorderSizes::default(),
         spacing: ThemeSpacing::default(),
         radii: ThemeRadii::default(),
+        shadows: Arc::new(ThemeShadows::default()),
         breakpoints: ThemeBreakpoints::default(),
         caret: ThemeCaret::default(),
         scrollbar: ScrollBarStyle::default(),
@@ -185,6 +191,32 @@ impl Theme {
 
   pub fn radius_value(&self, size: impl Into<RadiusSize>) -> f32 {
     self.inner.read().unwrap().radii.get(size)
+  }
+
+  pub fn shadows(&self) -> ThemeRef<'_, ThemeShadows> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.shadows,
+    }
+  }
+
+  pub fn set_shadows(&self, shadows: ThemeShadows) {
+    self.mutate_inner(|inner| inner.shadows = Arc::new(shadows));
+  }
+
+  /// Sets the shadows of one role; an empty list gives the role no shadow.
+  pub fn set_shadow_style(&self, style: impl Into<ShadowStyle>, shadows: impl Into<Arc<[BoxShadow]>>) {
+    self.mutate_inner(|inner| Arc::make_mut(&mut inner.shadows).set(style, shadows));
+  }
+
+  /// Panics when a [`ShadowStyle::Extra`] name is not in the table; see [`ThemeShadows::try_get`].
+  pub fn shadow_style(&self, style: impl Into<ShadowStyle>) -> Arc<[BoxShadow]> {
+    self.inner.read().unwrap().shadows.get(style)
+  }
+
+  /// The shared shadow table, for painting without copying it.
+  pub(crate) fn shared_shadows(&self) -> Arc<ThemeShadows> {
+    self.inner.read().unwrap().shadows.clone()
   }
 
   pub fn breakpoints(&self) -> ThemeRef<'_, ThemeBreakpoints> {

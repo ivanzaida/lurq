@@ -8,7 +8,7 @@ description: Form handling, field binding, submission, and the Button component.
 Requires the `form` feature flag.
 
 ```toml
-lurq = { version = "0.20.0", features = ["form"] }
+lurq = { version = "0.30.4", features = ["form"] }
 ```
 
 Compound form controls read their defaults from `theme.form()`. See [Theme](../theme/#form-theme) for the strict form field, input, checkbox, slider, and button roles.
@@ -289,6 +289,10 @@ let email = form.string_control("email");
 let age = form.number_control("age");
 let active = form.bool_control("active");
 ```
+
+## Keyboard Navigation
+
+A form's text inputs, checkboxes, sliders, selects, and buttons are Tab stops without a `tab_index`, in tree order after any positive tab indices; `tab_index(-1)` skips one. A form does not trap Tab: its controls are part of the window's order (or the open modal's), so Tab from the last control moves on to the next stop after the form and Shift+Tab from the first goes back before it. Only a modal traps. See [Focus And Keyboard Navigation](../focus-navigation/).
 
 ## Submission
 

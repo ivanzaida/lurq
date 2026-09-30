@@ -208,26 +208,77 @@ Use `WindowChrome::overlay(...)` for fullscreen modals or app-level overlay laye
 below chrome resize hit zones. `WindowChrome` renders content first, then overlays, then chrome borders and resize
 handles, so modal layers do not make an undecorated window impossible to resize.
 
+`ChromeBorderPolicy` decides the frame outline. `PlatformDefault` paints a 1px `#252a32` line on Windows and none
+elsewhere; `Visible { size, color }` paints the given line; `Hidden` paints none. Custom chrome also sets
+`WindowBorderColor::None` on the window, because Windows 11 DWM otherwise draws its own 1px border around undecorated
+windows, which would show even with `Hidden`. The title bar's bottom line is separate: `ChromeTitleBar::new()` draws a
+1px `#252a32` bottom border, and `border_bottom(None)` removes it.
+
 Use `WindowChromeProps` for policy-level changes:
 
 ```rust
 use lurq::{
-  components::{ChromeBorderPolicy, ResizeHandlePolicy, WindowChromeMode, WindowChromeProps},
+  components::{ChromeBorderPolicy, ResizeHandlePlacement, ResizeHandlePolicy, WindowChromeMode, WindowChromeProps},
   node::color::Color,
 };
 
 let props = WindowChromeProps::new()
   .mode(WindowChromeMode::AlwaysCustom)
   .resize_handles(ResizeHandlePolicy::Enabled { size: 6.0 })
+  .resize_placement(ResizeHandlePlacement::Overlay)
   .border(ChromeBorderPolicy::Visible {
     size: 1.0,
     color: Color::from_hex("#252a32").into(),
   });
 ```
 
+Resize hit zones are invisible strips (3 px by default) along each edge and corner. With the default
+`ResizeHandlePlacement::Overlay`, they cover the outermost pixels of the content, and the content fills the window below
+the title bar: a 1440 px wide window gives 1440 px of content. A press in those pixels starts a resize instead of
+reaching the content. `ResizeHandlePlacement::Inset` reserves a gutter instead: content and overlays are inset by the
+handle size on the left, right, and bottom, and the gutter is painted with `WindowChrome::frame_background` (or the
+content background). Maximized and fullscreen windows have no resize handles or gutter.
+
 `WindowChrome::metrics()` returns `WindowChromeMetrics`, which can be used for modal or overlay coordinate adjustment
 when a component needs to reason about the custom chrome content area. Metrics include whether custom chrome is enabled,
-the title-bar height, resize handle size, and border size.
+the title-bar height, resize handle size and placement, and border size. `content_x`, `content_width`, and
+`content_height` subtract the resize gutter only with `ResizeHandlePlacement::Inset`.
+
+### Styling Window Controls
+
+By default, Windows-style controls are 46 px wide text glyphs with a red close hover. Each control's content and colors
+can be replaced. Colors accept `Color`, hex strings, and `PaletteColor` roles, including `PaletteColor::Extra`:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, TypographyStyle},
+  components::{WindowControlContent, WindowControlKind, WindowControls},
+};
+
+// "icon" is an app typography role that selects the icon font at 14 px;
+// the ICON_* constants are that font's code points.
+let icon = |glyph: &str| WindowControlContent::glyph(glyph, TypographyStyle::extra("icon"));
+
+let controls = WindowControls::new()
+  .button_size(46.0, 32.0)
+  .content(WindowControlKind::Minimize, icon(ICON_MINIMIZE))
+  .content(WindowControlKind::Maximize, icon(ICON_MAXIMIZE))
+  .content(WindowControlKind::Restore, icon(ICON_RESTORE))
+  .content(WindowControlKind::Close, icon(ICON_CLOSE))
+  .foreground(PaletteColor::TextSecondary)
+  .hover_background(PaletteColor::extra("chrome_hover"))
+  .active_background(PaletteColor::extra("chrome_active"));
+```
+
+`hover_background` and `active_background` apply to every control, close included. To style one control, for example
+to keep a red close hover, use `control_colors(kind, WindowControlColors { .. })`.
+`WindowControlContent::element(|foreground| ...)` builds any other content, such as an SVG icon, and receives the
+configured foreground color. Hover and active change the background only; the foreground stays the same. `Maximize`
+content is shown while the window is restored and `Restore` content while it is maximized.
+
+macOS traffic lights use `TrafficLightColors`. The defaults are the macOS 11+ colors sampled from the system controls,
+because Apple does not publish them: close `#FF5F57`, minimize `#FEBC2E`, zoom `#28C840`. Override them with
+`WindowControls::traffic_lights(TrafficLightColors { .. })`.
 
 ## Built-In DnD Components
 

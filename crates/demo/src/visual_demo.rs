@@ -1,7 +1,8 @@
 use lurq::{
+  app::theme::ShadowStyle,
   components::{Image, Svg},
   layout::{Alignment, StackAlignment, text_style::FontWeight},
-  node::{Element, color::Color, dimension::Dimension},
+  node::{BoxShadow, Element, Style, color::Color, dimension::Dimension},
   svg::SvgData,
 };
 
@@ -29,6 +30,8 @@ pub(crate) fn visual_content() -> Element {
     .child(color_palette())
     .child(section_title("Border Radius"))
     .child(radius_showcase())
+    .child(section_title("Box Shadows"))
+    .child(shadow_showcase())
     .child(section_title("Clipping (Overflow)"))
     .child(clip_showcase());
 
@@ -142,6 +145,77 @@ fn radius_showcase() -> Element {
     .width(FILL_WIDTH)
     .background(SURFACE)
     .border_inside(1.0, Color::from_hex(BORDER))
+    .rounded(CARD_RADIUS)
+    .into()
+}
+
+/// Theme roles, an explicit layered shadow, a hard offset, a glow, an inset
+/// well, and a card that rises on hover. Shadows paint outside their element,
+/// so the rows let them overflow (containers clip by default).
+fn shadow_showcase() -> Element {
+  let shadow_card = |label: &str, card: lurq::components::Rect| {
+    lurq::components::Column::new()
+      .spacing(10.0)
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .child(card.size(120.0, 64.0).background("#ffffff").rounded(10.0))
+      .child(text(label, 11.0, FontWeight::Normal, "#475569"))
+      .flex(1.0)
+  };
+  let row = |cards: Vec<lurq::components::Column>| {
+    lurq::components::Row::new()
+      .spacing(24.0)
+      .overflow_visible()
+      .with_children(cards)
+      .width(FILL_WIDTH)
+  };
+
+  lurq::components::Column::new()
+    .spacing(32.0)
+    .child(row(vec![
+      shadow_card(
+        "ShadowStyle::Sm",
+        lurq::components::Rect::default().box_shadow(ShadowStyle::Sm),
+      ),
+      shadow_card(
+        "ShadowStyle::Md",
+        lurq::components::Rect::default().box_shadow(ShadowStyle::Md),
+      ),
+      shadow_card(
+        "ShadowStyle::Lg",
+        lurq::components::Rect::default().box_shadow(ShadowStyle::Lg),
+      ),
+      shadow_card(
+        "hover me",
+        lurq::components::Rect::default()
+          .box_shadow(ShadowStyle::Sm)
+          .hovered(|style: Style| style.box_shadow(ShadowStyle::Lg)),
+      ),
+    ]))
+    .child(row(vec![
+      shadow_card(
+        "layered",
+        lurq::components::Rect::default().box_shadow([
+          BoxShadow::new(0.0, 1.0, 1.0, "#0f172a1f"),
+          BoxShadow::new(0.0, 8.0, 24.0, "#0f172a33").spread(-4.0),
+        ]),
+      ),
+      shadow_card(
+        "hard offset",
+        lurq::components::Rect::default().box_shadow(BoxShadow::new(6.0, 6.0, 0.0, "#1e293b")),
+      ),
+      shadow_card(
+        "glow",
+        lurq::components::Rect::default().box_shadow(BoxShadow::new(0.0, 0.0, 16.0, PRIMARY).spread(2.0)),
+      ),
+      shadow_card(
+        "inset",
+        lurq::components::Rect::default().box_shadow(BoxShadow::new(0.0, 2.0, 8.0, "#0f172a59").inset()),
+      ),
+    ]))
+    .padding(32.0)
+    .width(FILL_WIDTH)
+    .background("#e2e8f0")
     .rounded(CARD_RADIUS)
     .into()
 }

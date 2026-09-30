@@ -189,6 +189,8 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 `FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)`.
 
+A `ctx.watch` on `action.state()` may call `.run(args)` again, for example to retry when the state becomes `Rejected`. The new run sets the state to `Pending` after the current notification. See [writes from callbacks](../reactivity/#writes-from-callbacks).
+
 When using the `form` feature, `FormProps::submit_action(action)` wires a `FutureAction<FormValues, _, FormErrors>` into a mounted form. It validates before running the action, exposes `form.submitting()`, blocks duplicate submits while pending, and maps rejected `FormErrors` back into field errors.
 
 ## Tokio Integration
@@ -196,7 +198,7 @@ When using the `form` feature, `FormProps::submit_action(action)` wires a `Futur
 Enable `tokio` and configure a live runtime handle to spawn futures and streams on Tokio. Add a direct Tokio dependency when application code uses its APIs:
 
 ```toml
-lurq = { version = "0.20.0", features = ["tokio"] }
+lurq = { version = "0.30.4", features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 ```
 

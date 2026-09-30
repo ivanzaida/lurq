@@ -52,14 +52,14 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
 }
 
 fn attach_component_metadata(
-  mut node: Node,
+  mut node: Box<Node>,
   tag_name: Arc<str>,
   slot_id: u64,
   key: Option<&str>,
   #[cfg(feature = "devtools")] ctx: &Ctx,
-) -> Node {
+) -> Box<Node> {
   if node.component_slot_id().is_some() {
-    node = Node::logical().child(node);
+    node = Box::new(Node::logical().child(*node));
   }
 
   node.set_tag_name(tag_name);
@@ -155,6 +155,25 @@ impl Default for CollisionStrategy {
   }
 }
 
+/// What a left press outside an open popup does besides closing it, for
+/// overlays with `dismiss_on_outside_click(true)` (`Popup`, `Popover`,
+/// `Overlay`) and for `Select` menus.
+///
+/// A press is outside a popup when it lands neither on the popup, nor on its
+/// anchor (a select's trigger), nor on a layer opened above it, such as a
+/// select menu or a popup opened from inside it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutsidePress {
+  /// The press only closes the popup, like a native menu: the element under
+  /// the pointer receives no press, release or click, and focus does not move.
+  /// Pressing again reaches it.
+  #[default]
+  Consume,
+  /// The press closes the popup and is also delivered to the element under
+  /// the pointer, like a light-dismiss web popover.
+  PassThrough,
+}
+
 pub(crate) struct OverlaySpec {
   pub(crate) anchor: ElementRef,
   pub(crate) node: Node,
@@ -166,6 +185,7 @@ pub(crate) struct OverlaySpec {
   pub(crate) hit_test: HitTestBehavior,
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_outside_click: bool,
+  pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
 }
 
@@ -206,11 +226,23 @@ impl From<ElementRefMut> for ModalTarget {
   }
 }
 
+/// What an open modal layer is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModalLayer {
+  /// A dialog declared with `Modal`: the topmost one is the Tab scope and traps Tab.
+  Dialog,
+  /// `WindowChrome`'s title bar and resize zones: window decoration over the
+  /// page, not a dialog, so it never becomes a Tab scope. Its stops, if any,
+  /// are part of the window's order.
+  WindowChrome,
+}
+
 pub(crate) struct ModalSpec {
   pub(crate) target: ModalTarget,
   pub(crate) node: Node,
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_escape: bool,
+  pub(crate) layer: ModalLayer,
 }
 
 impl ModalSpec {
@@ -220,6 +252,7 @@ impl ModalSpec {
       node: self.node.clone_for_reuse(),
       open_signal: self.open_signal.clone(),
       dismiss_on_escape: self.dismiss_on_escape,
+      layer: self.layer,
     }
   }
 }
@@ -237,16 +270,18 @@ impl OverlaySpec {
       hit_test: self.hit_test,
       open_signal: self.open_signal.clone(),
       dismiss_on_outside_click: self.dismiss_on_outside_click,
+      outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
     }
   }
 }
 
 pub struct Modal {
-  node: Node,
+  node: Box<Node>,
   open: OpenState,
   target: ModalTarget,
   dismiss_on_escape: bool,
+  layer: ModalLayer,
 }
 
 impl Modal {
@@ -256,6 +291,7 @@ impl Modal {
       open: OpenState::Static(true),
       target: ModalTarget::Parent,
       dismiss_on_escape: true,
+      layer: ModalLayer::Dialog,
     }
   }
 
@@ -279,6 +315,12 @@ impl Modal {
     self
   }
 
+  /// Marks this layer as `WindowChrome`'s decoration instead of a dialog.
+  pub(crate) fn window_chrome_layer(mut self) -> Self {
+    self.layer = ModalLayer::WindowChrome;
+    self
+  }
+
   fn into_spec(self) -> Option<ModalSpec> {
     if !self.open.is_open() {
       return None;
@@ -286,9 +328,10 @@ impl Modal {
 
     Some(ModalSpec {
       target: self.target,
-      node: self.node,
+      node: *self.node,
       open_signal: self.open.signal(),
       dismiss_on_escape: self.dismiss_on_escape,
+      layer: self.layer,
     })
   }
 }
@@ -306,7 +349,7 @@ impl From<Modal> for Element {
 
 pub struct Overlay {
   anchor: Option<ElementRef>,
-  node: Node,
+  node: Box<Node>,
   open: OpenState,
   placement: Placement,
   offset_x: f32,
@@ -315,6 +358,7 @@ pub struct Overlay {
   collision: CollisionStrategy,
   hit_test: HitTestBehavior,
   dismiss_on_outside_click: bool,
+  outside_press: OutsidePress,
   dismiss_on_escape: bool,
 }
 
@@ -331,6 +375,7 @@ impl Overlay {
       collision: CollisionStrategy::default(),
       hit_test: HitTestBehavior::Auto,
       dismiss_on_outside_click: false,
+      outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
     }
   }
@@ -376,8 +421,17 @@ impl Overlay {
     self
   }
 
+  /// Closes the overlay on a left press outside it and its anchor. Needs a
+  /// signal-backed open state.
   pub fn dismiss_on_outside_click(mut self, dismiss: bool) -> Self {
     self.dismiss_on_outside_click = dismiss;
+    self
+  }
+
+  /// Whether the press that closes the overlay also reaches the element under
+  /// the pointer. Defaults to [`OutsidePress::Consume`].
+  pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
+    self.outside_press = outside_press;
     self
   }
 
@@ -395,7 +449,7 @@ impl Overlay {
 
     Some(OverlaySpec {
       anchor: self.anchor?,
-      node: self.node,
+      node: *self.node,
       placement: self.placement,
       offset_x: self.offset_x,
       offset_y: self.offset_y,
@@ -404,6 +458,7 @@ impl Overlay {
       hit_test: self.hit_test,
       open_signal,
       dismiss_on_outside_click: self.dismiss_on_outside_click,
+      outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
     })
   }
@@ -861,7 +916,10 @@ impl AsyncTask {
   }
 
   fn poll(&self, cx: &mut TaskContext<'_>) -> bool {
-    if let Some(mut future) = self.inner.lock().future.take() {
+    // Release the task lock before polling: a completing future sets its state
+    // signal, and an observer of that signal may start this task again.
+    let future = self.inner.lock().future.take();
+    if let Some(mut future) = future {
       match future.as_mut().poll(cx) {
         Poll::Ready(()) => return true,
         Poll::Pending => {
@@ -1020,6 +1078,14 @@ pub struct Ctx {
   #[cfg(feature = "tokio")]
   runtime_future_handle: RuntimeFutureHandle,
   context_map: ContextMap,
+  /// Values this component provided outside render (in `create`). They are
+  /// re-applied on top of the inherited contexts whenever those change.
+  provided_contexts: ContextMap,
+  /// Inherited contexts with `provided_contexts` on top: what every render of
+  /// this component starts from.
+  base_contexts: ContextMap,
+  /// Revision of the parent's context map the inherited values were taken from.
+  inherited_context_revision: u64,
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
@@ -1037,8 +1103,6 @@ pub struct Ctx {
   query_slots: Vec<crate::query::Observer>,
   #[cfg(feature = "query")]
   query_cursor: usize,
-  #[cfg(feature = "query")]
-  provided_query_client: Option<crate::query::QueryClient>,
   element_refs: Vec<ElementRefMut>,
   click_outside_registry: Arc<Mutex<Vec<ClickOutsideEntry>>>,
   click_outside_cursor: usize,
@@ -1352,7 +1416,7 @@ struct ChildSlot {
   key: Option<String>,
   component: Box<dyn AnyComponent>,
   ctx: Ctx,
-  rendered: Option<Node>,
+  rendered: Option<Box<Node>>,
   mounted: bool,
   offstage: bool,
   offstage_dirty: bool,
@@ -1430,6 +1494,9 @@ impl Ctx {
       #[cfg(feature = "tokio")]
       runtime_future_handle: None,
       context_map: ContextMap::default(),
+      provided_contexts: ContextMap::default(),
+      base_contexts: ContextMap::default(),
+      inherited_context_revision: 0,
       slot_children: None,
       children: Vec::new(),
       child_cursor: 0,
@@ -1447,8 +1514,6 @@ impl Ctx {
       query_slots: Vec::new(),
       #[cfg(feature = "query")]
       query_cursor: 0,
-      #[cfg(feature = "query")]
-      provided_query_client: None,
       element_refs: Vec::new(),
       click_outside_registry: Arc::new(Mutex::new(Vec::new())),
       click_outside_cursor: 0,
@@ -2098,14 +2163,29 @@ impl Ctx {
 
   // --- Context (Dependency Injection) ---
 
+  /// Provides `value` to this component and its descendants, shadowing a
+  /// value of the same type from an ancestor.
+  ///
+  /// A value provided in `create` stays provided for the component's lifetime,
+  /// across re-renders of the component and of its ancestors, until it
+  /// provides another value of the same type. A value provided during `render`
+  /// belongs to that render: later code in the render and the children it
+  /// mounts see it, and the next render starts without it unless it is
+  /// provided again.
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
-    #[cfg(feature = "query")]
-    if let Some(client) = (&value as &dyn Any).downcast_ref::<crate::query::QueryClient>() {
-      self.provided_query_client = Some(client.clone());
-    }
     #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
-    self.context_map.provide(value);
+    self.store_context(value);
+  }
+
+  fn store_context<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+    if self.rendering {
+      self.context_map.provide(value);
+      return;
+    }
+    self.provided_contexts.provide(value.clone());
+    self.base_contexts.provide(value);
+    self.context_map = self.base_contexts.clone();
   }
 
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
@@ -2121,7 +2201,7 @@ impl Ctx {
       std::any::type_name::<ReactiveContext<T>>(),
     );
     let ctx = ReactiveContext::new(value);
-    self.context_map.provide(ctx.clone());
+    self.store_context(ctx.clone());
     let dirty = self.dirty.clone();
     let subtree_dirty = self.subtree_dirty.clone();
     let ancestor_dirty_slots = self.ancestor_dirty_slots.clone();
@@ -2147,6 +2227,19 @@ impl Ctx {
       Self::mark_dirty_targets(&batch, &dirty, &subtree_dirty, &ancestor_dirty_slots);
     });
     Some(ctx)
+  }
+
+  /// Takes the contexts `parent` passes down, keeping the values this
+  /// component provided on top. Returns whether the inherited contexts changed
+  /// since the last call.
+  fn inherit_contexts(&mut self, parent: &ContextMap) -> bool {
+    if self.inherited_context_revision == parent.revision() {
+      return false;
+    }
+    self.inherited_context_revision = parent.revision();
+    self.base_contexts = ContextMap::layered(parent, &self.provided_contexts);
+    self.context_map = self.base_contexts.clone();
+    true
   }
 
   #[cfg(feature = "devtools")]
@@ -2411,7 +2504,10 @@ impl Ctx {
   /// from the active tree. Offstage components keep their slots, signals,
   /// futures, and last rendered node, but do not participate in layout,
   /// painting, hit testing, dirty refreshes, timers, or future polling until
-  /// they become active again.
+  /// they become active again. When it becomes active again, its output
+  /// takes back the runtime state it had: scroll offsets (including those of
+  /// scroll areas whose `ScrollState` the component does not hold), text-input
+  /// carets and selections, open selects and canvases.
   pub fn mount_offstage<C: Component>(&mut self, props: C::Props, active: bool) -> Element {
     self.mount_inner::<C>(None, props, None, active)
   }
@@ -2464,8 +2560,7 @@ impl Ctx {
       let slot = &mut self.children[cursor];
       let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
       let props_changed = slot.ctx.props_changed(&props);
-      let context_changed = slot.ctx.context_map.revision() != self.context_map.revision();
-      slot.ctx.context_map = self.context_map.clone();
+      let context_changed = slot.ctx.inherit_contexts(&self.context_map);
       slot.ctx.slot_children = slot_children;
       if props_changed {
         slot.ctx.set_props(props);
@@ -2478,7 +2573,7 @@ impl Ctx {
         return Element::new();
       }
 
-      let resumed = std::mem::replace(&mut slot.offstage, false);
+      slot.offstage = false;
       let needs_render = has_slot_children
         || props_changed
         || context_changed
@@ -2487,7 +2582,12 @@ impl Ctx {
         || slot.offstage_dirty;
       slot.offstage_dirty = false;
       if needs_render {
-        let previous = resumed.then(|| slot.rendered.take()).flatten();
+        // Carry runtime state over from the previous render, as a dirty
+        // refresh does, so `rendered` keeps sharing the live scroll states
+        // with the active tree. A slot resuming from offstage has no node in
+        // the active tree, so this is the only place its scroll offsets,
+        // text-input carets and selections come back from.
+        let previous = slot.rendered.take();
         slot.ctx.begin_render();
         let mut element = slot.component.render(&mut slot.ctx);
         slot.ctx.end_render();
@@ -2502,10 +2602,10 @@ impl Ctx {
         if let Some(previous) = previous.as_ref() {
           element.node.preserve_runtime_state_from(previous);
         }
-        slot.rendered = Some(element.node.clone_for_reuse());
+        slot.rendered = Some(element.node.clone_boxed());
         return element;
       }
-      return Element::from_node(slot.rendered.as_ref().unwrap().clone_for_reuse());
+      return Element::from_boxed_node(slot.rendered.as_ref().unwrap().clone_boxed());
     }
 
     let slot_id = next_component_slot_id();
@@ -2530,7 +2630,7 @@ impl Ctx {
     {
       child_ctx.i18n = self.i18n.clone();
     }
-    child_ctx.context_map = self.context_map.clone();
+    child_ctx.inherit_contexts(&self.context_map);
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
     child_ctx.scope_id = slot_id;
@@ -2549,7 +2649,7 @@ impl Ctx {
         #[cfg(feature = "devtools")]
         &child_ctx,
       );
-      Some(element.node.clone_for_reuse())
+      Some(element.node.clone_boxed())
     } else {
       child_ctx.clear_dirty();
       None
@@ -2619,7 +2719,7 @@ impl Ctx {
       {
         group_ctx.i18n = self.i18n.clone();
       }
-      group_ctx.context_map = self.context_map.clone();
+      group_ctx.inherit_contexts(&self.context_map);
       group_ctx.scope_id = slot_id;
       let slot = ChildSlot {
         id: slot_id,
@@ -2635,7 +2735,7 @@ impl Ctx {
     }
 
     let slot = &mut self.children[cursor];
-    slot.ctx.context_map = self.context_map.clone();
+    slot.ctx.inherit_contexts(&self.context_map);
     slot.ctx.begin_render();
     let elements = items
       .into_iter()
@@ -2674,7 +2774,7 @@ impl Ctx {
 
     if can_reuse {
       let slot = &mut self.children[cursor];
-      slot.ctx.context_map = self.context_map.clone();
+      slot.ctx.inherit_contexts(&self.context_map);
       slot.ctx.begin_render();
       let mut element = component_fn(&mut slot.ctx, item);
       slot.ctx.end_render();
@@ -2686,7 +2786,7 @@ impl Ctx {
         #[cfg(feature = "devtools")]
         &slot.ctx,
       );
-      slot.rendered = Some(element.node.clone_for_reuse());
+      slot.rendered = Some(element.node.clone_boxed());
       return element;
     }
 
@@ -2712,7 +2812,7 @@ impl Ctx {
     {
       child_ctx.i18n = self.i18n.clone();
     }
-    child_ctx.context_map = self.context_map.clone();
+    child_ctx.inherit_contexts(&self.context_map);
     child_ctx.scope_id = slot_id;
     child_ctx.begin_render();
     let mut element = component_fn(&mut child_ctx, item);
@@ -2731,7 +2831,7 @@ impl Ctx {
       key: Some(key),
       component: Box::new(ForEachSlot),
       ctx: child_ctx,
-      rendered: Some(element.node.clone_for_reuse()),
+      rendered: Some(element.node.clone_boxed()),
       mounted: false,
       offstage: false,
       offstage_dirty: false,
@@ -2759,13 +2859,10 @@ impl Ctx {
   // --- Render lifecycle ---
 
   pub fn begin_render(&mut self) {
-    #[cfg(feature = "query")]
-    if let Some(client) = &self.provided_query_client {
-      // Reconciliation refreshes inherited context values. Preserve a client's
-      // local provider scope before rendering this component's descendants.
-      if self.context_map.get::<crate::query::QueryClient>().as_ref() != Some(client) {
-        self.context_map.provide(client.clone());
-      }
+    // Values provided by the previous render are dropped; `render` provides
+    // them again if it still wants to.
+    if self.context_map.revision() != self.base_contexts.revision() {
+      self.context_map = self.base_contexts.clone();
     }
     self.clear_dirty();
     self.child_cursor = 0;
@@ -2944,7 +3041,7 @@ impl Ctx {
     completed
   }
 
-  pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Node)> {
+  pub(crate) fn refresh_dirty_subtrees(&mut self) -> Vec<(u64, Box<Node>)> {
     let mut replacements = Vec::new();
     let dirty_child_slot_ids = self.take_dirty_child_slot_ids();
 
@@ -2979,7 +3076,7 @@ impl Ctx {
         if let Some(old) = old_rendered.as_ref() {
           element.node.preserve_runtime_state_from(old);
         }
-        slot.rendered = Some(element.node.clone_for_reuse());
+        slot.rendered = Some(element.node.clone_boxed());
         replacements.push((slot.id, element.node));
         if needs_followup_refresh {
           Self::mark_dirty_child_slot(&self.dirty_child_slots, dirty_slot_id);
@@ -2989,7 +3086,7 @@ impl Ctx {
         let nested_replacements = slot.ctx.refresh_dirty_subtrees();
         if let Some(rendered) = &mut slot.rendered {
           for (slot_id, replacement) in nested_replacements {
-            let mut cached_replacement = Some(replacement.clone_for_reuse());
+            let mut cached_replacement = Some(replacement.clone_boxed());
             let _ = rendered.replace_component_slot_in(slot_id, &mut cached_replacement);
             replacements.push((slot_id, replacement));
           }

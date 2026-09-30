@@ -21,7 +21,10 @@ struct VsOut
 
 VsOut vs_main(VsIn input)
 {
-  float2 ndc = float2((input.position.x / viewport.x) * 2.0 - 1.0, 1.0 - (input.position.y / viewport.y) * 2.0);
+  // `viewport.zw` is the target's origin in window pixels (non-zero when
+  // painting into an opacity layer).
+  float2 target_px = input.position - viewport.zw;
+  float2 ndc = float2((target_px.x / viewport.x) * 2.0 - 1.0, 1.0 - (target_px.y / viewport.y) * 2.0);
 
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);
@@ -74,6 +77,17 @@ float rounded_clip_alpha(float2 frag_pos)
   return saturate(0.5 - dist / max(fwidth(dist), 1.0));
 }
 
+// The render target is not sRGB, so the fixed-function blend mixes
+// sRGB-encoded values, as CSS and design tools do. `ps_main` works in linear
+// light like the rest of the pipeline and encodes each result it returns.
+float4 encode_srgb(float4 color)
+{
+  float3 c = saturate(color.rgb);
+  float3 low = c * 12.92;
+  float3 high = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+  return float4(c <= 0.0031308 ? low : high, color.a);
+}
+
 float4 ps_main(VsOut input) : SV_TARGET
 {
   float clip_alpha_value = rounded_clip_alpha(input.position.xy);
@@ -81,5 +95,5 @@ float4 ps_main(VsOut input) : SV_TARGET
   {
     discard;
   }
-  return float4(input.color.rgb, input.color.a * clip_alpha_value);
+  return encode_srgb(float4(input.color.rgb, input.color.a * clip_alpha_value));
 }

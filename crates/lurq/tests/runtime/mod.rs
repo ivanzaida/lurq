@@ -16,6 +16,7 @@ mod element_ref_interaction;
 #[cfg(feature = "form")]
 mod focus_reconciliation;
 mod futures {
+  mod future_action_restarts_from_state_watch;
   mod future_action_runs_on_run;
   mod future_resolves;
   mod future_restarts_on_deps_change;
@@ -24,13 +25,16 @@ mod futures {
   #[cfg(feature = "tokio")]
   mod tokio_future_uses_runtime;
 }
+mod headless_pass;
 mod mouse_leave;
+mod outside_press;
 mod overlay;
 mod pass_report;
 mod perf_overlay;
 #[cfg(feature = "image")]
 mod render_order;
 mod scroll_state;
+mod stack_depth;
 mod text_reflow;
 mod text_scale_wrap;
 mod text_shadow;

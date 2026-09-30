@@ -7,7 +7,7 @@ description: Visual modifiers, state styles, cursors, inputs, event handlers, sc
 
 Most visual and input behavior is expressed as chainable modifiers on typed components.
 
-Use [Theme](../theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, and compound form controls. Use concrete values for isolated one-off visuals.
+Use [Theme](../theme/) roles for shared app semantics such as palette colors, text variants, radii, spacing, border sizes, shadows, and compound form controls. Use concrete values for isolated one-off visuals.
 
 ## Visual Modifiers
 
@@ -31,9 +31,51 @@ Common visual modifiers:
 | `.border_inside(width, color)` | Border inside the element bounds from a concrete width or `BorderSize`. |
 | `.border_center(width, color)` | Border centered on the element edge from a concrete width or `BorderSize`. |
 | `.border_outside(width, color)` | Border outside the element bounds from a concrete width or `BorderSize`. |
-| `.opacity(value)` | Draw opacity. |
+| `.box_shadow(shadow)` | Drop or inset shadows from a `ShadowStyle` role, a `BoxShadow`, or a list. See [Box Shadows](#box-shadows). |
+| `.opacity(value)` | Fade the element and its subtree as one group. See [Opacity](#opacity). |
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |
+
+Translucent colors (`"#000000a6"`, `.opacity(...)`, anti-aliased edges, text, images) blend on the sRGB-encoded
+channels, as CSS and design tools do: a `#000000a6` scrim over `#eeeeee` shows `#535353`. Both native backends render
+through a non-sRGB target to get this; the devtools screenshot renderer blends the same way.
+
+## Opacity
+
+`.opacity(value)` fades an element together with everything inside it, as CSS `opacity`, Figma and Pencil do: the
+subtree is painted into an offscreen layer as if it were opaque, and the layer is then blended over what is behind it
+once, at `value`. Content inside the group blends only with other content of the group. A dark label on a light fill
+at `opacity(0.4)` keeps its contrast against the faded fill, and a border drawn over the fill's edge adds no lighter
+ring:
+
+```rust
+use lurq::components::{Stack, Text};
+
+// Disabled primary button over a #1c1c1c window: the fill shows #6c6c6c and the
+// label #1a1a1a, the colours a design tool shows for the same group.
+Stack::new()
+  .size(100.0, 36.0)
+  .background("#e4e4e4")
+  .border_inside(1.0, "#e4e4e4")
+  .rounded(6.0)
+  .opacity(0.4)
+  .child(Text::new("Save").color("#171717"))
+```
+
+- Nested opacities compose: a group at `0.5` inside a group at `0.5` shows its content at `0.25` where it covers
+  nothing else of the outer group.
+- A group that paints a single primitive (a fill without a border, one text run without a shadow, an image, a
+  rasterized SVG, a box shadow) looks the same either way, so it fades that primitive directly and needs no layer.
+  Opacity `1` (the default) never makes a layer.
+- A layer covers the group's painted pixels in whole physical pixels, within its clips and the window, and maps one to
+  one onto the window's pixels: it is never resampled, so it stays sharp at fractional scale factors such as 1.25 and
+  1.5. Layer textures are pooled and reused across frames; a group that is clipped away or at `opacity(0.0)` paints
+  nothing.
+- Opacity changes painting only. Layout, clipping, scrolling, transforms and hit testing are the same at any opacity: a
+  faded element still takes clicks unless it is disabled some other way.
+- `RenderList::layers` lists the layers of a frame (`LayerCmd`: the render orders a layer groups, its opacity and pixel
+  bounds). A custom `RenderEngine` composites each layer's draws into its own target, or draws them without a layer
+  and loses the flattening.
 
 ## Gradients
 
@@ -73,7 +115,7 @@ Gradient::linear(90.0, [
 ]);
 ```
 
-Omitted positions follow the CSS rules: the first defaults to `0.0`, the last to `1.0`, and runs of omitted stops are spread evenly between their defined neighbors. Colors are interpolated in linear space.
+Omitted positions follow the CSS rules: the first defaults to `0.0`, the last to `1.0`, and runs of omitted stops are spread evenly between their defined neighbors. Colors are interpolated in linear space (CSS interpolates in sRGB, so midpoints are lighter than a browser's); the result then blends over what is below like any other translucent color.
 
 ### Center And Shape
 
@@ -88,6 +130,56 @@ Gradient::conic(45.0, ["#f43f5e", "#8b5cf6", "#06b6d4", "#f43f5e"]);
 ```
 
 `.center(x, y)` moves the radial/conic origin; coordinates are normalized `0.0..=1.0` within the element (default `(0.5, 0.5)`).
+
+## Box Shadows
+
+`.box_shadow(...)` gives an element CSS-like `box-shadow`s. It takes a `ShadowStyle` [theme role](../theme/#shadow), which is what app UI should use, or concrete `BoxShadow` values for one-off visuals:
+
+```rust
+use lurq::{
+  app::theme::ShadowStyle,
+  components::Rect,
+  node::BoxShadow,
+};
+
+// A theme elevation.
+Rect::new(240.0, 120.0).background("#ffffff").rounded(12.0).box_shadow(ShadowStyle::Md);
+
+// offset_x, offset_y, blur, color; spread and inset are optional.
+Rect::new(240.0, 120.0)
+  .background("#ffffff")
+  .rounded(12.0)
+  .box_shadow([
+    BoxShadow::new(0.0, 1.0, 2.0, "#0f172a1f"),
+    BoxShadow::new(0.0, 12.0, 32.0, "#0f172a40").spread(-4.0),
+  ]);
+
+// An inset well.
+Rect::new(240.0, 40.0)
+  .background("#ffffff")
+  .box_shadow(BoxShadow::new(0.0, 2.0, 6.0, "#0000004d").inset());
+```
+
+A `BoxShadow` follows CSS and design tools such as Figma and Pencil:
+
+| Field | Meaning |
+| --- | --- |
+| `offset_x`, `offset_y` | Moves the shadow, in logical pixels. |
+| `blur` | CSS blur radius: a Gaussian with a standard deviation of `blur / 2`. `0` is a hard edge. |
+| `spread` | Grows the shadow shape (negative shrinks it) before the blur. Corner radii grow and shrink with it as CSS specifies, so square corners stay square. |
+| `color` | A `Color`, hex string, or `PaletteColor` role. |
+| `inset` | Paints inside the element instead of beneath it (`.inset()`). |
+
+How shadows paint:
+
+- A list paints first on top. Outer shadows paint beneath the element's background; inset shadows above the background and below the border and the children, inside the padding box (within an inside or centered border).
+- An outer shadow follows the element's corner radii and paints only outside its box, so it never shows through a translucent background.
+- Shadows never change layout and are not hit-tested: a click on a shadow goes to whatever is under it.
+- Shadows take the element's `.opacity(...)` and transform, and its clip: an ancestor that clips its children clips their shadows too. Containers clip by default, so give a shadow room with padding, or call `.overflow_visible()` on the containers it should escape (as with any child that paints outside its parent).
+- Values scale with the display like every other length.
+- Hover, active, and focus styles can change the shadow, for example to raise a card on hover with `.hovered(|style| style.box_shadow(ShadowStyle::Lg))`; `BoxShadowValue::none()` removes it.
+
+Both native backends evaluate the blurred rounded rect analytically in the quad shader (a closed-form `erf` along one axis, eight samples along the other), so a shadow is one more instance in the quad pipeline: no offscreen pass and no blur texture. wgpu and DX12 render the same pixels; the devtools screenshot renderer uses the same formula on the CPU.
 
 ## Hover, Active, And Focus Styles
 
@@ -106,6 +198,8 @@ Text::new("Save")
   .active(|style| style.background("#1d4ed8"))
   .focused(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
+
+The focused style shows whenever the node has focus, whether a click, Tab, or a focus request put it there; there is no separate keyboard-only focus state. Checkboxes and sliders also have part-level focused styles, see [Focused Styles](../focus-navigation/#focused-styles).
 
 State styles can affect layout if they change frame, padding, or flex. That is supported, but it can force relayout when interaction state changes.
 
@@ -167,11 +261,11 @@ The hook listens for left clicks outside the referenced element's measured bound
 
 ## Keyboard And Focus
 
-Keyboard events go to the focused node.
+Keyboard events go to the focused node. A press where nothing can take focus blurs it; a press on a `focusable(false)` element keeps it. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).
 
 Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation.
 
-Retained input value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
+Retained input and select value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
 
 ```rust
 use lurq::app::events::KeyboardEvent;
@@ -261,6 +355,8 @@ ScrollVertical::new(content)
   .scrollbar_hovered(|style| style.with_thumb_color(Color::from_hex("#94a3b8")))
 ```
 
+`padding` (default 2) is the gap around the bar. `edge_inset` overrides the gap between the bar and the edge it runs along (right for a vertical bar, bottom for a horizontal one), and `end_inset` the gap between each end of the track and the container's edge; `.insets(edge, end)` sets both. Both are measured from the scroll container's outer bounds, border included, so a thumb clears an 11 px rounded corner with `end_inset` 11, and the track is the container's length minus twice `end_inset`. The thumb is `track × visible / content` long, at least `min_thumb_length`. A `Reserved` gutter is `width` plus twice the edge inset.
+
 `.scrollbar_hovered(...)` receives the effective style, so it applies to either the theme default or the component override.
 
 `ScrollEvent` includes `x`, `y`, `delta_x`, `delta_y`, `phase`, and `target_id`.
@@ -347,7 +443,7 @@ TextInput::new(command.clone())
 
 ### Checkbox Styling
 
-Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator.
+Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has focus, checked or not; it changes paint only.
 
 ```rust
 use lurq::{components::Checkbox, core::Signal, node::color::Color};
@@ -407,6 +503,8 @@ Text::new("No endpoints yet")
 
 `TextInput` keeps editing state internally while the string value remains signal-owned. Clicking focuses the input and places the caret. Dragging selects a range; double-click selects a word; triple-click selects a line. Multiline inputs support vertical caret movement and per-row selection highlights.
 
+Lines, the caret and selections follow the font's metrics, not the ink of the glyphs shown: a multi-line input's lines sit in line boxes of the style's `line_height` from the top of the content box (`VerticalAlign::LineBox`), so a line does not move when a taller glyph is typed. The caret is `font_size` tall and a selection covers the font's ascent and descent, both centered in the line box, so the leading of a relaxed `line_height` stays unpainted. The caret starts at its insertion point; at the start of a left-aligned line it ends there instead, so it never covers the first glyph of the value or the placeholder (unless an ancestor clips right at that edge). A focused input's caret blinks every 530 ms unless its `caret_mode` or the theme's is `CaretMode::Persistent`; an idle window wakes only at each toggle.
+
 Single-line inputs can align value and placeholder text inside their content box:
 
 ```rust
@@ -454,7 +552,7 @@ let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
-The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`.
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has focus and changes paint only.
 
 ```rust
 use lurq::{components::Slider, core::Signal, node::color::Color};
@@ -518,6 +616,93 @@ Slider::new(value)
   .track(|style| style.background_image("ui/slider-track.png").background_cover())
   .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
+
+### Select
+
+`Select::new` binds a `Signal<T>` for one value and `Select::multiple` a `Signal<Vec<T>>`. Options are `(value, label)` tuples or `SelectOption`s, which add a detail line under the label and a disabled state:
+
+```rust
+use lurq::components::{Select, SelectOption};
+
+Select::new(plan.clone())
+  .placeholder("Plan")
+  .options([
+    SelectOption::new(Plan::Free, "Free"),
+    SelectOption::new(Plan::Team, "Team"),
+    SelectOption::new(Plan::Enterprise, "Enterprise")
+      .detail("Contact sales to enable")
+      .disabled(true),
+  ])
+```
+
+A disabled option cannot be chosen by pointer or keyboard, never takes the hover or keyboard highlight, and is skipped by arrow keys, `Home`/`End` and type-ahead.
+
+A pointer press on the trigger opens the menu without a highlight. On the focused select:
+
+| Key | Closed | Open |
+| --- | --- | --- |
+| `ArrowDown`, `ArrowUp` (with or without `Alt`) | Open with the selected option highlighted, else the first enabled one | Move the highlight over enabled options, stopping at the ends. After a pointer open, the first arrow highlights the selected option, else the first enabled one |
+| `Home`, `End` | | Highlight the first or last enabled option |
+| `Enter`, `Space` | Open like the arrows | Choose the highlighted option: single-select closes, multi-select toggles it and stays open. With no highlight the menu closes without a change |
+| Letters | | Type-ahead: highlight the next enabled option whose label starts with the typed text. Repeating one letter cycles through its options; typing within a second extends the text, `Space` included |
+| `Escape`, `Tab` | | Close without a change |
+
+The highlighted option scrolls into view, and opening scrolls the selected option into view. Focus stays on the select throughout. A press outside closes the menu without a change. By default that is all it does, like `Escape`: the select keeps focus, and the element under the pointer, including another select's trigger, receives no press or click until the next press. `Select::outside_press(OutsidePress::PassThrough)` delivers the closing press as well; it then follows the usual press rule: it blurs the select, or focuses the pressed element if that can take focus. See [Popups And Outside Presses](../modals/#popups-and-outside-presses).
+
+A select is identified across re-renders by the signal it binds, like a `TextInput`: its open menu, keyboard highlight and focus stay with it when siblings are inserted, removed or reordered, and never pass to another select. Create the signal once (in `create` or as a field), not per render; a new signal each render is a new select, so its menu closes on every re-render. The highlight survives a re-render only while its row shows the same enabled option; when options are replaced it is cleared, so `Enter` closes without a change.
+
+`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, ShadowStyle, TypographyStyle},
+  node::{BoxShadow, SelectCheckmarkPosition, SelectIcon, SelectPartStyle, SelectStyle, padding::Padding},
+};
+
+// "icon" is an app typography role that selects the icon font at 14 px.
+let icon = |glyph: &str| SelectIcon::glyph(glyph, TypographyStyle::extra("icon"));
+let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::BorderFocus).spread(1.0).inset();
+
+SelectStyle::new()
+  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::BorderFocus))
+  .chevron(icon("\u{e06d}"))
+  .chevron_open(icon("\u{e070}"))
+  .chevron_color(PaletteColor::TextMuted)
+  .menu(
+    SelectPartStyle::new()
+      .background(PaletteColor::SurfaceRaised)
+      .border_inside(1.0, PaletteColor::Border)
+      .rounded(11.0)
+      .padding(Padding::all(4.0))
+      .box_shadow(ShadowStyle::Lg),
+  )
+  .max_menu_height(266.0)
+  .option(
+    SelectPartStyle::new()
+      .min_height(32.0)
+      .padding(Padding::symmetric(8.0, 0.0))
+      .rounded(7.0)
+      .typography(TypographyStyle::Body),
+  )
+  .option_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_selected(SelectPartStyle::new())
+  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_highlighted(SelectPartStyle::new().box_shadow(ring))
+  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::TextMuted))
+  .single_checkmark(true)
+  .checkmark(icon("\u{e06c}"))
+  .checkmark_size(14.0)
+  .checkmark_position(SelectCheckmarkPosition::Trailing)
+  .checkmark_color(PaletteColor::Accent)
+```
+
+- An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.
+- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `min_menu_width(260.0)` lets a menu grow wider than a narrow trigger; it is still capped by the viewport width and repositioned to fit. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar; its insets are measured from the menu's outer bounds, border included (see [Scroll](#scroll) for `edge_inset`/`end_inset`). The menu's padding insets the options and scrolls with them.
+- Option rows are at least 34 px tall unless the option part sets `min_height`. The default option part pads labels by 10 px horizontally, like the trigger.
+- The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
+- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
+- `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection.
 
 ## Programmatic Interaction
 

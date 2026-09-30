@@ -4,8 +4,11 @@ use crate::app::ctx::{
 };
 use crate::node::{color::Color, node::Node};
 
+/// A built element tree. The root node lives on the heap, so an `Element` is
+/// one pointer wide: render functions and the structs that hold elements
+/// (window chrome, title bars, modals) move pointers, not nodes (lurq#25).
 pub struct Element {
-  pub(crate) node: Node,
+  pub(crate) node: Box<Node>,
 }
 
 impl Clone for Element {
@@ -29,11 +32,25 @@ pub struct ElementIter<'a> {
 
 impl Element {
   pub(crate) fn from_node(node: Node) -> Self {
+    Self { node: Box::new(node) }
+  }
+
+  pub(crate) fn from_boxed_node(node: Box<Node>) -> Self {
     Self { node }
   }
 
+  /// Rebuilds the root node with a by-value `Node` builder chain.
+  pub(crate) fn map_node(self, f: impl FnOnce(Node) -> Node) -> Self {
+    Self::from_node(f(self.into_node()))
+  }
+
+  /// Moves the root node out of its box, for storing it among a parent's children.
+  pub(crate) fn into_node(self) -> Node {
+    *self.node
+  }
+
   pub fn new() -> Self {
-    Self { node: Node::new() }
+    Self::from_node(Node::new())
   }
 
   pub fn node_id(&self) -> crate::core::NodeId {
@@ -50,20 +67,20 @@ impl Element {
   /// Also participates in retained-node identity across sibling changes.
   /// Keep IDs stable; changing one can reset the node's runtime state.
   pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
-    crate::node::NodeUpdate::id(&mut self.node, id);
+    crate::node::NodeUpdate::id(&mut *self.node, id);
     self
   }
 
   /// Appends an HTML-like class for `Tree::get_elements_by_class_name`
   /// lookup. Classes do not affect reconciliation or styling.
   pub fn class(mut self, class: impl Into<std::sync::Arc<str>>) -> Self {
-    crate::node::NodeUpdate::class(&mut self.node, class);
+    crate::node::NodeUpdate::class(&mut *self.node, class);
     self
   }
 
   /// Appends several classes at once; see [`Element::class`].
   pub fn classes<C: Into<std::sync::Arc<str>>>(mut self, classes: impl IntoIterator<Item = C>) -> Self {
-    crate::node::NodeUpdate::classes(&mut self.node, classes);
+    crate::node::NodeUpdate::classes(&mut *self.node, classes);
     self
   }
 }

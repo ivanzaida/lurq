@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use crate::{
+  app::ctx::OutsidePress,
   core::{ElementRef, Signal, SignalValue},
-  layout::{Alignment, layout_kind::Justify, text_style::TextStyle},
+  layout::{Alignment, StackAlignment, layout_kind::Justify},
   node::{
-    Element, Node, SelectStyle,
+    Element, Node, SelectIcon, SelectStyle, SyntheticNodeRole,
+    dimension::Dimension,
     node_kind::{SelectChangeCallback, TextOverflow},
   },
 };
@@ -18,6 +20,53 @@ where
   Multiple(Signal<Vec<T>>),
 }
 
+/// One option of a [`Select`]: a value, its label, an optional detail line
+/// drawn under the label (for example why the option is disabled), and
+/// whether it is disabled. Disabled options cannot be chosen by pointer or
+/// keyboard, never take the hover or keyboard highlight, and are skipped by
+/// arrow keys, Home/End and type-ahead.
+///
+/// `(value, label)` tuples convert into enabled options without a detail.
+#[derive(Clone)]
+pub struct SelectOption<T> {
+  value: T,
+  label: Arc<str>,
+  detail: Option<Arc<str>>,
+  disabled: bool,
+}
+
+impl<T> SelectOption<T> {
+  pub fn new(value: T, label: impl Into<Arc<str>>) -> Self {
+    Self {
+      value,
+      label: label.into(),
+      detail: None,
+      disabled: false,
+    }
+  }
+
+  /// A second, smaller line under the label, styled by
+  /// `SelectStyle::option_detail`.
+  pub fn detail(mut self, detail: impl Into<Arc<str>>) -> Self {
+    self.detail = Some(detail.into());
+    self
+  }
+
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+}
+
+impl<T, L> From<(T, L)> for SelectOption<T>
+where
+  L: Into<Arc<str>>,
+{
+  fn from((value, label): (T, L)) -> Self {
+    Self::new(value, label)
+  }
+}
+
 /// A native, generic dropdown select. Single-select binds a `Signal<T>`;
 /// multi-select binds a `Signal<Vec<T>>`. Options pair a value with a label;
 /// the selected value(s) are derived by comparing the bound signal against the
@@ -29,10 +78,11 @@ where
 {
   node: Box<Node>,
   binding: Binding<T>,
-  options: Vec<(T, Arc<str>)>,
+  options: Vec<SelectOption<T>>,
   placeholder: Option<Arc<str>>,
   style: SelectStyle,
   trigger: Option<Arc<dyn Fn(SelectTriggerState) -> Element + Send + Sync>>,
+  outside_press: OutsidePress,
 }
 
 #[derive(Clone)]
@@ -51,31 +101,31 @@ where
 {
   pub fn new(value: Signal<T>) -> Self {
     Self {
-      node: Box::new(Node::select().focusable(true)),
+      node: Box::new(Node::select()),
       binding: Binding::Single(value),
       options: Vec::new(),
       placeholder: None,
       style: SelectStyle::new(),
       trigger: None,
+      outside_press: OutsidePress::default(),
     }
   }
 
   pub fn multiple(value: Signal<Vec<T>>) -> Self {
     Self {
-      node: Box::new(Node::select().focusable(true)),
+      node: Box::new(Node::select()),
       binding: Binding::Multiple(value),
       options: Vec::new(),
       placeholder: None,
       style: SelectStyle::new(),
       trigger: None,
+      outside_press: OutsidePress::default(),
     }
   }
 
-  pub fn options(mut self, options: impl IntoIterator<Item = (T, impl Into<Arc<str>>)>) -> Self {
-    self.options = options
-      .into_iter()
-      .map(|(value, label)| (value, label.into()))
-      .collect();
+  /// The options, as `(value, label)` tuples or [`SelectOption`]s.
+  pub fn options(mut self, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
+    self.options = options.into_iter().map(Into::into).collect();
     self
   }
 
@@ -121,6 +171,20 @@ where
     self
   }
 
+  /// `false` keeps the select from taking focus, by click, Tab or request.
+  pub fn focusable(mut self, focusable: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::focusable(node, focusable));
+    self
+  }
+
+  /// Whether the press outside the open menu that closes it also reaches the
+  /// element under the pointer. Defaults to [`OutsidePress::Consume`]: the
+  /// press only closes the menu, and the select keeps focus.
+  pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
+    self.outside_press = outside_press;
+    self
+  }
+
   pub fn ref_element(mut self, element_ref: impl Into<ElementRef>) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::ref_element(node, element_ref));
     self
@@ -133,11 +197,14 @@ where
   }
 
   fn finalize(self) -> Node {
-    let labels: Vec<Arc<str>> = self.options.iter().map(|(_, label)| label.clone()).collect();
-    let values: Vec<T> = self.options.into_iter().map(|(value, _)| value).collect();
+    let labels: Vec<Arc<str>> = self.options.iter().map(|option| option.label.clone()).collect();
+    let details: Vec<Option<Arc<str>>> = self.options.iter().map(|option| option.detail.clone()).collect();
+    let disabled: Vec<bool> = self.options.iter().map(|option| option.disabled).collect();
+    let values: Vec<T> = self.options.into_iter().map(|option| option.value).collect();
 
-    let (selected, multiple, on_change) = match self.binding {
+    let (selected, multiple, on_change, binding) = match self.binding {
       Binding::Single(signal) => {
+        let binding = signal.id();
         let current = signal.get();
         let selected: Vec<usize> = values.iter().position(|value| *value == current).into_iter().collect();
         let option_values = values.clone();
@@ -146,9 +213,10 @@ where
             signal.set(value.clone());
           }
         });
-        (selected, false, on_change)
+        (selected, false, on_change, binding)
       }
       Binding::Multiple(signal) => {
+        let binding = signal.id();
         let current = signal.get();
         let selected: Vec<usize> = values
           .iter()
@@ -168,7 +236,7 @@ where
             });
           }
         });
-        (selected, true, on_change)
+        (selected, true, on_change, binding)
       }
     };
     let selected_labels: Vec<Arc<str>> = selected
@@ -189,49 +257,70 @@ where
     };
     let trigger = self
       .trigger
-      .map(|render| render(trigger_state.clone()).node)
+      .map(|render| render(trigger_state.clone()).into_node())
       .unwrap_or_else(|| default_trigger(trigger_state, &self.style));
 
     (*self.node)
       .with_tag_name(Arc::from("Select"))
       .with_children([trigger])
       .select_labels(labels)
+      .select_options_meta(details, disabled)
       .select_selected(selected)
       .select_multiple(multiple)
       .select_placeholder(self.placeholder)
       .select_style(self.style)
       .select_on_change(on_change)
+      .select_binding(binding)
+      .select_outside_press(self.outside_press)
   }
 }
 
 fn default_trigger(state: SelectTriggerState, style: &SelectStyle) -> Node {
-  use crate::node::dimension::Dimension;
-
   let trigger = style.resolved_trigger(false, false, false);
   let is_placeholder = state.selected_count == 0;
   let text = state.label.unwrap_or_default();
-  let text_node = match (is_placeholder, style.placeholder_text.as_ref(), trigger.text.as_ref()) {
-    (true, Some(text_style), _) => Node::text_styled(&text, text_style.clone()),
-    (_, _, Some(text_style)) => Node::text_styled(&text, text_style.clone()),
-    _ => Node::text(&text),
+  let text_node = match (is_placeholder, style.placeholder_text.as_ref()) {
+    (true, Some(text_style)) => Node::text_styled(&text, text_style.clone()),
+    _ => trigger.text_node(&text),
   }
   .text_wrap(false)
   .text_overflow(TextOverflow::Elipsis)
   .min_width(0.0)
   .flex(1.0);
 
-  let mut chevron_style = trigger.text.unwrap_or_else(TextStyle::default);
-  chevron_style.font_size = style.chevron_size;
-  if let Some(color) = style.chevron_color {
-    chevron_style.color = color;
-  }
-  let chevron = Node::text_styled("\u{25BE}", chevron_style)
-    .text_wrap(false)
-    .width(Dimension::Px(style.chevron_size + 4.0));
+  let chevron = match &style.chevron_open {
+    Some(open_icon) => Node::stack(
+      StackAlignment::Center,
+      vec![
+        with_chevron_role(chevron_node(&style.chevron, &trigger, style), false),
+        with_chevron_role(chevron_node(open_icon, &trigger, style), true),
+      ],
+    ),
+    None => chevron_node(&style.chevron, &trigger, style),
+  };
 
   Node::row(8.0, Alignment::Center, vec![text_node, chevron])
     .justify(Justify::Start)
     .width(Dimension::Pct(100.0))
+}
+
+/// Tags a chevron for one open state; painting skips it in the other.
+fn with_chevron_role(mut node: Node, open: bool) -> Node {
+  node.set_synthetic_role(SyntheticNodeRole::SelectChevron { open });
+  node
+}
+
+fn chevron_node(icon: &SelectIcon, trigger: &crate::node::SelectPartStyle, style: &SelectStyle) -> Node {
+  let node = icon.build(
+    trigger.text_style(),
+    Some(style.chevron_size),
+    style.chevron_color.as_ref().or(trigger.text_color.as_ref()),
+  );
+  if icon.is_plain_text() {
+    node.width(Dimension::Px(style.chevron_size + 4.0))
+  } else {
+    node
+  }
 }
 
 impl<T> From<Select<T>> for Element

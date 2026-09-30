@@ -46,6 +46,19 @@ impl Checkbox {
     self.update_node(|node| crate::node::NodeUpdate::checkbox_checked_box_hovered_style(node, f(CheckboxStyle::new())));
     self
   }
+
+  /// Box style while the checkbox has focus, layered over the checked or
+  /// unchecked box and under the hovered styles. Size is ignored: focus
+  /// changes paint, never layout.
+  pub fn box_focused_style(mut self, style: CheckboxStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::checkbox_box_focused_style(node, style));
+    self
+  }
+
+  pub fn box_focused(mut self, f: impl FnOnce(CheckboxStyle) -> CheckboxStyle) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::checkbox_box_focused_style(node, f(CheckboxStyle::new())));
+    self
+  }
 }
 
 impl Default for Checkbox {

@@ -135,6 +135,7 @@ fn main() {
         images: vec![],
         #[cfg(feature = "svg")]
         svgs: vec![],
+        layers: vec![],
         atlas: GlyphAtlas {
           data: data.into(),
           width,

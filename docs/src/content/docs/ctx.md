@@ -187,6 +187,8 @@ println ! ("count changed to {value}");
 
 Use `watch` when you want an explicit callback for one signal instead of automatic dependency tracking.
 
+The callback may set the watched signal. Its notification comes after the current one; see [writes from callbacks](../reactivity/#writes-from-callbacks).
+
 ## Context Values
 
 ### Static Context
@@ -206,7 +208,21 @@ println ! ("locale = {}", locale.0);
 }
 ```
 
-`provide` stores a cloned value by type. `use_context` returns `None` if no ancestor provided that type.
+`provide` stores a cloned value by type. `use_context` returns `None` if neither this component nor an ancestor
+provided that type. A provided value shadows an ancestor's value of the same type for this component and its
+descendants.
+
+How long a value stays provided depends on where it is provided:
+
+- In `create`: for the component's lifetime. It survives re-renders of the component and of its ancestors (the
+  inherited contexts are refreshed and the component's own values are layered back on top) until the component
+  provides another value of the same type.
+- In `render`: for that render. Code after the `provide` call and the children mounted by that render see it; the
+  next render starts from the inherited and `create`-time values, so a value the render no longer provides is removed
+  for the children it mounts from then on. Providing in `render` gives the value a new revision, which re-renders
+  the reused children that receive it.
+
+`create_context` follows the same rules.
 
 ### Reactive Context
 
@@ -231,7 +247,7 @@ retrieves the reactive context and subscribes the consuming context to changes.
 
 `theme()` returns the current runtime theme. Root and child contexts get the theme from `Tree::mount_root`.
 
-Theme typography exposes strict named text styles. `Text::new` uses `theme.typography().body`, and
+Theme typography exposes named text styles. `Text::new` uses `theme.typography().body`, and
 `Text::new("Label").variant(TypographyStyle::Label)` resolves the named style during layout.
 See [Theme](../theme/) for the full palette, typography, radius, spacing, and form role tables.
 
@@ -305,9 +321,11 @@ window.close();
 window.set_minimized(true);
 window.set_full_screen(true);
 window.set_decorations(false);
+window.set_title("Report.md - Editor");
 window.set_title_bar_color(lurq::node::color::Color::from_hex("#101215"));
 window.set_icon(lurq::app::WindowIcon::from_rgba(vec![255, 0, 0, 255], 1, 1));
 window.set_corner_radius(lurq::app::WindowCornerRadius::RoundedSmall);
+window.set_border_color(lurq::app::WindowBorderColor::None);
 window.resize(1280, 720);
 window.move_to(120, 80);
 ```
@@ -319,15 +337,27 @@ Use `ctx.window_opener()` for a cloneable handle that opens secondary windows. `
 Use `set_decorations(false)` or `set_decorated(false)` for a custom title bar. Rust reserves `move` as a keyword, so
 direct move calls use `window.r#move(x, y)`; `move_to(x, y)` is provided for normal method syntax.
 
-`set_icon` accepts a `WindowIcon` built from RGBA pixels. `set_title_bar_color` and `set_corner_radius` customize native
+`set_title` changes the OS window title after the window has opened: the title bar text, the taskbar button and
+Alt+Tab on Windows, and the Window menu and Mission Control on macOS. `title()` returns the title last requested, or the
+title the window was created with (`WinitWindow::with_title`, the secondary window's title); it does not subscribe the
+component. Setting the title the window already has queues nothing, so a component can call
+`ctx.window().set_title(...)` from `render` with a title derived from its state, for example the active tab.
+
+`set_icon` accepts a `WindowIcon` built from RGBA pixels (`None` clears it). On Windows the icon is both the small
+title-bar icon and the big icon of the taskbar button and Alt+Tab, scaled by Windows to each size; on macOS it does
+nothing, since the Dock and the app switcher show the application bundle's icon. `set_title_bar_color` and `set_corner_radius` customize native
 window chrome where the platform supports it; with the winit shell, title bar color maps to the Windows title background
 API, while corner radius maps to the Windows corner preference API and macOS AppKit content-view layer clipping.
-Unsupported platforms no-op. Use `clear_icon()`, `clear_title_bar_color()`, and `reset_corner_radius()` to return those
-settings to the platform default.
+`set_border_color` sets the 1px compositor border Windows 11 (build 22000+) draws around every window, including
+undecorated ones (`DWMWA_BORDER_COLOR`): `WindowBorderColor::Default`, `None`, or `Color(...)`. `border_color()` returns
+the value the shell last applied. Unsupported platforms no-op. Use `clear_icon()`, `clear_title_bar_color()`,
+`reset_corner_radius()`, and `set_border_color(WindowBorderColor::Default)` to return those settings to the platform
+default.
 
 For normal custom desktop chrome, prefer `WindowChrome`. It disables native decorations when custom chrome is active,
 renders the draggable title bar and content area, owns resize hit zones, handles standard window controls, and uses the
-active shell's native drag/resize behavior where available.
+active shell's native drag/resize behavior where available. It also hides the compositor border, because
+`ChromeBorderPolicy` decides the frame outline.
 
 ```rust
 use lurq::{
@@ -375,7 +405,8 @@ event.stop_immediate_propagation();
 ```
 
 With the winit shell, `start_drag()` and `start_resize(...)` use native platform APIs where possible. On Windows, the
-shell falls back to non-client mouse messages for custom chrome drag and resize behavior.
+shell posts a non-client mouse press at the cursor position, so the system move or size loop runs from the event loop
+rather than inside your handler. The window repaints at each new size during a live edge drag.
 
 ### Frame Capture
 
@@ -545,7 +576,7 @@ ctx.mount_keyed_with::<Panel>("settings", props, vec![lurq::components::Text::ne
 
 These work like `mount` and `mount_keyed`, but pass slot children into the child context.
 
-`mount_offstage::<C>(props, active)` and `mount_keyed_offstage::<C>(key, props, active)` retain a component while excluding its output when `active` is false. Offstage components keep state but do not participate in layout, painting, hit testing, dirty refreshes, timers, or future polling until active again.
+`mount_offstage::<C>(props, active)` and `mount_keyed_offstage::<C>(key, props, active)` retain a component while excluding its output when `active` is false. Offstage components keep state but do not participate in layout, painting, hit testing, dirty refreshes, timers, or future polling until active again. When a component becomes active again, its output takes back the runtime state it had when it went offstage: scroll offsets, text-input carets and selections, open selects, and canvases. This includes scroll areas whose `ScrollState` the component does not hold, so a tabbed page does not need to keep one per scroll area to keep its scroll position. `Router::mount_offstage` behaves the same for the routed page.
 
 ## Keyed List Helper
 

@@ -86,12 +86,14 @@ fn main() {
       transform_origin: [0.0, 0.0],
       clip: ClipRect::default(),
       gradient: None,
+      shadow: None,
     }],
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]
     images: Vec::new(),
     #[cfg(feature = "svg")]
     svgs: Vec::new(),
+    layers: Vec::new(),
     atlas: GlyphAtlas {
       data: std::sync::Arc::from([].as_slice()),
       width: 0,

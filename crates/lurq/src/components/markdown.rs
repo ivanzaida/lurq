@@ -170,7 +170,7 @@ impl Component for Markdown {
     let mut element = render_document(&document, &props.style, &theme, &render_ctx);
 
     if let Some(width) = props.width {
-      element.node = element.node.width(width);
+      element = element.map_node(|node| node.width(width));
     }
     if props.selectable {
       element.node.selectable_recursive(true);
@@ -808,11 +808,11 @@ fn render_table_cell(
   if box_style.background.is_some() && style.color == base_style.color {
     style.color = Color::from_hex("#0f172a");
   }
-  let mut element = render_inline_block(cell, style, theme, render_ctx);
-  element.node = apply_node_box(element.node, box_style)
-    .min_width(theme.table_cell_min_width)
-    .flex(1.0);
-  element
+  render_inline_block(cell, style, theme, render_ctx).map_node(|node| {
+    apply_node_box(node, box_style)
+      .min_width(theme.table_cell_min_width)
+      .flex(1.0)
+  })
 }
 
 fn table_text_align(alignment: MarkdownTableAlignment) -> TextAlign {

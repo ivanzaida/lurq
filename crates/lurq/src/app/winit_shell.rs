@@ -1,6 +1,8 @@
 use std::time::{Duration, Instant};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
+#[cfg(target_os = "macos")]
+use winit::platform::macos::EventLoopBuilderExtMacOS;
 #[cfg(windows)]
 use winit::platform::windows::{
   Color as WinitWindowsColor, CornerPreference as WinitCornerPreference, WindowAttributesExtWindows, WindowExtWindows,
@@ -22,7 +24,9 @@ use crate::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
     runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata},
-    window::{CloseRequestSource, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection},
+    window::{
+      CloseRequestSource, WindowBorderColor, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection,
+    },
   },
   node::{CursorIcon, color::Color},
 };
@@ -45,6 +49,7 @@ pub struct WinitWindow {
   app: App,
   tree: Tree,
   attrs: WindowAttributes,
+  start_without_focus: bool,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
   on_paint: Option<PaintFn>,
@@ -58,6 +63,7 @@ impl WinitWindow {
       app,
       tree,
       attrs: WindowAttributes::default(),
+      start_without_focus: false,
       corner_radius: None,
       on_tick: None,
       on_paint: None,
@@ -113,8 +119,12 @@ impl WinitWindow {
     self
   }
 
+  /// The window's icon. On Windows it is both the small icon (title bar) and
+  /// the big one (taskbar button, Alt+Tab); Windows scales the image to each
+  /// size. On macOS this does nothing: the Dock and the app switcher show the
+  /// application bundle's icon.
   pub fn with_icon(mut self, icon: impl Into<Option<WindowIcon>>) -> Self {
-    self.attrs = self.attrs.with_window_icon(icon.into().and_then(to_winit_icon));
+    self.attrs = with_window_icons(self.attrs, icon.into().and_then(to_winit_icon));
     self
   }
 
@@ -135,6 +145,15 @@ impl WinitWindow {
 
   pub fn with_transparent(mut self, transparent: bool) -> Self {
     self.attrs = self.attrs.with_transparent(transparent);
+    self
+  }
+
+  /// Show the initial window without activating the application or taking keyboard focus.
+  /// Intended for app instances driven through automation rather than local input.
+  /// Winit supports this startup behavior on Windows and macOS.
+  pub fn with_start_without_focus(mut self, start_without_focus: bool) -> Self {
+    self.start_without_focus = start_without_focus;
+    self.attrs = self.attrs.with_active(!start_without_focus);
     self
   }
 
@@ -181,7 +200,12 @@ impl WinitWindow {
   }
 
   pub fn run(self) {
-    let event_loop = EventLoop::new().unwrap();
+    let mut event_loop_builder = EventLoop::builder();
+    #[cfg(target_os = "macos")]
+    if self.start_without_focus {
+      event_loop_builder.with_activate_ignoring_other_apps(false);
+    }
+    let event_loop = event_loop_builder.build().unwrap();
 
     // Waker for commands pushed from other threads: without it a queued
     // command waits for the next OS event while the loop idles in
@@ -214,6 +238,7 @@ impl WinitWindow {
       main: ManagedWindow::new(
         tree,
         self.attrs,
+        self.start_without_focus,
         self.corner_radius,
         self.on_tick,
         self.on_paint,
@@ -241,6 +266,7 @@ struct ManagedWindow {
   cursor: CursorIcon,
   modifiers: ModifiersState,
   attrs: Option<WindowAttributes>,
+  start_without_focus: bool,
   corner_radius: Option<WindowCornerRadius>,
   on_tick: Option<TickFn>,
   on_paint: Option<PaintFn>,
@@ -260,6 +286,7 @@ impl ManagedWindow {
   fn new(
     tree: Tree,
     attrs: WindowAttributes,
+    start_without_focus: bool,
     corner_radius: Option<WindowCornerRadius>,
     on_tick: Option<TickFn>,
     on_paint: Option<PaintFn>,
@@ -274,6 +301,7 @@ impl ManagedWindow {
       cursor: CursorIcon::Default,
       modifiers: ModifiersState::empty(),
       attrs: Some(attrs),
+      start_without_focus,
       corner_radius,
       on_tick,
       on_paint,
@@ -302,7 +330,9 @@ impl ManagedWindow {
     }
 
     let attrs = self.attrs.take().unwrap_or_default();
-    let show_after_first_present = attrs.visible;
+    self.tree.window().record_initial_title(&attrs.title);
+    // macOS set_visible(true) makes a window key even when it was created inactive.
+    let show_after_first_present = attrs.visible && !self.start_without_focus;
     let attrs = if show_after_first_present {
       attrs.with_visible(false)
     } else {
@@ -345,6 +375,7 @@ impl ManagedWindow {
     let minimized = window.is_minimized();
     let maximized = window.is_maximized();
     let full_screen = window.fullscreen().is_some();
+    let focused = window.has_focus();
     let current = self.tree.window().info();
     let size_changed =
       current.resolved_width.round() as u32 != size.width || current.resolved_height.round() as u32 != size.height;
@@ -358,6 +389,7 @@ impl ManagedWindow {
     }
     self.tree.window().set_maximized(maximized);
     self.tree.window().set_full_screen(full_screen);
+    self.tree.window().set_focused(focused);
 
     size_changed
   }
@@ -405,14 +437,25 @@ impl ManagedWindow {
           }
           self.tree.window().set_decorated(decorated);
         }
+        WindowCommand::SetTitle(title) => {
+          if let Some(window) = &self.window {
+            window.set_title(&title);
+          }
+        }
         WindowCommand::SetTitleBarColor(color) => {
           if let Some(window) = &self.window {
             set_title_bar_color(window, color);
           }
         }
+        WindowCommand::SetBorderColor(color) => {
+          if let Some(window) = &self.window {
+            set_border_color(window, color);
+          }
+          self.tree.window().set_border_color(color);
+        }
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
-            window.set_window_icon(icon.and_then(to_winit_icon));
+            set_window_icons(window, icon.and_then(to_winit_icon));
           }
         }
         WindowCommand::SetCornerRadius(radius) => {
@@ -435,17 +478,19 @@ impl ManagedWindow {
           self.notify_size_changed(width, height);
         }
         WindowCommand::StartDrag => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_drag(window) {
-              let _ = window.drag_window();
-            }
+          if self.window.as_ref().is_some_and(start_native_window_drag) {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            self.tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StartResize(direction) => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_resize(window, direction) {
-              let _ = window.drag_resize_window(to_winit_resize_direction(direction));
-            }
+          if self
+            .window
+            .as_ref()
+            .is_some_and(|window| start_native_window_resize(window, direction))
+          {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            self.tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StopDrag => {}
@@ -648,6 +693,16 @@ impl ManagedWindow {
         self.tree.resize(size.width, size.height);
         self.notify_size_changed(size.width, size.height);
         self.sync_window_state();
+        // Paint the new size from inside the event: during a live edge drag Windows runs a modal sizing
+        // loop that keeps delivering WM_SIZE, but WM_PAINT (and so `RedrawRequested`) only when the
+        // queue is idle, and DWM stretches the previous frame until a new one is presented.
+        // Only for the current size: size events queued while winit was busy arrive back to back, and
+        // painting each stale one would replay the whole drag.
+        let current = self.window.as_ref().is_some_and(|w| w.inner_size() == size);
+        if current && size.width > 0 && size.height > 0 && self.present_now(app, false) {
+          self.apply_window_commands(event_loop);
+          return true;
+        }
         self.request_redraw();
       }
       WindowEvent::Focused(focused) => {
@@ -880,6 +935,7 @@ impl ManagedSecondaryWindow {
       tree.window().set_maximized(window.is_maximized());
       tree.window().set_full_screen(window.fullscreen().is_some());
       tree.window().set_decorated(window.is_decorated());
+      tree.window().set_focused(window.has_focus());
     }
   }
 
@@ -921,14 +977,25 @@ impl ManagedSecondaryWindow {
           }
           tree.window().set_decorated(decorated);
         }
+        WindowCommand::SetTitle(title) => {
+          if let Some(window) = &self.window {
+            window.set_title(&title);
+          }
+        }
         WindowCommand::SetTitleBarColor(color) => {
           if let Some(window) = &self.window {
             set_title_bar_color(window, color);
           }
         }
+        WindowCommand::SetBorderColor(color) => {
+          if let Some(window) = &self.window {
+            set_border_color(window, color);
+          }
+          tree.window().set_border_color(color);
+        }
         WindowCommand::SetIcon(icon) => {
           if let Some(window) = &self.window {
-            window.set_window_icon(icon.and_then(to_winit_icon));
+            set_window_icons(window, icon.and_then(to_winit_icon));
           }
         }
         WindowCommand::SetCornerRadius(radius) => {
@@ -949,17 +1016,19 @@ impl ManagedSecondaryWindow {
           }
         }
         WindowCommand::StartDrag => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_drag(window) {
-              let _ = window.drag_window();
-            }
+          if self.window.as_ref().is_some_and(start_native_window_drag) {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StartResize(direction) => {
-          if let Some(window) = &self.window {
-            if !begin_native_window_resize(window, direction) {
-              let _ = window.drag_resize_window(to_winit_resize_direction(direction));
-            }
+          if self
+            .window
+            .as_ref()
+            .is_some_and(|window| start_native_window_resize(window, direction))
+          {
+            let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+            tree.mouse_press_taken_by_os(x, y, MouseButton::Left);
           }
         }
         WindowCommand::StopDrag => {}
@@ -1085,7 +1154,11 @@ impl ManagedSecondaryWindow {
       WindowEvent::Resized(size) => {
         tree.resize(size.width, size.height);
         self.sync_window_state(tree);
-        self.request_redraw();
+        // Paint inside the event, as the main window does, so a live resize is not stretched.
+        let current = self.window.as_ref().is_some_and(|w| w.inner_size() == size);
+        if !current || size.width == 0 || size.height == 0 || !self.present_now(app, tree) {
+          self.request_redraw();
+        }
       }
       WindowEvent::Focused(focused) => {
         tree.window().set_focused(focused);
@@ -1876,6 +1949,34 @@ fn to_winit_icon(icon: WindowIcon) -> Option<WinitIcon> {
   WinitIcon::from_rgba(rgba, width, height).ok()
 }
 
+/// winit's window icon is only Windows' small icon (`ICON_SMALL`, the title
+/// bar); the taskbar button and Alt+Tab show the big one (`ICON_BIG`), which
+/// would otherwise stay the executable's icon. Both get the same image.
+#[cfg(windows)]
+fn with_window_icons(attrs: WindowAttributes, icon: Option<WinitIcon>) -> WindowAttributes {
+  attrs.with_window_icon(icon.clone()).with_taskbar_icon(icon)
+}
+
+/// macOS ignores window icons (the bundle's icon stands for the app); X11
+/// takes this one for the title bar and the task switcher.
+#[cfg(not(windows))]
+fn with_window_icons(attrs: WindowAttributes, icon: Option<WinitIcon>) -> WindowAttributes {
+  attrs.with_window_icon(icon)
+}
+
+/// See [`with_window_icons`].
+#[cfg(windows)]
+fn set_window_icons(window: &Window, icon: Option<WinitIcon>) {
+  window.set_taskbar_icon(icon.clone());
+  window.set_window_icon(icon);
+}
+
+/// See [`with_window_icons`].
+#[cfg(not(windows))]
+fn set_window_icons(window: &Window, icon: Option<WinitIcon>) {
+  window.set_window_icon(icon);
+}
+
 #[cfg(windows)]
 fn with_title_bar_color(attrs: WindowAttributes, color: Option<Color>) -> WindowAttributes {
   attrs.with_title_background_color(color.map(to_winit_windows_color))
@@ -1894,6 +1995,20 @@ fn set_title_bar_color(window: &Window, color: Option<Color>) {
 
 #[cfg(not(windows))]
 fn set_title_bar_color(window: &Window, color: Option<Color>) {
+  let _ = (window, color);
+}
+
+#[cfg(windows)]
+fn set_border_color(window: &Window, color: WindowBorderColor) {
+  window.set_border_color(match color {
+    WindowBorderColor::Default => Some(WinitWindowsColor::SYSTEM_DEFAULT),
+    WindowBorderColor::None => None,
+    WindowBorderColor::Color(color) => Some(to_winit_windows_color(color)),
+  });
+}
+
+#[cfg(not(windows))]
+fn set_border_color(window: &Window, color: WindowBorderColor) {
   let _ = (window, color);
 }
 
@@ -1989,6 +2104,21 @@ fn to_winit_resize_direction(direction: WindowResizeDirection) -> WinitResizeDir
   }
 }
 
+/// Starts the native window move loop. True once the OS owns the left-button press: the loop consumes
+/// its release, so lurq never receives it (the caller ends the press with
+/// [`Tree::mouse_press_taken_by_os`]). This holds for the Windows loop, `performWindowDragWithEvent` on
+/// macOS, and the X11 and Wayland compositor moves behind `drag_window`.
+fn start_native_window_drag(window: &Window) -> bool {
+  begin_native_window_drag(window) || window.drag_window().is_ok()
+}
+
+/// Starts the native window resize loop; see [`start_native_window_drag`]. macOS has none, so a resize
+/// handle there keeps its press and gets the real release.
+fn start_native_window_resize(window: &Window, direction: WindowResizeDirection) -> bool {
+  begin_native_window_resize(window, direction)
+    || window.drag_resize_window(to_winit_resize_direction(direction)).is_ok()
+}
+
 #[cfg(windows)]
 fn begin_native_window_drag(window: &Window) -> bool {
   use windows::Win32::UI::WindowsAndMessaging::HTCAPTION;
@@ -2027,13 +2157,21 @@ fn begin_native_window_resize(window: &Window, direction: WindowResizeDirection)
   false
 }
 
+/// Starts the native move/size loop the way a press on a real frame would.
+///
+/// The message is posted, not sent: `SendMessageW` ran the whole modal loop inside the lurq event
+/// handler that issued the command, where winit buffers every event. No frame was drawn for the
+/// entire drag (DWM stretched the last one) and the buffered size events were replayed afterwards.
+/// Posted, the loop runs from winit's own message pump, which delivers `Resized` and paints during
+/// the drag. The start point is the cursor position in screen coordinates, which the loop uses as
+/// the drag origin (for example to place a maximized window restored by dragging its caption).
 #[cfg(windows)]
 fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
   use windows::Win32::{
-    Foundation::{HWND, LPARAM, WPARAM},
+    Foundation::{HWND, LPARAM, POINT, WPARAM},
     UI::{
       Input::KeyboardAndMouse::ReleaseCapture,
-      WindowsAndMessaging::{SendMessageW, WM_NCLBUTTONDOWN},
+      WindowsAndMessaging::{GetCursorPos, PostMessageW, WM_NCLBUTTONDOWN},
     },
   };
 
@@ -2048,11 +2186,43 @@ fn send_native_non_client_mouse_down(window: &Window, hit_test: u32) -> bool {
     return false;
   }
 
+  let mut cursor = POINT::default();
   unsafe {
+    if GetCursorPos(&mut cursor).is_err() {
+      return false;
+    }
     let _ = ReleaseCapture();
-    SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(hit_test as usize)), Some(LPARAM(0)));
+    PostMessageW(
+      Some(hwnd),
+      WM_NCLBUTTONDOWN,
+      WPARAM(hit_test as usize),
+      LPARAM(screen_point_lparam(cursor.x, cursor.y)),
+    )
+    .is_ok()
   }
-  true
+}
+
+/// `MAKELPARAM` of a screen point, as `WM_NC*` mouse messages carry it: signed 16-bit x and y.
+#[cfg(windows)]
+fn screen_point_lparam(x: i32, y: i32) -> isize {
+  let x = x as i16 as u16 as u32;
+  let y = y as i16 as u16 as u32;
+  ((y << 16) | x) as i32 as isize
+}
+
+#[cfg(all(test, windows))]
+mod native_drag_tests {
+  use super::screen_point_lparam;
+
+  #[test]
+  fn screen_point_lparam_packs_signed_coordinates() {
+    assert_eq!(screen_point_lparam(0, 0), 0);
+    assert_eq!(screen_point_lparam(1440, 900), (900 << 16) | 1440);
+    // Monitors left of or above the primary have negative screen coordinates.
+    let packed = screen_point_lparam(-100, -20) as u32;
+    assert_eq!((packed & 0xffff) as u16 as i16, -100);
+    assert_eq!((packed >> 16) as u16 as i16, -20);
+  }
 }
 
 #[cfg(test)]
@@ -2088,5 +2258,73 @@ mod close_runtime_tests {
       .on_close_requested(|_| panic!("unconditional close called handler"));
     tree.window().handle().close();
     assert!(managed.apply_window_commands(tree));
+  }
+}
+
+#[cfg(all(test, windows))]
+mod native_window_tests {
+  use windows::Win32::{
+    Foundation::{HWND, LPARAM, WPARAM},
+    UI::WindowsAndMessaging::{ICON_BIG, ICON_SMALL, SendMessageW, WM_GETICON},
+  };
+  use winit::platform::windows::EventLoopBuilderExtWindows;
+
+  use super::*;
+
+  /// The window's `ICON_SMALL` or `ICON_BIG` handle, 0 when unset.
+  fn icon_handle(window: &Window, kind: u32) -> isize {
+    let RawWindowHandle::Win32(handle) = window.window_handle().expect("window handle").as_raw() else {
+      panic!("not a Win32 window");
+    };
+    let hwnd = HWND(handle.hwnd.get() as *mut std::ffi::c_void);
+    // SAFETY: `hwnd` is the test's own live window; WM_GETICON only reads it.
+    unsafe { SendMessageW(hwnd, WM_GETICON, Some(WPARAM(kind as usize)), Some(LPARAM(0))).0 }
+  }
+
+  /// One test: winit allows one event loop per process.
+  #[test]
+  fn a_hidden_window_takes_icons_and_runtime_titles() {
+    // The test's only event loop: winit allows one per process.
+    let event_loop = EventLoop::builder().with_any_thread(true).build().expect("event loop");
+    let icon = || to_winit_icon(WindowIcon::from_rgba(vec![200; 32 * 32 * 4], 32, 32));
+    let attributes = with_window_icons(WindowAttributes::default().with_visible(false), icon());
+    // A hidden window of the test's own, outside `run_app`.
+    #[allow(deprecated)]
+    let window = event_loop.create_window(attributes).expect("hidden test window");
+    assert_ne!(icon_handle(&window, ICON_SMALL), 0, "title bar icon");
+    assert_ne!(icon_handle(&window, ICON_BIG), 0, "taskbar and Alt+Tab icon");
+
+    set_window_icons(&window, None);
+    assert_eq!(icon_handle(&window, ICON_SMALL), 0);
+    assert_eq!(icon_handle(&window, ICON_BIG), 0);
+
+    set_window_icons(&window, icon());
+    assert_ne!(icon_handle(&window, ICON_SMALL), 0);
+    assert_ne!(icon_handle(&window, ICON_BIG), 0);
+
+    runtime_title_reaches_the_os_window(window);
+  }
+
+  /// `WindowHandle::set_title` is applied by the shell to the live window.
+  fn runtime_title_reaches_the_os_window(window: Window) {
+    let mut app = App::new();
+    let mut root = Tree::new();
+    app.window_opener().open("Preferences", 200, 200, |_, _| {});
+    root.apply_secondary_window_requests(&mut app);
+    let secondary = root.secondary_window_mut(0).expect("opened secondary window");
+    let mut managed = ManagedSecondaryWindow::new(0, secondary);
+    let tree = secondary.tree_mut();
+    assert_eq!(tree.window().handle().title().as_deref(), Some("Preferences"));
+    managed.window = Some(window);
+
+    tree.window().handle().set_title("Tasks - Orchester");
+    managed.apply_window_commands(tree);
+    let os_title = |managed: &ManagedSecondaryWindow| managed.window.as_ref().expect("test window").title();
+    assert_eq!(os_title(&managed), "Tasks - Orchester");
+    assert_eq!(tree.window().handle().title().as_deref(), Some("Tasks - Orchester"));
+
+    tree.window().handle().set_title("Run 12 - Orchester");
+    managed.apply_window_commands(tree);
+    assert_eq!(os_title(&managed), "Run 12 - Orchester");
   }
 }

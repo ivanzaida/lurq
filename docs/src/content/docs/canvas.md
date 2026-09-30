@@ -8,7 +8,7 @@ description: Persistent drawing through existing element refs, with paths, gradi
 Enable `canvas` alongside your window and renderer features:
 
 ```toml
-lurq = { version = "0.20.0", features = ["canvas", "winit", "wgpu"] }
+lurq = { version = "0.30.4", features = ["canvas", "winit", "wgpu"] }
 ```
 
 Canvas is available starting in **lurq 0.19.0**. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
@@ -122,7 +122,7 @@ All drawing coordinates and stroke widths use canvas-local logical pixels. Rotat
 
 The current path captures the transform when geometry is added. A separate `Path2D` stores reusable geometry and applies the context's transform when filled, stroked, clipped, or hit-tested. `Path2D::add_path` accepts an explicit transform. Hit-test points are canvas-local, unaffected by the current drawing transform or clip. Curve hit testing uses flattened vector geometry, not pixel alpha.
 
-Text uses lurq's font database and aliases with cosmic-text shaping and Swash rasterization. Register fonts on the app before layout. Set a typed `CanvasFont` with family, logical size, weight, and style; an empty family selects the sans-serif fallback. Text is a single line: newlines and tabs become spaces. It is neither selectable nor part of layout. `measure_text` returns advance width and ink/font bounds relative to the selected alignment and baseline. Text methods return `Result` for unavailable services or oversized work. `stroke_text`, CSS font strings, wrapping, and `max_width` are not implemented.
+Text uses lurq's font database and aliases with cosmic-text shaping and Swash rasterization. Register fonts on the app before layout. Set a typed `CanvasFont` with family, logical size, weight, style, letter spacing (logical pixels after every glyph, scaled with the transform like the size), and OpenType font features ([Font Features](../theme/#font-features)); an empty family selects the sans-serif fallback. Text is a single line: newlines and tabs become spaces. It is neither selectable nor part of layout. `measure_text` returns advance width and ink/font bounds relative to the selected alignment and baseline. Text methods return `Result` for unavailable services or oversized work. `stroke_text`, CSS font strings, wrapping, and `max_width` are not implemented.
 
 Image sources must be immutable, nonempty CPU RGBA8 `ImageData`. Source regions use image pixels; destinations use logical canvas units. `draw_image_region` takes `[x, y, width, height]` for each region. Negative sizes extend the region in the opposite direction without mirroring; out-of-bounds source crops shrink the destination proportionally. The call retains the immutable source through a shared reference. The renderer uploads and premultiplies a source once, then reuses its cached GPU texture. Animated, streaming, native GPU, and video sources return `UnsupportedImage`.
 
@@ -301,7 +301,7 @@ Polygon meshes survive arbitrary zoom. Curves use power-of-two scale buckets bas
 
 The renderer processes only new commands. A shared 512 × 512 tile surface provides 4-sample antialiasing; touched tiles are seeded from the existing texture, drawn, resolved, and copied back on the GPU. A small edit does not upload, convert, or copy the whole canvas. Full clears discard obsolete queued drawing while preserving resize and snapshot barriers. Idle surfaces retain pixels without replaying history or requesting continuous frames.
 
-Internal source-over blending uses premultiplied sRGB channel values. Image sources are premultiplied before filtering. Window composition converts the result to straight linear color for the existing image pipeline, including node backgrounds, borders, clipping, radius, and ancestor opacity.
+Internal source-over blending uses premultiplied sRGB channel values. Image sources are premultiplied before filtering. Window composition passes the result through the existing image pipeline, including node backgrounds, borders, clipping, radius, and ancestor opacity, which blends it over the window on sRGB-encoded channels like every other translucent color.
 
 Drawing increments the content revision, wakes the window, and coalesces presentation. It does not dirty reactive state or layout. Winit installs the waker automatically. Custom hosts must install `Tree::set_canvas_waker` and schedule a pass; custom renderer wrappers must forward `RenderEngine::prepare_canvases`, including surfaces culled from the visible image list.
 

@@ -2,13 +2,16 @@ use std::{
   fmt,
   sync::{
     Arc, Weak,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
   },
 };
 
 use parking_lot::{Mutex, RwLock};
 
-use crate::core::tracking;
+use crate::core::{
+  notify::{NotifyLoop, ObserverList},
+  tracking,
+};
 
 static NEXT_SIGNAL_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -28,6 +31,8 @@ pub type SignalSubscriber<T> = dyn Fn(&T) + Send + Sync + 'static;
 
 type Watcher = Arc<dyn Fn() + Send + Sync>;
 
+type WatcherFn = dyn Fn() + Send + Sync;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SignalObserverKind {
   External,
@@ -39,14 +44,42 @@ enum SignalObserverKind {
 
 struct SignalInner<T: SignalValue> {
   id: usize,
-  value: RwLock<T>,
+  /// Shared so a notification pass can lend the value to subscribers without
+  /// holding the lock while they run.
+  value: RwLock<Arc<T>>,
+  /// Bumped by every write, so a tracked read can tell that the signal was
+  /// written before its watcher was subscribed.
+  version: AtomicU64,
+  /// Held while subscribers borrow the value, so an `update` from another
+  /// thread can wait for them to release it.
+  delivery: Mutex<()>,
+  notify_loop: NotifyLoop,
   next_subscriber_id: AtomicUsize,
-  subscribers: Mutex<Vec<(usize, SignalObserverKind, Arc<SignalSubscriber<T>>)>>,
-  watchers: Mutex<Vec<(usize, SignalObserverKind, Watcher)>>,
+  subscribers: ObserverList<SignalObserverKind, SignalSubscriber<T>>,
+  watchers: ObserverList<SignalObserverKind, WatcherFn>,
   #[cfg(feature = "devtools")]
   devtools_subscriber_count: Arc<AtomicUsize>,
 }
 
+/// A reactive value.
+///
+/// # Writes from observers
+///
+/// A notification pass holds no lock while observers run, so a `Ctx::watch`
+/// callback, watcher, effect, or memo may read and write the signal it
+/// observes and subscribe or unsubscribe observers. A write is applied
+/// immediately. Its notification does not start a nested pass: a pass that is
+/// already running (from an observer or another thread) first delivers its
+/// value to every observer and then repeats with the latest value, so every
+/// observer sees the values in the same order. Several writes during one pass
+/// coalesce into one repeat. A subscriber added during a pass first hears the
+/// next pass; one removed during a pass is not called for the rest of it.
+///
+/// `set` does not compare values, so an observer that writes on every
+/// notification never settles: after 100 consecutive passes re-triggered by
+/// the signal's own observers, the write panics instead of looping forever.
+/// A `Ctx::watch` callback still borrows the value it was given, so calling
+/// [`Signal::update`] on the same signal from it panics; use [`Signal::set`].
 pub struct Signal<T: SignalValue> {
   inner: Arc<SignalInner<T>>,
 }
@@ -82,10 +115,13 @@ impl<T: SignalValue> Signal<T> {
     Self {
       inner: Arc::new(SignalInner {
         id: NEXT_SIGNAL_ID.fetch_add(1, Ordering::Relaxed),
-        value: RwLock::new(value),
+        value: RwLock::new(Arc::new(value)),
+        version: AtomicU64::new(0),
+        delivery: Mutex::new(()),
+        notify_loop: NotifyLoop::default(),
         next_subscriber_id: AtomicUsize::new(0),
-        subscribers: Mutex::new(Vec::new()),
-        watchers: Mutex::new(Vec::new()),
+        subscribers: ObserverList::new(),
+        watchers: ObserverList::new(),
         #[cfg(feature = "devtools")]
         devtools_subscriber_count: Arc::new(AtomicUsize::new(0)),
       }),
@@ -101,14 +137,14 @@ impl<T: SignalValue> Signal<T> {
     T: Clone + Send + Sync + 'static,
   {
     self.track_access();
-    self.inner.value.read().clone()
+    T::clone(&self.inner.value.read())
   }
 
   pub fn get_untracked(&self) -> T
   where
     T: Clone + Send + Sync + 'static,
   {
-    self.inner.value.read().clone()
+    T::clone(&self.inner.value.read())
   }
 
   pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R
@@ -128,13 +164,50 @@ impl<T: SignalValue> Signal<T> {
     f(&value)
   }
 
+  /// Replaces the value and notifies observers.
+  ///
+  /// Observers of this signal may call `set` too; see
+  /// [writes from observers](Signal#writes-from-observers).
   pub fn set(&self, value: T) {
-    *self.inner.value.write() = value;
+    {
+      let mut current = self.inner.value.write();
+      match Arc::get_mut(&mut current) {
+        Some(slot) => *slot = value,
+        // Subscribers of a running notification pass still borrow the old value.
+        None => *current = Arc::new(value),
+      }
+    }
+    self.inner.version.fetch_add(1, Ordering::AcqRel);
     self.notify();
   }
 
+  /// Mutates the value in place and notifies observers.
+  ///
+  /// Works from watchers, effects, and `Ctx::watch` callbacks of other
+  /// signals. A `Ctx::watch` callback of this same signal still borrows the
+  /// value it was given, so calling `update` there panics; call `set` with a
+  /// value derived from the callback argument instead.
   pub fn update(&self, f: impl FnOnce(&mut T)) {
-    f(&mut self.inner.value.write());
+    let mut current = self.inner.value.write();
+    if let Some(value) = Arc::get_mut(&mut current) {
+      f(value);
+      drop(current);
+    } else {
+      drop(current);
+      assert!(
+        !self.inner.notify_loop.is_running_on_this_thread(),
+        "Signal::update was called on signal {} from one of its own `Ctx::watch` callbacks, which still borrows the \
+         value being delivered; call `set` with a value derived from the callback argument instead",
+        self.inner.id
+      );
+      // Another thread is delivering this signal. Its subscribers release the
+      // value before `delivery` is unlocked, and no new pass can lend it while
+      // this thread holds `delivery`.
+      let _delivery = self.inner.delivery.lock();
+      let mut current = self.inner.value.write();
+      f(Arc::get_mut(&mut current).expect("only a pass holding `delivery` lends the value"));
+    }
+    self.inner.version.fetch_add(1, Ordering::AcqRel);
     self.notify();
   }
 
@@ -149,7 +222,7 @@ impl<T: SignalValue> Signal<T> {
 
   fn subscribe_with_kind(&self, sub: impl Fn(&T) + Send + Sync + 'static, kind: SignalObserverKind) -> Subscription<T> {
     let id = self.inner.next_subscriber_id.fetch_add(1, Ordering::Relaxed);
-    self.inner.subscribers.lock().push((id, kind, Arc::new(sub)));
+    self.inner.subscribers.add(id, kind, Arc::new(sub));
     self.inner.refresh_devtools_subscriber_count();
     Subscription {
       id,
@@ -159,11 +232,7 @@ impl<T: SignalValue> Signal<T> {
 
   pub(crate) fn watch(&self, f: impl Fn() + Send + Sync + 'static) -> WatchHandle<T> {
     let id = self.inner.next_subscriber_id.fetch_add(1, Ordering::Relaxed);
-    self
-      .inner
-      .watchers
-      .lock()
-      .push((id, SignalObserverKind::Runtime, Arc::new(f)));
+    self.inner.watchers.add(id, SignalObserverKind::Runtime, Arc::new(f));
     self.inner.refresh_devtools_subscriber_count();
     WatchHandle {
       id,
@@ -183,15 +252,23 @@ impl<T: SignalValue> Signal<T> {
     if tracking::is_tracking() {
       let weak = Arc::downgrade(&self.inner);
       let signal_id = self.inner.id;
+      let version_read = self.inner.version.load(Ordering::Acquire);
       tracking::track(
         signal_id,
-        Box::new(move |watcher| {
+        Box::new(move |watcher: Watcher| {
           if let Some(inner) = weak.upgrade() {
             let id = inner.next_subscriber_id.fetch_add(1, Ordering::Relaxed);
-            inner.watchers.lock().push((id, SignalObserverKind::Reactive, watcher));
+            inner
+              .watchers
+              .add(id, SignalObserverKind::Reactive, Arc::clone(&watcher));
             inner.refresh_devtools_subscriber_count();
-            let weak2 = Weak::clone(&Weak::clone(&weak));
-            Box::new(DropGuard { id, inner: weak2 })
+            // The reader saw an older value if the signal was written before
+            // this watcher existed, for example by the reader itself. A pending
+            // repeat pass will reach the watcher; otherwise catch it up now.
+            if inner.version.load(Ordering::Acquire) != version_read && !inner.notify_loop.has_pending_pass() {
+              watcher();
+            }
+            Box::new(DropGuard { id, inner: weak })
           } else {
             Box::new(())
           }
@@ -200,42 +277,28 @@ impl<T: SignalValue> Signal<T> {
     }
   }
 
+  /// Delivers the current value to subscribers, then calls watchers; see
+  /// [writes from observers](Signal#writes-from-observers).
   fn notify(&self) {
-    {
-      let subs = self.inner.subscribers.lock();
-      let value = self.inner.value.read();
-      for (_, _, sub) in subs.iter() {
-        sub(&value);
-      }
-    }
-    let watchers = self
-      .inner
-      .watchers
-      .lock()
-      .iter()
-      .map(|(_, _, watcher)| Arc::clone(watcher))
-      .collect::<Vec<_>>();
-    for watcher in watchers {
-      watcher();
-    }
+    let inner = &*self.inner;
+    inner.notify_loop.run("signal", inner.id, || inner.notify_pass());
   }
 }
 
 impl<T: SignalValue> SignalInner<T> {
+  fn notify_pass(&self) {
+    if self.subscribers.has_observers() {
+      let _delivery = self.delivery.lock();
+      let value = Arc::clone(&self.value.read());
+      self.subscribers.for_each(|subscriber| subscriber(&value));
+    }
+    self.watchers.for_each(|watcher| watcher());
+  }
+
   #[cfg(feature = "devtools")]
   fn refresh_devtools_subscriber_count(&self) {
-    let external_subscribers = self
-      .subscribers
-      .lock()
-      .iter()
-      .filter(|(_, kind, _)| *kind == SignalObserverKind::External)
-      .count();
-    let reactive_watchers = self
-      .watchers
-      .lock()
-      .iter()
-      .filter(|(_, kind, _)| *kind == SignalObserverKind::Reactive)
-      .count();
+    let external_subscribers = self.subscribers.count(|kind| kind == SignalObserverKind::External);
+    let reactive_watchers = self.watchers.count(|kind| kind == SignalObserverKind::Reactive);
     self
       .devtools_subscriber_count
       .store(external_subscribers + reactive_watchers, Ordering::Relaxed);
@@ -253,7 +316,7 @@ struct DropGuard<T: SignalValue> {
 impl<T: SignalValue> Drop for DropGuard<T> {
   fn drop(&mut self) {
     if let Some(inner) = self.inner.upgrade() {
-      inner.watchers.lock().retain(|(id, ..)| *id != self.id);
+      inner.watchers.remove(self.id);
       inner.refresh_devtools_subscriber_count();
     }
   }
@@ -262,7 +325,7 @@ impl<T: SignalValue> Drop for DropGuard<T> {
 impl<T: SignalValue> Drop for Subscription<T> {
   fn drop(&mut self) {
     if let Some(inner) = self.inner.upgrade() {
-      inner.subscribers.lock().retain(|(id, ..)| *id != self.id);
+      inner.subscribers.remove(self.id);
       inner.refresh_devtools_subscriber_count();
     }
   }
@@ -271,7 +334,7 @@ impl<T: SignalValue> Drop for Subscription<T> {
 impl<T: SignalValue> Drop for WatchHandle<T> {
   fn drop(&mut self) {
     if let Some(inner) = self.inner.upgrade() {
-      inner.watchers.lock().retain(|(id, ..)| *id != self.id);
+      inner.watchers.remove(self.id);
       inner.refresh_devtools_subscriber_count();
     }
   }

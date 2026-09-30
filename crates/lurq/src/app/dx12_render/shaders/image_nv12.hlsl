@@ -87,7 +87,10 @@ VsOut vs_main(VsIn input)
     input.transform.y * centered.x + input.transform.w * centered.y
   );
   float2 world = input.pos + transformed + input.xf_origin;
-  float2 ndc = float2((world.x / viewport.x) * 2.0 - 1.0, 1.0 - (world.y / viewport.y) * 2.0);
+  // `viewport.zw` is the target's origin in window pixels (non-zero when
+  // painting into an opacity layer).
+  float2 target_px = world - viewport.zw;
+  float2 ndc = float2((target_px.x / viewport.x) * 2.0 - 1.0, 1.0 - (target_px.y / viewport.y) * 2.0);
 
   VsOut output;
   output.position = float4(ndc, 0.0, 1.0);
@@ -98,6 +101,17 @@ VsOut vs_main(VsIn input)
   output.size = input.size;
   output.radii = input.radii;
   return output;
+}
+
+// The render target is not sRGB, so the fixed-function blend mixes
+// sRGB-encoded values, as CSS and design tools do. `ps_main` works in linear
+// light like the rest of the pipeline and encodes each result it returns.
+float4 encode_srgb(float4 color)
+{
+  float3 c = saturate(color.rgb);
+  float3 low = c * 12.92;
+  float3 high = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+  return float4(c <= 0.0031308 ? low : high, color.a);
 }
 
 float4 ps_main(VsOut input) : SV_TARGET
@@ -135,5 +149,5 @@ float4 ps_main(VsOut input) : SV_TARGET
   );
   float4 color = float4(srgb_to_linear(saturate(rgb)), 1.0);
   color.a *= input.opacity * shape_alpha * clip_alpha_value;
-  return color;
+  return encode_srgb(color);
 }

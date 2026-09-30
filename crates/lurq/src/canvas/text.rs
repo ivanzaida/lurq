@@ -5,7 +5,8 @@ use tiny_skia::{Pixmap, PixmapPaint};
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
-  layout::text_style::{FontStyle, FontWeight, TextStyle},
+  app::glyph_engine::{FaceWeights, with_letter_spacing},
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle},
   node::color::Color,
 };
 
@@ -15,6 +16,11 @@ pub struct CanvasFont {
   pub size: f32,
   pub weight: FontWeight,
   pub style: FontStyle,
+  /// Extra space after every glyph in logical pixels, like
+  /// [`TextStyle::letter_spacing`]; scales with the canvas transform like `size`.
+  pub letter_spacing: f32,
+  /// OpenType feature settings, like [`TextStyle::font_features`].
+  pub font_features: FontFeatures,
 }
 impl CanvasFont {
   pub fn new(family: impl Into<Arc<str>>, size: f32) -> Self {
@@ -23,6 +29,8 @@ impl CanvasFont {
       size,
       weight: FontWeight::Normal,
       style: FontStyle::Normal,
+      letter_spacing: 0.0,
+      font_features: FontFeatures::default(),
     }
   }
   pub(crate) fn from_style(style: &TextStyle) -> Self {
@@ -31,6 +39,8 @@ impl CanvasFont {
       size: style.font_size,
       weight: style.weight,
       style: style.style,
+      letter_spacing: style.letter_spacing,
+      font_features: style.font_features.clone(),
     }
   }
 }
@@ -72,6 +82,8 @@ pub struct TextMetrics {
 pub(crate) struct CanvasTextEngine {
   fonts: FontSystem,
   aliases: HashMap<String, String>,
+  // The engine owns a snapshot of the font database, so this never needs clearing.
+  face_weights: FaceWeights,
   swash: SwashCache,
   shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>)>,
   shaped_bytes: usize,
@@ -128,6 +140,7 @@ impl CanvasTextEngine {
     Self {
       fonts,
       aliases,
+      face_weights: FaceWeights::default(),
       swash: SwashCache::new(),
       shaped: Default::default(),
       shaped_bytes: 0,
@@ -180,23 +193,30 @@ impl CanvasTextEngine {
       self.swash.image_cache.clear();
     }
     let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(font.size, font.size * 1.2));
-    buffer.set_size(&mut self.fonts, None, None);
-    buffer.set_wrap(&mut self.fonts, Wrap::None);
+    buffer.set_size(None, None);
+    buffer.set_wrap(Wrap::None);
     let family = self
       .aliases
       .get(font.family.as_ref())
       .map(String::as_str)
       .unwrap_or(&font.family);
-    let attrs = Attrs::new()
+    let weight = self
+      .face_weights
+      .resolve(self.fonts.db(), family, font.weight, font.style);
+    let mut attrs = Attrs::new()
       .family(if family.is_empty() {
         Family::SansSerif
       } else {
         Family::Name(family)
       })
-      .weight(font.weight.to_cosmic())
+      .weight(weight)
       .style(font.style.to_cosmic());
+    if !font.font_features.is_empty() {
+      attrs = attrs.font_features(font.font_features.to_cosmic());
+    }
+    let attrs = with_letter_spacing(attrs, font.letter_spacing, font.size);
     let text = text.replace(['\n', '\r', '\t'], " ");
-    buffer.set_text(&mut self.fonts, &text, attrs, Shaping::Advanced);
+    buffer.set_text(&text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut self.fonts, false);
     let mut glyphs = Vec::new();
     let mut glyph_bytes = 0usize;
@@ -205,7 +225,7 @@ impl CanvasTextEngine {
     for run in buffer.layout_runs() {
       width = width.max(run.line_w);
       for glyph in run.glyphs {
-        if let Some(face) = self.fonts.get_font(glyph.font_id) {
+        if let Some(face) = self.fonts.get_font(glyph.font_id, glyph.font_weight) {
           let metrics = face.as_swash().metrics(&[]).scale(font.size);
           ascent = ascent.max(metrics.ascent);
           descent = descent.max(metrics.descent.abs());

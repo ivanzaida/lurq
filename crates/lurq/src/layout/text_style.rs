@@ -5,6 +5,9 @@ use crate::{
   node::{TextColor, color::Color},
 };
 
+mod font_features;
+pub use font_features::{FontFeature, FontFeatures};
+
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
 const DEFAULT_TEXT_COLOR: Color = Color::new(0, 0, 0, 255);
@@ -36,6 +39,19 @@ pub struct TextStyle {
   /// Lets a caller pick one readable `line_height` for both single- and
   /// multi-line text without inflating single-line vertical rhythm.
   pub trim_line_box: bool,
+  /// Extra space added after every glyph, in logical pixels, like CSS
+  /// `letter-spacing` (including after the last glyph of a line). Negative values
+  /// tighten text. It scales with the display scale factor like `font_size`, and
+  /// measurement, wrapping, painting, carets and hit testing all use the spaced
+  /// advances. Non-finite values are treated as `0.0`.
+  pub letter_spacing: f32,
+  /// OpenType feature settings for shaping, like CSS `font-feature-settings`.
+  /// Empty by default, which keeps the shaper's default features — including
+  /// ligatures and contextual alternates. Programming ligatures can misrender
+  /// commands and code (Geist Mono shapes `--` into one cell-wide glyph drawn
+  /// over the preceding space, so ` --flag` reads as `--flag`); turn them off with
+  /// `FontFeatures::new([FontFeature::disable(*b"liga"), FontFeature::disable(*b"calt")])`.
+  pub font_features: FontFeatures,
   pub color: Color,
   pub caret_color: Option<TextColor>,
   pub shadow: Option<TextShadow>,
@@ -52,10 +68,21 @@ impl Default for TextStyle {
       text_align: TextAlign::Left,
       vertical_align: VerticalAlign::default(),
       trim_line_box: false,
+      letter_spacing: 0.0,
+      font_features: FontFeatures::default(),
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
       shadow: None,
     }
+  }
+}
+
+impl TextStyle {
+  /// Scales the pixel metrics (font size and letter spacing) for shaping at
+  /// `factor` device pixels per logical pixel.
+  pub(crate) fn scale_pixels(&mut self, factor: f32) {
+    self.font_size *= factor;
+    self.letter_spacing *= factor;
   }
 }
 
@@ -95,31 +122,88 @@ fn default_font_family() -> Arc<str> {
   }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+/// CSS font weight. The named variants carry the CSS keyword values (`Thin` =
+/// 100 … `Black` = 900); `Numeric` accepts any other weight and is clamped to
+/// CSS's `1..=1000` range. Weights compare, hash and cache by numeric value, so
+/// `FontWeight::Numeric(600) == FontWeight::SemiBold`.
+///
+/// Text is drawn with the loaded face of the requested family chosen by CSS
+/// font matching (as implemented by fontdb): an exact weight first; for a
+/// request of 400–449, then 500; for 450–500, then 400; otherwise the nearest
+/// lighter face for requests up to 500 and the nearest heavier face above 500,
+/// then the nearest face on the other side. Faces are never synthesized, so
+/// `SemiBold` renders with the Bold face when the family has no 600 face.
+#[derive(Clone, Copy, Debug, Default)]
 pub enum FontWeight {
   Thin,
+  ExtraLight,
   Light,
   #[default]
   Normal,
   Medium,
+  SemiBold,
   Bold,
+  ExtraBold,
   Black,
+  Numeric(u16),
 }
 
 impl FontWeight {
-  pub fn to_cosmic(&self) -> cosmic_text::Weight {
+  pub const MIN_VALUE: u16 = 1;
+  pub const MAX_VALUE: u16 = 1000;
+
+  /// The CSS numeric weight, clamped to `1..=1000`.
+  pub const fn value(self) -> u16 {
     match self {
-      Self::Thin => cosmic_text::Weight(100),
-      Self::Light => cosmic_text::Weight(300),
-      Self::Normal => cosmic_text::Weight(400),
-      Self::Medium => cosmic_text::Weight(400),
-      Self::Bold => cosmic_text::Weight(700),
-      Self::Black => cosmic_text::Weight(900),
+      Self::Thin => 100,
+      Self::ExtraLight => 200,
+      Self::Light => 300,
+      Self::Normal => 400,
+      Self::Medium => 500,
+      Self::SemiBold => 600,
+      Self::Bold => 700,
+      Self::ExtraBold => 800,
+      Self::Black => 900,
+      Self::Numeric(value) => {
+        if value < Self::MIN_VALUE {
+          Self::MIN_VALUE
+        } else if value > Self::MAX_VALUE {
+          Self::MAX_VALUE
+        } else {
+          value
+        }
+      }
     }
+  }
+
+  /// The requested weight. Layout passes the weight of the nearest loaded face
+  /// instead, because cosmic-text only selects faces of exactly this weight.
+  pub fn to_cosmic(&self) -> cosmic_text::Weight {
+    cosmic_text::Weight(self.value())
   }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+impl PartialEq for FontWeight {
+  fn eq(&self, other: &Self) -> bool {
+    self.value() == other.value()
+  }
+}
+
+impl Eq for FontWeight {}
+
+impl std::hash::Hash for FontWeight {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.value().hash(state);
+  }
+}
+
+impl From<u16> for FontWeight {
+  fn from(value: u16) -> Self {
+    Self::Numeric(value)
+  }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FontStyle {
   #[default]
   Normal,
@@ -162,12 +246,16 @@ impl TextAlign {
 /// - `Top`: the top of the glyph ink meets the top of the box.
 /// - `Bottom`: the bottom of the glyph ink meets the bottom of the box.
 /// - `Center`: the ink is centered — `offset = (box_height - ink_height) / 2`.
+/// - `LineBox`: no ink at all: the first line box starts at the top of the box, and each line's glyphs sit on the
+///   baseline the font's ascent, descent and the line height give it, like CSS text. The run keeps its position when
+///   its glyphs change, and carets and selections line up with it. Text inputs place their lines this way.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum VerticalAlign {
   Top,
   #[default]
   Center,
   Bottom,
+  LineBox,
 }
 
 impl From<Alignment> for TextAlign {

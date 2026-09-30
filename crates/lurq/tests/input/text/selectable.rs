@@ -1,6 +1,6 @@
 use lurq::{
   app::{Tree, events::MouseButton},
-  core::element_ref::ElementRect,
+  core::{Signal, element_ref::ElementRect},
   node::{color::Color, transform::Transform2D},
 };
 
@@ -43,6 +43,58 @@ fn selectable_text_drag_renders_selection() {
   runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
 
   assert!(selection_rect_count(&mut runtime) > 0);
+}
+
+#[test]
+fn selectable_text_drag_keeps_selection_on_scaled_pointer_release() {
+  let scale = 1.5;
+  let clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+  runtime.set_scale_factor(scale);
+  runtime.set_root(lurq::components::Text::new("Hello world").selectable(true).on_click({
+    let clicks = clicks.clone();
+    move |_| clicks.update(|count| *count += 1)
+  }));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = (rect.y + rect.height / 2.0) * scale;
+  let start_x = rect.x * scale;
+  let end_x = (rect.x + rect.width) * scale;
+
+  runtime.mouse_down(start_x, y, MouseButton::Left);
+  runtime.mouse_move(end_x, y);
+  assert!(
+    selection_rect_count(&mut runtime) > 0,
+    "drag must select text before release"
+  );
+  runtime.mouse_up(end_x, y, MouseButton::Left);
+
+  assert!(
+    selection_rect_count(&mut runtime) > 0,
+    "release must keep the selected text"
+  );
+  assert_eq!(clicks.get(), 0, "release after selection must not click");
+}
+
+#[test]
+fn selectable_text_drag_does_not_swallow_the_next_click() {
+  let clicks = Signal::new(0);
+  let mut runtime = Tree::new();
+  runtime.set_root(lurq::components::Text::new("Hello world").selectable(true).on_click({
+    let clicks = clicks.clone();
+    move |_| clicks.update(|count| *count += 1)
+  }));
+  run_pass(&mut runtime);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  runtime.mouse_down(rect.x, y, MouseButton::Left);
+  runtime.mouse_move(rect.x + rect.width, y);
+  runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
+  assert_eq!(clicks.get(), 0);
+
+  pointer_click(&mut runtime, rect.x + rect.width / 2.0, y);
+  assert_eq!(clicks.get(), 1, "a new pointer sequence must still click");
 }
 
 #[test]

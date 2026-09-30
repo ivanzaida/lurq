@@ -66,6 +66,18 @@ pub enum WindowCornerRadius {
   RoundedSmall,
 }
 
+/// The 1px frame the OS compositor draws around a window. Windows 11 draws it around undecorated
+/// windows too (DWM `DWMWA_BORDER_COLOR`); other platforms ignore it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowBorderColor {
+  /// The system color.
+  #[default]
+  Default,
+  /// No compositor border.
+  None,
+  Color(Color),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowIcon {
   rgba: Vec<u8>,
@@ -190,6 +202,31 @@ impl WindowHandle {
     self.set_decorated(decorations);
   }
 
+  /// The window's title as last requested: by `set_title`, or the title the
+  /// window was created with (`WinitWindow::with_title`, `open_window`) once
+  /// the shell has created it. `None` before then, and in headless trees that
+  /// never set one. Reading it does not subscribe the component.
+  pub fn title(&self) -> Option<String> {
+    self.window.inner.read().unwrap().title.clone()
+  }
+
+  /// Sets the OS window title: the title bar text, and the taskbar button and
+  /// Alt+Tab on Windows, or the Window menu and Mission Control on macOS. Like
+  /// the other commands it is applied by the shell on the event-loop thread.
+  /// Setting the title the window already has queues nothing, so calling this
+  /// from `render` with an unchanged title does no work.
+  pub fn set_title(&self, title: impl Into<String>) {
+    let title = title.into();
+    {
+      let mut inner = self.window.inner.write().unwrap();
+      if inner.title.as_deref() == Some(title.as_str()) {
+        return;
+      }
+      inner.title = Some(title.clone());
+    }
+    self.window.push_command(WindowCommand::SetTitle(title));
+  }
+
   pub fn set_title_bar_color(&self, color: impl Into<Option<Color>>) {
     self.window.push_command(WindowCommand::SetTitleBarColor(color.into()));
   }
@@ -198,6 +235,20 @@ impl WindowHandle {
     self.set_title_bar_color(None);
   }
 
+  /// The compositor border last applied by the shell.
+  pub fn border_color(&self) -> WindowBorderColor {
+    self.window.inner.read().unwrap().border_color
+  }
+
+  /// Sets the compositor border drawn around the window. Supported on Windows 11 (build 22000+).
+  pub fn set_border_color(&self, color: WindowBorderColor) {
+    self.window.push_command(WindowCommand::SetBorderColor(color));
+  }
+
+  /// Sets the window's icon, or clears it with `None`. On Windows it is both
+  /// the small icon (title bar) and the big one (taskbar button, Alt+Tab). On
+  /// macOS this does nothing: the Dock and the app switcher show the
+  /// application bundle's icon.
   pub fn set_icon(&self, icon: impl Into<Option<WindowIcon>>) {
     self.window.push_command(WindowCommand::SetIcon(icon.into()));
   }
@@ -339,7 +390,9 @@ pub(crate) enum WindowCommand {
   SetMaximized(bool),
   SetFullScreen(bool),
   SetDecorated(bool),
+  SetTitle(String),
   SetTitleBarColor(Option<Color>),
+  SetBorderColor(WindowBorderColor),
   SetIcon(Option<WindowIcon>),
   SetCornerRadius(WindowCornerRadius),
   Move {
@@ -377,6 +430,9 @@ pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
 struct WindowInner {
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
+  border_color: WindowBorderColor,
+  /// `None` until the shell creates the window or the app sets a title.
+  title: Option<String>,
   version: u64,
   commands: Vec<WindowCommand>,
   /// Registered by the shell once its event loop exists. Without it, a
@@ -409,6 +465,8 @@ impl Window {
           is_focused: true,
         },
         corner_radius: WindowCornerRadius::Default,
+        border_color: WindowBorderColor::Default,
+        title: None,
         version: 0,
         commands: Vec::new(),
         waker: None,
@@ -455,6 +513,15 @@ impl Window {
     WindowHandle {
       info: self.info(),
       window: self.clone(),
+    }
+  }
+
+  /// Records the title a window is created with, unless the app already set
+  /// one (its `SetTitle` command is still queued and wins).
+  pub(crate) fn record_initial_title(&self, title: &str) {
+    let mut inner = self.inner.write().unwrap();
+    if inner.title.is_none() {
+      inner.title = Some(title.to_owned());
     }
   }
 
@@ -648,6 +715,19 @@ impl Window {
     self.version_signal.set(version);
   }
 
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_border_color(&self, color: WindowBorderColor) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.border_color == color {
+        return;
+      }
+      inner.border_color = color;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
   fn bump_version(inner: &mut WindowInner) -> u64 {
     inner.version = inner.version.wrapping_add(1);
     inner.version
@@ -683,6 +763,7 @@ mod tests {
     handle.set_title_bar_color(color);
     handle.set_icon(icon.clone());
     handle.set_corner_radius(WindowCornerRadius::RoundedSmall);
+    handle.set_border_color(WindowBorderColor::None);
     handle.clear_title_bar_color();
     handle.clear_icon();
     handle.reset_corner_radius();
@@ -693,11 +774,70 @@ mod tests {
         WindowCommand::SetTitleBarColor(Some(color)),
         WindowCommand::SetIcon(Some(icon)),
         WindowCommand::SetCornerRadius(WindowCornerRadius::RoundedSmall),
+        WindowCommand::SetBorderColor(WindowBorderColor::None),
         WindowCommand::SetTitleBarColor(None),
         WindowCommand::SetIcon(None),
         WindowCommand::SetCornerRadius(WindowCornerRadius::Default),
       ]
     );
+  }
+}
+
+#[cfg(test)]
+mod title_tests {
+  use super::*;
+
+  #[test]
+  fn set_title_queues_changes_only() {
+    let window = Window::new();
+    let handle = window.handle();
+    assert_eq!(handle.title(), None);
+
+    handle.set_title("Orchester - Tasks");
+    handle.set_title("Orchester - Tasks");
+    handle.set_title(String::from("Orchester - Runs"));
+
+    assert_eq!(handle.title().as_deref(), Some("Orchester - Runs"));
+    assert_eq!(
+      window.take_commands(),
+      vec![
+        WindowCommand::SetTitle("Orchester - Tasks".into()),
+        WindowCommand::SetTitle("Orchester - Runs".into()),
+      ]
+    );
+    handle.set_title("Orchester - Runs");
+    assert!(window.take_commands().is_empty());
+  }
+
+  #[test]
+  fn initial_title_does_not_replace_an_app_title() {
+    let window = Window::new();
+    window.record_initial_title("lurq");
+    assert_eq!(window.handle().title().as_deref(), Some("lurq"));
+    window.handle().set_title("lurq");
+    assert!(window.take_commands().is_empty());
+
+    let window = Window::new();
+    window.handle().set_title("From the app");
+    window.record_initial_title("From the builder");
+    assert_eq!(window.handle().title().as_deref(), Some("From the app"));
+    assert_eq!(
+      window.take_commands(),
+      vec![WindowCommand::SetTitle("From the app".into())]
+    );
+  }
+
+  #[test]
+  fn set_title_wakes_the_event_loop() {
+    let window = Window::new();
+    let wakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = wakes.clone();
+    window.set_waker(Arc::new(move || {
+      count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    window.handle().set_title("a");
+    window.handle().set_title("a");
+    assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 1);
   }
 }
 

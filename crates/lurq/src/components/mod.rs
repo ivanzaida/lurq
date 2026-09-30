@@ -37,6 +37,7 @@ mod text_input;
 mod video;
 mod virtualized_list;
 mod window_chrome;
+mod window_controls;
 
 pub use button::Button;
 #[cfg(feature = "canvas")]
@@ -72,7 +73,7 @@ pub use rect::Rect;
 pub use router_component::{Router, RouterProps};
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
-pub use select::Select;
+pub use select::{Select, SelectOption};
 pub use slider::Slider;
 pub use slot::Slot;
 pub use spacer::Spacer;
@@ -85,11 +86,16 @@ pub use text_input::{TextInput, TextInputOverflow, TextInputOverflowAnchor};
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;
 pub use window_chrome::{
-  ChromeBorderPolicy, ChromeTitleBar, ResizeHandlePolicy, WindowChrome, WindowChromeMetrics, WindowChromeMode,
-  WindowChromeProps, WindowControlStyle, WindowControls,
+  ChromeBorderPolicy, ChromeTitleBar, ResizeHandlePlacement, ResizeHandlePolicy, WindowChrome, WindowChromeMetrics,
+  WindowChromeMode, WindowChromeProps,
+};
+pub use window_controls::{
+  TrafficLightColors, WindowControlColors, WindowControlContent, WindowControlKind, WindowControlStyle, WindowControls,
 };
 
-pub use crate::app::ctx::{CollisionStrategy, Modal, ModalTarget, OpenState, Overlay, Parent, Placement, Root};
+pub use crate::app::ctx::{
+  CollisionStrategy, Modal, ModalTarget, OpenState, OutsidePress, Overlay, Parent, Placement, Root,
+};
 
 #[macro_export]
 macro_rules! impl_into_node {
@@ -162,6 +168,14 @@ macro_rules! impl_into_node {
 
       pub fn background_gradient(mut self, gradient: impl Into<$crate::node::Gradient>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::background_gradient(node, gradient));
+        self
+      }
+
+      /// CSS-like `box-shadow`: a [`ShadowStyle`](crate::app::theme::ShadowStyle)
+      /// theme role, one [`BoxShadow`](crate::node::BoxShadow), or a list
+      /// (the first on top). Paint only: it does not change layout or hit testing.
+      pub fn box_shadow(mut self, shadow: impl Into<$crate::node::BoxShadowValue>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::box_shadow(node, shadow));
         self
       }
 
@@ -723,11 +737,22 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether the element can take focus. Buttons, text inputs,
+      /// checkboxes, sliders, selects and elements with a `tab_index` are
+      /// focusable by default. `focusable(true)` makes any element focusable
+      /// by click and `Ctx::focus`; `focusable(false)` keeps it from ever
+      /// taking focus, by click, Tab or request.
       pub fn focusable(mut self, focusable: bool) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::focusable(node, focusable));
         self
       }
 
+      /// HTML `tabindex`. Inside a form, controls are in the Tab order
+      /// without one; outside a form, only elements with `tab_index(0)` or
+      /// higher are. Positive values come first in ascending order, then `0`
+      /// (and unset form controls) in tree order. `-1` removes the element
+      /// from the Tab order but keeps it focusable by click. Setting a tab
+      /// index makes the element focusable unless it is `focusable(false)`.
       pub fn tab_index(mut self, tab_index: i32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::tab_index(node, tab_index));
         self
@@ -777,7 +802,7 @@ macro_rules! impl_into_node {
 
     impl From<$struct_name> for $crate::node::Element {
       fn from(component: $struct_name) -> Self {
-        $crate::node::Element::from_node(*component.node)
+        $crate::node::Element::from_boxed_node(component.node)
       }
     }
   };

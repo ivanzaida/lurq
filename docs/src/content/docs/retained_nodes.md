@@ -95,7 +95,7 @@ If new props are unequal to stored props, the child context is marked dirty.
 
 ## Retained Node IDs
 
-Every retained node has a `NodeId`. IDs are assigned by the tree's monotonic generator and are never recycled after removal. Compatible nodes preserve their IDs across reconciliation; keys, component slots, explicit IDs, retained refs, and input value signals help match controls across sibling changes.
+Every retained node has a `NodeId`. IDs are assigned by the tree's monotonic generator and are never recycled after removal. Compatible nodes preserve their IDs across reconciliation; keys, component slots, explicit IDs, retained refs, and input and select value signals help match controls across sibling changes.
 
 Node IDs are used for:
 

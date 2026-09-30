@@ -3,6 +3,7 @@ use std::sync::{
   atomic::{AtomicBool, Ordering},
 };
 
+pub(crate) use crate::node::select_state::{SelectChangeCallback, SelectState};
 use crate::{
   app::{
     events::{KeyboardEvent, TextInputEvent},
@@ -11,7 +12,7 @@ use crate::{
   core::Signal,
   layout::text_style::{TextAlign, TextStyle},
   node::{
-    CheckboxStyle, EventHandler, IntoTextInputEventHandler, SelectStyle, SliderPartStyle, TextColor, TextTransformMode,
+    CheckboxStyle, EventHandler, IntoTextInputEventHandler, SliderPartStyle, TextColor, TextTransformMode,
     text_selection::{
       CaretPosition, CaretPositions, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
@@ -106,6 +107,8 @@ pub(crate) struct TextStyleSource {
   base: TextStyleBase,
   color: Option<TextColor>,
   text_align: Option<TextAlign>,
+  letter_spacing: Option<f32>,
+  font_features: Option<crate::layout::text_style::FontFeatures>,
   shadow: Option<crate::layout::text_style::TextShadow>,
 }
 
@@ -122,6 +125,8 @@ impl TextStyleSource {
       base: TextStyleBase::Default,
       color: None,
       text_align: None,
+      letter_spacing: None,
+      font_features: None,
       shadow: None,
     }
   }
@@ -131,6 +136,8 @@ impl TextStyleSource {
       base: TextStyleBase::Explicit(style),
       color: None,
       text_align: None,
+      letter_spacing: None,
+      font_features: None,
       shadow: None,
     }
   }
@@ -147,6 +154,14 @@ impl TextStyleSource {
     self.text_align = Some(align.into());
   }
 
+  pub(crate) fn set_letter_spacing(&mut self, letter_spacing: f32) {
+    self.letter_spacing = Some(letter_spacing);
+  }
+
+  pub(crate) fn set_font_features(&mut self, font_features: crate::layout::text_style::FontFeatures) {
+    self.font_features = Some(font_features);
+  }
+
   pub(crate) fn set_shadow(&mut self, shadow: crate::layout::text_style::TextShadow) {
     self.shadow = Some(shadow);
   }
@@ -154,7 +169,7 @@ impl TextStyleSource {
   pub(crate) fn resolve(&self, typography: &ThemeTypography, palette: &ThemePalette) -> TextStyle {
     let mut style = match &self.base {
       TextStyleBase::Default => typography.default_style().clone(),
-      TextStyleBase::Typography(style) => typography.resolve(*style),
+      TextStyleBase::Typography(style) => typography.resolve_or_default(*style),
       TextStyleBase::Explicit(style) => style.clone(),
     };
     if let Some(color) = self.color.as_ref().and_then(|color| color.resolve(palette)) {
@@ -162,6 +177,12 @@ impl TextStyleSource {
     }
     if let Some(text_align) = self.text_align {
       style.text_align = text_align;
+    }
+    if let Some(letter_spacing) = self.letter_spacing {
+      style.letter_spacing = letter_spacing;
+    }
+    if let Some(font_features) = &self.font_features {
+      style.font_features = font_features.clone();
     }
     if let Some(shadow) = self.shadow {
       style.shadow = Some(shadow);
@@ -355,6 +376,9 @@ struct TextInputInner {
   caret_x: f32,
   caret_y: f32,
   caret_height: f32,
+  /// Where a line's glyphs sit in its line box by the font's ascent and
+  /// descent, as `(top, height)`; selections cover it.
+  text_band: Option<(f32, f32)>,
   caret_positions: CaretPositions,
   scroll_x: f32,
   scroll_y: f32,
@@ -402,6 +426,7 @@ impl TextInputState {
         caret_x: 0.0,
         caret_y: 0.0,
         caret_height: 0.0,
+        text_band: None,
         caret_positions: vec![CaretPosition {
           index: 0,
           x: 0.0,
@@ -925,6 +950,7 @@ impl TextInputState {
     let old_caret_x = old_inner.caret_x;
     let old_caret_y = old_inner.caret_y;
     let old_caret_height = old_inner.caret_height;
+    let old_text_band = old_inner.text_band;
     let old_caret_positions = old_inner.caret_positions.clone();
     let old_scroll_x = old_inner.scroll_x;
     let old_scroll_y = old_inner.scroll_y;
@@ -947,6 +973,7 @@ impl TextInputState {
     inner.caret_x = old_caret_x;
     inner.caret_y = old_caret_y;
     inner.caret_height = old_caret_height;
+    inner.text_band = old_text_band;
     inner.caret_positions = old_caret_positions;
     inner.scroll_x = old_scroll_x;
     inner.scroll_y = old_scroll_y;
@@ -978,6 +1005,12 @@ impl TextInputState {
     inner.caret_x - inner.scroll_x
   }
 
+  /// Whether the caret is at the left edge of its line's text box (the start
+  /// of a left-aligned line), with no glyph before it.
+  pub(crate) fn caret_at_line_start(&self) -> bool {
+    self.inner.lock().unwrap().caret_x <= 0.0
+  }
+
   pub(crate) fn caret_y(&self) -> f32 {
     let inner = self.inner.lock().unwrap();
     inner.caret_y - inner.scroll_y
@@ -989,6 +1022,18 @@ impl TextInputState {
 
   pub(crate) fn caret_height(&self) -> f32 {
     self.inner.lock().unwrap().caret_height
+  }
+
+  pub(crate) fn set_text_band(&self, band: Option<(f32, f32)>) {
+    self.inner.lock().unwrap().text_band = band;
+  }
+
+  /// `(top, height)` of the glyphs' band within a line box: the font's ascent
+  /// and descent, centered in the line height. The whole line box until the
+  /// input has been laid out.
+  pub(crate) fn text_band(&self) -> (f32, f32) {
+    let inner = self.inner.lock().unwrap();
+    inner.text_band.unwrap_or((0.0, inner.caret_height))
   }
 
   pub(crate) fn set_caret_positions(&self, positions: CaretPositions) {
@@ -1307,6 +1352,7 @@ struct CheckboxInner {
   checked_style: Option<CheckboxStyle>,
   hovered_style: Option<CheckboxStyle>,
   checked_hovered_style: Option<CheckboxStyle>,
+  focused_style: Option<CheckboxStyle>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1330,6 +1376,7 @@ impl CheckboxState {
         checked_style: None,
         hovered_style: None,
         checked_hovered_style: None,
+        focused_style: None,
       })),
     }
   }
@@ -1364,11 +1411,23 @@ impl CheckboxState {
     self.inner.lock().unwrap().checked_hovered_style = Some(style);
   }
 
-  pub(crate) fn style(&self, checked: bool, hovered: bool) -> CheckboxStyle {
+  pub(crate) fn set_focused_style(&self, style: CheckboxStyle) {
+    self.inner.lock().unwrap().focused_style = Some(style);
+  }
+
+  /// Layers: base, checked, focused (paint only; its size is ignored so focus
+  /// never moves layout), hovered, checked and hovered.
+  pub(crate) fn style(&self, checked: bool, hovered: bool, focused: bool) -> CheckboxStyle {
     let inner = self.inner.lock().unwrap();
     let mut style = inner.style.clone();
     if checked && let Some(checked_style) = &inner.checked_style {
       style.merge_from(checked_style);
+    }
+    if focused && let Some(focused_style) = &inner.focused_style {
+      let (width, height) = (style.width, style.height);
+      style.merge_from(focused_style);
+      style.width = width;
+      style.height = height;
     }
     if hovered && let Some(hovered_style) = &inner.hovered_style {
       style.merge_from(hovered_style);
@@ -1446,6 +1505,9 @@ impl CheckboxState {
     if let Some(style) = &mut inner.checked_hovered_style {
       changed |= resolve_style(style, &mut resolve);
     }
+    if let Some(style) = &mut inner.focused_style {
+      changed |= resolve_style(style, &mut resolve);
+    }
     changed
   }
 }
@@ -1472,6 +1534,7 @@ struct SliderInner {
   fill_hovered_style: Option<SliderPartStyle>,
   thumb_style: SliderPartStyle,
   thumb_hovered_style: Option<SliderPartStyle>,
+  thumb_focused_style: Option<SliderPartStyle>,
   hovered: bool,
   drag_ratio: Option<f32>,
 }
@@ -1510,6 +1573,7 @@ impl SliderState {
         fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
+        thumb_focused_style: None,
         hovered: false,
         drag_ratio: None,
       })),
@@ -1529,6 +1593,7 @@ impl SliderState {
         fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
         thumb_hovered_style: None,
+        thumb_focused_style: None,
         hovered: false,
         drag_ratio: None,
       })),
@@ -1702,9 +1767,21 @@ impl SliderState {
     Some(style)
   }
 
-  pub(crate) fn thumb_style(&self, hovered: bool) -> SliderPartStyle {
+  pub(crate) fn set_thumb_focused_style(&self, style: SliderPartStyle) {
+    self.inner.lock().unwrap().thumb_focused_style = Some(style);
+  }
+
+  /// Layers: base, focused (paint only; its size is ignored so focus never
+  /// moves the thumb), hovered.
+  pub(crate) fn thumb_style(&self, hovered: bool, focused: bool) -> SliderPartStyle {
     let inner = self.inner.lock().unwrap();
     let mut style = inner.thumb_style.clone();
+    if focused && let Some(focused_style) = &inner.thumb_focused_style {
+      let (width, height) = (style.width, style.height);
+      style.merge_from(focused_style);
+      style.width = width;
+      style.height = height;
+    }
     if hovered && let Some(hovered_style) = &inner.thumb_hovered_style {
       style.merge_from(hovered_style);
     }
@@ -1816,6 +1893,9 @@ impl SliderState {
     if let Some(style) = &mut inner.thumb_hovered_style {
       changed |= resolve_style(style, &mut resolve);
     }
+    if let Some(style) = &mut inner.thumb_focused_style {
+      changed |= resolve_style(style, &mut resolve);
+    }
     changed
   }
 
@@ -1829,7 +1909,8 @@ impl SliderState {
     default_thumb_size: f32,
   ) -> (SliderPartRect, SliderPartRect) {
     let track_style = self.track_style(hovered);
-    let thumb_style = self.thumb_style(hovered);
+    // Only the size is read, and the focused layer never changes it.
+    let thumb_style = self.thumb_style(hovered, false);
     let track_width = track_style.width.unwrap_or(bounds_width).max(0.0);
     let track_height = track_style.height.unwrap_or(bounds_height).max(0.0);
     let thumb_width = thumb_style
@@ -1893,193 +1974,4 @@ fn snap_slider_value(value: f32, min: f32, max: f32, step: f32) -> f32 {
   let steps = ((value - min) / step).round();
   let snapped = min + steps * step;
   snapped.clamp(min, max)
-}
-
-pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;
-
-#[derive(Clone)]
-pub(crate) struct SelectState {
-  inner: Arc<Mutex<SelectInner>>,
-  layout_dirty: Arc<AtomicBool>,
-}
-
-struct SelectInner {
-  // Per-render config, rebuilt by the generic `Select<T>` wrapper each render.
-  labels: Vec<Arc<str>>,
-  selected: Vec<usize>,
-  multiple: bool,
-  placeholder: Option<Arc<str>>,
-  style: SelectStyle,
-  on_change: Option<SelectChangeCallback>,
-  // Runtime state, preserved across re-renders via `copy_runtime_state_from`.
-  open: bool,
-  highlighted: Option<usize>,
-}
-
-impl SelectState {
-  pub(crate) fn new() -> Self {
-    Self {
-      inner: Arc::new(Mutex::new(SelectInner {
-        labels: Vec::new(),
-        selected: Vec::new(),
-        multiple: false,
-        placeholder: None,
-        style: SelectStyle::new(),
-        on_change: None,
-        open: false,
-        highlighted: None,
-      })),
-      layout_dirty: Arc::new(AtomicBool::new(false)),
-    }
-  }
-
-  pub(crate) fn set_labels(&self, labels: Vec<Arc<str>>) {
-    self.inner.lock().unwrap().labels = labels;
-  }
-
-  pub(crate) fn set_selected(&self, selected: Vec<usize>) {
-    self.inner.lock().unwrap().selected = selected;
-  }
-
-  pub(crate) fn set_multiple(&self, multiple: bool) {
-    self.inner.lock().unwrap().multiple = multiple;
-  }
-
-  pub(crate) fn set_placeholder(&self, placeholder: Option<Arc<str>>) {
-    self.inner.lock().unwrap().placeholder = placeholder;
-  }
-
-  pub(crate) fn set_style(&self, style: SelectStyle) {
-    self.inner.lock().unwrap().style = style;
-  }
-
-  pub(crate) fn set_on_change(&self, on_change: SelectChangeCallback) {
-    self.inner.lock().unwrap().on_change = Some(on_change);
-  }
-
-  pub(crate) fn labels(&self) -> Vec<Arc<str>> {
-    self.inner.lock().unwrap().labels.clone()
-  }
-
-  pub(crate) fn multiple(&self) -> bool {
-    self.inner.lock().unwrap().multiple
-  }
-
-  pub(crate) fn style(&self) -> SelectStyle {
-    self.inner.lock().unwrap().style.clone()
-  }
-
-  pub(crate) fn is_open(&self) -> bool {
-    self.inner.lock().unwrap().open
-  }
-
-  pub(crate) fn highlighted(&self) -> Option<usize> {
-    self.inner.lock().unwrap().highlighted
-  }
-
-  pub(crate) fn is_selected(&self, index: usize) -> bool {
-    self.inner.lock().unwrap().selected.contains(&index)
-  }
-
-  #[cfg(feature = "mcp")]
-  pub(crate) fn selected_indices(&self) -> Vec<usize> {
-    self.inner.lock().unwrap().selected.clone()
-  }
-
-  pub(crate) fn selected_labels(&self) -> Vec<Arc<str>> {
-    let inner = self.inner.lock().unwrap();
-    inner
-      .selected
-      .iter()
-      .filter_map(|index| inner.labels.get(*index).cloned())
-      .collect()
-  }
-
-  /// Open the menu if closed; otherwise commit the highlighted option.
-  pub(crate) fn activate(&self) {
-    if self.is_open() {
-      let highlighted = self.highlighted().unwrap_or(0);
-      self.commit(highlighted);
-    } else {
-      self.open_with_highlight();
-    }
-  }
-
-  pub(crate) fn set_open(&self, open: bool) {
-    let mut inner = self.inner.lock().unwrap();
-    let changed = inner.open != open;
-    inner.open = open;
-    if !open {
-      inner.highlighted = None;
-    }
-    if changed {
-      self.mark_layout_dirty();
-    }
-  }
-
-  pub(crate) fn open_with_highlight(&self) {
-    let mut inner = self.inner.lock().unwrap();
-    let changed = !inner.open;
-    inner.open = true;
-    inner.highlighted = Some(inner.selected.first().copied().unwrap_or(0));
-    if changed {
-      self.mark_layout_dirty();
-    }
-  }
-
-  pub(crate) fn toggle_open(&self) {
-    let open = self.inner.lock().unwrap().open;
-    self.set_open(!open);
-  }
-
-  pub(crate) fn move_highlight(&self, delta: i32) {
-    let mut inner = self.inner.lock().unwrap();
-    let count = inner.labels.len();
-    if count == 0 {
-      return;
-    }
-    let current = inner
-      .highlighted
-      .unwrap_or_else(|| if delta < 0 { 0 } else { count - 1 });
-    let next = (current as i32 + delta).rem_euclid(count as i32);
-    inner.highlighted = Some(next as usize);
-  }
-
-  pub(crate) fn take_layout_dirty(&self) -> bool {
-    self.layout_dirty.swap(false, Ordering::Relaxed)
-  }
-
-  pub(crate) fn has_layout_dirty(&self) -> bool {
-    self.layout_dirty.load(Ordering::Relaxed)
-  }
-
-  fn mark_layout_dirty(&self) {
-    self.layout_dirty.store(true, Ordering::Relaxed);
-  }
-
-  /// Commit a click on option `index`: fire the change callback and, for
-  /// single-select, close the menu. Multi-select keeps the menu open.
-  pub(crate) fn commit(&self, index: usize) {
-    let (callback, multiple) = {
-      let inner = self.inner.lock().unwrap();
-      (inner.on_change.clone(), inner.multiple)
-    };
-    if let Some(callback) = callback {
-      callback(index);
-    }
-    if !multiple {
-      self.set_open(false);
-    }
-  }
-
-  pub(crate) fn copy_runtime_state_from(&self, old: &SelectState) {
-    let (open, highlighted) = {
-      let old_inner = old.inner.lock().unwrap();
-      (old_inner.open, old_inner.highlighted)
-    };
-    let mut inner = self.inner.lock().unwrap();
-    inner.open = open;
-    let count = inner.labels.len();
-    inner.highlighted = highlighted.and_then(|index| if count == 0 { None } else { Some(index.min(count - 1)) });
-  }
 }

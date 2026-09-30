@@ -46,6 +46,7 @@ pub fn pointer_click(tree: &mut Tree, x: f32, y: f32, button: MouseButton) {
 
 #[derive(Clone, Debug)]
 pub struct RenderSnapshot {
+  pub clear_color: Color,
   pub rects: Vec<RectSnapshot>,
   pub glyphs: Vec<GlyphSnapshot>,
   pub glyph_count: usize,
@@ -55,10 +56,12 @@ pub struct RenderSnapshot {
   pub image_opacities: Vec<f32>,
   #[cfg(feature = "svg")]
   pub svg_orders: Vec<usize>,
+  pub layers: Vec<lurq::layout::opacity_layer::LayerCmd>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct GlyphSnapshot {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,
@@ -72,6 +75,7 @@ pub struct GlyphSnapshot {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectSnapshot {
+  pub order: usize,
   pub x: f32,
   pub y: f32,
   pub width: f32,
@@ -83,6 +87,7 @@ pub struct RectSnapshot {
   pub transform: [f32; 4],
   pub transform_origin: [f32; 2],
   pub clip: ClipSnapshot,
+  pub shadow: Option<lurq::layout::render_list::RectShadow>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -126,6 +131,7 @@ impl RenderEngine for CapturingRenderEngine {
     let rects = list.rects.iter().map(rect_snapshot).collect();
     let glyphs = list.glyphs.iter().map(glyph_snapshot).collect();
     *self.capture.lock().unwrap() = Some(RenderSnapshot {
+      clear_color: list.clear_color,
       rects,
       glyphs,
       glyph_count: list.glyphs.len(),
@@ -135,6 +141,7 @@ impl RenderEngine for CapturingRenderEngine {
       image_opacities: list.images.iter().map(|image| image.opacity).collect(),
       #[cfg(feature = "svg")]
       svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
+      layers: list.layers.clone(),
     });
     true
   }
@@ -142,6 +149,7 @@ impl RenderEngine for CapturingRenderEngine {
 
 fn empty_snapshot() -> RenderSnapshot {
   RenderSnapshot {
+    clear_color: Color::new(0, 0, 0, 0),
     rects: vec![],
     glyphs: vec![],
     glyph_count: 0,
@@ -151,11 +159,13 @@ fn empty_snapshot() -> RenderSnapshot {
     image_opacities: vec![],
     #[cfg(feature = "svg")]
     svg_orders: vec![],
+    layers: vec![],
   }
 }
 
 fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
   GlyphSnapshot {
+    order: glyph.order,
     x: glyph.x,
     y: glyph.y,
     width: glyph.width,
@@ -170,6 +180,7 @@ fn glyph_snapshot(glyph: &GlyphCmd) -> GlyphSnapshot {
 
 fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
   RectSnapshot {
+    order: rect.order,
     x: rect.x,
     y: rect.y,
     width: rect.width,
@@ -181,6 +192,7 @@ fn rect_snapshot(rect: &RectCmd) -> RectSnapshot {
     transform: rect.transform,
     transform_origin: rect.transform_origin,
     clip: clip_snapshot(rect.clip),
+    shadow: rect.shadow,
   }
 }
 
@@ -192,4 +204,19 @@ fn clip_snapshot(clip: lurq::layout::quad::ClipRect) -> ClipSnapshot {
     height: clip.height,
     active: clip.active,
   }
+}
+
+/// Like [`render_pass_with_app`] but without requesting a redraw first: the
+/// pass only draws when the tree itself asked for one, so a missing
+/// invalidation shows up as a stale (or absent) snapshot.
+pub fn render_pass_if_needed(tree: &mut Tree, app: &mut App) -> Option<RenderSnapshot> {
+  let capture = Arc::new(Mutex::new(None));
+  let render_capture = capture.clone();
+  tree.set_render_engine_factory(move || {
+    Box::new(CapturingRenderEngine {
+      capture: render_capture.clone(),
+    })
+  });
+  tree.pass(app, &TestSurface);
+  capture.lock().unwrap().clone()
 }

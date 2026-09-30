@@ -37,7 +37,7 @@ impl Component for Outlet {
     {
       node = node.debug_attr("path", child_match.path.clone());
     }
-    Element::from_node(node.child(render_route_match(ctx, child_match).node))
+    Element::from_node(node.child(render_route_match(ctx, child_match).into_node()))
   }
 }
 

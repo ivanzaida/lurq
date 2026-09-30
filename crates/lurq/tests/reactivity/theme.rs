@@ -115,6 +115,7 @@ fn theme_set_border_sizes_replaces_table() {
     sm: 0.5,
     md: 1.5,
     lg: 2.5,
+    ..ThemeBorderSizes::default()
   });
   assert_eq!(t.border_size_value(BorderSize::Sm), 0.5);
   assert_eq!(t.border_size_value(BorderSize::Lg), 2.5);
@@ -160,6 +161,7 @@ fn set_spacing_replaces_named_spacing() {
     lg: Dimension::Px(4.0),
     xl: Dimension::Px(5.0),
     section: Dimension::Px(6.0),
+    ..ThemeSpacing::default()
   };
 
   t.set_spacing(spacing);
@@ -195,6 +197,7 @@ fn set_radii_replaces_named_radii() {
     sm: 2.0,
     md: 4.0,
     lg: 8.0,
+    ..ThemeRadii::default()
   };
 
   t.set_radii(radii);

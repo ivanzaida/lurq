@@ -132,6 +132,11 @@ impl Transform2D {
   pub fn is_identity(&self) -> bool {
     *self == Self::IDENTITY
   }
+
+  /// Scale, flip and translation only: axis-aligned rects stay axis-aligned.
+  pub(crate) fn is_axis_aligned(&self) -> bool {
+    self.b == 0.0 && self.c == 0.0
+  }
 }
 
 impl Default for Transform2D {

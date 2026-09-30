@@ -13,3 +13,8 @@ mod subscription {
 mod text {
   mod variant_resolves;
 }
+
+mod extras {
+  mod rendering;
+  mod tables;
+}

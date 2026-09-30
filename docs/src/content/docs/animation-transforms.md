@@ -130,7 +130,7 @@ The supported properties are:
 - `Opacity`
 - `Transform`
 
-`Width`, `Height`, `OffsetX`, and `OffsetY` can invalidate layout while they animate. `Opacity` and `Transform` are paint-only in normal use.
+`Width`, `Height`, `OffsetX`, and `OffsetY` can invalidate layout while they animate. `Opacity` and `Transform` are paint-only in normal use. While an element's opacity is below 1, a subtree that paints more than one primitive is drawn into an offscreen layer every frame (see [Opacity](../styling-events/#opacity)); fading a large panel costs one layer of its size.
 
 ## Transforms
 

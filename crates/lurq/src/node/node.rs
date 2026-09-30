@@ -26,12 +26,14 @@ use crate::{
     BackgroundColor, TextColor, TextTransformMode,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     border_size_value::BorderSizeValue,
+    box_shadow::BoxShadowValue,
     checkbox_style::CheckboxStyle,
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
     gradient::Gradient,
     interaction_state::InteractionState,
+    lazy_box::{LazyBox, empty_default},
     node_kind::{
       CheckboxState, NodeKind, SelectChangeCallback, SelectState, SliderState, TextInputState, TextOverflow, TextState,
       TextStyleSource,
@@ -321,6 +323,7 @@ pub(crate) trait NodeUpdate {
   fn border_right(&mut self, border: Border);
   fn border_bottom(&mut self, border: Border);
   fn border_left(&mut self, border: Border);
+  fn box_shadow(&mut self, shadow: impl Into<BoxShadowValue>);
   fn cursor(&mut self, cursor: CursorIcon);
   #[cfg(feature = "raster")]
   fn background_image(&mut self, data: impl Into<crate::images::ImageKind>);
@@ -427,10 +430,12 @@ pub(crate) trait NodeUpdate {
   fn slider_fill_hovered_style(&mut self, style: SliderPartStyle);
   fn slider_thumb_style(&mut self, style: SliderPartStyle);
   fn slider_thumb_hovered_style(&mut self, style: SliderPartStyle);
+  fn slider_thumb_focused_style(&mut self, style: SliderPartStyle);
   fn checkbox_box_style(&mut self, style: CheckboxStyle);
   fn checkbox_checked_box_style(&mut self, style: CheckboxStyle);
   fn checkbox_box_hovered_style(&mut self, style: CheckboxStyle);
   fn checkbox_checked_box_hovered_style(&mut self, style: CheckboxStyle);
+  fn checkbox_box_focused_style(&mut self, style: CheckboxStyle);
   fn clip(&mut self);
   fn overflow_visible(&mut self);
   fn intrinsic(&mut self, width: f32, height: f32);
@@ -519,6 +524,16 @@ pub enum HitTestBehavior {
 pub(crate) enum SyntheticNodeRole {
   OverlayHost,
   SelectMenu,
+  /// An open dialog `Modal`'s container, a direct child of the overlay host.
+  /// `WindowChrome`'s layer is built like a modal but never gets this role.
+  Modal,
+  /// The persistent title bar layer, which is not a popup above page content.
+  WindowChromeLayer,
+  /// A `Select` trigger's chevron for one open state. Painting skips it while
+  /// the enclosing select's open state differs.
+  SelectChevron {
+    open: bool,
+  },
 }
 
 #[derive(Default, Clone)]
@@ -548,6 +563,9 @@ pub struct EventHandlers {
   pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_bottom: Vec<Callback<ScrollEvent>>,
 }
+
+empty_default!(EventHandlers);
+empty_default!(StateStyles);
 
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
@@ -591,6 +609,8 @@ pub(crate) struct Node {
   pub(crate) gradient: Guard<Option<Gradient>>,
   pub(crate) border_radius: Guard<Option<ThemedBorderRadius>>,
   pub(crate) border: Guard<Option<Borders>>,
+  /// Boxed: most nodes have no shadow, and `Node` size is budgeted (lurq#25).
+  pub(crate) box_shadow: Guard<Option<Box<BoxShadowValue>>>,
   pub(crate) caret_color: Guard<Option<TextColor>>,
   pub(crate) selection_color: Guard<Option<TextColor>>,
   pub(crate) caret_mode: Guard<Option<CaretMode>>,
@@ -607,13 +627,15 @@ pub(crate) struct Node {
   pub(crate) element_ref: Option<CoreElementRef>,
   pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
   pub(crate) interaction: Option<InteractionState>,
-  pub(crate) focusable: bool,
+  /// `None` follows the node kind (buttons and form controls are focusable)
+  /// and `tab_index`; `Some` overrides both.
+  pub(crate) focusable: Option<bool>,
   pub(crate) tab_index: Option<i32>,
   pub(crate) button_kind: Option<ButtonKind>,
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
   pub(crate) style_state: InteractionState,
-  pub(crate) state_styles: StateStyles,
+  pub(crate) state_styles: LazyBox<StateStyles>,
   pub(crate) opacity: f32,
   pub(crate) transform: Transform2D,
   pub(crate) animation_overrides: Vec<(crate::animation::AnimatableProperty, crate::animation::AnimatableValue)>,
@@ -621,7 +643,7 @@ pub(crate) struct Node {
   pub(crate) animation: Option<Animation>,
   pub(crate) layout_cache: crate::node::layout_cache::LayoutCache,
   pub(crate) children: Vec<Node>,
-  pub(crate) events: EventHandlers,
+  pub(crate) events: LazyBox<EventHandlers>,
 }
 
 impl Default for Node {
@@ -984,6 +1006,10 @@ impl NodeUpdate for Node {
     self.border.set(Some(borders));
   }
 
+  fn box_shadow(&mut self, shadow: impl Into<BoxShadowValue>) {
+    self.box_shadow.set(Some(Box::new(shadow.into())));
+  }
+
   fn cursor(&mut self, cursor: CursorIcon) {
     self.cursor = Some(cursor);
   }
@@ -1328,7 +1354,7 @@ impl NodeUpdate for Node {
   }
 
   fn focusable(&mut self, focusable: bool) {
-    self.focusable = focusable;
+    self.focusable = Some(focusable);
   }
 
   fn tab_index(&mut self, tab_index: i32) {
@@ -1337,7 +1363,6 @@ impl NodeUpdate for Node {
 
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
-    self.focusable = true;
   }
 
   #[cfg(feature = "form")]
@@ -1518,6 +1543,12 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn slider_thumb_focused_style(&mut self, style: SliderPartStyle) {
+    if let Some(state) = self.slider_state() {
+      state.set_thumb_focused_style(style);
+    }
+  }
+
   fn checkbox_box_style(&mut self, style: CheckboxStyle) {
     if let Some(state) = self.checkbox_state() {
       state.set_style(style);
@@ -1539,6 +1570,12 @@ impl NodeUpdate for Node {
   fn checkbox_checked_box_hovered_style(&mut self, style: CheckboxStyle) {
     if let Some(state) = self.checkbox_state() {
       state.set_checked_hovered_style(style);
+    }
+  }
+
+  fn checkbox_box_focused_style(&mut self, style: CheckboxStyle) {
+    if let Some(state) = self.checkbox_state() {
+      state.set_focused_style(style);
     }
   }
 
@@ -1604,6 +1641,7 @@ impl Node {
       gradient: Guard::new(None),
       border_radius: Guard::new(None),
       border: Guard::new(None),
+      box_shadow: Guard::new(None),
       caret_color: Guard::new(None),
       selection_color: Guard::new(None),
       caret_mode: Guard::new(None),
@@ -1620,13 +1658,13 @@ impl Node {
       element_ref: None,
       drag_payload: None,
       interaction: None,
-      focusable: false,
+      focusable: None,
       tab_index: None,
       button_kind: None,
       #[cfg(feature = "form")]
       form_name: None,
       style_state: InteractionState::new(),
-      state_styles: StateStyles::default(),
+      state_styles: LazyBox::new(),
       opacity: DEFAULT_OPACITY,
       transform: Transform2D::IDENTITY,
       animation_overrides: Vec::new(),
@@ -1634,7 +1672,7 @@ impl Node {
       animation: None,
       layout_cache: Default::default(),
       children,
-      events: EventHandlers::default(),
+      events: LazyBox::new(),
     }
   }
 
@@ -1847,6 +1885,14 @@ impl Node {
     self
   }
 
+  pub(crate) fn select_options_meta(self, details: Vec<Option<std::sync::Arc<str>>>, disabled: Vec<bool>) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_details(details);
+      state.set_disabled(disabled);
+    }
+    self
+  }
+
   pub fn select_selected(self, selected: Vec<usize>) -> Self {
     if let Some(state) = self.select_state() {
       state.set_selected(selected);
@@ -1857,6 +1903,13 @@ impl Node {
   pub fn select_multiple(self, multiple: bool) -> Self {
     if let Some(state) = self.select_state() {
       state.set_multiple(multiple);
+    }
+    self
+  }
+
+  pub(crate) fn select_outside_press(self, outside_press: crate::app::ctx::OutsidePress) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_outside_press(outside_press);
     }
     self
   }
@@ -1885,6 +1938,15 @@ impl Node {
     self
   }
 
+  /// Binds the select to the signal it edits; that signal identifies the
+  /// select across re-renders.
+  pub(crate) fn select_binding(self, signal_id: usize) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_binding(signal_id);
+    }
+    self
+  }
+
   pub fn select_on_change(self, on_change: SelectChangeCallback) -> Self {
     if let Some(state) = self.select_state() {
       state.set_on_change(on_change);
@@ -1903,6 +1965,12 @@ impl Node {
     }
     if let Some(radius) = part.border_radius {
       self.border_radius.set(Some(radius));
+    }
+    if let Some(shadow) = &part.box_shadow {
+      self = self.box_shadow(shadow.clone());
+    }
+    if let Some(opacity) = part.opacity {
+      self = self.opacity(opacity);
     }
     if let Some(padding) = &part.padding {
       self = self.padding_custom(padding.clone());
@@ -2202,6 +2270,11 @@ impl Node {
     let mut borders = <Option<Borders> as Clone>::clone(&self.border).unwrap_or_default();
     borders.left = Some(border);
     self.border.set(Some(borders));
+    self
+  }
+
+  pub fn box_shadow(mut self, shadow: impl Into<BoxShadowValue>) -> Self {
+    NodeUpdate::box_shadow(&mut self, shadow);
     self
   }
 
@@ -2615,11 +2688,22 @@ impl Node {
     self
   }
 
+  /// Whether the node can take focus. Buttons, text inputs, checkboxes,
+  /// sliders, selects and nodes with a `tab_index` are focusable by default.
+  /// `focusable(true)` makes any node focusable by click and
+  /// [`Ctx::focus`](crate::app::ctx::Ctx::focus); `focusable(false)` keeps a
+  /// node from ever taking focus, by click, Tab or request.
   pub fn focusable(mut self, focusable: bool) -> Self {
-    self.focusable = focusable;
+    self.focusable = Some(focusable);
     self
   }
 
+  /// HTML `tabindex`. Inside a form, controls are in the Tab order without
+  /// one; outside a form, only nodes with `tab_index(0)` or higher are.
+  /// Positive values come first, in ascending order, then `0` and (in forms)
+  /// unset in tree order. `-1` removes the node from the Tab order but keeps
+  /// it focusable by click. Setting a tab index makes the node focusable
+  /// unless it is `focusable(false)`.
   pub fn tab_index(mut self, tab_index: i32) -> Self {
     self.tab_index = Some(tab_index);
     self
@@ -2627,7 +2711,6 @@ impl Node {
 
   pub fn button_kind(mut self, kind: ButtonKind) -> Self {
     self.button_kind = Some(kind);
-    self.focusable = true;
     self
   }
 
@@ -2664,12 +2747,22 @@ impl Node {
     matches!(self.node_kind(), NodeKind::TextInput { state, .. } if state.is_masked())
   }
 
-  #[cfg_attr(not(feature = "form"), allow(dead_code))]
   pub(crate) fn is_focusable(&self) -> bool {
-    self.focusable
+    self.focusable.unwrap_or_else(|| {
+      self.tab_index.is_some()
+        || self.button_kind.is_some()
+        || matches!(
+          self.node_kind(),
+          NodeKind::TextInput { .. } | NodeKind::Checkbox { .. } | NodeKind::Slider { .. } | NodeKind::Select { .. }
+        )
+    })
   }
 
-  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  /// `focusable(false)`: the node never takes focus.
+  pub(crate) fn is_focus_disabled(&self) -> bool {
+    self.focusable == Some(false)
+  }
+
   pub(crate) fn tab_index_value(&self) -> Option<i32> {
     self.tab_index
   }
@@ -3088,6 +3181,14 @@ impl Node {
     self.synthetic_role == Some(role)
   }
 
+  /// The open state a `Select` chevron node is drawn for, if it is one.
+  pub(crate) fn select_chevron_open(&self) -> Option<bool> {
+    match self.synthetic_role {
+      Some(SyntheticNodeRole::SelectChevron { open }) => Some(open),
+      _ => None,
+    }
+  }
+
   pub(crate) fn set_component_key(&mut self, key: Option<&str>) {
     self.component_key = key.map(Arc::from);
   }
@@ -3243,6 +3344,19 @@ impl Node {
       .and_then(|color| color.resolve(palette))
   }
 
+  /// The box shadow in effect: the innermost matching state style (active,
+  /// then hovered, then focused) over the node's own.
+  pub(crate) fn effective_box_shadow(&self) -> Option<&BoxShadowValue> {
+    fn state_shadow(applies: bool, style: &Option<Style>) -> Option<&BoxShadowValue> {
+      style.as_ref().filter(|_| applies)?.box_shadow.as_deref()
+    }
+    let states = &*self.state_styles;
+    state_shadow(self.style_state.is_active(), &states.active)
+      .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
+      .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
+      .or(self.box_shadow.as_deref())
+  }
+
   pub(crate) fn resolved_gradient(&self) -> Option<Gradient> {
     <Option<Gradient> as Clone>::clone(&self.gradient)
   }
@@ -3382,6 +3496,7 @@ impl Node {
       || self.gradient.is_changed()
       || self.border_radius.is_changed()
       || self.border.is_changed()
+      || self.box_shadow.is_changed()
       || self.caret_color.is_changed()
       || self.selection_color.is_changed()
       || self.caret_mode.is_changed()
@@ -3401,6 +3516,10 @@ impl Node {
 
   pub(crate) fn is_style_hovered(&self) -> bool {
     self.style_state.is_hovered()
+  }
+
+  pub(crate) fn is_style_focused(&self) -> bool {
+    self.style_state.is_focused()
   }
 
   pub(crate) fn set_style_hovered(&self, hovered: bool) -> bool {
@@ -3512,12 +3631,18 @@ impl Node {
     self.gradient.clear_changed();
     self.border_radius.clear_changed();
     self.border.clear_changed();
+    self.box_shadow.clear_changed();
     self.caret_color.clear_changed();
     self.selection_color.clear_changed();
     self.caret_mode.clear_changed();
     #[cfg(feature = "raster")]
     self.background_image.clear_changed();
     self.scrollbar_style.clear_changed();
+    // Runs once after every layout computation: the last measurement of each
+    // scroll container in that pass stands.
+    if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind {
+      state.finish_layout_pass();
+    }
     for child in &self.children {
       child.clear_guards();
     }
@@ -3575,7 +3700,9 @@ impl Node {
       }
       (NodeKind::Select { state, .. }, NodeKind::Select { state: old_state, .. }) => {
         state.copy_runtime_state_from(old_state);
-        self.element_ref = old.element_ref.clone();
+        if self.element_ref.is_none() {
+          self.element_ref = old.element_ref.clone();
+        }
       }
       (NodeKind::Slider { state }, NodeKind::Slider { state: old_state }) => {
         state.copy_runtime_state_from(old_state);
@@ -3621,8 +3748,9 @@ impl Node {
 
   fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
     // A canvas can keep its backing surface when its lookup id or ref binding
-    // changes. Input editing state, however, belongs to the identified field.
-    if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+    // changes. Input editing state and an open select menu, however, belong
+    // to the identified field.
+    if matches!(self.node_kind, NodeKind::TextInput { .. } | NodeKind::Select { .. }) {
       return self.can_reuse_id_from(old);
     }
     std::mem::discriminant(&self.node_kind) == std::mem::discriminant(&old.node_kind)
@@ -3646,6 +3774,9 @@ impl Node {
     }
     if self.border.as_ref() == old.border.as_ref() {
       self.border.clear_changed();
+    }
+    if self.box_shadow.as_ref() == old.box_shadow.as_ref() {
+      self.box_shadow.clear_changed();
     }
     if self.caret_color.as_ref() == old.caret_color.as_ref() {
       self.caret_color.clear_changed();
@@ -3859,10 +3990,12 @@ impl Node {
           (NodeKind::TextInput { state, .. }, NodeKind::TextInput { state: previous, .. }) => {
             state.same_value(previous)
           }
-          _ => match (&self.element_ref, &old.element_ref) {
-            (Some(current), Some(previous)) => current.same_handle(previous),
-            _ => true,
-          },
+          (NodeKind::Select { state }, NodeKind::Select { state: previous })
+            if state.has_binding() || previous.has_binding() =>
+          {
+            state.same_binding(previous) && refs_compatible(self.element_ref.as_ref(), old.element_ref.as_ref())
+          }
+          _ => refs_compatible(self.element_ref.as_ref(), old.element_ref.as_ref()),
         })
   }
 
@@ -3872,12 +4005,24 @@ impl Node {
       || self.element_id.is_some()
       || self.element_ref.is_some()
       || matches!(self.node_kind, NodeKind::TextInput { .. })
+      || matches!(&self.node_kind, NodeKind::Select { state } if state.has_binding())
   }
 
-  /// Match explicit keys/slots/IDs, retained refs, or input value signals across
+  /// Match explicit keys/slots/IDs, retained refs, or input/select value signals across
   /// a reorder. Anonymous nodes still use positional pairing.
   fn identity_matches(&self, old: &Node) -> bool {
     self.has_stable_identity() && old.has_stable_identity() && self.can_reuse_id_from(old)
+  }
+
+  /// A plain loop rather than `iter().map(..).collect()`: in an unoptimized
+  /// build every iterator adapter between the recursive calls would add a
+  /// frame holding a `Node` for each tree level.
+  fn clone_children_for_reuse(&self) -> Vec<Node> {
+    let mut children = Vec::with_capacity(self.children.len());
+    for child in &self.children {
+      children.push(child.clone_for_reuse());
+    }
+    children
   }
 
   pub(crate) fn clone_for_reuse(&self) -> Self {
@@ -3940,6 +4085,7 @@ impl Node {
       gradient: self.gradient.clone(),
       border_radius: self.border_radius.clone(),
       border: self.border.clone(),
+      box_shadow: self.box_shadow.clone(),
       caret_color: self.caret_color.clone(),
       selection_color: self.selection_color.clone(),
       caret_mode: self.caret_mode.clone(),
@@ -3969,21 +4115,37 @@ impl Node {
       transitions: self.transitions.clone(),
       animation: self.animation.clone(),
       layout_cache: Default::default(),
-      children: self.children.iter().map(Node::clone_for_reuse).collect(),
+      children: self.clone_children_for_reuse(),
       events: self.events.clone(),
     }
   }
 
-  pub(crate) fn replace_component_slot(&mut self, slot_id: u64, replacement: Node) -> bool {
+  /// [`Self::clone_for_reuse`] onto the heap. The clone is built in this
+  /// frame, so callers on the component render path (which recurses once per
+  /// component level) never hold a `Node` temporary in their own frames.
+  pub(crate) fn clone_boxed(&self) -> Box<Node> {
+    Box::new(self.clone_for_reuse())
+  }
+
+  /// Moves `replacement` into `self`. Kept out of the recursive
+  /// [`Self::replace_component_slot_in`] so that its frame holds no `Node`.
+  #[inline(never)]
+  fn replace_with(&mut self, replacement: Box<Node>) {
+    *self = *replacement;
+  }
+
+  pub(crate) fn replace_component_slot(&mut self, slot_id: u64, replacement: Box<Node>) -> bool {
     let mut replacement = Some(replacement);
     self.replace_component_slot_in(slot_id, &mut replacement)
   }
 
-  pub(crate) fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Node>) -> bool {
+  pub(crate) fn replace_component_slot_in(&mut self, slot_id: u64, replacement: &mut Option<Box<Node>>) -> bool {
     if self.component_slot_id == Some(slot_id) {
-      *self = replacement
-        .take()
-        .expect("component replacement should be available when matching slot is found");
+      self.replace_with(
+        replacement
+          .take()
+          .expect("component replacement should be available when matching slot is found"),
+      );
       return true;
     }
 
@@ -4132,6 +4294,15 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
     base.max_height = overlay.max_height;
   }
   base
+}
+
+/// Two retained refs name the same element only when they are one handle; a
+/// missing ref on either side does not tell the elements apart.
+fn refs_compatible(current: Option<&CoreElementRef>, previous: Option<&CoreElementRef>) -> bool {
+  match (current, previous) {
+    (Some(current), Some(previous)) => current.same_handle(previous),
+    _ => true,
+  }
 }
 
 #[cfg(test)]

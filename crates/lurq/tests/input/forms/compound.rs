@@ -331,6 +331,53 @@ fn primary_button_submits_by_default_and_secondary_button_does_not() {
   );
 }
 
+const FOCUS_BORDER: &str = "#ff00ff";
+
+/// An app whose `BorderFocus` role has a colour nothing else uses.
+fn focus_app() -> App {
+  let app = App::new();
+  app
+    .theme()
+    .set_palette_color(PaletteColor::BorderFocus, Color::from_hex(FOCUS_BORDER));
+  app
+}
+
+fn focus_border_count(tree: &mut Tree) -> usize {
+  let focus = Color::from_hex(FOCUS_BORDER);
+  render_pass(tree)
+    .rects
+    .iter()
+    .filter(|rect| rect.stroke_color == focus && rect.stroke.iter().any(|width| *width > 0.0))
+    .count()
+}
+
+#[test]
+fn builtin_form_buttons_show_theme_focus_border_when_tabbed_to() {
+  let mut tree = Tree::new();
+  tree.mount_root::<BuiltinButtonsHost>(&mut focus_app(), ());
+  run_pass(&mut tree);
+  assert_eq!(focus_border_count(&mut tree), 0);
+
+  tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+  assert_eq!(focus_border_count(&mut tree), 1, "primary button shows border_focus");
+  tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+  assert_eq!(focus_border_count(&mut tree), 1, "secondary button shows border_focus");
+}
+
+#[test]
+fn builtin_form_checkbox_and_slider_show_theme_focus_border_when_tabbed_to() {
+  let mut tree = Tree::new();
+  tree.mount_root::<BuiltinInputsHost>(&mut focus_app(), ());
+  run_pass(&mut tree);
+  assert_eq!(focus_border_count(&mut tree), 0);
+
+  // Text input, then checkbox, then slider.
+  for control in ["text input", "checkbox", "slider"] {
+    tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+    assert_eq!(focus_border_count(&mut tree), 1, "{control} shows its focus border");
+  }
+}
+
 fn text_quad_style(tree: &Tree, expected: &str) -> Option<TextStyle> {
   tree
     .resolve_quads(tree.last_layout()?)
