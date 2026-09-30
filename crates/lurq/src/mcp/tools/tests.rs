@@ -1,5 +1,11 @@
+use std::sync::Arc;
+
 use super::*;
-use crate::mcp::{Scope, registry::ToolRegistry, shared::McpShared};
+use crate::mcp::{
+  Scope,
+  registry::ToolRegistry,
+  shared::{McpShared, McpToolResult},
+};
 
 struct TestSurface;
 

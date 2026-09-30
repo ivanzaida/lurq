@@ -6,8 +6,8 @@
 //! transforms. They act through their canvas's pointer handlers. Without the
 //! `canvas` feature every function here reports no items.
 
-use super::{InspectCtx, RefRecord, SnapshotCtx, semantic_actions};
-use crate::{app::Tree, core::NodeId, node::node::Node};
+use super::{inspect::InspectCtx, read_tree::SnapshotCtx, semantics::semantic_actions};
+use crate::{app::Tree, core::NodeId, mcp::shared::RefRecord, node::node::Node};
 
 /// Tag of item refs in lookup output; the item's own role is its `role`.
 const ITEM_TAG: &str = "CanvasItem";
@@ -51,7 +51,7 @@ fn item_records(node: &Node) -> Vec<ItemRecord> {
     let Some(canvas) = node.canvas_handle() else {
       return Vec::new();
     };
-    let (invoke, hover) = (super::can_invoke(node), super::can_hover(node));
+    let (invoke, hover) = (super::semantics::can_invoke(node), super::semantics::can_hover(node));
     canvas
       .items_in_window()
       .into_iter()

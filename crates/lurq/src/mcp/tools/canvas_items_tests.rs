@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::{
-  McpState, McpToolResult, format_ref_line,
+  McpState, format_ref_line,
   tests::{call, json, output_text, state},
 };
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
   components::{Canvas, Column, ScrollVertical},
   core::ElementRef,
   layout::layout_kind::ScrollState,
+  mcp::shared::McpToolResult,
 };
 
 type Seen = Arc<Mutex<Vec<String>>>;
