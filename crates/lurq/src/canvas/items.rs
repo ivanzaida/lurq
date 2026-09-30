@@ -117,8 +117,13 @@ impl CanvasHandle {
   /// the drawing changes; it is cheap and does not repaint. A logical resize
   /// discards the items together with the pixels, so the redraw that follows
   /// a resize registers them again.
+  ///
+  /// Ids are unique within a canvas: when several items share an id, the last
+  /// one is kept, in its own place, as the one drawn on top (the one
+  /// [`Self::item_at`] would find), and a warning is logged.
   pub fn set_items(&self, items: impl IntoIterator<Item = CanvasItem>) {
-    self.inner.lock().items = items.into_iter().collect();
+    let items = last_per_id(items.into_iter().collect());
+    self.inner.lock().items = items.into();
   }
 
   /// The current items, in registration order. The returned slice is shared, not copied.
@@ -183,6 +188,32 @@ impl super::Surface {
     let content = CanvasItem::rect("", "", 0.0, 0.0, size.width, size.height).window_bounds(self.to_window)?;
     Some((self.to_window, content))
   }
+}
+
+/// Drop every item whose id appears again later in the list.
+fn last_per_id(mut items: Vec<CanvasItem>) -> Vec<CanvasItem> {
+  let mut last = std::collections::HashMap::with_capacity(items.len());
+  for (index, item) in items.iter().enumerate() {
+    last.insert(item.id.as_str(), index);
+  }
+  if last.len() == items.len() {
+    return items;
+  }
+  let keep: Vec<bool> = items
+    .iter()
+    .enumerate()
+    .map(|(index, item)| last[item.id.as_str()] == index)
+    .collect();
+  tracing::warn!(
+    duplicates = items.len() - last.len(),
+    "canvas items share ids; the last item with each id is kept"
+  );
+  let mut index = 0;
+  items.retain(|_| {
+    index += 1;
+    keep[index - 1]
+  });
+  items
 }
 
 /// Intersection of two `[x, y, width, height]` boxes; `None` when they are

@@ -106,3 +106,23 @@ fn item_at_prefers_the_last_registered_item_and_honours_shapes() {
     }
   );
 }
+
+#[test]
+fn items_sharing_an_id_keep_the_last_one_everywhere() {
+  let (_app, _tree, r) = setup(64.0, 64.0);
+  let canvas = r.as_canvas().unwrap();
+  canvas.set_items([
+    CanvasItem::rect("a", "bar", 0.0, 0.0, 10.0, 10.0).label("first"),
+    CanvasItem::rect("b", "bar", 20.0, 0.0, 10.0, 10.0),
+    CanvasItem::rect("a", "bar", 40.0, 0.0, 10.0, 10.0).label("second"),
+  ]);
+  let items = canvas.items();
+  let kept: Vec<_> = items
+    .iter()
+    .map(|item| (item.id.as_str(), item.label.as_deref()))
+    .collect();
+  assert_eq!(kept, [("b", None), ("a", Some("second"))]);
+  assert_eq!(canvas.item_at(5.0, 5.0), None);
+  assert_eq!(canvas.item_at(45.0, 5.0).unwrap().label.as_deref(), Some("second"));
+  assert_bounds(canvas.item_window_bounds("a"), (40.0, 0.0, 10.0, 10.0));
+}

@@ -640,3 +640,26 @@ fn app_text_cannot_forge_lines_in_tree_or_ref_output() {
     assert!(!line.contains('\n'), "{line}");
   }
 }
+
+#[test]
+fn a_duplicated_item_id_yields_one_ref_that_acts_on_the_kept_item() {
+  let mut f = fixture();
+  f.canvas.set_items([
+    CanvasItem::rect("mon", "bar", 10.0, 40.0, 20.0, 50.0).label("Mon"),
+    CanvasItem::rect("mon", "bar", 40.0, 20.0, 20.0, 70.0).label("Mon"),
+  ]);
+  let state = state();
+  let found = json(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_inspect",
+    serde_json::json!({"role": "bar"}),
+  ));
+  let matches = found["matches"].as_array().unwrap();
+  assert_eq!(matches.len(), 1, "{found}");
+  assert_eq!(matches[0]["bounds"], serde_json::json!([110.0, 70.0, 40.0, 140.0]));
+  let reply = json(act(&mut f, &state, matches[0]["ref"].as_str().unwrap(), "invoke"));
+  assert_eq!(reply["dispatched"], true);
+  assert_eq!(*f.clicked.lock().unwrap(), ["mon"]);
+}
