@@ -678,3 +678,21 @@ fn lookups_say_when_an_item_has_nothing_visible() {
   assert!(found.ends_with("(not visible)"), "{found}");
   assert!(!found.contains("@0,0"), "{found}");
 }
+
+#[test]
+fn read_tree_lists_a_bounded_number_of_items_per_canvas() {
+  let mut f = fixture();
+  f.canvas
+    .set_items((0..5).map(|index| CanvasItem::rect(format!("bar{index}"), "bar", index as f32 * 10.0, 0.0, 8.0, 8.0)));
+  let state = state();
+  let text = output_text(call(
+    &mut f.tree,
+    &mut f.app,
+    &state,
+    "lurq_read_tree",
+    serde_json::json!({"max_items": 2}),
+  ));
+  assert!(text.contains("#bar1 [") && !text.contains("#bar2 ["), "{text}");
+  assert!(text.contains("    - … +3 more items (raise max_items"), "{text}");
+  assert!(text.contains("{items=5}"), "{text}");
+}

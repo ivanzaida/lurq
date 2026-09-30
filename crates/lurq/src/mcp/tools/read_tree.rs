@@ -24,6 +24,8 @@ pub(super) struct SnapshotCtx<'a> {
   pub(super) scale: f32,
   pub(super) all: bool,
   pub(super) max_depth: usize,
+  /// Items listed per canvas; the rest are summarized in one line.
+  pub(super) max_items: usize,
   pub(super) records: &'a mut Vec<RefRecord>,
   pub(super) mint: &'a mut dyn FnMut() -> String,
 }
@@ -144,6 +146,7 @@ pub(super) fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
   let window = requested_window(args);
   let all = args.get("filter").and_then(|value| value.as_str()) == Some("all");
   let max_depth = args.get("max_depth").and_then(|value| value.as_u64()).unwrap_or(0) as usize;
+  let max_items = args.get("max_items").and_then(|value| value.as_u64()).unwrap_or(200) as usize;
   let max_chars = args.get("max_chars").and_then(|value| value.as_u64()).unwrap_or(30_000) as usize;
 
   let include_devtools = state.include_devtools;
@@ -164,6 +167,7 @@ pub(super) fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
       scale,
       all,
       max_depth,
+      max_items,
       records: &mut records,
       mint: &mut mint,
     };

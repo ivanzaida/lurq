@@ -179,7 +179,7 @@ Row::new()
 
 ### Canvas content
 
-Canvas pixels are opaque to the tree. Describe what you drew with [canvas items](../canvas/#describing-what-you-drew) (`CanvasHandle::set_items`, `canvas` feature) and agents get one child per item under the canvas, with a ref, its role, label, value and bounds in screenshot pixels. The canvas itself shows `{items=N}`, so an agent can tell a described canvas from an opaque one. This excerpt is `lurq_read_tree` of `examples/canvas_chart.rs` at 1.5x:
+Canvas pixels are opaque to the tree. Describe what you drew with [canvas items](../canvas/#describing-what-you-drew) (`CanvasHandle::set_items`, `canvas` feature) and agents get one child per item under the canvas, with a ref, its role, label, value and bounds in screenshot pixels. The canvas itself shows `{items=N}`, so an agent can tell a described canvas from an opaque one. `lurq_read_tree` lists up to `max_items` items per canvas (default 200) and counts the rest in a `… +N more items` line; `lurq_inspect` with `role` or `query` reaches every item. This excerpt is `lurq_read_tree` of `examples/canvas_chart.rs` at 1.5x:
 
 ```text
 window: main (630x450 @1.5x)

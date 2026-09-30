@@ -123,8 +123,9 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
     return Vec::new();
   }
   let records = item_records(ctx.tree, node);
-  let mut lines = Vec::with_capacity(records.len());
-  for item in records {
+  let hidden = records.len().saturating_sub(ctx.max_items);
+  let mut lines = Vec::with_capacity(records.len().min(ctx.max_items) + 1);
+  for item in records.into_iter().take(ctx.max_items) {
     let record = to_ref_record((ctx.mint)(), &ctx.window, node.node_id(), item, ctx.scale);
     let mut line = format!(
       "{}- {} #{} [{}]",
@@ -146,6 +147,12 @@ pub(super) fn snapshot_item_lines(ctx: &mut SnapshotCtx<'_>, node: &Node, depth:
     }
     lines.push(line);
     ctx.records.push(record);
+  }
+  if hidden > 0 {
+    lines.push(format!(
+      "{}- … +{hidden} more items (raise max_items, or lurq_inspect with role or query)",
+      "  ".repeat(depth + 1)
+    ));
   }
   lines
 }

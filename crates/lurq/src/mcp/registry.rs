@@ -123,7 +123,8 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "window": { "type": "string", "description": WINDOW_PROP },
           "filter": { "type": "string", "enum": ["interactive", "all"], "description": "interactive (default): prune branches without interactive elements or text; all: every element" },
           "max_depth": { "type": "integer", "description": "Limit tree depth" },
-          "max_chars": { "type": "integer", "description": "Truncate output after this many characters (default 30000)" }
+          "max_chars": { "type": "integer", "description": "Truncate output after this many characters (default 30000)" },
+          "max_items": { "type": "integer", "description": "Canvas items listed per canvas; the rest are counted (default 200)" }
         }
       })),
       kind: ToolKind::Builtin(BuiltinTool::ReadTree),
