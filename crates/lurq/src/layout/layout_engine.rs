@@ -2977,25 +2977,10 @@ impl LayoutEngine {
       .iter()
       .enumerate()
       .map(|(index, child)| {
-        // Children measure at their intrinsic size: the container's min
-        // cross-constraint must not leak into them (same as the non-wrap
-        // path's `non_flex_child_constraints`), or a tight-height container
-        // stretches every wrapped item to its own min height.
-        let c = if vertical {
-          Constraints {
-            min_width: 0.0,
-            max_width: constraints.max_width,
-            min_height: 0.0,
-            max_height: f32::INFINITY,
-          }
-        } else {
-          Constraints {
-            min_width: 0.0,
-            max_width: f32::INFINITY,
-            min_height: 0.0,
-            max_height: constraints.max_height,
-          }
-        };
+        // Keep natural children intrinsic, but resolve percentage frames
+        // against the finite content constraints, as in the non-wrap path.
+        // The container's min cross-constraint must not stretch wrapped items.
+        let c = Self::non_flex_child_constraints(child, constraints, vertical);
         Some(self.layout_child_node(glyph_engine, child_overrides, index, child, c))
       })
       .collect();
