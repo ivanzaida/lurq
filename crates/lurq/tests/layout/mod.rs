@@ -47,3 +47,4 @@ mod scrollbar_placement;
 mod stack;
 mod text_centering;
 mod theme_typography;
+mod wrapped_row;
