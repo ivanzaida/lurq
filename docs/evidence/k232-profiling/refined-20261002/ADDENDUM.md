@@ -1,6 +1,6 @@
 # Refined capture qualifications
 
-This addendum qualifies the original immutable README and harness assertions; all 84 original manifest entries remain byte-identical. The source/binary, phase durations, document/ledger preservation and owned-process closure in that receipt are unchanged.
+This addendum qualifies the original archived README and harness assertions. All84 manifest entries remain unchanged from the first archive copies; this does **not** mean byte-identical scratch originals. The text-copy helper normalized UTF-8/LF before staging, and `-text` preserves the resulting archive bytes in Git. Manifests hash archive copies; scratch originals remain separately preserved. The [Canvas text provenance addendum](../canvas-text-20261002/PROVENANCE.md) details the same helper and the independently verified raw/archive hash scopes. No existing capture, manifest or original README is rewritten. Source/binary, parsed phase values, document/ledger preservation and owned-process closure are unchanged.
 
 - The 72 completed records comprise **16 passes, 32 UI updates and 24 input dispatches**, not 72 rendered frames. No record drops or boundary exclusions occurred.
 - Zoom returns to **14%**, but pan changes. This does not establish full viewport reversal. The final Canvas reports 1492 render instances and **4,272,928 pending bytes**, so fully settled rendering is not established. Pending bytes alone do not prove a stall.
