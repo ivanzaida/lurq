@@ -1,0 +1,550 @@
+[
+  {
+    "tool": "lurq_profile_read",
+    "elapsed_ms": 24.79469997342676
+  },
+  {
+    "tool": "lurq_profile_read",
+    "elapsed_ms": 9.308100037742406
+  },
+  {
+    "tool": "lurq_navigate",
+    "elapsed_ms": 217.51149999909103
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 21.78969996748492
+  },
+  {
+    "tool": "lurq_resize",
+    "elapsed_ms": 7.832099974621087
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 13.22040002560243
+  },
+  {
+    "tool": "lurq_windows",
+    "elapsed_ms": 5.524300038814545
+  },
+  {
+    "tool": "lurq_inspect",
+    "elapsed_ms": 13.382399978581816
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 9.266699955333024
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 9.078599978238344
+  },
+  {
+    "tool": "lurq_resize",
+    "elapsed_ms": 7.489100040402263
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 22.57349999854341
+  },
+  {
+    "tool": "lurq_windows",
+    "elapsed_ms": 7.902599987573922
+  },
+  {
+    "tool": "lurq_inspect",
+    "elapsed_ms": 15.172799990978092
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 9.754300001077354
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 21.137500007171184
+  },
+  {
+    "tool": "lurq_resize",
+    "elapsed_ms": 7.798200007528067
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 23.460199998226017
+  },
+  {
+    "tool": "lurq_windows",
+    "elapsed_ms": 9.362799988593906
+  },
+  {
+    "tool": "lurq_inspect",
+    "elapsed_ms": 13.834099983796477
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 8.137599972542375
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 12.609399971552193
+  },
+  {
+    "tool": "lurq_resize",
+    "elapsed_ms": 10.471599991433322
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 10.709599999245256
+  },
+  {
+    "tool": "lurq_windows",
+    "elapsed_ms": 8.698199992068112
+  },
+  {
+    "tool": "kontur_local_document_open_v1",
+    "elapsed_ms": 121.38450000202283
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.370300045702606
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 21.18400001199916
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 16.843200020957738
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 16.703200002666563
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 17.09929999196902
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 15.872000018134713
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 17.443599994294345
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 16.823100042529404
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 16.747599991504103
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 19.306000031065196
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 15.919999976176769
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 16.080799978226423
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.134699997957796
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 18.279200012329966
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 15.414399967994541
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.869199944660068
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 17.2811999800615
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 16.445999965071678
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 56.67899997206405
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 14.655200007837266
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 260.512100008782
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.162700010463595
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.437700008973479
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.498900009319186
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.16660002944991
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.804900011047721
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.387399975210428
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.729200016707182
+  },
+  {
+    "tool": "lurq_interact",
+    "elapsed_ms": 6.992599985096604
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 17.53299997653812
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.418399978429079
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.603300000075251
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.367300007492304
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.1933000213466585
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.156699975486845
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.897500028368086
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.017900024540722
+  },
+  {
+    "tool": "lurq_interact",
+    "elapsed_ms": 11.022999999113381
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 335.90429998002946
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 10.445999971125275
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 42.839900008402765
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.363400014583021
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.098399975802749
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.863999995402992
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.493599968962371
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.19030003529042
+  },
+  {
+    "tool": "lurq_interact",
+    "elapsed_ms": 9.674400032963604
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 328.78909999271855
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 46.540800016373396
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 52.00460000196472
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.008700001984835
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.4548999653197825
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.942300020251423
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.188199982512742
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.320299988146871
+  },
+  {
+    "tool": "lurq_interact",
+    "elapsed_ms": 5.6464000372216105
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 6.758400006219745
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 4.692399990744889
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.015100003220141
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.382400006055832
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.558600045740604
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.908299972768873
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.58129998575896
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.974300009664148
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.096100005786866
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 22.75750000262633
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.695300028193742
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.962000043131411
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.521499996073544
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.489299962297082
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 10.540399991441518
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.738800020888448
+  },
+  {
+    "tool": "lurq_profile_start",
+    "elapsed_ms": 7.667900004889816
+  },
+  {
+    "tool": "lurq_profile_read",
+    "elapsed_ms": 9.775199985597283
+  },
+  {
+    "tool": "lurq_profile_end",
+    "elapsed_ms": 10.937999992165715
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.618400024715811
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.4831999954767525
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.3887999644503
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.153699968010187
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.529399976599962
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.032499987166375
+  },
+  {
+    "tool": "lurq_profile_start",
+    "elapsed_ms": 9.729999990668148
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.664000011980534
+  },
+  {
+    "tool": "lurq_interact",
+    "elapsed_ms": 15.394499991089106
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 653.768099960871
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 66.9919999781996
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 63.499500043690205
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.404900039546192
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 6.967000022996217
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.879000040702522
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.327200019266456
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.615199952851981
+  },
+  {
+    "tool": "lurq_interact",
+    "elapsed_ms": 12.627400050405413
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 453.9349999977276
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 75.85109997307882
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 57.989299995824695
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.539200003724545
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.949999988544732
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.7622000137344
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 7.637300004716963
+  },
+  {
+    "tool": "lurq_profile_read",
+    "elapsed_ms": 16.34819997707382
+  },
+  {
+    "tool": "lurq_profile_end",
+    "elapsed_ms": 20.387700002174824
+  },
+  {
+    "tool": "lurq_windows",
+    "elapsed_ms": 9.408799989614636
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 10.99629997042939
+  },
+  {
+    "tool": "lurq_screenshot",
+    "elapsed_ms": 24.917899980209768
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.011599991936237
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.007099968381226
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 9.385100041981786
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.01699998555705
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 5.993499944452196
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 8.534399967174977
+  }
+]

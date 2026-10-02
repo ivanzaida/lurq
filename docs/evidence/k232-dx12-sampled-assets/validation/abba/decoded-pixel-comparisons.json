@@ -1,0 +1,233 @@
+{
+  "comparisons": [
+    {
+      "pair": [
+        "A1",
+        "before",
+        "A1",
+        "after"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": false,
+      "differing_pixels": 4611,
+      "total_pixels": 1764828,
+      "max_channel_difference": 12,
+      "difference_bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ]
+    },
+    {
+      "pair": [
+        "B1",
+        "before",
+        "B1",
+        "after"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": false,
+      "differing_pixels": 4611,
+      "total_pixels": 1764828,
+      "max_channel_difference": 12,
+      "difference_bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ]
+    },
+    {
+      "pair": [
+        "B2",
+        "before",
+        "B2",
+        "after"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": false,
+      "differing_pixels": 4611,
+      "total_pixels": 1764828,
+      "max_channel_difference": 12,
+      "difference_bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ]
+    },
+    {
+      "pair": [
+        "A2",
+        "before",
+        "A2",
+        "after"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": false,
+      "differing_pixels": 4611,
+      "total_pixels": 1764828,
+      "max_channel_difference": 12,
+      "difference_bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ]
+    },
+    {
+      "pair": [
+        "A1",
+        "before",
+        "B1",
+        "before"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "same_dimensions": true,
+      "pixels_equal": true,
+      "differing_pixels": 0,
+      "total_pixels": 1764828,
+      "max_channel_difference": 0,
+      "difference_bbox_half_open": null
+    },
+    {
+      "pair": [
+        "A1",
+        "after",
+        "B1",
+        "after"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": true,
+      "differing_pixels": 0,
+      "total_pixels": 1764828,
+      "max_channel_difference": 0,
+      "difference_bbox_half_open": null
+    },
+    {
+      "pair": [
+        "A2",
+        "before",
+        "B2",
+        "before"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "same_dimensions": true,
+      "pixels_equal": true,
+      "differing_pixels": 0,
+      "total_pixels": 1764828,
+      "max_channel_difference": 0,
+      "difference_bbox_half_open": null
+    },
+    {
+      "pair": [
+        "A2",
+        "after",
+        "B2",
+        "after"
+      ],
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": true,
+      "differing_pixels": 0,
+      "total_pixels": 1764828,
+      "max_channel_difference": 0,
+      "difference_bbox_half_open": null
+    }
+  ],
+  "scope": "Canonical decoded RGBA comparison plus all-channel difference bounds; no ROI excluded or image bytes changed"
+}

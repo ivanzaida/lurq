@@ -1,5 +1,5 @@
 //! Tile/layer draw recording and asset binding for prepared Canvas commands.
-use super::resources::{upload_asset, viewport};
+use super::resources::{asset_texture, upload_asset, viewport};
 use super::*;
 
 impl Renderer {
@@ -35,14 +35,7 @@ impl Renderer {
           }
           #[cfg(feature = "perf_profile")]
           let _texture_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
-          let texture = texture(
-            &state.device,
-            asset.width,
-            asset.height,
-            1,
-            false,
-            D3D12_RESOURCE_STATE_COPY_DEST,
-          )?;
+          let texture = asset_texture(&state.device, asset.width, asset.height)?;
           profile_if! {
             if let Some(detail) = self.profile.asset_upload_details.as_mut() {
               detail.add_stage(AssetUploadStage::TextureCreation, _texture_start);

@@ -1,0 +1,21 @@
+{
+  "reviewed_source": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+  "artifact_count": 3,
+  "artifacts": [
+    {
+      "path": "report.md",
+      "bytes": 4238,
+      "sha256": "7639b4760ff752c865990876212237518bc77a9e779a3cdfa8021ad0ccbe7824"
+    },
+    {
+      "path": "review_packet.py",
+      "bytes": 7321,
+      "sha256": "9115662dce1af8b056c46d9f2faaa3e8f34080e8081ea1e9d7834aba7091b95f"
+    },
+    {
+      "path": "derived-review.json",
+      "bytes": 26818,
+      "sha256": "ef0e843d6351658d64dd1ce808768c1c14318e59f783f2af8286ea15cb2f5942"
+    }
+  ]
+}

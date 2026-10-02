@@ -1,0 +1,467 @@
+{
+  "fixture": "Genuine18 / 01 Editor",
+  "detail_pass_records": 10,
+  "passes": [
+    {
+      "window": "main",
+      "frame_id": 124,
+      "pass_total_ms": 2.0744000000000002,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 0.00019999999999999998,
+        "buffer_upload": 0.0009,
+        "recording": 0.1988,
+        "submit": 0.0,
+        "tessellation": 0.0024,
+        "total": 0.2086
+      },
+      "canvas_counts": {
+        "batches": 1,
+        "command_groups": 1,
+        "tiles": 9,
+        "uploaded_asset_bytes": 0,
+        "vertices": 6
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 0,
+          "cache_charged_bytes_after": 67070900,
+          "cache_charged_bytes_before": 67070900,
+          "cache_charged_bytes_peak": 67070900,
+          "cache_entries_after": 1016,
+          "cache_entries_before": 1016,
+          "cache_evictions": 0,
+          "cache_hits": 0,
+          "cache_misses": 0,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 0,
+          "padded_upload_bytes": 0,
+          "texture_creations": 0
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.0,
+          "descriptor_writes": 0.0,
+          "pixel_packing": 0.0,
+          "texture_creation": 0.0,
+          "upload_staging_commands": 0.0
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 125,
+      "pass_total_ms": 190.1063,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 98.84479999999999,
+        "buffer_upload": 0.16119999999999998,
+        "recording": 100.2377,
+        "submit": 0.0,
+        "tessellation": 1.8074000000000001,
+        "total": 103.2412
+      },
+      "canvas_counts": {
+        "batches": 1,
+        "command_groups": 1,
+        "tiles": 9,
+        "uploaded_asset_bytes": 2884660,
+        "vertices": 53613
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 314,
+          "cache_charged_bytes_after": 67050948,
+          "cache_charged_bytes_before": 67070900,
+          "cache_charged_bytes_peak": 87814824,
+          "cache_entries_after": 1016,
+          "cache_entries_before": 1016,
+          "cache_evictions": 314,
+          "cache_hits": 30,
+          "cache_misses": 314,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 314,
+          "padded_upload_bytes": 3494144,
+          "texture_creations": 314
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.4271,
+          "descriptor_writes": 0.7631,
+          "pixel_packing": 0.9202,
+          "texture_creation": 93.55,
+          "upload_staging_commands": 3.1914000000000002
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 126,
+      "pass_total_ms": 210.106,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 98.2479,
+        "buffer_upload": 0.0752,
+        "recording": 100.18939999999999,
+        "submit": 0.0,
+        "tessellation": 1.5575,
+        "total": 102.8328
+      },
+      "canvas_counts": {
+        "batches": 1,
+        "command_groups": 1,
+        "tiles": 5,
+        "uploaded_asset_bytes": 2996588,
+        "vertices": 50826
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 305,
+          "cache_charged_bytes_after": 67085996,
+          "cache_charged_bytes_before": 67050948,
+          "cache_charged_bytes_peak": 87174560,
+          "cache_entries_after": 1017,
+          "cache_entries_before": 1016,
+          "cache_evictions": 304,
+          "cache_hits": 94,
+          "cache_misses": 305,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 314,
+          "padded_upload_bytes": 3577600,
+          "texture_creations": 305
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.3566,
+          "descriptor_writes": 0.7832,
+          "pixel_packing": 1.0159,
+          "texture_creation": 92.86919999999999,
+          "upload_staging_commands": 3.128
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 127,
+      "pass_total_ms": 62.93169999999999,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 0.0,
+        "buffer_upload": 0.0,
+        "recording": 0.0,
+        "submit": 0.0,
+        "tessellation": 0.0,
+        "total": 0.0094
+      },
+      "canvas_counts": {
+        "batches": 0,
+        "command_groups": 0,
+        "tiles": 0,
+        "uploaded_asset_bytes": 0,
+        "vertices": 0
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 0,
+          "cache_charged_bytes_after": 67085996,
+          "cache_charged_bytes_before": 67085996,
+          "cache_charged_bytes_peak": 67085996,
+          "cache_entries_after": 1017,
+          "cache_entries_before": 1017,
+          "cache_evictions": 0,
+          "cache_hits": 0,
+          "cache_misses": 0,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 0,
+          "padded_upload_bytes": 0,
+          "texture_creations": 0
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.00019999999999999998,
+          "descriptor_writes": 0.0,
+          "pixel_packing": 0.0,
+          "texture_creation": 0.0,
+          "upload_staging_commands": 0.0
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 128,
+      "pass_total_ms": 49.418200000000006,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 0.0,
+        "buffer_upload": 0.0,
+        "recording": 0.0,
+        "submit": 0.0,
+        "tessellation": 0.0,
+        "total": 0.0088
+      },
+      "canvas_counts": {
+        "batches": 0,
+        "command_groups": 0,
+        "tiles": 0,
+        "uploaded_asset_bytes": 0,
+        "vertices": 0
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 0,
+          "cache_charged_bytes_after": 67085996,
+          "cache_charged_bytes_before": 67085996,
+          "cache_charged_bytes_peak": 67085996,
+          "cache_entries_after": 1017,
+          "cache_entries_before": 1017,
+          "cache_evictions": 0,
+          "cache_hits": 0,
+          "cache_misses": 0,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 0,
+          "padded_upload_bytes": 0,
+          "texture_creations": 0
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.00019999999999999998,
+          "descriptor_writes": 0.0,
+          "pixel_packing": 0.0,
+          "texture_creation": 0.0,
+          "upload_staging_commands": 0.0
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 129,
+      "pass_total_ms": 2.2012,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 0.0003,
+        "buffer_upload": 0.0009,
+        "recording": 0.2078,
+        "submit": 0.0,
+        "tessellation": 0.0027,
+        "total": 0.21800000000000003
+      },
+      "canvas_counts": {
+        "batches": 1,
+        "command_groups": 1,
+        "tiles": 9,
+        "uploaded_asset_bytes": 0,
+        "vertices": 6
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 0,
+          "cache_charged_bytes_after": 67085996,
+          "cache_charged_bytes_before": 67085996,
+          "cache_charged_bytes_peak": 67085996,
+          "cache_entries_after": 1017,
+          "cache_entries_before": 1017,
+          "cache_evictions": 0,
+          "cache_hits": 0,
+          "cache_misses": 0,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 0,
+          "padded_upload_bytes": 0,
+          "texture_creations": 0
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.0,
+          "descriptor_writes": 0.0,
+          "pixel_packing": 0.0,
+          "texture_creation": 0.0,
+          "upload_staging_commands": 0.0
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 130,
+      "pass_total_ms": 219.81029999999998,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 113.6504,
+        "buffer_upload": 0.1831,
+        "recording": 115.2829,
+        "submit": 0.0,
+        "tessellation": 2.7212,
+        "total": 119.1272
+      },
+      "canvas_counts": {
+        "batches": 1,
+        "command_groups": 1,
+        "tiles": 9,
+        "uploaded_asset_bytes": 2884660,
+        "vertices": 53613
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 314,
+          "cache_charged_bytes_after": 67077400,
+          "cache_charged_bytes_before": 67085996,
+          "cache_charged_bytes_peak": 87829920,
+          "cache_entries_after": 1016,
+          "cache_entries_before": 1017,
+          "cache_evictions": 315,
+          "cache_hits": 30,
+          "cache_misses": 314,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 314,
+          "padded_upload_bytes": 3494144,
+          "texture_creations": 314
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.3257,
+          "descriptor_writes": 0.8086,
+          "pixel_packing": 1.4682,
+          "texture_creation": 107.2133,
+          "upload_staging_commands": 3.6137
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 131,
+      "pass_total_ms": 233.4209,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 118.73490000000001,
+        "buffer_upload": 0.1346,
+        "recording": 120.75410000000001,
+        "submit": 0.0,
+        "tessellation": 1.4343,
+        "total": 123.9545
+      },
+      "canvas_counts": {
+        "batches": 1,
+        "command_groups": 1,
+        "tiles": 4,
+        "uploaded_asset_bytes": 2996588,
+        "vertices": 50826
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 305,
+          "cache_charged_bytes_after": 67108004,
+          "cache_charged_bytes_before": 67077400,
+          "cache_charged_bytes_peak": 87201012,
+          "cache_entries_after": 1016,
+          "cache_entries_before": 1016,
+          "cache_evictions": 305,
+          "cache_hits": 94,
+          "cache_misses": 305,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 314,
+          "padded_upload_bytes": 3577600,
+          "texture_creations": 305
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 0.4552,
+          "descriptor_writes": 0.861,
+          "pixel_packing": 1.5411,
+          "texture_creation": 112.0313,
+          "upload_staging_commands": 3.7331
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 132,
+      "pass_total_ms": 73.6381,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 0.0,
+        "buffer_upload": 0.0,
+        "recording": 0.0,
+        "submit": 0.0,
+        "tessellation": 0.0,
+        "total": 0.0101
+      },
+      "canvas_counts": {
+        "batches": 0,
+        "command_groups": 0,
+        "tiles": 0,
+        "uploaded_asset_bytes": 0,
+        "vertices": 0
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 0,
+          "cache_charged_bytes_after": 67108004,
+          "cache_charged_bytes_before": 67108004,
+          "cache_charged_bytes_peak": 67108004,
+          "cache_entries_after": 1016,
+          "cache_entries_before": 1016,
+          "cache_evictions": 0,
+          "cache_hits": 0,
+          "cache_misses": 0,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 0,
+          "padded_upload_bytes": 0,
+          "texture_creations": 0
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 9.999999999999999e-05,
+          "descriptor_writes": 0.0,
+          "pixel_packing": 0.0,
+          "texture_creation": 0.0,
+          "upload_staging_commands": 0.0
+        }
+      }
+    },
+    {
+      "window": "main",
+      "frame_id": 133,
+      "pass_total_ms": 58.7509,
+      "canvas_cpu_timings_ms": {
+        "asset_upload": 0.0,
+        "buffer_upload": 0.0,
+        "recording": 0.0,
+        "submit": 0.0,
+        "tessellation": 0.0,
+        "total": 0.0094
+      },
+      "canvas_counts": {
+        "batches": 0,
+        "command_groups": 0,
+        "tiles": 0,
+        "uploaded_asset_bytes": 0,
+        "vertices": 0
+      },
+      "asset_upload_details": {
+        "counts": {
+          "arena_uploads": 0,
+          "cache_charged_bytes_after": 67108004,
+          "cache_charged_bytes_before": 67108004,
+          "cache_charged_bytes_peak": 67108004,
+          "cache_entries_after": 1016,
+          "cache_entries_before": 1016,
+          "cache_evictions": 0,
+          "cache_hits": 0,
+          "cache_misses": 0,
+          "dedicated_uploads": 0,
+          "descriptor_pairs": 0,
+          "padded_upload_bytes": 0,
+          "texture_creations": 0
+        },
+        "cpu_timings_ms": {
+          "cache_eviction": 9.999999999999999e-05,
+          "descriptor_writes": 0.0,
+          "pixel_packing": 0.0,
+          "texture_creation": 0.0,
+          "upload_staging_commands": 0.0
+        }
+      }
+    }
+  ],
+  "cpu_totals_ms": {
+    "texture_creation": 405.6638,
+    "pixel_packing": 4.9454,
+    "upload_staging_commands": 13.6662,
+    "descriptor_writes": 3.2159,
+    "cache_eviction": 1.5652
+  },
+  "event_counts": {
+    "cache_hits": 248,
+    "cache_misses": 1238,
+    "texture_creations": 1238,
+    "descriptor_pairs": 1256,
+    "padded_upload_bytes": 14143488,
+    "arena_uploads": 1238,
+    "dedicated_uploads": 0,
+    "cache_evictions": 1238
+  },
+  "uploaded_asset_bytes": 11762496,
+  "coarse_asset_upload_ms": 429.4785,
+  "cache_gauge_scope": "before/peak/after bytes and entry counts retained per pass; not summed as events",
+  "scope": "four CPU child scopes nest in asset_upload; cache_eviction is outside it inside Canvas total; no GPU timestamps or speedup/overhead claim"
+}

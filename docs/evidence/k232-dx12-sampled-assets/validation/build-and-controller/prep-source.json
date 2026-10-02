@@ -1,0 +1,21 @@
+{
+  "guard_scope": "only frozen candidate head/tree/case substitutions; original source/binary/lock/environment/deadline guards retained; original PR34 wrappers unchanged",
+  "source_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+  "source_tree": "43dda4b9073c327091dc9fc7d167a41b04e75f98",
+  "files": [
+    {
+      "original": ".tmp\\k232-profiler-candidate\\dx12-upload-034\\build_integration.mjs",
+      "original_sha256": "583866b0c17e6f81ea183753c59a28575eabee725f88820a25afe4b991228647",
+      "rebound": ".tmp\\k232-profiler-candidate\\dx12-sampled-assets\\build_integration.mjs",
+      "rebound_sha256": "c48ab18b8f578a0cf4862a2886bebb0a0362c59a223d3d3bc1d73bbd8d7aacef",
+      "lines": 143
+    },
+    {
+      "original": ".tmp\\k232-profiler-candidate\\dx12-upload-034\\smoke.py",
+      "original_sha256": "2ee4079a6e7af37555902665e3947cda987a574dd822086c29812c0cf79656dd",
+      "rebound": ".tmp\\k232-profiler-candidate\\dx12-sampled-assets\\smoke.py",
+      "rebound_sha256": "e96b6170191b74dfd46786b132ecaa1a626de5129c31e7bd37630ec8dfef899b",
+      "lines": 217
+    }
+  ]
+}

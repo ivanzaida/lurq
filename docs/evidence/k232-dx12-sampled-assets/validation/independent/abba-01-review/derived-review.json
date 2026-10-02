@@ -1,0 +1,542 @@
+{
+  "verdict": "SCOPED_CORRECTNESS_PASS_DIAGNOSTIC_TIMINGS",
+  "runs": [
+    {
+      "name": "A1",
+      "fixture": "Genuine18 / 01 Editor",
+      "upload_ms": 2348.3936,
+      "children_ms": {
+        "texture_creation": 2286.45,
+        "pixel_packing": 10.707,
+        "upload_staging_commands": 37.9505,
+        "descriptor_writes": 9.834,
+        "cache_eviction": 1.5957000000000001
+      },
+      "events": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_bytes": 11762496,
+      "document_ledger_hashes": {
+        "document": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+        "ledger": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+      },
+      "cleanup": {
+        "pid": 64952,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      },
+      "completed_passes": 9,
+      "inclusive_upload_residual_ms": 3.452099999999973
+    },
+    {
+      "name": "B1",
+      "fixture": "Genuine18 / 01 Editor",
+      "upload_ms": 382.1408,
+      "children_ms": {
+        "texture_creation": 361.9171,
+        "pixel_packing": 3.7922000000000002,
+        "upload_staging_commands": 11.892399999999999,
+        "descriptor_writes": 2.8581,
+        "cache_eviction": 1.3694
+      },
+      "events": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_bytes": 11762496,
+      "document_ledger_hashes": {
+        "document": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+        "ledger": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+      },
+      "cleanup": {
+        "pid": 23176,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      },
+      "completed_passes": 10,
+      "inclusive_upload_residual_ms": 1.6809999999999832
+    },
+    {
+      "name": "B2",
+      "fixture": "Genuine18 / 01 Editor",
+      "upload_ms": 429.4785,
+      "children_ms": {
+        "texture_creation": 405.6638,
+        "pixel_packing": 4.9454,
+        "upload_staging_commands": 13.6662,
+        "descriptor_writes": 3.2159,
+        "cache_eviction": 1.5652
+      },
+      "events": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_bytes": 11762496,
+      "document_ledger_hashes": {
+        "document": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+        "ledger": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+      },
+      "cleanup": {
+        "pid": 59860,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      },
+      "completed_passes": 10,
+      "inclusive_upload_residual_ms": 1.9872000000000298
+    },
+    {
+      "name": "A2",
+      "fixture": "Genuine18 / 01 Editor",
+      "upload_ms": 638.3638,
+      "children_ms": {
+        "texture_creation": 606.6030000000001,
+        "pixel_packing": 5.757,
+        "upload_staging_commands": 19.3667,
+        "descriptor_writes": 4.3145,
+        "cache_eviction": 1.5032999999999999
+      },
+      "events": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_bytes": 11762496,
+      "document_ledger_hashes": {
+        "document": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+        "ledger": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+      },
+      "cleanup": {
+        "pid": 62716,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      },
+      "completed_passes": 10,
+      "inclusive_upload_residual_ms": 2.322599999999852
+    }
+  ],
+  "pixels": [
+    {
+      "pair": [
+        "A1",
+        "before",
+        "A1",
+        "after"
+      ],
+      "differing_pixels": 4611,
+      "bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ],
+      "max_channel_difference": 12
+    },
+    {
+      "pair": [
+        "B1",
+        "before",
+        "B1",
+        "after"
+      ],
+      "differing_pixels": 4611,
+      "bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ],
+      "max_channel_difference": 12
+    },
+    {
+      "pair": [
+        "B2",
+        "before",
+        "B2",
+        "after"
+      ],
+      "differing_pixels": 4611,
+      "bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ],
+      "max_channel_difference": 12
+    },
+    {
+      "pair": [
+        "A2",
+        "before",
+        "A2",
+        "after"
+      ],
+      "differing_pixels": 4611,
+      "bbox_half_open": [
+        589,
+        1147,
+        692,
+        1196
+      ],
+      "max_channel_difference": 12
+    },
+    {
+      "pair": [
+        "A1",
+        "before",
+        "B1",
+        "before"
+      ],
+      "differing_pixels": 0,
+      "bbox_half_open": null,
+      "max_channel_difference": 0
+    },
+    {
+      "pair": [
+        "A1",
+        "after",
+        "B1",
+        "after"
+      ],
+      "differing_pixels": 0,
+      "bbox_half_open": null,
+      "max_channel_difference": 0
+    },
+    {
+      "pair": [
+        "A2",
+        "before",
+        "B2",
+        "before"
+      ],
+      "differing_pixels": 0,
+      "bbox_half_open": null,
+      "max_channel_difference": 0
+    },
+    {
+      "pair": [
+        "A2",
+        "after",
+        "B2",
+        "after"
+      ],
+      "differing_pixels": 0,
+      "bbox_half_open": null,
+      "max_channel_difference": 0
+    }
+  ],
+  "reviewed_raw_hashes": {
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\comparison-summary.json": {
+      "sha256": "a420ac363a1a544fa55e798faa827a5194acf1f8f1644743fa251cb90a4cd7b9",
+      "bytes": 12384
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\run-receipts.json": {
+      "sha256": "4edfe89d6b0dd3c7a858f69807926c0195b4c73083e0cfef47ba7e6f19943d30",
+      "bytes": 1609
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\frozen-abba-inputs.json": {
+      "sha256": "2bb87d159cbec167a121f0fe2b7ed3c99d9a96e1bd14d391cbbcb66fc9d0e643",
+      "bytes": 5427
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\terminal.json": {
+      "sha256": "f76130c10083dcb7e3f9b542b8e6c315281c7c4bac817327edb594495b518f1f",
+      "bytes": 188
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\kontur-desktop.exe": {
+      "sha256": "e1de508381460bad06aaa10b38bc0c7ef68bcd10ce7b84541effcbe5125658ae",
+      "bytes": 54234624
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\smoke.py": {
+      "sha256": "2ee4079a6e7af37555902665e3947cda987a574dd822086c29812c0cf79656dd",
+      "bytes": 12762
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\Cargo.lock.local": {
+      "sha256": "f0e1a4b5c6fac98f067bf97bfc4444b2599e14b7099d16f1b99d53c540d948f1",
+      "bytes": 197740
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\kontur-desktop.exe": {
+      "sha256": "b95da900c49f9d9e6ba521ac457180454dc5226889cf1fcbb1ffd8e00e88764f",
+      "bytes": 54234624
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\smoke.py": {
+      "sha256": "e96b6170191b74dfd46786b132ecaa1a626de5129c31e7bd37630ec8dfef899b",
+      "bytes": 12766
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\Cargo.lock.local": {
+      "sha256": "f0e1a4b5c6fac98f067bf97bfc4444b2599e14b7099d16f1b99d53c540d948f1",
+      "bytes": 197740
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\pair-profile.json": {
+      "sha256": "7b339eb447f10ad84c11f29683fd6c769a9107ebb3a054b2a691cfb72eeaa4a8",
+      "bytes": 83639
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\upload-details.json": {
+      "sha256": "b9e4559011198dc72bac59152850a4eb22d25dbf28ae1ea0c4d98d4bf8eb676e",
+      "bytes": 12450
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\summary.json": {
+      "sha256": "378afe53c43ce1788aa69e5bc994c0249962606434d435368ee760851a69da2b",
+      "bytes": 5870
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before-launch-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after-run-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\cleanup.json": {
+      "sha256": "6dd10d2b85f87a1765f96d9baf6bcc4cb57674adc1e6543b754e7eeb3d4830fb",
+      "bytes": 99
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\launch.json": {
+      "sha256": "acf06c53f0d07a6d757b93a0eb00fa6028896c483833995696889efc6fa3acb2",
+      "bytes": 524
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\document-open.json": {
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "bytes": 405
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\profile\\Kontur\\local-documents\\0acea323-5056-408d-84c0-f7c9a82e7c36.kontur": {
+      "sha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+      "bytes": 12582210
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\profile\\Kontur\\local-documents\\ledger.json": {
+      "sha256": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6",
+      "bytes": 816
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\window-00.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\window-after.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\runtime-inventory-before-canvas.json": {
+      "sha256": "6eaa278bf320d6505e61fdf7c6bba7aeaa1005a9bad1795f5b2c9495261190e0",
+      "bytes": 3733
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\pair-profile.json": {
+      "sha256": "ee079e9df2cb21b80b82df420d13ae6e14e45faaaeecf95bd19728a0e79384cd",
+      "bytes": 91477
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\upload-details.json": {
+      "sha256": "46742c5972f7158591d2fb4e08d57dbc0b5454a0f5b931ec034a5a1d3fa395ee",
+      "bytes": 13693
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\summary.json": {
+      "sha256": "956bb5198441ecbba2a6864314c392dd409618d8256e62702447bd9e65cbbe3d",
+      "bytes": 5873
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before-launch-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after-run-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\cleanup.json": {
+      "sha256": "7bad05e0a9ed2216db8217acb9f8856e0ba7b65343eccbf0798fbf2531130fbc",
+      "bytes": 99
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\launch.json": {
+      "sha256": "096a254011996de34c665b6620e93a35bf2c0db768348eada8f420129d52d3eb",
+      "bytes": 528
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\document-open.json": {
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "bytes": 405
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\profile\\Kontur\\local-documents\\0acea323-5056-408d-84c0-f7c9a82e7c36.kontur": {
+      "sha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+      "bytes": 12582210
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\profile\\Kontur\\local-documents\\ledger.json": {
+      "sha256": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6",
+      "bytes": 816
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\window-00.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\window-after.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\runtime-inventory-before-canvas.json": {
+      "sha256": "f2ed8ea73e73ec4cbd5f14e5a6bad3c7a992b6d16adaf681109a3616fd8e8441",
+      "bytes": 4007
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\pair-profile.json": {
+      "sha256": "833fbb9cbcddb9d98af8660c09c99478adecae9e18059a56b97f8b7888fd43de",
+      "bytes": 91455
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\upload-details.json": {
+      "sha256": "f55ba8f01f4de846cc43829ba5d11b391b1890735212e3a2d97060477c1bb169",
+      "bytes": 13594
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\summary.json": {
+      "sha256": "e38550ed93bc90fa775976127a8dc3edb5684f6c9404604cf768e19de67f5509",
+      "bytes": 5871
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before-launch-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after-run-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\cleanup.json": {
+      "sha256": "01e8dc44e6fd166c105847a32b9dd96ee152d159ad2ff80589577ad06b4869c8",
+      "bytes": 99
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\launch.json": {
+      "sha256": "ff59431ee4c0351e2786a6713659d1cab030e29836eb811ff99f806f91ccda64",
+      "bytes": 528
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\document-open.json": {
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "bytes": 405
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\profile\\Kontur\\local-documents\\0acea323-5056-408d-84c0-f7c9a82e7c36.kontur": {
+      "sha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+      "bytes": 12582210
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\profile\\Kontur\\local-documents\\ledger.json": {
+      "sha256": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6",
+      "bytes": 816
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\window-00.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\window-after.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\runtime-inventory-before-canvas.json": {
+      "sha256": "1d692a2b572e38a31eb52f9a61bf9d41f34b9f527793dd0c038ddc72ad94e0db",
+      "bytes": 4009
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\pair-profile.json": {
+      "sha256": "6b29866e5def5d6b6fbf26e37dcbc542d86e80a460fe09c15b68cb223383a3d8",
+      "bytes": 91704
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\upload-details.json": {
+      "sha256": "b8e25f0e64738a6bb86cdfbbf3484e8d47d45e32db0a460beb67bdaea6e042ee",
+      "bytes": 13698
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\summary.json": {
+      "sha256": "ec800746240a75b9a48262510cb32c6f4872cefdc83c5e898a632d3b9f2f6ae6",
+      "bytes": 5871
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before-launch-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after-run-hashes.json": {
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "bytes": 167
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\cleanup.json": {
+      "sha256": "9d3e302ceb5619fcef0198faa94315fee794cae40bee139a1c72f9c6e5aa4ffb",
+      "bytes": 99
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\launch.json": {
+      "sha256": "8e694ba3eed36a1909473610940eb8967cd9575ec7a3e7e78826e19e46f96aa2",
+      "bytes": 524
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\document-open.json": {
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "bytes": 405
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\profile\\Kontur\\local-documents\\0acea323-5056-408d-84c0-f7c9a82e7c36.kontur": {
+      "sha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+      "bytes": 12582210
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\profile\\Kontur\\local-documents\\ledger.json": {
+      "sha256": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6",
+      "bytes": 816
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\window-00.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\window-after.json": {
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "bytes": 231
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\runtime-inventory-before-canvas.json": {
+      "sha256": "b2d06854266f0faad9d2984957fe80ab35533b6dd6da10cb47b8d2248586e8aa",
+      "bytes": 3490
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\decoded-pixel-comparisons.json": {
+      "sha256": "37c0a6dd1661e1c1b4aa7fcf538d07432d4fd4a1d3cb479679f8cd4828a01c02",
+      "bytes": 8136
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before.png": {
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "bytes": 217571
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after.png": {
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "bytes": 217620
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before.png": {
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "bytes": 217571
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after.png": {
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "bytes": 217620
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before.png": {
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "bytes": 217571
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after.png": {
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "bytes": 217620
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before.png": {
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "bytes": 217571
+    },
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after.png": {
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "bytes": 217620
+    }
+  },
+  "review_scope": "Offline closed-run reduction; no reviewer app/Cargo execution"
+}

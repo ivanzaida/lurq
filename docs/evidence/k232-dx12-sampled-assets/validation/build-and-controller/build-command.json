@@ -1,0 +1,46 @@
+{
+  "kontur_head": "61d73d08b7c047d6c62ad55d6ed127a495881772",
+  "lurq_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+  "launcher": {
+    "mode": "local-lurq + perf_profile",
+    "local_crate": "H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq",
+    "cwd": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces",
+    "executable": "cargo",
+    "args": [
+      "run",
+      "-p",
+      "kontur-desktop",
+      "--bin",
+      "kontur-desktop",
+      "-j1",
+      "--config",
+      "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq\"",
+      "--features",
+      "lurq/perf_profile",
+      "--locked",
+      "--offline"
+    ],
+    "target": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\target",
+    "temp": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\rust-temp",
+    "preview": false
+  },
+  "executable": "cargo",
+  "args": [
+    "build",
+    "--release",
+    "-p",
+    "kontur-desktop",
+    "--bin",
+    "kontur-desktop",
+    "-j1",
+    "--config",
+    "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq\"",
+    "--features",
+    "lurq/perf_profile",
+    "--locked",
+    "--offline"
+  ],
+  "registry_lock_sha256": "f7229f6464dab118725c5d4436f97dcd450c388cdf25407e3813396caa75df50",
+  "configured_env_sha256": "055b967168508d226e60a53c5fb1cef62966fcd88709209b31c33b7decce7722",
+  "local_source_override_scope": "process only; configured .env.desktop unchanged"
+}

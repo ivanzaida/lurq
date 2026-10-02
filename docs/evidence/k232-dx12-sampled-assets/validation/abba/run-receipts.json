@@ -1,0 +1,38 @@
+[
+  {
+    "capture_root": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1",
+    "finished_utc": "2026-10-02T18:32:20.2333012Z",
+    "variant": "baseline",
+    "exit_code": 0,
+    "name": "A1",
+    "started_utc": "2026-10-02T18:31:56.6690540Z",
+    "source_head": "644ff6613411e28dc3035c0c910df64fcf915b51"
+  },
+  {
+    "capture_root": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1",
+    "finished_utc": "2026-10-02T18:32:39.4244715Z",
+    "variant": "candidate",
+    "exit_code": 0,
+    "name": "B1",
+    "started_utc": "2026-10-02T18:32:21.0868417Z",
+    "source_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5"
+  },
+  {
+    "capture_root": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2",
+    "finished_utc": "2026-10-02T18:32:58.8822259Z",
+    "variant": "candidate",
+    "exit_code": 0,
+    "name": "B2",
+    "started_utc": "2026-10-02T18:32:39.7206968Z",
+    "source_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5"
+  },
+  {
+    "capture_root": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2",
+    "finished_utc": "2026-10-02T18:33:16.1207055Z",
+    "variant": "baseline",
+    "exit_code": 0,
+    "name": "A2",
+    "started_utc": "2026-10-02T18:32:59.1798262Z",
+    "source_head": "644ff6613411e28dc3035c0c910df64fcf915b51"
+  }
+]

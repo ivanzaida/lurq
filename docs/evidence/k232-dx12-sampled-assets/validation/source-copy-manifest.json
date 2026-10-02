@@ -1,0 +1,1256 @@
+{
+  "schema_version": 1,
+  "scope": "Bounded closed four-run original evidence copied without normalization; excludes binaries, profiles/databases/discovery/credentials, full metadata graph and redundant readiness/Home inspection snapshots",
+  "source_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+  "source_crate_tree": "879b25cc8d4eb38cb521062261d1bd94e014ff19",
+  "payload_count": 178,
+  "payload_bytes": 2812537.0,
+  "payloads": [
+    {
+      "source_path": ".tmp\\k232-dx12-sampled-tests\\run1\\sampled-asset-tests.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/tests/sampled-asset-tests.log",
+      "bytes": 2450,
+      "sha256": "9fc5af9dd9f36a856b1c583a40a97b940a1b30f86dd9ec923dcacb1f51d40e92",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": ".tmp\\k232-dx12-sampled-tests\\run1\\sampled-asset-tests.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/tests/sampled-asset-tests.json",
+      "bytes": 973,
+      "sha256": "6205bada29faf43b9146182328c0a3a5446e05cd46446d6ff8d204c0f5eac484",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": ".tmp\\k232-dx12-sampled-tests\\run1\\dx12-without-perf.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/tests/dx12-without-perf.log",
+      "bytes": 952,
+      "sha256": "2eb0f748d71344f4bde24eb29cda4736024c2caeb14df1ed3f3a2bf20a1bc549",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": ".tmp\\k232-dx12-sampled-tests\\run1\\dx12-without-perf.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/tests/dx12-without-perf.json",
+      "bytes": 896,
+      "sha256": "485b7e230e9ec3aac9335b8d7bdac0898f33101d243298f75846ea2c254a0487",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-sampled-assets\\source-review-cf0c5d81.md",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/independent/source-review-cf0c5d81.md",
+      "bytes": 2814,
+      "sha256": "a1c843960c154fffaa43aa747050c75594ddbebf66aa101eaa35d8cb2ba38419",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\build_integration.mjs",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/build_integration.mjs",
+      "bytes": 8300,
+      "sha256": "c48ab18b8f578a0cf4862a2886bebb0a0362c59a223d3d3bc1d73bbd8d7aacef",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\smoke.py",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/smoke.py",
+      "bytes": 12766,
+      "sha256": "e96b6170191b74dfd46786b132ecaa1a626de5129c31e7bd37630ec8dfef899b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\run-abba.ps1",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/run-abba.ps1",
+      "bytes": 5619,
+      "sha256": "7a6313b5c238dcca67ef5250e2b1ac6bcedf5b81abf890009b76cfe2452117c7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\compare_abba.py",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/compare_abba.py",
+      "bytes": 1775,
+      "sha256": "0ecfd80ad18b9f9b93e6159691834748b8bd8a0c3e955833b22273676a708dfb",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\summarize_abba.py",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/summarize_abba.py",
+      "bytes": 4941,
+      "sha256": "ba204e26bccf229f27fea4da8f62cbd2365c3759e5b69aa55b7e3d4042ae6695",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\prep-source.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/prep-source.json",
+      "bytes": 1110,
+      "sha256": "5688bbc6ff47539f2e2a01962a213879ca0d3472d3ba6535a36e708253fd35fb",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\prepared.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/prepared.json",
+      "bytes": 2393,
+      "sha256": "d3e761be29445b4f762128b7db61a6186fd0f06212bf0e52a2c49b329db82e67",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\prepare-cleanup.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/prepare-cleanup.json",
+      "bytes": 100,
+      "sha256": "4546807d3d38e3c9fc619a8f4e5ff7b91472763b906721ddf13d15484da2d040",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\prepare-console.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/prepare-console.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\build.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/build.log",
+      "bytes": 2388,
+      "sha256": "4022454fc26b0ce841605c952a59e1c04f168f62d3a9765429b4920891bf7212",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\build-command.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/build-command.json",
+      "bytes": 1591,
+      "sha256": "d0dc1ff6113e5d7c85a4037e67b1df9d5e2aaf56826405ad2fde18254d89758d",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\identity.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/identity.json",
+      "bytes": 1878,
+      "sha256": "b575c907d5b9e4c7f38aca115291ff7d51d84f75ea8f9517953945009ecb1910",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\build-cleanup.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/build-cleanup.json",
+      "bytes": 100,
+      "sha256": "717de89e12ccd83bb3b07f61c2b282433e96a38dfd628c519451d858a1ff7c81",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\Cargo.lock.local",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/Cargo.lock.local",
+      "bytes": 197740,
+      "sha256": "f0e1a4b5c6fac98f067bf97bfc4444b2599e14b7099d16f1b99d53c540d948f1",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-console.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/build-and-controller/abba-01-console.log",
+      "bytes": 599,
+      "sha256": "885ead7b57eeddb5c68ba96fa1e9bdfd39996310a8c66fc8d9551c1d1d359a6b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\frozen-abba-inputs.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/frozen-abba-inputs.json",
+      "bytes": 5427,
+      "sha256": "2bb87d159cbec167a121f0fe2b7ed3c99d9a96e1bd14d391cbbcb66fc9d0e643",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\run-receipts.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/run-receipts.json",
+      "bytes": 1609,
+      "sha256": "4edfe89d6b0dd3c7a858f69807926c0195b4c73083e0cfef47ba7e6f19943d30",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\terminal.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/terminal.json",
+      "bytes": 188,
+      "sha256": "f76130c10083dcb7e3f9b542b8e6c315281c7c4bac817327edb594495b518f1f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\comparison-summary.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/comparison-summary.json",
+      "bytes": 12384,
+      "sha256": "a420ac363a1a544fa55e798faa827a5194acf1f8f1644743fa251cb90a4cd7b9",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\decoded-pixel-comparisons.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/decoded-pixel-comparisons.json",
+      "bytes": 8136,
+      "sha256": "37c0a6dd1661e1c1b4aa7fcf538d07432d4fd4a1d3cb479679f8cd4828a01c02",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\A1-console.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1-console.log",
+      "bytes": 96,
+      "sha256": "86ae9206db6b6bd2152da73732ca89b68ed3f72cca55b37a7a6015e8758577e6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\B1-console.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1-console.log",
+      "bytes": 96,
+      "sha256": "0e4645066f8a83101866ac35931576e340a2e46f6333d175874c17b640906cdf",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\B2-console.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2-console.log",
+      "bytes": 96,
+      "sha256": "daf73237144b63923d5a7e59d270105e3ef61620358af37ebee29278c8f26851",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01\\A2-console.log",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2-console.log",
+      "bytes": 96,
+      "sha256": "20a1d6b5652efacbf985bbc9ae4e4fbfe0a00096acb66ad594fd84799e300264",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\frozen-inputs.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/frozen-inputs.json",
+      "bytes": 3553,
+      "sha256": "41f83f91b4b85b64b2758b602cc326489c3a4a31a7d006551632358303c42d9f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\smoke-result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/smoke-result.json",
+      "bytes": 246,
+      "sha256": "3f70ad48c4c72fc6a99f3056069dce9ba38923fe3f30eda46756000731d4bbee",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\integration-runtime-availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/integration-runtime-availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\launch.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/launch.json",
+      "bytes": 524,
+      "sha256": "acf06c53f0d07a6d757b93a0eb00fa6028896c483833995696889efc6fa3acb2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\runtime-inventory-home.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/runtime-inventory-home.json",
+      "bytes": 3969,
+      "sha256": "b73405de777098e18bb54d155ad7976878e28e48c3606c307d0b20371385b9ac",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\runtime-inventory-before-canvas.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/runtime-inventory-before-canvas.json",
+      "bytes": 3733,
+      "sha256": "6eaa278bf320d6505e61fdf7c6bba7aeaa1005a9bad1795f5b2c9495261190e0",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\window-00.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/window-00.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\window-after.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/window-after.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\document-open.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/document-open.json",
+      "bytes": 405,
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/before.json",
+      "bytes": 1568,
+      "sha256": "af9c95b83d8aa3c06cac95f7423fb6db347e562c3f6a402814ae40069b08b3fd",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/before-image.json",
+      "bytes": 228,
+      "sha256": "c885a1df0ad4c0241bfff40472f830ca9e3e0929857ff9ac14eb8ebbacd1abf6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/before.png",
+      "bytes": 217571,
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/after-image.json",
+      "bytes": 228,
+      "sha256": "31788d06f1101e5bae0a719d32169985a72268818c74e840d5e9070e36aa259b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/after.png",
+      "bytes": 217620,
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\before-launch-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/before-launch-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after-run-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/after-run-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\cleanup.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/cleanup.json",
+      "bytes": 99,
+      "sha256": "6dd10d2b85f87a1765f96d9baf6bcc4cb57674adc1e6543b754e7eeb3d4830fb",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/result.json",
+      "bytes": 29,
+      "sha256": "c78db57fdeeff4237621d33b4461b140c528b34dfa4d48749abfd003e2dfabc9",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\pair-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/pair-profile.json",
+      "bytes": 83639,
+      "sha256": "7b339eb447f10ad84c11f29683fd6c769a9107ebb3a054b2a691cfb72eeaa4a8",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\idle-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/idle-profile.json",
+      "bytes": 2816,
+      "sha256": "68eb47f5464397d810696080bce0dc95d87fa1ee6cc372e30615674baa1cece6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\summary.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/summary.json",
+      "bytes": 5870,
+      "sha256": "378afe53c43ce1788aa69e5bc994c0249962606434d435368ee760851a69da2b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\canvas-stages.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/canvas-stages.json",
+      "bytes": 344,
+      "sha256": "13dd8f9a21a351e42b6e8a4911942672cd19872fea6b206dc90c1390a41a3b97",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\canvas-text-totals.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/canvas-text-totals.json",
+      "bytes": 408,
+      "sha256": "1d8de950efa1b27ce9f7e976f0f499e3d3171ef2941eb1037223dd1ae3817561",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\top-cost-passes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/top-cost-passes.json",
+      "bytes": 36765,
+      "sha256": "c1ff7d3e58c5f331dadf7b31b20da9fd4cff1304203f03caebd1e2ed6bf8e969",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\upload-details.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/upload-details.json",
+      "bytes": 12450,
+      "sha256": "b9e4559011198dc72bac59152850a4eb22d25dbf28ae1ea0c4d98d4bf8eb676e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\tool-latencies.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/tool-latencies.json",
+      "bytes": 10909,
+      "sha256": "01c23fab5b4fb9f953737eef3f4f3b2b64168c262d6fb2a17825ab140b63fda5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\stderr.txt",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/stderr.txt",
+      "bytes": 1305,
+      "sha256": "f937e35cee8ce26d1e20c09d1b70d3c1f8170e83b9f153940b813d31be29917f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\reset-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/reset-settle-000.json",
+      "bytes": 1298,
+      "sha256": "48749ab223b3a6d79e905097cd0c18e2fb8ce4ca1ebce4a03a37c61108425a9f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\reset-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/reset-settle-001.json",
+      "bytes": 1298,
+      "sha256": "48749ab223b3a6d79e905097cd0c18e2fb8ce4ca1ebce4a03a37c61108425a9f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\measured-canvas-zoom-out-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/measured-canvas-zoom-out-settle-000.json",
+      "bytes": 1314,
+      "sha256": "959bf88c8408f5fd60ba224e265ba2a9c10e58f34439e986bad0bfc668d0dd29",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\measured-canvas-zoom-out-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/measured-canvas-zoom-out-settle-001.json",
+      "bytes": 1314,
+      "sha256": "959bf88c8408f5fd60ba224e265ba2a9c10e58f34439e986bad0bfc668d0dd29",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\measured-canvas-zoom-in-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/measured-canvas-zoom-in-settle-000.json",
+      "bytes": 1314,
+      "sha256": "a313cf1f649c938f4f4621dc6bf6e79743851a13471f3aa38801fc3b0d81deb5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\measured-canvas-zoom-in-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/measured-canvas-zoom-in-settle-001.json",
+      "bytes": 1314,
+      "sha256": "a313cf1f649c938f4f4621dc6bf6e79743851a13471f3aa38801fc3b0d81deb5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after-final-screenshot-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/after-final-screenshot-settle-000.json",
+      "bytes": 1314,
+      "sha256": "a313cf1f649c938f4f4621dc6bf6e79743851a13471f3aa38801fc3b0d81deb5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A1\\capture\\after-final-screenshot-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A1/capture/after-final-screenshot-settle-001.json",
+      "bytes": 1314,
+      "sha256": "a313cf1f649c938f4f4621dc6bf6e79743851a13471f3aa38801fc3b0d81deb5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\frozen-inputs.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/frozen-inputs.json",
+      "bytes": 3557,
+      "sha256": "3a698151a5897be52439e42b711d80f93ff225bda92283ee529de412c7d58b73",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\smoke-result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/smoke-result.json",
+      "bytes": 246,
+      "sha256": "9ad612496896a2ac356e87b1363aad61e6869bb1340920f2bbd01c1f87baf491",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\integration-runtime-availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/integration-runtime-availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\launch.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/launch.json",
+      "bytes": 528,
+      "sha256": "096a254011996de34c665b6620e93a35bf2c0db768348eada8f420129d52d3eb",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\runtime-inventory-home.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/runtime-inventory-home.json",
+      "bytes": 3473,
+      "sha256": "155ef04329d77ad81c7e897320cde380dd707424046a1daf0e7f198c3d3d3e21",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\runtime-inventory-before-canvas.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/runtime-inventory-before-canvas.json",
+      "bytes": 4007,
+      "sha256": "f2ed8ea73e73ec4cbd5f14e5a6bad3c7a992b6d16adaf681109a3616fd8e8441",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\window-00.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/window-00.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\window-after.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/window-after.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\document-open.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/document-open.json",
+      "bytes": 405,
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/before.json",
+      "bytes": 1568,
+      "sha256": "2d5a557dd5c01990a231cd409227e334ab467c17b62001d0121625e1704dd129",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/before-image.json",
+      "bytes": 228,
+      "sha256": "c885a1df0ad4c0241bfff40472f830ca9e3e0929857ff9ac14eb8ebbacd1abf6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/before.png",
+      "bytes": 217571,
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/after-image.json",
+      "bytes": 228,
+      "sha256": "31788d06f1101e5bae0a719d32169985a72268818c74e840d5e9070e36aa259b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/after.png",
+      "bytes": 217620,
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\before-launch-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/before-launch-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after-run-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/after-run-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\cleanup.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/cleanup.json",
+      "bytes": 99,
+      "sha256": "7bad05e0a9ed2216db8217acb9f8856e0ba7b65343eccbf0798fbf2531130fbc",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/result.json",
+      "bytes": 29,
+      "sha256": "c78db57fdeeff4237621d33b4461b140c528b34dfa4d48749abfd003e2dfabc9",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\pair-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/pair-profile.json",
+      "bytes": 91477,
+      "sha256": "ee079e9df2cb21b80b82df420d13ae6e14e45faaaeecf95bd19728a0e79384cd",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\idle-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/idle-profile.json",
+      "bytes": 2809,
+      "sha256": "6c293494e52424ab586ce1db6170c7248eeb68dc2574e1ecaa8b94b777afa009",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\summary.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/summary.json",
+      "bytes": 5873,
+      "sha256": "956bb5198441ecbba2a6864314c392dd409618d8256e62702447bd9e65cbbe3d",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\canvas-stages.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/canvas-stages.json",
+      "bytes": 319,
+      "sha256": "97603b1316e2063ee2e8d7f31083f03df0edf90756e73861a4abe0946883dfec",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\canvas-text-totals.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/canvas-text-totals.json",
+      "bytes": 397,
+      "sha256": "94f666d715f988236fddd8480d96a195508e707affb861880ff0a14792958ccb",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\top-cost-passes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/top-cost-passes.json",
+      "bytes": 36575,
+      "sha256": "51a0e1dec51390d74533cb897fe5a3fa35feaa63a0b2056c1fc0059f49217a50",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\upload-details.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/upload-details.json",
+      "bytes": 13693,
+      "sha256": "46742c5972f7158591d2fb4e08d57dbc0b5454a0f5b931ec034a5a1d3fa395ee",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\tool-latencies.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/tool-latencies.json",
+      "bytes": 10905,
+      "sha256": "08cacb169ff3b99fce9cfca6d9edba5163f17f0d4f855b97860cdceb80400f4a",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\stderr.txt",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/stderr.txt",
+      "bytes": 1309,
+      "sha256": "cb30591740be9ead08a6847a42a066ef64eb189f3f03f62dc34fe393c59557f0",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\reset-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/reset-settle-000.json",
+      "bytes": 1298,
+      "sha256": "c586e56dc58addf14b2e24ec37612151356d2f590a85b9901719a10d6854d171",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\reset-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/reset-settle-001.json",
+      "bytes": 1298,
+      "sha256": "c586e56dc58addf14b2e24ec37612151356d2f590a85b9901719a10d6854d171",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\measured-canvas-zoom-out-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/measured-canvas-zoom-out-settle-000.json",
+      "bytes": 1314,
+      "sha256": "163a60d3efe7b13fe15b834bee7dfdb6f754854b2f1a2705048871d5fdfc5979",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\measured-canvas-zoom-out-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/measured-canvas-zoom-out-settle-001.json",
+      "bytes": 1314,
+      "sha256": "163a60d3efe7b13fe15b834bee7dfdb6f754854b2f1a2705048871d5fdfc5979",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\measured-canvas-zoom-in-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/measured-canvas-zoom-in-settle-000.json",
+      "bytes": 1314,
+      "sha256": "15bbdfb006a750c74d4285fbdf9582bdcc09ea94d6e3aa870fb5a157a51aceca",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\measured-canvas-zoom-in-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/measured-canvas-zoom-in-settle-001.json",
+      "bytes": 1314,
+      "sha256": "15bbdfb006a750c74d4285fbdf9582bdcc09ea94d6e3aa870fb5a157a51aceca",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after-final-screenshot-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/after-final-screenshot-settle-000.json",
+      "bytes": 1314,
+      "sha256": "15bbdfb006a750c74d4285fbdf9582bdcc09ea94d6e3aa870fb5a157a51aceca",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B1\\capture\\after-final-screenshot-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B1/capture/after-final-screenshot-settle-001.json",
+      "bytes": 1314,
+      "sha256": "15bbdfb006a750c74d4285fbdf9582bdcc09ea94d6e3aa870fb5a157a51aceca",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\frozen-inputs.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/frozen-inputs.json",
+      "bytes": 3557,
+      "sha256": "3a698151a5897be52439e42b711d80f93ff225bda92283ee529de412c7d58b73",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\smoke-result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/smoke-result.json",
+      "bytes": 246,
+      "sha256": "f6c99a46c8cbaf47862786590ab622ae9fd6e86e7920b28c4d996d5dc7cbdcb2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\integration-runtime-availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/integration-runtime-availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\launch.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/launch.json",
+      "bytes": 528,
+      "sha256": "ff59431ee4c0351e2786a6713659d1cab030e29836eb811ff99f806f91ccda64",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\runtime-inventory-home.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/runtime-inventory-home.json",
+      "bytes": 4009,
+      "sha256": "67fe2b64fa5c494508160fc25b995d0d2d11851213b8231cc35f7af0bae4e12a",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\runtime-inventory-before-canvas.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/runtime-inventory-before-canvas.json",
+      "bytes": 4009,
+      "sha256": "1d692a2b572e38a31eb52f9a61bf9d41f34b9f527793dd0c038ddc72ad94e0db",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\window-00.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/window-00.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\window-after.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/window-after.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\document-open.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/document-open.json",
+      "bytes": 405,
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/before.json",
+      "bytes": 1567,
+      "sha256": "a06f854f174b5387909bd7bf2b5ac9e0dc9f21b810ff00e620e948c624fe6f62",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/before-image.json",
+      "bytes": 228,
+      "sha256": "c885a1df0ad4c0241bfff40472f830ca9e3e0929857ff9ac14eb8ebbacd1abf6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/before.png",
+      "bytes": 217571,
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/after-image.json",
+      "bytes": 228,
+      "sha256": "31788d06f1101e5bae0a719d32169985a72268818c74e840d5e9070e36aa259b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/after.png",
+      "bytes": 217620,
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\before-launch-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/before-launch-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after-run-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/after-run-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\cleanup.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/cleanup.json",
+      "bytes": 99,
+      "sha256": "01e8dc44e6fd166c105847a32b9dd96ee152d159ad2ff80589577ad06b4869c8",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/result.json",
+      "bytes": 29,
+      "sha256": "c78db57fdeeff4237621d33b4461b140c528b34dfa4d48749abfd003e2dfabc9",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\pair-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/pair-profile.json",
+      "bytes": 91455,
+      "sha256": "833fbb9cbcddb9d98af8660c09c99478adecae9e18059a56b97f8b7888fd43de",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\idle-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/idle-profile.json",
+      "bytes": 2803,
+      "sha256": "5ddac35357a1df7269562d13e6e7c4d764209b0e687a743402e5577d9c9036b9",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\summary.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/summary.json",
+      "bytes": 5871,
+      "sha256": "e38550ed93bc90fa775976127a8dc3edb5684f6c9404604cf768e19de67f5509",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\canvas-stages.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/canvas-stages.json",
+      "bytes": 330,
+      "sha256": "f68b6459863000b5a59838266ef388282125c44a338e94d6d39edd1056116596",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\canvas-text-totals.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/canvas-text-totals.json",
+      "bytes": 417,
+      "sha256": "bc911855277a11fd0ef44f4f29b3a69d6f78a742bb7c4dc8ab090a4bfc141dbd",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\top-cost-passes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/top-cost-passes.json",
+      "bytes": 36685,
+      "sha256": "a62bdfa14e6c3bcea95167e30f4ca0e903fad4949d5ae7f9aba8338c267cc5af",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\upload-details.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/upload-details.json",
+      "bytes": 13594,
+      "sha256": "f55ba8f01f4de846cc43829ba5d11b391b1890735212e3a2d97060477c1bb169",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\tool-latencies.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/tool-latencies.json",
+      "bytes": 10416,
+      "sha256": "3fc9f121f921040c16a0f1821ae11dc878688b28cf40c86f359bda6377c0c3a2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\stderr.txt",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/stderr.txt",
+      "bytes": 1309,
+      "sha256": "be3dd7c31dc65507b9373383c942f8aa2582b17db3709b48b8b47cc89bbca120",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\reset-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/reset-settle-000.json",
+      "bytes": 1297,
+      "sha256": "f65fb14221545c53cd9329d1a3d74a2ca0c237bf472892603f7310150de1a2d3",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\reset-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/reset-settle-001.json",
+      "bytes": 1297,
+      "sha256": "f65fb14221545c53cd9329d1a3d74a2ca0c237bf472892603f7310150de1a2d3",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\measured-canvas-zoom-out-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/measured-canvas-zoom-out-settle-000.json",
+      "bytes": 1313,
+      "sha256": "6cabe93f4ceb2c02cdcd97f5c98fc60819acc7086aa4fed495a7221decfbf5d4",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\measured-canvas-zoom-out-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/measured-canvas-zoom-out-settle-001.json",
+      "bytes": 1313,
+      "sha256": "6cabe93f4ceb2c02cdcd97f5c98fc60819acc7086aa4fed495a7221decfbf5d4",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\measured-canvas-zoom-in-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/measured-canvas-zoom-in-settle-000.json",
+      "bytes": 1313,
+      "sha256": "0dc6c95476e84e9020afe3326f0f03846167c0b48157e753b9c5f1fe05901d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\measured-canvas-zoom-in-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/measured-canvas-zoom-in-settle-001.json",
+      "bytes": 1313,
+      "sha256": "0dc6c95476e84e9020afe3326f0f03846167c0b48157e753b9c5f1fe05901d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after-final-screenshot-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/after-final-screenshot-settle-000.json",
+      "bytes": 1313,
+      "sha256": "0dc6c95476e84e9020afe3326f0f03846167c0b48157e753b9c5f1fe05901d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\abba-01-B2\\capture\\after-final-screenshot-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/B2/capture/after-final-screenshot-settle-001.json",
+      "bytes": 1313,
+      "sha256": "0dc6c95476e84e9020afe3326f0f03846167c0b48157e753b9c5f1fe05901d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\frozen-inputs.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/frozen-inputs.json",
+      "bytes": 3553,
+      "sha256": "41f83f91b4b85b64b2758b602cc326489c3a4a31a7d006551632358303c42d9f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\smoke-result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/smoke-result.json",
+      "bytes": 246,
+      "sha256": "d085cc4f41b6a8950476c367ed6bd35008705e5d44cd330e048f9fcba3aa1356",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\integration-runtime-availability.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/integration-runtime-availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\launch.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/launch.json",
+      "bytes": 524,
+      "sha256": "8e694ba3eed36a1909473610940eb8967cd9575ec7a3e7e78826e19e46f96aa2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\runtime-inventory-home.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/runtime-inventory-home.json",
+      "bytes": 3997,
+      "sha256": "98222e41b1b795d275a310b452fe65f7433771fa24b080981073c6d83bd03845",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\runtime-inventory-before-canvas.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/runtime-inventory-before-canvas.json",
+      "bytes": 3490,
+      "sha256": "b2d06854266f0faad9d2984957fe80ab35533b6dd6da10cb47b8d2248586e8aa",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\window-00.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/window-00.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\window-after.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/window-after.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\document-open.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/document-open.json",
+      "bytes": 405,
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/before.json",
+      "bytes": 1569,
+      "sha256": "dff4bfe27bc6d15175eceffd8142f02843a0b188cb3ef6803d5bae029c8c40d4",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/before-image.json",
+      "bytes": 228,
+      "sha256": "c885a1df0ad4c0241bfff40472f830ca9e3e0929857ff9ac14eb8ebbacd1abf6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/before.png",
+      "bytes": 217571,
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after-image.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/after-image.json",
+      "bytes": 228,
+      "sha256": "31788d06f1101e5bae0a719d32169985a72268818c74e840d5e9070e36aa259b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after.png",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/after.png",
+      "bytes": 217620,
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\before-launch-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/before-launch-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after-run-hashes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/after-run-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\cleanup.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/cleanup.json",
+      "bytes": 99,
+      "sha256": "9d3e302ceb5619fcef0198faa94315fee794cae40bee139a1c72f9c6e5aa4ffb",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\result.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/result.json",
+      "bytes": 29,
+      "sha256": "c78db57fdeeff4237621d33b4461b140c528b34dfa4d48749abfd003e2dfabc9",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\pair-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/pair-profile.json",
+      "bytes": 91704,
+      "sha256": "6b29866e5def5d6b6fbf26e37dcbc542d86e80a460fe09c15b68cb223383a3d8",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\idle-profile.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/idle-profile.json",
+      "bytes": 2800,
+      "sha256": "e00a1885899de3c5877c0bccd48378cc017d664b099590418cf913e3f1f2ca04",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\summary.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/summary.json",
+      "bytes": 5871,
+      "sha256": "ec800746240a75b9a48262510cb32c6f4872cefdc83c5e898a632d3b9f2f6ae6",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\canvas-stages.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/canvas-stages.json",
+      "bytes": 320,
+      "sha256": "8ef5dd04fa1f0e9f5ab42bd7837ab6d31dee1bc582685fd1891b226624f1b4f1",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\canvas-text-totals.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/canvas-text-totals.json",
+      "bytes": 408,
+      "sha256": "bf0f2afc735672c101142c88dc043f0dbab691b94e64f6085372d2fbd243ff23",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\top-cost-passes.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/top-cost-passes.json",
+      "bytes": 36772,
+      "sha256": "e2b11d8837b39aafbdfce71be966c35a7e1e14de6f23732a9aa55618c385175b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\upload-details.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/upload-details.json",
+      "bytes": 13698,
+      "sha256": "b8e25f0e64738a6bb86cdfbbf3484e8d47d45e32db0a460beb67bdaea6e042ee",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\tool-latencies.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/tool-latencies.json",
+      "bytes": 10902,
+      "sha256": "141083a24b741cdc702bccfaeacad46a25fcaa1c1b2d7520f09729ffefd0bf1b",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\stderr.txt",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/stderr.txt",
+      "bytes": 1305,
+      "sha256": "2e3f6459aef750f9f474722a0f764b5197353016193c306aba746be251abb320",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\reset-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/reset-settle-000.json",
+      "bytes": 1299,
+      "sha256": "986fa56a6b79761899aa594b4cc771cf78c1b5970b77fe08b03c65eb49995f33",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\reset-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/reset-settle-001.json",
+      "bytes": 1299,
+      "sha256": "986fa56a6b79761899aa594b4cc771cf78c1b5970b77fe08b03c65eb49995f33",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\measured-canvas-zoom-out-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/measured-canvas-zoom-out-settle-000.json",
+      "bytes": 1315,
+      "sha256": "f82c5e99314c89623ccfd98f3fe8a0a5dea86a5f059eeaa7740c6c6327a43a60",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\measured-canvas-zoom-out-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/measured-canvas-zoom-out-settle-001.json",
+      "bytes": 1315,
+      "sha256": "f82c5e99314c89623ccfd98f3fe8a0a5dea86a5f059eeaa7740c6c6327a43a60",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\measured-canvas-zoom-in-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/measured-canvas-zoom-in-settle-000.json",
+      "bytes": 1314,
+      "sha256": "6f175e3129e631e787df5989b9eb0b2dfa27d445cf9f7ed18ea22f1d577c98c5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\measured-canvas-zoom-in-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/measured-canvas-zoom-in-settle-001.json",
+      "bytes": 1314,
+      "sha256": "6f175e3129e631e787df5989b9eb0b2dfa27d445cf9f7ed18ea22f1d577c98c5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after-final-screenshot-settle-000.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/after-final-screenshot-settle-000.json",
+      "bytes": 1314,
+      "sha256": "6f175e3129e631e787df5989b9eb0b2dfa27d445cf9f7ed18ea22f1d577c98c5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\abba-01-A2\\capture\\after-final-screenshot-settle-001.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/abba/A2/capture/after-final-screenshot-settle-001.json",
+      "bytes": 1314,
+      "sha256": "6f175e3129e631e787df5989b9eb0b2dfa27d445cf9f7ed18ea22f1d577c98c5",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\identity.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/baseline-build-identity.json",
+      "bytes": 1878,
+      "sha256": "68e51fef2fea27d4f0b1868b5c3aa86be24c225f90b48d47531398ea218658d2",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-sampled-assets\\abba-01-review\\report.md",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/independent/abba-01-review/report.md",
+      "bytes": 4238,
+      "sha256": "7639b4760ff752c865990876212237518bc77a9e779a3cdfa8021ad0ccbe7824",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-sampled-assets\\abba-01-review\\derived-review.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/independent/abba-01-review/derived-review.json",
+      "bytes": 26818,
+      "sha256": "ef0e843d6351658d64dd1ce808768c1c14318e59f783f2af8286ea15cb2f5942",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-sampled-assets\\abba-01-review\\review_packet.py",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/independent/abba-01-review/review_packet.py",
+      "bytes": 7321,
+      "sha256": "9115662dce1af8b056c46d9f2faaa3e8f34080e8081ea1e9d7834aba7091b95f",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-sampled-assets\\abba-01-review\\manifest.json",
+      "retained_path": "docs/evidence/k232-dx12-sampled-assets/validation/independent/abba-01-review/manifest.json",
+      "bytes": 583,
+      "sha256": "136eda10924b167d136fb0fc306c321f19c163873ce8d4c447fc579b794df101",
+      "source_copy_equal": true
+    }
+  ]
+}

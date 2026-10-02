@@ -1,0 +1,70 @@
+{
+  "build": {
+    "kontur_head": "61d73d08b7c047d6c62ad55d6ed127a495881772",
+    "lurq_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+    "launcher": {
+      "mode": "local-lurq + perf_profile",
+      "local_crate": "H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq",
+      "cwd": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces",
+      "executable": "cargo",
+      "args": [
+        "run",
+        "-p",
+        "kontur-desktop",
+        "--bin",
+        "kontur-desktop",
+        "-j1",
+        "--config",
+        "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq\"",
+        "--features",
+        "lurq/perf_profile",
+        "--locked",
+        "--offline"
+      ],
+      "target": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\target",
+      "temp": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\rust-temp",
+      "preview": false
+    },
+    "executable": "cargo",
+    "args": [
+      "build",
+      "--release",
+      "-p",
+      "kontur-desktop",
+      "--bin",
+      "kontur-desktop",
+      "-j1",
+      "--config",
+      "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq\"",
+      "--features",
+      "lurq/perf_profile",
+      "--locked",
+      "--offline"
+    ],
+    "registry_lock_sha256": "f7229f6464dab118725c5d4436f97dcd450c388cdf25407e3813396caa75df50",
+    "configured_env_sha256": "055b967168508d226e60a53c5fb1cef62966fcd88709209b31c33b7decce7722",
+    "local_source_override_scope": "process only; configured .env.desktop unchanged",
+    "local_lock_sha256": "f0e1a4b5c6fac98f067bf97bfc4444b2599e14b7099d16f1b99d53c540d948f1",
+    "binary_sha256": "b95da900c49f9d9e6ba521ac457180454dc5226889cf1fcbb1ffd8e00e88764f",
+    "started_utc": "2026-10-02T18:21:59.420Z",
+    "finished_utc": "2026-10-02T18:30:18.151Z",
+    "exit_code": 0
+  },
+  "build_identity_sha256": "b575c907d5b9e4c7f38aca115291ff7d51d84f75ea8f9517953945009ecb1910",
+  "derived_source_trees": {
+    "lurq": "43dda4b9073c327091dc9fc7d167a41b04e75f98",
+    "lurq_crate": "879b25cc8d4eb38cb521062261d1bd94e014ff19",
+    "kontur": "f1384efd9235f0ba1340e464d1dacc467d79148b"
+  },
+  "seed_preference_sha256": "e44efbbb7eb4971717e6c745d6822a85e755249fbe9fd94ed8fb0bf245294c78",
+  "document_sha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+  "ledger_sha256": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6",
+  "sources_sha256": {
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-sampled-assets\\smoke.py": "e96b6170191b74dfd46786b132ecaa1a626de5129c31e7bd37630ec8dfef899b",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\native.py": "0f32eceb8bfd07074e0f8b5da697924ed58285b9e17cc5de07bcf05562ebd7c8",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\matched_compare.py": "9e2426516256fb5aebd4a21cd9939034d5cab8a20c5bfdb7a02fecb67b12c7cb",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\k232-native-profiling\\probe.py": "32b0d789022972b2ce24e95f538245cd179e4f82471af81fb90adfeb73c774d6"
+  },
+  "historical_launch_inventory": "native.py launch field is historical; use fresh runtime-inventory receipts",
+  "claim_scope": "integration smoke only; no comparative speedup claim on 0.33.1"
+}

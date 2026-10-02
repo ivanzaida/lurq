@@ -1,0 +1,408 @@
+{
+  "runs": [
+    {
+      "name": "A1",
+      "variant": "baseline",
+      "fixture": "Genuine18 / 01 Editor",
+      "source_head": "644ff6613411e28dc3035c0c910df64fcf915b51",
+      "binary_sha256": "e1de508381460bad06aaa10b38bc0c7ef68bcd10ce7b84541effcbe5125658ae",
+      "workload_ms": 3936.5552999661304,
+      "max_pass_ms": 2079.492,
+      "pass_records": 9,
+      "completed_records": 38,
+      "asset_upload_ms": 2348.3936,
+      "upload_cpu_children_ms": {
+        "texture_creation": 2286.45,
+        "pixel_packing": 10.707,
+        "upload_staging_commands": 37.9505,
+        "descriptor_writes": 9.834,
+        "cache_eviction": 1.5957000000000001
+      },
+      "upload_event_counts": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_asset_bytes": 11762496,
+      "texture_creation_fraction_of_inclusive_upload": 0.9736229906264435,
+      "external_compiler_process_ids_observed": [
+        7672,
+        10416,
+        13060,
+        25800,
+        25892,
+        27896,
+        30580,
+        32480,
+        46304,
+        48080,
+        51940,
+        54060,
+        56388,
+        56892,
+        57384,
+        62648
+      ],
+      "window": {
+        "width": 2160,
+        "height": 1440,
+        "scale_factor": 1.5
+      },
+      "canvas_bounds": [
+        360,
+        138,
+        1404,
+        1257
+      ],
+      "viewport_before": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "viewport_after": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "historical_pending_after": "4272928",
+      "cleanup": {
+        "pid": 64952,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      }
+    },
+    {
+      "name": "B1",
+      "variant": "candidate",
+      "fixture": "Genuine18 / 01 Editor",
+      "source_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+      "binary_sha256": "b95da900c49f9d9e6ba521ac457180454dc5226889cf1fcbb1ffd8e00e88764f",
+      "workload_ms": 3097.7314000483602,
+      "max_pass_ms": 215.7426,
+      "pass_records": 10,
+      "completed_records": 40,
+      "asset_upload_ms": 382.1408,
+      "upload_cpu_children_ms": {
+        "texture_creation": 361.9171,
+        "pixel_packing": 3.7922000000000002,
+        "upload_staging_commands": 11.892399999999999,
+        "descriptor_writes": 2.8581,
+        "cache_eviction": 1.3694
+      },
+      "upload_event_counts": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_asset_bytes": 11762496,
+      "texture_creation_fraction_of_inclusive_upload": 0.9470778833351476,
+      "external_compiler_process_ids_observed": [
+        7672,
+        10416,
+        25800,
+        25968,
+        30580,
+        32480,
+        37716,
+        40496,
+        51940,
+        54060,
+        55140,
+        56892,
+        57384,
+        60420,
+        62648
+      ],
+      "window": {
+        "width": 2160,
+        "height": 1440,
+        "scale_factor": 1.5
+      },
+      "canvas_bounds": [
+        360,
+        138,
+        1404,
+        1257
+      ],
+      "viewport_before": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "viewport_after": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "historical_pending_after": "4272928",
+      "cleanup": {
+        "pid": 23176,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      }
+    },
+    {
+      "name": "B2",
+      "variant": "candidate",
+      "fixture": "Genuine18 / 01 Editor",
+      "source_head": "cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5",
+      "binary_sha256": "b95da900c49f9d9e6ba521ac457180454dc5226889cf1fcbb1ffd8e00e88764f",
+      "workload_ms": 1756.1714999610558,
+      "max_pass_ms": 233.4209,
+      "pass_records": 10,
+      "completed_records": 40,
+      "asset_upload_ms": 429.4785,
+      "upload_cpu_children_ms": {
+        "texture_creation": 405.6638,
+        "pixel_packing": 4.9454,
+        "upload_staging_commands": 13.6662,
+        "descriptor_writes": 3.2159,
+        "cache_eviction": 1.5652
+      },
+      "upload_event_counts": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_asset_bytes": 11762496,
+      "texture_creation_fraction_of_inclusive_upload": 0.9445497271691132,
+      "external_compiler_process_ids_observed": [
+        10416,
+        25968,
+        30580,
+        32480,
+        40496,
+        41000,
+        45272,
+        51940,
+        54060,
+        54356,
+        55140,
+        56892,
+        57384,
+        60420,
+        62648
+      ],
+      "window": {
+        "width": 2160,
+        "height": 1440,
+        "scale_factor": 1.5
+      },
+      "canvas_bounds": [
+        360,
+        138,
+        1404,
+        1257
+      ],
+      "viewport_before": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "viewport_after": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "historical_pending_after": "4272928",
+      "cleanup": {
+        "pid": 59860,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      }
+    },
+    {
+      "name": "A2",
+      "variant": "baseline",
+      "fixture": "Genuine18 / 01 Editor",
+      "source_head": "644ff6613411e28dc3035c0c910df64fcf915b51",
+      "binary_sha256": "e1de508381460bad06aaa10b38bc0c7ef68bcd10ce7b84541effcbe5125658ae",
+      "workload_ms": 2009.265900007449,
+      "max_pass_ms": 341.466,
+      "pass_records": 10,
+      "completed_records": 40,
+      "asset_upload_ms": 638.3638,
+      "upload_cpu_children_ms": {
+        "texture_creation": 606.6030000000001,
+        "pixel_packing": 5.757,
+        "upload_staging_commands": 19.3667,
+        "descriptor_writes": 4.3145,
+        "cache_eviction": 1.5032999999999999
+      },
+      "upload_event_counts": {
+        "cache_hits": 248,
+        "cache_misses": 1238,
+        "texture_creations": 1238,
+        "descriptor_pairs": 1256,
+        "padded_upload_bytes": 14143488,
+        "arena_uploads": 1238,
+        "dedicated_uploads": 0,
+        "cache_evictions": 1238
+      },
+      "uploaded_asset_bytes": 11762496,
+      "texture_creation_fraction_of_inclusive_upload": 0.9502465522011118,
+      "external_compiler_process_ids_observed": [
+        10416,
+        11280,
+        32480,
+        40264,
+        41000,
+        42664,
+        45272,
+        46296,
+        50140,
+        51940,
+        54060,
+        54356,
+        56892,
+        62648,
+        65336
+      ],
+      "window": {
+        "width": 2160,
+        "height": 1440,
+        "scale_factor": 1.5
+      },
+      "canvas_bounds": [
+        360,
+        138,
+        1404,
+        1257
+      ],
+      "viewport_before": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "viewport_after": {
+        "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+        "zoom": "14",
+        "pan_x": "128.6",
+        "pan_y": "48.0",
+        "visible_items": "1492",
+        "render_instances": "1492",
+        "renderer": "dx12",
+        "selection": "",
+        "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+        "text_refusal": "",
+        "canvas_error": ""
+      },
+      "historical_pending_after": "4272928",
+      "cleanup": {
+        "pid": 62716,
+        "stop": "terminated by harness",
+        "exited": true,
+        "port_closed": true
+      }
+    }
+  ],
+  "two_observation_means_ms": {
+    "baseline": {
+      "workload_ms": 2972.9105999867897,
+      "max_pass_ms": 1210.479,
+      "asset_upload_ms": 1493.3787,
+      "texture_creation_ms": 1446.5265
+    },
+    "candidate": {
+      "workload_ms": 2426.951450004708,
+      "max_pass_ms": 224.58175,
+      "asset_upload_ms": 405.80965000000003,
+      "texture_creation_ms": 383.79044999999996
+    }
+  },
+  "descriptive_comparison": {
+    "workload_ms": {
+      "candidate_div_baseline_mean": 0.8163553421402892,
+      "descriptive_reduction_percent": 18.364465785971085
+    },
+    "max_pass_ms": {
+      "candidate_div_baseline_mean": 0.185531306201925,
+      "descriptive_reduction_percent": 81.4468693798075
+    },
+    "asset_upload_ms": {
+      "candidate_div_baseline_mean": 0.2717392781884461,
+      "descriptive_reduction_percent": 72.82607218115538
+    },
+    "texture_creation_ms": {
+      "candidate_div_baseline_mean": 0.26531864435252306,
+      "descriptive_reduction_percent": 73.4681355647477
+    }
+  },
+  "upload_bytes_equal": true,
+  "upload_event_counts_equal": true,
+  "scope": "Four finite source/binary/fixture/window/sequence matched runs; means are descriptive, not statistical evidence, GPU time, FPS or instrumentation overhead. Nested upload fractions differ from whole-workload ratios; cache gauges remain in raw per-pass reports."
+}

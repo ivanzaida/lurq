@@ -1,0 +1,119 @@
+{
+  "observed_utc": "2026-10-02T18:33:03.575462+00:00",
+  "owned_pid": 62716,
+  "processes": [
+    {
+      "ProcessId": 10416,
+      "ParentProcessId": 62160,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 54060,
+      "ParentProcessId": 10416,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 56892,
+      "ParentProcessId": 26348,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 51940,
+      "ParentProcessId": 56892,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 32480,
+      "ParentProcessId": 60732,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 62648,
+      "ParentProcessId": 32480,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 54356,
+      "ParentProcessId": 50780,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 45272,
+      "ParentProcessId": 54356,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\nightly-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 41000,
+      "ParentProcessId": 45272,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\nightly-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "lurq"
+    },
+    {
+      "ProcessId": 65336,
+      "ParentProcessId": 62648,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "form_keyboard"
+    },
+    {
+      "ProcessId": 46296,
+      "ParentProcessId": 62648,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "orchester"
+    },
+    {
+      "ProcessId": 50140,
+      "ParentProcessId": 51940,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "activity"
+    },
+    {
+      "ProcessId": 40264,
+      "ParentProcessId": 51940,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "orchester"
+    },
+    {
+      "ProcessId": 42664,
+      "ParentProcessId": 46296,
+      "Name": "link.exe",
+      "ExecutablePath": "H:\\ProgramData\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 11280,
+      "ParentProcessId": 41000,
+      "Name": "link.exe",
+      "ExecutablePath": "H:\\ProgramData\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 62716,
+      "ParentProcessId": 40568,
+      "Name": "kontur-desktop.exe",
+      "ExecutablePath": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\kontur-desktop.exe",
+      "Crate": {}
+    }
+  ],
+  "scope": "fresh safe process inventory; preserve external processes; uncontrolled load, no utilization or performance comparison claim"
+}

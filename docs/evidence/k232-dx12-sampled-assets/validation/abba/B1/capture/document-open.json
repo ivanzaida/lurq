@@ -1,0 +1,15 @@
+{
+  "document": {
+    "containerSha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+    "createdAt": "2026-10-02T11:35:28.258299Z",
+    "id": "0acea323-5056-408d-84c0-f7c9a82e7c36",
+    "modifiedAt": "2026-10-02T11:35:28.258299Z",
+    "name": "Genuine18",
+    "revision": 1,
+    "state": {
+      "kind": "local"
+    }
+  },
+  "source": "local",
+  "state": "opening"
+}
