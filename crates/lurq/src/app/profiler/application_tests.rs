@@ -334,6 +334,33 @@ mod enabled {
 
   #[cfg(any(feature = "serde", feature = "mcp"))]
   #[test]
+  fn newest_completion_age_is_independent_of_worker_publication_order() {
+    let producer = WindowProfiler::new();
+    let handle = producer.handle();
+    let id = handle.start(Default::default()).unwrap().id;
+    handle
+      .application_scope("main", "first", ApplicationLane::Worker)
+      .finish();
+    // Distinct real completion timestamps, without asserting a speed threshold.
+    std::thread::sleep(std::time::Duration::from_millis(1));
+    handle
+      .application_scope("main", "second", ApplicationLane::Worker)
+      .finish();
+    let mut report = handle.end(id).unwrap();
+    let app = report.application_scopes.as_mut().unwrap();
+    let newest = app.samples[1].completed_ms;
+    assert!(newest > app.samples[0].completed_ms);
+    let expected_age = (report.observed_ms - newest).max(0.);
+    // A worker can timestamp completion first yet acquire the lock last. Reorder
+    // collected records to exercise exactly that permitted publication order.
+    app.samples.reverse();
+    let json = report.to_json();
+    assert_eq!(json["application_scopes"]["sample_age_ms"], expected_age);
+    assert_eq!(json["application_scopes"]["samples"][1]["scope"]["label"], "first");
+  }
+
+  #[cfg(any(feature = "serde", feature = "mcp"))]
+  #[test]
   fn app_only_export_has_own_age_bounds_and_wall_units() {
     let producer = WindowProfiler::new();
     let handle = producer.handle();

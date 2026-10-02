@@ -26,7 +26,9 @@ fn info(scope: &ApplicationScopeInfo) -> Value {
 
 impl ApplicationScopeReport {
   pub fn to_json(&self, observed_ms: f64) -> Value {
-    let newest = self.samples.last().map(|sample| sample.completed_ms);
+    // Worker completion timestamps may precede another worker's lock admission.
+    // History is publication-ordered, so its last entry need not be newest.
+    let newest = self.samples.iter().map(|sample| sample.completed_ms).reduce(f64::max);
     let status = if !self.available {
       "feature_disabled"
     } else if !self.in_flight.is_empty() {
