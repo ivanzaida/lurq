@@ -1,0 +1,8 @@
+{
+  "observed_utc": "2026-10-02T17:48:07.393327+00:00",
+  "python_executable": "C:\\Users\\lurkm\\AppData\\Local\\Packages\\OpenAI.Codex_2p2nqsd0c76g0\\LocalCache\\Local\\uv\\cache\\archive-v0\\q-kPMK8-v5Cc871G\\Scripts\\python.exe",
+  "python_version": "3.12.5 (tags/v3.12.5:ff3bc82, Aug  6 2024, 20:45:27) [MSC v.1940 64 bit (AMD64)]",
+  "mcp": "1.28.1",
+  "httpx": "0.28.1",
+  "scope": "existing SDK environment read-only preflight; no install; diagnostic capture, no comparative speedup claim"
+}

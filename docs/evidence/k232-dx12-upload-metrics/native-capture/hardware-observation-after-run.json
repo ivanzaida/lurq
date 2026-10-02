@@ -1,0 +1,31 @@
+{
+  "observed_utc": "2026-10-02T18:00:35.4699425Z",
+  "observed_after_run": true,
+  "scope": "Read-only post-run hardware inventory, not proof of selected DX12 adapter or run utilization; fresh in-run safe process inventory records external compiler contention",
+  "processors": [
+    {
+      "Name": "AMD Ryzen 9 7950X3D 16-Core Processor          ",
+      "Manufacturer": "AuthenticAMD",
+      "NumberOfCores": 16,
+      "NumberOfLogicalProcessors": 32
+    }
+  ],
+  "total_physical_memory_bytes": 67873599488,
+  "video_controllers": [
+    {
+      "Name": "Parsec Virtual Display Adapter",
+      "DriverVersion": "0.45.0.0",
+      "AdapterRAM": null
+    },
+    {
+      "Name": "AMD Radeon(TM) Graphics",
+      "DriverVersion": "32.0.21043.12001",
+      "AdapterRAM": 536870912
+    },
+    {
+      "Name": "NVIDIA GeForce RTX 5080",
+      "DriverVersion": "32.0.15.9649",
+      "AdapterRAM": 4293918720
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "source_copies": {
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\integration-033\\build_integration.mjs": "962ca49127c7ef8ec09a100c0e64c1d886eee93e6c57a4b99e5a7dfff82e1595",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\integration-033\\smoke.py": "3fad1e26ec019a74807c3660fcb7ba12146bf90a85c7cad96392cf6b8c20acfb",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\matched_compare.py": "9e2426516256fb5aebd4a21cd9939034d5cab8a20c5bfdb7a02fecb67b12c7cb",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\native.py": "0f32eceb8bfd07074e0f8b5da697924ed58285b9e17cc5de07bcf05562ebd7c8"
+  },
+  "new_sources": {
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\build_integration.mjs": "583866b0c17e6f81ea183753c59a28575eabee725f88820a25afe4b991228647",
+    "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\smoke.py": "2ee4079a6e7af37555902665e3947cda987a574dd822086c29812c0cf79656dd"
+  },
+  "configured_env_sha256": "055b967168508d226e60a53c5fb1cef62966fcd88709209b31c33b7decce7722",
+  "registry_lock_sha256": "f7229f6464dab118725c5d4436f97dcd450c388cdf25407e3813396caa75df50",
+  "changes": "exact identities, process-only Lurq override, bounded numeric post-capture aggregation; no native deadlines changed",
+  "status": "Python syntax PASS; build/native unexecuted"
+}

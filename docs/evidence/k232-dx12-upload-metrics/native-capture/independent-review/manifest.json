@@ -1,0 +1,20 @@
+{
+  "artifact_count": 3,
+  "artifacts": [
+    {
+      "path": "derived-review.json",
+      "bytes": 4381,
+      "sha256": "9e251918a8d03f9afaec5960efd0e7acfa0fa1823fbedfacf4c00c127e9e0c30"
+    },
+    {
+      "path": "report.md",
+      "bytes": 4775,
+      "sha256": "b82581a3d88159b5324049522552b6f68db13a93708d5242b02b2769d45cb338"
+    },
+    {
+      "path": "review_native034.py",
+      "bytes": 7358,
+      "sha256": "7750702d25acbe03a2219871edfb92d88a7d92216098dd9bd2a1939e5fe9d064"
+    }
+  ]
+}

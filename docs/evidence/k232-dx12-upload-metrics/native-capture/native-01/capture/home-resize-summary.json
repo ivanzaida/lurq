@@ -1,0 +1,77 @@
+{
+  "stages": [
+    {
+      "window": {
+        "width": 2160,
+        "height": 1440,
+        "scale_factor": 1.5
+      },
+      "control_bounds": [
+        1913.0,
+        240.0,
+        175.0,
+        51.0
+      ],
+      "labels": [
+        {
+          "name": "New document",
+          "bounds": [
+            1934.0,
+            253.0,
+            133.0,
+            25.0
+          ]
+        }
+      ]
+    },
+    {
+      "window": {
+        "width": 1800,
+        "height": 1200,
+        "scale_factor": 1.5
+      },
+      "control_bounds": [
+        1553.0,
+        240.0,
+        175.0,
+        51.0
+      ],
+      "labels": [
+        {
+          "name": "New document",
+          "bounds": [
+            1574.0,
+            253.0,
+            133.0,
+            25.0
+          ]
+        }
+      ]
+    },
+    {
+      "window": {
+        "width": 2160,
+        "height": 1440,
+        "scale_factor": 1.5
+      },
+      "control_bounds": [
+        1913.0,
+        240.0,
+        175.0,
+        51.0
+      ],
+      "labels": [
+        {
+          "name": "New document",
+          "bounds": [
+            1934.0,
+            253.0,
+            133.0,
+            25.0
+          ]
+        }
+      ]
+    }
+  ],
+  "scope": "one resize sequence, no document creation"
+}

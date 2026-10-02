@@ -1,0 +1,98 @@
+{
+  "observed_utc": "2026-10-02T17:54:55.648454+00:00",
+  "owned_pid": 35808,
+  "processes": [
+    {
+      "ProcessId": 29556,
+      "ParentProcessId": 4784,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 20460,
+      "ParentProcessId": 29556,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 41396,
+      "ParentProcessId": 10292,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 34176,
+      "ParentProcessId": 24272,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 26972,
+      "ParentProcessId": 34176,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 34960,
+      "ParentProcessId": 18152,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 48408,
+      "ParentProcessId": 34960,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 45012,
+      "ParentProcessId": 48408,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "orchester_runner"
+    },
+    {
+      "ProcessId": 56300,
+      "ParentProcessId": 41396,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "orchester_core"
+    },
+    {
+      "ProcessId": 27248,
+      "ParentProcessId": 18008,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.cargo\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 42888,
+      "ParentProcessId": 27248,
+      "Name": "cargo.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "Crate": {}
+    },
+    {
+      "ProcessId": 41084,
+      "ParentProcessId": 42888,
+      "Name": "rustc.exe",
+      "ExecutablePath": "C:\\Users\\lurkm\\.rustup\\toolchains\\1.95.0-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "Crate": "orchester_desktop"
+    },
+    {
+      "ProcessId": 35808,
+      "ParentProcessId": 25188,
+      "Name": "kontur-desktop.exe",
+      "ExecutablePath": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\kontur-desktop.exe",
+      "Crate": {}
+    }
+  ],
+  "scope": "fresh safe process inventory; preserve external processes; uncontrolled load, no utilization or performance comparison claim"
+}
