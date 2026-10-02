@@ -64,6 +64,27 @@ impl LayoutCache {
       .any(|cached| cached.constraints == constraints)
   }
 
+  /// Records that the parent reused `result`, this node's layout under
+  /// `constraints` from earlier in the parent's layout, instead of laying
+  /// the node out again (a repaired child's override). Like a hit, it makes
+  /// those constraints the front ones: the parent may have laid the node out
+  /// under other constraints in between, and its next repair must not use
+  /// them. The entry is put back if those layouts pushed it out.
+  pub(crate) fn record_reuse(&self, constraints: Constraints, result: &LayoutResult) {
+    let mut entries = self.inner.borrow_mut();
+    let reused = match entries.iter().position(|cached| cached.constraints == constraints) {
+      Some(0) => return,
+      Some(index) => entries.remove(index),
+      None => CachedLayout {
+        constraints,
+        result: result.clone(),
+      },
+    };
+    entries.insert(0, reused);
+    entries.truncate(MAX_CACHED_LAYOUTS);
+    self.descendants_match_front.set(false);
+  }
+
   /// The cached result a dirty node may patch its dirty children into:
   /// the front entry, when it was laid out under `constraints` and its
   /// descendants were not laid out for another entry since. The patch lays
@@ -301,5 +322,26 @@ mod tests {
     new.preserve_from(&old);
 
     assert!(new.get_repairable(constraints(1440.0)).is_none());
+  }
+
+  /// A reused override becomes the front entry, and comes back if the
+  /// parent's layouts in between pushed it out of the cache.
+  #[test]
+  fn a_reused_result_becomes_the_front_entry() {
+    let cache = LayoutCache::new();
+    cache.store(constraints(292.0), result(292.0));
+    cache.store(constraints(300.0), result(300.0));
+    cache.record_reuse(constraints(292.0), &result(292.0));
+    assert_eq!(cache.constraints().map(|front| front.max_width), Some(292.0));
+    assert!(cache.get_repairable(constraints(292.0)).is_none());
+
+    cache.store(constraints(300.0), result(300.0));
+    cache.store(constraints(310.0), result(310.0));
+    cache.record_reuse(constraints(292.0), &result(292.0));
+    assert_eq!(
+      cache.cached_entry().map(|(front, size)| (front.max_width, size.width)),
+      Some((292.0, 292.0))
+    );
+    assert!(cache.get(constraints(310.0)).is_some(), "the newer entry stays");
   }
 }

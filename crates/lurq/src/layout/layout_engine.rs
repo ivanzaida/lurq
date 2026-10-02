@@ -3503,6 +3503,7 @@ impl LayoutEngine {
         // The override was laid out before this parent layout began, which
         // may have laid the child out again under other constraints since.
         Self::restore_text_layout_tree(child, &child_override.result);
+        child.layout_cache.record_reuse(constraints, &child_override.result);
         return child_override.result.clone();
       }
     }
@@ -3999,6 +4000,76 @@ mod tests {
     assert_eq!(
       result.size.height, 3000.0,
       "stale transplanted cache must not override the node's fixed frame"
+    );
+  }
+
+  /// A `Reserved` scroll container lays its content out at its full width,
+  /// then at the width left beside the gutter. When a repaired content's
+  /// size changes, the container lays out again and reuses the repaired
+  /// result for the gutter width; the content's cache must then name the
+  /// gutter width, not the full width it was measured at in between, or the
+  /// next repair lays it out across the gutter.
+  #[test]
+  fn reused_child_override_becomes_the_childs_current_constraints() {
+    fn scroll_content(node: &Node) -> &Node {
+      if matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. }) {
+        return &node.children()[0];
+      }
+      scroll_content(&node.children()[0])
+    }
+    fn text_leaf(node: &mut Node) -> &mut Node {
+      if node.children.is_empty() {
+        return node;
+      }
+      text_leaf(&mut node.children[0])
+    }
+
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let constraints = Constraints::loose(Size::new(300.0, 1000.0));
+    let compute = |glyph_engine: &mut GlyphEngine, node: &Node| {
+      engine.compute(
+        glyph_engine,
+        node,
+        constraints,
+        ThemePalette::default(),
+        ThemeBorderSizes::default(),
+        ThemeSpacing::default(),
+        ThemeRadii::default(),
+        ThemeCaret::default(),
+        ScrollBarStyle::default(),
+        ThemeTypography::default(),
+        false,
+      )
+    };
+    let mut root: Node = crate::node::Element::from(
+      crate::components::ScrollVertical::new(
+        crate::components::Column::new()
+          .width(crate::node::dimension::Dimension::Pct(100.0))
+          .child(crate::components::Text::new("short")),
+      )
+      .scrollbar(ScrollBarStyle {
+        visible: crate::layout::scrollbar::ScrollBarVisibility::Always,
+        placement: crate::layout::scrollbar::ScrollBarPlacement::Reserved,
+        width: 8.0,
+        padding: 0.0,
+        ..Default::default()
+      }),
+    )
+    .into_node();
+    compute(&mut glyph_engine, &root);
+    let gutter_width = scroll_content(&root).layout_cache.constraints().unwrap().max_width;
+    assert_eq!(gutter_width, 292.0, "the content is laid out beside the gutter");
+
+    text_leaf(&mut root)
+      .text_content
+      .set(Some("a longer line that changes the content's size".repeat(8)));
+    compute(&mut glyph_engine, &root);
+
+    assert_eq!(
+      scroll_content(&root).layout_cache.constraints().unwrap().max_width,
+      gutter_width,
+      "the reused override's constraints are the content's current ones"
     );
   }
 
