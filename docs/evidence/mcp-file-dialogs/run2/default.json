@@ -1,0 +1,16 @@
+{
+  "arguments": [
+    "check",
+    "--locked",
+    "--offline",
+    "-j1",
+    "-p",
+    "lurq",
+    "--lib"
+  ],
+  "exit_code": 0,
+  "started": "2026-10-02T08:55:29.1149478Z",
+  "stage": "default",
+  "finished": "2026-10-02T08:55:55.4444823Z",
+  "head": "bf0c571e89567e3b73d13cc4752657514112e51b"
+}

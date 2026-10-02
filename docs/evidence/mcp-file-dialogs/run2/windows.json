@@ -1,0 +1,21 @@
+{
+  "arguments": [
+    "test",
+    "--locked",
+    "--offline",
+    "-j1",
+    "-p",
+    "lurq",
+    "--features",
+    "mcp",
+    "--lib",
+    "app::window",
+    "--",
+    "--test-threads=1"
+  ],
+  "exit_code": 0,
+  "started": "2026-10-02T08:55:28.5879892Z",
+  "stage": "windows",
+  "finished": "2026-10-02T08:55:29.1045201Z",
+  "head": "bf0c571e89567e3b73d13cc4752657514112e51b"
+}

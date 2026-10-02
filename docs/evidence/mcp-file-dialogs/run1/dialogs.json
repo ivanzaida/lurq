@@ -1,0 +1,21 @@
+{
+  "exit_code": 101,
+  "started": "2026-10-02T08:48:14.3726222Z",
+  "finished": "2026-10-02T08:52:06.4786086Z",
+  "arguments": [
+    "test",
+    "--locked",
+    "--offline",
+    "-j1",
+    "-p",
+    "lurq",
+    "--features",
+    "mcp",
+    "--lib",
+    "file_dialogs",
+    "--",
+    "--test-threads=1"
+  ],
+  "stage": "dialogs",
+  "head": "182e6dc08fd6368f17c226bbeae8b2095e26fedf"
+}

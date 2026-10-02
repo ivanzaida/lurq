@@ -1,0 +1,21 @@
+{
+  "arguments": [
+    "test",
+    "--locked",
+    "--offline",
+    "-j1",
+    "-p",
+    "lurq",
+    "--features",
+    "mcp",
+    "--lib",
+    "mcp::",
+    "--",
+    "--test-threads=1"
+  ],
+  "exit_code": 0,
+  "started": "2026-10-02T08:55:15.2641254Z",
+  "stage": "dialogs",
+  "finished": "2026-10-02T08:55:28.5635781Z",
+  "head": "bf0c571e89567e3b73d13cc4752657514112e51b"
+}

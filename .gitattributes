@@ -1,0 +1,10 @@
+docs/evidence/mcp-file-dialogs/run1/dialogs.json -text
+docs/evidence/mcp-file-dialogs/run1/dialogs.log -text
+docs/evidence/mcp-file-dialogs/run1/run.ps1 -text
+docs/evidence/mcp-file-dialogs/run2/default.json -text
+docs/evidence/mcp-file-dialogs/run2/default.log -text
+docs/evidence/mcp-file-dialogs/run2/dialogs.json -text
+docs/evidence/mcp-file-dialogs/run2/dialogs.log -text
+docs/evidence/mcp-file-dialogs/run2/run.ps1 -text
+docs/evidence/mcp-file-dialogs/run2/windows.json -text
+docs/evidence/mcp-file-dialogs/run2/windows.log -text
