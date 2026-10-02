@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "artifact_count": 9,
+  "artifacts": [
+    {
+      "path": "dx12-disabled.json",
+      "bytes": 884,
+      "sha256": "cea0ce51c72c76225809dd8ebac927722b4b7552ab225e812cc4a657c16ada71"
+    },
+    {
+      "path": "dx12-disabled.log",
+      "bytes": 952,
+      "sha256": "6d6f3bec8e91143e901824986acbdc10700969e77bf758845341126257325e4d"
+    },
+    {
+      "path": "dx12-enabled.json",
+      "bytes": 897,
+      "sha256": "d538e399037077327f12133b25a59894540a81581c31d10f5b709c33d56cb513"
+    },
+    {
+      "path": "dx12-enabled.log",
+      "bytes": 953,
+      "sha256": "0ead0c63482d04d12b6b4a0e499c80cef398082b7e981e1414c47bde530fd15f"
+    },
+    {
+      "path": "repair.diff",
+      "bytes": 664,
+      "sha256": "29721d5be51444e19ee4e127d71afea93aeb71f2f4d99509c7a2b9ad44de0d2e"
+    },
+    {
+      "path": "report.md",
+      "bytes": 1754,
+      "sha256": "6faf16eba6579688b148873e8974a725b4d83890d83a6900f7fc1c8e0d79c873"
+    },
+    {
+      "path": "run.ps1",
+      "bytes": 3107,
+      "sha256": "046bb1d710bcdc1625a94997a7d7f05b79f7dc3adbeef7440c73ee2461fda67f"
+    },
+    {
+      "path": "terminal.json",
+      "bytes": 245,
+      "sha256": "8968bcb2b55d02a63755ee7e626d01ed1ec81ea572f9c0040ec75044d830a8ed"
+    },
+    {
+      "path": "verdict.json",
+      "bytes": 861,
+      "sha256": "6da112f06476b02b47f5016e9f2711171fed9423c2a43ae9ad261a5d8ba67968"
+    }
+  ]
+}

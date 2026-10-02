@@ -1,0 +1,20 @@
+{
+  "tested_head": "a83cee4af0c194665b12f6084459bdcb5a184386",
+  "tested_tree": "043134c33dab1e938448507a54589e365b52727d",
+  "session": 8862,
+  "terminal_exit": 0,
+  "result": "SCOPED_PASS_SOURCE_CONTRACTS_AND_DX12_COMPILE",
+  "enabled_contracts": 4,
+  "disabled_contracts": 2,
+  "contracts_executed_head": "9b1affb544572b75be9d6e19cb897146a05db5fa",
+  "carry_basis": "exact diff adds only private DX12 viewport import; all contract/model/export source unchanged",
+  "dx12_enabled_exit": 0,
+  "dx12_disabled_exit": 0,
+  "tracked_clean": true,
+  "lock_unchanged": true,
+  "cargo_lane": "released",
+  "native_launched": false,
+  "owned_compiler_remaining": 0,
+  "original_failure_manifest": "../checkpoint-9b1affb-fail/manifest.json",
+  "original_failure_manifest_sha256": "fec9d99bff3e7a4e2d48891b689d4e48f223cccf15133444a32afdf4f141acdb"
+}

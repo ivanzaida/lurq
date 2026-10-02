@@ -1,0 +1,153 @@
+{
+  "status": "all QA payloads source-copy byte equality PASS; no normalization",
+  "tested_source": "a83cee4af0c194665b12f6084459bdcb5a184386",
+  "artifacts": [
+    {
+      "path": "checkpoint-9b1affb-fail/disabled.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\disabled.json",
+      "bytes": 992,
+      "sha256": "84fc223354c761075ef597c434a8c196bc09caf922f6de5385e21cd9b6c4480e",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/disabled.log",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\disabled.log",
+      "bytes": 3788,
+      "sha256": "9c192acff01e1ccc85736a5709a001fb086066ffcbed73f917db34c129e3d742",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/dx12-enabled.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\dx12-enabled.json",
+      "bytes": 945,
+      "sha256": "60acfd396a5087f1ce47e7ae1f9b397e97185305c8b824ae53333fba2cf7511d",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/dx12-enabled.log",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\dx12-enabled.log",
+      "bytes": 603,
+      "sha256": "12e4999865d2ebe0c534141a58896809f0e9a2a04c11283bdd29fcfbb3ebb63a",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/enabled.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\enabled.json",
+      "bytes": 1005,
+      "sha256": "41cf188948a228ad298e22ee108c07048d08a723924f9ce1cbfb967bea9774d0",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/enabled.log",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\enabled.log",
+      "bytes": 4067,
+      "sha256": "e08b89ddf98a33bc02aee523f8b74df62ad297c92d74eca79b43a6bfe43a64eb",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/manifest.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\manifest.json",
+      "bytes": 1449,
+      "sha256": "fec9d99bff3e7a4e2d48891b689d4e48f223cccf15133444a32afdf4f141acdb",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/report.md",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\report.md",
+      "bytes": 1280,
+      "sha256": "8a70a934f19632ee9855c42cb94252d9718886b975e339152aca6abaadaea911",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/run.ps1",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\run.ps1",
+      "bytes": 3931,
+      "sha256": "9b8c7d976622c0962520dd6e1b459a741e12a59d446b33731a46b69c3722a3ef",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-9b1affb-fail/terminal-and-artifacts.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-9b1affb-fail\\terminal-and-artifacts.json",
+      "bytes": 1145,
+      "sha256": "3a452930dcce14585eea00ef85af4b4eb265df037116d2499936128a01fbabd5",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/dx12-disabled.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\dx12-disabled.json",
+      "bytes": 884,
+      "sha256": "cea0ce51c72c76225809dd8ebac927722b4b7552ab225e812cc4a657c16ada71",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/dx12-disabled.log",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\dx12-disabled.log",
+      "bytes": 952,
+      "sha256": "6d6f3bec8e91143e901824986acbdc10700969e77bf758845341126257325e4d",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/dx12-enabled.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\dx12-enabled.json",
+      "bytes": 897,
+      "sha256": "d538e399037077327f12133b25a59894540a81581c31d10f5b709c33d56cb513",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/dx12-enabled.log",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\dx12-enabled.log",
+      "bytes": 953,
+      "sha256": "0ead0c63482d04d12b6b4a0e499c80cef398082b7e981e1414c47bde530fd15f",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/manifest.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\manifest.json",
+      "bytes": 1441,
+      "sha256": "c2c62f2328a433b390941897b01aa865bcb7f241d3e795a28a25bcdceb4a15a2",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/repair.diff",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\repair.diff",
+      "bytes": 664,
+      "sha256": "29721d5be51444e19ee4e127d71afea93aeb71f2f4d99509c7a2b9ad44de0d2e",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/report.md",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\report.md",
+      "bytes": 1754,
+      "sha256": "6faf16eba6579688b148873e8974a725b4d83890d83a6900f7fc1c8e0d79c873",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/run.ps1",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\run.ps1",
+      "bytes": 3107,
+      "sha256": "046bb1d710bcdc1625a94997a7d7f05b79f7dc3adbeef7440c73ee2461fda67f",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/terminal.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\terminal.json",
+      "bytes": 245,
+      "sha256": "8968bcb2b55d02a63755ee7e626d01ed1ec81ea572f9c0040ec75044d830a8ed",
+      "source_copy_equal": true
+    },
+    {
+      "path": "checkpoint-a83cee4a-pass/verdict.json",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\checkpoint-a83cee4a-pass\\verdict.json",
+      "bytes": 861,
+      "sha256": "6da112f06476b02b47f5016e9f2711171fed9423c2a43ae9ad261a5d8ba67968",
+      "source_copy_equal": true
+    },
+    {
+      "path": "source-review-9b1affb.md",
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\qa-k224-807bca42\\docs\\evidence\\k232-dx12-upload-metrics\\source-review-9b1affb.md",
+      "bytes": 5748,
+      "sha256": "341f4fcb8868549bbee98fc4c18510354f8e26f182453bdcf6fe1a84db3f12a2",
+      "source_copy_equal": true
+    }
+  ]
+}

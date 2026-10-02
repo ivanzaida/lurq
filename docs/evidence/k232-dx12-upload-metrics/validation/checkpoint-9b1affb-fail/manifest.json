@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "artifact_count": 9,
+  "artifacts": [
+    {
+      "path": "disabled.json",
+      "bytes": 992,
+      "sha256": "84fc223354c761075ef597c434a8c196bc09caf922f6de5385e21cd9b6c4480e"
+    },
+    {
+      "path": "disabled.log",
+      "bytes": 3788,
+      "sha256": "9c192acff01e1ccc85736a5709a001fb086066ffcbed73f917db34c129e3d742"
+    },
+    {
+      "path": "dx12-enabled.json",
+      "bytes": 945,
+      "sha256": "60acfd396a5087f1ce47e7ae1f9b397e97185305c8b824ae53333fba2cf7511d"
+    },
+    {
+      "path": "dx12-enabled.log",
+      "bytes": 603,
+      "sha256": "12e4999865d2ebe0c534141a58896809f0e9a2a04c11283bdd29fcfbb3ebb63a"
+    },
+    {
+      "path": "enabled.json",
+      "bytes": 1005,
+      "sha256": "41cf188948a228ad298e22ee108c07048d08a723924f9ce1cbfb967bea9774d0"
+    },
+    {
+      "path": "enabled.log",
+      "bytes": 4067,
+      "sha256": "e08b89ddf98a33bc02aee523f8b74df62ad297c92d74eca79b43a6bfe43a64eb"
+    },
+    {
+      "path": "report.md",
+      "bytes": 1280,
+      "sha256": "8a70a934f19632ee9855c42cb94252d9718886b975e339152aca6abaadaea911"
+    },
+    {
+      "path": "run.ps1",
+      "bytes": 3931,
+      "sha256": "9b8c7d976622c0962520dd6e1b459a741e12a59d446b33731a46b69c3722a3ef"
+    },
+    {
+      "path": "terminal-and-artifacts.json",
+      "bytes": 1145,
+      "sha256": "3a452930dcce14585eea00ef85af4b4eb265df037116d2499936128a01fbabd5"
+    }
+  ]
+}

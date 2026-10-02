@@ -1,0 +1,28 @@
+{
+  "tested_head": "9b1affb544572b75be9d6e19cb897146a05db5fa",
+  "tested_tree": "53e8a0bac526e8b61fd77b512fd37ecb5028a17f",
+  "session": 71814,
+  "terminal_exit": 1,
+  "result": "FAIL_DX12_COMPILE",
+  "enabled_passed": 4,
+  "disabled_passed": 2,
+  "dx12_enabled_exit": 101,
+  "dx12_disabled": "not executed: stop first failure",
+  "test_executables": [
+    {
+      "path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\deps\\lurq-49f40ce4ca66ffa1.exe",
+      "bytes": 19338752,
+      "sha256": "b6ee2dbdc1e75e16df428b92c0ceb31e160b5c8f91830854e063d725a69b46a8"
+    },
+    {
+      "path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\deps\\lurq-5049da392f94ea0e.exe",
+      "bytes": 18814976,
+      "sha256": "641438cfe519780ed61a57275751cbcaae1a9c48949d29bdea69340a71147b10"
+    }
+  ],
+  "source_modified_by_qa": false,
+  "lock_sha256": "f0d263dc9e391de25a5e8299eee8c7a7f312e55841c855ade04a82e6acaa59ae",
+  "cargo_lane": "released",
+  "native_launched": false,
+  "cleanup_observed_utc": "2026-10-02T17:09:19.2974311Z"
+}
