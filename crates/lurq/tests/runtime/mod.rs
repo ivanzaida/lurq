@@ -24,6 +24,8 @@ mod futures {
   mod tokio_future_action_uses_runtime;
   #[cfg(feature = "tokio")]
   mod tokio_future_uses_runtime;
+  #[cfg(feature = "tokio")]
+  mod tokio_tasks;
 }
 mod headless_pass;
 mod modal_resize;

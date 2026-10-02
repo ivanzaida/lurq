@@ -714,15 +714,33 @@ struct AsyncTask {
 
 #[derive(Default)]
 struct AsyncTaskInner {
+  work: AsyncWork,
+  /// Set when the slot that owns the task is dropped: the task never starts
+  /// work again, even through a handle that outlived its component.
+  closed: bool,
+}
+
+/// The work a task is running. Dropping it cancels the work.
+#[derive(Default)]
+struct AsyncWork {
   future: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
   #[cfg(feature = "tokio")]
   tokio_task: Option<TokioAsyncTask>,
 }
 
+/// A `ctx.future`, `ctx.stream` or `ctx.future_action` slot of a component.
+/// Its task lives as long as the slot: dropping the slot (its component
+/// unmounts, or a render no longer reaches it) cancels the task.
 struct FutureSlot {
   deps: Option<Box<dyn Any + Send + Sync>>,
   handle: Box<dyn Any + Send + Sync>,
   task: AsyncTask,
+}
+
+impl Drop for FutureSlot {
+  fn drop(&mut self) {
+    self.task.close();
+  }
 }
 
 #[cfg(feature = "tokio")]
@@ -730,6 +748,17 @@ struct TokioAsyncTask {
   join: tokio::task::JoinHandle<()>,
   receiver: mpsc::Receiver<FutureCompletion>,
   finish_on_message: bool,
+}
+
+/// Dropping a `JoinHandle` only detaches its task, so the task is aborted
+/// explicitly. `abort` only marks the task cancelled and schedules it: the
+/// runtime drops the future on its own threads, and on a runtime that is
+/// shutting down or gone the call does nothing (shutdown drops the future).
+#[cfg(feature = "tokio")]
+impl Drop for TokioAsyncTask {
+  fn drop(&mut self) {
+    self.join.abort();
+  }
 }
 
 struct NoopWake;
@@ -840,7 +869,12 @@ where
     self.state.clone()
   }
 
+  /// Starts the action with `args`, replacing a run still in flight. Does
+  /// nothing once the component that created the action has unmounted.
   pub fn run(&self, args: A) {
+    if self.task.is_closed() {
+      return;
+    }
     let runner = self.runner.lock().clone();
     let future = runner(args);
     start_future_task(
@@ -867,46 +901,82 @@ impl AsyncTask {
     }
   }
 
+  /// Replaces the running work with a future polled by `tick_futures`.
   fn set(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-    self.cancel();
-    self.inner.lock().future = Some(future);
+    let replaced = {
+      let mut inner = self.inner.lock();
+      if inner.closed {
+        return;
+      }
+      std::mem::replace(
+        &mut inner.work,
+        AsyncWork {
+          future: Some(future),
+          #[cfg(feature = "tokio")]
+          tokio_task: None,
+        },
+      )
+    };
+    drop(replaced);
   }
 
+  /// Replaces the running work with `future` spawned on `runtime`. Spawning
+  /// under the lock keeps a concurrent `close` from missing the new task.
   #[cfg(feature = "tokio")]
-  fn set_tokio(&self, join: tokio::task::JoinHandle<()>, receiver: mpsc::Receiver<FutureCompletion>) {
-    self.cancel();
-    self.inner.lock().tokio_task = Some(TokioAsyncTask {
-      join,
-      receiver,
-      finish_on_message: true,
-    });
-  }
-
-  #[cfg(feature = "tokio")]
-  fn set_tokio_stream(&self, join: tokio::task::JoinHandle<()>, receiver: mpsc::Receiver<FutureCompletion>) {
-    self.cancel();
-    self.inner.lock().tokio_task = Some(TokioAsyncTask {
-      join,
-      receiver,
-      finish_on_message: false,
-    });
+  fn spawn(
+    &self,
+    runtime: &tokio::runtime::Handle,
+    future: impl Future<Output = ()> + Send + 'static,
+    receiver: mpsc::Receiver<FutureCompletion>,
+    finish_on_message: bool,
+  ) {
+    let replaced = {
+      let mut inner = self.inner.lock();
+      if inner.closed {
+        return;
+      }
+      let join = runtime.spawn(future);
+      std::mem::replace(
+        &mut inner.work,
+        AsyncWork {
+          future: None,
+          tokio_task: Some(TokioAsyncTask {
+            join,
+            receiver,
+            finish_on_message,
+          }),
+        },
+      )
+    };
+    drop(replaced);
   }
 
   fn cancel(&self) {
-    let mut inner = self.inner.lock();
-    inner.future = None;
-    #[cfg(feature = "tokio")]
-    if let Some(task) = inner.tokio_task.take() {
-      task.join.abort();
-    }
+    // Dropped once the lock is released: dropping a future runs its destructors.
+    let cancelled = std::mem::take(&mut self.inner.lock().work);
+    drop(cancelled);
+  }
+
+  /// Cancels the running work and keeps the task from starting again.
+  fn close(&self) {
+    let cancelled = {
+      let mut inner = self.inner.lock();
+      inner.closed = true;
+      std::mem::take(&mut inner.work)
+    };
+    drop(cancelled);
+  }
+
+  fn is_closed(&self) -> bool {
+    self.inner.lock().closed
   }
 
   fn is_active(&self) -> bool {
     let inner = self.inner.lock();
-    inner.future.is_some() || {
+    inner.work.future.is_some() || {
       #[cfg(feature = "tokio")]
       {
-        inner.tokio_task.is_some()
+        inner.work.tokio_task.is_some()
       }
       #[cfg(not(feature = "tokio"))]
       {
@@ -918,14 +988,14 @@ impl AsyncTask {
   fn poll(&self, cx: &mut TaskContext<'_>) -> bool {
     // Release the task lock before polling: a completing future sets its state
     // signal, and an observer of that signal may start this task again.
-    let future = self.inner.lock().future.take();
+    let future = self.inner.lock().work.future.take();
     if let Some(mut future) = future {
       match future.as_mut().poll(cx) {
         Poll::Ready(()) => return true,
         Poll::Pending => {
           let mut inner = self.inner.lock();
-          if inner.future.is_none() {
-            inner.future = Some(future);
+          if !inner.closed && inner.work.future.is_none() {
+            inner.work.future = Some(future);
           }
           return false;
         }
@@ -938,7 +1008,7 @@ impl AsyncTask {
       let mut disconnected = false;
       {
         let mut inner = self.inner.lock();
-        if let Some(task) = inner.tokio_task.as_mut() {
+        if let Some(task) = inner.work.tokio_task.as_mut() {
           match task.receiver.try_recv() {
             Ok(received) => {
               if task.finish_on_message {
@@ -951,7 +1021,7 @@ impl AsyncTask {
           }
         }
         if disconnected {
-          inner.tokio_task = None;
+          inner.work.tokio_task = None;
         }
       }
 
@@ -985,7 +1055,7 @@ fn start_future_task<T, E>(
   if let Some(handle) = runtime_handle {
     let completion_state = state.clone();
     let (sender, receiver) = mpsc::channel::<FutureCompletion>();
-    let join = handle.spawn(async move {
+    let completion_task = async move {
       let result = future.await;
       let completion: FutureCompletion = Box::new(move || match result {
         Ok(data) => completion_state.set(FutureState::fulfilled(data)),
@@ -995,8 +1065,8 @@ fn start_future_task<T, E>(
         }
       });
       let _ = sender.send(completion);
-    });
-    task.set_tokio(join, receiver);
+    };
+    task.spawn(&handle, completion_task, receiver, true);
     return;
   }
 
@@ -1035,8 +1105,7 @@ fn start_stream_task<T, E, Fut>(
       state,
       sender: Some(sender),
     };
-    let join = handle.spawn(factory(emitter));
-    task.set_tokio_stream(join, receiver);
+    task.spawn(&handle, factory(emitter), receiver, false);
     return;
   }
 
@@ -1969,7 +2038,6 @@ impl Ctx {
         }
         return handle;
       }
-      slot.task.cancel();
     }
 
     let state = self.signal(FutureState::idle());
@@ -2070,7 +2138,6 @@ impl Ctx {
         }
         return handle;
       }
-      slot.task.cancel();
     }
 
     let state = self.signal(FutureState::idle());
@@ -2113,7 +2180,6 @@ impl Ctx {
         action.runtime_handle = runtime_handle;
         return action.clone();
       }
-      slot.task.cancel();
     }
 
     let state = self.signal(FutureState::idle());
@@ -2504,10 +2570,15 @@ impl Ctx {
   /// from the active tree. Offstage components keep their slots, signals,
   /// futures, and last rendered node, but do not participate in layout,
   /// painting, hit testing, dirty refreshes, timers, or future polling until
-  /// they become active again. When it becomes active again, its output
-  /// takes back the runtime state it had: scroll offsets (including those of
-  /// scroll areas whose `ScrollState` the component does not hold), text-input
-  /// carets and selections, open selects and canvases.
+  /// they become active again. Future polling means applying results: a future
+  /// or stream polled cooperatively (no Tokio handle) waits, while a task
+  /// already running on Tokio keeps running and the results it produced while
+  /// offstage are applied, in order, once the component is active again. A
+  /// component removed while offstage unmounts and its tasks are cancelled.
+  /// When it becomes active again, its output takes back the runtime state it
+  /// had: scroll offsets (including those of scroll areas whose `ScrollState`
+  /// the component does not hold), text-input carets and selections, open
+  /// selects and canvases.
   pub fn mount_offstage<C: Component>(&mut self, props: C::Props, active: bool) -> Element {
     self.mount_inner::<C>(None, props, None, active)
   }
@@ -2932,9 +3003,7 @@ impl Ctx {
     }
 
     self.element_refs.truncate(self.element_ref_cursor);
-    for slot in &self.future_slots[self.future_cursor..] {
-      slot.task.cancel();
-    }
+    // Dropping a slot cancels its task.
     self.future_slots.truncate(self.future_cursor);
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
