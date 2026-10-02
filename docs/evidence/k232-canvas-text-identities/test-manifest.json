@@ -1,0 +1,39 @@
+{
+  "source_head": "00bd05500d20ba245ded47b6c5c2f295be74a501",
+  "source_crate_tree": "45587874852932513e23f95513291c18ef6edc6f",
+  "terminal_session": 52460,
+  "terminal_exit_code": 0,
+  "dx12_profile_tests_passed": 14,
+  "dx12_without_profile_tests_passed": 9,
+  "native": "UNEXECUTED",
+  "payloads": [
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-canvas-text-performance\\.tmp\\k232-canvas-text-identities\\tests\\run1\\dx12-profile.log",
+      "retained_path": "docs/evidence/k232-canvas-text-identities/tests/dx12-profile.log",
+      "bytes": 3625,
+      "sha256": "29b563ca544a642304dff5b44f73b8e48dc8dffdbb3f46a90b8fad9cafc104e7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-canvas-text-performance\\.tmp\\k232-canvas-text-identities\\tests\\run1\\dx12-profile.json",
+      "retained_path": "docs/evidence/k232-canvas-text-identities/tests/dx12-profile.json",
+      "bytes": 1139,
+      "sha256": "32e026e8c7db80c0437e4bf6d3eed73b49c715e22cf598b926334a0f6c6c8008",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-canvas-text-performance\\.tmp\\k232-canvas-text-identities\\tests\\run1\\dx12-no-profile.log",
+      "retained_path": "docs/evidence/k232-canvas-text-identities/tests/dx12-no-profile.log",
+      "bytes": 3090,
+      "sha256": "b117bc6bdf29ffb0304912e0e5829a4ba5a60968a68e10a1c9c6258c2d4118f7",
+      "source_copy_equal": true
+    },
+    {
+      "source_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-canvas-text-performance\\.tmp\\k232-canvas-text-identities\\tests\\run1\\dx12-no-profile.json",
+      "retained_path": "docs/evidence/k232-canvas-text-identities/tests/dx12-no-profile.json",
+      "bytes": 1126,
+      "sha256": "c5fdb49245a6a9ebf5af5863f17c02b2318fa187190cc43965a9ee36eaafb15d",
+      "source_copy_equal": true
+    }
+  ]
+}

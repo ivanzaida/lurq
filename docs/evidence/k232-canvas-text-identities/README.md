@@ -1,6 +1,6 @@
 # Bounded Canvas text identities — source checkpoint
 
-This unexecuted candidate starts from reviewed merged master `719deacf14252cce0bc8544609cddaafc39ab60e`. It addresses the measured Genuine18 / 01 Editor workload's resource creation churn without changing the DX12 64 MiB cache, minimum 64 KiB asset charge, uploads, texture contents, sampling, queue, readback, layer or frame-fence retirement. Existing PR35 evidence remains immutable. No Cargo/native command has run for this candidate.
+Candidate source `00bd05500d20ba245ded47b6c5c2f295be74a501` starts from reviewed merged master `719deacf14252cce0bc8544609cddaafc39ab60e`. It addresses the measured Genuine18 / 01 Editor workload's resource creation churn without changing the DX12 64 MiB cache, minimum 64 KiB asset charge, uploads, texture contents, sampling, queue, readback, layer or frame-fence retirement. Existing PR35 evidence remains immutable. The two focused upstream test configurations passed; native and release builds remain unexecuted for this candidate.
 
 The CPU shape LRU previously held at most 256 results under an 8 MiB charge for two RGBA buffers plus text. Metrics and Rendered entries compete in that LRU; a rendered miss minted a new GPU asset identity even when the full render inputs were unchanged. B2 of the historical four-run packet observed 6284 shape calls (4798 measure / 1486 fill), 2744 misses/evictions and 11,762,496 produced RGBA bytes; output-specific misses were not measured, so those figures alone cannot assign causality to metrics pollution.
 
@@ -20,15 +20,17 @@ Shape charges include a fixed full-256-slot deque reservation, text bytes, famil
 
 Telemetry keeps the existing aggregate hit/miss/eviction counts and adds Metrics/Rendered splits. Identity hits/misses count only successful nonempty rendered shape misses that reach identity lookup; an uncached/over-budget key counts as an identity miss. Empty renders, metrics-only work and shaped-cache hits do not query the identity table. Identity evictions are separate events. Last-observed shape/identity entries and charged bytes export as `cache_gauges`, not additive allocations or GPU memory; zero means no gauge observation on that captured pass. All instrumentation stays behind `perf_profile` and the existing pass-local capture gating, with no per-glyph clocks, extra global collector locks or content/key export.
 
-## Prepared checks, not executed
+## Focused checks executed; native unexecuted
 
-Real-font tests exercise more than 256 shaped results and revisit the original raster with identical pixels and identity while preserving old owners. Full-key changes, normalized equivalents, separate engines, metadata eviction/reinterning and oversized/nonfinite bypasses have focused tests. Pass-local profile tests exercise actual measure/fill hits/misses, output-specific evictions, identity reuse and exported counters/gauges. Existing nested-window/session and boundary tests remain applicable. Source static checks and independent exact-head review precede compilation.
+Real-font tests exercise more than 256 shaped results and revisit the original raster with identical pixels and identity while preserving old owners. Full-key changes, normalized equivalents, separate engines, metadata eviction/reinterning and oversized/nonfinite bypasses have focused tests. Pass-local profile tests exercise actual measure/fill hits/misses, output-specific evictions, identity reuse and exported counters/gauges. Existing nested-window/session and boundary tests also passed in the focused packet. Static rustfmt/diff/file-cap checks passed (largest touched code file 461 lines); formal independent source review is separate. `source-static.json` preserves the earlier source-only checkpoint, before the granted executions.
 
-After the parent grants the one Cargo lane, use the existing H upstream cache/Cargo home and jobs 1, debug info/incremental disabled:
+Terminal 52460 exited 0 at exact source `00bd0550`, with unchanged crate tree `45587874852932513e23f95513291c18ef6edc6f` and Cargo.lock SHA256 `f0d263dc9e391de25a5e8299eee8c7a7f312e55841c855ade04a82e6acaa59ae`. DX12 with profiling passed 14/14 tests (38.23 s unoptimized build, 0.33 s tests); DX12 without profiling passed 9/9 (33.91 s build, 0.10 s tests). These are correctness checks, not interaction-performance measurements. Six existing warnings in unchanged app/MCP/layout code are retained; no new identity-module warning appeared. Original-byte logs/receipts are in `tests/`, mapped and hashed by `test-manifest.json`; `tests/** -text` prevents normalization. The Cargo lane was released after both finite results.
+
+Commands used the existing H upstream target `lurq-k232-mcp-performance/.tmp/target`, H Cargo home `k222-composed-surfaces/.tmp/lurq-adoption-cargo-home` and this source checkout's `.tmp/rust-temp`, jobs 1, debug info/incremental disabled:
 
 ```text
-cargo test -p lurq --lib --locked --offline -j1 --features mcp,canvas,perf_profile canvas::text -- --test-threads=1
-cargo test -p lurq --lib --locked --offline -j1 --features mcp,canvas canvas::text -- --test-threads=1
+cargo test -p lurq --lib --locked --offline -j1 --features mcp,canvas,dx12,perf_profile canvas::text -- --test-threads=1
+cargo test -p lurq --lib --locked --offline -j1 --features mcp,canvas,dx12 canvas::text -- --test-threads=1
 ```
 
 Native acceptance will use the user's actual `.pencil/design.pen` (the Genuine18 source), prepared independently as a bounded broader workflow rather than substituting a toy benchmark. It must preserve exact source/binary/SDK/window/full original seed and record real open/fit/zoom/pan/selection/move/text-edit/save/undo/reopen states and per-phase profiles. No numeric benefit or pixel/lifetime readiness is claimed before that execution.

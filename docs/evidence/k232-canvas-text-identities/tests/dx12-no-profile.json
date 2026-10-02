@@ -1,0 +1,31 @@
+{
+  "source_head": "00bd05500d20ba245ded47b6c5c2f295be74a501",
+  "source_tree": "e458f4b3f680a0d87b6ef167cbc5ba9cbc9740f3",
+  "command": "cargo",
+  "args": [
+    "test",
+    "-p",
+    "lurq",
+    "--lib",
+    "--locked",
+    "--offline",
+    "-j1",
+    "--features",
+    "mcp,canvas,dx12",
+    "canvas::text",
+    "--",
+    "--test-threads=1"
+  ],
+  "cwd": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-canvas-text-performance",
+  "target": "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/.tmp/target",
+  "cargo_home": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/lurq-adoption-cargo-home",
+  "temp": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-canvas-text-performance\\.tmp\\rust-temp",
+  "jobs": 1,
+  "debug_info": 0,
+  "incremental": 0,
+  "started_utc": "2026-10-02T19:12:01.3384055Z",
+  "finished_utc": "2026-10-02T19:12:36.3688011Z",
+  "exit_code": 0,
+  "lock_before_sha256": "f0d263dc9e391de25a5e8299eee8c7a7f312e55841c855ade04a82e6acaa59ae",
+  "lock_after_sha256": "f0d263dc9e391de25a5e8299eee8c7a7f312e55841c855ade04a82e6acaa59ae"
+}
