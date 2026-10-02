@@ -1,0 +1,1037 @@
+[
+  {
+    "completed_ms": 12438.2042,
+    "data": {
+      "backend": "dx12",
+      "cached_render_list": false,
+      "canvas_text": {
+        "counts": {
+          "fill_calls": 344,
+          "measure_calls": 1112,
+          "produced_bitmap_bytes": 2884660,
+          "shape_cache_evictions": 683,
+          "shape_cache_hits": 773,
+          "shape_cache_misses": 683,
+          "shape_calls": 1456
+        },
+        "cpu_timings_ms": {
+          "bitmap_composition": 10.613600000000002,
+          "buffer_font_shape": 38.824,
+          "glyph_prepare": 115.5118,
+          "total": 186.55679999999998
+        }
+      },
+      "cpu_timings_ms": {
+        "canvas_preparation": 0.0007,
+        "canvas_recording": 0.0174,
+        "component_after_layout": 190.8345,
+        "layout_compute": 1.1842000000000001,
+        "layout_update": 192.35160000000002,
+        "total": 2079.492
+      },
+      "frame": {
+        "counts": {
+          "glyph_cache_hits": 893,
+          "glyph_cache_misses": 0,
+          "glyph_count": 880,
+          "quad_count": 217,
+          "rect_count": 101,
+          "text_measure_cache_hits": 125,
+          "text_measure_cache_misses": 0
+        },
+        "cpu_timings_ms": {
+          "glyph_rasterize": 0.20450000000000002,
+          "gpu_submit": 1886.0841000000003,
+          "layout": 192.35160000000002,
+          "quad_resolve": 0.33530000000000004,
+          "total": 2078.9860999999996
+        },
+        "legacy_gpu_submit_semantics": "CPU Canvas preparation + render call; not GPU time",
+        "memory_bytes": {
+          "active_path_bytes": 0,
+          "dragging_scroll_bytes": 0,
+          "glyph_engine_bytes": 540988,
+          "hover_path_bytes": 128,
+          "last_layout_bytes": 29937,
+          "render_engine_bytes": 16,
+          "root_component_bytes": 16,
+          "root_context_bytes": 28254,
+          "root_tree_bytes": 1020276,
+          "runtime_struct_bytes": 7176,
+          "total_bytes": 1626791
+        },
+        "memory_sampling": "cached estimate sampled at most once per second; not a heap allocation trace",
+        "render": {
+          "canvas": {
+            "asset_upload_details": {
+              "counts": {
+                "arena_uploads": 314,
+                "cache_charged_bytes_after": 67049836,
+                "cache_charged_bytes_before": 67091168,
+                "cache_charged_bytes_peak": 87835092,
+                "cache_entries_after": 1015,
+                "cache_entries_before": 1016,
+                "cache_evictions": 315,
+                "cache_hits": 30,
+                "cache_misses": 314,
+                "dedicated_uploads": 0,
+                "descriptor_pairs": 314,
+                "padded_upload_bytes": 3494144,
+                "texture_creations": 314
+              },
+              "cpu_timings_ms": {
+                "cache_eviction": 0.3794,
+                "descriptor_writes": 6.3342,
+                "pixel_packing": 4.3998,
+                "texture_creation": 1787.1314,
+                "upload_staging_commands": 19.619899999999998
+              }
+            },
+            "counts": {
+              "batches": 1,
+              "command_groups": 1,
+              "tiles": 9,
+              "uploaded_asset_bytes": 2884660,
+              "vertices": 53613
+            },
+            "cpu_timings_ms": {
+              "asset_upload": 1818.8677,
+              "buffer_upload": 0.0813,
+              "recording": 1824.2513000000001,
+              "submit": 0.0,
+              "tessellation": 2.4336,
+              "total": 1828.7519
+            }
+          },
+          "coverage": {
+            "canvas_asset_upload_details": true,
+            "canvas_buffer_upload": "WGPU vertex/globals; DX12 vertex only (constants remain inside recording)",
+            "canvas_cpu": true,
+            "gpu_execution": false,
+            "ui_buffer_image_upload": "WGPU separate; DX12 included in encode without independent sub-timers"
+          },
+          "cpu_timings_ms": {
+            "acquire": 56.2859,
+            "atlas_upload": 0.00019999999999999998,
+            "buffer_upload": 0.0,
+            "encode": 1829.318,
+            "globals_upload": 0.0,
+            "image_upload": 0.0,
+            "init": 0.00019999999999999998,
+            "present": 0.2823,
+            "submit": 0.1531,
+            "total": 1886.0447
+          },
+          "glyph_atlas": {
+            "glyph_atlas_arena_uploads": 0,
+            "glyph_atlas_dedicated_uploads": 0,
+            "glyph_atlas_full_uploads": 0,
+            "glyph_atlas_upload_bytes": 0,
+            "glyph_atlas_upload_rects": 0
+          },
+          "profile_available": true
+        },
+        "text": {
+          "counts": {
+            "atlas_packs": 0,
+            "caret_built_paragraphs": 0,
+            "caret_built_positions": 0,
+            "caret_hits": 0,
+            "caret_layout_reuses": 0,
+            "caret_misses": 0,
+            "caret_requests": 0,
+            "caret_returned_positions": 0,
+            "caret_reused_paragraphs": 0,
+            "plain_accounted_paragraphs": 0,
+            "plain_buffer_hits": 0,
+            "plain_buffer_misses": 0,
+            "plain_cache_budget": 50331648,
+            "plain_cache_bypasses": 0,
+            "plain_cache_bytes": 365564,
+            "plain_cache_compactions": 0,
+            "plain_cache_evictions": 0,
+            "plain_laid_out_paragraphs": 0,
+            "plain_reflow_reuses": 0,
+            "plain_reindexed_paragraphs": 0,
+            "plain_retained_paragraphs": 0,
+            "plain_reused_lines": 0,
+            "plain_shaped_paragraphs": 0,
+            "rich_loaded_bytes": 0,
+            "rich_loaded_spans": 0,
+            "rich_multi_span_loads": 0,
+            "rich_single_span_loads": 0,
+            "rich_text_loads": 0,
+            "swash_requests": 0,
+            "vertical_extents_glyphs": 0,
+            "vertical_extents_runs": 0
+          },
+          "cpu_timings_ms": {
+            "append_cached": 0.0573,
+            "atlas_pack": 0.0,
+            "caret_buffer": 0.0,
+            "caret_extract": 0.0,
+            "caret_total": 0.0,
+            "pack_rich_shaped": 0.0,
+            "plain_buffer_build": 0.0,
+            "plain_buffer_finalize": 0.0,
+            "plain_buffer_retain": 0.0,
+            "plain_paragraph_layout": 0.0,
+            "plain_paragraph_shape": 0.0,
+            "plain_reflow_analysis": 0.0,
+            "raster_acquire_buffer": 0.0,
+            "raster_set_text": 0.0,
+            "rich_acquire_buffer": 0.0,
+            "rich_align_lines": 0.0,
+            "rich_buffer_set_text": 0.0,
+            "rich_cosmic_shape": 0.0,
+            "rich_extract": 0.0,
+            "rich_measure": 0.0,
+            "rich_prepare_spans": 0.0,
+            "rich_set_text": 0.0,
+            "shape_rich_text": 0.0,
+            "shape_text": 0.0,
+            "swash_lookup": 0.0,
+            "vertical_extents": 0.0,
+            "vertical_extents_shape": 0.0
+          }
+        }
+      },
+      "frame_id": 144,
+      "gpu_timing_ms": null,
+      "kind": "pass",
+      "layout_recalculated": true,
+      "rendered": true
+    },
+    "sequence": 11,
+    "started_ms": 10358.7112,
+    "window": "main"
+  },
+  {
+    "completed_ms": 12866.2905,
+    "data": {
+      "backend": "dx12",
+      "cached_render_list": false,
+      "canvas_text": {
+        "counts": {
+          "fill_calls": 399,
+          "measure_calls": 1287,
+          "produced_bitmap_bytes": 2996588,
+          "shape_cache_evictions": 689,
+          "shape_cache_hits": 997,
+          "shape_cache_misses": 689,
+          "shape_calls": 1686
+        },
+        "cpu_timings_ms": {
+          "bitmap_composition": 12.7158,
+          "buffer_font_shape": 30.1616,
+          "glyph_prepare": 132.66140000000001,
+          "total": 179.3168
+        }
+      },
+      "cpu_timings_ms": {
+        "canvas_preparation": 0.0006,
+        "canvas_recording": 0.009300000000000001,
+        "component_after_layout": 184.5002,
+        "layout_compute": 0.9935,
+        "layout_update": 187.20999999999998,
+        "total": 427.7562
+      },
+      "frame": {
+        "counts": {
+          "glyph_cache_hits": 893,
+          "glyph_cache_misses": 0,
+          "glyph_count": 880,
+          "quad_count": 217,
+          "rect_count": 101,
+          "text_measure_cache_hits": 125,
+          "text_measure_cache_misses": 0
+        },
+        "cpu_timings_ms": {
+          "glyph_rasterize": 0.21509999999999999,
+          "gpu_submit": 239.8124,
+          "layout": 187.20999999999998,
+          "quad_resolve": 0.4449,
+          "total": 427.6988
+        },
+        "legacy_gpu_submit_semantics": "CPU Canvas preparation + render call; not GPU time",
+        "memory_bytes": {
+          "active_path_bytes": 0,
+          "dragging_scroll_bytes": 0,
+          "glyph_engine_bytes": 540988,
+          "hover_path_bytes": 128,
+          "last_layout_bytes": 29937,
+          "render_engine_bytes": 16,
+          "root_component_bytes": 16,
+          "root_context_bytes": 28254,
+          "root_tree_bytes": 1020276,
+          "runtime_struct_bytes": 7176,
+          "total_bytes": 1626791
+        },
+        "memory_sampling": "cached estimate sampled at most once per second; not a heap allocation trace",
+        "render": {
+          "canvas": {
+            "asset_upload_details": {
+              "counts": {
+                "arena_uploads": 305,
+                "cache_charged_bytes_after": 67073148,
+                "cache_charged_bytes_before": 67049836,
+                "cache_charged_bytes_peak": 87173448,
+                "cache_entries_after": 1015,
+                "cache_entries_before": 1015,
+                "cache_evictions": 305,
+                "cache_hits": 94,
+                "cache_misses": 305,
+                "dedicated_uploads": 0,
+                "descriptor_pairs": 314,
+                "padded_upload_bytes": 3577600,
+                "texture_creations": 305
+              },
+              "cpu_timings_ms": {
+                "cache_eviction": 0.36200000000000004,
+                "descriptor_writes": 1.6257000000000001,
+                "pixel_packing": 3.3919,
+                "texture_creation": 220.8339,
+                "upload_staging_commands": 6.9558
+              }
+            },
+            "counts": {
+              "batches": 1,
+              "command_groups": 1,
+              "tiles": 5,
+              "uploaded_asset_bytes": 2996588,
+              "vertices": 50826
+            },
+            "cpu_timings_ms": {
+              "asset_upload": 233.74210000000002,
+              "buffer_upload": 0.0862,
+              "recording": 235.506,
+              "submit": 0.0,
+              "tessellation": 1.9426999999999999,
+              "total": 238.7569
+            }
+          },
+          "coverage": {
+            "canvas_asset_upload_details": true,
+            "canvas_buffer_upload": "WGPU vertex/globals; DX12 vertex only (constants remain inside recording)",
+            "canvas_cpu": true,
+            "gpu_execution": false,
+            "ui_buffer_image_upload": "WGPU separate; DX12 included in encode without independent sub-timers"
+          },
+          "cpu_timings_ms": {
+            "acquire": 0.0745,
+            "atlas_upload": 0.00039999999999999996,
+            "buffer_upload": 0.0,
+            "encode": 239.2005,
+            "globals_upload": 0.0,
+            "image_upload": 0.0,
+            "init": 0.0005,
+            "present": 0.31579999999999997,
+            "submit": 0.17550000000000002,
+            "total": 239.7696
+          },
+          "glyph_atlas": {
+            "glyph_atlas_arena_uploads": 0,
+            "glyph_atlas_dedicated_uploads": 0,
+            "glyph_atlas_full_uploads": 0,
+            "glyph_atlas_upload_bytes": 0,
+            "glyph_atlas_upload_rects": 0
+          },
+          "profile_available": true
+        },
+        "text": {
+          "counts": {
+            "atlas_packs": 0,
+            "caret_built_paragraphs": 0,
+            "caret_built_positions": 0,
+            "caret_hits": 0,
+            "caret_layout_reuses": 0,
+            "caret_misses": 0,
+            "caret_requests": 0,
+            "caret_returned_positions": 0,
+            "caret_reused_paragraphs": 0,
+            "plain_accounted_paragraphs": 0,
+            "plain_buffer_hits": 0,
+            "plain_buffer_misses": 0,
+            "plain_cache_budget": 50331648,
+            "plain_cache_bypasses": 0,
+            "plain_cache_bytes": 365564,
+            "plain_cache_compactions": 0,
+            "plain_cache_evictions": 0,
+            "plain_laid_out_paragraphs": 0,
+            "plain_reflow_reuses": 0,
+            "plain_reindexed_paragraphs": 0,
+            "plain_retained_paragraphs": 0,
+            "plain_reused_lines": 0,
+            "plain_shaped_paragraphs": 0,
+            "rich_loaded_bytes": 0,
+            "rich_loaded_spans": 0,
+            "rich_multi_span_loads": 0,
+            "rich_single_span_loads": 0,
+            "rich_text_loads": 0,
+            "swash_requests": 0,
+            "vertical_extents_glyphs": 0,
+            "vertical_extents_runs": 0
+          },
+          "cpu_timings_ms": {
+            "append_cached": 0.0519,
+            "atlas_pack": 0.0,
+            "caret_buffer": 0.0,
+            "caret_extract": 0.0,
+            "caret_total": 0.0,
+            "pack_rich_shaped": 0.0,
+            "plain_buffer_build": 0.0,
+            "plain_buffer_finalize": 0.0,
+            "plain_buffer_retain": 0.0,
+            "plain_paragraph_layout": 0.0,
+            "plain_paragraph_shape": 0.0,
+            "plain_reflow_analysis": 0.0,
+            "raster_acquire_buffer": 0.0,
+            "raster_set_text": 0.0,
+            "rich_acquire_buffer": 0.0,
+            "rich_align_lines": 0.0,
+            "rich_buffer_set_text": 0.0,
+            "rich_cosmic_shape": 0.0,
+            "rich_extract": 0.0,
+            "rich_measure": 0.0,
+            "rich_prepare_spans": 0.0,
+            "rich_set_text": 0.0,
+            "shape_rich_text": 0.0,
+            "shape_text": 0.0,
+            "swash_lookup": 0.0,
+            "vertical_extents": 0.0,
+            "vertical_extents_shape": 0.0
+          }
+        }
+      },
+      "frame_id": 145,
+      "gpu_timing_ms": null,
+      "kind": "pass",
+      "layout_recalculated": true,
+      "rendered": true
+    },
+    "sequence": 13,
+    "started_ms": 12438.5335,
+    "window": "main"
+  },
+  {
+    "completed_ms": 13616.407000000001,
+    "data": {
+      "backend": "dx12",
+      "cached_render_list": false,
+      "canvas_text": {
+        "counts": {
+          "fill_calls": 344,
+          "measure_calls": 1112,
+          "produced_bitmap_bytes": 2884660,
+          "shape_cache_evictions": 683,
+          "shape_cache_hits": 773,
+          "shape_cache_misses": 683,
+          "shape_calls": 1456
+        },
+        "cpu_timings_ms": {
+          "bitmap_composition": 10.1769,
+          "buffer_font_shape": 24.5029,
+          "glyph_prepare": 93.3787,
+          "total": 131.0999
+        }
+      },
+      "cpu_timings_ms": {
+        "canvas_preparation": 0.0015,
+        "canvas_recording": 0.01,
+        "component_after_layout": 135.412,
+        "layout_compute": 0.8524,
+        "layout_update": 136.51579999999998,
+        "total": 309.4075
+      },
+      "frame": {
+        "counts": {
+          "glyph_cache_hits": 893,
+          "glyph_cache_misses": 0,
+          "glyph_count": 880,
+          "quad_count": 217,
+          "rect_count": 101,
+          "text_measure_cache_hits": 125,
+          "text_measure_cache_misses": 0
+        },
+        "cpu_timings_ms": {
+          "glyph_rasterize": 0.1821,
+          "gpu_submit": 171.83499999999998,
+          "layout": 136.51579999999998,
+          "quad_resolve": 0.4679,
+          "total": 309.01079999999996
+        },
+        "legacy_gpu_submit_semantics": "CPU Canvas preparation + render call; not GPU time",
+        "memory_bytes": {
+          "active_path_bytes": 0,
+          "dragging_scroll_bytes": 0,
+          "glyph_engine_bytes": 540988,
+          "hover_path_bytes": 128,
+          "last_layout_bytes": 29937,
+          "render_engine_bytes": 16,
+          "root_component_bytes": 16,
+          "root_context_bytes": 28254,
+          "root_tree_bytes": 1020276,
+          "runtime_struct_bytes": 7176,
+          "total_bytes": 1626791
+        },
+        "memory_sampling": "cached estimate sampled at most once per second; not a heap allocation trace",
+        "render": {
+          "canvas": {
+            "asset_upload_details": {
+              "counts": {
+                "arena_uploads": 314,
+                "cache_charged_bytes_after": 67049836,
+                "cache_charged_bytes_before": 67073148,
+                "cache_charged_bytes_peak": 87817072,
+                "cache_entries_after": 1015,
+                "cache_entries_before": 1015,
+                "cache_evictions": 314,
+                "cache_hits": 30,
+                "cache_misses": 314,
+                "dedicated_uploads": 0,
+                "descriptor_pairs": 314,
+                "padded_upload_bytes": 3494144,
+                "texture_creations": 314
+              },
+              "cpu_timings_ms": {
+                "cache_eviction": 0.4264,
+                "descriptor_writes": 0.955,
+                "pixel_packing": 1.4288,
+                "texture_creation": 155.8805,
+                "upload_staging_commands": 7.3424
+              }
+            },
+            "counts": {
+              "batches": 1,
+              "command_groups": 1,
+              "tiles": 9,
+              "uploaded_asset_bytes": 2884660,
+              "vertices": 53613
+            },
+            "cpu_timings_ms": {
+              "asset_upload": 166.1612,
+              "buffer_upload": 0.0901,
+              "recording": 167.7507,
+              "submit": 0.0,
+              "tessellation": 2.0296,
+              "total": 170.9232
+            }
+          },
+          "coverage": {
+            "canvas_asset_upload_details": true,
+            "canvas_buffer_upload": "WGPU vertex/globals; DX12 vertex only (constants remain inside recording)",
+            "canvas_cpu": true,
+            "gpu_execution": false,
+            "ui_buffer_image_upload": "WGPU separate; DX12 included in encode without independent sub-timers"
+          },
+          "cpu_timings_ms": {
+            "acquire": 0.06949999999999999,
+            "atlas_upload": 9.999999999999999e-05,
+            "buffer_upload": 0.0,
+            "encode": 171.37359999999998,
+            "globals_upload": 0.0,
+            "image_upload": 0.0,
+            "init": 0.00019999999999999998,
+            "present": 0.2263,
+            "submit": 0.121,
+            "total": 171.7931
+          },
+          "glyph_atlas": {
+            "glyph_atlas_arena_uploads": 0,
+            "glyph_atlas_dedicated_uploads": 0,
+            "glyph_atlas_full_uploads": 0,
+            "glyph_atlas_upload_bytes": 0,
+            "glyph_atlas_upload_rects": 0
+          },
+          "profile_available": true
+        },
+        "text": {
+          "counts": {
+            "atlas_packs": 0,
+            "caret_built_paragraphs": 0,
+            "caret_built_positions": 0,
+            "caret_hits": 0,
+            "caret_layout_reuses": 0,
+            "caret_misses": 0,
+            "caret_requests": 0,
+            "caret_returned_positions": 0,
+            "caret_reused_paragraphs": 0,
+            "plain_accounted_paragraphs": 0,
+            "plain_buffer_hits": 0,
+            "plain_buffer_misses": 0,
+            "plain_cache_budget": 50331648,
+            "plain_cache_bypasses": 0,
+            "plain_cache_bytes": 365564,
+            "plain_cache_compactions": 0,
+            "plain_cache_evictions": 0,
+            "plain_laid_out_paragraphs": 0,
+            "plain_reflow_reuses": 0,
+            "plain_reindexed_paragraphs": 0,
+            "plain_retained_paragraphs": 0,
+            "plain_reused_lines": 0,
+            "plain_shaped_paragraphs": 0,
+            "rich_loaded_bytes": 0,
+            "rich_loaded_spans": 0,
+            "rich_multi_span_loads": 0,
+            "rich_single_span_loads": 0,
+            "rich_text_loads": 0,
+            "swash_requests": 0,
+            "vertical_extents_glyphs": 0,
+            "vertical_extents_runs": 0
+          },
+          "cpu_timings_ms": {
+            "append_cached": 0.041,
+            "atlas_pack": 0.0,
+            "caret_buffer": 0.0,
+            "caret_extract": 0.0,
+            "caret_total": 0.0,
+            "pack_rich_shaped": 0.0,
+            "plain_buffer_build": 0.0,
+            "plain_buffer_finalize": 0.0,
+            "plain_buffer_retain": 0.0,
+            "plain_paragraph_layout": 0.0,
+            "plain_paragraph_shape": 0.0,
+            "plain_reflow_analysis": 0.0,
+            "raster_acquire_buffer": 0.0,
+            "raster_set_text": 0.0,
+            "rich_acquire_buffer": 0.0,
+            "rich_align_lines": 0.0,
+            "rich_buffer_set_text": 0.0,
+            "rich_cosmic_shape": 0.0,
+            "rich_extract": 0.0,
+            "rich_measure": 0.0,
+            "rich_prepare_spans": 0.0,
+            "rich_set_text": 0.0,
+            "shape_rich_text": 0.0,
+            "shape_text": 0.0,
+            "swash_lookup": 0.0,
+            "vertical_extents": 0.0,
+            "vertical_extents_shape": 0.0
+          }
+        }
+      },
+      "frame_id": 148,
+      "gpu_timing_ms": null,
+      "kind": "pass",
+      "layout_recalculated": true,
+      "rendered": true
+    },
+    "sequence": 29,
+    "started_ms": 13306.998800000001,
+    "window": "main"
+  },
+  {
+    "completed_ms": 13867.9571,
+    "data": {
+      "backend": "dx12",
+      "cached_render_list": false,
+      "canvas_text": {
+        "counts": {
+          "fill_calls": 399,
+          "measure_calls": 1287,
+          "produced_bitmap_bytes": 2996588,
+          "shape_cache_evictions": 689,
+          "shape_cache_hits": 997,
+          "shape_cache_misses": 689,
+          "shape_calls": 1686
+        },
+        "cpu_timings_ms": {
+          "bitmap_composition": 10.9138,
+          "buffer_font_shape": 17.0668,
+          "glyph_prepare": 78.4576,
+          "total": 109.6525
+        }
+      },
+      "cpu_timings_ms": {
+        "canvas_preparation": 0.0005,
+        "canvas_recording": 0.0068000000000000005,
+        "component_after_layout": 113.97240000000001,
+        "layout_compute": 0.5814,
+        "layout_update": 115.7149,
+        "total": 251.34440000000004
+      },
+      "frame": {
+        "counts": {
+          "glyph_cache_hits": 893,
+          "glyph_cache_misses": 0,
+          "glyph_count": 880,
+          "quad_count": 217,
+          "rect_count": 101,
+          "text_measure_cache_hits": 125,
+          "text_measure_cache_misses": 0
+        },
+        "cpu_timings_ms": {
+          "glyph_rasterize": 0.1347,
+          "gpu_submit": 135.1878,
+          "layout": 115.7149,
+          "quad_resolve": 0.2475,
+          "total": 251.29489999999998
+        },
+        "legacy_gpu_submit_semantics": "CPU Canvas preparation + render call; not GPU time",
+        "memory_bytes": {
+          "active_path_bytes": 0,
+          "dragging_scroll_bytes": 0,
+          "glyph_engine_bytes": 540988,
+          "hover_path_bytes": 128,
+          "last_layout_bytes": 29937,
+          "render_engine_bytes": 16,
+          "root_component_bytes": 16,
+          "root_context_bytes": 28254,
+          "root_tree_bytes": 1020276,
+          "runtime_struct_bytes": 7176,
+          "total_bytes": 1626791
+        },
+        "memory_sampling": "cached estimate sampled at most once per second; not a heap allocation trace",
+        "render": {
+          "canvas": {
+            "asset_upload_details": {
+              "counts": {
+                "arena_uploads": 305,
+                "cache_charged_bytes_after": 67063748,
+                "cache_charged_bytes_before": 67049836,
+                "cache_charged_bytes_peak": 87173448,
+                "cache_entries_after": 1016,
+                "cache_entries_before": 1015,
+                "cache_evictions": 304,
+                "cache_hits": 94,
+                "cache_misses": 305,
+                "dedicated_uploads": 0,
+                "descriptor_pairs": 314,
+                "padded_upload_bytes": 3577600,
+                "texture_creations": 305
+              },
+              "cpu_timings_ms": {
+                "cache_eviction": 0.42729999999999996,
+                "descriptor_writes": 0.9190999999999999,
+                "pixel_packing": 1.4865,
+                "texture_creation": 122.60419999999999,
+                "upload_staging_commands": 4.0324
+              }
+            },
+            "counts": {
+              "batches": 1,
+              "command_groups": 1,
+              "tiles": 4,
+              "uploaded_asset_bytes": 2996588,
+              "vertices": 50826
+            },
+            "cpu_timings_ms": {
+              "asset_upload": 129.62199999999999,
+              "buffer_upload": 0.09899999999999999,
+              "recording": 131.4429,
+              "submit": 0.0,
+              "tessellation": 1.2721,
+              "total": 133.95940000000002
+            }
+          },
+          "coverage": {
+            "canvas_asset_upload_details": true,
+            "canvas_buffer_upload": "WGPU vertex/globals; DX12 vertex only (constants remain inside recording)",
+            "canvas_cpu": true,
+            "gpu_execution": false,
+            "ui_buffer_image_upload": "WGPU separate; DX12 included in encode without independent sub-timers"
+          },
+          "cpu_timings_ms": {
+            "acquire": 0.0523,
+            "atlas_upload": 0.0003,
+            "buffer_upload": 0.0,
+            "encode": 134.4361,
+            "globals_upload": 0.0,
+            "image_upload": 0.0,
+            "init": 0.0005,
+            "present": 0.453,
+            "submit": 0.195,
+            "total": 135.14010000000002
+          },
+          "glyph_atlas": {
+            "glyph_atlas_arena_uploads": 0,
+            "glyph_atlas_dedicated_uploads": 0,
+            "glyph_atlas_full_uploads": 0,
+            "glyph_atlas_upload_bytes": 0,
+            "glyph_atlas_upload_rects": 0
+          },
+          "profile_available": true
+        },
+        "text": {
+          "counts": {
+            "atlas_packs": 0,
+            "caret_built_paragraphs": 0,
+            "caret_built_positions": 0,
+            "caret_hits": 0,
+            "caret_layout_reuses": 0,
+            "caret_misses": 0,
+            "caret_requests": 0,
+            "caret_returned_positions": 0,
+            "caret_reused_paragraphs": 0,
+            "plain_accounted_paragraphs": 0,
+            "plain_buffer_hits": 0,
+            "plain_buffer_misses": 0,
+            "plain_cache_budget": 50331648,
+            "plain_cache_bypasses": 0,
+            "plain_cache_bytes": 365564,
+            "plain_cache_compactions": 0,
+            "plain_cache_evictions": 0,
+            "plain_laid_out_paragraphs": 0,
+            "plain_reflow_reuses": 0,
+            "plain_reindexed_paragraphs": 0,
+            "plain_retained_paragraphs": 0,
+            "plain_reused_lines": 0,
+            "plain_shaped_paragraphs": 0,
+            "rich_loaded_bytes": 0,
+            "rich_loaded_spans": 0,
+            "rich_multi_span_loads": 0,
+            "rich_single_span_loads": 0,
+            "rich_text_loads": 0,
+            "swash_requests": 0,
+            "vertical_extents_glyphs": 0,
+            "vertical_extents_runs": 0
+          },
+          "cpu_timings_ms": {
+            "append_cached": 0.0356,
+            "atlas_pack": 0.0,
+            "caret_buffer": 0.0,
+            "caret_extract": 0.0,
+            "caret_total": 0.0,
+            "pack_rich_shaped": 0.0,
+            "plain_buffer_build": 0.0,
+            "plain_buffer_finalize": 0.0,
+            "plain_buffer_retain": 0.0,
+            "plain_paragraph_layout": 0.0,
+            "plain_paragraph_shape": 0.0,
+            "plain_reflow_analysis": 0.0,
+            "raster_acquire_buffer": 0.0,
+            "raster_set_text": 0.0,
+            "rich_acquire_buffer": 0.0,
+            "rich_align_lines": 0.0,
+            "rich_buffer_set_text": 0.0,
+            "rich_cosmic_shape": 0.0,
+            "rich_extract": 0.0,
+            "rich_measure": 0.0,
+            "rich_prepare_spans": 0.0,
+            "rich_set_text": 0.0,
+            "shape_rich_text": 0.0,
+            "shape_text": 0.0,
+            "swash_lookup": 0.0,
+            "vertical_extents": 0.0,
+            "vertical_extents_shape": 0.0
+          }
+        }
+      },
+      "frame_id": 149,
+      "gpu_timing_ms": null,
+      "kind": "pass",
+      "layout_recalculated": true,
+      "rendered": true
+    },
+    "sequence": 31,
+    "started_ms": 13616.6113,
+    "window": "main"
+  },
+  {
+    "completed_ms": 12933.292,
+    "data": {
+      "backend": "dx12",
+      "cached_render_list": false,
+      "canvas_text": {
+        "counts": {
+          "fill_calls": 0,
+          "measure_calls": 0,
+          "produced_bitmap_bytes": 0,
+          "shape_cache_evictions": 0,
+          "shape_cache_hits": 0,
+          "shape_cache_misses": 0,
+          "shape_calls": 0
+        },
+        "cpu_timings_ms": {
+          "bitmap_composition": 0.0,
+          "buffer_font_shape": 0.0,
+          "glyph_prepare": 0.0,
+          "total": 0.0
+        }
+      },
+      "cpu_timings_ms": {
+        "canvas_preparation": 0.0006,
+        "canvas_recording": 0.0094,
+        "component_after_layout": 0.0046,
+        "layout_compute": 0.7952,
+        "layout_update": 1.0353999999999999,
+        "total": 65.6192
+      },
+      "frame": {
+        "counts": {
+          "glyph_cache_hits": 893,
+          "glyph_cache_misses": 0,
+          "glyph_count": 880,
+          "quad_count": 217,
+          "rect_count": 101,
+          "text_measure_cache_hits": 125,
+          "text_measure_cache_misses": 0
+        },
+        "cpu_timings_ms": {
+          "glyph_rasterize": 0.19440000000000002,
+          "gpu_submit": 64.20660000000001,
+          "layout": 1.0353999999999999,
+          "quad_resolve": 0.1631,
+          "total": 65.6056
+        },
+        "legacy_gpu_submit_semantics": "CPU Canvas preparation + render call; not GPU time",
+        "memory_bytes": {
+          "active_path_bytes": 0,
+          "dragging_scroll_bytes": 0,
+          "glyph_engine_bytes": 540988,
+          "hover_path_bytes": 128,
+          "last_layout_bytes": 29937,
+          "render_engine_bytes": 16,
+          "root_component_bytes": 16,
+          "root_context_bytes": 28254,
+          "root_tree_bytes": 1020276,
+          "runtime_struct_bytes": 7176,
+          "total_bytes": 1626791
+        },
+        "memory_sampling": "cached estimate sampled at most once per second; not a heap allocation trace",
+        "render": {
+          "canvas": {
+            "asset_upload_details": {
+              "counts": {
+                "arena_uploads": 0,
+                "cache_charged_bytes_after": 67073148,
+                "cache_charged_bytes_before": 67073148,
+                "cache_charged_bytes_peak": 67073148,
+                "cache_entries_after": 1015,
+                "cache_entries_before": 1015,
+                "cache_evictions": 0,
+                "cache_hits": 0,
+                "cache_misses": 0,
+                "dedicated_uploads": 0,
+                "descriptor_pairs": 0,
+                "padded_upload_bytes": 0,
+                "texture_creations": 0
+              },
+              "cpu_timings_ms": {
+                "cache_eviction": 0.00019999999999999998,
+                "descriptor_writes": 0.0,
+                "pixel_packing": 0.0,
+                "texture_creation": 0.0,
+                "upload_staging_commands": 0.0
+              }
+            },
+            "counts": {
+              "batches": 0,
+              "command_groups": 0,
+              "tiles": 0,
+              "uploaded_asset_bytes": 0,
+              "vertices": 0
+            },
+            "cpu_timings_ms": {
+              "asset_upload": 0.0,
+              "buffer_upload": 0.0,
+              "recording": 0.0,
+              "submit": 0.0,
+              "tessellation": 0.0,
+              "total": 0.01
+            }
+          },
+          "coverage": {
+            "canvas_asset_upload_details": true,
+            "canvas_buffer_upload": "WGPU vertex/globals; DX12 vertex only (constants remain inside recording)",
+            "canvas_cpu": true,
+            "gpu_execution": false,
+            "ui_buffer_image_upload": "WGPU separate; DX12 included in encode without independent sub-timers"
+          },
+          "cpu_timings_ms": {
+            "acquire": 63.278,
+            "atlas_upload": 9.999999999999999e-05,
+            "buffer_upload": 0.0,
+            "encode": 0.4908,
+            "globals_upload": 0.0,
+            "image_upload": 0.0,
+            "init": 0.00019999999999999998,
+            "present": 0.2775,
+            "submit": 0.1148,
+            "total": 64.16529999999999
+          },
+          "glyph_atlas": {
+            "glyph_atlas_arena_uploads": 0,
+            "glyph_atlas_dedicated_uploads": 0,
+            "glyph_atlas_full_uploads": 0,
+            "glyph_atlas_upload_bytes": 0,
+            "glyph_atlas_upload_rects": 0
+          },
+          "profile_available": true
+        },
+        "text": {
+          "counts": {
+            "atlas_packs": 0,
+            "caret_built_paragraphs": 0,
+            "caret_built_positions": 0,
+            "caret_hits": 0,
+            "caret_layout_reuses": 0,
+            "caret_misses": 0,
+            "caret_requests": 0,
+            "caret_returned_positions": 0,
+            "caret_reused_paragraphs": 0,
+            "plain_accounted_paragraphs": 0,
+            "plain_buffer_hits": 0,
+            "plain_buffer_misses": 0,
+            "plain_cache_budget": 50331648,
+            "plain_cache_bypasses": 0,
+            "plain_cache_bytes": 365564,
+            "plain_cache_compactions": 0,
+            "plain_cache_evictions": 0,
+            "plain_laid_out_paragraphs": 0,
+            "plain_reflow_reuses": 0,
+            "plain_reindexed_paragraphs": 0,
+            "plain_retained_paragraphs": 0,
+            "plain_reused_lines": 0,
+            "plain_shaped_paragraphs": 0,
+            "rich_loaded_bytes": 0,
+            "rich_loaded_spans": 0,
+            "rich_multi_span_loads": 0,
+            "rich_single_span_loads": 0,
+            "rich_text_loads": 0,
+            "swash_requests": 0,
+            "vertical_extents_glyphs": 0,
+            "vertical_extents_runs": 0
+          },
+          "cpu_timings_ms": {
+            "append_cached": 0.0488,
+            "atlas_pack": 0.0,
+            "caret_buffer": 0.0,
+            "caret_extract": 0.0,
+            "caret_total": 0.0,
+            "pack_rich_shaped": 0.0,
+            "plain_buffer_build": 0.0,
+            "plain_buffer_finalize": 0.0,
+            "plain_buffer_retain": 0.0,
+            "plain_paragraph_layout": 0.0,
+            "plain_paragraph_shape": 0.0,
+            "plain_reflow_analysis": 0.0,
+            "raster_acquire_buffer": 0.0,
+            "raster_set_text": 0.0,
+            "rich_acquire_buffer": 0.0,
+            "rich_align_lines": 0.0,
+            "rich_buffer_set_text": 0.0,
+            "rich_cosmic_shape": 0.0,
+            "rich_extract": 0.0,
+            "rich_measure": 0.0,
+            "rich_prepare_spans": 0.0,
+            "rich_set_text": 0.0,
+            "shape_rich_text": 0.0,
+            "shape_text": 0.0,
+            "swash_lookup": 0.0,
+            "vertical_extents": 0.0,
+            "vertical_extents_shape": 0.0
+          }
+        }
+      },
+      "frame_id": 146,
+      "gpu_timing_ms": null,
+      "kind": "pass",
+      "layout_recalculated": true,
+      "rendered": true
+    },
+    "sequence": 15,
+    "started_ms": 12867.6721,
+    "window": "main"
+  }
+]

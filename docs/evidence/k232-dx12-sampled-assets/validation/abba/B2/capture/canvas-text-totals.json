@@ -1,0 +1,17 @@
+{
+  "cpu_timings_ms": {
+    "bitmap_composition": 37.7198,
+    "buffer_font_shape": 54.0732,
+    "glyph_prepare": 273.72860000000003,
+    "total": 375.60929999999996
+  },
+  "counts": {
+    "fill_calls": 1486,
+    "measure_calls": 4798,
+    "produced_bitmap_bytes": 11762496,
+    "shape_cache_evictions": 2744,
+    "shape_cache_hits": 3540,
+    "shape_cache_misses": 2744,
+    "shape_calls": 6284
+  }
+}

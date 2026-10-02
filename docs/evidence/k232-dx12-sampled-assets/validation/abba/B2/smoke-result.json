@@ -1,0 +1,10 @@
+{
+  "status": "completed",
+  "cleanup": {
+    "pid": 59860,
+    "stop": "terminated by harness",
+    "exited": true,
+    "port_closed": true
+  },
+  "scope": "Genuine18 / 01 Editor diagnostic with DX12 upload detail; no comparison/speedup claim"
+}

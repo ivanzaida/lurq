@@ -1,0 +1,10 @@
+{
+  "png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+  "canvas_bounds": [
+    360,
+    138,
+    1404,
+    1257
+  ],
+  "scope": "authenticated Canvas element PNG outside timed workload"
+}

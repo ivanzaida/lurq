@@ -1,0 +1,14 @@
+# Sampled Canvas assets: independent source review
+
+Reviewed commit `cf0c5d81ddab2c960f1aff34a4b5117a73ade9e5` against `b78f965cc905cc14697969c52ed02332eef934cf` in the Lurq Canvas text worktree. The checkout was tracked-clean. This is source review only; the reviewer ran no Cargo, device, or native checks.
+
+No concrete source blocker found. The four-file delta changes only the asset-cache miss allocation policy, extracts a shared texture descriptor/allocation helper, adds two descriptor tests, and documents the experiment.
+
+- `canvas/draw.rs:30–38` allocates a cache-miss asset through `asset_texture`. Cached assets subsequently receive `CopyTextureRegion`, transition from `COPY_DEST` to `PIXEL_SHADER_RESOURCE`, and are bound as SRVs (`draw.rs:241`). The inspected asset uses do not bind RTVs/DSVs or clear these textures.
+- `canvas/resources.rs:35–130` preserves the existing render-target/depth wrapper, formats, sample counts, heap properties and optimized clears. The new sampled path uses RGBA8, one sample, `D3D12_RESOURCE_FLAG_NONE`, and no optimized clear. The optional clear remains alive throughout the synchronous `CreateCommittedResource` call.
+- `canvas.rs:96–98,435,496,506` retains the original helper for scratch/resolve/stencil/backing/saved/layer targets. Upload packing, premultiplication, upload-frame staging, copy/barrier recording, descriptor binding, eviction charge, retirement buckets and fences are unchanged. Profiler/Cargo/lock inputs are unchanged; the existing texture-creation timer still includes the actual allocation call.
+- The changed handwritten Rust files have 290, 291 and 41 physical lines. The two new tests inspect descriptors only; they do not prove device allocation, pixels, GPU behavior or performance.
+
+Microsoft documents that `ALLOW_RENDER_TARGET` permits render-target use and may impose extra layout/memory costs on some adapters; avoiding it for never-rendered textures is consistent with that contract. `NONE` does not deny shader-resource access. [Resource flags](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_flags). The optimized clear argument is optional and describes render-target/depth clear values. [CreateCommittedResource](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createcommittedresource).
+
+Remaining gates belong to the implementation/integration owners: the two focused descriptor tests, actual DX12 compilation, then the planned matched native capture with source/binary/fixture identity, successful uploads, viewport/document preservation and pixel comparison. No benefit, GPU timing, allocation reduction, or whole-interaction speedup is inferred from this source delta. Existing PR34 diagnostic timings remain a separate uncontrolled-load observation.
