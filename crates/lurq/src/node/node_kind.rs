@@ -201,7 +201,7 @@ struct TextInner {
   caret: usize,
   selection_anchor: Option<usize>,
   caret_positions: CaretPositions,
-  display_text: Option<String>,
+  display_text: Option<Arc<str>>,
   render_wrap: bool,
 }
 
@@ -309,20 +309,30 @@ impl TextState {
     selection_ranges_for_positions(&inner.caret_positions, start, end, 0.0, 0.0)
   }
 
-  pub(crate) fn set_caret_positions(&self, positions: CaretPositions) {
-    self.inner.lock().unwrap().caret_positions = positions;
+  /// Writes what laying the text out under one set of constraints produced:
+  /// the string to draw instead of the content, whether the renderer wraps,
+  /// and, for selectable text, the caret geometry (`None` keeps the current
+  /// positions).
+  pub(crate) fn set_layout_output(
+    &self,
+    display_text: Option<&Arc<str>>,
+    render_wrap: bool,
+    caret_positions: Option<&CaretPositions>,
+  ) {
+    let mut inner = self.inner.lock().unwrap();
+    // Serving a cached layout usually writes back what the state already
+    // holds; skip the reference-count traffic then.
+    if inner.display_text.as_ref().map(Arc::as_ptr) != display_text.map(Arc::as_ptr) {
+      inner.display_text = display_text.cloned();
+    }
+    inner.render_wrap = render_wrap;
+    if let Some(caret_positions) = caret_positions {
+      inner.caret_positions = caret_positions.clone();
+    }
   }
 
-  pub(crate) fn set_display_text(&self, display_text: Option<String>) {
-    self.inner.lock().unwrap().display_text = display_text;
-  }
-
-  pub(crate) fn display_text(&self) -> Option<String> {
+  pub(crate) fn display_text(&self) -> Option<Arc<str>> {
     self.inner.lock().unwrap().display_text.clone()
-  }
-
-  pub(crate) fn set_render_wrap(&self, wrap: bool) {
-    self.inner.lock().unwrap().render_wrap = wrap;
   }
 
   pub(crate) fn render_wrap(&self) -> bool {

@@ -42,8 +42,11 @@ mod box_shadow_quads;
 mod flex_shrink;
 mod opacity_groups;
 mod select_quads;
+mod text_layout_output;
 
 use flex_shrink::FlexShrinkLine;
+pub(crate) use text_layout_output::TextLayoutOutput;
+use text_layout_output::{TextInputOutput, TextOutput};
 
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
@@ -999,9 +1002,10 @@ impl LayoutEngine {
         let resolved_style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
         let vertical_align = resolved_style.vertical_align;
         QuadContent::Text {
-          text: state
-            .display_text()
-            .unwrap_or_else(|| node.text_content().unwrap_or_default().to_owned()),
+          text: state.display_text().map_or_else(
+            || node.text_content().unwrap_or_default().to_owned(),
+            |display_text| display_text.to_string(),
+          ),
           style: resolved_style,
           wrap: state.render_wrap(),
           vertical_align,
@@ -2014,14 +2018,24 @@ impl LayoutEngine {
     })
   }
 
+  /// Serving a cached result skips text layout, so the text output of every
+  /// text leaf in it is written back as well: the node's text state otherwise
+  /// keeps what the last real layout, possibly at other constraints, wrote.
   fn prepare_cached_result(&self, node: &Node, mut cached: LayoutResult) -> LayoutResult {
-    self.prepare_layout_result_tree(node, &mut cached);
+    self.prepare_layout_result_tree(node, &mut cached, true);
     cached
   }
 
-  fn prepare_layout_result_tree(&self, node: &Node, result: &mut LayoutResult) {
+  fn prepare_layout_result_tree(&self, node: &Node, result: &mut LayoutResult, restore_text_layout: bool) {
+    if restore_text_layout {
+      Self::restore_text_layout_output(node, result);
+    }
     for (child_node, child_layout) in node.children().iter().zip(result.children.iter_mut()) {
-      self.prepare_layout_result_tree(child_node, Arc::make_mut(&mut child_layout.result));
+      self.prepare_layout_result_tree(
+        child_node,
+        Arc::make_mut(&mut child_layout.result),
+        restore_text_layout,
+      );
     }
 
     if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
@@ -2072,7 +2086,7 @@ impl LayoutEngine {
     self.last_recalculated.set(true);
     let mut result = self.layout_node_box(glyph_engine, node, constraints, child_overrides);
     Self::apply_runtime_rect(node, &mut result);
-    self.prepare_layout_result_tree(node, &mut result);
+    self.prepare_layout_result_tree(node, &mut result, false);
     node.layout_cache.store(constraints, result.clone());
     #[cfg(feature = "perf_profile")]
     {
@@ -2243,6 +2257,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       NodeKind::Slider { .. } => {
@@ -2261,6 +2276,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       NodeKind::Select { state } => {
@@ -2278,6 +2294,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(Size::new(width, height)),
           children: vec![],
+          text_layout: None,
         };
       }
       #[cfg(feature = "canvas")]
@@ -2285,6 +2302,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(node.intrinsic_size.unwrap_or(Size::new(300.0, 150.0))),
           children: vec![],
+          text_layout: None,
         };
       }
       #[cfg(feature = "raster")]
@@ -2295,6 +2313,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       #[cfg(feature = "raster")]
@@ -2305,6 +2324,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       #[cfg(feature = "image")]
@@ -2315,6 +2335,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       #[cfg(feature = "svg")]
@@ -2325,6 +2346,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       #[cfg(all(feature = "svg", feature = "resources"))]
@@ -2335,6 +2357,7 @@ impl LayoutEngine {
         return LayoutResult {
           size: constraints.constrain(preferred),
           children: vec![],
+          text_layout: None,
         };
       }
       NodeKind::Empty => {}
@@ -2344,6 +2367,7 @@ impl LayoutEngine {
     LayoutResult {
       size: constraints.constrain(preferred),
       children: vec![],
+      text_layout: None,
     }
   }
 
@@ -2369,7 +2393,7 @@ impl LayoutEngine {
         measured.height.max(constraints.min_height),
       )
     };
-    LayoutResult { size, children: vec![] }
+    LayoutResult { size, children: vec![], text_layout: None }
   }
 
   fn layout_text_node(
@@ -2389,24 +2413,25 @@ impl LayoutEngine {
       TextOverflow::Elipsis => self.ellipsize_text(glyph_engine, text, style, constraints.max_width),
     };
     let layout_text = overflow_display_text.as_deref().unwrap_or(text);
-    if force_display_text || overflow_display_text.is_some() {
-      state.set_display_text(Some(layout_text.to_owned()));
-    } else {
-      state.set_display_text(None);
-    }
+    let display_text = (force_display_text || overflow_display_text.is_some()).then(|| Arc::from(layout_text));
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
-    state.set_render_wrap(render_wrap);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    if state.selectable() {
-      state.set_caret_positions(glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
-    }
-    if !state.selectable() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
-      return LayoutResult {
-        size: Size::new(constraints.max_width, constraints.max_height),
-        children: vec![],
-      };
-    }
-    self.layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
+    let caret_positions = state
+      .selectable()
+      .then(|| glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
+    let size = if caret_positions.is_none() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
+      Size::new(constraints.max_width, constraints.max_height)
+    } else {
+      self
+        .layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
+        .size
+    };
+    let output = TextOutput {
+      display_text,
+      render_wrap,
+      caret_positions,
+    };
+    Self::text_result(state, size, output)
   }
 
   #[cfg(feature = "markdown")]
@@ -2421,17 +2446,16 @@ impl LayoutEngine {
   ) -> LayoutResult {
     let effective_wrap = wrap && overflow == TextOverflow::Clip;
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
-    state.set_render_wrap(render_wrap);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    if state.selectable() {
+    let (display_text, caret_positions) = if state.selectable() {
       let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
-      state.set_display_text(Some(display_text.clone()));
-      if let Some(first) = spans.first() {
-        state.set_caret_positions(glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
-      }
+      let caret_positions = spans
+        .first()
+        .map(|first| glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
+      (Some(Arc::from(display_text)), caret_positions)
     } else {
-      state.set_display_text(None);
-    }
+      (None, None)
+    };
     let measured = glyph_engine.measure_rich_text(spans, max_width);
     let size = if effective_wrap {
       constraints.constrain(measured)
@@ -2441,7 +2465,12 @@ impl LayoutEngine {
         measured.height.max(constraints.min_height),
       )
     };
-    LayoutResult { size, children: vec![] }
+    let output = TextOutput {
+      display_text,
+      render_wrap,
+      caret_positions,
+    };
+    Self::text_result(state, size, output)
   }
 
   fn text_width(&self, glyph_engine: &mut GlyphEngine, text: &str, style: &TextStyle) -> f32 {
@@ -2541,47 +2570,15 @@ impl LayoutEngine {
     let caret_source = state.caret_source_text();
     let mut caret_positions = glyph_engine.caret_positions(&caret_source, style, caret_width, wraps);
     state.remap_caret_positions(&mut caret_positions);
-    state.set_caret_positions(caret_positions);
-
-    state.set_caret_height(line_height);
-    state.set_text_band(glyph_engine.line_content_band(style));
-    state.sync_caret_metrics_to_position(line_height);
-    let caret_x = state.caret_x() + state.scroll_x();
-    let caret_y = state.caret_y() + state.scroll_y();
-    match overflow {
-      crate::node::node_kind::TextInputOverflow::Scroll => {
-        let caret_width = 1.0;
-        let max_scroll = (text_result.size.width + caret_width - size.width).max(0.0);
-        let scroll_x = if state.is_focused() {
-          let mut scroll_x = state.scroll_x().min(max_scroll);
-          if caret_x < scroll_x {
-            scroll_x = caret_x;
-          } else if caret_x + caret_width > scroll_x + size.width {
-            scroll_x = (caret_x + caret_width - size.width).min(max_scroll);
-          }
-          scroll_x
-        } else {
-          match state.unfocused_overflow_anchor() {
-            crate::node::node_kind::TextInputOverflowAnchor::Start => 0.0,
-            crate::node::node_kind::TextInputOverflowAnchor::End => max_scroll,
-          }
-        };
-        state.set_scroll_x(scroll_x);
-        state.set_scroll_y(0.0);
-      }
-      crate::node::node_kind::TextInputOverflow::Multiline => {
-        state.set_scroll_x(0.0);
-        let max_scroll = (text_height - size.height).max(0.0);
-        let mut scroll_y = state.scroll_y().min(max_scroll);
-        if caret_y < scroll_y {
-          scroll_y = caret_y;
-        } else if caret_y + line_height > scroll_y + size.height {
-          scroll_y = (caret_y + line_height - size.height).min(max_scroll);
-        }
-        state.set_scroll_y(scroll_y);
-      }
-    }
-    LayoutResult { size, children: vec![] }
+    let output = TextInputOutput {
+      caret_positions,
+      size,
+      text_width: text_result.size.width,
+      text_height,
+      line_height,
+      text_band: glyph_engine.line_content_band(style),
+    };
+    Self::text_input_result(state, output)
   }
 
   fn layout_flex(
@@ -2601,6 +2598,7 @@ impl LayoutEngine {
       return LayoutResult {
         size: constraints.constrain(Size::default()),
         children: vec![],
+        text_layout: None,
       };
     }
 
@@ -2640,6 +2638,7 @@ impl LayoutEngine {
         non_flex_results.push(Some(LayoutResult {
           size: Size::default(),
           children: Vec::new(),
+          text_layout: None,
         }));
         continue;
       }
@@ -2797,6 +2796,7 @@ impl LayoutEngine {
     LayoutResult {
       size,
       children: child_layouts.into(),
+      text_layout: None,
     }
   }
 
@@ -3012,6 +3012,7 @@ impl LayoutEngine {
       result: LayoutResult {
         size: Size::default(),
         children: vec![],
+        text_layout: None,
       }
       .into(),
     });
@@ -3105,6 +3106,7 @@ impl LayoutEngine {
     LayoutResult {
       size,
       children: all_layouts,
+      text_layout: None,
     }
   }
 
@@ -3179,6 +3181,7 @@ impl LayoutEngine {
     LayoutResult {
       size,
       children: child_layouts.into(),
+      text_layout: None,
     }
   }
 
@@ -3413,6 +3416,7 @@ impl LayoutEngine {
           offset: Offset::new(-state.scroll_x(), -state.scroll_y()),
           result: child_result.into(),
         }],
+        text_layout: None,
       };
     }
 
@@ -3455,6 +3459,7 @@ impl LayoutEngine {
         offset: Offset::new(-state.scroll_x(), -state.scroll_y()),
         result: child_result.into(),
       }],
+      text_layout: None,
     }
   }
 
@@ -3469,6 +3474,7 @@ impl LayoutEngine {
       return LayoutResult {
         size: Size::new(0.0, 0.0),
         children: Vec::new(),
+        text_layout: None,
       };
     };
     let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, constraints);
@@ -3480,6 +3486,7 @@ impl LayoutEngine {
         offset: Offset::default(),
         result: child_result.into(),
       }],
+      text_layout: None,
     }
   }
 
@@ -3493,6 +3500,9 @@ impl LayoutEngine {
   ) -> LayoutResult {
     if let Some(Some(child_override)) = child_overrides.and_then(|overrides| overrides.get(index)) {
       if child_override.constraints == constraints {
+        // The override was laid out before this parent layout began, which
+        // may have laid the child out again under other constraints since.
+        Self::restore_text_layout_tree(child, &child_override.result);
         return child_override.result.clone();
       }
     }
@@ -3850,6 +3860,7 @@ mod tests {
       LayoutResult {
         size: constraints.constrain(Size::new(10.0, 10.0)),
         children: Vec::new(),
+        text_layout: None,
       },
     );
     child.layout_cache.mark_local_dirty();

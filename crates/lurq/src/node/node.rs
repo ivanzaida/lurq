@@ -4398,6 +4398,7 @@ mod tests {
             result: LayoutResult {
               size: Size::new(50.0, 20.0),
               children: Vec::new(),
+              text_layout: None,
             }
             .into(),
           },
@@ -4406,10 +4407,12 @@ mod tests {
             result: LayoutResult {
               size: Size::new(50.0, 20.0),
               children: Vec::new(),
+              text_layout: None,
             }
             .into(),
           },
         ],
+        text_layout: None,
       },
     );
     let mut new = Node::row(
@@ -4444,12 +4447,15 @@ mod tests {
               result: LayoutResult {
                 size: Size::new(30.0, 20.0),
                 children: Vec::new(),
+                text_layout: None,
               }
               .into(),
             }],
+            text_layout: None,
           }
           .into(),
         }],
+        text_layout: None,
       },
     );
 
@@ -4480,9 +4486,11 @@ mod tests {
           result: LayoutResult {
             size: Size::new(100.0, 20.0),
             children: Vec::new(),
+            text_layout: None,
           }
           .into(),
         }],
+        text_layout: None,
       },
     );
 
