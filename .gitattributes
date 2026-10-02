@@ -16,3 +16,5 @@ docs/evidence/k234-canvas-text-performance/run1/canvas-text-public.json -text
 docs/evidence/k234-canvas-text-performance/run1/canvas-text-public.log -text
 docs/evidence/k234-canvas-text-performance/run1/run.ps1 -text
 docs/evidence/k234-canvas-text-performance/handoff.md -text
+docs/evidence/k232-profiling/refined-20261002/** -text
+docs/evidence/k232-profiling/canvas-text-20261002/** -text

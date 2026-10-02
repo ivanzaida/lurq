@@ -1,0 +1,38 @@
+{
+  "launcher": {
+    "mode": "local-lurq + perf_profile",
+    "local_crate": "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/crates/lurq",
+    "cwd": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces",
+    "executable": "cargo",
+    "args": [
+      "run",
+      "-p",
+      "kontur-desktop",
+      "--bin",
+      "kontur-desktop",
+      "-j1",
+      "--config",
+      "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/crates/lurq\"",
+      "--features",
+      "lurq/perf_profile",
+      "--locked",
+      "--offline"
+    ],
+    "target": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\target",
+    "temp": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\rust-temp",
+    "preview": false
+  },
+  "executed_executable": "cargo",
+  "executed_args": [
+    "metadata",
+    "--format-version",
+    "1",
+    "--locked",
+    "--offline",
+    "--config",
+    "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/crates/lurq\"",
+    "--features",
+    "lurq/perf_profile"
+  ],
+  "reason": "Build-only adaptation of configured dev:desktop command; canonical harness owns later native launch"
+}
