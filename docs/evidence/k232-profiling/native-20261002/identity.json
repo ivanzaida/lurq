@@ -1,0 +1,50 @@
+{
+  "kontur_head": "8e2bb021989688f6d260fe04daf06bccee3e744a",
+  "kontur_tree": "612b074cdaf74a490f1729c255c279d67c52f17c",
+  "lurq_head": "d3314f2a524d37b8dd0119eb5bd4b893fd9ba8f0",
+  "lurq_tree": "04fa9bd1dfcbe2e594f0eb95b27d5d48ca8ccabc",
+  "binary_sha256": "35edfcfd5e17f6db907e0035fe86d0dc26d73ab0163dac431462e17139a44ebb",
+  "original_binary_sha256": "0515d4b1644692441d5f745b7bfb52220a769c76a67e2a32133269f98c3395ab",
+  "original_lock_sha256": "3ad9998913dfb6fca3bf3f062b74256338135fdd213f7abc17a096d87cc11887",
+  "executed_lock_sha256": "5a49b46ea09509c8ed1a3bf0a031cb8726c6c9a5d9983115dbe40031452626a7",
+  "restored_lock_sha256": "3ad9998913dfb6fca3bf3f062b74256338135fdd213f7abc17a096d87cc11887",
+  "config_sha256": "3b288df46325f4af597257f79a3b401f5fcff2fd423032915b18e2f555333ed7",
+  "full_metadata_sha256": "254cdf440616abf10c4d060136c8bbef8581096ddbd97c2151eb91eb6b1f967a",
+  "mcp_python_sdk_version": "1.27.0",
+  "cargo_command": "cargo build -p kontur-desktop --bin kontur-desktop --locked --offline -j1 --features lurq/perf_profile --config .tmp/k232-profiler-candidate/patch.toml",
+  "environment": {
+    "CARGO_HOME": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\lurq-adoption-cargo-home",
+    "CARGO_TARGET_DIR": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\target",
+    "TEMP": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\rust-temp",
+    "TMP": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\rust-temp",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0"
+  },
+  "profile": "unoptimized dev; named Kontur text dependencies opt-level2",
+  "observed_build": {
+    "cargo_profile": "not_embedded",
+    "debug_assertions": true,
+    "features": {
+      "canvas": true,
+      "devtools": false,
+      "dx12": true,
+      "perf_profile": true,
+      "wgpu": true
+    },
+    "gpu_timestamps": {
+      "available": false,
+      "reason": "GPU timestamp queries are not instrumented"
+    },
+    "lurq_version": "0.32.0",
+    "optimization_level": "not_embedded",
+    "target_arch": "x86_64",
+    "target_os": "windows"
+  },
+  "backend": "dx12",
+  "default_mcp": true,
+  "devtools": false,
+  "native_tool_deadline_seconds": 15,
+  "scope": "builder diagnostic; independent review and optimized performance acceptance remain separate"
+}

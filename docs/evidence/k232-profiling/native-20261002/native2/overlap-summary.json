@@ -1,0 +1,20 @@
+{
+  "id1": "profile_2",
+  "id2": "profile_3",
+  "end2_digest_unchanged": true,
+  "active1_received_later_completion": true,
+  "stages": {
+    "rendered_passes": 28,
+    "canvas_passes": 18,
+    "canvas_cpu_ms": {
+      "total": 1561.1312,
+      "tessellation": 69.2851,
+      "asset_upload": 1352.5446,
+      "buffer_upload": 0.9976999999999999,
+      "recording": 1375.5691,
+      "submit": 0.0
+    },
+    "inclusive_scopes_not_additive": true,
+    "uploaded_asset_bytes": 35193864
+  }
+}

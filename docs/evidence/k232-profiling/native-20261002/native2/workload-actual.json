@@ -1,0 +1,45 @@
+{
+  "name": "K230 original Pencil / 01 Editor / reversible zoom pair",
+  "identity": {
+    "kontur_sha": "8e2bb021989688f6d260fe04daf06bccee3e744a",
+    "lurq_sha": "d3314f2a524d37b8dd0119eb5bd4b893fd9ba8f0",
+    "cargo_command": "cargo build -p kontur-desktop --bin kontur-desktop --locked --offline -j1 --features lurq/perf_profile --config .tmp/k232-profiler-candidate/patch.toml",
+    "build_profile": "dev, debug0, incremental0; named text dependencies opt-level2",
+    "backend": "dx12",
+    "features": [
+      "mcp",
+      "perf_profile",
+      "canvas",
+      "dx12"
+    ],
+    "page": "01 Editor",
+    "coordinator_K230_counts": {
+      "visible_scene_items": 1862,
+      "authored_nodes": 8055
+    },
+    "current_fixture_counts": {
+      "visible_scene_items": "1492",
+      "render_instances": "1492"
+    },
+    "kontur_tree": "612b074cdaf74a490f1729c255c279d67c52f17c",
+    "lurq_tree": "04fa9bd1dfcbe2e594f0eb95b27d5d48ca8ccabc",
+    "contention": "external Orchester compiler graph active; no precise causal overhead claim"
+  },
+  "cycles": 4,
+  "reset": [
+    {
+      "click_id": "canvas-fit"
+    }
+  ],
+  "cycle": [
+    {
+      "click_id": "canvas-zoom-in"
+    },
+    {
+      "click_id": "canvas-zoom-out"
+    }
+  ],
+  "stall_call": {
+    "click_id": "canvas-zoom-in"
+  }
+}

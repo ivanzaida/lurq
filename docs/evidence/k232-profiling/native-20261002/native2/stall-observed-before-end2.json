@@ -1,0 +1,68 @@
+{
+  "boundary_excluded_samples": 0,
+  "boundary_policy": "whole_completed_operations; in-flight observations are unfinished and excluded from completed samples",
+  "build": {
+    "cargo_profile": "not_embedded",
+    "debug_assertions": true,
+    "features": {
+      "canvas": true,
+      "devtools": false,
+      "dx12": true,
+      "perf_profile": true,
+      "wgpu": true
+    },
+    "gpu_timestamps": {
+      "available": false,
+      "reason": "GPU timestamp queries are not instrumented"
+    },
+    "lurq_version": "0.32.0",
+    "optimization_level": "not_embedded",
+    "target_arch": "x86_64",
+    "target_os": "windows"
+  },
+  "completed_samples": 0,
+  "dropped_samples": 0,
+  "ended_ms": null,
+  "finalized": false,
+  "id": "profile_6",
+  "in_flight": [
+    {
+      "elapsed_so_far_ms": 149.2131,
+      "excluded_from_completed_samples": true,
+      "frame_id": 496,
+      "phase": "layout_update",
+      "phase_elapsed_so_far_ms": 149.1171,
+      "started_before_session": true,
+      "started_ms": 90165.7113,
+      "unfinished": true,
+      "window": "main"
+    }
+  ],
+  "max_samples": 64,
+  "observed_ms": 90314.92439999999,
+  "returned_samples": 0,
+  "sample_age_ms": null,
+  "samples": [],
+  "schema_version": 1,
+  "scope_semantics": {
+    "canvas": "CPU processing; recording includes uploads and WGPU submission; tessellation includes mesh cache lookup",
+    "fps": "on-demand rendering; sample count/interval is not throughput or FPS",
+    "layout_update": "inclusive rebuild/resources/layout/Canvas recording",
+    "pass": "Tree::pass wall time; includes nested UI/layout/text/Canvas/render; excludes prior input dispatch",
+    "render_encode": "inclusive backend encoding; DX12 includes Canvas and atlas uploads; WGPU includes buffer/image uploads",
+    "submit_present": "CPU API wall time, not GPU execution",
+    "ui_update": "inclusive rebuild/refresh with nested commit; may precede or nest in a pass"
+  },
+  "started_ms": 90230.3318,
+  "status": "unfinished_work_observed",
+  "time_origin": "collector_monotonic_epoch",
+  "truncated": false,
+  "untracked_windows": 0,
+  "windows": [
+    {
+      "devtools": false,
+      "id": "main",
+      "open": true
+    }
+  ]
+}

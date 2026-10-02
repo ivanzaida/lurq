@@ -1,0 +1,97 @@
+{
+  "editor": {
+    "raw": {
+      "content": [
+        {
+          "type": "text",
+          "text": "ref_4 [main] EditorScreen role=editorscreen #editor {document=0acea323-5056-408d-84c0-f7c9a82e7c36} {state=loading} {source=\"\"} {scope=local} {editing=not-open} @0,54 2160x1386 (not interactive)"
+        }
+      ],
+      "isError": false
+    },
+    "attrs": {
+      "document": "0acea323-5056-408d-84c0-f7c9a82e7c36",
+      "state": "loading",
+      "source": "",
+      "scope": "local",
+      "editing": "not-open"
+    }
+  },
+  "save-status": {
+    "raw": {
+      "content": [
+        {
+          "type": "text",
+          "text": "ref_5 [main] Row role=row #save-status {state=loading} {revision=\"\"} {source=server} {code=\"\"} @487,60 195x42 (not interactive)"
+        }
+      ],
+      "isError": false
+    },
+    "attrs": {
+      "state": "loading",
+      "revision": "",
+      "source": "server",
+      "code": ""
+    }
+  },
+  "canvas": {
+    "raw": {
+      "content": [
+        {
+          "type": "text",
+          "text": "ref_6 [main] Canvas role=canvas #canvas {zoom=100} {pan_x=468.0} {pan_y=419.0} {page=\"\"} {selection=\"\"} {selection_box=\"\"} {state=loading} {text_faces=\"\"} {text_node=\"\"} {text_caret=\"\"} {text_selection=\"\"} {text_pending=\"\"} {gesture=\"\"} {draft=\"\"} {hover=\"\"} {tool=move} {draws=\"\"} {renderer=dx12} {items=0} {surface_bytes=0} {capture_us=0} {copied_resource_bytes=0} {preparation_us=0} {render_us=0} {render_metric=cpu-command-recording} {render_instances=0} {gpu_batches=156} {gpu_vertices=936} {gpu_tiles=1404} {gpu_uploaded_bytes=0} {gpu_bytes=7059312} {pending_bytes=320} {peak_pending_bytes=320} {paint_passes=160} {preparation_waiting=0} {preparation_peak_waiting=0} {preparation_running=0} {preparation_peak_running=0} {preparation_started=0} {preparation_finished=0} {visible_items=0} {pass_items=0} {pass_commands=2} {pass_vertices=128} {text_refusal=\"\"} {text_raster=\"\"} {canvas_error=\"\"} {items=0} @360,138 1404x1257"
+        }
+      ],
+      "isError": false
+    },
+    "attrs": {
+      "zoom": "100",
+      "pan_x": "468.0",
+      "pan_y": "419.0",
+      "page": "",
+      "selection": "",
+      "selection_box": "",
+      "state": "loading",
+      "text_faces": "",
+      "text_node": "",
+      "text_caret": "",
+      "text_selection": "",
+      "text_pending": "",
+      "gesture": "",
+      "draft": "",
+      "hover": "",
+      "tool": "move",
+      "draws": "",
+      "renderer": "dx12",
+      "items": "0",
+      "surface_bytes": "0",
+      "capture_us": "0",
+      "copied_resource_bytes": "0",
+      "preparation_us": "0",
+      "render_us": "0",
+      "render_metric": "cpu-command-recording",
+      "render_instances": "0",
+      "gpu_batches": "156",
+      "gpu_vertices": "936",
+      "gpu_tiles": "1404",
+      "gpu_uploaded_bytes": "0",
+      "gpu_bytes": "7059312",
+      "pending_bytes": "320",
+      "peak_pending_bytes": "320",
+      "paint_passes": "160",
+      "preparation_waiting": "0",
+      "preparation_peak_waiting": "0",
+      "preparation_running": "0",
+      "preparation_peak_running": "0",
+      "preparation_started": "0",
+      "preparation_finished": "0",
+      "visible_items": "0",
+      "pass_items": "0",
+      "pass_commands": "2",
+      "pass_vertices": "128",
+      "text_refusal": "",
+      "text_raster": "",
+      "canvas_error": ""
+    }
+  }
+}

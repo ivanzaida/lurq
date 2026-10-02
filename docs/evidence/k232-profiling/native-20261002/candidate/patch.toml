@@ -1,0 +1,2 @@
+[patch.crates-io]
+lurq = { path = "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/crates/lurq" }
