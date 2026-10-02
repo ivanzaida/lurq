@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.33.1 — 2026-10-02
+
+- Fix presses next to a scrollbar selecting text instead of scrolling. Only the painted thumb, as thin as 4 px, counted as the scrollbar; a press beside it went to the content underneath, and the selectable-text drag start, which accepts presses up to 0.75 of a line's height (at least 8 px) off the text, reached the bar under the last line. Trying to drag a `ScrollHorizontal` over selectable text sideways selected the text, and the same happened beside a vertical bar. Even a press on the thumb cleared an existing selection.
+  - A plain overlay bar (the default, with a transparent track) now takes the pointer on its thumb and 4 px around it on every side. The rest of its lane stays with the content, so trailing row buttons and menu options next to the bar keep their clicks and hover.
+  - A bar that visibly owns its lane, a `Reserved` gutter or an overlay bar with a painted `track_color`, takes the whole lane: the track along its length and, across it, the bar plus 4 px on each side (or the edge inset, if larger), up to the container's edge.
+  - Where a scrollbar takes the pointer, a press reaches no content underneath and never starts a text selection. A press on the thumb drags it. A press on the track of a bar that owns its lane, which did nothing before, pages one viewport toward the press, once per press, on Windows and macOS alike. The scrollbar holds the pointer until the release, which clicks nothing.
+  - Where scrollbars overlap, the one painted on top wins: an outer scroll container's bar over those of the containers inside it, and the horizontal bar over the vertical one in a two-axis scroller's corner.
+  - A bar shown by `ScrollBarVisibility::Always` while the content fits takes no pointer, so its thumb is never dragged.
+  - `.scrollbar_hovered(...)` (and `ScrollState::is_thumb_hovered`) applies over the same area that takes the pointer, and ends when the pointer leaves the scroll container.
+  - Mouse wheel and Shift+wheel scrolling are unchanged.
+
 ## 0.33.0 — 2026-10-02
 
 - Fix text drawn from a stale layout after its width changes back. Text layout writes what it computes for the current width into the node's state: the ellipsized string, whether the renderer wraps, and the caret geometry of selectable text and text inputs. A layout served from the layout cache skipped that step, so the state kept what the last real layout, at another width, had written. A truncated label that got wider again kept its old ellipsis (`connect-to-…` in a 400px box), whether at the root, shrunk in a `Row` or in a component that re-renders on resize; text measured once without a width bound stopped wrapping; and selections, caret placement and clicks in selectable text and multiline inputs used the other width's line breaks. Each text leaf's layout result now carries its output, and serving a cached result writes it back.

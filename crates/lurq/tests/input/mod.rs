@@ -1,4 +1,5 @@
 mod text {
+  mod scrollbar_lane;
   mod selectable;
 }
 

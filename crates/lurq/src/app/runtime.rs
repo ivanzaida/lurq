@@ -50,6 +50,7 @@ use crate::{
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
     render_list::{GlyphCmd, RectCmd, RenderGradient, RenderList},
+    scrollbar::ScrollBarPart,
     text_style::{FontWeight, TextStyle, VerticalAlign},
   },
   node::{
@@ -3594,7 +3595,7 @@ impl Tree {
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
-    trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
+    trim_hits_to_scrollbar(&mut hits, lx, ly);
     hits.into_iter().map(|(node, _)| node.node_id()).collect()
   }
 
@@ -3652,32 +3653,10 @@ impl Tree {
     if let Some(ref drag) = self.dragging_scroll.clone() {
       match evt.kind {
         MouseEventKind::Move => {
-          let previous_scroll_x = drag.state.scroll_x();
-          let previous_scroll_y = drag.state.scroll_y();
-          let previous_max_scroll_y = (drag.state.content_height() - drag.state.viewport_height()).max(0.0);
-          drag.state.drag_to_axis(drag.axis, lx, ly, &drag.state.style());
-          let moved = drag.state.scroll_x() != previous_scroll_x || drag.state.scroll_y() != previous_scroll_y;
-          if moved {
-            let target_id = self.rebound_scroll_drag_target(drag);
-            // Match the wheel path: consumed scroll dirties layout so the
-            // next pass re-lays (and `after_layout` hooks observe) the moved
-            // content.
-            if let Some(root) = &self.root {
-              mark_scroll_layout_dirty(root, target_id);
-            }
-            self.dispatch_scroll_handlers_for_node(target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll);
-            self.dispatch_scroll_reach_handlers_for_node(
-              target_id,
-              evt.x,
-              evt.y,
-              0.0,
-              0.0,
-              ScrollPhase::Scroll,
-              previous_scroll_y,
-              previous_max_scroll_y,
-            );
-            self.needs_redraw = true;
-            self.apply_reactive_updates_after_event();
+          if drag.drags_thumb {
+            self.scroll_with_scrollbar(drag, lx, ly, |state| {
+              state.drag_to_axis(drag.axis, lx, ly, &state.style());
+            });
           }
           return;
         }
@@ -3844,7 +3823,12 @@ impl Tree {
 
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
-    trim_hits_to_scrollbar_thumb(&mut hits, lx, ly);
+    trim_hits_to_scrollbar(&mut hits, lx, ly);
+    // A scrollbar takes the pointer: nothing below it (text, inputs, sliders)
+    // gets the built-in press or click behaviour.
+    let on_scrollbar = hits
+      .first()
+      .is_some_and(|(node, _)| scrollbar_hit_at(node, lx, ly).is_some());
     if matches!(evt.kind, MouseEventKind::Click | MouseEventKind::DoubleClick)
       && let Some(click_target) = click_target
     {
@@ -3996,7 +3980,7 @@ impl Tree {
       blur_on_press = !on_menu && press_blurs_focus(&hits);
     }
 
-    if !evt.default_prevented() && (is_left_click || is_left_down) {
+    if !evt.default_prevented() && (is_left_click || is_left_down) && !on_scrollbar {
       if is_left_down {
         if let Some((node, rect)) = hits
           .iter()
@@ -4179,42 +4163,35 @@ impl Tree {
       }
     }
 
-    // Check scrollbar thumb hover/press
+    // Scrollbars: hovering one shows its hover state, and a left press on one
+    // takes the pointer.
+    let mut scrollbar_press = None;
     if !evt.default_prevented() {
       for (node, _) in &hits {
-        if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
-          let sb_style = state.style();
-          let mut on_thumb = false;
-          let mut pressed_axis = None;
-
-          for &axis in scroll_axes(*direction) {
-            let Some((tx, ty, tw, th)) = state.thumb_rect_for_axis(axis, &sb_style) else {
-              continue;
-            };
-            let on_axis_thumb = lx >= tx && lx <= tx + tw && ly >= ty && ly <= ty + th;
-            on_thumb |= on_axis_thumb;
-            if on_axis_thumb && is_left_down && pressed_axis.is_none() {
-              pressed_axis = Some(axis);
-            }
-          }
-
-          if on_thumb != state.is_thumb_hovered() {
-            state.set_thumb_hovered(on_thumb);
-            self.needs_redraw = true;
-          }
-
-          if let Some(axis) = pressed_axis {
-            state.begin_drag_axis(axis, lx, ly);
-            self.dragging_scroll = Some(ScrollDrag {
-              target_id: node.node_id(),
-              state: state.clone(),
-              axis,
-            });
-            self.needs_redraw = true;
-            return;
-          }
+        let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() else {
+          continue;
+        };
+        let hit = scrollbar_hit_at(node, lx, ly);
+        if hit.is_some() != state.is_thumb_hovered() {
+          state.set_thumb_hovered(hit.is_some());
+          self.needs_redraw = true;
+        }
+        if is_left_down && let Some((axis, part)) = hit {
+          let drag = ScrollDrag {
+            target_id: node.node_id(),
+            state: state.clone(),
+            axis,
+            drags_thumb: part == ScrollBarPart::Thumb,
+          };
+          scrollbar_press = Some((drag, part));
+          break;
         }
       }
+    }
+    if let Some((drag, part)) = scrollbar_press {
+      drop(hits);
+      self.press_scrollbar(drag, part, lx, ly);
+      return;
     }
 
     let pending_drag = if !evt.default_prevented()
@@ -4376,6 +4353,55 @@ impl Tree {
       NodeKind::Slider { state } => Some(state.clone()),
       _ => None,
     }
+  }
+
+  /// A left press on a scrollbar. On the thumb it starts a drag. On the track,
+  /// which takes the pointer only where the bar owns its lane, it pages one
+  /// viewport toward the press, the default on both Windows and macOS (without
+  /// auto-repeat while the button is held). Either way the scrollbar holds the
+  /// pointer until the release, which clicks nothing.
+  fn press_scrollbar(&mut self, drag: ScrollDrag, part: ScrollBarPart, x: f32, y: f32) {
+    self.dragging_scroll = Some(drag.clone());
+    match part {
+      ScrollBarPart::Thumb => drag.state.begin_drag_axis(drag.axis, x, y),
+      ScrollBarPart::TrackBefore | ScrollBarPart::TrackAfter => {
+        let forward = part == ScrollBarPart::TrackAfter;
+        self.scroll_with_scrollbar(&drag, x, y, |state| state.page_axis(drag.axis, forward));
+      }
+    }
+    self.needs_redraw = true;
+  }
+
+  /// Applies `scroll` to the scrollbar's state and, if the content moved,
+  /// does what the wheel path does: dirties layout so the next pass re-lays
+  /// (and `after_layout` hooks observe) the moved content, and runs the
+  /// container's scroll and scroll-reach handlers.
+  fn scroll_with_scrollbar(&mut self, drag: &ScrollDrag, x: f32, y: f32, scroll: impl FnOnce(&ScrollState)) {
+    let previous_scroll_x = drag.state.scroll_x();
+    let previous_scroll_y = drag.state.scroll_y();
+    let previous_max_scroll_y = (drag.state.content_height() - drag.state.viewport_height()).max(0.0);
+    scroll(&drag.state);
+    let moved = drag.state.scroll_x() != previous_scroll_x || drag.state.scroll_y() != previous_scroll_y;
+    if !moved {
+      return;
+    }
+    let target_id = self.rebound_scroll_drag_target(drag);
+    if let Some(root) = &self.root {
+      mark_scroll_layout_dirty(root, target_id);
+    }
+    self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll);
+    self.dispatch_scroll_reach_handlers_for_node(
+      target_id,
+      x,
+      y,
+      0.0,
+      0.0,
+      ScrollPhase::Scroll,
+      previous_scroll_y,
+      previous_max_scroll_y,
+    );
+    self.needs_redraw = true;
+    self.apply_reactive_updates_after_event();
   }
 
   /// The scroll node id for an active scrollbar drag. The drag's own scroll
@@ -6791,6 +6817,9 @@ struct ScrollDrag {
   target_id: NodeId,
   state: ScrollState,
   axis: ScrollAxis,
+  /// The press landed on the thumb, so moves drag it. A press on the track
+  /// pages once and then only holds the pointer until the release.
+  drags_thumb: bool,
 }
 
 #[derive(Clone)]
@@ -8827,6 +8856,11 @@ struct FocusTarget {
 
 fn set_node_hovered(node: &Node, hovered: bool) {
   node.set_style_hovered(hovered);
+  // Mouse dispatch hovers a scrollbar under the pointer; leaving the
+  // container (or the window) leaves its scrollbar too.
+  if !hovered && let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+    state.set_thumb_hovered(false);
+  }
   if let Some(state) = node.slider_state() {
     state.set_hovered(hovered);
   }
@@ -8838,10 +8872,17 @@ fn set_node_hovered(node: &Node, hovered: bool) {
   }
 }
 
-fn trim_hits_to_scrollbar_thumb(hits: &mut Vec<(&Node, crate::app::hit_test::HitRect)>, x: f32, y: f32) {
+/// Drops the hits above the scroll container whose scrollbar takes the
+/// pointer at `(x, y)`, so the scrollbar, not the content under it, gets it.
+///
+/// Where the scrollbars of nested containers overlap, the bar painted on top
+/// wins: a container paints its scrollbars over its content, so the outermost
+/// container's bar covers those of the containers inside it. `hits` runs from
+/// the innermost node outward, so that is the last match.
+fn trim_hits_to_scrollbar(hits: &mut Vec<(&Node, crate::app::hit_test::HitRect)>, x: f32, y: f32) {
   let Some(index) = hits
     .iter()
-    .position(|(node, _)| scrollbar_thumb_axis_at(node, x, y).is_some())
+    .rposition(|(node, _)| scrollbar_hit_at(node, x, y).is_some())
   else {
     return;
   };
@@ -8851,18 +8892,22 @@ fn trim_hits_to_scrollbar_thumb(hits: &mut Vec<(&Node, crate::app::hit_test::Hit
   }
 }
 
-fn scrollbar_thumb_axis_at(node: &Node, x: f32, y: f32) -> Option<ScrollAxis> {
+/// The axis and part of `node`'s scrollbar that takes the pointer at
+/// `(x, y)`, when `node` is a scroll container showing a scrollbar there.
+///
+/// Like nested containers, the two bars of a container scrolling both ways
+/// resolve their overlap by paint order: the horizontal bar is painted over the
+/// vertical one, so it wins in the corner.
+fn scrollbar_hit_at(node: &Node, x: f32, y: f32) -> Option<(ScrollAxis, ScrollBarPart)> {
   let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() else {
     return None;
   };
 
   let style = state.style();
-  scroll_axes(*direction).iter().copied().find(|axis| {
-    let Some((tx, ty, tw, th)) = state.thumb_rect_for_axis(*axis, &style) else {
-      return false;
-    };
-    x >= tx && x <= tx + tw && y >= ty && y <= ty + th
-  })
+  scroll_axes(*direction)
+    .iter()
+    .rev()
+    .find_map(|&axis| Some((axis, state.scrollbar_part_at(axis, &style, x, y)?)))
 }
 
 fn set_node_active(node: &Node, active: bool) {
@@ -9394,6 +9439,10 @@ fn selectable_text_endpoint<'a>(
   nearest_selectable_text(root, layout, 0.0, 0.0, x, y).map(|(_, node, rect)| (node, rect))
 }
 
+/// The selectable text a press at `(x, y)` starts selecting: the text under
+/// the pointer, or the nearest one when the press is just off it. A press
+/// where a scrollbar takes the pointer starts none, even over text or within
+/// reach of it.
 fn selectable_text_drag_start_endpoint<'a>(
   root: &'a Node,
   layout: &'a LayoutResult,
@@ -9402,6 +9451,9 @@ fn selectable_text_drag_start_endpoint<'a>(
 ) -> Option<(&'a Node, HitRect)> {
   let mut hits = Vec::new();
   hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+  if hits.iter().any(|(node, _)| scrollbar_hit_at(node, x, y).is_some()) {
+    return None;
+  }
   if let Some(hit) = hits.into_iter().find(|(node, _)| is_selectable_text_node(node)) {
     return Some(hit);
   }
