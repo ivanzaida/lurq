@@ -172,6 +172,7 @@ mod tests {
     LayoutResult {
       size: Size::new(width, 10.0),
       children: vec![],
+      text_layout: None,
     }
   }
 

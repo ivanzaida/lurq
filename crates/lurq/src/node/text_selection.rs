@@ -72,6 +72,24 @@ impl CaretPositions {
     self.0.len
   }
 
+  /// Approximate heap bytes of the caret data, divided among its current
+  /// holders: node states, cached layout results and the shaping cache share
+  /// one allocation.
+  pub(crate) fn estimated_shared_memory_bytes(&self) -> usize {
+    let positions = self
+      .0
+      .positions
+      .get()
+      .map_or(0, |positions| positions.capacity() * std::mem::size_of::<CaretPosition>());
+    let segments = self.0.segments.capacity() * std::mem::size_of::<CaretSegment>();
+    let index = self
+      .0
+      .index
+      .get()
+      .map_or(0, |index| index.lines.capacity() * std::mem::size_of::<CaretLine>());
+    (std::mem::size_of::<CaretData>() + positions + segments + index) / Arc::strong_count(&self.0)
+  }
+
   fn is_empty(&self) -> bool {
     self.len() == 0
   }

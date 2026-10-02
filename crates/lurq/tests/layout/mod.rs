@@ -46,5 +46,6 @@ mod scroll;
 mod scrollbar_placement;
 mod stack;
 mod text_centering;
+mod text_layout_cache;
 mod theme_typography;
 mod wrapped_row;

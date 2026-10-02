@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
-use crate::layout::{Offset, Size};
+use crate::layout::{Offset, Size, layout_engine::TextLayoutOutput};
 
 #[derive(Clone)]
 pub struct LayoutResult {
   pub size: Size,
   pub children: Vec<ChildLayout>,
+  /// What laying out a text leaf wrote into its node's text state, written
+  /// back when the result is served from a layout cache.
+  pub(crate) text_layout: Option<Arc<TextLayoutOutput>>,
 }
 
 #[derive(Clone)]
@@ -17,6 +20,10 @@ pub struct ChildLayout {
 impl LayoutResult {
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
+      + self
+        .text_layout
+        .as_ref()
+        .map_or(0, |output| output.estimated_memory_bytes())
       + self.children.capacity() * std::mem::size_of::<ChildLayout>()
       + self
         .children
@@ -39,9 +46,11 @@ mod tests {
         result: LayoutResult {
           size: Size::new(5.0, 5.0),
           children: Vec::new(),
+          text_layout: None,
         }
         .into(),
       }],
+      text_layout: None,
     };
 
     let cloned = result.clone();
