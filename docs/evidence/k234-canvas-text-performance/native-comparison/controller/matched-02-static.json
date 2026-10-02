@@ -1,0 +1,10 @@
+{
+  "status": "corrected runner static syntax/schema/hash validation passed; native unexecuted",
+  "runner_lines": 299,
+  "runner_sha256": "9e2426516256fb5aebd4a21cd9939034d5cab8a20c5bfdb7a02fecb67b12c7cb",
+  "manifest_sha256": "45eed0c8c26d56f781b087207c4491d559dadaa2604fb2a8bac9ad604a9f9c0c",
+  "preserved_run01_runner_sha256": "b5f8b6c457ea8b59968fdc93493612fe70def68a628bc6dd398bc57bf2f41741",
+  "original_manifest_unchanged": true,
+  "binary_hashes_verified": true,
+  "criterion": "pending snapshot retained; semantic open, preparation idle, complete actual Canvas passes and successful readback required"
+}

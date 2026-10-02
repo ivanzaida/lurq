@@ -1,0 +1,47 @@
+{
+  "source_head": "863b23c24b32d48042dfcd44a3f8d350cae7ba05",
+  "source_tree": "3e5d72ac9b9efc006223fbbecfbdc71f74111951",
+  "base_head": "5e50f862e0e59e10e8778c5b7a61f4488f065a2a",
+  "lock_sha256": "a74cbc01c590bb52e6a34037aeeebba172355498b0bc38cdc5ca38fc9f364fd4",
+  "tests": {
+    "canvas_text_lib": 10,
+    "public_text_filter": 7,
+    "explicit_gradient_refusal": 1,
+    "distinct": 17
+  },
+  "image_extraction_equal": true,
+  "text_extraction_equal_except_metrics_dispatch": true,
+  "modified_rust_lines": {
+    "crates/lurq/src/canvas/context.rs": 584,
+    "crates/lurq/src/canvas/context/images.rs": 123,
+    "crates/lurq/src/canvas/context/text.rs": 67,
+    "crates/lurq/src/canvas/text.rs": 403,
+    "crates/lurq/src/canvas/text/glyph_cache.rs": 138,
+    "crates/lurq/src/canvas/text/profile_tests.rs": 225,
+    "crates/lurq/src/canvas/text/tests.rs": 108
+  },
+  "test_artifacts": [
+    {
+      "path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\deps\\lurq-43b2e58e88ac02a4.exe",
+      "bytes": 10624512,
+      "sha256": "a77eeb2a146e91e9e66bcf6b0cb88e53fc7a07337f49d096838fbc5346e46f2e",
+      "dependency_file": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\deps\\lurq-43b2e58e88ac02a4.d",
+      "dependency_sha256": "b1c7ccea91ce9c603bb5efff2d105045b08751a62cef7c8817ec6b227cd47642",
+      "fingerprint_file": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\.fingerprint\\lurq-43b2e58e88ac02a4\\test-lib-lurq.json",
+      "fingerprint_sha256": "e46053be504ab7f0df5f6457e16e22ffa38f71223e57b006f1fb8c29bbbb88df",
+      "depfile_source_paths": "relative to recorded command cwd; compile logs name this worktree"
+    },
+    {
+      "path": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\deps\\canvas_tests-5fb3af2b0f47fc9d.exe",
+      "bytes": 8498688,
+      "sha256": "9b33c3d28421392f8a50ae4677488014366204b777251839dd66db6cd5d2f8d0",
+      "dependency_file": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\deps\\canvas_tests-5fb3af2b0f47fc9d.d",
+      "dependency_sha256": "e7515b16dac658cd5b4f672147607ad815e933159dafcc06fbda696e81f0e665",
+      "fingerprint_file": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\.tmp\\target\\debug\\.fingerprint\\lurq-5fb3af2b0f47fc9d\\test-integration-test-canvas_tests.json",
+      "fingerprint_sha256": "aa99142d13fcf34f0aed8b60ca65ca610a22b4198acc24c80ff6790dd4bd40fb",
+      "depfile_source_paths": "relative to recorded command cwd; compile logs name this worktree"
+    }
+  ],
+  "native_execution": false,
+  "performance_speedup_measured": false
+}

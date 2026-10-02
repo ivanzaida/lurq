@@ -1,0 +1,48 @@
+{"stage": "owned-native-started", "pid": 33620, "port": 4903}
+Session termination failed: 202
+{"stage": "native-failure", "error_class": "ExceptionGroup"}
+  + Exception Group Traceback (most recent call last):
+  |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\matched_compare.py", line 297, in <module>
+  |     main()
+  |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\matched_compare.py", line 274, in main
+  |     owned.main()
+  |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\native.py", line 160, in main
+  |     asyncio.run(journey(app))
+  |   File "C:\Python312\Lib\asyncio\runners.py", line 194, in run
+  |     return runner.run(main)
+  |            ^^^^^^^^^^^^^^^^
+  |   File "C:\Python312\Lib\asyncio\runners.py", line 118, in run
+  |     return self._loop.run_until_complete(task)
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "C:\Python312\Lib\asyncio\base_events.py", line 687, in run_until_complete
+  |     return future.result()
+  |            ^^^^^^^^^^^^^^^
+  |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\matched_compare.py", line 133, in journey
+  |     async with streamable_http_client(app.entry.url, http_client=client) as (read, send, _):
+  |   File "C:\Python312\Lib\contextlib.py", line 231, in __aexit__
+  |     await self.gen.athrow(value)
+  |   File "C:\Users\lurkm\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\uv\cache\archive-v0\q-kPMK8-v5Cc871G\Lib\site-packages\mcp\client\streamable_http.py", line 647, in streamable_http_client
+  |     async with anyio.create_task_group() as tg:
+  |   File "C:\Users\lurkm\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\uv\cache\archive-v0\q-kPMK8-v5Cc871G\Lib\site-packages\anyio\_backends\_asyncio.py", line 847, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Exception Group Traceback (most recent call last):
+    |   File "C:\Users\lurkm\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\uv\cache\archive-v0\q-kPMK8-v5Cc871G\Lib\site-packages\mcp\client\streamable_http.py", line 670, in streamable_http_client
+    |     yield (
+    |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\matched_compare.py", line 134, in journey
+    |     async with ClientSession(read, send, read_timeout_seconds=timedelta(seconds=15)) as session:
+    |   File "C:\Users\lurkm\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\uv\cache\archive-v0\q-kPMK8-v5Cc871G\Lib\site-packages\mcp\shared\session.py", line 238, in __aexit__
+    |     return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\lurkm\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\uv\cache\archive-v0\q-kPMK8-v5Cc871G\Lib\site-packages\anyio\_backends\_asyncio.py", line 847, in __aexit__
+    |     raise BaseExceptionGroup(
+    | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | Traceback (most recent call last):
+      |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\matched_compare.py", line 147, in journey
+      |     await settled(p, "opened")
+      |   File "H:\projects\pencil-web\.codex\worktrees\k222-composed-surfaces\.tmp\k232-profiler-candidate\matched_compare.py", line 41, in settled
+      |     raise RuntimeError(f"{label}: bounded settle expired")
+      | RuntimeError: opened: bounded settle expired
+      +------------------------------------

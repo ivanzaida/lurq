@@ -1,0 +1,14 @@
+{
+  "rendered_passes": 10,
+  "canvas_passes": 6,
+  "canvas_cpu_ms": {
+    "total": 372.4064,
+    "tessellation": 4.401,
+    "asset_upload": 361.3942,
+    "buffer_upload": 0.5283,
+    "recording": 365.1797,
+    "submit": 0.0
+  },
+  "inclusive_scopes_not_additive": true,
+  "uploaded_asset_bytes": 11762496
+}

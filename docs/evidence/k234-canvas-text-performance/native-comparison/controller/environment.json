@@ -1,0 +1,85 @@
+{
+  "utc": "2026-10-02T15:12:44.7773194Z",
+  "os": {
+    "Caption": "Microsoft Windows 11 Pro",
+    "Version": "10.0.26200",
+    "BuildNumber": "26200",
+    "TotalVisibleMemorySize": 66282812
+  },
+  "cpu": [
+    {
+      "Name": "AMD Ryzen 9 7950X3D 16-Core Processor          ",
+      "NumberOfCores": 16,
+      "NumberOfLogicalProcessors": 32
+    }
+  ],
+  "observed_compilers": [
+    {
+      "ProcessId": 63348,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 11152,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 36904,
+      "Name": "rustc.exe"
+    },
+    {
+      "ProcessId": 11468,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 25568,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 47180,
+      "Name": "rustc.exe"
+    },
+    {
+      "ProcessId": 27224,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 6968,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 47276,
+      "Name": "rustc.exe"
+    },
+    {
+      "ProcessId": 28596,
+      "Name": "link.exe"
+    },
+    {
+      "ProcessId": 53356,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 37748,
+      "Name": "cargo.exe"
+    },
+    {
+      "ProcessId": 63152,
+      "Name": "rustc.exe"
+    }
+  ],
+  "interpretation": "Build-time inventory; preserve external processes. Native-run contention recorded separately.",
+  "gpu": [
+    {
+      "Name": "Parsec Virtual Display Adapter",
+      "DriverVersion": "0.45.0.0"
+    },
+    {
+      "Name": "AMD Radeon(TM) Graphics",
+      "DriverVersion": "32.0.21043.12001"
+    },
+    {
+      "Name": "NVIDIA GeForce RTX 5080",
+      "DriverVersion": "32.0.15.9649"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "build": {
+    "jobs": 1,
+    "started_utc": "2026-10-02T15:18:54.5688625Z",
+    "executed_lock_sha256": "5a49b46ea09509c8ed1a3bf0a031cb8726c6c9a5d9983115dbe40031452626a7",
+    "source_lock_sha256": "3ad9998913dfb6fca3bf3f062b74256338135fdd213f7abc17a096d87cc11887",
+    "binary_sha256": "a05581d89c565cdeacfc7052723499d481e0e749a631a43d3b48fbc73b3ad1b9",
+    "variant": "candidate",
+    "kontur_tree": "19e9ca90c045cb01924f3487917792d34711d737",
+    "build_exit_code": 0,
+    "finished_utc": "2026-10-02T15:25:59.9775314Z",
+    "target": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\target",
+    "lurq_source_commit": "863b23c24b32d48042dfcd44a3f8d350cae7ba05",
+    "lurq_crate_tree": "7209847f5ac2cbd9ba5d5e1e33f53358d73aa43c",
+    "kontur_head": "b3076c671ceb069dabe3b869881cb42f86a3ab34",
+    "build_profile": "release optimized",
+    "binary_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\candidate\\kontur-desktop.exe",
+    "lurq_head": "3ad3ff807a4db243ac39a927bd72a75982083e57"
+  },
+  "seed_preference_sha256": "e44efbbb7eb4971717e6c745d6822a85e755249fbe9fd94ed8fb0bf245294c78",
+  "fixture_document_sha256": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+  "fixture_ledger_sha256": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+}
