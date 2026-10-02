@@ -91,7 +91,7 @@ impl Drop for Timer {
   }
 }
 
-pub(crate) fn shape_hit(hit: bool) {
+pub(crate) fn shape_hit(hit: bool, rendered: bool) {
   update(|profile| {
     profile.shape_calls = profile.shape_calls.saturating_add(1);
     let count = if hit {
@@ -100,11 +100,50 @@ pub(crate) fn shape_hit(hit: bool) {
       &mut profile.shape_cache_misses
     };
     *count = count.saturating_add(1);
+    let split = match (rendered, hit) {
+      (false, true) => &mut profile.metrics_cache_hits,
+      (false, false) => &mut profile.metrics_cache_misses,
+      (true, true) => &mut profile.rendered_cache_hits,
+      (true, false) => &mut profile.rendered_cache_misses,
+    };
+    *split = split.saturating_add(1);
   });
 }
 
-pub(crate) fn evicted() {
-  update(|profile| profile.shape_cache_evictions = profile.shape_cache_evictions.saturating_add(1));
+pub(crate) fn evicted(rendered: bool) {
+  update(|profile| {
+    profile.shape_cache_evictions = profile.shape_cache_evictions.saturating_add(1);
+    let count = if rendered {
+      &mut profile.rendered_cache_evictions
+    } else {
+      &mut profile.metrics_cache_evictions
+    };
+    *count = count.saturating_add(1);
+  });
+}
+
+pub(crate) fn identity_hit(hit: bool) {
+  update(|profile| {
+    let count = if hit {
+      &mut profile.render_identity_hits
+    } else {
+      &mut profile.render_identity_misses
+    };
+    *count = count.saturating_add(1);
+  });
+}
+
+pub(crate) fn identity_evicted() {
+  update(|profile| profile.render_identity_evictions = profile.render_identity_evictions.saturating_add(1));
+}
+
+pub(crate) fn cache_state(shapes: usize, shape_bytes: usize, identities: usize, identity_bytes: usize) {
+  update(|profile| {
+    profile.shape_cache_entries = shapes as u64;
+    profile.shape_cache_charged_bytes = shape_bytes as u64;
+    profile.render_identity_entries = identities as u64;
+    profile.render_identity_charged_bytes = identity_bytes as u64;
+  });
 }
 
 pub(crate) fn produced(bytes: usize) {

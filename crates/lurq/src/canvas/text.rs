@@ -6,11 +6,13 @@ use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCont
 use tiny_skia::{Pixmap, PixmapPaint};
 
 mod glyph_cache;
+mod identity;
 #[cfg(all(test, feature = "perf_profile"))]
 mod profile_tests;
 #[cfg(test)]
 mod tests;
 use glyph_cache::GlyphCache;
+use identity::IdentityCache;
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
@@ -94,8 +96,43 @@ pub(crate) struct CanvasTextEngine {
   // The engine owns a snapshot of the font database, so this never needs clearing.
   face_weights: FaceWeights,
   swash: GlyphCache,
-  shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>, Output)>,
+  shaped: std::collections::VecDeque<ShapeEntry>,
   shaped_bytes: usize,
+  identities: IdentityCache,
+}
+
+const MAX_SHAPED_ENTRIES: usize = 256;
+// Partition the previous 8 MiB result-cache policy: 7 MiB shapes + 1 MiB keys.
+const MAX_SHAPED_BYTES: usize = 7 * 1024 * 1024;
+type ShapeEntry = (String, CanvasFont, f32, Color, Arc<ShapedText>, Output);
+const SHAPED_CONTAINER_CHARGE: usize = MAX_SHAPED_ENTRIES * std::mem::size_of::<ShapeEntry>();
+
+fn key_payload_bytes(text: &str, font: &CanvasFont) -> usize {
+  text
+    .len()
+    .saturating_add(font.family.len())
+    .saturating_add(
+      font
+        .font_features
+        .iter()
+        .count()
+        .saturating_mul(std::mem::size_of::<crate::layout::text_style::FontFeature>()),
+    )
+    .saturating_add(4 * std::mem::size_of::<usize>()) // Conservatively charge both shared Arc headers.
+}
+
+fn shaped_charge(text: &str, font: &CanvasFont, result: &ShapedText) -> usize {
+  key_payload_bytes(text, font)
+    .saturating_add(result.data.capacity())
+    .saturating_add(
+      result
+        .pixels
+        .as_ref()
+        .map_or(0, |pixels| pixels.data().len() + std::mem::size_of::<Pixmap>()),
+    )
+    .saturating_add(
+      std::mem::size_of::<ShapedText>() + std::mem::size_of::<Vec<u8>>() + 6 * std::mem::size_of::<usize>(),
+    ) // ShapedText/data/pixmap Arc headers.
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -158,7 +195,8 @@ impl CanvasTextEngine {
       face_weights: FaceWeights::default(),
       swash: GlyphCache::new(),
       shaped: Default::default(),
-      shaped_bytes: 0,
+      shaped_bytes: SHAPED_CONTAINER_CHARGE,
+      identities: IdentityCache::new(),
     }
   }
 
@@ -195,30 +233,50 @@ impl CanvasTextEngine {
       .position(|(t, f, s, c, _, o)| t == text && f == font && *s == scale && *c == color && *o == output)
     {
       #[cfg(feature = "perf_profile")]
-      profile::shape_hit(true);
+      profile::shape_hit(true, output == Output::Rendered);
       let entry = self.shaped.remove(index).unwrap();
       let result = entry.4.clone();
       self.shaped.push_back(entry);
+      #[cfg(feature = "perf_profile")]
+      profile::cache_state(
+        self.shaped.len(),
+        self.shaped_bytes,
+        self.identities.len(),
+        self.identities.charged_bytes(),
+      );
       return Ok(result);
     }
     #[cfg(feature = "perf_profile")]
-    profile::shape_hit(false);
-    let result = Arc::new(self.shape_uncached(text, font, scale, color, output)?);
+    profile::shape_hit(false, output == Output::Rendered);
+    let mut result = self.shape_uncached(text, font, scale, color, output)?;
+    if result.pixels.is_some() {
+      result.asset_id = self.identities.resolve(text, font, scale, color);
+    }
+    let result = Arc::new(result);
     #[cfg(feature = "perf_profile")]
     profile::produced(result.data.len());
-    let bytes = result.data.len() * 2 + text.len();
-    while !self.shaped.is_empty() && (self.shaped_bytes + bytes > 8 * 1024 * 1024 || self.shaped.len() >= 256) {
+    let bytes = shaped_charge(text, font, &result);
+    while !self.shaped.is_empty()
+      && (self.shaped_bytes.saturating_add(bytes) > MAX_SHAPED_BYTES || self.shaped.len() >= MAX_SHAPED_ENTRIES)
+    {
       let entry = self.shaped.pop_front().unwrap();
-      self.shaped_bytes -= entry.4.data.len() * 2 + entry.0.len();
+      self.shaped_bytes -= shaped_charge(&entry.0, &entry.1, &entry.4);
       #[cfg(feature = "perf_profile")]
-      profile::evicted();
+      profile::evicted(entry.5 == Output::Rendered);
     }
-    if bytes <= 8 * 1024 * 1024 {
+    if bytes <= MAX_SHAPED_BYTES - SHAPED_CONTAINER_CHARGE {
       self.shaped_bytes += bytes;
       self
         .shaped
         .push_back((text.to_owned(), font.clone(), scale, color, result.clone(), output));
     }
+    #[cfg(feature = "perf_profile")]
+    profile::cache_state(
+      self.shaped.len(),
+      self.shaped_bytes,
+      self.identities.len(),
+      self.identities.charged_bytes(),
+    );
     Ok(result)
   }
   fn shape_uncached(
@@ -384,7 +442,7 @@ impl CanvasTextEngine {
       );
     }
     Ok(ShapedText {
-      asset_id: super::NEXT_CANVAS_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) | (1u64 << 63),
+      asset_id: 0, // Assigned after successful rasterization by the bounded identity cache.
       data: Arc::new(pixels.data().to_vec()),
       pixels: Some(Arc::new(pixels)),
       width,

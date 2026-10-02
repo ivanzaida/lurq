@@ -1,0 +1,50 @@
+{
+  "base": "719deacf14252cce0bc8544609cddaafc39ab60e",
+  "branch": "codex/k232-canvas-text-identities",
+  "rustfmt": "PASS (existing stable/nightly-setting warnings)",
+  "diff_check": "PASS",
+  "cargo": "UNEXECUTED; sole lane held by K235",
+  "native": "UNEXECUTED",
+  "sources": [
+    {
+      "path": "crates/lurq/src/canvas/text.rs",
+      "physical_lines": 461,
+      "sha256": "450738d0d2479ed6b27cc43a4b58794aaa453a1da344dae1c23a3bc8a76dd168"
+    },
+    {
+      "path": "crates/lurq/src/canvas/text/identity.rs",
+      "physical_lines": 178,
+      "sha256": "cb9f8ca593eaf17931b0d4b05a204d0ec11c9946bb14cd1417067934248cd076"
+    },
+    {
+      "path": "crates/lurq/src/canvas/text/identity/tests.rs",
+      "physical_lines": 88,
+      "sha256": "cbf482e10f4eec672857b4b114e4fdc7fd3c8681091ca78c729cf829f0459cd1"
+    },
+    {
+      "path": "crates/lurq/src/canvas/text/tests.rs",
+      "physical_lines": 109,
+      "sha256": "3eb196dc3690fcb67f1e9548b406e1885755114959c109ead310a8eb279a46dd"
+    },
+    {
+      "path": "crates/lurq/src/canvas/text/profile_tests.rs",
+      "physical_lines": 330,
+      "sha256": "16e90efd47fb72f7a120fa2b89da2463ec2d8f5695cfa1b44f1055a0cac22866"
+    },
+    {
+      "path": "crates/lurq/src/app/profiler/model.rs",
+      "physical_lines": 303,
+      "sha256": "eb1462b886da5ec5d8db728ea66ea5fc93f0a180df5ca19417a5ab5eec4bcde5"
+    },
+    {
+      "path": "crates/lurq/src/app/profiler/canvas_text.rs",
+      "physical_lines": 151,
+      "sha256": "25484d77b1c3f4c7c20b93cc3a7c771d8a3ed0d334c185a8a16b4c7c1502aaf4"
+    },
+    {
+      "path": "crates/lurq/src/app/profiler/export.rs",
+      "physical_lines": 195,
+      "sha256": "c4123de50eaab255d40c0491c7028ddd9e0160f25bde60e061aaccd42038736b"
+    }
+  ]
+}

@@ -111,7 +111,11 @@ fn sample_json(sample: &ProfileSample) -> Value {
       "canvas_text": pass.canvas_text.map(|text| json!({
         "cpu_timings_ms": timings!(text; total, buffer_font_shape, glyph_prepare, bitmap_composition),
         "counts": counts!(text; measure_calls, fill_calls, shape_calls, shape_cache_hits,
-          shape_cache_misses, shape_cache_evictions, produced_bitmap_bytes)
+          shape_cache_misses, shape_cache_evictions, metrics_cache_hits, metrics_cache_misses,
+          metrics_cache_evictions, rendered_cache_hits, rendered_cache_misses, rendered_cache_evictions,
+          render_identity_hits, render_identity_misses, render_identity_evictions, produced_bitmap_bytes),
+        "cache_gauges": counts!(text; shape_cache_entries, shape_cache_charged_bytes,
+          render_identity_entries, render_identity_charged_bytes)
       })),
       "frame": pass.frame.as_ref().map(|frame| frame_json(frame, pass.backend)),
       "gpu_timing_ms": null

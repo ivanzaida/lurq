@@ -1,6 +1,6 @@
 use super::*;
 
-fn engine() -> CanvasTextEngine {
+pub(super) fn engine() -> CanvasTextEngine {
   let mut fonts = FontSystem::new_with_locale_and_db("en-US".into(), Default::default());
   for data in [
     include_bytes!("../../../tests/assets/weight_probe/LurqWeightProbe-Regular.ttf").as_slice(),
@@ -70,9 +70,10 @@ fn rendered_cache_preserves_color_scale_and_previous_drawing_owners() {
   assert_eq!(red.data.as_ref(), &original);
   let revisited = engine.shape("aaaa", &font, 1., RED).unwrap();
   assert_eq!(revisited.data.as_ref(), &original);
-  assert_ne!(revisited.asset_id, red.asset_id);
+  assert_eq!(revisited.asset_id, red.asset_id);
   assert!(engine.shaped.len() <= 256);
-  assert!(engine.shaped_bytes <= 8 * 1024 * 1024);
+  assert!(engine.shaped_bytes <= MAX_SHAPED_BYTES);
+  assert!(engine.identities.charged_bytes() <= identity::MAX_BYTES);
 }
 
 #[test]

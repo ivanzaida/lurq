@@ -78,6 +78,30 @@ fn canvas_text_profiles_real_measure_fill_cache_and_cpu_stages() {
     ),
     (2, 2, 0)
   );
+  assert_eq!(
+    (
+      profile.metrics_cache_hits,
+      profile.metrics_cache_misses,
+      profile.metrics_cache_evictions
+    ),
+    (1, 1, 0)
+  );
+  assert_eq!(
+    (
+      profile.rendered_cache_hits,
+      profile.rendered_cache_misses,
+      profile.rendered_cache_evictions
+    ),
+    (1, 1, 0)
+  );
+  assert_eq!(
+    (
+      profile.render_identity_hits,
+      profile.render_identity_misses,
+      profile.render_identity_evictions
+    ),
+    (0, 1, 0)
+  );
   assert!(profile.buffer_font_shape > Duration::ZERO);
   assert!(profile.glyph_prepare > Duration::ZERO);
   assert!(profile.bitmap_composition > Duration::ZERO);
@@ -92,6 +116,11 @@ fn canvas_text_profiles_real_measure_fill_cache_and_cpu_stages() {
     let export = report.to_json();
     let value = &export["samples"][0]["data"]["canvas_text"];
     assert_eq!(value["counts"]["shape_cache_misses"], 2);
+    assert_eq!(value["counts"]["metrics_cache_misses"], 1);
+    assert_eq!(value["counts"]["rendered_cache_misses"], 1);
+    assert_eq!(value["counts"]["render_identity_misses"], 1);
+    assert_eq!(value["cache_gauges"]["shape_cache_entries"], 2);
+    assert_eq!(value["cache_gauges"]["render_identity_entries"], 1);
     assert_eq!(value["counts"]["produced_bitmap_bytes"], produced as u64);
     assert!(value["cpu_timings_ms"]["glyph_prepare"].as_f64().unwrap() > 0.);
   }
@@ -195,10 +224,86 @@ fn canvas_text_idle_boundary_and_real_cache_eviction_are_bounded() {
     (258, 1, 257)
   );
   assert_eq!(profile.shape_cache_evictions, 2);
+  assert_eq!(
+    (profile.metrics_cache_evictions, profile.rendered_cache_evictions),
+    (2, 0)
+  );
   assert_eq!(profile.produced_bitmap_bytes, 0);
   assert_eq!(profile.bitmap_composition, Duration::ZERO);
   let surface = ctx.canvas.inner.lock();
   assert_eq!(surface.text.as_ref().unwrap().lock().shaped.len(), 256);
+}
+
+#[test]
+fn canvas_text_profiles_rendered_identity_reuse_and_output_eviction_separately() {
+  let ctx = context();
+  let mut producer = WindowProfiler::new();
+  let handle = producer.handle();
+  let id = handle.start(Default::default()).unwrap().id;
+  let (started, phase) = producer.begin_pass(1);
+  let scope = producer.context.canvas_text_scope();
+  ctx.measure_text("aaaa").unwrap();
+  ctx.measure_text("aaaa").unwrap();
+  ctx.fill_text("aaaa", 0., 0.).unwrap();
+  for index in 0..300 {
+    ctx.fill_text(&format!("a{index}"), 0., 0.).unwrap();
+  }
+  ctx.fill_text("aaaa", 0., 0.).unwrap();
+  complete(&mut producer, started);
+  drop(scope);
+  drop(phase);
+  let report = handle.end(id).unwrap();
+  let profile = text(&report, "main");
+  assert_eq!(
+    (
+      profile.metrics_cache_hits,
+      profile.metrics_cache_misses,
+      profile.metrics_cache_evictions
+    ),
+    (1, 1, 1)
+  );
+  assert_eq!(
+    (
+      profile.rendered_cache_hits,
+      profile.rendered_cache_misses,
+      profile.rendered_cache_evictions
+    ),
+    (0, 302, 46)
+  );
+  assert_eq!(
+    (
+      profile.shape_cache_hits,
+      profile.shape_cache_misses,
+      profile.shape_cache_evictions
+    ),
+    (1, 303, 47)
+  );
+  assert_eq!(
+    (
+      profile.render_identity_hits,
+      profile.render_identity_misses,
+      profile.render_identity_evictions
+    ),
+    (1, 301, 0)
+  );
+  assert_eq!(
+    (profile.shape_cache_entries, profile.render_identity_entries),
+    (256, 301)
+  );
+  assert!(profile.shape_cache_charged_bytes <= MAX_SHAPED_BYTES as u64);
+  assert!(profile.render_identity_charged_bytes <= identity::MAX_BYTES as u64);
+  assert_eq!(
+    profile.shape_cache_hits,
+    profile.metrics_cache_hits + profile.rendered_cache_hits
+  );
+  assert_eq!(
+    profile.shape_cache_misses,
+    profile.metrics_cache_misses + profile.rendered_cache_misses
+  );
+  assert_eq!(
+    profile.shape_cache_evictions,
+    profile.metrics_cache_evictions + profile.rendered_cache_evictions
+  );
 }
 
 #[test]
