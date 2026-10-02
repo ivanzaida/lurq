@@ -1,0 +1,81 @@
+{
+  "comparisons": [
+    {
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\baseline\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\baseline\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": false,
+      "differing_pixels": 4611,
+      "total_pixels": 1764828,
+      "max_channel_difference": 12
+    },
+    {
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\candidate\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\candidate\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": false,
+      "differing_pixels": 4611,
+      "total_pixels": 1764828,
+      "max_channel_difference": 12
+    },
+    {
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\baseline\\capture\\before.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\candidate\\capture\\before.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "second_png_sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c",
+      "same_dimensions": true,
+      "pixels_equal": true,
+      "differing_pixels": 0,
+      "total_pixels": 1764828,
+      "max_channel_difference": 0
+    },
+    {
+      "first": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\baseline\\capture\\after.png",
+      "second": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\comparison\\native-matched-02\\candidate\\capture\\after.png",
+      "first_size": [
+        1404,
+        1257
+      ],
+      "second_size": [
+        1404,
+        1257
+      ],
+      "first_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "second_png_sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20",
+      "same_dimensions": true,
+      "pixels_equal": true,
+      "differing_pixels": 0,
+      "total_pixels": 1764828,
+      "max_channel_difference": 0
+    }
+  ],
+  "scope": "Decoded RGBA pixel equality of authenticated settled Canvas captures; no image rewriting"
+}
