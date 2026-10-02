@@ -13,7 +13,7 @@ use crate::app::profile_types::canvas_upload::{AssetUploadStage, CanvasAssetUplo
 use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
 use pipeline::pipeline;
 pub(super) use resources::create_srv;
-use resources::{copy_location, readback, texture};
+use resources::{copy_location, readback, texture, viewport};
 
 struct Backing {
   owner: CanvasWeak,
