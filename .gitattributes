@@ -8,3 +8,5 @@ docs/evidence/mcp-file-dialogs/run2/dialogs.log -text
 docs/evidence/mcp-file-dialogs/run2/run.ps1 -text
 docs/evidence/mcp-file-dialogs/run2/windows.json -text
 docs/evidence/mcp-file-dialogs/run2/windows.log -text
+docs/evidence/k232-profiling/refined-20261002/** -text
+docs/evidence/k232-profiling/canvas-text-20261002/** -text

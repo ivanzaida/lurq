@@ -1,0 +1,19 @@
+{
+  "kontur_head": "b3076c671ceb069dabe3b869881cb42f86a3ab34",
+  "kontur_tree": "19e9ca90c045cb01924f3487917792d34711d737",
+  "lurq_head": "5e50f862e0e59e10e8778c5b7a61f4488f065a2a",
+  "lurq_tree": "ed21bab0fa252baa5295dd351a65f3c6d13bc673",
+  "binary_sha256": "f7bb25ea9a055424366c7eb3b3b96c7ab5a51e84e9f641eb1b59884c6280b384",
+  "executed_lock_sha256": "5a49b46ea09509c8ed1a3bf0a031cb8726c6c9a5d9983115dbe40031452626a7",
+  "source_lock_sha256": "3ad9998913dfb6fca3bf3f062b74256338135fdd213f7abc17a096d87cc11887",
+  "build_terminal": 83157,
+  "build_exit_code": 0,
+  "build_elapsed": "2m33s",
+  "build_profile": "unoptimized dev / debug0 / incremental0",
+  "launcher": "configured .env.desktop / dev:desktop build-only adaptation",
+  "new_fields": [
+    "canvas_text.cpu_timings_ms",
+    "canvas_text.counts"
+  ],
+  "timing_scope": "diagnostic phase attribution; external compiler graphs observed"
+}

@@ -1,0 +1,22 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 74914983..d1e2949f 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3448,8 +3448,6 @@ checksum = "5a964fe587d4b6043b2666726603a8a50bddabd8a11c1f1f9bf63c2645c6f16e"
+ [[package]]
+ name = "lurq"
+ version = "0.32.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "07059e2a1bcdb806186d387f97adf15698ab0d0332e35a733bcd933de1f186f9"
+ dependencies = [
+  "arboard",
+  "base64 0.22.1",
+@@ -3492,8 +3490,6 @@ dependencies = [
+ [[package]]
+ name = "lurq_macros"
+ version = "0.1.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "39123587b1909e4bb5534f0df7b43228c2d3699a8cd2c299afc14da6dd4bf048"
+ dependencies = [
+  "proc-macro2",
+  "quote",

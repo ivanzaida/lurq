@@ -1,0 +1,9 @@
+{
+  "executed_lock_sha256": "5a49b46ea09509c8ed1a3bf0a031cb8726c6c9a5d9983115dbe40031452626a7",
+  "restored_lock_sha256": "3ad9998913dfb6fca3bf3f062b74256338135fdd213f7abc17a096d87cc11887",
+  "source_guard": "b3076c671ceb069dabe3b869881cb42f86a3ab34",
+  "owned_pid": 34748,
+  "owned_pid_absent": true,
+  "listener4903_absent": true,
+  "ignored_local_dev_configuration": "retained"
+}
