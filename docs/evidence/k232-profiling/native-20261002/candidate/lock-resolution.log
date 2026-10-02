@@ -1,0 +1,6 @@
+     Locking 2 packages to latest Rust 1.95 compatible versions
+      Adding lurq v0.32.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k232-mcp-performance\crates\lurq)
+    Removing lurq v0.32.0
+      Adding lurq_macros v0.1.2 (H:\projects\pencil-web\.codex\worktrees\lurq-k232-mcp-performance\crates\lurq_macros)
+    Removing lurq_macros v0.1.2
+note: pass `--verbose` to see 49 unchanged dependencies behind latest

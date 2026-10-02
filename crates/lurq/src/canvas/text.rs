@@ -1,7 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Wrap};
+#[cfg(feature = "perf_profile")]
+use crate::app::profiler::canvas_text::{self as profile, Stage, Timer};
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashContent, Wrap};
 use tiny_skia::{Pixmap, PixmapPaint};
+
+mod glyph_cache;
+#[cfg(all(test, feature = "perf_profile"))]
+mod profile_tests;
+#[cfg(test)]
+mod tests;
+use glyph_cache::GlyphCache;
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
@@ -84,9 +93,15 @@ pub(crate) struct CanvasTextEngine {
   aliases: HashMap<String, String>,
   // The engine owns a snapshot of the font database, so this never needs clearing.
   face_weights: FaceWeights,
-  swash: SwashCache,
-  shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>)>,
+  swash: GlyphCache,
+  shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>, Output)>,
   shaped_bytes: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Output {
+  Metrics,
+  Rendered,
 }
 
 pub(super) struct ShapedText {
@@ -141,7 +156,7 @@ impl CanvasTextEngine {
       fonts,
       aliases,
       face_weights: FaceWeights::default(),
-      swash: SwashCache::new(),
+      swash: GlyphCache::new(),
       shaped: Default::default(),
       shaped_bytes: 0,
     }
@@ -154,27 +169,55 @@ impl CanvasTextEngine {
     scale: f32,
     color: Color,
   ) -> Result<Arc<ShapedText>, CanvasError> {
+    self.prepare(text, font, scale, color, Output::Rendered)
+  }
+  pub(super) fn measure(
+    &mut self,
+    text: &str,
+    font: &CanvasFont,
+    color: Color,
+  ) -> Result<Arc<ShapedText>, CanvasError> {
+    self.prepare(text, font, 1.0, color, Output::Metrics)
+  }
+  fn prepare(
+    &mut self,
+    text: &str,
+    font: &CanvasFont,
+    scale: f32,
+    color: Color,
+    output: Output,
+  ) -> Result<Arc<ShapedText>, CanvasError> {
+    #[cfg(feature = "perf_profile")]
+    let _total = Timer::new(Stage::Total);
     if let Some(index) = self
       .shaped
       .iter()
-      .position(|(t, f, s, c, _)| t == text && f == font && *s == scale && *c == color)
+      .position(|(t, f, s, c, _, o)| t == text && f == font && *s == scale && *c == color && *o == output)
     {
+      #[cfg(feature = "perf_profile")]
+      profile::shape_hit(true);
       let entry = self.shaped.remove(index).unwrap();
       let result = entry.4.clone();
       self.shaped.push_back(entry);
       return Ok(result);
     }
-    let result = Arc::new(self.shape_uncached(text, font, scale, color)?);
+    #[cfg(feature = "perf_profile")]
+    profile::shape_hit(false);
+    let result = Arc::new(self.shape_uncached(text, font, scale, color, output)?);
+    #[cfg(feature = "perf_profile")]
+    profile::produced(result.data.len());
     let bytes = result.data.len() * 2 + text.len();
     while !self.shaped.is_empty() && (self.shaped_bytes + bytes > 8 * 1024 * 1024 || self.shaped.len() >= 256) {
       let entry = self.shaped.pop_front().unwrap();
       self.shaped_bytes -= entry.4.data.len() * 2 + entry.0.len();
+      #[cfg(feature = "perf_profile")]
+      profile::evicted();
     }
     if bytes <= 8 * 1024 * 1024 {
       self.shaped_bytes += bytes;
       self
         .shaped
-        .push_back((text.to_owned(), font.clone(), scale, color, result.clone()));
+        .push_back((text.to_owned(), font.clone(), scale, color, result.clone(), output));
     }
     Ok(result)
   }
@@ -184,14 +227,13 @@ impl CanvasTextEngine {
     font: &CanvasFont,
     scale: f32,
     color: Color,
+    output: Output,
   ) -> Result<ShapedText, CanvasError> {
     if text.len() > 65_536 || font.size * scale > 4096.0 {
       return Err(CanvasError::TextTooLarge);
     }
-    // A bounded cache shared by the app's canvases; drawing history is not retained.
-    if self.swash.image_cache.len() > 2048 {
-      self.swash.image_cache.clear();
-    }
+    #[cfg(feature = "perf_profile")]
+    let _buffer = Timer::new(Stage::BufferFontShape);
     let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(font.size, font.size * 1.2));
     buffer.set_size(None, None);
     buffer.set_wrap(Wrap::None);
@@ -218,7 +260,12 @@ impl CanvasTextEngine {
     let text = text.replace(['\n', '\r', '\t'], " ");
     buffer.set_text(&text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut self.fonts, false);
+    #[cfg(feature = "perf_profile")]
+    drop(_buffer);
+    #[cfg(feature = "perf_profile")]
+    let _glyph = Timer::new(Stage::GlyphPrepare);
     let mut glyphs = Vec::new();
+    let mut has_ink = false;
     let mut glyph_bytes = 0usize;
     let (mut width, mut ascent, mut descent) = (0.0f32, 0.0f32, 0.0f32);
     let (mut left, mut top, mut right, mut bottom) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
@@ -230,20 +277,8 @@ impl CanvasTextEngine {
           ascent = ascent.max(metrics.ascent);
           descent = descent.max(metrics.descent.abs());
         }
-        if self.swash.image_cache.len() >= 2048
-          || self
-            .swash
-            .image_cache
-            .values()
-            .flatten()
-            .map(|i| i.data.len())
-            .sum::<usize>()
-            > 16 * 1024 * 1024
-        {
-          self.swash.image_cache.clear();
-        }
         let physical = glyph.physical((0.0, 0.0), scale);
-        let Some(image) = self.swash.get_image(&mut self.fonts, physical.cache_key).clone() else {
+        let Some(image) = self.swash.image(&mut self.fonts, physical.cache_key).as_ref() else {
           continue;
         };
         if image.placement.width == 0 || image.placement.height == 0 {
@@ -275,10 +310,15 @@ impl CanvasTextEngine {
         if (i64::from(right) - i64::from(left)).saturating_mul(i64::from(bottom) - i64::from(top)) > MAX_PIXELS as i64 {
           return Err(CanvasError::TextTooLarge);
         }
-        glyphs.push((x, y, image));
+        has_ink = true;
+        if output == Output::Rendered {
+          glyphs.push((x, y, image.clone()));
+        }
       }
     }
-    if glyphs.is_empty() {
+    #[cfg(feature = "perf_profile")]
+    drop(_glyph);
+    if !has_ink {
       return Ok(ShapedText {
         pixels: None,
         data: Arc::new(Vec::new()),
@@ -296,6 +336,22 @@ impl CanvasTextEngine {
     if w <= 0 || h <= 0 || w * h > MAX_PIXELS as i64 {
       return Err(CanvasError::TextTooLarge);
     }
+    if output == Output::Metrics {
+      return Ok(ShapedText {
+        pixels: None,
+        data: Arc::new(Vec::new()),
+        asset_id: 0,
+        width,
+        left: left as f32 / scale,
+        top: top as f32 / scale,
+        right: right as f32 / scale,
+        bottom: bottom as f32 / scale,
+        ascent,
+        descent,
+      });
+    }
+    #[cfg(feature = "perf_profile")]
+    let _bitmap = Timer::new(Stage::BitmapComposition);
     let mut pixels = Pixmap::new(w as u32, h as u32).ok_or(CanvasError::TextTooLarge)?;
     for (x, y, image) in glyphs {
       let mut glyph = Pixmap::new(image.placement.width, image.placement.height).ok_or(CanvasError::TextTooLarge)?;

@@ -1,0 +1,23 @@
+{
+  "status": "static syntax/schema/hash validation passed; native unexecuted",
+  "runner_lines": 297,
+  "runner_sha256": "b5f8b6c457ea8b59968fdc93493612fe70def68a628bc6dd398bc57bf2f41741",
+  "manifest_sha256": "45156ef23d86efff74c488f32a267d54173cd060f6840b326d7c59364c30a401",
+  "cases": [
+    {
+      "variant": "baseline",
+      "sha256": "2b2c7e0b49d9e2e5c411069e34d4652e18df087e745530af32645d3c84b4e10b",
+      "lurq_source_commit": "5e50f862e0e59e10e8778c5b7a61f4488f065a2a"
+    },
+    {
+      "variant": "candidate",
+      "sha256": "a05581d89c565cdeacfc7052723499d481e0e749a631a43d3b48fbc73b3ad1b9",
+      "lurq_source_commit": "863b23c24b32d48042dfcd44a3f8d350cae7ba05"
+    }
+  ],
+  "fixture_hashes_verified": {
+    "0acea323-5056-408d-84c0-f7c9a82e7c36.kontur": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+    "ledger.json": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+  },
+  "pixel_analysis_scope": "separate root-owned bundled Python after apps close"
+}

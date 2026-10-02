@@ -26,6 +26,9 @@ use super::{
   shared::{McpRequest, McpShared, McpToolOutput},
 };
 
+#[cfg(test)]
+mod profiling_tests;
+
 /// Per-tool reply deadline: how long the HTTP side waits for the event loop
 /// to execute and resolve a call before reporting a stall. Frame-deferred
 /// tools get more headroom.
@@ -84,6 +87,9 @@ impl LurqMcpServer {
   /// Tools answered on the server thread, with no event-loop roundtrip.
   fn serve_locally(&self, tool: &RegisteredTool, args: &serde_json::Value) -> Option<Result<McpToolOutput, String>> {
     match tool.kind {
+      ToolKind::Builtin(builtin @ (BuiltinTool::ProfileStart | BuiltinTool::ProfileRead | BuiltinTool::ProfileEnd)) => {
+        Some(super::profiling::execute(&self.shared, builtin, args))
+      }
       ToolKind::Builtin(BuiltinTool::Find) => {
         let Some(query) = args.get("query").and_then(|value| value.as_str()) else {
           return Some(Err("`query` is required".into()));

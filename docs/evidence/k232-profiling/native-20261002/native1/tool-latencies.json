@@ -1,0 +1,38 @@
+[
+  {
+    "tool": "lurq_profile_read",
+    "elapsed_ms": 45.50260002724826
+  },
+  {
+    "tool": "lurq_profile_start",
+    "elapsed_ms": 11.052500049117953
+  },
+  {
+    "tool": "kontur_local_document_open_v1",
+    "elapsed_ms": 100.63800000352785
+  },
+  {
+    "tool": "lurq_profile_read",
+    "elapsed_ms": 17.12889998452738
+  },
+  {
+    "tool": "lurq_profile_start",
+    "elapsed_ms": 11.450599995441735
+  },
+  {
+    "tool": "lurq_profile_end",
+    "elapsed_ms": 100.26249999646097
+  },
+  {
+    "tool": "lurq_wait",
+    "elapsed_ms": 3661.586600006558
+  },
+  {
+    "tool": "lurq_profile_end",
+    "elapsed_ms": 15.637799981050193
+  },
+  {
+    "tool": "lurq_find_by_id",
+    "elapsed_ms": 27.349399984814227
+  }
+]

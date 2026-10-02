@@ -1,0 +1,83 @@
+   Compiling lurq v0.32.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k232-mcp-performance\crates\lurq)
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:3978:9
+     |
+3978 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4035:9
+     |
+4035 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4205:9
+     |
+4205 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: method `mark_devtools` is never used
+   --> crates\lurq\src\app\profiler\collector.rs:228:17
+    |
+ 64 | impl ProfilingHandle {
+    | -------------------- method in this implementation
+...
+228 |   pub(crate) fn mark_devtools(&self, id: &str) {
+    |                 ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `detail_phase` is never used
+  --> crates\lurq\src\app\profiler\producer.rs:28:17
+   |
+18 | impl ProfileContext {
+   | ------------------- method in this implementation
+...
+28 |   pub(crate) fn detail_phase(&self, phase: Phase) -> Option<PhaseGuard> {
+   |                 ^^^^^^^^^^^^
+
+warning: methods `mark_devtools`, `canvas_recording`, and `canvas_preparation` are never used
+   --> crates\lurq\src\app\profiler\producer.rs:178:17
+    |
+131 | impl WindowProfiler {
+    | ------------------- methods in this implementation
+...
+178 |   pub(crate) fn mark_devtools(&self) {
+    |                 ^^^^^^^^^^^^^
+...
+193 |   pub(crate) fn canvas_recording(&mut self, duration: Duration) {
+    |                 ^^^^^^^^^^^^^^^^
+...
+196 |   pub(crate) fn canvas_preparation(&mut self, duration: Duration) {
+    |                 ^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:8912:4
+     |
+8912 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 7 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 32.22s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-0e9d99e6e32b8c73.exe)
+
+running 7 tests
+test app::profiler::session_tests::profiling_availability_is_explicit ... ok
+test mcp::profiling::tests::unavailable_profiling_tools_are_rechecked_without_tree_access ... ok
+test mcp::profiling::tests::profiling_tools_are_observe_read_only_and_report_feature_availability ... ok
+test mcp::profiling::tests::profiling_mcp_independent_ids_validation_and_revocation_do_not_affect_host_sessions ... ok
+test mcp::server::profiling_tests::profiling_server_availability_is_scope_guarded ... ok
+test mcp::server::profiling_tests::profiling_transport_still_requires_bearer_auth_before_tool_dispatch ... ok
+test mcp::server::profiling_tests::profiling_server_start_end_never_queue_or_wake_the_ui_and_export_real_layout ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 177 filtered out; finished in 0.02s
+

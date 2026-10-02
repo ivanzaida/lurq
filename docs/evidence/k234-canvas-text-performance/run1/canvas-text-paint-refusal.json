@@ -1,0 +1,32 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "lurq",
+    "--locked",
+    "--offline",
+    "-j1",
+    "--features",
+    "canvas,perf_profile",
+    "--test",
+    "canvas_tests",
+    "a_gradient_is_refused_for_text_rather_than_reduced_to_one_of_its_colours",
+    "--",
+    "--test-threads=1"
+  ],
+  "started_utc": "2026-10-02T15:06:07.3042282Z",
+  "exit_code": 0,
+  "tree": "3e5d72ac9b9efc006223fbbecfbdc71f74111951",
+  "finished_utc": "2026-10-02T15:06:07.8290189Z",
+  "environment": {
+    "incremental": "0",
+    "jobs": "1",
+    "TEMP": "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/.tmp/rust-temp",
+    "test_debug": "0",
+    "CARGO_HOME": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/lurq-adoption-cargo-home",
+    "CARGO_TARGET_DIR": "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/.tmp/target",
+    "dev_debug": "0"
+  },
+  "head": "863b23c24b32d48042dfcd44a3f8d350cae7ba05"
+}

@@ -1,0 +1,114 @@
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:3978:9
+     |
+3978 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4035:9
+     |
+4035 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4205:9
+     |
+4205 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:8973:4
+     |
+8973 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:57:7
+   |
+57 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:59:7
+   |
+59 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `has_layers` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:134:17
+    |
+112 | impl LayerPlan {
+    | -------------- method in this implementation
+...
+134 |   pub(crate) fn has_layers(&self) -> bool {
+    |                 ^^^^^^^^^^
+
+warning: associated items `window`, `layer`, `viewport`, `clip`, and `layer_rect` are never used
+   --> crates\lurq\src\layout\opacity_layer.rs:199:17
+    |
+198 | impl TargetSpace {
+    | ---------------- associated items in this implementation
+199 |   pub(crate) fn window(width: f32, height: f32) -> Self {
+    |                 ^^^^^^
+...
+210 |   pub(crate) fn layer(bounds: LayerBounds, texture_width: u32, texture_height: u32) -> Self {
+    |                 ^^^^^
+...
+225 |   pub(crate) fn viewport(&self) -> [f32; 4] {
+    |                 ^^^^^^^^
+...
+231 |   pub(crate) fn clip(&self, clip: ClipRect) -> ClipRect {
+    |                 ^^^^
+...
+253 |   pub(crate) fn layer_rect(&self, layer: LayerBounds) -> ClipRect {
+    |                 ^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:281:17
+    |
+280 | impl LayerComposite {
+    | ------------------- associated function in this implementation
+281 |   pub(crate) fn new(layer: &LayerCmd, parent: &TargetSpace) -> Self {
+    |                 ^^^
+
+warning: `lurq` (lib test) generated 9 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 15.72s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-d8a7af519978237e.exe)
+
+running 23 tests
+test app::profiler::tests::frame_profile_observer_receives_completed_frames ... ok
+test app::profiler::session_tests::profiling_availability_is_explicit ... ok
+test app::profiler::session_tests::enabled::boundary_crossing_completed_operations_are_excluded ... ok
+test app::profiler::session_tests::enabled::delayed_phase_guard_cannot_resurrect_a_closed_window ... ok
+test app::profiler::session_tests::enabled::nested_pass_restores_an_unfinished_outer_input_activity ... ok
+test app::profiler::session_tests::enabled::overlapping_sessions_end_out_of_order_without_reset_or_mixing ... ok
+test app::profiler::session_tests::enabled::window_and_app_lifetimes_are_independent_and_devtools_is_opt_in ... ok
+test app::profiler::session_tests::enabled::history_limits_drop_oldest_without_changing_other_sessions ... ok
+test mcp::profiling::tests::unavailable_profiling_tools_are_rechecked_without_tree_access ... ok
+test mcp::profiling::tests::profiling_tools_are_observe_read_only_and_report_feature_availability ... ok
+test app::profiler::session_tests::enabled::end_during_stalled_pass_observes_phase_and_cannot_receive_late_completion ... ok
+test mcp::profiling::tests::profiling_mcp_independent_ids_validation_and_revocation_do_not_affect_host_sessions ... ok
+test app::profiler::session_tests::enabled::window_metadata_and_identifiers_have_fixed_bounds ... ok
+test mcp::server::profiling_tests::profiling_server_availability_is_scope_guarded ... ok
+test app::profiler::session_tests::enabled::real_blocked_input_callback_is_observable_before_any_frame_pass ... ok
+test canvas::text::profile_tests::canvas_text_nested_windows_restore_parent_and_sessions_do_not_mix ... ok
+test canvas::text::profile_tests::canvas_text_profiles_real_measure_fill_cache_and_cpu_stages ... ok
+test canvas::text::profile_tests::canvas_text_idle_boundary_and_real_cache_eviction_are_bounded ... ok
+test mcp::server::profiling_tests::profiling_transport_still_requires_bearer_auth_before_tool_dispatch ... ok
+test app::profiler::session_tests::enabled::pass_completion_includes_blocked_mcp_notification_tail ... ok
+test app::profiler::phase_tests::real_recursive_after_layout_hook_is_unfinished_until_pass_completion ... ok
+test app::profiler::session_tests::enabled::real_headless_pass_records_layout_without_manufacturing_render_or_gpu_timings ... ok
+test mcp::server::profiling_tests::profiling_server_start_end_never_queue_or_wake_the_ui_and_export_real_layout ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 204 filtered out; finished in 0.04s
+

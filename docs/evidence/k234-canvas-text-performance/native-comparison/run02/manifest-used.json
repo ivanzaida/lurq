@@ -1,0 +1,24 @@
+{
+  "output": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/k232-profiler-candidate/comparison/native-matched-02",
+  "fixture_profile": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/k230-independent-native2/profile",
+  "viewport": {
+    "width": null,
+    "height": null,
+    "scale_factor": null
+  },
+  "window_position": null,
+  "port": 4903,
+  "screenshots": true,
+  "cases": [
+    {
+      "name": "baseline",
+      "binary": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/k232-profiler-candidate/comparison/baseline/kontur-desktop.exe",
+      "build_identity": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/k232-profiler-candidate/comparison/baseline/identity.json"
+    },
+    {
+      "name": "candidate",
+      "binary": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/k232-profiler-candidate/comparison/candidate/kontur-desktop.exe",
+      "build_identity": "H:/projects/pencil-web/.codex/worktrees/k222-composed-surfaces/.tmp/k232-profiler-candidate/comparison/candidate/identity.json"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "local_manifest_path": "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/crates/lurq/Cargo.toml",
+  "lock_sha256": "5a49b46ea09509c8ed1a3bf0a031cb8726c6c9a5d9983115dbe40031452626a7",
+  "full_workspace_resolved_features": [
+    "canvas",
+    "clipboard",
+    "devtools",
+    "dx12",
+    "form",
+    "i18n",
+    "image",
+    "mcp",
+    "perf_profile",
+    "persistent_storage",
+    "raster",
+    "render",
+    "router",
+    "screenshot",
+    "serde",
+    "tokio",
+    "wgpu",
+    "winit"
+  ],
+  "feature_scope": "full workspace metadata, actual binary features checked through MCP"
+}

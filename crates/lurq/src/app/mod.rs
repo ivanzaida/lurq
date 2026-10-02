@@ -32,7 +32,6 @@ pub mod i18n;
 mod opacity_layer_readback_tests;
 pub(crate) mod profile_support;
 pub(crate) mod profile_types;
-#[cfg(feature = "perf_profile")]
 pub mod profiler;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod readback_window;

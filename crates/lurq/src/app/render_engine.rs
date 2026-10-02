@@ -70,6 +70,12 @@ pub struct RenderFrameCaptureWindowClip {
 }
 
 pub trait RenderEngine {
+  /// Static toolkit backend identity; excludes document or adapter names.
+  fn profile_backend(&self) -> &'static str {
+    "custom"
+  }
+  #[cfg(feature = "perf_profile")]
+  fn set_profile_context(&mut self, _context: crate::app::profiler::ProfileContext) {}
   fn resize(&mut self, width: u32, height: u32);
   /// Includes culled canvases, which still need queued drawing and readbacks.
   #[cfg(feature = "canvas")]

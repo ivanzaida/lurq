@@ -361,6 +361,8 @@ pub struct WgpuRenderEngine {
   atlas_version: u64,
   #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
+  #[cfg(feature = "perf_profile")]
+  profile_context: Option<crate::app::profiler::ProfileContext>,
   quad_bind_group: Option<wgpu::BindGroup>,
   glyph_bind_group: Option<wgpu::BindGroup>,
   vertex_buffer: Option<wgpu::Buffer>,
@@ -460,6 +462,8 @@ impl WgpuRenderEngine {
       atlas_version: 0,
       #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
+      #[cfg(feature = "perf_profile")]
+      profile_context: None,
       quad_bind_group: None,
       glyph_bind_group: None,
       vertex_buffer: None,
@@ -1246,6 +1250,13 @@ mod extension_tests {
 }
 
 impl RenderEngine for WgpuRenderEngine {
+  fn profile_backend(&self) -> &'static str {
+    "wgpu"
+  }
+  #[cfg(feature = "perf_profile")]
+  fn set_profile_context(&mut self, context: crate::app::profiler::ProfileContext) {
+    self.profile_context = Some(context);
+  }
   #[cfg(feature = "canvas")]
   fn prepare_canvases(&mut self, canvases: &[crate::canvas::CanvasHandle]) {
     self.canvases.clear();
@@ -1269,18 +1280,37 @@ impl RenderEngine for WgpuRenderEngine {
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _init_phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderInit));
     self.ensure_initialized(window, display);
     self.apply_pending_surface_size();
     let _init_dur = profile_elapsed!(_init_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_init_phase);
     self.prepare_frame_extensions(list);
+    #[cfg(feature = "perf_profile")]
+    let mut _canvas_profile = crate::app::profile_types::CanvasProfile::default();
     #[cfg(feature = "canvas")]
     if !self.canvases.is_empty() || self.canvas_renderer.is_some() {
+      let _canvas_start = profile_scope!();
       let device = self.device.as_ref().unwrap();
       let queue = self.queue.as_ref().unwrap();
       let renderer = self
         .canvas_renderer
         .get_or_insert_with(|| canvas::Renderer::new(device, queue));
+      #[cfg(feature = "perf_profile")]
+      {
+        renderer.profile_context = self.profile_context.clone();
+      }
       renderer.process(device, queue, &self.canvases);
+      #[cfg(feature = "perf_profile")]
+      {
+        _canvas_profile = renderer.profile;
+        _canvas_profile.total = profile_elapsed!(_canvas_start);
+      }
     }
 
     #[cfg(feature = "raster")]
@@ -1302,6 +1332,11 @@ impl RenderEngine for WgpuRenderEngine {
     let idx_buf = self.index_buffer.as_ref().unwrap();
 
     let _acquire_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _acquire_phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderAcquire));
     let output = match surface.get_current_texture() {
       wgpu::CurrentSurfaceTexture::Success(texture) | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
       // The surface fell out of sync with the window — common on Vulkan during a
@@ -1332,6 +1367,8 @@ impl RenderEngine for WgpuRenderEngine {
       ..Default::default()
     });
     let _acquire_dur = profile_elapsed!(_acquire_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_acquire_phase);
 
     let vw = config.width as f32;
     let vh = config.height as f32;
@@ -1481,6 +1518,11 @@ impl RenderEngine for WgpuRenderEngine {
     let _atlas_dur = profile_elapsed!(_atlas_start);
 
     let _encode_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _encode_phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderEncode));
     let mut _buffer_upload_dur = Duration::default();
     let mut _image_texture_upload_dur = Duration::default();
 
@@ -2284,6 +2326,8 @@ impl RenderEngine for WgpuRenderEngine {
     self.scratch_ordered_draws = ordered_draws;
     self.layer_plan = layer_plan;
     let _encode_dur = profile_elapsed!(_encode_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_encode_phase);
 
     #[cfg(feature = "screenshot")]
     let frame_capture = self
@@ -2292,8 +2336,15 @@ impl RenderEngine for WgpuRenderEngine {
       .and_then(|capture| encode_wgpu_frame_capture(device, &mut encoder, &output.texture, config.format, capture));
 
     let _submit_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _submit_phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderSubmit));
     queue.submit(std::iter::once(encoder.finish()));
     let _submit_dur = profile_elapsed!(_submit_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_submit_phase);
 
     #[cfg(feature = "screenshot")]
     if let Some(frame_capture) = frame_capture {
@@ -2301,13 +2352,21 @@ impl RenderEngine for WgpuRenderEngine {
     }
 
     let _present_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _present_phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderPresent));
     output.present();
     let _present_dur = profile_elapsed!(_present_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_present_phase);
 
     profile_if! {
       self.last_profile = RenderProfile {
         init: _init_dur,
         acquire: _acquire_dur,
+        canvas: _canvas_profile,
         globals_upload: _globals_dur,
         atlas_upload: _atlas_dur,
         glyph_atlas_upload_bytes: _atlas_upload_bytes,

@@ -1,0 +1,476 @@
+[
+  {
+    "segment": 0,
+    "collection_active": false,
+    "cycles": 4,
+    "wall_ms": 14102.981299976818,
+    "process_cpu_ms": 12484.375,
+    "calls": [
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 47.31669998727739
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.91349999466911
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1842.4637000425719
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 71.18150003952906
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 87.74180000182241
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 2139.5073999883607
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 69.2764000268653
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 98.85180002311245
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1641.4099999819882
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 47.09319997346029
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 59.46760001825169
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1456.776000035461
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 47.82599996542558
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 60.745300026610494
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1470.162000041455
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 53.11370000708848
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 64.53089998103678
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1511.4257999812253
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 45.58600002201274
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 60.14620000496507
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1464.0230999793857
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 54.93840004783124
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.570400001481175
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1529.2033000150695
+      }
+    ]
+  },
+  {
+    "segment": 1,
+    "collection_active": true,
+    "cycles": 4,
+    "wall_ms": 12977.100300020538,
+    "process_cpu_ms": 11656.25,
+    "calls": [
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 40.34710000269115
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 66.37959997169673
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1603.1328999670222
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 52.72759997751564
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.01109999185428
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1501.663999981247
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 47.151300008408725
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 68.20860004518181
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1465.3543999884278
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 55.65920000663027
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.724600011482835
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1525.9879000368528
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 41.7363999877125
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 72.42420001421124
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1479.3073000037111
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 44.50620000716299
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 69.9711999623105
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1562.222099979408
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 43.68650005199015
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 53.81059995852411
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1454.6510999789461
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 51.26370000652969
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.331899989861995
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1430.8241000398993
+      }
+    ],
+    "stages": {
+      "rendered_passes": 40,
+      "canvas_passes": 24,
+      "canvas_cpu_ms": {
+        "total": 1672.1857,
+        "tessellation": 76.5546,
+        "asset_upload": 1417.4817,
+        "buffer_upload": 1.1426,
+        "recording": 1436.9859999999999,
+        "submit": 0.0
+      },
+      "inclusive_scopes_not_additive": true,
+      "uploaded_asset_bytes": 46925152
+    },
+    "unfinished_at_end": [
+      {
+        "elapsed_so_far_ms": 22.0092,
+        "excluded_from_completed_samples": true,
+        "frame_id": 396,
+        "phase": "render_acquire",
+        "phase_elapsed_so_far_ms": 20.7395,
+        "started_before_session": false,
+        "started_ms": 54600.1846,
+        "unfinished": true,
+        "window": "main"
+      }
+    ]
+  },
+  {
+    "segment": 2,
+    "collection_active": true,
+    "cycles": 4,
+    "wall_ms": 15851.21120000258,
+    "process_cpu_ms": 14140.625,
+    "calls": [
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 54.12760004401207
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 81.91509998869151
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 2120.6614000257105
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 58.431000041309744
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 64.55820001428947
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 2112.2371000237763
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 73.83469998603687
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 87.95010001631454
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 2225.438599998597
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 65.33359998138621
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 81.97539998218417
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1744.714600034058
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 55.12450000969693
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 70.60969999292865
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1889.6378999925219
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 54.52710000099614
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 69.14550001965836
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1585.964000027161
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 45.75659998226911
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 64.24810003954917
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1571.3693000143394
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 49.12840004544705
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.70709999464452
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1496.5415999758989
+      }
+    ],
+    "stages": {
+      "rendered_passes": 40,
+      "canvas_passes": 24,
+      "canvas_cpu_ms": {
+        "total": 1962.0075,
+        "tessellation": 84.2539,
+        "asset_upload": 1673.9983,
+        "buffer_upload": 1.2677,
+        "recording": 1701.4560000000001,
+        "submit": 0.0
+      },
+      "inclusive_scopes_not_additive": true,
+      "uploaded_asset_bytes": 46925152
+    },
+    "unfinished_at_end": [
+      {
+        "elapsed_so_far_ms": 26.5977,
+        "excluded_from_completed_samples": true,
+        "frame_id": 448,
+        "phase": "render_acquire",
+        "phase_elapsed_so_far_ms": 25.342,
+        "started_before_session": false,
+        "started_ms": 74689.7215,
+        "unfinished": true,
+        "window": "main"
+      }
+    ]
+  },
+  {
+    "segment": 3,
+    "collection_active": false,
+    "cycles": 4,
+    "wall_ms": 12222.585499985144,
+    "process_cpu_ms": 10796.875,
+    "calls": [
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 52.985799964517355
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 64.75120002869517
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1568.6273999745026
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 41.46860004402697
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.100900035351515
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1520.0143000110984
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 53.52419998962432
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 66.33800000417978
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1499.4062000187114
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 57.95009998837486
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 64.57659997977316
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1487.7108999644406
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 50.62509997515008
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 63.475799979642034
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 1530.0738999503665
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 53.760699986014515
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 48.69329999201
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 26.60959999775514
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 696.3164999615401
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 799.3209999985993
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 802.4011999950744
+      },
+      {
+        "tool": "lurq_find_by_id",
+        "elapsed_ms": 767.6514000049792
+      },
+      {
+        "tool": "lurq_interact",
+        "elapsed_ms": 67.85580003634095
+      },
+      {
+        "tool": "lurq_wait",
+        "elapsed_ms": 727.8672999818809
+      }
+    ]
+  }
+]

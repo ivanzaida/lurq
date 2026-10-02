@@ -1,0 +1,94 @@
+[
+  {
+    "idle_records": 0,
+    "workload_ms": 1475.9528000140563,
+    "window": {
+      "width": 2160,
+      "height": 1440,
+      "scale_factor": 1.5
+    },
+    "exclusions": 0,
+    "canvas_text_counts": {
+      "shape_calls": 6284.0,
+      "shape_cache_hits": 3540.0,
+      "shape_cache_misses": 2744.0,
+      "fill_calls": 1486.0,
+      "shape_cache_evictions": 2744.0,
+      "produced_bitmap_bytes": 18757216.0,
+      "measure_calls": 4798.0
+    },
+    "pass_records": 10,
+    "max_pass_ms": 190.4385,
+    "mixed_records": 40,
+    "process_cpu_ms": 625.0,
+    "canvas_text_total_ms": {
+      "buffer_font_shape": 32.4152,
+      "bitmap_composition": 49.439,
+      "glyph_prepare": 251.0622,
+      "total": 340.6567
+    },
+    "unfinished_count": 0,
+    "drops": 0,
+    "variant": "baseline",
+    "canvas_bounds": [
+      360,
+      138,
+      1404,
+      1257
+    ],
+    "fixture": "Genuine18 / 01 Editor",
+    "all_pass_cpu_ms": 880.928,
+    "cleanup": {
+      "pid": 55124,
+      "stop": "terminated by harness",
+      "exited": true,
+      "port_closed": true
+    }
+  },
+  {
+    "idle_records": 0,
+    "workload_ms": 1470.0382999726571,
+    "window": {
+      "width": 2160,
+      "height": 1440,
+      "scale_factor": 1.5
+    },
+    "exclusions": 0,
+    "canvas_text_counts": {
+      "shape_calls": 6284.0,
+      "shape_cache_hits": 3540.0,
+      "shape_cache_misses": 2744.0,
+      "fill_calls": 1486.0,
+      "shape_cache_evictions": 2744.0,
+      "produced_bitmap_bytes": 11762496.0,
+      "measure_calls": 4798.0
+    },
+    "pass_records": 10,
+    "max_pass_ms": 173.5735,
+    "mixed_records": 40,
+    "process_cpu_ms": 531.25,
+    "canvas_text_total_ms": {
+      "buffer_font_shape": 32.9427,
+      "bitmap_composition": 26.5856,
+      "glyph_prepare": 210.3234,
+      "total": 275.7695
+    },
+    "unfinished_count": 0,
+    "drops": 0,
+    "variant": "candidate",
+    "canvas_bounds": [
+      360,
+      138,
+      1404,
+      1257
+    ],
+    "fixture": "Genuine18 / 01 Editor",
+    "all_pass_cpu_ms": 866.0748000000001,
+    "cleanup": {
+      "pid": 32704,
+      "stop": "terminated by harness",
+      "exited": true,
+      "port_closed": true
+    }
+  }
+]

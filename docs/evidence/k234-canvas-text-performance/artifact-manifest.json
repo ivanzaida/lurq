@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "source_head": "863b23c24b32d48042dfcd44a3f8d350cae7ba05",
+  "artifact_count": 9,
+  "artifacts": [
+    {
+      "path": "handoff.md",
+      "bytes": 3365,
+      "sha256": "c47b5bbcc8e3765d23f6268010d23fadfa8eb739a5de19bc8a6f90cd22b2c8e0"
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 2769,
+      "sha256": "89363a2f68103c229dcebacdb6f1ea85dd1e15c53c8f6b74d2139f0590930ed9"
+    },
+    {
+      "path": "run1/canvas-text-lib.json",
+      "bytes": 905,
+      "sha256": "84639a5937f81a693eac0035df6e8b5d3c81a3856a3872be674324bc8c583be5"
+    },
+    {
+      "path": "run1/canvas-text-lib.log",
+      "bytes": 5271,
+      "sha256": "022ba83e25228a5d9533bbc812a5b281b273c79e2969158191967fd1306e3bc5"
+    },
+    {
+      "path": "run1/canvas-text-paint-refusal.json",
+      "bytes": 987,
+      "sha256": "c1f2478b5b630439f463afbbfe9e6e74afc27fe3f7226688695f3ed2c20dcaff"
+    },
+    {
+      "path": "run1/canvas-text-paint-refusal.log",
+      "bytes": 4374,
+      "sha256": "ad867dc3d203898322b1ff04924fe8183220d88a32bc3a14f267bcbcb88789e2"
+    },
+    {
+      "path": "run1/canvas-text-public.json",
+      "bytes": 920,
+      "sha256": "1b55c20ebd7f5b8f8c1e4fdde2afa12c8eb2ae44a0f2e6c696cbde51081ba5c5"
+    },
+    {
+      "path": "run1/canvas-text-public.log",
+      "bytes": 4875,
+      "sha256": "426b1248dd3372ee85305baadf258be568a657ca09e1bde07c29bea747a21bc3"
+    },
+    {
+      "path": "run1/run.ps1",
+      "bytes": 1998,
+      "sha256": "caade9bf50464e3023fe0c36f2bcda64e4732629272e0d4cd91d5efe95b4b4af"
+    }
+  ]
+}

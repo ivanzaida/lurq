@@ -1,0 +1,37 @@
+{
+  "kontur_head": "b3076c671ceb069dabe3b869881cb42f86a3ab34",
+  "kontur_tree": "19e9ca90c045cb01924f3487917792d34711d737",
+  "lurq_head": "779190d8153df5a57d5cbfa0e6b50f21f0fb2b23",
+  "lurq_tree": "9ae7c26940cfc59f044a47b60aebd62830068693",
+  "binary_sha256": "1a5f6dfcddc82371a21dd2b05ae7b960321ca2c0022acf91f4085c6bb654746e",
+  "launcher": "configured .env.desktop / dev:desktop; build-only adaptation",
+  "observed_build": {
+    "cargo_profile": "not_embedded",
+    "debug_assertions": true,
+    "features": {
+      "canvas": true,
+      "devtools": false,
+      "dx12": true,
+      "perf_profile": true,
+      "wgpu": true
+    },
+    "gpu_timestamps": {
+      "available": false,
+      "reason": "GPU timestamp queries are not instrumented"
+    },
+    "lurq_version": "0.32.0",
+    "optimization_level": "not_embedded",
+    "target_arch": "x86_64",
+    "target_os": "windows"
+  },
+  "normal_tool_deadline_s": 15,
+  "workload": "Genuine18 / 01 Editor / one zoom-out then zoom-in pair at fit",
+  "new_fields": [
+    "layout_compute",
+    "component_after_layout"
+  ],
+  "fixture": {
+    "document": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+    "ledger": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+  }
+}

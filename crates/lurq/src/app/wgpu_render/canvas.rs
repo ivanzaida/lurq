@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use wgpu::*;
 
 use super::DynamicBuffer;
+use crate::app::profile_support::{profile_elapsed, profile_if, profile_scope};
 use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
 
 struct Texture {
@@ -22,6 +23,10 @@ struct CachedAsset {
   last: u64,
 }
 pub(super) struct Renderer {
+  #[cfg(feature = "perf_profile")]
+  pub(super) profile: crate::app::profile_types::CanvasProfile,
+  #[cfg(feature = "perf_profile")]
+  pub(super) profile_context: Option<crate::app::profiler::ProfileContext>,
   meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
   assets: HashMap<u64, CachedAsset>,
@@ -210,6 +215,10 @@ impl Renderer {
       },
     );
     Self {
+      #[cfg(feature = "perf_profile")]
+      profile: Default::default(),
+      #[cfg(feature = "perf_profile")]
+      profile_context: None,
       meshes: MeshCache::default(),
       surfaces: HashMap::new(),
       assets: HashMap::new(),
@@ -257,6 +266,13 @@ impl Renderer {
     })
   }
   pub fn process(&mut self, device: &Device, queue: &Queue, canvases: &[CanvasHandle]) {
+    profile_if! { self.profile = Default::default(); }
+    let _process_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
     self.tick += 1;
     let live: HashSet<_> = canvases
       .iter()
@@ -276,6 +292,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
+      profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       if !self.surfaces.contains_key(&canvas.surface_id()) && !matches!(commands.front(), Some(Command::Resize { .. }))
       {
@@ -317,7 +334,18 @@ impl Renderer {
               group.push(commands.pop_front().unwrap());
             }
             let before = self.meshes.stats();
+            let _tessellation_start = profile_scope!();
+            #[cfg(feature = "perf_profile")]
+            let _tessellation_phase = self
+              .profile_context
+              .as_ref()
+              .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasTessellation));
             let prepared = Prepared::new(&group, &mut self.meshes);
+            profile_if! {
+              self.profile.tessellation += profile_elapsed!(_tessellation_start);
+              self.profile.command_groups += 1;
+              drop(_tessellation_phase);
+            }
             canvas.record_mesh_cache(before, self.meshes.stats());
             match prepared {
               Ok(prepared) => self.draw(device, queue, canvas.surface_id(), &prepared),
@@ -335,6 +363,7 @@ impl Renderer {
       };
       self.asset_bytes -= self.assets.remove(&id).unwrap().bytes;
     }
+    profile_if! { self.profile.total = profile_elapsed!(_process_start); }
   }
   fn resize(&mut self, device: &Device, queue: &Queue, canvas: &CanvasHandle, width: u32, height: u32, preserve: bool) {
     let id = canvas.surface_id();
@@ -374,7 +403,9 @@ impl Renderer {
         pass.draw(0..3, 0..1);
       }
     }
+    let _submit_start = profile_scope!();
     queue.submit([encoder.finish()]);
+    profile_if! { self.profile.submit += profile_elapsed!(_submit_start); }
     self.generation += 1;
     self.surfaces.insert(
       id,
@@ -414,6 +445,12 @@ impl Renderer {
   }
 
   fn draw(&mut self, device: &Device, queue: &Queue, id: CanvasId, prepared: &Prepared) {
+    let _record_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _record_phase = self
+      .profile_context
+      .as_ref()
+      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasCommands));
     let depth = layer_depth(prepared);
     self.reserve_layers(device, depth);
     let Some(backing) = self.surfaces.get(&id) else {
@@ -429,6 +466,12 @@ impl Renderer {
       }
       return;
     }
+    let _asset_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _asset_phase = self
+      .profile_context
+      .as_ref()
+      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasAssetUpload));
     for draw in prepared.draws() {
       if let Some(asset) = &draw.asset {
         if !self.assets.contains_key(&asset.id) {
@@ -483,6 +526,10 @@ impl Renderer {
       }
     }
     let backing = &self.surfaces[&id];
+    profile_if! {
+      self.profile.asset_upload += profile_elapsed!(_asset_start);
+      drop(_asset_phase);
+    }
     let mut encoder = device.create_command_encoder(&Default::default());
     if prepared.clear {
       let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -526,11 +573,13 @@ impl Renderer {
           constants[base..base + 8].copy_from_slice(&[0., 0., 1., 1., 1., 1., blend.index() as f32, *alpha]);
         }
       }
+      let _globals_start = profile_scope!();
       let globals = global_group(
         device,
         &self.globals_layout,
         self.globals.write(device, queue, &constants).unwrap(),
       );
+      profile_if! { self.profile.buffer_upload += profile_elapsed!(_globals_start); }
       let blend_groups: Vec<BindGroup> = (0..depth)
         .map(|level| {
           blend_group(
@@ -542,7 +591,9 @@ impl Renderer {
           )
         })
         .collect();
+      let _vertices_start = profile_scope!();
       let vertices = self.vertices.write(device, queue, &prepared.vertices).unwrap();
+      profile_if! { self.profile.buffer_upload += profile_elapsed!(_vertices_start); }
       for (index, tile) in tiles.iter().copied().enumerate() {
         let tile_offset = (index * alignment * 4) as u32;
         let mut step = 0usize;
@@ -694,7 +745,20 @@ impl Renderer {
         );
       }
     }
+    let _submit_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _submit_phase = self
+      .profile_context
+      .as_ref()
+      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasSubmission));
     queue.submit([encoder.finish()]);
+    profile_if! {
+      self.profile.submit += profile_elapsed!(_submit_start);
+      self.profile.recording += profile_elapsed!(_record_start);
+      self.profile.vertices += prepared.vertices.len();
+      self.profile.tiles += tiles.len();
+      self.profile.uploaded_asset_bytes += uploaded;
+    }
     if let Some(canvas) = backing.owner.upgrade() {
       canvas.record_gpu_update(prepared.vertices.len(), tiles.len(), uploaded);
     }

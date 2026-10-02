@@ -1,0 +1,7 @@
+2026-10-02T14:11:34.003406Z  INFO kontur_desktop: single instance claim="only" detail="this process holds the device profile"
+2026-10-02T14:11:34.064778Z  INFO kontur_desktop: local documents available=true
+2026-10-02T14:11:34.066548Z  INFO kontur_desktop: update flow manifest_url=None state="not-configured"
+2026-10-02T14:11:34.066647Z  INFO kontur_desktop: offline copies root=Some("H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\profile\\Kontur\\offline") encrypts=true device_state="owned"
+2026-10-02T14:11:34.070745Z  INFO kontur_desktop: MCP server listening; bearer token is in the lurq discovery file url="http://127.0.0.1:4903/mcp"
+2026-10-02T14:11:37.697940Z  INFO kontur_desktop::editor::document::local: local document opened revision="1" nodes=8055 pages=18
+2026-10-02T14:11:41.506340Z  INFO kontur_desktop::editor::document: scene built page="10436fe8-bb35-4281-be38-0bbd5dad62d3" items=1862 outcome="built" micros=3808086

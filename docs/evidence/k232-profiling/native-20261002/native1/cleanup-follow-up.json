@@ -1,0 +1,10 @@
+{
+  "observed_at_utc": "2026-10-02T13:37:22.0667809Z",
+  "pid": 59536,
+  "pid_absent": true,
+  "port": 4903,
+  "listener_absent": true,
+  "listeners": [],
+  "action": "read-only verification; no additional process terminated",
+  "original_cleanup_preserved": true
+}

@@ -1,0 +1,13 @@
+{
+  "pid": 59536,
+  "port": 4903,
+  "binary_sha256": "35edfcfd5e17f6db907e0035fe86d0dc26d73ab0163dac431462e17139a44ebb",
+  "profile": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\profile",
+  "renderer": "dx12",
+  "api": "none",
+  "normal_tool_deadline_s": 15,
+  "cleared_override_keys": [],
+  "default_mcp": true,
+  "devtools": false,
+  "external_compiler_contention": "root observed Orchester graph parent31016; preserve it"
+}

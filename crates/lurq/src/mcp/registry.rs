@@ -26,6 +26,9 @@ pub(crate) enum BuiltinTool {
   Navigate,
   FileDialogs,
   FileDialogRespond,
+  ProfileStart,
+  ProfileRead,
+  ProfileEnd,
 }
 
 pub(crate) type SyncToolHandler =

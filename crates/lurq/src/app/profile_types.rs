@@ -10,6 +10,8 @@ pub struct FrameProfile {
   pub glyph_rasterize: Duration,
   pub gpu_submit: Duration,
   pub render: RenderProfile,
+  /// False for custom backends that do not implement CPU stage profiling.
+  pub render_profile_available: bool,
   pub total: Duration,
   pub quad_count: usize,
   pub rect_count: usize,
@@ -101,6 +103,8 @@ pub struct GlyphEngineProfile {
 
 #[derive(Clone, Copy, Default)]
 pub struct RenderProfile {
+  /// Canvas CPU work. Subscopes are inclusive and can overlap encode/upload.
+  pub canvas: CanvasProfile,
   pub init: Duration,
   pub acquire: Duration,
   pub globals_upload: Duration,
@@ -118,6 +122,27 @@ pub struct RenderProfile {
   pub submit: Duration,
   pub present: Duration,
   pub total: Duration,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct CanvasProfile {
+  /// Complete backend Canvas processing, including cache/resource work.
+  pub total: Duration,
+  /// Command preparation and mesh-cache lookup/miss tessellation.
+  pub tessellation: Duration,
+  /// Creating/staging new image and text textures (CPU, not GPU completion).
+  pub asset_upload: Duration,
+  /// Vertex and constant buffer preparation/staging.
+  pub buffer_upload: Duration,
+  /// Draw recording including uploads, tile planning and submission where present.
+  pub recording: Duration,
+  /// WGPU Canvas queue.submit / DX12 explicit readback boundary submission only.
+  pub submit: Duration,
+  pub batches: usize,
+  pub command_groups: usize,
+  pub vertices: usize,
+  pub tiles: usize,
+  pub uploaded_asset_bytes: usize,
 }
 
 impl RenderProfile {

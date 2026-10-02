@@ -1,0 +1,25 @@
+{
+  "lock_sha256": "5A49B46EA09509C8ED1A3BF0A031CB8726C6C9A5D9983115DBE40031452626A7",
+  "source": "H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance",
+  "features": [
+    "canvas",
+    "clipboard",
+    "devtools",
+    "dx12",
+    "form",
+    "i18n",
+    "image",
+    "mcp",
+    "perf_profile",
+    "persistent_storage",
+    "raster",
+    "render",
+    "router",
+    "screenshot",
+    "serde",
+    "tokio",
+    "wgpu",
+    "winit"
+  ],
+  "manifest": "H:\\projects\\pencil-web\\.codex\\worktrees\\lurq-k232-mcp-performance\\crates\\lurq\\Cargo.toml"
+}

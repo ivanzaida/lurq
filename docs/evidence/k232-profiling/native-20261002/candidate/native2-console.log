@@ -1,0 +1,5 @@
+{"stage": "owned-native-started", "pid": 60548, "port": 4903}
+{"stage": "cold-open-canvas-captured", "pid": 60548}
+{"stage": "overlap-captured", "pid": 60548}
+{"stage": "overhead-captured-contention-recorded", "pid": 60548}
+Session termination failed: 202
