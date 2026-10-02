@@ -2,13 +2,15 @@ use std::{collections::HashMap, sync::Arc};
 
 #[cfg(feature = "perf_profile")]
 use crate::app::profiler::canvas_text::{self as profile, Stage, Timer};
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Wrap};
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashContent, Wrap};
 use tiny_skia::{Pixmap, PixmapPaint};
 
+mod glyph_cache;
 #[cfg(all(test, feature = "perf_profile"))]
 mod profile_tests;
 #[cfg(test)]
 mod tests;
+use glyph_cache::GlyphCache;
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
@@ -91,7 +93,7 @@ pub(crate) struct CanvasTextEngine {
   aliases: HashMap<String, String>,
   // The engine owns a snapshot of the font database, so this never needs clearing.
   face_weights: FaceWeights,
-  swash: SwashCache,
+  swash: GlyphCache,
   shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>, Output)>,
   shaped_bytes: usize,
 }
@@ -154,7 +156,7 @@ impl CanvasTextEngine {
       fonts,
       aliases,
       face_weights: FaceWeights::default(),
-      swash: SwashCache::new(),
+      swash: GlyphCache::new(),
       shaped: Default::default(),
       shaped_bytes: 0,
     }
@@ -230,10 +232,6 @@ impl CanvasTextEngine {
     if text.len() > 65_536 || font.size * scale > 4096.0 {
       return Err(CanvasError::TextTooLarge);
     }
-    // A bounded cache shared by the app's canvases; drawing history is not retained.
-    if self.swash.image_cache.len() > 2048 {
-      self.swash.image_cache.clear();
-    }
     #[cfg(feature = "perf_profile")]
     let _buffer = Timer::new(Stage::BufferFontShape);
     let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(font.size, font.size * 1.2));
@@ -279,20 +277,8 @@ impl CanvasTextEngine {
           ascent = ascent.max(metrics.ascent);
           descent = descent.max(metrics.descent.abs());
         }
-        if self.swash.image_cache.len() >= 2048
-          || self
-            .swash
-            .image_cache
-            .values()
-            .flatten()
-            .map(|i| i.data.len())
-            .sum::<usize>()
-            > 16 * 1024 * 1024
-        {
-          self.swash.image_cache.clear();
-        }
         let physical = glyph.physical((0.0, 0.0), scale);
-        let Some(image) = self.swash.get_image(&mut self.fonts, physical.cache_key).as_ref() else {
+        let Some(image) = self.swash.image(&mut self.fonts, physical.cache_key).as_ref() else {
           continue;
         };
         if image.placement.width == 0 || image.placement.height == 0 {
