@@ -1,0 +1,121 @@
+   Compiling serde_core v1.0.228
+   Compiling windows-sys v0.61.2
+   Compiling serde v1.0.228
+   Compiling smallvec v1.15.1
+   Compiling half v2.7.1
+   Compiling winapi-util v0.1.11
+   Compiling serde_json v1.0.150
+   Compiling ciborium-ll v0.2.2
+   Compiling same-file v1.0.6
+   Compiling harfrust v0.5.2
+   Compiling walkdir v2.5.0
+   Compiling ciborium v0.2.2
+   Compiling parking_lot_core v0.9.12
+   Compiling tinytemplate v1.2.1
+   Compiling is-terminal v0.4.17
+   Compiling cosmic-text v0.19.0
+   Compiling criterion v0.5.1
+   Compiling parking_lot v0.12.5
+   Compiling lurq_macros v0.1.2 (H:\projects\pencil-web\.codex\worktrees\lurq-canvas-text-performance\crates\lurq_macros)
+   Compiling lurq v0.32.0 (H:\projects\pencil-web\.codex\worktrees\lurq-canvas-text-performance\crates\lurq)
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:3978:9
+     |
+3978 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4035:9
+     |
+4035 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4205:9
+     |
+4205 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:8973:4
+     |
+8973 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:57:7
+   |
+57 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:59:7
+   |
+59 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `has_layers` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:134:17
+    |
+112 | impl LayerPlan {
+    | -------------- method in this implementation
+...
+134 |   pub(crate) fn has_layers(&self) -> bool {
+    |                 ^^^^^^^^^^
+
+warning: associated items `window`, `layer`, `viewport`, `clip`, and `layer_rect` are never used
+   --> crates\lurq\src\layout\opacity_layer.rs:199:17
+    |
+198 | impl TargetSpace {
+    | ---------------- associated items in this implementation
+199 |   pub(crate) fn window(width: f32, height: f32) -> Self {
+    |                 ^^^^^^
+...
+210 |   pub(crate) fn layer(bounds: LayerBounds, texture_width: u32, texture_height: u32) -> Self {
+    |                 ^^^^^
+...
+225 |   pub(crate) fn viewport(&self) -> [f32; 4] {
+    |                 ^^^^^^^^
+...
+231 |   pub(crate) fn clip(&self, clip: ClipRect) -> ClipRect {
+    |                 ^^^^
+...
+253 |   pub(crate) fn layer_rect(&self, layer: LayerBounds) -> ClipRect {
+    |                 ^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:281:17
+    |
+280 | impl LayerComposite {
+    | ------------------- associated function in this implementation
+281 |   pub(crate) fn new(layer: &LayerCmd, parent: &TargetSpace) -> Self {
+    |                 ^^^
+
+warning: `lurq` (lib test) generated 9 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 1m 46s
+     Running unittests src\lib.rs (H:/projects/pencil-web/.codex/worktrees/lurq-k232-mcp-performance/.tmp/target\debug\deps\lurq-43b2e58e88ac02a4.exe)
+
+running 10 tests
+test canvas::text::glyph_cache::tests::byte_limit_equality_is_kept_and_excess_retires_before_lookup ... ok
+test canvas::text::glyph_cache::tests::missing_images_count_toward_pre_lookup_entry_eviction ... ok
+test canvas::text::glyph_cache::tests::real_insertions_hits_and_clear_keep_exact_image_bytes ... ok
+test canvas::text::profile_tests::canvas_text_idle_boundary_and_real_cache_eviction_are_bounded ... ok
+test canvas::text::profile_tests::canvas_text_metrics_do_not_compose_or_produce_bitmap_bytes ... ok
+test canvas::text::profile_tests::canvas_text_nested_windows_restore_parent_and_sessions_do_not_mix ... ok
+test canvas::text::profile_tests::canvas_text_profiles_real_measure_fill_cache_and_cpu_stages ... ok
+test canvas::text::tests::metrics_keep_spacing_features_and_refusals ... ok
+test canvas::text::tests::metrics_preserve_real_glyph_bounds_without_rgba_and_fill_after_measure_is_visible ... ok
+test canvas::text::tests::rendered_cache_preserves_color_scale_and_previous_drawing_owners ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 174 filtered out; finished in 0.02s
+

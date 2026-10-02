@@ -8,3 +8,11 @@ docs/evidence/mcp-file-dialogs/run2/dialogs.log -text
 docs/evidence/mcp-file-dialogs/run2/run.ps1 -text
 docs/evidence/mcp-file-dialogs/run2/windows.json -text
 docs/evidence/mcp-file-dialogs/run2/windows.log -text
+docs/evidence/k234-canvas-text-performance/run1/canvas-text-lib.json -text
+docs/evidence/k234-canvas-text-performance/run1/canvas-text-lib.log -text
+docs/evidence/k234-canvas-text-performance/run1/canvas-text-paint-refusal.json -text
+docs/evidence/k234-canvas-text-performance/run1/canvas-text-paint-refusal.log -text
+docs/evidence/k234-canvas-text-performance/run1/canvas-text-public.json -text
+docs/evidence/k234-canvas-text-performance/run1/canvas-text-public.log -text
+docs/evidence/k234-canvas-text-performance/run1/run.ps1 -text
+docs/evidence/k234-canvas-text-performance/handoff.md -text
