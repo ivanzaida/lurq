@@ -42,7 +42,7 @@ All exported timing values are **CPU wall-clock milliseconds**. Monotonic timest
 
 | Scope | Actual boundary and interpretation |
 | --- | --- |
-| Pass total | Entire `Tree::pass`, including setup, update/layout, resolve/raster, render, runtime cleanup and existing observers. Input dispatch or arbitrary host work before the pass is outside it. Idle passes are not retained. |
+| Pass total | Entire `Tree::pass`, including setup, update/layout, resolve/raster, render, runtime cleanup, existing observers and MCP notification/reconciliation/reply work. Completion is published after that tail; a blocked MCP notification appears as unfinished `pass_notifications`. Input dispatch or arbitrary host work before the pass is outside it. Idle passes are not retained. |
 | Input dispatch | Actual Tree pointer move/down/up/leave, scroll and keyboard down/up entry points, including synchronous application callbacks and subsequent reactive updates. Coarse input phases are visible before any frame pass begins. No pointer coordinates, key/code strings, text or input values are retained. A nested pass/update restores its outer activity phase on completion. Menu/window callbacks outside these Tree entry points and unrelated host task processing are not attributed. |
 | Root rebuild / subtree refresh | Retained-tree rebuild/update, including a nested commit that installs nodes, preserves runtime state/IDs and refreshes interaction/focus. An update may happen before or inside a pass. |
 | Layout update | Existing `update_layout` plus caret processing. Includes rebuilds, resources, layout work and Canvas binding/replay. This is an inclusive update scope, not a pure layout-algorithm timer. |

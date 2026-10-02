@@ -106,6 +106,98 @@ mod enabled {
     assert!(!ended_first.windows[0].open);
   }
 
+  #[cfg(feature = "mcp")]
+  #[test]
+  fn pass_completion_includes_blocked_mcp_notification_tail() {
+    use crate::{
+      app::{App, Tree},
+      components::Column,
+      mcp::{McpWaitEntry, McpWaitMode},
+    };
+    use std::{
+      future::Future,
+      pin::Pin,
+      sync::{Arc, Mutex},
+      task::{Context, Wake, Waker},
+    };
+
+    struct BlockingWake {
+      entered: mpsc::Sender<Instant>,
+      resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Wake for BlockingWake {
+      fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+      }
+      fn wake_by_ref(self: &Arc<Self>) {
+        self.entered.send(Instant::now()).unwrap();
+        self.resume.lock().unwrap().recv().unwrap();
+      }
+    }
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let waker = Waker::from(Arc::new(BlockingWake {
+      entered: entered_tx,
+      resume: Mutex::new(resume_rx),
+    }));
+    let (reply, mut receiver) = tokio::sync::oneshot::channel();
+    assert!(
+      Pin::new(&mut receiver)
+        .poll(&mut Context::from_waker(&waker))
+        .is_pending()
+    );
+    let (handle_tx, handle_rx) = mpsc::channel();
+    let (begin_tx, begin_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+      let mut tree = Tree::new();
+      let mut app = App::new();
+      tree.set_root(Column::new());
+      tree.mcp_wait_entries.push(McpWaitEntry {
+        mode: McpWaitMode::Frames(0),
+        reply: Some(reply),
+      });
+      handle_tx.send(tree.profiling_handle()).unwrap();
+      begin_rx.recv().unwrap();
+      tree.pass_headless(&mut app);
+    });
+    let handle = handle_rx.recv().unwrap();
+    let first = handle.start(Default::default()).unwrap().id;
+    begin_tx.send(()).unwrap();
+    let tail_started = entered_rx.recv().unwrap();
+    let during_tail = handle.read(first).unwrap();
+    let second = handle.start(Default::default()).unwrap().id;
+    let ended_second = handle.end(second).unwrap();
+    let resumed = Instant::now();
+    resume_tx.send(()).unwrap();
+    worker.join().unwrap();
+    let ended_first = handle.end(first).unwrap();
+    assert!(
+      during_tail
+        .samples
+        .iter()
+        .all(|sample| !matches!(sample.data, SampleData::Pass(_)))
+    );
+    assert_eq!(ended_second.completed_samples, 0);
+    assert_eq!(ended_second.in_flight[0].phase, Phase::PassNotifications);
+    assert!(ended_second.in_flight[0].started_before_session);
+    assert!(ended_second.in_flight[0].elapsed_ms >= ended_second.in_flight[0].phase_elapsed_ms);
+    let completed = ended_first
+      .samples
+      .iter()
+      .find(|sample| matches!(sample.data, SampleData::Pass(_)))
+      .unwrap();
+    assert!(completed.started_ms <= handle.millis(tail_started));
+    assert!(completed.completed_ms >= handle.millis(resumed));
+    assert!(ended_first.in_flight.is_empty());
+    assert!(ended_second.samples.is_empty());
+    assert_eq!(ended_second.in_flight[0].phase, Phase::PassNotifications);
+    assert!(
+      Pin::new(&mut receiver)
+        .poll(&mut Context::from_waker(&waker))
+        .is_ready()
+    );
+  }
+
   #[test]
   fn real_blocked_input_callback_is_observable_before_any_frame_pass() {
     use crate::{app::Tree, components::Column, node::Element};

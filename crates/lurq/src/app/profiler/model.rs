@@ -82,6 +82,7 @@ impl Default for BuildAvailability {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
   PassSetup,
+  PassNotifications,
   LayoutUpdate,
   Rebuild,
   Commit,
@@ -108,6 +109,7 @@ impl Phase {
   pub fn name(self) -> &'static str {
     match self {
       Self::PassSetup => "pass_setup",
+      Self::PassNotifications => "pass_notifications",
       Self::LayoutUpdate => "layout_update",
       Self::Rebuild => "ui_rebuild",
       Self::Commit => "ui_commit",

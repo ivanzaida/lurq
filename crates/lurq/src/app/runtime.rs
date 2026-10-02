@@ -2040,6 +2040,17 @@ impl Tree {
       engine.set_profile_context(self.profiling.context.clone());
     }
     let report = self.pass_inner(app, surface);
+    #[cfg(feature = "mcp")]
+    {
+      #[cfg(feature = "perf_profile")]
+      let _notify_phase = self
+        .profiling
+        .context
+        .phase(crate::app::profiler::Phase::PassNotifications);
+      self.mcp_notify_pass(&report);
+    }
+    // Publish completion only after observers and MCP reconciliation/replies.
+    // A blocked notification must remain unfinished to diagnostic readers.
     #[cfg(feature = "perf_profile")]
     self.profiling.finish_pass(
       _profile_start,
@@ -2051,8 +2062,6 @@ impl Tree {
         .unwrap_or("none"),
       report.rendered.then_some(&self.last_profile),
     );
-    #[cfg(feature = "mcp")]
-    self.mcp_notify_pass(&report);
     report
   }
 

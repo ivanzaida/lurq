@@ -18,24 +18,24 @@ New module map (paths relative to `crates/lurq/src`):
 
 | Module | Physical lines | Responsibility |
 | --- | ---: | --- |
-| `app/profiler/model.rs` | 253 | Typed bounds, features, errors, samples, report and phase vocabulary |
+| `app/profiler/model.rs` | 255 | Typed bounds, features, errors, samples, report and phase vocabulary |
 | `app/profiler/collector.rs` | 326 | Independent sessions, immutable snapshots, bounded history and window lifecycle |
 | `app/profiler/producer.rs` | 248 | Runtime/window producer and nested phase/input/update guards |
 | `app/profiler/export.rs` | 157 | Shared versioned content-free JSON export and scope/availability semantics |
-| `app/profiler/session_tests.rs` | 370 | Collector, stalled input/pass, boundary/lifecycle and headless regressions |
+| `app/profiler/session_tests.rs` | 462 | Collector, stalled input/pass/notification, boundary/lifecycle and headless regressions |
 | `mcp/profiling.rs` | 129 | Observe-scope server-thread tools, ownership and revocation |
 | `mcp/profiling/tests.rs` | 90 | Adapter permissions, independent sessions and feature-disabled behavior |
 | `mcp/server/profiling_tests.rs` | 125 | Direct dispatch/no queue/wake and loopback bearer rejection |
 
-Exact first-commit hook locations (all relative to `crates/lurq/src/app`; later changes must update these references):
+Current source hook locations, including the notification-boundary review repair (all relative to `crates/lurq/src/app`; later changes must update these references):
 
 | File / lines | Hook boundary |
 | --- | --- |
 | `runtime.rs:608,946,1144,1384–1413,1558` | Window owner initialization, shared handle, secondary adoption and DevTools marker |
-| `runtime.rs:1854–1874,5492–5518` | Root rebuild/subtree refresh and nested commit |
-| `runtime.rs:2035–2050,2172–2180,2256–2291` | Entire pass wrapper, inclusive layout update, quad and glyph current phases |
-| `runtime.rs:2921–2978,5217–5255,5787–5805` | Full/cached render, Canvas handle preparation and runtime Canvas binding/recording |
-| `runtime.rs:3083,3099,3110,3169,3302,3313,3388` | Coarse pointer/scroll/keyboard synchronous dispatch |
+| `runtime.rs:1854–1874,5501–5527` | Root rebuild/subtree refresh and nested commit |
+| `runtime.rs:2035–2066,2181–2189,2265–2300` | Entire pass wrapper, notification tail before completion, inclusive layout update, quad and glyph current phases |
+| `runtime.rs:2930–2987,5226–5264,5796–5814` | Full/cached render, Canvas handle preparation and runtime Canvas binding/recording |
+| `runtime.rs:3092,3108,3119,3178,3311,3322,3397` | Coarse pointer/scroll/keyboard synchronous dispatch |
 | `wgpu_render/mod.rs:1284–1312,1336–1371,1522–2363` | Init, Canvas processing, acquire, encode, submit and present guards |
 | `dx12_render/mod.rs:688–698,2741–2847` | Init, acquire, encode/Canvas, submit and present guards |
 | `wgpu_render/canvas.rs:266–363,403–408,445–757` | Backend total, tessellation, CPU submission, asset/buffer staging and recording counters |
@@ -49,7 +49,7 @@ The first minimal command `cargo test -p lurq --lib --locked -j1 --features 'mcp
 
 The repair command with the same graph/filter passed **7 tests, 0 failed, 177 filtered**, after a 32.22-second unoptimized test build; tests ran in 0.02 seconds. Original: `core-mcp-profiling-repair1.log`. This was an intermediate source result. The `profiling` filter does **not** execute enabled collector tests whose names are under `app::profiler`.
 
-The compiler lane was released at that terminal result for Kontur QA, then separately regranted for the final minimal commands below. All passed sequentially on the final implementation source before its first commit. The lane was released again after the disabled-feature result. These are builder tests, not independent exact-commit QA or runtime performance measurements.
+The compiler lane was released at that terminal result for Kontur QA, then separately regranted for the final minimal commands below. All passed sequentially on the implementation source published as first commit `ae368ad6b6ef9bf213b8724a6f55f8d54f5c8c4c` (tree `a29ef6d705848bfc3bfa809c452aa2f79291513c`). The lane was released again after the disabled-feature result. These are builder tests, not independent exact-commit QA or runtime performance measurements. They do not verify subsequent review repairs.
 
 | Command (`cargo test -p lurq --lib --locked -j1`) | Result | Build / test time | Retained original |
 | --- | --- | --- | --- |
@@ -60,6 +60,14 @@ The compiler lane was released at that terminal result for Kontur QA, then separ
 The logs report an unoptimized test profile. Four warnings are in existing layout test/runtime code; they were not silently repaired or treated as profiler failures. All timing assertions concern actual headless layout or controlled blocked callbacks/phases; no GPU renderer was involved.
 
 WGPU/DX12/Canvas compiler checks, native windows, real Canvas captures, optimized Kontur adoption and collector overhead measurements remain unexecuted/unapproved for this initial lane. Computer Use was not used. No package release, merge or product readiness is claimed.
+
+## Notification completion-boundary review repair
+
+Independent source review of `ae368ad6b6ef9bf213b8724a6f55f8d54f5c8c4c` found that `Tree::pass` published its completed sample before `mcp_notify_pass`. MCP broker reconciliation and synchronous wait-reply wake work therefore fell outside the promised whole-pass duration. An end during that tail could observe a completed sample while the pass still ran.
+
+The repair runs that tail before `finish_pass`, retaining the outer phase guard and publishing a coarse `pass_notifications` phase. The new `pass_completion_includes_blocked_mcp_notification_tail` regression registers a blocking wake on an actual parked wait reply, runs a real headless pass, and checks that a diagnostic thread can end session 2 during the notification without a completed pass. After release, only active session 1 receives the completion, with a completion timestamp after the release; result 2 stays immutable.
+
+This repair and its regression are **source-only and unexecuted** pending a separately granted minimal compiler lane. Rustfmt parsing, strict UTF-8, source diff checks and the new-module 600-line bounds were checked. Original first-head passing logs and the original compile failure remain preserved above; no passing claim is transferred to the repaired head.
 
 ## Focused regression source
 
