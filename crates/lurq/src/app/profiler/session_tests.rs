@@ -448,6 +448,8 @@ mod enabled {
     };
     assert!(sample.total > Duration::ZERO);
     assert!(sample.layout_update > Duration::ZERO);
+    assert!(sample.layout_compute > Duration::ZERO);
+    assert_eq!(sample.component_after_layout, Duration::ZERO);
     assert!(sample.frame.is_none());
     assert!(sample.frame_id.is_none());
     assert_eq!(sample.backend, "none");

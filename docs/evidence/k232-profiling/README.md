@@ -18,11 +18,12 @@ New module map (paths relative to `crates/lurq/src`):
 
 | Module | Physical lines | Responsibility |
 | --- | ---: | --- |
-| `app/profiler/model.rs` | 255 | Typed bounds, features, errors, samples, report and phase vocabulary |
+| `app/profiler/model.rs` | 263 | Typed bounds, features, errors, samples, report and phase vocabulary |
 | `app/profiler/collector.rs` | 326 | Independent sessions, immutable snapshots, bounded history and window lifecycle |
-| `app/profiler/producer.rs` | 248 | Runtime/window producer and nested phase/input/update guards |
-| `app/profiler/export.rs` | 157 | Shared versioned content-free JSON export and scope/availability semantics |
-| `app/profiler/session_tests.rs` | 462 | Collector, stalled input/pass/notification, boundary/lifecycle and headless regressions |
+| `app/profiler/producer.rs` | 277 | Runtime/window producer, coarse compute aggregation and nested phase/input/update guards |
+| `app/profiler/export.rs` | 160 | Shared versioned content-free JSON export and scope/availability semantics |
+| `app/profiler/session_tests.rs` | 464 | Collector, stalled input/pass/notification, boundary/lifecycle and headless regressions |
+| `app/profiler/phase_tests.rs` | 122 | Real recursively mounted blocked after-layout hook and shared export regression |
 | `mcp/profiling.rs` | 129 | Observe-scope server-thread tools, ownership and revocation |
 | `mcp/profiling/tests.rs` | 90 | Adapter permissions, independent sessions and feature-disabled behavior |
 | `mcp/server/profiling_tests.rs` | 125 | Direct dispatch/no queue/wake and loopback bearer rejection |
@@ -34,7 +35,8 @@ Current source hook locations, including the notification-boundary review repair
 | `runtime.rs:608,946,1144,1384–1413,1558` | Window owner initialization, shared handle, secondary adoption and DevTools marker |
 | `runtime.rs:1854–1874,5501–5527` | Root rebuild/subtree refresh and nested commit |
 | `runtime.rs:2035–2066,2181–2189,2265–2300` | Entire pass wrapper, notification tail before completion, inclusive layout update, quad and glyph current phases |
-| `runtime.rs:2930–2987,5226–5264,5796–5814` | Full/cached render, Canvas handle preparation and runtime Canvas binding/recording |
+| `runtime.rs:2930–2987,5226–5264,5804–5830` | Full/cached render, Canvas handle preparation and runtime Canvas binding/recording |
+| `runtime.rs:5731,5779,5970,6522,6716;5832–5848` | Aggregate base/overlay/menu compute calls; entire root/recursive component after-layout sweep |
 | `runtime.rs:3092,3108,3119,3178,3311,3322,3397` | Coarse pointer/scroll/keyboard synchronous dispatch |
 | `wgpu_render/mod.rs:1284–1312,1336–1371,1522–2363` | Init, Canvas processing, acquire, encode, submit and present guards |
 | `dx12_render/mod.rs:688–698,2741–2847` | Init, acquire, encode/Canvas, submit and present guards |
@@ -99,3 +101,11 @@ For each future run retain fixture/page name, source and binary SHA, exact build
 ## Subsequent real native diagnostic
 
 [Immutable d331 native receipt](native-20261002/README.md) records the subsequently authorized local-patched warm Kontur build, actual DX12 Canvas work, public overlapping sessions and server-thread end during unfinished layout. First readiness failure is preserved. Cold history dropped306 of546 samples; overlap/active comparison captures had no drops. Variable off/on comparison does not establish precise overhead; the reported ten-second frame was not reproduced. Layout/update mixes component after-layout Canvas painting with actual compute, motivating a separately authorized coarse phase split. Earlier unexecuted receipts above describe their original point in time.
+
+## Coarse layout/callback refinement
+
+The coordinator authorized two additive shared `PassSample` CPU fields and current phases: `layout_compute` sums all five runtime-owned LayoutEngine call sites (including nested overlay/menu measurements); `component_after_layout` times the entire root plus recursive hook sweep. Both remain nested in unchanged inclusive `layout_update`; Canvas binding/replay and backend Canvas timers retain their original meanings. There are no per-node/component labels, extra samples or new allocations in phase instrumentation. UI GlyphEngine counters explicitly exclude document CanvasTextEngine shaping.
+
+Executed sequentially on the refinement source, owning H target/temp/Cargo-home, locked/offline/jobs1/debug0/incremental0: enabled `app::profiler` **14 passed** (34.95s build/.03s tests), enabled `profiling` **7 passed** (.37s/.02s), feature-disabled MCP `profiling` **5 passed** (17.97s/.00s). Originals: `refinement-collector.log`, `refinement-mcp-enabled.log`, `refinement-mcp-disabled.log`. The new deterministic regression mounts a real child component whose after-layout callback blocks on a channel: end2 observes unfinished `component_after_layout`, active1 alone receives the completed pass after release, and exports include separate nonzero compute/callback durations. A plain headless root asserts compute is nonzero while component-hook duration is zero.
+
+Rustfmt parsing, UTF-8, diff checks and new-module<600 bounds passed. Existing nightly-only rustfmt options remain warned/ignored. This refinement has not yet executed in the warm native candidate at this receipt; the prior native captures remain immutable at d331. Warm rebuild waits for the separately reviewed local-Lurq launcher integration rather than silently reusing the previous one-off command.

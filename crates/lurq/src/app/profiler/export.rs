@@ -73,7 +73,10 @@ impl ProfileReport {
       "scope_semantics": {
         "pass": "Tree::pass wall time; includes nested UI/layout/text/Canvas/render; excludes prior input dispatch",
         "ui_update": "inclusive rebuild/refresh with nested commit; may precede or nest in a pass",
-        "layout_update": "inclusive rebuild/resources/layout/Canvas recording",
+        "layout_update": "inclusive rebuild/resources/layout/Canvas binding/component after-layout hooks",
+        "layout_compute": "aggregate runtime-owned LayoutEngine calls including overlay measurements and UI text; nested in layout_update",
+        "component_after_layout": "entire root/recursive hook sweep; includes application Canvas painting; nested in layout_update",
+        "ui_text": "UI GlyphEngine only; excludes document CanvasTextEngine shaping",
         "render_encode": "inclusive backend encoding; DX12 includes Canvas and atlas uploads; WGPU includes buffer/image uploads",
         "canvas": "CPU processing; recording includes uploads and WGPU submission; tessellation includes mesh cache lookup",
         "submit_present": "CPU API wall time, not GPU execution",
@@ -89,7 +92,7 @@ fn sample_json(sample: &ProfileSample) -> Value {
       "kind": "pass", "frame_id": pass.frame_id, "rendered": pass.rendered,
       "cached_render_list": pass.cached_render_list, "backend": pass.backend,
       "layout_recalculated": pass.layout_recalculated,
-      "cpu_timings_ms": timings!(pass; total, layout_update, canvas_recording, canvas_preparation),
+      "cpu_timings_ms": timings!(pass; total, layout_update, layout_compute, component_after_layout, canvas_recording, canvas_preparation),
       "frame": pass.frame.as_ref().map(|frame| frame_json(frame, pass.backend)),
       "gpu_timing_ms": null
     }),

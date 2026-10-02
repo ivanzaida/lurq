@@ -133,6 +133,8 @@ pub(crate) struct WindowProfiler {
   pub(crate) context: ProfileContext,
   root: bool,
   layout: Duration,
+  layout_compute: Duration,
+  component_after_layout: Duration,
   canvas_recording: Duration,
   canvas_preparation: Duration,
 }
@@ -149,6 +151,8 @@ impl WindowProfiler {
       },
       root: true,
       layout: Duration::ZERO,
+      layout_compute: Duration::ZERO,
+      component_after_layout: Duration::ZERO,
       canvas_recording: Duration::ZERO,
       canvas_preparation: Duration::ZERO,
     }
@@ -191,6 +195,8 @@ impl WindowProfiler {
 
   pub(crate) fn begin_pass(&mut self, frame_id: u64) -> (Instant, PhaseGuard) {
     self.layout = Duration::ZERO;
+    self.layout_compute = Duration::ZERO;
+    self.component_after_layout = Duration::ZERO;
     self.canvas_recording = Duration::ZERO;
     self.canvas_preparation = Duration::ZERO;
     self.context.frame_id = Some(frame_id);
@@ -199,6 +205,9 @@ impl WindowProfiler {
 
   pub(crate) fn layout(&mut self, duration: Duration) {
     self.layout = duration;
+  }
+  pub(crate) fn component_after_layout(&mut self, duration: Duration) {
+    self.component_after_layout += duration;
   }
   #[cfg(feature = "canvas")]
   pub(crate) fn canvas_recording(&mut self, duration: Duration) {
@@ -226,6 +235,8 @@ impl WindowProfiler {
           cached_render_list: report.used_cached_render_list,
           total: start.elapsed(),
           layout_update: self.layout,
+          layout_compute: self.layout_compute,
+          component_after_layout: self.component_after_layout,
           layout_recalculated: report.layout_recalculated,
           canvas_recording: self.canvas_recording,
           canvas_preparation: self.canvas_preparation,
@@ -236,6 +247,24 @@ impl WindowProfiler {
     }
     self.context.frame_id = None;
   }
+}
+
+/// Coarse call boundary; no per-node labels, samples or allocations.
+#[inline]
+pub(crate) fn layout_compute<R>(
+  #[cfg(feature = "perf_profile")] profiler: &mut WindowProfiler,
+  compute: impl FnOnce() -> R,
+) -> R {
+  #[cfg(feature = "perf_profile")]
+  let started = Instant::now();
+  #[cfg(feature = "perf_profile")]
+  let _phase = profiler.context.phase(Phase::LayoutCompute);
+  let result = compute();
+  #[cfg(feature = "perf_profile")]
+  {
+    profiler.layout_compute += started.elapsed();
+  }
+  result
 }
 
 impl Drop for WindowProfiler {

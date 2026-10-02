@@ -4,6 +4,8 @@ mod collector;
 #[cfg(any(feature = "serde", feature = "mcp"))]
 mod export;
 mod model;
+#[cfg(all(test, feature = "perf_profile"))]
+mod phase_tests;
 pub(crate) mod producer;
 #[cfg(test)]
 mod session_tests;

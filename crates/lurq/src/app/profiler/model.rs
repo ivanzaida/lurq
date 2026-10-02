@@ -84,6 +84,8 @@ pub enum Phase {
   PassSetup,
   PassNotifications,
   LayoutUpdate,
+  LayoutCompute,
+  ComponentAfterLayout,
   Rebuild,
   Commit,
   QuadResolve,
@@ -111,6 +113,8 @@ impl Phase {
       Self::PassSetup => "pass_setup",
       Self::PassNotifications => "pass_notifications",
       Self::LayoutUpdate => "layout_update",
+      Self::LayoutCompute => "layout_compute",
+      Self::ComponentAfterLayout => "component_after_layout",
       Self::Rebuild => "ui_rebuild",
       Self::Commit => "ui_commit",
       Self::QuadResolve => "quad_resolve",
@@ -202,6 +206,10 @@ pub struct PassSample {
   pub total: Duration,
   /// Includes UI rebuild, resource work, Canvas recording and actual layout.
   pub layout_update: Duration,
+  /// Aggregate runtime-owned layout compute calls; nested in layout_update.
+  pub layout_compute: Duration,
+  /// Entire root/recursive component hook sweep; may include app Canvas painting.
+  pub component_after_layout: Duration,
   pub layout_recalculated: bool,
   /// Nested in layout_update; records bind/replay CPU work only.
   pub canvas_recording: Duration,

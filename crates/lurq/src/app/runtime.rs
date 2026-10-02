@@ -5728,18 +5728,24 @@ impl Tree {
         .map(|ctx| ctx.theme().border_sizes().clone())
         .unwrap_or_else(|| app.theme().border_sizes().clone());
       let theme_changed = self.last_theme_version != theme_version;
-      let (mut layout, base_overlay_index) = self.layout_engine.compute_with_overlay_index(
-        &mut app.shared.glyph_engine.lock(),
-        root,
-        constraints,
-        palette.clone(),
-        border_sizes.clone(),
-        spacing.clone(),
-        radii.clone(),
-        caret,
-        scrollbar.clone(),
-        typography.clone(),
-        theme_changed,
+      let (mut layout, base_overlay_index) = crate::app::profiler::producer::layout_compute(
+        #[cfg(feature = "perf_profile")]
+        &mut self.profiling,
+        || {
+          self.layout_engine.compute_with_overlay_index(
+            &mut app.shared.glyph_engine.lock(),
+            root,
+            constraints,
+            palette.clone(),
+            border_sizes.clone(),
+            spacing.clone(),
+            radii.clone(),
+            caret,
+            scrollbar.clone(),
+            typography.clone(),
+            theme_changed,
+          )
+        },
       );
       self.sync_overlay_host_from_layout(
         overlay_parts,
@@ -5770,18 +5776,24 @@ impl Tree {
       if let Some(root) = self.root.as_ref()
         && root.has_synthetic_role(SyntheticNodeRole::OverlayHost)
       {
-        layout = self.layout_engine.compute(
-          &mut app.shared.glyph_engine.lock(),
-          root,
-          constraints,
-          palette.clone(),
-          border_sizes.clone(),
-          spacing.clone(),
-          radii.clone(),
-          caret,
-          scrollbar.clone(),
-          typography.clone(),
-          theme_changed,
+        layout = crate::app::profiler::producer::layout_compute(
+          #[cfg(feature = "perf_profile")]
+          &mut self.profiling,
+          || {
+            self.layout_engine.compute(
+              &mut app.shared.glyph_engine.lock(),
+              root,
+              constraints,
+              palette.clone(),
+              border_sizes.clone(),
+              spacing.clone(),
+              radii.clone(),
+              caret,
+              scrollbar.clone(),
+              typography.clone(),
+              theme_changed,
+            )
+          },
         );
       }
       self.last_theme_version = theme_version;
@@ -5818,8 +5830,18 @@ impl Tree {
         verify_scroll_offsets(root, &layout);
       }
       if let (Some(component), Some(ctx)) = (&self.root_component, &self.root_ctx) {
+        let _after_layout_start = profile_scope!();
+        #[cfg(feature = "perf_profile")]
+        let _after_layout_phase = self
+          .profiling
+          .context
+          .phase(crate::app::profiler::Phase::ComponentAfterLayout);
         component.after_layout();
         ctx.after_layout_recursive();
+        #[cfg(feature = "perf_profile")]
+        self
+          .profiling
+          .component_after_layout(profile_elapsed!(_after_layout_start));
         if ctx.any_dirty() {
           self.needs_redraw = true;
         }
@@ -5920,6 +5942,8 @@ impl Tree {
       typography.clone(),
       theme_changed,
       &mut dismiss_entries,
+      #[cfg(feature = "perf_profile")]
+      &mut self.profiling,
     );
 
     if overlays.is_empty() {
@@ -5943,18 +5967,24 @@ impl Tree {
         Vec::new()
       } else {
         let overlay = &overlays[overlay_index];
-        let (_overlay_layout, mut overlay_layout_index) = self.layout_engine.compute_with_overlay_index(
-          glyph_engine,
-          overlay,
-          constraints,
-          palette.clone(),
-          border_sizes.clone(),
-          spacing.clone(),
-          radii.clone(),
-          caret,
-          scrollbar.clone(),
-          typography.clone(),
-          theme_changed,
+        let (_overlay_layout, mut overlay_layout_index) = crate::app::profiler::producer::layout_compute(
+          #[cfg(feature = "perf_profile")]
+          &mut self.profiling,
+          || {
+            self.layout_engine.compute_with_overlay_index(
+              glyph_engine,
+              overlay,
+              constraints,
+              palette.clone(),
+              border_sizes.clone(),
+              spacing.clone(),
+              radii.clone(),
+              caret,
+              scrollbar.clone(),
+              typography.clone(),
+              theme_changed,
+            )
+          },
         );
         let (origin_x, origin_y) = match overlay.position() {
           Position::Absolute { x, y, .. } => (x, y),
@@ -5977,6 +6007,8 @@ impl Tree {
           typography.clone(),
           theme_changed,
           &mut dismiss_entries,
+          #[cfg(feature = "perf_profile")]
+          &mut self.profiling,
         );
         // Nested overlays are appended after the ones built so far.
         for entry in &mut dismiss_entries[nested_entries_start..] {
@@ -6471,6 +6503,7 @@ fn build_overlays_from_layout_index(
   typography: crate::app::theme::ThemeTypography,
   theme_changed: bool,
   dismiss_entries: &mut Vec<OverlayDismissEntry>,
+  #[cfg(feature = "perf_profile")] profiling: &mut crate::app::profiler::producer::WindowProfiler,
 ) -> Vec<Node> {
   let mut overlays = Vec::new();
 
@@ -6486,18 +6519,24 @@ fn build_overlays_from_layout_index(
             constraints.max_width.min(viewport.width).max(0.0),
             constraints.max_height.min(viewport.height).max(0.0),
           ));
-          layout_engine.compute(
-            glyph_engine,
-            &menu.clone_for_reuse(),
-            measure_constraints,
-            palette.clone(),
-            border_sizes.clone(),
-            spacing.clone(),
-            radii.clone(),
-            caret,
-            scrollbar.clone(),
-            typography.clone(),
-            theme_changed,
+          crate::app::profiler::producer::layout_compute(
+            #[cfg(feature = "perf_profile")]
+            profiling,
+            || {
+              layout_engine.compute(
+                glyph_engine,
+                &menu.clone_for_reuse(),
+                measure_constraints,
+                palette.clone(),
+                border_sizes.clone(),
+                spacing.clone(),
+                radii.clone(),
+                caret,
+                scrollbar.clone(),
+                typography.clone(),
+                theme_changed,
+              )
+            },
           )
         };
         let mut menu = select_menu::build_select_menu(&state, bounds, viewport, &mut measure);
@@ -6531,6 +6570,8 @@ fn build_overlays_from_layout_index(
           scrollbar.clone(),
           typography.clone(),
           theme_changed,
+          #[cfg(feature = "perf_profile")]
+          profiling,
         );
         set_overlay_reuse_key(&mut overlay, reuse_key.as_deref());
         if let Some(open) = dismiss_signal
@@ -6656,6 +6697,7 @@ fn build_overlay_node(
   scrollbar: crate::layout::scrollbar::ScrollBarStyle,
   typography: crate::app::theme::ThemeTypography,
   theme_changed: bool,
+  #[cfg(feature = "perf_profile")] profiling: &mut crate::app::profiler::producer::WindowProfiler,
 ) -> (Node, ElementRect) {
   let mut node = spec.node;
   if spec.match_anchor_width {
@@ -6671,18 +6713,24 @@ fn build_overlay_node(
   ));
   let pending_runtime_layout_dirty = has_pending_layout_dirty_recursive(&node);
   let measure_node = node.clone_for_reuse();
-  let measured = layout_engine.compute(
-    glyph_engine,
-    &measure_node,
-    measure_constraints,
-    palette,
-    border_sizes,
-    spacing,
-    radii,
-    caret,
-    scrollbar,
-    typography,
-    theme_changed,
+  let measured = crate::app::profiler::producer::layout_compute(
+    #[cfg(feature = "perf_profile")]
+    profiling,
+    || {
+      layout_engine.compute(
+        glyph_engine,
+        &measure_node,
+        measure_constraints,
+        palette,
+        border_sizes,
+        spacing,
+        radii,
+        caret,
+        scrollbar,
+        typography,
+        theme_changed,
+      )
+    },
   );
   if pending_runtime_layout_dirty {
     invalidate_layout_cache_recursive(&node);
