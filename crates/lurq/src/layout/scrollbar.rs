@@ -126,6 +126,10 @@ impl ScrollBarStyle {
   }
 }
 
+/// How far the area that takes the pointer for a scrollbar reaches beyond
+/// what is painted, so a press just off a thin bar still lands on it.
+const SCROLLBAR_HIT_SLOP: f32 = 4.0;
+
 pub struct ScrollBarGeometry {
   pub track_x: f32,
   pub track_y: f32,
@@ -135,6 +139,68 @@ pub struct ScrollBarGeometry {
   pub thumb_y: f32,
   pub thumb_width: f32,
   pub thumb_height: f32,
+}
+
+/// The part of a scrollbar under the pointer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScrollBarPart {
+  Thumb,
+  /// The track between its start and the thumb.
+  TrackBefore,
+  /// The track between the thumb and its end.
+  TrackAfter,
+}
+
+impl ScrollBarGeometry {
+  /// The part of the scrollbar at `(x, y)` for a horizontal or a vertical bar,
+  /// or `None` where the pointer belongs to the content.
+  ///
+  /// Where the bar visibly owns its lane, a `Reserved` gutter or an overlay
+  /// bar with a painted track, the whole lane takes the pointer: the track
+  /// along the axis and, across it, [`SCROLLBAR_HIT_SLOP`] or the edge inset
+  /// beyond the track on both sides, whichever is larger, which covers the
+  /// gutter and reaches the container edge. A plain overlay bar (transparent
+  /// track) shows only its thumb over the content, so only the thumb takes the
+  /// pointer, with [`SCROLLBAR_HIT_SLOP`] around it on every side; the rest of
+  /// the lane is content.
+  pub(crate) fn hit_part_at(&self, horizontal: bool, style: &ScrollBarStyle, x: f32, y: f32) -> Option<ScrollBarPart> {
+    let (along, across) = if horizontal { (x, y) } else { (y, x) };
+    let (track_start, track_length, cross_start, thickness) = if horizontal {
+      (self.track_x, self.track_width, self.track_y, self.track_height)
+    } else {
+      (self.track_y, self.track_height, self.track_x, self.track_width)
+    };
+    let (thumb_start, thumb_length) = if horizontal {
+      (self.thumb_x, self.thumb_width)
+    } else {
+      (self.thumb_y, self.thumb_height)
+    };
+
+    let owns_lane = style.placement == ScrollBarPlacement::Reserved || style.track_color.a() > 0;
+    if !owns_lane {
+      let on_thumb = across >= cross_start - SCROLLBAR_HIT_SLOP
+        && across <= cross_start + thickness + SCROLLBAR_HIT_SLOP
+        && along >= thumb_start - SCROLLBAR_HIT_SLOP
+        && along <= thumb_start + thumb_length + SCROLLBAR_HIT_SLOP;
+      return on_thumb.then_some(ScrollBarPart::Thumb);
+    }
+
+    let reach = SCROLLBAR_HIT_SLOP.max(style.resolved_edge_inset());
+    let in_lane = across >= cross_start - reach
+      && across <= cross_start + thickness + reach
+      && along >= track_start
+      && along <= track_start + track_length;
+    if !in_lane {
+      return None;
+    }
+    Some(if along < thumb_start {
+      ScrollBarPart::TrackBefore
+    } else if along > thumb_start + thumb_length {
+      ScrollBarPart::TrackAfter
+    } else {
+      ScrollBarPart::Thumb
+    })
+  }
 }
 
 pub fn compute_vertical_scrollbar(

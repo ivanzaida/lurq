@@ -672,3 +672,39 @@ fn overflowing_option_stays_ellipsized_on_hover() {
     "hovering an overflowing option should not briefly render the full label"
   );
 }
+
+#[test]
+fn option_next_to_the_menu_scrollbar_still_commits() {
+  let options: Vec<(String, String)> = (0..30).map(|i| (format!("v{i}"), format!("Option {i}"))).collect();
+  let value = Signal::new("v0".to_owned());
+  let mut tree = Tree::new();
+  tree.set_root(Select::new(value.clone()).options(options).width(200.0).height(40.0));
+  render_pass(&mut tree);
+  let trigger = tree
+    .find_element(|el| el.tag_name() == "Select")
+    .expect("trigger present")
+    .bounds();
+  let (tx, ty) = trigger.center();
+  pointer_click(&mut tree, tx, ty, MouseButton::Left);
+  render_pass(&mut tree);
+  assert!(
+    tree.find_element(|el| el.text_content() == Some("Option 29")).is_some(),
+    "the menu is open"
+  );
+
+  // 6 px from the menu's right edge, where its overlay scrollbar runs, on an
+  // option well below the thumb.
+  let option = tree
+    .find_element(|el| el.text_content() == Some("Option 5"))
+    .expect("Option 5 is listed")
+    .bounds();
+  let (_, oy) = option.center();
+  pointer_click(&mut tree, trigger.x + trigger.width - 6.0, oy, MouseButton::Left);
+  render_pass(&mut tree);
+
+  assert_eq!(value.get(), "v5", "the press commits the option");
+  assert!(
+    tree.find_element(|el| el.text_content() == Some("Option 29")).is_none(),
+    "committing closes the menu"
+  );
+}

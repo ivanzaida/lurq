@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::{
   layout::{
     Alignment, StackAlignment,
-    scrollbar::{ScrollBarGeometry, ScrollBarStyle, ScrollBarVisibility},
+    scrollbar::{ScrollBarGeometry, ScrollBarPart, ScrollBarStyle, ScrollBarVisibility},
   },
   node::{dimension::Dimension, spacing_value::SpacingValue},
 };
@@ -490,6 +490,44 @@ impl ScrollState {
           thumb_height,
         })
       }
+    }
+  }
+
+  /// The part of `axis`'s scrollbar that takes the pointer at `(x, y)` in
+  /// window coordinates (see [`ScrollBarGeometry::hit_part_at`]), or `None`
+  /// where the pointer belongs to the content. A bar shown while the content
+  /// fits along its axis (`ScrollBarVisibility::Always`) cannot scroll
+  /// anything, so it takes no pointer.
+  pub(crate) fn scrollbar_part_at(
+    &self,
+    axis: ScrollAxis,
+    style: &ScrollBarStyle,
+    x: f32,
+    y: f32,
+  ) -> Option<ScrollBarPart> {
+    let overflows = match axis {
+      ScrollAxis::Horizontal => self.content_width() > self.viewport_width(),
+      ScrollAxis::Vertical => self.content_height() > self.viewport_height(),
+    };
+    if !overflows {
+      return None;
+    }
+    self
+      .scrollbar_geometry_for_axis(axis, style)?
+      .hit_part_at(axis == ScrollAxis::Horizontal, style, x, y)
+  }
+
+  /// Scrolls one viewport along `axis`, forward or back, clamped to the
+  /// content: what a press on the scrollbar track does.
+  pub(crate) fn page_axis(&self, axis: ScrollAxis, forward: bool) {
+    let page = match axis {
+      ScrollAxis::Horizontal => self.viewport_width(),
+      ScrollAxis::Vertical => self.viewport_height(),
+    };
+    let delta = if forward { page } else { -page };
+    match axis {
+      ScrollAxis::Horizontal => self.scroll_by(delta, 0.0),
+      ScrollAxis::Vertical => self.scroll_by(0.0, delta),
     }
   }
 
