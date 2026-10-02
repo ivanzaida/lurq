@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.0 — 2026-10-02
+
+- Fix wrapped Row percentage-width children to resolve against finite parent content constraints, preserving natural compact sizing and wrapping for ordinary controls.
+- Add explicitly opted-in MCP file selection: register `FileDialogBroker` with `McpConfig::file_dialogs` and grant `Scope::custom("file_dialogs")`. `lurq_file_dialogs` lists pending requests; `lurq_file_dialog_respond` selects absolute paths or cancels by request, window and operation identity. Adapt the normal picker handler to await the broker; existing native dialog calls are not automatically intercepted. The app remains responsible for file validation, IO and overwrite policy.
+
 ## 0.31.0 — 2026-09-30
 
 - Add semantic items to `Canvas` so charts and other drawings can be hit-tested and read by tooling. `CanvasHandle::set_items` replaces the canvas's set of `CanvasItem`s: `CanvasItem::rect` or `CanvasItem::point` with a stable id, a role (`"bar"`, `"point"`, `"label"`, …), an optional `.label(...)` and `.value(...)`, in content coordinates (the space `point_from_window` returns). `item_at(x, y)` hit-tests them for hover tooltips, `items()` returns them and `item_window_bounds(id)` gives an item's window-logical box, including padding, scrolling and ancestor transforms, clipped to the canvas. Ids are unique per canvas: of items sharing an id, `set_items` keeps the last, as `item_at` treats it as drawn on top, and logs a warning once per set of duplicated ids. A logical resize discards the items together with the pixels. `CanvasItem` and `CanvasItemShape` are `#[non_exhaustive]`: build items with the constructors. Item ids, roles, labels and values are visible, unmasked, to MCP clients with the observe scope. New example: `canvas_chart`.
