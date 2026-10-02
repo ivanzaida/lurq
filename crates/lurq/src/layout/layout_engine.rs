@@ -1849,7 +1849,7 @@ impl LayoutEngine {
     // geometry. Patch dirty child results into the cached tree and only force
     // this parent to relayout if the child no longer fits the cached parent or
     // the parent layout kind needs to reposition siblings around the new size.
-    let mut cached = node.layout_cache.get_dirty(constraints)?;
+    let mut cached = node.layout_cache.get_repairable(constraints)?;
     if !Self::cached_result_matches_node_tree(node, &cached) {
       return None;
     }
