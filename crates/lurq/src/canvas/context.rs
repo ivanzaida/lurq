@@ -590,6 +590,8 @@ impl Context2D {
     self.canvas.inner.lock().state.baseline
   }
   pub fn measure_text(&self, text: &str) -> Result<TextMetrics, CanvasError> {
+    #[cfg(feature = "perf_profile")]
+    crate::app::profiler::canvas_text::call(crate::app::profiler::canvas_text::Call::Measure);
     let s = self.canvas.inner.lock();
     let engine = s.text.as_ref().ok_or(CanvasError::TextUnavailable)?;
     let color = s.state.fill.color().ok_or(CanvasError::UnsupportedPaint)?;
@@ -597,6 +599,8 @@ impl Context2D {
     Ok(shaped.metrics(s.state.align, s.state.baseline))
   }
   pub fn fill_text(&self, text: &str, x: f32, y: f32) -> Result<(), CanvasError> {
+    #[cfg(feature = "perf_profile")]
+    crate::app::profiler::canvas_text::call(crate::app::profiler::canvas_text::Call::Fill);
     if !x.is_finite() || !y.is_finite() {
       return Ok(());
     }

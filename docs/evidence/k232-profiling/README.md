@@ -18,15 +18,34 @@ New module map (paths relative to `crates/lurq/src`):
 
 | Module | Physical lines | Responsibility |
 | --- | ---: | --- |
-| `app/profiler/model.rs` | 263 | Typed bounds, features, errors, samples, report and phase vocabulary |
+| `app/profiler/model.rs` | 287 | Typed bounds, features, errors, samples, report and phase vocabulary |
 | `app/profiler/collector.rs` | 326 | Independent sessions, immutable snapshots, bounded history and window lifecycle |
-| `app/profiler/producer.rs` | 277 | Runtime/window producer, coarse compute aggregation and nested phase/input/update guards |
-| `app/profiler/export.rs` | 160 | Shared versioned content-free JSON export and scope/availability semantics |
+| `app/profiler/producer.rs` | 291 | Runtime/window producer, coarse compute aggregation and nested phase/input/update guards |
+| `app/profiler/export.rs` | 166 | Shared versioned content-free JSON export and scope/availability semantics |
+| `app/profiler/canvas_text.rs` | 112 | Captured-pass thread scope, nested restoration and fixed numeric Canvas text aggregation |
+| `canvas/text/profile_tests.rs` | 202 | Real embedded-font cache/stage, nested-window/session and idle-boundary/eviction regressions |
 | `app/profiler/session_tests.rs` | 464 | Collector, stalled input/pass/notification, boundary/lifecycle and headless regressions |
 | `app/profiler/phase_tests.rs` | 122 | Real recursively mounted blocked after-layout hook and shared export regression |
 | `mcp/profiling.rs` | 129 | Observe-scope server-thread tools, ownership and revocation |
 | `mcp/profiling/tests.rs` | 90 | Adapter permissions, independent sessions and feature-disabled behavior |
 | `mcp/server/profiling_tests.rs` | 125 | Direct dispatch/no queue/wake and loopback bearer rejection |
+
+## Canvas text aggregate checkpoint
+
+The measured `Genuine18 / 01 Editor` pass at source779190d8 spent973.389ms in the complete component after-layout sweep and1.984ms in layout computation. This motivates attribution, not a cache optimization: other hooks also run in that sweep, and existing UI GlyphEngine counters do not include CanvasTextEngine.
+
+The next source checkpoint adds a captured-pass, nested-safe thread scope with fixed numeric Canvas text aggregates. It does not reset the shared engine or change shaping, cache policy, painting or uploads. Counts cover measure/fill attempts, shape calls/hits/misses/evictions and newly produced final RGBA data bytes. Coarse CPU timers cover inclusive shape total, buffer/font/shaping, the complete glyph preparation/cache-budget/Swash loop, and complete final bitmap composition/copy. Engine-lock waits, background/out-of-pass work, transient allocation bytes and GPU execution remain excluded. Completed metrics follow the existing whole-pass session bounds; unfinished work remains observable through its existing enclosing phase.
+
+Executed builder checks, all `cargo test -p lurq --lib --locked --offline -j1`, owning H target/temp and permitted shared H Cargo home, debug0/incremental0:
+
+| Features / filter | Terminal result | Original log |
+| --- | --- | --- |
+| `mcp,perf_profile,canvas` / `canvas::text::profile_tests` | 3 passed, 0 failed; 3m43s build /0.01s tests | `canvas-text-tests.log` |
+| `mcp,perf_profile,canvas` / `app::profiler` | 14 passed, 0 failed;45.93s /0.04s | `canvas-text-collector.log` |
+| `mcp,perf_profile,canvas` / `profil` | 23 unique tests passed, 0 failed;15.72s /0.04s; includes all new Canvas text, collector and enabled MCP tests | `canvas-text-all-enabled.log` |
+| `mcp,canvas` / `profiling` | 5 passed, 0 failed;23.52s /0.01s; profiling hooks compiled out | `canvas-text-disabled.log` |
+
+The final combined enabled run includes the final import cfg; no Rust source changed afterward. The initial three-test run preceded only that import-gating adjustment. The real embedded font tests cover cache paths and stage timings, actual256-entry eviction, nested window restoration, independent overlapping sessions and idle crossing-start exclusion. Error/early-return paths are source-reviewed but not separately exercised. Nine warnings belong to pre-existing layout/runtime code; no new profiling warning remains. Source-only rustfmt/diff/UTF-8 and new-module600-line checks pass. Native execution of these new Canvas text fields, optimized performance and overhead remain unexecuted at this checkpoint; the prior779 capture is not evidence for the new fields.
 
 Current source hook locations, including the notification-boundary review repair (all relative to `crates/lurq/src/app`; later changes must update these references):
 
@@ -34,10 +53,11 @@ Current source hook locations, including the notification-boundary review repair
 | --- | --- |
 | `runtime.rs:608,946,1144,1384–1413,1558` | Window owner initialization, shared handle, secondary adoption and DevTools marker |
 | `runtime.rs:1854–1874,5501–5527` | Root rebuild/subtree refresh and nested commit |
-| `runtime.rs:2035–2066,2181–2189,2265–2300` | Entire pass wrapper, notification tail before completion, inclusive layout update, quad and glyph current phases |
-| `runtime.rs:2930–2987,5226–5264,5804–5830` | Full/cached render, Canvas handle preparation and runtime Canvas binding/recording |
-| `runtime.rs:5731,5779,5970,6522,6716;5832–5848` | Aggregate base/overlay/menu compute calls; entire root/recursive component after-layout sweep |
-| `runtime.rs:3092,3108,3119,3178,3311,3322,3397` | Coarse pointer/scroll/keyboard synchronous dispatch |
+| `runtime.rs:2035–2068,2183–2191,2267–2302` | Entire pass wrapper, Canvas text thread scope, notification tail before completion, inclusive layout update, quad and glyph current phases |
+| `runtime.rs:2932–2989,5228–5266,5806–5832` | Full/cached render, Canvas handle preparation and runtime Canvas binding/recording |
+| `runtime.rs:5733,5781,5972,6524,6718;5834–5850` | Aggregate base/overlay/menu compute calls; entire root/recursive component after-layout sweep |
+| `runtime.rs:3094,3110,3121,3180,3313,3324,3399` | Coarse pointer/scroll/keyboard synchronous dispatch |
+| `../canvas/text.rs:159–193,210–239,242–304,318–363;../canvas/context.rs:592–605` | Shape/cache total and counts; coarse setup, whole glyph loop and bitmap composition timers; measure/fill attempt counts. No cache/render policy changes. |
 | `wgpu_render/mod.rs:1284–1312,1336–1371,1522–2363` | Init, Canvas processing, acquire, encode, submit and present guards |
 | `dx12_render/mod.rs:688–698,2741–2847` | Init, acquire, encode/Canvas, submit and present guards |
 | `wgpu_render/canvas.rs:266–363,403–408,445–757` | Backend total, tessellation, CPU submission, asset/buffer staging and recording counters |

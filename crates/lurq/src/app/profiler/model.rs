@@ -215,9 +215,33 @@ pub struct PassSample {
   pub canvas_recording: Duration,
   /// Handle selection before render; actual Canvas backend work is render.canvas.
   pub canvas_preparation: Duration,
+  /// Synchronous Canvas text calls on this pass's thread, including hook work.
+  /// None when Canvas instrumentation is unavailable or this pass was not captured.
+  pub canvas_text: Option<CanvasTextProfile>,
   pub backend: &'static str,
   /// Present only after a successful render; never reused from a prior frame.
   pub frame: Option<FrameProfile>,
+}
+
+/// Aggregate CPU work in CanvasTextEngine, separate from the UI GlyphEngine.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CanvasTextProfile {
+  pub measure_calls: u64,
+  pub fill_calls: u64,
+  pub shape_calls: u64,
+  pub shape_cache_hits: u64,
+  pub shape_cache_misses: u64,
+  pub shape_cache_evictions: u64,
+  /// Newly produced final RGBA data length on misses; excludes cache hits,
+  /// transient glyph pixmaps, the second retained pixmap and GPU uploads.
+  pub produced_bitmap_bytes: u64,
+  /// Inclusive shape call, including cache lookup/LRU/insertion and stages below.
+  pub total: Duration,
+  pub buffer_font_shape: Duration,
+  /// Whole glyph loop: font metrics, cache-budget scans, Swash lookup and clones.
+  pub glyph_prepare: Duration,
+  /// Whole final bitmap allocation, glyph conversion/composition and RGBA copy.
+  pub bitmap_composition: Duration,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

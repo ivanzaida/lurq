@@ -2035,6 +2035,8 @@ impl Tree {
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
     #[cfg(feature = "perf_profile")]
     let (_profile_start, _profile_phase) = self.profiling.begin_pass(self.frame_count + 1);
+    #[cfg(all(feature = "canvas", feature = "perf_profile"))]
+    let _canvas_text = self.profiling.context.canvas_text_scope();
     #[cfg(feature = "perf_profile")]
     if let Some(engine) = &mut self.render_engine {
       engine.set_profile_context(self.profiling.context.clone());

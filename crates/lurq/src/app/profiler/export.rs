@@ -77,6 +77,7 @@ impl ProfileReport {
         "layout_compute": "aggregate runtime-owned LayoutEngine calls including overlay measurements and UI text; nested in layout_update",
         "component_after_layout": "entire root/recursive hook sweep; includes application Canvas painting; nested in layout_update",
         "ui_text": "UI GlyphEngine only; excludes document CanvasTextEngine shaping",
+        "canvas_text": "synchronous Canvas text calls on the pass thread; total includes cache work and nested CPU stages; excludes engine lock wait, calls outside a pass and GPU work; bytes count newly produced final RGBA data only",
         "render_encode": "inclusive backend encoding; DX12 includes Canvas and atlas uploads; WGPU includes buffer/image uploads",
         "canvas": "CPU processing; recording includes uploads and WGPU submission; tessellation includes mesh cache lookup",
         "submit_present": "CPU API wall time, not GPU execution",
@@ -93,6 +94,11 @@ fn sample_json(sample: &ProfileSample) -> Value {
       "cached_render_list": pass.cached_render_list, "backend": pass.backend,
       "layout_recalculated": pass.layout_recalculated,
       "cpu_timings_ms": timings!(pass; total, layout_update, layout_compute, component_after_layout, canvas_recording, canvas_preparation),
+      "canvas_text": pass.canvas_text.map(|text| json!({
+        "cpu_timings_ms": timings!(text; total, buffer_font_shape, glyph_prepare, bitmap_composition),
+        "counts": counts!(text; measure_calls, fill_calls, shape_calls, shape_cache_hits,
+          shape_cache_misses, shape_cache_evictions, produced_bitmap_bytes)
+      })),
       "frame": pass.frame.as_ref().map(|frame| frame_json(frame, pass.backend)),
       "gpu_timing_ms": null
     }),

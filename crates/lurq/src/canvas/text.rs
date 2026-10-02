@@ -1,7 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
+#[cfg(feature = "perf_profile")]
+use crate::app::profiler::canvas_text::{self as profile, Stage, Timer};
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Wrap};
 use tiny_skia::{Pixmap, PixmapPaint};
+
+#[cfg(all(test, feature = "perf_profile"))]
+mod profile_tests;
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
@@ -154,21 +159,31 @@ impl CanvasTextEngine {
     scale: f32,
     color: Color,
   ) -> Result<Arc<ShapedText>, CanvasError> {
+    #[cfg(feature = "perf_profile")]
+    let _total = Timer::new(Stage::Total);
     if let Some(index) = self
       .shaped
       .iter()
       .position(|(t, f, s, c, _)| t == text && f == font && *s == scale && *c == color)
     {
+      #[cfg(feature = "perf_profile")]
+      profile::shape_hit(true);
       let entry = self.shaped.remove(index).unwrap();
       let result = entry.4.clone();
       self.shaped.push_back(entry);
       return Ok(result);
     }
+    #[cfg(feature = "perf_profile")]
+    profile::shape_hit(false);
     let result = Arc::new(self.shape_uncached(text, font, scale, color)?);
+    #[cfg(feature = "perf_profile")]
+    profile::produced(result.data.len());
     let bytes = result.data.len() * 2 + text.len();
     while !self.shaped.is_empty() && (self.shaped_bytes + bytes > 8 * 1024 * 1024 || self.shaped.len() >= 256) {
       let entry = self.shaped.pop_front().unwrap();
       self.shaped_bytes -= entry.4.data.len() * 2 + entry.0.len();
+      #[cfg(feature = "perf_profile")]
+      profile::evicted();
     }
     if bytes <= 8 * 1024 * 1024 {
       self.shaped_bytes += bytes;
@@ -192,6 +207,8 @@ impl CanvasTextEngine {
     if self.swash.image_cache.len() > 2048 {
       self.swash.image_cache.clear();
     }
+    #[cfg(feature = "perf_profile")]
+    let _buffer = Timer::new(Stage::BufferFontShape);
     let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(font.size, font.size * 1.2));
     buffer.set_size(None, None);
     buffer.set_wrap(Wrap::None);
@@ -218,6 +235,10 @@ impl CanvasTextEngine {
     let text = text.replace(['\n', '\r', '\t'], " ");
     buffer.set_text(&text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut self.fonts, false);
+    #[cfg(feature = "perf_profile")]
+    drop(_buffer);
+    #[cfg(feature = "perf_profile")]
+    let _glyph = Timer::new(Stage::GlyphPrepare);
     let mut glyphs = Vec::new();
     let mut glyph_bytes = 0usize;
     let (mut width, mut ascent, mut descent) = (0.0f32, 0.0f32, 0.0f32);
@@ -278,6 +299,8 @@ impl CanvasTextEngine {
         glyphs.push((x, y, image));
       }
     }
+    #[cfg(feature = "perf_profile")]
+    drop(_glyph);
     if glyphs.is_empty() {
       return Ok(ShapedText {
         pixels: None,
@@ -292,6 +315,8 @@ impl CanvasTextEngine {
         descent,
       });
     }
+    #[cfg(feature = "perf_profile")]
+    let _bitmap = Timer::new(Stage::BitmapComposition);
     let (w, h) = (i64::from(right) - i64::from(left), i64::from(bottom) - i64::from(top));
     if w <= 0 || h <= 0 || w * h > MAX_PIXELS as i64 {
       return Err(CanvasError::TextTooLarge);
