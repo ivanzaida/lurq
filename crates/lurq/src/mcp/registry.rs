@@ -24,6 +24,8 @@ pub(crate) enum BuiltinTool {
   Resize,
   Logs,
   Navigate,
+  FileDialogs,
+  FileDialogRespond,
 }
 
 pub(crate) type SyncToolHandler =

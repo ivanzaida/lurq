@@ -4,6 +4,7 @@
 //! no-blocking constraint as event handlers.
 
 mod canvas_items;
+pub(crate) mod file_dialogs;
 mod inspect;
 mod interact;
 mod lookup;
@@ -79,6 +80,9 @@ fn execute_builtin(
 ) {
   let _ = app;
   match builtin {
+    BuiltinTool::FileDialogs | BuiltinTool::FileDialogRespond => {
+      let _ = reply.send(file_dialogs::execute(builtin, tree, state, &args));
+    }
     BuiltinTool::Menu => {
       let model = app.shared.menu.model();
       let _ = reply.send(Ok(McpToolOutput::Json(serde_json::json!({

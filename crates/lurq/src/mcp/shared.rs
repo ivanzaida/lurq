@@ -95,6 +95,7 @@ impl RefTable {
 
 /// State reachable from both threads and from `McpHandle`.
 pub(crate) struct McpShared {
+  pub(crate) file_dialogs: Mutex<Option<super::FileDialogBroker>>,
   enabled: AtomicBool,
   scopes: RwLock<HashSet<Scope>>,
   denied_tools: RwLock<HashSet<String>>,
@@ -119,6 +120,7 @@ impl McpShared {
     extra_instructions: Option<String>,
   ) -> Self {
     Self {
+      file_dialogs: Mutex::new(None),
       enabled: AtomicBool::new(true),
       scopes: RwLock::new(scopes),
       denied_tools: RwLock::new(denied_tools),
@@ -138,6 +140,7 @@ impl McpShared {
 
   pub(crate) fn set_enabled(&self, enabled: bool) {
     self.enabled.store(enabled, Ordering::Relaxed);
+    self.dialog_permission_changed();
   }
 
   pub(crate) fn has_scope(&self, scope: &Scope) -> bool {
@@ -146,6 +149,7 @@ impl McpShared {
 
   pub(crate) fn set_scopes(&self, scopes: HashSet<Scope>) {
     *self.scopes.write().unwrap() = scopes;
+    self.dialog_permission_changed();
   }
 
   pub(crate) fn add_scope(&self, scope: Scope) {
@@ -154,6 +158,7 @@ impl McpShared {
 
   pub(crate) fn remove_scope(&self, scope: &Scope) {
     self.scopes.write().unwrap().remove(scope);
+    self.dialog_permission_changed();
   }
 
   pub(crate) fn is_denied(&self, tool: &str) -> bool {
@@ -162,6 +167,7 @@ impl McpShared {
 
   pub(crate) fn deny_tool(&self, tool: impl Into<String>) {
     self.denied_tools.write().unwrap().insert(tool.into());
+    self.dialog_permission_changed();
   }
 
   pub(crate) fn allow_tool(&self, tool: &str) {
@@ -172,6 +178,13 @@ impl McpShared {
     let waker = self.waker.lock().unwrap().clone();
     if let Some(waker) = waker {
       waker();
+    }
+  }
+
+  fn dialog_permission_changed(&self) {
+    let broker = self.file_dialogs.lock().unwrap().clone();
+    if let Some(broker) = broker {
+      broker.permission_changed();
     }
   }
 }
