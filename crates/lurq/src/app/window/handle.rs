@@ -2,8 +2,8 @@ use super::*;
 
 #[derive(Clone)]
 pub struct WindowHandle {
-  info: WindowInfo,
-  window: Window,
+  pub(super) info: WindowInfo,
+  pub(super) window: Window,
 }
 
 impl WindowHandle {
@@ -231,7 +231,7 @@ impl DialogWindow {
     self
       .0
       .upgrade()
-      .is_none_or(|window| window.read().unwrap().commands.contains(&WindowCommand::Close))
+      .is_none_or(|window| window.read().unwrap().accepted_close)
   }
 }
 

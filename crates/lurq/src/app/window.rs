@@ -137,7 +137,7 @@ impl CloseRequest {
     if let Some(window) = self.window.upgrade() {
       let waker = {
         let mut inner = window.write().unwrap();
-        inner.commands.push(WindowCommand::Close);
+        inner.queue_command(WindowCommand::Close);
         inner.waker.clone()
       };
       if let Some(waker) = waker {
@@ -213,6 +213,8 @@ pub struct Window {
 pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
 
 struct WindowInner {
+  #[cfg(feature = "mcp")]
+  accepted_close: bool,
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
   border_color: WindowBorderColor,
@@ -227,6 +229,16 @@ struct WindowInner {
   close_handler: Option<CloseHandler>,
 }
 
+impl WindowInner {
+  fn queue_command(&mut self, command: WindowCommand) {
+    #[cfg(feature = "mcp")]
+    if command == WindowCommand::Close {
+      self.accepted_close = true;
+    }
+    self.commands.push(command);
+  }
+}
+
 impl Default for Window {
   fn default() -> Self {
     Self::new()
@@ -237,6 +249,8 @@ impl Window {
   pub fn new() -> Self {
     Self {
       inner: Arc::new(RwLock::new(WindowInner {
+        #[cfg(feature = "mcp")]
+        accepted_close: false,
         info: WindowInfo {
           x: 0,
           y: 0,
@@ -345,7 +359,7 @@ impl Window {
   fn push_command(&self, command: WindowCommand) {
     let waker = {
       let mut inner = self.inner.write().unwrap();
-      inner.commands.push(command);
+      inner.queue_command(command);
       inner.waker.clone()
     };
     // Invoked outside the lock: the waker may re-enter window state.

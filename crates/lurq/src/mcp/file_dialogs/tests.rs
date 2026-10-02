@@ -151,6 +151,34 @@ fn file_dialogs_revocation_shutdown_and_retained_clone_never_fall_back() {
 }
 
 #[test]
+fn file_dialogs_accepted_close_is_terminal_after_command_drain_for_retained_handles() {
+  for direct in [false, true] {
+    let (broker, _shared, tree) = fixture();
+    let handle = tree.window().handle();
+    let future = request(&broker, &tree);
+    if direct {
+      handle.close();
+    } else {
+      handle.request_close();
+    }
+    assert_eq!(
+      tree.window().take_shell_commands(),
+      vec![crate::app::window::WindowCommand::Close]
+    );
+    assert!(matches!(
+      broker.request(&handle, FileDialogRequest::new(FileDialogOperation::OpenFile)),
+      Err(FileDialogError::WindowClosed)
+    ));
+    broker.reconcile(&[("main".into(), tree.window().clone())]);
+    assert_eq!(complete(future), Err(FileDialogError::WindowClosed));
+    let replacement = Tree::new();
+    let fresh = request(&broker, &replacement);
+    assert!(broker.0.lock().unwrap().pending.contains_key(&fresh.id));
+    drop(fresh);
+  }
+}
+
+#[test]
 fn file_dialogs_paths_cardinality_and_bounded_metadata_are_checked_before_completion() {
   let (broker, _shared, tree) = fixture();
   let mut bad = FileDialogRequest::new(FileDialogOperation::OpenFile);

@@ -41,10 +41,16 @@ The server runs on one background thread and serves streamable HTTP on `127.0.0.
 | `app_name("my-app")` | Name in the discovery file and server info; defaults to the executable name. |
 | `instructions("...")` | Extra guidance appended to the instructions the agent receives. |
 | `tool(McpTool::new(...))` | Register a [custom tool](#custom-tools). |
+| `file_dialogs(broker)` | Opt adapted normal picker handlers into [request-scoped file selection](/docs/mcp-file-dialogs/), with `Scope::custom("file_dialogs")`. |
 | `navigator(nav)` | Hand over a router `Navigator` for `lurq_navigate`. |
 | `include_devtools(true)` | Expose the DevTools window to agents (hidden by default). |
 
 ## Connecting a Client
+
+Opted-in file handlers expose `lurq_file_dialogs` and `lurq_file_dialog_respond`.
+They list and complete individual pending selections; they do not intercept `rfd`
+or automate OS dialogs. See [MCP file selection](/docs/mcp-file-dialogs/) for the
+native fallback adapter and application overwrite/validation obligations.
 
 Every MCP-enabled app writes a discovery file while it runs — `%LOCALAPPDATA%\lurq\mcp\<pid>.json` on Windows, XDG dirs on Linux, `~/Library/Application Support/lurq/mcp/` on macOS — containing the port, the app name, and the bearer token:
 
