@@ -59,7 +59,7 @@ The compiler lane was released at that terminal result for Kontur QA, then separ
 
 The logs report an unoptimized test profile. Four warnings are in existing layout test/runtime code; they were not silently repaired or treated as profiler failures. All timing assertions concern actual headless layout or controlled blocked callbacks/phases; no GPU renderer was involved.
 
-WGPU/DX12/Canvas compiler checks, native windows, real Canvas captures, optimized Kontur adoption and collector overhead measurements remain unexecuted/unapproved for this initial lane. Computer Use was not used. No package release, merge or product readiness is claimed.
+In this initial lane, WGPU/DX12/Canvas compiler checks, native windows, real Canvas captures, optimized Kontur adoption and collector overhead measurements were unexecuted/unapproved. A later narrow DX12/Canvas metadata check is recorded below. Computer Use was not used. No package release, merge or product readiness is claimed.
 
 ## Notification completion-boundary review repair
 
@@ -67,7 +67,22 @@ Independent source review of `ae368ad6b6ef9bf213b8724a6f55f8d54f5c8c4c` found th
 
 The repair runs that tail before `finish_pass`, retaining the outer phase guard and publishing a coarse `pass_notifications` phase. The new `pass_completion_includes_blocked_mcp_notification_tail` regression registers a blocking wake on an actual parked wait reply, runs a real headless pass, and checks that a diagnostic thread can end session 2 during the notification without a completed pass. After release, only active session 1 receives the completion, with a completion timestamp after the release; result 2 stays immutable.
 
-This repair and its regression are **source-only and unexecuted** pending a separately granted minimal compiler lane. Rustfmt parsing, strict UTF-8, source diff checks and the new-module 600-line bounds were checked. Original first-head passing logs and the original compile failure remain preserved above; no passing claim is transferred to the repaired head.
+At publication of repair `c7272928fcc1a37b801a09d1bc6ae95c9a9f87ad` (tree `890465ad114aafa0e85eb78c59ee9ece3c3a9a8b`), the repair and its regression were **source-only and unexecuted**, pending a separately granted minimal compiler lane. That original receipt remains in the repair commit. Rustfmt parsing, strict UTF-8, source diff checks and the new-module 600-line bounds were checked. Original first-head passing logs and the original compile failure remain preserved above; no passing claim was transferred to the repaired head.
+
+## Repaired-head execution receipt
+
+The coordinator subsequently granted the sole compiler lane for the same minimal tests, followed only on success by one DX12/Canvas metadata check. All commands below executed at exact source `c7272928fcc1a37b801a09d1bc6ae95c9a9f87ad`, tree `890465ad114aafa0e85eb78c59ee9ece3c3a9a8b`, with no source changes during execution. The owning H target/temp and permitted shared H Cargo home, jobs 1, debug information 0 and incremental compilation disabled were retained.
+
+| Exact command | Result | Build / test time | Retained original |
+| --- | --- | --- | --- |
+| `cargo test -p lurq --lib --locked -j1 --features 'mcp,perf_profile' app::profiler` | 13 passed, 0 failed, 176 filtered; blocked MCP notification-tail regression passed | 21.40 s / 0.02 s | `c727-profiler-enabled.log` |
+| `cargo test -p lurq --lib --locked -j1 --features 'mcp,perf_profile' profiling` | 7 passed, 0 failed, 182 filtered | 0.29 s / 0.02 s | `c727-mcp-profiling-enabled.log` |
+| `cargo test -p lurq --lib --locked -j1 --features mcp profiling` | 5 passed, 0 failed, 170 filtered | 17.17 s / 0.01 s | `c727-mcp-profiling-disabled.log` |
+| `cargo check -p lurq --lib --locked -j1 --features 'mcp,perf_profile,canvas,dx12'` | PASS; DX12/Canvas conditional hook code typechecked | 1 m 06 s; no runtime | `c727-dx12-canvas-check.log` |
+
+The minimal tests reported the same four existing warnings; the metadata check reported three unused runtime/layout warnings. No compile blocker occurred in this granted graph. The compiler lane was explicitly released after the metadata check's terminal success.
+
+This receipt verifies builder regressions and DX12/Canvas compilation only. It does not execute a window, actual GPU/Canvas work, WGPU, winit or an optimized build, and does not establish idle/active collector overhead or native responsiveness. Those checks and independent acceptance remain outstanding. Only evidence/docs change after this receipt; source instrumentation stays at the tested repaired source until further review.
 
 ## Focused regression source
 
