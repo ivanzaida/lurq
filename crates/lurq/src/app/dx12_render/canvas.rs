@@ -26,6 +26,10 @@ struct Readback {
   revision: u64,
 }
 pub(super) struct Renderer {
+  #[cfg(feature = "perf_profile")]
+  pub(super) profile: crate::app::profile_types::CanvasProfile,
+  #[cfg(feature = "perf_profile")]
+  pub(super) profile_context: Option<crate::app::profiler::ProfileContext>,
   meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
   assets: HashMap<u64, AssetTexture>,
@@ -136,6 +140,10 @@ impl Renderer {
       );
     }
     Ok(Self {
+      #[cfg(feature = "perf_profile")]
+      profile: Default::default(),
+      #[cfg(feature = "perf_profile")]
+      profile_context: None,
       meshes: MeshCache::default(),
       surfaces: HashMap::new(),
       assets: HashMap::new(),
@@ -173,6 +181,13 @@ impl Renderer {
     self.surfaces.get(&canvas.surface_id()).map(|b| b.texture.clone())
   }
   pub unsafe fn encode(&mut self, state: &mut Dx12State, canvases: &[CanvasHandle]) -> Result<()> {
+    profile_if! { self.profile = Default::default(); }
+    let _process_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
     self.tick += 1;
     self.descriptor = 0;
     let live: HashSet<_> = canvases
@@ -203,6 +218,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
+      profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       self.batches.push(batch);
       if !self.surfaces.contains_key(&canvas.surface_id()) && !matches!(commands.front(), Some(Command::Resize { .. }))
@@ -229,9 +245,11 @@ impl Renderer {
               // An explicit submission boundary keeps the readback copy ahead
               // of subsequent rendering/fast clears of the same texture.
               state.command_list.Close()?;
+              let _submit_start = profile_scope!();
               state
                 .command_queue
                 .ExecuteCommandLists(&[Some(state.command_list.cast()?)]);
+              profile_if! { self.profile.submit += profile_elapsed!(_submit_start); }
               self.flush_stats();
               state.command_list.Reset(
                 &state.command_allocators[state.frame_index],
@@ -265,7 +283,18 @@ impl Renderer {
               group.push(commands.pop_front().unwrap());
             }
             let before = self.meshes.stats();
+            let _tessellation_start = profile_scope!();
+            #[cfg(feature = "perf_profile")]
+            let _tessellation_phase = self
+              .profile_context
+              .as_ref()
+              .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasTessellation));
             let prepared = Prepared::new(&group, &mut self.meshes);
+            profile_if! {
+              self.profile.tessellation += profile_elapsed!(_tessellation_start);
+              self.profile.command_groups += 1;
+              drop(_tessellation_phase);
+            }
             canvas.record_mesh_cache(before, self.meshes.stats());
             match prepared {
               Ok(prepared) => self.draw(state, canvas.surface_id(), &prepared)?,
@@ -283,6 +312,7 @@ impl Renderer {
       self.asset_bytes -= asset.bytes;
       state.canvas_retired[state.frame_index].push(asset.texture);
     }
+    profile_if! { self.profile.total = profile_elapsed!(_process_start); }
     Ok(())
   }
   pub fn submitted(&mut self) {
@@ -516,6 +546,12 @@ impl Renderer {
   }
 
   unsafe fn draw(&mut self, state: &mut Dx12State, id: CanvasId, prepared: &Prepared) -> Result<()> {
+    let _record_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _record_phase = self
+      .profile_context
+      .as_ref()
+      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasCommands));
     let depth = layer_depth(prepared);
     self.reserve_layers(&state.device.clone(), depth)?;
     let Some(b) = self.surfaces.get(&id) else {
@@ -525,6 +561,12 @@ impl Renderer {
     let seed_srv = self.srv(state, &backing)?;
     let mut assets = HashMap::new();
     let mut uploaded = 0;
+    let _asset_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _asset_phase = self
+      .profile_context
+      .as_ref()
+      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasAssetUpload));
     for draw in prepared.draws() {
       if let Some(asset) = &draw.asset {
         if !self.assets.contains_key(&asset.id) {
@@ -557,6 +599,10 @@ impl Renderer {
         }
       }
     }
+    profile_if! {
+      self.profile.asset_upload += profile_elapsed!(_asset_start);
+      drop(_asset_phase);
+    }
     if prepared.clear {
       let rtv = self.rtvs.cpu_handle(1);
       state.device.CreateRenderTargetView(&backing, None, rtv);
@@ -573,6 +619,11 @@ impl Renderer {
       );
     }
     let tiles = prepared.tiles(width, height);
+    profile_if! {
+      self.profile.vertices += prepared.vertices.len();
+      self.profile.tiles += tiles.len();
+      self.profile.uploaded_asset_bytes += uploaded;
+    }
     self.pending_stats.push((
       self.surfaces[&id].owner.clone(),
       prepared.vertices.len(),
@@ -580,9 +631,12 @@ impl Renderer {
       uploaded,
     ));
     if prepared.vertices.is_empty() {
+      profile_if! { self.profile.recording += profile_elapsed!(_record_start); }
       return Ok(());
     }
+    let _vertices_start = profile_scope!();
     let vertices = state.upload_frame_pod_slice(&prepared.vertices, 16)?;
+    profile_if! { self.profile.buffer_upload += profile_elapsed!(_vertices_start); }
     let rtv = self.rtvs.cpu_handle(0);
     let dsv = self.dsv.cpu_handle(0);
     for tile in tiles {
@@ -740,6 +794,7 @@ impl Renderer {
         tile,
       );
     }
+    profile_if! { self.profile.recording += profile_elapsed!(_record_start); }
     Ok(())
   }
 }

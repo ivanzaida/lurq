@@ -173,6 +173,8 @@ The profiler tab uses frame snapshots from the tree. A commit records:
 
 With `perf_profile`, `Tree::last_profile()` returns the latest low-level frame profile for custom tooling. Without it, the DevTools frame profile contains default values.
 
+The shared [profiling session service](../profiling/) also exposes independent bounded captures through `Tree::profiling_handle()` and MCP's `lurq_profile_start`/`lurq_profile_read`/`lurq_profile_end`. It records completed operations and unfinished current-phase observations without UI roundtrips. This is the common model/collector for a future DevTools profiling view; the current commit/signal inspector UI does not yet consume that service. GPU timestamp metrics remain unavailable.
+
 ## Perf Overlay
 
 The perf overlay is separate from DevTools but feeds data that DevTools can show.

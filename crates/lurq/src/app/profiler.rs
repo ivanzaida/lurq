@@ -1,5 +1,24 @@
 pub use crate::app::profile_types::{FrameProfile, RenderProfile, RuntimeMemoryProfile};
 
+mod collector;
+#[cfg(any(feature = "serde", feature = "mcp"))]
+mod export;
+mod model;
+pub(crate) mod producer;
+#[cfg(test)]
+mod session_tests;
+
+pub use collector::ProfilingHandle;
+pub use model::{
+  BuildAvailability, InFlightObservation, InputDispatchSample, InputKind, PassSample, Phase, ProfileError,
+  ProfileReport, ProfileSample, SampleData, SessionId, SessionOptions, SessionStarted, UiUpdateKind, UiUpdateSample,
+  WindowStatus,
+};
+pub use model::{
+  MAX_ACTIVE_SESSIONS, MAX_ENDED_SESSION_IDS, MAX_SAMPLES_PER_SESSION, MAX_TRACKED_WINDOWS, MAX_WINDOW_ID_BYTES,
+};
+pub use producer::{PhaseGuard, ProfileContext};
+
 #[cfg(feature = "perf_profile")]
 mod observer {
   use std::sync::OnceLock;

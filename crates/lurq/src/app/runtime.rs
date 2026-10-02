@@ -605,6 +605,7 @@ impl FocusMemory {
 }
 
 pub struct Tree {
+  profiling: crate::app::profiler::producer::WindowProfiler,
   id_gen: IdGenerator,
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
@@ -793,6 +794,7 @@ impl SecondaryWindow {
       return false;
     }
     self.open = true;
+    self.tree.profiling.set_open(true);
     true
   }
 
@@ -801,6 +803,7 @@ impl SecondaryWindow {
       return false;
     }
     self.open = false;
+    self.tree.profiling.set_open(false);
     self.set_metadata(SecondaryWindowMetadata::default());
     true
   }
@@ -940,6 +943,7 @@ impl Default for Tree {
 impl Tree {
   pub fn new() -> Self {
     let tree = Self {
+      profiling: crate::app::profiler::producer::WindowProfiler::new(),
       id_gen: IdGenerator::new(),
       layout_engine: LayoutEngine::new(),
       render_engine: None,
@@ -1135,6 +1139,11 @@ impl Tree {
   #[cfg(feature = "perf_profile")]
   pub fn last_profile(&self) -> &FrameProfile {
     &self.last_profile
+  }
+
+  /// Shared bounded profiling API; session operations never mutate the UI.
+  pub fn profiling_handle(&self) -> crate::app::profiler::ProfilingHandle {
+    self.profiling.handle()
   }
 
   #[cfg(feature = "perf_profile")]
@@ -1370,9 +1379,38 @@ impl Tree {
     let index = self.secondary_windows.len();
     window.id = self.next_secondary_window_id;
     self.next_secondary_window_id += 1;
+    window
+      .tree
+      .adopt_profiling(&self.profiling, self.profiling.child_id(window.id), false, window.open);
     self.apply_render_engine_factory_to_secondary(&mut window);
     self.secondary_windows.push(window);
     index
+  }
+
+  fn adopt_profiling(
+    &mut self,
+    parent: &crate::app::profiler::producer::WindowProfiler,
+    id: String,
+    devtools: bool,
+    open: bool,
+  ) {
+    self.profiling.attach(parent, id, devtools);
+    self.profiling.set_open(open);
+    for (index, child) in self.secondary_windows.iter_mut().enumerate() {
+      #[cfg(feature = "devtools")]
+      let devtools = self
+        .devtools
+        .as_ref()
+        .is_some_and(|tools| tools.secondary_index == index);
+      #[cfg(not(feature = "devtools"))]
+      let devtools = {
+        let _ = index;
+        false
+      };
+      child
+        .tree
+        .adopt_profiling(&self.profiling, self.profiling.child_id(child.id), devtools, child.open);
+    }
   }
 
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
@@ -1432,6 +1470,7 @@ impl Tree {
     if !window.close() {
       return false;
     }
+    window.tree.profiling.set_open(false);
     if let Some(engine) = &mut window.tree.render_engine {
       engine.release_window_surface();
     }
@@ -1516,6 +1555,7 @@ impl Tree {
       ),
     );
     let index = self.push_secondary_window(SecondaryWindow::new_closed("lurq DevTools", 1440, 900, devtools));
+    self.secondary_windows[index].tree.profiling.mark_devtools();
     self.devtools = Some(DevToolsWindow {
       secondary_index: index,
       metadata: SecondaryWindowMetadata::default(),
@@ -1815,6 +1855,11 @@ impl Tree {
     if self.root_component.is_none() || self.root_ctx.is_none() {
       return;
     }
+    #[cfg(feature = "perf_profile")]
+    let mut _profile_update = self
+      .profiling
+      .context
+      .update(crate::app::profiler::UiUpdateKind::RootRebuild);
     if let (Some(component), Some(ctx)) = (&self.root_component, &mut self.root_ctx) {
       #[cfg(feature = "canvas")]
       let old_canvases = self.root.as_ref().map(canvas_bindings).unwrap_or_default();
@@ -1825,6 +1870,8 @@ impl Tree {
       ctx.begin_render();
       let mut node = component.render(ctx).node;
       ctx.end_render();
+      #[cfg(feature = "perf_profile")]
+      _profile_update.commit();
       node.set_tag_name(component.tag_name());
       #[cfg(feature = "devtools")]
       set_component_debug_metadata(&mut node, ctx);
@@ -1986,14 +2033,27 @@ impl Tree {
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
-    #[cfg(feature = "mcp")]
-    {
-      let report = self.pass_inner(app, surface);
-      self.mcp_notify_pass(&report);
-      report
+    #[cfg(feature = "perf_profile")]
+    let (_profile_start, _profile_phase) = self.profiling.begin_pass(self.frame_count + 1);
+    #[cfg(feature = "perf_profile")]
+    if let Some(engine) = &mut self.render_engine {
+      engine.set_profile_context(self.profiling.context.clone());
     }
-    #[cfg(not(feature = "mcp"))]
-    self.pass_inner(app, surface)
+    let report = self.pass_inner(app, surface);
+    #[cfg(feature = "perf_profile")]
+    self.profiling.finish_pass(
+      _profile_start,
+      &report,
+      self
+        .render_engine
+        .as_ref()
+        .map(|engine| engine.profile_backend())
+        .unwrap_or("none"),
+      report.rendered.then_some(&self.last_profile),
+    );
+    #[cfg(feature = "mcp")]
+    self.mcp_notify_pass(&report);
+    report
   }
 
   fn pass_inner(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
@@ -2108,10 +2168,17 @@ impl Tree {
 
     let layout_wall_start = Instant::now();
     let _layout_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _layout_phase = self.profiling.context.phase(crate::app::profiler::Phase::LayoutUpdate);
     let layout_updated = self.update_layout(app);
     self.update_text_input_caret_blink(now, caret_mode);
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
+    #[cfg(feature = "perf_profile")]
+    {
+      self.profiling.layout(_layout_dur);
+      drop(_layout_phase);
+    }
     let _layout_recalculated: bool = profile_value!(layout_updated && self.layout_engine.last_recalculated());
     report.layout_updated = layout_updated;
     report.layout_recalculated = layout_updated && self.layout_engine.last_recalculated();
@@ -2185,6 +2252,8 @@ impl Tree {
 
     let quad_wall_start = Instant::now();
     let _quad_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _quad_phase = self.profiling.context.phase(crate::app::profiler::Phase::QuadResolve);
     let viewport_clip = ClipRect {
       x: 0.0,
       y: 0.0,
@@ -2202,6 +2271,8 @@ impl Tree {
     self.layout_engine.take_opacity_groups(&mut opacity_groups);
     let quad_wall_dur = quad_wall_start.elapsed();
     let _quad_dur = profile_elapsed!(_quad_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_quad_phase);
     let quad_count = quads.len();
     #[cfg(feature = "devtools")]
     let devtools_overlay = self.devtools_overlay_target(root, &result);
@@ -2211,6 +2282,11 @@ impl Tree {
     let mut glyph_engine = app.shared.glyph_engine.lock();
     let glyph_wall_start = Instant::now();
     let _glyph_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _glyph_phase = self
+      .profiling
+      .context
+      .phase(crate::app::profiler::Phase::GlyphRasterize);
     let mut rects = std::mem::take(&mut self.render_rects);
     rects.clear();
     rects.reserve(quad_count);
@@ -2820,6 +2896,8 @@ impl Tree {
 
     let glyph_wall_dur = glyph_wall_start.elapsed();
     let _glyph_dur = profile_elapsed!(_glyph_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_glyph_phase);
     let _rect_count: usize = profile_value!(rects.len());
     let _glyph_count: usize = profile_value!(glyphs.len());
 
@@ -2839,11 +2917,23 @@ impl Tree {
 
     let gpu_wall_start = Instant::now();
     let _gpu_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _render_phase = self.profiling.context.phase(crate::app::profiler::Phase::Render);
     let Some(render_engine) = &mut self.render_engine else {
       return report;
     };
     #[cfg(feature = "canvas")]
-    render_engine.prepare_canvases(&self.canvas_registry);
+    {
+      let _canvas_start = profile_scope!();
+      #[cfg(feature = "perf_profile")]
+      let _canvas_phase = self
+        .profiling
+        .context
+        .phase(crate::app::profiler::Phase::CanvasPreparation);
+      render_engine.prepare_canvases(&self.canvas_registry);
+      #[cfg(feature = "perf_profile")]
+      self.profiling.canvas_preparation(profile_elapsed!(_canvas_start));
+    }
     let rendered = {
       #[cfg(feature = "screenshot")]
       {
@@ -2864,6 +2954,8 @@ impl Tree {
     }
     let gpu_wall_dur = gpu_wall_start.elapsed();
     let _gpu_dur = profile_elapsed!(_gpu_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_render_phase);
     let renderer_wants_redraw = render_engine.wants_redraw();
 
     let (measure_stats, glyph_stats) = {
@@ -2874,7 +2966,7 @@ impl Tree {
       )
     };
     profile_if! {
-      let render_profile = render_engine.last_profile().unwrap_or_default();
+      let render_profile = render_engine.last_profile();
       let glyph_engine_profile = app.shared.glyph_engine.lock().profile();
       self.last_profile = FrameProfile {
         layout: _layout_dur,
@@ -2882,7 +2974,8 @@ impl Tree {
         quad_resolve: _quad_dur,
         glyph_rasterize: _glyph_dur,
         gpu_submit: _gpu_dur,
-        render: render_profile,
+        render: render_profile.unwrap_or_default(),
+        render_profile_available: render_profile.is_some(),
         total: profile_elapsed!(_frame_start),
         quad_count,
         rect_count: _rect_count,
@@ -2986,6 +3079,8 @@ impl Tree {
   }
 
   pub fn mouse_move_with_modifiers(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(
       x,
@@ -3000,6 +3095,8 @@ impl Tree {
   }
 
   pub fn mouse_leave_window(&mut self) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
     self.clear_hover_path();
     self.apply_reactive_updates_after_event();
   }
@@ -3009,6 +3106,8 @@ impl Tree {
   }
 
   pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
     let modifiers = MouseModifiers { shift, ctrl, alt };
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
@@ -3066,6 +3165,8 @@ impl Tree {
   }
 
   pub fn mouse_up_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
     let modifiers = MouseModifiers { shift, ctrl, alt };
     if self.swallowed_press == Some(button) {
       self.swallowed_press = None;
@@ -3197,6 +3298,8 @@ impl Tree {
   }
 
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Scroll);
     self.dispatch_scroll(x, y, delta_x, delta_y, phase);
     self.apply_reactive_updates_after_event();
   }
@@ -3206,6 +3309,8 @@ impl Tree {
   }
 
   pub fn key_down_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Keyboard);
     self.rebuild_if_dirty();
     let control = EventControl::new();
     let mut evt = KeyboardEvent {
@@ -3279,6 +3384,8 @@ impl Tree {
   }
 
   pub fn key_up_with_meta(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
+    #[cfg(feature = "perf_profile")]
+    let _input = self.profiling.context.input(crate::app::profiler::InputKind::Keyboard);
     self.rebuild_if_dirty();
     let mut evt = KeyboardEvent {
       key,
@@ -5106,8 +5213,20 @@ impl Tree {
       self.cached_render_list = Some(cached);
       return Some(false);
     };
+    #[cfg(feature = "perf_profile")]
+    let _render_phase = self.profiling.context.phase(crate::app::profiler::Phase::Render);
     #[cfg(feature = "canvas")]
-    render_engine.prepare_canvases(&self.canvas_registry);
+    {
+      let _canvas_start = profile_scope!();
+      #[cfg(feature = "perf_profile")]
+      let _canvas_phase = self
+        .profiling
+        .context
+        .phase(crate::app::profiler::Phase::CanvasPreparation);
+      render_engine.prepare_canvases(&self.canvas_registry);
+      #[cfg(feature = "perf_profile")]
+      self.profiling.canvas_preparation(profile_elapsed!(_canvas_start));
+    }
     let rendered = {
       #[cfg(feature = "devtools")]
       {
@@ -5124,13 +5243,16 @@ impl Tree {
     }
     let gpu_wall_dur = gpu_wall_start.elapsed();
     let _gpu_dur = profile_elapsed!(_gpu_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_render_phase);
     let renderer_wants_redraw = render_engine.wants_redraw();
 
     profile_if! {
-      let render_profile = render_engine.last_profile().unwrap_or_default();
+      let render_profile = render_engine.last_profile();
       self.last_profile = FrameProfile {
         gpu_submit: _gpu_dur,
-        render: render_profile,
+        render: render_profile.unwrap_or_default(),
+        render_profile_available: render_profile.is_some(),
         total: _gpu_dur,
         rect_count: cached.list.rects.len(),
         glyph_count: cached.list.glyphs.len(),
@@ -5368,6 +5490,11 @@ impl Tree {
   }
 
   pub(crate) fn refresh_dirty_subtrees(&mut self) {
+    #[cfg(feature = "perf_profile")]
+    let mut _profile_update = self
+      .profiling
+      .context
+      .update(crate::app::profiler::UiUpdateKind::SubtreeRefresh);
     let (replacements, dirty_after_refresh) = match &mut self.root_ctx {
       Some(ctx) => {
         let replacements = ctx.refresh_dirty_subtrees();
@@ -5387,6 +5514,8 @@ impl Tree {
       }
       return;
     }
+    #[cfg(feature = "perf_profile")]
+    _profile_update.commit();
 
     if dirty_after_refresh {
       tracing::debug!(
@@ -5653,6 +5782,12 @@ impl Tree {
       if let Some(root) = self.root.as_ref() {
         let offset = root.offset_position().unwrap_or_default();
         let canvas_text = app.shared.glyph_engine.lock().canvas_text_engine();
+        let _canvas_start = profile_scope!();
+        #[cfg(feature = "perf_profile")]
+        let _canvas_phase = self
+          .profiling
+          .context
+          .phase(crate::app::profiler::Phase::CanvasRecording);
         bind_canvas_layout_recursive(
           root,
           &layout,
@@ -5666,6 +5801,8 @@ impl Tree {
           &canvas_text,
           &mut self.canvas_registry,
         );
+        #[cfg(feature = "perf_profile")]
+        self.profiling.canvas_recording(profile_elapsed!(_canvas_start));
       }
       if let Some(root) = self.root.as_mut() {
         update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);

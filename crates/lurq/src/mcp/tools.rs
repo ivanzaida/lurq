@@ -123,7 +123,11 @@ fn execute_builtin(
       let _ = reply.send(navigate_tool(state, &args));
     }
     // Served on the server thread; never routed here.
-    BuiltinTool::Find | BuiltinTool::Logs => {
+    BuiltinTool::Find
+    | BuiltinTool::Logs
+    | BuiltinTool::ProfileStart
+    | BuiltinTool::ProfileRead
+    | BuiltinTool::ProfileEnd => {
       let _ = reply.send(Err("this tool is served without an app roundtrip".into()));
     }
   }

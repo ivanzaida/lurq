@@ -284,6 +284,8 @@ pub struct Dx12RenderEngine {
   pending_frame_capture: Option<RenderFrameCapture>,
   #[cfg(feature = "perf_profile")]
   last_profile: RenderProfile,
+  #[cfg(feature = "perf_profile")]
+  profile_context: Option<crate::app::profiler::ProfileContext>,
   #[cfg(feature = "raster")]
   video_surfaces: Option<Dx12VideoSurfaceAllocator>,
 }
@@ -333,6 +335,8 @@ impl Dx12RenderEngine {
       pending_frame_capture: None,
       #[cfg(feature = "perf_profile")]
       last_profile: RenderProfile::default(),
+      #[cfg(feature = "perf_profile")]
+      profile_context: None,
       #[cfg(feature = "raster")]
       video_surfaces: None,
     }
@@ -658,6 +662,13 @@ impl Drop for Dx12Nv12Surface {
 }
 
 impl RenderEngine for Dx12RenderEngine {
+  fn profile_backend(&self) -> &'static str {
+    "dx12"
+  }
+  #[cfg(feature = "perf_profile")]
+  fn set_profile_context(&mut self, context: crate::app::profiler::ProfileContext) {
+    self.profile_context = Some(context);
+  }
   #[cfg(feature = "canvas")]
   fn prepare_canvases(&mut self, canvases: &[crate::canvas::CanvasHandle]) {
     self.canvases.clear();
@@ -673,12 +684,29 @@ impl RenderEngine for Dx12RenderEngine {
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _init_phase = self
+      .profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderInit));
     if let Err(err) = self.ensure_initialized(window) {
       tracing::error!("failed to initialize native dx12 renderer: {err:?}");
       return false;
     }
     let _init_dur = profile_elapsed!(_init_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_init_phase);
 
+    let _profile_context = {
+      #[cfg(feature = "perf_profile")]
+      {
+        self.profile_context.clone()
+      }
+      #[cfg(not(feature = "perf_profile"))]
+      {
+        None
+      }
+    };
     let state = self.state.as_mut().unwrap();
     if state.width != self.width || state.height != self.height {
       crate::app::profile_support::video_log!(debug,
@@ -720,7 +748,7 @@ impl RenderEngine for Dx12RenderEngine {
       state.canvas_sources.clear();
       state.canvas_sources.extend_from_slice(&self.canvases);
     }
-    let _render_profile = match unsafe { state.render(list) } {
+    let _render_profile = match unsafe { state.render(list, _profile_context) } {
       Ok(profile) => profile,
       Err(err) => {
         if is_dx12_frame_not_ready(&err) {
@@ -2702,9 +2730,17 @@ impl Dx12State {
     Ok(())
   }
 
-  unsafe fn render(&mut self, list: &RenderList) -> Result<RenderProfile> {
+  unsafe fn render(
+    &mut self,
+    list: &RenderList,
+    _profile_context: Option<crate::app::profiler::ProfileContext>,
+  ) -> Result<RenderProfile> {
     let _total_start = profile_scope!();
     let _acquire_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _acquire_phase = _profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderAcquire));
     self.wait_for_frame_latency()?;
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
@@ -2724,16 +2760,34 @@ impl Dx12State {
       "reset dx12 command list",
     )?;
     let _acquire_dur = profile_elapsed!(_acquire_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_acquire_phase);
 
     let _encode_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _encode_phase = _profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderEncode));
+    #[cfg(feature = "perf_profile")]
+    let mut _canvas_profile = crate::app::profile_types::CanvasProfile::default();
     #[cfg(feature = "canvas")]
     if !self.canvas_sources.is_empty() || self.canvas_renderer.is_some() {
+      let _canvas_start = profile_scope!();
       let mut renderer = match self.canvas_renderer.take() {
         Some(r) => r,
         None => canvas::Renderer::new(&self.device)?,
       };
       let sources = self.canvas_sources.clone();
+      #[cfg(feature = "perf_profile")]
+      {
+        renderer.profile_context = _profile_context.clone();
+      }
       let result = renderer.encode(self, &sources);
+      #[cfg(feature = "perf_profile")]
+      {
+        _canvas_profile = renderer.profile;
+        _canvas_profile.total = profile_elapsed!(_canvas_start);
+      }
       self.canvas_renderer = Some(renderer);
       if let Err(error) = result {
         let _ = self.command_list.Close();
@@ -2753,8 +2807,14 @@ impl Dx12State {
 
     dx12_context(self.command_list.Close(), "close dx12 command list")?;
     let _encode_dur = profile_elapsed!(_encode_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_encode_phase);
 
     let _submit_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _submit_phase = _profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderSubmit));
     let command_list: ID3D12CommandList = dx12_context(self.command_list.cast(), "cast dx12 command list")?;
     self.command_queue.ExecuteCommandLists(&[Some(command_list)]);
     #[cfg(feature = "canvas")]
@@ -2769,14 +2829,22 @@ impl Dx12State {
     #[cfg(feature = "screenshot")]
     let capture_fence_value = self.fence_values[self.frame_index];
     let _submit_dur = profile_elapsed!(_submit_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_submit_phase);
 
     let _present_start = profile_scope!();
+    #[cfg(feature = "perf_profile")]
+    let _present_phase = _profile_context
+      .as_ref()
+      .map(|context| context.phase(crate::app::profiler::Phase::RenderPresent));
     dx12_context(
       self.swapchain.Present(1, Default::default()).ok(),
       "present dx12 swapchain",
     )?;
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     let _present_dur = profile_elapsed!(_present_start);
+    #[cfg(feature = "perf_profile")]
+    drop(_present_phase);
 
     #[cfg(feature = "screenshot")]
     if let Some((capture, readback)) = frame_capture {
@@ -2784,6 +2852,16 @@ impl Dx12State {
     }
 
     Ok(RenderProfile {
+      canvas: {
+        #[cfg(feature = "perf_profile")]
+        {
+          _canvas_profile
+        }
+        #[cfg(not(feature = "perf_profile"))]
+        {
+          Default::default()
+        }
+      },
       acquire: _acquire_dur,
       atlas_upload: _atlas_dur,
       glyph_atlas_upload_bytes: atlas_stats.bytes,

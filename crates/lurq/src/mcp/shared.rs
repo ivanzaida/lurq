@@ -95,6 +95,10 @@ impl RefTable {
 
 /// State reachable from both threads and from `McpHandle`.
 pub(crate) struct McpShared {
+  pub(crate) profiling: RwLock<crate::app::profiler::ProfilingHandle>,
+  pub(crate) profile_sessions: Mutex<HashSet<crate::app::profiler::SessionId>>,
+  pub(crate) profile_ended: Mutex<std::collections::VecDeque<crate::app::profiler::SessionId>>,
+  pub(crate) include_profile_devtools: AtomicBool,
   pub(crate) file_dialogs: Mutex<Option<super::FileDialogBroker>>,
   enabled: AtomicBool,
   scopes: RwLock<HashSet<Scope>>,
@@ -120,6 +124,10 @@ impl McpShared {
     extra_instructions: Option<String>,
   ) -> Self {
     Self {
+      profiling: RwLock::new(crate::app::profiler::ProfilingHandle::new()),
+      profile_sessions: Mutex::new(HashSet::new()),
+      profile_ended: Mutex::new(std::collections::VecDeque::new()),
+      include_profile_devtools: AtomicBool::new(false),
       file_dialogs: Mutex::new(None),
       enabled: AtomicBool::new(true),
       scopes: RwLock::new(scopes),
@@ -182,6 +190,7 @@ impl McpShared {
   }
 
   fn dialog_permission_changed(&self) {
+    super::profiling::permission_changed(self);
     let broker = self.file_dialogs.lock().unwrap().clone();
     if let Some(broker) = broker {
       broker.permission_changed();

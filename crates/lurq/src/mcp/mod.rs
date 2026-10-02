@@ -31,6 +31,7 @@ use std::{
 mod discovery;
 mod file_dialogs;
 mod logs;
+mod profiling;
 mod registry;
 mod server;
 mod shared;
@@ -376,6 +377,7 @@ fn build_registry(tools: Vec<McpTool>) -> ToolRegistry {
   let mut registry = ToolRegistry {
     tools: registry::builtin_tools(cfg!(feature = "router")),
   };
+  registry.tools.extend(profiling::registered_tools());
   for tool in tools {
     assert!(
       !tool.name.starts_with("lurq_"),
@@ -431,6 +433,10 @@ impl Tree {
       app_name,
       config.instructions,
     ));
+    *shared.profiling.write().unwrap() = self.profiling_handle();
+    shared
+      .include_profile_devtools
+      .store(config.include_devtools, std::sync::atomic::Ordering::Relaxed);
     if let Some(broker) = config.file_dialogs {
       broker.attach(&shared);
       *shared.file_dialogs.lock().unwrap() = Some(broker);
@@ -578,6 +584,7 @@ impl Tree {
 
 impl Drop for McpState {
   fn drop(&mut self) {
+    self.shared.set_enabled(false);
     let broker = self.shared.file_dialogs.lock().unwrap().clone();
     if let Some(broker) = broker {
       broker.shutdown();

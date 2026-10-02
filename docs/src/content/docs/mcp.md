@@ -251,6 +251,10 @@ Two handler flavors, distinct at the type level so a blocking tool can't freeze 
 
 Custom tool names must not start with `lurq_` and must be unique; violations panic at `enable_mcp` so they surface in development, not in an agent session. Custom scopes (`Scope::custom("project")`) participate in listing, denial, and runtime toggling like the built-in ones.
 
+## Profiling sessions
+
+`lurq_profile_start` starts an independent bounded CPU capture; `lurq_profile_end` finalizes only the ID it receives. Overlapping sessions keep collecting when another ends. `lurq_profile_read` reads a session snapshot, or feature/build availability when called without an ID. All three use Observe scope and the existing bearer authentication, and run on the server thread without waking/waiting for the UI. Reports distinguish completed samples from unfinished current phases, make truncation/age/feature availability explicit, and report GPU timestamps as unavailable. See [Profiling sessions](../profiling/) for bounds, nested timing semantics, lifecycle and the shared in-process API. No DevTools window is required.
+
 ## Capturing Logs
 
 `lurq_logs` serves a ring buffer that your tracing subscriber feeds. Opt in by adding the layer:
