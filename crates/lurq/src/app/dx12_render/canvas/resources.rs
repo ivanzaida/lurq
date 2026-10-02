@@ -1,6 +1,9 @@
 //! Canvas texture/descriptors and CPU upload/readback transfer recording.
 use super::*;
 
+#[cfg(test)]
+mod texture_tests;
+
 pub(in super::super) unsafe fn create_srv(
   device: &ID3D12Device,
   texture: &ID3D12Resource,
@@ -32,6 +35,41 @@ pub(super) unsafe fn texture(
   stencil: bool,
   initial: D3D12_RESOURCE_STATES,
 ) -> Result<ID3D12Resource> {
+  let usage = if stencil {
+    TextureUsage::DepthStencil
+  } else {
+    TextureUsage::RenderTarget
+  };
+  allocate_texture(device, width, height, samples, usage, initial)
+}
+
+/// Assets are copied to and sampled, never rendered to or fast-cleared. Keep
+/// their resource capability narrow without changing the existing cache charge.
+pub(super) unsafe fn asset_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
+  allocate_texture(
+    device,
+    width,
+    height,
+    1,
+    TextureUsage::Sampled,
+    D3D12_RESOURCE_STATE_COPY_DEST,
+  )
+}
+
+#[derive(Clone, Copy)]
+enum TextureUsage {
+  Sampled,
+  RenderTarget,
+  DepthStencil,
+}
+
+fn texture_definition(
+  width: u32,
+  height: u32,
+  samples: u32,
+  usage: TextureUsage,
+) -> (D3D12_RESOURCE_DESC, Option<D3D12_CLEAR_VALUE>) {
+  let stencil = matches!(usage, TextureUsage::DepthStencil);
   let desc = D3D12_RESOURCE_DESC {
     Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
     Width: width as u64,
@@ -48,14 +86,14 @@ pub(super) unsafe fn texture(
       Quality: 0,
     },
     Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-    Flags: if stencil {
-      D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
-    } else {
-      D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
+    Flags: match usage {
+      TextureUsage::Sampled => D3D12_RESOURCE_FLAG_NONE,
+      TextureUsage::RenderTarget => D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+      TextureUsage::DepthStencil => D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
     },
     ..Default::default()
   };
-  let clear = D3D12_CLEAR_VALUE {
+  let clear = (!matches!(usage, TextureUsage::Sampled)).then_some(D3D12_CLEAR_VALUE {
     Format: desc.Format,
     Anonymous: if stencil {
       D3D12_CLEAR_VALUE_0 {
@@ -64,7 +102,19 @@ pub(super) unsafe fn texture(
     } else {
       D3D12_CLEAR_VALUE_0 { Color: [0.; 4] }
     },
-  };
+  });
+  (desc, clear)
+}
+
+unsafe fn allocate_texture(
+  device: &ID3D12Device,
+  width: u32,
+  height: u32,
+  samples: u32,
+  usage: TextureUsage,
+  initial: D3D12_RESOURCE_STATES,
+) -> Result<ID3D12Resource> {
+  let (desc, clear) = texture_definition(width, height, samples, usage);
   let mut resource = None;
   device.CreateCommittedResource(
     &D3D12_HEAP_PROPERTIES {
@@ -76,7 +126,7 @@ pub(super) unsafe fn texture(
     D3D12_HEAP_FLAG_NONE,
     &desc,
     initial,
-    Some(&clear),
+    clear.as_ref().map(|value| value as *const _),
     &mut resource,
   )?;
   resource.ok_or_else(Error::from_win32)
