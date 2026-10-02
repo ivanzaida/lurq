@@ -200,3 +200,26 @@ fn canvas_text_idle_boundary_and_real_cache_eviction_are_bounded() {
   let surface = ctx.canvas.inner.lock();
   assert_eq!(surface.text.as_ref().unwrap().lock().shaped.len(), 256);
 }
+
+#[test]
+fn canvas_text_metrics_do_not_compose_or_produce_bitmap_bytes() {
+  let ctx = context();
+  let mut producer = WindowProfiler::new();
+  let handle = producer.handle();
+  let id = handle.start(Default::default()).unwrap().id;
+  let (started, phase) = producer.begin_pass(1);
+  let scope = producer.context.canvas_text_scope();
+  assert_eq!(ctx.measure_text("aaaa").unwrap().width, 20.);
+  complete(&mut producer, started);
+  drop(scope);
+  drop(phase);
+  let report = handle.end(id).unwrap();
+  let profile = text(&report, "main");
+  assert_eq!(
+    (profile.measure_calls, profile.fill_calls, profile.shape_cache_misses),
+    (1, 0, 1)
+  );
+  assert!(profile.glyph_prepare > Duration::ZERO);
+  assert_eq!(profile.bitmap_composition, Duration::ZERO);
+  assert_eq!(profile.produced_bitmap_bytes, 0);
+}
