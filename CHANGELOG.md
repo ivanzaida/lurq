@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.33.0 — 2026-10-02
+
+- Fix text drawn from a stale layout after its width changes back. Text layout writes what it computes for the current width into the node's state: the ellipsized string, whether the renderer wraps, and the caret geometry of selectable text and text inputs. A layout served from the layout cache skipped that step, so the state kept what the last real layout, at another width, had written. A truncated label that got wider again kept its old ellipsis (`connect-to-…` in a 400px box), whether at the root, shrunk in a `Row` or in a component that re-renders on resize; text measured once without a width bound stopped wrapping; and selections, caret placement and clicks in selectable text and multiline inputs used the other width's line breaks. Each text leaf's layout result now carries its output, and serving a cached result writes it back.
+- Breaking: `LayoutResult` has a private field, so it can no longer be built with a struct literal outside lurq.
+
 ## 0.32.0 — 2026-10-02
 
 - Fix wrapped Row percentage-width children to resolve against finite parent content constraints, preserving natural compact sizing and wrapping for ordinary controls.
