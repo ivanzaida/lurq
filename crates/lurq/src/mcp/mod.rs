@@ -29,12 +29,16 @@ use std::{
 };
 
 mod discovery;
+mod file_dialogs;
 mod logs;
 mod registry;
 mod server;
 mod shared;
 mod tools;
 
+pub use file_dialogs::{
+  FileDialogBroker, FileDialogError, FileDialogFuture, FileDialogOperation, FileDialogRequest, FileDialogSelection,
+};
 pub use logs::{McpLogLayer, log_layer};
 use registry::{ToolKind, ToolRegistry};
 /// rmcp's schemars, re-exported so typed custom-tool inputs derive against
@@ -186,6 +190,7 @@ pub struct McpConfig {
   include_devtools: bool,
   instructions: Option<String>,
   tools: Vec<McpTool>,
+  file_dialogs: Option<FileDialogBroker>,
   #[cfg(feature = "router")]
   navigator: Option<crate::router::Navigator>,
 }
@@ -208,6 +213,7 @@ impl McpConfig {
       include_devtools: false,
       instructions: None,
       tools: Vec::new(),
+      file_dialogs: None,
       #[cfg(feature = "router")]
       navigator: None,
     }
@@ -261,6 +267,13 @@ impl McpConfig {
   /// prefix; duplicates and reserved names panic at [`Tree::enable_mcp`].
   pub fn tool(mut self, tool: McpTool) -> Self {
     self.tools.push(tool);
+    self
+  }
+
+  /// Opt normal app picker handlers into request-scoped MCP selection.
+  /// Also grant `Scope::custom("file_dialogs")`; no rfd call is intercepted.
+  pub fn file_dialogs(mut self, broker: FileDialogBroker) -> Self {
+    self.file_dialogs = Some(broker);
     self
   }
 
@@ -404,7 +417,11 @@ impl Tree {
   pub fn enable_mcp(&mut self, config: McpConfig) -> McpHandle {
     assert!(self.mcp.is_none(), "enable_mcp called twice on this tree");
 
-    let registry = Arc::new(build_registry(config.tools));
+    let mut registry = build_registry(config.tools);
+    if config.file_dialogs.is_some() {
+      registry.tools.extend(tools::file_dialogs::registered_tools());
+    }
+    let registry = Arc::new(registry);
     let app_name = config.app_name.unwrap_or_else(default_app_name);
     let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
     let shared = Arc::new(McpShared::new(
@@ -414,6 +431,10 @@ impl Tree {
       app_name,
       config.instructions,
     ));
+    if let Some(broker) = config.file_dialogs {
+      broker.attach(&shared);
+      *shared.file_dialogs.lock().unwrap() = Some(broker);
+    }
     #[cfg(feature = "router")]
     if let Some(navigator) = config.navigator {
       *shared.navigator.write().unwrap() = Some(navigator);
@@ -423,6 +444,11 @@ impl Tree {
     let server = match server::spawn(shared.clone(), registry.clone(), sender, config.port) {
       Ok(server) => server,
       Err(message) => {
+        shared.set_enabled(false);
+        let broker = shared.file_dialogs.lock().unwrap().clone();
+        if let Some(broker) = broker {
+          broker.shutdown();
+        }
         // A dead listener with a live handle beats poisoning app startup.
         tracing::error!("failed to start MCP server: {message}");
         self.mcp = Some(Box::new(McpState {
@@ -470,6 +496,7 @@ impl Tree {
   /// shell calls this every loop turn; headless harnesses call it between
   /// [`Tree::pass`] calls. Returns whether any request was handled.
   pub fn drain_mcp_requests(&mut self, app: &mut App) -> bool {
+    self.reconcile_file_dialogs();
     let Some(state) = self.mcp.take() else {
       return false;
     };
@@ -484,6 +511,7 @@ impl Tree {
 
   /// Resolve parked `lurq_wait` replies after a pass; runs on every tree.
   pub(crate) fn mcp_notify_pass(&mut self, report: &crate::app::runtime::PassReport) {
+    self.reconcile_file_dialogs();
     if self.mcp_wait_entries.is_empty() {
       return;
     }
@@ -529,17 +557,30 @@ impl Tree {
   /// this when the event loop exits; explicit callers (headless harnesses)
   /// may call it directly.
   pub fn shutdown_mcp(&mut self) {
-    let Some(state) = self.mcp.take() else {
+    let Some(mut state) = self.mcp.take() else {
       return;
     };
+    let broker = state.shared.file_dialogs.lock().unwrap().clone();
+    if let Some(broker) = broker {
+      broker.shutdown();
+    }
     if let Some(path) = &state.discovery_path {
       discovery::remove(path);
     }
-    if let Some(server) = state.server {
+    if let Some(server) = state.server.take() {
       server.cancel.cancel();
       // Wake the accept loop is not needed — cancellation resolves the
       // select. Give the thread a moment but never hang shutdown.
       let _ = server.join.join();
+    }
+  }
+}
+
+impl Drop for McpState {
+  fn drop(&mut self) {
+    let broker = self.shared.file_dialogs.lock().unwrap().clone();
+    if let Some(broker) = broker {
+      broker.shutdown();
     }
   }
 }

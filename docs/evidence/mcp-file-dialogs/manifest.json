@@ -1,0 +1,67 @@
+{
+  "source": "bf0c571e89567e3b73d13cc4752657514112e51b",
+  "tree": "42b7f8e4a8366e7af0b9683b1d85a864ecebae79",
+  "scope": "builder MCP16/window10/default check; independent protocol pending",
+  "artifacts": [
+    {
+      "path": "run1/dialogs.json",
+      "bytes": 406,
+      "sha256": "ea0f983a31fa0a56016e8dfe04e9fa7f84746df6ea92d92e6998a08462abdbb2"
+    },
+    {
+      "path": "run1/dialogs.log",
+      "bytes": 7974,
+      "sha256": "1dfd5236db95f30587a89aeb72b1e013a8a454e89a169dd8056fd29dbdf5607a"
+    },
+    {
+      "path": "run1/run.ps1",
+      "bytes": 1536,
+      "sha256": "bf8a0a6c501daef5b566aa60e576688c3fd4be68c9a8c374a9884d4ce135a273"
+    },
+    {
+      "path": "run2/default.json",
+      "bytes": 317,
+      "sha256": "72078778e29ce83fc4f0dde9baf827f159c30495daf28476f9c807f99299b5dc"
+    },
+    {
+      "path": "run2/default.log",
+      "bytes": 2798,
+      "sha256": "a7e6b6a078bd5e53d5e1951dc3c52c3b4d1c41ebde84d040bb521888b5e6feff"
+    },
+    {
+      "path": "run2/dialogs.json",
+      "bytes": 397,
+      "sha256": "e92aca642d6276e67eccdf34cb9eef18236013c7a003db901b5dbf1890bd6a5c"
+    },
+    {
+      "path": "run2/dialogs.log",
+      "bytes": 3276,
+      "sha256": "9046497ae9e5b72bc2ba40ba58bfb20167ca0d9f2cfde09f01e8f8ebca61eed2"
+    },
+    {
+      "path": "run2/run.ps1",
+      "bytes": 1631,
+      "sha256": "58570a29b34293b9ee4df787236bf6339bec34e6cd859c195ead733123455403"
+    },
+    {
+      "path": "run2/windows.json",
+      "bytes": 403,
+      "sha256": "19f2ffda3e8861b9d92158c47aac391a76154d2b84fe0b0ee2f1cce4e43a71e9"
+    },
+    {
+      "path": "run2/windows.log",
+      "bytes": 2524,
+      "sha256": "f28fe95af84a847ebfed2df002ba2c483977ca3b011121d7f0eaa7df2b972002"
+    },
+    {
+      "path": "report.md",
+      "bytes": 2752,
+      "sha256": "0519725ef091eb1aab348d249da5f1b4133aeffff5a9428673646f2898379b81"
+    },
+    {
+      "path": "manifest.py",
+      "bytes": 924,
+      "sha256": "538c1d36710eaa34cf57bba8241451ef7aa9d5fd503b9a17f56187a7bfea25f7"
+    }
+  ]
+}
