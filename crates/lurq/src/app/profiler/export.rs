@@ -1,7 +1,7 @@
 //! Versioned content-free JSON export, reusable outside the MCP transport.
 use serde_json::{Value, json};
 
-use super::{FrameProfile, model::*};
+use super::{CanvasAssetUploadProfile, FrameProfile, model::*};
 
 macro_rules! timings {
   ($value:expr; $($field:ident),* $(,)?) => {{
@@ -16,6 +16,19 @@ macro_rules! counts {
     $(map.insert(stringify!($field).into(), Value::from($value.$field));)*
     Value::Object(map)
   }};
+}
+
+impl CanvasAssetUploadProfile {
+  pub fn to_json(self) -> Value {
+    json!({
+      "cpu_timings_ms": timings!(self; texture_creation, pixel_packing, upload_staging_commands,
+        descriptor_writes, cache_eviction),
+      "counts": counts!(self; cache_hits, cache_misses, texture_creations, descriptor_pairs,
+        padded_upload_bytes, arena_uploads, dedicated_uploads, cache_evictions,
+        cache_charged_bytes_before, cache_charged_bytes_peak, cache_charged_bytes_after,
+        cache_entries_before, cache_entries_after)
+    })
+  }
 }
 
 impl BuildAvailability {
@@ -80,6 +93,7 @@ impl ProfileReport {
         "canvas_text": "synchronous Canvas text calls on the pass thread; total includes cache work and nested CPU stages; excludes engine lock wait, calls outside a pass and GPU work; bytes count newly produced final RGBA data only",
         "render_encode": "inclusive backend encoding; DX12 includes Canvas and atlas uploads; WGPU includes buffer/image uploads",
         "canvas": "CPU processing; recording includes uploads and WGPU submission; tessellation includes mesh cache lookup",
+        "canvas_asset_upload_details": "DX12 captured encodes only; four CPU subscopes nested in asset_upload; cache_eviction is outside asset_upload inside Canvas total; cache byte counters are policy charges, not GPU allocation/RSS; WGPU or uncaptured details are null",
         "submit_present": "CPU API wall time, not GPU execution",
         "fps": "on-demand rendering; sample count/interval is not throughput or FPS"
       }
@@ -120,6 +134,13 @@ fn sample_json(sample: &ProfileSample) -> Value {
 fn frame_json(frame: &FrameProfile, backend: &str) -> Value {
   let render = frame.render;
   let text = frame.glyph_engine;
+  let upload_details_available = cfg!(all(
+    feature = "canvas",
+    feature = "perf_profile",
+    feature = "dx12",
+    target_os = "windows"
+  )) && frame.render_profile_available
+    && backend == "dx12";
   json!({
     "cpu_timings_ms": timings!(frame; total, layout, quad_resolve, glyph_rasterize, gpu_submit),
     "legacy_gpu_submit_semantics": "CPU Canvas preparation + render call; not GPU time",
@@ -129,6 +150,7 @@ fn frame_json(frame: &FrameProfile, backend: &str) -> Value {
       "profile_available": frame.render_profile_available,
       "coverage": {
         "canvas_cpu": cfg!(feature = "canvas") && frame.render_profile_available && matches!(backend, "wgpu" | "dx12"),
+        "canvas_asset_upload_details": upload_details_available,
         "canvas_buffer_upload": "WGPU vertex/globals; DX12 vertex only (constants remain inside recording)",
         "ui_buffer_image_upload": "WGPU separate; DX12 included in encode without independent sub-timers",
         "gpu_execution": false
@@ -139,7 +161,10 @@ fn frame_json(frame: &FrameProfile, backend: &str) -> Value {
         glyph_atlas_full_uploads, glyph_atlas_arena_uploads, glyph_atlas_dedicated_uploads),
       "canvas": {
         "cpu_timings_ms": timings!(render.canvas; total, tessellation, asset_upload, buffer_upload, recording, submit),
-        "counts": counts!(render.canvas; batches, command_groups, vertices, tiles, uploaded_asset_bytes)
+        "counts": counts!(render.canvas; batches, command_groups, vertices, tiles, uploaded_asset_bytes),
+        "asset_upload_details": render.canvas.asset_upload_details
+          .filter(|_| upload_details_available)
+          .map(CanvasAssetUploadProfile::to_json)
       }
     },
     "text": {

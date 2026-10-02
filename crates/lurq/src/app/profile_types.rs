@@ -2,6 +2,9 @@
 
 use std::time::Duration;
 
+pub(crate) mod canvas_upload;
+pub use canvas_upload::CanvasAssetUploadProfile;
+
 #[derive(Clone, Default)]
 pub struct FrameProfile {
   pub layout: Duration,
@@ -132,6 +135,9 @@ pub struct CanvasProfile {
   pub tessellation: Duration,
   /// Creating/staging new image and text textures (CPU, not GPU completion).
   pub asset_upload: Duration,
+  /// DX12 detail only for an encode begun with a live profiling session.
+  /// None for WGPU, feature-disabled or uncaptured work; not a GPU metric.
+  pub asset_upload_details: Option<CanvasAssetUploadProfile>,
   /// Vertex and constant buffer preparation/staging.
   pub buffer_upload: Duration,
   /// Draw recording including uploads, tile planning and submission where present.

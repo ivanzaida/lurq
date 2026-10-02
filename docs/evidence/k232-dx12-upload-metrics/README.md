@@ -1,0 +1,23 @@
+# DX12 Canvas asset-upload breakdown — source checkpoint
+
+Worktree: `H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance`, branch `codex/k232-dx12-upload-metrics`, base actual upstream master `be8d47d54658501765c6a06f239f755abe96c9b1`. The old PR33 head was verified clean at `2e9da0d5e58f5bfbc8568c1890fc8531435b7bdc` before creating this branch. This work does not modify the frozen combined worktree, warm Kontur configuration, canonical upstream checkout or any Cargo cache.
+
+The measured Genuine18 / 01 Editor candidate upload scope previously reached 80–109 ms, including several operations. This change adds numeric attribution, not a performance fix or new measurement. Shared `CanvasAssetUploadProfile` is attached to `CanvasProfile::asset_upload_details` and exported through the existing content-free session model for MCP and future DevTools consumers.
+
+Four disjoint CPU detail timers surround existing texture creation, whole pixel allocation/row-copy/premultiplication, staging plus copy/barrier recording, and asset SRV-pair writes. All nest inside inclusive asset upload. Cache eviction is separately timed at the later existing budget loop, inside Canvas total. Cache hits/misses count prepared asset references, including repeats; descriptor pairs count distinct assets per group. Padded CPU payload bytes and arena/dedicated upload counts use actual staging outcomes. Existing charged cache bytes/entries are sampled before, at insert peaks and after eviction, without cache scans for accounting. Charges are not D3D12 allocation sizes or RSS. No asset identities, text, paths or content are retained.
+
+One active-session check at encode entry selects optional detail capture. An uncaptured encode performs no added detail clocks or collector locks. WGPU/custom/disabled detail exports are null, with explicit backend/build coverage. Existing coarse profile fields, session bounds, late-completion exclusion, resource lifetime, upload code, descriptor heaps and cache policy remain in place. An unfinished operation is still observed through its existing `canvas_asset_upload` phase; no per-asset global phase publication is added.
+
+Pre-existing handwritten file sizes: `dx12_render/canvas.rs` 1,132 lines, `profile_types.rs` 309, `profiler/export.rs` 166, `profiler/producer.rs` 291. Backend edits are narrow hooks in encode entry/budget eviction, draw asset-cache work and `upload_asset`. At this metrics-only checkpoint the modified Canvas file is 1,220 lines and does not satisfy the required 600-line limit; no upstream exception was found. This exact diff is preserved before a separate mechanical responsibility extraction. New model/test modules are 113/202 lines; other modified Rust files are below 600.
+
+Static rustfmt and source diff-check have passed. Rustfmt reports the repository's existing nightly-only setting warnings on the installed stable formatter. **Cargo tests, backend compilation, native execution and instrumentation overhead remain unexecuted at this source checkpoint.** The compiler lane belongs to another authorized actor. The new four enabled/two disabled contract tests use deterministic numeric aggregation and injected frame payloads to verify stage accumulation, cache accounting, idle/disabled absence, export coverage and nested windows/overlapping session immutability. They do not exercise actual D3D12 calls or establish native timings.
+
+Proposed focused commands, only after the parent grants the sole compiler lane and confirms existing H target/Cargo-home ownership:
+
+```text
+cargo test -p lurq --lib --locked --offline -j1 --features mcp,canvas,perf_profile profiling_canvas_upload -- --test-threads=1
+cargo test -p lurq --lib --locked --offline -j1 --features mcp,canvas profiling_canvas_upload -- --test-threads=1
+cargo check -p lurq --lib --locked --offline -j1 --features mcp,canvas,perf_profile,dx12
+```
+
+Use `CARGO_BUILD_JOBS=1`, `CARGO_INCREMENTAL=0`, dev/test debug=0, explicitly owned H `CARGO_TARGET_DIR`, `CARGO_HOME`, `TMP` and `TEMP`. The enabled core command should run four new tests; disabled should run two. The check validates the actual DX12 hook graph but supplies no native execution proof. Any later native diagnosis must retain exact source/binary/features/backend and the named fixture; matched overhead or GPU-duration claims require separate actual evidence.

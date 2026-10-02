@@ -4,6 +4,8 @@ use std::collections::VecDeque;
 use windows::Win32::Graphics::{Direct3D12::*, Dxgi::Common::*};
 
 use super::*;
+#[cfg(feature = "perf_profile")]
+use crate::app::profile_types::canvas_upload::{AssetUploadStage, CanvasAssetUploadProfile};
 use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
 
 struct Backing {
@@ -182,6 +184,13 @@ impl Renderer {
   }
   pub unsafe fn encode(&mut self, state: &mut Dx12State, canvases: &[CanvasHandle]) -> Result<()> {
     profile_if! { self.profile = Default::default(); }
+    profile_if! {
+      self.profile.asset_upload_details = CanvasAssetUploadProfile::capture(
+        self.profile_context.as_ref().is_some_and(|context| context.capture_active()),
+        self.asset_bytes,
+        self.assets.len(),
+      );
+    }
     let _process_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _phase = self
@@ -304,6 +313,8 @@ impl Renderer {
         }
       }
     }
+    #[cfg(feature = "perf_profile")]
+    let _eviction_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
     while self.asset_bytes > 64 * 1024 * 1024 {
       let Some(id) = self.assets.iter().min_by_key(|(_, a)| a.last).map(|(id, _)| *id) else {
         break;
@@ -311,6 +322,17 @@ impl Renderer {
       let asset = self.assets.remove(&id).unwrap();
       self.asset_bytes -= asset.bytes;
       state.canvas_retired[state.frame_index].push(asset.texture);
+      profile_if! {
+        if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+          detail.cache_evictions += 1;
+        }
+      }
+    }
+    profile_if! {
+      if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+        detail.add_stage(AssetUploadStage::CacheEviction, _eviction_start);
+        detail.cache_state(self.asset_bytes, self.assets.len());
+      }
     }
     profile_if! { self.profile.total = profile_elapsed!(_process_start); }
     Ok(())
@@ -570,6 +592,13 @@ impl Renderer {
     for draw in prepared.draws() {
       if let Some(asset) = &draw.asset {
         if !self.assets.contains_key(&asset.id) {
+          profile_if! {
+            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+              detail.cache_misses += 1;
+            }
+          }
+          #[cfg(feature = "perf_profile")]
+          let _texture_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
           let texture = texture(
             &state.device,
             asset.width,
@@ -578,7 +607,19 @@ impl Renderer {
             false,
             D3D12_RESOURCE_STATE_COPY_DEST,
           )?;
-          upload_asset(state, &texture, asset)?;
+          profile_if! {
+            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+              detail.add_stage(AssetUploadStage::TextureCreation, _texture_start);
+              detail.texture_creations += 1;
+            }
+          }
+          upload_asset(
+            state,
+            &texture,
+            asset,
+            #[cfg(feature = "perf_profile")]
+            self.profile.asset_upload_details.as_mut(),
+          )?;
           let bytes = asset.data.len().max(64 * 1024);
           self.asset_bytes += bytes;
           uploaded += asset.data.len();
@@ -590,12 +631,32 @@ impl Renderer {
               last: self.tick,
             },
           );
+          profile_if! {
+            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+              detail.cache_state(self.asset_bytes, self.assets.len());
+            }
+          }
+        } else {
+          profile_if! {
+            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+              detail.cache_hits += 1;
+            }
+          }
         }
         let cached = self.assets.get_mut(&asset.id).unwrap();
         cached.last = self.tick;
         let texture = cached.texture.clone();
         if let std::collections::hash_map::Entry::Vacant(entry) = assets.entry(asset.id) {
-          entry.insert(self.srv(state, &texture)?);
+          #[cfg(feature = "perf_profile")]
+          let _descriptor_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
+          let srv = self.srv(state, &texture)?;
+          profile_if! {
+            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+              detail.add_stage(AssetUploadStage::DescriptorWrites, _descriptor_start);
+              detail.descriptor_pairs += 1;
+            }
+          }
+          entry.insert(srv);
         }
       }
     }
@@ -906,7 +967,14 @@ fn copy_location(resource: &ID3D12Resource) -> D3D12_TEXTURE_COPY_LOCATION {
     Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
   }
 }
-unsafe fn upload_asset(state: &mut Dx12State, texture: &ID3D12Resource, asset: &Asset) -> Result<()> {
+unsafe fn upload_asset(
+  state: &mut Dx12State,
+  texture: &ID3D12Resource,
+  asset: &Asset,
+  #[cfg(feature = "perf_profile")] mut profile: Option<&mut CanvasAssetUploadProfile>,
+) -> Result<()> {
+  #[cfg(feature = "perf_profile")]
+  let _packing_start = CanvasAssetUploadProfile::start_timer(profile.as_deref());
   let pitch = (asset.width * 4).div_ceil(256) * 256;
   let mut data = vec![0u8; pitch as usize * asset.height as usize];
   for (src, dst) in asset
@@ -924,7 +992,22 @@ unsafe fn upload_asset(state: &mut Dx12State, texture: &ID3D12Resource, asset: &
       }
     }
   }
+  profile_if! {
+    if let Some(detail) = profile.as_deref_mut() {
+      detail.add_stage(AssetUploadStage::PixelPacking, _packing_start);
+    }
+  }
+  #[cfg(feature = "perf_profile")]
+  let _staging_start = CanvasAssetUploadProfile::start_timer(profile.as_deref());
+  #[cfg(feature = "perf_profile")]
+  let _dedicated_before = profile.as_ref().map(|_| state.frame_uploads[state.frame_index].len());
   let upload = state.upload_frame_bytes(&data, 512)?;
+  profile_if! {
+    if let Some(detail) = profile.as_deref_mut() {
+      let dedicated = state.frame_uploads[state.frame_index].len() > _dedicated_before.unwrap();
+      detail.uploaded(data.len(), dedicated);
+    }
+  }
   let mut dst = copy_location(texture);
   let mut src = D3D12_TEXTURE_COPY_LOCATION {
     pResource: ManuallyDrop::new(Some(upload.resource)),
@@ -950,6 +1033,11 @@ unsafe fn upload_asset(state: &mut Dx12State, texture: &ID3D12Resource, asset: &
     D3D12_RESOURCE_STATE_COPY_DEST,
     D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
   );
+  profile_if! {
+    if let Some(detail) = profile.as_deref_mut() {
+      detail.add_stage(AssetUploadStage::UploadStagingCommands, _staging_start);
+    }
+  }
   Ok(())
 }
 unsafe fn readback(
