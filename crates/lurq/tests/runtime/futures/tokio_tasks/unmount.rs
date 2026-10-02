@@ -1,10 +1,15 @@
 use std::{
+  sync::{Arc, Mutex, mpsc},
   thread,
   time::{Duration, Instant},
 };
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx},
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::{Ctx, FutureAction},
+  },
   components::Text,
   core::Signal,
   node::Element,
@@ -90,6 +95,70 @@ fn unmounting_after_the_runtime_shut_down_does_not_panic() {
   drop(tree);
 
   assert_eq!(probe.dropped(), 1);
+}
+
+/// Touches the action that owns the future it lives in when that future is dropped.
+struct TouchesOwnHandle(Arc<Mutex<Option<FutureAction<(), usize, String>>>>);
+
+impl Drop for TouchesOwnHandle {
+  fn drop(&mut self) {
+    let action = self.0.lock().unwrap().clone();
+    if let Some(action) = action {
+      action.is_active();
+      action.cancel();
+    }
+  }
+}
+
+/// Renders a `ctx.future_action` whose future touches the action itself when dropped.
+struct SelfTouching;
+
+impl Component for SelfTouching {
+  type Props = Probe;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let probe = ctx.props::<Probe>().clone();
+    let slot = probe.action.clone();
+    let action = ctx.future_action(move |()| {
+      let toucher = TouchesOwnHandle(slot.clone());
+      async move {
+        let _toucher = toucher;
+        Ok::<usize, String>(1)
+      }
+    });
+    *probe.action.lock().unwrap() = Some(action.clone());
+    let state = action.state().get();
+    Text::new(&label(state.status, state.data))
+  }
+}
+
+#[test]
+fn future_dropped_by_spawn_on_a_shut_down_runtime_may_touch_its_own_handle() {
+  let harness = Harness::mount::<SelfTouching>();
+  let action = harness.probe.action.lock().unwrap().clone().unwrap();
+  let Harness { runtime, mut tree, .. } = harness;
+  // Spawning on a runtime that is gone drops the future right away, on the calling thread.
+  drop(runtime);
+
+  let (done, finished) = mpsc::channel();
+  let runner = action.clone();
+  thread::spawn(move || {
+    runner.run(());
+    done.send(()).unwrap();
+  });
+
+  if finished.recv_timeout(Duration::from_secs(5)).is_err() {
+    // The deadlocked thread holds the task lock, and dropping the tree would wait for it.
+    std::mem::forget(tree);
+    panic!("run deadlocked while the dropped future touched its own handle");
+  }
+  // The dropped task never reports back; the next poll sees that and retires it.
+  tree.tick_futures();
+  assert!(!action.is_active());
 }
 
 #[test]

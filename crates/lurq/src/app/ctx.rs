@@ -903,25 +903,20 @@ impl AsyncTask {
 
   /// Replaces the running work with a future polled by `tick_futures`.
   fn set(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-    let replaced = {
-      let mut inner = self.inner.lock();
-      if inner.closed {
-        return;
-      }
-      std::mem::replace(
-        &mut inner.work,
-        AsyncWork {
-          future: Some(future),
-          #[cfg(feature = "tokio")]
-          tokio_task: None,
-        },
-      )
+    let work = AsyncWork {
+      future: Some(future),
+      #[cfg(feature = "tokio")]
+      tokio_task: None,
     };
-    drop(replaced);
+    self.replace_work(work);
   }
 
-  /// Replaces the running work with `future` spawned on `runtime`. Spawning
-  /// under the lock keeps a concurrent `close` from missing the new task.
+  /// Replaces the running work with `future` spawned on `runtime`.
+  ///
+  /// The task is spawned before the lock is taken: on a runtime that is gone,
+  /// `spawn` drops the future on this thread, and its destructors may use a
+  /// handle of this task. A `close` that lands between the spawn and the lock
+  /// is seen by `replace_work`, which then aborts the new task.
   #[cfg(feature = "tokio")]
   fn spawn(
     &self,
@@ -930,25 +925,34 @@ impl AsyncTask {
     receiver: mpsc::Receiver<FutureCompletion>,
     finish_on_message: bool,
   ) {
-    let replaced = {
+    if self.is_closed() {
+      return;
+    }
+    let spawned = TokioAsyncTask {
+      join: runtime.spawn(future),
+      receiver,
+      finish_on_message,
+    };
+    self.replace_work(AsyncWork {
+      future: None,
+      tokio_task: Some(spawned),
+    });
+  }
+
+  /// Makes `work` the running work, unless the task is closed. Whichever work
+  /// ends up unused (the replaced one, or `work` itself on a closed task) is
+  /// dropped once the lock is released: dropping it runs user destructors,
+  /// which may use a handle of this task.
+  fn replace_work(&self, work: AsyncWork) {
+    let unused = {
       let mut inner = self.inner.lock();
       if inner.closed {
-        return;
+        work
+      } else {
+        std::mem::replace(&mut inner.work, work)
       }
-      let join = runtime.spawn(future);
-      std::mem::replace(
-        &mut inner.work,
-        AsyncWork {
-          future: None,
-          tokio_task: Some(TokioAsyncTask {
-            join,
-            receiver,
-            finish_on_message,
-          }),
-        },
-      )
     };
-    drop(replaced);
+    drop(unused);
   }
 
   fn cancel(&self) {
@@ -1006,6 +1010,7 @@ impl AsyncTask {
     {
       let mut completion = None;
       let mut disconnected = false;
+      let mut finished = None;
       {
         let mut inner = self.inner.lock();
         if let Some(task) = inner.work.tokio_task.as_mut() {
@@ -1021,9 +1026,10 @@ impl AsyncTask {
           }
         }
         if disconnected {
-          inner.work.tokio_task = None;
+          finished = inner.work.tokio_task.take();
         }
       }
+      drop(finished);
 
       if let Some(completion) = completion {
         completion();

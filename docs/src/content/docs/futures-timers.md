@@ -202,7 +202,7 @@ Futures, streams, and future actions belong to the component that renders them. 
 - a render no longer reaches its call: the component makes fewer `ctx.future`, `ctx.stream`, and `ctx.future_action` calls than before, or a different one at that position,
 - its component unmounts, which includes mounting another root and dropping the `Tree`.
 
-A cancelled task's result is never applied. With a Tokio handle, cancelling aborts the Tokio task: it stops the next time it waits at an `.await`, and the runtime drops its future, so a stream does not have to reach its next `emit` to stop. `.run(args)` on a `FutureAction` whose component has unmounted does nothing.
+A cancelled task's result is never applied. With a Tokio handle, cancelling aborts the Tokio task: it stops the next time it yields to the runtime, at an `.await` whose future is not ready yet, and the runtime drops its future, so a stream does not have to reach its next `emit` to stop. Code between such points keeps running until it yields: CPU-bound work, or a loop whose `.await`s are always ready, is not interrupted. `.run(args)` on a `FutureAction` whose component has unmounted does nothing.
 
 An offstage component (`ctx.mount_offstage`, `Router::mount_offstage`) is still mounted, so its tasks are not cancelled, but its futures are not polled until it is active again. A future or stream polled cooperatively (without a Tokio handle) waits. A task already running on Tokio keeps running, and what it produced while offstage is applied, in order, once the component is active again. Removing an offstage component unmounts it and cancels its tasks.
 
