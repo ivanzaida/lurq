@@ -1,0 +1,124 @@
+{
+  "result": "SCOPED_PASS_CLOSED_DIAGNOSTIC_IDENTITY_AND_METRIC_CONSISTENCY",
+  "fixture": "Genuine18 / 01 Editor",
+  "build": {
+    "kontur_head": "61d73d08b7c047d6c62ad55d6ed127a495881772",
+    "lurq_head": "644ff6613411e28dc3035c0c910df64fcf915b51",
+    "launcher": {
+      "mode": "local-lurq + perf_profile",
+      "local_crate": "H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq",
+      "cwd": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces",
+      "executable": "cargo",
+      "args": [
+        "run",
+        "-p",
+        "kontur-desktop",
+        "--bin",
+        "kontur-desktop",
+        "-j1",
+        "--config",
+        "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq\"",
+        "--features",
+        "lurq/perf_profile",
+        "--locked",
+        "--offline"
+      ],
+      "target": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\target",
+      "temp": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\rust-temp",
+      "preview": false
+    },
+    "executable": "cargo",
+    "args": [
+      "build",
+      "--release",
+      "-p",
+      "kontur-desktop",
+      "--bin",
+      "kontur-desktop",
+      "-j1",
+      "--config",
+      "patch.crates-io.lurq.path=\"H:/projects/pencil-web/.codex/worktrees/lurq-canvas-text-performance/crates/lurq\"",
+      "--features",
+      "lurq/perf_profile",
+      "--locked",
+      "--offline"
+    ],
+    "registry_lock_sha256": "f7229f6464dab118725c5d4436f97dcd450c388cdf25407e3813396caa75df50",
+    "configured_env_sha256": "055b967168508d226e60a53c5fb1cef62966fcd88709209b31c33b7decce7722",
+    "local_source_override_scope": "process only; configured .env.desktop unchanged",
+    "local_lock_sha256": "f0e1a4b5c6fac98f067bf97bfc4444b2599e14b7099d16f1b99d53c540d948f1",
+    "binary_sha256": "e1de508381460bad06aaa10b38bc0c7ef68bcd10ce7b84541effcbe5125658ae",
+    "started_utc": "2026-10-02T17:46:26.504Z",
+    "finished_utc": "2026-10-02T17:54:18.545Z",
+    "exit_code": 0
+  },
+  "completed_records": 42,
+  "pass_records": 11,
+  "max_pass_ms": 222.53609999999998,
+  "cpu_totals_ms": {
+    "cache_eviction": 1.5034,
+    "descriptor_writes": 3.2237,
+    "pixel_packing": 4.2459,
+    "texture_creation": 388.601,
+    "upload_staging_commands": 12.7517
+  },
+  "coarse_asset_upload_ms": 410.6553,
+  "child_sum_ms": 408.8223,
+  "unattributed_parent_residual_ms": 1.8330000000000268,
+  "event_counts": {
+    "cache_hits": 248,
+    "cache_misses": 1238,
+    "texture_creations": 1238,
+    "descriptor_pairs": 1256,
+    "padded_upload_bytes": 14143488,
+    "arena_uploads": 1238,
+    "dedicated_uploads": 0,
+    "cache_evictions": 1237
+  },
+  "uploaded_asset_bytes": 11762496,
+  "texture_share_of_asset_upload_percent": 94.62948609210693,
+  "pixel_comparison": {
+    "dimensions": [
+      1404,
+      1257
+    ],
+    "different_pixels": 4611,
+    "bbox": [
+      589,
+      1147,
+      692,
+      1196
+    ],
+    "pixel_exact_roundtrip": false
+  },
+  "viewport_identity": {
+    "page": "10436fe8-bb35-4281-be38-0bbd5dad62d3",
+    "zoom": "14",
+    "pan_x": "128.6",
+    "pan_y": "48.0",
+    "visible_items": "1492",
+    "render_instances": "1492",
+    "renderer": "dx12",
+    "selection": "",
+    "text_faces": "kontur-40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82,kontur-9\u2026",
+    "text_refusal": "",
+    "canvas_error": ""
+  },
+  "document_hashes": {
+    "document": "3ed4679c841bb21af02a02d45c5c5c6d2b3a0504dc1ba78f1b08db4ea12c516f",
+    "ledger": "bd90d3e08d5495594c0d28717ae53e76a84517250397a69bbf855661118d7ea6"
+  },
+  "cleanup": {
+    "pid": 35808,
+    "stop": "terminated by harness",
+    "exited": true,
+    "port_closed": true
+  },
+  "external_compilers_present": true,
+  "builder_seal": {
+    "path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\closed-selected-payloads.json",
+    "sha256": "2c4c44c90774a8f824d2517aa2a89d81aeb01df3d6e59f035c6bc28dc23b5805",
+    "verified_raw_payloads": 62
+  },
+  "claim_scope": "diagnostic CPU API wall times under uncontrolled load; no GPU duration, speedup or controlled regression claim"
+}

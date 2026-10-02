@@ -1,7 +1,11 @@
 #![cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
 #[cfg(all(
   feature = "canvas",
-  any(feature = "perf_profile", feature = "wgpu", all(feature = "dx12", target_os = "windows"))
+  any(
+    feature = "perf_profile",
+    feature = "wgpu",
+    all(feature = "dx12", target_os = "windows")
+  )
 ))]
 use std::sync::atomic::Ordering;
 use std::{
@@ -22,8 +26,13 @@ pub struct ProfileContext {
 
 impl ProfileContext {
   #[cfg(all(feature = "canvas", feature = "perf_profile"))]
+  pub(crate) fn capture_active(&self) -> bool {
+    self.handle.inner.active.load(Ordering::Acquire)
+  }
+
+  #[cfg(all(feature = "canvas", feature = "perf_profile"))]
   pub(crate) fn canvas_text_scope(&self) -> super::canvas_text::PassScope {
-    super::canvas_text::PassScope::new(self.handle.inner.active.load(Ordering::Acquire))
+    super::canvas_text::PassScope::new(self.capture_active())
   }
   pub fn phase(&self, phase: Phase) -> PhaseGuard {
     let previous = self.handle.enter_phase(&self.window, self.frame_id, phase);

@@ -1,7 +1,9 @@
-pub use crate::app::profile_types::{FrameProfile, RenderProfile, RuntimeMemoryProfile};
+pub use crate::app::profile_types::{CanvasAssetUploadProfile, FrameProfile, RenderProfile, RuntimeMemoryProfile};
 
 #[cfg(all(feature = "canvas", feature = "perf_profile"))]
 pub(crate) mod canvas_text;
+#[cfg(test)]
+mod canvas_upload_tests;
 mod collector;
 #[cfg(any(feature = "serde", feature = "mcp"))]
 mod export;

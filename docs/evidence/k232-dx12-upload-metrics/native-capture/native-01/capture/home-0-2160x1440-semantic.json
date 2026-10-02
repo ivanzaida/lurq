@@ -1,0 +1,65 @@
+{
+  "window": {
+    "width": 2160,
+    "height": 1440,
+    "scale_factor": 1.5
+  },
+  "control": {
+    "actions": [
+      "invoke"
+    ],
+    "attrs": [
+      [
+        "available",
+        "true"
+      ],
+      [
+        "pending",
+        "false"
+      ]
+    ],
+    "bounds": [
+      1913.0,
+      240.0,
+      175.0,
+      51.0
+    ],
+    "children": [
+      {
+        "actions": [],
+        "bounds": [
+          1934.0,
+          253.0,
+          133.0,
+          25.0
+        ],
+        "id": null,
+        "name": "New document",
+        "ref": "ref_63",
+        "role": "text",
+        "state": {}
+      }
+    ],
+    "id": "new-document",
+    "name": "New document",
+    "ref": "ref_62",
+    "role": "button",
+    "state": {}
+  },
+  "labels": [
+    {
+      "actions": [],
+      "bounds": [
+        1934.0,
+        253.0,
+        133.0,
+        25.0
+      ],
+      "id": null,
+      "name": "New document",
+      "ref": "ref_63",
+      "role": "text",
+      "state": {}
+    }
+  ]
+}

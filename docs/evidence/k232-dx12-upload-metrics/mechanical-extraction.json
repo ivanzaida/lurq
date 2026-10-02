@@ -1,0 +1,35 @@
+{
+  "checkpoint": "dc0a0e5c2b29bb6efd37c504fc69a386b39aee30",
+  "moved_function_bodies_identical_after_format": true,
+  "remaining_parent_tokens_identical": true,
+  "only_adaptations": [
+    "private module visibility/imports",
+    "rustfmt create_srv signature wrapping",
+    "shader relative path resolving to identical HLSL"
+  ],
+  "file_lines": {
+    "crates/lurq/src/app/dx12_render/canvas.rs": 587,
+    "crates/lurq/src/app/dx12_render/canvas/draw.rs": 297,
+    "crates/lurq/src/app/dx12_render/canvas/resources.rs": 241,
+    "crates/lurq/src/app/dx12_render/canvas/pipeline.rs": 117
+  },
+  "files": {
+    "crates/lurq/src/app/dx12_render/canvas.rs": {
+      "bytes": 20307,
+      "sha256": "90a290780d2744a7b1989aef82c4cc569aab7440543a9a80214138c87c5cb357"
+    },
+    "crates/lurq/src/app/dx12_render/canvas/draw.rs": {
+      "bytes": 11356,
+      "sha256": "fb772cb92155a25db2d1b81ebb4d945643c56ee3f978f38f5e340724e0d02830"
+    },
+    "crates/lurq/src/app/dx12_render/canvas/resources.rs": {
+      "bytes": 7113,
+      "sha256": "9f2f273bf02889ebeccbbf0ad19b0266d4dd8393924d7bb43cc8091c048c9144"
+    },
+    "crates/lurq/src/app/dx12_render/canvas/pipeline.rs": {
+      "bytes": 3938,
+      "sha256": "2f1e18bc668ff2b86fee4337d3696f60c38105331747616d5457a71b2e95d20b"
+    }
+  },
+  "Cargo_backend_native": "unexecuted"
+}

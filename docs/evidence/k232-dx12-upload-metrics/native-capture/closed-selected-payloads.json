@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "observed_utc": "2026-10-02T17:57:36.3527883Z",
+  "scope": "Closed actual PR34 diagnostic packet; original payload bytes hashed without normalization; fixture profiles/databases/discovery/binary/full metadata graph excluded",
+  "controller_terminal": 91605,
+  "build_terminal": 48841,
+  "selected_payload_count": 62,
+  "selected_payload_bytes": 1084554,
+  "payloads": [
+    {
+      "path": "build_integration.mjs",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\build_integration.mjs",
+      "bytes": 8300,
+      "sha256": "583866b0c17e6f81ea183753c59a28575eabee725f88820a25afe4b991228647"
+    },
+    {
+      "path": "smoke.py",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\smoke.py",
+      "bytes": 12762,
+      "sha256": "2ee4079a6e7af37555902665e3947cda987a574dd822086c29812c0cf79656dd"
+    },
+    {
+      "path": "prep-source.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\prep-source.json",
+      "bytes": 1639,
+      "sha256": "8467f85c58fa6e667662c7b3fe7fcddcc9175582258ec1e4a0ce5f1def849f5c"
+    },
+    {
+      "path": "prepare-console.log",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\prepare-console.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "prepared.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\prepared.json",
+      "bytes": 2393,
+      "sha256": "e703903c4e0b1375d9a265730e782c32ae2874b5ecb8b397d1f5891a79b6805e"
+    },
+    {
+      "path": "prepare-cleanup.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\prepare-cleanup.json",
+      "bytes": 100,
+      "sha256": "0e070b7ef3f5706827b083cbc1f39eb7a78bd7cf17794806511438518105dde3"
+    },
+    {
+      "path": "Cargo.lock.registry",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\Cargo.lock.registry",
+      "bytes": 198026,
+      "sha256": "f7229f6464dab118725c5d4436f97dcd450c388cdf25407e3813396caa75df50"
+    },
+    {
+      "path": "Cargo.lock.local",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\Cargo.lock.local",
+      "bytes": 197740,
+      "sha256": "f0e1a4b5c6fac98f067bf97bfc4444b2599e14b7099d16f1b99d53c540d948f1"
+    },
+    {
+      "path": "build.log",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\build.log",
+      "bytes": 2388,
+      "sha256": "0ac310515e776b45fed594fe4f03714f6cf138244955c6c3049fdc02824a7761"
+    },
+    {
+      "path": "identity.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\identity.json",
+      "bytes": 1878,
+      "sha256": "68e51fef2fea27d4f0b1868b5c3aa86be24c225f90b48d47531398ea218658d2"
+    },
+    {
+      "path": "build-cleanup.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\build-cleanup.json",
+      "bytes": 100,
+      "sha256": "756b7bfd595d6daaa111dab720595c69af38780990b3f50a024bd1f916bbe9b9"
+    },
+    {
+      "path": "sdk-preflight.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\sdk-preflight.json",
+      "bytes": 506,
+      "sha256": "dd2dea7e1f0e01308699d948266fec376c22b4987d891ec2667a56bf7239b5f5"
+    },
+    {
+      "path": "native-01-console.log",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01-console.log",
+      "bytes": 96,
+      "sha256": "72c34eea6ebfc0240d6755c6689c171af952affba60b5facdec22a98d7fafb70"
+    },
+    {
+      "path": "native-01/frozen-inputs.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\frozen-inputs.json",
+      "bytes": 3553,
+      "sha256": "41f83f91b4b85b64b2758b602cc326489c3a4a31a7d006551632358303c42d9f"
+    },
+    {
+      "path": "native-01/smoke-result.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\smoke-result.json",
+      "bytes": 246,
+      "sha256": "7940f89cde2d543a71bfd49f20d792fd2f81aa0bf92457c0186cb16255e9f588"
+    },
+    {
+      "path": "native-01/capture/availability.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2"
+    },
+    {
+      "path": "native-01/capture/integration-runtime-availability.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\integration-runtime-availability.json",
+      "bytes": 697,
+      "sha256": "aa3637e63e9c1216b0dc5c6af02f6da8512d5dd340811ff5f52c611047e745f2"
+    },
+    {
+      "path": "native-01/capture/launch.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\launch.json",
+      "bytes": 523,
+      "sha256": "b15c6f13800c39e6d1cb44c905394858db9de72b3e2a6d154d8b9eb3ceb842de"
+    },
+    {
+      "path": "native-01/capture/runtime-inventory-home.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\runtime-inventory-home.json",
+      "bytes": 3229,
+      "sha256": "dbd367ef3411befc20642ae287ad336e12b8f6e60757423ed73be0a3742c29be"
+    },
+    {
+      "path": "native-01/capture/runtime-inventory-before-canvas.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\runtime-inventory-before-canvas.json",
+      "bytes": 3229,
+      "sha256": "c3662f51dc99e0126c817ea7e8d208dec690758d7296e3e03e227943005a031a"
+    },
+    {
+      "path": "native-01/capture/document-open.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\document-open.json",
+      "bytes": 405,
+      "sha256": "8c3be96a83dd39152e93c27762b9e8cb86124d1bea684d90479fbb8fb48ed9b7"
+    },
+    {
+      "path": "native-01/capture/window-00.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\window-00.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75"
+    },
+    {
+      "path": "native-01/capture/window-after.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\window-after.json",
+      "bytes": 231,
+      "sha256": "8d95233eba917ff50fee5287678bc57353fd6355606543b21e49e856b5a42b75"
+    },
+    {
+      "path": "native-01/capture/home-resize-summary.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-resize-summary.json",
+      "bytes": 1346,
+      "sha256": "17793341f78b31c6e058fab1404dbcbf27b4b2b2cd7ba0a7bbfe183d5b70f035"
+    },
+    {
+      "path": "native-01/capture/before.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\before.json",
+      "bytes": 1567,
+      "sha256": "cf9018fa4bfe5d0bd3dc65b44e6a703d4c15083340625f1706d91d1a3f497bc7"
+    },
+    {
+      "path": "native-01/capture/before-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\before-image.json",
+      "bytes": 228,
+      "sha256": "c885a1df0ad4c0241bfff40472f830ca9e3e0929857ff9ac14eb8ebbacd1abf6"
+    },
+    {
+      "path": "native-01/capture/before.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\before.png",
+      "bytes": 217571,
+      "sha256": "8b918ae5cc483dcd14238e0d95d8e6528d2e78422a7094e33a511131fd3c0d2c"
+    },
+    {
+      "path": "native-01/capture/after-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\after-image.json",
+      "bytes": 228,
+      "sha256": "31788d06f1101e5bae0a719d32169985a72268818c74e840d5e9070e36aa259b"
+    },
+    {
+      "path": "native-01/capture/after.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\after.png",
+      "bytes": 217620,
+      "sha256": "fdae83d01dc97884a7bb0639f7853956f62e58ee2e14953641e2bec29822be20"
+    },
+    {
+      "path": "native-01/capture/pair-profile.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\pair-profile.json",
+      "bytes": 99603,
+      "sha256": "ea103de459f59341aa05c04436fe7c31fbe0aa9cdeef99501e15a9f417c33830"
+    },
+    {
+      "path": "native-01/capture/idle-profile.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\idle-profile.json",
+      "bytes": 2808,
+      "sha256": "664d04eea809c168992602c43ee2848d1aa54a6da2e55e5268020cd296f8956f"
+    },
+    {
+      "path": "native-01/capture/summary.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\summary.json",
+      "bytes": 5869,
+      "sha256": "c2f112e25787145d2d34dbf0474480f1cf43b1f8ec6c993f0c9c8ab2a607feea"
+    },
+    {
+      "path": "native-01/capture/canvas-stages.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\canvas-stages.json",
+      "bytes": 318,
+      "sha256": "2d1d63e2caaef887fbd3d360031c699bb69d5a36e9285266fa61684c1817d61d"
+    },
+    {
+      "path": "native-01/capture/canvas-text-totals.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\canvas-text-totals.json",
+      "bytes": 397,
+      "sha256": "682f1f343bf17ff6ed62524922a13e8d63975373dccb9c4e9bbfa22316341ab3"
+    },
+    {
+      "path": "native-01/capture/top-cost-passes.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\top-cost-passes.json",
+      "bytes": 36570,
+      "sha256": "47f1fc60c0228bc4f8206660110875e924c5ddb0b1c9f7d3567ebc2e72290398"
+    },
+    {
+      "path": "native-01/capture/upload-details.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\upload-details.json",
+      "bytes": 14896,
+      "sha256": "d989d2d0ea020f733bc4ed38da4ee749eebcdffc942e03211d68a0f25d7d6924"
+    },
+    {
+      "path": "native-01/capture/tool-latencies.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\tool-latencies.json",
+      "bytes": 10656,
+      "sha256": "2b6af75a8e329389ea5a4328a141bc32eaccc7454ec64c21bd82c2ec00cabd3e"
+    },
+    {
+      "path": "native-01/capture/before-launch-hashes.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\before-launch-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e"
+    },
+    {
+      "path": "native-01/capture/after-run-hashes.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\after-run-hashes.json",
+      "bytes": 167,
+      "sha256": "e7cd7ec8b32b10141a3bdfaca49d6afd1af22a18b49d2746e800d923f371022e"
+    },
+    {
+      "path": "native-01/capture/cleanup.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\cleanup.json",
+      "bytes": 99,
+      "sha256": "a53ba109cd9bf7d1b04a39b999e8cf30d35fa3bf2b0c7b737fa559d5954a85c3"
+    },
+    {
+      "path": "native-01/capture/result.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\result.json",
+      "bytes": 29,
+      "sha256": "c78db57fdeeff4237621d33b4461b140c528b34dfa4d48749abfd003e2dfabc9"
+    },
+    {
+      "path": "native-01/capture/stderr.txt",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\stderr.txt",
+      "bytes": 1304,
+      "sha256": "6917bfecb5de0d9e83343721cd5f9631f5ce95b72f3727bf8d352634dc30369c"
+    },
+    {
+      "path": "native-01/capture/opened-settle-001.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\opened-settle-001.json",
+      "bytes": 1309,
+      "sha256": "df06fb4980f8c19db596b353c6a5605e201d143cb0a05b2f2a8fb9671479c718"
+    },
+    {
+      "path": "native-01/capture/reset-settle-001.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\reset-settle-001.json",
+      "bytes": 1297,
+      "sha256": "747a6f130b6eb04f0c74d503831661d4729ca2781209bff9ad1bf9c534cff35a"
+    },
+    {
+      "path": "native-01/capture/measured-canvas-zoom-out-settle-001.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\measured-canvas-zoom-out-settle-001.json",
+      "bytes": 1313,
+      "sha256": "226229b31ad9bc47371eeefe9c7cd975b860664b172259e9460f89bf60659996"
+    },
+    {
+      "path": "native-01/capture/measured-canvas-zoom-in-settle-001.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\measured-canvas-zoom-in-settle-001.json",
+      "bytes": 1313,
+      "sha256": "fc157f34957d60b596121ec484e8004fd85c982572e87645570adeb07ec62c02"
+    },
+    {
+      "path": "native-01/capture/after-final-screenshot-settle-001.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\after-final-screenshot-settle-001.json",
+      "bytes": 1313,
+      "sha256": "fc157f34957d60b596121ec484e8004fd85c982572e87645570adeb07ec62c02"
+    },
+    {
+      "path": "native-01/capture/home-0-2160x1440-semantic.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-0-2160x1440-semantic.json",
+      "bytes": 1052,
+      "sha256": "bd1afa1cdb991b3434067adef78a2f94b9c3a47cc81b97c562c3d74cc7a462a2"
+    },
+    {
+      "path": "native-01/capture/home-0-2160x1440-control-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-0-2160x1440-control-image.json",
+      "bytes": 250,
+      "sha256": "fcd6e19f22bd5652940a668def366324afa199a9b2cd3dee58a5e1b8cb5259bc"
+    },
+    {
+      "path": "native-01/capture/home-0-2160x1440-control.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-0-2160x1440-control.png",
+      "bytes": 4144,
+      "sha256": "3db74f3f853b2164142caf83ac84d0d6a6d5e8694f492ca4b6609c6c1986b90c"
+    },
+    {
+      "path": "native-01/capture/home-0-2160x1440-label-0-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-0-2160x1440-label-0-image.json",
+      "bytes": 250,
+      "sha256": "a29b73303e19eccdc6b7c4a28e39538ff096a6676fa962c3f3afb571d16a0b08"
+    },
+    {
+      "path": "native-01/capture/home-0-2160x1440-label-0.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-0-2160x1440-label-0.png",
+      "bytes": 3501,
+      "sha256": "cacc43d0e5388e10e817ae8a62635fc74394c1f2ec14eed2d5de76d9f761bfe9"
+    },
+    {
+      "path": "native-01/capture/home-1-1800x1200-semantic.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-1-1800x1200-semantic.json",
+      "bytes": 1055,
+      "sha256": "5035c51ab50eb37fe55675df67767f2aa27a9de496e27e74e93eafd3bae5814a"
+    },
+    {
+      "path": "native-01/capture/home-1-1800x1200-control-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-1-1800x1200-control-image.json",
+      "bytes": 250,
+      "sha256": "8507319f32529a835570bd856fddb99825c9e9821432421e94fea6c4f98dcda8"
+    },
+    {
+      "path": "native-01/capture/home-1-1800x1200-control.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-1-1800x1200-control.png",
+      "bytes": 4144,
+      "sha256": "3db74f3f853b2164142caf83ac84d0d6a6d5e8694f492ca4b6609c6c1986b90c"
+    },
+    {
+      "path": "native-01/capture/home-1-1800x1200-label-0-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-1-1800x1200-label-0-image.json",
+      "bytes": 250,
+      "sha256": "13a8158dd46be2bfb9b05cc4844b9ca6fbb9b594ac24e9886dbde7f17184ff76"
+    },
+    {
+      "path": "native-01/capture/home-1-1800x1200-label-0.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-1-1800x1200-label-0.png",
+      "bytes": 3501,
+      "sha256": "cacc43d0e5388e10e817ae8a62635fc74394c1f2ec14eed2d5de76d9f761bfe9"
+    },
+    {
+      "path": "native-01/capture/home-2-2160x1440-semantic.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-2-2160x1440-semantic.json",
+      "bytes": 1055,
+      "sha256": "9bd63e5eef4511582fe3020e7c0eeb7fe9a8fe46d2da23175a6e25d0be337395"
+    },
+    {
+      "path": "native-01/capture/home-2-2160x1440-control-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-2-2160x1440-control-image.json",
+      "bytes": 250,
+      "sha256": "fcd6e19f22bd5652940a668def366324afa199a9b2cd3dee58a5e1b8cb5259bc"
+    },
+    {
+      "path": "native-01/capture/home-2-2160x1440-control.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-2-2160x1440-control.png",
+      "bytes": 4144,
+      "sha256": "3db74f3f853b2164142caf83ac84d0d6a6d5e8694f492ca4b6609c6c1986b90c"
+    },
+    {
+      "path": "native-01/capture/home-2-2160x1440-label-0-image.json",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-2-2160x1440-label-0-image.json",
+      "bytes": 250,
+      "sha256": "a29b73303e19eccdc6b7c4a28e39538ff096a6676fa962c3f3afb571d16a0b08"
+    },
+    {
+      "path": "native-01/capture/home-2-2160x1440-label-0.png",
+      "executed_path": "H:\\projects\\pencil-web\\.codex\\worktrees\\k222-composed-surfaces\\.tmp\\k232-profiler-candidate\\dx12-upload-034\\native-01\\capture\\home-2-2160x1440-label-0.png",
+      "bytes": 3501,
+      "sha256": "cacc43d0e5388e10e817ae8a62635fc74394c1f2ec14eed2d5de76d9f761bfe9"
+    }
+  ]
+}

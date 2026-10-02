@@ -1,0 +1,11 @@
+{
+  "png_sha256": "cacc43d0e5388e10e817ae8a62635fc74394c1f2ec14eed2d5de76d9f761bfe9",
+  "bounds": [
+    1934.0,
+    253.0,
+    133.0,
+    25.0
+  ],
+  "name": "New document",
+  "scope": "authenticated bounded PNG readback; no click/create"
+}

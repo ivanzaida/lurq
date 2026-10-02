@@ -1,0 +1,9 @@
+# Independent upload metrics QA
+
+Scoped PASS on `a83cee4af0c194665b12f6084459bdcb5a184386`, tree `043134c33dab1e938448507a54589e365b52727d`. No remaining concrete source blocker found within this metrics/extraction slice.
+
+The repaired candidate passes both real Windows DX12 library configurations: `mcp,canvas,perf_profile,dx12` and `mcp,canvas,dx12`, locked/offline/single-job using the assigned warm H cache. Four enabled and two disabled profiling contracts executed successfully on `9b1affb` and carry because the sole repair adds a private DX12 import; model, collector, export and test sources are byte-identical. Original E0425 failure and exact commands remain in the separate immutable failed-head packet.
+
+Source review finds the four CPU detail timings disjoint inside inclusive asset_upload, with eviction outside asset_upload but inside Canvas total. Counters describe successful submitted operations and cache policy charges, not GPU elapsed time or resident memory. Availability/backend/disabled gating, repeated group aggregation and overlapping-window immutable-session cases are covered by the scoped contracts. There are no IDs, paths, text or image content in the new exported numeric fields. The 21-function extraction body comparison remains intact; the original missing-import failure shows why body comparison alone was insufficient.
+
+No native render or GPU measurements were executed by this reviewer. No speedup, zero-overhead, GPU allocation or whole-desktop acceptance claim is made. Native correlation remains a separate gate. Session 8862 terminated successfully; tracked source and Cargo.lock remain clean and unchanged. The compiler lane is released, external processes preserved, and QA made no implementation changes.
