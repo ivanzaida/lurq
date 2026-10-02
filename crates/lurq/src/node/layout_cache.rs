@@ -4,10 +4,21 @@ use crate::layout::{Constraints, layout_result::LayoutResult};
 
 const MAX_CACHED_LAYOUTS: usize = 2;
 
+/// Up to two layout results of one node, most recently used first.
+///
+/// The front entry is the layout the node was last laid out as or served
+/// from, so its constraints are the ones the node's parent last gave it.
 pub struct LayoutCache {
   inner: RefCell<Vec<CachedLayout>>,
   local_dirty: Cell<bool>,
   descendant_dirty: Cell<bool>,
+  /// Whether every descendant cache's front entry belongs to this cache's
+  /// front entry, i.e. no older entry was served since the last store.
+  /// Serving an older entry skips the descendants, so their front entries
+  /// still describe the layout they were last visited in (another size of
+  /// this node), and repairing a dirty descendant under them would lay it
+  /// out for that other size.
+  descendants_match_front: Cell<bool>,
 }
 
 #[derive(Clone)]
@@ -22,14 +33,24 @@ impl LayoutCache {
       inner: RefCell::new(Vec::new()),
       local_dirty: Cell::new(false),
       descendant_dirty: Cell::new(false),
+      descendants_match_front: Cell::new(true),
     }
   }
 
+  /// Serves the entry laid out under `constraints` and makes it the front
+  /// entry, so the constraints of the layout last served stay first.
   pub fn get(&self, constraints: Constraints) -> Option<LayoutResult> {
     if self.is_dirty() {
       return None;
     }
-    self.get_cached(constraints)
+    let mut entries = self.inner.borrow_mut();
+    let index = entries.iter().position(|cached| cached.constraints == constraints)?;
+    if index > 0 {
+      let served = entries.remove(index);
+      entries.insert(0, served);
+      self.descendants_match_front.set(false);
+    }
+    Some(entries[0].result.clone())
   }
 
   pub(crate) fn contains(&self, constraints: Constraints) -> bool {
@@ -43,18 +64,39 @@ impl LayoutCache {
       .any(|cached| cached.constraints == constraints)
   }
 
-  pub(crate) fn get_dirty(&self, constraints: Constraints) -> Option<LayoutResult> {
-    self.get_cached(constraints)
+  /// Records that the parent reused `result`, this node's layout under
+  /// `constraints` from earlier in the parent's layout, instead of laying
+  /// the node out again (a repaired child's override). Like a hit, it makes
+  /// those constraints the front ones: the parent may have laid the node out
+  /// under other constraints in between, and its next repair must not use
+  /// them. The entry is put back if those layouts pushed it out.
+  pub(crate) fn record_reuse(&self, constraints: Constraints, result: &LayoutResult) {
+    let mut entries = self.inner.borrow_mut();
+    let reused = match entries.iter().position(|cached| cached.constraints == constraints) {
+      Some(0) => return,
+      Some(index) => entries.remove(index),
+      None => CachedLayout {
+        constraints,
+        result: result.clone(),
+      },
+    };
+    entries.insert(0, reused);
+    entries.truncate(MAX_CACHED_LAYOUTS);
+    self.descendants_match_front.set(false);
   }
 
-  fn get_cached(&self, constraints: Constraints) -> Option<LayoutResult> {
-    let borrow = self.inner.borrow();
-    for cached in borrow.iter() {
-      if cached.constraints == constraints {
-        return Some(cached.result.clone());
-      }
+  /// The cached result a dirty node may patch its dirty children into:
+  /// the front entry, when it was laid out under `constraints` and its
+  /// descendants were not laid out for another entry since. The patch lays
+  /// each dirty child out again under that child's front constraints, which
+  /// are only the ones this result gave it under those two conditions.
+  pub(crate) fn get_repairable(&self, constraints: Constraints) -> Option<LayoutResult> {
+    if !self.descendants_match_front.get() {
+      return None;
     }
-    None
+    let entries = self.inner.borrow();
+    let front = entries.first()?;
+    (front.constraints == constraints).then(|| front.result.clone())
   }
 
   pub(crate) fn constraints(&self) -> Option<Constraints> {
@@ -76,6 +118,9 @@ impl LayoutCache {
 
   pub(crate) fn preserve_from(&self, old: &Self) {
     *self.inner.borrow_mut() = old.inner.borrow().clone();
+    // The descendants take over the old descendants' caches the same way, so
+    // whether they match the front entry carries over with the entries.
+    self.descendants_match_front.set(old.descendants_match_front.get());
     // Carry the old cache's unresolved dirtiness instead of clearing it: the
     // old tree may hold marks no layout pass has consumed yet (re-render
     // chains between paints). Dropping them here laundered staleness — a
@@ -105,11 +150,13 @@ impl LayoutCache {
     }
     borrow.insert(0, CachedLayout { constraints, result });
     borrow.truncate(MAX_CACHED_LAYOUTS);
+    self.descendants_match_front.set(true);
     self.clear_dirty();
   }
 
   pub fn invalidate(&self) {
     self.inner.borrow_mut().clear();
+    self.descendants_match_front.set(true);
     self.clear_dirty();
   }
 
@@ -218,5 +265,83 @@ mod tests {
       Some(40.0)
     );
     assert_eq!(cache.get(constraints(90.0)).map(|cached| cached.size.width), Some(38.0));
+  }
+
+  /// Serving the older entry makes it the front one: the parent's next
+  /// repair asks for the constraints this node was last laid out under (the
+  /// window resized back to an earlier size served the other slot, and a
+  /// modal's content was then repaired at the size before).
+  #[test]
+  fn serving_an_entry_makes_its_constraints_the_front_ones() {
+    let cache = LayoutCache::new();
+    cache.store(constraints(1440.0), result(1440.0));
+    cache.store(constraints(960.0), result(960.0));
+
+    assert!(cache.get(constraints(1440.0)).is_some());
+
+    assert_eq!(cache.constraints().map(|front| front.max_width), Some(1440.0));
+    assert_eq!(cache.cached_entry().map(|(_, size)| size.width), Some(1440.0));
+  }
+
+  /// After the older entry was served, the descendants' front entries
+  /// belong to the other layout, so the cache refuses a repair until the
+  /// node is laid out (stored) again.
+  #[test]
+  fn a_repair_needs_the_front_entry_its_descendants_were_laid_out_for() {
+    let cache = LayoutCache::new();
+    cache.store(constraints(1440.0), result(1440.0));
+    cache.store(constraints(960.0), result(960.0));
+    assert!(cache.get_repairable(constraints(960.0)).is_some());
+    assert!(
+      cache.get_repairable(constraints(1440.0)).is_none(),
+      "an entry behind the front one is not repairable"
+    );
+
+    assert!(cache.get(constraints(1440.0)).is_some());
+    assert!(
+      cache.get_repairable(constraints(1440.0)).is_none(),
+      "a served older entry skipped its descendants"
+    );
+    assert!(
+      cache.get(constraints(1440.0)).is_some(),
+      "the served entry is still a clean hit"
+    );
+
+    cache.store(constraints(1440.0), result(1440.0));
+    assert!(cache.get_repairable(constraints(1440.0)).is_some());
+  }
+
+  #[test]
+  fn preserving_a_cache_keeps_whether_its_descendants_match_the_front_entry() {
+    let old = LayoutCache::new();
+    old.store(constraints(1440.0), result(1440.0));
+    old.store(constraints(960.0), result(960.0));
+    assert!(old.get(constraints(1440.0)).is_some());
+
+    let new = LayoutCache::new();
+    new.preserve_from(&old);
+
+    assert!(new.get_repairable(constraints(1440.0)).is_none());
+  }
+
+  /// A reused override becomes the front entry, and comes back if the
+  /// parent's layouts in between pushed it out of the cache.
+  #[test]
+  fn a_reused_result_becomes_the_front_entry() {
+    let cache = LayoutCache::new();
+    cache.store(constraints(292.0), result(292.0));
+    cache.store(constraints(300.0), result(300.0));
+    cache.record_reuse(constraints(292.0), &result(292.0));
+    assert_eq!(cache.constraints().map(|front| front.max_width), Some(292.0));
+    assert!(cache.get_repairable(constraints(292.0)).is_none());
+
+    cache.store(constraints(300.0), result(300.0));
+    cache.store(constraints(310.0), result(310.0));
+    cache.record_reuse(constraints(292.0), &result(292.0));
+    assert_eq!(
+      cache.cached_entry().map(|(front, size)| (front.max_width, size.width)),
+      Some((292.0, 292.0))
+    );
+    assert!(cache.get(constraints(310.0)).is_some(), "the newer entry stays");
   }
 }

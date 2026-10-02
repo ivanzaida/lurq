@@ -26,6 +26,7 @@ mod futures {
   mod tokio_future_uses_runtime;
 }
 mod headless_pass;
+mod modal_resize;
 mod mouse_leave;
 mod outside_press;
 mod overlay;
