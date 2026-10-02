@@ -1,4 +1,6 @@
-pub use crate::app::profile_types::{CanvasAssetUploadProfile, FrameProfile, RenderProfile, RuntimeMemoryProfile};
+pub use crate::app::profile_types::{
+  CanvasAssetUploadProfile, CanvasProfile, FrameProfile, GlyphEngineProfile, RenderProfile, RuntimeMemoryProfile,
+};
 
 #[cfg(all(feature = "canvas", feature = "perf_profile"))]
 pub(crate) mod canvas_text;
