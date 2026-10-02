@@ -1,5 +1,13 @@
 pub use crate::app::profile_types::{CanvasAssetUploadProfile, FrameProfile, RenderProfile, RuntimeMemoryProfile};
 
+mod application;
+#[cfg(any(feature = "serde", feature = "mcp"))]
+mod application_export;
+mod application_model;
+#[cfg(feature = "perf_profile")]
+mod application_state;
+#[cfg(test)]
+mod application_tests;
 #[cfg(all(feature = "canvas", feature = "perf_profile"))]
 pub(crate) mod canvas_text;
 #[cfg(test)]
@@ -14,6 +22,12 @@ pub(crate) mod producer;
 #[cfg(test)]
 mod session_tests;
 
+pub use application::{ApplicationScope, ApplicationScopeParent};
+pub use application_model::{
+  ApplicationInFlight, ApplicationLane, ApplicationRefusals, ApplicationScopeId, ApplicationScopeInfo,
+  ApplicationScopeReport, ApplicationScopeSample, ApplicationScopeStatus, MAX_APPLICATION_LABEL_BYTES,
+  MAX_APPLICATION_LIVE_SCOPES, MAX_APPLICATION_SCOPES_PER_SESSION,
+};
 pub use collector::ProfilingHandle;
 pub use model::{
   BuildAvailability, CanvasTextProfile, InFlightObservation, InputDispatchSample, InputKind, PassSample, Phase,

@@ -38,7 +38,7 @@ After the root tree closes, surviving handles may read/end existing sessions, bu
 
 ## Coverage and units
 
-All exported timing values are **CPU wall-clock milliseconds**. Monotonic timestamps are relative to the collector's creation and are not calendar timestamps. Build metadata reports the toolkit version, target OS/architecture, relevant compiled features and `debug_assertions`. Cargo profile and optimization level are explicitly not embedded; debug assertions are not a reliable substitute for the build command.
+Toolkit stage timings are **CPU wall-clock milliseconds**; application scopes are explicitly **synchronous wall milliseconds**, including lock/I/O waits. Monotonic timestamps are relative to the collector's creation and are not calendar timestamps. Build metadata reports the toolkit version, target OS/architecture, relevant compiled features and `debug_assertions`. Cargo profile and optimization level are explicitly not embedded; debug assertions are not a reliable substitute for the build command.
 
 | Scope | Actual boundary and interpretation |
 | --- | --- |
@@ -70,6 +70,48 @@ Memory counters retain the existing cached estimate, sampled at most once per se
 DX12 asset detail capture checks for an active session once at Canvas encode entry and accumulates only numeric values in that renderer's current frame profile. Texture creation surrounds the existing cache-miss DEFAULT texture creation. Pixel packing includes allocation/zeroing, row copying and conditional alpha premultiplication. Upload staging/commands includes the mapped arena copy or dedicated UPLOAD resource creation/map/copy/unmap, then CPU `CopyTextureRegion` and resource-barrier recording. These timers do not measure when the GPU executes those commands. Descriptor writes surround the existing two-SRV pair operation for each distinct asset in a command group; backing/layer/composite descriptors and descriptor-heap creation are excluded. Cache lookup and map/COM bookkeeping remain in the inclusive asset-upload residual. The detail stages are not individually published as in-flight phases; a stall there remains visible through `canvas_asset_upload`.
 
 Cache hits/misses count every prepared draw carrying an asset, including repeated references within a group. Successful texture creation, descriptor-pair and arena/dedicated upload counts distinguish resource work from those repeated lookups. `padded_upload_bytes` is the row-padded CPU payload passed to staging, excluding 512-byte placement alignment gaps; the existing `uploaded_asset_bytes` remains unpadded asset payload bytes. Cache charge before/peak/after and entry before/after counters use existing asset-cache accounting (`max(payload length, 64 KiB)` per entry). They are policy charges, not actual D3D12 committed-resource sizes, RSS or live GPU allocation. Eviction count/time covers the existing budget scan, removal and retirement loop; retirement may keep a removed texture alive until its fence completes. No cache capacity, lifetime or eviction policy changes accompany these metrics.
+
+## Synchronous application scopes
+
+Application work before/around toolkit passes can use the same collector. This is opt-in instrumentation: adding the API does not automatically instrument asynchronous task polls, document projection, persistence, timers or menu callbacks. It changes no rendering, threading or cache policy.
+
+```rust
+use lurq::app::profiler::ApplicationLane;
+
+let profiling = tree.profiling_handle();
+let write = profiling.application_scope("main", "local_save_write", ApplicationLane::Worker);
+{
+    let _encode = write.child("container_encode", ApplicationLane::Worker);
+    // The application's real synchronous encode call goes here.
+}
+write.finish(); // Or drop(write), always before an await.
+```
+
+The exact public API is:
+
+```rust
+ProfilingHandle::application_scope(&self, window: &str, label: &'static str,
+    lane: ApplicationLane) -> ApplicationScope;
+ApplicationScope::child(&self, label: &'static str,
+    lane: ApplicationLane) -> ApplicationScope;
+ApplicationScope::parent(&self) -> Option<ApplicationScopeParent>;
+ProfilingHandle::application_scope_child(&self, parent: &ApplicationScopeParent,
+    label: &'static str, lane: ApplicationLane) -> ApplicationScope;
+ApplicationScope::status(&self) -> ApplicationScopeStatus;
+ApplicationScope::finish(self);
+```
+
+`ApplicationLane::{Ui, Worker}` is declared at the actual callsite, not inferred from an OS thread. The cloneable handle and opaque parent token are Send + Sync. Guards are neither Send nor Sync; this prevents moving a running guard between threads, but does **not** prevent holding one across an await in a local/non-Send future. Callers must end each guard before awaiting. Use a cloned handle for a new worker operation. A parent token permits an explicit child only in the same collector while its parent remains live at child entry; a token to an ended, closed or replaced parent is refused. A child inherits the registered window and gets an opaque monotonically increasing ID, parent ID and depth. A parent may finish before its worker child: the relation records live-at-entry nesting, not guaranteed full time containment. There is no global/TLS application parent and concurrent scopes never overwrite the existing UI phase.
+
+Use only content-free static source labels of 1–64 ASCII bytes, limited to letters, digits and underscore. Never intern text, document/node IDs, filenames, font names, paths, tokens or input values as labels. The window must already be registered by the toolkit (`main` for the root tree); applications cannot create profiling window identities. Invalid label, unknown/closed window, closed collector, exhausted live slots or invalid parent produces an inert guard with an explicit `status()`. Instrumentation refusal must not stop the application operation. The public `ProfilingHandle::new()` has no registered window; use the handle from the actual `Tree` (including a headless Tree in contract tests).
+
+`ProfileReport::application_scopes` is an optional separate typed report (None without `perf_profile`); JSON adds `application_scopes` without changing the existing `samples` array or its pass/input/update counters. Reports have at most **64 live scopes per collector** and **min(session.max_samples, 128) completed application scopes per session**, separately from the existing sample bound. History drops the oldest completed application scopes. Each report includes its own completed/returned/drop/truncation/age metadata, started count, boundary exclusions, refusal counts and abandonment counts. Application-only captures have a completed/unfinished status even when the old `samples` array is empty. The old top-level sample age and truncation fields still describe only that existing array; application age/truncation describe the new history. `lurq_profile_read {}` exposes application feature availability and bounds through build metadata. MCP authentication, Observe scope and session ownership are unchanged.
+
+Application scopes are **inclusive synchronous wall milliseconds**, including application lock waits and synchronous I/O, not measured thread CPU or GPU execution. Samples use `wall_timings_ms.total`. They can overlap a pass/input/update, other lanes, or explicit child scopes; do not add them together or subtract them from process CPU as exact attribution. Their timestamps share the collector epoch. Read/end take only the bounded collector lock, never an application/core lock or UI completion wait. Completed histories and live observations are copied into immutable report data; JSON export occurs after the collector lock is released.
+
+Every session independently admits whole scopes started after its own start and completed before it ends. A session started during an idle-tracked slow scope sees `started_before_session=true` and unfinished elapsed-so-far, but excludes its entire later completion. A child begun after session start may qualify even when its parent does not; its parent ID then has no completed parent record in that report. Ending session 2 does not stop a live scope or session 1, and a late completion cannot change the finalized session-2 report. Ending/revoking an MCP session removes only that session's membership; in-process sessions and live work continue. Closed/replaced windows remove their live slots and increment `abandoned_window_closed`; root shutdown removes remaining live slots and increments `abandoned_producer_closed`. Late drops cannot resurrect them. An abandoned scope that began before session start increments both its boundary-exclusion and abandonment counter; these are overlapping accounting categories, not completed durations. No fabricated completion/partial duration is retained on abandonment.
+
+With the feature disabled, scope entry/child/drop performs no clock, collector lock or history allocation. Enabled idle entry/drop uses a timestamp and short lock around the fixed live-slot store so a new session can see already-running work. Window identities are shared from registered `Arc<str>` storage, with no per-scope String/Arc allocation. No completed payload/history is allocated until at least one active eligible session accepts a completion. Read/export allocate only bounded owned snapshots. Enabled idle/active collection overhead remains **unmeasured** until an actual controlled check; this API does not imply a performance improvement.
 
 ## Cost and interpretation
 

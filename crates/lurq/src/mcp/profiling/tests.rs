@@ -28,6 +28,11 @@ fn profiling_tools_are_observe_read_only_and_report_feature_availability() {
     availability["build"]["features"]["perf_profile"],
     cfg!(feature = "perf_profile")
   );
+  assert_eq!(
+    availability["build"]["application_scopes"]["available"],
+    cfg!(feature = "perf_profile")
+  );
+  assert_eq!(availability["build"]["application_scopes"]["max_live_scopes"], 64);
   #[cfg(not(feature = "perf_profile"))]
   {
     assert_eq!(availability["status"], "feature_disabled");
@@ -87,4 +92,33 @@ fn profiling_mcp_independent_ids_validation_and_revocation_do_not_affect_host_se
   shared.add_scope(Scope::Observe);
   assert!(execute(&shared, BuiltinTool::ProfileRead, &json!({"id":first})).is_err());
   handle.end(host).unwrap();
+}
+
+#[cfg(feature = "perf_profile")]
+#[test]
+fn revocation_ends_only_mcp_membership_of_live_application_scope() {
+  use crate::app::{
+    Tree,
+    profiler::{ApplicationLane, ProfileError, SessionId},
+  };
+  let tree = Tree::new();
+  let handle = tree.profiling_handle();
+  let shared = shared();
+  *shared.profiling.write().unwrap() = handle.clone();
+  let host = handle.start(Default::default()).unwrap().id;
+  let started = json(execute(&shared, BuiltinTool::ProfileStart, &json!({})));
+  let id = parse_id(&started).unwrap();
+  let scope = handle.application_scope("main", "store_save", ApplicationLane::Worker);
+  let during = json(execute(&shared, BuiltinTool::ProfileRead, &json!({"id":started["id"]})));
+  assert_eq!(during["application_scopes"]["in_flight"].as_array().unwrap().len(), 1);
+  shared.remove_scope(&Scope::Observe);
+  assert!(matches!(handle.read(id), Err(ProfileError::AlreadyEnded)));
+  scope.finish();
+  assert_eq!(
+    handle.end(host).unwrap().application_scopes.unwrap().completed_scopes,
+    1
+  );
+  shared.add_scope(Scope::Observe);
+  assert!(execute(&shared, BuiltinTool::ProfileRead, &json!({"id":started["id"]})).is_err());
+  assert!(matches!(handle.read(SessionId(id.0)), Err(ProfileError::AlreadyEnded)));
 }

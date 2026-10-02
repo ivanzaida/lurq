@@ -1,7 +1,7 @@
 //! Content-free profiling contract shared by MCP and future DevTools consumers.
 use std::{sync::Arc, time::Duration};
 
-use super::FrameProfile;
+use super::{ApplicationScopeReport, FrameProfile};
 
 pub const MAX_ACTIVE_SESSIONS: usize = 8;
 pub const MAX_SAMPLES_PER_SESSION: usize = 240;
@@ -276,6 +276,8 @@ pub struct ProfileReport {
   pub windows: Vec<WindowStatus>,
   pub in_flight: Vec<InFlightObservation>,
   pub samples: Vec<Arc<ProfileSample>>,
+  /// Independent application wall scopes; None when perf_profile is disabled.
+  pub application_scopes: Option<ApplicationScopeReport>,
 }
 
 #[derive(Clone, Debug)]
