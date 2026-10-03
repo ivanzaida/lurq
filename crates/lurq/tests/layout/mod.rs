@@ -44,6 +44,7 @@ mod quads;
 mod row;
 mod scroll;
 mod scrollbar_placement;
+mod shrink_give_way;
 mod stack;
 mod text_centering;
 mod text_layout_cache;

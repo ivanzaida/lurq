@@ -683,6 +683,36 @@ impl Default for FlexParams {
   }
 }
 
+/// How far a shrinking child of a single-line `Row`/`Column` gives way when
+/// the line overflows. Set with `.shrink_limit(...)`; it applies only to a
+/// child with a `flex_shrink` factor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShrinkLimit {
+  /// Shrink down to the child's `min_width`/`min_height` (0 without one).
+  #[default]
+  MinSize,
+  /// Shrink down to the child's content minimum, and never below an explicit
+  /// `min_width`/`min_height`. The content minimum of a `Row` in a row (or
+  /// a `Column` in a column) is its padding and spacing, the natural size of
+  /// every child that does not shrink and the limit of every child that does.
+  /// Anything else (text, rect, stack, scroll container, wrapping line, line
+  /// on the other axis) keeps its natural size, like a flex item with CSS
+  /// `min-width: auto`.
+  Content,
+  /// Keep the natural size or drop out of the line: a dropped child is laid
+  /// out at zero size, takes no spacing, and is neither drawn nor hit. It
+  /// stays mounted, so its state, focusability and element refs remain.
+  Drop,
+}
+
+/// When and how far a shrinking flex child gives way: a node's
+/// `.shrink_order(...)` and `.shrink_limit(...)`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ShrinkRule {
+  pub(crate) order: i32,
+  pub(crate) limit: ShrinkLimit,
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum FlexWrap {
   #[default]

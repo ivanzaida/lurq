@@ -9,6 +9,10 @@ pub struct LayoutResult {
   /// What laying out a text leaf wrote into its node's text state, written
   /// back when the result is served from a layout cache.
   pub(crate) text_layout: Option<Arc<TextLayoutOutput>>,
+  /// Dropped from its single-line `Row`/`Column` by
+  /// [`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop):
+  /// laid out at zero size, neither drawn nor hit.
+  pub(crate) dropped: bool,
 }
 
 #[derive(Clone)]
@@ -18,6 +22,13 @@ pub struct ChildLayout {
 }
 
 impl LayoutResult {
+  /// Whether its single-line `Row`/`Column` dropped this child to make room
+  /// ([`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)).
+  /// A dropped child has zero size and is neither drawn nor hit.
+  pub fn is_dropped(&self) -> bool {
+    self.dropped
+  }
+
   pub(crate) fn estimated_memory_bytes(&self) -> usize {
     std::mem::size_of::<Self>()
       + self
@@ -47,10 +58,12 @@ mod tests {
           size: Size::new(5.0, 5.0),
           children: Vec::new(),
           text_layout: None,
+          dropped: false,
         }
         .into(),
       }],
       text_layout: None,
+      dropped: false,
     };
 
     let cloned = result.clone();

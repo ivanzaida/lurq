@@ -13,7 +13,9 @@ use crate::{
   core::NodeId,
   layout::{
     Alignment, StackAlignment,
-    layout_kind::{FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Position, ScrollDirection},
+    layout_kind::{
+      FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Position, ScrollDirection, ShrinkLimit,
+    },
     layout_result::LayoutResult,
   },
   node::{
@@ -555,6 +557,13 @@ fn push_flat_layout_rows(rows: &mut Vec<DevToolsShapeRow>, node: &crate::node::N
   }
   if let Some(flex) = node.state_flex() {
     push_flex_rows(rows, flex);
+  }
+  let shrink_rule = node.shrink_rule();
+  if shrink_rule.order != 0 {
+    push_shape_row(rows, "shrink order", shrink_rule.order.to_string());
+  }
+  if shrink_rule.limit != ShrinkLimit::default() {
+    push_shape_row(rows, "shrink limit", format!("{:?}", shrink_rule.limit));
   }
   match node.position() {
     Position::Static => {}

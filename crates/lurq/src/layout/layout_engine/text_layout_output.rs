@@ -182,6 +182,7 @@ impl LayoutEngine {
       size,
       children: vec![],
       text_layout: Some(Arc::new(output)),
+      dropped: false,
     }
   }
 }

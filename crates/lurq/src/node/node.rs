@@ -18,7 +18,7 @@ use crate::{
   core::{ElementRef as CoreElementRef, Guard, IdGenerator, NodeId, Signal},
   layout::{
     Alignment, Offset, Size, StackAlignment,
-    layout_kind::{FlexParams, FrameConstraints, LayoutKind, Overflow, Position},
+    layout_kind::{FlexParams, FrameConstraints, LayoutKind, Overflow, Position, ShrinkLimit, ShrinkRule},
     scrollbar::ScrollBarStyle,
     text_style::{TextAlign, TextStyle},
   },
@@ -302,6 +302,8 @@ pub(crate) trait NodeUpdate {
   fn flex(&mut self, factor: f32);
   fn flex_shrink(&mut self, factor: f32);
   fn flex_full(&mut self, grow: f32, shrink: f32, basis: Option<f32>);
+  fn shrink_order(&mut self, order: i32);
+  fn shrink_limit(&mut self, limit: ShrinkLimit);
   fn background(&mut self, color: impl Into<BackgroundColor>);
   fn background_gradient(&mut self, gradient: impl Into<Gradient>);
   fn caret_color(&mut self, color: impl Into<TextColor>);
@@ -599,6 +601,7 @@ pub(crate) struct Node {
   pub(crate) offset: Option<Offset>,
   pub(crate) align_self: Option<Alignment>,
   pub(crate) flex: Option<FlexParams>,
+  pub(crate) shrink_rule: ShrinkRule,
   pub(crate) node_kind: NodeKind,
   pub(crate) text_content: Guard<Option<String>>,
   pub(crate) text_wrap: bool,
@@ -901,6 +904,16 @@ impl NodeUpdate for Node {
 
   fn flex_full(&mut self, grow: f32, shrink: f32, basis: Option<f32>) {
     self.flex = Some(FlexParams { grow, shrink, basis });
+    self.layout_cache.invalidate();
+  }
+
+  fn shrink_order(&mut self, order: i32) {
+    self.shrink_rule.order = order;
+    self.layout_cache.invalidate();
+  }
+
+  fn shrink_limit(&mut self, limit: ShrinkLimit) {
+    self.shrink_rule.limit = limit;
     self.layout_cache.invalidate();
   }
 
@@ -1609,6 +1622,7 @@ impl Node {
       offset: None,
       align_self: None,
       flex: None,
+      shrink_rule: ShrinkRule::default(),
       node_kind,
       node_id: NodeId::UNASSIGNED,
       tag_name: Arc::from("Node"),
@@ -3599,6 +3613,22 @@ impl Node {
       })
   }
 
+  /// The give-way order and limit of this node as a shrinking flex child.
+  /// A logical wrapper without its own rule passes its child's on, the way
+  /// [`Self::state_flex`] passes the child's flex factors on.
+  pub(crate) fn shrink_rule(&self) -> ShrinkRule {
+    if self.shrink_rule != ShrinkRule::default() {
+      return self.shrink_rule;
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self
+        .children
+        .first()
+        .map_or_else(ShrinkRule::default, Node::shrink_rule),
+      _ => self.shrink_rule,
+    }
+  }
+
   pub(crate) fn align_self(&self) -> Option<Alignment> {
     self.align_self
   }
@@ -3814,6 +3844,7 @@ impl Node {
       && self.offset == old.offset
       && self.align_self == old.align_self
       && self.flex == old.flex
+      && self.shrink_rule == old.shrink_rule
       && self.text_content.as_ref() == old.text_content.as_ref()
       && self.text_wrap == old.text_wrap
       && self.text_overflow == old.text_overflow
@@ -4062,6 +4093,7 @@ impl Node {
       offset: self.offset,
       align_self: self.align_self,
       flex: self.flex,
+      shrink_rule: self.shrink_rule,
       node_kind: {
         #[cfg(feature = "canvas")]
         if let NodeKind::Canvas { canvas } = &self.node_kind {
@@ -4399,6 +4431,7 @@ mod tests {
               size: Size::new(50.0, 20.0),
               children: Vec::new(),
               text_layout: None,
+              dropped: false,
             }
             .into(),
           },
@@ -4408,11 +4441,13 @@ mod tests {
               size: Size::new(50.0, 20.0),
               children: Vec::new(),
               text_layout: None,
+              dropped: false,
             }
             .into(),
           },
         ],
         text_layout: None,
+        dropped: false,
       },
     );
     let mut new = Node::row(
@@ -4448,14 +4483,17 @@ mod tests {
                 size: Size::new(30.0, 20.0),
                 children: Vec::new(),
                 text_layout: None,
+                dropped: false,
               }
               .into(),
             }],
             text_layout: None,
+            dropped: false,
           }
           .into(),
         }],
         text_layout: None,
+        dropped: false,
       },
     );
 
@@ -4487,10 +4525,12 @@ mod tests {
             size: Size::new(100.0, 20.0),
             children: Vec::new(),
             text_layout: None,
+            dropped: false,
           }
           .into(),
         }],
         text_layout: None,
+        dropped: false,
       },
     );
 

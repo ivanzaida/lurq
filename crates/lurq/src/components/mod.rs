@@ -327,6 +327,26 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// The give-way order of a shrinking child (one with a `flex_shrink`
+      /// factor) in a single-line `Row`/`Column`; 0 by default. When the line
+      /// overflows, the children with the lowest order give way first, down
+      /// to their [`ShrinkLimit`](crate::layout::layout_kind::ShrinkLimit),
+      /// before any child of the next order shrinks at all. Children of one
+      /// order share their part of the overflow by shrink factor.
+      pub fn shrink_order(mut self, order: i32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::shrink_order(node, order));
+        self
+      }
+
+      /// How far a shrinking child (one with a `flex_shrink` factor) of a
+      /// single-line `Row`/`Column` gives way: down to its minimum size (the
+      /// default), down to its content, or not at all and then dropped. See
+      /// [`ShrinkLimit`](crate::layout::layout_kind::ShrinkLimit).
+      pub fn shrink_limit(mut self, limit: $crate::layout::layout_kind::ShrinkLimit) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::shrink_limit(node, limit));
+        self
+      }
+
       pub fn corner_radius(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::corner_radius(node, radius));
         self

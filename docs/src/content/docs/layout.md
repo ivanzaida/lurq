@@ -46,6 +46,8 @@ Common modifiers:
 | `.transform(Transform2D)`                                               | Apply a visual 2D transform around the element center                  |
 | `.align(Alignment)`                                                     | Override alignment within parent container                             |
 | `.flex(factor)`                                                         | Participate in row/column flex distribution                            |
+| `.flex_shrink(factor)`                                                  | Give up main-axis space when a row/column overflows                    |
+| `.shrink_order(order)` / `.shrink_limit(ShrinkLimit)`                   | When and how far a shrinking child gives way                           |
 
 Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
 sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
@@ -264,6 +266,59 @@ lurq::components::Column::new()
 ```
 
 The scroll area takes its content height while that fits, and the space between header and footer otherwise.
+
+A share of the overflow smaller than one pixel goes to the other shrinking children, so a child either keeps its
+natural size or loses at least a pixel: a sliver never truncates a label into a stray ellipsis.
+
+### Give-way order and limits
+
+By default every shrinking child gives way at once. `.shrink_order(order)` makes them give way in turn: the children
+with the lowest order absorb the overflow, down to their limit, before any child of the next order shrinks at all.
+Children of one order share their part by shrink factor, as above. The order is an `i32` and defaults to 0, so a child
+without one gives way before children with a positive order. Both modifiers apply only to a child with a `flex_shrink`
+factor in a single-line `Row` or `Column`.
+
+`.shrink_limit(ShrinkLimit)` sets how far a child gives way:
+
+| `ShrinkLimit` | The child shrinks                                                                                     |
+|---------------|-------------------------------------------------------------------------------------------------------|
+| `MinSize`     | Down to its `min_width`/`min_height`, 0 without one (the default)                                     |
+| `Content`     | Down to its content minimum, never below an explicit `min_width`/`min_height`                         |
+| `Drop`        | Not at all: it keeps its natural size, or is dropped (zero size, no spacing, not drawn and not hit)   |
+
+The content minimum of a `Row` in a row (or a `Column` in a column) is its padding and spacing, the natural size of
+every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). Anything
+else (text, rects, stacks, scroll containers, wrapping rows, lines on the other axis) keeps its natural size, like a
+flex item with CSS `min-width: auto`. Within one order, droppable children are dropped, last first, only while the
+shrinking children of that order cannot absorb the rest of the overflow. A dropped child stays mounted: its state,
+focusability and element refs remain, and it comes back once the line has room for it.
+
+```rust
+use lurq::{
+  components::{Rect, Row, Text, TextOverflow},
+  layout::layout_kind::ShrinkLimit,
+};
+
+let label = |text: &str| Text::new(text).nowrap().text_overflow(TextOverflow::Elipsis);
+
+// Icon and count stay whole; the detail inside the item gives way first.
+let approvals = Row::new()
+  .child(Rect::new(14.0, 14.0))
+  .child(label("1 approval waiting"))
+  .child(label("Designer asks to use pencil").flex_shrink(1.0))
+  .flex_shrink(1.0)
+  .shrink_order(2)
+  .shrink_limit(ShrinkLimit::Content);
+
+Row::new()
+  .spacing(8.0)
+  .child(label("15:32").flex_shrink(1.0).shrink_order(1).shrink_limit(ShrinkLimit::Drop))
+  .child(approvals)
+  .child(label("Run 3").flex_shrink(1.0).shrink_order(3))
+```
+
+As the row narrows, the time is dropped first, then the approval detail is ellipsized down to the icon and count, and
+only then does the run label shrink.
 
 ## Scroll
 

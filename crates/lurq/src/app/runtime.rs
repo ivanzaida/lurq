@@ -9675,6 +9675,9 @@ fn nearest_selectable_text<'a>(
   x: f32,
   y: f32,
 ) -> Option<(f32, &'a Node, HitRect)> {
+  if layout.dropped {
+    return None;
+  }
   let mut best: Option<(f32, &'a Node, HitRect)> = None;
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children()) {

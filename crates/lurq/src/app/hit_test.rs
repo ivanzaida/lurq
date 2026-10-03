@@ -58,7 +58,7 @@ fn hit_test_tree_with_transform<'a>(
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
   let behavior = node.hit_test_behavior();
-  if behavior == HitTestBehavior::None {
+  if behavior == HitTestBehavior::None || result.dropped {
     return;
   }
 

@@ -42,9 +42,10 @@ mod box_shadow_quads;
 mod flex_shrink;
 mod opacity_groups;
 mod select_quads;
+mod shrink_distribution;
 mod text_layout_output;
 
-use flex_shrink::FlexShrinkLine;
+use flex_shrink::{FlexShrinkLine, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
@@ -809,7 +810,7 @@ impl LayoutEngine {
     culling_enabled: bool,
     quads: &mut Vec<Quad>,
   ) {
-    if self.is_hidden_select_chevron(node) {
+    if result.dropped || self.is_hidden_select_chevron(node) {
       return;
     }
     if node_is_plain_logical_wrapper(node) {
@@ -2258,6 +2259,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       NodeKind::Slider { .. } => {
@@ -2277,6 +2279,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       NodeKind::Select { state } => {
@@ -2295,6 +2298,7 @@ impl LayoutEngine {
           size: constraints.constrain(Size::new(width, height)),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       #[cfg(feature = "canvas")]
@@ -2303,6 +2307,7 @@ impl LayoutEngine {
           size: constraints.constrain(node.intrinsic_size.unwrap_or(Size::new(300.0, 150.0))),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       #[cfg(feature = "raster")]
@@ -2314,6 +2319,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       #[cfg(feature = "raster")]
@@ -2325,6 +2331,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       #[cfg(feature = "image")]
@@ -2336,6 +2343,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       #[cfg(feature = "svg")]
@@ -2347,6 +2355,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       #[cfg(all(feature = "svg", feature = "resources"))]
@@ -2358,6 +2367,7 @@ impl LayoutEngine {
           size: constraints.constrain(preferred),
           children: vec![],
           text_layout: None,
+          dropped: false,
         };
       }
       NodeKind::Empty => {}
@@ -2368,6 +2378,7 @@ impl LayoutEngine {
       size: constraints.constrain(preferred),
       children: vec![],
       text_layout: None,
+      dropped: false,
     }
   }
 
@@ -2393,7 +2404,12 @@ impl LayoutEngine {
         measured.height.max(constraints.min_height),
       )
     };
-    LayoutResult { size, children: vec![], text_layout: None }
+    LayoutResult {
+      size,
+      children: vec![],
+      text_layout: None,
+      dropped: false,
+    }
   }
 
   fn layout_text_node(
@@ -2599,6 +2615,7 @@ impl LayoutEngine {
         size: constraints.constrain(Size::default()),
         children: vec![],
         text_layout: None,
+        dropped: false,
       };
     }
 
@@ -2639,6 +2656,7 @@ impl LayoutEngine {
           size: Size::default(),
           children: Vec::new(),
           text_layout: None,
+          dropped: false,
         }));
         continue;
       }
@@ -2732,6 +2750,7 @@ impl LayoutEngine {
         params: &flex_params_list,
         constraints,
         max_main,
+        spacing,
         total_spacing,
         shrink_total,
         vertical,
@@ -2743,14 +2762,21 @@ impl LayoutEngine {
     let max_cross: f32 = results
       .iter()
       .zip(children.iter())
-      .filter(|(_, child)| !child.is_overlay_declaration())
+      .filter(|(r, child)| occupies_line(child, r))
       .map(|(r, _)| if vertical { r.size.width } else { r.size.height })
       .fold(0.0_f32, f32::max);
 
+    // Dropped children take no spacing.
+    let line_child_count = results
+      .iter()
+      .zip(children.iter())
+      .filter(|(r, child)| occupies_line(child, r))
+      .count();
+    let total_spacing = spacing * (line_child_count as f32 - 1.0).max(0.0);
     let total_main: f32 = results
       .iter()
       .zip(children.iter())
-      .filter(|(_, child)| !child.is_overlay_declaration())
+      .filter(|(r, child)| occupies_line(child, r))
       .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
       .sum::<f32>()
       + total_spacing;
@@ -2765,7 +2791,7 @@ impl LayoutEngine {
 
     if matches!(align, Alignment::Stretch) {
       for (i, child) in children.iter().enumerate() {
-        if child.is_overlay_declaration() {
+        if !occupies_line(child, &results[i]) {
           continue;
         }
         let r = &results[i];
@@ -2797,6 +2823,7 @@ impl LayoutEngine {
       size,
       children: child_layouts.into(),
       text_layout: None,
+      dropped: false,
     }
   }
 
@@ -2879,11 +2906,15 @@ impl LayoutEngine {
     let children_main: f32 = results
       .iter()
       .zip(children.iter())
-      .filter(|(_, child)| !child.is_overlay_declaration())
+      .filter(|(r, child)| occupies_line(child, r))
       .map(|(r, _)| if vertical { r.size.height } else { r.size.width })
       .sum();
     let free_space = (container_main - children_main).max(0.0);
-    let layout_child_count = children.iter().filter(|child| !child.is_overlay_declaration()).count();
+    let layout_child_count = results
+      .iter()
+      .zip(children.iter())
+      .filter(|(r, child)| occupies_line(child, r))
+      .count();
     let n = layout_child_count as f32;
 
     let (leading, gap) = match justify {
@@ -2912,7 +2943,7 @@ impl LayoutEngine {
     let mut positioned_layout_children = 0usize;
 
     for (i, result) in results.iter().enumerate() {
-      if children[i].is_overlay_declaration() {
+      if !occupies_line(&children[i], result) {
         child_layouts.push(ChildLayout {
           offset: Offset::default(),
           result: result.clone().into(),
@@ -3013,6 +3044,7 @@ impl LayoutEngine {
         size: Size::default(),
         children: vec![],
         text_layout: None,
+        dropped: false,
       }
       .into(),
     });
@@ -3107,6 +3139,7 @@ impl LayoutEngine {
       size,
       children: all_layouts,
       text_layout: None,
+      dropped: false,
     }
   }
 
@@ -3182,6 +3215,7 @@ impl LayoutEngine {
       size,
       children: child_layouts.into(),
       text_layout: None,
+      dropped: false,
     }
   }
 
@@ -3417,6 +3451,7 @@ impl LayoutEngine {
           result: child_result.into(),
         }],
         text_layout: None,
+        dropped: false,
       };
     }
 
@@ -3460,6 +3495,7 @@ impl LayoutEngine {
         result: child_result.into(),
       }],
       text_layout: None,
+      dropped: false,
     }
   }
 
@@ -3475,6 +3511,7 @@ impl LayoutEngine {
         size: Size::new(0.0, 0.0),
         children: Vec::new(),
         text_layout: None,
+        dropped: false,
       };
     };
     let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, constraints);
@@ -3487,6 +3524,7 @@ impl LayoutEngine {
         result: child_result.into(),
       }],
       text_layout: None,
+      dropped: false,
     }
   }
 
@@ -3862,6 +3900,7 @@ mod tests {
         size: constraints.constrain(Size::new(10.0, 10.0)),
         children: Vec::new(),
         text_layout: None,
+        dropped: false,
       },
     );
     child.layout_cache.mark_local_dirty();
