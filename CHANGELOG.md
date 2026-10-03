@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.37.0 — 2026-10-03
+
+- Fix children that gave way coming back at a narrower width. When a later order's child dropped and freed more than the line needed, the line gave way again from the start and gave the rest to earlier orders, including an item whose own row had dropped a child (a status item's time): it got its room back and showed the time again, so a line could show more at a narrower width (Orchester's status bar: at 1210 px the version showed and the time was dropped, at 1200 px the version dropped and the time came back). What gives way whole now only accumulates as the line narrows:
+  - A shrinking child whose own row holds droppable children (`ShrinkLimit::Drop`, `shrink_drop_below`, or such an item nested in it) keeps its natural size until its line needs it to give way. It then collapses, as one step after the order's drops: its row drops all of them (and collapses every such nested item) at once, so it holds its padding, its other children at their natural size and their spacing, and it shrinks on from there toward its floor without growing back. The line decides this and the item's layout follows it, so they cannot disagree. Inside such an item, children give way only once it collapses.
+  - Within an order the whole steps come in a fixed sequence (drops, then drops below a size, then collapses, each last first), each triggered only when the order's shrinking children cannot absorb the overflow, so a narrower line takes the same steps and more.
+  - Width a step frees beyond what the line needs goes back only to children that trimmed; a dropped or collapsed child stays so.
+- A dropped child no longer counts its spacing when the line is distributed again.
+- Behaviour change: inside a shrinking item whose own row holds droppable children, the children no longer give way by their own orders before the item collapses. In 0.36.0 an item of [icon, label with `flex_shrink`, time with `ShrinkLimit::Drop`] (or a label and a time of the same order) trimmed the label first and dropped the time only once the label could not absorb the overflow; now the item keeps its natural size until its line collapses it, and then the time drops at once and the label trims from its natural size. To keep the old effect, make the label and the time separate children of the line that gives way, the time in a later `shrink_order` than the label. Lines that give way themselves (not shrinking items inside one) still drop a child only while the trimming children of its order cannot absorb the overflow.
+
 ## 0.36.1 — 2026-10-03
 
 - Fix Windows text clipboard writes losing their owner after Copy returns. The writer now uses a persistent caller-thread-owned window and checked UTF-16 allocation, retaining the public boolean API. Ownership lasts until that thread exits; failures after the clipboard is emptied remain non-atomic, and success requires both data transfer and clipboard closure.
