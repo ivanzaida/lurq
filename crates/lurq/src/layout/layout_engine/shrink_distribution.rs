@@ -188,8 +188,10 @@ fn factor_sum(items: &[ShrinkItem], indices: &[usize]) -> f32 {
 /// largest factor, the first of equal ones) last, each loses the whole pixels
 /// its running total crosses, and the carrier takes the rest, at least its own
 /// share. A small change of `total` changes any item by at most a pixel.
-/// What exceeds an item's room above its floor goes to the others' room,
-/// the carrier first.
+/// What exceeds an item's room above its floor goes to the others' room:
+/// the carrier first, then items that already lose a pixel or more, so a
+/// fraction lands on an item that loses nothing only when no other can take
+/// it.
 fn whole_pixel_amounts(items: &[ShrinkItem], active: &[usize], shares: &[f32], total: f32) -> Vec<f32> {
   let carrier = (0..active.len()).fold(0, |best, slot| {
     if items[active[slot]].factor > items[active[best]].factor {
@@ -217,8 +219,13 @@ fn whole_pixel_amounts(items: &[ShrinkItem], active: &[usize], shares: &[f32], t
       *amount = room(slot);
     }
   }
-  let others = (0..active.len()).filter(|&slot| slot != carrier);
-  for slot in iter::once(carrier).chain(others) {
+  let losing: Vec<usize> = (0..active.len())
+    .filter(|&slot| slot != carrier && amounts[slot] >= 1.0)
+    .collect();
+  let untouched: Vec<usize> = (0..active.len())
+    .filter(|&slot| slot != carrier && amounts[slot] < 1.0)
+    .collect();
+  for slot in iter::once(carrier).chain(losing).chain(untouched) {
     if excess <= 0.0 {
       break;
     }

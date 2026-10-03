@@ -39,25 +39,17 @@ struct Walk {
   stops: Vec<Stop>,
 }
 
-/// `layout` is the last layout of `root`, if any; it tells which subtrees
-/// were dropped.
-pub(super) fn tab_move(
-  root: &Node,
-  layout: Option<&LayoutResult>,
-  focused: Option<(NodeId, &[usize])>,
-  reverse: bool,
-) -> TabMove {
+/// `dropped` holds the nodes the last layout dropped from their Row/Column
+/// (see [`dropped_node_ids`]); nothing inside them is a stop.
+pub(super) fn tab_move(root: &Node, dropped: &[NodeId], focused: Option<(NodeId, &[usize])>, reverse: bool) -> TabMove {
   let modal = top_modal_path(root);
   let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
 
-  let (scope, scope_layout) = match &modal {
-    Some(path) => (
-      find_node_by_path(root, path),
-      layout.and_then(|layout| layout_at_path(layout, path)),
-    ),
-    None => (Some(root), layout),
+  let scope = match &modal {
+    Some(path) => find_node_by_path(root, path),
+    None => Some(root),
   };
-  match scope.and_then(|scope| next_stop(scope, scope_layout, focused.map(|(id, _)| id), reverse)) {
+  match scope.and_then(|scope| next_stop(scope, dropped, focused.map(|(id, _)| id), reverse)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
@@ -78,42 +70,50 @@ fn top_modal_path(root: &Node) -> Option<Vec<usize>> {
     .map(|index| vec![index])
 }
 
-/// The layout of the node at `path` (child indices from the root), if the
-/// layout reaches that deep.
-fn layout_at_path<'l>(layout: &'l LayoutResult, path: &[usize]) -> Option<&'l LayoutResult> {
-  path.iter().try_fold(layout, |layout, &index| {
-    layout.children.get(index).map(|child| child.result.as_ref())
-  })
+/// The nodes `layout` (the layout of `root`) dropped from their Row/Column,
+/// outermost only: what lies inside them is dropped with them.
+pub(super) fn dropped_node_ids(root: &Node, layout: &LayoutResult) -> Vec<NodeId> {
+  fn collect(node: &Node, layout: &LayoutResult, dropped: &mut Vec<NodeId>) {
+    if layout.dropped {
+      dropped.push(node.node_id());
+      return;
+    }
+    for (child, child_layout) in node.children().iter().zip(&layout.children) {
+      collect(child, &child_layout.result, dropped);
+    }
+  }
+  let mut dropped = Vec::new();
+  collect(root, layout, &mut dropped);
+  dropped
 }
 
-/// Whether the node at `path` lies in a subtree its Row/Column dropped.
-pub(super) fn path_is_dropped(layout: &LayoutResult, path: &[usize]) -> bool {
-  let mut current = layout;
+/// Whether the node at `path` (child indices from `root`) is one of the
+/// `dropped` nodes or lies inside one.
+pub(super) fn path_is_dropped(root: &Node, dropped: &[NodeId], path: &[usize]) -> bool {
+  if dropped.is_empty() {
+    return false;
+  }
+  let mut node = root;
   for &index in path {
-    let Some(child) = current.children.get(index) else {
+    let Some(child) = node.children().get(index) else {
       return false;
     };
-    current = &child.result;
-    if current.dropped {
+    node = child;
+    if dropped.contains(&node.node_id()) {
       return true;
     }
   }
   false
 }
 
-fn next_stop(
-  scope: &Node,
-  layout: Option<&LayoutResult>,
-  focused: Option<NodeId>,
-  reverse: bool,
-) -> Option<FocusTarget> {
+fn next_stop(scope: &Node, dropped: &[NodeId], focused: Option<NodeId>, reverse: bool) -> Option<FocusTarget> {
   let mut walk = Walk {
     focused,
     focused_order: None,
     visited: 0,
     stops: Vec::new(),
   };
-  collect_stops(scope, layout, None, false, &mut walk);
+  collect_stops(scope, dropped, None, false, &mut walk);
   let stops = &mut walk.stops;
   if stops.is_empty() {
     return None;
@@ -141,14 +141,8 @@ fn next_stop(
   Some(stops[next].target)
 }
 
-fn collect_stops(
-  node: &Node,
-  layout: Option<&LayoutResult>,
-  focus_event_id: Option<NodeId>,
-  in_form: bool,
-  walk: &mut Walk,
-) {
-  if layout.is_some_and(|layout| layout.dropped) {
+fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>, in_form: bool, walk: &mut Walk) {
+  if dropped.contains(&node.node_id()) {
     return;
   }
   let order = walk.visited;
@@ -180,15 +174,8 @@ fn collect_stops(
     }
   }
 
-  for (index, child) in node.children().iter().enumerate() {
-    let child_layout = layout.and_then(|layout| layout.children.get(index));
-    collect_stops(
-      child,
-      child_layout.map(|child| child.result.as_ref()),
-      focus_event_id,
-      in_form,
-      walk,
-    );
+  for child in node.children() {
+    collect_stops(child, dropped, focus_event_id, in_form, walk);
   }
 }
 

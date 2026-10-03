@@ -288,14 +288,20 @@ every child that does not shrink, and the limit of every child that does (a drop
 else (text, rects, stacks, scroll containers, wrapping rows, lines on the other axis) keeps its natural size, like a
 flex item with CSS `min-width: auto`. Within one order, droppable children are dropped, last first, only while the
 shrinking children of that order cannot absorb the rest of the overflow. A dropped child stays mounted and keeps its
-state, and it comes back once the line has room for it. While it is dropped, nothing inside it is a Tab stop, focus
-inside it moves off (the focused node is blurred), and the element refs and bounds of everything inside it report a
+state, and it comes back once the line has room for it. While it is dropped, nothing inside it is a Tab stop or takes
+focus (`focus()` and `ctx.focus` requests for it are refused, keys never activate it), focus inside it moves off (the
+focused node is blurred), and the element refs and bounds of everything inside it report a
 zero-size rect at its place in the line, where the next child starts. Devtools and the MCP tree mark it `dropped`.
 
 A line that uses orders or limits also shares in whole pixels: within one order every child loses a whole number of
 pixels except the one with the largest shrink factor, which takes the fraction. A sliver of overflow therefore
 truncates one label instead of putting a stray ellipsis on several, and as the line narrows each child gives up a
-pixel at a time. A line without orders or limits shares exactly by factor.
+pixel at a time. If that child reaches its floor, the fraction it cannot take goes to a child that already loses a
+pixel or more, and only when there is none to one that loses nothing. A line without orders or limits shares exactly by
+factor.
+
+Use orders, not factors, to say which child gives way first: shares are computed in `f32`, so keep the factors within
+one order of similar magnitude (a factor thousands of times smaller than its neighbours' is lost in their sum).
 
 ```rust
 use lurq::{

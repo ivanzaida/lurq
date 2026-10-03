@@ -615,6 +615,10 @@ pub struct Tree {
   root_component: Option<Box<dyn AnyRootComponent>>,
   root_ctx: Option<Ctx>,
   last_layout: Option<LayoutResult>,
+  /// The nodes the last layout dropped from their Row/Column
+  /// (`ShrinkLimit::Drop`). Kept while the layout is invalidated, so focus
+  /// requested before the next layout cannot land inside them either.
+  dropped_nodes: Vec<NodeId>,
   layout_constraints_override: Option<Constraints>,
   viewport_physical: Size,
   scale_factor: f32,
@@ -953,6 +957,7 @@ impl Tree {
       root_component: None,
       root_ctx: None,
       last_layout: None,
+      dropped_nodes: Vec::new(),
       layout_constraints_override: None,
       viewport_physical: Size::new(800.0, 600.0),
       scale_factor: 1.0,
@@ -3324,6 +3329,8 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Keyboard);
     self.rebuild_if_dirty();
+    // Keys never reach a node that was dropped since it took focus.
+    self.blur_focus_in_dropped_child();
     let control = EventControl::new();
     let mut evt = KeyboardEvent {
       key: key.clone(),
@@ -3454,7 +3461,7 @@ impl Tree {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
-    match tab_navigation::tab_move(root, self.last_layout.as_ref(), focused, reverse) {
+    match tab_navigation::tab_move(root, &self.dropped_nodes, focused, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         self.focus_node(target);
         self.scroll_focused_into_view();
@@ -3469,10 +3476,10 @@ impl Tree {
   /// (`ShrinkLimit::Drop`): a dropped node is not drawn, so it must not keep
   /// taking keys.
   fn blur_focus_in_dropped_child(&mut self) {
-    let (Some(layout), Some(path)) = (&self.last_layout, &self.focused_path) else {
+    let (Some(root), Some(path)) = (&self.root, &self.focused_path) else {
       return;
     };
-    if tab_navigation::path_is_dropped(layout, path) {
+    if tab_navigation::path_is_dropped(root, &self.dropped_nodes, path) {
       self.blur_focus();
     }
   }
@@ -4872,6 +4879,11 @@ impl Tree {
     if find_node_by_path(root, &input_path).is_some_and(Node::is_focus_disabled) {
       return;
     }
+    // A node its Row/Column dropped (`ShrinkLimit::Drop`) is not drawn and
+    // takes no focus, like a disabled one.
+    if tab_navigation::path_is_dropped(root, &self.dropped_nodes, &input_path) {
+      return;
+    }
     let event_path = find_path_by_id(root, target.event_id).unwrap_or_else(|| input_path.clone());
     if self.focused_node == Some(target.input_id) && self.focused_event_node == Some(target.event_id) {
       return;
@@ -5885,6 +5897,9 @@ impl Tree {
         if ctx.any_dirty() {
           self.needs_redraw = true;
         }
+      }
+      if let Some(root) = &self.root {
+        self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
       }
       self.last_layout = Some(layout);
       self.blur_focus_in_dropped_child();

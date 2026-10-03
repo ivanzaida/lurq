@@ -701,9 +701,10 @@ pub enum ShrinkLimit {
   Content,
   /// Keep the natural size or drop out of the line: a dropped child is laid
   /// out at zero size, takes no spacing, and is neither drawn nor hit.
-  /// Nothing inside it is a Tab stop, focus inside it is blurred, and its
-  /// element refs report a zero-size rect where the next child starts. It
-  /// stays mounted and keeps its state.
+  /// Nothing inside it is a Tab stop or takes focus, focus inside it is
+  /// blurred, keys never activate it, and its element refs report a
+  /// zero-size rect where the next child starts. It stays mounted and keeps
+  /// its state.
   Drop,
 }
 
