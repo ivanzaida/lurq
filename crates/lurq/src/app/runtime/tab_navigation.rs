@@ -5,6 +5,8 @@
 //! one. A form is part of its scope's order like in a browser: Tab from its last control moves on to the next stop.
 //!
 //! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
+//!
+//! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop.
 
 use super::{FocusTarget, find_node_by_path};
 use crate::{
@@ -37,15 +39,25 @@ struct Walk {
   stops: Vec<Stop>,
 }
 
-pub(super) fn tab_move(root: &Node, focused: Option<(NodeId, &[usize])>, reverse: bool) -> TabMove {
+/// `layout` is the last layout of `root`, if any; it tells which subtrees
+/// were dropped.
+pub(super) fn tab_move(
+  root: &Node,
+  layout: Option<&LayoutResult>,
+  focused: Option<(NodeId, &[usize])>,
+  reverse: bool,
+) -> TabMove {
   let modal = top_modal_path(root);
   let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
 
-  let scope = match &modal {
-    Some(path) => find_node_by_path(root, path),
-    None => Some(root),
+  let (scope, scope_layout) = match &modal {
+    Some(path) => (
+      find_node_by_path(root, path),
+      layout.and_then(|layout| layout_at_path(layout, path)),
+    ),
+    None => (Some(root), layout),
   };
-  match scope.and_then(|scope| next_stop(scope, focused.map(|(id, _)| id), reverse)) {
+  match scope.and_then(|scope| next_stop(scope, scope_layout, focused.map(|(id, _)| id), reverse)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
@@ -66,14 +78,42 @@ fn top_modal_path(root: &Node) -> Option<Vec<usize>> {
     .map(|index| vec![index])
 }
 
-fn next_stop(scope: &Node, focused: Option<NodeId>, reverse: bool) -> Option<FocusTarget> {
+/// The layout of the node at `path` (child indices from the root), if the
+/// layout reaches that deep.
+fn layout_at_path<'l>(layout: &'l LayoutResult, path: &[usize]) -> Option<&'l LayoutResult> {
+  path.iter().try_fold(layout, |layout, &index| {
+    layout.children.get(index).map(|child| child.result.as_ref())
+  })
+}
+
+/// Whether the node at `path` lies in a subtree its Row/Column dropped.
+pub(super) fn path_is_dropped(layout: &LayoutResult, path: &[usize]) -> bool {
+  let mut current = layout;
+  for &index in path {
+    let Some(child) = current.children.get(index) else {
+      return false;
+    };
+    current = &child.result;
+    if current.dropped {
+      return true;
+    }
+  }
+  false
+}
+
+fn next_stop(
+  scope: &Node,
+  layout: Option<&LayoutResult>,
+  focused: Option<NodeId>,
+  reverse: bool,
+) -> Option<FocusTarget> {
   let mut walk = Walk {
     focused,
     focused_order: None,
     visited: 0,
     stops: Vec::new(),
   };
-  collect_stops(scope, None, false, &mut walk);
+  collect_stops(scope, layout, None, false, &mut walk);
   let stops = &mut walk.stops;
   if stops.is_empty() {
     return None;
@@ -101,7 +141,16 @@ fn next_stop(scope: &Node, focused: Option<NodeId>, reverse: bool) -> Option<Foc
   Some(stops[next].target)
 }
 
-fn collect_stops(node: &Node, focus_event_id: Option<NodeId>, in_form: bool, walk: &mut Walk) {
+fn collect_stops(
+  node: &Node,
+  layout: Option<&LayoutResult>,
+  focus_event_id: Option<NodeId>,
+  in_form: bool,
+  walk: &mut Walk,
+) {
+  if layout.is_some_and(|layout| layout.dropped) {
+    return;
+  }
   let order = walk.visited;
   walk.visited += 1;
   if walk.focused == Some(node.node_id()) {
@@ -131,8 +180,15 @@ fn collect_stops(node: &Node, focus_event_id: Option<NodeId>, in_form: bool, wal
     }
   }
 
-  for child in node.children() {
-    collect_stops(child, focus_event_id, in_form, walk);
+  for (index, child) in node.children().iter().enumerate() {
+    let child_layout = layout.and_then(|layout| layout.children.get(index));
+    collect_stops(
+      child,
+      child_layout.map(|child| child.result.as_ref()),
+      focus_event_id,
+      in_form,
+      walk,
+    );
   }
 }
 
@@ -201,6 +257,10 @@ fn find_rect<'n>(
   node_id: NodeId,
   containers: &mut Vec<ScrollContainer<'n>>,
 ) -> Option<Rect> {
+  // A dropped subtree is not drawn: there is nothing to scroll to.
+  if layout.dropped {
+    return None;
+  }
   let rect = Rect {
     x: origin.0,
     y: origin.1,

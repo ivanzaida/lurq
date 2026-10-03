@@ -3454,7 +3454,7 @@ impl Tree {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
-    match tab_navigation::tab_move(root, focused, reverse) {
+    match tab_navigation::tab_move(root, self.last_layout.as_ref(), focused, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         self.focus_node(target);
         self.scroll_focused_into_view();
@@ -3462,6 +3462,18 @@ impl Tree {
       }
       tab_navigation::TabMove::Stay => true,
       tab_navigation::TabMove::Unhandled => false,
+    }
+  }
+
+  /// Moves focus off a node its Row/Column dropped to make room
+  /// (`ShrinkLimit::Drop`): a dropped node is not drawn, so it must not keep
+  /// taking keys.
+  fn blur_focus_in_dropped_child(&mut self) {
+    let (Some(layout), Some(path)) = (&self.last_layout, &self.focused_path) else {
+      return;
+    };
+    if tab_navigation::path_is_dropped(layout, path) {
+      self.blur_focus();
     }
   }
 
@@ -5875,6 +5887,7 @@ impl Tree {
         }
       }
       self.last_layout = Some(layout);
+      self.blur_focus_in_dropped_child();
       self.tree_rebuilt_since_layout = false;
       // All tick walks for this frame ran (base tree + overlay subtrees), so
       // the engines can now drop runs whose nodes left the tree; otherwise an
@@ -7366,7 +7379,9 @@ fn find_element_recursive(
   parent_y: f32,
   predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
 ) -> Option<OwnedElementRef> {
-  let element = ElementRef::new(node);
+  if layout.dropped {
+    return find_element_in_dropped(node, abs_x, abs_y, parent_x, parent_y, predicate);
+  }
   let rect = ElementRect {
     x: abs_x,
     y: abs_y,
@@ -7375,22 +7390,8 @@ fn find_element_recursive(
     width: layout.size.width,
     height: layout.size.height,
   };
-
-  if predicate(element) {
-    let element_ref = node.element_ref_handle();
-    #[cfg(feature = "canvas")]
-    if let Some(canvas) = node.canvas_handle() {
-      element_ref.bind_canvas(&canvas);
-    }
-    element_ref.update(
-      rect.x,
-      rect.y,
-      rect.relative_x,
-      rect.relative_y,
-      rect.width,
-      rect.height,
-    );
-    return Some(element_ref);
+  if predicate(ElementRef::new(node)) {
+    return Some(found_element_ref(node, rect));
   }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
@@ -7408,6 +7409,51 @@ fn find_element_recursive(
   }
 
   None
+}
+
+/// [`find_element_recursive`] inside a subtree its Row/Column dropped: every
+/// element there has a zero-size rect at the dropped child's place, as
+/// [`collapse_dropped_element_refs`] reports it.
+fn find_element_in_dropped(
+  node: &mut Node,
+  abs_x: f32,
+  abs_y: f32,
+  parent_x: f32,
+  parent_y: f32,
+  predicate: &impl for<'b> Fn(ElementRef<'b>) -> bool,
+) -> Option<OwnedElementRef> {
+  if predicate(ElementRef::new(node)) {
+    let rect = ElementRect {
+      x: abs_x,
+      y: abs_y,
+      relative_x: abs_x - parent_x,
+      relative_y: abs_y - parent_y,
+      width: 0.0,
+      height: 0.0,
+    };
+    return Some(found_element_ref(node, rect));
+  }
+  node
+    .children
+    .iter_mut()
+    .find_map(|child| find_element_in_dropped(child, abs_x, abs_y, abs_x, abs_y, predicate))
+}
+
+fn found_element_ref(node: &mut Node, rect: ElementRect) -> OwnedElementRef {
+  let element_ref = node.element_ref_handle();
+  #[cfg(feature = "canvas")]
+  if let Some(canvas) = node.canvas_handle() {
+    element_ref.bind_canvas(&canvas);
+  }
+  element_ref.update(
+    rect.x,
+    rect.y,
+    rect.relative_x,
+    rect.relative_y,
+    rect.width,
+    rect.height,
+  );
+  element_ref
 }
 
 fn find_by_element_id<'a>(node: &'a Node, id: &str) -> Option<&'a Node> {
@@ -7538,13 +7584,21 @@ impl<'t> ElementHandle<'t> {
     let path = find_path_by_id(root, self.node_id)?;
     let mut result: &LayoutResult = layout;
     let (mut abs_x, mut abs_y, mut rel_x, mut rel_y) = (0.0, 0.0, 0.0, 0.0);
-    for &index in &path {
+    for (depth, &index) in path.iter().enumerate() {
       let child = result.children.get(index)?;
       rel_x = child.offset.x;
       rel_y = child.offset.y;
       abs_x += rel_x;
       abs_y += rel_y;
       result = child.result.as_ref();
+      if result.dropped {
+        // Inside a dropped subtree every element sits, at zero size, at the
+        // dropped child's place in its line.
+        if depth + 1 < path.len() {
+          (rel_x, rel_y) = (0.0, 0.0);
+        }
+        break;
+      }
     }
     Some(ElementRect {
       x: abs_x,
@@ -9374,6 +9428,10 @@ fn update_element_refs_recursive(
   parent_x: f32,
   parent_y: f32,
 ) {
+  if layout.dropped {
+    collapse_dropped_element_refs(node, abs_x, abs_y, parent_x, parent_y);
+    return;
+  }
   if let Some(element_ref) = &node.element_ref {
     element_ref.update(
       abs_x,
@@ -9399,6 +9457,18 @@ fn update_element_refs_recursive(
       abs_x,
       abs_y,
     );
+  }
+}
+
+/// Every element ref in a subtree its Row/Column dropped reports a zero-size
+/// rect at the dropped child's place in the line, whatever its own layout
+/// inside the zero-size box says.
+fn collapse_dropped_element_refs(node: &Node, abs_x: f32, abs_y: f32, parent_x: f32, parent_y: f32) {
+  if let Some(element_ref) = &node.element_ref {
+    element_ref.update(abs_x, abs_y, abs_x - parent_x, abs_y - parent_y, 0.0, 0.0);
+  }
+  for child in node.children() {
+    collapse_dropped_element_refs(child, abs_x, abs_y, abs_x, abs_y);
   }
 }
 

@@ -267,9 +267,6 @@ lurq::components::Column::new()
 
 The scroll area takes its content height while that fits, and the space between header and footer otherwise.
 
-A share of the overflow smaller than one pixel goes to the other shrinking children, so a child either keeps its
-natural size or loses at least a pixel: a sliver never truncates a label into a stray ellipsis.
-
 ### Give-way order and limits
 
 By default every shrinking child gives way at once. `.shrink_order(order)` makes them give way in turn: the children
@@ -290,8 +287,15 @@ The content minimum of a `Row` in a row (or a `Column` in a column) is its paddi
 every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). Anything
 else (text, rects, stacks, scroll containers, wrapping rows, lines on the other axis) keeps its natural size, like a
 flex item with CSS `min-width: auto`. Within one order, droppable children are dropped, last first, only while the
-shrinking children of that order cannot absorb the rest of the overflow. A dropped child stays mounted: its state,
-focusability and element refs remain, and it comes back once the line has room for it.
+shrinking children of that order cannot absorb the rest of the overflow. A dropped child stays mounted and keeps its
+state, and it comes back once the line has room for it. While it is dropped, nothing inside it is a Tab stop, focus
+inside it moves off (the focused node is blurred), and the element refs and bounds of everything inside it report a
+zero-size rect at its place in the line, where the next child starts. Devtools and the MCP tree mark it `dropped`.
+
+A line that uses orders or limits also shares in whole pixels: within one order every child loses a whole number of
+pixels except the one with the largest shrink factor, which takes the fraction. A sliver of overflow therefore
+truncates one label instead of putting a stray ellipsis on several, and as the line narrows each child gives up a
+pixel at a time. A line without orders or limits shares exactly by factor.
 
 ```rust
 use lurq::{

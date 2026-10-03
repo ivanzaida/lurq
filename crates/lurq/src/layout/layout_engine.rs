@@ -2944,8 +2944,14 @@ impl LayoutEngine {
 
     for (i, result) in results.iter().enumerate() {
       if !occupies_line(&children[i], result) {
+        // A dropped child sits, at zero size, where the next child starts.
+        let offset = match (result.dropped, vertical) {
+          (false, _) => Offset::default(),
+          (true, true) => Offset::new(0.0, main_cursor),
+          (true, false) => Offset::new(main_cursor, 0.0),
+        };
         child_layouts.push(ChildLayout {
-          offset: Offset::default(),
+          offset,
           result: result.clone().into(),
         });
         continue;

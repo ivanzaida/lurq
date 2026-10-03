@@ -11,7 +11,7 @@ use crate::{
   app::glyph_engine::GlyphEngine,
   layout::{
     Constraints, Size,
-    layout_kind::{FlexParams, FlexWrap, LayoutKind, ShrinkLimit},
+    layout_kind::{FlexParams, FlexWrap, LayoutKind, ShrinkLimit, ShrinkRule},
     layout_result::LayoutResult,
   },
   node::{node::Node, spacing_value::SpacingValue},
@@ -110,6 +110,9 @@ impl LayoutEngine {
 
     let mut indices = Vec::new();
     let mut items = Vec::new();
+    // Whole-pixel sharing is part of the give-way rules: a line without
+    // orders or limits shares exactly as before them.
+    let mut whole_pixels = false;
     for (index, child) in line.children.iter().enumerate() {
       let factor = line.params[index].shrink;
       if child.is_overlay_declaration() || factor <= 0.0 {
@@ -117,6 +120,7 @@ impl LayoutEngine {
       }
       indices.push(index);
       items.push(self.shrink_item(child, &results[index], factor, line.vertical));
+      whole_pixels |= child.shrink_rule() != ShrinkRule::default();
     }
     let occupied = line
       .children
@@ -127,6 +131,7 @@ impl LayoutEngine {
       overflow,
       gap: line.spacing,
       occupied,
+      whole_pixels,
     };
     indices.into_iter().zip(distribute(&items, space)).collect()
   }

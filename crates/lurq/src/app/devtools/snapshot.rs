@@ -237,7 +237,7 @@ fn snapshot_node(
     tag: element.tag_name().to_owned(),
     kind,
     key: element.component_key().map(str::to_owned),
-    attrs: element_attrs(element),
+    attrs: layout_attrs(element, layout),
     text: element.node.inspection_text(),
     color: element.color().map(|color| color.to_hex()),
     props,
@@ -270,6 +270,16 @@ fn snapshot_node(
       })
       .collect(),
   }
+}
+
+/// [`element_attrs`], plus `dropped` for a child its Row/Column dropped to
+/// make room (`ShrinkLimit::Drop`).
+fn layout_attrs(element: ElementRef<'_>, layout: Option<&LayoutResult>) -> Vec<(String, String)> {
+  let mut attrs = element_attrs(element);
+  if layout.is_some_and(LayoutResult::is_dropped) {
+    attrs.push(("dropped".to_owned(), "true".to_owned()));
+  }
+  attrs
 }
 
 /// Attribute rows for the inspector/tree: the author-supplied `id` and
@@ -322,7 +332,7 @@ fn snapshot_node_for_selection(
     tag: element.tag_name().to_owned(),
     kind,
     key: element.component_key().map(str::to_owned),
-    attrs: element_attrs(element),
+    attrs: layout_attrs(element, layout),
     text: element.node.inspection_text(),
     color: element.color().map(|color| color.to_hex()),
     props: include_inspector_details.then(|| props_ref.cloned()).flatten(),

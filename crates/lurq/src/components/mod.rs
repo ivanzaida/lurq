@@ -332,7 +332,8 @@ macro_rules! impl_into_node {
       /// overflows, the children with the lowest order give way first, down
       /// to their [`ShrinkLimit`](crate::layout::layout_kind::ShrinkLimit),
       /// before any child of the next order shrinks at all. Children of one
-      /// order share their part of the overflow by shrink factor.
+      /// order share their part of the overflow by shrink factor, in whole
+      /// pixels except for the child with the largest factor.
       pub fn shrink_order(mut self, order: i32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_order(node, order));
         self
