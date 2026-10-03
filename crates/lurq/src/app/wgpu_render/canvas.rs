@@ -525,6 +525,8 @@ impl Drop for Renderer {
 #[cfg(test)]
 mod camera_tests;
 #[cfg(test)]
+mod residency_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]

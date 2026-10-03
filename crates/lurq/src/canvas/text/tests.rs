@@ -106,3 +106,31 @@ fn metrics_keep_spacing_features_and_refusals() {
     Err(CanvasError::TextTooLarge)
   ));
 }
+
+/// One frame of a dense page, in the order it is drawn every frame: a measure
+/// and a fill of each label. 700 distinct keys, like the ~684 of a real page.
+fn page(engine: &mut CanvasTextEngine, font: &CanvasFont) -> Vec<Arc<ShapedText>> {
+  (0..350)
+    .flat_map(|index: usize| {
+      let text = "a".repeat(1 + index % 4);
+      let color = Color::new(index as u8, (index / 256) as u8, 96, 255);
+      [
+        engine.measure(&text, font, color).unwrap(),
+        engine.shape(&text, font, 1., color).unwrap(),
+      ]
+    })
+    .collect()
+}
+
+#[test]
+fn a_page_with_more_keys_than_the_old_entry_limit_is_shaped_once() {
+  let mut engine = engine();
+  let font = CanvasFont::new("Lurq Weight Probe", 10.);
+  let first = page(&mut engine, &font);
+  assert!(first.iter().skip(1).step_by(2).all(|shaped| shaped.pixels.is_some()));
+  for frame in 2..=4 {
+    let next = page(&mut engine, &font);
+    let reshaped = first.iter().zip(&next).filter(|(a, b)| !Arc::ptr_eq(a, b)).count();
+    assert_eq!(reshaped, 0, "frame {frame} shaped {reshaped} of {} texts again", first.len());
+  }
+}
