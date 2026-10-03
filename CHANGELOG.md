@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.36.0 — 2026-10-03
+
+- Add `.shrink_drop_below(size)` for the shrinking children of a single-line `Row` or `Column`: the child first shrinks like its `ShrinkLimit`, but no further than `size`, and when its order still cannot absorb the overflow with every shrinking child at its floor, it drops like `ShrinkLimit::Drop` (zero size, no spacing, not drawn, no focus or Tab) before the next order shrinks. A child already narrower than `size` drops without shrinking; a negative or NaN `size` counts as 0. Within one order, `Drop` children drop first, then `shrink_drop_below` children, each last first; both count as gone in an ancestor's content minimum. It has no effect with `ShrinkLimit::Drop`. It is a method rather than a `ShrinkLimit` variant because `ShrinkLimit` is an exhaustive public enum, and a new variant would break matches on it.
+- Fix the space a drop frees staying empty. A dropped child frees its whole size and spacing, which can be more than the line needed; the rest stayed as slack at the end of the line while children of earlier orders remained shrunk. The line now gives way again without the dropped children, so those children take the rest back and the line stays filled.
+- Fix a blank left where a nested child dropped. A shrunk child whose own line (or a line nested in it on the same axis) dropped a child to fit kept the whole size it was given, so the dropped child's width stayed as an empty gap inside it (a status item that dropped its words while giving way by a few pixels). Such a child is now laid out again at what it still holds, and its line is distributed again with it at that size, so the space goes back to the line.
+- Fix an ellipsizing text with `ShrinkLimit::Drop` and a `flex_shrink` factor ellipsizing instead of dropping: it was measured inside its row's width, so its natural size could fit after being cut. It is now measured at its full width. Without a shrink factor it still ellipsizes within its row.
+
 ## 0.35.0 — 2026-10-03
 
 - Add a give-way order and limits for the shrinking children (those with a `flex_shrink` factor) of a single-line `Row` or `Column`. Until now the overflow was shared among all of them at once, in proportion to their factors, and clamped only at an explicit minimum, so a toolbar or status bar could not let one item give way before another, nor keep an icon and a count whole.
