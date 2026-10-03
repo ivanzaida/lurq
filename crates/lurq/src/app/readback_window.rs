@@ -24,10 +24,10 @@ use crate::{
   layout::render_list::RenderList,
 };
 
-struct HiddenWindow(HWND);
+pub(super) struct HiddenWindow(HWND);
 
 impl HiddenWindow {
-  fn new(width: u32, height: u32) -> Self {
+  pub(super) fn new(width: u32, height: u32) -> Self {
     static REGISTER: Once = Once::new();
     let name = w!("LurqBlendReadbackTest");
     // SAFETY: registers a class whose procedure only forwards to
@@ -61,7 +61,7 @@ impl HiddenWindow {
     }
   }
 
-  fn window_handle(&self) -> WindowHandle<'_> {
+  pub(super) fn window_handle(&self) -> WindowHandle<'_> {
     let raw = Win32WindowHandle::new(NonZeroIsize::new(self.0.0 as isize).expect("non-null HWND"));
     // SAFETY: the HWND stays valid until `self` is dropped, which outlives the
     // borrowed handle.

@@ -2,6 +2,16 @@ pub mod app_state;
 #[cfg(all(
   test,
   windows,
+  feature = "canvas",
+  feature = "perf_profile",
+  feature = "screenshot",
+  feature = "wgpu",
+  feature = "dx12"
+))]
+mod canvas_frame_probe;
+#[cfg(all(
+  test,
+  windows,
   feature = "raster",
   feature = "screenshot",
   any(feature = "wgpu", feature = "dx12")
