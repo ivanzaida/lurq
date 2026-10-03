@@ -288,7 +288,9 @@ The content minimum of a `Row` in a row (or a `Column` in a column) is its paddi
 every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). Anything
 else (text, rects, stacks, scroll containers, wrapping rows, lines on the other axis) keeps its natural size, like a
 flex item with CSS `min-width: auto`. Within one order, droppable children are dropped, last first, only while the
-shrinking children of that order cannot absorb the rest of the overflow. A dropped child stays mounted and keeps its
+shrinking children of that order cannot absorb the rest of the overflow. This holds for the line that gives way, not
+inside a shrinking item of it: an item whose row holds droppable children drops them all at once when it collapses
+(see below). A dropped child stays mounted and keeps its
 state, and it comes back once the line has room for it. While it is dropped, nothing inside it is a Tab stop or takes
 focus (`focus()` and `ctx.focus` requests for it are refused, keys never activate it), focus inside it moves off (the
 focused node is blurred), and the element refs and bounds of everything inside it report a
@@ -303,7 +305,9 @@ It then collapses, after the children of its order that drop, as a whole step li
 them (and collapses every such item in it) at once, so it holds its padding, its other children at their natural size
 and the spacing between them, and from there it shrinks on toward its floor like any other child, never growing back.
 The line decides this and the item's own layout follows it, so the two cannot disagree. Inside such an item, children
-therefore give way only once it collapses. An ellipsizing text with `Drop` and a shrink factor is
+therefore give way only once it collapses: a trimming child does not trim while a droppable child beside it stays,
+whatever their orders. To let a label trim before a time drops, make them separate children of the line that gives
+way, the time in a later order than the label. An ellipsizing text with `Drop` and a shrink factor is
 measured at its full width, so it drops rather than ellipsizes.
 
 `.shrink_drop_below(size)` combines both: the child first shrinks like its limit, but no further than `size`, and when
