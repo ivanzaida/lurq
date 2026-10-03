@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.1 — 2026-10-03
+
+- Fix Windows text clipboard writes losing their owner after Copy returns. The writer now uses a persistent caller-thread-owned window and checked UTF-16 allocation, retaining the public boolean API. Ownership lasts until that thread exits; failures after the clipboard is emptied remain non-atomic, and success requires both data transfer and clipboard closure.
+
 ## 0.36.0 — 2026-10-03
 
 - Add `.shrink_drop_below(size)` for the shrinking children of a single-line `Row` or `Column`: the child first shrinks like its `ShrinkLimit`, but no further than `size`, and when its order still cannot absorb the overflow with every shrinking child at its floor, it drops like `ShrinkLimit::Drop` (zero size, no spacing, not drawn, no focus or Tab) before the next order shrinks. A child already narrower than `size` drops without shrinking; a negative or NaN `size` counts as 0. Within one order, `Drop` children drop first, then `shrink_drop_below` children, each last first; both count as gone in an ancestor's content minimum. It has no effect with `ShrinkLimit::Drop`. It is a method rather than a `ShrinkLimit` variant because `ShrinkLimit` is an exhaustive public enum, and a new variant would break matches on it.
