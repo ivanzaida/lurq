@@ -1,3 +1,12 @@
+#[cfg(windows)]
+mod windows;
+
+#[cfg(windows)]
+pub fn copy_to_clipboard(text: impl AsRef<str>) -> bool {
+  windows::copy(text.as_ref())
+}
+
+#[cfg(not(windows))]
 pub fn copy_to_clipboard(text: impl AsRef<str>) -> bool {
   let Ok(mut clipboard) = arboard::Clipboard::new() else {
     return false;
