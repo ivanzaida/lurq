@@ -8,6 +8,7 @@ repository = "https://github.com/ivanzaida/lurq"
 homepage = "https://ivanzaida.github.io/lurq/"
 documentation = "https://docs.rs/lurq"
 readme = "../../README.md"
+exclude = ["target/**"]
 keywords = ["ui", "gui", "reactive", "wgpu", "devtools"]
 categories = ["gui", "rendering"]
 
