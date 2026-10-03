@@ -39,6 +39,7 @@ impl BuildAvailability {
       "cargo_profile": "not_embedded", "optimization_level": "not_embedded",
       "features": { "perf_profile": self.perf_profile, "canvas": self.canvas, "wgpu": self.wgpu,
         "dx12": self.dx12, "devtools": self.devtools },
+      "application_scopes": super::application_export::availability(self.perf_profile),
       "gpu_timestamps": { "available": false, "reason": "GPU timestamp queries are not instrumented" }
     })
   }
@@ -48,6 +49,7 @@ impl SessionStarted {
   pub fn to_json(&self) -> Value {
     json!({ "schema_version": 1, "status": "recording", "id": format!("profile_{}", self.id.0),
       "started_ms": self.started_ms, "max_samples": self.max_samples, "build": self.build.to_json(),
+      "application_scope_max_samples": self.max_samples.min(super::MAX_APPLICATION_SCOPES_PER_SESSION),
       "boundary_policy": "whole_completed_operations", "requests_redraw": false })
   }
 }
@@ -55,9 +57,10 @@ impl SessionStarted {
 impl ProfileReport {
   /// Export is detached from live state; finalized results stay immutable.
   pub fn to_json(&self) -> Value {
-    let status = if !self.in_flight.is_empty() {
+    let app = self.application_scopes.as_ref();
+    let status = if !self.in_flight.is_empty() || app.is_some_and(|app| !app.in_flight.is_empty()) {
       "unfinished_work_observed"
-    } else if self.samples.is_empty() {
+    } else if self.samples.is_empty() && app.is_none_or(|app| app.samples.is_empty()) {
       "no_completed_samples"
     } else {
       "completed_samples"
@@ -82,6 +85,7 @@ impl ProfileReport {
         "phase_elapsed_so_far_ms": current.phase_elapsed_ms, "unfinished": true,
         "excluded_from_completed_samples": true, "started_before_session": current.started_before_session
       })).collect::<Vec<_>>(),
+      "application_scopes": app.map(|app| app.to_json(self.observed_ms)),
       "samples": self.samples.iter().map(|sample| sample_json(sample)).collect::<Vec<_>>(),
       "scope_semantics": {
         "pass": "Tree::pass wall time; includes nested UI/layout/text/Canvas/render; excludes prior input dispatch",
