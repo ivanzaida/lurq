@@ -211,6 +211,9 @@ pub(crate) struct LayoutEngine {
   select_open: Cell<Option<bool>>,
   /// Opacity groups recorded by the last quad resolution.
   opacity_groups: RefCell<Vec<crate::layout::opacity_layer::OpacityGroup>>,
+  /// The lines being laid out collapsed by their parent's shrink step
+  /// (`flex_shrink::is_collapsed`).
+  collapsed_lines: RefCell<Vec<usize>>,
 }
 
 #[cfg(feature = "raster")]
@@ -476,6 +479,7 @@ impl LayoutEngine {
       shadows: RefCell::new(Arc::new(ThemeShadows::default())),
       select_open: Cell::new(None),
       opacity_groups: RefCell::new(Vec::new()),
+      collapsed_lines: RefCell::new(Vec::new()),
     }
   }
 
@@ -1810,7 +1814,10 @@ impl LayoutEngine {
   }
 
   fn layout_node(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> LayoutResult {
-    if let Some(cached) = self.layout_node_from_cache(glyph_engine, node, constraints) {
+    // A collapsed line's cache holds layouts its parent did not collapse.
+    if !self.is_collapsed(node)
+      && let Some(cached) = self.layout_node_from_cache(glyph_engine, node, constraints)
+    {
       return cached;
     }
 
@@ -2745,7 +2752,7 @@ impl LayoutEngine {
       }
     }
 
-    self.shrink_flex_line(
+    let collapsed = self.shrink_flex_line(
       glyph_engine,
       &FlexShrinkLine {
         children,
@@ -2755,6 +2762,7 @@ impl LayoutEngine {
         spacing,
         shrink_total,
         vertical,
+        collapsed: self.is_collapsed(node),
       },
       &mut results,
       child_overrides,
@@ -2813,7 +2821,11 @@ impl LayoutEngine {
               max_height: container_cross,
             }
           };
-          results[i] = self.layout_child_node(glyph_engine, child_overrides, i, child, stretch_constraints);
+          results[i] = if collapsed[i] {
+            self.layout_collapsed(glyph_engine, child, stretch_constraints)
+          } else {
+            self.layout_child_node(glyph_engine, child_overrides, i, child, stretch_constraints)
+          };
         }
       }
     }

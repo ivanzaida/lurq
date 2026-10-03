@@ -1,9 +1,6 @@
 //! How far a shrinking flex child gives way: its floor from its
 //! [`ShrinkLimit`], its content minimum, and, for a child whose own line holds
-//! droppable children, the size that keeps them all and what it collapses to
-//! without them.
-
-use std::collections::BTreeMap;
+//! droppable children, what it holds once collapsed without them.
 
 use super::{
   LayoutEngine,
@@ -17,10 +14,6 @@ use crate::{
   },
   node::{node::Node, spacing_value::SpacingValue},
 };
-
-/// How much more than its collapsed size the size that keeps every droppable
-/// child must be for a child to collapse at all.
-const COLLAPSE_TOLERANCE: f32 = 0.01;
 
 impl LayoutEngine {
   pub(super) fn shrink_item(&self, child: &Node, result: &LayoutResult, factor: f32, vertical: bool) -> ShrinkItem {
@@ -45,19 +38,64 @@ impl LayoutEngine {
       collapse: None,
     };
     if !droppable && drop_below.is_none() && holds_droppable(child, vertical) {
-      // Shrink only as far as keeps every droppable child inside, then
-      // collapse without them.
-      let keep = self.keep_min_main(child, result, vertical).max(floor);
-      let without = self.content_min_main(child, result, vertical).max(floor).min(natural);
-      if keep > without + COLLAPSE_TOLERANCE {
-        item.floor = keep;
-        item.collapse = Some(Collapse {
-          natural: without,
-          floor,
-        });
-      }
+      // It keeps its natural size until its line collapses it; its own line
+      // then drops every droppable child, so it holds the rest.
+      let without = self.collapsed_main(child, result, vertical).min(natural);
+      item.floor = natural;
+      item.collapse = Some(Collapse {
+        natural: without,
+        floor: floor.min(without),
+      });
     }
     item
+  }
+
+  /// The main size `node`, laid out naturally as `result`, holds once its
+  /// line (through logical wrappers) is collapsed: its padding and spacing,
+  /// every child at its natural size except those that drop, which are gone
+  /// with their spacing, and those that collapse, at what they hold
+  /// collapsed. Its collapsed layout starts from exactly this.
+  fn collapsed_main(&self, node: &Node, result: &LayoutResult, vertical: bool) -> f32 {
+    let natural = main_size(result, vertical);
+    let spacing = match node.layout_kind() {
+      LayoutKind::Row { spacing, wrap, .. } if !vertical && *wrap != FlexWrap::Wrap => spacing,
+      LayoutKind::Column { spacing, wrap, .. } if vertical && *wrap != FlexWrap::Wrap => spacing,
+      LayoutKind::LogicalModifier => {
+        return match node.children().first().zip(result.children.first()) {
+          Some((child, layout)) => self.collapsed_main(child, &layout.result, vertical),
+          None => natural,
+        };
+      }
+      _ => return natural,
+    };
+    let spacing = spacing.resolve(&self.spacing.borrow(), natural);
+    let mut total = 0.0;
+    let mut counted = 0usize;
+    for (child, layout) in node.children().iter().zip(&result.children) {
+      if child.is_overlay_declaration() {
+        continue;
+      }
+      let child_main = main_size(&layout.result, vertical);
+      let rule = child.shrink_rule();
+      let shrinks = child.state_flex().is_some_and(|params| params.shrink > 0.0);
+      total += if !shrinks {
+        child_main
+      } else if rule.limit == ShrinkLimit::Drop || rule.drop_below.is_some() {
+        continue;
+      } else if holds_droppable(child, vertical) {
+        self.collapsed_main(child, &layout.result, vertical).min(child_main)
+      } else {
+        child_main
+      };
+      counted += 1;
+    }
+    let padding = self.resolved_padding_for_size(node, result.size);
+    let padding_main = if vertical {
+      padding.top + padding.bottom
+    } else {
+      padding.left + padding.right
+    };
+    total + spacing * (counted as f32 - 1.0).max(0.0) + padding_main
   }
 
   /// The main size `node`, laid out as `result`, keeps when every shrinking
@@ -114,53 +152,6 @@ impl LayoutEngine {
       counted += 1;
     }
     total + spacing * (counted as f32 - 1.0).max(0.0)
-  }
-
-  /// The main size `node`, laid out as `result`, can shrink to while every
-  /// droppable child in its line (or a nested one) keeps its place. Its line
-  /// gives way by order, so a droppable child of order `o` stays while the
-  /// overflow fits what the shrinking children of orders up to `o` can
-  /// absorb; the tightest such order bounds how far `node` can shrink.
-  fn keep_min_main(&self, node: &Node, result: &LayoutResult, vertical: bool) -> f32 {
-    let natural = main_size(result, vertical);
-    match node.layout_kind() {
-      LayoutKind::Row { wrap, .. } if !vertical && *wrap != FlexWrap::Wrap => {}
-      LayoutKind::Column { wrap, .. } if vertical && *wrap != FlexWrap::Wrap => {}
-      LayoutKind::LogicalModifier => {
-        return match node.children().first().zip(result.children.first()) {
-          Some((child, layout)) => self.keep_min_main(child, &layout.result, vertical),
-          None => natural,
-        };
-      }
-      _ => return natural,
-    }
-    let mut capacities: BTreeMap<i32, f32> = BTreeMap::new();
-    let mut giving_way: Vec<i32> = Vec::new();
-    for (child, layout) in node.children().iter().zip(&result.children) {
-      let Some(factor) = child
-        .state_flex()
-        .map(|params| params.shrink)
-        .filter(|shrink| *shrink > 0.0 && !child.is_overlay_declaration())
-      else {
-        continue;
-      };
-      let item = self.shrink_item(child, &layout.result, factor, vertical);
-      if item.droppable || item.drops_at_floor || item.collapse.is_some() {
-        giving_way.push(item.order);
-      }
-      if !item.droppable {
-        *capacities.entry(item.order).or_insert(0.0) += item.natural - item.floor;
-      }
-    }
-    let absorbable = giving_way
-      .iter()
-      .map(|&order| capacities.range(..=order).map(|(_, capacity)| capacity).sum::<f32>())
-      .fold(f32::INFINITY, f32::min);
-    if absorbable.is_finite() {
-      (natural - absorbable).max(0.0)
-    } else {
-      natural
-    }
   }
 }
 

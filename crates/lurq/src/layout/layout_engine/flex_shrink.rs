@@ -17,10 +17,6 @@ use crate::{
   node::node::Node,
 };
 
-/// How much less than its given size a shrunk child must hold, after a drop
-/// inside it, to be laid out again at what it holds.
-const RELEASE_TOLERANCE: f32 = 0.5;
-
 /// Inputs of one flex line's shrink step.
 pub(super) struct FlexShrinkLine<'a> {
   pub(super) children: &'a [Node],
@@ -30,6 +26,8 @@ pub(super) struct FlexShrinkLine<'a> {
   pub(super) spacing: f32,
   pub(super) shrink_total: f32,
   pub(super) vertical: bool,
+  /// Its parent collapsed this line ([`LayoutEngine::is_collapsed`]).
+  pub(super) collapsed: bool,
 }
 
 /// Whether a child takes up space in its flex line: overlay declarations and
@@ -65,89 +63,77 @@ impl LayoutEngine {
 
   /// Shrinks overflowing children and re-lays out every child whose main size
   /// changed, with that size as a tight main-axis constraint. A dropped child
-  /// is laid out at zero size and its result marked dropped.
-  ///
-  /// A shrunk child whose own line dropped a child to fit (directly or in a
-  /// nested line on the same axis) holds less than the size it was given; it
-  /// is laid out again at what it holds, and the line is distributed again
-  /// with that child fixed at that size, so the space the drop released goes
-  /// back to the line instead of staying blank inside the child.
+  /// is laid out at zero size and its result marked dropped; a collapsed child
+  /// is laid out with its own line collapsed (see [`Self::is_collapsed`]).
+  /// Returns which children collapsed, so a later layout of them (stretching)
+  /// collapses them again.
   pub(super) fn shrink_flex_line(
     &self,
     glyph_engine: &mut GlyphEngine,
     line: &FlexShrinkLine<'_>,
     results: &mut [LayoutResult],
     child_overrides: Option<&[Option<ChildLayoutOverride>]>,
-  ) {
-    let mut fixed = vec![false; results.len()];
-    let mut outcomes = self.shrink_outcomes(line, results, &fixed);
-    if outcomes.is_empty() {
-      return;
-    }
-    let naturals = results.to_vec();
-    loop {
-      let mut released = false;
-      // What gave way whole this round; it stays so if the line is
-      // distributed again, so nothing comes back at the same width.
-      let mut gave_way = Vec::new();
-      for (index, outcome) in outcomes {
-        let child = &line.children[index];
-        match outcome {
-          ShrinkOutcome::Keep => {}
-          ShrinkOutcome::Resize(new_main) | ShrinkOutcome::Collapsed(new_main) => {
-            if matches!(outcome, ShrinkOutcome::Collapsed(_)) {
-              gave_way.push(index);
-            }
-            if new_main == main_size(&results[index], line.vertical) {
-              continue;
-            }
-            let child_constraints = shrunk_constraints(line, new_main);
-            results[index] = self.layout_child_node(glyph_engine, child_overrides, index, child, child_constraints);
-            let Some(held) = self.released_main(child, &results[index], line.vertical) else {
-              continue;
-            };
-            let held = held.max(child.min_main_size(line.vertical));
-            if held < new_main - RELEASE_TOLERANCE {
-              let child_constraints = shrunk_constraints(line, held);
-              results[index] = self.layout_child_node(glyph_engine, child_overrides, index, child, child_constraints);
-              fixed[index] = true;
-              released = true;
-            }
+  ) -> Vec<bool> {
+    let mut collapsed = vec![false; results.len()];
+    for (index, outcome) in self.shrink_outcomes(line, results) {
+      let child = &line.children[index];
+      match outcome {
+        ShrinkOutcome::Keep => {}
+        ShrinkOutcome::Resize(new_main) => {
+          if new_main == main_size(&results[index], line.vertical) {
+            continue;
           }
-          ShrinkOutcome::Drop => {
-            let zero = Constraints::tight(Size::default());
-            let mut dropped = self.layout_child_node(glyph_engine, child_overrides, index, child, zero);
-            dropped.size = Size::default();
-            dropped.dropped = true;
-            results[index] = dropped;
-            gave_way.push(index);
-          }
+          let child_constraints = shrunk_constraints(line, new_main);
+          results[index] = self.layout_child_node(glyph_engine, child_overrides, index, child, child_constraints);
+        }
+        ShrinkOutcome::Collapsed(new_main) => {
+          collapsed[index] = true;
+          results[index] = self.layout_collapsed(glyph_engine, child, shrunk_constraints(line, new_main));
+        }
+        ShrinkOutcome::Drop => {
+          let zero = Constraints::tight(Size::default());
+          let mut dropped = self.layout_child_node(glyph_engine, child_overrides, index, child, zero);
+          dropped.size = Size::default();
+          dropped.dropped = true;
+          results[index] = dropped;
         }
       }
-      if !released {
-        return;
-      }
-      for index in gave_way {
-        fixed[index] = true;
-      }
-      // Distribute again from the natural sizes, the released children fixed.
-      for (index, natural) in naturals.iter().enumerate() {
-        if !fixed[index] {
-          results[index] = natural.clone();
-        }
-      }
-      outcomes = self.shrink_outcomes(line, results, &fixed);
     }
+    collapsed
   }
 
-  /// What the overflow does to each shrinking child that is not `fixed`, by
-  /// child index.
-  fn shrink_outcomes(
+  /// Lays `child` out with its line (through logical wrappers) collapsed:
+  /// every child of it that can drop is dropped and every child that can
+  /// collapse is collapsed, whatever its size, as its parent decided. The
+  /// layout cache is not read for it, since it holds layouts without that
+  /// decision.
+  pub(super) fn layout_collapsed(
     &self,
-    line: &FlexShrinkLine<'_>,
-    results: &[LayoutResult],
-    fixed: &[bool],
-  ) -> Vec<(usize, ShrinkOutcome)> {
+    glyph_engine: &mut GlyphEngine,
+    child: &Node,
+    constraints: Constraints,
+  ) -> LayoutResult {
+    let depth = self.collapsed_lines.borrow().len();
+    let mut node = child;
+    loop {
+      self.collapsed_lines.borrow_mut().push(node_key(node));
+      match (node.layout_kind(), node.children().first()) {
+        (LayoutKind::LogicalModifier, Some(inner)) => node = inner,
+        _ => break,
+      }
+    }
+    let result = self.layout_node(glyph_engine, child, constraints);
+    self.collapsed_lines.borrow_mut().truncate(depth);
+    result
+  }
+
+  /// Whether `node`'s parent collapsed it for the layout in progress.
+  pub(super) fn is_collapsed(&self, node: &Node) -> bool {
+    self.collapsed_lines.borrow().contains(&node_key(node))
+  }
+
+  /// What the overflow does to each shrinking child, by child index.
+  fn shrink_outcomes(&self, line: &FlexShrinkLine<'_>, results: &[LayoutResult]) -> Vec<(usize, ShrinkOutcome)> {
     if line.shrink_total <= 0.0 || !line.max_main.is_finite() {
       return Vec::new();
     }
@@ -157,15 +143,15 @@ impl LayoutEngine {
       .filter(|(_, child)| !child.is_overlay_declaration())
       .map(|(result, _)| main_size(result, line.vertical))
       .sum();
-    // A child dropped in an earlier round takes no spacing.
-    let occupied = results
+    let occupied = line
+      .children
       .iter()
-      .zip(line.children)
-      .filter(|(result, child)| occupies_line(child, result))
+      .filter(|child| !child.is_overlay_declaration())
       .count();
     let total_spacing = line.spacing * (occupied as f32 - 1.0).max(0.0);
     let overflow = total_children_main + total_spacing - line.max_main;
-    if overflow <= 0.0 {
+    // A collapsed line drops and collapses its children even when it fits.
+    if overflow <= 0.0 && !line.collapsed {
       return Vec::new();
     }
 
@@ -180,9 +166,6 @@ impl LayoutEngine {
         continue;
       }
       whole_pixels |= child.shrink_rule() != ShrinkRule::default();
-      if fixed[index] {
-        continue;
-      }
       indices.push(index);
       items.push(self.shrink_item(child, &results[index], factor, line.vertical));
     }
@@ -192,50 +175,17 @@ impl LayoutEngine {
       occupied,
       whole_pixels,
     };
-    indices.into_iter().zip(distribute(&items, space)).collect()
+    indices
+      .into_iter()
+      .zip(distribute(&items, space, line.collapsed))
+      .collect()
   }
+}
 
-  /// The main size a shrunk `node`, laid out as `result`, really holds when
-  /// its line (or a nested line on the same axis) dropped a child to fit:
-  /// padding, spacing and the children that stayed. `None` when nothing in
-  /// it dropped, or it is not a line on this axis.
-  fn released_main(&self, node: &Node, result: &LayoutResult, vertical: bool) -> Option<f32> {
-    let spacing = match node.layout_kind() {
-      LayoutKind::Row { spacing, wrap, .. } if !vertical && *wrap != FlexWrap::Wrap => spacing,
-      LayoutKind::Column { spacing, wrap, .. } if vertical && *wrap != FlexWrap::Wrap => spacing,
-      LayoutKind::LogicalModifier => {
-        let (child, layout) = node.children().first().zip(result.children.first())?;
-        return self.released_main(child, &layout.result, vertical);
-      }
-      _ => return None,
-    };
-    let mut any_dropped = false;
-    let mut total = 0.0;
-    let mut counted = 0usize;
-    for (child, layout) in node.children().iter().zip(&result.children) {
-      if child.is_overlay_declaration() {
-        continue;
-      }
-      if layout.result.dropped {
-        any_dropped = true;
-        continue;
-      }
-      any_dropped |= self.released_main(child, &layout.result, vertical).is_some();
-      total += main_size(&layout.result, vertical);
-      counted += 1;
-    }
-    if !any_dropped {
-      return None;
-    }
-    let spacing = spacing.resolve(&self.spacing.borrow(), main_size(result, vertical));
-    let padding = self.resolved_padding_for_size(node, result.size);
-    let padding_main = if vertical {
-      padding.top + padding.bottom
-    } else {
-      padding.left + padding.right
-    };
-    Some(total + spacing * (counted as f32 - 1.0).max(0.0) + padding_main)
-  }
+/// A node's identity for [`LayoutEngine::is_collapsed`]: its address, which
+/// does not move while the tree is laid out (node ids may be unassigned).
+fn node_key(node: &Node) -> usize {
+  std::ptr::from_ref(node) as usize
 }
 
 pub(super) fn main_size(result: &LayoutResult, vertical: bool) -> f32 {

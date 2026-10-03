@@ -298,11 +298,12 @@ What gives way whole only accumulates as a line narrows: a child dropped at one 
 one. A dropped child frees its whole size and spacing, which can be more than the line needed; the rest goes back to
 children that only trimmed (labels, spacers), never to a child that dropped, so the line stays filled without bringing
 anything back. The same holds one line down. A shrinking item whose own row holds droppable children (a `Drop` or
-`shrink_drop_below` child, or such an item nested in it) first shrinks only as far as keeps them all, taking the
-row's own give-way order into account; once its order needs more room, it collapses, after the children of its order
-that drop, to its floor without them, as a whole step like a drop. If an item still holds less than it was given (a
-row nested in a child that shrinks to its plain minimum), it is laid out again at what it holds and the line is
-distributed again, with everything that gave way kept so. An ellipsizing text with `Drop` and a shrink factor is
+`shrink_drop_below` child, or such an item nested in it) keeps its natural size until its line needs it to give way.
+It then collapses, after the children of its order that drop, as a whole step like a drop: its row drops every one of
+them (and collapses every such item in it) at once, so it holds its padding, its other children at their natural size
+and the spacing between them, and from there it shrinks on toward its floor like any other child, never growing back.
+The line decides this and the item's own layout follows it, so the two cannot disagree. Inside such an item, children
+therefore give way only once it collapses. An ellipsizing text with `Drop` and a shrink factor is
 measured at its full width, so it drops rather than ellipsizes.
 
 `.shrink_drop_below(size)` combines both: the child first shrinks like its limit, but no further than `size`, and when

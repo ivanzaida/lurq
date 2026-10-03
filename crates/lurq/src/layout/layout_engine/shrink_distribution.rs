@@ -6,9 +6,10 @@
 //! above their floors, children give way whole, in a fixed sequence, each
 //! kind last first: those that drop (`ShrinkLimit::Drop`), those that drop
 //! below a size (`.shrink_drop_below`), then those that collapse (a child
-//! whose own line holds droppable children: it first shrinks only as far as
-//! keeps them all, then collapses to its floor without them). What is left is
-//! shared in proportion to the shrink factors (see [`super::shrink_sharing`]).
+//! whose own line holds droppable children keeps its natural size until it
+//! collapses: its line then drops all of them, as this line decides, and it
+//! shrinks on from what is left). What is left is shared in proportion to the
+//! shrink factors (see [`super::shrink_sharing`]).
 //!
 //! Because the sequence is fixed and each step frees at least the room it
 //! takes away, the steps only accumulate as the line narrows: nothing that
@@ -38,8 +39,9 @@ pub(super) struct ShrinkItem {
   /// Shrinks to its floor, then drops out when its order needs more room
   /// (`.shrink_drop_below`).
   pub(super) drops_at_floor: bool,
-  /// For a child whose own line holds droppable children: `floor` keeps them
-  /// all, and once its order needs more room it collapses into this.
+  /// For a child whose own line holds droppable children: it keeps its
+  /// natural size (`floor`) until its order needs more room, then collapses
+  /// into this.
   pub(super) collapse: Option<Collapse>,
 }
 
@@ -81,9 +83,22 @@ enum Fate {
   Collapsed,
 }
 
-/// The outcome for every item, in the order of `items`.
-pub(super) fn distribute(items: &[ShrinkItem], space: LineSpace) -> Vec<ShrinkOutcome> {
-  let mut settled = vec![Fate::Stays; items.len()];
+/// The outcome for every item, in the order of `items`. In a `collapsed`
+/// line (its parent collapsed it) every child that can drop is dropped and
+/// every child that can collapse is collapsed before anything is shared.
+pub(super) fn distribute(items: &[ShrinkItem], space: LineSpace, collapsed: bool) -> Vec<ShrinkOutcome> {
+  let mut settled: Vec<Fate> = items
+    .iter()
+    .map(|item| match item {
+      _ if !collapsed => Fate::Stays,
+      ShrinkItem { droppable: true, .. }
+      | ShrinkItem {
+        drops_at_floor: true, ..
+      } => Fate::Dropped,
+      ShrinkItem { collapse: Some(_), .. } => Fate::Collapsed,
+      _ => Fate::Stays,
+    })
+    .collect();
   loop {
     let (outcomes, fates, overflow_left) = give_way_in_order(items, space, &settled);
     // When what gave way frees more than the line needed, the line gives way
