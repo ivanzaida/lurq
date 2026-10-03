@@ -2833,13 +2833,14 @@ impl LayoutEngine {
     // first layout pass. Without it, the text measures at intrinsic width and
     // an enclosing flex/clip cell only clips the glyphs after layout, so the
     // requested ellipsis is never produced.
-    // A text that drops out whole (`ShrinkLimit::Drop`) is measured at its
-    // full width: measured inside the row it would ellipsize instead of
-    // dropping.
-    let bounds_ellipsized_text = !vertical
-      && child.text_overflow == TextOverflow::Elipsis
-      && constraints.max_width.is_finite()
-      && child.shrink_rule().limit != ShrinkLimit::Drop;
+    // A shrinking text that drops out whole (`ShrinkLimit::Drop`) is
+    // measured at its full width: measured inside the row it would ellipsize
+    // instead of dropping. Without a shrink factor it never drops, so it
+    // ellipsizes like any other text.
+    let drops_whole =
+      child.shrink_rule().limit == ShrinkLimit::Drop && child.state_flex().is_some_and(|params| params.shrink > 0.0);
+    let bounds_ellipsized_text =
+      !vertical && child.text_overflow == TextOverflow::Elipsis && constraints.max_width.is_finite() && !drops_whole;
 
     if vertical {
       Constraints {

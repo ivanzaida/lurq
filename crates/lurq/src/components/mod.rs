@@ -354,7 +354,8 @@ macro_rules! impl_into_node {
       /// but no further than `size` on the main axis, and when its order
       /// still cannot absorb the overflow with every shrinking child at its
       /// floor, it drops like `ShrinkLimit::Drop` before the next order
-      /// shrinks. A child narrower than `size` drops without shrinking.
+      /// shrinks. A child narrower than `size` drops without shrinking. A
+      /// negative or NaN `size` counts as 0.
       pub fn shrink_drop_below(mut self, size: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_drop_below(node, size));
         self

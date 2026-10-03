@@ -294,17 +294,19 @@ focus (`focus()` and `ctx.focus` requests for it are refused, keys never activat
 focused node is blurred), and the element refs and bounds of everything inside it report a
 zero-size rect at its place in the line, where the next child starts. Devtools and the MCP tree mark it `dropped`.
 
-A drop can also happen one line down: a shrunk item whose own row (or a row nested in it) drops a child to fit holds
-less than it was given. It is laid out again at what it still holds, and its line is distributed again with it at that
-size, so the released space goes back to the line (for example to a label of an earlier order that had to trim)
-instead of staying blank inside the item. An ellipsizing text with `Drop` is measured at its full width, so it drops
-rather than ellipsizes.
+A dropped child frees its whole size and spacing, which can be more than the line needed. The line then gives way
+again without it, so children of earlier orders that had shrunk take the rest back and the line stays filled. A drop
+can also happen one line down: a shrunk item whose own row (or a row nested in it) drops a child to fit holds less than
+it was given. It is laid out again at what it still holds, and its line is distributed again with it at that size, so
+the released space goes back to the line instead of staying blank inside the item. An ellipsizing text with `Drop` and
+a shrink factor is measured at its full width, so it drops rather than ellipsizes.
 
 `.shrink_drop_below(size)` combines both: the child first shrinks like its limit, but no further than `size`, and when
 its order still cannot absorb the overflow with every shrinking child at its floor, it drops (as with `Drop`) before
-the next order shrinks at all. A child already narrower than `size` drops without shrinking. Within one order,
-children with `Drop` are dropped first, then those with `shrink_drop_below`, each last first, and either kind counts as
-gone in an ancestor's content minimum. With `ShrinkLimit::Drop` the size has no effect.
+the next order shrinks at all. A child already narrower than `size` drops without shrinking; a negative or NaN `size`
+counts as 0. Within one order, children with `Drop` are dropped first, then those with `shrink_drop_below`, each last
+first, and either kind counts as gone in an ancestor's content minimum. With `ShrinkLimit::Drop` the size has no
+effect.
 
 ```rust
 // The request words trim to 100 px, then drop so the count stays whole.

@@ -107,6 +107,9 @@ impl LayoutEngine {
               results[index] = self.layout_child_node(glyph_engine, child_overrides, index, child, child_constraints);
               fixed[index] = true;
               released = true;
+              // The line is distributed again without the rest of this
+              // round's outcomes: laying them out would be thrown away.
+              break;
             }
           }
           ShrinkOutcome::Drop => {

@@ -919,6 +919,9 @@ impl NodeUpdate for Node {
   }
 
   fn shrink_drop_below(&mut self, size: f32) {
+    // NaN would never compare equal and invalidate the layout cache on every
+    // rebuild; a negative size means the same as 0.
+    let size = if size.is_nan() { 0.0 } else { size.max(0.0) };
     self.shrink_rule.drop_below = Some(size);
     self.layout_cache.invalidate();
   }

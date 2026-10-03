@@ -174,3 +174,15 @@ fn give_way_drop_below_follows_a_resize_continuously_until_it_drops() {
   }
   assert_eq!(drops, 1, "the request drops exactly once");
 }
+
+#[test]
+fn give_way_drop_below_a_negative_or_nan_size_counts_as_zero() {
+  for size in [f32::NAN, -5.0, 0.0] {
+    let row = Row::new()
+      .spacing(0.0)
+      .child(Rect::new(100.0, 10.0).flex_shrink(1.0).shrink_drop_below(size))
+      .child(Rect::new(50.0, 10.0));
+    let (_, layout) = layout_once(row, 60.0, 10.0);
+    assert_eq!(child_widths(&layout), [10.0, 50.0], "size {size}");
+  }
+}

@@ -7,7 +7,9 @@
 //! share to the others. Droppable children are dropped, last first, only while
 //! the shrinking children of their order cannot absorb the rest; then, the
 //! same way, children that shrink to a floor and drop below it
-//! (`.shrink_drop_below`).
+//! (`.shrink_drop_below`). When a drop frees more than the line needs, the
+//! line gives way again without the dropped children, so the earlier orders
+//! take the rest back and the line stays filled.
 //!
 //! A line that uses orders or limits also shares in whole pixels: every child
 //! of an order loses a whole number of pixels except the one with the largest
@@ -63,18 +65,50 @@ pub(super) struct LineSpace {
 
 /// The outcome for every item, in the order of `items`.
 pub(super) fn distribute(items: &[ShrinkItem], space: LineSpace) -> Vec<ShrinkOutcome> {
+  let mut removed = vec![false; items.len()];
+  loop {
+    let (outcomes, overflow_left) = give_way_in_order(items, space, &removed);
+    let dropped: Vec<usize> = (0..items.len())
+      .filter(|&index| outcomes[index] == ShrinkOutcome::Drop && !removed[index])
+      .collect();
+    // A drop frees the child's whole size. When that is more than the line
+    // needed, the earlier orders, already at their floors, get the rest
+    // back: the line gives way again with the dropped children gone.
+    if dropped.is_empty() || overflow_left >= -DROP_TOLERANCE {
+      return outcomes;
+    }
+    for index in dropped {
+      removed[index] = true;
+    }
+  }
+}
+
+/// One round of [`distribute`] with the `removed` children already dropped:
+/// the outcomes, and the overflow left at the end (negative when a drop freed
+/// more than the line needed).
+fn give_way_in_order(items: &[ShrinkItem], space: LineSpace, removed: &[bool]) -> (Vec<ShrinkOutcome>, f32) {
   let mut outcomes = vec![ShrinkOutcome::Keep; items.len()];
-  let mut orders: Vec<i32> = items.iter().map(|item| item.order).collect();
+  let mut overflow = space.overflow;
+  let mut occupied = space.occupied;
+  for index in (0..items.len()).filter(|&index| removed[index]) {
+    overflow -= items[index].natural + if occupied > 1 { space.gap } else { 0.0 };
+    occupied -= 1;
+    outcomes[index] = ShrinkOutcome::Drop;
+  }
+  let mut orders: Vec<i32> = (0..items.len())
+    .filter(|&index| !removed[index])
+    .map(|index| items[index].order)
+    .collect();
   orders.sort_unstable();
   orders.dedup();
 
-  let mut overflow = space.overflow;
-  let mut occupied = space.occupied;
   for order in orders {
     if overflow <= 0.0 {
       break;
     }
-    let members: Vec<usize> = (0..items.len()).filter(|&index| items[index].order == order).collect();
+    let members: Vec<usize> = (0..items.len())
+      .filter(|&index| !removed[index] && items[index].order == order)
+      .collect();
     let (mut shrinking, droppable): (Vec<usize>, Vec<usize>) =
       members.into_iter().partition(|&index| !items[index].droppable);
     let mut drop = DropStep {
@@ -111,7 +145,7 @@ pub(super) fn distribute(items: &[ShrinkItem], space: LineSpace) -> Vec<ShrinkOu
     }
     overflow = share_within_order(items, &shrinking, overflow, space.whole_pixels, &mut outcomes);
   }
-  outcomes
+  (outcomes, overflow)
 }
 
 /// Dropping children of one order while its shrinking children cannot absorb

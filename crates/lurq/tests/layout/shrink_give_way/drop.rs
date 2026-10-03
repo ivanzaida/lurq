@@ -7,9 +7,9 @@ use std::sync::{
 
 use lurq::{
   app::events::{MouseButton, MouseEvent},
-  components::{Rect, Row, Text},
+  components::{Rect, Row, Spacer, Text},
   layout::{Alignment, layout_kind::ShrinkLimit},
-  node::EventHandler,
+  node::{EventHandler, dimension::Dimension},
 };
 
 use super::{DETAIL, LINE_HEIGHT, SPACING, TIME, WIDE, assert_close, child_widths, drawn_texts, label, layout_once};
@@ -170,4 +170,90 @@ fn give_way_dropped_child_does_not_count_toward_a_content_limit() {
   let item = &layout.children[0].result;
   assert_eq!(item.size.width, 14.0);
   assert!(item.children[1].result.is_dropped());
+}
+
+#[test]
+fn give_way_drop_limit_without_a_shrink_factor_still_ellipsizes() {
+  // `Drop` needs a shrink factor; without one the text is an ordinary
+  // ellipsizing child, measured within its row (not its full width).
+  let row = Row::new()
+    .spacing(0.0)
+    .child(Rect::new(50.0, 10.0))
+    .child(label(DETAIL).shrink_limit(ShrinkLimit::Drop));
+  let (tree, layout) = layout_once(row, 120.0, LINE_HEIGHT);
+  assert!(
+    layout.children[1].result.size.width <= 120.0,
+    "the text is measured within the row, as in 0.35.0"
+  );
+  assert!(!layout.children[1].result.is_dropped());
+  assert!(drawn_texts(&tree, &layout)[0].ends_with('…'));
+}
+
+/// What the line's children and spacing take.
+fn line_used(layout: &lurq::layout::layout_result::LayoutResult, spacing: f32) -> f32 {
+  let kept: Vec<f32> = layout
+    .children
+    .iter()
+    .filter(|child| !child.result.is_dropped())
+    .map(|child| child.result.size.width)
+    .collect();
+  kept.iter().sum::<f32>() + spacing * (kept.len() as f32 - 1.0)
+}
+
+#[test]
+fn give_way_drop_gives_what_it_frees_back_to_earlier_orders() {
+  let natural = natural_widths();
+  let row = || {
+    Row::new()
+      .spacing(SPACING)
+      .child(label(DETAIL).flex_shrink(1.0).min_width(100.0))
+      .child(Rect::new(STOP, 10.0))
+      .child(
+        label(TIME)
+          .flex_shrink(1.0)
+          .shrink_order(1)
+          .shrink_limit(ShrinkLimit::Drop),
+      )
+  };
+  // The detail at its minimum leaves 1 px too little for the time.
+  let width = 100.0 + SPACING + STOP + SPACING + natural[1] - 1.0;
+  let (tree, layout) = layout_once(row(), width, LINE_HEIGHT);
+  assert!(layout.children[2].result.is_dropped(), "the time drops");
+  assert_close(line_used(&layout, SPACING), width, "the line is still filled");
+  assert_close(
+    layout.children[0].result.size.width,
+    width - SPACING - STOP,
+    "the detail takes the time's room back",
+  );
+  assert_eq!(drawn_texts(&tree, &layout).len(), 1);
+}
+
+#[test]
+fn give_way_last_child_drop_leaves_no_slack_at_the_end() {
+  // A status bar: room between the groups that goes first, a fixed item and
+  // a time at the end that drops next.
+  let natural = natural_widths();
+  let row = Row::new()
+    .spacing(SPACING)
+    .child(
+      Spacer::new()
+        .width(Dimension::Pct(100.0))
+        .flex_shrink(1.0)
+        .shrink_order(-1),
+    )
+    .child(Rect::new(100.0, 10.0))
+    .child(label(TIME).flex_shrink(1.0).shrink_limit(ShrinkLimit::Drop));
+  let width = 100.0 + SPACING * 2.0 + natural[1] - 1.0;
+  let (_, layout) = layout_once(row, width, LINE_HEIGHT);
+  assert!(layout.children[2].result.is_dropped(), "the time drops");
+  assert_close(
+    layout.children[0].result.size.width,
+    width - SPACING - 100.0,
+    "the room takes the slack",
+  );
+  assert_close(
+    layout.children[1].offset.x + 100.0,
+    width,
+    "the fixed item ends at the line's end",
+  );
 }
