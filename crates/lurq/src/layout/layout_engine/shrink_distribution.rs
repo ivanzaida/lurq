@@ -1,31 +1,28 @@
 //! Sharing a single-line Row/Column's overflow among its shrinking children.
 //!
 //! Children give way by order, lowest first: the overflow reaches the next
-//! order only once every child of the current one is at its floor or dropped.
-//! Within one order the overflow is shared in proportion to the shrink
-//! factors, and a child clamped at its floor freezes and hands its unused
-//! share to the others. Droppable children are dropped, last first, only while
-//! the shrinking children of their order cannot absorb the rest; then, the
-//! same way, children that shrink to a floor and drop below it
-//! (`.shrink_drop_below`). When a drop frees more than the line needs, the
-//! line gives way again without the dropped children, so the earlier orders
-//! take the rest back and the line stays filled.
+//! order only once every child of the current one is at its floor or gone.
+//! Within one order, while its shrinking children cannot absorb the overflow
+//! above their floors, children give way whole, in a fixed sequence, each
+//! kind last first: those that drop (`ShrinkLimit::Drop`), those that drop
+//! below a size (`.shrink_drop_below`), then those that collapse (a child
+//! whose own line holds droppable children: it first shrinks only as far as
+//! keeps them all, then collapses to its floor without them). What is left is
+//! shared in proportion to the shrink factors (see [`super::shrink_sharing`]).
 //!
-//! A line that uses orders or limits also shares in whole pixels: every child
-//! of an order loses a whole number of pixels except the one with the largest
-//! factor, which takes the fraction, so a child does not lose a sliver that
-//! only truncates its text into an ellipsis. Its shares follow the overflow
-//! continuously (a pixel at a time). Other lines share exactly by factor.
+//! Because the sequence is fixed and each step frees at least the room it
+//! takes away, the steps only accumulate as the line narrows: nothing that
+//! gave way at one width comes back at a narrower one. When the steps free
+//! more than the line needs, the line gives way again with them settled, so
+//! the rest goes back to children that only trimmed, never to one that gave
+//! way.
 
-use std::iter;
+use super::shrink_sharing::share_within_order;
 
 /// Overflow the shrinking children of an order may still have to absorb
-/// before a droppable child of that order is dropped; keeps float noise from
+/// before a child of that order gives way whole; keeps float noise from
 /// dropping a child that fits.
 const DROP_TOLERANCE: f32 = 0.01;
-/// Float noise allowed when cumulative shares are cut to whole pixels, so a
-/// share of exactly n pixels computed as n - ε still counts as n.
-const PIXEL_TOLERANCE: f32 = 1e-3;
 
 /// One shrinking child of the line.
 #[derive(Clone, Copy)]
@@ -41,6 +38,17 @@ pub(super) struct ShrinkItem {
   /// Shrinks to its floor, then drops out when its order needs more room
   /// (`.shrink_drop_below`).
   pub(super) drops_at_floor: bool,
+  /// For a child whose own line holds droppable children: `floor` keeps them
+  /// all, and once its order needs more room it collapses into this.
+  pub(super) collapse: Option<Collapse>,
+}
+
+/// What a collapsing child becomes: a child shrinking from `natural` (its
+/// size with its droppable children gone) down to `floor`.
+#[derive(Clone, Copy)]
+pub(super) struct Collapse {
+  pub(super) natural: f32,
+  pub(super) floor: f32,
 }
 
 /// What the overflow does to one child.
@@ -48,6 +56,8 @@ pub(super) struct ShrinkItem {
 pub(super) enum ShrinkOutcome {
   Keep,
   Resize(f32),
+  /// Collapsed (see [`ShrinkItem::collapse`]) and laid out at this size.
+  Collapsed(f32),
   Drop,
 }
 
@@ -63,94 +73,157 @@ pub(super) struct LineSpace {
   pub(super) whole_pixels: bool,
 }
 
+/// Whether a child gave way whole.
+#[derive(Clone, Copy, PartialEq)]
+enum Fate {
+  Stays,
+  Dropped,
+  Collapsed,
+}
+
 /// The outcome for every item, in the order of `items`.
 pub(super) fn distribute(items: &[ShrinkItem], space: LineSpace) -> Vec<ShrinkOutcome> {
-  let mut removed = vec![false; items.len()];
+  let mut settled = vec![Fate::Stays; items.len()];
   loop {
-    let (outcomes, overflow_left) = give_way_in_order(items, space, &removed);
-    let dropped: Vec<usize> = (0..items.len())
-      .filter(|&index| outcomes[index] == ShrinkOutcome::Drop && !removed[index])
-      .collect();
-    // A drop frees the child's whole size. When that is more than the line
-    // needed, the earlier orders, already at their floors, get the rest
-    // back: the line gives way again with the dropped children gone.
-    if dropped.is_empty() || overflow_left >= -DROP_TOLERANCE {
+    let (outcomes, fates, overflow_left) = give_way_in_order(items, space, &settled);
+    // When what gave way frees more than the line needed, the line gives way
+    // again with it settled, so the rest goes back to children that trimmed.
+    if fates == settled || overflow_left >= -DROP_TOLERANCE {
       return outcomes;
     }
-    for index in dropped {
-      removed[index] = true;
-    }
+    settled = fates;
   }
 }
 
-/// One round of [`distribute`] with the `removed` children already dropped:
-/// the outcomes, and the overflow left at the end (negative when a drop freed
-/// more than the line needed).
-fn give_way_in_order(items: &[ShrinkItem], space: LineSpace, removed: &[bool]) -> (Vec<ShrinkOutcome>, f32) {
-  let mut outcomes = vec![ShrinkOutcome::Keep; items.len()];
-  let mut overflow = space.overflow;
-  let mut occupied = space.occupied;
-  for index in (0..items.len()).filter(|&index| removed[index]) {
-    overflow -= items[index].natural + if occupied > 1 { space.gap } else { 0.0 };
-    occupied -= 1;
-    outcomes[index] = ShrinkOutcome::Drop;
+/// `item` as it shrinks once collapsed.
+fn collapsed(item: ShrinkItem) -> ShrinkItem {
+  match item.collapse {
+    Some(collapse) => ShrinkItem {
+      natural: collapse.natural,
+      floor: collapse.floor,
+      collapse: None,
+      ..item
+    },
+    None => item,
+  }
+}
+
+/// One round of [`distribute`] with the `settled` fates already applied: the
+/// outcomes, every fate, and the overflow left at the end (negative when
+/// what gave way freed more than the line needed).
+fn give_way_in_order(items: &[ShrinkItem], space: LineSpace, settled: &[Fate]) -> (Vec<ShrinkOutcome>, Vec<Fate>, f32) {
+  let mut fates = settled.to_vec();
+  let mut shrinking_items: Vec<ShrinkItem> = items.to_vec();
+  let mut step = GiveWayStep {
+    overflow: space.overflow,
+    occupied: space.occupied,
+    gap: space.gap,
+    capacity: 0.0,
+  };
+  for index in 0..items.len() {
+    match fates[index] {
+      Fate::Stays => {}
+      Fate::Dropped => step.remove(items[index].natural),
+      Fate::Collapsed => {
+        shrinking_items[index] = collapsed(items[index]);
+        step.overflow -= items[index].natural - shrinking_items[index].natural;
+      }
+    }
   }
   let mut orders: Vec<i32> = (0..items.len())
-    .filter(|&index| !removed[index])
+    .filter(|&index| fates[index] != Fate::Dropped)
     .map(|index| items[index].order)
     .collect();
   orders.sort_unstable();
   orders.dedup();
 
+  let mut outcomes = vec![ShrinkOutcome::Keep; items.len()];
   for order in orders {
-    if overflow <= 0.0 {
+    if step.overflow <= 0.0 {
       break;
     }
     let members: Vec<usize> = (0..items.len())
-      .filter(|&index| !removed[index] && items[index].order == order)
+      .filter(|&index| fates[index] != Fate::Dropped && items[index].order == order)
       .collect();
-    let (mut shrinking, droppable): (Vec<usize>, Vec<usize>) =
-      members.into_iter().partition(|&index| !items[index].droppable);
-    let mut drop = DropStep {
-      overflow,
-      occupied,
-      gap: space.gap,
-      capacity: shrinking
-        .iter()
-        .map(|&index| items[index].natural - items[index].floor)
-        .sum(),
-    };
-    for &index in droppable.iter().rev() {
-      if !drop.drop_if_needed(items[index], 0.0) {
-        break;
-      }
-      outcomes[index] = ShrinkOutcome::Drop;
-    }
-    let drops_at_floor: Vec<usize> = shrinking
-      .iter()
-      .copied()
-      .filter(|&index| items[index].drops_at_floor)
-      .collect();
-    for &index in drops_at_floor.iter().rev() {
-      let item = items[index];
-      if !drop.drop_if_needed(item, item.natural - item.floor) {
-        break;
-      }
-      outcomes[index] = ShrinkOutcome::Drop;
-      shrinking.retain(|&shrinking_index| shrinking_index != index);
-    }
-    (overflow, occupied) = (drop.overflow, drop.occupied);
-    if overflow <= 0.0 {
+    let shrinking = give_way_whole(items, &members, &mut shrinking_items, &mut fates, &mut step);
+    if step.overflow <= 0.0 {
       break;
     }
-    overflow = share_within_order(items, &shrinking, overflow, space.whole_pixels, &mut outcomes);
+    step.overflow = share_within_order(
+      &shrinking_items,
+      &shrinking,
+      step.overflow,
+      space.whole_pixels,
+      &mut outcomes,
+    );
   }
-  (outcomes, overflow)
+  for (index, fate) in fates.iter().enumerate() {
+    outcomes[index] = match (fate, outcomes[index]) {
+      (Fate::Dropped, _) => ShrinkOutcome::Drop,
+      (Fate::Collapsed, ShrinkOutcome::Resize(size)) => ShrinkOutcome::Collapsed(size),
+      (Fate::Collapsed, _) => ShrinkOutcome::Collapsed(shrinking_items[index].natural),
+      (Fate::Stays, outcome) => outcome,
+    };
+  }
+  (outcomes, fates, step.overflow)
 }
 
-/// Dropping children of one order while its shrinking children cannot absorb
-/// the overflow.
-struct DropStep {
+/// Lets the `members` of one order give way whole while its shrinking
+/// children cannot absorb the overflow: those that drop, those that drop
+/// below a size, then those that collapse, each last first. Returns the
+/// members that are left to shrink.
+fn give_way_whole(
+  items: &[ShrinkItem],
+  members: &[usize],
+  shrinking_items: &mut [ShrinkItem],
+  fates: &mut [Fate],
+  step: &mut GiveWayStep,
+) -> Vec<usize> {
+  let (mut shrinking, droppable): (Vec<usize>, Vec<usize>) =
+    members.iter().copied().partition(|&index| !items[index].droppable);
+  let room = |item: ShrinkItem| item.natural - item.floor;
+  step.capacity = shrinking.iter().map(|&index| room(shrinking_items[index])).sum();
+  for &index in droppable.iter().rev() {
+    if !step.needs_more() {
+      return shrinking;
+    }
+    step.remove(items[index].natural);
+    fates[index] = Fate::Dropped;
+  }
+  let below: Vec<usize> = shrinking
+    .iter()
+    .copied()
+    .filter(|&index| items[index].drops_at_floor)
+    .collect();
+  for &index in below.iter().rev() {
+    if !step.needs_more() {
+      return shrinking;
+    }
+    step.remove(items[index].natural);
+    step.capacity -= room(shrinking_items[index]);
+    fates[index] = Fate::Dropped;
+    shrinking.retain(|&kept| kept != index);
+  }
+  let collapsing: Vec<usize> = shrinking
+    .iter()
+    .copied()
+    .filter(|&index| items[index].collapse.is_some() && fates[index] == Fate::Stays)
+    .collect();
+  for &index in collapsing.iter().rev() {
+    if !step.needs_more() {
+      return shrinking;
+    }
+    let before = shrinking_items[index];
+    shrinking_items[index] = collapsed(before);
+    step.overflow -= before.natural - shrinking_items[index].natural;
+    step.capacity += room(shrinking_items[index]) - room(before);
+    fates[index] = Fate::Collapsed;
+  }
+  shrinking
+}
+
+/// The overflow of a line as its children give way whole.
+struct GiveWayStep {
   overflow: f32,
   occupied: usize,
   gap: f32,
@@ -158,161 +231,16 @@ struct DropStep {
   capacity: f32,
 }
 
-impl DropStep {
-  /// Drops `item`, whose own room above its floor counts in `capacity` as
-  /// `room`, if the overflow exceeds what the order can absorb; returns
-  /// whether it dropped.
-  fn drop_if_needed(&mut self, item: ShrinkItem, room: f32) -> bool {
-    if self.overflow <= self.capacity + DROP_TOLERANCE {
-      return false;
-    }
-    self.overflow -= item.natural + if self.occupied > 1 { self.gap } else { 0.0 };
+impl GiveWayStep {
+  /// Whether the overflow exceeds what the order's shrinking children can
+  /// absorb.
+  fn needs_more(&self) -> bool {
+    self.overflow > self.capacity + DROP_TOLERANCE
+  }
+
+  /// Takes a child of main size `natural` out of the line, with its spacing.
+  fn remove(&mut self, natural: f32) {
+    self.overflow -= natural + if self.occupied > 1 { self.gap } else { 0.0 };
     self.occupied -= 1;
-    self.capacity -= room;
-    true
   }
-}
-
-/// Shares `overflow` among the `shrinking` items of one order and returns
-/// what they could not absorb (0 unless all of them reached their floor).
-fn share_within_order(
-  items: &[ShrinkItem],
-  shrinking: &[usize],
-  overflow: f32,
-  whole_pixels: bool,
-  outcomes: &mut [ShrinkOutcome],
-) -> f32 {
-  let mut remaining_overflow = overflow;
-  let mut remaining_shrink: f32 = shrinking.iter().map(|&index| items[index].factor).sum();
-  let mut frozen = vec![false; shrinking.len()];
-  clamp_at_floors(
-    items,
-    shrinking,
-    &mut frozen,
-    &mut remaining_overflow,
-    &mut remaining_shrink,
-    outcomes,
-  );
-  let active: Vec<usize> = (0..shrinking.len())
-    .filter(|&slot| !frozen[slot])
-    .map(|slot| shrinking[slot])
-    .collect();
-  if active.is_empty() {
-    return remaining_overflow;
-  }
-  let shares: Vec<f32> = active
-    .iter()
-    .map(|&index| remaining_overflow * (items[index].factor / remaining_shrink))
-    .collect();
-  let amounts = if whole_pixels {
-    whole_pixel_amounts(items, &active, &shares, remaining_overflow)
-  } else {
-    shares
-  };
-  for (&index, amount) in active.iter().zip(amounts) {
-    outcomes[index] = ShrinkOutcome::Resize((items[index].natural - amount).max(0.0));
-  }
-  0.0
-}
-
-/// Freezes every item whose share would take it below its floor at that
-/// floor, re-sharing until no further item clamps.
-fn clamp_at_floors(
-  items: &[ShrinkItem],
-  shrinking: &[usize],
-  frozen: &mut [bool],
-  remaining_overflow: &mut f32,
-  remaining_shrink: &mut f32,
-  outcomes: &mut [ShrinkOutcome],
-) {
-  loop {
-    if *remaining_shrink <= 0.0 {
-      // Subtracting frozen factors can lose a small factor to float
-      // rounding; share by what the unfrozen items really have left.
-      let unfrozen: Vec<usize> = (0..shrinking.len())
-        .filter(|&slot| !frozen[slot])
-        .map(|slot| shrinking[slot])
-        .collect();
-      *remaining_shrink = factor_sum(items, &unfrozen);
-      if *remaining_shrink <= 0.0 {
-        return;
-      }
-    }
-    let mut any_clamped = false;
-    for (slot, &index) in shrinking.iter().enumerate() {
-      if frozen[slot] {
-        continue;
-      }
-      let item = items[index];
-      let shrink_amount = *remaining_overflow * (item.factor / *remaining_shrink);
-      let new_main = (item.natural - shrink_amount).max(item.floor);
-      if new_main > item.natural - shrink_amount {
-        frozen[slot] = true;
-        *remaining_overflow -= item.natural - new_main;
-        *remaining_shrink -= item.factor;
-        any_clamped = true;
-        outcomes[index] = ShrinkOutcome::Resize(new_main);
-      }
-    }
-    if !any_clamped || frozen.iter().all(|frozen| *frozen) {
-      return;
-    }
-  }
-}
-
-fn factor_sum(items: &[ShrinkItem], indices: &[usize]) -> f32 {
-  indices.iter().map(|&index| items[index].factor).sum()
-}
-
-/// Turns the `shares` of the `active` items (summing to `total`) into whole
-/// pixels by cumulative rounding: walking the items with the carrier (the
-/// largest factor, the first of equal ones) last, each loses the whole pixels
-/// its running total crosses, and the carrier takes the rest, at least its own
-/// share. A small change of `total` changes any item by at most a pixel.
-/// What exceeds an item's room above its floor goes to the others' room:
-/// the carrier first, then items that already lose a pixel or more, so a
-/// fraction lands on an item that loses nothing only when no other can take
-/// it.
-fn whole_pixel_amounts(items: &[ShrinkItem], active: &[usize], shares: &[f32], total: f32) -> Vec<f32> {
-  let carrier = (0..active.len()).fold(0, |best, slot| {
-    if items[active[slot]].factor > items[active[best]].factor {
-      slot
-    } else {
-      best
-    }
-  });
-  let mut amounts = vec![0.0; active.len()];
-  let mut cumulative = 0.0;
-  let mut assigned = 0.0;
-  for slot in (0..active.len()).filter(|&slot| slot != carrier) {
-    cumulative += shares[slot];
-    let whole = (cumulative + PIXEL_TOLERANCE).floor().min(total);
-    amounts[slot] = whole - assigned;
-    assigned = whole;
-  }
-  amounts[carrier] = (total - assigned).max(0.0);
-
-  let room = |slot: usize| (items[active[slot]].natural - items[active[slot]].floor).max(0.0);
-  let mut excess = 0.0;
-  for (slot, amount) in amounts.iter_mut().enumerate() {
-    if *amount > room(slot) {
-      excess += *amount - room(slot);
-      *amount = room(slot);
-    }
-  }
-  let losing: Vec<usize> = (0..active.len())
-    .filter(|&slot| slot != carrier && amounts[slot] >= 1.0)
-    .collect();
-  let untouched: Vec<usize> = (0..active.len())
-    .filter(|&slot| slot != carrier && amounts[slot] < 1.0)
-    .collect();
-  for slot in iter::once(carrier).chain(losing).chain(untouched) {
-    if excess <= 0.0 {
-      break;
-    }
-    let taken = (room(slot) - amounts[slot]).min(excess);
-    amounts[slot] += taken;
-    excess -= taken;
-  }
-  amounts
 }

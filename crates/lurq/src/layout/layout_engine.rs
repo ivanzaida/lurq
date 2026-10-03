@@ -43,6 +43,8 @@ mod flex_shrink;
 mod opacity_groups;
 mod select_quads;
 mod shrink_distribution;
+mod shrink_floors;
+mod shrink_sharing;
 mod text_layout_output;
 
 use flex_shrink::{FlexShrinkLine, occupies_line};
@@ -2751,7 +2753,6 @@ impl LayoutEngine {
         constraints,
         max_main,
         spacing,
-        total_spacing,
         shrink_total,
         vertical,
       },

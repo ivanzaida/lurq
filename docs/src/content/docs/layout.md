@@ -294,12 +294,16 @@ focus (`focus()` and `ctx.focus` requests for it are refused, keys never activat
 focused node is blurred), and the element refs and bounds of everything inside it report a
 zero-size rect at its place in the line, where the next child starts. Devtools and the MCP tree mark it `dropped`.
 
-A dropped child frees its whole size and spacing, which can be more than the line needed. The line then gives way
-again without it, so children of earlier orders that had shrunk take the rest back and the line stays filled. A drop
-can also happen one line down: a shrunk item whose own row (or a row nested in it) drops a child to fit holds less than
-it was given. It is laid out again at what it still holds, and its line is distributed again with it at that size, so
-the released space goes back to the line instead of staying blank inside the item. An ellipsizing text with `Drop` and
-a shrink factor is measured at its full width, so it drops rather than ellipsizes.
+What gives way whole only accumulates as a line narrows: a child dropped at one width is dropped at every narrower
+one. A dropped child frees its whole size and spacing, which can be more than the line needed; the rest goes back to
+children that only trimmed (labels, spacers), never to a child that dropped, so the line stays filled without bringing
+anything back. The same holds one line down. A shrinking item whose own row holds droppable children (a `Drop` or
+`shrink_drop_below` child, or such an item nested in it) first shrinks only as far as keeps them all, taking the
+row's own give-way order into account; once its order needs more room, it collapses, after the children of its order
+that drop, to its floor without them, as a whole step like a drop. If an item still holds less than it was given (a
+row nested in a child that shrinks to its plain minimum), it is laid out again at what it holds and the line is
+distributed again, with everything that gave way kept so. An ellipsizing text with `Drop` and a shrink factor is
+measured at its full width, so it drops rather than ellipsizes.
 
 `.shrink_drop_below(size)` combines both: the child first shrinks like its limit, but no further than `size`, and when
 its order still cannot absorb the overflow with every shrinking child at its floor, it drops (as with `Drop`) before
