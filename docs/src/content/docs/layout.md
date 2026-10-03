@@ -294,6 +294,12 @@ focus (`focus()` and `ctx.focus` requests for it are refused, keys never activat
 focused node is blurred), and the element refs and bounds of everything inside it report a
 zero-size rect at its place in the line, where the next child starts. Devtools and the MCP tree mark it `dropped`.
 
+A drop can also happen one line down: a shrunk item whose own row (or a row nested in it) drops a child to fit holds
+less than it was given. It is laid out again at what it still holds, and its line is distributed again with it at that
+size, so the released space goes back to the line (for example to a label of an earlier order that had to trim)
+instead of staying blank inside the item. An ellipsizing text with `Drop` is measured at its full width, so it drops
+rather than ellipsizes.
+
 `.shrink_drop_below(size)` combines both: the child first shrinks like its limit, but no further than `size`, and when
 its order still cannot absorb the overflow with every shrinking child at its floor, it drops (as with `Drop`) before
 the next order shrinks at all. A child already narrower than `size` drops without shrinking. Within one order,

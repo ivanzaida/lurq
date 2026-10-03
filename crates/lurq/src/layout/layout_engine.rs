@@ -18,7 +18,7 @@ use crate::{
     Alignment, Constraints, Offset, Size, StackAlignment,
     layout_kind::{
       FlexParams, FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, Position, ScrollAxis, ScrollDirection,
-      ScrollState,
+      ScrollState, ShrinkLimit,
     },
     layout_result::{ChildLayout, LayoutResult},
     quad::{ClipRect, Quad, QuadContent},
@@ -2833,8 +2833,13 @@ impl LayoutEngine {
     // first layout pass. Without it, the text measures at intrinsic width and
     // an enclosing flex/clip cell only clips the glyphs after layout, so the
     // requested ellipsis is never produced.
-    let bounds_ellipsized_text =
-      !vertical && child.text_overflow == TextOverflow::Elipsis && constraints.max_width.is_finite();
+    // A text that drops out whole (`ShrinkLimit::Drop`) is measured at its
+    // full width: measured inside the row it would ellipsize instead of
+    // dropping.
+    let bounds_ellipsized_text = !vertical
+      && child.text_overflow == TextOverflow::Elipsis
+      && constraints.max_width.is_finite()
+      && child.shrink_rule().limit != ShrinkLimit::Drop;
 
     if vertical {
       Constraints {
