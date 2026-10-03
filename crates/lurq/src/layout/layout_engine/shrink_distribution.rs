@@ -5,7 +5,9 @@
 //! Within one order the overflow is shared in proportion to the shrink
 //! factors, and a child clamped at its floor freezes and hands its unused
 //! share to the others. Droppable children are dropped, last first, only while
-//! the shrinking children of their order cannot absorb the rest.
+//! the shrinking children of their order cannot absorb the rest; then, the
+//! same way, children that shrink to a floor and drop below it
+//! (`.shrink_drop_below`).
 //!
 //! A line that uses orders or limits also shares in whole pixels: every child
 //! of an order loses a whole number of pixels except the one with the largest
@@ -34,6 +36,9 @@ pub(super) struct ShrinkItem {
   pub(super) order: i32,
   /// Keeps its natural size or drops out (`ShrinkLimit::Drop`).
   pub(super) droppable: bool,
+  /// Shrinks to its floor, then drops out when its order needs more room
+  /// (`.shrink_drop_below`).
+  pub(super) drops_at_floor: bool,
 }
 
 /// What the overflow does to one child.
@@ -70,26 +75,68 @@ pub(super) fn distribute(items: &[ShrinkItem], space: LineSpace) -> Vec<ShrinkOu
       break;
     }
     let members: Vec<usize> = (0..items.len()).filter(|&index| items[index].order == order).collect();
-    let (shrinking, droppable): (Vec<usize>, Vec<usize>) =
+    let (mut shrinking, droppable): (Vec<usize>, Vec<usize>) =
       members.into_iter().partition(|&index| !items[index].droppable);
-    let capacity: f32 = shrinking
-      .iter()
-      .map(|&index| items[index].natural - items[index].floor)
-      .sum();
+    let mut drop = DropStep {
+      overflow,
+      occupied,
+      gap: space.gap,
+      capacity: shrinking
+        .iter()
+        .map(|&index| items[index].natural - items[index].floor)
+        .sum(),
+    };
     for &index in droppable.iter().rev() {
-      if overflow <= capacity + DROP_TOLERANCE {
+      if !drop.drop_if_needed(items[index], 0.0) {
         break;
       }
-      overflow -= items[index].natural + if occupied > 1 { space.gap } else { 0.0 };
-      occupied -= 1;
       outcomes[index] = ShrinkOutcome::Drop;
     }
+    let drops_at_floor: Vec<usize> = shrinking
+      .iter()
+      .copied()
+      .filter(|&index| items[index].drops_at_floor)
+      .collect();
+    for &index in drops_at_floor.iter().rev() {
+      let item = items[index];
+      if !drop.drop_if_needed(item, item.natural - item.floor) {
+        break;
+      }
+      outcomes[index] = ShrinkOutcome::Drop;
+      shrinking.retain(|&shrinking_index| shrinking_index != index);
+    }
+    (overflow, occupied) = (drop.overflow, drop.occupied);
     if overflow <= 0.0 {
       break;
     }
     overflow = share_within_order(items, &shrinking, overflow, space.whole_pixels, &mut outcomes);
   }
   outcomes
+}
+
+/// Dropping children of one order while its shrinking children cannot absorb
+/// the overflow.
+struct DropStep {
+  overflow: f32,
+  occupied: usize,
+  gap: f32,
+  /// What the order's shrinking children can still absorb above their floors.
+  capacity: f32,
+}
+
+impl DropStep {
+  /// Drops `item`, whose own room above its floor counts in `capacity` as
+  /// `room`, if the overflow exceeds what the order can absorb; returns
+  /// whether it dropped.
+  fn drop_if_needed(&mut self, item: ShrinkItem, room: f32) -> bool {
+    if self.overflow <= self.capacity + DROP_TOLERANCE {
+      return false;
+    }
+    self.overflow -= item.natural + if self.occupied > 1 { self.gap } else { 0.0 };
+    self.occupied -= 1;
+    self.capacity -= room;
+    true
+  }
 }
 
 /// Shares `overflow` among the `shrinking` items of one order and returns

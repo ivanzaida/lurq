@@ -193,3 +193,32 @@ fn refocusing_a_dropped_child_from_its_blur_handler_does_not_loop() {
     "the focus request for the dropped button is refused"
   );
 }
+
+/// The toolbar with a group that trims to 20 px before it drops.
+fn trimming_toolbar() -> Row {
+  Row::new()
+    .child(Button::new("Keep").id("keep").tab_index(0))
+    .child(
+      Row::new()
+        .child(extra_button())
+        .flex_shrink(1.0)
+        .shrink_drop_below(20.0),
+    )
+    .child(Rect::new(150.0, 10.0))
+}
+
+#[test]
+fn tab_and_focus_skip_a_child_dropped_below_its_size() {
+  let mut tree = headless(trimming_toolbar().width(700.0));
+  assert_eq!(tab_order(&mut tree, 2), ["keep", "extra"], "a fitting group is a stop");
+
+  let mut tree = headless(trimming_toolbar().width(200.0));
+  assert_eq!(extra_width(&mut tree), 0.0, "the group is dropped");
+  assert_eq!(tab_order(&mut tree, 2), ["keep", "keep"]);
+  tree.get_element_by_id_mut("extra").expect("extra").focus();
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("keep"),
+    "focus stays off the dropped button"
+  );
+}

@@ -138,18 +138,23 @@ impl LayoutEngine {
 
   fn shrink_item(&self, child: &Node, result: &LayoutResult, factor: f32, vertical: bool) -> ShrinkItem {
     let rule = child.shrink_rule();
+    let natural = main_size(result, vertical);
     let floor = match rule.limit {
       ShrinkLimit::MinSize | ShrinkLimit::Drop => child.min_main_size(vertical),
       ShrinkLimit::Content => child
         .min_main_size(vertical)
         .max(self.content_min_main(child, result, vertical)),
     };
+    let droppable = rule.limit == ShrinkLimit::Drop;
+    // `.shrink_drop_below(size)`: shrink no further than `size`, then drop.
+    let drop_below = rule.drop_below.filter(|_| !droppable);
     ShrinkItem {
       factor,
-      natural: main_size(result, vertical),
-      floor,
+      natural,
+      floor: drop_below.map_or(floor, |size| floor.max(size.min(natural))),
       order: rule.order,
-      droppable: rule.limit == ShrinkLimit::Drop,
+      droppable,
+      drops_at_floor: drop_below.is_some(),
     }
   }
 
@@ -181,7 +186,7 @@ impl LayoutEngine {
 
   /// The content minimum of a line on its own axis: its spacing, the laid-out
   /// size of each child that does not shrink and the limit of each child that
-  /// does. A droppable child counts as gone, its spacing included.
+  /// does. A child that can drop counts as gone, its spacing included.
   fn line_content_min(&self, node: &Node, result: &LayoutResult, spacing: &SpacingValue, vertical: bool) -> f32 {
     let spacing = spacing.resolve(&self.spacing.borrow(), main_size(result, vertical));
     let mut total = 0.0;
@@ -192,8 +197,10 @@ impl LayoutEngine {
       }
       let child_main = main_size(&layout.result, vertical);
       let shrinks = child.state_flex().is_some_and(|params| params.shrink > 0.0);
-      total += match child.shrink_rule().limit {
+      let rule = child.shrink_rule();
+      total += match rule.limit {
         _ if !shrinks => child_main,
+        _ if rule.drop_below.is_some() => continue,
         ShrinkLimit::Drop => continue,
         ShrinkLimit::MinSize => child.min_main_size(vertical),
         ShrinkLimit::Content => {

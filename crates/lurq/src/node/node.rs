@@ -304,6 +304,7 @@ pub(crate) trait NodeUpdate {
   fn flex_full(&mut self, grow: f32, shrink: f32, basis: Option<f32>);
   fn shrink_order(&mut self, order: i32);
   fn shrink_limit(&mut self, limit: ShrinkLimit);
+  fn shrink_drop_below(&mut self, size: f32);
   fn background(&mut self, color: impl Into<BackgroundColor>);
   fn background_gradient(&mut self, gradient: impl Into<Gradient>);
   fn caret_color(&mut self, color: impl Into<TextColor>);
@@ -914,6 +915,11 @@ impl NodeUpdate for Node {
 
   fn shrink_limit(&mut self, limit: ShrinkLimit) {
     self.shrink_rule.limit = limit;
+    self.layout_cache.invalidate();
+  }
+
+  fn shrink_drop_below(&mut self, size: f32) {
+    self.shrink_rule.drop_below = Some(size);
     self.layout_cache.invalidate();
   }
 

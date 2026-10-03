@@ -48,6 +48,7 @@ Common modifiers:
 | `.flex(factor)`                                                         | Participate in row/column flex distribution                            |
 | `.flex_shrink(factor)`                                                  | Give up main-axis space when a row/column overflows                    |
 | `.shrink_order(order)` / `.shrink_limit(ShrinkLimit)`                   | When and how far a shrinking child gives way                           |
+| `.shrink_drop_below(size)`                                              | Shrink a child down to `size`, then drop it                            |
 
 Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
 sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
@@ -292,6 +293,19 @@ state, and it comes back once the line has room for it. While it is dropped, not
 focus (`focus()` and `ctx.focus` requests for it are refused, keys never activate it), focus inside it moves off (the
 focused node is blurred), and the element refs and bounds of everything inside it report a
 zero-size rect at its place in the line, where the next child starts. Devtools and the MCP tree mark it `dropped`.
+
+`.shrink_drop_below(size)` combines both: the child first shrinks like its limit, but no further than `size`, and when
+its order still cannot absorb the overflow with every shrinking child at its floor, it drops (as with `Drop`) before
+the next order shrinks at all. A child already narrower than `size` drops without shrinking. Within one order,
+children with `Drop` are dropped first, then those with `shrink_drop_below`, each last first, and either kind counts as
+gone in an ancestor's content minimum. With `ShrinkLimit::Drop` the size has no effect.
+
+```rust
+// The request words trim to 100 px, then drop so the count stays whole.
+Row::new()
+  .child(label("Designer asks to use pencil").flex_shrink(1.0).shrink_order(1).shrink_drop_below(100.0))
+  .child(label("1 approval waiting").flex_shrink(1.0).shrink_order(2))
+```
 
 A line that uses orders or limits also shares in whole pixels: within one order every child loses a whole number of
 pixels except the one with the largest shrink factor, which takes the fraction. A sliver of overflow therefore
