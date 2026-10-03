@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.34.0"
+version = "0.34.1"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -8,6 +8,7 @@ repository = "https://github.com/ivanzaida/lurq"
 homepage = "https://ivanzaida.github.io/lurq/"
 documentation = "https://docs.rs/lurq"
 readme = "../../README.md"
+exclude = ["target/**"]
 keywords = ["ui", "gui", "reactive", "wgpu", "devtools"]
 categories = ["gui", "rendering"]
 

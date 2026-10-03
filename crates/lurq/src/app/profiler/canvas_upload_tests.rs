@@ -143,6 +143,7 @@ fn profiling_canvas_upload_export_does_not_advertise_wgpu_or_custom_backend_supp
   frame.render.canvas.asset_upload_details = Some(CanvasAssetUploadProfile::default());
   for backend in ["wgpu", "custom", "dx12"] {
     let mut report = ProfileReport {
+      application_scopes: None,
       id: SessionId(1),
       finalized: true,
       started_ms: 0.,

@@ -7,6 +7,8 @@ use std::{
   time::Instant,
 };
 
+#[cfg(feature = "perf_profile")]
+use super::application_state::{ApplicationSession, ApplicationState};
 use super::model::*;
 
 /// Shared capture API. No UI references, callbacks, redraws or per-node data.
@@ -18,30 +20,36 @@ pub struct ProfilingHandle {
 pub(crate) struct Inner {
   pub(crate) epoch: Instant,
   pub(crate) active: AtomicBool,
-  state: Mutex<State>,
+  pub(super) state: Mutex<State>,
 }
 
-struct State {
+pub(super) struct State {
   next_session: u64,
   next_sequence: u64,
-  closed: bool,
-  sessions: HashMap<SessionId, Session>,
+  pub(super) closed: bool,
+  pub(super) sessions: HashMap<SessionId, Session>,
   ended: VecDeque<SessionId>,
-  windows: HashMap<String, WindowState>,
+  pub(super) windows: HashMap<String, WindowState>,
+  #[cfg(feature = "perf_profile")]
+  pub(super) application: ApplicationState,
   untracked_windows: u64,
 }
 
-struct Session {
-  started: Instant,
-  options: SessionOptions,
+pub(super) struct Session {
+  pub(super) started: Instant,
+  pub(super) options: SessionOptions,
+  #[cfg(feature = "perf_profile")]
+  pub(super) application: ApplicationSession,
   samples: VecDeque<Arc<ProfileSample>>,
   completed: u64,
   dropped: u64,
   excluded: u64,
 }
 
-struct WindowState {
-  status: WindowStatus,
+pub(super) struct WindowState {
+  pub(super) status: WindowStatus,
+  #[cfg(feature = "perf_profile")]
+  pub(super) scope_identity: Arc<str>,
   progress: Option<Progress>,
 }
 
@@ -73,6 +81,8 @@ impl ProfilingHandle {
           ended: VecDeque::new(),
           windows: HashMap::new(),
           untracked_windows: 0,
+          #[cfg(feature = "perf_profile")]
+          application: ApplicationState::default(),
         }),
       }),
     }
@@ -105,6 +115,8 @@ impl ProfilingHandle {
         completed: 0,
         dropped: 0,
         excluded: 0,
+        #[cfg(feature = "perf_profile")]
+        application: ApplicationSession::default(),
       },
     );
     self.inner.active.store(true, Ordering::Release);
@@ -177,6 +189,16 @@ impl ProfilingHandle {
       windows,
       in_flight,
       samples: session.samples.iter().cloned().collect(),
+      application_scopes: {
+        #[cfg(feature = "perf_profile")]
+        {
+          Some(state.application_report(session, now))
+        }
+        #[cfg(not(feature = "perf_profile"))]
+        {
+          None
+        }
+      },
     }
   }
 
@@ -204,6 +226,8 @@ impl ProfilingHandle {
         return;
       }
     }
+    #[cfg(feature = "perf_profile")]
+    state.abandon_application(Some(id));
     state.windows.insert(
       id.into(),
       WindowState {
@@ -213,12 +237,18 @@ impl ProfilingHandle {
           devtools,
         },
         progress: None,
+        #[cfg(feature = "perf_profile")]
+        scope_identity: id.into(),
       },
     );
   }
 
   pub(crate) fn set_open(&self, id: &str, open: bool) {
     let mut state = self.inner.state.lock().unwrap_or_else(|error| error.into_inner());
+    #[cfg(feature = "perf_profile")]
+    if !open {
+      state.abandon_application(Some(id));
+    }
     if let Some(window) = state.windows.get_mut(id) {
       window.status.open = open;
       if !open {
@@ -230,6 +260,8 @@ impl ProfilingHandle {
   #[cfg(feature = "devtools")]
   pub(crate) fn mark_devtools(&self, id: &str) {
     let mut state = self.inner.state.lock().unwrap_or_else(|error| error.into_inner());
+    #[cfg(feature = "perf_profile")]
+    state.application_mark_devtools(id);
     if let Some(window) = state.windows.get_mut(id) {
       window.status.devtools = true;
     }
@@ -308,6 +340,8 @@ impl ProfilingHandle {
 
   pub(crate) fn close(&self) {
     let mut state = self.inner.state.lock().unwrap_or_else(|error| error.into_inner());
+    #[cfg(feature = "perf_profile")]
+    state.abandon_application(None);
     state.closed = true;
     for window in state.windows.values_mut() {
       window.status.open = false;
