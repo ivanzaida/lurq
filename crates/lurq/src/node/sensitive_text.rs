@@ -11,7 +11,9 @@ impl Node {
     }
   }
 
-  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  /// Whether this is sensitive text: inspectors redact it, and captures made
+  /// for inspection paint over it.
+  #[cfg(feature = "screenshot")]
   pub(crate) fn is_sensitive_text(&self) -> bool {
     matches!(self.node_kind(), NodeKind::Text { state, .. } if state.is_sensitive())
   }

@@ -27,11 +27,14 @@ impl Text {
     self
   }
 
-  /// Keep this text out of inspection: it is laid out, painted and captured
-  /// on screen as usual, but DevTools (tree, inspector, snapshots) and the MCP
-  /// tools (`lurq_read_tree`, `lurq_inspect`, the `lurq_find*` lookups, and
+  /// Keep this text out of inspection: it is laid out and painted on screen
+  /// as usual, but DevTools (tree, inspector, snapshots) and the MCP tools
+  /// (`lurq_read_tree`, `lurq_inspect`, the `lurq_find*` lookups, and
   /// accessible names derived from it) show [`REDACTED`](crate::core::REDACTED)
-  /// in its place, with the attribute `sensitive=true`. For a one-time code or
+  /// in its place, with the attribute `sensitive=true`, and their screenshots
+  /// (`lurq_screenshot`, a DevTools node screenshot) show an opaque grey bar
+  /// where its glyphs are painted. The app's own screenshots
+  /// (`WindowHandle::screenshot`) show the text. For a one-time code or
   /// a secret the user must read. Selection follows `selectable` as for any
   /// text (off by default); a selectable sensitive text can be selected and
   /// copied with Ctrl+C/Cmd+C, which no inspector sees. Keep the value itself

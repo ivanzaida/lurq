@@ -88,7 +88,8 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     RegisteredTool {
       name: "lurq_screenshot".into(),
       description: "Capture a PNG screenshot of a window, a region of it, or a single element. \
-                    Coordinates and sizes everywhere in this server are pixels of the returned image."
+                    Coordinates and sizes everywhere in this server are pixels of the returned image. \
+                    Sensitive text (sensitive=true in the tree) is covered by a grey bar."
         .into(),
       scope: Scope::Observe,
       read_only: true,

@@ -110,7 +110,7 @@ struct Credentials {
 
 Enums show their current variant.
 
-Masked text inputs expose their displayed mask and `masked=true` in node text and shape snapshots, and [sensitive text](../styling-events/#sensitive-text) (`Text::sensitive()`) shows as `•••` with `sensitive=true`. This does not redact arbitrary application props, signals, custom annotations, or logs: hold secret values in `lurq::core::Sensitive<T>`, which DevTools shows as `•••` in signal values, history and props, or use `#[devtools_ignore]` for sensitive fields you expose to inspection.
+Masked text inputs expose their displayed mask and `masked=true` in node text and shape snapshots, and [sensitive text](../styling-events/#sensitive-text) (`Text::sensitive()`) shows as `•••` with `sensitive=true`; a node screenshot covers it with a grey bar. This does not redact arbitrary application props, signals, custom annotations, or logs: hold secret values in `lurq::core::Sensitive<T>`, which DevTools shows as `•••` in signal values, history and props, or use `#[devtools_ignore]` for sensitive fields you expose to inspection.
 
 ## Inspectable Signals And Memos
 

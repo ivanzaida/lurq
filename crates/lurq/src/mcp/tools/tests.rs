@@ -7,7 +7,7 @@ use crate::mcp::{
   shared::{McpShared, McpToolResult},
 };
 
-struct TestSurface;
+pub(super) struct TestSurface;
 
 impl raw_window_handle::HasWindowHandle for TestSurface {
   fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {

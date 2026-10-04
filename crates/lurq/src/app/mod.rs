@@ -9,6 +9,10 @@ pub mod app_state;
 mod blend_readback_tests;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod box_shadow_readback_tests;
+#[cfg(feature = "screenshot")]
+pub(crate) mod capture_redaction;
+#[cfg(all(test, feature = "screenshot"))]
+pub(crate) mod capture_test_engine;
 pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]

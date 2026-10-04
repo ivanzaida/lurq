@@ -44,6 +44,8 @@ mod control_fill;
 mod flex_shrink;
 mod opacity_groups;
 mod select_quads;
+#[cfg(feature = "screenshot")]
+mod sensitive_quads;
 mod shrink_distribution;
 mod shrink_floors;
 mod shrink_sharing;
@@ -213,6 +215,10 @@ pub(crate) struct LayoutEngine {
   ime_cursor_area: Cell<Option<crate::app::events::ImeCursorArea>>,
   /// Opacity groups recorded by the last quad resolution.
   opacity_groups: RefCell<Vec<crate::layout::opacity_layer::OpacityGroup>>,
+  /// Indices of the sensitive text quads of the last quad resolution, in
+  /// ascending order (`sensitive_quads`).
+  #[cfg(feature = "screenshot")]
+  sensitive_quads: RefCell<Vec<usize>>,
   /// The lines being laid out collapsed by their parent's shrink step
   /// (`flex_shrink::is_collapsed`).
   collapsed_lines: RefCell<Vec<usize>>,
@@ -482,6 +488,8 @@ impl LayoutEngine {
       select_open: Cell::new(None),
       ime_cursor_area: Cell::new(None),
       opacity_groups: RefCell::new(Vec::new()),
+      #[cfg(feature = "screenshot")]
+      sensitive_quads: RefCell::new(Vec::new()),
       collapsed_lines: RefCell::new(Vec::new()),
     }
   }
@@ -790,6 +798,8 @@ impl LayoutEngine {
   ) {
     let root_offset = node.offset_position().unwrap_or_default();
     self.opacity_groups.borrow_mut().clear();
+    #[cfg(feature = "screenshot")]
+    self.sensitive_quads.borrow_mut().clear();
     self.ime_cursor_area.set(None);
     self.collect_quads(
       node,
@@ -1370,6 +1380,8 @@ impl LayoutEngine {
         if has_inset_shadow && !content_is_background {
           self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
         }
+        #[cfg(feature = "screenshot")]
+        self.record_sensitive_quad(node, quads.len());
         quads.push(Quad {
           x: content_x,
           y: content_y,

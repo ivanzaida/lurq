@@ -45,18 +45,23 @@ pub(crate) fn capture_rows_to_rgba(
 pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) {
   apply_capture_window_clip(&mut pixels, capture);
 
-  let output_path = match &capture.target {
-    crate::app::render_engine::RenderCaptureTarget::Path(path) => path,
+  match &capture.target {
+    crate::app::render_engine::RenderCaptureTarget::Path(path) => {
+      save_capture_png(path, &pixels, capture.width, capture.height);
+    }
     crate::app::render_engine::RenderCaptureTarget::Bytes(callback) => {
       callback(Ok(crate::app::render_engine::CapturedFrame {
         width: capture.width,
         height: capture.height,
         rgba: pixels,
       }));
-      return;
     }
-  };
+  }
+}
 
+/// Save tight RGBA8 capture pixels as a PNG, creating the parent directory.
+/// A failure is logged: a file capture has no caller waiting for it.
+pub(crate) fn save_capture_png(output_path: &std::path::Path, pixels: &[u8], width: u32, height: u32) {
   if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
     if let Err(error) = std::fs::create_dir_all(parent) {
       tracing::warn!(
@@ -68,9 +73,9 @@ pub(crate) fn finish_capture(mut pixels: Vec<u8>, capture: &RenderFrameCapture) 
   }
   if let Err(error) = image::save_buffer_with_format(
     output_path,
-    &pixels,
-    capture.width,
-    capture.height,
+    pixels,
+    width,
+    height,
     image::ColorType::Rgba8,
     image::ImageFormat::Png,
   ) {

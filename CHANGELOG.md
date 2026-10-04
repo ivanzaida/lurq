@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.40.1 — 2026-10-05
+
+Security fix:
+
+- Fix sensitive text being readable in inspection screenshots. `Text::sensitive()` (0.40.0) was redacted in every MCP and DevTools text surface, but `lurq_screenshot` and DevTools node screenshots captured the window as painted, so any MCP client could read a one-time password from the image. A capture made for an inspector now covers every pixel a sensitive text's glyphs can paint (anti-aliased edges, text shadow and transforms included, limited to its clip) with an opaque grey bar, at the place and size the text has on screen: `lurq_screenshot` of a window, a region or an element (by ref), on every render backend, and a DevTools node screenshot, from the GPU or drawn in software. The window keeps showing the text, and the app's own captures (`WindowHandle::screenshot`, `screenshot_region`, `screenshot_node`) and `Tree::painted_quads` still show it. The `lurq_screenshot` tool description says so.
+
 ## 0.40.0 — 2026-10-05
 
 Behaviour changes:

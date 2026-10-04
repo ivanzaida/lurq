@@ -15,6 +15,8 @@ mod screenshot;
 mod semantics;
 #[cfg(test)]
 mod sensitive_tests;
+#[cfg(test)]
+mod sensitive_screenshot_tests;
 mod set_value;
 #[cfg(test)]
 mod tests;

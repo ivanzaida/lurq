@@ -105,7 +105,7 @@ pub(super) fn prepare_screenshot(
       let _ = reply.send(result);
     },
   );
-  target.request_screenshot_capture(
+  target.request_inspection_capture(
     crate::app::render_engine::RenderCaptureTarget::Bytes(callback),
     region_logical,
   );

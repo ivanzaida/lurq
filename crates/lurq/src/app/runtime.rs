@@ -65,6 +65,8 @@ use crate::{
   },
 };
 
+#[cfg(all(test, feature = "screenshot"))]
+mod capture_redaction_tests;
 #[cfg(test)]
 mod caret_blink_tests;
 mod ime;
@@ -442,6 +444,15 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   }
 }
 
+/// A frame capture waiting for the next rendered frame.
+#[cfg(feature = "screenshot")]
+struct PendingScreenshot {
+  target: crate::app::render_engine::RenderCaptureTarget,
+  region: Option<crate::app::window::ScreenshotRegion>,
+  /// Made for an inspector: sensitive text is painted over.
+  redact_sensitive: bool,
+}
+
 struct CachedRenderList {
   list: RenderList,
   #[cfg(feature = "raster")]
@@ -657,10 +668,13 @@ pub struct Tree {
   perf_overlay_frames_since_sample: u64,
   secondary_windows: Vec<SecondaryWindow>,
   #[cfg(feature = "screenshot")]
-  pending_screenshot: Option<(
-    crate::app::render_engine::RenderCaptureTarget,
-    Option<crate::app::window::ScreenshotRegion>,
-  )>,
+  pending_screenshot: Option<PendingScreenshot>,
+  /// Where the sensitive text of the last full render list was painted, for
+  /// captures made for inspection (`app::capture_redaction`).
+  #[cfg(feature = "screenshot")]
+  capture_redactions: Vec<crate::app::capture_redaction::RedactedArea>,
+  #[cfg(feature = "screenshot")]
+  sensitive_quads: Vec<usize>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -997,6 +1011,10 @@ impl Tree {
       secondary_windows: Vec::new(),
       #[cfg(feature = "screenshot")]
       pending_screenshot: None,
+      #[cfg(feature = "screenshot")]
+      capture_redactions: Vec::new(),
+      #[cfg(feature = "screenshot")]
+      sensitive_quads: Vec::new(),
       #[cfg(feature = "devtools")]
       devtools: None,
       #[cfg(feature = "devtools")]
@@ -1185,23 +1203,38 @@ impl Tree {
     output_path: impl Into<PathBuf>,
     region: Option<crate::app::window::ScreenshotRegion>,
   ) {
-    self.request_screenshot_capture(
-      crate::app::render_engine::RenderCaptureTarget::Path(output_path.into()),
+    self.request_screenshot_capture(PendingScreenshot {
+      target: crate::app::render_engine::RenderCaptureTarget::Path(output_path.into()),
       region,
-    );
+      redact_sensitive: false,
+    });
   }
 
-  /// Queue a capture of the next rendered frame, delivered to `target`.
-  /// Only one capture can be pending per tree; a superseded byte-target
-  /// capture completes with an error rather than silently vanishing.
-  #[cfg(feature = "screenshot")]
-  pub(crate) fn request_screenshot_capture(
+  /// Queue a capture of the next rendered frame for an inspector, delivered
+  /// to `target`, with sensitive text painted over
+  /// (`app::capture_redaction`).
+  #[cfg(feature = "mcp")]
+  pub(crate) fn request_inspection_capture(
     &mut self,
     target: crate::app::render_engine::RenderCaptureTarget,
     region: Option<crate::app::window::ScreenshotRegion>,
   ) {
-    if let Some((previous, _)) = self.pending_screenshot.replace((target, region)) {
-      previous.fail("superseded by a newer capture request before a frame was rendered");
+    self.request_screenshot_capture(PendingScreenshot {
+      target,
+      region,
+      redact_sensitive: true,
+    });
+  }
+
+  /// Queue a capture of the next rendered frame. Only one capture can be
+  /// pending per tree; a superseded byte-target capture completes with an
+  /// error rather than silently vanishing.
+  #[cfg(feature = "screenshot")]
+  fn request_screenshot_capture(&mut self, request: PendingScreenshot) {
+    if let Some(previous) = self.pending_screenshot.replace(request) {
+      previous
+        .target
+        .fail("superseded by a newer capture request before a frame was rendered");
     }
     self.request_redraw();
   }
@@ -2290,6 +2323,14 @@ impl Tree {
       .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
     let mut opacity_groups = std::mem::take(&mut self.opacity_groups);
     self.layout_engine.take_opacity_groups(&mut opacity_groups);
+    #[cfg(feature = "screenshot")]
+    let (mut sensitive_quads, mut capture_redactions) = {
+      let mut sensitive_quads = std::mem::take(&mut self.sensitive_quads);
+      self.layout_engine.take_sensitive_quads(&mut sensitive_quads);
+      let mut capture_redactions = std::mem::take(&mut self.capture_redactions);
+      capture_redactions.clear();
+      (sensitive_quads, capture_redactions)
+    };
     let quad_wall_dur = quad_wall_start.elapsed();
     let _quad_dur = profile_elapsed!(_quad_start);
     #[cfg(feature = "perf_profile")]
@@ -2577,6 +2618,12 @@ impl Tree {
               g.color[3] *= factor;
             }
           }
+          #[cfg(feature = "screenshot")]
+          if sensitive_quads.binary_search(&order).is_ok() {
+            capture_redactions.extend(crate::app::capture_redaction::RedactedArea::of_glyph_run(
+              &glyphs[glyph_start..],
+            ));
+          }
         }
         QuadContent::RichText {
           spans,
@@ -2838,6 +2885,12 @@ impl Tree {
       &mut layers,
     );
     self.opacity_groups = opacity_groups;
+    #[cfg(feature = "screenshot")]
+    {
+      sensitive_quads.clear();
+      self.sensitive_quads = sensitive_quads;
+      self.capture_redactions = capture_redactions;
+    }
 
     #[cfg(feature = "screenshot")]
     let frame_capture = if self
@@ -5353,12 +5406,15 @@ impl Tree {
       #[cfg(feature = "perf_profile")]
       self.profiling.canvas_preparation(profile_elapsed!(_canvas_start));
     }
+    // No capture is taken from a cached list: one an engine still holds from
+    // a frame it could not render is failed here rather than taken from this
+    // frame, whose content (and sensitive text) it was not prepared for.
     let rendered = {
-      #[cfg(feature = "devtools")]
+      #[cfg(feature = "screenshot")]
       {
         render_engine.render_with_capture(&cached.list, window, display, None)
       }
-      #[cfg(not(feature = "devtools"))]
+      #[cfg(not(feature = "screenshot"))]
       {
         render_engine.render(&cached.list, window, display)
       }
@@ -8155,14 +8211,18 @@ impl Tree {
   }
 
   fn take_pending_screenshot(&mut self) -> Option<RenderFrameCapture> {
-    let (target, region) = self.pending_screenshot.take()?;
+    let PendingScreenshot {
+      target,
+      region,
+      redact_sensitive,
+    } = self.pending_screenshot.take()?;
     let Some(region) = region else {
       return Some(RenderFrameCapture {
         x: 0,
         y: 0,
         width: self.viewport_physical.width.round().max(1.0) as u32,
         height: self.viewport_physical.height.round().max(1.0) as u32,
-        target,
+        target: self.inspection_target(target, redact_sensitive, (0, 0)),
         window_clip: self.screenshot_window_clip(),
       });
     };
@@ -8183,14 +8243,29 @@ impl Tree {
       y,
       width,
       height,
-      target,
+      target: self.inspection_target(target, redact_sensitive, (x, y)),
       window_clip: None,
     })
   }
 
+  /// `target`, painting over the last render list's sensitive text when the
+  /// capture is made for inspection. `origin` is the capture's top-left
+  /// window pixel.
+  fn inspection_target(
+    &self,
+    target: crate::app::render_engine::RenderCaptureTarget,
+    redact_sensitive: bool,
+    origin: (u32, u32),
+  ) -> crate::app::render_engine::RenderCaptureTarget {
+    if !redact_sensitive {
+      return target;
+    }
+    crate::app::capture_redaction::redacting_target(target, origin, self.capture_redactions.clone())
+  }
+
   fn drop_unsupported_screenshot(&mut self) {
-    if let Some((target, _region)) = self.pending_screenshot.take() {
-      target.fail("render engine does not support frame capture");
+    if let Some(pending) = self.pending_screenshot.take() {
+      pending.target.fail("render engine does not support frame capture");
     }
   }
 
@@ -8262,7 +8337,11 @@ impl Tree {
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
-      target: crate::app::render_engine::RenderCaptureTarget::Path(request.output_path),
+      target: self.inspection_target(
+        crate::app::render_engine::RenderCaptureTarget::Path(request.output_path),
+        true,
+        (bounds.x, bounds.y),
+      ),
       window_clip: bounds.window_clip.map(|clip| RenderFrameCaptureWindowClip {
         width: clip.width,
         height: clip.height,
@@ -8305,6 +8384,7 @@ impl Tree {
     let images = images.to_vec();
     let layers = layers.to_vec();
     let atlas = atlas.clone();
+    let redactions = self.capture_redactions.clone();
     std::thread::spawn(move || {
       if let Err(error) = save_devtools_screenshot(
         &output_path,
@@ -8315,6 +8395,7 @@ impl Tree {
         &images,
         &layers,
         &atlas,
+        &redactions,
       ) {
         tracing::warn!(
           "failed to save devtools node screenshot to {}: {error}",
@@ -8358,9 +8439,18 @@ impl Tree {
     let glyphs = glyphs.to_vec();
     let layers = layers.to_vec();
     let atlas = atlas.clone();
+    let redactions = self.capture_redactions.clone();
     std::thread::spawn(move || {
-      if let Err(error) = save_devtools_screenshot(&output_path, bounds, clear_color, &rects, &glyphs, &layers, &atlas)
-      {
+      if let Err(error) = save_devtools_screenshot(
+        &output_path,
+        bounds,
+        clear_color,
+        &rects,
+        &glyphs,
+        &layers,
+        &atlas,
+        &redactions,
+      ) {
         tracing::warn!(
           "failed to save devtools node screenshot to {}: {error}",
           output_path.display()
@@ -8482,6 +8572,7 @@ fn save_devtools_screenshot(
   #[cfg(feature = "raster")] images: &[crate::images::ImageCmd],
   layers: &[crate::layout::opacity_layer::LayerCmd],
   atlas: &crate::layout::render_list::GlyphAtlas,
+  redactions: &[crate::app::capture_redaction::RedactedArea],
 ) -> Result<(), image::ImageError> {
   if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
     std::fs::create_dir_all(parent).map_err(image::ImageError::IoError)?;
@@ -8573,6 +8664,14 @@ fn save_devtools_screenshot(
       pixels = target_pixels;
     }
   }
+  // Inspection captures paint over sensitive text (`app::capture_redaction`).
+  crate::app::capture_redaction::redact_pixels(
+    &mut pixels,
+    bounds.width,
+    bounds.height,
+    (bounds.x, bounds.y),
+    redactions,
+  );
 
   image::save_buffer_with_format(
     output_path,

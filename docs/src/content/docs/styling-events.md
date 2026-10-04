@@ -317,7 +317,9 @@ let code = Sensitive::new(one_time_code); // a signal of Sensitive<String> stays
 Text::new(code.expose()).sensitive()
 ```
 
-It is laid out, painted and captured on screen like any text. Every inspector shows `•••` in its place (always three dots, whatever the length) with `sensitive=true`: the MCP tools (`lurq_read_tree`, `lurq_inspect`, `lurq_find_by_id`, `lurq_find_by_class`, `lurq_find`, and a button or other element named after it) and DevTools (element tree, inspector, snapshots). The app still reads the real text through its element handles. Screenshots, `lurq_screenshot` and `Tree::painted_quads` show the text, as they show the screen.
+It is laid out and painted on screen like any text. Every inspector shows `•••` in its place (always three dots, whatever the length) with `sensitive=true`: the MCP tools (`lurq_read_tree`, `lurq_inspect`, `lurq_find_by_id`, `lurq_find_by_class`, `lurq_find`, and a button or other element named after it) and DevTools (element tree, inspector, snapshots). The app still reads the real text through its element handles.
+
+Screenshots taken for an inspector cover the text: in `lurq_screenshot` (of a window, a region or an element) and in a DevTools node screenshot, every pixel its glyphs can paint, text shadow included, is an opaque grey bar, at the place and size the text has on screen, so the layout around it is unchanged. The bar is painted over the captured frame, so it also covers whatever the app draws over the text there. The window itself keeps showing the text. The app's own captures (`WindowHandle::screenshot`, `screenshot_region`, `screenshot_node`) and `Tree::painted_quads` show the text, as they show the screen.
 
 Selection follows `.selectable(...)` as for any text and is off by default. A selectable sensitive text can be selected and copied with `Ctrl+C`, which no inspector sees; to let the user copy without selecting, give them a copy button that writes the value to the clipboard itself.
 
