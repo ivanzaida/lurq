@@ -61,21 +61,22 @@ impl Default for CanvasAssetBudget {
   }
 }
 
-/// What the cache did during one frame, for the profiler.
+/// What the cache did during one encode, for the profiler.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(not(any(test, feature = "perf_profile")), allow(dead_code))]
 pub(crate) struct AssetCacheStats {
   pub evictions: usize,
-  /// Textures uploaded for the frame but not kept past it, because the
+  /// Textures uploaded for the encode but not kept past it, because the
   /// textures of the current and previous frame filled the ceiling.
   pub uncached: usize,
   pub uncached_bytes: usize,
-  /// The most the cache was charged above its budget during the frame.
+  /// The most the cache was charged above its budget during the encode.
   pub stretch_bytes: usize,
 }
 
 /// One renderer's uploaded assets, keyed by asset id. A texture that is not
-/// kept stays usable until its frame ends, so a frame uploads an asset once.
+/// kept stays usable until its encode ends, so an encode uploads an asset once.
+/// The renderer's `FrameBoundary` decides which encodes end a frame.
 pub(crate) struct AssetCache<T> {
   resident: FrameCache<T>,
   overflow: HashMap<u64, T>,
@@ -145,19 +146,23 @@ impl<T> AssetCache<T> {
     self.stats.stretch_bytes = self.stats.stretch_bytes.max(above);
   }
 
-  /// Ends the frame. Textures that were not kept, and those evicted to return
-  /// toward the budget, are handed to `retire`.
-  pub(crate) fn finish_frame(&mut self, mut retire: impl FnMut(T)) -> AssetCacheStats {
+  /// Ends an encode, and with `frame_ends` the frame too. Textures that were
+  /// not kept are handed to `retire` at every encode, so an encode that only
+  /// continues a frame keeps at most the ceiling and its own overflow. At the
+  /// end of a frame, so are those evicted to return toward the budget.
+  pub(crate) fn finish_encode(&mut self, frame_ends: bool, mut retire: impl FnMut(T)) -> AssetCacheStats {
     for (_, texture) in self.overflow.drain() {
       retire(texture);
     }
-    // A frame whose textures were all cached still holds a stretched cache.
+    // An encode whose textures were all cached still holds a stretched cache.
     self.note_stretch();
-    let stats = &mut self.stats;
-    self.resident.close_frame(|old| {
-      stats.evictions += 1;
-      retire(old);
-    });
+    if frame_ends {
+      let stats = &mut self.stats;
+      self.resident.close_frame(|old| {
+        stats.evictions += 1;
+        retire(old);
+      });
+    }
     std::mem::take(&mut self.stats)
   }
 }

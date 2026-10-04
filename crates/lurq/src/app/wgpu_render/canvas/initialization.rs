@@ -157,6 +157,7 @@ impl Renderer {
       retired_artwork: Vec::new(),
       rejected: HashSet::new(),
       assets: AssetCache::new(CanvasAssetBudget::default()),
+      frames: FrameBoundary::default(),
       generation: 0,
       globals_layout,
       image_layout,

@@ -27,6 +27,8 @@ pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]
 pub mod devtools;
+#[cfg(all(test, windows, feature = "canvas", feature = "dx12", feature = "screenshot"))]
+mod dx12_canvas_residency_tests;
 #[cfg(all(feature = "dx12", target_os = "windows"))]
 pub mod dx12_render;
 pub mod events;

@@ -21,7 +21,8 @@ use windows::{
 
 use crate::{
   app::render_engine::{CapturedFrame, RenderCaptureTarget, RenderEngine, RenderFrameCapture},
-  layout::render_list::RenderList,
+  layout::render_list::{GlyphAtlas, RenderList},
+  node::color::Color,
 };
 
 pub(super) struct HiddenWindow(HWND);
@@ -81,6 +82,28 @@ impl Drop for HiddenWindow {
     if let Err(error) = unsafe { DestroyWindow(self.0) } {
       eprintln!("failed to destroy the readback test window: {error}");
     }
+  }
+}
+
+/// A frame with nothing but its clear colour, for tests that render only Canvas.
+#[cfg_attr(not(feature = "canvas"), allow(dead_code))]
+pub(super) fn empty_list() -> RenderList {
+  RenderList {
+    clear_color: Color::new(24, 24, 27, 255),
+    rects: Vec::new(),
+    glyphs: Vec::new(),
+    images: Vec::new(),
+    #[cfg(feature = "svg")]
+    svgs: Vec::new(),
+    layers: Vec::new(),
+    atlas: GlyphAtlas {
+      data: Arc::from([0_u8; 4].as_slice()),
+      width: 1,
+      height: 1,
+      version: 1,
+      dirty_rects: Arc::from(Vec::new()),
+      dirty_from_version: 0,
+    },
   }
 }
 

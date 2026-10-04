@@ -16,6 +16,7 @@ impl Renderer {
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
     self.descriptor = 0;
+    self.frames.begin_encode();
     let live: HashSet<_> = canvases
       .iter()
       .filter(|c| c.is_attached())
@@ -29,7 +30,7 @@ impl Renderer {
       .filter(|id| !live.contains(id))
       .collect();
     for id in closed {
-      if let Some((_, front)) = self.fronts.remove(&id) {
+      if let Some((_, front)) = self.frames.end_replacement(&mut self.fronts, id) {
         self.retire_back(state, id, front);
       }
       if let Some(back) = self.surfaces.remove(&id) {
@@ -53,7 +54,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
-      canvas.finish_text_frame();
+      self.frames.encodes(canvas);
       profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       self.batches.push(batch);
@@ -188,9 +189,10 @@ impl Renderer {
     }
     #[cfg(feature = "perf_profile")]
     let _eviction_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
+    let frame_ends = self.frames.end_encode(&self.fronts);
     // Retired textures stay alive until the GPU has finished this frame.
     let retired = &mut state.canvas_retired[state.frame_index];
-    let _frame = self.assets.finish_frame(|texture| retired.push(texture));
+    let _frame = self.assets.finish_encode(frame_ends, |texture| retired.push(texture));
     profile_if! {
       self.profile.asset_cache_budget_bytes = self.assets.budget();
       self.profile.asset_cache_stretch_bytes = _frame.stretch_bytes;

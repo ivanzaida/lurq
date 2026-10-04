@@ -155,17 +155,18 @@ fn evicted(_shape: Shape) {
   profile::evicted();
 }
 
-/// Text frames end where a GPU renderer encodes, so only the GPU backends
-/// (and tests) close them.
+/// Text frames end with a GPU renderer's cache frames, so only the GPU
+/// backends (and tests) close them.
 #[cfg(any(test, feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
 mod frames {
   use crate::canvas::{CanvasHandle, CanvasTextEngine};
 
   impl CanvasHandle {
     /// Ends the text frame of the engine this canvas draws with. The GPU
-    /// renderers call it for every canvas they encode; the engine counts one
-    /// frame however many of its canvases are encoded together. A busy engine
-    /// is skipped rather than waited for, which only merges two frames into one.
+    /// renderers call it, when a cache frame ends, for every canvas they
+    /// encoded in that frame (see `FrameBoundary`); the engine counts one frame
+    /// however many of its canvases end it together. A busy engine is skipped
+    /// rather than waited for, which only merges two frames into one.
     pub(crate) fn finish_text_frame(&self) {
       let engine = self.inner.lock().text.clone();
       if let Some(engine) = engine
@@ -173,6 +174,14 @@ mod frames {
       {
         text.finish_frame();
       }
+    }
+
+    /// Charged bytes of the shaped text kept by the engine this canvas draws
+    /// with, for the GPU renderers' residency tests.
+    #[cfg(all(test, any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))))]
+    pub(crate) fn shaped_text_bytes(&self) -> usize {
+      let engine = self.inner.lock().text.clone();
+      engine.map_or(0, |engine| engine.lock().shaped.bytes())
     }
   }
 

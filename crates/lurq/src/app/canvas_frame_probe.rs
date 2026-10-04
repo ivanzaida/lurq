@@ -6,7 +6,7 @@
 // cargo test -p lurq --release --features canvas,perf_profile,dx12,wgpu,screenshot --lib canvas_frame_probe --
 // --ignored --nocapture --test-threads=1
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use raw_window_handle::DisplayHandle;
 
@@ -14,14 +14,12 @@ use super::{
   PassReport,
   profile_types::FrameProfile,
   profiler::{PassSample, SampleData, producer::WindowProfiler},
-  readback_window::HiddenWindow,
+  readback_window::{HiddenWindow, empty_list},
   render_engine::RenderEngine,
 };
 use crate::{
   canvas::{CanvasFont, CanvasHandle, Context2D},
   images::ImageData,
-  layout::render_list::{GlyphAtlas, RenderList},
-  node::color::Color,
 };
 
 const WIDTH: u32 = 1600;
@@ -60,26 +58,6 @@ fn draw(d: &Context2D, page: Page, images: &[ImageData]) {
         d.draw_image_scaled(image, x, y, 16., 16.).unwrap();
       }
     }
-  }
-}
-
-fn empty_list() -> RenderList {
-  RenderList {
-    clear_color: Color::new(24, 24, 27, 255),
-    rects: Vec::new(),
-    glyphs: Vec::new(),
-    images: Vec::new(),
-    #[cfg(feature = "svg")]
-    svgs: Vec::new(),
-    layers: Vec::new(),
-    atlas: GlyphAtlas {
-      data: Arc::from([0_u8; 4].as_slice()),
-      width: 1,
-      height: 1,
-      version: 1,
-      dirty_rects: Arc::from(Vec::new()),
-      dirty_from_version: 0,
-    },
   }
 }
 

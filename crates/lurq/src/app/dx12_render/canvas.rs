@@ -17,7 +17,7 @@ use super::*;
 use crate::app::profile_types::canvas_upload::{AssetUploadStage, CanvasAssetUploadProfile};
 use crate::canvas::{
   AssetCache, BlendMode, CanvasAssetBudget, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak,
-  GradientKind, PresentationEvent, TargetCharge, gpu::*, replacement_admitted,
+  FrameBoundary, GradientKind, PresentationEvent, TargetCharge, gpu::*, replacement_admitted,
 };
 use pipeline::pipeline;
 pub(super) use resources::create_srv;
@@ -58,6 +58,7 @@ pub(super) struct Renderer {
   retired_artwork: Vec<ArtworkLease>,
   rejected: HashSet<CanvasId>,
   assets: AssetCache<ID3D12Resource>,
+  frames: FrameBoundary,
   scratch: ID3D12Resource,
   resolve: ID3D12Resource,
   _stencil: ID3D12Resource,
@@ -176,6 +177,7 @@ impl Renderer {
       retired_artwork: Vec::new(),
       rejected: HashSet::new(),
       assets: AssetCache::new(CanvasAssetBudget::default()),
+      frames: FrameBoundary::default(),
       scratch,
       resolve,
       _stencil: stencil,
