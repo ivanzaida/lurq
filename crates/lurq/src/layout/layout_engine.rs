@@ -45,6 +45,7 @@ mod select_quads;
 mod shrink_distribution;
 mod shrink_floors;
 mod shrink_sharing;
+mod text_input_quads;
 mod text_layout_output;
 
 use flex_shrink::{FlexShrinkLine, occupies_line};
@@ -209,6 +210,9 @@ pub(crate) struct LayoutEngine {
   shadows: RefCell<Arc<ThemeShadows>>,
   /// Open state of the `Select` whose trigger is being painted, if any.
   select_open: Cell<Option<bool>>,
+  /// Caret of the focused text input recorded by the last quad resolution,
+  /// where an input method places its candidate window.
+  ime_cursor_area: Cell<Option<crate::app::events::ImeCursorArea>>,
   /// Opacity groups recorded by the last quad resolution.
   opacity_groups: RefCell<Vec<crate::layout::opacity_layer::OpacityGroup>>,
   /// The lines being laid out collapsed by their parent's shrink step
@@ -478,6 +482,7 @@ impl LayoutEngine {
       typography: RefCell::new(ThemeTypography::default()),
       shadows: RefCell::new(Arc::new(ThemeShadows::default())),
       select_open: Cell::new(None),
+      ime_cursor_area: Cell::new(None),
       opacity_groups: RefCell::new(Vec::new()),
       collapsed_lines: RefCell::new(Vec::new()),
     }
@@ -787,6 +792,7 @@ impl LayoutEngine {
   ) {
     let root_offset = node.offset_position().unwrap_or_default();
     self.opacity_groups.borrow_mut().clear();
+    self.ime_cursor_area.set(None);
     self.collect_quads(
       node,
       result,
@@ -1426,6 +1432,12 @@ impl LayoutEngine {
 
     if has_inset_shadow && content_is_background {
       self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
+    }
+
+    if let NodeKind::TextInput { state, style, .. } = node.node_kind()
+      && state.is_focused()
+    {
+      self.push_focused_text_input_ime_quads(node, state, style, result, (abs_x, abs_y), transform, clip, quads);
     }
 
     match node.node_kind() {
@@ -2592,7 +2604,7 @@ impl LayoutEngine {
     } else {
       f32::MAX
     };
-    let caret_source = state.caret_source_text();
+    let caret_source = state.caret_layout_text();
     let mut caret_positions = glyph_engine.caret_positions(&caret_source, style, caret_width, wraps);
     state.remap_caret_positions(&mut caret_positions);
     let output = TextInputOutput {

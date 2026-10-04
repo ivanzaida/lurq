@@ -22,6 +22,10 @@ use crate::{
   },
 };
 
+mod text_input_composition;
+
+use text_input_composition::Composition;
+
 const MAX_TEXT_INPUT_HISTORY: usize = 128;
 
 type TextInputCallback = EventHandler<TextInputEvent>;
@@ -398,6 +402,8 @@ struct TextInputInner {
   max_rows: Option<usize>,
   mask: Option<char>,
   focused: bool,
+  /// An input method composition in progress, shown at the caret.
+  composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
   redo_stack: Vec<TextInputSnapshot>,
 }
@@ -422,6 +428,12 @@ pub(crate) struct TextInputLayoutSignature {
 impl TextInputState {
   pub(crate) fn same_value(&self, other: &Self) -> bool {
     self.value.id() == other.value.id()
+  }
+
+  /// Id of the bound value signal, which identifies the input across
+  /// re-renders.
+  pub(crate) fn value_signal_id(&self) -> usize {
+    self.value.id()
   }
   pub(crate) fn new(value: Signal<String>) -> Self {
     let initial_value = value.get_untracked();
@@ -451,6 +463,7 @@ impl TextInputState {
         max_rows: None,
         mask: None,
         focused: false,
+        composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
       })),
@@ -537,6 +550,9 @@ impl TextInputState {
   }
 
   pub(crate) fn rendered_text(&self) -> Option<String> {
+    if let Some(composed) = self.composed_text() {
+      return Some(composed);
+    }
     let value = self.value();
     if value.is_empty() {
       self.placeholder()
@@ -546,7 +562,7 @@ impl TextInputState {
   }
 
   pub(crate) fn is_showing_placeholder(&self) -> bool {
-    self.value().is_empty() && self.placeholder().is_some()
+    self.value().is_empty() && self.placeholder().is_some() && !self.is_composing()
   }
 
   pub(crate) fn rendered_text_for_layout(&self) -> String {
@@ -569,6 +585,13 @@ impl TextInputState {
       Some(mask) => mask_text(&value, mask),
       None => value,
     }
+  }
+
+  /// Text the caret positions are laid out over: the displayed text while an
+  /// input method composes (indices then point into it, see
+  /// `text_input_composition`), else [`TextInputState::caret_source_text`].
+  pub(crate) fn caret_layout_text(&self) -> String {
+    self.composed_text().unwrap_or_else(|| self.caret_source_text())
   }
 
   /// Caret positions are computed over the masked string, so their `index` is a
@@ -968,6 +991,7 @@ impl TextInputState {
     let old_min_rows = old_inner.min_rows;
     let old_max_rows = old_inner.max_rows;
     let old_focused = old_inner.focused;
+    let old_composition = old_inner.composition.clone();
     let old_undo_stack = old_inner.undo_stack.clone();
     let old_redo_stack = old_inner.redo_stack.clone();
     let layout_dirty = if layout_signature_matches {
@@ -991,6 +1015,7 @@ impl TextInputState {
     inner.min_rows = old_min_rows;
     inner.max_rows = old_max_rows;
     inner.focused = old_focused;
+    inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;
     inner.redo_stack = old_redo_stack;
     self.layout_dirty.store(layout_dirty, Ordering::Relaxed);
@@ -998,16 +1023,26 @@ impl TextInputState {
 
   pub(crate) fn sync_caret_metrics_to_position(&self, line_height: f32) {
     let value = self.value();
+    let composed = self.composed_text();
     let mut inner = self.inner.lock().unwrap();
-    let caret = clamp_to_char_boundary(&value, inner.caret);
-    if caret == value.len() && value[..caret].ends_with('\n') {
+    // While composing, caret positions index the displayed text and the
+    // caret sits at the input method's cursor inside the composition.
+    let (text, caret) = match composed {
+      Some(composed) => {
+        let caret = Self::composed_caret(&inner, &value).unwrap_or(inner.caret);
+        (composed, caret)
+      }
+      None => (value, inner.caret),
+    };
+    let caret = clamp_to_char_boundary(&text, caret);
+    if caret == text.len() && text[..caret].ends_with('\n') {
       inner.caret_x = 0.0;
-      inner.caret_y = value[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
+      inner.caret_y = text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
       return;
     }
-    inner.caret_x = caret_x_for_index(&inner.caret_positions, inner.caret);
-    inner.caret_y = caret_y_for_index(&inner.caret_positions, inner.caret)
-      .unwrap_or_else(|| value[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height);
+    inner.caret_x = caret_x_for_index(&inner.caret_positions, caret);
+    inner.caret_y = caret_y_for_index(&inner.caret_positions, caret)
+      .unwrap_or_else(|| text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height);
   }
 
   pub(crate) fn caret_x(&self) -> f32 {
@@ -1166,6 +1201,10 @@ impl TextInputState {
   pub(crate) fn selection_ranges(&self) -> Vec<TextSelectionRange> {
     let value = self.value();
     let inner = self.inner.lock().unwrap();
+    // A composition is shown in place of the selection.
+    if inner.composition.is_some() {
+      return Vec::new();
+    }
     let Some((start, end)) = selection_range_indices(&value, inner.selection_anchor, inner.caret) else {
       return Vec::new();
     };
@@ -1178,6 +1217,10 @@ impl TextInputState {
       return;
     }
     inner.focused = focused;
+    // A composition belongs to the focused input; leaving it cancels it.
+    if !focused {
+      inner.composition = None;
+    }
     drop(inner);
     self.mark_layout_dirty();
   }
@@ -1187,10 +1230,12 @@ impl TextInputState {
   }
 
   fn closest_caret_to_point(&self, x: f32, y: f32) -> usize {
+    let value = self.value();
     let inner = self.inner.lock().unwrap();
     let content_x = x + inner.scroll_x;
     let content_y = y + inner.scroll_y;
-    closest_caret_to_point(&inner.caret_positions, content_x, content_y)
+    let index = closest_caret_to_point(&inner.caret_positions, content_x, content_y);
+    Self::composed_to_value_index(&inner, &value, index)
   }
 
   fn delete_selection_if_present(&self) -> Option<usize> {

@@ -67,6 +67,7 @@ use crate::{
 
 #[cfg(test)]
 mod caret_blink_tests;
+mod ime;
 mod outside_press;
 mod select_menu;
 mod tab_navigation;
@@ -689,6 +690,8 @@ pub struct Tree {
   #[cfg(feature = "canvas")]
   canvas_registry: Vec<crate::canvas::CanvasHandle>,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
+  /// Key releases that belong to an input method composition.
+  ime_keys: ime::ImeKeys,
   /// Monotonic id source for secondary windows; ids are never reused so a
   /// closed window can be reported as gone instead of resolving to whatever
   /// window later occupies its Vec slot.
@@ -1023,6 +1026,7 @@ impl Tree {
       #[cfg(feature = "canvas")]
       canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
+      ime_keys: ime::ImeKeys::default(),
       next_secondary_window_id: 1,
       #[cfg(feature = "mcp")]
       mcp: None,
@@ -3331,6 +3335,12 @@ impl Tree {
     self.rebuild_if_dirty();
     // Keys never reach a node that was dropped since it took focus.
     self.blur_focus_in_dropped_child();
+    // The input method takes the keys of a composition, including the Enter
+    // that confirms it: no handler or default sees them.
+    if self.withhold_composition_key_down(&key, &code) {
+      self.apply_reactive_updates_after_event();
+      return;
+    }
     let control = EventControl::new();
     let mut evt = KeyboardEvent {
       key: key.clone(),
@@ -3341,6 +3351,7 @@ impl Tree {
       meta,
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
+      composing: false,
       control,
     };
     if let Some(root) = &self.root {
@@ -3406,6 +3417,7 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Keyboard);
     self.rebuild_if_dirty();
+    let composing = self.is_composition_key_up(&key, &code);
     let mut evt = KeyboardEvent {
       key,
       code,
@@ -3415,6 +3427,7 @@ impl Tree {
       meta,
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
+      composing,
       control: EventControl::new(),
     };
     let root = match &self.root {
@@ -7841,6 +7854,12 @@ impl TextInputHandle<'_> {
 
   pub fn value(&self) -> String {
     self.state().map(TextInputState::value).unwrap_or_default()
+  }
+
+  /// The input method composition the input shows at its caret, if one is
+  /// in progress. It is not part of [`value`](Self::value) until committed.
+  pub fn composition(&self) -> Option<String> {
+    self.state().and_then(TextInputState::composition_text)
   }
 
   /// DOM `el.value = x` semantics: writes the backing signal and clamps

@@ -19,6 +19,7 @@ mod text_input {
   mod editing;
   mod empty_value;
   mod focus;
+  mod ime;
   mod letter_spacing;
   mod masked_editing;
   mod overflow_anchor;

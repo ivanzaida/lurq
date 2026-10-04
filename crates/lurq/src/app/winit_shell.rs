@@ -31,6 +31,8 @@ use crate::{
   node::{CursorIcon, color::Color},
 };
 
+mod ime;
+
 const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
 const WINIT_SLOW_SCOPE_THRESHOLD: Duration = Duration::from_millis(45);
@@ -280,6 +282,7 @@ struct ManagedWindow {
   /// Last direct present from inside the mouse-move stream (interactive
   /// drags paint here — see the CursorMoved arm).
   last_interaction_present: Instant,
+  ime: ime::ImeSync,
 }
 
 impl ManagedWindow {
@@ -313,6 +316,7 @@ impl ManagedWindow {
       last_paint: Instant::now(),
       continuous_redraw_until: None,
       last_interaction_present: Instant::now(),
+      ime: ime::ImeSync::default(),
     }
   }
 
@@ -522,6 +526,9 @@ impl ManagedWindow {
     if self.tree.needs_redraw() {
       self.request_redraw();
     }
+    if let Some(window) = &self.window {
+      self.ime.apply(window, &self.tree);
+    }
   }
 
   fn request_redraw(&mut self) {
@@ -546,6 +553,8 @@ impl ManagedWindow {
       let pass_started_at = Instant::now();
       let report = self.tree.pass(app, w);
       let pass = pass_started_at.elapsed();
+      // The pass painted the focused input's caret where it now is.
+      self.ime.apply(w, &self.tree);
       let presented = report.rendered;
       let mut paint_duration = Duration::ZERO;
       if presented {
@@ -774,6 +783,10 @@ impl ManagedWindow {
       WindowEvent::ModifiersChanged(modifiers) => {
         self.modifiers = modifiers.state();
       }
+      WindowEvent::Ime(ime) => {
+        self.tree.ime(ime::to_ime_event(ime));
+        self.check_redraw();
+      }
       WindowEvent::KeyboardInput { event, .. } => {
         if is_open_devtools_shortcut(&event, self.modifiers) {
           self.tree.open_devtools();
@@ -845,6 +858,7 @@ struct ManagedSecondaryWindow {
   redraw_pending: bool,
   close_requested: bool,
   last_paint: Instant,
+  ime: ime::ImeSync,
 }
 
 impl ManagedSecondaryWindow {
@@ -864,6 +878,7 @@ impl ManagedSecondaryWindow {
       redraw_pending: false,
       close_requested: false,
       last_paint: Instant::now(),
+      ime: ime::ImeSync::default(),
     }
   }
 
@@ -1058,6 +1073,9 @@ impl ManagedSecondaryWindow {
     if tree.needs_redraw() {
       self.request_redraw();
     }
+    if let Some(window) = &self.window {
+      self.ime.apply(window, tree);
+    }
   }
 
   fn request_redraw(&mut self) {
@@ -1212,6 +1230,10 @@ impl ManagedSecondaryWindow {
       }
       WindowEvent::ModifiersChanged(modifiers) => {
         self.modifiers = modifiers.state();
+      }
+      WindowEvent::Ime(ime) => {
+        tree.ime(ime::to_ime_event(ime));
+        self.check_redraw(tree);
       }
       WindowEvent::KeyboardInput { event, .. } => {
         match event.state {
@@ -1846,6 +1868,10 @@ fn named_key_to_string(key: NamedKey) -> &'static str {
     NamedKey::Insert => "Insert",
     NamedKey::Enter => "Enter",
     NamedKey::Space => " ",
+    // A key the input method takes (Windows `VK_PROCESSKEY`); see
+    // `KeyboardEvent::composing`. Its code is the physical key, such as
+    // `Enter` for the one that confirms a composition.
+    NamedKey::Process => "Process",
     // An unmapped named key used to deliver `key == ""`, which silently
     // broke every app-side `event.key == "Escape"`-style match.
     NamedKey::Escape => "Escape",
@@ -1890,6 +1916,7 @@ mod key_name_tests {
       (NamedKey::PageDown, "PageDown"),
       (NamedKey::F5, "F5"),
       (NamedKey::Control, "Control"),
+      (NamedKey::Process, "Process"),
     ] {
       assert_eq!(named_key_to_string(key), expected);
     }

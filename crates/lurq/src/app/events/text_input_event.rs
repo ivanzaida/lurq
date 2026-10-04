@@ -9,6 +9,8 @@ pub struct TextInputEvent {
   /// The text the input will hold once this edit applies (unless a handler
   /// calls [`TextInputEvent::prevent_default`]).
   pub new_value: String,
+  /// The key that made this edit. For an input method commit, its `key` is
+  /// the committed text, its `code` is empty and `composing` is set.
   pub keyboard: KeyboardEvent,
   pub(crate) control: EventControl,
 }

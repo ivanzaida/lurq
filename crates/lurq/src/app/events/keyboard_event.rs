@@ -16,6 +16,17 @@ pub struct KeyboardEvent {
   /// aside while the user is typing — the input's own editing (including
   /// its undo/redo) takes the key otherwise.
   pub text_input_focused: bool,
+  /// Whether this key belongs to an input method (IME) composition, like the
+  /// DOM's `isComposing`.
+  ///
+  /// Key presses never arrive while composing: the input method takes them,
+  /// including the `Enter` that confirms a composition, so `on_key_down`
+  /// handlers (and lurq's own key handling) do not see them. Their releases
+  /// do reach `on_key_up` handlers, with this set, so a handler that acts on
+  /// a release can ignore them. It is also set on the event a committed
+  /// composition passes to `on_input` handlers (`TextInputEvent::keyboard`),
+  /// whose `key` is the committed text.
+  pub composing: bool,
   pub(crate) control: EventControl,
 }
 
@@ -38,6 +49,7 @@ impl KeyboardEvent {
       meta,
       target_id,
       text_input_focused: false,
+      composing: false,
       control: EventControl::new(),
     }
   }

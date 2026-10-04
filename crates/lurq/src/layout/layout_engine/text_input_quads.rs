@@ -1,0 +1,94 @@
+//! Input method support of the focused `TextInput` in paint: the underline
+//! under a composition in progress, and the caret area an input method places
+//! its candidate window at.
+
+use super::{
+  DEFAULT_QUAD_OPACITY, LayoutEngine, TEXT_INPUT_CARET_WIDTH, intersect_clip, text_input_vertical_offset,
+  transformed_quad_frame,
+};
+use crate::{
+  app::events::ImeCursorArea,
+  layout::{
+    layout_result::LayoutResult,
+    quad::{ClipRect, Quad, QuadContent},
+    text_style::TextStyle,
+  },
+  node::{node::Node, node_kind::TextInputState, transform::Transform2D},
+};
+
+/// Thickness of the line under a composition, in logical pixels.
+const COMPOSITION_UNDERLINE_WIDTH: f32 = 1.0;
+
+impl LayoutEngine {
+  /// Records the focused input's caret as the IME cursor area and underlines
+  /// its composition, if any, in the text colour at the bottom of the glyph
+  /// band.
+  #[allow(clippy::too_many_arguments)]
+  pub(super) fn push_focused_text_input_ime_quads(
+    &self,
+    node: &Node,
+    state: &TextInputState,
+    style: &TextStyle,
+    result: &LayoutResult,
+    (abs_x, abs_y): (f32, f32),
+    transform: Transform2D,
+    clip: ClipRect,
+    quads: &mut Vec<Quad>,
+  ) {
+    let padding = self.resolved_padding_for_size(node, result.size);
+    let content_width = (result.size.width - padding.left - padding.right).max(0.0);
+    let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
+    let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+    let (band_top, band_height) = state.text_band();
+    self.ime_cursor_area.set(Some(ImeCursorArea {
+      x: abs_x + padding.left + state.caret_x(),
+      y: abs_y + vertical_offset + state.caret_y() + band_top,
+      width: TEXT_INPUT_CARET_WIDTH,
+      height: band_height.max(1.0),
+    }));
+
+    let ranges = state.composition_ranges();
+    if ranges.is_empty() {
+      return;
+    }
+    let underline_clip = intersect_clip(
+      clip,
+      ClipRect {
+        x: abs_x + padding.left,
+        y: abs_y + padding.top,
+        width: content_width,
+        height: content_height,
+        active: true,
+        border_radius: None,
+      }
+      .transformed(transform),
+    );
+    let underline_top = band_top + band_height.min(content_height) - COMPOSITION_UNDERLINE_WIDTH;
+    for range in ranges {
+      let x = abs_x + padding.left + range.x;
+      let y = abs_y + vertical_offset + range.y + underline_top;
+      let (x, y, quad_transform, transform_origin) = transformed_quad_frame(x, y, transform);
+      quads.push(Quad {
+        x,
+        y,
+        width: range.width,
+        height: COMPOSITION_UNDERLINE_WIDTH,
+        opacity: DEFAULT_QUAD_OPACITY,
+        transform: quad_transform,
+        transform_origin,
+        content: QuadContent::Rect {
+          color: style.color,
+          gradient: None,
+        },
+        border_radius: None,
+        border: None,
+        clip: underline_clip,
+      });
+    }
+  }
+
+  /// The focused text input's caret recorded by the last quad resolution.
+  pub(crate) fn ime_cursor_area(&self) -> Option<ImeCursorArea> {
+    self.ime_cursor_area.get()
+  }
+}
