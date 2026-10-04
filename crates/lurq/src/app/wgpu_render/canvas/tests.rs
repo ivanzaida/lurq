@@ -7,7 +7,7 @@ use crate::{
   node::transform::Transform2D,
 };
 
-fn device() -> (Device, Queue) {
+pub(super) fn device() -> (Device, Queue) {
   let instance = Instance::default();
   let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions::default()))
     .expect("GPU adapter required for canvas tests");

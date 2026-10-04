@@ -380,17 +380,17 @@ impl CanvasHandle {
 
 /// One open isolated layer on the software backend. The GPU backends keep their
 /// layers as recorded commands instead; see `gpu::LayerFrame`.
-struct SoftwareLayer {
+pub(super) struct SoftwareLayer {
   /// `None` only for a zero-sized surface, where the layer still has to exist so
   /// that `end_layer` stays balanced with `begin_layer`.
-  pixels: Option<Pixmap>,
-  alpha: f32,
-  blend: BlendMode,
+  pub(super) pixels: Option<Pixmap>,
+  pub(super) alpha: f32,
+  pub(super) blend: BlendMode,
 }
 
 /// A paint with its geometry resolved against the box it was given and the
 /// transform in force: what both backends draw from.
-enum ResolvedPaint {
+pub(super) enum ResolvedPaint {
   Solid(Color),
   Gradient {
     gradient: Gradient,

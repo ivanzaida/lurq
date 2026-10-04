@@ -1,3 +1,4 @@
+use super::tessellation::mesh;
 use super::*;
 
 #[cfg(test)]

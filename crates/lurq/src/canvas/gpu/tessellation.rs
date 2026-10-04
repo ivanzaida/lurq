@@ -213,7 +213,7 @@ pub(crate) fn layer_depth(prepared: &Prepared) -> usize {
 pub(crate) fn touches(bounds: [f32; 4], [x, y, w, h]: [u32; 4]) -> bool {
   bounds[0] < (x + w) as f32 && bounds[1] < (y + h) as f32 && bounds[2] > x as f32 && bounds[3] > y as f32
 }
-fn mesh(
+pub(super) fn mesh(
   path: &Path,
   rule: FillRule,
   tolerance: f32,

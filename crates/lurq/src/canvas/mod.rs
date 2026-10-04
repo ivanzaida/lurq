@@ -7,6 +7,7 @@
 //! through the host event-loop waker. Readbacks are explicit and asynchronous.
 
 mod handle;
+use handle::{ResolvedPaint, SoftwareLayer};
 mod presentation;
 mod presentation_budget;
 pub use presentation::MAX_PRESENTATION_BYTES;
