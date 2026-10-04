@@ -23,6 +23,9 @@ impl Renderer {
       {
         canvas.presentation_event(PresentationEvent::Refuse);
         self.rejected.insert(id);
+        if let Some(front) = self.surfaces.get(&id) {
+          canvas.retain_presentation_revision(front.revision);
+        }
         canvas.set_gpu_error(CanvasError::PresentationBusy);
         return Ok(());
       }
@@ -46,6 +49,9 @@ impl Renderer {
           Err(_) => {
             canvas.presentation_event(PresentationEvent::Refuse);
             self.rejected.insert(id);
+            if let Some(front) = self.surfaces.get(&id) {
+              canvas.retain_presentation_revision(front.revision);
+            }
             canvas.set_gpu_error(CanvasError::SurfaceTooLarge);
             return Ok(());
           }

@@ -16,6 +16,9 @@ impl Renderer {
       || metrics.pixel_height > device.limits().max_texture_dimension_2d
     {
       self.rejected.insert(id);
+      if let Some(front) = self.surfaces.get(&id) {
+        canvas.retain_presentation_revision(front.revision);
+      }
       canvas.set_gpu_error(CanvasError::SurfaceTooLarge);
       return;
     }
@@ -55,6 +58,9 @@ impl Renderer {
     else {
       canvas.presentation_event(PresentationEvent::Refuse);
       self.rejected.insert(id);
+      if let Some(front) = self.surfaces.get(&id) {
+        canvas.retain_presentation_revision(front.revision);
+      }
       canvas.set_gpu_error(CanvasError::PresentationBusy);
       return;
     };

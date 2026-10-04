@@ -195,7 +195,7 @@ impl Renderer {
                 queue,
                 &backing.image.texture,
                 done,
-                if complete || self.fronts.contains_key(&id) {
+                if complete || self.fronts.contains_key(&id) || self.rejected.contains(&id) {
                   backing.revision
                 } else {
                   revision

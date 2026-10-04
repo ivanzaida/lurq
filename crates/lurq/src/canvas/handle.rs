@@ -25,6 +25,7 @@ impl CanvasHandle {
         presentation_revision: 0,
         visible_revision: 0,
         presentation_serial: 0,
+        presentation_refused: false,
         presentation: None,
         inflight_bytes: 0,
         gpu_bytes: 0,

@@ -98,6 +98,7 @@ impl Context2D {
     }
     s.presentation_serial = token;
     s.presentation = Some(token);
+    s.presentation_refused = false;
     Ok(token)
   }
   /// Commits only this current replacement; superseded tokens cannot publish.
@@ -168,6 +169,11 @@ pub(crate) enum PresentationEvent {
   Refuse,
 }
 impl CanvasHandle {
+  pub(crate) fn retain_presentation_revision(&self, revision: u64) {
+    let mut s = self.inner.lock();
+    s.visible_revision = revision;
+    s.presentation_refused = true;
+  }
   pub(crate) fn presentation_workspace(&self, bytes: usize) {
     self.inner.lock().gpu.presentation_workspace_bytes = bytes;
   }

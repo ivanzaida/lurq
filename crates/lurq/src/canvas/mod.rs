@@ -269,6 +269,7 @@ struct Surface {
   presentation_revision: u64,
   visible_revision: u64,
   presentation_serial: u64,
+  presentation_refused: bool,
   presentation: Option<u64>,
   inflight_bytes: usize,
   gpu_bytes: usize,

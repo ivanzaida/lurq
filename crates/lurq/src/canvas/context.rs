@@ -11,6 +11,11 @@ impl Context2D {
   fn pixels(&self, draw: impl FnOnce(&mut Surface) -> bool) {
     let wake = {
       let mut s = self.canvas.inner.lock();
+      // A refused replacement still owns the front. Only a new presentation
+      // may recover it; ordinary pixel writes/reset must not publish false progress.
+      if !s.software && s.presentation.is_none() && s.presentation_refused {
+        return;
+      }
       let was_clean = !s.pending_paint;
       if !draw(&mut s) {
         return;

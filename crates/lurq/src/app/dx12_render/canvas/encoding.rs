@@ -108,7 +108,7 @@ impl Renderer {
                 b.width,
                 b.height,
                 done,
-                if complete || self.fronts.contains_key(&id) {
+                if complete || self.fronts.contains_key(&id) || self.rejected.contains(&id) {
                   b.revision
                 } else {
                   revision

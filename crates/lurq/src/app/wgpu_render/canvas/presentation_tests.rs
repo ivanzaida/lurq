@@ -88,9 +88,17 @@ fn gpu_pending_lease_pressure_retains_front_then_recovers_latest_matching_commit
   draw.fill_rect(0., 0., 64., 64.);
   draw.commit_presentation(rejected).unwrap();
   let denied = take(&canvas, &mut renderer, &device, &queue);
-  assert_eq!((denied.rgba, denied.revision), (before.rgba, before.revision));
+  assert_eq!((denied.rgba, denied.revision), (before.rgba.clone(), before.revision));
   assert_eq!(canvas.status().error, Some(CanvasError::PresentationBusy));
   assert_ne!(canvas.status().gpu.presentation_token, rejected);
+  let refused_recording = canvas.status().content_revision;
+  draw.set_fill_style("#0000ff");
+  draw.fill_rect(0., 0., 64., 64.);
+  draw.reset();
+  assert_eq!(canvas.status().content_revision, refused_recording);
+  let ordinary = take(&canvas, &mut renderer, &device, &queue);
+  assert_eq!((ordinary.rgba, ordinary.revision), (before.rgba, before.revision));
+  assert_eq!(canvas.status().error, Some(CanvasError::PresentationBusy));
   renderer.spares[0].ready.store(true, Ordering::Release);
   let latest = draw.begin_presentation().unwrap();
   draw.reset();
