@@ -1,14 +1,25 @@
-use lurq::{app::Tree, core::Signal, node::color::Color};
+use lurq::{
+  app::{App, Tree, theme::PaletteColor},
+  core::Signal,
+  node::color::Color,
+};
 
-use crate::support::render_pass;
+use crate::support::{render_pass, render_pass_with_app};
 
 #[test]
 fn slider_renders_track_and_thumb() {
   let value = Signal::new(5);
+  let mut app = App::new();
+  app
+    .theme()
+    .set_palette_color(PaletteColor::Border, Color::from_hex("#cbd5e1"));
+  app
+    .theme()
+    .set_palette_color(PaletteColor::Accent, Color::from_hex("#475569"));
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::Slider::new(value).range(0, 10).width(100.0));
-  let snapshot = render_pass(&mut runtime);
+  let snapshot = render_pass_with_app(&mut runtime, &mut app);
 
   assert!(
     snapshot

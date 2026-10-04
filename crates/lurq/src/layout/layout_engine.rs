@@ -10,7 +10,8 @@ use crate::{
     ctx::{ModalSpec, OverlaySpec},
     glyph_engine::GlyphEngine,
     theme::{
-      CaretMode, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeShadows, ThemeSpacing, ThemeTypography,
+      CaretMode, PaletteColor, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeShadows, ThemeSpacing,
+      ThemeTypography,
     },
   },
   core::{ElementRect, ElementRef},
@@ -39,6 +40,7 @@ use crate::{
 };
 
 mod box_shadow_quads;
+mod control_fill;
 mod flex_shrink;
 mod opacity_groups;
 mod select_quads;
@@ -80,11 +82,7 @@ fn layout_kind_profile_name(kind: &LayoutKind) -> &'static str {
   }
 }
 
-const DEFAULT_CONTROL_SURFACE_COLOR: Color = Color::new(255, 255, 255, 255);
 const DEFAULT_TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
-const DEFAULT_CHECKBOX_CHECKED_COLOR: Color = Color::new(34, 197, 94, 255);
-const DEFAULT_SLIDER_TRACK_COLOR: Color = Color::new(203, 213, 225, 255);
-const DEFAULT_SLIDER_THUMB_COLOR: Color = Color::new(71, 85, 105, 255);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
 /// Width of a text input's caret, in logical pixels.
 const TEXT_INPUT_CARET_WIDTH: f32 = 1.0;
@@ -1521,12 +1519,14 @@ impl LayoutEngine {
           height,
         };
         let color = if checked {
-          style.color.unwrap_or(DEFAULT_CHECKBOX_CHECKED_COLOR)
+          style
+            .color
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), PaletteColor::Accent))
         } else {
           style
             .color
             .or_else(|| node.resolved_color(&self.palette.borrow()))
-            .unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR)
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), PaletteColor::SurfaceInput))
         };
         push_checkbox_quads(
           quads,
@@ -1564,7 +1564,7 @@ impl LayoutEngine {
         let track_color = track_style
           .color
           .or_else(|| node.resolved_color(&self.palette.borrow()))
-          .unwrap_or(DEFAULT_SLIDER_TRACK_COLOR);
+          .unwrap_or_else(|| self.default_control_fill(state.track_styled(), PaletteColor::Border));
         let track_radius = track_style
           .border_radius
           .map(|radius| radius.resolve(&self.radii.borrow()))
@@ -1621,7 +1621,9 @@ impl LayoutEngine {
           quads,
           thumb_rect,
           &thumb_style,
-          thumb_style.color.unwrap_or(DEFAULT_SLIDER_THUMB_COLOR),
+          thumb_style
+            .color
+            .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), PaletteColor::Accent)),
           Some(
             thumb_style
               .border_radius

@@ -1404,6 +1404,9 @@ pub(crate) struct CheckboxState {
 
 struct CheckboxInner {
   style: CheckboxStyle,
+  /// Whether the app set the box style; without one the box takes the
+  /// theme's fill.
+  box_styled: bool,
   checked_style: Option<CheckboxStyle>,
   hovered_style: Option<CheckboxStyle>,
   checked_hovered_style: Option<CheckboxStyle>,
@@ -1428,6 +1431,7 @@ impl CheckboxState {
       value,
       inner: Arc::new(Mutex::new(CheckboxInner {
         style: CheckboxStyle::new(),
+        box_styled: false,
         checked_style: None,
         hovered_style: None,
         checked_hovered_style: None,
@@ -1451,7 +1455,20 @@ impl CheckboxState {
   }
 
   pub(crate) fn set_style(&self, style: CheckboxStyle) {
-    self.inner.lock().unwrap().style = style;
+    let mut inner = self.inner.lock().unwrap();
+    inner.style = style;
+    inner.box_styled = true;
+  }
+
+  /// Whether the app set the box style, or the checked box style when
+  /// `checked`, which decides whether an unset fill falls back to the theme.
+  pub(crate) fn part_styled(&self, checked: bool) -> bool {
+    let inner = self.inner.lock().unwrap();
+    if checked {
+      inner.checked_style.is_some()
+    } else {
+      inner.box_styled
+    }
   }
 
   pub(crate) fn set_checked_style(&self, style: CheckboxStyle) {
@@ -1584,10 +1601,14 @@ struct SliderInner {
   max: f32,
   step: f32,
   track_style: SliderPartStyle,
+  /// Whether the app set the track (or thumb) style; without one the part
+  /// takes the theme's fill.
+  track_styled: bool,
   track_hovered_style: Option<SliderPartStyle>,
   fill_style: Option<SliderPartStyle>,
   fill_hovered_style: Option<SliderPartStyle>,
   thumb_style: SliderPartStyle,
+  thumb_styled: bool,
   thumb_hovered_style: Option<SliderPartStyle>,
   thumb_focused_style: Option<SliderPartStyle>,
   hovered: bool,
@@ -1623,10 +1644,12 @@ impl SliderState {
         max: 1.0,
         step: 1.0,
         track_style: SliderPartStyle::new(),
+        track_styled: false,
         track_hovered_style: None,
         fill_style: None,
         fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
+        thumb_styled: false,
         thumb_hovered_style: None,
         thumb_focused_style: None,
         hovered: false,
@@ -1643,10 +1666,12 @@ impl SliderState {
         max: 1.0,
         step: 0.01,
         track_style: SliderPartStyle::new(),
+        track_styled: false,
         track_hovered_style: None,
         fill_style: None,
         fill_hovered_style: None,
         thumb_style: SliderPartStyle::new(),
+        thumb_styled: false,
         thumb_hovered_style: None,
         thumb_focused_style: None,
         hovered: false,
@@ -1781,7 +1806,9 @@ impl SliderState {
   }
 
   pub(crate) fn set_track_style(&self, style: SliderPartStyle) {
-    self.inner.lock().unwrap().track_style = style;
+    let mut inner = self.inner.lock().unwrap();
+    inner.track_style = style;
+    inner.track_styled = true;
   }
 
   pub(crate) fn set_track_hovered_style(&self, style: SliderPartStyle) {
@@ -1796,8 +1823,21 @@ impl SliderState {
     self.inner.lock().unwrap().fill_hovered_style = Some(style);
   }
 
+  /// Whether the app set the track style; without one an unset track fill
+  /// falls back to the theme.
+  pub(crate) fn track_styled(&self) -> bool {
+    self.inner.lock().unwrap().track_styled
+  }
+
+  /// Whether the app set the thumb style; see [`SliderState::track_styled`].
+  pub(crate) fn thumb_styled(&self) -> bool {
+    self.inner.lock().unwrap().thumb_styled
+  }
+
   pub(crate) fn set_thumb_style(&self, style: SliderPartStyle) {
-    self.inner.lock().unwrap().thumb_style = style;
+    let mut inner = self.inner.lock().unwrap();
+    inner.thumb_style = style;
+    inner.thumb_styled = true;
   }
 
   pub(crate) fn set_thumb_hovered_style(&self, style: SliderPartStyle) {

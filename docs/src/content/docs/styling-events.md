@@ -449,6 +449,8 @@ TextInput::new(command.clone())
 
 Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has focus, checked or not; it changes paint only.
 
+A checkbox the app has not styled takes its fill from the theme: the box is `SurfaceInput` and the checked box `Accent`. A part the app styles without a fill paints none, like a button or text input without a background: `.box_part(...)` without `background` leaves the unchecked box unfilled, and `.checked_box(...)` without one the checked box (its border and indicator still paint). A checked box whose `checked_box` part the app did not set keeps the unchecked part's fill, or the theme's `Accent`. Generic `.background()` still fills the unchecked box.
+
 ```rust
 use lurq::{components::Checkbox, core::Signal, node::color::Color};
 
@@ -580,6 +582,8 @@ TextInput::new(draft.clone())
 ### Slider Styling
 
 `Slider::new` uses `Signal<i32>`. Pointer input maps the track position into the range, and the default keyboard step is `1`. Use `Slider::new_f32` with `Signal<f32>` and `.range_f32(min, max)` for fractional values; `.step(value)` controls snapping and keyboard increments.
+
+An unstyled slider takes its fills from the theme: the track `Border`, the thumb `Accent` (generic `.background()` fills the track). A `.track(...)` or `.thumb(...)` part without a `background` paints no fill for that part.
 
 ```rust
 let gain = lurq::core::Signal::new(0.5_f32);
