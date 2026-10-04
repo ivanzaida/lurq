@@ -5178,6 +5178,52 @@ impl Tree {
     }
   }
 
+  /// What the last layout paints, in paint order: one [`Quad`] per fill,
+  /// border, shadow, text run, image and caret, at absolute logical positions
+  /// and clipped to the viewport the way a pass draws them. Empty before the
+  /// first pass.
+  ///
+  /// It needs no window or render engine, so a test can run
+  /// [`Tree::pass_headless`] and check what an element paints that the
+  /// element tree does not show, such as a control's own fill:
+  ///
+  /// ```
+  /// use lurq::{
+  ///   app::{App, Tree},
+  ///   components::Rect,
+  ///   layout::quad::QuadContent,
+  ///   node::color::Color,
+  /// };
+  ///
+  /// let mut tree = Tree::new();
+  /// tree.set_root(Rect::new(100.0, 50.0).background(Color::from_hex("#22c55e")));
+  /// tree.pass_headless(&mut App::new());
+  /// let fills: Vec<Color> = tree
+  ///   .painted_quads()
+  ///   .iter()
+  ///   .filter_map(|quad| match quad.content {
+  ///     QuadContent::Rect { color, .. } => Some(color),
+  ///     _ => None,
+  ///   })
+  ///   .collect();
+  /// assert_eq!(fills, [Color::from_hex("#22c55e")]);
+  /// ```
+  pub fn painted_quads(&self) -> Vec<Quad> {
+    let Some(result) = &self.last_layout else {
+      return Vec::new();
+    };
+    let scale = self.scale_factor();
+    let viewport = ClipRect {
+      x: 0.0,
+      y: 0.0,
+      width: self.viewport_physical.width / scale,
+      height: self.viewport_physical.height / scale,
+      active: true,
+      border_radius: None,
+    };
+    self.resolve_quads_with_viewport(result, viewport)
+  }
+
   #[doc(hidden)]
   pub fn set_layout_constraints_override(&mut self, constraints: Option<Constraints>) {
     self.layout_constraints_override = constraints;
