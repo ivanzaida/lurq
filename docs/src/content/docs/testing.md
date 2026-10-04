@@ -139,6 +139,58 @@ assert_eq!(tree.focused_element().and_then(|element| element.id()), Some("save")
 
 Use the render snapshot helpers when a test asserts on drawn output. See [Testing Focus](../focus-navigation/#testing-focus).
 
+## Painted Output Without A Window
+
+Some of what an element paints is not in the element tree: a control's own fill, border or shadow, a text input's caret and selection. After any pass, `tree.painted_quads()` returns what the last layout paints, in paint order, as `lurq::layout::quad::Quad`s at absolute logical positions, without a window or render engine, so an application's own tests can check it after `pass_headless`:
+
+```rust
+use lurq::{
+  app::{App, Tree, theme::PaletteColor},
+  components::Select,
+  core::{ElementRef, Signal},
+  layout::quad::QuadContent,
+  node::color::Color,
+};
+
+let surface = Color::from_hex("#1e293b");
+let select = ElementRef::new();
+let mut app = App::new();
+app.theme().set_palette_color(PaletteColor::SurfaceInput, surface);
+let mut tree = Tree::new();
+tree.set_root(Select::new(Signal::new(1)).options([(1, "One")]).ref_element(select.clone()));
+tree.pass_headless(&mut app);
+
+let bounds = select.bounds();
+let trigger_fill = tree.painted_quads().into_iter().find_map(|quad| match quad.content {
+  QuadContent::Rect { color, .. } if (quad.x, quad.y, quad.width) == (bounds.x, bounds.y, bounds.width) => Some(color),
+  _ => None,
+});
+assert_eq!(trigger_fill, Some(surface));
+```
+
+Quads are the draw list before text shaping and batching; the render snapshot helpers above show the batched rects and glyphs a render engine receives.
+
+## Input Methods
+
+Drive input method composition through `Tree::ime`, as the winit shell does with the platform's events, and check the result through the focused input:
+
+```rust
+use lurq::app::events::ImeEvent;
+
+tree.get_element_by_id_mut("draft").unwrap().focus();
+tree.ime(ImeEvent::Preedit { text: "にほん".into(), cursor: Some((9, 9)) });
+assert!(tree.is_composing());
+let draft = tree.get_element_by_id_mut("draft").and_then(|element| element.as_text_input()).unwrap();
+assert_eq!(draft.composition().as_deref(), Some("にほん"));
+
+// Windows reports the Enter that confirms as a "Process" press; it reaches no handler.
+tree.key_down("Process".into(), "Enter".into(), false, false, false);
+tree.ime(ImeEvent::Preedit { text: String::new(), cursor: None });
+tree.ime(ImeEvent::Commit("日本".into()));
+```
+
+`tests/input/text_input/ime.rs` covers the preedit display, commits, cancellation, the keys withheld during a composition on both platforms' event orders, masked inputs and the candidate window area. What an input method does with the keys is up to the platform and is not exercised headlessly.
+
 ## Element Lookup And Typed Interaction
 
 Tag nodes with `.id("...")` in the tree under test, then address them directly instead of writing predicates:

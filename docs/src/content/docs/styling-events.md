@@ -278,7 +278,7 @@ Text::new("Focusable")
   })
 ```
 
-`KeyboardEvent` includes `key`, `code`, `shift`, `ctrl`, `alt`, and `target_id`.
+`KeyboardEvent` includes `key`, `code`, `shift`, `ctrl`, `alt`, `meta`, `target_id`, `text_input_focused` and `composing`. While an input method composes text, its key presses never reach `on_key_down` handlers or lurq's own key handling, so an app that sends a message on `Enter` does not send when `Enter` confirms a composition; see [Input Methods](#input-methods).
 
 User `on_key_down` handlers run before built-in keyboard defaults, so they can block text editing, focused-button activation, select navigation, modal or popup Escape dismissal, and similar defaults:
 
@@ -547,6 +547,36 @@ Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys
 
 With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete`. Without `clipboard`, those shortcuts do not read or write the system clipboard.
 
+#### Input Methods
+
+Text inputs take input method (IME) composition on Windows and macOS: Japanese, Chinese and Korean input, dead keys and the macOS accent menu. While a text input that is not masked has focus, the winit shell lets the window's input method compose and places its candidate window at the input's caret; password fields (`.mask()`) take no composition, like the platforms' native ones.
+
+- While composing, the input shows the composition text at the caret, in place of the selection, underlined in the text colour, with the caret where the input method puts it. The value does not change and `on_input` does not fire until the composition is committed.
+- The commit inserts the text like typing: `on_input` handlers run first, with a `KeyboardEvent` whose `key` is the committed text, whose `code` is empty and whose `composing` is set, and can prevent it. A cancelled composition leaves the value as it was. Moving focus away cancels a composition.
+- The input method takes the composition's keys, including the `Enter` that confirms it. Their presses reach neither `on_key_down` handlers nor lurq's defaults (newline, form submit, button activation, Tab, Escape); their releases reach `on_key_up` handlers with `KeyboardEvent::composing` set. Windows reports such a press as the key `"Process"` with the physical key as its `code`, macOS does not report it at all; lurq treats both the same.
+
+```rust
+use lurq::app::events::KeyboardEvent;
+
+TextInput::new(draft.clone())
+  .multiline()
+  .on_key_down(move |event: KeyboardEvent| {
+    // Never the Enter that confirms a composition.
+    if event.key == "Enter" && !event.shift {
+      event.prevent_default();
+      send();
+    }
+  })
+  .on_key_up(|event: KeyboardEvent| {
+    if event.composing {
+      return;
+    }
+    // ...
+  })
+```
+
+`Tree::is_composing()` and `TextInputHandle::composition()` report a composition in progress. A shell other than winit forwards its platform's input method events through `Tree::ime(ImeEvent)` and asks `Tree::ime_allowed()` and `Tree::ime_cursor_area()` (logical pixels) whether, and where, the input method should compose; tests drive composition the same way (see [Testing](../testing/#input-methods)).
+
 ### Slider Styling
 
 `Slider::new` uses `Signal<i32>`. Pointer input maps the track position into the range, and the default keyboard step is `1`. Use `Slider::new_f32` with `Signal<f32>` and `.range_f32(min, max)` for fractional values; `.step(value)` controls snapping and keyboard increments.
@@ -707,6 +737,7 @@ SelectStyle::new()
 - The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
 - Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
 - `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection.
+- The trigger's fill is its part's `background`: the theme's `SurfaceInput` in the default `SelectStyle`. A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
 
 ## Programmatic Interaction
 
