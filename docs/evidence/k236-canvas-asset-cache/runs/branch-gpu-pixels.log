@@ -1,0 +1,63 @@
+# head: 91b9eac5a8e4e042e67e2b8be1526309e3c28cff tree: e7667f8905264ded44366642017f89f41296e852 dirty-source-files: 0
+# started: 2026-10-04T04:35:10+03:00
+# cargo test -p lurq --lib --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot wgpu_render::canvas -- --ignored --test-threads=1 --skip canvas_gpu_performance
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4041:9
+     |
+4041 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4168:9
+     |
+4168 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4338:9
+     |
+4338 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:61:7
+   |
+61 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 6 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-0dce37015b6043a2.exe)
+
+running 5 tests
+test app::wgpu_render::canvas::camera_tests::gpu_canvas_camera_cache_pixels ... ok
+test app::wgpu_render::canvas::residency_tests::gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget ... ok
+test app::wgpu_render::canvas::residency_tests::gpu_canvas_uploads_a_page_of_labels_once ... ok
+test app::wgpu_render::canvas::tests::gpu_canvas_effects_match_the_software_backend ... ok
+test app::wgpu_render::canvas::tests::gpu_canvas_pixels_ordering_clips_resize_and_asset_reuse ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 254 filtered out; finished in 7.33s
+
+# exit: 0 at 2026-10-04T04:35:18+03:00
