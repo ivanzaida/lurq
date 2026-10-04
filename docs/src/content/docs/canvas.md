@@ -409,8 +409,8 @@ cargo run -p lurq --example canvas_capture_check --features canvas,screenshot,dx
 
 The vocabulary follows the [HTML Canvas specification](https://html.spec.whatwg.org/multipage/canvas.html), with deliberate lurq choices for typed refs, sizing, display scale, defaults, and the supported subset. This is not a claim of full browser conformance.
 
-## Complete presentation transactions (0.38.0 source candidate)
+## Complete presentation transactions
 
-This candidate is not published yet. `begin_presentation()` isolates a replacement across bounded drawing batches. Capture artwork with `capture_artwork()` before transient overlays, then publish only the matching token with `commit_presentation(token)`. `abort_presentation(token)` keeps the completed front. Superseded tokens cannot publish, and snapshots taken while a replacement is pending describe the completed front and its revision.
+Available since **lurq 0.38.0**. `begin_presentation()` isolates a replacement across bounded drawing batches. Capture artwork with `capture_artwork()` before transient overlays, then publish only the matching token with `commit_presentation(token)`. `abort_presentation(token)` keeps the completed front. Superseded tokens cannot publish, and snapshots taken while a replacement is pending describe the completed front and its revision.
 
 `draw_retained_artwork(matrix)` reprojects completed artwork on the GPU without CPU readback; it does not make old editor geometry authoritative. `forget_artwork()` releases that visual ownership. `PresentationBusy` is temporary leased-target pressure: preserve the front and retry after submission completion. Target ownership has a separate 256MiB allowance; it is not the uploaded-asset budget. WGPU accounting reports logical texture extents, not opaque physical driver heaps. Renderer-front commit and CPU present counters do not prove physical display scanout.
