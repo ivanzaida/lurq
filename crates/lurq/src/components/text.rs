@@ -27,6 +27,21 @@ impl Text {
     self
   }
 
+  /// Keep this text out of inspection: it is laid out, painted and captured
+  /// on screen as usual, but DevTools (tree, inspector, snapshots) and the MCP
+  /// tools (`lurq_read_tree`, `lurq_inspect`, the `lurq_find*` lookups, and
+  /// accessible names derived from it) show [`REDACTED`](crate::core::REDACTED)
+  /// in its place, with the attribute `sensitive=true`. For a one-time code or
+  /// a secret the user must read. Selection follows `selectable` as for any
+  /// text (off by default); a selectable sensitive text can be selected and
+  /// copied with Ctrl+C/Cmd+C, which no inspector sees. Keep the value itself
+  /// in a [`Sensitive`](crate::core::Sensitive) so that it does not reach
+  /// DevTools' signal values and history either.
+  pub fn sensitive(mut self) -> Self {
+    self.update_node(crate::node::node::Node::set_text_sensitive);
+    self
+  }
+
   pub fn text_transform_mode(mut self, mode: TextTransformMode) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_transform_mode(node, mode));
     self

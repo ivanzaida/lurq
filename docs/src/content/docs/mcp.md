@@ -104,7 +104,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 
 ### Coordinates and refs
 
-Masked text inputs expose the displayed mask and `masked=true` in tree reads, lookup/find results, and set-value replies. Direct application access and form submission still use the underlying value. App-authored annotations, custom tool responses, and logs remain the application's responsibility. See [Window lifecycle and native menus](../window-lifecycle-menus/#mcp-and-verification) for close and menu action semantics.
+Masked text inputs expose the displayed mask and `masked=true` in tree reads, lookup/find results, and set-value replies. [Sensitive text](../styling-events/#sensitive-text) (`Text::sensitive()`) shows as `•••` with `sensitive=true` in every tool, including the names it gives a button; screenshots still show it. Direct application access and form submission still use the underlying value. App-authored annotations, custom tool responses, and logs remain the application's responsibility. See [Window lifecycle and native menus](../window-lifecycle-menus/#mcp-and-verification) for close and menu action semantics.
 
 The MCP surface speaks exactly one coordinate space: **pixels of the last screenshot** (physical pixels). `read_tree` bounds, `interact` coordinates, `screenshot` regions, and `resize` dimensions all use it; the server converts internally, so an agent can click what it sees without thinking about scale factors.
 

@@ -2754,12 +2754,16 @@ impl Node {
   }
 
   /// Text safe to expose through built-in inspectors. Layout/editing keep the
-  /// underlying value; inspector boundaries follow the input's mask instead.
+  /// underlying value; inspector boundaries follow the input's mask instead,
+  /// and show sensitive text as `REDACTED`.
   #[cfg(any(feature = "mcp", feature = "devtools"))]
   pub(crate) fn inspection_text(&self) -> Option<String> {
     match self.node_kind() {
       NodeKind::TextInput { state, .. } if state.is_masked() => {
         state.rendered_text().map(|_| state.rendered_text_for_layout())
+      }
+      NodeKind::Text { state, .. } if state.is_sensitive() => {
+        self.text_content().map(|_| crate::core::REDACTED.to_owned())
       }
       _ => self.text_content().map(str::to_owned),
     }
@@ -3921,7 +3925,12 @@ impl Node {
           style: old_style,
           transform_mode: old_transform_mode,
         },
-      ) => style == old_style && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
+      ) => {
+        style == old_style
+          && state.selectable() == old_state.selectable()
+          && state.is_sensitive() == old_state.is_sensitive()
+          && transform_mode == old_transform_mode
+      }
       #[cfg(feature = "markdown")]
       (
         NodeKind::RichText {

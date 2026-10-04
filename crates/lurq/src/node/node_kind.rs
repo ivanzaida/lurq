@@ -202,6 +202,8 @@ pub(crate) struct TextState {
 
 struct TextInner {
   selectable: bool,
+  /// Inspectors show `REDACTED` instead of the content (`Text::sensitive`).
+  sensitive: bool,
   caret: usize,
   selection_anchor: Option<usize>,
   caret_positions: CaretPositions,
@@ -214,6 +216,7 @@ impl TextState {
     Self {
       inner: Arc::new(Mutex::new(TextInner {
         selectable: false,
+        sensitive: false,
         caret: 0,
         selection_anchor: None,
         caret_positions: vec![CaretPosition {
@@ -239,6 +242,14 @@ impl TextState {
 
   pub(crate) fn selectable(&self) -> bool {
     self.inner.lock().unwrap().selectable
+  }
+
+  pub(crate) fn set_sensitive(&self) {
+    self.inner.lock().unwrap().sensitive = true;
+  }
+
+  pub(crate) fn is_sensitive(&self) -> bool {
+    self.inner.lock().unwrap().sensitive
   }
 
   pub(crate) fn update_selection_to_point(&self, value: &str, x: f32, y: f32) {

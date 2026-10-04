@@ -289,6 +289,9 @@ fn element_attrs(element: ElementRef<'_>) -> Vec<(String, String)> {
   if element.node.is_masked_input() {
     attrs.push(("masked".to_owned(), "true".to_owned()));
   }
+  if element.node.is_sensitive_text() {
+    attrs.push(("sensitive".to_owned(), "true".to_owned()));
+  }
   if let Some(id) = element.id() {
     attrs.push(("id".to_owned(), id.to_owned()));
   }

@@ -155,6 +155,9 @@ pub(super) fn inspection_attrs(node: &Node) -> Vec<(String, String)> {
   if node.is_masked_input() {
     attrs.push(("masked".to_owned(), "true".to_owned()));
   }
+  if node.is_sensitive_text() {
+    attrs.push(("sensitive".to_owned(), "true".to_owned()));
+  }
   attrs.extend(canvas_items::canvas_attrs(node));
   attrs
 }

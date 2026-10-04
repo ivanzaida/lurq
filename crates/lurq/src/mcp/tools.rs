@@ -13,6 +13,8 @@ mod read_tree;
 mod resolve;
 mod screenshot;
 mod semantics;
+#[cfg(test)]
+mod sensitive_tests;
 mod set_value;
 #[cfg(test)]
 mod tests;

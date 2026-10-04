@@ -306,6 +306,23 @@ Selectable text supports pointer drag ranges, double-click word selection, and t
 
 With the `clipboard` feature enabled, `Ctrl+C` and `Ctrl+Insert` copy the current selectable text selection to the system clipboard.
 
+## Sensitive Text
+
+Text the user must read but tooling must not, such as a one-time password, is marked with `.sensitive()`:
+
+```rust
+use lurq::{components::Text, core::Sensitive};
+
+let code = Sensitive::new(one_time_code); // a signal of Sensitive<String> stays redacted too
+Text::new(code.expose()).sensitive()
+```
+
+It is laid out, painted and captured on screen like any text. Every inspector shows `•••` in its place (always three dots, whatever the length) with `sensitive=true`: the MCP tools (`lurq_read_tree`, `lurq_inspect`, `lurq_find_by_id`, `lurq_find_by_class`, `lurq_find`, and a button or other element named after it) and DevTools (element tree, inspector, snapshots). The app still reads the real text through its element handles. Screenshots, `lurq_screenshot` and `Tree::painted_quads` show the text, as they show the screen.
+
+Selection follows `.selectable(...)` as for any text and is off by default. A selectable sensitive text can be selected and copied with `Ctrl+C`, which no inspector sees; to let the user copy without selecting, give them a copy button that writes the value to the clipboard itself.
+
+`.sensitive()` covers the element tree only. Keep the value in a `lurq::core::Sensitive<T>` wherever it is held: its `Debug` output and its DevTools rendering are `•••`, so a signal, store or component props holding it shows `•••` in DevTools' signal values and history and in the props inspector, and a `{:?}` log line does not reveal it. `Sensitive` has no `Display`; `expose()` returns the value where the app uses it.
+
 ## Scroll
 
 Wrap content in one of the scroll components:
