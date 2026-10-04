@@ -1,10 +1,21 @@
+mod artwork;
+mod pipeline;
+mod presentation_pool;
+use pipeline::pipeline;
+use presentation_pool::{ArtworkLease, Spare};
+mod drawing;
+mod initialization;
+mod presentation;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use wgpu::*;
 
 use super::DynamicBuffer;
 use crate::app::profile_support::{profile_elapsed, profile_if, profile_scope};
-use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
+use crate::canvas::{
+  BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, PresentationEvent,
+  TargetCharge, gpu::*, replacement_admitted,
+};
 
 struct Texture {
   texture: wgpu::Texture,
@@ -12,15 +23,20 @@ struct Texture {
   nearest: BindGroup,
   linear: BindGroup,
 }
-struct Backing {
-  owner: CanvasWeak,
-  image: Texture,
-  generation: u64,
-}
 struct CachedAsset {
   image: Texture,
   bytes: usize,
   last: u64,
+}
+struct Artwork {
+  image: Texture,
+}
+struct Backing {
+  revision: u64,
+  artwork: Option<std::sync::Arc<Artwork>>,
+  owner: CanvasWeak,
+  image: Texture,
+  generation: u64,
 }
 pub(super) struct Renderer {
   #[cfg(feature = "perf_profile")]
@@ -29,6 +45,10 @@ pub(super) struct Renderer {
   pub(super) profile_context: Option<crate::app::profiler::ProfileContext>,
   meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
+  fronts: HashMap<CanvasId, (u64, Backing)>,
+  spares: Vec<Spare>,
+  retired_artwork: Vec<ArtworkLease>,
+  rejected: HashSet<CanvasId>,
   assets: HashMap<u64, CachedAsset>,
   asset_bytes: usize,
   tick: u64,
@@ -52,6 +72,7 @@ pub(super) struct Renderer {
   solid: RenderPipeline,
 
   premul: RenderPipeline,
+  retained: RenderPipeline,
   erase: RenderPipeline,
   gradient_linear: RenderPipeline,
   gradient_radial: RenderPipeline,
@@ -70,194 +91,13 @@ pub(super) struct Renderer {
   globals: DynamicBuffer,
 }
 impl Renderer {
-  pub fn new(device: &Device, queue: &Queue) -> Self {
-    let globals_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-      label: Some("canvas globals"),
-      entries: &[BindGroupLayoutEntry {
-        binding: 0,
-        // The blend composite reads its mode from the same constants.
-        visibility: ShaderStages::VERTEX_FRAGMENT,
-        ty: BindingType::Buffer {
-          ty: BufferBindingType::Uniform,
-          has_dynamic_offset: true,
-          min_binding_size: BufferSize::new(32),
-        },
-        count: None,
-      }],
-    });
-    let image_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-      label: Some("canvas image"),
-      entries: &[
-        BindGroupLayoutEntry {
-          binding: 0,
-          visibility: ShaderStages::FRAGMENT,
-          ty: BindingType::Texture {
-            sample_type: TextureSampleType::Float { filterable: true },
-            view_dimension: TextureViewDimension::D2,
-            multisampled: false,
-          },
-          count: None,
-        },
-        BindGroupLayoutEntry {
-          binding: 1,
-          visibility: ShaderStages::FRAGMENT,
-          ty: BindingType::Sampler(SamplerBindingType::Filtering),
-          count: None,
-        },
-      ],
-    });
-    let blend_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-      label: Some("canvas blend"),
-      entries: &[
-        BindGroupLayoutEntry {
-          binding: 0,
-          visibility: ShaderStages::FRAGMENT,
-          ty: BindingType::Texture {
-            sample_type: TextureSampleType::Float { filterable: true },
-            view_dimension: TextureViewDimension::D2,
-            multisampled: false,
-          },
-          count: None,
-        },
-        BindGroupLayoutEntry {
-          binding: 1,
-          visibility: ShaderStages::FRAGMENT,
-          ty: BindingType::Sampler(SamplerBindingType::Filtering),
-          count: None,
-        },
-        BindGroupLayoutEntry {
-          binding: 2,
-          visibility: ShaderStages::FRAGMENT,
-          ty: BindingType::Texture {
-            sample_type: TextureSampleType::Float { filterable: true },
-            view_dimension: TextureViewDimension::D2,
-            multisampled: false,
-          },
-          count: None,
-        },
-      ],
-    });
-    let nearest = device.create_sampler(&SamplerDescriptor::default());
-    let linear = device.create_sampler(&SamplerDescriptor {
-      mag_filter: FilterMode::Linear,
-      min_filter: FilterMode::Linear,
-      ..Default::default()
-    });
-    let shader = device.create_shader_module(ShaderModuleDescriptor {
-      label: Some("canvas"),
-      source: ShaderSource::Wgsl(include_str!("shaders/canvas.wgsl").into()),
-    });
-    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-      label: Some("canvas"),
-      bind_group_layouts: &[Some(&globals_layout), Some(&image_layout)],
-      immediate_size: 0,
-    });
-    let blend_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-      label: Some("canvas blend"),
-      bind_group_layouts: &[Some(&globals_layout), Some(&blend_layout)],
-      immediate_size: 0,
-    });
-    let make = |vs, fs, samples, mode| pipeline(device, &layout, &shader, vs, fs, samples, mode);
-    let seed = make("vs_seed", "fs_premul", 4, 0);
-    let resample = make("vs_seed", "fs_premul", 1, 0);
-    let reset_stencil = make("vs_seed", "fs_solid", 4, 1);
-    let clip = make("vs_main", "fs_solid", 4, 2);
-    let solid = make("vs_main", "fs_solid", 4, 3);
-
-    let premul = make("vs_main", "fs_premul", 4, 3);
-    let erase = make("vs_main", "fs_solid", 4, 4);
-    let gradient_linear = make("vs_main", "fs_gradient_linear", 4, 3);
-    let gradient_radial = make("vs_main", "fs_gradient_radial", 4, 3);
-    let gradient_angular = make("vs_main", "fs_gradient_angular", 4, 3);
-    let compose = make("vs_tile", "fs_premul", 4, 5);
-    let restore = make("vs_tile", "fs_tile", 4, 6);
-    let blend = pipeline(device, &blend_pipeline_layout, &shader, "vs_tile", "fs_blend", 4, 6);
-    let texture = |format, samples| {
-      device.create_texture(&TextureDescriptor {
-        label: Some("canvas shared tile"),
-        size: Extent3d {
-          width: TILE,
-          height: TILE,
-          depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: samples,
-        dimension: TextureDimension::D2,
-        format,
-        usage: TextureUsages::RENDER_ATTACHMENT
-          | if samples == 1 {
-            TextureUsages::COPY_SRC
-          } else {
-            TextureUsages::empty()
-          },
-        view_formats: &[],
-      })
-    };
-    let scratch = texture(TextureFormat::Rgba8Unorm, 4);
-    let scratch_view = scratch.create_view(&Default::default());
-    let resolve = texture(TextureFormat::Rgba8Unorm, 1);
-    let resolve_view = resolve.create_view(&Default::default());
-    let stencil = texture(TextureFormat::Depth24PlusStencil8, 4);
-    let stencil_view = stencil.create_view(&Default::default());
-    let white = Texture::new(device, &image_layout, &nearest, &linear, 1, 1);
-    queue.write_texture(
-      white.texture.as_image_copy(),
-      &[255; 4],
-      TexelCopyBufferLayout {
-        offset: 0,
-        bytes_per_row: Some(4),
-        rows_per_image: Some(1),
-      },
-      Extent3d {
-        width: 1,
-        height: 1,
-        depth_or_array_layers: 1,
-      },
-    );
-    Self {
-      #[cfg(feature = "perf_profile")]
-      profile: Default::default(),
-      #[cfg(feature = "perf_profile")]
-      profile_context: None,
-      meshes: MeshCache::default(),
-      surfaces: HashMap::new(),
-      assets: HashMap::new(),
-      asset_bytes: 0,
-      tick: 0,
-      generation: 0,
-      globals_layout,
-      image_layout,
-      blend_layout,
-      nearest,
-      linear,
-      _scratch: scratch,
-      scratch_view,
-      resolve,
-      resolve_view,
-      _stencil: stencil,
-      stencil_view,
-      white,
-      seed,
-      resample,
-      reset_stencil,
-      clip,
-      solid,
-      premul,
-      erase,
-      gradient_linear,
-      gradient_radial,
-      gradient_angular,
-      compose,
-      restore,
-      blend,
-      saved: Vec::new(),
-      layer: None,
-      vertices: DynamicBuffer::new("canvas vertices", BufferUsages::VERTEX),
-      globals: DynamicBuffer::new("canvas globals", BufferUsages::UNIFORM),
-    }
-  }
   pub fn snapshot(&self, canvas: &CanvasHandle) -> Option<crate::images::WgpuExternalImageSnapshot> {
-    let b = self.surfaces.get(&canvas.surface_id())?;
+    let id = canvas.surface_id();
+    let b = self
+      .fronts
+      .get(&id)
+      .map(|(_, b)| b)
+      .or_else(|| self.surfaces.get(&id))?;
     Some(crate::images::WgpuExternalImageSnapshot {
       view: b.image.view.clone(),
       width: b.image.texture.width(),
@@ -279,15 +119,26 @@ impl Renderer {
       .filter(|c| c.is_attached())
       .map(CanvasHandle::surface_id)
       .collect();
-    self.surfaces.retain(|id, b| {
-      let keep = live.contains(id);
-      if !keep {
-        if let Some(c) = b.owner.upgrade() {
-          c.set_gpu_bytes(0);
-        }
+    let closed: Vec<_> = self
+      .surfaces
+      .keys()
+      .chain(self.fronts.keys())
+      .copied()
+      .filter(|id| !live.contains(id))
+      .collect();
+    for id in closed {
+      if let Some((_, front)) = self.fronts.remove(&id) {
+        self.retire_back(queue, id, front);
       }
-      keep
-    });
+      if let Some(back) = self.surfaces.remove(&id) {
+        if let Some(owner) = back.owner.upgrade() {
+          owner.set_gpu_bytes(0);
+        }
+        self.retire_back(queue, id, back);
+      }
+      self.rejected.remove(&id);
+    }
+    self.reap(&live);
     for canvas in canvases {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
@@ -300,20 +151,56 @@ impl Renderer {
         self.resize(device, queue, canvas, metrics.pixel_width, metrics.pixel_height, false);
       }
       while let Some(command) = commands.pop_front() {
+        if self.rejected.contains(&canvas.surface_id())
+          && !matches!(
+            command,
+            Command::BeginPresentation(..)
+              | Command::CommitPresentation(..)
+              | Command::AbortPresentation(_)
+              | Command::Readback(..)
+              | Command::ForgetArtwork
+          )
+        {
+          continue;
+        }
         match command {
+          Command::BeginPresentation(token, front_revision) => {
+            if canvas.presentation_current(token) {
+              self.begin_presentation(device, queue, canvas, token, front_revision);
+            } else {
+              self.rejected.insert(canvas.surface_id());
+            }
+          }
+          Command::CommitPresentation(token, revision) => self.end_presentation(queue, canvas, token, true, revision),
+          Command::AbortPresentation(token) => self.end_presentation(queue, canvas, token, false, 0),
+          Command::ForgetArtwork => self.forget_artwork(queue, canvas),
+          Command::CaptureArtwork => self.capture_artwork(device, queue, canvas),
+          Command::RetainedArtwork(matrix) => self.draw_artwork(device, queue, canvas, matrix),
           Command::Resize {
             width,
             height,
             preserve,
           } => {
+            self.abort_for_resize(queue, canvas);
             if !self.surfaces.contains_key(&canvas.surface_id()) && commands.is_empty() {
               continue;
             }
             self.resize(device, queue, canvas, width, height, preserve);
           }
           Command::Readback(done, metrics, revision) => {
-            if let Some(backing) = self.surfaces.get(&canvas.surface_id()) {
-              readback(device, queue, &backing.image.texture, done, revision);
+            let id = canvas.surface_id();
+            if let Some(backing) = self.fronts.get(&id).map(|(_, b)| b).or_else(|| self.surfaces.get(&id)) {
+              readback(
+                device,
+                queue,
+                &backing.image.texture,
+                done,
+                if self.fronts.contains_key(&id) {
+                  backing.revision
+                } else {
+                  revision
+                },
+              );
             } else if metrics.pixel_width != 0 && metrics.pixel_height != 0 {
               done.finish(Err(canvas.status().error.unwrap_or(CanvasError::RendererLost)));
             } else {
@@ -327,10 +214,19 @@ impl Renderer {
           }
           first => {
             let mut group = vec![first];
-            while commands
-              .front()
-              .is_some_and(|c| !matches!(c, Command::Resize { .. } | Command::Readback(..)))
-            {
+            while commands.front().is_some_and(|c| {
+              !matches!(
+                c,
+                Command::Resize { .. }
+                  | Command::Readback(..)
+                  | Command::BeginPresentation(..)
+                  | Command::CommitPresentation(..)
+                  | Command::AbortPresentation(_)
+                  | Command::ForgetArtwork
+                  | Command::CaptureArtwork
+                  | Command::RetainedArtwork(_)
+              )
+            }) {
               group.push(commands.pop_front().unwrap());
             }
             let before = self.meshes.stats();
@@ -367,9 +263,10 @@ impl Renderer {
   }
   fn resize(&mut self, device: &Device, queue: &Queue, canvas: &CanvasHandle, width: u32, height: u32, preserve: bool) {
     let id = canvas.surface_id();
-    let old = self.surfaces.remove(&id);
-    canvas.set_gpu_bytes(0);
     if width == 0 || height == 0 {
+      if let Some(old) = self.surfaces.remove(&id) {
+        self.retire_back(queue, id, old);
+      }
       canvas.set_gpu_bytes(0);
       return;
     }
@@ -377,6 +274,11 @@ impl Renderer {
       canvas.set_gpu_error(CanvasError::SurfaceTooLarge);
       return;
     }
+    if !self.allocation_admitted(width as usize * height as usize * 4) {
+      canvas.set_gpu_error(CanvasError::PresentationBusy);
+      return;
+    }
+    let old = self.surfaces.remove(&id);
     let image = Texture::new(device, &self.image_layout, &self.nearest, &self.linear, width, height);
     let mut encoder = device.create_command_encoder(&Default::default());
     let constants = [0., 0., width as f32, height as f32, width as f32, height as f32, 0., 0.];
@@ -410,12 +312,17 @@ impl Renderer {
     self.surfaces.insert(
       id,
       Backing {
+        revision: 0,
+        artwork: old.as_ref().and_then(|b| b.artwork.clone()),
         owner: canvas.downgrade(),
         image,
         generation: self.generation,
       },
     );
-    canvas.set_gpu_bytes(width as usize * height as usize * 4);
+    if let Some(old) = old {
+      self.retire_back(queue, id, old);
+    }
+    self.account_presentation(canvas);
   }
   /// Tile-sized copies an isolated layer needs: `saved[d]` is what was under the
   /// layer opened at depth `d`, and one shared `layer` holds the finished layer
@@ -443,338 +350,8 @@ impl Renderer {
       ));
     }
   }
+}
 
-  fn draw(&mut self, device: &Device, queue: &Queue, id: CanvasId, prepared: &Prepared) {
-    let _record_start = profile_scope!();
-    #[cfg(feature = "perf_profile")]
-    let _record_phase = self
-      .profile_context
-      .as_ref()
-      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasCommands));
-    let depth = layer_depth(prepared);
-    self.reserve_layers(device, depth);
-    let Some(backing) = self.surfaces.get(&id) else {
-      return;
-    };
-    let (width, height) = (backing.image.texture.width(), backing.image.texture.height());
-    let mut uploaded = 0;
-    if prepared.draws().filter_map(|d| d.asset.as_ref()).any(|a| {
-      a.width > device.limits().max_texture_dimension_2d || a.height > device.limits().max_texture_dimension_2d
-    }) {
-      if let Some(canvas) = backing.owner.upgrade() {
-        canvas.set_gpu_error(CanvasError::SurfaceTooLarge);
-      }
-      return;
-    }
-    let _asset_start = profile_scope!();
-    #[cfg(feature = "perf_profile")]
-    let _asset_phase = self
-      .profile_context
-      .as_ref()
-      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasAssetUpload));
-    for draw in prepared.draws() {
-      if let Some(asset) = &draw.asset {
-        if !self.assets.contains_key(&asset.id) {
-          let image = Texture::new(
-            device,
-            &self.image_layout,
-            &self.nearest,
-            &self.linear,
-            asset.width,
-            asset.height,
-          );
-          let mut converted = Vec::new();
-          let data = if asset.premultiplied {
-            asset.data.as_slice()
-          } else {
-            converted.extend_from_slice(&asset.data);
-            for p in converted.chunks_exact_mut(4) {
-              let a = u16::from(p[3]);
-              for c in &mut p[..3] {
-                *c = ((u16::from(*c) * a + 127) / 255) as u8;
-              }
-            }
-            &converted
-          };
-          queue.write_texture(
-            image.texture.as_image_copy(),
-            data,
-            TexelCopyBufferLayout {
-              offset: 0,
-              bytes_per_row: Some(asset.width * 4),
-              rows_per_image: Some(asset.height),
-            },
-            Extent3d {
-              width: asset.width,
-              height: asset.height,
-              depth_or_array_layers: 1,
-            },
-          );
-          let bytes = asset.data.len().max(64 * 1024);
-          self.asset_bytes += bytes;
-          uploaded += asset.data.len();
-          self.assets.insert(
-            asset.id,
-            CachedAsset {
-              image,
-              bytes,
-              last: self.tick,
-            },
-          );
-        }
-        self.assets.get_mut(&asset.id).unwrap().last = self.tick;
-      }
-    }
-    let backing = &self.surfaces[&id];
-    profile_if! {
-      self.profile.asset_upload += profile_elapsed!(_asset_start);
-      drop(_asset_phase);
-    }
-    let mut encoder = device.create_command_encoder(&Default::default());
-    if prepared.clear {
-      let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        label: Some("canvas clear"),
-        color_attachments: &[Some(RenderPassColorAttachment {
-          view: &backing.image.view,
-          depth_slice: None,
-          resolve_target: None,
-          ops: Operations {
-            load: LoadOp::Clear(Color::TRANSPARENT),
-            store: StoreOp::Store,
-          },
-        })],
-        ..Default::default()
-      });
-    }
-    let tiles = prepared.tiles(width, height);
-    if !tiles.is_empty() {
-      // One constant slot per tile, then one per layer boundary carrying that
-      // layer's own blend mode and alpha.
-      let alignment = device.limits().min_uniform_buffer_offset_alignment as usize / 4;
-      let mut slots: HashMap<usize, usize> = HashMap::new();
-      let mut constants = vec![0f32; tiles.len() * alignment];
-      for (index, tile) in tiles.iter().enumerate() {
-        constants[index * alignment..index * alignment + 8].copy_from_slice(&[
-          tile[0] as f32,
-          tile[1] as f32,
-          TILE as f32,
-          TILE as f32,
-          width as f32,
-          height as f32,
-          0.,
-          0.,
-        ]);
-      }
-      for (index, step) in prepared.steps.iter().enumerate() {
-        if let Step::Begin { alpha, blend, .. } = step {
-          slots.insert(index, constants.len() / alignment);
-          constants.resize(constants.len() + alignment, 0.);
-          let base = constants.len() - alignment;
-          constants[base..base + 8].copy_from_slice(&[0., 0., 1., 1., 1., 1., blend.index() as f32, *alpha]);
-        }
-      }
-      let _globals_start = profile_scope!();
-      let globals = global_group(
-        device,
-        &self.globals_layout,
-        self.globals.write(device, queue, &constants).unwrap(),
-      );
-      profile_if! { self.profile.buffer_upload += profile_elapsed!(_globals_start); }
-      let blend_groups: Vec<BindGroup> = (0..depth)
-        .map(|level| {
-          blend_group(
-            device,
-            &self.blend_layout,
-            &self.layer.as_ref().unwrap().view,
-            &self.saved[level].view,
-            &self.nearest,
-          )
-        })
-        .collect();
-      let _vertices_start = profile_scope!();
-      let vertices = self.vertices.write(device, queue, &prepared.vertices).unwrap();
-      profile_if! { self.profile.buffer_upload += profile_elapsed!(_vertices_start); }
-      for (index, tile) in tiles.iter().copied().enumerate() {
-        let tile_offset = (index * alignment * 4) as u32;
-        let mut step = 0usize;
-        let mut level = 0usize;
-        let mut stack: Vec<(usize, BlendMode)> = Vec::new();
-        let mut seed = Seed::Surface(&backing.image);
-        let mut composite: Option<(usize, u32, BlendMode)> = None;
-        loop {
-          {
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-              label: Some("canvas dirty tile"),
-              color_attachments: &[Some(RenderPassColorAttachment {
-                view: &self.scratch_view,
-                depth_slice: None,
-                resolve_target: Some(&self.resolve_view),
-                ops: Operations {
-                  load: LoadOp::Clear(Color::TRANSPARENT),
-                  store: StoreOp::Discard,
-                },
-              })],
-              depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: &self.stencil_view,
-                depth_ops: None,
-                stencil_ops: Some(Operations {
-                  load: LoadOp::Clear(0),
-                  store: StoreOp::Discard,
-                }),
-              }),
-              ..Default::default()
-            });
-            pass.set_scissor_rect(0, 0, tile[2], tile[3]);
-            pass.set_bind_group(0, &globals, &[tile_offset]);
-            match seed {
-              // The backing is surface-sized, so it is sampled through the tile
-              // rectangle; a saved layer tile is already the size of the tile.
-              Seed::Surface(texture) => {
-                pass.set_bind_group(1, &texture.nearest, &[]);
-                pass.set_pipeline(&self.seed);
-                pass.draw(0..3, 0..1);
-              }
-              Seed::Tile(texture) => {
-                pass.set_bind_group(1, &texture.nearest, &[]);
-                pass.set_pipeline(&self.restore);
-                pass.draw(0..3, 0..1);
-              }
-              Seed::Nothing => {}
-            }
-            if let Some((at, slot, blend)) = composite.take() {
-              pass.set_bind_group(0, &globals, &[slot]);
-              if blend.is_normal() {
-                pass.set_bind_group(1, &self.layer.as_ref().unwrap().nearest, &[]);
-                pass.set_pipeline(&self.compose);
-              } else {
-                pass.set_bind_group(1, &blend_groups[at], &[]);
-                pass.set_pipeline(&self.blend);
-              }
-              pass.draw(0..3, 0..1);
-              pass.set_bind_group(0, &globals, &[tile_offset]);
-            }
-            pass.set_vertex_buffer(0, vertices.slice(..));
-            let mut clips: Option<&Vec<std::ops::Range<u32>>> = None;
-            while step < prepared.steps.len() {
-              match &prepared.steps[step] {
-                Step::Begin { bounds, end, .. } => {
-                  if touches(*bounds, tile) {
-                    break;
-                  }
-                  step = end + 1;
-                }
-                Step::End => break,
-                Step::Draw(draw) => {
-                  step += 1;
-                  if !draw.intersects(tile) {
-                    continue;
-                  }
-                  if clips != Some(&draw.clips) {
-                    pass.set_bind_group(1, &self.white.nearest, &[]);
-                    pass.set_pipeline(&self.reset_stencil);
-                    pass.set_stencil_reference(0);
-                    pass.draw(0..3, 0..1);
-                    pass.set_pipeline(&self.clip);
-                    for (stencil, range) in draw.clips.iter().enumerate() {
-                      pass.set_stencil_reference(stencil as u32);
-                      pass.draw(range.clone(), 0..1);
-                    }
-                    clips = Some(&draw.clips);
-                  }
-                  pass.set_stencil_reference(draw.clips.len() as u32);
-                  pass.set_pipeline(match draw.kind {
-                    _ if draw.erase => &self.erase,
-                    DrawKind::Solid => &self.solid,
-                    DrawKind::Image => &self.premul,
-                    DrawKind::Gradient(GradientKind::Linear) => &self.gradient_linear,
-                    DrawKind::Gradient(GradientKind::Radial) => &self.gradient_radial,
-                    DrawKind::Gradient(GradientKind::Angular) => &self.gradient_angular,
-                  });
-                  let texture = draw
-                    .asset
-                    .as_ref()
-                    .map(|a| &self.assets[&a.id].image)
-                    .unwrap_or(&self.white);
-                  pass.set_bind_group(1, if draw.smooth { &texture.linear } else { &texture.nearest }, &[]);
-                  pass.draw(draw.vertices.clone(), 0..1);
-                }
-              }
-            }
-          }
-          if step >= prepared.steps.len() {
-            break;
-          }
-          match &prepared.steps[step] {
-            Step::Begin { blend, .. } => {
-              copy_tile(&mut encoder, &self.resolve, &self.saved[level].texture, tile);
-              stack.push((slots[&step], *blend));
-              level += 1;
-              seed = Seed::Nothing;
-              step += 1;
-            }
-            Step::End => {
-              copy_tile(&mut encoder, &self.resolve, &self.layer.as_ref().unwrap().texture, tile);
-              level -= 1;
-              let (slot, blend) = stack.pop().unwrap();
-              seed = if blend.is_normal() {
-                Seed::Tile(&self.saved[level])
-              } else {
-                Seed::Nothing
-              };
-              composite = Some((level, (slot * alignment * 4) as u32, blend));
-              step += 1;
-            }
-            Step::Draw(_) => unreachable!("a draw never ends a pass"),
-          }
-        }
-        encoder.copy_texture_to_texture(
-          self.resolve.as_image_copy(),
-          TexelCopyTextureInfo {
-            origin: Origin3d {
-              x: tile[0],
-              y: tile[1],
-              z: 0,
-            },
-            ..backing.image.texture.as_image_copy()
-          },
-          Extent3d {
-            width: tile[2],
-            height: tile[3],
-            depth_or_array_layers: 1,
-          },
-        );
-      }
-    }
-    let _submit_start = profile_scope!();
-    #[cfg(feature = "perf_profile")]
-    let _submit_phase = self
-      .profile_context
-      .as_ref()
-      .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasSubmission));
-    queue.submit([encoder.finish()]);
-    profile_if! {
-      self.profile.submit += profile_elapsed!(_submit_start);
-      self.profile.recording += profile_elapsed!(_record_start);
-      self.profile.vertices += prepared.vertices.len();
-      self.profile.tiles += tiles.len();
-      self.profile.uploaded_asset_bytes += uploaded;
-    }
-    if let Some(canvas) = backing.owner.upgrade() {
-      canvas.record_gpu_update(prepared.vertices.len(), tiles.len(), uploaded);
-    }
-  }
-}
-/// What a tile pass starts from.
-#[derive(Clone, Copy)]
-enum Seed<'a> {
-  /// The canvas backing, sampled through this tile's rectangle.
-  Surface(&'a Texture),
-  /// A saved tile-sized copy, sampled one to one.
-  Tile(&'a Texture),
-  /// Nothing: an isolated layer starts transparent, and a blended composite
-  /// writes every channel of the tile itself.
-  Nothing,
-}
 fn copy_tile(encoder: &mut CommandEncoder, source: &wgpu::Texture, target: &wgpu::Texture, tile: [u32; 4]) {
   encoder.copy_texture_to_texture(
     source.as_image_copy(),
@@ -880,103 +457,7 @@ fn global_group(device: &Device, layout: &BindGroupLayout, buffer: &Buffer) -> B
     }],
   })
 }
-fn pipeline(
-  device: &Device,
-  layout: &PipelineLayout,
-  shader: &ShaderModule,
-  vs: &str,
-  fs: &str,
-  samples: u32,
-  mode: u8,
-) -> RenderPipeline {
-  let attributes = vertex_attr_array![0=>Float32x2,1=>Float32x2,2=>Float32x4];
-  let buffers = [VertexBufferLayout {
-    array_stride: std::mem::size_of::<Vertex>() as u64,
-    step_mode: VertexStepMode::Vertex,
-    attributes: &attributes,
-  }];
-  let stencil = StencilFaceState {
-    // A whole-tile composite ignores the stencil: its own clipping was already
-    // applied to the draws inside the layer.
-    compare: if matches!(mode, 0 | 1 | 5 | 6) {
-      CompareFunction::Always
-    } else {
-      CompareFunction::Equal
-    },
-    fail_op: StencilOperation::Keep,
-    depth_fail_op: StencilOperation::Keep,
-    pass_op: match mode {
-      1 => StencilOperation::Replace,
-      2 => StencilOperation::IncrementClamp,
-      _ => StencilOperation::Keep,
-    },
-  };
-  let blend = if mode == 3 || mode == 5 {
-    Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING)
-  } else if mode == 4 {
-    Some(BlendState {
-      color: BlendComponent {
-        src_factor: BlendFactor::Zero,
-        dst_factor: BlendFactor::Zero,
-        operation: BlendOperation::Add,
-      },
-      alpha: BlendComponent {
-        src_factor: BlendFactor::Zero,
-        dst_factor: BlendFactor::Zero,
-        operation: BlendOperation::Add,
-      },
-    })
-  } else {
-    None
-  };
-  device.create_render_pipeline(&RenderPipelineDescriptor {
-    label: Some("canvas"),
-    layout: Some(layout),
-    vertex: VertexState {
-      module: shader,
-      entry_point: Some(vs),
-      compilation_options: Default::default(),
-      buffers: if vs == "vs_main" { &buffers } else { &[] },
-    },
-    fragment: Some(FragmentState {
-      module: shader,
-      entry_point: Some(fs),
-      compilation_options: Default::default(),
-      targets: &[Some(ColorTargetState {
-        format: TextureFormat::Rgba8Unorm,
-        blend,
-        write_mask: if mode == 1 || mode == 2 {
-          ColorWrites::empty()
-        } else {
-          ColorWrites::ALL
-        },
-      })],
-    }),
-    primitive: PrimitiveState::default(),
-    depth_stencil: if samples == 4 {
-      Some(DepthStencilState {
-        format: TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: Some(false),
-        depth_compare: Some(CompareFunction::Always),
-        stencil: StencilState {
-          front: stencil,
-          back: stencil,
-          read_mask: 255,
-          write_mask: if mode == 1 || mode == 2 { 255 } else { 0 },
-        },
-        bias: DepthBiasState::default(),
-      })
-    } else {
-      None
-    },
-    multisample: MultisampleState {
-      count: samples,
-      ..Default::default()
-    },
-    multiview_mask: None,
-    cache: None,
-  })
-}
+
 fn readback(device: &Device, queue: &Queue, texture: &wgpu::Texture, done: Completion, revision: u64) {
   let (width, height) = (texture.width(), texture.height());
   let pitch = (width * 4).div_ceil(256) * 256;
@@ -1045,3 +526,6 @@ impl Drop for Renderer {
 mod camera_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod presentation_tests;

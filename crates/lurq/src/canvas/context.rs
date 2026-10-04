@@ -16,6 +16,9 @@ impl Context2D {
         return;
       }
       s.revision += 1;
+      if s.presentation.is_none() {
+        s.visible_revision = s.revision;
+      }
       if let Some(native) = &s.native {
         native.bump_version();
       }

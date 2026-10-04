@@ -1,4 +1,9 @@
 //! Native offscreen canvas work on the UI renderer's command queue.
+mod artwork;
+mod presentation_pool;
+use presentation_pool::{ArtworkLease, Spare};
+mod encoding;
+mod presentation;
 use std::collections::VecDeque;
 
 use windows::Win32::Graphics::{Direct3D12::*, Dxgi::Common::*};
@@ -10,12 +15,24 @@ mod resources;
 use super::*;
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::canvas_upload::{AssetUploadStage, CanvasAssetUploadProfile};
-use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
+use crate::canvas::{
+  BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, PresentationEvent,
+  TargetCharge, gpu::*, replacement_admitted,
+};
 use pipeline::pipeline;
 pub(super) use resources::create_srv;
 use resources::{copy_location, readback, texture, viewport};
 
+struct Artwork {
+  bytes: usize,
+  texture: ID3D12Resource,
+  width: u32,
+  height: u32,
+}
 struct Backing {
+  bytes: usize,
+  revision: u64,
+  artwork: Option<std::sync::Arc<Artwork>>,
   owner: CanvasWeak,
   texture: ID3D12Resource,
   width: u32,
@@ -41,6 +58,10 @@ pub(super) struct Renderer {
   pub(super) profile_context: Option<crate::app::profiler::ProfileContext>,
   meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
+  fronts: HashMap<CanvasId, (u64, Backing)>,
+  spares: Vec<Spare>,
+  retired_artwork: Vec<ArtworkLease>,
+  rejected: HashSet<CanvasId>,
   assets: HashMap<u64, AssetTexture>,
   asset_bytes: usize,
   tick: u64,
@@ -58,6 +79,7 @@ pub(super) struct Renderer {
   clip: ID3D12PipelineState,
   solid: ID3D12PipelineState,
   image: ID3D12PipelineState,
+  retained: ID3D12PipelineState,
   erase: ID3D12PipelineState,
   gradient_linear: ID3D12PipelineState,
   gradient_radial: ID3D12PipelineState,
@@ -85,6 +107,7 @@ impl Renderer {
     let resample = pipeline(device, &root, b"vs_seed\0", b"ps_premul\0", 1, 0)?;
     let clip = pipeline(device, &root, b"vs_main\0", b"ps_solid\0", 4, 2)?;
     let solid = pipeline(device, &root, b"vs_main\0", b"ps_solid\0", 4, 3)?;
+    let retained = pipeline(device, &root, b"vs_main\0", b"ps_premul\0", 1, 6)?;
     let image = pipeline(device, &root, b"vs_main\0", b"ps_premul\0", 4, 3)?;
     let erase = pipeline(device, &root, b"vs_main\0", b"ps_solid\0", 4, 4)?;
     let gradient_linear = pipeline(device, &root, b"vs_main\0", b"ps_gradient_linear\0", 4, 3)?;
@@ -155,6 +178,10 @@ impl Renderer {
       profile_context: None,
       meshes: MeshCache::default(),
       surfaces: HashMap::new(),
+      fronts: HashMap::new(),
+      spares: Vec::new(),
+      retired_artwork: Vec::new(),
+      rejected: HashSet::new(),
       assets: HashMap::new(),
       asset_bytes: 0,
       tick: 0,
@@ -172,6 +199,7 @@ impl Renderer {
       clip,
       solid,
       image,
+      retained,
       erase,
       gradient_linear,
       gradient_radial,
@@ -187,213 +215,15 @@ impl Renderer {
     })
   }
   pub fn backing(&self, canvas: &CanvasHandle) -> Option<ID3D12Resource> {
-    self.surfaces.get(&canvas.surface_id()).map(|b| b.texture.clone())
+    let id = canvas.surface_id();
+    self
+      .fronts
+      .get(&id)
+      .map(|(_, b)| b)
+      .or_else(|| self.surfaces.get(&id))
+      .map(|b| b.texture.clone())
   }
-  pub unsafe fn encode(&mut self, state: &mut Dx12State, canvases: &[CanvasHandle]) -> Result<()> {
-    profile_if! { self.profile = Default::default(); }
-    profile_if! {
-      self.profile.asset_upload_details = CanvasAssetUploadProfile::capture(
-        self.profile_context.as_ref().is_some_and(|context| context.capture_active()),
-        self.asset_bytes,
-        self.assets.len(),
-      );
-    }
-    let _process_start = profile_scope!();
-    #[cfg(feature = "perf_profile")]
-    let _phase = self
-      .profile_context
-      .as_ref()
-      .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
-    self.tick += 1;
-    self.descriptor = 0;
-    let live: HashSet<_> = canvases
-      .iter()
-      .filter(|c| c.is_attached())
-      .map(CanvasHandle::surface_id)
-      .collect();
-    self.surfaces.retain(|id, b| {
-      if live.contains(id) {
-        true
-      } else {
-        state.canvas_retired[state.frame_index].push(b.texture.clone());
-        if let Some(c) = b.owner.upgrade() {
-          c.set_gpu_bytes(0);
-        }
-        false
-      }
-    });
-    state.command_list.SetDescriptorHeaps(&[
-      Some(self.srvs[state.frame_index].heap.clone()),
-      Some(self.samplers.heap.clone()),
-    ]);
-    state.command_list.SetGraphicsRootSignature(&self.root);
-    state
-      .command_list
-      .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    for canvas in canvases {
-      let Some(mut batch) = canvas.take_batch() else {
-        continue;
-      };
-      profile_if! { self.profile.batches += 1; }
-      let mut commands: VecDeque<_> = batch.take_commands().into();
-      self.batches.push(batch);
-      if !self.surfaces.contains_key(&canvas.surface_id()) && !matches!(commands.front(), Some(Command::Resize { .. }))
-      {
-        let metrics = canvas.metrics();
-        self.resize(state, canvas, metrics.pixel_width, metrics.pixel_height, false)?;
-      }
-      while let Some(command) = commands.pop_front() {
-        match command {
-          Command::Resize {
-            width,
-            height,
-            preserve,
-          } => {
-            if !self.surfaces.contains_key(&canvas.surface_id()) && commands.is_empty() {
-              continue;
-            }
-            self.resize(state, canvas, width, height, preserve)?;
-          }
-          Command::Readback(done, metrics, revision) => {
-            if let Some(b) = self.surfaces.get(&canvas.surface_id()) {
-              let readback = readback(state, &b.texture, b.width, b.height, done, revision)?;
-              self.readbacks.push(readback);
-              // An explicit submission boundary keeps the readback copy ahead
-              // of subsequent rendering/fast clears of the same texture.
-              state.command_list.Close()?;
-              let _submit_start = profile_scope!();
-              state
-                .command_queue
-                .ExecuteCommandLists(&[Some(state.command_list.cast()?)]);
-              profile_if! { self.profile.submit += profile_elapsed!(_submit_start); }
-              self.flush_stats();
-              state.command_list.Reset(
-                &state.command_allocators[state.frame_index],
-                None::<&ID3D12PipelineState>,
-              )?;
-              state.command_list.SetDescriptorHeaps(&[
-                Some(self.srvs[state.frame_index].heap.clone()),
-                Some(self.samplers.heap.clone()),
-              ]);
-              state.command_list.SetGraphicsRootSignature(&self.root);
-              state
-                .command_list
-                .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            } else if metrics.pixel_width != 0 && metrics.pixel_height != 0 {
-              done.finish(Err(canvas.status().error.unwrap_or(CanvasError::RendererLost)));
-            } else {
-              done.finish(Ok(CanvasSnapshot {
-                width: metrics.pixel_width,
-                height: metrics.pixel_height,
-                rgba: Vec::new(),
-                revision,
-              }));
-            }
-          }
-          first => {
-            let mut group = vec![first];
-            while commands
-              .front()
-              .is_some_and(|c| !matches!(c, Command::Resize { .. } | Command::Readback(..)))
-            {
-              group.push(commands.pop_front().unwrap());
-            }
-            let before = self.meshes.stats();
-            let _tessellation_start = profile_scope!();
-            #[cfg(feature = "perf_profile")]
-            let _tessellation_phase = self
-              .profile_context
-              .as_ref()
-              .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasTessellation));
-            let prepared = Prepared::new(&group, &mut self.meshes);
-            profile_if! {
-              self.profile.tessellation += profile_elapsed!(_tessellation_start);
-              self.profile.command_groups += 1;
-              drop(_tessellation_phase);
-            }
-            canvas.record_mesh_cache(before, self.meshes.stats());
-            match prepared {
-              Ok(prepared) => self.draw(state, canvas.surface_id(), &prepared)?,
-              Err(error) => canvas.set_gpu_error(error),
-            }
-          }
-        }
-      }
-    }
-    #[cfg(feature = "perf_profile")]
-    let _eviction_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
-    while self.asset_bytes > 64 * 1024 * 1024 {
-      let Some(id) = self.assets.iter().min_by_key(|(_, a)| a.last).map(|(id, _)| *id) else {
-        break;
-      };
-      let asset = self.assets.remove(&id).unwrap();
-      self.asset_bytes -= asset.bytes;
-      state.canvas_retired[state.frame_index].push(asset.texture);
-      profile_if! {
-        if let Some(detail) = self.profile.asset_upload_details.as_mut() {
-          detail.cache_evictions += 1;
-        }
-      }
-    }
-    profile_if! {
-      if let Some(detail) = self.profile.asset_upload_details.as_mut() {
-        detail.add_stage(AssetUploadStage::CacheEviction, _eviction_start);
-        detail.cache_state(self.asset_bytes, self.assets.len());
-      }
-    }
-    profile_if! { self.profile.total = profile_elapsed!(_process_start); }
-    Ok(())
-  }
-  pub fn submitted(&mut self) {
-    self.flush_stats();
-    for batch in self.batches.drain(..) {
-      batch.submit();
-    }
-  }
-  fn flush_stats(&mut self) {
-    for (owner, vertices, tiles, uploaded) in self.pending_stats.drain(..) {
-      if let Some(canvas) = owner.upgrade() {
-        canvas.record_gpu_update(vertices, tiles, uploaded);
-      }
-    }
-  }
-  pub fn finish_readbacks(&mut self, fence: &ID3D12Fence, value: u64) {
-    for readback in self.readbacks.drain(..) {
-      let fence = fence.clone();
-      std::thread::spawn(move || unsafe {
-        let result = (|| -> Result<CanvasSnapshot> {
-          let event = CreateEventW(None, false, false, None)?;
-          let wait = (|| -> Result<()> {
-            fence.SetEventOnCompletion(value, event)?;
-            if WaitForSingleObject(event, 30_000) != WAIT_OBJECT_0 {
-              return Err(dx12_invalid_arg("canvas readback fence timeout".to_owned()));
-            }
-            Ok(())
-          })();
-          let _ = CloseHandle(event);
-          wait?;
-          let size = readback.pitch as usize * readback.height as usize;
-          let mut mapped = ptr::null_mut();
-          readback
-            .buffer
-            .Map(0, Some(&D3D12_RANGE { Begin: 0, End: size }), Some(&mut mapped))?;
-          let source = std::slice::from_raw_parts(mapped.cast::<u8>(), size);
-          let mut rgba = Vec::with_capacity(readback.width as usize * readback.height as usize * 4);
-          for row in source.chunks_exact(readback.pitch as usize) {
-            rgba.extend_from_slice(&row[..readback.width as usize * 4]);
-          }
-          readback.buffer.Unmap(0, Some(&D3D12_RANGE { Begin: 0, End: 0 }));
-          Ok(CanvasSnapshot {
-            width: readback.width,
-            height: readback.height,
-            rgba: unpremultiply(rgba),
-            revision: readback.revision,
-          })
-        })();
-        readback.done.finish(result.map_err(|_| CanvasError::RendererLost));
-      });
-    }
-  }
+
   unsafe fn srv(&mut self, state: &Dx12State, texture: &ID3D12Resource) -> Result<D3D12_GPU_DESCRIPTOR_HANDLE> {
     self.srv_pair(state, texture, texture)
   }
@@ -424,22 +254,36 @@ impl Renderer {
     preserve: bool,
   ) -> Result<()> {
     let id = canvas.surface_id();
-    let old = self.surfaces.remove(&id);
     if width == 0 || height == 0 {
-      if let Some(old) = old {
-        state.canvas_retired[state.frame_index].push(old.texture);
+      if let Some(old) = self.surfaces.remove(&id) {
+        self.retire_back(state, id, old);
       }
       canvas.set_gpu_bytes(0);
       return Ok(());
     }
-    let next = texture(
+    if !self.allocation_admitted(
+      state,
+      resources::target_allocation_bytes(&state.device, width, height, false),
+    ) {
+      canvas.set_gpu_error(CanvasError::PresentationBusy);
+      return Ok(());
+    }
+    let next = match texture(
       &state.device,
       width,
       height,
       1,
       false,
       D3D12_RESOURCE_STATE_RENDER_TARGET,
-    )?;
+    ) {
+      Ok(texture) => texture,
+      Err(_) => {
+        canvas.set_gpu_error(CanvasError::SurfaceTooLarge);
+        return Ok(());
+      }
+    };
+    let old = self.surfaces.remove(&id);
+    let artwork = old.as_ref().and_then(|back| back.artwork.clone());
     let rtv = self.rtvs.cpu_handle(1);
     state.device.CreateRenderTargetView(&next, None, rtv);
     state.command_list.OMSetRenderTargets(1, Some(&rtv), false, None);
@@ -468,7 +312,7 @@ impl Renderer {
           .SetGraphicsRootDescriptorTable(2, self.samplers.gpu_handle(1));
         state.command_list.DrawInstanced(3, 1, 0, 0);
       }
-      state.canvas_retired[state.frame_index].push(old.texture);
+      self.retire_back(state, id, old);
     }
     state.transition_resource(
       &next,
@@ -478,13 +322,16 @@ impl Renderer {
     self.surfaces.insert(
       id,
       Backing {
+        revision: 0,
+        artwork,
         owner: canvas.downgrade(),
+        bytes: resources::target_allocation_bytes(&state.device, width, height, false),
         texture: next,
         width,
         height,
       },
     );
-    canvas.set_gpu_bytes(width as usize * height as usize * 4);
+    self.account_presentation(state, canvas);
     Ok(())
   }
   /// Tile-sized copies an isolated layer needs: `saved[d]` is what was under the

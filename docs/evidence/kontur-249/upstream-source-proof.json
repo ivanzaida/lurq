@@ -1,0 +1,188 @@
+{
+  "status": "SOURCE_PORT_PREPARED_UNCOMPILED",
+  "base": "31b800ec4d372d709a67ddd4176d52873b39649c",
+  "feature": "c59c3b41565970664f83f4ca0a2a4484cad2dc35",
+  "same_feature_blobs": [
+    "crates/lurq/src/app/dx12_render/canvas/artwork.rs",
+    "crates/lurq/src/app/dx12_render/canvas/presentation.rs",
+    "crates/lurq/src/app/dx12_render/canvas/presentation_pool.rs",
+    "crates/lurq/src/app/dx12_render/canvas/resources.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/artwork.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/pipeline.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/presentation.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/presentation_pool.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/presentation_tests.rs",
+    "crates/lurq/src/canvas/context.rs",
+    "crates/lurq/src/canvas/gpu.rs",
+    "crates/lurq/src/canvas/gpu/artwork.rs",
+    "crates/lurq/src/canvas/gpu/tessellation.rs",
+    "crates/lurq/src/canvas/handle.rs",
+    "crates/lurq/src/canvas/presentation.rs",
+    "crates/lurq/src/canvas/presentation_budget.rs",
+    "crates/lurq/src/canvas/presentation_tests.rs",
+    "crates/lurq/src/canvas/software.rs"
+  ],
+  "reconciled_upstream_blobs": [
+    "crates/lurq/src/app/dx12_render/canvas.rs",
+    "crates/lurq/src/app/dx12_render/canvas/encoding.rs",
+    "crates/lurq/src/app/wgpu_render/canvas.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/drawing.rs",
+    "crates/lurq/src/app/wgpu_render/canvas/initialization.rs",
+    "crates/lurq/src/canvas/mod.rs"
+  ],
+  "upstream_draw_exact_except_visibility": true,
+  "upstream_draw_sha256": "e066423defe614f21d2ab29abdf135a839e12f3b0d18fc6a55c8fc6e46ef5cce",
+  "private_performance_hooks_absent": true,
+  "manifest_lock_macros_text_and_dx12_asset_draw_unchanged": true,
+  "code_files": [
+    {
+      "path": "crates/lurq/src/app/dx12_render/canvas.rs",
+      "lines": 434,
+      "sha256": "81af92c869d35461529b8a3e60a13f246e43d0ee05386e080f73998d7d4d1cd0",
+      "blob": "a4b0f15236d935545a9319ea36340a4925fe8619"
+    },
+    {
+      "path": "crates/lurq/src/app/dx12_render/canvas/artwork.rs",
+      "lines": 119,
+      "sha256": "902aaee86ae1f9a18d36a42f58b82bda0cb8aa5c5549811da3659e4361b8b0ce",
+      "blob": "f1d8cc52fdcfbe7582c39235a79531cc640d2f18"
+    },
+    {
+      "path": "crates/lurq/src/app/dx12_render/canvas/encoding.rs",
+      "lines": 263,
+      "sha256": "47354031b26fb959c7e409bde155b8d62d4ef7ef54f43759d632a0d8ee1c8622",
+      "blob": "9fad05692348a64085789e4c8df644734f2b5c2c"
+    },
+    {
+      "path": "crates/lurq/src/app/dx12_render/canvas/presentation.rs",
+      "lines": 108,
+      "sha256": "1494722cbbabad7840772c2231cff8847845255bfca07452931036761886f091",
+      "blob": "6785b7a8c39b2b43ef58e71236cd00c6337636c8"
+    },
+    {
+      "path": "crates/lurq/src/app/dx12_render/canvas/presentation_pool.rs",
+      "lines": 90,
+      "sha256": "0b25b712760d182ff22763959e2dd414c6c909019b9a9a12057f59a3e4611ea5",
+      "blob": "f9fbbb254ac6ddf71210ae3379b26e1435f3644c"
+    },
+    {
+      "path": "crates/lurq/src/app/dx12_render/canvas/resources.rs",
+      "lines": 342,
+      "sha256": "1d3b006eaa50d9b59ac769ecb6a5f6db97fc7f6b744a7b284dedb464281cac68",
+      "blob": "f57e6d3f1ea227b07b873fea577dfbf97c058dc5"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas.rs",
+      "lines": 531,
+      "sha256": "160125cc1c061af3fdb75e41a5274c73b780f00d8a0a1b786e2a245ffaa96f95",
+      "blob": "065e59d9d13441a3d2cecd4452e09a96106740f2"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/artwork.rs",
+      "lines": 118,
+      "sha256": "a7804c44347aad13262fb121e35e7a9cee2d0817bd6901b84feae16085d3ce1b",
+      "blob": "ab895edd6ecbbfa8e7471957d4bee276044b9085"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/drawing.rs",
+      "lines": 333,
+      "sha256": "d5289507786587a0e3210e8180e802fab5f089016f8071a7910d9eb4c4b3d281",
+      "blob": "59795b13dc9b6c6045042037485791d0a5b64750"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/initialization.rs",
+      "lines": 195,
+      "sha256": "90c1eb115edcb4a561f9cc96b638801f24ba0b83810a2b597a9c018f98dc2546",
+      "blob": "e8735fdd4b6bb9a763fa0bd896ca25493433bc44"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/pipeline.rs",
+      "lines": 99,
+      "sha256": "ee827b74249b42fd10d66d66b616d93f77646e5cce6d48fc22c133134400cced",
+      "blob": "06a101f3ef4c92daeadfe7e2530839bc3ab13642"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/presentation.rs",
+      "lines": 115,
+      "sha256": "389881b13b8073653c8c42aada158ae86f60fd4e5aa5da10c1fb50bfe8cadc0d",
+      "blob": "138753580f720dcbe7c0f026c6867f899833a878"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/presentation_pool.rs",
+      "lines": 96,
+      "sha256": "43b590145565036a184c4c3264ff77af0e2cd143d86ce0f869e6a5c86eac986a",
+      "blob": "0666829ae95024f9f5850a0c153a2409801062a3"
+    },
+    {
+      "path": "crates/lurq/src/app/wgpu_render/canvas/presentation_tests.rs",
+      "lines": 135,
+      "sha256": "bf9104bdfc0f19699ff2cc1e3c505e064ccea25b88f80a044f09b2673408e2fa",
+      "blob": "3f047a348d346c4857c099da571e5ea2141c18cf"
+    },
+    {
+      "path": "crates/lurq/src/canvas/context.rs",
+      "lines": 587,
+      "sha256": "510a6eaa0878ecde7c257719b433e5d42a1debb6e4964643f606e8f8b7560bd1",
+      "blob": "2fdda9ee123cdc703afdc53f52cbfd866d171fb9"
+    },
+    {
+      "path": "crates/lurq/src/canvas/gpu.rs",
+      "lines": 537,
+      "sha256": "a8ad831bc50c8c89ed8b7437f18aeb81fdcf6dc65e7928b1ef845464051c004a",
+      "blob": "d91b57f3e9acf2a068a8e768d251bccbd2cb40b3"
+    },
+    {
+      "path": "crates/lurq/src/canvas/gpu/artwork.rs",
+      "lines": 12,
+      "sha256": "619150bf306e40b241e824d2cebd929dfe6c9fb03804c3b1b5d28ddf2e518a60",
+      "blob": "a759dd96c8097b16f762f0c5b6f3d04c83f72d0c"
+    },
+    {
+      "path": "crates/lurq/src/canvas/gpu/tessellation.rs",
+      "lines": 312,
+      "sha256": "27709c5f486c2b1f05628eae7c8de8c74346738d31756cc84b7b008fc7d30b58",
+      "blob": "e1414fcbfe10f695d9b9754a315e707862d65825"
+    },
+    {
+      "path": "crates/lurq/src/canvas/handle.rs",
+      "lines": 402,
+      "sha256": "8c7e54ec428b1b20d3beca73b17f94a8b1cb301a909d520b2716e6a18bcbfced",
+      "blob": "30740342ad26a448df4e3b062b0dae54f0d3ff80"
+    },
+    {
+      "path": "crates/lurq/src/canvas/mod.rs",
+      "lines": 502,
+      "sha256": "27107303778b4541eece0838f882c722eec09c2b851b481dfc9b90336d4396eb",
+      "blob": "d45c14ade4a7d55409b64b24e58a24c9ea97609d"
+    },
+    {
+      "path": "crates/lurq/src/canvas/presentation.rs",
+      "lines": 196,
+      "sha256": "17d2b83851dfb9b9e1a13dcf02a7d8d975291e6ad48171071f172eaa92542c9b",
+      "blob": "23cc005dc7a2de9f1b6ab479a9cd1fcf42e15ea1"
+    },
+    {
+      "path": "crates/lurq/src/canvas/presentation_budget.rs",
+      "lines": 49,
+      "sha256": "2f83d08390f65361398be91758907d7fe3709711b70c12a71ba38b19e8b7c781",
+      "blob": "affa34a8677e213e69ec02065bdefa77cc863c33"
+    },
+    {
+      "path": "crates/lurq/src/canvas/presentation_tests.rs",
+      "lines": 151,
+      "sha256": "b68a9a5f94beb95875ea6c3191a4f3dd3593e20fb5b4513a90445c7a2b0dfc19",
+      "blob": "cd333098c6b0917f8fbc482e03501a89e79699f1"
+    },
+    {
+      "path": "crates/lurq/src/canvas/software.rs",
+      "lines": 572,
+      "sha256": "3eec734d9d3a33b88d2a2778a71c25dbf4943c55c9cfd5b62480bea1ce0d12f4",
+      "blob": "a92fc7a82012b5cd6d85eeeb726a9b8939492bf4"
+    }
+  ],
+  "max_lines": 587,
+  "cargo_executed": false,
+  "native_executed": false,
+  "publication_grant": false,
+  "app_pin_transition_pending": "App0.36.1 cannot consume SDK0.37.0 unchanged; no version or app dependency edit authorized/executed."
+}
