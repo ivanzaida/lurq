@@ -187,7 +187,7 @@ impl Renderer {
             }
             self.resize(device, queue, canvas, width, height, preserve);
           }
-          Command::Readback(done, metrics, revision) => {
+          Command::Readback(done, metrics, revision, complete) => {
             let id = canvas.surface_id();
             if let Some(backing) = self.fronts.get(&id).map(|(_, b)| b).or_else(|| self.surfaces.get(&id)) {
               readback(
@@ -195,7 +195,7 @@ impl Renderer {
                 queue,
                 &backing.image.texture,
                 done,
-                if self.fronts.contains_key(&id) {
+                if complete || self.fronts.contains_key(&id) {
                   backing.revision
                 } else {
                   revision

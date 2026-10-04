@@ -99,7 +99,7 @@ impl Renderer {
             }
             self.resize(state, canvas, width, height, preserve)?;
           }
-          Command::Readback(done, metrics, revision) => {
+          Command::Readback(done, metrics, revision, complete) => {
             let id = canvas.surface_id();
             if let Some(b) = self.fronts.get(&id).map(|(_, b)| b).or_else(|| self.surfaces.get(&id)) {
               let readback = readback(
@@ -108,7 +108,7 @@ impl Renderer {
                 b.width,
                 b.height,
                 done,
-                if self.fronts.contains_key(&id) {
+                if complete || self.fronts.contains_key(&id) {
                   b.revision
                 } else {
                   revision

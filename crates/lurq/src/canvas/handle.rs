@@ -132,11 +132,7 @@ impl CanvasHandle {
           width: s.metrics.pixel_width,
           height: s.metrics.pixel_height,
           rgba: s.straight_pixels(),
-          revision: if s.presentation_pixels.is_some() {
-            s.presentation_revision
-          } else {
-            s.revision
-          },
+          revision: s.visible_revision,
         }));
         return ticket;
       }
@@ -149,7 +145,10 @@ impl CanvasHandle {
         return ticket;
       }
       let (metrics, revision) = (s.metrics, s.revision);
-      if s.enqueue(gpu::Command::Readback(done, metrics, revision)) {
+      // Commit/abort recording may advance without publishing. Ordinary pixels()
+      // updates visible_revision immediately, preserving its ordered legacy read.
+      let complete = s.presentation_serial != 0 && s.visible_revision != revision;
+      if s.enqueue(gpu::Command::Readback(done, metrics, revision, complete)) {
         s.pending_paint = true;
         s.window.clone()
       } else {

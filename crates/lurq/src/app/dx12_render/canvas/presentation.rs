@@ -75,7 +75,9 @@ impl Renderer {
     if !canvas.presentation_current(token) {
       return;
     }
-    if self.rejected.remove(&id) {
+    // A rejected transaction must keep rejecting its later draw commands.
+    // Only the next Begin clears rejection and admits a new replacement.
+    if self.rejected.contains(&id) {
       return;
     }
     if self.fronts.get(&id).is_some_and(|(current, _)| *current == token) {

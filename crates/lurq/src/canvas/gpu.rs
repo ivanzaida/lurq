@@ -105,7 +105,8 @@ pub(crate) enum Command {
     blend: BlendMode,
   },
   EndLayer,
-  Readback(Completion, CanvasMetrics, u64),
+  // The flag binds this ordered read to completed presentation pixels, not recording progress.
+  Readback(Completion, CanvasMetrics, u64, bool),
 }
 
 impl Command {
