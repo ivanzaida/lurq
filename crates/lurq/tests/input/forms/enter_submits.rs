@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use lurq::{
-  app::events::MouseButton,
+  app::events::{ImeEvent, MouseButton},
   components::{Column, Form, FormHandle, FormOptions, FormProps, TextInput},
   core::{ElementRef, Signal},
 };
@@ -90,4 +90,43 @@ fn escape_blurs_text_input_inside_form() {
   assert!(!input_ref.active());
   assert!(!input_ref.focused());
   assert_eq!(blur.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn enter_during_a_composition_submits_nothing_until_the_commit() {
+  let submits = Arc::new(AtomicUsize::new(0));
+  let value = Signal::new(String::new());
+  let mut runtime = lurq::app::Tree::new();
+  runtime.set_root(Form::element(
+    FormProps::new(FormHandle::new(FormOptions::new()).on_submit({
+      let submits = submits.clone();
+      move |_| {
+        submits.fetch_add(1, Ordering::SeqCst);
+      }
+    })),
+    Column::new().child(TextInput::new(value.clone()).single_line()),
+  ));
+  run_pass(&mut runtime);
+  runtime.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+  runtime.ime(ImeEvent::Preedit {
+    text: "にほん".to_owned(),
+    cursor: None,
+  });
+  run_pass(&mut runtime);
+
+  // An Enter the input method passes on arrives as an ordinary press while
+  // the composition is shown.
+  runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  assert_eq!(submits.load(Ordering::SeqCst), 0, "a composing Enter submits nothing");
+  assert!(runtime.is_composing(), "nor blurs the input");
+
+  runtime.ime(ImeEvent::Preedit {
+    text: String::new(),
+    cursor: None,
+  });
+  runtime.ime(ImeEvent::Commit("日本".to_owned()));
+  run_pass(&mut runtime);
+  runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  assert_eq!(submits.load(Ordering::SeqCst), 1, "after the commit Enter submits");
+  assert_eq!(value.get(), "日本");
 }

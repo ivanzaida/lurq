@@ -24,11 +24,12 @@ pub struct KeyboardEvent {
   /// included) and macOS not at all, so `on_key_down` handlers and lurq's own
   /// key handling do not see them. A press that does arrive while a
   /// composition is shown, a key the input method passed on, has this set,
-  /// and lurq handles it as usual; a handler that sends on `Enter` can skip
-  /// it. Releases of the input method's keys reach `on_key_up` handlers with
-  /// this set. It is also set on the event a committed composition passes to
-  /// `on_input` handlers (`TextInputEvent::keyboard`), whose `key` is the
-  /// committed text.
+  /// and lurq handles it as usual, except an `Enter`: no lurq default (form
+  /// submit, button or select activation, newline, blur) acts on it. A
+  /// handler that sends on `Enter` can skip it the same way. Releases of the
+  /// input method's keys reach `on_key_up` handlers with this set. It is also
+  /// set on the event a committed composition passes to `on_input` handlers
+  /// (`TextInputEvent::keyboard`), whose `key` is the committed text.
   pub composing: bool,
   pub(crate) control: EventControl,
 }

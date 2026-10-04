@@ -5,7 +5,7 @@ use lurq::{
     App, Tree,
     events::{ImeEvent, KeyboardEvent, TextInputEvent},
   },
-  components::TextInput,
+  components::{Button, Column, TextInput},
   core::Signal,
   layout::quad::QuadContent,
   node::Element,
@@ -374,4 +374,55 @@ fn stuck_composition_holds_no_key_back() {
   fixture.press("a", "KeyA");
   assert_eq!(fixture.downs(), [key("a", "KeyA", false)]);
   assert_eq!(fixture.value.get(), "aba");
+}
+
+#[test]
+fn enter_passed_on_while_composing_reaches_handlers_but_no_default() {
+  let mut fixture = Fixture::new("ab", TextInput::multiline);
+  fixture.preedit("にほん", None);
+  fixture.press("Enter", "Enter");
+  assert_eq!(fixture.downs(), [key("Enter", "Enter", true)], "delivered, marked");
+  assert_eq!(fixture.value.get(), "ab", "no newline while composing");
+  assert!(fixture.tree.is_composing());
+
+  fixture.commit("日本");
+  fixture.press("Enter", "Enter");
+  assert_eq!(fixture.value.get(), "ab日本\n", "an Enter after the commit is ordinary");
+}
+
+#[test]
+fn enter_during_a_composition_activates_no_button() {
+  let clicks = Arc::new(Mutex::new(0));
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  tree.set_root(
+    Column::new()
+      .child(Element::from(TextInput::new(Signal::new(String::new())).width(240.0)).id(INPUT))
+      .child(
+        Element::from(Button::new("Send").on_click({
+          let clicks = clicks.clone();
+          move |_| *clicks.lock().unwrap() += 1
+        }))
+        .id("send"),
+      ),
+  );
+  tree.pass_headless(&mut app);
+  tree.get_element_by_id_mut(INPUT).expect("input").focus();
+  tree.pass_headless(&mut app);
+  tree.ime(ImeEvent::Preedit {
+    text: "にほん".to_owned(),
+    cursor: None,
+  });
+  tree.pass_headless(&mut app);
+
+  tree.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  assert_eq!(*clicks.lock().unwrap(), 0);
+
+  // A button cannot hold focus during a composition (moving focus ends it),
+  // so the button's own Enter is an ordinary key.
+  tree.get_element_by_id_mut("send").expect("button").focus();
+  tree.pass_headless(&mut app);
+  assert!(!tree.is_composing());
+  tree.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  assert_eq!(*clicks.lock().unwrap(), 1);
 }

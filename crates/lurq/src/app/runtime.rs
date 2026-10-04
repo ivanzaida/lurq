@@ -3358,7 +3358,12 @@ impl Tree {
     if let Some(root) = &self.root {
       fire_keyboard_recursive(root, &mut evt);
     }
-    if !evt.default_prevented() {
+    // An Enter the input method passes on during a composition reaches
+    // handlers marked `composing`, but no default acts on it (form submit,
+    // button or select activation, newline, blur): it belongs to the
+    // composition, as the web's `isComposing` Enter does.
+    let composing_enter = evt.composing && matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter"));
+    if !evt.default_prevented() && !composing_enter {
       let select_key = select_menu::SelectKey {
         key: &key,
         code: &code,

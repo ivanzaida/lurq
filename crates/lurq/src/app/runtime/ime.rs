@@ -11,11 +11,12 @@
 //! included, before the commit; macOS reports none of them, only the release
 //! of the key that confirmed. A press of `Process` is withheld from handlers
 //! and defaults. Any other press is delivered as usual, marked `composing`
-//! while a composition is shown, so a key the input method passes on (a space
-//! after a Korean syllable) is never lost and a composition the platform never
-//! ends cannot hold keys back. The releases of withheld presses, of `Process`,
-//! of keys while composing and of the key that confirmed a commit reach
-//! `on_key_up` handlers marked `composing`.
+//! while a composition is shown (lurq's own defaults ignore such an `Enter`),
+//! so a key the input method passes on (a space after a Korean syllable) is
+//! never lost and a composition the platform never ends cannot hold keys back.
+//! The releases of withheld presses, of `Process`, of keys while composing and
+//! of the key that confirmed a commit reach `on_key_up` handlers marked
+//! `composing`.
 
 use super::{Tree, find_node_by_id, find_node_by_path};
 use crate::{
