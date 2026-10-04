@@ -226,10 +226,12 @@ fn enter_during_composition_reaches_no_key_handler_or_default() {
   fixture.preedit("にほん", None);
 
   // Windows: the Enter that confirms arrives as a `Process` press before the
-  // commit; some input methods report the key itself while composing.
+  // commit.
   fixture.press("Process", "Enter");
-  fixture.press("Enter", "Enter");
-  assert!(fixture.downs().is_empty(), "no on_key_down while composing");
+  assert!(
+    fixture.downs().is_empty(),
+    "the confirming Enter reaches no on_key_down"
+  );
   assert_eq!(fixture.value.get(), "ab", "no newline from the confirming Enter");
   fixture.commit("日本");
   fixture.release("Enter", "Enter");
@@ -325,4 +327,51 @@ fn cursor_area_follows_the_caret_inside_the_composition() {
   fixture.tree.painted_quads();
   let second = fixture.tree.ime_cursor_area().expect("composing").x;
   assert!(before.x < first && first < second, "{} < {first} < {second}", before.x);
+}
+
+#[test]
+fn key_passed_on_while_composing_arrives_marked() {
+  // A Korean input method can pass Space on while a syllable is still shown;
+  // it must not be lost.
+  let mut fixture = Fixture::new("ab", |input| input);
+  fixture.preedit("한", None);
+  fixture.press(" ", "Space");
+  assert_eq!(
+    fixture.downs(),
+    [key(" ", "Space", true)],
+    "delivered, marked composing"
+  );
+  fixture.commit("한");
+  assert!(fixture.value.get().contains(' '), "the space was inserted");
+  assert!(fixture.value.get().contains('한'));
+
+  // After the commit Space is ordinary and lands after the committed text.
+  fixture.press(" ", "Space");
+  assert_eq!(fixture.downs().last(), Some(&key(" ", "Space", false)));
+  assert!(fixture.value.get().ends_with("한 "), "{}", fixture.value.get());
+}
+
+#[test]
+fn stuck_composition_holds_no_key_back() {
+  // A platform that never reports the composition's end must not leave the
+  // input withholding keys.
+  let mut fixture = Fixture::new("ab", |input| input);
+  fixture.preedit("にほ", None);
+  fixture.press("Escape", "Escape");
+  assert_eq!(
+    fixture.downs(),
+    [key("Escape", "Escape", true)],
+    "Escape reaches handlers"
+  );
+
+  let mut fixture = Fixture::new("ab", |input| input);
+  fixture.preedit("にほ", None);
+  // A new input method session ends a composition left from the last one.
+  fixture.tree.ime(ImeEvent::Enabled);
+  fixture.tree.pass_headless(&mut fixture.app);
+  assert!(!fixture.tree.is_composing());
+  assert_eq!(fixture.shown().as_deref(), Some("ab"));
+  fixture.press("a", "KeyA");
+  assert_eq!(fixture.downs(), [key("a", "KeyA", false)]);
+  assert_eq!(fixture.value.get(), "aba");
 }

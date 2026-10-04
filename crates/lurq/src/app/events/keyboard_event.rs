@@ -19,13 +19,16 @@ pub struct KeyboardEvent {
   /// Whether this key belongs to an input method (IME) composition, like the
   /// DOM's `isComposing`.
   ///
-  /// Key presses never arrive while composing: the input method takes them,
-  /// including the `Enter` that confirms a composition, so `on_key_down`
-  /// handlers (and lurq's own key handling) do not see them. Their releases
-  /// do reach `on_key_up` handlers, with this set, so a handler that acts on
-  /// a release can ignore them. It is also set on the event a committed
-  /// composition passes to `on_input` handlers (`TextInputEvent::keyboard`),
-  /// whose `key` is the committed text.
+  /// The keys the input method takes never arrive as presses: Windows
+  /// reports them as `Process` (the `Enter` that confirms a composition
+  /// included) and macOS not at all, so `on_key_down` handlers and lurq's own
+  /// key handling do not see them. A press that does arrive while a
+  /// composition is shown, a key the input method passed on, has this set,
+  /// and lurq handles it as usual; a handler that sends on `Enter` can skip
+  /// it. Releases of the input method's keys reach `on_key_up` handlers with
+  /// this set. It is also set on the event a committed composition passes to
+  /// `on_input` handlers (`TextInputEvent::keyboard`), whose `key` is the
+  /// committed text.
   pub composing: bool,
   pub(crate) control: EventControl,
 }

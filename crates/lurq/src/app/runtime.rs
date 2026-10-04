@@ -3335,8 +3335,9 @@ impl Tree {
     self.rebuild_if_dirty();
     // Keys never reach a node that was dropped since it took focus.
     self.blur_focus_in_dropped_child();
-    // The input method takes the keys of a composition, including the Enter
-    // that confirms it: no handler or default sees them.
+    // The input method takes the keys it reports as `Process` (on Windows,
+    // the Enter that confirms a composition included): no handler or default
+    // sees them. Other presses arrive as usual, marked while composing.
     if self.withhold_composition_key_down(&key, &code) {
       self.apply_reactive_updates_after_event();
       return;
@@ -3351,7 +3352,7 @@ impl Tree {
       meta,
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
-      composing: false,
+      composing: self.is_composing(),
       control,
     };
     if let Some(root) = &self.root {

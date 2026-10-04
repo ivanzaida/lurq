@@ -278,7 +278,7 @@ Text::new("Focusable")
   })
 ```
 
-`KeyboardEvent` includes `key`, `code`, `shift`, `ctrl`, `alt`, `meta`, `target_id`, `text_input_focused` and `composing`. While an input method composes text, its key presses never reach `on_key_down` handlers or lurq's own key handling, so an app that sends a message on `Enter` does not send when `Enter` confirms a composition; see [Input Methods](#input-methods).
+`KeyboardEvent` includes `key`, `code`, `shift`, `ctrl`, `alt`, `meta`, `target_id`, `text_input_focused` and `composing`. The keys an input method takes never reach `on_key_down` handlers or lurq's own key handling, so an app that sends a message on `Enter` does not send when `Enter` confirms a composition; a press that arrives while a composition is shown has `composing` set. See [Input Methods](#input-methods).
 
 User `on_key_down` handlers run before built-in keyboard defaults, so they can block text editing, focused-button activation, select navigation, modal or popup Escape dismissal, and similar defaults:
 
@@ -555,7 +555,7 @@ Text inputs take input method (IME) composition on Windows and macOS: Japanese, 
 
 - While composing, the input shows the composition text at the caret, in place of the selection, underlined in the text colour, with the caret where the input method puts it. The value does not change and `on_input` does not fire until the composition is committed.
 - The commit inserts the text like typing: `on_input` handlers run first, with a `KeyboardEvent` whose `key` is the committed text, whose `code` is empty and whose `composing` is set, and can prevent it. A cancelled composition leaves the value as it was. Moving focus away cancels a composition.
-- The input method takes the composition's keys, including the `Enter` that confirms it. Their presses reach neither `on_key_down` handlers nor lurq's defaults (newline, form submit, button activation, Tab, Escape); their releases reach `on_key_up` handlers with `KeyboardEvent::composing` set. Windows reports such a press as the key `"Process"` with the physical key as its `code`, macOS does not report it at all; lurq treats both the same.
+- The input method takes the keys it uses, including the `Enter` that confirms a composition: Windows reports each as a press of the key `"Process"` with the physical key as its `code`, macOS does not report it at all. These presses reach neither `on_key_down` handlers nor lurq's defaults (newline, form submit, button activation); their releases reach `on_key_up` handlers with `KeyboardEvent::composing` set. A key the input method passes on while a composition is shown, such as a space after a Korean syllable, arrives as usual with `composing` set and is handled like any key, so nothing is lost and a composition the platform never ends holds no key back. A new input method session (`ImeEvent::Enabled`) or a focus change ends a composition left behind.
 
 ```rust
 use lurq::app::events::KeyboardEvent;
@@ -563,8 +563,8 @@ use lurq::app::events::KeyboardEvent;
 TextInput::new(draft.clone())
   .multiline()
   .on_key_down(move |event: KeyboardEvent| {
-    // Never the Enter that confirms a composition.
-    if event.key == "Enter" && !event.shift {
+    // The confirming Enter never arrives; a press passed on while composing is marked.
+    if event.key == "Enter" && !event.shift && !event.composing {
       event.prevent_default();
       send();
     }

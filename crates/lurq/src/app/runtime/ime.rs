@@ -9,10 +9,12 @@
 //! The keys of a composition belong to the input method. Windows reports each
 //! key it takes as a press of `Process`, the Enter that confirms a composition
 //! included, before the commit; macOS reports none of them, only the release
-//! of the key that confirmed. Both are handled the same way here: a press of
-//! `Process`, or any press while a composition is shown, is withheld from
-//! handlers and defaults, and the releases of withheld keys, of `Process`, of
-//! keys while composing and of the key that confirmed a commit reach
+//! of the key that confirmed. A press of `Process` is withheld from handlers
+//! and defaults. Any other press is delivered as usual, marked `composing`
+//! while a composition is shown, so a key the input method passes on (a space
+//! after a Korean syllable) is never lost and a composition the platform never
+//! ends cannot hold keys back. The releases of withheld presses, of `Process`,
+//! of keys while composing and of the key that confirmed a commit reach
 //! `on_key_up` handlers marked `composing`.
 
 use super::{Tree, find_node_by_id, find_node_by_path};
@@ -56,7 +58,9 @@ impl Tree {
       return;
     };
     let changed = match event {
-      ImeEvent::Enabled => false,
+      // A new input method session: a composition left from an earlier one
+      // (whose end the platform never reported) is stale.
+      ImeEvent::Enabled => state.clear_composition(),
       ImeEvent::Preedit { text, cursor } => state.set_composition(text, cursor),
       ImeEvent::Disabled => state.clear_composition(),
       ImeEvent::Commit(text) => {
@@ -106,11 +110,11 @@ impl Tree {
     self.layout_engine.ime_cursor_area()
   }
 
-  /// Whether a key press belongs to a composition, recording it so its
-  /// release is recognised.
+  /// Whether a key press is the input method's (`Process`) and is withheld,
+  /// recording it so its release is recognised.
   pub(super) fn withhold_composition_key_down(&mut self, key: &str, code: &str) -> bool {
     self.ime_keys.commit_release = false;
-    if key != PROCESS_KEY && !self.is_composing() {
+    if key != PROCESS_KEY {
       return false;
     }
     let withheld = &mut self.ime_keys.withheld;

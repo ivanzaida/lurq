@@ -189,7 +189,7 @@ tree.ime(ImeEvent::Preedit { text: String::new(), cursor: None });
 tree.ime(ImeEvent::Commit("日本".into()));
 ```
 
-`tests/input/text_input/ime.rs` covers the preedit display, commits, cancellation, the keys withheld during a composition on both platforms' event orders, masked inputs and the candidate window area. What an input method does with the keys is up to the platform and is not exercised headlessly.
+`tests/input/text_input/ime.rs` covers the preedit display, commits, cancellation, the `Process` keys withheld and the keys passed on during a composition on both platforms' event orders, stale compositions, masked inputs and the candidate window area. What an input method does with the keys is up to the platform and is not exercised headlessly.
 
 ## Element Lookup And Typed Interaction
 
