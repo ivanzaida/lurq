@@ -1,0 +1,27 @@
+# head: 681dc777d0393278afa8cd40e24bf6de6ef0b475 tree: b05cbc80dad390424e8a2883b36a3c3cb9c5cfdc dirty-source-files: 0
+# started: 2026-10-04T03:20:55+03:00
+# cargo check -p lurq --lib --locked --offline --features mcp,canvas,perf_profile,dx12
+    Checking lurq v0.36.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-canvas-cache\crates\lurq)
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:61:7
+   |
+61 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.69s
+# exit: 0 at 2026-10-04T03:20:57+03:00
