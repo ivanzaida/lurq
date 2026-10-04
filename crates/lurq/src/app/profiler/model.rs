@@ -232,10 +232,16 @@ pub struct CanvasTextProfile {
   pub shape_cache_hits: u64,
   pub shape_cache_misses: u64,
   pub shape_cache_evictions: u64,
+  /// Shaped results returned without being kept, because the text of the
+  /// current and previous frame filled the cache's ceiling.
+  pub shape_cache_uncached: u64,
+  /// The most the cache was charged above its budget during the pass; above
+  /// zero, the text of the current and previous frame needs more than it.
+  pub shape_cache_stretch_bytes: u64,
   /// Newly produced final RGBA data length on misses; excludes cache hits,
   /// transient glyph pixmaps, the second retained pixmap and GPU uploads.
   pub produced_bitmap_bytes: u64,
-  /// Inclusive shape call, including cache lookup/LRU/insertion and stages below.
+  /// Inclusive shape call, including cache lookup/eviction/insertion and stages below.
   pub total: Duration,
   pub buffer_font_shape: Duration,
   /// Whole glyph loop: font metrics, cache-budget scans, Swash lookup and clones.

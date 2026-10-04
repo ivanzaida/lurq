@@ -3,7 +3,8 @@
 // a frame-time harness reads: text shape misses, textures created and evicted,
 // and asset-upload time. It measures; it asserts only that nothing failed.
 //
-// cargo test -p lurq --release --features canvas,perf_profile,dx12,wgpu,screenshot --lib canvas_frame_probe -- --ignored --nocapture --test-threads=1
+// cargo test -p lurq --release --features canvas,perf_profile,dx12,wgpu,screenshot --lib canvas_frame_probe --
+// --ignored --nocapture --test-threads=1
 
 use std::{sync::Arc, time::Duration};
 
@@ -147,10 +148,14 @@ fn run(engine: &mut dyn RenderEngine, backend: &'static str, page: Page) {
       ms(canvas.asset_upload),
       canvas.uploaded_asset_bytes as f64 / 1024.,
       ms(canvas.total),
+      canvas.asset_cache_stretch_bytes as f64 / 1024.,
+      canvas.asset_cache_uncached as f64,
+      text.shape_cache_stretch_bytes as f64 / 1024.,
+      text.shape_cache_uncached as f64,
     ]
   };
   let first = row(passes[0]);
-  let steady: Vec<_> = (0..8)
+  let steady: Vec<_> = (0..12)
     .map(|column| median(passes[WARMUP..].iter().map(|pass| row(pass)[column]).collect()))
     .collect();
   let names = [
@@ -162,6 +167,10 @@ fn run(engine: &mut dyn RenderEngine, backend: &'static str, page: Page) {
     "asset_upload_ms",
     "uploaded_kib",
     "canvas_total_ms",
+    "asset_stretch_kib",
+    "assets_uncached",
+    "shape_stretch_kib",
+    "shapes_uncached",
   ];
   for ((name, first), steady) in names.iter().zip(first).zip(steady) {
     eprintln!("probe backend={backend} page={page:?} {name}: first={first:.2} steady_median={steady:.2}");

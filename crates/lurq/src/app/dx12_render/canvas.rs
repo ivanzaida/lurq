@@ -10,7 +10,10 @@ mod resources;
 use super::*;
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::canvas_upload::{AssetUploadStage, CanvasAssetUploadProfile};
-use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
+use crate::canvas::{
+  AssetCache, BlendMode, CanvasAssetBudget, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak,
+  GradientKind, gpu::*,
+};
 use pipeline::pipeline;
 pub(super) use resources::create_srv;
 use resources::{copy_location, readback, texture, viewport};
@@ -20,11 +23,6 @@ struct Backing {
   texture: ID3D12Resource,
   width: u32,
   height: u32,
-}
-struct AssetTexture {
-  texture: ID3D12Resource,
-  bytes: usize,
-  last: u64,
 }
 struct Readback {
   done: Completion,
@@ -41,9 +39,7 @@ pub(super) struct Renderer {
   pub(super) profile_context: Option<crate::app::profiler::ProfileContext>,
   meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
-  assets: HashMap<u64, AssetTexture>,
-  asset_bytes: usize,
-  tick: u64,
+  assets: AssetCache<ID3D12Resource>,
   scratch: ID3D12Resource,
   resolve: ID3D12Resource,
   _stencil: ID3D12Resource,
@@ -155,9 +151,7 @@ impl Renderer {
       profile_context: None,
       meshes: MeshCache::default(),
       surfaces: HashMap::new(),
-      assets: HashMap::new(),
-      asset_bytes: 0,
-      tick: 0,
+      assets: AssetCache::new(CanvasAssetBudget::default()),
       scratch,
       resolve,
       _stencil: stencil,
@@ -186,6 +180,10 @@ impl Renderer {
       pending_stats: Vec::new(),
     })
   }
+  pub fn with_asset_budget(mut self, budget: CanvasAssetBudget) -> Self {
+    self.assets = AssetCache::new(budget);
+    self
+  }
   pub fn backing(&self, canvas: &CanvasHandle) -> Option<ID3D12Resource> {
     self.surfaces.get(&canvas.surface_id()).map(|b| b.texture.clone())
   }
@@ -194,7 +192,7 @@ impl Renderer {
     profile_if! {
       self.profile.asset_upload_details = CanvasAssetUploadProfile::capture(
         self.profile_context.as_ref().is_some_and(|context| context.capture_active()),
-        self.asset_bytes,
+        self.assets.bytes(),
         self.assets.len(),
       );
     }
@@ -204,7 +202,6 @@ impl Renderer {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
-    self.tick += 1;
     self.descriptor = 0;
     let live: HashSet<_> = canvases
       .iter()
@@ -234,6 +231,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
+      canvas.finish_text_frame();
       profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       self.batches.push(batch);
@@ -322,23 +320,18 @@ impl Renderer {
     }
     #[cfg(feature = "perf_profile")]
     let _eviction_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
-    while self.asset_bytes > 64 * 1024 * 1024 {
-      let Some(id) = self.assets.iter().min_by_key(|(_, a)| a.last).map(|(id, _)| *id) else {
-        break;
-      };
-      let asset = self.assets.remove(&id).unwrap();
-      self.asset_bytes -= asset.bytes;
-      state.canvas_retired[state.frame_index].push(asset.texture);
-      profile_if! {
-        if let Some(detail) = self.profile.asset_upload_details.as_mut() {
-          detail.cache_evictions += 1;
-        }
-      }
-    }
+    // Retired textures stay alive until the GPU has finished this frame.
+    let retired = &mut state.canvas_retired[state.frame_index];
+    let _frame = self.assets.finish_frame(|texture| retired.push(texture));
     profile_if! {
+      self.profile.asset_cache_budget_bytes = self.assets.budget();
+      self.profile.asset_cache_stretch_bytes = _frame.stretch_bytes;
+      self.profile.asset_cache_uncached = _frame.uncached;
+      self.profile.asset_cache_uncached_bytes = _frame.uncached_bytes;
       if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+        detail.cache_evictions += _frame.evictions;
         detail.add_stage(AssetUploadStage::CacheEviction, _eviction_start);
-        detail.cache_state(self.asset_bytes, self.assets.len());
+        detail.cache_state(self.assets.bytes(), self.assets.len());
       }
     }
     profile_if! { self.profile.total = profile_elapsed!(_process_start); }

@@ -4,7 +4,10 @@ use wgpu::*;
 
 use super::DynamicBuffer;
 use crate::app::profile_support::{profile_elapsed, profile_if, profile_scope};
-use crate::canvas::{BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, gpu::*};
+use crate::canvas::{
+  AssetCache, BlendMode, CanvasAssetBudget, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak,
+  GradientKind, gpu::*,
+};
 
 struct Texture {
   texture: wgpu::Texture,
@@ -17,11 +20,6 @@ struct Backing {
   image: Texture,
   generation: u64,
 }
-struct CachedAsset {
-  image: Texture,
-  bytes: usize,
-  last: u64,
-}
 pub(super) struct Renderer {
   #[cfg(feature = "perf_profile")]
   pub(super) profile: crate::app::profile_types::CanvasProfile,
@@ -29,9 +27,7 @@ pub(super) struct Renderer {
   pub(super) profile_context: Option<crate::app::profiler::ProfileContext>,
   meshes: MeshCache,
   surfaces: HashMap<CanvasId, Backing>,
-  assets: HashMap<u64, CachedAsset>,
-  asset_bytes: usize,
-  tick: u64,
+  assets: AssetCache<Texture>,
   generation: u64,
   globals_layout: BindGroupLayout,
   image_layout: BindGroupLayout,
@@ -221,9 +217,7 @@ impl Renderer {
       profile_context: None,
       meshes: MeshCache::default(),
       surfaces: HashMap::new(),
-      assets: HashMap::new(),
-      asset_bytes: 0,
-      tick: 0,
+      assets: AssetCache::new(CanvasAssetBudget::default()),
       generation: 0,
       globals_layout,
       image_layout,
@@ -256,6 +250,10 @@ impl Renderer {
       globals: DynamicBuffer::new("canvas globals", BufferUsages::UNIFORM),
     }
   }
+  pub fn with_asset_budget(mut self, budget: CanvasAssetBudget) -> Self {
+    self.assets = AssetCache::new(budget);
+    self
+  }
   pub fn snapshot(&self, canvas: &CanvasHandle) -> Option<crate::images::WgpuExternalImageSnapshot> {
     let b = self.surfaces.get(&canvas.surface_id())?;
     Some(crate::images::WgpuExternalImageSnapshot {
@@ -273,7 +271,6 @@ impl Renderer {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
-    self.tick += 1;
     let live: HashSet<_> = canvases
       .iter()
       .filter(|c| c.is_attached())
@@ -292,6 +289,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
+      canvas.finish_text_frame();
       profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       if !self.surfaces.contains_key(&canvas.surface_id()) && !matches!(commands.front(), Some(Command::Resize { .. }))
@@ -356,12 +354,13 @@ impl Renderer {
       }
       batch.submit();
     }
-    // An LRU byte cap includes images and shaped text. No drawing history is kept.
-    while self.asset_bytes > 64 * 1024 * 1024 {
-      let Some(id) = self.assets.iter().min_by_key(|(_, a)| a.last).map(|(id, _)| *id) else {
-        break;
-      };
-      self.asset_bytes -= self.assets.remove(&id).unwrap().bytes;
+    // WGPU keeps a dropped texture alive while submitted work still uses it.
+    let _frame = self.assets.finish_frame(drop);
+    profile_if! {
+      self.profile.asset_cache_budget_bytes = self.assets.budget();
+      self.profile.asset_cache_stretch_bytes = _frame.stretch_bytes;
+      self.profile.asset_cache_uncached = _frame.uncached;
+      self.profile.asset_cache_uncached_bytes = _frame.uncached_bytes;
     }
     profile_if! { self.profile.total = profile_elapsed!(_process_start); }
   }
@@ -472,57 +471,46 @@ impl Renderer {
       .profile_context
       .as_ref()
       .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasAssetUpload));
-    for draw in prepared.draws() {
-      if let Some(asset) = &draw.asset {
-        if !self.assets.contains_key(&asset.id) {
-          let image = Texture::new(
-            device,
-            &self.image_layout,
-            &self.nearest,
-            &self.linear,
-            asset.width,
-            asset.height,
-          );
-          let mut converted = Vec::new();
-          let data = if asset.premultiplied {
-            asset.data.as_slice()
-          } else {
-            converted.extend_from_slice(&asset.data);
-            for p in converted.chunks_exact_mut(4) {
-              let a = u16::from(p[3]);
-              for c in &mut p[..3] {
-                *c = ((u16::from(*c) * a + 127) / 255) as u8;
-              }
+    for asset in prepared.draws().filter_map(|draw| draw.asset.as_ref()) {
+      if self.assets.get(asset.id).is_none() {
+        let image = Texture::new(
+          device,
+          &self.image_layout,
+          &self.nearest,
+          &self.linear,
+          asset.width,
+          asset.height,
+        );
+        let mut converted = Vec::new();
+        let data = if asset.premultiplied {
+          asset.data.as_slice()
+        } else {
+          converted.extend_from_slice(&asset.data);
+          for p in converted.chunks_exact_mut(4) {
+            let a = u16::from(p[3]);
+            for c in &mut p[..3] {
+              *c = ((u16::from(*c) * a + 127) / 255) as u8;
             }
-            &converted
-          };
-          queue.write_texture(
-            image.texture.as_image_copy(),
-            data,
-            TexelCopyBufferLayout {
-              offset: 0,
-              bytes_per_row: Some(asset.width * 4),
-              rows_per_image: Some(asset.height),
-            },
-            Extent3d {
-              width: asset.width,
-              height: asset.height,
-              depth_or_array_layers: 1,
-            },
-          );
-          let bytes = asset.data.len().max(64 * 1024);
-          self.asset_bytes += bytes;
-          uploaded += asset.data.len();
-          self.assets.insert(
-            asset.id,
-            CachedAsset {
-              image,
-              bytes,
-              last: self.tick,
-            },
-          );
-        }
-        self.assets.get_mut(&asset.id).unwrap().last = self.tick;
+          }
+          &converted
+        };
+        queue.write_texture(
+          image.texture.as_image_copy(),
+          data,
+          TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(asset.width * 4),
+            rows_per_image: Some(asset.height),
+          },
+          Extent3d {
+            width: asset.width,
+            height: asset.height,
+            depth_or_array_layers: 1,
+          },
+        );
+        uploaded += asset.data.len();
+        // Only textures no recent frame drew are evicted, so none this draw uses.
+        self.assets.insert(asset.id, image, asset.data.len(), drop);
       }
     }
     let backing = &self.surfaces[&id];
@@ -693,7 +681,7 @@ impl Renderer {
                   let texture = draw
                     .asset
                     .as_ref()
-                    .map(|a| &self.assets[&a.id].image)
+                    .map(|a| self.assets.peek(a.id).expect("uploaded by this draw"))
                     .unwrap_or(&self.white);
                   pass.set_bind_group(1, if draw.smooth { &texture.linear } else { &texture.nearest }, &[]);
                   pass.draw(draw.vertices.clone(), 0..1);

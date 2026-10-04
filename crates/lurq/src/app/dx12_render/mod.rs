@@ -276,6 +276,8 @@ fn acquire_native_nv12_mutex(
 pub struct Dx12RenderEngine {
   #[cfg(feature = "canvas")]
   canvases: Vec<crate::canvas::CanvasHandle>,
+  #[cfg(feature = "canvas")]
+  canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   state: Option<Dx12State>,
   width: u32,
   height: u32,
@@ -328,6 +330,8 @@ impl Dx12RenderEngine {
       state: None,
       #[cfg(feature = "canvas")]
       canvases: Vec::new(),
+      #[cfg(feature = "canvas")]
+      canvas_asset_budget: Default::default(),
       width: 800,
       height: 600,
       render_cadence: Dx12RenderCadence::new(Instant::now()),
@@ -352,6 +356,17 @@ impl Dx12RenderEngine {
       .map_or(0, layers::LayerCompositor::texture_count)
   }
 
+  /// How many charged bytes of uploaded Canvas images and text this renderer
+  /// keeps between frames; 64 MiB by default. See [`CanvasAssetBudget`] for
+  /// how a frame that needs more is handled.
+  ///
+  /// [`CanvasAssetBudget`]: crate::canvas::CanvasAssetBudget
+  #[cfg(feature = "canvas")]
+  pub fn with_canvas_asset_budget(mut self, budget: crate::canvas::CanvasAssetBudget) -> Self {
+    self.canvas_asset_budget = budget;
+    self
+  }
+
   #[cfg(feature = "raster")]
   pub fn with_video_surface_allocator(video_surfaces: Dx12VideoSurfaceAllocator) -> Self {
     Self {
@@ -366,7 +381,12 @@ impl Dx12RenderEngine {
     }
 
     let hwnd = hwnd_from_window(window)?;
-    let state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1))? };
+    #[cfg_attr(not(feature = "canvas"), allow(unused_mut))]
+    let mut state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1))? };
+    #[cfg(feature = "canvas")]
+    {
+      state.canvas_asset_budget = self.canvas_asset_budget;
+    }
     #[cfg(feature = "raster")]
     if let Some(video_surfaces) = &self.video_surfaces {
       video_surfaces.set_device(Some(state.device.clone()));
@@ -837,6 +857,8 @@ struct Dx12State {
   canvas_sources: Vec<crate::canvas::CanvasHandle>,
   #[cfg(feature = "canvas")]
   canvas_renderer: Option<canvas::Renderer>,
+  #[cfg(feature = "canvas")]
+  canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   #[cfg(feature = "canvas")]
   canvas_retired: [Vec<ID3D12Resource>; FRAME_COUNT],
   device: ID3D12Device,
@@ -2655,6 +2677,8 @@ impl Dx12State {
       #[cfg(feature = "canvas")]
       canvas_renderer: None,
       #[cfg(feature = "canvas")]
+      canvas_asset_budget: Default::default(),
+      #[cfg(feature = "canvas")]
       canvas_retired: std::array::from_fn(|_| Vec::new()),
       swapchain,
       frame_latency_waitable,
@@ -2775,7 +2799,7 @@ impl Dx12State {
       let _canvas_start = profile_scope!();
       let mut renderer = match self.canvas_renderer.take() {
         Some(r) => r,
-        None => canvas::Renderer::new(&self.device)?,
+        None => canvas::Renderer::new(&self.device)?.with_asset_budget(self.canvas_asset_budget),
       };
       let sources = self.canvas_sources.clone();
       #[cfg(feature = "perf_profile")]

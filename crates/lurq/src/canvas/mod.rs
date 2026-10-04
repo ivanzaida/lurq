@@ -6,11 +6,16 @@
 //! Drawing is queued into persistent GPU textures. Presentation is coalesced
 //! through the host event-loop waker. Readbacks are explicit and asynchronous.
 
+mod asset_cache;
 mod blend;
 mod context;
 mod effect;
+mod frame_cache;
 pub(crate) mod gpu;
 mod items;
+#[cfg(any(feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
+pub(crate) use asset_cache::AssetCache;
+pub use asset_cache::CanvasAssetBudget;
 pub use blend::BlendMode;
 pub use effect::{Filter, MAX_BLUR_RADIUS, MAX_EFFECT_PIXELS, MAX_SHADOW_BLUR, MAX_SHADOW_SPREAD, Shadow};
 pub use gpu::{CanvasReadback, MAX_LAYER_DEPTH};
