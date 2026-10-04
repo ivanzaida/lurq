@@ -1,10 +1,10 @@
 //! Window addressing (`window` arguments), `lurq_windows`, `lurq_resize` and the `lurq_menu` model.
 
 use crate::{
-  app::Tree,
+  app::{Tree, window::resize::ResizeOutcome},
   mcp::{
     McpState,
-    shared::{McpToolOutput, McpToolResult},
+    shared::{McpReply, McpToolOutput, McpToolResult},
   },
 };
 
@@ -105,6 +105,9 @@ pub(super) fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
     "title": tree.window().handle().title(),
     "open": true,
     "focused": main_info.is_focused,
+    "minimized": main_info.is_minimized,
+    "maximized": main_info.is_maximized,
+    "full_screen": main_info.is_full_screen,
     "width": main_info.resolved_width.round(),
     "height": main_info.resolved_height.round(),
     "scale_factor": main_info.scale_factor,
@@ -121,6 +124,9 @@ pub(super) fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
       "kind": if is_devtools_index(tree, index) { "devtools" } else { "secondary" },
       "open": true,
       "focused": info.is_focused,
+      "minimized": info.is_minimized,
+      "maximized": info.is_maximized,
+      "full_screen": info.is_full_screen,
       "width": info.resolved_width.round(),
       "height": info.resolved_height.round(),
       "scale_factor": info.scale_factor,
@@ -129,24 +135,72 @@ pub(super) fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
   Ok(McpToolOutput::Json(serde_json::json!({ "windows": windows })))
 }
 
-pub(super) fn resize_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
-  let width = args
-    .get("width")
-    .and_then(|value| value.as_u64())
-    .ok_or("`width` is required")?;
-  let height = args
-    .get("height")
-    .and_then(|value| value.as_u64())
-    .ok_or("`height` is required")?;
-  if width == 0 || height == 0 {
-    return Err("width and height must be positive".into());
-  }
+/// Queues the resize and answers once the shell has applied it, with the size the window took. A resize leaves
+/// minimized, maximized and full screen first, so it also restores the window.
+pub(super) fn resize_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value, reply: McpReply) {
+  let (width, height) = match requested_size(args) {
+    Ok(size) => size,
+    Err(message) => {
+      let _ = reply.send(Err(message));
+      return;
+    }
+  };
   let window = requested_window(args);
-  let target = window_tree_mut(tree, &window, state.include_devtools)?;
-  target.window().handle().resize(width as u32, height as u32);
+  let target = match window_tree_mut(tree, &window, state.include_devtools) {
+    Ok(target) => target,
+    Err(message) => {
+      let _ = reply.send(Err(message));
+      return;
+    }
+  };
+  target.window().resize_reported(
+    width,
+    height,
+    Box::new(move |outcome| {
+      let _ = reply.send(resize_reply(&window, outcome));
+    }),
+  );
+}
+
+fn requested_size(args: &serde_json::Value) -> Result<(u32, u32), String> {
+  let dimension = |name: &str| {
+    let value = args
+      .get(name)
+      .and_then(|value| value.as_u64())
+      .ok_or_else(|| format!("`{name}` is required"))?;
+    u32::try_from(value)
+      .ok()
+      .filter(|value| *value > 0)
+      .ok_or_else(|| "width and height must be positive and fit in 32 bits".to_owned())
+  };
+  Ok((dimension("width")?, dimension("height")?))
+}
+
+pub(super) fn resize_reply(window: &str, outcome: Option<ResizeOutcome>) -> McpToolResult {
+  let Some(outcome) = outcome else {
+    return Err(format!(
+      "window {window:?} has no native window to resize (not shown yet, closed, or a headless tree)"
+    ));
+  };
+  let (width, height) = outcome.size;
+  if outcome.size != outcome.requested {
+    let (requested_width, requested_height) = outcome.requested;
+    let reason = if outcome.remaining.any() {
+      format!(
+        "it is still {}: the platform did not leave that mode, or has not finished leaving it (macOS animates \
+         leaving full screen); check lurq_windows and retry",
+        outcome.remaining.names().join(" and ")
+      )
+    } else {
+      "the platform limited the size (the window's minimum or maximum size, or the screen)".to_owned()
+    };
+    return Err(format!(
+      "window {window:?} is {width}x{height}, not the requested {requested_width}x{requested_height}: {reason}"
+    ));
+  }
   Ok(McpToolOutput::Json(serde_json::json!({
     "ok": true, "window": window, "width": width, "height": height,
-    "note": "resize is applied by the OS asynchronously; lurq_wait then lurq_windows to confirm"
+    "restored_from": outcome.left.names(), "still": outcome.remaining.names(),
   })))
 }
 

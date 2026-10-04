@@ -205,7 +205,9 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_windows".into(),
-      description: "List the app's windows: id, name, title, kind, focus, size (screenshot pixels), and scale factor."
+      description: "List the app's windows: id, name, title, kind, focus, whether each is minimized, maximized or full \
+                    screen, size (screenshot pixels; a minimized window's client area, a sliver on Windows), and \
+                    scale factor."
         .into(),
       scope: Scope::Observe,
       read_only: true,
@@ -297,7 +299,11 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     },
     RegisteredTool {
       name: "lurq_resize".into(),
-      description: "Resize a window. Width and height are screenshot pixels.".into(),
+      description: "Resize a window's client area to `width` x `height` screenshot pixels. A minimized, maximized or \
+                    full-screen window is restored to a normal window first, so this also restores a minimized \
+                    window. Answers once the window has been resized, with the size it took and the modes it left \
+                    (`restored_from`); fails with the window's real size when it did not take the requested one."
+        .into(),
       scope: Scope::Interact,
       read_only: false,
       input_schema: schema(json!({

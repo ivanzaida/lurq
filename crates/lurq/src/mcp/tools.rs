@@ -18,6 +18,8 @@ mod set_value;
 mod tests;
 mod wait;
 mod windows;
+#[cfg(test)]
+mod windows_tests;
 
 #[cfg(all(test, feature = "canvas"))]
 mod canvas_items_tests;
@@ -116,9 +118,7 @@ fn execute_builtin(
     BuiltinTool::SetValue => {
       let _ = reply.send(set_value_tool(tree, state, &args));
     }
-    BuiltinTool::Resize => {
-      let _ = reply.send(resize_tool(tree, state, &args));
-    }
+    BuiltinTool::Resize => resize_tool(tree, state, &args, reply),
     BuiltinTool::Navigate => {
       let _ = reply.send(navigate_tool(state, &args));
     }

@@ -330,6 +330,12 @@ window.resize(1280, 720);
 window.move_to(120, 80);
 ```
 
+`resize(width, height)` asks for a client size in physical pixels. A minimized, maximized or full-screen window is
+restored to a normal window first (Windows does not resize a minimized window, and the other modes keep their own
+frame), so a resize also restores the window. While a window is minimized its `resolved_*` size is its client area (a
+sliver on Windows), and `WinitWindow::on_size_changed` is not called: it reports the window's size once per change, never
+a minimized one.
+
 `close()` bypasses close handlers. Use `request_close()` for a vetoable request and `on_close_requested(...)` to retain, accept, or cancel it. See [Window lifecycle and native menus](../window-lifecycle-menus/).
 
 Use `ctx.window_opener()` for a cloneable handle that opens secondary windows. `ctx.breakpoint()` and `ctx.responsive(...)` subscribe to viewport breakpoint changes; see [Theme](../theme/#breakpoints).

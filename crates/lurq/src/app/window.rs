@@ -151,9 +151,15 @@ impl CloseRequest {
 type CloseHandler = Arc<dyn Fn(CloseRequest) + Send + Sync>;
 
 mod handle;
+pub(crate) mod resize;
+#[cfg(test)]
+mod resize_tests;
+#[cfg(test)]
+pub(crate) mod simulated_window;
 #[cfg(feature = "mcp")]
 pub(crate) use handle::DialogWindow;
 pub use handle::WindowHandle;
+use resize::ResizeTicket;
 
 /// A logical-pixel window region for a partial frame capture, matching the
 /// units of [`crate::core::ElementRect`] bounds.
@@ -184,9 +190,12 @@ pub(crate) enum WindowCommand {
     x: i32,
     y: i32,
   },
+  /// Applied after leaving minimized, maximized and full screen; `report` names the waiting
+  /// [`resize::ResizeReport`], if any.
   Resize {
     width: u32,
     height: u32,
+    report: Option<ResizeTicket>,
   },
   StartDrag,
   StartResize(WindowResizeDirection),
@@ -226,6 +235,9 @@ struct WindowInner {
   /// cross-thread `push_command` sat unprocessed while the loop idled in
   /// `ControlFlow::Wait`.
   waker: Option<WindowWaker>,
+  /// Set once a platform shell applies this window's commands; a headless tree has none.
+  shell_attached: bool,
+  resize_reports: resize::ResizeReports,
   close_handler: Option<CloseHandler>,
 }
 
@@ -269,6 +281,8 @@ impl Window {
         version: 0,
         commands: Vec::new(),
         waker: None,
+        shell_attached: false,
+        resize_reports: resize::ResizeReports::default(),
         close_handler: None,
       })),
       version_signal: Signal::new(0),
@@ -373,6 +387,13 @@ impl Window {
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn set_waker(&self, waker: WindowWaker) {
     self.inner.write().unwrap().waker = Some(waker);
+  }
+
+  /// Registers the platform shell that applies this window's commands, with its event-loop waker.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn attach_shell(&self, waker: WindowWaker) {
+    self.set_waker(waker);
+    self.inner.write().unwrap().shell_attached = true;
   }
 
   /// Wakes the host for paint work without queuing a component/window mutation.

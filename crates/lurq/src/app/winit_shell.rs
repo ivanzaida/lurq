@@ -9,7 +9,7 @@ use winit::platform::windows::{
 };
 use winit::{
   application::ApplicationHandler,
-  dpi::{PhysicalPosition, PhysicalSize, Position},
+  dpi::{PhysicalPosition, Position},
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
   keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
@@ -26,12 +26,14 @@ use crate::{
     runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata},
     window::{
       CloseRequestSource, WindowBorderColor, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection,
+      resize::SizeReporter,
     },
   },
   node::{CursorIcon, color::Color},
 };
 
 mod ime;
+mod native_resize;
 
 const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
@@ -224,7 +226,7 @@ impl WinitWindow {
 
     self.app.shared.menu.set_waker(waker.clone());
     let tree = self.tree;
-    tree.window().set_waker(waker.clone());
+    tree.window().attach_shell(waker.clone());
     #[cfg(feature = "mcp")]
     tree.set_mcp_waker(waker.clone());
     let secondaries = (0..tree.secondary_window_count())
@@ -274,6 +276,7 @@ struct ManagedWindow {
   on_paint: Option<PaintFn>,
   on_position_changed: Option<PositionChangedFn>,
   on_size_changed: Option<SizeChangedFn>,
+  size_reporter: SizeReporter,
   redraw_pending: bool,
   close_exits: bool,
   last_tick: Instant,
@@ -310,6 +313,7 @@ impl ManagedWindow {
       on_paint,
       on_position_changed,
       on_size_changed,
+      size_reporter: SizeReporter::default(),
       redraw_pending: false,
       close_exits,
       last_tick: Instant::now(),
@@ -350,7 +354,6 @@ impl ManagedWindow {
     let size = window.inner_size();
     self.tree.set_scale_factor(window.scale_factor() as f32);
     self.tree.resize(size.width, size.height);
-    self.notify_size_changed(size.width, size.height);
     if let Ok(position) = window.outer_position() {
       self.tree.set_window_position(position.x, position.y);
       self.notify_position_changed(position.x, position.y);
@@ -386,7 +389,6 @@ impl ManagedWindow {
 
     if size_changed {
       self.tree.resize(size.width, size.height);
-      self.notify_size_changed(size.width, size.height);
     }
     if let Some(minimized) = minimized {
       self.tree.window().set_minimized(minimized);
@@ -394,6 +396,7 @@ impl ManagedWindow {
     self.tree.window().set_maximized(maximized);
     self.tree.window().set_full_screen(full_screen);
     self.tree.window().set_focused(focused);
+    self.report_size();
 
     size_changed
   }
@@ -475,11 +478,12 @@ impl ManagedWindow {
           self.tree.set_window_position(x, y);
           self.notify_position_changed(x, y);
         }
-        WindowCommand::Resize { width, height } => {
-          if let Some(window) = &self.window {
-            let _ = window.request_inner_size(PhysicalSize::new(width, height));
-          }
-          self.notify_size_changed(width, height);
+        WindowCommand::Resize { width, height, report } => {
+          // The size the window took reaches `on_size_changed` from `sync_window_state` below.
+          self
+            .tree
+            .window()
+            .apply_resize(self.window.as_ref(), width, height, report);
         }
         WindowCommand::StartDrag => {
           if self.window.as_ref().is_some_and(start_native_window_drag) {
@@ -673,13 +677,20 @@ impl ManagedWindow {
     }
   }
 
-  fn notify_size_changed(&mut self, width: u32, height: u32) {
-    if let Some(callback) = &mut self.on_size_changed {
-      let scale = self.tree.window().info().scale_factor.max(f32::EPSILON);
-      callback(
-        ((width as f32) / scale).round().max(1.0) as u32,
-        ((height as f32) / scale).round().max(1.0) as u32,
-      );
+  /// Reports the window's size to `on_size_changed`, in logical pixels, unless the window is minimized (its client
+  /// area is then not its size) or the size was already reported.
+  fn report_size(&mut self) {
+    let (Some(window), Some(callback)) = (&self.window, &mut self.on_size_changed) else {
+      return;
+    };
+    let size = window.inner_size();
+    let scale = self.tree.window().info().scale_factor.max(f32::EPSILON);
+    let logical = (
+      ((size.width as f32) / scale).round().max(1.0) as u32,
+      ((size.height as f32) / scale).round().max(1.0) as u32,
+    );
+    if let Some((width, height)) = self.size_reporter.next(window.is_minimized() == Some(true), logical) {
+      callback(width, height);
     }
   }
 
@@ -700,7 +711,6 @@ impl ManagedWindow {
       }
       WindowEvent::Resized(size) => {
         self.tree.resize(size.width, size.height);
-        self.notify_size_changed(size.width, size.height);
         self.sync_window_state();
         // Paint the new size from inside the event: during a live edge drag Windows runs a modal sizing
         // loop that keeps delivering WM_SIZE, but WM_PAINT (and so `RedrawRequested`) only when the
@@ -1025,10 +1035,8 @@ impl ManagedSecondaryWindow {
           }
           tree.set_window_position(x, y);
         }
-        WindowCommand::Resize { width, height } => {
-          if let Some(window) = &self.window {
-            let _ = window.request_inner_size(PhysicalSize::new(width, height));
-          }
+        WindowCommand::Resize { width, height, report } => {
+          tree.window().apply_resize(self.window.as_ref(), width, height, report);
         }
         WindowCommand::StartDrag => {
           if self.window.as_ref().is_some_and(start_native_window_drag) {
@@ -1451,7 +1459,7 @@ impl WinitHandler {
       let Some(secondary) = self.main.tree.secondary_window(index) else {
         continue;
       };
-      secondary.tree().window().set_waker(self.window_waker.clone());
+      secondary.tree().window().attach_shell(self.window_waker.clone());
       let mut managed = ManagedSecondaryWindow::new(index, secondary);
       self.main.tree.ensure_secondary_window_render_engine(index);
       let metadata = self

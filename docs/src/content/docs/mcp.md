@@ -92,14 +92,14 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_find` | observe | Substring search over the refs from the last `read_tree` (answered without touching the app). |
 | `lurq_find_by_id` | observe | Live lookup of the element with an `.id("...")`, or else the [canvas item](#canvas-content) with that id, returning a fresh actionable ref. |
 | `lurq_find_by_class` | observe | Live lookup of every element with a `.class("...")`, in tree order. |
-| `lurq_windows` | observe | List windows: id, name, title, kind, focus, size, scale factor. |
+| `lurq_windows` | observe | List windows: id, name, title, kind, focus, `minimized`/`maximized`/`full_screen`, size, scale factor. |
 | `lurq_menu` | observe | Inspect the native-menu model, command IDs, enabled state, and platform support. |
 | `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
 | `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; also `request_close` and `menu_activate`. |
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
-| `lurq_resize` | interact | Resize a window. |
+| `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
 
 ### Coordinates and refs
@@ -169,6 +169,19 @@ opener.open_with(
 ```
 
 `window: "focused"` is accepted as a call-time alias. Ref-based calls never need `window` — the ref knows where it lives. The DevTools window is excluded from listings, tree reads, and capture unless `include_devtools(true)`; it is tooling chrome, and its tree duplicates app state in confusing form.
+
+### Window state and resizing
+
+`lurq_windows` reports each window's `minimized`, `maximized` and `full_screen` state. `width` and `height` are the client area, so a minimized window reports a sliver on Windows (237x39 on one Windows 11 machine), not the size it comes back at.
+
+`lurq_resize` takes the client size in screenshot pixels. A minimized, maximized or full-screen window cannot take a size (Windows ignores the size of a minimized window, and the other modes keep their own frame), so the resize first restores it to a normal window: resizing is also how an agent restores a minimized window. The tool answers once the shell has applied the resize, with the size the window took and the modes it left:
+
+```text
+lurq_resize {"width":1440,"height":1020}
+→ {"ok":true,"window":"main","width":1440,"height":1020,"restored_from":["minimized"],"still":[]}
+```
+
+When the window did not take the requested size, the call fails with its real size and the reason: it is still in a mode the platform did not leave (or has not finished leaving: macOS animates leaving full screen, so check `lurq_windows` and retry), or the platform limited the size (the window's minimum or maximum size, or the screen). A window that has no native window yet, or a headless tree, fails at once.
 
 ## Making Your App Agent-Friendly
 
@@ -289,7 +302,7 @@ fn create(ctx: &mut Ctx) -> Self {
 
 ## Headless Use
 
-`Tree` runs without a shell, so a CI harness can serve MCP against a headless tree — tree reading and synthetic input work as-is; screenshots need a render surface. Drive the drain yourself:
+`Tree` runs without a shell, so a CI harness can serve MCP against a headless tree — tree reading and synthetic input work as-is; screenshots need a render surface, and `lurq_resize` fails (size a headless tree with `Tree::resize`). Drive the drain yourself:
 
 ```rust
 let mcp = tree.enable_mcp(McpConfig::new());

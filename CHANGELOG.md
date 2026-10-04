@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.1 — 2026-10-04
+
+- Fix resizing a minimized window. A window started minimized (`Start-Process -WindowStyle Minimized`) kept its minimized frame (237x39 on one Windows machine), and `lurq_resize` could not bring it back: Windows does not resize a minimized window, yet the tool answered `"ok": true`, `on_size_changed` was told the requested size, and the next state sync read the minimized client area back. A maximized or full-screen window was not taken out of its mode first either. Now:
+  - A resize (`WindowHandle::resize` or `lurq_resize`) first leaves full screen, then minimized, then maximized (a window minimized from maximized comes back maximized), and only then requests the size, the same on Windows and macOS. A resize therefore also restores the window; that is how an agent restores a minimized one. Behaviour change: an app's `resize` of a minimized, maximized or full-screen window now restores it (on Windows a minimized window ignored it).
+  - `lurq_resize` answers once the shell has applied the resize, with the client size the window really took and the modes it left (`restored_from`, and `still` for a mode the platform has not finished leaving). When the window did not take the requested size it fails with the real size and why: still minimized, maximized or full screen (macOS animates leaving full screen), or limited by the window's minimum or maximum size or the screen. A window without a native window, and a headless tree, fail at once instead of answering `ok`. Sizes above `u32::MAX` are refused.
+  - `lurq_windows` reports `minimized`, `maximized` and `full_screen` for each window.
+  - `WinitWindow::on_size_changed` reports the size the window took, read back from the window, rather than the size requested. It is never called with a minimized window's client area, and is called once per size rather than for every event that repeats it.
+
 ## 0.39.0 — 2026-10-04
 
 - Add input method (IME) composition to text inputs, on Windows and macOS alike. Until now the winit shell never let a window's input method compose (winit leaves it off until the app allows it), so Japanese, Chinese and Korean input could not compose in a text input, and lurq had no notion of a key the input method takes: Windows reports one as `Process` with the physical key as its code, so the `Enter` that confirms a composition would have reached `on_key_down` handlers and lurq's defaults as an `Enter`.
