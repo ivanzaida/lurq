@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.39.1 — 2026-10-04
+## 0.40.0 — 2026-10-05
+
+Behaviour changes:
+
+- `WinitWindow::on_size_changed` reports the size the window took, read back from the window, instead of the size a resize requested; it is never called with a minimized window's client area, and is called once per size rather than for every event or request that repeats it. An app that persisted the requested size, or counted calls, sees fewer and real values.
+- `WindowHandle::resize` of a minimized window restores the window and applies the size (on Windows it was ignored). A maximized or full-screen window stays in its mode, as before.
+- `lurq_resize` takes a maximized or full-screen window out of its mode, answers only once the resize has been applied, with the size the window took, and fails when the window did not take the requested size, has no native window yet, or belongs to a headless tree (it used to answer `"ok": true` at once). Its reply has no `note` field any more.
+- An `Enter` marked `KeyboardEvent::composing` no longer submits a form, activates a control, inserts a newline or blurs a text input; `on_key_down` handlers still receive it.
 
 - Fix resizing a minimized window. A window started minimized (`Start-Process -WindowStyle Minimized`) kept its minimized frame (237x39 on one Windows machine), and `lurq_resize` could not bring it back: Windows does not resize a minimized window, yet the tool answered `"ok": true`, `on_size_changed` was told the requested size, and the next state sync read the minimized client area back. Now:
   - Every resize restores a minimized window before requesting the size, the same on Windows and macOS. `WindowHandle::resize` does only that: a maximized or full-screen window stays in its mode, so an app restoring a saved size or fitting its content never takes the user out of full screen. `lurq_resize`, which asks for an exact size, also leaves full screen and maximized, in the order full screen, minimized, maximized (a window minimized from maximized comes back maximized); it is how an agent restores a minimized window.
