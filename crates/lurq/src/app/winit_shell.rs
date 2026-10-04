@@ -478,12 +478,9 @@ impl ManagedWindow {
           self.tree.set_window_position(x, y);
           self.notify_position_changed(x, y);
         }
-        WindowCommand::Resize { width, height, report } => {
+        WindowCommand::Resize(request) => {
           // The size the window took reaches `on_size_changed` from `sync_window_state` below.
-          self
-            .tree
-            .window()
-            .apply_resize(self.window.as_ref(), width, height, report);
+          self.tree.window().apply_resize(self.window.as_ref(), request);
         }
         WindowCommand::StartDrag => {
           if self.window.as_ref().is_some_and(start_native_window_drag) {
@@ -1035,8 +1032,8 @@ impl ManagedSecondaryWindow {
           }
           tree.set_window_position(x, y);
         }
-        WindowCommand::Resize { width, height, report } => {
-          tree.window().apply_resize(self.window.as_ref(), width, height, report);
+        WindowCommand::Resize(request) => {
+          tree.window().apply_resize(self.window.as_ref(), request);
         }
         WindowCommand::StartDrag => {
           if self.window.as_ref().is_some_and(start_native_window_drag) {

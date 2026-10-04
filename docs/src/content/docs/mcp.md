@@ -174,7 +174,7 @@ opener.open_with(
 
 `lurq_windows` reports each window's `minimized`, `maximized` and `full_screen` state. `width` and `height` are the client area, so a minimized window reports a sliver on Windows (237x39 on one Windows 11 machine), not the size it comes back at.
 
-`lurq_resize` takes the client size in screenshot pixels. A minimized, maximized or full-screen window cannot take a size (Windows ignores the size of a minimized window, and the other modes keep their own frame), so the resize first restores it to a normal window: resizing is also how an agent restores a minimized window. The tool answers once the shell has applied the resize, with the size the window took and the modes it left:
+`lurq_resize` takes the client size in screenshot pixels. A minimized, maximized or full-screen window cannot take an exact size (Windows ignores the size of a minimized window, and the other modes keep their own frame), so the tool first restores it to a normal window: resizing is also how an agent restores a minimized window. (An app's `WindowHandle::resize` restores only a minimized window, leaving a maximized or full-screen one in its mode.) The tool answers once the shell has applied the resize, with the size the window took and the modes it left:
 
 ```text
 lurq_resize {"width":1440,"height":1020}

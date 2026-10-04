@@ -330,9 +330,9 @@ window.resize(1280, 720);
 window.move_to(120, 80);
 ```
 
-`resize(width, height)` asks for a client size in physical pixels. A minimized, maximized or full-screen window is
-restored to a normal window first (Windows does not resize a minimized window, and the other modes keep their own
-frame), so a resize also restores the window. While a window is minimized its `resolved_*` size is its client area (a
+`resize(width, height)` asks for a client size in physical pixels. A minimized window is restored first, since
+Windows does not resize a minimized window. A maximized or full-screen window stays in its mode: a resize never takes
+the user out of full screen. While a window is minimized its `resolved_*` size is its client area (a
 sliver on Windows), and `WinitWindow::on_size_changed` is not called: it reports the window's size once per change, never
 a minimized one.
 

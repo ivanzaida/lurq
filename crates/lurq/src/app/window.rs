@@ -159,7 +159,7 @@ pub(crate) mod simulated_window;
 #[cfg(feature = "mcp")]
 pub(crate) use handle::DialogWindow;
 pub use handle::WindowHandle;
-use resize::ResizeTicket;
+use resize::ResizeRequest;
 
 /// A logical-pixel window region for a partial frame capture, matching the
 /// units of [`crate::core::ElementRect`] bounds.
@@ -190,13 +190,7 @@ pub(crate) enum WindowCommand {
     x: i32,
     y: i32,
   },
-  /// Applied after leaving minimized, maximized and full screen; `report` names the waiting
-  /// [`resize::ResizeReport`], if any.
-  Resize {
-    width: u32,
-    height: u32,
-    report: Option<ResizeTicket>,
-  },
+  Resize(ResizeRequest),
   StartDrag,
   StartResize(WindowResizeDirection),
   StopDrag,
@@ -248,6 +242,13 @@ impl WindowInner {
       self.accepted_close = true;
     }
     self.commands.push(command);
+  }
+
+  /// Queues a resize under the caller's lock; returns the waker to call once the lock is released.
+  #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+  fn queue_resize(&mut self, request: ResizeRequest) -> Option<WindowWaker> {
+    self.queue_command(WindowCommand::Resize(request));
+    self.waker.clone()
   }
 }
 

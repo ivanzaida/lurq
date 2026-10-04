@@ -135,15 +135,18 @@ impl WindowHandle {
     self.r#move(x, y);
   }
 
-  /// Request a client size in physical pixels. A minimized, maximized or full-screen window first returns to a normal
-  /// window (Windows does not resize a minimized window, and the other modes keep their own frame), so a resize
-  /// always restores the window. The size takes effect asynchronously; read it back from `ctx.window()`.
+  /// Request a client size in physical pixels. A minimized window is restored first, since Windows does not resize a
+  /// minimized window. A maximized or full-screen window stays in its mode: the resize does not take the user out of
+  /// it. The size takes effect asynchronously; read it back from `ctx.window()`.
   pub fn resize(&self, width: u32, height: u32) {
-    self.window.push_command(WindowCommand::Resize {
-      width,
-      height,
-      report: None,
-    });
+    self
+      .window
+      .push_command(WindowCommand::Resize(super::resize::ResizeRequest {
+        width,
+        height,
+        restore: super::resize::ResizeRestore::Minimized,
+        report: None,
+      }));
   }
 
   pub fn start_drag(&self) {

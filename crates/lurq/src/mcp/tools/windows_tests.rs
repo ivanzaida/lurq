@@ -35,10 +35,10 @@ fn resize(tree: &mut Tree, native: &SimulatedWindow, args: serde_json::Value) ->
   );
   assert!(receiver.try_recv().is_err(), "the reply waits for the shell");
   for command in tree.window().take_commands() {
-    let WindowCommand::Resize { width, height, report } = command else {
+    let WindowCommand::Resize(request) = command else {
       panic!("expected a resize, got {command:?}");
     };
-    tree.window().apply_resize(Some(native), width, height, report);
+    tree.window().apply_resize(Some(native), request);
   }
   receiver.try_recv().expect("the shell answered the resize")
 }
@@ -159,4 +159,50 @@ fn resize_rejects_sizes_that_are_zero_or_too_large() {
     assert!(call(&mut tree, &mut App::new(), &state(), "lurq_resize", args).is_err());
   }
   assert!(tree.window().take_commands().is_empty());
+}
+
+#[test]
+fn resize_takes_a_full_screen_window_out_of_full_screen() {
+  let mut tree = shown_tree();
+  let full_screen = WindowModes {
+    full_screen: true,
+    ..WindowModes::default()
+  };
+  let native = SimulatedWindow::new((1440, 1020), full_screen);
+
+  let reply = json(resize(
+    &mut tree,
+    &native,
+    serde_json::json!({"width": 1280, "height": 800}),
+  ));
+
+  assert_eq!(native.calls(), ["leave_full_screen", "request_inner_size(1280x800)"]);
+  assert_eq!(reply["restored_from"], serde_json::json!(["full_screen"]));
+}
+
+#[test]
+fn a_resize_call_that_timed_out_leaves_no_report_behind() {
+  let mut tree = shown_tree();
+  let (reply, receiver) = tokio::sync::oneshot::channel();
+  execute(
+    &mut tree,
+    &mut App::new(),
+    &state(),
+    McpRequest {
+      tool: "lurq_resize".into(),
+      args: serde_json::json!({"width": 800, "height": 600}),
+      reply,
+    },
+  );
+  // The HTTP side gives up and drops its end.
+  drop(receiver);
+  assert_eq!(tree.window().pending_resize_reports(), 1);
+
+  let native = SimulatedWindow::new((1440, 1020), WindowModes::default());
+  json(resize(
+    &mut tree,
+    &native,
+    serde_json::json!({"width": 1024, "height": 600}),
+  ));
+  assert_eq!(tree.window().pending_resize_reports(), 0);
 }

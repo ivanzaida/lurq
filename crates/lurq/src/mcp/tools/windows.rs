@@ -1,7 +1,14 @@
 //! Window addressing (`window` arguments), `lurq_windows`, `lurq_resize` and the `lurq_menu` model.
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+
 use crate::{
-  app::{Tree, window::resize::ResizeOutcome},
+  app::{
+    Tree,
+    window::resize::{ResizeOutcome, ResizeReport},
+  },
   mcp::{
     McpState,
     shared::{McpReply, McpToolOutput, McpToolResult},
@@ -153,13 +160,18 @@ pub(super) fn resize_tool(tree: &mut Tree, state: &McpState, args: &serde_json::
       return;
     }
   };
-  target.window().resize_reported(
-    width,
-    height,
-    Box::new(move |outcome| {
-      let _ = reply.send(resize_reply(&window, outcome));
-    }),
+  // Shared, so that the window can tell when the call has timed out and drop the report.
+  let reply = Arc::new(Mutex::new(Some(reply)));
+  let waiting = reply.clone();
+  let report = ResizeReport::new(
+    move |outcome| {
+      if let Some(reply) = reply.lock().take() {
+        let _ = reply.send(resize_reply(&window, outcome));
+      }
+    },
+    move || waiting.lock().as_ref().is_none_or(McpReply::is_closed),
   );
+  target.window().resize_reported(width, height, report);
 }
 
 fn requested_size(args: &serde_json::Value) -> Result<(u32, u32), String> {
