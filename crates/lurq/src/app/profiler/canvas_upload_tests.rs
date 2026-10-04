@@ -83,6 +83,8 @@ mod enabled {
     };
     frame.render.canvas.asset_upload_details = CanvasAssetUploadProfile::capture(true, 65536, 1);
     frame.render.canvas.asset_upload_details.as_mut().unwrap().cache_hits = 9;
+    frame.render.canvas.asset_cache_stretch_bytes = 5;
+    frame.render.canvas.asset_cache_uncached = 2;
     let (root_start, root_phase) = root.begin_pass(1);
     let (child_start, child_phase) = child.begin_pass(2);
     finish(&mut child, child_start, &frame, "dx12");
@@ -121,7 +123,10 @@ mod enabled {
     #[cfg(any(feature = "serde", feature = "mcp"))]
     {
       let exported = ended_first.to_json();
-      let details = &exported["samples"][0]["data"]["frame"]["render"]["canvas"]["asset_upload_details"];
+      let canvas = &exported["samples"][0]["data"]["frame"]["render"]["canvas"];
+      assert_eq!(canvas["counts"]["asset_cache_stretch_bytes"], 5);
+      assert_eq!(canvas["counts"]["asset_cache_uncached"], 2);
+      let details = &canvas["asset_upload_details"];
       if cfg!(all(feature = "canvas", feature = "dx12", target_os = "windows")) {
         assert_eq!(details["counts"]["cache_hits"], 9);
       } else {

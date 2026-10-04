@@ -313,6 +313,8 @@ pub struct WgpuRenderEngine {
   canvases: Vec<crate::canvas::CanvasHandle>,
   #[cfg(feature = "canvas")]
   canvas_renderer: Option<canvas::Renderer>,
+  #[cfg(feature = "canvas")]
+  canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   instance: Option<wgpu::Instance>,
   backends: wgpu::Backends,
   adapter: Option<wgpu::Adapter>,
@@ -414,6 +416,8 @@ impl WgpuRenderEngine {
       canvases: Vec::new(),
       #[cfg(feature = "canvas")]
       canvas_renderer: None,
+      #[cfg(feature = "canvas")]
+      canvas_asset_budget: Default::default(),
       instance: None,
       backends: default_backends(),
       adapter: None,
@@ -529,6 +533,17 @@ impl WgpuRenderEngine {
 
   pub fn with_present_mode(mut self, present_mode: WgpuPresentMode) -> Self {
     self.requested_present_mode = present_mode;
+    self
+  }
+
+  /// How many charged bytes of uploaded Canvas images and text this renderer
+  /// keeps between frames; 64 MiB by default. See [`CanvasAssetBudget`] for
+  /// how a frame that needs more is handled.
+  ///
+  /// [`CanvasAssetBudget`]: crate::canvas::CanvasAssetBudget
+  #[cfg(feature = "canvas")]
+  pub fn with_canvas_asset_budget(mut self, budget: crate::canvas::CanvasAssetBudget) -> Self {
+    self.canvas_asset_budget = budget;
     self
   }
 
@@ -1300,7 +1315,7 @@ impl RenderEngine for WgpuRenderEngine {
       let queue = self.queue.as_ref().unwrap();
       let renderer = self
         .canvas_renderer
-        .get_or_insert_with(|| canvas::Renderer::new(device, queue));
+        .get_or_insert_with(|| canvas::Renderer::new(device, queue).with_asset_budget(self.canvas_asset_budget));
       #[cfg(feature = "perf_profile")]
       {
         renderer.profile_context = self.profile_context.clone();

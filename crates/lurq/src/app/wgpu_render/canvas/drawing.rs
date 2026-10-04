@@ -28,57 +28,46 @@ impl Renderer {
       .profile_context
       .as_ref()
       .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasAssetUpload));
-    for draw in prepared.draws() {
-      if let Some(asset) = &draw.asset {
-        if !self.assets.contains_key(&asset.id) {
-          let image = Texture::new(
-            device,
-            &self.image_layout,
-            &self.nearest,
-            &self.linear,
-            asset.width,
-            asset.height,
-          );
-          let mut converted = Vec::new();
-          let data = if asset.premultiplied {
-            asset.data.as_slice()
-          } else {
-            converted.extend_from_slice(&asset.data);
-            for p in converted.chunks_exact_mut(4) {
-              let a = u16::from(p[3]);
-              for c in &mut p[..3] {
-                *c = ((u16::from(*c) * a + 127) / 255) as u8;
-              }
+    for asset in prepared.draws().filter_map(|draw| draw.asset.as_ref()) {
+      if self.assets.get(asset.id).is_none() {
+        let image = Texture::new(
+          device,
+          &self.image_layout,
+          &self.nearest,
+          &self.linear,
+          asset.width,
+          asset.height,
+        );
+        let mut converted = Vec::new();
+        let data = if asset.premultiplied {
+          asset.data.as_slice()
+        } else {
+          converted.extend_from_slice(&asset.data);
+          for p in converted.chunks_exact_mut(4) {
+            let a = u16::from(p[3]);
+            for c in &mut p[..3] {
+              *c = ((u16::from(*c) * a + 127) / 255) as u8;
             }
-            &converted
-          };
-          queue.write_texture(
-            image.texture.as_image_copy(),
-            data,
-            TexelCopyBufferLayout {
-              offset: 0,
-              bytes_per_row: Some(asset.width * 4),
-              rows_per_image: Some(asset.height),
-            },
-            Extent3d {
-              width: asset.width,
-              height: asset.height,
-              depth_or_array_layers: 1,
-            },
-          );
-          let bytes = asset.data.len().max(64 * 1024);
-          self.asset_bytes += bytes;
-          uploaded += asset.data.len();
-          self.assets.insert(
-            asset.id,
-            CachedAsset {
-              image,
-              bytes,
-              last: self.tick,
-            },
-          );
-        }
-        self.assets.get_mut(&asset.id).unwrap().last = self.tick;
+          }
+          &converted
+        };
+        queue.write_texture(
+          image.texture.as_image_copy(),
+          data,
+          TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(asset.width * 4),
+            rows_per_image: Some(asset.height),
+          },
+          Extent3d {
+            width: asset.width,
+            height: asset.height,
+            depth_or_array_layers: 1,
+          },
+        );
+        uploaded += asset.data.len();
+        // Only textures no recent frame drew are evicted, so none this draw uses.
+        self.assets.insert(asset.id, image, asset.data.len(), drop);
       }
     }
     let backing = &self.surfaces[&id];
@@ -249,7 +238,7 @@ impl Renderer {
                   let texture = draw
                     .asset
                     .as_ref()
-                    .map(|a| &self.assets[&a.id].image)
+                    .map(|a| self.assets.peek(a.id).expect("uploaded by this draw"))
                     .unwrap_or(&self.white);
                   pass.set_bind_group(1, if draw.smooth { &texture.linear } else { &texture.nearest }, &[]);
                   pass.draw(draw.vertices.clone(), 0..1);

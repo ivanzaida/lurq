@@ -5,7 +5,7 @@ impl Renderer {
     profile_if! {
       self.profile.asset_upload_details = CanvasAssetUploadProfile::capture(
         self.profile_context.as_ref().is_some_and(|context| context.capture_active()),
-        self.asset_bytes,
+        self.assets.bytes(),
         self.assets.len(),
       );
     }
@@ -15,7 +15,6 @@ impl Renderer {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
-    self.tick += 1;
     self.descriptor = 0;
     let live: HashSet<_> = canvases
       .iter()
@@ -54,6 +53,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
+      canvas.finish_text_frame();
       profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       self.batches.push(batch);
@@ -188,23 +188,18 @@ impl Renderer {
     }
     #[cfg(feature = "perf_profile")]
     let _eviction_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());
-    while self.asset_bytes > 64 * 1024 * 1024 {
-      let Some(id) = self.assets.iter().min_by_key(|(_, a)| a.last).map(|(id, _)| *id) else {
-        break;
-      };
-      let asset = self.assets.remove(&id).unwrap();
-      self.asset_bytes -= asset.bytes;
-      state.canvas_retired[state.frame_index].push(asset.texture);
-      profile_if! {
-        if let Some(detail) = self.profile.asset_upload_details.as_mut() {
-          detail.cache_evictions += 1;
-        }
-      }
-    }
+    // Retired textures stay alive until the GPU has finished this frame.
+    let retired = &mut state.canvas_retired[state.frame_index];
+    let _frame = self.assets.finish_frame(|texture| retired.push(texture));
     profile_if! {
+      self.profile.asset_cache_budget_bytes = self.assets.budget();
+      self.profile.asset_cache_stretch_bytes = _frame.stretch_bytes;
+      self.profile.asset_cache_uncached = _frame.uncached;
+      self.profile.asset_cache_uncached_bytes = _frame.uncached_bytes;
       if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+        detail.cache_evictions += _frame.evictions;
         detail.add_stage(AssetUploadStage::CacheEviction, _eviction_start);
-        detail.cache_state(self.asset_bytes, self.assets.len());
+        detail.cache_state(self.assets.bytes(), self.assets.len());
       }
     }
     profile_if! { self.profile.total = profile_elapsed!(_process_start); }

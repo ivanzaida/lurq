@@ -1,4 +1,5 @@
-use super::*;
+use super::{shape_cache::ShapeCache, *};
+use crate::canvas::frame_cache::Limits;
 
 fn engine() -> CanvasTextEngine {
   let mut fonts = FontSystem::new_with_locale_and_db("en-US".into(), Default::default());
@@ -62,17 +63,21 @@ fn rendered_cache_preserves_color_scale_and_previous_drawing_owners() {
   assert!(scaled.data.len() > red.data.len());
   assert_ne!(red.asset_id, blue.asset_id);
   assert_ne!(red.asset_id, scaled.asset_id);
-  for size in 1..=257 {
-    engine
-      .measure("", &CanvasFont::new("Lurq Weight Probe", size as f32), RED)
-      .unwrap();
+  // Without frames the cache is least recently used: large drawings past its
+  // budget evict the first one, while its previous owners keep their pixels.
+  let large = CanvasFont::new("Lurq Weight Probe", 200.);
+  let mut drawn = 0;
+  for index in 0.. {
+    drawn += engine.shape("aaaa", &large, 1., Color::new(0, index, 0, 255)).unwrap().data.len();
+    if drawn > 2 * shape_cache::LIMITS.budget {
+      break;
+    }
   }
   assert_eq!(red.data.as_ref(), &original);
   let revisited = engine.shape("aaaa", &font, 1., RED).unwrap();
   assert_eq!(revisited.data.as_ref(), &original);
   assert_ne!(revisited.asset_id, red.asset_id);
-  assert!(engine.shaped.len() <= 256);
-  assert!(engine.shaped_bytes <= 8 * 1024 * 1024);
+  assert!(engine.shaped.bytes() <= shape_cache::LIMITS.budget);
 }
 
 #[test]
@@ -131,6 +136,88 @@ fn a_page_with_more_keys_than_the_old_entry_limit_is_shaped_once() {
   for frame in 2..=4 {
     let next = page(&mut engine, &font);
     let reshaped = first.iter().zip(&next).filter(|(a, b)| !Arc::ptr_eq(a, b)).count();
-    assert_eq!(reshaped, 0, "frame {frame} shaped {reshaped} of {} texts again", first.len());
+    assert_eq!(
+      reshaped,
+      0,
+      "frame {frame} shaped {reshaped} of {} texts again",
+      first.len()
+    );
   }
+}
+
+/// Indices of the texts `next` shaped again instead of returning from cache.
+fn reshaped(first: &[Arc<ShapedText>], next: &[Arc<ShapedText>]) -> Vec<usize> {
+  (0..first.len())
+    .filter(|&index| !Arc::ptr_eq(&first[index], &next[index]))
+    .collect()
+}
+
+/// Caches sized against the charge of one real page, so that the page itself
+/// is larger than the budget.
+fn page_limits(engine: &mut CanvasTextEngine, font: &CanvasFont, budget: f32, ceiling: f32) -> Limits {
+  page(engine, font);
+  let bytes = engine.shaped.bytes() as f32;
+  Limits {
+    budget: (bytes * budget) as usize,
+    ceiling: (bytes * ceiling) as usize,
+  }
+}
+
+#[test]
+fn a_framed_page_over_the_budget_is_kept_whole() {
+  let mut engine = engine();
+  let font = CanvasFont::new("Lurq Weight Probe", 10.);
+  let limits = page_limits(&mut engine, &font, 0.5, 1.5);
+  // Without frames the same limits are least recently used and miss on every text.
+  engine.shaped = ShapeCache::with_limits(limits);
+  let first = page(&mut engine, &font);
+  assert_eq!(reshaped(&first, &page(&mut engine, &font)).len(), first.len());
+  engine.shaped = ShapeCache::with_limits(limits);
+  engine.finish_frame();
+  let first = page(&mut engine, &font);
+  for frame in 2..=4 {
+    engine.finish_frame();
+    assert_eq!(
+      reshaped(&first, &page(&mut engine, &font)),
+      Vec::<usize>::new(),
+      "frame {frame}"
+    );
+  }
+  assert!(engine.shaped.bytes() > limits.budget && engine.shaped.bytes() <= limits.ceiling);
+}
+
+#[test]
+fn a_framed_page_beyond_the_ceiling_keeps_the_same_texts_cached() {
+  let mut engine = engine();
+  let font = CanvasFont::new("Lurq Weight Probe", 10.);
+  let limits = page_limits(&mut engine, &font, 0.25, 0.5);
+  engine.shaped = ShapeCache::with_limits(limits);
+  engine.finish_frame();
+  let first = page(&mut engine, &font);
+  engine.finish_frame();
+  let overflow = reshaped(&first, &page(&mut engine, &font));
+  assert!(
+    !overflow.is_empty() && overflow.len() < first.len() * 3 / 4,
+    "{}",
+    overflow.len()
+  );
+  for frame in 3..=5 {
+    engine.finish_frame();
+    assert_eq!(reshaped(&first, &page(&mut engine, &font)), overflow, "frame {frame}");
+  }
+  assert!(engine.shaped.bytes() <= limits.ceiling);
+}
+
+#[test]
+fn closing_a_frame_without_text_does_not_age_the_cache() {
+  let mut engine = engine();
+  let font = CanvasFont::new("Lurq Weight Probe", 10.);
+  let limits = page_limits(&mut engine, &font, 0.5, 1.5);
+  engine.shaped = ShapeCache::with_limits(limits);
+  engine.finish_frame();
+  let first = page(&mut engine, &font);
+  for _ in 0..4 {
+    engine.finish_frame();
+  }
+  assert_eq!(reshaped(&first, &page(&mut engine, &font)), Vec::<usize>::new());
 }

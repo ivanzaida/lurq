@@ -27,7 +27,15 @@ impl Renderer {
       .and_then(|context| context.detail_phase(crate::app::profiler::Phase::CanvasAssetUpload));
     for draw in prepared.draws() {
       if let Some(asset) = &draw.asset {
-        if !self.assets.contains_key(&asset.id) {
+        let cached = self.assets.get(asset.id).cloned();
+        let texture = if let Some(texture) = cached {
+          profile_if! {
+            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
+              detail.cache_hits += 1;
+            }
+          }
+          texture
+        } else {
           profile_if! {
             if let Some(detail) = self.profile.asset_upload_details.as_mut() {
               detail.cache_misses += 1;
@@ -49,32 +57,19 @@ impl Renderer {
             #[cfg(feature = "perf_profile")]
             self.profile.asset_upload_details.as_mut(),
           )?;
-          let bytes = asset.data.len().max(64 * 1024);
-          self.asset_bytes += bytes;
           uploaded += asset.data.len();
-          self.assets.insert(
-            asset.id,
-            AssetTexture {
-              texture,
-              bytes,
-              last: self.tick,
-            },
-          );
+          // Only textures no recent frame drew are evicted, so none this draw uses.
+          let retired = &mut state.canvas_retired[state.frame_index];
+          self
+            .assets
+            .insert(asset.id, texture.clone(), asset.data.len(), |old| retired.push(old));
           profile_if! {
             if let Some(detail) = self.profile.asset_upload_details.as_mut() {
-              detail.cache_state(self.asset_bytes, self.assets.len());
+              detail.cache_state(self.assets.bytes(), self.assets.len());
             }
           }
-        } else {
-          profile_if! {
-            if let Some(detail) = self.profile.asset_upload_details.as_mut() {
-              detail.cache_hits += 1;
-            }
-          }
-        }
-        let cached = self.assets.get_mut(&asset.id).unwrap();
-        cached.last = self.tick;
-        let texture = cached.texture.clone();
+          texture
+        };
         if let std::collections::hash_map::Entry::Vacant(entry) = assets.entry(asset.id) {
           #[cfg(feature = "perf_profile")]
           let _descriptor_start = CanvasAssetUploadProfile::start_timer(self.profile.asset_upload_details.as_ref());

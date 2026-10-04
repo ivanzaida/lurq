@@ -2,16 +2,6 @@ pub mod app_state;
 #[cfg(all(
   test,
   windows,
-  feature = "canvas",
-  feature = "perf_profile",
-  feature = "screenshot",
-  feature = "wgpu",
-  feature = "dx12"
-))]
-mod canvas_frame_probe;
-#[cfg(all(
-  test,
-  windows,
   feature = "raster",
   feature = "screenshot",
   any(feature = "wgpu", feature = "dx12")
@@ -19,6 +9,16 @@ mod canvas_frame_probe;
 mod blend_readback_tests;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod box_shadow_readback_tests;
+#[cfg(all(
+  test,
+  windows,
+  feature = "canvas",
+  feature = "perf_profile",
+  feature = "screenshot",
+  feature = "wgpu",
+  feature = "dx12"
+))]
+mod canvas_frame_probe;
 #[cfg(feature = "screenshot")]
 pub(crate) mod capture_redaction;
 #[cfg(all(test, feature = "screenshot"))]

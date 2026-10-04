@@ -12,7 +12,7 @@ fn frame(canvas: &CanvasHandle, renderer: &mut Renderer, gpu: &(Device, Queue), 
   let d = canvas.context_2d();
   d.clear();
   draw(&d);
-  renderer.process(&gpu.0, &gpu.1, &[canvas.clone()]);
+  renderer.process(&gpu.0, &gpu.1, std::slice::from_ref(canvas));
   gpu.0.poll(PollType::wait_indefinitely()).unwrap();
   canvas.status().gpu.uploaded_bytes - before
 }
@@ -40,7 +40,11 @@ fn gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget() {
     .collect();
   assert_eq!(canvas.status().error, None);
   assert_eq!(uploads[0], 1100 * 16 * 16 * 4);
-  assert_eq!(uploads[1..], [0, 0, 0], "images of the previous frame were uploaded again");
+  assert_eq!(
+    uploads[1..],
+    [0, 0, 0],
+    "images of the previous frame were uploaded again"
+  );
 }
 
 #[test]
@@ -66,5 +70,9 @@ fn gpu_canvas_uploads_a_page_of_labels_once() {
     .collect();
   assert_eq!(canvas.status().error, None);
   assert!(uploads[0] > 0);
-  assert_eq!(uploads[1..], [0, 0, 0], "labels of the previous frame were uploaded again");
+  assert_eq!(
+    uploads[1..],
+    [0, 0, 0],
+    "labels of the previous frame were uploaded again"
+  );
 }

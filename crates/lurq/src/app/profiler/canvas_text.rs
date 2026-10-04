@@ -107,6 +107,14 @@ pub(crate) fn evicted() {
   update(|profile| profile.shape_cache_evictions = profile.shape_cache_evictions.saturating_add(1));
 }
 
+pub(crate) fn uncached() {
+  update(|profile| profile.shape_cache_uncached = profile.shape_cache_uncached.saturating_add(1));
+}
+
+pub(crate) fn stretched(bytes: usize) {
+  update(|profile| profile.shape_cache_stretch_bytes = profile.shape_cache_stretch_bytes.max(bytes as u64));
+}
+
 pub(crate) fn produced(bytes: usize) {
   update(|profile| profile.produced_bitmap_bytes = profile.produced_bitmap_bytes.saturating_add(bytes as u64));
 }

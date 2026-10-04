@@ -17,11 +17,16 @@ mod software;
 pub use software::CanvasColor;
 pub(crate) use software::transform;
 use software::{paint_of, rescale_clip};
+mod asset_cache;
 mod blend;
 mod context;
 mod effect;
+mod frame_cache;
 pub(crate) mod gpu;
 mod items;
+#[cfg(any(feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
+pub(crate) use asset_cache::AssetCache;
+pub use asset_cache::CanvasAssetBudget;
 pub use blend::BlendMode;
 pub use effect::{Filter, MAX_BLUR_RADIUS, MAX_EFFECT_PIXELS, MAX_SHADOW_BLUR, MAX_SHADOW_SPREAD, Shadow};
 pub use gpu::{CanvasReadback, MAX_LAYER_DEPTH};
