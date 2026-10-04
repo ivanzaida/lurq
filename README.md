@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.37.0"
+lurq = "0.38.0"
 ```
 
 There are no default features. Enable the window shell and renderer to run the example below:
 
 ```toml
 [dependencies]
-lurq = { version = "0.37.0", features = ["winit", "wgpu"] }
+lurq = { version = "0.38.0", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:
@@ -83,3 +83,5 @@ The workflow publishes `lurq_macros` before `lurq` so the versioned macro depend
 ## License
 
 MIT
+
+The 0.38.0 source candidate adds explicit complete canvas presentation transactions and retained artwork camera drawing. It is not published yet; the new canvas APIs require this source candidate.

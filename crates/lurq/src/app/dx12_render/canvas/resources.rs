@@ -43,6 +43,57 @@ pub(super) unsafe fn texture(
   allocate_texture(device, width, height, samples, usage, initial)
 }
 
+/// Driver-reported allocation size of the exact presentation resource description.
+pub(super) unsafe fn target_allocation_bytes(device: &ID3D12Device, width: u32, height: u32, artwork: bool) -> usize {
+  let (desc, _) = texture_definition(
+    width,
+    height,
+    1,
+    if artwork {
+      TextureUsage::Sampled
+    } else {
+      TextureUsage::RenderTarget
+    },
+  );
+  usize::try_from(
+    device
+      .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
+      .SizeInBytes,
+  )
+  .unwrap_or(usize::MAX)
+}
+/// Same descriptors as the renderer's tile workspace, including maximum admitted layers.
+pub(super) unsafe fn workspace_ceiling_bytes(device: &ID3D12Device) -> usize {
+  let charge = |samples, stencil| {
+    let (desc, _) = texture_definition(
+      TILE,
+      TILE,
+      samples,
+      if stencil {
+        TextureUsage::DepthStencil
+      } else {
+        TextureUsage::RenderTarget
+      },
+    );
+    usize::try_from(
+      device
+        .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
+        .SizeInBytes,
+    )
+    .unwrap_or(usize::MAX)
+  };
+  charge(4, false)
+    .saturating_add(charge(4, true))
+    .saturating_add(charge(1, false).saturating_mul(MAX_LAYER_DEPTH + 2))
+}
+pub(super) unsafe fn resource_allocation_bytes(device: &ID3D12Device, resource: &ID3D12Resource) -> usize {
+  usize::try_from(
+    device
+      .GetResourceAllocationInfo(0, std::slice::from_ref(&resource.GetDesc()))
+      .SizeInBytes,
+  )
+  .unwrap_or(usize::MAX)
+}
 /// Assets are copied to and sampled, never rendered to or fast-cleared. Keep
 /// their resource capability narrow without changing the existing cache charge.
 pub(super) unsafe fn asset_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
