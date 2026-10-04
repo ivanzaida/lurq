@@ -84,7 +84,7 @@ fn canvas_text_profiles_real_measure_fill_cache_and_cpu_stages() {
   assert!(profile.buffer_font_shape + profile.glyph_prepare + profile.bitmap_composition <= profile.total);
   let surface = ctx.canvas.inner.lock();
   let engine = surface.text.as_ref().unwrap().lock();
-  let produced: usize = engine.shaped.iter().map(|entry| entry.4.data.len()).sum();
+  let produced: usize = engine.shaped.results().map(|result| result.data.len()).sum();
   assert_eq!(profile.produced_bitmap_bytes, produced as u64);
   assert!(produced > 0);
   #[cfg(any(feature = "serde", feature = "mcp"))]
@@ -176,7 +176,8 @@ fn canvas_text_idle_boundary_and_real_cache_eviction_are_bounded() {
   let (started, phase) = producer.begin_pass(2);
   let scope = producer.context.canvas_text_scope();
   ctx.measure_text("aaaa").unwrap();
-  // Distinct font sizes exercise the actual 256-entry LRU, with no bitmap cost.
+  // More distinct font sizes than the former 256 entries: measurements are
+  // charged bytes, not entries, so they all stay, with no bitmap cost.
   for size in 1..=257 {
     ctx.set_font(CanvasFont::new("Lurq Weight Probe", size as f32));
     ctx.measure_text("").unwrap();
@@ -194,11 +195,53 @@ fn canvas_text_idle_boundary_and_real_cache_eviction_are_bounded() {
     ),
     (258, 1, 257)
   );
-  assert_eq!(profile.shape_cache_evictions, 2);
+  assert_eq!(profile.shape_cache_evictions, 0);
   assert_eq!(profile.produced_bitmap_bytes, 0);
   assert_eq!(profile.bitmap_composition, Duration::ZERO);
   let surface = ctx.canvas.inner.lock();
-  assert_eq!(surface.text.as_ref().unwrap().lock().shaped.len(), 256);
+  assert_eq!(surface.text.as_ref().unwrap().lock().shaped.len(), 258);
+}
+
+#[test]
+fn canvas_text_profiles_a_frame_that_stretches_or_overflows_the_shape_cache() {
+  let ctx = context();
+  let engine = ctx.canvas.inner.lock().text.clone().unwrap();
+  // Measurements are charged their text plus 256 bytes: one fits the budget,
+  // two fit the ceiling.
+  engine.lock().shaped = super::shape_cache::ShapeCache::with_limits(crate::canvas::frame_cache::Limits {
+    budget: 300,
+    ceiling: 600,
+  });
+  ctx.canvas.finish_text_frame();
+  let mut producer = WindowProfiler::new();
+  let handle = producer.handle();
+  let id = handle.start(Default::default()).unwrap().id;
+  let (started, phase) = producer.begin_pass(1);
+  let scope = producer.context.canvas_text_scope();
+  for text in ["aa", "aaa", "aaaa"] {
+    ctx.measure_text(text).unwrap();
+  }
+  complete(&mut producer, started);
+  drop(scope);
+  drop(phase);
+  let report = handle.end(id).unwrap();
+  let profile = text(&report, "main");
+  assert_eq!(
+    (
+      profile.shape_cache_misses,
+      profile.shape_cache_evictions,
+      profile.shape_cache_uncached,
+      profile.shape_cache_stretch_bytes
+    ),
+    (3, 0, 1, 258 + 259 - 300)
+  );
+  #[cfg(any(feature = "serde", feature = "mcp"))]
+  {
+    let export = report.to_json();
+    let counts = &export["samples"][0]["data"]["canvas_text"]["counts"];
+    assert_eq!(counts["shape_cache_uncached"], 1);
+    assert_eq!(counts["shape_cache_stretch_bytes"], 217);
+  }
 }
 
 #[test]

@@ -149,6 +149,15 @@ pub struct CanvasProfile {
   pub vertices: usize,
   pub tiles: usize,
   pub uploaded_asset_bytes: usize,
+  /// The renderer's Canvas asset budget (`CanvasAssetBudget`) in bytes.
+  pub asset_cache_budget_bytes: usize,
+  /// The most the asset cache was charged above its budget during the encode;
+  /// above zero, the textures of the current and previous frame need more.
+  pub asset_cache_stretch_bytes: usize,
+  /// Textures uploaded and drawn but not kept past the encode, because the
+  /// textures of the current and previous frame filled the cache's ceiling.
+  pub asset_cache_uncached: usize,
+  pub asset_cache_uncached_bytes: usize,
 }
 
 impl RenderProfile {
