@@ -1,0 +1,51 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:41:28+03:00
+# cargo publish --dry-run -p lurq --locked
+    Updating crates.io index
+   Packaging lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+    Updating crates.io index
+warning: package `chacha20 v0.10.1` in Cargo.lock is yanked in registry `crates-io`, consider updating to a version that is not yanked
+    Packaged 648 files, 5.5MiB (1.4MiB compressed)
+   Verifying lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+   Compiling font-types v0.12.5
+   Compiling font-types v0.11.3
+   Compiling ttf-parser v0.25.1
+   Compiling unicode-linebreak v0.1.5
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling unicode-script v0.5.8
+   Compiling unicode-bidi v0.3.18
+   Compiling windows v0.62.2
+   Compiling fontdb v0.23.0
+   Compiling lurq_macros v0.1.2
+   Compiling skrifa v0.40.0
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.5.2
+   Compiling swash v0.2.10
+   Compiling cosmic-text v0.19.0
+   Compiling lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\.tmp\target\package\lurq-0.37.1)
+warning: function `atlas_rects_to_apply` is never used
+    --> src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.73s
+   Uploading lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+warning: aborting upload due to dry run
+# finished: 2026-10-04T17:42:01+03:00 exit: 0

@@ -1,0 +1,387 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:45:33+03:00
+# cargo test -p lurq --locked --offline --features query,tokio --test query_tests --test runtime_tests --test reactivity_tests
+   Compiling lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+warning: function `atlas_rects_to_apply` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.27s
+     Running tests\query_tests.rs (.tmp/target\debug\deps\query_tests-ee813c58b04908c0.exe)
+
+running 3 tests
+test macro_preserves_visibility_module_paths_and_supports_owned_nonclone_results ... ok
+test cloning_shares_cache_across_trees_and_new_clients_remain_isolated ... ok
+test mounted_components_share_requests_and_keep_the_provider_after_navigation ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\reactivity_tests.rs (.tmp/target\debug\deps\reactivity_tests-80bed294b0665c2b.exe)
+
+running 160 tests
+test reactivity::cell_ref::ref_get_returns_initial ... ok
+test reactivity::cell_ref::ref_with_reads ... ok
+test reactivity::cell_ref::ref_set_updates ... ok
+test reactivity::cell_ref::ref_is_not_reactive ... ok
+test reactivity::cell_ref::ref_clone_shares_state ... ok
+test reactivity::component::element_ref_mut_via_ctx ... ok
+test reactivity::component::has_children_false_when_none ... ok
+test reactivity::batch::empty_batch_is_noop ... ok
+test reactivity::component::create_ref_via_ctx ... ok
+test reactivity::component::element_ref_via_ctx ... ok
+test reactivity::component::create_context_reactive_marks_dirty ... ok
+test reactivity::batch::batch_with_multiple_signals ... ok
+test reactivity::batch::batch_returns_nothing_and_completes ... ok
+test reactivity::batch::batch_coalesces_dirty_marking ... ok
+test reactivity::cell_ref::ref_with_string ... ok
+test reactivity::component::interaction_via_ctx ... ok
+test reactivity::component::memo_via_ctx ... ok
+test reactivity::component::children_empty_when_no_slots ... ok
+test reactivity::cell_ref::ref_update_mutates ... ok
+test reactivity::component::provide_and_use_context_roundtrip ... ok
+test reactivity::component::signal_via_ctx_marks_dirty ... ok
+test reactivity::component::store_via_ctx_marks_dirty ... ok
+test reactivity::component::use_context_missing_returns_none ... ok
+test reactivity::context::context_map_clone_inherits ... ok
+test reactivity::context::context_map_child_override_does_not_affect_parent ... ok
+test reactivity::context::context_map_different_types ... ok
+test reactivity::context::context_map_get_missing_returns_none ... ok
+test reactivity::component::slot_children_passed_through ... ok
+test reactivity::context::context_map_overwrite_same_type ... ok
+test reactivity::context::context_map_provide_and_get ... ok
+test reactivity::context::reactive_context_clone_shares ... ok
+test reactivity::context::reactive_context_get_initial ... ok
+test reactivity::context::reactive_context_same_value_no_change ... ok
+test reactivity::context::reactive_context_set_updates ... ok
+test reactivity::context::reactive_context_with_string ... ok
+test reactivity::effect::dropping_effect_stops_reruns ... ok
+test reactivity::effect::effect_reads_current_value ... ok
+test reactivity::effect::effect_reruns_on_dependency_change ... ok
+test reactivity::effect::effect_runs_immediately ... ok
+test reactivity::effect::effect_tracks_multiple_signals ... ok
+test reactivity::memo::memo_chains ... ok
+test reactivity::memo::memo_clone_shares_value ... ok
+test reactivity::memo::memo_computes_initial_value ... ok
+test reactivity::memo::memo_does_not_propagate_unchanged_value ... ok
+test reactivity::memo::memo_propagates_on_actual_change ... ok
+test reactivity::memo::memo_recomputes_on_dependency_change ... ok
+test reactivity::memo::memo_with_accesses_value ... ok
+test reactivity::memo::memo_with_multiple_dependencies ... ok
+test reactivity::component::ctx_app_ref_mut_mutates_app ... ok
+test reactivity::component::error_boundary_catches_panic ... ok
+test reactivity::component::for_each_renders_all_items ... ok
+test reactivity::component::deeply_nested_mount ... ok
+test reactivity::component::parent_mounts_children ... ok
+test reactivity::component::empty_component_renders_leaf ... ok
+test reactivity::component::mount_root_renders ... ok
+test reactivity::component::ctx_app_ref_reads_app ... ok
+test reactivity::component::context_propagates_to_descendant ... ok
+test reactivity::component::root_lifecycle_runs_once_and_unmounts ... ok
+test reactivity::measured_rect::observed_rect_feeds_a_render_that_depends_on_measured_size ... ok
+test reactivity::dirty_tracking::parent_passed_signal_marks_child_dirty::signal_passed_from_parent_marks_child_dirty_when_child_reads_it ... ok
+test reactivity::component::for_each_preserves_keyed_child_components_across_reorder ... ok
+test reactivity::component::dirty_signal_rebuilds_before_layout ... ok
+test reactivity::component::updated_context_propagates_to_reused_child_context ... ok
+test reactivity::dirty_tracking::child_props_change_rerenders_child::changed_child_props_rerender_child ... ok
+test reactivity::dirty_tracking::child_signal_does_not_rerender_parent::child_signal_update_refreshes_child_without_rerendering_parent ... ok
+test reactivity::component::mount_keyed_preserves_child_components_across_prepend ... ok
+test reactivity::dirty_tracking::nested_component_layout_relayouts::nested_component_layout_change_relayouts_ancestors ... ok
+test reactivity::dirty_tracking::parent_signal_does_not_rerender_clean_child::parent_signal_update_does_not_rerender_clean_child_with_same_props ... ok
+test reactivity::offstage_runtime_state::an_app_held_scroll_state_keeps_its_offset_offstage ... ok
+test reactivity::counter::value_updates::updates_displayed_value_after_increment_and_decrement_clicks ... ok
+test reactivity::reentrant_writes::effect_reruns_after_a_watch_writes_its_dependency ... ok
+test reactivity::reentrant_writes::effect_that_writes_a_signal_it_reads_settles ... ok
+test reactivity::reentrant_writes::raw_signal_watch_through_effect_sets_the_signal_it_reads ... ok
+test reactivity::reentrant_writes::self_feeding_watch_stops_with_a_panic_and_the_signal_keeps_working ... ok
+test reactivity::offstage_runtime_state::offstage_round_trip_keeps_a_text_input_caret ... ok
+test reactivity::reentrant_writes::several_writes_in_one_callback_are_coalesced_to_the_latest_value ... ok
+test reactivity::reentrant_writes::signals_written_from_each_others_watches_settle_inside_a_batch ... ok
+test reactivity::component::child_lifecycle_tracks_insertions_and_removals ... ok
+test reactivity::reentrant_writes::update_of_another_signal_inside_a_watch_is_applied ... ok
+test reactivity::reentrant_writes::update_inside_a_watch_of_the_same_signal_panics_instead_of_deadlocking ... ok
+test reactivity::reentrant_writes::watch_callback_can_set_its_own_signal ... ok
+test reactivity::reentrant_writes::watch_callback_write_is_delivered_after_the_current_pass ... ok
+test reactivity::reentrant_writes::watch_can_subscribe_and_unsubscribe_on_its_own_signal ... ok
+test reactivity::signal::clone_shares_state ... ok
+test reactivity::signal::from_creates_signal ... ok
+test reactivity::signal::get_returns_initial_value ... ok
+test reactivity::signal::get_untracked_returns_value ... ok
+test reactivity::signal::multiple_sets_keep_last ... ok
+test reactivity::signal::set_updates_value ... ok
+test reactivity::signal::signal_with_string ... ok
+test reactivity::signal::signal_with_vec ... ok
+test reactivity::signal::update_complex_struct ... ok
+test reactivity::signal::update_mutates_in_place ... ok
+test reactivity::signal::with_reads_without_cloning ... ok
+test reactivity::signal::with_untracked_reads ... ok
+test reactivity::store::lens_clone_shares_store ... ok
+test reactivity::store::lens_does_not_affect_other_fields ... ok
+test reactivity::store::lens_get_reads_field ... ok
+test reactivity::store::lens_on_string_field ... ok
+test reactivity::store::lens_on_vec_field ... ok
+test reactivity::store::lens_set_updates_field ... ok
+test reactivity::store::lens_update_mutates_field ... ok
+test reactivity::store::multiple_lenses_on_same_store ... ok
+test reactivity::store::store_clone_shares ... ok
+test reactivity::store::store_get_returns_initial ... ok
+test reactivity::store::store_set_replaces ... ok
+test reactivity::store::store_update_mutates ... ok
+test reactivity::store::store_with_reads ... ok
+test reactivity::theme::default_theme_has_fonts ... ok
+test reactivity::counter::render_runs_on_update::rerenders_after_click_updates_signal_value ... ok
+test reactivity::theme::default_theme_has_palette ... ok
+test reactivity::theme::default_theme_has_radii ... ok
+test reactivity::theme::default_theme_has_spacing ... ok
+test reactivity::theme::default_theme_has_typography ... ok
+test reactivity::theme::named_theme_values_can_be_set_and_resolved ... ok
+test reactivity::theme::set_fonts_updates ... ok
+test reactivity::theme::set_palette_color_updates_variant ... ok
+test reactivity::theme::set_palette_replaces_named_palette ... ok
+test reactivity::theme::set_radii_replaces_named_radii ... ok
+test reactivity::theme::set_radius_value_updates_named_radius ... ok
+test reactivity::theme::set_spacing_replaces_named_spacing ... ok
+test reactivity::theme::set_spacing_value_accepts_dimension ... ok
+test reactivity::theme::set_spacing_value_updates_named_spacing ... ok
+test reactivity::theme::set_typography_replaces_named_typography ... ok
+test reactivity::theme::set_typography_style_updates_variant ... ok
+test reactivity::theme::theme_border_size_setter_updates_one_size ... ok
+test reactivity::theme::theme_border_sizes_have_strict_defaults ... ok
+test reactivity::theme::theme_clone_shares_state ... ok
+test reactivity::theme::theme_lens_reads_sets_and_updates_value ... ok
+test reactivity::theme::theme_set_border_sizes_replaces_table ... ok
+test reactivity::modal::modal_renders_declared_modal_above_root ... ok
+test reactivity::offstage_runtime_state::offstage_round_trip_keeps_the_scroll_offset ... ok
+test reactivity::offstage_runtime_state::scroll_offset_survives_parent_rerenders_before_going_offstage ... ok
+test reactivity::offstage_runtime_state::scroll_offset_survives_the_pages_own_rerenders_before_going_offstage ... ok
+test reactivity::offstage_runtime_state::scroll_offset_survives_repeated_round_trips_and_offstage_prop_changes ... ok
+test reactivity::provided_context::parent_rerender_without_context_change_does_not_rerender_provider ... ok
+test reactivity::provided_context::changed_ancestor_context_reaches_descendants_next_to_provided_one ... ok
+test reactivity::modal::modal_partial_layout_change_relayouts_modal_ancestors ... ok
+test reactivity::modal::modal_removes_modal_when_declaring_component_stops_rendering_it ... ok
+test reactivity::provided_context::value_provided_in_render_is_removed_when_render_stops_providing_it ... ok
+test reactivity::modal::context_menu_percent_slider_rerenders_fill_when_dragging_left ... ok
+test reactivity::modal::later_declared_modal_renders_above_existing_modal ... ok
+test reactivity::provided_context::context_provided_in_create_survives_parent_rerender ... ok
+test reactivity::modal::context_menu_percent_slider_thumb_matches_value_after_track_click ... ok
+test reactivity::modal::context_menu_percent_slider_thumb_matches_lowered_value_after_drag ... ok
+test reactivity::modal::escape_key_closes_only_top_modal ... ok
+test reactivity::modal::local_slider_inside_modal_rerenders_while_dragging ... ok
+test reactivity::modal::modal_partial_update_preserves_live_node_ids ... ok
+test reactivity::modal::nested_percent_slider_inside_modal_rerenders_fill_when_dragging_left ... ok
+test reactivity::provided_context::reactive_context_provided_in_create_still_notifies_after_parent_rerender ... ok
+test reactivity::offstage::offstage_component_retains_state_without_rendering_or_unmounting ... ok
+test reactivity::modal::nested_local_slider_inside_modal_rerenders_while_dragging ... ok
+test reactivity::theme::theme_change_rerenders_subscriber_components ... ok
+test reactivity::theme::window_resize_recomputes_breakpoint_without_reentering_window_lock ... ok
+test reactivity::theme::theme_breakpoint_change_recomputes_without_reentering_theme_lock ... ok
+test reactivity::modal::context_menu_percent_slider_rerenders_fill_when_dragging_after_mouse_down_frame ... ok
+test reactivity::modal::select_inside_modal_opens_and_commits ... ok
+test reactivity::modal::nested_percent_slider_inside_modal_rerenders_fill_while_dragging ... ok
+test reactivity::modal::select_inside_modal_option_hover_follows_mouse_after_overlay_rebuild ... ok
+test reactivity::modal::for_each_owned_modal_slider_updates_without_growing_modal_hosts ... ok
+
+test result: ok. 160 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+
+     Running tests\runtime_tests.rs (.tmp/target\debug\deps\runtime_tests-63ad7c76627ad183.exe)
+
+running 179 tests
+test runtime::app_lifetime::timer_can_read_and_write_app_after_it_moves_out_of_mount_frame ... ok
+test runtime::app_lifetime::timer_retains_app_services_after_external_owner_is_dropped ... ok
+test runtime::click::stop_propagation_prevents_parent_mouse_handler ... ok
+test runtime::app_lifetime::future_can_use_app_after_external_owner_is_dropped ... ok
+test runtime::click::content_only_stack_child_does_not_occlude_lower_sibling_when_empty ... ok
+test runtime::cursor::hovered_style_can_override_cursor ... ok
+test runtime::click::child_of_content_only_wrapper_receives_click_and_occludes_lower_sibling ... ok
+test runtime::click::release_near_press_clicks_same_target ... ok
+test runtime::click::child_press_parent_release_clicks_parent ... ok
+test runtime::click::release_far_from_press_clicks_same_target ... ok
+test runtime::double_click::second_nearby_click_dispatches_only_dblclick_handler ... ok
+test runtime::click::release_over_click_target_does_not_click_when_press_started_elsewhere ... ok
+test runtime::cursor::cursor_follows_hovered_element ... ok
+test runtime::click::non_left_buttons_do_not_fire_on_click ... ok
+test runtime::click::pointer_events_none_ignores_node_and_children ... ok
+test runtime::element_lookup::by_class::class_builder_deduplicates_like_dom_class_list ... ok
+test runtime::click::stack_top_child_occludes_lower_sibling_clicks ... ok
+test runtime::click::parent_press_child_release_clicks_parent_not_child ... ok
+test runtime::element_lookup::by_class::class_list_mutations_are_reflected_in_lookup ... ok
+test runtime::element_lookup::by_class::finds_all_elements_by_class_in_tree_order ... ok
+test runtime::element_lookup::by_id::duplicate_ids_resolve_to_first_match_in_tree_order ... ok
+test runtime::element_lookup::by_id::finds_element_by_id_in_tree_order ... ok
+test runtime::drag::drag_reports_incremental_and_total_deltas ... ok
+test runtime::click::on_mouse_click_fires_only_for_matching_button ... ok
+test runtime::double_click::child_click_uses_ancestor_dblclick_handler ... ok
+test runtime::element_lookup::synthetic_click::click_works_before_layout_with_zeroed_coordinates ... ok
+test runtime::element_lookup::typed_interaction::downcast_to_wrong_kind_returns_none ... ok
+test runtime::drag::drag_end_fires_even_when_pointer_is_released_outside_source_bounds ... ok
+test runtime::drag::drag_move_continues_after_pointer_leaves_source_bounds ... ok
+test runtime::app_lifetime::skipped_pass_rebinds_app_before_a_later_event_render ... ok
+test runtime::app_lifetime::disappearing_overlay_blur_can_mutate_shared_app_services ... ok
+test runtime::drag::drag_start_button_mask_filters_pointer_buttons ... ok
+test runtime::drag::drag_that_moved_suppresses_the_synthesized_click ... ok
+test runtime::click::ctx_on_click_outside_handles_multiple_hooks_and_event_fields ... ok
+test runtime::drag::stationary_press_on_a_drag_source_still_clicks ... ok
+test runtime::element_lookup::synthetic_click::click_fires_on_click_at_bounds_center_without_hit_testing ... ok
+test runtime::click::click_handlers_append_and_off_removes_the_exact_handler ... ok
+test runtime::click::rebuilt_descendant_at_same_position_receives_click ... ok
+test runtime::element_lookup::typed_interaction::checkbox_handle_toggles_signal ... ok
+test runtime::element_lookup::by_id::id_and_classes_are_usable_in_find_element_predicates ... ok
+test runtime::element_lookup::mutation::bounds_are_none_before_first_layout_pass ... ok
+test runtime::element_lookup::typed_interaction::slider_handle_drives_signal ... ok
+test runtime::click::ctx_on_click_outside_fires_for_left_clicks_outside_ref ... ok
+test runtime::drag::drag_container_clamps_draggable_to_container_bounds ... ok
+test runtime::element_lookup::by_id::lookup_works_before_first_layout_pass ... ok
+test runtime::futures::future_action_restarts_from_state_watch::future_action_restarted_from_a_watch_on_its_own_state_completes ... ok
+test runtime::element_ref_interaction::element_ref_tracks_hover_and_active_state ... ok
+test runtime::element_lookup::synthetic_click::click_on_button_focuses_it_and_fires_focus_handlers ... ok
+test runtime::drag::drop_dispatches_to_hit_drop_target_on_release ... ok
+test runtime::element_lookup::mutates_rect::updates_layout_after_mutating_found_element_rect ... ok
+test runtime::drag::drop_event_delivers_the_drag_sources_payload ... ok
+test runtime::futures::future_action_runs_on_run::future_action_runs_when_called ... ok
+test runtime::futures::future_restarts_on_deps_change::future_restarts_when_deps_change_and_preserves_previous_data ... ok
+test runtime::futures::future_action_restarts_from_state_watch::tokio_future_action_restarted_from_a_watch_on_its_own_state_completes ... ok
+test runtime::futures::tokio_future_action_uses_runtime::tokio_future_action_runs_on_tokio_runtime_and_updates_on_future_tick ... ok
+test runtime::element_lookup::mutation::layout_affecting_mutation_relayouts ... ok
+test runtime::futures::future_resolves::future_resolves_after_future_tick ... ok
+test runtime::element_lookup::mutation::style_mutation_through_handle_invalidates_and_renders ... ok
+test runtime::futures::tokio_future_uses_runtime::tokio_future_resolves_on_tokio_runtime_and_updates_on_future_tick ... ok
+test runtime::element_ref_interaction::element_ref_mut_can_override_layout_bounds ... ok
+test runtime::futures::tokio_tasks::offstage::offstage_future_finishes_and_its_result_applies_once_active_again ... ok
+test runtime::drag::followers_move_in_lockstep_with_the_dragged_element ... ok
+test runtime::element_ref_interaction::ctx_element_ref_is_stable_across_rerenders ... ok
+test runtime::drag::signal_driven_rerender_does_not_cancel_active_drag ... ok
+test runtime::futures::tokio_tasks::regressions::future_action_still_runs_when_triggered ... ok
+test runtime::futures::tokio_tasks::unmount::pending_future_is_cancelled_when_its_component_unmounts ... ok
+test runtime::element_ref_interaction::hovered_style_overrides_visuals_and_layout ... ok
+test runtime::futures::tokio_tasks::regressions::deps_change_still_cancels_the_previous_tokio_future ... ok
+test runtime::futures::tokio_tasks::unmount::future_slot_a_rerender_no_longer_renders_is_cancelled ... ok
+test runtime::futures::tokio_tasks::offstage::offstage_stream_keeps_running_and_stops_when_removed ... ok
+test runtime::futures::tokio_tasks::regressions::rerender_keeps_a_completed_tokio_future_without_restarting_it ... ok
+test runtime::drag::followers_revert_with_the_dragged_element_on_a_missed_drop ... ok
+test runtime::futures::tokio_tasks::unmount::future_action_run_after_its_component_unmounts_starts_nothing ... ok
+test runtime::element_ref_interaction::element_ref_tracks_focus_state ... ok
+test runtime::futures::tokio_future_action_uses_runtime::tokio_future_action_inside_modal_updates_after_completion ... ok
+test runtime::futures::tokio_tasks::unmount::future_dropped_by_spawn_on_a_shut_down_runtime_may_touch_its_own_handle ... ok
+test runtime::drag::drag_container_clamp_survives_drag_start_rerender ... ok
+test runtime::futures::tokio_tasks::unmount::stream_task_stops_when_its_component_unmounts ... ok
+test runtime::futures::tokio_tasks::unmount::unmounting_after_the_runtime_shut_down_does_not_panic ... ok
+test runtime::futures::tokio_tasks::unmount::tasks_stop_when_the_tree_is_dropped ... ok
+test runtime::futures::tokio_tasks::unmount::stream_task_stops_on_a_multi_thread_runtime ... ok
+test runtime::drag::external_element_ref_drives_drag_and_clear_policy_restores_layout_position ... ok
+test runtime::mouse_leave::mouse_leave_window_fires_on_mouse_leave ... ok
+test runtime::mouse_leave::node_mouse_leave_fires_when_pointer_exits_node ... ok
+test runtime::mouse_leave::set_root_dispatches_mouse_leave_before_replacing_root ... ok
+test runtime::element_lookup::typed_interaction::set_value_shrinking_text_keeps_editing_consistent ... ok
+test runtime::element_lookup::typed_interaction::set_value_writes_signal_without_firing_on_input ... ok
+test runtime::modal_resize::nested_modal_follows_the_window_after_its_owner_rerenders_past_two_resizes ... ok
+test runtime::headless_pass::focused_element_reports_the_control_that_has_focus ... ok
+test runtime::modal_resize::element_modal_follows_the_window_after_its_owner_rerenders_past_two_resizes ... ok
+test runtime::headless_pass::headless_pass_lays_out_without_a_surface_and_never_renders ... ok
+test runtime::modal_resize::root_modal_follows_the_window_after_its_owner_rerenders_past_two_resizes ... ok
+test runtime::modal_resize::parent_modal_follows_the_window_after_its_owner_rerenders_past_two_resizes ... ok
+test runtime::modal_resize::popup_follows_the_window_after_its_owner_rerenders_past_two_resizes ... ok
+test runtime::outside_press::a_popup_that_does_not_dismiss_lets_presses_through ... ok
+test runtime::outside_press::a_consumed_press_does_not_move_focus ... ok
+test runtime::modal_resize::root_modal_of_an_offstage_owner_follows_the_window_it_returns_to ... ok
+test runtime::outside_press::a_press_outside_only_closes_the_popup ... ok
+test runtime::outside_press::a_pass_through_popup_delivers_the_closing_press ... ok
+test runtime::mouse_leave::rebuild_preserves_hover_without_dispatching_mouse_leave ... ok
+test runtime::overlay::bottom_start_overlay_uses_anchor_rect_offset_and_matched_width ... ok
+test runtime::outside_press::a_select_menu_opened_from_the_popup_is_not_outside_it ... ok
+test runtime::overlay::closed_overlay_is_not_hosted_or_laid_out ... ok
+test runtime::outside_press::presses_on_the_anchor_and_the_popup_are_delivered ... ok
+test runtime::outside_press::a_press_on_the_title_bar_above_a_content_popup_is_consumed ... ok
+test runtime::outside_press::a_press_on_the_title_bar_under_a_title_bar_popup_is_consumed ... ok
+test runtime::outside_press::an_open_select_menu_in_the_popup_consumes_a_press_on_the_popup ... ok
+test runtime::outside_press::other_buttons_pass_through_and_keep_the_popup_open ... ok
+test runtime::overlay::modal_target_parent_covers_declaring_parent_bounds ... ok
+test runtime::overlay::modal_target_root_covers_viewport_bounds ... ok
+test runtime::overlay::modal_target_element_ref_covers_target_bounds ... ok
+test runtime::element_lookup::transient_mutation::direct_style_mutation_is_transient_but_signal_backed_value_persists ... ok
+test runtime::overlay::overlay_declaration_does_not_affect_column_layout_or_spacing ... ok
+test runtime::pass_report::pass_report_marks_explicit_redraw_without_layout_recalc ... ok
+test runtime::pass_report::pass_report_marks_initial_layout_and_noop_pass ... ok
+test runtime::pass_report::click_opened_parent_modal_presents_next_pass_after_event_flush ... ok
+test runtime::pass_report::click_opened_root_modal_presents_next_pass_after_event_flush ... ok
+test runtime::pass_report::pass_report_marks_timer_run_and_dirty_component ... ok
+test runtime::pass_report::signal_opened_parent_modal_requires_and_presents_next_pass_without_explicit_redraw ... ok
+test runtime::overlay::overlay_element_renders_native_host_above_root ... ok
+test runtime::pass_report::signal_opened_root_modal_requires_and_presents_next_pass_without_explicit_redraw ... ok
+test runtime::overlay::keyed_overlays_preserve_ids_when_declaration_order_changes ... ok
+test runtime::overlay::modal_declaration_closes_on_escape_when_open_is_signal ... ok
+test runtime::scroll_state::hovering_scrollbar_thumb_does_not_hover_content_underneath ... ok
+test runtime::overlay::top_start_overlay_uses_measured_height ... ok
+test runtime::scroll_state::pending_scroll_to_right_resolves_before_first_paint ... ok
+test runtime::overlay::popup_renders_through_overlay_host_with_popup_defaults ... ok
+test runtime::overlay::top_start_overlay_flips_to_bottom_when_it_would_leave_viewport ... ok
+test runtime::scroll_state::pending_scroll_to_bottom_resolves_before_first_paint ... ok
+test runtime::scroll_state::scroll_event_coordinates_are_logical_under_window_scale ... ok
+test runtime::overlay::popup_closes_on_escape_when_open_is_signal ... ok
+test runtime::overlay::overlays_expand_and_preserve_hover_at_arbitrary_depth ... ok
+test runtime::overlay::overlay_hover_style_survives_host_rebuild ... ok
+test runtime::scroll_state::scrollbar_drag_release_does_not_click_under_cursor ... ok
+test runtime::scroll_state::horizontal_scrollbar_thumb_drags_content ... ok
+test runtime::scroll_state::scrollbar_thumb_drag_emits_scroll_event ... ok
+test runtime::scroll_state::horizontal_scroll_responds_to_wheel_delta_x ... ok
+test runtime::scroll_state::overlay_pending_scroll_updates_content_offset_after_measurement ... ok
+test runtime::scroll_state::overlay_direct_scroll_updates_content_offset_after_reuse ... ok
+test runtime::scroll_state::preserve_prepend_anchor_compensates_added_content_height ... ok
+test runtime::overlay::static_popup_dismiss_options_do_not_close_without_signal ... ok
+test runtime::scroll_state::wheel_scroll_event_only_emits_when_scroll_delta_can_move_container ... ok
+test runtime::scroll_state::horizontal_scroll_bubbles_to_parent_when_child_is_at_edge ... ok
+test runtime::perf_overlay::draw_perf_overlay_renders_overlay ... ok
+test runtime::overlay::rounded_overlay_panel_geometry_is_stable_on_first_render ... ok
+test runtime::scrollbar_hits::an_always_visible_bar_over_fitting_content_takes_no_pointer ... ok
+test runtime::scrollbar_hits::in_the_corner_of_a_two_axis_scroller_the_horizontal_bar_painted_on_top_wins ... ok
+test runtime::scrollbar_hits::trailing_row_buttons_under_a_painted_track_belong_to_the_scrollbar ... ok
+test runtime::scrollbar_hits::where_nested_lanes_overlap_the_outer_bar_painted_on_top_wins ... ok
+test runtime::scrollbar_hits::trailing_row_buttons_under_a_plain_overlay_bar_keep_their_clicks_and_hover ... ok
+test runtime::scroll_state::scrollbar_thumb_drag_applies_reactive_scroll_updates_immediately ... ok
+test runtime::overlay::overlay_transition_survives_host_rebuild ... ok
+test runtime::scroll_state::wheel_scroll_cancels_pending_scroll_to_bottom ... ok
+test runtime::timers::signal_update_rerenders::timer_signal_update_rerenders_component ... ok
+test runtime::scroll_state::wheel_scroll_event_does_not_emit_when_content_does_not_overflow ... ok
+test runtime::timers::all_due_timers_fire::all_due_timers_fire_in_one_tick ... ok
+test runtime::timers::interval_repeats_until_stopped::interval_repeats_until_stopped ... ok
+test runtime::double_click::single_click_dispatches_click_after_dblclick_threshold ... ok
+test runtime::double_click::distant_click_does_not_dispatch_dblclick_handler ... ok
+test runtime::timers::timeout_restart_replaces_pending_fire::timeout_restart_replaces_pending_fire ... ok
+test runtime::timers::timeout_fires_once::timeout_fires_once_when_due ... ok
+test runtime::overlay::select_menu_inside_positioned_popup_uses_global_trigger_bounds ... ok
+test runtime::text_scale_wrap::dpi_scaled_wrapped_text_does_not_exceed_its_measured_rows ... ok
+test runtime::scroll_state::stick_to_bottom_only_when_near_end ... ok
+test runtime::overlay::popup_dismisses_only_on_left_mouse_down_outside ... ok
+test runtime::overlay::popup_does_not_close_when_clicking_anchor_or_content_but_closes_outside ... ok
+test runtime::text_shadow::text_without_shadow_emits_no_shadow_instances ... ok
+test runtime::text_reflow::stretched_wrapper_grows_and_shrinks_when_retained_text_reflows ... ok
+test runtime::text_shadow::text_shadow_emits_offset_copies_beneath_glyphs ... ok
+test runtime::scroll_state::vertical_scroll_bubbles_to_parent_when_child_is_at_edge ... ok
+test runtime::scroll_state::scroll_state_survives_signal_driven_rerender ... ok
+test runtime::scroll_state::scroll_culling_does_not_remount_or_rerender_cached_child_components ... ok
+test runtime::text_reflow::changed_text_is_measured_fresh_not_wrapped_at_stale_width ... ok
+test runtime::text_scale_wrap::dpi_scaled_intrinsic_text_does_not_gain_a_paint_only_wrap ... ok
+test runtime::text_shadow::invisible_shadow_is_skipped ... ok
+test runtime::scroll_state::scroll_reach_bottom_fires_once_when_crossing_into_bottom_edge ... ok
+test runtime::mouse_leave::hovering_stable_left_edge_does_not_emit_repeated_leave ... ok
+test runtime::stack_depth::editor_sized_rebuild_from_an_input_event_fits_a_one_mebibyte_stack ... ok
+test runtime::scroll_state::scroll_reach_top_fires_once_when_crossing_into_top_edge ... ok
+
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+# finished: 2026-10-04T17:45:58+03:00 exit: 0

@@ -1,0 +1,21 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:43:29+03:00
+# cargo test -p lurq_macros --locked --offline
+   Compiling syn v2.0.117
+   Compiling lurq_macros v0.1.2 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq_macros)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.66s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq_macros-47475c15572a4a96.exe)
+
+running 2 tests
+test query::tests::rejects_unsupported_definitions_and_options ... ok
+test query::tests::accepts_zero_and_multiple_arguments_and_checked_durations ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests lurq_macros
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+# finished: 2026-10-04T17:43:33+03:00 exit: 0

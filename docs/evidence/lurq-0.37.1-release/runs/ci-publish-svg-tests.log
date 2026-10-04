@@ -1,0 +1,60 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:57:34+03:00
+# cargo test -p lurq --locked --offline --features svg --test svg_tests
+   Compiling log v0.4.30
+   Compiling float-cmp v0.9.0
+   Compiling kurbo v0.11.3
+   Compiling siphasher v1.0.3
+   Compiling strict-num v0.1.1
+   Compiling fontdb v0.23.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling unicode-bidi v0.3.18
+   Compiling unicode-ccc v0.4.0
+   Compiling rustybuzz v0.20.1
+   Compiling svgtypes v0.15.3
+   Compiling simplecss v0.2.2
+   Compiling flate2 v1.1.9
+   Compiling unicode-vo v0.1.0
+   Compiling roxmltree v0.20.0
+   Compiling pico-args v0.5.0
+   Compiling xmlwriter v0.1.0
+   Compiling data-url v0.3.2
+   Compiling imagesize v0.13.0
+   Compiling cosmic-text v0.19.0
+   Compiling usvg v0.45.1
+   Compiling tiny-skia v0.11.4
+   Compiling lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+warning: function `atlas_rects_to_apply` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.91s
+     Running tests\svg_tests.rs (.tmp/target\debug\deps\svg_tests-cfd90ad6c5ccdba0.exe)
+
+running 3 tests
+test interned_trees_are_shared_across_instances ... ok
+test ids_are_content_stable_across_instances ... ok
+test override_chains_derive_deterministic_distinct_ids ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+# finished: 2026-10-04T17:57:57+03:00 exit: 0

@@ -1,0 +1,45 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:23:33+03:00
+# cargo check -p lurq --lib --locked --offline --features mcp,canvas,dx12
+    Checking smallvec v1.15.1
+    Checking euclid v0.22.14
+    Checking half v2.7.1
+    Checking windows v0.62.2
+    Checking hyper v1.11.0
+    Checking tiff v0.11.3
+    Checking lyon_geom v1.0.19
+    Checking parking_lot_core v0.9.12
+    Checking harfrust v0.5.2
+    Checking lyon_path v1.0.19
+    Checking image v0.25.10
+    Checking lyon_algorithms v1.0.20
+    Checking lyon_tessellation v1.0.20
+    Checking lyon v1.0.19
+    Checking parking_lot v0.12.5
+    Checking hyper-util v0.1.20
+    Checking raw-window-handle v0.6.2
+    Checking cosmic-text v0.19.0
+    Checking lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:65:7
+   |
+65 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.83s
+# finished: 2026-10-04T17:23:45+03:00 exit: 0

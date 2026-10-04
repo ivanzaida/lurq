@@ -1,0 +1,5 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:41:17+03:00
+# cargo publish --dry-run -p lurq --locked --offline
+error: attempting to make an HTTP request, but --offline was specified
+# finished: 2026-10-04T17:41:17+03:00 exit: 101

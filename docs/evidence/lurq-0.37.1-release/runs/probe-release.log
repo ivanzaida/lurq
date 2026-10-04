@@ -1,0 +1,108 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:38:21+03:00
+# cargo test -p lurq --release --lib --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot canvas_frame_probe -- --ignored --nocapture --test-threads=1
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4054:9
+     |
+4054 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4181:9
+     |
+4181 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4351:9
+     |
+4351 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:65:7
+   |
+65 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 6 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `release` profile [optimized] target(s) in 1.01s
+     Running unittests src\lib.rs (.tmp/target\release\deps\lurq-a52c969747d28581.exe)
+
+running 2 tests
+test app::canvas_frame_probe::canvas_frame_probe_dx12 ... probe backend=dx12 page=Labels shape_misses: first=688.00 steady_median=0.00
+probe backend=dx12 page=Labels shape_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels text_ms: first=27.63 steady_median=0.26
+probe backend=dx12 page=Labels textures_created: first=344.00 steady_median=0.00
+probe backend=dx12 page=Labels texture_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels asset_upload_ms: first=117.24 steady_median=0.32
+probe backend=dx12 page=Labels uploaded_kib: first=2711.62 steady_median=0.00
+probe backend=dx12 page=Labels canvas_total_ms: first=338.80 steady_median=0.58
+probe backend=dx12 page=Labels asset_stretch_kib: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels assets_uncached: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels shapes_uncached: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images textures_created: first=1100.00 steady_median=0.00
+probe backend=dx12 page=Images texture_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images asset_upload_ms: first=397.86 steady_median=1.02
+probe backend=dx12 page=Images uploaded_kib: first=1100.00 steady_median=0.00
+probe backend=dx12 page=Images canvas_total_ms: first=558.38 steady_median=1.79
+probe backend=dx12 page=Images asset_stretch_kib: first=4864.00 steady_median=4864.00
+probe backend=dx12 page=Images assets_uncached: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shapes_uncached: first=0.00 steady_median=0.00
+ok
+test app::canvas_frame_probe::canvas_frame_probe_wgpu ... probe backend=wgpu page=Labels shape_misses: first=688.00 steady_median=0.00
+probe backend=wgpu page=Labels shape_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels text_ms: first=25.99 steady_median=0.31
+probe backend=wgpu page=Labels textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels asset_upload_ms: first=25.54 steady_median=0.04
+probe backend=wgpu page=Labels uploaded_kib: first=2711.62 steady_median=0.00
+probe backend=wgpu page=Labels canvas_total_ms: first=177.87 steady_median=1.20
+probe backend=wgpu page=Labels asset_stretch_kib: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels assets_uncached: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels shapes_uncached: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images asset_upload_ms: first=70.56 steady_median=0.14
+probe backend=wgpu page=Images uploaded_kib: first=1100.00 steady_median=0.00
+probe backend=wgpu page=Images canvas_total_ms: first=153.74 steady_median=2.34
+probe backend=wgpu page=Images asset_stretch_kib: first=4864.00 steady_median=4864.00
+probe backend=wgpu page=Images assets_uncached: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shapes_uncached: first=0.00 steady_median=0.00
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 257 filtered out; finished in 6.77s
+
+# finished: 2026-10-04T17:38:29+03:00 exit: 0

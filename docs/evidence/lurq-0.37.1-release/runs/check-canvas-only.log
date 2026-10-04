@@ -1,0 +1,117 @@
+# head: f06833953d621cc915616a38903f50f8e2be626a tree: 7c4a9d7cd478f8deb0f33a1d428123d08b6fa9ff dirty-source-files: 0
+# started: 2026-10-04T17:24:11+03:00
+# cargo check -p lurq --lib --locked --offline --features canvas
+    Checking smallvec v1.15.1
+    Checking harfrust v0.5.2
+    Checking parking_lot_core v0.9.12
+    Checking parking_lot v0.12.5
+    Checking cosmic-text v0.19.0
+    Checking lurq v0.37.1 (H:\projects\pencil-web\.codex\worktrees\lurq-release-0371\crates\lurq)
+warning: function `atlas_rects_to_apply` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:65:7
+   |
+65 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `LayerStep` is never used
+  --> crates\lurq\src\layout\opacity_layer.rs:83:17
+   |
+83 | pub(crate) enum LayerStep {
+   |                 ^^^^^^^^^
+
+warning: struct `LayerTarget` is never constructed
+  --> crates\lurq\src\layout\opacity_layer.rs:94:19
+   |
+94 | pub(crate) struct LayerTarget {
+   |                   ^^^^^^^^^^^
+
+warning: struct `LayerPlan` is never constructed
+   --> crates\lurq\src\layout\opacity_layer.rs:105:19
+    |
+105 | pub(crate) struct LayerPlan {
+    |                   ^^^^^^^^^
+
+warning: methods `build`, `targets`, `steps`, `has_layers`, and `plan_target` are never used
+   --> crates\lurq\src\layout\opacity_layer.rs:115:17
+    |
+112 | impl LayerPlan {
+    | -------------- methods in this implementation
+...
+115 |   pub(crate) fn build(&mut self, draw_count: usize, order_of: impl Fn(usize) -> usize, layers: &[LayerCmd]) {
+    |                 ^^^^^
+...
+124 |   pub(crate) fn targets(&self) -> &[LayerTarget] {
+    |                 ^^^^^^^
+...
+128 |   pub(crate) fn steps(&self, target: &LayerTarget) -> &[LayerStep] {
+    |                 ^^^^^
+...
+134 |   pub(crate) fn has_layers(&self) -> bool {
+    |                 ^^^^^^^^^^
+...
+138 |   fn plan_target(
+    |      ^^^^^^^^^^^
+
+warning: associated items `window`, `layer`, `viewport`, `clip`, and `layer_rect` are never used
+   --> crates\lurq\src\layout\opacity_layer.rs:199:17
+    |
+198 | impl TargetSpace {
+    | ---------------- associated items in this implementation
+199 |   pub(crate) fn window(width: f32, height: f32) -> Self {
+    |                 ^^^^^^
+...
+210 |   pub(crate) fn layer(bounds: LayerBounds, texture_width: u32, texture_height: u32) -> Self {
+    |                 ^^^^^
+...
+225 |   pub(crate) fn viewport(&self) -> [f32; 4] {
+    |                 ^^^^^^^^
+...
+231 |   pub(crate) fn clip(&self, clip: ClipRect) -> ClipRect {
+    |                 ^^^^
+...
+253 |   pub(crate) fn layer_rect(&self, layer: LayerBounds) -> ClipRect {
+    |                 ^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:281:17
+    |
+280 | impl LayerComposite {
+    | ------------------- associated function in this implementation
+281 |   pub(crate) fn new(layer: &LayerCmd, parent: &TargetSpace) -> Self {
+    |                 ^^^
+
+warning: function `first_at_or_after` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:298:4
+    |
+298 | fn first_at_or_after(range: Range<usize>, order: usize, order_of: &impl Fn(usize) -> usize) -> usize {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 12 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.42s
+# finished: 2026-10-04T17:24:20+03:00 exit: 0
