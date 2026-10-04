@@ -4,10 +4,13 @@ use std::sync::{
 };
 
 use lurq::{
-  app::{App, Tree, events::MouseButton},
+  app::{App, Tree, events::MouseButton, theme::PaletteColor},
   components::{Column, Rect, Select, SelectOption, Text},
   core::{ElementRef, Signal},
-  layout::scrollbar::{ScrollBarStyle, ScrollBarVisibility},
+  layout::{
+    quad::QuadContent,
+    scrollbar::{ScrollBarStyle, ScrollBarVisibility},
+  },
   node::{
     BoxShadow, Element, SelectCheckmarkPosition, SelectIcon, SelectPartStyle, SelectStyle, color::Color,
     padding::Padding,
@@ -445,4 +448,95 @@ fn scrollbar_insets_default_to_padding() {
   let inset = ScrollBarStyle::default().insets(3.0, 11.0);
   assert_eq!(inset.resolved_edge_inset(), 3.0);
   assert_eq!(inset.resolved_end_inset(), 11.0);
+}
+
+/// Fill colours of the rect quads painted over exactly the select's bounds:
+/// the trigger's own fill. The trigger content inside it paints no fill.
+fn trigger_fills(theme: impl FnOnce(&App), style: SelectStyle) -> Vec<Color> {
+  let select = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    Select::new(Signal::new("md".to_owned()))
+      .options(options())
+      .width(200.0)
+      .height(40.0)
+      .style(style)
+      .ref_element(select.clone()),
+  );
+  let mut app = App::new();
+  theme(&app);
+  tree.pass_headless(&mut app);
+  let bounds = select.bounds();
+  tree
+    .painted_quads()
+    .iter()
+    .filter(|quad| (quad.x, quad.y, quad.width, quad.height) == (bounds.x, bounds.y, bounds.width, bounds.height))
+    .filter_map(|quad| match quad.content {
+      QuadContent::Rect { color, .. } if color.a() > 0 => Some(color),
+      _ => None,
+    })
+    .collect()
+}
+
+#[test]
+fn default_trigger_fill_follows_the_theme_input_surface() {
+  let surface = Color::from_hex("#1e293b");
+  let fills = trigger_fills(
+    |app| app.theme().set_palette_color(PaletteColor::SurfaceInput, surface),
+    SelectStyle::new(),
+  );
+  assert_eq!(fills, [surface]);
+}
+
+#[test]
+fn trigger_without_a_background_paints_no_fill() {
+  // Orchester's recipient selector: an app-styled trigger part with no fill
+  // used to paint lurq's fallback white.
+  let unstyled = trigger_fills(|_| {}, SelectStyle::unstyled());
+  assert_eq!(unstyled, []);
+  let replaced = trigger_fills(
+    |_| {},
+    SelectStyle::new().trigger(SelectPartStyle::new().padding(Padding::symmetric(8.0, 4.0))),
+  );
+  assert_eq!(replaced, []);
+}
+
+#[test]
+fn trigger_without_a_background_keeps_its_border() {
+  let border = Color::from_hex("#64748b");
+  let select = ElementRef::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    Select::new(Signal::new("md".to_owned()))
+      .options(options())
+      .width(200.0)
+      .height(40.0)
+      .style(SelectStyle::unstyled().trigger(SelectPartStyle::new().border_inside(1.0, border)))
+      .ref_element(select.clone()),
+  );
+  tree.pass_headless(&mut App::new());
+  let bounds = select.bounds();
+  let trigger: Vec<_> = tree
+    .painted_quads()
+    .into_iter()
+    .filter(|quad| (quad.x, quad.y, quad.width, quad.height) == (bounds.x, bounds.y, bounds.width, bounds.height))
+    .collect();
+  assert_eq!(trigger.len(), 1, "one quad carries the border");
+  assert!(matches!(trigger[0].content, QuadContent::Rect { color, .. } if color.a() == 0));
+  assert!(trigger[0].border.is_some());
+}
+
+#[test]
+fn explicit_trigger_background_is_painted_in_every_state() {
+  let fill = Color::from_hex("#0f172a");
+  let fills = trigger_fills(
+    |_| {},
+    SelectStyle::unstyled().trigger(SelectPartStyle::new().background(fill)),
+  );
+  assert_eq!(fills, [fill]);
+  let themed = trigger_fills(
+    |app| app.theme().set_palette_color(PaletteColor::SurfaceRaised, fill),
+    SelectStyle::unstyled().trigger(SelectPartStyle::new().background(PaletteColor::SurfaceRaised)),
+  );
+  assert_eq!(themed, [fill]);
 }

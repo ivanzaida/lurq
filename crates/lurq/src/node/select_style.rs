@@ -264,6 +264,9 @@ impl SelectStyle {
     Self::default()
   }
 
+  /// A style without fills, borders, padding or state parts, for an app that
+  /// styles the select itself. Its trigger paints nothing until a part sets
+  /// a `background` or border.
   pub fn unstyled() -> Self {
     Self {
       trigger: SelectPartStyle::default(),
@@ -297,6 +300,10 @@ impl SelectStyle {
     }
   }
 
+  /// Replaces the trigger part. The default part fills the trigger with the
+  /// theme's `SurfaceInput`; a part without a `background` paints no fill,
+  /// so the trigger shows what is behind it, like a button or text input
+  /// without a background.
   pub fn trigger(mut self, style: SelectPartStyle) -> Self {
     self.trigger = style;
     self

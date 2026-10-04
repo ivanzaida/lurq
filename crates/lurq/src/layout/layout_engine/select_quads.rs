@@ -1,7 +1,7 @@
 //! Paint of a `Select` trigger, drawn from its part style for the current
 //! hover/focus/open state, and the open-state scope its chevrons read.
 
-use super::{DEFAULT_CONTROL_SURFACE_COLOR, LayoutEngine, transformed_quad_frame};
+use super::{DEFAULT_TRANSPARENT_COLOR, LayoutEngine, transformed_quad_frame};
 use crate::{
   layout::{
     layout_result::LayoutResult,
@@ -16,7 +16,10 @@ use crate::{
 };
 
 impl LayoutEngine {
-  /// Pushes the trigger's outer shadows, fill, inset shadows and border.
+  /// Pushes the trigger's outer shadows, fill, inset shadows and border. The
+  /// fill is the resolved trigger part's `background` (the default
+  /// `SelectStyle` uses the theme's `SurfaceInput`); a part without one paints
+  /// no fill.
   #[inline(never)]
   #[allow(clippy::too_many_arguments)]
   pub(super) fn push_select_trigger_quads(
@@ -69,18 +72,24 @@ impl LayoutEngine {
       border,
       clip,
     };
-    let fill = background.unwrap_or(DEFAULT_CONTROL_SURFACE_COLOR);
+    // A trigger part without a background has no fill of its own, like a
+    // button or text input without one: the select node's own background,
+    // if any, and whatever is behind the select show through.
     if !has_inset {
-      quads.push(quad(fill, border));
+      if background.is_some() || border.is_some() {
+        quads.push(quad(background.unwrap_or(DEFAULT_TRANSPARENT_COLOR), border));
+      }
       return;
     }
     // Inset shadows paint between the fill and the border.
-    quads.push(quad(fill, None));
+    if let Some(fill) = background {
+      quads.push(quad(fill, None));
+    }
     if let Some(value) = shadow {
       self.push_part_box_shadow_quads(value, frame, radius, border, true, opacity, transform, clip, quads);
     }
     if border.is_some() {
-      quads.push(quad(Color::new(0, 0, 0, 0), border));
+      quads.push(quad(DEFAULT_TRANSPARENT_COLOR, border));
     }
   }
 
