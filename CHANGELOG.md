@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.37.1 — 2026-10-04
+
+- Fix Canvas text and images being shaped and uploaded again every frame once a page drew more of them than the caches held, which made panning and hovering a large page redraw every label from scratch:
+  - Shaped text: the 256-entry least-recently-used cache, which missed on every label once a page drew more than 256 distinct texts in the same order each frame, is replaced by a frame-stamped policy with a byte budget (the existing 8 MiB, with 256 bytes charged per entry beyond its text and pixels). Text that the current or the previous frame used is never evicted, and lookups are hashed instead of scanned.
+  - Shaped text that stays cached keeps its asset id, so its texture is uploaded once instead of every frame.
+  - WGPU and DX12 now share one Canvas asset cache. It never evicts a texture that the current or the previous frame drew. When those two frames alone need more than the budget, it keeps them up to twice the budget; a texture beyond that is drawn but not kept past its frame, so the rest stays resident instead of the overflow being evicted and uploaded again every frame. Once frames need less, it returns to its budget. A frame ends when a GPU renderer encodes, so passes that draw no canvas do not age entries.
+- Add `lurq::canvas::CanvasAssetBudget` (`new`, `bytes`, `ceiling_bytes`, `DEFAULT_BYTES` of 64 MiB, `MAX_BYTES` of 1 GiB, and `Default`) and `with_canvas_asset_budget` on `WgpuRenderEngine` and `Dx12RenderEngine` to set a renderer's Canvas asset budget. The shaped-text budget is not configurable.
+- Profiler: `CanvasProfile` (`render.canvas.counts`, WGPU and DX12) adds `asset_cache_budget_bytes`, `asset_cache_stretch_bytes` (the most the cache was charged above its budget during the encode), `asset_cache_uncached` and `asset_cache_uncached_bytes` (textures drawn but not kept). `CanvasTextProfile` (`canvas_text.counts`) adds `shape_cache_uncached` and `shape_cache_stretch_bytes`. The JSON export keys are additive.
+- Behaviour change: DX12 `asset_upload_details.cache_evictions` now also counts textures evicted while drawing to make room, not only those evicted after the encode, so its counts are not comparable with earlier versions.
+- Memory: while the current and the previous frame need it, each cache can settle at up to twice its budget, by default 128 MiB of charged Canvas textures per renderer and 16 MiB of shaped text per app. These are policy charges, not GPU allocation sizes.
+- Breaking: `CanvasProfile` and `CanvasTextProfile` have new public fields. Both have only public fields, so code that builds them with a struct literal needs the new fields or `..Default::default()`, and exhaustive patterns need the new fields or `..`.
+
 ## 0.37.0 — 2026-10-03
 
 - Fix children that gave way coming back at a narrower width. When a later order's child dropped and freed more than the line needed, the line gave way again from the start and gave the rest to earlier orders, including an item whose own row had dropped a child (a status item's time): it got its room back and showed the time again, so a line could show more at a narrower width (Orchester's status bar: at 1210 px the version showed and the time was dropped, at 1200 px the version dropped and the time came back). What gives way whole now only accumulates as the line narrows:
