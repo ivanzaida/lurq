@@ -153,13 +153,27 @@ impl ShapedText {
 
 impl CanvasTextEngine {
   pub(crate) fn new(fonts: FontSystem, aliases: HashMap<String, String>) -> Self {
+    Self::with_shapes(fonts, aliases, ShapeCache::new())
+  }
+  /// For an engine that replaces one whose frames a GPU renderer ended. Its
+  /// canvases are encoded by the same renderer, so its first frame may keep a
+  /// page over the shape budget whole, like any later frame, instead of
+  /// evicting the page's first texts while drawing its last ones.
+  pub(crate) fn framed(fonts: FontSystem, aliases: HashMap<String, String>) -> Self {
+    Self::with_shapes(fonts, aliases, ShapeCache::framed())
+  }
+  fn with_shapes(fonts: FontSystem, aliases: HashMap<String, String>, shaped: ShapeCache) -> Self {
     Self {
       fonts,
       aliases,
       face_weights: FaceWeights::default(),
       swash: GlyphCache::new(),
-      shaped: ShapeCache::new(),
+      shaped,
     }
+  }
+  /// Whether the engine's shaped text knows where frames are.
+  pub(crate) fn is_framed(&self) -> bool {
+    self.shaped.is_framed()
   }
 
   pub(super) fn shape(

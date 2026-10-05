@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use parking_lot::Mutex;
 
 use super::{shape_cache::ShapeCache, *};
@@ -277,4 +279,50 @@ fn a_text_engine_replaced_after_its_frames_began_keeps_its_first_page_over_the_b
   );
   let bytes = replacement.lock().shaped.bytes();
   assert!(bytes > limits.budget && bytes <= limits.ceiling, "{bytes}");
+}
+
+#[test]
+fn a_text_engine_no_renderer_framed_is_replaced_by_a_least_recently_used_one() {
+  let mut glyphs = app_fonts();
+  let engine = glyphs.canvas_text_engine();
+  glyphs.install_fonts([LIGATURE_PROBE.to_vec()], NO_ALIASES);
+  let replacement = glyphs.canvas_text_engine();
+  assert!(!Arc::ptr_eq(&engine, &replacement));
+  assert!(!replacement.lock().is_framed());
+  // Without frames the page over the budget evicts its own first texts.
+  large_page(&replacement);
+  assert!(replacement.lock().shaped.bytes() <= shape_cache::LIMITS.budget);
+}
+
+/// Applies `change` to an app whose text engine a GPU renderer has framed, and
+/// checks that the next layout binds a framed replacement.
+fn assert_replaced_framed(change: &str, apply: impl FnOnce(&mut GlyphEngine)) {
+  let mut glyphs = app_fonts();
+  let engine = glyphs.canvas_text_engine();
+  engine.lock().finish_frame();
+  apply(&mut glyphs);
+  let replacement = glyphs.canvas_text_engine();
+  assert!(!Arc::ptr_eq(&engine, &replacement), "{change}");
+  assert!(replacement.lock().is_framed(), "{change}");
+}
+
+#[test]
+fn every_font_change_replaces_a_framed_text_engine_with_a_framed_one() {
+  let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/assets/ligature_probe");
+  assert_replaced_framed("load_font", |glyphs| glyphs.load_font(LIGATURE_PROBE.to_vec()));
+  assert_replaced_framed("load_font_file", |glyphs| {
+    glyphs.load_font_file(&assets.join("LurqLigatureProbe-Regular.ttf"))
+  });
+  assert_replaced_framed("load_fonts_dir", |glyphs| glyphs.load_fonts_dir(&assets));
+  assert_replaced_framed("register_font", |glyphs| {
+    glyphs.register_font("Probe", "Lurq Weight Probe")
+  });
+  assert_replaced_framed("install_fonts", |glyphs| {
+    glyphs.install_fonts([LIGATURE_PROBE.to_vec()], NO_ALIASES)
+  });
+  assert_replaced_framed("clear_cache", GlyphEngine::clear_cache);
+  assert_replaced_framed("two changes before a layout binds the replacement", |glyphs| {
+    glyphs.register_font("Probe", "Lurq Weight Probe");
+    glyphs.clear_cache();
+  });
 }
