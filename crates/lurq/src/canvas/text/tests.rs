@@ -1,12 +1,15 @@
+use parking_lot::Mutex;
+
 use super::{shape_cache::ShapeCache, *};
-use crate::canvas::frame_cache::Limits;
+use crate::{app::glyph_engine::GlyphEngine, canvas::frame_cache::Limits};
+
+const WEIGHT_PROBE: &[u8] = include_bytes!("../../../tests/assets/weight_probe/LurqWeightProbe-Regular.ttf");
+const LIGATURE_PROBE: &[u8] = include_bytes!("../../../tests/assets/ligature_probe/LurqLigatureProbe-Regular.ttf");
+const NO_ALIASES: [(&str, &str); 0] = [];
 
 fn engine() -> CanvasTextEngine {
   let mut fonts = FontSystem::new_with_locale_and_db("en-US".into(), Default::default());
-  for data in [
-    include_bytes!("../../../tests/assets/weight_probe/LurqWeightProbe-Regular.ttf").as_slice(),
-    include_bytes!("../../../tests/assets/ligature_probe/LurqLigatureProbe-Regular.ttf").as_slice(),
-  ] {
+  for data in [WEIGHT_PROBE, LIGATURE_PROBE] {
     fonts.db_mut().load_font_data(data.to_vec());
   }
   CanvasTextEngine::new(fonts, Default::default())
@@ -220,4 +223,58 @@ fn closing_a_frame_without_text_does_not_age_the_cache() {
     engine.finish_frame();
   }
   assert_eq!(reshaped(&first, &page(&mut engine, &font)), Vec::<usize>::new());
+}
+
+/// The app's text engines, which a window's layout binds to its canvases, with
+/// the probe face installed.
+fn app_fonts() -> GlyphEngine {
+  let mut glyphs = GlyphEngine::new();
+  glyphs.install_fonts([WEIGHT_PROBE.to_vec()], NO_ALIASES);
+  glyphs
+}
+
+/// One frame of a page charged more than the shape budget and less than its
+/// ceiling, like the 10.3 MiB of text of a real design at Fit: a measure and a
+/// fill of each of 112 large labels.
+fn large_page(engine: &Mutex<CanvasTextEngine>) -> Vec<Arc<ShapedText>> {
+  let font = CanvasFont::new("Lurq Weight Probe", 96.);
+  let mut engine = engine.lock();
+  (0..112)
+    .flat_map(|index: usize| {
+      let text = "a".repeat(4 + index % 4);
+      let color = Color::new(index as u8, 0, 160, 255);
+      [
+        engine.measure(&text, &font, color).unwrap(),
+        engine.shape(&text, &font, 1., color).unwrap(),
+      ]
+    })
+    .collect()
+}
+
+#[test]
+fn a_text_engine_replaced_after_its_frames_began_keeps_its_first_page_over_the_budget() {
+  let limits = shape_cache::LIMITS;
+  let mut glyphs = app_fonts();
+  let engine = glyphs.canvas_text_engine();
+  // A GPU renderer ends the engine's frames, and its page stretches the cache.
+  engine.lock().finish_frame();
+  large_page(&engine);
+  engine.lock().finish_frame();
+  assert!(engine.lock().shaped.bytes() > limits.budget);
+  // Installing a page's face replaces the engine, and the next layout binds
+  // the replacement to the same canvases.
+  glyphs.install_fonts([LIGATURE_PROBE.to_vec()], NO_ALIASES);
+  let replacement = glyphs.canvas_text_engine();
+  assert!(!Arc::ptr_eq(&engine, &replacement));
+  let first = large_page(&replacement);
+  replacement.lock().finish_frame();
+  let again = reshaped(&first, &large_page(&replacement)).len();
+  assert_eq!(
+    again,
+    0,
+    "the second frame shaped {again} of {} texts again",
+    first.len()
+  );
+  let bytes = replacement.lock().shaped.bytes();
+  assert!(bytes > limits.budget && bytes <= limits.ceiling, "{bytes}");
 }
