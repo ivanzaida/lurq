@@ -1,8 +1,11 @@
 //! Discovery files: `<data-local>/lurq/mcp/<pid>.json`, one per running
 //! MCP-enabled app, so tooling (`claude mcp add`, a future `lurq-mcp` shim)
-//! can enumerate running apps and their ports/tokens. Removed on shutdown.
+//! can enumerate running apps and their ports/tokens. Removed on shutdown;
+//! files left by apps that were killed are removed by the next app that starts.
 
-use std::path::PathBuf;
+mod process;
+
+use std::path::{Path, PathBuf};
 
 fn discovery_dir() -> Option<PathBuf> {
   #[cfg(windows)]
@@ -41,6 +44,7 @@ pub(crate) fn write(app_name: &str, port: u16, token: &str) -> Option<PathBuf> {
     tracing::warn!("failed to create MCP discovery directory {}: {error}", dir.display());
     return None;
   }
+  remove_stale(&dir);
   let path = dir.join(format!("{}.json", std::process::id()));
   let contents = serde_json::json!({
     "version": 1,
@@ -64,7 +68,39 @@ pub(crate) fn write(app_name: &str, port: u16, token: &str) -> Option<PathBuf> {
   Some(path)
 }
 
-pub(crate) fn remove(path: &std::path::Path) {
+/// Remove the discovery files of processes that no longer run. Only files named
+/// `<pid>.json` are considered, never this process's own.
+fn remove_stale(dir: &Path) {
+  let entries = match std::fs::read_dir(dir) {
+    Ok(entries) => entries,
+    Err(error) => {
+      tracing::warn!("failed to list MCP discovery directory {}: {error}", dir.display());
+      return;
+    }
+  };
+  let own = std::process::id();
+  let stale = entries
+    .filter_map(Result::ok)
+    .map(|entry| entry.path())
+    .filter(|path| file_pid(path).is_some_and(|pid| pid != own && !process::is_running(pid)));
+  for path in stale {
+    remove(&path);
+  }
+}
+
+/// The pid a discovery file is named after: `<digits>.json`.
+fn file_pid(path: &Path) -> Option<u32> {
+  if path.extension()? != "json" {
+    return None;
+  }
+  let stem = path.file_stem()?.to_str()?;
+  if stem.is_empty() || !stem.bytes().all(|byte| byte.is_ascii_digit()) {
+    return None;
+  }
+  stem.parse().ok()
+}
+
+pub(crate) fn remove(path: &Path) {
   if let Err(error) = std::fs::remove_file(path)
     && path.exists()
   {

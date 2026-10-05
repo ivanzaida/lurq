@@ -54,6 +54,7 @@ mcp = [
     "dep:uuid",
     "dep:serde_json",
     "dep:tracing-subscriber",
+    "dep:libc",
 ]
 
 [dependencies]
@@ -111,6 +112,11 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Unix: `kill(pid, 0)` tells the MCP server which discovery files belong to
+# processes that no longer run.
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation-sys = "0.8"

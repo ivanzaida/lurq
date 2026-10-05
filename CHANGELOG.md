@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix MCP discovery files piling up. An app removes its `<pid>.json` discovery file when it shuts down, but an app that was killed (a test process, a crash, a task manager kill) left its file behind, with the port and bearer token of a server that no longer listens; one Windows machine had several hundred. An MCP server now removes, when it starts, every `<pid>.json` in the discovery folder whose process no longer runs, as the operating system reports it (`OpenProcess` on Windows, `kill(pid, 0)` on Unix). Files of running processes, of processes it may not query, and files not named `<pid>.json` stay. Unix builds with the `mcp` feature now depend on `libc`.
+
 ## 0.40.1 — 2026-10-05
 
 Security fix:
