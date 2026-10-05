@@ -77,6 +77,15 @@ impl ShapeCache {
       shapes: FrameCache::new(limits),
     }
   }
+  /// For an engine whose frames a GPU renderer ends from the first one.
+  pub(super) fn framed() -> Self {
+    Self {
+      shapes: FrameCache::framed(LIMITS),
+    }
+  }
+  pub(super) fn is_framed(&self) -> bool {
+    self.shapes.is_framed()
+  }
 
   #[cfg(test)]
   pub(super) fn bytes(&self) -> usize {

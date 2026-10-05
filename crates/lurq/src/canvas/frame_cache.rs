@@ -60,10 +60,6 @@ impl<V> FrameCache<V> {
     }
   }
   /// For an owner that closes every frame from the first one.
-  #[cfg_attr(
-    not(any(test, feature = "wgpu", all(feature = "dx12", target_os = "windows"))),
-    allow(dead_code)
-  )]
   pub(crate) fn framed(limits: Limits) -> Self {
     Self {
       framed: true,
@@ -73,6 +69,11 @@ impl<V> FrameCache<V> {
 
   pub(crate) fn limits(&self) -> Limits {
     self.limits
+  }
+  /// Whether the cache knows where frames are: it was created framed, or its
+  /// owner has closed a frame.
+  pub(crate) fn is_framed(&self) -> bool {
+    self.framed
   }
   /// Charged bytes of every entry the cache holds.
   pub(crate) fn bytes(&self) -> usize {

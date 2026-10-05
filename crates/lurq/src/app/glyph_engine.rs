@@ -423,6 +423,10 @@ impl std::ops::Deref for CachedPlainBuffer {
 pub(crate) struct GlyphEngine {
   #[cfg(feature = "canvas")]
   canvas_text: Option<std::sync::Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>>,
+  /// A GPU renderer ended frames of a canvas text engine that a cleared cache
+  /// dropped, so its replacements are created framed.
+  #[cfg(feature = "canvas")]
+  canvas_text_framed: bool,
   font_system: FontSystem,
   swash_context: ScaleContext,
   transformed_scale_context: ScaleContext,
@@ -463,6 +467,8 @@ impl GlyphEngine {
       font_system,
       #[cfg(feature = "canvas")]
       canvas_text: None,
+      #[cfg(feature = "canvas")]
+      canvas_text_framed: false,
       swash_context: ScaleContext::new(),
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
@@ -556,18 +562,24 @@ impl GlyphEngine {
       .get_or_insert_with(|| {
         let fonts =
           FontSystem::new_with_locale_and_db(self.font_system.locale().to_owned(), self.font_system.db().clone());
-        std::sync::Arc::new(parking_lot::Mutex::new(crate::canvas::CanvasTextEngine::new(
-          fonts,
-          self.font_aliases.clone(),
-        )))
+        let aliases = self.font_aliases.clone();
+        let engine = if self.canvas_text_framed {
+          crate::canvas::CanvasTextEngine::framed(fonts, aliases)
+        } else {
+          crate::canvas::CanvasTextEngine::new(fonts, aliases)
+        };
+        std::sync::Arc::new(parking_lot::Mutex::new(engine))
       })
       .clone()
   }
 
   fn clear_text_caches(&mut self) {
+    // The next layout binds a replacement to the same canvases. If a GPU
+    // renderer ended frames of this engine, it ends the replacement's too.
+    // Canvas drawing holds an engine only to shape and never takes this one.
     #[cfg(feature = "canvas")]
-    {
-      self.canvas_text = None;
+    if let Some(engine) = self.canvas_text.take() {
+      self.canvas_text_framed |= engine.lock().is_framed();
     }
     self.face_weights.clear();
     self.plain_buffers.clear();

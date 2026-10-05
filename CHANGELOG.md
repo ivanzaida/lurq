@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.41.1 — 2026-10-05
+
+- Fix the first full Canvas frame after a font change shaping and uploading almost every label of a large page again. Loading, installing or registering a font, and `set_scale_override`, replace the app's canvas text engine, and 0.41.0 created the new engine's shaped-text cache least recently used within its 8 MiB budget until a GPU renderer ended its first frame. A first frame charged more than the budget evicted its own first texts while drawing it. None of its texts counted as the previous frame's, so each text the next frame shaped again evicted the next one it needed, and that frame missed on nearly the whole page. When a GPU renderer has ended frames of the engine being replaced, the replacement is now framed from its first frame: that frame keeps a page up to the 16 MiB ceiling, as any later frame does, and the next frame shapes nothing again. An engine that no GPU renderer has framed, such as one used only by software canvases, is still replaced by a least recently used one.
+- No public API change.
+
 ## 0.41.0 — 2026-10-05
 
 - Fix Canvas text and images being shaped and uploaded again every frame once a page drew more of them than the caches held, which made panning and hovering a large page redraw every label from scratch:
