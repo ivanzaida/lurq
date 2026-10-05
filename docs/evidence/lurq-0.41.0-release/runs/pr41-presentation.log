@@ -1,0 +1,87 @@
+# command: cargo test -p lurq --lib --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot presentation -- --include-ignored --test-threads=1
+# started: 2026-10-05 13:20:12 +0300
+# head: 584d08451f1bcc64f2eee00da02bf87d13425ae9 tree: 21a10b9c547161bf507067ba67afcef1ce44818c
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+warning: unused imports: `GLYPH_PAINT` and `ScreenFrame`
+  --> crates\lurq\src\app\runtime\capture_redaction_tests.rs:11:27
+   |
+11 |     capture_test_engine::{GLYPH_PAINT, GlyphPainter, ScreenFrame, TestSurface},
+   |                           ^^^^^^^^^^^                ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `paint_of`
+  --> crates\lurq\src\canvas\mod.rs:19:16
+   |
+19 | use software::{paint_of, rescale_clip};
+   |                ^^^^^^^^
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4080:9
+     |
+4080 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4207:9
+     |
+4207 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4377:9
+     |
+4377 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9241:4
+     |
+9241 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:68:7
+   |
+68 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:70:7
+   |
+70 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 8 warnings (run `cargo fix --lib -p lurq --tests` to apply 5 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-6bfbcd3412a0c3ee.exe)
+
+running 10 tests
+test app::wgpu_render::canvas::presentation_tests::gpu_complete_artwork_atomic_front_revision_camera_and_target_reuse ... ok
+test app::wgpu_render::canvas::presentation_tests::gpu_pending_lease_pressure_retains_front_then_recovers_latest_matching_commit ... ok
+test app::wgpu_render::canvas::presentation_tests::gpu_superseded_queued_commit_cannot_publish_or_change_visible_revision ... ok
+test canvas::presentation::tests::artwork_excludes_later_overlay_and_camera_draw_never_reads_back ... ok
+test canvas::presentation::tests::complete_front_survives_partial_recording_abort_and_superseded_commit ... ok
+test canvas::presentation::tests::four_4k_targets_fit_the_separate_presentation_allowance_without_pixel_cap_widening ... ok
+test canvas::presentation::tests::pending_readback_keeps_complete_front_revision_and_refused_begin_keeps_current_token ... ok
+test canvas::presentation::tests::presentation_requires_balanced_layers_and_detach_releases_artwork ... ok
+test canvas::presentation::tests::reset_preserves_transaction_barriers_and_latest_camera_order ... ok
+test canvas::presentation_budget::tests::live_and_retired_shared_artwork_is_charged_once_but_distinct_targets_are_not ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 288 filtered out; finished in 2.00s
+
+
+# exit: 0
+# finished: 2026-10-05 13:20:15 +0300

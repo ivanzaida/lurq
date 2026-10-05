@@ -1,0 +1,56 @@
+# command: cargo test -p lurq --locked --offline --features svg --lib rasterize
+# started: 2026-10-05 13:55:03 +0300
+# head: 584d08451f1bcc64f2eee00da02bf87d13425ae9 tree: 21a10b9c547161bf507067ba67afcef1ce44818c
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+   Compiling lurq v0.41.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4080:9
+     |
+4080 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4207:9
+     |
+4207 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4377:9
+     |
+4377 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9241:4
+     |
+9241 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `lurq` (lib test) generated 4 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.51s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-2ee39ef177d8ecd2.exe)
+
+running 4 tests
+test app::glyph_engine::tests::subpixel_binned_glyphs_rasterize_unhinted ... ok
+test app::glyph_engine::tests::rasterized_glyph_positions_snap_after_fractional_origin ... ok
+test app::glyph_engine::tests::unsnapped_rasterized_glyph_positions_preserve_float_layout ... ok
+test app::glyph_engine::tests::tiny_font_sizes_rasterize_nonzero_coverage ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 164 filtered out; finished in 0.04s
+
+
+# exit: 0
+# finished: 2026-10-05 13:55:14 +0300

@@ -1,0 +1,291 @@
+# command: cargo test -p lurq --locked --offline --test input_tests
+# started: 2026-10-05 13:53:59 +0300
+# head: 584d08451f1bcc64f2eee00da02bf87d13425ae9 tree: 21a10b9c547161bf507067ba67afcef1ce44818c
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+warning: function `atlas_rects_to_apply` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9241:4
+     |
+9241 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+   Compiling lurq v0.41.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.74s
+     Running tests\input_tests.rs (.tmp/target\debug\deps\input_tests-f536adad28d7680b.exe)
+
+running 253 tests
+test input::control_fill::unstyled_slider_fills_from_the_theme ... ok
+test input::pointer::native_window_gesture::press_taken_by_os_without_a_held_button_does_nothing ... ok
+test input::pointer::native_window_gesture::click_after_press_taken_by_os_still_fires_once ... ok
+test input::checkbox::keyboard_toggle::space_toggles_focused_checkbox ... ok
+test input::checkbox::toggles_on_click::click_toggles_checkbox_signal ... ok
+test input::checkbox::double_toggle::double_click_returns_checkbox_signal_to_initial_state ... ok
+test input::pointer::native_window_gesture::press_taken_by_os_clears_active_without_clicking ... ok
+test input::checkbox::renders_style::checked_checkbox_style_controls_box_fill ... ok
+test input::checkbox::renders_style::generic_fill_still_styles_unchecked_checkbox ... ok
+test input::pointer::native_window_gesture::late_release_after_press_taken_by_os_does_not_click ... ok
+test input::focus_on_press::clicking_a_focusable_element_moves_focus_to_it ... ok
+test input::focus_on_press::clicking_a_focusable_false_button_keeps_the_editor_focused ... ok
+test input::control_fill::checkbox_fill_set_by_the_app_is_kept ... ok
+test input::control_fill::slider_part_without_a_fill_paints_none ... ok
+test input::focus_on_press::clicking_where_nothing_can_take_focus_blurs_a_focused_button ... ok
+test input::control_fill::unstyled_checkbox_fills_from_the_theme ... ok
+test input::focus_on_press::clicking_empty_window_space_blurs_a_focused_input ... ok
+test input::focused_style::slider_thumb_shows_its_focused_style ... ok
+test input::select::interaction::custom_trigger_slot_renders_selected_state ... ok
+test input::focused_style::checkbox_box_shows_its_focused_style ... ok
+test input::control_fill::checkbox_part_without_a_fill_paints_none ... ok
+test input::focused_style::button_shows_its_focused_style_when_tabbed_to ... ok
+test input::select::keyboard::arrows_skip_disabled_options_and_stop_at_the_ends ... ok
+test input::select::interaction::multi_select_mouse_open_does_not_highlight_first_unselected_row ... ok
+test input::select::interaction::multi_select_prefilled_rows_share_selected_background_on_open ... ok
+test input::select::keyboard::alt_arrow_down_opens ... ok
+test input::select::keyboard::enter_without_highlight_closes_without_change ... ok
+test input::select::keyboard::home_and_end_jump_to_enabled_edges ... ok
+test input::select::keyboard::highlight_moved_by_keys_is_scrolled_into_view ... ok
+test input::select::keyboard::opening_scrolls_the_selected_option_into_view ... ok
+test input::focused_style::button_shows_the_same_focused_style_when_clicked ... ok
+test input::select::keyboard::pointer_open_starts_without_highlight_and_first_arrow_lands_on_selected ... ok
+test input::pointer::native_window_gesture::press_taken_by_os_cancels_drag_without_dropping ... ok
+test input::select::keyboard::escape_and_tab_close_without_change_and_keep_focus ... ok
+test input::select::interaction::pass_through_select_delivers_the_closing_press ... ok
+test input::select::interaction::select_inside_scroll_opens_and_commits ... ok
+test input::select::interaction::single_select_commits_on_option_mouse_down ... ok
+test input::select::keyboard::disabled_option_ignores_clicks ... ok
+test input::select::interaction::closing_select_menu_does_not_click_content_under_option ... ok
+test input::select::interaction::clicking_outside_closes_menu_then_blurs_focused_select ... ok
+test input::select::interaction::single_select_opens_and_commits ... ok
+test input::pointer::native_window_gesture::press_taken_by_os_ends_text_selection_drag_and_keeps_next_click ... ok
+test input::select::interaction::option_next_to_the_menu_scrollbar_still_commits ... ok
+test input::select::rerender::highlight_survives_a_rerender_that_keeps_the_options ... ok
+test input::select::keyboard::repeating_a_letter_cycles_through_matches ... ok
+test input::select::keyboard::pointer_open_without_selection_first_arrow_lands_on_first_enabled ... ok
+test input::select::keyboard::enter_and_space_commit_the_highlighted_option_and_close ... ok
+test input::select::style::scrollbar_insets_default_to_padding ... ok
+test input::select::interaction::overflowing_option_stays_ellipsized_on_hover ... ok
+test input::select::rerender::an_external_value_change_while_open_keeps_the_menu_and_commits_nothing ... ok
+test input::select::rerender::escape_after_a_relayout_closes_the_select_that_was_open ... ok
+test input::select::rerender::keyboard_highlight_stays_with_its_select_across_a_sibling_insertion ... ok
+test input::select::rerender::open_menu_stays_on_its_select_when_a_sibling_is_inserted_before_it ... ok
+test input::select::rerender::open_menu_in_a_field_wrapper_stays_with_its_select_across_an_insertion ... ok
+test input::select::rerender::pointer_move_over_the_menu_after_a_rerender_selects_nothing ... ok
+test input::select::interaction::pass_through_select_lets_another_select_open_in_one_press ... ok
+test input::select::rerender::removing_a_sibling_before_an_open_select_keeps_it_open ... ok
+test input::select::interaction::single_select_commits_when_redrawn_between_option_down_and_up ... ok
+test input::select::interaction::pressing_an_element_outside_the_menu_only_closes_it ... ok
+test input::select::rerender::replacing_the_options_of_an_open_select_keeps_it_open_and_selects_nothing ... ok
+test input::slider::clamps_min_max::clicks_outside_slider_track_clamp_to_min_and_max ... ok
+test input::slider::drag_updates_value::dragging_slider_updates_signal_from_pointer_position ... ok
+test input::select::interaction::multi_select_toggles_values ... ok
+test input::slider::keyboard_update::arrow_keys_update_focused_slider_within_range ... ok
+test input::select::style::default_trigger_fill_follows_the_theme_input_surface ... ok
+test input::select::style::checkmark_slot_is_reserved_on_every_option ... ok
+test input::select::style::chevron_swap_follows_the_open_state ... ok
+test input::select::style::element_icon_receives_the_configured_color ... ok
+test input::slider::renders_thumb::slider_renders_track_and_thumb ... ok
+test input::select::style::menu_flips_above_the_trigger_without_room_below ... ok
+test input::slider::renders_thumb::slider_customizes_track_and_thumb_geometry_and_visuals ... ok
+test input::select::style::trigger_without_a_background_keeps_its_border ... ok
+test input::select::style::menu_padding_insets_options_and_menu_shadow_paints ... ok
+test input::select::keyboard::typing_highlights_the_next_enabled_option_with_that_prefix ... ok
+test input::select::style::highlight_part_composes_with_selected_and_hover ... ok
+test input::select::interaction::pressing_another_select_closes_the_open_menu_first ... ok
+test input::select::style::trailing_checkmark_sits_after_the_label ... ok
+test input::select::style::menu_scrollbar_insets_clear_the_menu_corners ... ok
+test input::select::style::trigger_part_shadow_paints ... ok
+test input::select::interaction::scrolled_select_menu_commits_clicked_option ... ok
+test input::slider::suppresses_parent_click::dragging_slider_does_not_dispatch_click_to_parent ... ok
+test input::select::style::option_detail_renders_under_the_label ... ok
+test input::slider::drag_updates_value::dragging_slider_thumb_tracks_pointer_between_integer_steps ... ok
+test input::slider::updates_from_click::click_updates_slider_signal_from_track_position ... ok
+test input::synthetic::injection::a_click_establishes_hover_before_pressing ... ok
+test input::select::interaction::selected_edge_options_inherit_menu_corner_radius ... ok
+test input::slider::renders_thumb::slider_applies_track_and_thumb_hover_styles ... ok
+test input::tab_order::focusable::element_with_tab_index_is_focusable_by_click_and_tab ... ok
+test input::tab_order::focusable::focusable_true_element_is_focused_by_click_but_not_a_tab_stop_outside_forms ... ok
+test input::slider::avoids_unchanged_updates::range_does_not_dirty_component_when_value_is_unchanged ... ok
+test input::slider::renders_thumb::slider_thumb_stays_fully_inside_track_at_range_edges ... ok
+test input::synthetic::injection::a_synthetic_click_invokes_the_button_under_it ... ok
+test input::synthetic::injection::synthetic_characters_reach_the_focused_text_input ... ok
+test input::synthetic::injection::synthetic_modifiers_are_carried_into_the_event ... ok
+test input::tab_order::dropped::focus_leaves_a_child_when_it_drops ... ok
+test input::tab_order::dropped::focus_on_a_dropped_child_is_refused_and_keys_do_not_activate_it ... ok
+test input::tab_order::dropped::tab_skips_a_dropped_child ... ok
+test input::select::style::explicit_trigger_background_is_painted_in_every_state ... ok
+test input::tab_order::dropped::refocusing_a_dropped_child_from_its_blur_handler_does_not_loop ... ok
+test input::tab_order::modal_trap::modal_without_form_traps_tab_and_shift_tab ... ok
+test input::tab_order::focusable::focusable_false_button_never_takes_focus ... ok
+test input::tab_order::modal_trap::modal_contents_are_hit_testable_headlessly ... ok
+test input::select::style::menu_min_width_expands_past_trigger_and_fits_viewport ... ok
+test input::select::style::trigger_without_a_background_paints_no_fill ... ok
+test input::tab_order::dropped::tab_visits_a_child_that_fits ... ok
+test input::select::style::open_chevron_replaces_the_closed_one_while_open ... ok
+test input::tab_order::focusable::focusable_false_text_input_and_checkbox_do_not_take_focus_on_click ... ok
+test input::tab_order::modal_trap::modal_without_stops_keeps_focus_out_of_the_page_behind_it ... ok
+test input::tab_order::window_chrome::chrome_layer_is_not_reported_as_a_modal ... ok
+test input::tab_order::modal_trap::tab_moves_focus_from_behind_an_opened_modal_into_it ... ok
+test input::select::keyboard::keyboard_open_highlights_selected_option ... ok
+test input::tab_order::window_chrome::modal_declared_as_a_chrome_overlay_traps_tab ... ok
+test input::select::style::single_select_checkmark_is_opt_in ... ok
+test input::tab_order::window_chrome::modal_declared_in_the_page_traps_tab_under_window_chrome ... ok
+test input::tab_order::window_chrome::modal_without_stops_under_window_chrome_still_keeps_tab_from_the_page ... ok
+test input::tab_order::window_chrome::tab_moves_through_page_stops_under_window_chrome_and_wraps ... ok
+test input::tab_order::window_scope::positive_tab_indices_come_first_in_ascending_order ... ok
+test input::tab_order::window_chrome::title_bar_stops_follow_the_page_stops ... ok
+test input::tab_order::scroll_into_view::tab_does_not_scroll_when_the_element_is_visible ... ok
+test input::tab_order::window_scope::shift_tab_outside_forms_moves_backward_and_wraps ... ok
+test input::tab_order::scroll_into_view::tab_scrolls_the_focused_element_into_view ... ok
+test input::tab_order::window_scope::negative_tab_index_is_skipped_by_tab_but_focused_by_click ... ok
+test input::tab_order::window_scope::tab_outside_forms_visits_only_elements_with_a_tab_index ... ok
+test input::tab_order::window_scope::text_input_outside_form_without_tab_index_is_not_a_stop ... ok
+test input::tab_order::window_scope::tab_without_stops_is_not_handled_and_keeps_focus_empty ... ok
+test input::tab_order::window_scope::tab_after_clicking_a_button_without_tab_index_continues_from_it ... ok
+test input::text::scrollbar_lane::hovering_a_plain_overlay_bar_hovers_only_around_its_thumb ... ok
+test input::tab_order::dropped::tab_and_focus_skip_a_child_dropped_below_its_size ... ok
+test input::text::scrollbar_lane::hovering_the_lane_of_a_painted_track_hovers_the_scrollbar ... ok
+test input::text::selectable::selectable_text_drag_does_not_swallow_the_next_click ... ok
+test input::text_input::basic_layout::mask_char_sets_custom_mask_character_for_value ... ok
+test input::text::selectable::non_selectable_text_drag_does_not_render_selection ... ok
+test input::text_input::basic_layout::mask_renders_default_mask_character_for_value ... ok
+test input::text_input::basic_layout::placeholder_after_sizing_is_rendered ... ok
+test input::text_input::basic_layout::renders_current_value_and_can_be_found_by_rendered_text ... ok
+test input::text::scrollbar_lane::press_on_the_unpainted_track_of_a_plain_overlay_bar_does_not_page ... ok
+test input::text::selectable::double_click_selectable_text_selects_clicked_word ... ok
+test input::text::selectable::dragging_between_selectable_text_nodes_selects_one_range ... ok
+test input::text::selectable::selectable_text_drag_can_start_just_outside_text_bounds ... ok
+test input::text_input::basic_layout::renders_placeholder_when_value_is_empty ... ok
+test input::text::selectable::transformed_multiline_selectable_text_click_uses_visual_line ... ok
+test input::text::selectable::selectable_text_drag_renders_selection ... ok
+test input::text::selectable::transformed_parent_selectable_text_click_uses_visual_line ... ok
+test input::text::selectable::transformed_selectable_text_drag_uses_visual_coordinates ... ok
+test input::text::selectable::triple_click_selectable_text_selects_clicked_line ... ok
+test input::text_input::basic_layout::max_rows_caps_multiline_growth ... ok
+test input::text_input::basic_layout::scroll_overflow_keeps_single_line_height_for_long_text ... ok
+test input::text_input::basic_layout::rows_sets_multiline_minimum_height ... ok
+test input::text::scrollbar_lane::horizontal_press_between_thumb_and_edge_drags_instead_of_selecting ... ok
+test input::text::scrollbar_lane::horizontal_press_on_text_still_selects ... ok
+test input::text_input::basic_layout::unmask_clears_text_input_mask ... ok
+test input::text_input::editing::arrow_left_moves_caret_before_inserted_text ... ok
+test input::text::selectable::ctrl_selecting_another_selectable_text_preserves_previous_selection ... ok
+test input::text_input::editing::arrow_down_moves_caret_to_next_multiline_row ... ok
+test input::text::scrollbar_lane::press_anywhere_in_a_reserved_gutter_drags_instead_of_selecting ... ok
+test input::text::scrollbar_lane::vertical_press_on_text_still_selects ... ok
+test input::text_input::editing::arrow_up_moves_caret_to_previous_multiline_row ... ok
+test input::text::selectable::clicking_outside_selectable_text_clears_selection ... ok
+test input::text::selectable::escape_clears_selectable_text_selection ... ok
+test input::text_input::editing::backspace_removes_character_before_caret ... ok
+test input::text_input::editing::backspace_removes_previous_unicode_character ... ok
+test input::text::selectable::selecting_another_selectable_text_clears_previous_selection ... ok
+test input::text_input::editing::clicking_multiline_row_places_caret_on_that_row ... ok
+test input::text::selectable::selectable_text_drag_keeps_selection_on_scaled_pointer_release ... ok
+test input::text_input::editing::clicking_text_input_padding_places_caret_before_text ... ok
+test input::text_input::editing::ctrl_y_and_ctrl_shift_z_redo_text_input_edits ... ok
+test input::text_input::editing::ctrl_a_selects_all_text_for_replacement ... ok
+test input::text_input::editing::ctrl_arrow_left_moves_caret_to_previous_word ... ok
+test input::text_input::editing::double_click_text_input_selects_clicked_word ... ok
+test input::text_input::editing::ctrl_z_undoes_last_text_input_edit ... ok
+test input::text_input::editing::dragging_multiline_row_selects_text_on_that_row ... ok
+test input::text_input::editing::enter_is_ignored_for_scroll_overflow_text_input ... ok
+test input::text_input::basic_layout::scroll_overflow_keeps_glyphs_visible_when_text_is_scrolled ... ok
+test input::text_input::basic_layout::multiline_overflow_grows_after_enter ... ok
+test input::text_input::editing::new_text_input_edit_clears_redo_history ... ok
+test input::text_input::editing::shift_arrow_selection_is_replaced_by_inserted_text ... ok
+test input::text_input::editing::triple_click_multiline_text_input_selects_clicked_line ... ok
+test input::text_input::editing::triple_click_single_line_text_input_selects_whole_line ... ok
+test input::text_input::editing::typing_into_focused_text_input_appends_to_existing_value ... ok
+test input::text_input::empty_value::empty_value_without_placeholder_is_still_layoutable ... ok
+test input::text_input::focus::clicking_outside_text_input_blurs_it ... ok
+test input::text_input::focus::clicking_text_inputs_moves_focus_and_fires_focus_and_blur ... ok
+test input::text_input::focus::enter_blurs_single_line_text_input_outside_form ... ok
+test input::text_input::focus::escape_blurs_text_input_outside_form ... ok
+test input::text_input::focus::mouse_down_prevent_default_blocks_text_input_focus ... ok
+test input::text_input::ime::blur_cancels_the_composition ... ok
+test input::text_input::ime::commit_inserts_the_text_through_on_input ... ok
+test input::text_input::ime::cancelled_composition_leaves_the_value ... ok
+test input::text_input::ime::enter_during_composition_reaches_no_key_handler_or_default ... ok
+test input::text_input::ime::enter_during_a_composition_activates_no_button ... ok
+test input::text_input::ime::cursor_area_follows_the_caret_inside_the_composition ... ok
+test input::text_input::ime::enter_passed_on_while_composing_reaches_handlers_but_no_default ... ok
+test input::text_input::ime::key_passed_on_while_composing_arrives_marked ... ok
+test input::text_input::ime::masked_input_takes_no_composition ... ok
+test input::text_input::ime::preedit_is_shown_at_the_caret_without_changing_the_value ... ok
+test input::text_input::ime::process_key_is_never_an_ordinary_key ... ok
+test input::text_input::editing::mouse_drag_selection_renders_and_replaces_selected_text ... ok
+test input::text_input::editing::multiline_selection_renders_a_rect_for_each_selected_row ... ok
+test input::text_input::letter_spacing::selectable_text_selection_covers_spaced_glyphs ... ok
+test input::text::scrollbar_lane::horizontal_thumb_press_arms_no_selection ... ok
+test input::text::scrollbar_lane::horizontal_track_press_pages_toward_the_press ... ok
+test input::text::scrollbar_lane::vertical_thumb_press_arms_no_selection ... ok
+test input::text_input::ime::release_after_a_commit_without_a_reported_press_is_composing ... ok
+test input::text_input::letter_spacing::text_input_carets_and_hit_testing_use_spaced_advances ... ok
+test input::text_input::line_metrics::a_selection_covers_the_selected_glyphs_not_the_leading ... ok
+test input::text_input::line_metrics::caret_in_an_empty_field_sits_before_the_placeholder ... ok
+test input::text_input::line_metrics::the_line_keeps_its_baseline_when_a_taller_glyph_is_typed ... ok
+test input::text_input::editing::mouse_drag_selection_survives_component_rebuild ... ok
+test input::text_input::renders_caret::caret_color_accepts_palette_color ... ok
+test input::text_input::ime::preedit_replaces_the_placeholder_and_the_selection ... ok
+test input::text_input::preserves_editing_state_across_render::preserves_focus_and_caret_after_signal_driven_render ... ok
+test input::text_input::renders_caret::text_input_padding_offsets_text_quad ... ok
+test input::text_input::renders_caret::text_style_caret_color_accepts_palette_color ... ok
+test input::text_input::ime::stuck_composition_holds_no_key_back ... ok
+test input::text::scrollbar_lane::vertical_track_press_pages_toward_the_press ... ok
+test input::text_input::style::placeholder_uses_configured_text_style ... ok
+test input::text_input::overflow_anchor::unfocused_overflow_anchor_selects_visible_edge ... ok
+test input::text_input::style::single_line_input_centers_glyphs_with_tall_line_height ... ok
+test input::text_input::renders_caret::caret_color_sets_rendered_caret_color ... ok
+test input::text_input::renders_caret::caret_defaults_to_text_color_for_empty_input ... ok
+test input::text_input::renders_caret::caret_uses_text_line_height_in_tall_text_input ... ok
+test input::text_input::style::single_line_input_centers_numeric_glyph_ink ... ok
+test input::text_input::renders_caret::single_line_text_input_centers_text_quad_in_tall_input ... ok
+test input::text_input::renders_caret::multiline_caret_uses_glyph_height_inside_relaxed_line_pitch ... ok
+test input::text_input::style::styled_constructor_applies_text_color_to_glyphs ... ok
+test input::text_input::renders_caret::padded_scroll_overflow_keeps_end_caret_inside_content_clip ... ok
+test input::text_input::renders_caret::renders_caret_after_text_input_is_focused ... ok
+test input::text_input::soft_wrap_selection::clicking_soft_wrapped_row_places_caret_on_that_row ... ok
+test input::text_input::renders_caret::text_style_caret_color_sets_rendered_caret_color ... ok
+test input::text_input::style::focused_text_input_style_draws_on_input_frame_not_padded_text_content ... ok
+test input::text_input::style::text_style_setter_applies_font_metrics_to_layout ... ok
+test input::text_input::style::placeholder_style_overrides_text_style_only_for_placeholder ... ok
+test input::text_input::style::mouse_down_focused_text_input_style_stays_on_input_frame ... ok
+test input::text_input::style::scaled_single_line_input_baseline_is_stable_when_ascender_appears ... ok
+test input::text_input::masked_editing::default_mask_width_and_end_caret_equal_three_bullet_advances ... ok
+test input::text_input::overflow_anchor::focused_typing_scrolls_to_follow_caret_then_restores_unfocused_anchor ... ok
+test input::text_input::typing_updates_value::focused_text_input_appends_key_down_text_to_signal ... ok
+test input::text_input::style::single_line_input_baseline_is_stable_when_ascender_appears ... ok
+test input::text_input::typing_updates_value::key_down_prevent_default_blocks_text_input_editing ... ok
+test input::text_input::typing_updates_value::on_input_can_mutate_signal_before_builtin_text_editing ... ok
+test input::text_input::typing_updates_value::on_input_prevent_default_blocks_builtin_text_editing ... ok
+test input::text_input::renders_caret::fixed_height_multiline_caret_stays_on_new_line_after_typing ... ok
+test input::text_input::style::text_align_centers_value_glyphs_in_single_line_input ... ok
+test input::text_input::style::text_align_centers_placeholder_glyphs_in_single_line_input ... ok
+test input::text_input::typing_updates_value::displayed_text_updates_after_typing ... ok
+test input::text_input::typing_updates_value::external_value_change_keeps_end_caret_at_new_end ... ok
+test input::text_input::style::text_input_wrapper_visuals_update_after_component_rerender ... ok
+test input::text::scrollbar_lane::horizontal_press_just_above_thumb_drags_instead_of_selecting ... ok
+test input::text::scrollbar_lane::vertical_press_just_left_of_thumb_drags_instead_of_selecting ... ok
+test input::text_input::masked_editing::default_mask_drag_selection_backspace_removes_underlying_characters ... ok
+test input::text_input::masked_editing::default_mask_clicks_map_to_each_value_character_boundary ... ok
+test input::text_input::renders_caret::caret_mode_uses_theme_and_text_input_override ... ok
+test input::text_input::renders_caret::focused_text_input_caret_blinks_and_resets_after_typing ... ok
+
+test result: ok. 253 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.27s
+
+
+# exit: 0
+# finished: 2026-10-05 13:54:09 +0300

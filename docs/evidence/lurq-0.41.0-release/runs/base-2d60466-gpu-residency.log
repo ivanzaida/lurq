@@ -1,0 +1,104 @@
+# command: cargo test -p lurq --lib --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot wgpu_render::canvas::residency_tests -- --ignored --test-threads=1
+# started: 2026-10-05 12:23:52 +0300
+# head: 2d60466807d2d5a6d41f35781a5f5d1d6abecc46 tree: 304d3fd3f6c36d997540bf9702466618bbc99b75
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+warning: unused imports: `GLYPH_PAINT` and `ScreenFrame`
+  --> crates\lurq\src\app\runtime\capture_redaction_tests.rs:11:27
+   |
+11 |     capture_test_engine::{GLYPH_PAINT, GlyphPainter, ScreenFrame, TestSurface},
+   |                           ^^^^^^^^^^^                ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `paint_of`
+  --> crates\lurq\src\canvas\mod.rs:19:16
+   |
+19 | use software::{paint_of, rescale_clip};
+   |                ^^^^^^^^
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4080:9
+     |
+4080 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4207:9
+     |
+4207 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4377:9
+     |
+4377 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9241:4
+     |
+9241 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:68:7
+   |
+68 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:70:7
+   |
+70 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 8 warnings (run `cargo fix --lib -p lurq --tests` to apply 5 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-613a5194a333bc7e.exe)
+
+running 2 tests
+test app::wgpu_render::canvas::residency_tests::gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget ... FAILED
+test app::wgpu_render::canvas::residency_tests::gpu_canvas_uploads_a_page_of_labels_once ... FAILED
+
+failures:
+
+---- app::wgpu_render::canvas::residency_tests::gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget stdout ----
+canvas GPU: AdapterInfo { name: "NVIDIA GeForce RTX 5080", vendor: 4318, device: 11266, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "596.49", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: false }
+
+thread 'app::wgpu_render::canvas::residency_tests::gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget' (78468) panicked at crates\lurq\src\app\wgpu_render\canvas\residency_tests.rs:43:3:
+assertion `left == right` failed: images of the previous frame were uploaded again
+  left: [77824, 77824, 77824]
+ right: [0, 0, 0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- app::wgpu_render::canvas::residency_tests::gpu_canvas_uploads_a_page_of_labels_once stdout ----
+canvas GPU: AdapterInfo { name: "NVIDIA GeForce RTX 5080", vendor: 4318, device: 11266, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "596.49", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: false }
+
+thread 'app::wgpu_render::canvas::residency_tests::gpu_canvas_uploads_a_page_of_labels_once' (87112) panicked at crates\lurq\src\app\wgpu_render\canvas\residency_tests.rs:69:3:
+assertion `left == right` failed: labels of the previous frame were uploaded again
+  left: [687528, 687528, 687528]
+ right: [0, 0, 0]
+
+
+failures:
+    app::wgpu_render::canvas::residency_tests::gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget
+    app::wgpu_render::canvas::residency_tests::gpu_canvas_uploads_a_page_of_labels_once
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 262 filtered out; finished in 4.49s
+
+error: test failed, to rerun pass `-p lurq --lib`
+
+# exit: 101
+# finished: 2026-10-05 12:23:58 +0300

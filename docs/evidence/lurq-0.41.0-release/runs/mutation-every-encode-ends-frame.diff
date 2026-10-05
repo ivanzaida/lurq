@@ -1,0 +1,13 @@
+diff --git a/crates/lurq/src/canvas/frame_boundary.rs b/crates/lurq/src/canvas/frame_boundary.rs
+index 97391f5..6463a22 100644
+--- a/crates/lurq/src/canvas/frame_boundary.rs
++++ b/crates/lurq/src/canvas/frame_boundary.rs
+@@ -74,7 +74,7 @@ impl FrameBoundary {
+   /// whether it also ends the cache frame. When it does, the text frames of the
+   /// canvases encoded since the previous end end as well.
+   pub(crate) fn end_encode<B>(&mut self, fronts: &HashMap<CanvasId, (u64, B)>) -> bool {
+-    if fronts.keys().any(|id| !self.ended.contains(id)) {
++    if false && fronts.keys().any(|id| !self.ended.contains(id)) {
+       return false;
+     }
+     for (_, canvas) in self.text.drain(..) {

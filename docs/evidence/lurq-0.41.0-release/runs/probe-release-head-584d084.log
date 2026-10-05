@@ -1,0 +1,62 @@
+# binary: .tmp/probe/probe-head-584d084.exe sha256 0a60c2eb08cba7e4642387b513ed2bc4498f1b710b804a862b5c8edf14f6f5ef
+# command: probe-head-584d084.exe canvas_frame_probe --ignored --nocapture --test-threads=1 (cwd crates/lurq)
+# started: 2026-10-05 14:16:03 +0300
+
+
+running 2 tests
+test app::canvas_frame_probe::canvas_frame_probe_dx12 ... probe backend=dx12 page=Labels shape_misses: first=688.00 steady_median=0.00
+probe backend=dx12 page=Labels shape_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels text_ms: first=24.06 steady_median=0.27
+probe backend=dx12 page=Labels textures_created: first=344.00 steady_median=0.00
+probe backend=dx12 page=Labels texture_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels asset_upload_ms: first=92.00 steady_median=0.30
+probe backend=dx12 page=Labels uploaded_kib: first=2711.62 steady_median=0.00
+probe backend=dx12 page=Labels canvas_total_ms: first=287.72 steady_median=0.59
+probe backend=dx12 page=Labels asset_stretch_kib: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels assets_uncached: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=dx12 page=Labels shapes_uncached: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images textures_created: first=1100.00 steady_median=0.00
+probe backend=dx12 page=Images texture_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images asset_upload_ms: first=316.99 steady_median=0.96
+probe backend=dx12 page=Images uploaded_kib: first=1100.00 steady_median=0.00
+probe backend=dx12 page=Images canvas_total_ms: first=457.52 steady_median=1.70
+probe backend=dx12 page=Images asset_stretch_kib: first=4864.00 steady_median=4864.00
+probe backend=dx12 page=Images assets_uncached: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shapes_uncached: first=0.00 steady_median=0.00
+ok
+test app::canvas_frame_probe::canvas_frame_probe_wgpu ... probe backend=wgpu page=Labels shape_misses: first=688.00 steady_median=0.00
+probe backend=wgpu page=Labels shape_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels text_ms: first=22.69 steady_median=0.36
+probe backend=wgpu page=Labels textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels asset_upload_ms: first=22.04 steady_median=0.05
+probe backend=wgpu page=Labels uploaded_kib: first=2711.62 steady_median=0.00
+probe backend=wgpu page=Labels canvas_total_ms: first=144.16 steady_median=1.15
+probe backend=wgpu page=Labels asset_stretch_kib: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels assets_uncached: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels shapes_uncached: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images asset_upload_ms: first=71.53 steady_median=0.16
+probe backend=wgpu page=Images uploaded_kib: first=1100.00 steady_median=0.00
+probe backend=wgpu page=Images canvas_total_ms: first=163.70 steady_median=2.48
+probe backend=wgpu page=Images asset_stretch_kib: first=4864.00 steady_median=4864.00
+probe backend=wgpu page=Images assets_uncached: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_stretch_kib: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shapes_uncached: first=0.00 steady_median=0.00
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 296 filtered out; finished in 6.35s
+
+
+# exit: 0
+# finished: 2026-10-05 14:16:10 +0300

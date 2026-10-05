@@ -1,0 +1,107 @@
+2026-10-05 12:01:09 before base-2d60466-text-collapse: busy       3 cargo       1 rustc 
+2026-10-05 12:04:10 before base-2d60466-text-collapse: busy       4 cargo       4 rustc 
+2026-10-05 12:07:10 before base-2d60466-text-collapse: busy       2 cargo       1 rustc 
+2026-10-05 12:10:11 before base-2d60466-text-collapse: busy       2 cargo       4 rustc 
+2026-10-05 12:13:12 before base-2d60466-text-collapse: busy       6 cargo      14 rustc 
+2026-10-05 12:16:13 before base-2d60466-text-collapse: busy       2 cargo 
+2026-10-05 12:19:13 before base-2d60466-text-collapse: busy       2 cargo 
+2026-10-05 12:22:14 before base-2d60466-text-collapse: clear
+H:              1.9T  1.6T  273G  86% /h
+2026-10-05 12:23:52 before base-2d60466-gpu-residency: clear
+H:              1.9T  1.6T  271G  86% /h
+2026-10-05 12:26:37 before base-02a037c-probe-release-build: busy       4 cargo       1 rustc 
+2026-10-05 12:29:38 before base-02a037c-probe-release-build: busy       2 cargo       1 rustc 
+2026-10-05 12:32:38 before base-02a037c-probe-release-build: busy       2 cargo 
+2026-10-05 12:35:39 before base-02a037c-probe-release-build: busy       6 cargo      12 rustc 
+2026-10-05 12:38:39 before base-02a037c-probe-release-build: clear
+H:              1.9T  1.6T  246G  87% /h
+2026-10-05 12:42:28 before lib-all: busy       2 cargo       1 rustc 
+2026-10-05 12:45:28 before lib-all: busy       6 cargo       9 rustc 
+2026-10-05 12:48:29 before lib-all: busy       2 cargo 
+2026-10-05 12:51:30 before lib-all: busy       4 cargo       1 rustc 
+2026-10-05 12:54:30 before lib-all: busy       4 cargo       4 link       5 rustc 
+2026-10-05 12:57:31 before lib-all: busy       6 cargo       6 rustc 
+2026-10-05 13:00:32 before lib-all: busy       6 cargo       3 rustc 
+2026-10-05 13:03:32 before lib-all: busy       2 cargo       2 rustc 
+2026-10-05 13:06:33 before lib-all: busy       1 kontur-desktop 
+2026-10-05 13:09:33 before lib-all: busy       2 cargo       1 kontur-desktop       2 rustc 
+2026-10-05 13:12:34 before lib-all: busy       2 cargo       1 kontur-desktop 
+2026-10-05 13:15:35 before lib-all: busy       1 kontur-desktop 
+2026-10-05 13:18:36 before lib-all: clear
+H:              1.9T  1.7T  222G  89% /h
+2026-10-05 13:19:17 before lib-serde: clear
+H:              1.9T  1.6T  253G  87% /h
+2026-10-05 13:19:46 before gpu-ignored: clear
+H:              1.9T  1.6T  253G  87% /h
+2026-10-05 13:20:03 before dx12-residency: clear
+H:              1.9T  1.6T  274G  86% /h
+2026-10-05 13:20:12 before pr41-presentation: clear
+H:              1.9T  1.6T  274G  86% /h
+2026-10-05 13:20:16 before ci-canvas-tests: clear
+H:              1.9T  1.6T  274G  86% /h
+2026-10-05 13:21:22 before ci-canvas-perf-lib: clear
+H:              1.9T  1.6T  274G  86% /h
+2026-10-05 13:24:35 before check-ci-canvas-wgpu: busy       2 cargo       4 rustc 
+2026-10-05 13:27:36 before check-ci-canvas-wgpu: busy       2 cargo       1 rustc 
+2026-10-05 13:30:36 before check-ci-canvas-wgpu: busy       2 cargo       1 rustc 
+2026-10-05 13:33:37 before check-ci-canvas-wgpu: busy       2 cargo       1 rustc 
+2026-10-05 13:36:37 before check-ci-canvas-wgpu: busy       2 cargo 
+2026-10-05 13:39:38 before check-ci-canvas-wgpu: busy       2 cargo       1 kontur-desktop       4 link       4 rustc 
+2026-10-05 13:42:38 before check-ci-canvas-wgpu: clear
+H:              1.9T  1.6T  250G  87% /h
+2026-10-05 13:43:07 before check-ci-lifecycle: clear
+H:              1.9T  1.6T  250G  87% /h
+2026-10-05 13:43:36 before check-dx12-mcp-canvas: clear
+H:              1.9T  1.6T  250G  87% /h
+2026-10-05 13:43:48 before check-dx12-mcp-canvas-perf: clear
+H:              1.9T  1.6T  249G  87% /h
+2026-10-05 13:43:56 before check-canvas-only: clear
+H:              1.9T  1.6T  249G  87% /h
+2026-10-05 13:44:04 before check-dx12-no-canvas: clear
+H:              1.9T  1.6T  249G  87% /h
+2026-10-05 13:44:11 before check-default: clear
+H:              1.9T  1.6T  249G  87% /h
+2026-10-05 13:44:15 before layout-tests: clear
+H:              1.9T  1.6T  248G  87% /h
+2026-10-05 13:49:40 before ci-publish-macros: busy       2 cargo       1 rustc 
+2026-10-05 13:52:40 before ci-publish-macros: clear
+H:              1.9T  1.6T  241G  88% /h
+2026-10-05 13:52:46 before ci-publish-query-lib: clear
+H:              1.9T  1.6T  241G  88% /h
+2026-10-05 13:53:03 before ci-publish-query-tests: clear
+H:              1.9T  1.6T  240G  88% /h
+2026-10-05 13:53:17 before ci-publish-query-tokio-lib: clear
+H:              1.9T  1.6T  240G  88% /h
+2026-10-05 13:53:34 before ci-publish-query-tokio-suites: clear
+H:              1.9T  1.6T  240G  88% /h
+2026-10-05 13:53:58 before ci-publish-input-tests: clear
+H:              1.9T  1.6T  239G  88% /h
+2026-10-05 13:54:10 before ci-publish-runtime-text: clear
+H:              1.9T  1.6T  238G  88% /h
+2026-10-05 13:54:18 before ci-publish-resources-tests: clear
+H:              1.9T  1.6T  238G  88% /h
+2026-10-05 13:54:41 before ci-publish-svg-tests: clear
+H:              1.9T  1.6T  238G  88% /h
+2026-10-05 13:55:02 before ci-publish-svg-rasterize: clear
+H:              1.9T  1.6T  237G  88% /h
+2026-10-05 13:55:14 before ci-lifecycle-lib: clear
+H:              1.9T  1.6T  237G  88% /h
+2026-10-05 13:59:36 before clippy-head: clear
+H:              1.9T  1.6T  233G  88% /h
+2026-10-05 14:00:03 before probe-release-build: clear
+H:              1.9T  1.6T  233G  88% /h
+2026-10-05 14:00:41 before package-file-list: clear
+H:              1.9T  1.6T  233G  88% /h
+2026-10-05 14:00:43 before publish-dry-run: clear
+H:              1.9T  1.6T  233G  88% /h
+2026-10-05 14:05:25 before clippy-base-2ba3171: busy       2 cargo       4 rustc 
+2026-10-05 14:08:27 before clippy-base-2ba3171: busy       4 cargo      12 rustc 
+2026-10-05 14:11:29 before clippy-base-2ba3171: busy       2 cargo 
+2026-10-05 14:14:30 before clippy-base-2ba3171: clear
+H:              1.9T  1.7T  215G  89% /h
+2026-10-05 14:21:15 before mutation-every-encode-ends-frame: busy       2 cargo       4 rustc 
+2026-10-05 14:24:16 before mutation-every-encode-ends-frame: busy       2 cargo       2 rustc 
+2026-10-05 14:27:16 before mutation-every-encode-ends-frame: busy       2 cargo       1 rustc 
+2026-10-05 14:30:17 before mutation-every-encode-ends-frame: busy       2 cargo       1 rustc 
+2026-10-05 14:33:17 before mutation-every-encode-ends-frame: clear
+H:              1.9T  1.7T  217G  89% /h
