@@ -21,13 +21,14 @@ use windows::{
 
 use crate::{
   app::render_engine::{CapturedFrame, RenderCaptureTarget, RenderEngine, RenderFrameCapture},
-  layout::render_list::RenderList,
+  layout::render_list::{GlyphAtlas, RenderList},
+  node::color::Color,
 };
 
-struct HiddenWindow(HWND);
+pub(super) struct HiddenWindow(HWND);
 
 impl HiddenWindow {
-  fn new(width: u32, height: u32) -> Self {
+  pub(super) fn new(width: u32, height: u32) -> Self {
     static REGISTER: Once = Once::new();
     let name = w!("LurqBlendReadbackTest");
     // SAFETY: registers a class whose procedure only forwards to
@@ -61,7 +62,7 @@ impl HiddenWindow {
     }
   }
 
-  fn window_handle(&self) -> WindowHandle<'_> {
+  pub(super) fn window_handle(&self) -> WindowHandle<'_> {
     let raw = Win32WindowHandle::new(NonZeroIsize::new(self.0.0 as isize).expect("non-null HWND"));
     // SAFETY: the HWND stays valid until `self` is dropped, which outlives the
     // borrowed handle.
@@ -81,6 +82,28 @@ impl Drop for HiddenWindow {
     if let Err(error) = unsafe { DestroyWindow(self.0) } {
       eprintln!("failed to destroy the readback test window: {error}");
     }
+  }
+}
+
+/// A frame with nothing but its clear colour, for tests that render only Canvas.
+#[cfg_attr(not(feature = "canvas"), allow(dead_code))]
+pub(super) fn empty_list() -> RenderList {
+  RenderList {
+    clear_color: Color::new(24, 24, 27, 255),
+    rects: Vec::new(),
+    glyphs: Vec::new(),
+    images: Vec::new(),
+    #[cfg(feature = "svg")]
+    svgs: Vec::new(),
+    layers: Vec::new(),
+    atlas: GlyphAtlas {
+      data: Arc::from([0_u8; 4].as_slice()),
+      width: 1,
+      height: 1,
+      version: 1,
+      dirty_rects: Arc::from(Vec::new()),
+      dirty_from_version: 0,
+    },
   }
 }
 

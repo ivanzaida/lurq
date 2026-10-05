@@ -13,8 +13,8 @@ use wgpu::*;
 use super::DynamicBuffer;
 use crate::app::profile_support::{profile_elapsed, profile_if, profile_scope};
 use crate::canvas::{
-  BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, PresentationEvent,
-  TargetCharge, gpu::*, replacement_admitted,
+  AssetCache, BlendMode, CanvasAssetBudget, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak,
+  FrameBoundary, GradientKind, PresentationEvent, TargetCharge, gpu::*, replacement_admitted,
 };
 
 struct Texture {
@@ -22,11 +22,6 @@ struct Texture {
   view: TextureView,
   nearest: BindGroup,
   linear: BindGroup,
-}
-struct CachedAsset {
-  image: Texture,
-  bytes: usize,
-  last: u64,
 }
 struct Artwork {
   image: Texture,
@@ -49,9 +44,8 @@ pub(super) struct Renderer {
   spares: Vec<Spare>,
   retired_artwork: Vec<ArtworkLease>,
   rejected: HashSet<CanvasId>,
-  assets: HashMap<u64, CachedAsset>,
-  asset_bytes: usize,
-  tick: u64,
+  assets: AssetCache<Texture>,
+  frames: FrameBoundary,
   generation: u64,
   globals_layout: BindGroupLayout,
   image_layout: BindGroupLayout,
@@ -113,7 +107,7 @@ impl Renderer {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::CanvasBackend));
-    self.tick += 1;
+    self.frames.begin_encode();
     let live: HashSet<_> = canvases
       .iter()
       .filter(|c| c.is_attached())
@@ -127,7 +121,7 @@ impl Renderer {
       .filter(|id| !live.contains(id))
       .collect();
     for id in closed {
-      if let Some((_, front)) = self.fronts.remove(&id) {
+      if let Some((_, front)) = self.frames.end_replacement(&mut self.fronts, id) {
         self.retire_back(queue, id, front);
       }
       if let Some(back) = self.surfaces.remove(&id) {
@@ -143,6 +137,7 @@ impl Renderer {
       let Some(mut batch) = canvas.take_batch() else {
         continue;
       };
+      self.frames.encodes(canvas);
       profile_if! { self.profile.batches += 1; }
       let mut commands: VecDeque<_> = batch.take_commands().into();
       if !self.surfaces.contains_key(&canvas.surface_id()) && !matches!(commands.front(), Some(Command::Resize { .. }))
@@ -252,12 +247,14 @@ impl Renderer {
       }
       batch.submit();
     }
-    // An LRU byte cap includes images and shaped text. No drawing history is kept.
-    while self.asset_bytes > 64 * 1024 * 1024 {
-      let Some(id) = self.assets.iter().min_by_key(|(_, a)| a.last).map(|(id, _)| *id) else {
-        break;
-      };
-      self.asset_bytes -= self.assets.remove(&id).unwrap().bytes;
+    // WGPU keeps a dropped texture alive while submitted work still uses it.
+    let frame_ends = self.frames.end_encode(&self.fronts);
+    let _frame = self.assets.finish_encode(frame_ends, drop);
+    profile_if! {
+      self.profile.asset_cache_budget_bytes = self.assets.budget();
+      self.profile.asset_cache_stretch_bytes = _frame.stretch_bytes;
+      self.profile.asset_cache_uncached = _frame.uncached;
+      self.profile.asset_cache_uncached_bytes = _frame.uncached_bytes;
     }
     profile_if! { self.profile.total = profile_elapsed!(_process_start); }
   }
@@ -524,6 +521,10 @@ impl Drop for Renderer {
 
 #[cfg(test)]
 mod camera_tests;
+#[cfg(test)]
+mod replacement_residency_tests;
+#[cfg(test)]
+mod residency_tests;
 #[cfg(test)]
 mod tests;
 

@@ -1,0 +1,293 @@
+# command: cargo test -p lurq --locked --offline --features canvas --test canvas_tests
+# started: 2026-10-05 13:20:16 +0300
+# head: 584d08451f1bcc64f2eee00da02bf87d13425ae9 tree: 21a10b9c547161bf507067ba67afcef1ce44818c
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+   Compiling unicode-ident v1.0.24
+   Compiling smallvec v1.15.1
+   Compiling raw-window-handle v0.6.2
+   Compiling proc-macro2 v1.0.106
+   Compiling parking_lot_core v0.9.12
+   Compiling parking_lot v0.12.5
+   Compiling quote v1.0.45
+   Compiling syn v2.0.117
+   Compiling bytemuck_derive v1.10.2
+   Compiling windows-implement v0.60.2
+   Compiling windows-interface v0.59.3
+   Compiling zerocopy-derive v0.8.48
+   Compiling serde_derive v1.0.228
+   Compiling windows-core v0.62.2
+   Compiling bytemuck v1.25.0
+   Compiling font-types v0.12.5
+   Compiling font-types v0.11.3
+   Compiling zerocopy v0.8.48
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling serde v1.0.228
+   Compiling tiny-skia-path v0.11.4
+   Compiling half v2.7.1
+   Compiling windows-future v0.3.2
+   Compiling ciborium-ll v0.2.2
+   Compiling windows-numerics v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling tracing-attributes v0.1.31
+   Compiling windows v0.62.2
+   Compiling tracing v0.1.44
+   Compiling ciborium v0.2.2
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.44.0
+   Compiling swash v0.2.10
+   Compiling skrifa v0.40.0
+   Compiling tiny-skia v0.11.4
+   Compiling cosmic-text v0.19.0
+   Compiling tinytemplate v1.2.1
+   Compiling lurq_macros v0.1.2 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq_macros)
+   Compiling lurq v0.41.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+warning: unused import: `presentation::PresentationEvent`
+  --> crates\lurq\src\canvas\mod.rs:14:16
+   |
+14 | pub(crate) use presentation::PresentationEvent;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `TargetCharge` and `replacement_admitted`
+  --> crates\lurq\src\canvas\mod.rs:15:38
+   |
+15 | pub(crate) use presentation_budget::{TargetCharge, replacement_admitted};
+   |                                      ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `paint_of`
+  --> crates\lurq\src\canvas\mod.rs:19:16
+   |
+19 | use software::{paint_of, rescale_clip};
+   |                ^^^^^^^^
+
+warning: unused import: `artwork::artwork_vertices`
+  --> crates\lurq\src\canvas\gpu.rs:13:16
+   |
+13 | pub(crate) use artwork::artwork_vertices;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Prepared`, `layer_depth`, and `touches`
+  --> crates\lurq\src\canvas\gpu.rs:15:31
+   |
+15 | pub(crate) use tessellation::{Prepared, layer_depth, touches};
+   |                               ^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^
+
+warning: function `atlas_rects_to_apply` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9241:4
+     |
+9241 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `PresentationEvent` is never used
+   --> crates\lurq\src\canvas\presentation.rs:164:17
+    |
+164 | pub(crate) enum PresentationEvent {
+    |                 ^^^^^^^^^^^^^^^^^
+
+warning: methods `retain_presentation_revision`, `presentation_workspace`, `presentation_event`, and `presentation_current` are never used
+   --> crates\lurq\src\canvas\presentation.rs:172:17
+    |
+171 | impl CanvasHandle {
+    | ----------------- methods in this implementation
+172 |   pub(crate) fn retain_presentation_revision(&self, revision: u64) {
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+177 |   pub(crate) fn presentation_workspace(&self, bytes: usize) {
+    |                 ^^^^^^^^^^^^^^^^^^^^^^
+...
+180 |   pub(crate) fn presentation_event(&self, event: PresentationEvent) {
+    |                 ^^^^^^^^^^^^^^^^^^
+...
+195 |   pub(crate) fn presentation_current(&self, token: u64) -> bool {
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TargetCharge` is never constructed
+ --> crates\lurq\src\canvas\presentation_budget.rs:4:19
+  |
+4 | pub(crate) struct TargetCharge {
+  |                   ^^^^^^^^^^^^
+
+warning: methods `add`, `shared`, and `bytes` are never used
+  --> crates\lurq\src\canvas\presentation_budget.rs:9:17
+   |
+ 8 | impl TargetCharge {
+   | ----------------- methods in this implementation
+ 9 |   pub(crate) fn add(&mut self, bytes: usize) {
+   |                 ^^^
+...
+12 |   pub(crate) fn shared(&mut self, identity: usize, bytes: usize) {
+   |                 ^^^^^^
+...
+17 |   pub(crate) fn bytes(&self) -> usize {
+   |                 ^^^^^
+
+warning: function `replacement_admitted` is never used
+  --> crates\lurq\src\canvas\presentation_budget.rs:21:15
+   |
+21 | pub(crate) fn replacement_admitted(owned: usize, additional: usize, workspace: usize) -> bool {
+   |               ^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:68:7
+   |
+68 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:70:7
+   |
+70 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `LayerStep` is never used
+  --> crates\lurq\src\layout\opacity_layer.rs:83:17
+   |
+83 | pub(crate) enum LayerStep {
+   |                 ^^^^^^^^^
+
+warning: struct `LayerTarget` is never constructed
+  --> crates\lurq\src\layout\opacity_layer.rs:94:19
+   |
+94 | pub(crate) struct LayerTarget {
+   |                   ^^^^^^^^^^^
+
+warning: struct `LayerPlan` is never constructed
+   --> crates\lurq\src\layout\opacity_layer.rs:105:19
+    |
+105 | pub(crate) struct LayerPlan {
+    |                   ^^^^^^^^^
+
+warning: methods `build`, `targets`, `steps`, `has_layers`, and `plan_target` are never used
+   --> crates\lurq\src\layout\opacity_layer.rs:115:17
+    |
+112 | impl LayerPlan {
+    | -------------- methods in this implementation
+...
+115 |   pub(crate) fn build(&mut self, draw_count: usize, order_of: impl Fn(usize) -> usize, layers: &[LayerCmd]) {
+    |                 ^^^^^
+...
+124 |   pub(crate) fn targets(&self) -> &[LayerTarget] {
+    |                 ^^^^^^^
+...
+128 |   pub(crate) fn steps(&self, target: &LayerTarget) -> &[LayerStep] {
+    |                 ^^^^^
+...
+134 |   pub(crate) fn has_layers(&self) -> bool {
+    |                 ^^^^^^^^^^
+...
+138 |   fn plan_target(
+    |      ^^^^^^^^^^^
+
+warning: associated items `window`, `layer`, `viewport`, `clip`, and `layer_rect` are never used
+   --> crates\lurq\src\layout\opacity_layer.rs:199:17
+    |
+198 | impl TargetSpace {
+    | ---------------- associated items in this implementation
+199 |   pub(crate) fn window(width: f32, height: f32) -> Self {
+    |                 ^^^^^^
+...
+210 |   pub(crate) fn layer(bounds: LayerBounds, texture_width: u32, texture_height: u32) -> Self {
+    |                 ^^^^^
+...
+225 |   pub(crate) fn viewport(&self) -> [f32; 4] {
+    |                 ^^^^^^^^
+...
+231 |   pub(crate) fn clip(&self, clip: ClipRect) -> ClipRect {
+    |                 ^^^^
+...
+253 |   pub(crate) fn layer_rect(&self, layer: LayerBounds) -> ClipRect {
+    |                 ^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:281:17
+    |
+280 | impl LayerComposite {
+    | ------------------- associated function in this implementation
+281 |   pub(crate) fn new(layer: &LayerCmd, parent: &TargetSpace) -> Self {
+    |                 ^^^
+
+warning: function `first_at_or_after` is never used
+   --> crates\lurq\src\layout\opacity_layer.rs:298:4
+    |
+298 | fn first_at_or_after(range: Range<usize>, order: usize, order_of: &impl Fn(usize) -> usize) -> usize {
+    |    ^^^^^^^^^^^^^^^^^
+
+   Compiling criterion v0.5.1
+warning: `lurq` (lib) generated 22 warnings (run `cargo fix --lib -p lurq` to apply 5 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+     Running tests\canvas_tests.rs (.tmp/target\debug\deps\canvas_tests-eb4c85b8ee561fb0.exe)
+
+running 49 tests
+test a_gradient_is_refused_for_text_rather_than_reduced_to_one_of_its_colours ... ok
+test items::duplicate_ids_are_reported_once_per_set_not_every_redraw ... ok
+test after_layout_and_rect_observers_can_access_the_context ... ok
+test clear_rect_respects_transform_and_clip_but_clear_and_reset_are_distinct ... ok
+test current_paths_capture_transforms_but_reusable_paths_transform_at_use ... ok
+test blend_modes_follow_the_specification_and_are_part_of_the_saved_state ... ok
+test fill_rules_clip_curves_and_geometry_queries ... ok
+test image_cropping_and_negative_extents_preserve_direction ... ok
+test changing_ref_binding_preserves_surface_and_invalidates_old_ref ... ok
+test failed_presentation_retries_without_repeating_alpha ... ok
+test oversized_scale_keeps_existing_pixels_and_reports_failure ... ok
+test items::items_sharing_an_id_keep_the_last_one_everywhere ... ok
+test cloned_elements_have_independent_surfaces ... ok
+test gradients_paint_strokes_and_an_invalid_one_paints_nothing ... ok
+test items::item_at_prefers_the_last_registered_item_and_honours_shapes ... ok
+test layers_nest_to_a_stated_depth_and_carry_a_blend_mode ... ok
+test negative_rounded_rectangles_reverse_winding_and_clear_ignores_zero_alpha ... ok
+test keyed_reordering_preserves_surfaces_and_key_changes_replace_them ... ok
+test padding_and_ancestor_transform_have_a_checked_pointer_conversion ... ok
+test pointer_events_are_logical_at_high_display_scale ... ok
+test culled_canvas_writes_persist_without_an_idle_redraw_loop ... ok
+test a_layer_blur_spreads_a_shape_beyond_its_own_edge ... ok
+test nonuniform_strokes_and_dash_hit_tests ... ok
+test linear_gradients_run_across_their_box_and_follow_the_transform ... ok
+test an_isolated_layer_fades_overlapping_shapes_as_one_image ... ok
+test radial_and_angular_gradients_read_their_own_parameter ... ok
+test logical_resize_resets_but_scale_change_preserves_pixels_and_state ... ok
+test an_outer_shadow_falls_behind_the_shape_and_an_inner_one_inside_it ... ok
+test items::item_bounds_follow_padding_ancestor_transforms_and_scrolling ... ok
+test detached_worker_writes_are_bounded_and_visible_worker_writes_wake_once ... ok
+test items::items_are_replaced_as_a_set_and_dropped_with_the_pixels_on_resize ... ok
+test refs_produce_owned_shared_contexts_and_find_access ... ok
+test removal_detaches_refs_and_old_context_never_retargets ... ok
+test component_rerender_keeps_surface_and_paint ... ok
+test static_images_crop_and_copy_without_live_source_dependencies ... ok
+test save_restore_does_not_restore_the_path_or_erase_pixels ... ok
+test writes_after_frame_snapshot_schedule_another_frame ... ok
+test same_size_reconciliation_preserves_pixels_and_context_state ... ok
+test submitted_alpha_is_not_reapplied_on_window_redraw ... ok
+test zero_size_and_invalid_inputs_do_not_spin_or_panic ... ok
+test rerender::a_canvas_the_rerender_removes_is_still_detached ... ok
+test rerender::drawing_queued_by_a_handler_survives_the_rerender_it_causes ... ok
+test shaped_text_casts_the_shadow_in_force_and_blurs_with_the_filter ... ok
+test text_font_features_reach_canvas_shaping ... ok
+test text_letter_spacing_widens_measured_advances ... ok
+test rerender::an_open_overlay_keeps_its_canvas_and_queued_drawing_across_rerenders ... ok
+test saved_clips_survive_display_scale_changes ... ok
+test text_shapes_measures_and_renders_with_alignment ... ok
+test rerender::closing_an_overlay_detaches_its_canvas_and_reopening_binds_a_new_one ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+
+# exit: 0
+# finished: 2026-10-05 13:21:22 +0300

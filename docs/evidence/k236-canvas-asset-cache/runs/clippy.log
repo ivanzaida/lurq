@@ -1,0 +1,2056 @@
+# head: 91b9eac5a8e4e042e67e2b8be1526309e3c28cff tree: e7667f8905264ded44366642017f89f41296e852 dirty-source-files: 0
+# started: 2026-10-04T04:36:17+03:00
+# cargo clippy -p lurq --lib --tests --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot
+    Checking lurq v0.36.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-canvas-cache\crates\lurq)
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4041:9
+     |
+4041 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4168:9
+     |
+4168 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4338:9
+     |
+4338 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:61:7
+   |
+61 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: module has the same name as its containing module
+ --> crates\lurq\src\animation\mod.rs:1:1
+  |
+1 | mod animation;
+  | ^^^^^^^^^^^^^^
+  |
+  = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#module_inception
+  = note: `#[warn(clippy::module_inception)]` on by default
+
+warning: you should consider adding a `Default` implementation for `AnimationEngine`
+   --> crates\lurq\src\animation\animation.rs:135:3
+    |
+135 | /   pub fn new() -> Self {
+136 | |     Self {
+137 | |       active: HashMap::new(),
+138 | |       keyframe_store: HashMap::new(),
+...   |
+142 | |   }
+    | |___^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#new_without_default
+    = note: `#[warn(clippy::new_without_default)]` on by default
+help: try adding this
+    |
+134 + impl Default for AnimationEngine {
+135 +     fn default() -> Self {
+136 +         Self::new()
+137 +     }
+138 + }
+    |
+
+warning: this `if` statement can be collapsed
+   --> crates\lurq\src\animation\animation.rs:189:5
+    |
+189 | /     if node_id.is_assigned() {
+190 | |       if let Some(spec) = &node.animation {
+191 | |         self.seen.insert(node_id);
+192 | |         let spec = spec.clone();
+...   |
+195 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+189 ~     if node_id.is_assigned()
+190 ~       && let Some(spec) = &node.animation {
+191 |         self.seen.insert(node_id);
+192 |         let spec = spec.clone();
+193 |         needs_layout = self.process_node(node, &spec, now);
+194 ~       }
+    |
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\animation\animation.rs:281:10
+    |
+281 |       if iteration as u64 % 2 == 0 {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `(iteration as u64).is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+    = note: `#[warn(clippy::manual_is_multiple_of)]` on by default
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\animation\animation.rs:288:10
+    |
+288 |       if iteration as u64 % 2 == 0 {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `(iteration as u64).is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: the loop variable `i` is used to index `frames`
+   --> crates\lurq\src\animation\animation.rs:346:12
+    |
+346 |   for i in 1..frames.len() {
+    |            ^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_range_loop
+    = note: `#[warn(clippy::needless_range_loop)]` on by default
+help: consider using an iterator and enumerate()
+    |
+346 -   for i in 1..frames.len() {
+346 +   for (i, <item>) in frames.iter().enumerate().skip(1) {
+    |
+
+warning: you should consider adding a `Default` implementation for `TransitionEngine`
+   --> crates\lurq\src\animation\transition.rs:133:3
+    |
+133 | /   pub fn new() -> Self {
+134 | |     Self {
+135 | |       active: HashMap::new(),
+136 | |       prev_values: HashMap::new(),
+...   |
+140 | |   }
+    | |___^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#new_without_default
+help: try adding this
+    |
+132 + impl Default for TransitionEngine {
+133 +     fn default() -> Self {
+134 +         Self::new()
+135 +     }
+136 + }
+    |
+
+warning: this `if` statement can be collapsed
+   --> crates\lurq\src\animation\transition.rs:229:7
+    |
+229 | /       if let Some(prev) = self.prev_values.get(&key) {
+230 | |         if *prev != current {
+231 | |           let from = if let Some(running) = self.active.get(&key) {
+232 | |             let elapsed = now.duration_since(running.start_time);
+...   |
+256 | |       }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+229 ~       if let Some(prev) = self.prev_values.get(&key)
+230 ~         && *prev != current {
+231 |           let from = if let Some(running) = self.active.get(&key) {
+...
+254 |           );
+255 ~         }
+    |
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> crates\lurq\src\app\app_state.rs:25:21
+   |
+25 |   pub(crate) build: Box<dyn FnOnce(&mut App, &mut crate::app::Tree) + Send>,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#type_complexity
+   = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: this `impl` can be derived
+   --> crates\lurq\src\app\ctx.rs:138:1
+    |
+138 | / impl Default for Placement {
+139 | |   fn default() -> Self {
+140 | |     Self::BottomStart
+141 | |   }
+142 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#derivable_impls
+    = note: `#[warn(clippy::derivable_impls)]` on by default
+help: replace the manual implementation with a derive attribute and mark the default variant
+    |
+123 + #[derive(Default)]
+124 | pub enum Placement {
+125 |   TopStart,
+126 |   Top,
+127 |   TopEnd,
+128 ~   #[default]
+129 ~   BottomStart,
+    |
+
+warning: this `impl` can be derived
+   --> crates\lurq\src\app\ctx.rs:152:1
+    |
+152 | / impl Default for CollisionStrategy {
+153 | |   fn default() -> Self {
+154 | |     Self::FlipThenClamp
+155 | |   }
+156 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#derivable_impls
+help: replace the manual implementation with a derive attribute and mark the default variant
+    |
+145 + #[derive(Default)]
+146 | pub enum CollisionStrategy {
+147 |   None,
+148 |   Clamp,
+149 |   Flip,
+150 ~   #[default]
+151 ~   FlipThenClamp,
+    |
+
+warning: using `clone` on type `()` which implements the `Copy` trait
+   --> crates\lurq\src\app\ctx.rs:794:23
+    |
+794 |       runtime_handle: self.runtime_handle.clone(),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `self.runtime_handle`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+    = note: `#[warn(clippy::clone_on_copy)]` on by default
+
+warning: passing a unit value to a function
+   --> crates\lurq\src\app\ctx.rs:794:23
+    |
+794 |       runtime_handle: self.runtime_handle.clone(),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unit_arg
+    = note: `#[warn(clippy::unit_arg)]` on by default
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+794 ~       runtime_handle: {
+795 +           self.runtime_handle;
+796 +           ().clone()
+797 ~       },
+    |
+
+warning: passing a unit value to a function
+   --> crates\lurq\src\app\ctx.rs:880:5
+    |
+880 | /     start_future_task(
+881 | |       self.state.clone(),
+882 | |       self.task.clone(),
+883 | |       self.runtime_handle.clone(),
+884 | |       future,
+885 | |     );
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+880 ~     self.runtime_handle.clone();
+881 +     start_future_task(
+882 +       self.state.clone(),
+883 +       self.task.clone(),
+884 +       (),
+885 +       future,
+886 ~     );
+    |
+
+warning: using `clone` on type `()` which implements the `Copy` trait
+   --> crates\lurq\src\app\ctx.rs:883:7
+    |
+883 |       self.runtime_handle.clone(),
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `self.runtime_handle`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: passing a unit value to a function
+   --> crates\lurq\src\app\ctx.rs:883:7
+    |
+883 |       self.runtime_handle.clone(),
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+    |
+883 ~       {
+884 +           self.runtime_handle;
+885 +           ().clone()
+886 ~       },
+    |
+
+warning: this let-binding has unit value
+    --> crates\lurq\src\app\ctx.rs:1080:3
+     |
+1080 |   let _ = runtime_handle;
+     |   ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#let_unit_value
+     = note: `#[warn(clippy::let_unit_value)]` on by default
+help: omit the `let` binding
+     |
+1080 -   let _ = runtime_handle;
+1080 +   runtime_handle;
+     |
+
+warning: this let-binding has unit value
+    --> crates\lurq\src\app\ctx.rs:1119:3
+     |
+1119 |   let _ = runtime_handle;
+     |   ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#let_unit_value
+help: omit the `let` binding
+     |
+1119 -   let _ = runtime_handle;
+1119 +   runtime_handle;
+     |
+
+warning: this let-binding has unit value
+    --> crates\lurq\src\app\ctx.rs:2029:5
+     |
+2029 |     let runtime_handle = self.runtime_future_handle();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#let_unit_value
+help: omit the `let` binding and replace variable usages with `()`
+     |
+2029 ~     self.runtime_future_handle();
+2030 |
+ ...
+2040 |             handle.task.clone(),
+2041 ~             ().clone(),
+2042 |             Box::pin(factory(deps)),
+ ...
+2064 |     }
+2065 ~     start_future_task(state, task, (), Box::pin(factory(deps)));
+     |
+
+warning: passing a unit value to a function
+    --> crates\lurq\src\app\ctx.rs:2038:11
+     |
+2038 | /           start_future_task(
+2039 | |             handle.state.clone(),
+2040 | |             handle.task.clone(),
+2041 | |             runtime_handle.clone(),
+2042 | |             Box::pin(factory(deps)),
+2043 | |           );
+     | |___________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+     |
+2038 ~           runtime_handle.clone();
+2039 +           start_future_task(
+2040 +             handle.state.clone(),
+2041 +             handle.task.clone(),
+2042 +             (),
+2043 +             Box::pin(factory(deps)),
+2044 ~           );
+     |
+
+warning: using `clone` on type `()` which implements the `Copy` trait
+    --> crates\lurq\src\app\ctx.rs:2041:13
+     |
+2041 |             runtime_handle.clone(),
+     |             ^^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `runtime_handle`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: this let-binding has unit value
+    --> crates\lurq\src\app\ctx.rs:2129:5
+     |
+2129 |     let runtime_handle = self.runtime_future_handle();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#let_unit_value
+help: omit the `let` binding and replace variable usages with `()`
+     |
+2129 ~     self.runtime_future_handle();
+2130 |
+ ...
+2140 |             handle.task.clone(),
+2141 ~             ().clone(),
+2142 |             move |emitter| factory(deps, emitter),
+ ...
+2164 |     }
+2165 ~     start_stream_task(state, task, (), move |emitter| factory(deps, emitter));
+     |
+
+warning: passing a unit value to a function
+    --> crates\lurq\src\app\ctx.rs:2138:11
+     |
+2138 | /           start_stream_task(
+2139 | |             handle.state.clone(),
+2140 | |             handle.task.clone(),
+2141 | |             runtime_handle.clone(),
+2142 | |             move |emitter| factory(deps, emitter),
+2143 | |           );
+     | |___________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unit_arg
+help: move the expression in front of the call and replace it with the unit literal `()`
+     |
+2138 ~           runtime_handle.clone();
+2139 +           start_stream_task(
+2140 +             handle.state.clone(),
+2141 +             handle.task.clone(),
+2142 +             (),
+2143 +             move |emitter| factory(deps, emitter),
+2144 ~           );
+     |
+
+warning: using `clone` on type `()` which implements the `Copy` trait
+    --> crates\lurq\src\app\ctx.rs:2141:13
+     |
+2141 |             runtime_handle.clone(),
+     |             ^^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `runtime_handle`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: this let-binding has unit value
+    --> crates\lurq\src\app\ctx.rs:2179:5
+     |
+2179 |     let runtime_handle = self.runtime_future_handle();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#let_unit_value
+help: omit the `let` binding and replace variable usages with `()`
+     |
+2179 ~     self.runtime_future_handle();
+2180 |     let runner: ActionRunner<A, T, E> = Arc::new(move |args| Box::pin(factory(args)));
+ ...
+2185 |         *action.runner.lock() = runner;
+2186 ~         action.runtime_handle = ();
+2187 |         return action.clone();
+ ...
+2196 |       runner: Arc::new(Mutex::new(runner)),
+2197 ~       runtime_handle: (),
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\ctx.rs:2835:5
+     |
+2835 | /     if let Some(found) = self.children[cursor..]
+2836 | |       .iter()
+2837 | |       .position(|slot| {
+2838 | |         slot.key.as_deref() == Some(key.as_str()) && slot.component.type_name() == ForEachSlot::TYPE_NAME
+...    |
+2846 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+2840 ~       .map(|offset| cursor + offset)
+2841 ~       && found != cursor {
+2842 |         let slot = self.children.remove(found);
+2843 |         self.children.insert(cursor, slot);
+2844 ~       }
+     |
+
+warning: items after a test module
+   --> crates\lurq\src\app\component.rs:492:1
+    |
+492 | mod tests {
+    | ^^^^^^^^^
+...
+573 | pub trait Component: Send + Sync + 'static {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#items_after_test_module
+    = note: `#[warn(clippy::items_after_test_module)]` on by default
+    = help: move the items to before the test module was defined
+
+warning: derefed type is same as origin
+   --> crates\lurq\src\app\dx12_render\canvas\resources.rs:222:27
+    |
+222 |     if let Some(detail) = profile.as_deref_mut() {
+    |                           ^^^^^^^^^^^^^^^^^^^^^^ help: try: `profile`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_option_as_deref
+    = note: `#[warn(clippy::needless_option_as_deref)]` on by default
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\app\dx12_render\mod.rs:456:37
+    |
+456 |     if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
+    |                                     ^^^^^^^^^^^^^^ help: replace with: `!width.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\app\dx12_render\mod.rs:456:55
+    |
+456 |     if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
+    |                                                       ^^^^^^^^^^^^^^^ help: replace with: `!height.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\app\dx12_render\mod.rs:497:37
+    |
+497 |     if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 || shared_handle_raw == 0 {
+    |                                     ^^^^^^^^^^^^^^ help: replace with: `!width.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\app\dx12_render\mod.rs:497:55
+    |
+497 |     if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 || shared_handle_raw == 0 {
+    |                                                       ^^^^^^^^^^^^^^^ help: replace with: `!height.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\app\dx12_render\mod.rs:547:10
+    |
+547 |       || width % 2 != 0
+    |          ^^^^^^^^^^^^^^ help: replace with: `!width.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\app\dx12_render\mod.rs:548:10
+    |
+548 |       || height % 2 != 0
+    |          ^^^^^^^^^^^^^^^ help: replace with: `!height.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manually constructing a nul-terminated string
+    --> crates\lurq\src\app\dx12_render\mod.rs:1840:11
+     |
+1840 |     PCSTR(b"quad.hlsl\0".as_ptr()),
+     |           ^^^^^^^^^^^^^^ help: use a `c""` literal: `c"quad.hlsl"`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_c_str_literals
+     = note: `#[warn(clippy::manual_c_str_literals)]` on by default
+
+warning: manually constructing a nul-terminated string
+    --> crates\lurq\src\app\dx12_render\mod.rs:2183:25
+     |
+2183 |     SemanticName: PCSTR(b"TEXCOORD\0".as_ptr()),
+     |                         ^^^^^^^^^^^^^ help: use a `c""` literal: `c"TEXCOORD"`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_c_str_literals
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\dx12_render\mod.rs:3668:29
+     |
+3668 |       if draw_count == 1 || draw_count % 120 == 0 {
+     |                             ^^^^^^^^^^^^^^^^^^^^^ help: replace with: `draw_count.is_multiple_of(120)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: this `map_or` can be simplified
+    --> crates\lurq\src\app\dx12_render\mod.rs:3828:20
+     |
+3828 |       let recreate = self.glyph_atlas.as_ref().map_or(true, |texture| {
+     |  ____________________^
+3829 | |       texture.width != atlas.width || texture.height != atlas.height
+3830 | |     });
+     | |______^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_map_or
+     = note: `#[warn(clippy::unnecessary_map_or)]` on by default
+help: use `is_none_or` instead
+     |
+3828 -     let recreate = self.glyph_atlas.as_ref().map_or(true, |texture| {
+3828 +     let recreate = self.glyph_atlas.as_ref().is_none_or(|texture| {
+     |
+
+warning: this `map_or` can be simplified
+    --> crates\lurq\src\app\dx12_render\mod.rs:3860:24
+     |
+3860 |       let needs_upload = self
+     |  ________________________^
+3861 | |       .glyph_atlas
+3862 | |       .as_ref()
+3863 | |       .map_or(false, |texture| texture.version != atlas.version);
+     | |________________________________________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_map_or
+help: use `is_some_and` instead
+     |
+3863 -       .map_or(false, |texture| texture.version != atlas.version);
+3863 +       .is_some_and(|texture| texture.version != atlas.version);
+     |
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\dx12_render\mod.rs:4271:12
+     |
+4271 |         if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!image.image_width.is_multiple_of(2)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\dx12_render\mod.rs:4271:42
+     |
+4271 |         if image.image_width % 2 != 0 || image.image_height % 2 != 0 {
+     |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!image.image_height.is_multiple_of(2)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\dx12_render\mod.rs:4344:10
+     |
+4344 |       || image.image_width % 2 != 0
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!image.image_width.is_multiple_of(2)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\dx12_render\mod.rs:4345:10
+     |
+4345 |       || image.image_height % 2 != 0
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!image.image_height.is_multiple_of(2)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: this `if` statement can be collapsed
+  --> crates\lurq\src\app\frame_capture.rs:60:3
+   |
+60 | /   if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+61 | |     if let Err(error) = std::fs::create_dir_all(parent) {
+62 | |       tracing::warn!(
+63 | |         "failed to create screenshot output directory {}: {error}",
+...  |
+68 | |   }
+   | |___^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+60 ~   if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty())
+61 ~     && let Err(error) = std::fs::create_dir_all(parent) {
+62 |       tracing::warn!(
+...
+66 |       return;
+67 ~     }
+   |
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> crates\lurq\src\app\glyph_engine.rs:433:26
+    |
+433 |   optical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<(f32, f32)>)>>,
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#type_complexity
+
+warning: this boolean expression can be simplified
+   --> crates\lurq\src\app\glyph_engine.rs:762:12
+    |
+762 |         if !self.get_or_pack_glyph(key).is_some_and(|packed| packed.height > 0) {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `self.get_or_pack_glyph(key).is_none_or(|packed| packed.height <= 0)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#nonminimal_bool
+    = note: `#[warn(clippy::nonminimal_bool)]` on by default
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\glyph_engine.rs:1492:5
+     |
+1492 | /     if let Some(clipped_key) = clipped_key.as_ref() {
+1493 | |       if let Some(cached) = self.clipped_glyph_layout_cache.get(clipped_key) {
+1494 | |         self.glyph_hits += cached.len();
+1495 | |         #[cfg(feature = "perf_profile")]
+...    |
+1514 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+1492 ~     if let Some(clipped_key) = clipped_key.as_ref()
+1493 ~       && let Some(cached) = self.clipped_glyph_layout_cache.get(clipped_key) {
+1494 |         self.glyph_hits += cached.len();
+ ...
+1512 |         return;
+1513 ~       }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\glyph_engine.rs:2218:9
+     |
+2218 | /         if needs_shape {
+2219 | |           if let Some(&prior) = duplicates.get(&fingerprint).filter(|&&prior| {
+2220 | |             let old = &entry.buffer.lines[prior];
+2221 | |             let new = &entry.buffer.lines[index];
+...    |
+2230 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+2218 ~         if needs_shape
+2219 ~           && let Some(&prior) = duplicates.get(&fingerprint).filter(|&&prior| {
+2220 |             let old = &entry.buffer.lines[prior];
+ ...
+2228 |             }
+2229 ~           }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\glyph_engine.rs:2856:3
+     |
+2856 | /   if let Ok(value) = std::env::var("LURQ_TEXT_CACHE_MIB") {
+2857 | |     if let Ok(mib @ 1..=1024) = value.parse::<usize>() {
+2858 | |       return mib * 1024 * 1024;
+2859 | |     }
+2860 | |   }
+     | |___^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+2856 ~   if let Ok(value) = std::env::var("LURQ_TEXT_CACHE_MIB")
+2857 ~     && let Ok(mib @ 1..=1024) = value.parse::<usize>() {
+2858 |       return mib * 1024 * 1024;
+2859 ~     }
+     |
+
+warning: methods with the following characteristics: (`to_*` and `self` type is not `Copy`) usually take `self` by reference
+    --> crates\lurq\src\app\glyph_engine.rs:3516:26
+     |
+3516 |   pub(crate) fn to_atlas(&mut self) -> GlyphAtlas {
+     |                          ^^^^^^^^^
+     |
+     = help: consider choosing a less ambiguous name
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#wrong_self_convention
+     = note: `#[warn(clippy::wrong_self_convention)]` on by default
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\glyph_engine.rs:3569:5
+     |
+3569 | /     if let Some(last) = merged.last_mut() {
+3570 | |       if should_merge_dirty_rects(*last, rect) {
+3571 | |         *last = union_dirty_rect(*last, rect);
+3572 | |         continue;
+3573 | |       }
+3574 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3569 ~     if let Some(last) = merged.last_mut()
+3570 ~       && should_merge_dirty_rects(*last, rect) {
+3571 |         *last = union_dirty_rect(*last, rect);
+3572 |         continue;
+3573 ~       }
+     |
+
+warning: manual arithmetic check found
+    --> crates\lurq\src\app\glyph_engine.rs:3602:10
+     |
+3602 |     } else if b_right < a.x {
+     |  __________^
+3603 | |     a.x - b_right
+3604 | |   } else {
+3605 | |     0
+3606 | |   }
+     | |___^ help: replace it with: `{ a.x.saturating_sub(b_right) }`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#implicit_saturating_sub
+     = note: `#[warn(clippy::implicit_saturating_sub)]` on by default
+
+warning: this `if` has identical blocks
+  --> crates\lurq\src\app\hit_test.rs:84:40
+   |
+84 |     } else if local_affine.is_identity() {
+   |  ________________________________________^
+85 | |     inherited_transform
+86 | |   } else if local_transform.is_identity() {
+   | |___^
+   |
+note: same as this
+  --> crates\lurq\src\app\hit_test.rs:86:43
+   |
+86 |     } else if local_transform.is_identity() {
+   |  ___________________________________________^
+87 | |     inherited_transform
+88 | |   } else {
+   | |___^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+   = note: `#[warn(clippy::if_same_then_else)]` on by default
+
+warning: large size difference between variants
+   --> crates\lurq\src\app\profiler\model.rs:170:1
+    |
+170 | / pub enum SampleData {
+171 | |   Pass(PassSample),
+    | |   ---------------- the largest variant contains at least 1736 bytes
+172 | |   UiUpdate(UiUpdateSample),
+    | |   ------------------------ the second-largest variant contains at least 56 bytes
+173 | |   InputDispatch(InputDispatchSample),
+174 | | }
+    | |_^ the entire enum is at least 1736 bytes
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#large_enum_variant
+    = note: `#[warn(clippy::large_enum_variant)]` on by default
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+    |
+171 -   Pass(PassSample),
+171 +   Pass(Box<PassSample>),
+    |
+
+warning: the method `preserve_runtime_state_from` doesn't need a mutable reference
+    --> crates\lurq\src\app\runtime.rs:1885:42
+     |
+1885 |         node.preserve_runtime_state_from(&mut parts.base);
+     |                                          ^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_mut_passed
+     = note: `#[warn(clippy::unnecessary_mut_passed)]` on by default
+help: remove this `mut`
+     |
+1885 -         node.preserve_runtime_state_from(&mut parts.base);
+1885 +         node.preserve_runtime_state_from(&parts.base);
+     |
+
+warning: the method `preserve_runtime_state_from` doesn't need a mutable reference
+    --> crates\lurq\src\app\runtime.rs:1920:40
+     |
+1920 |       node.preserve_runtime_state_from(&mut parts.base);
+     |                                        ^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_mut_passed
+help: remove this `mut`
+     |
+1920 -       node.preserve_runtime_state_from(&mut parts.base);
+1920 +       node.preserve_runtime_state_from(&parts.base);
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:3274:5
+     |
+3274 | /     if button == MouseButton::Left
+3275 | |       && let ClickDispatchTarget::Node(click_target_id) = click_target
+3276 | |     {
+3277 | |       if self
+...    |
+3293 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3275 ~       && let ClickDispatchTarget::Node(click_target_id) = click_target
+3276 ~       && self
+3277 |         .click_tracker
+ ...
+3290 |         return;
+3291 ~       }
+     |
+
+warning: this `if` has identical blocks
+    --> crates\lurq\src\app\runtime.rs:3365:7
+     |
+3365 | /       {
+3366 | |         true
+3367 | |       } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
+     | |_______^
+     |
+note: same as this
+    --> crates\lurq\src\app\runtime.rs:3376:9
+     |
+3376 |         } {
+     |  _________^
+3377 | |         true
+3378 | |       } else {
+     | |_______^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: this if-then-else expression returns a bool literal
+    --> crates\lurq\src\app\runtime.rs:3367:14
+     |
+3367 |         } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
+     |  ______________^
+3368 | |         #[cfg(feature = "form")]
+3369 | |         {
+3370 | |           self.submit_focused_single_line_text_input()
+...    |
+3379 | |         false
+3380 | |       };
+     | |_______^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_bool
+     = note: `#[warn(clippy::needless_bool)]` on by default
+help: you can reduce it to
+     |
+3367 ~       } else { matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
+3368 +         #[cfg(feature = "form")]
+3369 +         {
+3370 +           self.submit_focused_single_line_text_input()
+3371 +         }
+3372 +         #[cfg(not(feature = "form"))]
+3373 +         {
+3374 +           false
+3375 +         }
+3376 ~       } };
+     |
+
+warning: this `if` has identical blocks
+    --> crates\lurq\src\app\runtime.rs:3382:18
+     |
+3382 |         if handled {
+     |  __________________^
+3383 | |         self.needs_redraw = true;
+3384 | |       } else if self.dismiss_top_overlay_on_escape(&key, &code) {
+     | |_______^
+     |
+note: same as this
+    --> crates\lurq\src\app\runtime.rs:3384:65
+     |
+3384 |         } else if self.dismiss_top_overlay_on_escape(&key, &code) {
+     |  _________________________________________________________________^
+3385 | |         self.needs_redraw = true;
+3386 | |       } else {
+     | |_______^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: this `if` has identical blocks
+    --> crates\lurq\src\app\runtime.rs:3389:57
+     |
+3389 |           if blurred_text_input || cleared_text_selection {
+     |  _________________________________________________________^
+3390 | |           self.needs_redraw = true;
+3391 | |         } else if self.dispatch_text_input(&evt) {
+     | |_________^
+     |
+note: same as this
+    --> crates\lurq\src\app\runtime.rs:3391:50
+     |
+3391 |           } else if self.dispatch_text_input(&evt) {
+     |  __________________________________________________^
+3392 | |           self.needs_redraw = true;
+3393 | |         } else {
+     | |_________^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: unneeded `return` statement
+    --> crates\lurq\src\app\runtime.rs:3584:7
+     |
+3584 |       return self.canvas_registry.iter().any(crate::canvas::CanvasHandle::dirty);
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_return
+     = note: `#[warn(clippy::needless_return)]` on by default
+help: remove `return`
+     |
+3584 -       return self.canvas_registry.iter().any(crate::canvas::CanvasHandle::dirty);
+3584 +       self.canvas_registry.iter().any(crate::canvas::CanvasHandle::dirty)
+     |
+
+warning: this `let...else` may be rewritten with the `?` operator
+    --> crates\lurq\src\app\runtime.rs:3674:5
+     |
+3674 | /     let Some(press) = self.click_press.take() else {
+3675 | |       return None;
+3676 | |     };
+     | |______^ help: replace it with: `let press = self.click_press.take()?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#question_mark
+     = note: `#[warn(clippy::question_mark)]` on by default
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4122:9
+     |
+4122 | /         if let Some((node, rect)) = hits
+4123 | |           .iter()
+4124 | |           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
+...    |
+4155 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4124 ~           .find(|(node, _)| matches!(node.node_kind(), NodeKind::TextInput { .. }))
+4125 ~           && let NodeKind::TextInput { state, .. } = node.node_kind() {
+4126 |             if !evt.shift && !evt.ctrl {
+ ...
+4152 |             builtin_needs_redraw = true;
+4153 ~           }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4161:9
+     |
+4161 | /         if pending_text_selection_drag.is_none()
+4162 | |           && !pointer_on_slider
+4163 | |           && let Some((node, rect)) = selectable_text_drag_start_endpoint(root, result, lx, ly)
+...    |
+4188 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4163 ~           && let Some((node, rect)) = selectable_text_drag_start_endpoint(root, result, lx, ly)
+4164 ~           && let Some((state, value)) = selectable_text_state_and_value(node) {
+4165 |             let preserve_existing = evt.shift || evt.ctrl;
+ ...
+4185 |             builtin_needs_redraw = true;
+4186 ~           }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4199:9
+     |
+4199 | /         if pending_text_selection_drag.is_none()
+4200 | |           && let Some((node, rect)) = hits
+4201 | |             .iter()
+4202 | |             .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
+...    |
+4235 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4202 ~             .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
+4203 ~           && let NodeKind::Slider { state } = node.node_kind() {
+4204 |             let (track_rect, thumb_rect) = state.part_rects(
+ ...
+4232 |             builtin_needs_redraw = true;
+4233 ~           }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4259:14
+     |
+4259 |         } else if let Some((node, rect)) = hits.iter().find(|(node, _)| is_selectable_text_node(node)) {
+     |  ______________^
+4260 | |         if let Some((state, value)) = selectable_text_state_and_value(node) {
+4261 | |           let text_click_count = self
+4262 | |             .text_click_tracker
+...    |
+4274 | |       }
+     | |_______^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4259 ~       } else if let Some((node, rect)) = hits.iter().find(|(node, _)| is_selectable_text_node(node))
+4260 ~         && let Some((state, value)) = selectable_text_state_and_value(node) {
+4261 |           let text_click_count = self
+ ...
+4272 |           builtin_needs_redraw = true;
+4273 ~         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4279:7
+     |
+4279 | /       if hits.is_empty() && is_left_click {
+4280 | |         if let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly) {
+4281 | |           if let NodeKind::Slider { state } = node.node_kind() {
+4282 | |             let (track_rect, thumb_rect) = state.part_rects(
+...    |
+4300 | |       }
+     | |_______^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4279 ~       if hits.is_empty() && is_left_click
+4280 ~         && let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly) {
+4281 |           if let NodeKind::Slider { state } = node.node_kind() {
+ ...
+4298 |           }
+4299 ~         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4280:9
+     |
+4280 | /         if let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly) {
+4281 | |           if let NodeKind::Slider { state } = node.node_kind() {
+4282 | |             let (track_rect, thumb_rect) = state.part_rects(
+4283 | |               rect.x,
+...    |
+4299 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4280 ~         if let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly)
+4281 ~           && let NodeKind::Slider { state } = node.node_kind() {
+4282 |             let (track_rect, thumb_rect) = state.part_rects(
+ ...
+4297 |             builtin_needs_redraw = true;
+4298 ~           }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:4628:5
+     |
+4628 | /     if enter {
+4629 | |       if state.overflow() == TextInputOverflow::Multiline {
+4630 | |         return false;
+...    |
+4640 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4628 ~     if enter
+4629 ~       && state.overflow() == TextInputOverflow::Multiline {
+4630 |         return false;
+ ...
+4638 |         return false;
+4639 ~       }
+     |
+
+warning: struct update has no effect, all the fields in the struct have already been specified
+    --> crates\lurq\src\app\runtime.rs:5546:11
+     |
+5546 |         ..PerfMeterStats::default()
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#needless_update
+     = note: `#[warn(clippy::needless_update)]` on by default
+
+warning: the method `preserve_runtime_state_from` doesn't need a mutable reference
+    --> crates\lurq\src\app\runtime.rs:6480:36
+     |
+6480 |   host.preserve_runtime_state_from(&mut old_host);
+     |                                    ^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#unnecessary_mut_passed
+help: remove this `mut`
+     |
+6480 -   host.preserve_runtime_state_from(&mut old_host);
+6480 +   host.preserve_runtime_state_from(&old_host);
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:7980:3
+     |
+7980 | /   if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+7981 | |     if let Some(child) = result.children.first() {
+7982 | |       let expected_y = -state.scroll_y();
+7983 | |       let expected_x = -state.scroll_x();
+...    |
+7994 | |   }
+     | |___^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+7980 ~   if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind()
+7981 ~     && let Some(child) = result.children.first() {
+7982 |       let expected_y = -state.scroll_y();
+ ...
+7992 |       }
+7993 ~     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:7999:3
+     |
+7999 | /   if let Some(crate::node::dimension::Dimension::Px(requested)) = node.frame.height {
+8000 | |     if requested > 1000.0 && (result.size.height - requested).abs() > 0.5 {
+8001 | |       tracing::warn!(
+8002 | |         target: "lurq::layout",
+...    |
+8011 | |   }
+     | |___^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+7999 ~   if let Some(crate::node::dimension::Dimension::Px(requested)) = node.frame.height
+8000 ~     && requested > 1000.0 && (result.size.height - requested).abs() > 0.5 {
+8001 |       tracing::warn!(
+ ...
+8009 |       );
+8010 ~     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:8020:3
+     |
+8020 | /   if let LayoutKind::ScrollModifier { state: node_state, .. } = node.layout_kind() {
+8021 | |     if node_state.ptr_eq(state) {
+8022 | |       return Some(node.node_id());
+8023 | |     }
+8024 | |   }
+     | |___^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+8020 ~   if let LayoutKind::ScrollModifier { state: node_state, .. } = node.layout_kind()
+8021 ~     && node_state.ptr_eq(state) {
+8022 |       return Some(node.node_id());
+8023 ~     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:9679:3
+     |
+9679 | /   if let Some((state, value)) = selectable_text_state_and_value(node) {
+9680 | |     if let Some(text) = state.selected_text(&value) {
+9681 | |       let ranges = state.selection_ranges(&value);
+9682 | |       let x = ranges
+...    |
+9695 | |   }
+     | |___^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+9679 ~   if let Some((state, value)) = selectable_text_state_and_value(node)
+9680 ~     && let Some(text) = state.selected_text(&value) {
+9681 |       let ranges = state.selection_ranges(&value);
+ ...
+9693 |       fragments.push(SelectedTextFragment { x, end_x, y, text });
+9694 ~     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\app\runtime.rs:9769:5
+     |
+9769 | /     if let Some(candidate) = nearest_selectable_text(
+9770 | |       child_node,
+9771 | |       &child_layout.result,
+9772 | |       abs_x + child_layout.offset.x,
+...    |
+9783 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+9776 ~     )
+9777 ~       && best
+9778 |         .as_ref()
+ ...
+9781 |         best = Some(candidate);
+9782 ~       }
+     |
+
+warning: clamp-like pattern without using clamp function
+     --> crates\lurq\src\app\runtime.rs:10050:3
+      |
+10050 |   max_scale.max(2.0).min(4.0).ceil()
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with clamp: `max_scale.clamp(2.0, 4.0)`
+      |
+      = note: clamp will panic if max < min, min.is_nan(), or max.is_nan()
+      = note: clamp returns NaN if the input is NaN
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_clamp
+      = note: `#[warn(clippy::manual_clamp)]` on by default
+
+warning: this function has too many arguments (13/10)
+     --> crates\lurq\src\app\runtime.rs:10463:1
+      |
+10463 | / fn push_border_rects(
+10464 | |   rects: &mut Vec<RectCmd>,
+10465 | |   order: usize,
+10466 | |   base_x: f32,
+...     |
+10476 | |   clip: ClipRect,
+10477 | | ) {
+      | |_^
+      |
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+      = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> crates\lurq\src\app\theme\typography.rs:211:5
+    |
+211 |     typography.body = fonts.body;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `app::theme::typography::ThemeTypography { body: fonts.body, heading: fonts.heading, mono: fonts.mono, ..Default::default() }` and removing relevant reassignments
+   --> crates\lurq\src\app\theme\typography.rs:210:5
+    |
+210 |     let mut typography = Self::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#field_reassign_with_default
+    = note: `#[warn(clippy::field_reassign_with_default)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> crates\lurq\src\app\theme\mod.rs:354:11
+    |
+354 |   setter: Arc<dyn Fn(&Theme, T) + Send + Sync>,
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#type_complexity
+
+warning: this `if` statement can be collapsed
+   --> crates\lurq\src\app\wgpu_render\canvas.rs:281:7
+    |
+281 | /       if !keep {
+282 | |         if let Some(c) = b.owner.upgrade() {
+283 | |           c.set_gpu_bytes(0);
+284 | |         }
+285 | |       }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+281 ~       if !keep
+282 ~         && let Some(c) = b.owner.upgrade() {
+283 |           c.set_gpu_bytes(0);
+284 ~         }
+    |
+
+warning: deref on an immutable reference
+    --> crates\lurq\src\app\wgpu_render\mod.rs:2194:44
+     |
+2194 |                     pass.set_bind_group(0, &*bind_group, &[]);
+     |                                            ^^^^^^^^^^^^ help: if you would like to reborrow, try removing `&*`: `bind_group`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#borrow_deref_ref
+     = note: `#[warn(clippy::borrow_deref_ref)]` on by default
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\wgpu_render\mod.rs:2711:59
+     |
+2711 |   if image.image_width == 0 || image.image_height == 0 || image.image_width % 2 != 0 || image.image_height % 2 != 0 {
+     |                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!image.image_width.is_multiple_of(2)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+    --> crates\lurq\src\app\wgpu_render\mod.rs:2711:89
+     |
+2711 |   if image.image_width == 0 || image.image_height == 0 || image.image_width % 2 != 0 || image.image_height % 2 != 0 {
+     |                                                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!image.image_height.is_multiple_of(2)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+  --> crates\lurq\src\app\wgpu_render\canvas\camera_tests.rs:61:41
+   |
+61 |       renderer.process(&device, &queue, &[gpu.clone()]);
+   |                                         ^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&gpu)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+   = note: `#[warn(clippy::cloned_ref_to_slice_refs)]` on by default
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+  --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:23:35
+   |
+23 |   renderer.process(device, queue, &[canvas.clone()]);
+   |                                   ^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(canvas)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+  --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:40:37
+   |
+40 |   renderer.process(&device, &queue, &[gpu.clone()]);
+   |                                     ^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&gpu)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+   --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:108:37
+    |
+108 |   renderer.process(&device, &queue, &[gpu.clone()]);
+    |                                     ^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&gpu)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+   --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:120:37
+    |
+120 |   renderer.process(&device, &queue, &[gpu.clone()]);
+    |                                     ^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&gpu)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+   --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:132:37
+    |
+132 |   renderer.process(&device, &queue, &[gpu.clone()]);
+    |                                     ^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&gpu)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+   --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:160:39
+    |
+160 |     renderer.process(&device, &queue, &[canvas.clone()]);
+    |                                       ^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&canvas)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+   --> crates\lurq\src\app\wgpu_render\canvas\tests.rs:175:43
+    |
+175 |         renderer.process(&device, &queue, &[canvas.clone()]);
+    |                                           ^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&canvas)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cloned_ref_to_slice_refs
+
+warning: manual slice size calculation
+   --> crates\lurq\src\canvas\path.rs:340:5
+    |
+340 |     self.points().len() * std::mem::size_of::<Point>() + self.verbs().len() + std::mem::size_of::<GeometryData>()
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `std::mem::size_of_val(self.points())`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_slice_size_calculation
+    = note: `#[warn(clippy::manual_slice_size_calculation)]` on by default
+
+warning: module has the same name as its containing module
+  --> crates\lurq\src\app\window\tests.rs:4:1
+   |
+ 4 | / mod tests {
+ 5 | |   use super::*;
+ 6 | |
+ 7 | |   #[test]
+...  |
+50 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#module_inception
+
+warning: redundant closure
+  --> crates\lurq\src\components\column.rs:46:22
+   |
+46 |     self.update_node(|node| crate::node::NodeUpdate::wrap(node));
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `crate::node::NodeUpdate::wrap`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#redundant_closure
+   = note: `#[warn(clippy::redundant_closure)]` on by default
+
+warning: redundant closure
+  --> crates\lurq\src\components\row.rs:46:22
+   |
+46 |     self.update_node(|node| crate::node::NodeUpdate::wrap(node));
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `crate::node::NodeUpdate::wrap`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#redundant_closure
+
+warning: deref which would be done by auto-deref
+   --> crates\lurq\src\components\select.rs:161:7
+    |
+161 |     f(&mut *self.node);
+    |       ^^^^^^^^^^^^^^^ help: try: `&mut self.node`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#explicit_auto_deref
+    = note: `#[warn(clippy::explicit_auto_deref)]` on by default
+
+warning: redundant closure
+  --> crates\lurq\src\components\text_input.rs:96:22
+   |
+96 |     self.update_node(|node| crate::node::NodeUpdate::text_input_mask(node));
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `crate::node::NodeUpdate::text_input_mask`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#redundant_closure
+
+warning: redundant closure
+   --> crates\lurq\src\components\text_input.rs:107:22
+    |
+107 |     self.update_node(|node| crate::node::NodeUpdate::text_input_unmask(node));
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `crate::node::NodeUpdate::text_input_unmask`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#redundant_closure
+
+warning: this `if` has identical blocks
+   --> crates\lurq\src\components\window_chrome.rs:678:41
+    |
+678 |     } else if cfg!(target_os = "windows") {
+    |  _________________________________________^
+679 | |     windows_height.max(0.0)
+680 | |   } else {
+    | |___^
+    |
+note: same as this
+   --> crates\lurq\src\components\window_chrome.rs:680:10
+    |
+680 |     } else {
+    |  __________^
+681 | |     windows_height.max(0.0)
+682 | |   }
+    | |___^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: you should consider adding a `Default` implementation for `IdGenerator`
+  --> crates\lurq\src\core\id_gen.rs:28:3
+   |
+28 | /   pub fn new() -> Self {
+29 | |     Self {
+30 | |       pool: Arc::new(Mutex::new(IdPool { current: 1 })),
+31 | |     }
+32 | |   }
+   | |___^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#new_without_default
+help: try adding this
+   |
+27 + impl Default for IdGenerator {
+28 +     fn default() -> Self {
+29 +         Self::new()
+30 +     }
+31 + }
+   |
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> crates\lurq\src\core\store.rs:60:11
+   |
+60 |   setter: Arc<dyn Fn(&mut T, R) + Send + Sync>,
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#type_complexity
+
+warning: this `if` statement can be collapsed
+  --> crates\lurq\src\core\tracking.rs:31:5
+   |
+31 | /     if let Some(entries) = borrow.last_mut() {
+32 | |       if !entries.iter().any(|e| e.signal_id == signal_id) {
+33 | |         entries.push(TrackingEntry {
+34 | |           signal_id,
+...  |
+38 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+31 ~     if let Some(entries) = borrow.last_mut()
+32 ~       && !entries.iter().any(|e| e.signal_id == signal_id) {
+33 |         entries.push(TrackingEntry {
+...
+36 |         });
+37 ~       }
+   |
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\images\image_data.rs:903:38
+    |
+903 |   assert!(width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0);
+    |                                      ^^^^^^^^^^^^^^ help: replace with: `width.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: manual implementation of `.is_multiple_of()`
+   --> crates\lurq\src\images\image_data.rs:903:56
+    |
+903 |   assert!(width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0);
+    |                                                        ^^^^^^^^^^^^^^^ help: replace with: `height.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_is_multiple_of
+
+warning: this function has too many arguments (12/10)
+   --> crates\lurq\src\layout\layout_engine.rs:480:3
+    |
+480 | /   pub(crate) fn compute(
+481 | |     &self,
+482 | |     glyph_engine: &mut GlyphEngine,
+483 | |     node: &Node,
+...   |
+492 | |     force_dirty: bool,
+493 | |   ) -> LayoutResult {
+    | |___________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+
+warning: this function has too many arguments (12/10)
+   --> crates\lurq\src\layout\layout_engine.rs:799:3
+    |
+799 | /   fn collect_quads(
+800 | |     &self,
+801 | |     node: &Node,
+802 | |     result: &LayoutResult,
+...   |
+811 | |     quads: &mut Vec<Quad>,
+812 | |   ) {
+    | |___^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+
+warning: this `if` has identical blocks
+    --> crates\lurq\src\layout\layout_engine.rs:1117:42
+     |
+1117 |       } else if local_affine.is_identity() {
+     |  __________________________________________^
+1118 | |       inherited_transform
+1119 | |     } else if local_transform.is_identity() {
+     | |_____^
+     |
+note: same as this
+    --> crates\lurq\src\layout\layout_engine.rs:1119:45
+     |
+1119 |       } else if local_transform.is_identity() {
+     |  _____________________________________________^
+1120 | |       inherited_transform
+1121 | |     } else {
+     | |_____^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: this `if` has identical blocks
+    --> crates\lurq\src\layout\layout_engine.rs:1377:56
+     |
+1377 |             border: if content_uses_separate_visual_rect {
+     |  ________________________________________________________^
+1378 | |             None
+1379 | |           } else if defer_border_to_overlay {
+     | |___________^
+     |
+note: same as this
+    --> crates\lurq\src\layout\layout_engine.rs:1379:45
+     |
+1379 |             } else if defer_border_to_overlay {
+     |  _____________________________________________^
+1380 | |             None
+1381 | |           } else {
+     | |___________^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: useless conversion to the same type: `std::vec::Vec<layout::layout_result::ChildLayout>`
+    --> crates\lurq\src\layout\layout_engine.rs:2824:17
+     |
+2824 |       children: child_layouts.into(),
+     |                 ^^^^^^^^^^^^^^^^^^^^ help: consider removing `.into()`: `child_layouts`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#useless_conversion
+     = note: `#[warn(clippy::useless_conversion)]` on by default
+
+warning: useless conversion to the same type: `std::vec::Vec<layout::layout_result::ChildLayout>`
+    --> crates\lurq\src\layout\layout_engine.rs:3228:17
+     |
+3228 |       children: child_layouts.into(),
+     |                 ^^^^^^^^^^^^^^^^^^^^ help: consider removing `.into()`: `child_layouts`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#useless_conversion
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\layout\layout_engine.rs:3404:5
+     |
+3404 | /     if let Some(intrinsic) = node.intrinsic_size {
+3405 | |       if intrinsic.width > 0.0 && intrinsic.height > 0.0 {
+3406 | |         if let (Some(w), None) = (resolved_width, resolved_height) {
+3407 | |           let h = w * intrinsic.height / intrinsic.width;
+...    |
+3416 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3404 ~     if let Some(intrinsic) = node.intrinsic_size
+3405 ~       && intrinsic.width > 0.0 && intrinsic.height > 0.0 {
+3406 |         if let (Some(w), None) = (resolved_width, resolved_height) {
+ ...
+3414 |         }
+3415 ~       }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\layout\layout_engine.rs:3551:5
+     |
+3551 | /     if let Some(Some(child_override)) = child_overrides.and_then(|overrides| overrides.get(index)) {
+3552 | |       if child_override.constraints == constraints {
+...    |
+3559 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3551 ~     if let Some(Some(child_override)) = child_overrides.and_then(|overrides| overrides.get(index))
+3552 ~       && child_override.constraints == constraints {
+3553 |         // The override was laid out before this parent layout began, which
+ ...
+3557 |         return child_override.result.clone();
+3558 ~       }
+     |
+
+warning: returning the result of a `let` binding from a block
+    --> crates\lurq\src\layout\layout_engine.rs:3579:3
+     |
+3575 | /   let preferred_height = max_rows
+3576 | |     .map(|rows| preferred_height.min((rows.max(1) as f32 * line_height).max(min_height)))
+3577 | |     .unwrap_or(preferred_height);
+     | |_________________________________- unnecessary `let` binding
+3578 |
+3579 |     preferred_height
+     |     ^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#let_and_return
+     = note: `#[warn(clippy::let_and_return)]` on by default
+help: return the expression directly
+     |
+3575 ~   
+3576 |
+3577 ~   max_rows
+3578 +     .map(|rows| preferred_height.min((rows.max(1) as f32 * line_height).max(min_height)))
+3579 +     .unwrap_or(preferred_height)
+     |
+
+warning: you should consider adding a `Default` implementation for `ScrollState`
+   --> crates\lurq\src\layout\layout_kind.rs:107:3
+    |
+107 | /   pub fn new() -> Self {
+108 | |     Self {
+109 | |       inner: Arc::new(Mutex::new(ScrollStateInner {
+110 | |         scroll_x: 0.0,
+...   |
+137 | |   }
+    | |___^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#new_without_default
+help: try adding this
+    |
+106 + impl Default for ScrollState {
+107 +     fn default() -> Self {
+108 +         Self::new()
+109 +     }
+110 + }
+    |
+
+warning: this `impl` can be derived
+  --> crates\lurq\src\node\checkbox_style.rs:31:1
+   |
+31 | / impl Default for CheckboxStyle {
+32 | |   fn default() -> Self {
+33 | |     Self {
+34 | |       width: None,
+...  |
+49 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#derivable_impls
+help: replace the manual implementation with a derive attribute
+   |
+15 + #[derive(Default)]
+16 | pub struct CheckboxStyle {
+   |
+
+warning: module has the same name as its containing module
+  --> crates\lurq\src\node\mod.rs:17:1
+   |
+17 | pub(crate) mod node;
+   | ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#module_inception
+
+warning: this `impl` can be derived
+   --> crates\lurq\src\node\node.rs:512:1
+    |
+512 | / impl Default for BackgroundSize {
+513 | |   fn default() -> Self {
+514 | |     Self::Stretch
+515 | |   }
+516 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#derivable_impls
+help: replace the manual implementation with a derive attribute and mark the default variant
+    |
+506 + #[derive(Default)]
+507 | pub enum BackgroundSize {
+508 ~   #[default]
+509 ~   Stretch,
+    |
+
+warning: using `clone` on type `Option<Padding>` which implements the `Copy` trait
+    --> crates\lurq\src\node\node.rs:1949:28
+     |
+1949 |     if let Some(padding) = trigger.padding.clone() {
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `trigger.padding`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: using `clone` on type `Padding` which implements the `Copy` trait
+    --> crates\lurq\src\node\node.rs:1999:34
+     |
+1999 |       self = self.padding_custom(padding.clone());
+     |                                  ^^^^^^^^^^^^^^^ help: try dereferencing it: `*padding`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: this `if` has identical blocks
+    --> crates\lurq\src\node\node.rs:2180:61
+     |
+2180 |       if matches!(self.node_kind, NodeKind::TextInput { .. }) {
+     |  _____________________________________________________________^
+2181 | |       self.caret_color.set(Some(color));
+2182 | |     } else {
+     | |_____^
+     |
+note: same as this
+    --> crates\lurq\src\node\node.rs:2182:12
+     |
+2182 |       } else {
+     |  ____________^
+2183 | |       self.caret_color.set(Some(color));
+2184 | |     }
+     | |_____^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#if_same_then_else
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\node\node.rs:3323:5
+     |
+3323 | /     if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind {
+3324 | |       if state.is_thumb_hovered() {
+3325 | |         if let Some(ref hovered) = self.scrollbar_hovered_style {
+3326 | |           style = hovered(style);
+...    |
+3329 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3323 ~     if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind
+3324 ~       && state.is_thumb_hovered() {
+3325 |         if let Some(ref hovered) = self.scrollbar_hovered_style {
+3326 |           style = hovered(style);
+3327 |         }
+3328 ~       }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\node\node.rs:3324:7
+     |
+3324 | /       if state.is_thumb_hovered() {
+3325 | |         if let Some(ref hovered) = self.scrollbar_hovered_style {
+3326 | |           style = hovered(style);
+3327 | |         }
+3328 | |       }
+     | |_______^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3324 ~       if state.is_thumb_hovered()
+3325 ~         && let Some(ref hovered) = self.scrollbar_hovered_style {
+3326 |           style = hovered(style);
+3327 ~         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\node\node.rs:3752:5
+     |
+3752 | /     if let (
+3753 | |       LayoutKind::ScrollModifier { state, direction, .. },
+3754 | |       LayoutKind::ScrollModifier {
+3755 | |         state: old_state,
+...    |
+3764 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3759 ~     ) = (&mut self.layout_kind, &old.layout_kind)
+3760 ~       && direction == old_direction {
+3761 |         *state = old_state.clone();
+3762 ~       }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\node\node.rs:4299:5
+     |
+4299 | /     if self.style_state.is_focused() {
+4300 | |       if let Some(focused) = &self.state_styles.focused {
+4301 | |         style.merge_from(focused);
+4302 | |       }
+4303 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4299 ~     if self.style_state.is_focused()
+4300 ~       && let Some(focused) = &self.state_styles.focused {
+4301 |         style.merge_from(focused);
+4302 ~       }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\node\node.rs:4304:5
+     |
+4304 | /     if self.style_state.is_hovered() {
+4305 | |       if let Some(hovered) = &self.state_styles.hovered {
+4306 | |         style.merge_from(hovered);
+4307 | |       }
+4308 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4304 ~     if self.style_state.is_hovered()
+4305 ~       && let Some(hovered) = &self.state_styles.hovered {
+4306 |         style.merge_from(hovered);
+4307 ~       }
+     |
+
+warning: this `if` statement can be collapsed
+    --> crates\lurq\src\node\node.rs:4309:5
+     |
+4309 | /     if self.style_state.is_active() {
+4310 | |       if let Some(active) = &self.state_styles.active {
+4311 | |         style.merge_from(active);
+4312 | |       }
+4313 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+4309 ~     if self.style_state.is_active()
+4310 ~       && let Some(active) = &self.state_styles.active {
+4311 |         style.merge_from(active);
+4312 ~       }
+     |
+
+warning: using `clone` on type `Option<Padding>` which implements the `Copy` trait
+   --> crates\lurq\src\node\select_style.rs:133:22
+    |
+133 |       self.padding = other.padding.clone();
+    |                      ^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `other.padding`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: this `impl` can be derived
+  --> crates\lurq\src\node\slider_style.rs:29:1
+   |
+29 | / impl Default for SliderPartStyle {
+30 | |   fn default() -> Self {
+31 | |     Self {
+32 | |       width: None,
+...  |
+45 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#derivable_impls
+help: replace the manual implementation with a derive attribute
+   |
+15 + #[derive(Default)]
+16 | pub struct SliderPartStyle {
+   |
+
+warning: using `clone` on type `Option<Padding>` which implements the `Copy` trait
+   --> crates\lurq\src\node\style.rs:288:22
+    |
+288 |       self.padding = other.padding.clone();
+    |                      ^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `other.padding`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#clone_on_copy
+
+warning: a `Vec` of `Range` that is only one element
+   --> crates\lurq\src\node\text_selection.rs:317:13
+    |
+317 |       runs: vec![0..1],
+    |             ^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#single_range_in_vec_init
+    = note: `#[warn(clippy::single_range_in_vec_init)]` on by default
+help: if you wanted a `Vec` that contains the entire range, try
+    |
+317 -       runs: vec![0..1],
+317 +       runs: (0..1).collect::<std::vec::Vec<usize>>(),
+    |
+help: if you wanted a `Vec` of len 1, try
+    |
+317 -       runs: vec![0..1],
+317 +       runs: vec![0; 1],
+    |
+
+warning: `lurq` (lib) generated 125 warnings (6 duplicates) (run `cargo clippy --fix --lib -p lurq -- ` to apply 90 suggestions)
+warning: `lurq` (lib test) generated 137 warnings (118 duplicates) (run `cargo clippy --fix --lib -p lurq --tests -- ` to apply 9 suggestions)
+warning: variable does not need to be mutable
+    --> crates\lurq\tests\components\virtualized_list.rs:1024:7
+     |
+1024 |   let mut push_log = |log: &mut std::collections::VecDeque<String>, entry: String| {
+     |       ----^^^^^^^^
+     |       |
+     |       help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `lurq` (test "components_tests") generated 1 warning (run `cargo clippy --fix --test "components_tests" -p lurq -- ` to apply 1 suggestion)
+warning: field assignment outside of initializer for an instance created with Default::default()
+  --> crates\lurq\tests\reactivity\theme.rs:81:3
+   |
+81 |   palette.accent = Color::from_hex("#abcdef");
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: consider initializing the variable with `lurq::app::theme::ThemePalette { accent: Color::from_hex("#abcdef"), surface_base: Color::from_hex("#101010"), ..Default::default() }` and removing relevant reassignments
+  --> crates\lurq\tests\reactivity\theme.rs:80:3
+   |
+80 |   let mut palette = ThemePalette::default();
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#field_reassign_with_default
+   = note: `#[warn(clippy::field_reassign_with_default)]` on by default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> crates\lurq\tests\reactivity\theme.rs:256:3
+    |
+256 | /   typography.caption = TextStyle {
+257 | |     font_size: 11.0,
+258 | |     ..TextStyle::default()
+259 | |   };
+    | |____^
+    |
+note: consider initializing the variable with `lurq::app::theme::ThemeTypography { caption: TextStyle {
+          font_size: 11.0,
+          ..TextStyle::default()
+        }, title: TextStyle {
+          font_size: 30.0,
+          ..TextStyle::default()
+        }, ..Default::default() }` and removing relevant reassignments
+   --> crates\lurq\tests\reactivity\theme.rs:255:3
+    |
+255 |   let mut typography = ThemeTypography::default();
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#field_reassign_with_default
+
+warning: `lurq` (test "reactivity_tests") generated 2 warnings
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> crates\lurq\tests\runtime\drag.rs:137:10
+    |
+137 |   drops: Arc<Mutex<Vec<(f32, f32, f32, f32, bool, bool)>>>,
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#type_complexity
+    = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> crates\lurq\tests\runtime\element_lookup\transient_mutation.rs:30:16
+   |
+30 |   signals_out: Shared<Mutex<Option<(Signal<String>, Signal<u32>)>>>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#type_complexity
+
+warning: `lurq` (test "runtime_tests") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.53s
+# exit: 0 at 2026-10-04T04:36:27+03:00

@@ -1,0 +1,105 @@
+# command: cargo test -p lurq --release --lib --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot canvas_frame_probe -- --ignored --nocapture --test-threads=1
+# started: 2026-10-04 22:28:15 +0300
+# head: 151d42b13d1b868d25d5919a9c8b73b0136daa4e tree: bcf02a7c1a07152b3d86b9119f3eebc3c16268bd
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+warning: unused import: `paint_of`
+  --> crates\lurq\src\canvas\mod.rs:19:16
+   |
+19 | use software::{paint_of, rescale_clip};
+   |                ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4054:9
+     |
+4054 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4181:9
+     |
+4181 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4351:9
+     |
+4351 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:65:7
+   |
+65 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 7 warnings (run `cargo fix --lib -p lurq --tests` to apply 4 suggestions)
+    Finished `release` profile [optimized] target(s) in 1.83s
+     Running unittests src\lib.rs (.tmp/target\release\deps\lurq-bc2df25d7e862044.exe)
+
+running 2 tests
+test app::canvas_frame_probe::canvas_frame_probe_dx12 ... probe backend=dx12 page=Labels shape_misses: first=688.00 steady_median=688.00
+probe backend=dx12 page=Labels shape_evictions: first=432.00 steady_median=688.00
+probe backend=dx12 page=Labels text_ms: first=27.89 steady_median=17.40
+probe backend=dx12 page=Labels textures_created: first=344.00 steady_median=344.00
+probe backend=dx12 page=Labels texture_evictions: first=0.00 steady_median=344.00
+probe backend=dx12 page=Labels asset_upload_ms: first=112.54 steady_median=123.77
+probe backend=dx12 page=Labels uploaded_kib: first=2711.62 steady_median=2711.62
+probe backend=dx12 page=Labels canvas_total_ms: first=345.15 steady_median=124.72
+probe backend=dx12 page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images textures_created: first=1100.00 steady_median=76.00
+probe backend=dx12 page=Images texture_evictions: first=76.00 steady_median=76.00
+probe backend=dx12 page=Images asset_upload_ms: first=396.30 steady_median=31.71
+probe backend=dx12 page=Images uploaded_kib: first=1100.00 steady_median=76.00
+probe backend=dx12 page=Images canvas_total_ms: first=571.45 steady_median=32.54
+ok
+test app::canvas_frame_probe::canvas_frame_probe_wgpu ... probe backend=wgpu page=Labels shape_misses: first=688.00 steady_median=688.00
+probe backend=wgpu page=Labels shape_evictions: first=432.00 steady_median=688.00
+probe backend=wgpu page=Labels text_ms: first=33.78 steady_median=18.26
+probe backend=wgpu page=Labels textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels asset_upload_ms: first=29.13 steady_median=14.20
+probe backend=wgpu page=Labels uploaded_kib: first=2711.62 steady_median=2711.62
+probe backend=wgpu page=Labels canvas_total_ms: first=200.47 steady_median=21.98
+probe backend=wgpu page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images asset_upload_ms: first=68.36 steady_median=3.74
+probe backend=wgpu page=Images uploaded_kib: first=1100.00 steady_median=76.00
+probe backend=wgpu page=Images canvas_total_ms: first=147.33 steady_median=7.65
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 250 filtered out; finished in 12.76s
+
+
+# exit: 0
+# finished: 2026-10-04 22:28:30 +0300

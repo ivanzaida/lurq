@@ -156,9 +156,8 @@ impl Renderer {
       spares: Vec::new(),
       retired_artwork: Vec::new(),
       rejected: HashSet::new(),
-      assets: HashMap::new(),
-      asset_bytes: 0,
-      tick: 0,
+      assets: AssetCache::new(CanvasAssetBudget::default()),
+      frames: FrameBoundary::default(),
       generation: 0,
       globals_layout,
       image_layout,
@@ -191,5 +190,9 @@ impl Renderer {
       vertices: DynamicBuffer::new("canvas vertices", BufferUsages::VERTEX),
       globals: DynamicBuffer::new("canvas globals", BufferUsages::UNIFORM),
     }
+  }
+  pub fn with_asset_budget(mut self, budget: CanvasAssetBudget) -> Self {
+    self.assets = AssetCache::new(budget);
+    self
   }
 }

@@ -1,0 +1,142 @@
+# command: cargo test -p lurq --lib --locked --offline --features canvas,perf_profile,wgpu,dx12,screenshot -- residency frame_boundary --include-ignored --test-threads=1
+# started: 2026-10-04 23:22:01 +0300
+# head: 52ea72304971b2bb5354d82440500fa056b50f8f tree: 889cd3d28dd917993bf186843650c2d9047dfb39
+# dirty source files: 1
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+   Compiling lurq v0.39.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+warning: unused import: `paint_of`
+  --> crates\lurq\src\canvas\mod.rs:19:16
+   |
+19 | use software::{paint_of, rescale_clip};
+   |                ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4054:9
+     |
+4054 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4181:9
+     |
+4181 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4351:9
+     |
+4351 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:63:7
+   |
+63 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:65:7
+   |
+65 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib test) generated 7 warnings (run `cargo fix --lib -p lurq --tests` to apply 4 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.51s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-f000b235eca2db6b.exe)
+
+running 15 tests
+test app::dx12_canvas_residency_tests::dx12_canvas_residency_draws_and_retires_what_the_ceiling_cannot_keep ... ok
+test app::dx12_canvas_residency_tests::dx12_canvas_residency_keeps_a_replacement_drawn_in_batches_as_one_frame ... FAILED
+test app::dx12_canvas_residency_tests::dx12_canvas_residency_keeps_a_retained_front_past_its_textures ... ok
+test app::dx12_canvas_residency_tests::dx12_canvas_residency_keeps_every_asset_of_a_frame_larger_than_the_budget ... ok
+test app::wgpu_render::canvas::replacement_residency_tests::gpu_labels_of_a_replacement_drawn_in_batches_are_shaped_once ... FAILED
+test app::wgpu_render::canvas::replacement_residency_tests::gpu_replacement_drawn_in_batches_is_one_cache_frame_and_artwork_passes_age_nothing ... FAILED
+test app::wgpu_render::canvas::replacement_residency_tests::gpu_retained_front_outlives_every_texture_it_was_drawn_from ... ok
+test app::wgpu_render::canvas::residency_tests::gpu_canvas_keeps_every_asset_of_a_frame_larger_than_the_budget ... ok
+test app::wgpu_render::canvas::residency_tests::gpu_canvas_uploads_a_page_of_labels_once ... ok
+test canvas::frame_boundary::tests::a_replacement_begun_and_committed_in_one_encode_ends_it ... ok
+test canvas::frame_boundary::tests::a_replacement_drawn_over_several_encodes_is_one_frame ... FAILED
+test canvas::frame_boundary::tests::an_encode_that_failed_part_way_ended_nothing ... FAILED
+test canvas::frame_boundary::tests::any_canvas_holding_a_replacement_keeps_the_frame_open ... FAILED
+test canvas::frame_boundary::tests::every_encode_ends_the_frame_while_no_replacement_is_open ... ok
+test canvas::frame_boundary::tests::superseding_a_replacement_ends_the_frame_and_its_successor_starts_the_next ... FAILED
+
+failures:
+
+---- app::dx12_canvas_residency_tests::dx12_canvas_residency_keeps_a_replacement_drawn_in_batches_as_one_frame stdout ----
+
+thread 'app::dx12_canvas_residency_tests::dx12_canvas_residency_keeps_a_replacement_drawn_in_batches_as_one_frame' (29488) panicked at crates\lurq\src\app\dx12_canvas_residency_tests.rs:138:5:
+assertion `left == right` failed
+  left: [24576, 24576, 24576]
+ right: [24576, 0, 0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- app::wgpu_render::canvas::replacement_residency_tests::gpu_labels_of_a_replacement_drawn_in_batches_are_shaped_once stdout ----
+canvas GPU: AdapterInfo { name: "NVIDIA GeForce RTX 5080", vendor: 4318, device: 11266, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "596.49", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: false }
+
+thread 'app::wgpu_render::canvas::replacement_residency_tests::gpu_labels_of_a_replacement_drawn_in_batches_are_shaped_once' (58016) panicked at crates\lurq\src\app\wgpu_render\canvas\replacement_residency_tests.rs:94:3:
+the page is charged 8367467 bytes
+
+---- app::wgpu_render::canvas::replacement_residency_tests::gpu_replacement_drawn_in_batches_is_one_cache_frame_and_artwork_passes_age_nothing stdout ----
+canvas GPU: AdapterInfo { name: "NVIDIA GeForce RTX 5080", vendor: 4318, device: 11266, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "596.49", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: false }
+
+thread 'app::wgpu_render::canvas::replacement_residency_tests::gpu_replacement_drawn_in_batches_is_one_cache_frame_and_artwork_passes_age_nothing' (26952) panicked at crates\lurq\src\app\wgpu_render\canvas\replacement_residency_tests.rs:47:3:
+assertion `left == right` failed: a later batch evicted textures an earlier batch of the same page drew
+  left: [24576, 24576, 24576]
+ right: [24576, 0, 0]
+
+---- canvas::frame_boundary::tests::a_replacement_drawn_over_several_encodes_is_one_frame stdout ----
+
+thread 'canvas::frame_boundary::tests::a_replacement_drawn_over_several_encodes_is_one_frame' (25392) panicked at crates\lurq\src\canvas\frame_boundary\tests.rs:30:3:
+the first batch does not end the frame
+
+---- canvas::frame_boundary::tests::an_encode_that_failed_part_way_ended_nothing stdout ----
+
+thread 'canvas::frame_boundary::tests::an_encode_that_failed_part_way_ended_nothing' (65388) panicked at crates\lurq\src\canvas\frame_boundary\tests.rs:95:3:
+assertion failed: !boundary.end_encode(&fronts)
+
+---- canvas::frame_boundary::tests::any_canvas_holding_a_replacement_keeps_the_frame_open stdout ----
+
+thread 'canvas::frame_boundary::tests::any_canvas_holding_a_replacement_keeps_the_frame_open' (54108) panicked at crates\lurq\src\canvas\frame_boundary\tests.rs:71:3:
+assertion failed: !boundary.end_encode(&fronts)
+
+---- canvas::frame_boundary::tests::superseding_a_replacement_ends_the_frame_and_its_successor_starts_the_next stdout ----
+
+thread 'canvas::frame_boundary::tests::superseding_a_replacement_ends_the_frame_and_its_successor_starts_the_next' (67516) panicked at crates\lurq\src\canvas\frame_boundary\tests.rs:55:3:
+assertion failed: !boundary.end_encode(&fronts)
+
+
+failures:
+    app::dx12_canvas_residency_tests::dx12_canvas_residency_keeps_a_replacement_drawn_in_batches_as_one_frame
+    app::wgpu_render::canvas::replacement_residency_tests::gpu_labels_of_a_replacement_drawn_in_batches_are_shaped_once
+    app::wgpu_render::canvas::replacement_residency_tests::gpu_replacement_drawn_in_batches_is_one_cache_frame_and_artwork_passes_age_nothing
+    canvas::frame_boundary::tests::a_replacement_drawn_over_several_encodes_is_one_frame
+    canvas::frame_boundary::tests::an_encode_that_failed_part_way_ended_nothing
+    canvas::frame_boundary::tests::any_canvas_holding_a_replacement_keeps_the_frame_open
+    canvas::frame_boundary::tests::superseding_a_replacement_ends_the_frame_and_its_successor_starts_the_next
+
+test result: FAILED. 8 passed; 7 failed; 0 ignored; 0 measured; 269 filtered out; finished in 11.32s
+
+error: test failed, to rerun pass `-p lurq --lib`
+
+# exit: 101
+# finished: 2026-10-04 23:22:43 +0300

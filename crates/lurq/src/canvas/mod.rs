@@ -17,17 +17,28 @@ mod software;
 pub use software::CanvasColor;
 pub(crate) use software::transform;
 use software::{paint_of, rescale_clip};
+mod asset_cache;
 mod blend;
 mod context;
 mod effect;
+#[cfg(any(test, feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
+mod frame_boundary;
+mod frame_cache;
 pub(crate) mod gpu;
 mod items;
+#[cfg(any(feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
+pub(crate) use asset_cache::AssetCache;
+pub use asset_cache::CanvasAssetBudget;
 pub use blend::BlendMode;
 pub use effect::{Filter, MAX_BLUR_RADIUS, MAX_EFFECT_PIXELS, MAX_SHADOW_BLUR, MAX_SHADOW_SPREAD, Shadow};
+#[cfg(any(feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
+pub(crate) use frame_boundary::FrameBoundary;
 pub use gpu::{CanvasReadback, MAX_LAYER_DEPTH};
 pub use items::{CanvasItem, CanvasItemShape};
 mod paint;
 mod path;
+#[cfg(all(test, any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))))]
+pub(crate) mod test_pages;
 mod text;
 use std::{
   fmt,
@@ -459,8 +470,8 @@ pub fn effects_scene(d: &Context2D) {
   d.end_layer().unwrap();
 }
 
-/// Surfaces for the wgpu renderer's canvas tests, which use them without a tree.
-#[cfg(all(test, feature = "wgpu"))]
+/// Surfaces for the GPU renderers' canvas tests, which use them without a tree.
+#[cfg(all(test, any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))))]
 impl CanvasHandle {
   pub(crate) fn test_surface(width: u32, height: u32, scale: f32, software: bool) -> Self {
     let canvas = Self::new();

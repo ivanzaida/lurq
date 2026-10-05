@@ -87,7 +87,7 @@ impl Renderer {
       return;
     }
     if self.fronts.get(&id).is_some_and(|(current, _)| *current == token) {
-      let (_, front) = self.fronts.remove(&id).unwrap();
+      let (_, front) = self.frames.end_replacement(&mut self.fronts, id).unwrap();
       if !commit || canvas.status().error.is_some() {
         if let Some(back) = self.surfaces.insert(id, front) {
           self.retire_back(state, id, back);
@@ -103,7 +103,7 @@ impl Renderer {
     }
   }
   pub(super) unsafe fn abort_for_resize(&mut self, state: &mut Dx12State, canvas: &CanvasHandle) {
-    if let Some((_, front)) = self.fronts.remove(&canvas.surface_id()) {
+    if let Some((_, front)) = self.frames.end_replacement(&mut self.fronts, canvas.surface_id()) {
       if let Some(back) = self.surfaces.insert(canvas.surface_id(), front) {
         self.retire_back(state, canvas.surface_id(), back);
       }

@@ -8,9 +8,11 @@ use tiny_skia::{Pixmap, PixmapPaint};
 mod glyph_cache;
 #[cfg(all(test, feature = "perf_profile"))]
 mod profile_tests;
+mod shape_cache;
 #[cfg(test)]
 mod tests;
 use glyph_cache::GlyphCache;
+use shape_cache::ShapeCache;
 
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
@@ -94,8 +96,7 @@ pub(crate) struct CanvasTextEngine {
   // The engine owns a snapshot of the font database, so this never needs clearing.
   face_weights: FaceWeights,
   swash: GlyphCache,
-  shaped: std::collections::VecDeque<(String, CanvasFont, f32, Color, Arc<ShapedText>, Output)>,
-  shaped_bytes: usize,
+  shaped: ShapeCache,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -157,8 +158,7 @@ impl CanvasTextEngine {
       aliases,
       face_weights: FaceWeights::default(),
       swash: GlyphCache::new(),
-      shaped: Default::default(),
-      shaped_bytes: 0,
+      shaped: ShapeCache::new(),
     }
   }
 
@@ -189,16 +189,9 @@ impl CanvasTextEngine {
   ) -> Result<Arc<ShapedText>, CanvasError> {
     #[cfg(feature = "perf_profile")]
     let _total = Timer::new(Stage::Total);
-    if let Some(index) = self
-      .shaped
-      .iter()
-      .position(|(t, f, s, c, _, o)| t == text && f == font && *s == scale && *c == color && *o == output)
-    {
+    if let Some(result) = self.shaped.get(text, font, scale, color, output) {
       #[cfg(feature = "perf_profile")]
       profile::shape_hit(true);
-      let entry = self.shaped.remove(index).unwrap();
-      let result = entry.4.clone();
-      self.shaped.push_back(entry);
       return Ok(result);
     }
     #[cfg(feature = "perf_profile")]
@@ -206,19 +199,7 @@ impl CanvasTextEngine {
     let result = Arc::new(self.shape_uncached(text, font, scale, color, output)?);
     #[cfg(feature = "perf_profile")]
     profile::produced(result.data.len());
-    let bytes = result.data.len() * 2 + text.len();
-    while !self.shaped.is_empty() && (self.shaped_bytes + bytes > 8 * 1024 * 1024 || self.shaped.len() >= 256) {
-      let entry = self.shaped.pop_front().unwrap();
-      self.shaped_bytes -= entry.4.data.len() * 2 + entry.0.len();
-      #[cfg(feature = "perf_profile")]
-      profile::evicted();
-    }
-    if bytes <= 8 * 1024 * 1024 {
-      self.shaped_bytes += bytes;
-      self
-        .shaped
-        .push_back((text.to_owned(), font.clone(), scale, color, result.clone(), output));
-    }
+    self.shaped.insert(text, font, scale, color, output, result.clone());
     Ok(result)
   }
   fn shape_uncached(

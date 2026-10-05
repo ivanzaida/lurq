@@ -1,0 +1,46 @@
+# binary: .tmp/probe/probe-master-02a037c.exe sha256 a493f8b54763c38088d8b982a27005e749784e8f9d7c389da832fe7e252333a9
+# command: probe-master-02a037c.exe canvas_frame_probe --ignored --nocapture --test-threads=1 (cwd crates/lurq)
+# started: 2026-10-05 14:15:53 +0300
+
+
+running 2 tests
+test app::canvas_frame_probe::canvas_frame_probe_dx12 ... probe backend=dx12 page=Labels shape_misses: first=688.00 steady_median=688.00
+probe backend=dx12 page=Labels shape_evictions: first=432.00 steady_median=688.00
+probe backend=dx12 page=Labels text_ms: first=23.41 steady_median=15.02
+probe backend=dx12 page=Labels textures_created: first=344.00 steady_median=344.00
+probe backend=dx12 page=Labels texture_evictions: first=0.00 steady_median=344.00
+probe backend=dx12 page=Labels asset_upload_ms: first=88.54 steady_median=91.88
+probe backend=dx12 page=Labels uploaded_kib: first=2711.62 steady_median=2711.62
+probe backend=dx12 page=Labels canvas_total_ms: first=281.07 steady_median=92.74
+probe backend=dx12 page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=dx12 page=Images textures_created: first=1100.00 steady_median=76.00
+probe backend=dx12 page=Images texture_evictions: first=76.00 steady_median=76.00
+probe backend=dx12 page=Images asset_upload_ms: first=285.35 steady_median=21.42
+probe backend=dx12 page=Images uploaded_kib: first=1100.00 steady_median=76.00
+probe backend=dx12 page=Images canvas_total_ms: first=426.32 steady_median=22.06
+ok
+test app::canvas_frame_probe::canvas_frame_probe_wgpu ... probe backend=wgpu page=Labels shape_misses: first=688.00 steady_median=688.00
+probe backend=wgpu page=Labels shape_evictions: first=432.00 steady_median=688.00
+probe backend=wgpu page=Labels text_ms: first=22.90 steady_median=14.53
+probe backend=wgpu page=Labels textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Labels asset_upload_ms: first=21.99 steady_median=11.10
+probe backend=wgpu page=Labels uploaded_kib: first=2711.62 steady_median=2711.62
+probe backend=wgpu page=Labels canvas_total_ms: first=151.39 steady_median=17.02
+probe backend=wgpu page=Images shape_misses: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images shape_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images text_ms: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images textures_created: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images texture_evictions: first=0.00 steady_median=0.00
+probe backend=wgpu page=Images asset_upload_ms: first=54.09 steady_median=2.62
+probe backend=wgpu page=Images uploaded_kib: first=1100.00 steady_median=76.00
+probe backend=wgpu page=Images canvas_total_ms: first=115.09 steady_median=5.25
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 264 filtered out; finished in 9.88s
+
+
+# exit: 0
+# finished: 2026-10-05 14:16:03 +0300

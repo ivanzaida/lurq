@@ -16,8 +16,8 @@ use super::*;
 #[cfg(feature = "perf_profile")]
 use crate::app::profile_types::canvas_upload::{AssetUploadStage, CanvasAssetUploadProfile};
 use crate::canvas::{
-  BlendMode, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak, GradientKind, PresentationEvent,
-  TargetCharge, gpu::*, replacement_admitted,
+  AssetCache, BlendMode, CanvasAssetBudget, CanvasError, CanvasHandle, CanvasId, CanvasSnapshot, CanvasWeak,
+  FrameBoundary, GradientKind, PresentationEvent, TargetCharge, gpu::*, replacement_admitted,
 };
 use pipeline::pipeline;
 pub(super) use resources::create_srv;
@@ -38,11 +38,6 @@ struct Backing {
   width: u32,
   height: u32,
 }
-struct AssetTexture {
-  texture: ID3D12Resource,
-  bytes: usize,
-  last: u64,
-}
 struct Readback {
   done: Completion,
   buffer: ID3D12Resource,
@@ -62,9 +57,8 @@ pub(super) struct Renderer {
   spares: Vec<Spare>,
   retired_artwork: Vec<ArtworkLease>,
   rejected: HashSet<CanvasId>,
-  assets: HashMap<u64, AssetTexture>,
-  asset_bytes: usize,
-  tick: u64,
+  assets: AssetCache<ID3D12Resource>,
+  frames: FrameBoundary,
   scratch: ID3D12Resource,
   resolve: ID3D12Resource,
   _stencil: ID3D12Resource,
@@ -182,9 +176,8 @@ impl Renderer {
       spares: Vec::new(),
       retired_artwork: Vec::new(),
       rejected: HashSet::new(),
-      assets: HashMap::new(),
-      asset_bytes: 0,
-      tick: 0,
+      assets: AssetCache::new(CanvasAssetBudget::default()),
+      frames: FrameBoundary::default(),
       scratch,
       resolve,
       _stencil: stencil,
@@ -213,6 +206,10 @@ impl Renderer {
       readbacks: Vec::new(),
       pending_stats: Vec::new(),
     })
+  }
+  pub fn with_asset_budget(mut self, budget: CanvasAssetBudget) -> Self {
+    self.assets = AssetCache::new(budget);
+    self
   }
   pub fn backing(&self, canvas: &CanvasHandle) -> Option<ID3D12Resource> {
     let id = canvas.surface_id();

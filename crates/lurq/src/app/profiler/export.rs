@@ -115,7 +115,8 @@ fn sample_json(sample: &ProfileSample) -> Value {
       "canvas_text": pass.canvas_text.map(|text| json!({
         "cpu_timings_ms": timings!(text; total, buffer_font_shape, glyph_prepare, bitmap_composition),
         "counts": counts!(text; measure_calls, fill_calls, shape_calls, shape_cache_hits,
-          shape_cache_misses, shape_cache_evictions, produced_bitmap_bytes)
+          shape_cache_misses, shape_cache_evictions, shape_cache_uncached, shape_cache_stretch_bytes,
+          produced_bitmap_bytes)
       })),
       "frame": pass.frame.as_ref().map(|frame| frame_json(frame, pass.backend)),
       "gpu_timing_ms": null
@@ -165,7 +166,8 @@ fn frame_json(frame: &FrameProfile, backend: &str) -> Value {
         glyph_atlas_full_uploads, glyph_atlas_arena_uploads, glyph_atlas_dedicated_uploads),
       "canvas": {
         "cpu_timings_ms": timings!(render.canvas; total, tessellation, asset_upload, buffer_upload, recording, submit),
-        "counts": counts!(render.canvas; batches, command_groups, vertices, tiles, uploaded_asset_bytes),
+        "counts": counts!(render.canvas; batches, command_groups, vertices, tiles, uploaded_asset_bytes,
+          asset_cache_budget_bytes, asset_cache_stretch_bytes, asset_cache_uncached, asset_cache_uncached_bytes),
         "asset_upload_details": render.canvas.asset_upload_details
           .filter(|_| upload_details_available)
           .map(CanvasAssetUploadProfile::to_json)

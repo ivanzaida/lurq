@@ -1,0 +1,163 @@
+# command: cargo check -p lurq --locked --offline --features canvas,winit,wgpu,query,tokio
+# started: 2026-10-05 13:42:39 +0300
+# head: 584d08451f1bcc64f2eee00da02bf87d13425ae9 tree: 21a10b9c547161bf507067ba67afcef1ce44818c
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+    Checking windows-link v0.2.1
+    Checking libm v0.2.16
+   Compiling num-traits v0.2.19
+    Checking bytemuck v1.25.0
+    Checking bitflags v2.11.1
+    Checking once_cell v1.21.4
+    Checking arrayvec v0.7.6
+    Checking log v0.4.30
+    Checking windows-result v0.4.1
+    Checking windows-strings v0.5.1
+    Checking cfg-if v1.0.4
+    Checking equivalent v1.0.2
+   Compiling thiserror-impl v2.0.18
+    Checking windows-core v0.62.2
+    Checking smallvec v1.15.1
+    Checking foldhash v0.2.0
+    Checking allocator-api2 v0.2.21
+   Compiling gl_generator v0.14.0
+    Checking hashbrown v0.16.1
+    Checking zerocopy v0.8.48
+    Checking libloading v0.8.9
+    Checking windows-threading v0.2.1
+    Checking hashbrown v0.17.1
+    Checking bit-vec v0.9.1
+    Checking raw-window-handle v0.6.2
+    Checking thiserror v2.0.18
+    Checking unicode-width v0.1.14
+    Checking indexmap v2.14.0
+    Checking bit-set v0.9.1
+    Checking windows-future v0.3.2
+    Checking codespan-reporting v0.13.1
+   Compiling glutin_wgl_sys v0.6.1
+    Checking windows-numerics v0.3.1
+    Checking windows-collections v0.3.2
+    Checking core_maths v0.1.1
+    Checking spirv v0.4.0+sdk-1.4.341.0
+    Checking unicode-ident v1.0.24
+    Checking hexf-parse v0.2.1
+    Checking scopeguard v1.2.0
+    Checking foldhash v0.1.5
+    Checking rustc-hash v1.1.0
+    Checking hashbrown v0.15.5
+    Checking lock_api v0.4.14
+    Checking windows v0.62.2
+    Checking parking_lot_core v0.9.12
+    Checking ash v0.38.0+1.3.281
+    Checking libc v0.2.186
+    Checking wgpu-types v29.0.4
+    Checking half v2.7.1
+    Checking naga v29.0.4
+    Checking euclid v0.22.14
+    Checking gpu-descriptor-types v0.2.0
+   Compiling windows_x86_64_msvc v0.52.6
+    Checking presser v0.3.1
+    Checking gpu-descriptor v0.3.2
+    Checking lyon_geom v1.0.19
+    Checking khronos-egl v6.0.0
+    Checking parking_lot v0.12.5
+    Checking ordered-float v4.6.0
+    Checking font-types v0.11.3
+    Checking font-types v0.12.5
+    Checking renderdoc-sys v1.1.0
+    Checking range-alloc v0.1.5
+    Checking glow v0.17.0
+    Checking profiling v1.0.18
+    Checking read-fonts v0.41.0
+    Checking wgpu-naga-bridge v29.0.4
+    Checking read-fonts v0.37.0
+    Checking lyon_path v1.0.19
+    Checking gpu-allocator v0.28.0
+    Checking pin-project-lite v0.2.17
+    Checking tinyvec_macros v0.1.1
+    Checking tinyvec v1.11.0
+    Checking wgpu-hal v29.0.3
+    Checking slotmap v1.1.1
+    Checking windows-targets v0.52.6
+    Checking ttf-parser v0.25.1
+    Checking skrifa v0.44.0
+    Checking tracing-core v0.1.36
+   Compiling winit v0.30.13
+    Checking memmap2 v0.9.10
+    Checking arrayref v0.3.9
+    Checking yazi v0.2.1
+    Checking zeno v0.3.3
+    Checking float_next_after v1.0.0
+    Checking unicode-segmentation v1.13.2
+    Checking wgpu-core-deps-windows-linux-android v29.0.4
+    Checking strict-num v0.1.1
+    Checking wgpu-core v29.0.4
+    Checking tiny-skia-path v0.11.4
+    Checking swash v0.2.10
+    Checking lyon_tessellation v1.0.20
+    Checking fontdb v0.23.0
+    Checking tracing v0.1.44
+    Checking harfrust v0.5.2
+    Checking skrifa v0.40.0
+    Checking windows-sys v0.52.0
+    Checking lyon_algorithms v1.0.20
+    Checking self_cell v1.2.2
+    Checking smol_str v0.2.2
+    Checking unicode-script v0.5.8
+    Checking rustc-hash v2.1.3
+    Checking sys-locale v0.3.2
+    Checking cursor-icon v1.2.0
+    Checking dpi v0.1.2
+    Checking unicode-linebreak v0.1.5
+    Checking linebender_resource_handle v0.1.1
+    Checking rangemap v1.7.1
+    Checking unicode-bidi v0.3.18
+    Checking smol_str v0.3.6
+    Checking static_assertions v1.1.0
+    Checking lyon v1.0.19
+    Checking wgpu v29.0.3
+    Checking tiny-skia v0.11.4
+    Checking cosmic-text v0.19.0
+    Checking tokio v1.52.3
+    Checking pollster v0.4.0
+    Checking lurq v0.41.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+warning: unused import: `profile_elapsed`
+  --> crates\lurq\src\app\wgpu_render\canvas.rs:14:35
+   |
+14 | use crate::app::profile_support::{profile_elapsed, profile_if, profile_scope};
+   |                                   ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `paint_of`
+  --> crates\lurq\src\canvas\mod.rs:19:16
+   |
+19 | use software::{paint_of, rescale_clip};
+   |                ^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9241:4
+     |
+9241 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:68:7
+   |
+68 | const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used
+  --> crates\lurq\src\layout\layout_engine.rs:70:7
+   |
+70 | const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 5 warnings (run `cargo fix --lib -p lurq` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.06s
+
+# exit: 0
+# finished: 2026-10-05 13:43:06 +0300
