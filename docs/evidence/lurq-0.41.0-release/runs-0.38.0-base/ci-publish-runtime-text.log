@@ -1,0 +1,46 @@
+# command: cargo test -p lurq --locked --offline --test runtime_tests text
+# started: 2026-10-05 05:57:32 +0300
+# head: 4075300a8a6a1de924cc5d322a89e754a80804a9 tree: 40671a32589a4fbfdc1063ad53cc9f086195771a
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+warning: function `atlas_rects_to_apply` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3540:15
+     |
+3540 | pub(crate) fn atlas_rects_to_apply(atlas: &GlyphAtlas, uploaded_version: u64) -> Option<Vec<GlyphAtlasDirtyRect>> {
+     |               ^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `coalesce_dirty_rects` is never used
+    --> crates\lurq\src\app\glyph_engine.rs:3557:4
+     |
+3557 | fn coalesce_dirty_rects(mut rects: Vec<GlyphAtlasDirtyRect>) -> Vec<GlyphAtlasDirtyRect> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lurq` (lib) generated 3 warnings
+   Compiling lurq v0.39.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.44s
+     Running tests\runtime_tests.rs (.tmp/target\debug\deps\runtime_tests-bf48c65ca4e07bb8.exe)
+
+running 8 tests
+test runtime::text_shadow::text_without_shadow_emits_no_shadow_instances ... ok
+test runtime::text_reflow::stretched_wrapper_grows_and_shrinks_when_retained_text_reflows ... ok
+test runtime::text_shadow::text_shadow_emits_offset_copies_beneath_glyphs ... ok
+test runtime::text_scale_wrap::dpi_scaled_wrapped_text_does_not_exceed_its_measured_rows ... ok
+test runtime::element_lookup::typed_interaction::set_value_shrinking_text_keeps_editing_consistent ... ok
+test runtime::text_reflow::changed_text_is_measured_fresh_not_wrapped_at_stale_width ... ok
+test runtime::text_shadow::invisible_shadow_is_skipped ... ok
+test runtime::text_scale_wrap::dpi_scaled_intrinsic_text_does_not_gain_a_paint_only_wrap ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 154 filtered out; finished in 0.23s
+
+
+# exit: 0
+# finished: 2026-10-05 05:58:12 +0300

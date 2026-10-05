@@ -1,0 +1,149 @@
+warning: a `Vec` of `Range` that is only one element @ crates/lurq/src/node/text_selection.rs
+warning: clamp-like pattern without using clamp function @ crates/lurq/src/app/runtime.rs
+warning: constant `DEFAULT_RESOURCE_HEIGHT` is never used @ crates/lurq/src/layout/layout_engine.rs
+warning: constant `DEFAULT_RESOURCE_WIDTH` is never used @ crates/lurq/src/layout/layout_engine.rs
+warning: deref on an immutable reference @ crates/lurq/src/app/wgpu_render/mod.rs
+warning: deref which would be done by auto-deref @ crates/lurq/src/components/select.rs
+warning: derefed type is same as origin @ crates/lurq/src/app/dx12_render/canvas/resources.rs
+warning: field assignment outside of initializer for an instance created with Default::default() @ crates/lurq/src/app/theme/typography.rs
+warning: field assignment outside of initializer for an instance created with Default::default() @ crates/lurq/tests/reactivity/theme.rs
+warning: field assignment outside of initializer for an instance created with Default::default() @ crates/lurq/tests/reactivity/theme.rs
+warning: function `blend_screenshot_pixel` is never used @ crates/lurq/src/app/runtime.rs
+warning: items after a test module @ crates/lurq/src/app/component.rs
+warning: large size difference between variants @ crates/lurq/src/app/profiler/model.rs
+warning: manual arithmetic check found @ crates/lurq/src/app/glyph_engine.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/animation/animation.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/animation/animation.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/wgpu_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/app/wgpu_render/mod.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/images/image_data.rs
+warning: manual implementation of `.is_multiple_of()` @ crates/lurq/src/images/image_data.rs
+warning: manual slice size calculation @ crates/lurq/src/canvas/path.rs
+warning: manually constructing a nul-terminated string @ crates/lurq/src/app/dx12_render/mod.rs
+warning: manually constructing a nul-terminated string @ crates/lurq/src/app/dx12_render/mod.rs
+warning: methods with the following characteristics: (`to_*` and `self` type is not `Copy`) usually take `self` by reference @ crates/lurq/src/app/glyph_engine.rs
+warning: module has the same name as its containing module @ crates/lurq/src/animation/mod.rs
+warning: module has the same name as its containing module @ crates/lurq/src/app/window/tests.rs
+warning: module has the same name as its containing module @ crates/lurq/src/node/mod.rs
+warning: passing a unit value to a function @ crates/lurq/src/app/ctx.rs
+warning: passing a unit value to a function @ crates/lurq/src/app/ctx.rs
+warning: passing a unit value to a function @ crates/lurq/src/app/ctx.rs
+warning: passing a unit value to a function @ crates/lurq/src/app/ctx.rs
+warning: passing a unit value to a function @ crates/lurq/src/app/ctx.rs
+warning: redundant closure @ crates/lurq/src/components/column.rs
+warning: redundant closure @ crates/lurq/src/components/row.rs
+warning: redundant closure @ crates/lurq/src/components/text_input.rs
+warning: redundant closure @ crates/lurq/src/components/text_input.rs
+warning: returning the result of a `let` binding from a block @ crates/lurq/src/layout/layout_engine.rs
+warning: struct update has no effect, all the fields in the struct have already been specified @ crates/lurq/src/app/runtime.rs
+warning: the loop variable `i` is used to index `frames` @ crates/lurq/src/animation/animation.rs
+warning: the method `preserve_runtime_state_from` doesn't need a mutable reference @ crates/lurq/src/app/runtime.rs
+warning: the method `preserve_runtime_state_from` doesn't need a mutable reference @ crates/lurq/src/app/runtime.rs
+warning: the method `preserve_runtime_state_from` doesn't need a mutable reference @ crates/lurq/src/app/runtime.rs
+warning: this `if` has identical blocks @ crates/lurq/src/app/hit_test.rs
+warning: this `if` has identical blocks @ crates/lurq/src/app/runtime.rs
+warning: this `if` has identical blocks @ crates/lurq/src/app/runtime.rs
+warning: this `if` has identical blocks @ crates/lurq/src/app/runtime.rs
+warning: this `if` has identical blocks @ crates/lurq/src/components/window_chrome.rs
+warning: this `if` has identical blocks @ crates/lurq/src/layout/layout_engine.rs
+warning: this `if` has identical blocks @ crates/lurq/src/layout/layout_engine.rs
+warning: this `if` has identical blocks @ crates/lurq/src/node/node.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/animation/animation.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/animation/transition.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/ctx.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/dx12_render/canvas/presentation.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/frame_capture.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/glyph_engine.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/glyph_engine.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/glyph_engine.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/glyph_engine.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/runtime.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/wgpu_render/canvas/artwork.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/wgpu_render/canvas/artwork.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/app/wgpu_render/canvas/presentation.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/core/tracking.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/layout/layout_engine.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/layout/layout_engine.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/node/node.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/node/node.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/node/node.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/node/node.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/node/node.rs
+warning: this `if` statement can be collapsed @ crates/lurq/src/node/node.rs
+warning: this `impl` can be derived @ crates/lurq/src/app/ctx.rs
+warning: this `impl` can be derived @ crates/lurq/src/app/ctx.rs
+warning: this `impl` can be derived @ crates/lurq/src/node/checkbox_style.rs
+warning: this `impl` can be derived @ crates/lurq/src/node/node.rs
+warning: this `impl` can be derived @ crates/lurq/src/node/slider_style.rs
+warning: this `let...else` may be rewritten with the `?` operator @ crates/lurq/src/app/runtime.rs
+warning: this `map_or` can be simplified @ crates/lurq/src/app/dx12_render/mod.rs
+warning: this `map_or` can be simplified @ crates/lurq/src/app/dx12_render/mod.rs
+warning: this boolean expression can be simplified @ crates/lurq/src/app/glyph_engine.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/camera_tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/presentation_tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this call to `clone` can be replaced with `std::slice::from_ref` @ crates/lurq/src/app/wgpu_render/canvas/tests.rs
+warning: this function has too many arguments (12/10) @ crates/lurq/src/layout/layout_engine.rs
+warning: this function has too many arguments (12/10) @ crates/lurq/src/layout/layout_engine.rs
+warning: this function has too many arguments (13/10) @ crates/lurq/src/app/runtime.rs
+warning: this if-then-else expression returns a bool literal @ crates/lurq/src/app/runtime.rs
+warning: this let-binding has unit value @ crates/lurq/src/app/ctx.rs
+warning: this let-binding has unit value @ crates/lurq/src/app/ctx.rs
+warning: this let-binding has unit value @ crates/lurq/src/app/ctx.rs
+warning: this let-binding has unit value @ crates/lurq/src/app/ctx.rs
+warning: this let-binding has unit value @ crates/lurq/src/app/ctx.rs
+warning: unneeded `return` statement @ crates/lurq/src/app/runtime.rs
+warning: unused import: `paint_of` @ crates/lurq/src/canvas/mod.rs
+warning: useless conversion to the same type: `std::vec::Vec<layout::layout_result::ChildLayout>` @ crates/lurq/src/layout/layout_engine.rs
+warning: useless conversion to the same type: `std::vec::Vec<layout::layout_result::ChildLayout>` @ crates/lurq/src/layout/layout_engine.rs
+warning: using `clone` on type `()` which implements the `Copy` trait @ crates/lurq/src/app/ctx.rs
+warning: using `clone` on type `()` which implements the `Copy` trait @ crates/lurq/src/app/ctx.rs
+warning: using `clone` on type `()` which implements the `Copy` trait @ crates/lurq/src/app/ctx.rs
+warning: using `clone` on type `()` which implements the `Copy` trait @ crates/lurq/src/app/ctx.rs
+warning: using `clone` on type `Option<Padding>` which implements the `Copy` trait @ crates/lurq/src/node/node.rs
+warning: using `clone` on type `Option<Padding>` which implements the `Copy` trait @ crates/lurq/src/node/select_style.rs
+warning: using `clone` on type `Option<Padding>` which implements the `Copy` trait @ crates/lurq/src/node/style.rs
+warning: using `clone` on type `Padding` which implements the `Copy` trait @ crates/lurq/src/node/node.rs
+warning: using `map` over `inspect` @ crates/lurq/src/app/wgpu_render/canvas/presentation.rs
+warning: variable does not need to be mutable @ crates/lurq/src/layout/layout_engine.rs
+warning: variable does not need to be mutable @ crates/lurq/src/layout/layout_engine.rs
+warning: variable does not need to be mutable @ crates/lurq/src/layout/layout_engine.rs
+warning: variable does not need to be mutable @ crates/lurq/tests/components/virtualized_list.rs
+warning: very complex type used. Consider factoring parts into `type` definitions @ crates/lurq/src/app/app_state.rs
+warning: very complex type used. Consider factoring parts into `type` definitions @ crates/lurq/src/app/glyph_engine.rs
+warning: very complex type used. Consider factoring parts into `type` definitions @ crates/lurq/src/app/theme/mod.rs
+warning: very complex type used. Consider factoring parts into `type` definitions @ crates/lurq/src/core/store.rs
+warning: very complex type used. Consider factoring parts into `type` definitions @ crates/lurq/tests/runtime/drag.rs
+warning: very complex type used. Consider factoring parts into `type` definitions @ crates/lurq/tests/runtime/element_lookup/transient_mutation.rs
+warning: you should consider adding a `Default` implementation for `AnimationEngine` @ crates/lurq/src/animation/animation.rs
+warning: you should consider adding a `Default` implementation for `IdGenerator` @ crates/lurq/src/core/id_gen.rs
+warning: you should consider adding a `Default` implementation for `ScrollState` @ crates/lurq/src/layout/layout_kind.rs
+warning: you should consider adding a `Default` implementation for `TransitionEngine` @ crates/lurq/src/animation/transition.rs

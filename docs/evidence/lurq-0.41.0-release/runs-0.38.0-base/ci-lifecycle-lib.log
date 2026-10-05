@@ -1,0 +1,311 @@
+# command: cargo test -p lurq --lib --locked --offline --features winit,mcp
+# started: 2026-10-05 07:00:57 +0300
+# head: 4075300a8a6a1de924cc5d322a89e754a80804a9 tree: 40671a32589a4fbfdc1063ad53cc9f086195771a
+# dirty source files: 0
+# CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=H:/projects/pencil-web/.codex/worktrees/lurq-k236-cache-039/.tmp/target
+
+   Compiling windows-sys v0.61.2
+   Compiling futures-core v0.3.32
+   Compiling serde_core v1.0.228
+   Compiling memchr v2.8.0
+   Compiling futures-sink v0.3.34
+   Compiling futures-channel v0.3.32
+   Compiling http v1.4.1
+   Compiling smallvec v1.15.1
+   Compiling half v2.7.1
+   Compiling http-body v1.1.0
+   Compiling futures-task v0.3.32
+   Compiling mio v1.2.2
+   Compiling socket2 v0.6.5
+   Compiling serde v1.0.228
+   Compiling tokio v1.52.3
+   Compiling rand_core v0.10.1
+   Compiling futures-io v0.3.32
+   Compiling slab v0.4.12
+   Compiling serde_json v1.0.150
+   Compiling futures-util v0.3.32
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling getrandom v0.4.3
+   Compiling winapi-util v0.1.11
+   Compiling cpufeatures v0.3.0
+   Compiling chacha20 v0.10.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ref-cast v1.0.27
+   Compiling same-file v1.0.6
+   Compiling windows-targets v0.52.6
+   Compiling httparse v1.10.1
+   Compiling chrono v0.4.45
+   Compiling futures-executor v0.3.32
+   Compiling http-body-util v0.1.5
+   Compiling httpdate v1.0.3
+   Compiling dyn-clone v1.0.20
+   Compiling lazy_static v1.5.0
+   Compiling atomic-waker v1.1.2
+   Compiling indexmap v2.14.0
+   Compiling hyper v1.11.0
+   Compiling sharded-slab v0.1.7
+   Compiling schemars v1.2.2
+   Compiling moxcms v0.8.1
+   Compiling tiff v0.11.3
+   Compiling sse-stream v0.2.5
+   Compiling thiserror v2.0.18
+   Compiling tokio-util v0.7.19
+   Compiling tokio-stream v0.1.19
+   Compiling futures v0.3.32
+   Compiling windows-sys v0.52.0
+   Compiling rmcp-macros v3.1.4
+   Compiling walkdir v2.5.0
+   Compiling ciborium v0.2.2
+   Compiling rand v0.10.2
+   Compiling parking_lot_core v0.9.12
+   Compiling tinytemplate v1.2.1
+   Compiling uuid v1.23.3
+   Compiling harfrust v0.5.2
+   Compiling is-terminal v0.4.17
+   Compiling thread_local v1.1.9
+   Compiling smol_str v0.2.2
+   Compiling cursor-icon v1.2.0
+   Compiling tower-service v0.3.3
+   Compiling base64 v0.23.1
+   Compiling dpi v0.1.2
+   Compiling winit v0.30.13
+   Compiling rmcp v3.1.4
+   Compiling cosmic-text v0.19.0
+   Compiling criterion v0.5.1
+   Compiling tracing-subscriber v0.3.23
+   Compiling parking_lot v0.12.5
+   Compiling image v0.25.10
+   Compiling hyper-util v0.1.20
+   Compiling lurq v0.39.0 (H:\projects\pencil-web\.codex\worktrees\lurq-k236-cache-039\crates\lurq)
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4054:9
+     |
+4054 |     let mut new: Node = crate::node::Element::from(crate::components::Spacer::new().height(3000.0)).into_node();
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4181:9
+     |
+4181 |     let mut new = column(3000.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates\lurq\src\layout\layout_engine.rs:4351:9
+     |
+4351 |     let mut new = stack(30.0, 40.0);
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: function `blend_screenshot_pixel` is never used
+    --> crates\lurq\src\app\runtime.rs:9071:4
+     |
+9071 | fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `lurq` (lib test) generated 4 warnings (run `cargo fix --lib -p lurq --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 44.38s
+     Running unittests src\lib.rs (.tmp/target\debug\deps\lurq-8429a122f21d2496.exe)
+
+running 187 tests
+test animation::easing::tests::ease_endpoints ... ok
+test animation::easing::tests::ease_in_slow_start ... ok
+test animation::easing::tests::ease_out_fast_start ... ok
+test animation::interpolate::tests::lerp_color_midpoint ... ok
+test animation::interpolate::tests::lerp_mismatched_types_discrete ... ok
+test app::component::tests::formatter_debug_struct_adds_named_fields ... ok
+test app::frame_capture::tests::capture_rows_drop_row_padding ... ok
+test app::component::tests::derive_uses_formatter_for_tuple_structs ... ok
+test app::frame_capture::tests::capture_rows_swizzle_bgra_to_rgba ... ok
+test animation::easing::tests::steps_jump_end ... ok
+test app::component::tests::legacy_write_info_impls_still_work ... ok
+test animation::easing::tests::linear_identity ... ok
+test app::frame_capture::tests::capture_region_scales_and_clamps_to_the_viewport ... ok
+test app::component::tests::formatter_debug_map_allows_dynamic_keys ... ok
+test app::frame_capture::tests::window_clip_clears_pixels_outside_rounded_corners ... ok
+test app::glyph_engine::tests::atlas_packer_leaves_padding_between_glyph_regions ... ok
+test app::ctx::tests::descendant_dirty_marks_ancestor_subtrees_without_marking_ancestors_dirty ... ok
+test animation::interpolate::tests::lerp_float ... ok
+test app::ctx::tests::dirty_mark_during_render_survives_end_render ... ok
+test app::ctx::tests::dirty_mark_for_previous_render_dependency_survives_rerender ... ok
+test app::frame_capture::tests::capture_region_outside_the_viewport_is_skipped ... ok
+test app::ctx::tests::batch_defers_dirty_marking_until_end ... ok
+test app::glyph_engine::tests::atlas_packer_leaves_transparent_glyph_padding ... ok
+test app::frame_capture::tests::align_capture_row_pitch_rounds_up_to_alignment ... ok
+test app::glyph_engine::tests::color_glyph_atlas_pixels_preserve_rgba ... ok
+test app::glyph_engine::tests::dirty_rect_coalescing_keeps_separate_atlas_rows ... ok
+test app::glyph_engine::tests::dirty_rect_coalescing_merges_same_atlas_row ... ok
+test app::glyph_engine::tests::empty_cluster_is_not_treated_as_whitespace ... ok
+test app::glyph_engine::tests::mask_glyph_atlas_pixels_store_alpha_coverage ... ok
+test app::glyph_engine::tests::max_float_text_width_is_unbounded ... ok
+test app::glyph_engine::tests::screen_transform_is_flipped_for_glyph_outline_space ... ok
+test app::glyph_engine::tests::atlas_dirty_log_serves_consumers_at_different_versions ... ok
+test app::glyph_engine::tests::atlas_snapshot_reuses_data_when_version_is_unchanged ... ok
+test app::glyph_engine::tests::atlas_dirty_log_prunes_to_full_upload_for_stale_consumers ... ok
+test app::glyph_engine::reflow::tests::intervals_exclude_alignment_bidi_and_glyph_wrap ... ok
+test app::glyph_engine::reflow::tests::nowrap_intervals_preserve_geometry_with_and_without_a_width_limit ... ok
+test app::glyph_engine::tests::default_mask_falls_back_when_primary_font_lacks_bullet ... ok
+test app::menu::tests::accelerator_rendering_covers_characters_modifiers_and_named_keys ... ok
+test app::glyph_engine::letter_spacing::tests::rich_spans_space_their_own_glyphs_in_pixels ... ok
+test app::menu::tests::menu_activation_checks_live_availability_presence_and_identity ... ok
+test app::menu::tests::menu_quit_defaults_to_veto_and_model_updates_are_coalesced ... ok
+test app::profiler::application_tests::application_handles_and_parent_tokens_support_explicit_worker_handoff ... ok
+test app::profiler::canvas_upload_tests::profiling_canvas_upload_idle_and_disabled_capture_are_absent ... ok
+test app::profiler::session_tests::profiling_availability_is_explicit ... ok
+test app::glyph_engine::tests::clipped_wrapped_text_only_appends_intersecting_glyphs ... ok
+test app::glyph_engine::tests::installing_fonts_preserves_existing_atlas_entries ... ok
+test app::glyph_engine::tests::measured_rich_text_layout_feeds_rasterization ... ok
+test app::runtime::tests::inactive_text_clip_stays_inactive ... ok
+test app::profiler::canvas_upload_tests::profiling_canvas_upload_export_does_not_advertise_wgpu_or_custom_backend_support ... ok
+test app::runtime::tests::text_clip_expands_by_one_physical_pixel_for_glyph_rasterization ... ok
+test app::glyph_engine::tests::medium_weight_text_does_not_fallback_to_symbol_font ... ok
+test app::runtime::tests::text_cull_clip_expands_for_scroll_prewarm ... ok
+test app::runtime::tests::transformed_text_bitmap_mode_uses_moderate_minimum_raster_scale ... ok
+test app::glyph_engine::tests::max_float_raster_width_does_not_wrap_text ... ok
+test app::synthetic_input::tests::letters_and_digits_get_physical_codes ... ok
+test app::synthetic_input::tests::modifiers_are_carried_with_the_event ... ok
+test app::synthetic_input::tests::text_expands_to_one_event_per_character ... ok
+test app::theme::role_name::tests::interning_gives_one_handle_per_name ... ok
+test app::window::tests::close_tests::close_bypasses_handler_and_no_handler_preserves_behavior ... ok
+test app::glyph_engine::tests::small_key_label_descender_mask_contains_bottom_coverage ... ok
+test app::window::tests::close_tests::proceed_wakes_event_loop_and_request_does_not_own_window ... ok
+test app::window::tests::close_tests::close_veto_cancel_drop_and_delayed_proceed ... ok
+test app::window::tests::close_tests::reentrant_requests_are_deferred_and_registration_is_reentrant ... ok
+test app::window::tests::tests::window_handle_queues_title_bar_and_icon_commands ... ok
+test app::window::tests::tests::window_icon_from_rgba_rejects_wrong_pixel_count - should panic ... ok
+test app::window::tests::tests::window_icon_from_rgba_stores_dimensions_and_pixels ... ok
+test app::glyph_engine::tests::rasterized_glyph_positions_snap_after_fractional_origin ... ok
+test app::glyph_engine::tests::whitespace_only_text_does_not_pack_glyphs ... ok
+test app::window::tests::title_tests::initial_title_does_not_replace_an_app_title ... ok
+test app::window::tests::title_tests::set_title_queues_changes_only ... ok
+test app::window::tests::title_tests::set_title_wakes_the_event_loop ... ok
+test app::winit_shell::key_name_tests::named_keys_apps_match_on_are_not_empty ... ok
+test app::winit_shell::native_drag_tests::screen_point_lparam_packs_signed_coordinates ... ok
+test components::window_chrome::tests::always_custom_metrics_use_platform_height_and_resize_policy ... ok
+test components::window_chrome::tests::chrome_builder_collects_overlays ... ok
+test components::window_chrome::tests::chrome_metrics_adjust_content_coordinates ... ok
+test components::window_chrome::tests::disabled_metrics_are_zeroed ... ok
+test components::window_chrome::tests::disabled_resize_handles_do_not_inset_content ... ok
+test app::glyph_engine::tests::unsnapped_rasterized_glyph_positions_preserve_float_layout ... ok
+test components::window_chrome::tests::maximized_and_fullscreen_windows_remove_resize_inset ... ok
+test app::glyph_engine::tests::subpixel_binned_glyphs_rasterize_unhinted ... ok
+test components::window_chrome::tests::visible_border_policy_contributes_to_metrics ... ok
+test core::id_gen::tests::retired_ids_never_alias_new_nodes ... ok
+test components::window_chrome::tests::mounted_maximized_chrome_has_no_resize_gutter_or_handles ... ok
+test layout::layout_engine::tests::clipped_subtree_culling_keeps_partially_visible_rects ... ok
+test app::glyph_engine::tests::rich_text_rasterization_reuses_layout_cache ... ok
+test components::window_chrome::tests::mounted_chrome_paints_resize_gutter_with_content_background ... ok
+test components::window_chrome::tests::inset_chrome_separates_client_layers_from_resize_edges ... ok
+test components::window_chrome::tests::explicit_frame_background_overrides_content_background ... ok
+test components::window_chrome::tests::overlay_chrome_keeps_full_content_and_all_resize_handles ... ok
+test components::window_chrome::tests::mounted_chrome_hides_the_compositor_border_once ... ok
+test app::glyph_engine::tests::optical_shortcut_matches_full_ink_scan ... ok
+test app::glyph_engine::tests::combined_plain_layouts_fit_without_rewrapping ... ok
+test app::glyph_engine::tests::full_layout_reuse_preserves_clipped_glyphs_at_different_origins ... ok
+test layout::layout_engine::tests::stretch_relayout_guard_only_matches_intrinsic_main_axis_children ... ok
+test app::glyph_engine::tests::paragraph_fingerprint_collision_cannot_reuse_different_text ... ok
+test app::glyph_engine::tests::tiny_font_sizes_rasterize_nonzero_coverage ... ok
+test app::glyph_engine::tests::wrapped_glyph_y_positions_are_pixel_snapped ... ok
+test layout::layout_result::tests::cloning_layout_result_shares_nested_child_results ... ok
+test layout::opacity_layer::tests::a_layer_without_draws_is_skipped ... ok
+test layout::opacity_layer::tests::an_invisible_layer_drops_its_draws_and_inner_layers ... ok
+test layout::opacity_layer::tests::bounds_cover_transformed_content_in_whole_pixels_within_clip_and_viewport ... ok
+test layout::opacity_layer::tests::nested_layers_are_painted_before_the_targets_they_composite_into ... ok
+test layout::opacity_layer::tests::without_layers_the_window_paints_every_draw_in_one_step ... ok
+test app::glyph_engine::tests::paragraph_caret_snapshots_survive_cache_pressure_and_font_invalidation ... ok
+test mcp::file_dialogs::tests::file_dialogs_accepted_close_is_terminal_after_command_drain_for_retained_handles ... ok
+test mcp::file_dialogs::tests::file_dialogs_future_drop_and_closed_or_replaced_window_retire_capacity ... ok
+test app::glyph_engine::tests::caret_and_measurement_share_layout_in_both_orders_and_after_edits ... ok
+test mcp::file_dialogs::tests::file_dialogs_paths_cardinality_and_bounded_metadata_are_checked_before_completion ... ok
+test mcp::file_dialogs::tests::file_dialogs_response_and_revocation_wake_outside_internal_locks ... ok
+test mcp::file_dialogs::tests::file_dialogs_revocation_shutdown_and_retained_clone_never_fall_back ... ok
+test mcp::file_dialogs::tests::file_dialogs_unregistered_native_boundary_and_one_shot_windows ... ok
+test mcp::file_dialogs::tests::file_dialogs_vetoed_close_keeps_request_and_accepted_close_cancels ... ok
+test app::glyph_engine::reflow::tests::intervals_match_cosmic_at_wrap_boundaries ... ok
+test mcp::profiling::tests::unavailable_profiling_tools_are_rechecked_without_tree_access ... ok
+test mcp::profiling::tests::profiling_tools_are_observe_read_only_and_report_feature_availability ... ok
+test app::winit_shell::close_runtime_tests::secondary_veto_delayed_acceptance_and_unconditional_close ... ok
+test mcp::server::profiling_tests::profiling_server_availability_is_scope_guarded ... ok
+test layout::layout_engine::tests::frame_conflicting_cached_result_is_recomputed ... ok
+test mcp::server::profiling_tests::profiling_transport_still_requires_bearer_auth_before_tool_dispatch ... ok
+test layout::layout_engine::tests::overlay_declaration_child_never_reports_pending_dirt ... ok
+test layout::layout_engine::tests::stale_parent_cache_with_conflicting_absolute_position_is_recomputed ... ok
+test layout::layout_engine::tests::stale_parent_cache_with_conflicting_bounds_override_is_recomputed ... ok
+test layout::layout_engine::tests::stale_parent_cache_with_conflicting_child_frame_is_recomputed ... ok
+test node::border::tests::oversized_radius_clamps_to_pill_shape ... ok
+test node::color::tests::achromatic ... ok
+test node::color::tests::hex_roundtrip ... ok
+test node::color::tests::hex_short ... ok
+test node::color::tests::hex_with_alpha ... ok
+test node::color::tests::hsl_pure_red ... ok
+test app::glyph_engine::tests::wrapped_text_measurement_contains_painted_glyph_bounds ... ok
+test node::color::tests::hsl_roundtrip ... ok
+test node::color::tests::hsla_alpha ... ok
+test node::element::tests::element_builders_create_node_tree ... ok
+test node::layout_cache::tests::a_repair_needs_the_front_entry_its_descendants_were_laid_out_for ... ok
+test node::layout_cache::tests::a_reused_result_becomes_the_front_entry ... ok
+test node::layout_cache::tests::clean_stores_keep_both_entries ... ok
+test node::layout_cache::tests::preserving_a_cache_keeps_whether_its_descendants_match_the_front_entry ... ok
+test node::layout_cache::tests::serving_an_entry_makes_its_constraints_the_front_ones ... ok
+test node::layout_cache::tests::store_on_a_dirty_cache_drops_stale_sibling_entries ... ok
+test node::node::tests::changed_component_key_does_not_match_layout_cache_signature ... ok
+test node::node::tests::changed_slider_value_matches_layout_cache_signature ... ok
+test node::node::tests::changed_text_content_does_not_match_layout_cache_signature ... ok
+test node::node::tests::parent_layout_cache_survives_changed_child_text ... ok
+test node::node::tests::preserve_ids_follows_keyed_children_across_a_window_shift ... ok
+test node::node::tests::preserved_parent_cache_is_dirty_when_child_component_key_changes ... ok
+test node::node::tests::preserved_parent_cache_is_dirty_when_child_signature_changes ... ok
+test node::node::tests::unchanged_text_content_matches_layout_cache_signature ... ok
+test node::node::tests::text_input_mask_builders_render_bullets_and_allow_overrides ... ok
+test app::glyph_engine::tests::wrapped_text_measurement_contains_scaled_painted_glyph_bounds ... ok
+test app::glyph_engine::tests::paragraph_boundaries_duplicates_and_shrinking_match_fresh_layout ... ok
+test app::runtime::caret_blink_tests::a_focused_caret_schedules_its_next_toggle ... ok
+test app::runtime::caret_blink_tests::an_unfocused_input_schedules_nothing ... ok
+test node::transform::tests::decomposed_lerp_preserves_full_rotation ... ok
+test node::transform::tests::identity_roundtrip ... ok
+test node::transform::tests::rotation_roundtrip ... ok
+test node::transform::tests::then_combines_transforms ... ok
+test layout::layout_engine::tests::dirty_child_that_still_fits_patches_cached_parent_layout ... ok
+test mcp::tools::tests::lookups_before_layout_say_the_bounds_are_unknown ... ok
+test mcp::tools::tests::mcp_close_and_menu_obey_scopes_and_report_dispatch_outcome ... ok
+test app::winit_shell::native_window_tests::a_hidden_window_takes_icons_and_runtime_titles ... ok
+test layout::layout_engine::tests::moved_text_input_caret_invalidates_cached_layout ... ok
+test layout::layout_engine::tests::dirty_child_that_no_longer_fits_relayouts_parent ... ok
+test mcp::file_dialogs::tests::file_dialogs_opt_in_tools_and_actual_drain_cancel_without_later_mcp_call ... ok
+test mcp::tools::tests::masked_values_are_redacted_in_tree_lookup_refs_and_set_value ... ok
+test layout::layout_engine::tests::reused_child_override_becomes_the_childs_current_constraints ... ok
+test mcp::tools::tests::semantic_act_rejects_a_ref_whose_name_changed ... ok
+test layout::layout_engine::tests::row_child_size_change_reflows_sibling_offsets ... ok
+test mcp::tools::tests::scroll_to_through_nested_scroll_containers_lands_the_element_in_view ... ok
+test mcp::tools::tests::semantic_inspect_keeps_masked_input_value_private ... ok
+test mcp::tools::tests::windows_report_the_title_set_at_runtime ... ok
+test layout::layout_engine::tests::unchanged_rebuilt_text_input_setters_reuse_cached_layout ... ok
+test layout::layout_engine::tests::unchanged_stretched_intrinsic_tree_reuses_cached_layout ... ok
+test layout::layout_engine::tests::unchanged_text_input_reuses_cached_layout ... ok
+test mcp::tools::tests::semantic_inspect_finds_button_by_child_label_and_act_invokes_ref ... ok
+test app::glyph_engine::tests::shared_plain_layout_matches_cosmic_for_repeated_and_unique_paragraphs ... ok
+test app::glyph_engine::tests::retained_carets_match_fresh_positions_and_keep_owned_results ... ok
+test app::glyph_engine::tests::plain_buffer_cache_invalidates_and_evicts_without_stale_layouts ... ok
+test app::glyph_engine::tests::incremental_paragraph_edits_and_reflow_match_fresh_layout ... ok
+test app::glyph_engine::tests::paragraph_carets_reuse_geometry_across_edits_and_keep_old_snapshots ... ok
+test app::glyph_engine::tests::width_intervals_preserve_layouts_and_carets_through_reflow_and_edits ... ok
+test node::text_selection::tests::remapping_detaches_shared_geometry_and_invalidates_indices ... ok
+test node::text_selection::tests::empty_short_and_nonmonotonic_carets_preserve_fallbacks_and_ties ... ok
+test app::glyph_engine::tests::cache_pressure_preserves_logical_and_scaled_paragraph_shaping ... ok
+test node::text_selection::tests::indexed_shaped_carets_match_linear_queries ... ok
+test app::runtime::caret_blink_tests::the_caret_toggles_without_other_redraws ... ok
+test node::text_selection::tests::segmented_edits_and_remapping_keep_queries_lazy_and_correct ... ok
+
+test result: ok. 187 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+
+
+# exit: 0
+# finished: 2026-10-05 07:01:44 +0300
