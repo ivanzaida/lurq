@@ -92,11 +92,11 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_find` | observe | Substring search over the refs from the last `read_tree` (answered without touching the app). |
 | `lurq_find_by_id` | observe | Live lookup of the element with an `.id("...")`, or else the [canvas item](#canvas-content) with that id, returning a fresh actionable ref. |
 | `lurq_find_by_class` | observe | Live lookup of every element with a `.class("...")`, in tree order. |
-| `lurq_windows` | observe | List windows: id, name, title, kind, focus, `minimized`/`maximized`/`full_screen`, size, scale factor. |
+| `lurq_windows` | observe | List windows: id, name, title, kind, focus, `minimized`/`maximized`/`full_screen`, size, scale factor, and the buttons and keys clients [hold](#holding-buttons-and-keys) there. |
 | `lurq_menu` | observe | Inspect the native-menu model, command IDs, enabled state, and platform support. |
 | `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
-| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; also `request_close` and `menu_activate`. |
+| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; also `request_close` and `menu_activate`. |
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
 | `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
@@ -139,6 +139,44 @@ The typical agent loop:
 lurq_inspect { query: "Open modal", role: "button" }
               →  lurq_act { action: "invoke", ref: "ref_23" }
               →  lurq_inspect   (verify)
+```
+
+### Holding buttons and keys
+
+`click`, `drag` and `key` deliver a whole gesture inside one call, between two frames. A gesture whose samples arrive one frame apart (dragging a node or a resize handle, a marquee, a slider or scrollbar thumb, a middle-button or space-drag pan) holds its input across calls instead:
+
+| Action | Arguments | Does |
+| --- | --- | --- |
+| `press` | `ref` or `x`/`y`; `button`: `left` (default), `middle` or `right` | Moves the pointer there, then presses the button, which stays down. |
+| `move` | `ref` or `x`/`y` | In a window that holds a button or key, a held move: the tree treats it as a real move with the button down, so drags, sliders, scrollbars and text selection follow it and keep the pointer outside their bounds. |
+| `release` | `button`; optionally `ref` or `x`/`y` | Releases the button where the pointer is, moving to the target first if one is given. A left press released in place is a click. |
+| `key_down` / `key_up` | `key`, `modifiers` | Holds and releases a key, with the key names of `key` (`" "` is the space bar). A held `Shift`, `Control`, `Alt` or `Meta` sets that modifier on every later event in the window. |
+
+A call that delivers held input asks the shell to present right after it, as a real mouse-move stream presents from inside its events, so one `move` per call is one frame per move:
+
+```text
+lurq_interact {"action":"press","x":420,"y":310}
+→ {"ok":true,"action":"press","window":"main","button":"left","x":420.0,"y":310.0,
+   "held":{"buttons":["left"],"keys":[]}}
+lurq_interact {"action":"move","x":436,"y":318}
+→ {"ok":true,"action":"move","window":"main","x":436.0,"y":318.0,"held":{"buttons":["left"],"keys":[]}}
+lurq_interact {"action":"release"}
+→ {"ok":true,"action":"release","window":"main","button":"left","x":436.0,"y":318.0,
+   "held":{"buttons":[],"keys":[]}}
+```
+
+Holds belong to a window (its `lurq_windows` id) and to the MCP session that pressed them, so holding needs a session: the `Mcp-Session-Id` the server returns from `initialize`. Any client may release. Each held action's result and `lurq_windows` report what a window holds (`held`). A `move` in a window that holds nothing, and every other action, behave as before. Sequences that do not fit are refused, not repaired: releasing a button or key that is not held, pressing a held button again, `key_down` of a held key, and `click`, `double_click`, `drag` or `key` of a held button or key.
+
+Held input never stays down after its client can no longer release it. lurq releases it when:
+
+- the session that holds it ends: the client deletes it (`DELETE /mcp`), it expires after five minutes without a request, or the server stops;
+- the window loses focus or closes (a press made while the window was unfocused stays until the window next loses focus);
+- `lurq_interact` stops being available: `McpHandle::set_enabled(false)`, the Interact scope removed, or the tool denied.
+
+A button released for its client ends the way the OS ends a press it takes over (`Tree::mouse_press_taken_by_os`): an up event, no click, and a drag ends without a drop. A key gets its up event. A later `release` or `key_up` says why it found nothing held:
+
+```text
+the left button is not held in window "main": held input there was released because the window lost focus; press it first
 ```
 
 ## Runtime Control

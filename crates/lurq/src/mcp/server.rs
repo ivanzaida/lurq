@@ -23,6 +23,7 @@ use rmcp::{
 
 use super::{
   registry::{BuiltinTool, RegisteredTool, ToolKind, ToolRegistry},
+  sessions::SessionLease,
   shared::{McpRequest, McpShared, McpToolOutput},
 };
 
@@ -51,9 +52,28 @@ struct LurqMcpServer {
   shared: Arc<McpShared>,
   registry: Arc<ToolRegistry>,
   sender: std_mpsc::Sender<McpRequest>,
+  /// The client session this handler serves; rmcp builds a handler for each session.
+  session: Arc<SessionLease>,
 }
 
 impl LurqMcpServer {
+  fn new(shared: Arc<McpShared>, registry: Arc<ToolRegistry>, sender: std_mpsc::Sender<McpRequest>) -> Self {
+    Self {
+      session: Arc::new(SessionLease::new(shared.clone())),
+      shared,
+      registry,
+      sender,
+    }
+  }
+
+  /// The handler for a new client session.
+  fn for_new_session(&self) -> Self {
+    Self {
+      session: Arc::new(SessionLease::new(self.shared.clone())),
+      ..self.clone()
+    }
+  }
+
   fn visible(&self, tool: &RegisteredTool) -> bool {
     self.shared.is_enabled() && self.shared.has_scope(&tool.scope) && !self.shared.is_denied(&tool.name)
   }
@@ -194,7 +214,7 @@ impl ServerHandler for LurqMcpServer {
   async fn call_tool(
     &self,
     request: CallToolRequestParams,
-    _context: RequestContext<rmcp::RoleServer>,
+    context: RequestContext<rmcp::RoleServer>,
   ) -> Result<CallToolResponse, McpError> {
     let name = request.name.to_string();
     // Tools outside granted scopes are not listed; treat calls to them as
@@ -221,6 +241,7 @@ impl ServerHandler for LurqMcpServer {
       tool: name.clone(),
       args: args.clone(),
       reply,
+      session: in_session(&context).then(|| self.session.route()),
     };
     if self.sender.send(request).is_err() {
       return Err(McpError::internal_error("the app's event loop has shut down", None));
@@ -245,6 +266,15 @@ impl ServerHandler for LurqMcpServer {
       }
     }
   }
+}
+
+/// Whether a call came through a client session: rmcp routes a request carrying `Mcp-Session-Id` to the handler
+/// of that session. Stateless requests carry none and get a handler of their own.
+fn in_session(context: &RequestContext<rmcp::RoleServer>) -> bool {
+  context
+    .extensions
+    .get::<hyper::http::request::Parts>()
+    .is_some_and(|parts| parts.headers.contains_key("mcp-session-id"))
 }
 
 fn result_to_response(result: Result<McpToolOutput, String>) -> CallToolResponse {
@@ -314,14 +344,10 @@ pub(crate) fn spawn(
         };
         let _ = port_tx.send(Ok(bound_port));
 
-        let handler = LurqMcpServer {
-          shared: shared.clone(),
-          registry,
-          sender,
-        };
+        let handler = LurqMcpServer::new(shared.clone(), registry, sender);
         let http_config = StreamableHttpServerConfig::default().with_cancellation_token(cancel_for_thread.clone());
         let service = StreamableHttpService::new(
-          move || Ok(handler.clone()),
+          move || Ok(handler.for_new_session()),
           Arc::new(LocalSessionManager::default()),
           http_config,
         );

@@ -74,6 +74,7 @@ fn screenshot(f: &mut Fixture, args: serde_json::Value) -> image::RgbaImage {
       tool: "lurq_screenshot".into(),
       args,
       reply,
+      session: None,
     },
   );
   // The capture is taken from the next rendered frame.

@@ -716,6 +716,11 @@ pub struct Tree {
   /// Parked `lurq_wait` replies, resolved as this tree's frames complete.
   #[cfg(feature = "mcp")]
   pub(crate) mcp_wait_entries: Vec<crate::mcp::McpWaitEntry>,
+  /// Set when an MCP call delivered held input (a `press`, a `move` while
+  /// something is held, ...); the shell presents right after the drain, as it
+  /// does from inside a real mouse-move stream.
+  #[cfg(feature = "mcp")]
+  pub(crate) mcp_input_present: bool,
 }
 
 struct OverlayDismissEntry {
@@ -1050,6 +1055,8 @@ impl Tree {
       mcp: None,
       #[cfg(feature = "mcp")]
       mcp_wait_entries: Vec::new(),
+      #[cfg(feature = "mcp")]
+      mcp_input_present: false,
     };
     tree
       .window
@@ -1415,6 +1422,16 @@ impl Tree {
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn secondary_window_mut(&mut self, index: usize) -> Option<&mut SecondaryWindow> {
     self.secondary_windows.get_mut(index).filter(|window| window.open)
+  }
+
+  /// The secondary window with stable id `id`, open or closed, and whether it is open.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn secondary_tree_by_id_mut(&mut self, id: u64) -> Option<(&mut Tree, bool)> {
+    self
+      .secondary_windows
+      .iter_mut()
+      .find(|window| window.id == id)
+      .map(|window| (&mut window.tree, window.open))
   }
 
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]

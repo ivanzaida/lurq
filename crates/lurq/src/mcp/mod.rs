@@ -30,10 +30,12 @@ use std::{
 
 mod discovery;
 mod file_dialogs;
+mod held_input;
 mod logs;
 mod profiling;
 mod registry;
 mod server;
+mod sessions;
 mod shared;
 mod tools;
 
@@ -362,6 +364,8 @@ pub struct McpState {
   pub(crate) registry: Arc<ToolRegistry>,
   pub(crate) receiver: std_mpsc::Receiver<shared::McpRequest>,
   pub(crate) include_devtools: bool,
+  /// Pointer buttons and keys clients hold across calls, per window.
+  pub(crate) held: parking_lot::Mutex<held_input::HeldInput>,
   server: Option<server::ServerRuntime>,
   discovery_path: Option<std::path::PathBuf>,
 }
@@ -462,6 +466,7 @@ impl Tree {
           registry,
           receiver,
           include_devtools: config.include_devtools,
+          held: Default::default(),
           server: None,
           discovery_path: None,
         }));
@@ -484,6 +489,7 @@ impl Tree {
       registry,
       receiver,
       include_devtools: config.include_devtools,
+      held: Default::default(),
       server: Some(server),
       discovery_path,
     }));
@@ -500,7 +506,10 @@ impl Tree {
 
   /// Execute all queued MCP tool calls against this (root) tree. The winit
   /// shell calls this every loop turn; headless harnesses call it between
-  /// [`Tree::pass`] calls. Returns whether any request was handled.
+  /// [`Tree::pass`] calls. It also releases input a client held across calls
+  /// but can no longer release itself (its session ended, the window lost
+  /// focus or closed, the tool became unavailable). Returns whether any
+  /// request was handled or held input released.
   pub fn drain_mcp_requests(&mut self, app: &mut App) -> bool {
     self.reconcile_file_dialogs();
     let Some(state) = self.mcp.take() else {
@@ -511,6 +520,7 @@ impl Tree {
       did_work = true;
       tools::execute(self, app, &state, request);
     }
+    did_work |= tools::release_unreachable_holds(self, &state);
     self.mcp = Some(state);
     did_work
   }
@@ -559,13 +569,15 @@ impl Tree {
     }
   }
 
-  /// Stop the MCP server and remove the discovery file. The shell calls
-  /// this when the event loop exits; explicit callers (headless harnesses)
-  /// may call it directly.
+  /// Stop the MCP server and remove the discovery file, releasing any
+  /// pointer button or key a client still holds. The shell calls this when
+  /// the event loop exits; explicit callers (headless harnesses) may call it
+  /// directly.
   pub fn shutdown_mcp(&mut self) {
     let Some(mut state) = self.mcp.take() else {
       return;
     };
+    tools::release_all_holds(self, &state);
     let broker = state.shared.file_dialogs.lock().unwrap().clone();
     if let Some(broker) = broker {
       broker.shutdown();

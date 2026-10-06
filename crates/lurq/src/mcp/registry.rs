@@ -237,14 +237,20 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       name: "lurq_interact".into(),
       description: "Drive the app with synthetic input. Actions: click, double_click, move, drag, \
                     wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id). Target either a `ref` from lurq_inspect/lurq_read_tree or \
-                    `x`/`y` in screenshot pixels (ref carries its window; coordinates use `window`)."
+                    `x`/`y` in screenshot pixels (ref carries its window; coordinates use `window`). \
+                    Held input: press / release hold a pointer `button` down across calls, key_down / key_up a \
+                    key; each move while something is held is a held-button move (drags, capture) presented in its \
+                    own frame, so send one move per call. Holding needs an MCP session (Mcp-Session-Id). Releasing \
+                    what is not held, pressing a held button again and key_down of a held key are refused. Held \
+                    input is released for the client when its session ends, the window loses focus or closes, or \
+                    the server stops; results and lurq_windows report what is `held`."
         .into(),
       scope: Scope::Interact,
       read_only: false,
       input_schema: schema(json!({
         "type": "object",
         "properties": {
-          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate"] },
+          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate", "press", "release", "key_down", "key_up"] },
           "id": { "type": "string", "description": "Menu item id for menu_activate" },
           "ref": { "type": "string", "description": "Element handle from lurq_read_tree" },
           "x": { "type": "number", "description": "Screenshot-pixel X (alternative to ref)" },
@@ -252,10 +258,10 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "to_x": { "type": "number", "description": "Drag end X" },
           "to_y": { "type": "number", "description": "Drag end Y" },
           "to_ref": { "type": "string", "description": "Drag end element" },
-          "button": { "type": "string", "enum": ["left", "right", "middle"] },
+          "button": { "type": "string", "enum": ["left", "right", "middle"], "description": "Pointer button for click, double_click, drag, press and release (default left)" },
           "delta_x": { "type": "number", "description": "Wheel horizontal delta" },
           "delta_y": { "type": "number", "description": "Wheel vertical delta (positive scrolls content up)" },
-          "key": { "type": "string", "description": "Key name for the key action, e.g. Enter, Tab, Escape, ArrowDown, a" },
+          "key": { "type": "string", "description": "Key name for key, key_down and key_up, e.g. Enter, Tab, Escape, ArrowDown, a, Shift, \" \" (space)" },
           "text": { "type": "string", "description": "Text for the type action" },
           "modifiers": { "type": "array", "items": { "type": "string", "enum": ["shift", "ctrl", "alt", "meta"] } },
           "window": { "type": "string", "description": WINDOW_PROP }

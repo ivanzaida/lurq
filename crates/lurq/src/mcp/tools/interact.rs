@@ -1,4 +1,6 @@
 //! `lurq_interact`: synthetic pointer and keyboard input, and `scroll_to`.
+//! Input held across calls (`press`, `release`, `key_down`, `key_up`) is in
+//! `held`.
 
 use super::{
   resolve::{ref_center_physical, ref_scroll_bounds, resolve_ref},
@@ -14,6 +16,7 @@ use crate::{
   layout::{layout_kind::LayoutKind, layout_result::LayoutResult},
   mcp::{
     McpState,
+    sessions::SessionId,
     shared::{McpToolOutput, McpToolResult},
   },
   node::node::Node,
@@ -73,11 +76,20 @@ pub(super) fn resolve_point(
   }
 }
 
-pub(super) fn interact_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serde_json::Value) -> McpToolResult {
+pub(super) fn interact_tool(
+  tree: &mut Tree,
+  app: &App,
+  state: &McpState,
+  args: &serde_json::Value,
+  session: Option<SessionId>,
+) -> McpToolResult {
   let action = args
     .get("action")
     .and_then(|value| value.as_str())
     .ok_or("`action` is required")?;
+  if let Some(result) = super::held::held_action(tree, state, args, action, session) {
+    return result;
+  }
   let modifiers = parse_modifiers(args);
   let button = parse_button(args);
 

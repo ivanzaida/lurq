@@ -34,6 +34,8 @@ pub(crate) struct McpRequest {
   pub(crate) tool: String,
   pub(crate) args: serde_json::Value,
   pub(crate) reply: McpReply,
+  /// The client session the call came from; `None` for a stateless request.
+  pub(crate) session: Option<super::sessions::SessionId>,
 }
 
 /// One `ref_N` handed out by `lurq_read_tree`. Records enough for
@@ -104,6 +106,7 @@ pub(crate) struct McpShared {
   scopes: RwLock<HashSet<Scope>>,
   denied_tools: RwLock<HashSet<String>>,
   pub(crate) refs: Mutex<RefTable>,
+  pub(crate) sessions: super::sessions::Sessions,
   /// Wakes the shell's event loop after enqueuing a request; registered by
   /// the shell at startup. Headless harnesses leave it unset and drain
   /// explicitly.
@@ -133,6 +136,7 @@ impl McpShared {
       scopes: RwLock::new(scopes),
       denied_tools: RwLock::new(denied_tools),
       refs: Mutex::new(RefTable::default()),
+      sessions: Default::default(),
       waker: Mutex::new(None),
       token,
       app_name,
@@ -195,5 +199,7 @@ impl McpShared {
     if let Some(broker) = broker {
       broker.permission_changed();
     }
+    // The next drain releases input held through a tool that is no longer available.
+    self.wake();
   }
 }

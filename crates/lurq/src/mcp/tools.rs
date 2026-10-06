@@ -5,6 +5,9 @@
 
 mod canvas_items;
 pub(crate) mod file_dialogs;
+mod held;
+#[cfg(test)]
+mod held_tests;
 mod inspect;
 mod interact;
 mod lookup;
@@ -30,6 +33,7 @@ mod canvas_items_tests;
 #[cfg(all(test, feature = "canvas"))]
 mod canvas_visibility_tests;
 
+pub(crate) use held::{release_all_holds, release_unreachable_holds};
 use inspect::{act_tool, inspect_tool};
 use interact::interact_tool;
 use lookup::{find_by_class_tool, find_by_id_tool};
@@ -46,12 +50,18 @@ use crate::{
   mcp::{
     McpState, McpToolCtx,
     registry::{BuiltinTool, ToolKind},
+    sessions::SessionId,
     shared::{McpReply, McpRequest, McpToolOutput},
   },
 };
 
 pub(crate) fn execute(tree: &mut Tree, app: &mut App, state: &McpState, request: McpRequest) {
-  let McpRequest { tool, args, reply } = request;
+  let McpRequest {
+    tool,
+    args,
+    reply,
+    session,
+  } = request;
   let Some(registered) = state.registry.find(&tool) else {
     let _ = reply.send(Err(format!("unknown tool: {tool}")));
     return;
@@ -63,7 +73,7 @@ pub(crate) fn execute(tree: &mut Tree, app: &mut App, state: &McpState, request:
   }
 
   match &registered.kind {
-    ToolKind::Builtin(builtin) => execute_builtin(*builtin, tree, app, state, args, reply),
+    ToolKind::Builtin(builtin) => execute_builtin(*builtin, tree, app, state, args, reply, session),
     ToolKind::Sync(handler) => {
       let mut ctx = McpToolCtx { tree, app };
       let result = handler(&mut ctx, args).map(McpToolOutput::Json);
@@ -83,6 +93,7 @@ fn execute_builtin(
   state: &McpState,
   args: serde_json::Value,
   reply: McpReply,
+  session: Option<SessionId>,
 ) {
   let _ = app;
   match builtin {
@@ -114,7 +125,7 @@ fn execute_builtin(
     BuiltinTool::Screenshot => screenshot_tool(tree, state, &args, reply),
     BuiltinTool::Wait => wait_tool(tree, state, &args, reply),
     BuiltinTool::Interact => {
-      let _ = reply.send(interact_tool(tree, app, state, &args));
+      let _ = reply.send(interact_tool(tree, app, state, &args, session));
     }
     BuiltinTool::Act => {
       let _ = reply.send(act_tool(tree, app, state, &args));

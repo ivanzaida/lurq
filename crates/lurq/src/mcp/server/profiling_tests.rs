@@ -30,11 +30,7 @@ fn profiling_server_availability_is_scope_guarded() {
   let shared = shared(&tree);
   let registry = Arc::new(crate::mcp::build_registry(Vec::new()));
   let (sender, _receiver) = std_mpsc::channel();
-  let server = LurqMcpServer {
-    shared: shared.clone(),
-    registry,
-    sender,
-  };
+  let server = LurqMcpServer::new(shared.clone(), registry, sender);
   let tool = server.registry.find("lurq_profile_start").unwrap();
   assert!(server.visible(tool));
   shared.remove_scope(&Scope::Observe);
@@ -59,11 +55,7 @@ fn profiling_server_start_end_never_queue_or_wake_the_ui_and_export_real_layout(
     })
   });
   let (sender, receiver) = std_mpsc::channel();
-  let server = LurqMcpServer {
-    shared,
-    registry: Arc::new(crate::mcp::build_registry(Vec::new())),
-    sender,
-  };
+  let server = LurqMcpServer::new(shared, Arc::new(crate::mcp::build_registry(Vec::new())), sender);
   let start = server.registry.find("lurq_profile_start").unwrap();
   let end = server.registry.find("lurq_profile_end").unwrap();
   let extract = |output: McpToolOutput| match output {
