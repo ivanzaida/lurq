@@ -1561,7 +1561,9 @@ impl GlyphEngine {
     }
     let mut cached = Vec::new();
     let mut skipped_run_for_clip = false;
+    let mut visited_runs = 0;
     for run in buffer.layout_runs() {
+      visited_runs += 1;
       if !text_run_intersects_clip(origin_y, run.line_top, run.line_height, clip) {
         if let Some(marker) = &debug_marker {
           eprintln!(
@@ -1634,6 +1636,9 @@ impl GlyphEngine {
         cached.push(cached_glyph);
       }
     }
+    // A buffer shaped down to the clip ends its runs there, often without
+    // skipping one; the rows it never reached are cut by the clip all the same.
+    let clipped = skipped_run_for_clip || !runs_cover_buffer(buffer, visited_runs);
 
     if let Some(entry) = shaped {
       self.retain_plain_buffer(entry);
@@ -1676,7 +1681,7 @@ impl GlyphEngine {
     {
       self.profile.append_cached += append_start.elapsed();
     }
-    if !skipped_run_for_clip {
+    if !clipped {
       if self.glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
         self.glyph_layout_cache.clear();
       }
@@ -3207,6 +3212,16 @@ fn glyph_rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: Opt
     return true;
   };
   x < clip.x + clip.width && x + width > clip.x && y < clip.y + clip.height && y + height > clip.y
+}
+
+/// Whether `visited` layout runs were every row of `buffer`. Its scroll is at
+/// the top, so the runs end early only at a height limit or an unshaped line.
+fn runs_cover_buffer(buffer: &Buffer, visited: usize) -> bool {
+  let rows = buffer
+    .lines
+    .iter()
+    .try_fold(0, |rows, line| line.layout_opt().map(|layout| rows + layout.len()));
+  rows == Some(visited)
 }
 
 fn clipped_raster_shape_height(origin_y: f32, style: &TextStyle, clip: Option<ClipRect>) -> Option<f32> {
