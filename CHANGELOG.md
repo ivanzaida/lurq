@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased (patch, 0.41.2)
+## 0.41.2 — 2026-10-06
 
 - Fix a long text stopping partway down when scrolled to, with blank space below it, in a multi-line `TextInput` or a wrapped `Text` inside a scroll view or another clip. When a text was taller than its clip and painted at a size its layout had not shaped (a display scale other than 1, for example), lurq shaped it only down to the clip's bottom. If that bottom fell just below the top of a line, the shaped rows ended at that line without one being skipped for the clip, and the cut glyph list was cached as the whole text's. Every later paint of the same text, scrolled or not, drew only those rows, until an edit changed the text. Such a paint is now cached for its clip only.
+- Fix MCP discovery files piling up. An app removes its `<pid>.json` discovery file when it shuts down, but an app that was killed (a test process, a crash, a task manager kill) left its file behind, with the port and bearer token of a server that no longer listens; one Windows machine had several hundred. An MCP server now removes, when it starts, every `<pid>.json` in the discovery folder whose process no longer runs, as the operating system reports it (`OpenProcess` on Windows, `kill(pid, 0)` on Unix). Files of running processes, of processes it may not query, and files not named `<pid>.json` stay. Unix builds with the `mcp` feature now depend on `libc`.
 - No public API change.
 
 ## 0.41.1 — 2026-10-05
