@@ -16,6 +16,7 @@ mod select {
 
 mod text_input {
   mod basic_layout;
+  mod clipped_paint;
   mod editing;
   mod empty_value;
   mod focus;
