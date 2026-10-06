@@ -1480,9 +1480,16 @@ impl WinitHandler {
     }
   }
 
-  /// Presents each secondary window an MCP call delivered held input to (see `about_to_wait`).
+  /// Presents each window an MCP call delivered held input to (a press, a move while held), as a real mouse-move
+  /// stream presents from inside its events, so each call lands in exactly one pass of its own.
   #[cfg(feature = "mcp")]
-  fn present_mcp_input_secondaries(&mut self) {
+  fn present_mcp_input(&mut self, event_loop: &ActiveEventLoop) {
+    if self.main.tree.take_mcp_input_present()
+      && self.main.tree.needs_redraw()
+      && self.main.present_now(&mut self.app, false)
+    {
+      self.main.apply_window_commands(event_loop);
+    }
     for position in 0..self.secondaries.len() {
       let index = self.secondaries[position].index();
       let Some(secondary) = self.main.tree.secondary_window_mut(index) else {
@@ -1696,9 +1703,10 @@ impl ApplicationHandler for WinitHandler {
       // Tool handlers ran against the trees; pick up any redraws or window
       // commands they produced.
       self.main.apply_window_commands(event_loop);
+      // Before any redraw is requested: a requested redraw would paint the same input a second time.
+      self.present_mcp_input(event_loop);
       self.main.check_redraw();
       self.check_secondary_redraw();
-      self.present_mcp_input_secondaries();
     }
     let main_commands = stage_started_at.elapsed();
     let stage_started_at = Instant::now();
@@ -1713,17 +1721,10 @@ impl ApplicationHandler for WinitHandler {
     // starves WM_PAINT, so redraws requested from drag handlers would only
     // land once the mouse pauses. Vsync in present caps the rate.
     let main_has_interactive_drag = self.main.tree.has_active_input_interaction() && self.main.tree.needs_redraw();
-    // Input an MCP client holds (a press, a move while held) presents here too,
-    // as a real mouse-move stream presents from inside its events: each call
-    // lands in its own pass.
-    #[cfg(feature = "mcp")]
-    let main_has_mcp_input = self.main.tree.take_mcp_input_present() && self.main.tree.needs_redraw();
-    #[cfg(not(feature = "mcp"))]
-    let main_has_mcp_input = false;
     let continuous_check = stage_started_at.elapsed();
     let mut present = Duration::ZERO;
     let mut post_present = Duration::ZERO;
-    if main_has_continuous_video || main_has_interactive_drag || main_has_mcp_input {
+    if main_has_continuous_video || main_has_interactive_drag {
       let stage_started_at = Instant::now();
       let presented = self.main.present_now(&mut self.app, false);
       present = stage_started_at.elapsed();

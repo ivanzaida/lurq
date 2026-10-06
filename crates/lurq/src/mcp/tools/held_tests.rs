@@ -11,8 +11,9 @@ use super::{
   *,
 };
 use crate::{
-  app::events::{DragEvent, KeyboardEvent, MouseEvent},
-  components::{Column, Rect},
+  app::events::{DragEvent, KeyboardEvent, MouseButton, MouseEvent},
+  components::{Column, Rect, Slider},
+  core::Signal,
   mcp::{
     Scope,
     sessions::{SessionId, SessionLease},
@@ -100,9 +101,17 @@ impl Fixture {
     }
   }
 
+  /// What the shell does after a drain that delivered held input: one pass. A redraw requested before it would run
+  /// a second pass, which must find nothing to draw.
   fn pass(&mut self) {
-    self.tree.request_redraw();
-    self.tree.pass(&mut self.app, &TestSurface);
+    assert!(
+      self.tree.pass(&mut self.app, &TestSurface).required,
+      "the call is drawn"
+    );
+    assert!(
+      !self.tree.pass(&mut self.app, &TestSurface).required,
+      "the call is drawn once"
+    );
     self.log.lock().unwrap().push("pass".into());
   }
 
@@ -233,11 +242,11 @@ fn invalid_sequences_are_refused() {
   assert_eq!(message, "key \"a\" is not held in window \"main\"; key_down it first");
   assert!(
     f.refused(None, json!({"action": "press", "x": 5, "y": 5}))
-      .contains("needs an MCP session")
+      .contains("needs a session-based MCP connection")
   );
   assert!(
     f.refused(None, json!({"action": "key_down", "key": "a"}))
-      .contains("needs an MCP session")
+      .contains("needs a session-based MCP connection")
   );
   assert!(
     f.refused(
@@ -292,6 +301,121 @@ fn invalid_sequences_are_refused() {
     assert!(f.interact(None, action).is_ok());
   }
   assert_eq!(f.held(), json!({"buttons": [], "keys": []}));
+}
+
+/// A held drag changes only on input, which requests its own redraw: held still, nothing ticks and a pass has
+/// nothing to draw, so the shell's loop waits instead of polling.
+fn assert_idle_while_held(f: &mut Fixture) {
+  assert!(f.tree.pass(&mut f.app, &TestSurface).required, "the press is drawn");
+  assert!(f.tree.has_active_input_interaction());
+  assert!(
+    !f.tree.has_active_tick_sources(),
+    "nothing ticks while the pointer is still"
+  );
+  assert!(!f.tree.needs_redraw());
+  assert!(!f.tree.pass(&mut f.app, &TestSurface).required);
+}
+
+#[test]
+fn a_held_drag_or_slider_held_still_lets_the_loop_wait() {
+  let mut f = Fixture::new();
+  f.ok(SESSION, json!({"action": "press", "x": 50, "y": 50}));
+  assert_idle_while_held(&mut f);
+  f.ok(SESSION, json!({"action": "move", "x": 70, "y": 50}));
+  assert!(f.tree.pass(&mut f.app, &TestSurface).required, "a held move is drawn");
+
+  // A real press is the same.
+  let mut f = Fixture::new();
+  f.tree.mouse_down(50.0, 50.0, MouseButton::Left);
+  assert_idle_while_held(&mut f);
+
+  let value = Signal::new(0);
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  tree.set_root(Slider::new(value.clone()).range(0, 10).width(100.0).height(20.0));
+  tree.pass(&mut app, &TestSurface);
+  let mut f = Fixture {
+    tree,
+    app,
+    state: state(),
+    log: Log::default(),
+  };
+  f.ok(SESSION, json!({"action": "press", "x": 0, "y": 10}));
+  assert_idle_while_held(&mut f);
+  f.ok(SESSION, json!({"action": "move", "x": 75, "y": 10}));
+  assert!(f.tree.pass(&mut f.app, &TestSurface).required);
+  f.ok(SESSION, json!({"action": "release"}));
+  assert_eq!(value.get(), 8, "the slider followed the held move");
+}
+
+/// Held modifier keys reach every action in their window, as real keys that are down do. Pointer events carry
+/// shift, ctrl and alt; key events also meta.
+#[test]
+fn held_modifiers_reach_every_action() {
+  let log = Log::default();
+  let pointer = |kind: &'static str| {
+    logger(&log, move |event: MouseEvent| {
+      format!("{kind} shift={} ctrl={} alt={}", event.shift, event.ctrl, event.alt)
+    })
+  };
+  let key = logger(&log, |event: KeyboardEvent| {
+    format!(
+      "key {:?} shift={} ctrl={} alt={} meta={}",
+      event.key, event.shift, event.ctrl, event.alt, event.meta
+    )
+  });
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  tree.resize(400, 300);
+  tree.set_root(
+    Column::new()
+      .width(400.0)
+      .height(300.0)
+      .on_mouse_down(pointer("down"))
+      .on_click(pointer("click"))
+      .on_key_down(key),
+  );
+  tree.pass(&mut app, &TestSurface);
+  let mut f = Fixture {
+    tree,
+    app,
+    state: state(),
+    log,
+  };
+
+  f.ok(SESSION, json!({"action": "key_down", "key": "Control"}));
+  f.ok(SESSION, json!({"action": "key", "key": "a"}));
+  f.ok(SESSION, json!({"action": "key_down", "key": "Shift"}));
+  f.ok(SESSION, json!({"action": "click", "x": 20, "y": 20}));
+  f.ok(SESSION, json!({"action": "double_click", "x": 300, "y": 200}));
+  f.ok(SESSION, json!({"action": "type", "text": "b"}));
+  f.ok(SESSION, json!({"action": "key_up", "key": "Control"}));
+  f.ok(SESSION, json!({"action": "key_down", "key": "Meta"}));
+  // The request's own modifiers add to the held ones.
+  f.ok(
+    SESSION,
+    json!({"action": "click", "x": 20, "y": 20, "modifiers": ["alt"]}),
+  );
+  f.ok(SESSION, json!({"action": "key", "key": "c"}));
+  assert_eq!(
+    f.take_log(),
+    [
+      "key \"Control\" shift=false ctrl=true alt=false meta=false",
+      "key \"a\" shift=false ctrl=true alt=false meta=false",
+      "key \"Shift\" shift=true ctrl=true alt=false meta=false",
+      "down shift=true ctrl=true alt=false",
+      "click shift=true ctrl=true alt=false",
+      "down shift=true ctrl=true alt=false",
+      "click shift=true ctrl=true alt=false",
+      "down shift=true ctrl=true alt=false",
+      "click shift=true ctrl=true alt=false",
+      "key \"b\" shift=true ctrl=true alt=false meta=false",
+      "key \"Meta\" shift=true ctrl=false alt=false meta=true",
+      "down shift=true ctrl=false alt=true",
+      "click shift=true ctrl=false alt=true",
+      "key \"c\" shift=true ctrl=false alt=false meta=true",
+    ]
+  );
 }
 
 #[test]

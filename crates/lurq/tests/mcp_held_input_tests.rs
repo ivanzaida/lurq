@@ -4,6 +4,7 @@
 #![cfg(feature = "mcp")]
 
 mod mcp_client;
+mod support;
 
 use std::{
   sync::{Arc, Mutex},
@@ -21,6 +22,7 @@ use lurq::{
 };
 use mcp_client::Client;
 use serde_json::{Value, json};
+use support::TestSurface;
 
 type Log = Arc<Mutex<Vec<String>>>;
 
@@ -51,8 +53,8 @@ fn app_with_handle(log: &Log) -> (Tree, App, Client) {
   (tree, app, client)
 }
 
-/// Runs the app loop as the winit shell does (drain the calls, then a pass if the drain did anything) until the
-/// agent is done and `settled` holds for the log.
+/// Runs the app loop as the winit shell does (drain the calls, then pass) until the agent is done and `settled`
+/// holds for the log.
 fn serve<T>(tree: &mut Tree, app: &mut App, log: &Log, agent: JoinHandle<T>, settled: impl Fn(&[String]) -> bool) -> T {
   let deadline = Instant::now() + Duration::from_secs(60);
   while !agent.is_finished() || !settled(&log.lock().unwrap()) {
@@ -62,8 +64,13 @@ fn serve<T>(tree: &mut Tree, app: &mut App, log: &Log, agent: JoinHandle<T>, set
       log.lock().unwrap()
     );
     if tree.drain_mcp_requests(app) {
-      tree.pass_headless(app);
-      push(log, "pass".into());
+      // The pass the shell presents right after the drain, then the one a redraw requested before it would run.
+      // Each pass with something to draw is logged, so a call drawn twice shows twice.
+      for _ in 0..2 {
+        if tree.pass(app, &TestSurface).required {
+          push(log, "pass".into());
+        }
+      }
     }
     std::thread::sleep(Duration::from_millis(1));
   }

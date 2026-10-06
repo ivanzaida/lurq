@@ -1331,12 +1331,14 @@ impl Tree {
     }
   }
 
+  /// Whether something advances with time rather than input, so the shell keeps ticking and passes are required.
+  /// A held drag is not such a source: its state changes only on input events, which request their own redraw, so
+  /// a pointer held still lets the loop wait.
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_tick_sources(&self) -> bool {
     self.perf_overlay_enabled
       || self.has_active_timeline()
       || self.has_continuous_redraw_image()
-      || self.has_active_input_interaction()
       || self.click_tracker.has_pending()
       || self.has_focused_blinking_text_input(CaretMode::Blinking)
       || self

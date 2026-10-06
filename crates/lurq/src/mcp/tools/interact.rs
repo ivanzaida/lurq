@@ -90,7 +90,8 @@ pub(super) fn interact_tool(
   if let Some(result) = super::held::held_action(tree, state, args, action, session) {
     return result;
   }
-  let modifiers = parse_modifiers(args);
+  // Held modifier keys apply to every action, as with real keys down.
+  let modifiers = super::held::action_modifiers(tree, state, args);
   let button = parse_button(args);
 
   let apply_all = |target: &mut Tree, inputs: Vec<SyntheticInput>| {

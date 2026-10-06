@@ -239,11 +239,13 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
                     wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id). Target either a `ref` from lurq_inspect/lurq_read_tree or \
                     `x`/`y` in screenshot pixels (ref carries its window; coordinates use `window`). \
                     Held input: press / release hold a pointer `button` down across calls, key_down / key_up a \
-                    key; each move while something is held is a held-button move (drags, capture) presented in its \
-                    own frame, so send one move per call. Holding needs an MCP session (Mcp-Session-Id). Releasing \
-                    what is not held, pressing a held button again and key_down of a held key are refused. Held \
-                    input is released for the client when its session ends, the window loses focus or closes, or \
-                    the server stops; results and lurq_windows report what is `held`."
+                    key; each move while something is held is a held-button move (drags, capture) presented in \
+                    exactly one frame, so send one move per call. Held Shift/Control/Alt (and Meta, on key events) \
+                    modify every action in the window. Holding needs a session-based connection (protocol \
+                    2025-06-18, or another version before 2026-07-28). Releasing what is not held, pressing a held \
+                    button again and key_down of a held key are refused. Held input is released for the client \
+                    when its session ends, the window loses focus or closes, or the server stops; results and \
+                    lurq_windows report what is `held`."
         .into(),
       scope: Scope::Interact,
       read_only: false,

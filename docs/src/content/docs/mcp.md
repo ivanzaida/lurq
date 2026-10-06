@@ -150,9 +150,11 @@ lurq_inspect { query: "Open modal", role: "button" }
 | `press` | `ref` or `x`/`y`; `button`: `left` (default), `middle` or `right` | Moves the pointer there, then presses the button, which stays down. |
 | `move` | `ref` or `x`/`y` | In a window that holds a button or key, a held move: the tree treats it as a real move with the button down, so drags, sliders, scrollbars and text selection follow it and keep the pointer outside their bounds. |
 | `release` | `button`; optionally `ref` or `x`/`y` | Releases the button where the pointer is, moving to the target first if one is given. A left press released in place is a click. |
-| `key_down` / `key_up` | `key`, `modifiers` | Holds and releases a key, with the key names of `key` (`" "` is the space bar). A held `Shift`, `Control`, `Alt` or `Meta` sets that modifier on every later event in the window. |
+| `key_down` / `key_up` | `key`, `modifiers` | Holds and releases a key, with the key names of `key` (`" "` is the space bar). |
 
-A call that delivers held input asks the shell to present right after it, as a real mouse-move stream presents from inside its events, so one `move` per call is one frame per move:
+Held modifier keys apply to every action in their window, as real keys that are down do, together with the action's own `modifiers`. A held `Shift`, `Control` or `Alt` sets `shift`, `ctrl` or `alt` on every later pointer event (moves, presses, releases, clicks) and key event (`key`, `type`, `key_down`, `key_up`). A held `Meta` or `Super` sets `meta` on key events only: pointer events have no `meta`. Scroll events carry no modifiers, so `wheel` passes them only to its pointer move.
+
+A call that delivers held input makes the shell present right after the call, before any redraw is requested, as a real mouse-move stream presents from inside its events: one `move` per call is exactly one frame per move. Between calls a held button costs nothing: a held drag changes only on input, so the event loop waits (for a real drag as well).
 
 ```text
 lurq_interact {"action":"press","x":420,"y":310}
@@ -165,7 +167,7 @@ lurq_interact {"action":"release"}
    "held":{"buttons":[],"keys":[]}}
 ```
 
-Holds belong to a window (its `lurq_windows` id) and to the MCP session that pressed them, so holding needs a session: the `Mcp-Session-Id` the server returns from `initialize`. Any client may release. Each held action's result and `lurq_windows` report what a window holds (`held`). A `move` in a window that holds nothing, and every other action, behave as before. Sequences that do not fit are refused, not repaired: releasing a button or key that is not held, pressing a held button again, `key_down` of a held key, and `click`, `double_click`, `drag` or `key` of a held button or key.
+Holds belong to a window (its `lurq_windows` id) and to the MCP session that pressed them, so holding needs a session-based connection: initialize with protocol version 2025-06-18 (or another version before 2026-07-28) and send the `Mcp-Session-Id` the server returns. Protocol 2026-07-28 serves requests without sessions, and `press` and `key_down` refuse them. Any client may release. Each held action's result and `lurq_windows` report what a window holds (`held`). A `move` in a window that holds nothing, and every other action, behave as before. Sequences that do not fit are refused, not repaired: releasing a button or key that is not held, pressing a held button again, `key_down` of a held key, and `click`, `double_click`, `drag` or `key` of a held button or key.
 
 Held input never stays down after its client can no longer release it. lurq releases it when:
 

@@ -332,6 +332,21 @@ fn deliver(target: &mut Tree, inputs: impl IntoIterator<Item = SyntheticInput>, 
   target.mcp_input_present = true;
 }
 
+/// The modifiers of any `lurq_interact` action: its `modifiers` and those of the keys held in the window it targets,
+/// as real input carries the modifier keys that are down.
+pub(super) fn action_modifiers(tree: &mut Tree, state: &McpState, args: &Value) -> SyntheticModifiers {
+  let requested = parse_modifiers(args);
+  if state.held.lock().is_empty() {
+    return requested;
+  }
+  let held = resolve_point(tree, state, args, "ref", "x", "y")
+    .ok()
+    .and_then(|(window, _)| canonical_window_id(tree, &window, state.include_devtools).ok())
+    .and_then(|window| state.held.lock().get(&window).map(WindowHolds::modifiers))
+    .unwrap_or_default();
+  union(requested, held)
+}
+
 fn union(a: SyntheticModifiers, b: SyntheticModifiers) -> SyntheticModifiers {
   SyntheticModifiers {
     shift: a.shift || b.shift,
@@ -363,8 +378,9 @@ fn key_arg<'a>(args: &'a Value, action: &str) -> Result<&'a str, String> {
 
 fn needs_session(action: &str) -> String {
   format!(
-    "{action} holds input across calls, so it needs an MCP session: initialize over streamable HTTP and send the \
-     Mcp-Session-Id it returns. A stateless request has no session whose end would release what it holds."
+    "{action} holds input across calls, so it needs a session-based MCP connection: initialize with protocol \
+     version 2025-06-18 (or another version before 2026-07-28). Stateless requests, as protocol 2026-07-28 makes \
+     them, have no session whose end would release what they hold."
   )
 }
 
