@@ -286,6 +286,7 @@ pub(super) fn state() -> McpState {
     }),
     receiver,
     include_devtools: false,
+    held: Default::default(),
     server: None,
     discovery_path: None,
   }
@@ -306,6 +307,7 @@ pub(super) fn call(
       tool: tool.into(),
       args,
       reply,
+      session: None,
     },
   );
   rx.try_recv().unwrap()

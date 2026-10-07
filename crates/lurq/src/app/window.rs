@@ -218,6 +218,9 @@ pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
 struct WindowInner {
   #[cfg(feature = "mcp")]
   accepted_close: bool,
+  /// How many times the window lost focus; input an MCP client holds is released by the next loss.
+  #[cfg(feature = "mcp")]
+  focus_losses: u64,
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
   border_color: WindowBorderColor,
@@ -264,6 +267,8 @@ impl Window {
       inner: Arc::new(RwLock::new(WindowInner {
         #[cfg(feature = "mcp")]
         accepted_close: false,
+        #[cfg(feature = "mcp")]
+        focus_losses: 0,
         info: WindowInfo {
           x: 0,
           y: 0,
@@ -308,6 +313,18 @@ impl Window {
   #[cfg(feature = "mcp")]
   pub(crate) fn close_queued(&self) -> bool {
     self.inner.read().unwrap().commands.contains(&WindowCommand::Close)
+  }
+
+  /// Whether a close of this window was accepted (queued for the shell), even if already applied.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn close_accepted(&self) -> bool {
+    self.inner.read().unwrap().accepted_close
+  }
+
+  /// How many times the window has lost focus.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn focus_losses(&self) -> u64 {
+    self.inner.read().unwrap().focus_losses
   }
 
   pub(crate) fn track_access(&self) {
@@ -518,6 +535,10 @@ impl Window {
         return;
       }
       inner.info.is_focused = focused;
+      #[cfg(feature = "mcp")]
+      if !focused {
+        inner.focus_losses += 1;
+      }
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);

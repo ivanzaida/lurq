@@ -57,20 +57,21 @@ pub(super) fn find_secondary_index(tree: &Tree, window: &str, include_devtools: 
     })
 }
 
-/// Resolve a `window` argument to its tree. `"main"` is the root tree;
-/// secondaries resolve by name or `w<id>`; closed or unknown windows error
-/// as gone rather than falling back to a different window.
-pub(super) fn window_tree_mut<'t>(
-  root: &'t mut Tree,
-  window: &str,
-  include_devtools: bool,
-) -> Result<&'t mut Tree, String> {
+/// What a `window` argument points at.
+enum WindowSlot {
+  Main,
+  Secondary(usize),
+}
+
+/// `"main"` is the root tree; secondaries resolve by name or `w<id>`; closed or unknown windows error as gone
+/// rather than falling back to a different window.
+fn window_slot(root: &Tree, window: &str, include_devtools: bool) -> Result<WindowSlot, String> {
   if window == "main" {
-    return Ok(root);
+    return Ok(WindowSlot::Main);
   }
   if window == "focused" {
     if root.window().info().is_focused {
-      return Ok(root);
+      return Ok(WindowSlot::Main);
     }
     let focused = visible_secondary_indexes(root, include_devtools)
       .into_iter()
@@ -79,32 +80,43 @@ pub(super) fn window_tree_mut<'t>(
           .secondary_window(*index)
           .is_some_and(|secondary| secondary.tree().window().info().is_focused)
       });
-    return match focused {
-      Some(index) => Ok(
-        root
-          .secondary_window_mut(index)
-          .expect("index just resolved")
-          .tree_mut(),
-      ),
-      // Focus races with real user activity; fall back to the main window.
-      None => Ok(root),
-    };
+    // Focus races with real user activity; fall back to the main window.
+    return Ok(focused.map_or(WindowSlot::Main, WindowSlot::Secondary));
   }
-  match find_secondary_index(root, window, include_devtools) {
-    Some(index) => Ok(
+  find_secondary_index(root, window, include_devtools)
+    .map(WindowSlot::Secondary)
+    .ok_or_else(|| format!("window {window:?} not found or closed; list windows with lurq_windows"))
+}
+
+/// Resolve a `window` argument to its tree (see [`window_slot`]).
+pub(super) fn window_tree_mut<'t>(
+  root: &'t mut Tree,
+  window: &str,
+  include_devtools: bool,
+) -> Result<&'t mut Tree, String> {
+  match window_slot(root, window, include_devtools)? {
+    WindowSlot::Main => Ok(root),
+    WindowSlot::Secondary(index) => Ok(
       root
         .secondary_window_mut(index)
         .expect("index just resolved")
         .tree_mut(),
     ),
-    None => Err(format!(
-      "window {window:?} not found or closed; list windows with lurq_windows"
-    )),
   }
+}
+
+/// The immutable id of the window a `window` argument points at, as `lurq_windows` lists it: `main` or `w<id>`,
+/// never a name or `focused`.
+pub(super) fn canonical_window_id(root: &Tree, window: &str, include_devtools: bool) -> Result<String, String> {
+  Ok(match window_slot(root, window, include_devtools)? {
+    WindowSlot::Main => "main".to_owned(),
+    WindowSlot::Secondary(index) => format!("w{}", root.secondary_window(index).expect("index just resolved").id()),
+  })
 }
 
 pub(super) fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
   let mut windows = Vec::new();
+  let held = state.held.lock();
   let main_info = tree.window().info();
   windows.push(serde_json::json!({
     "id": "main",
@@ -118,14 +130,16 @@ pub(super) fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
     "width": main_info.resolved_width.round(),
     "height": main_info.resolved_height.round(),
     "scale_factor": main_info.scale_factor,
+    "held": held.report("main"),
   }));
   for index in visible_secondary_indexes(tree, state.include_devtools) {
     let Some(secondary) = tree.secondary_window(index) else {
       continue;
     };
     let info = secondary.tree().window().info();
+    let id = format!("w{}", secondary.id());
     windows.push(serde_json::json!({
-      "id": format!("w{}", secondary.id()),
+      "id": &id,
       "name": secondary.name(),
       "title": secondary.tree().window().handle().title().unwrap_or_else(|| secondary.title().to_owned()),
       "kind": if is_devtools_index(tree, index) { "devtools" } else { "secondary" },
@@ -137,6 +151,7 @@ pub(super) fn windows_tool(tree: &Tree, state: &McpState) -> McpToolResult {
       "width": info.resolved_width.round(),
       "height": info.resolved_height.round(),
       "scale_factor": info.scale_factor,
+      "held": held.report(&id),
     }));
   }
   Ok(McpToolOutput::Json(serde_json::json!({ "windows": windows })))

@@ -31,6 +31,7 @@ fn resize(tree: &mut Tree, native: &SimulatedWindow, args: serde_json::Value) ->
       tool: "lurq_resize".into(),
       args,
       reply,
+      session: None,
     },
   );
   assert!(receiver.try_recv().is_err(), "the reply waits for the shell");
@@ -192,6 +193,7 @@ fn a_resize_call_that_timed_out_leaves_no_report_behind() {
       tool: "lurq_resize".into(),
       args: serde_json::json!({"width": 800, "height": 600}),
       reply,
+      session: None,
     },
   );
   // The HTTP side gives up and drops its end.

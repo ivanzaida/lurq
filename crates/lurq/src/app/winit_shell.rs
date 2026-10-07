@@ -1480,6 +1480,28 @@ impl WinitHandler {
     }
   }
 
+  /// Presents each window an MCP call delivered held input to (a press, a move while held), as a real mouse-move
+  /// stream presents from inside its events, so each call lands in exactly one pass of its own.
+  #[cfg(feature = "mcp")]
+  fn present_mcp_input(&mut self, event_loop: &ActiveEventLoop) {
+    if self.main.tree.take_mcp_input_present()
+      && self.main.tree.needs_redraw()
+      && self.main.present_now(&mut self.app, false)
+    {
+      self.main.apply_window_commands(event_loop);
+    }
+    for position in 0..self.secondaries.len() {
+      let index = self.secondaries[position].index();
+      let Some(secondary) = self.main.tree.secondary_window_mut(index) else {
+        continue;
+      };
+      let tree = secondary.tree_mut();
+      if tree.take_mcp_input_present() && tree.needs_redraw() {
+        self.secondaries[position].present_now(&mut self.app, tree);
+      }
+    }
+  }
+
   fn present_dirty_secondaries(&mut self) {
     for position in 0..self.secondaries.len() {
       let index = self.secondaries[position].index();
@@ -1681,6 +1703,8 @@ impl ApplicationHandler for WinitHandler {
       // Tool handlers ran against the trees; pick up any redraws or window
       // commands they produced.
       self.main.apply_window_commands(event_loop);
+      // Before any redraw is requested: a requested redraw would paint the same input a second time.
+      self.present_mcp_input(event_loop);
       self.main.check_redraw();
       self.check_secondary_redraw();
     }

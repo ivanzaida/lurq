@@ -323,7 +323,13 @@ pub(super) fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serd
     }
   }
   let input = if action == "invoke" { "click" } else { "move" };
-  interact_tool(tree, app, state, &serde_json::json!({"action": input, "ref": ref_id}))?;
+  interact_tool(
+    tree,
+    app,
+    state,
+    &serde_json::json!({"action": input, "ref": ref_id}),
+    None,
+  )?;
   Ok(McpToolOutput::Json(serde_json::json!({
     "dispatched": true,
     "action": action,

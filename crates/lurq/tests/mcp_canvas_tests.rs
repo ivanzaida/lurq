@@ -2,9 +2,9 @@
 //! embedded MCP server over HTTP, the way an agent drives it.
 #![cfg(all(feature = "mcp", feature = "canvas"))]
 
+mod mcp_client;
+
 use std::{
-  io::{BufRead, BufReader, Read, Write},
-  net::TcpStream,
   sync::Mutex,
   time::{Duration, Instant},
 };
@@ -17,6 +17,7 @@ use lurq::{
   mcp::McpConfig,
   node::Element,
 };
+use mcp_client::Client;
 use serde_json::{Value, json};
 
 const BARS: [(&str, &str, f32); 3] = [("mon", "Mon", 12.0), ("tue", "Tue", 18.0), ("wed", "Wed", 7.0)];
@@ -93,112 +94,6 @@ fn draw(canvas: &CanvasHandle) {
   canvas.set_items(items);
 }
 
-/// Minimal streamable-HTTP MCP client: JSON-RPC over POST, replies as JSON or SSE.
-struct Client {
-  port: u16,
-  token: String,
-  session: Option<String>,
-  next_id: u64,
-}
-
-impl Client {
-  fn post(&mut self, body: &Value) -> Option<Value> {
-    let mut stream = TcpStream::connect(("127.0.0.1", self.port)).expect("connect to the MCP server");
-    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-    let payload = body.to_string();
-    let session = self
-      .session
-      .as_ref()
-      .map(|id| format!("mcp-session-id: {id}\r\n"))
-      .unwrap_or_default();
-    write!(
-      stream,
-      "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\n\
-       Accept: application/json, text/event-stream\r\n{session}Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
-      self.port,
-      self.token,
-      payload.len()
-    )
-    .unwrap();
-    let mut reader = BufReader::new(stream);
-    let mut chunked = false;
-    let mut length = None;
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    assert!(line.contains(" 200 ") || line.contains(" 202 "), "HTTP status: {line}");
-    loop {
-      line.clear();
-      reader.read_line(&mut line).unwrap();
-      let Some((name, value)) = line.trim_end().split_once(':') else {
-        break;
-      };
-      let (name, value) = (name.to_ascii_lowercase(), value.trim());
-      match name.as_str() {
-        "mcp-session-id" => self.session = Some(value.to_owned()),
-        "transfer-encoding" => chunked = value.eq_ignore_ascii_case("chunked"),
-        "content-length" => length = value.parse::<usize>().ok(),
-        _ => {}
-      }
-    }
-    let wanted = body.get("id")?.clone();
-    let mut received = Vec::new();
-    loop {
-      if chunked {
-        line.clear();
-        reader.read_line(&mut line).unwrap();
-        let size = usize::from_str_radix(line.trim(), 16).expect("chunk size");
-        if size == 0 {
-          break;
-        }
-        let mut chunk = vec![0; size + 2];
-        reader.read_exact(&mut chunk).unwrap();
-        received.extend_from_slice(&chunk[..size]);
-      } else {
-        let mut all = vec![0; length.unwrap_or(0)];
-        reader.read_exact(&mut all).unwrap();
-        received = all;
-      }
-      let text = String::from_utf8_lossy(&received);
-      let messages = text
-        .lines()
-        .filter_map(|line| line.strip_prefix("data:"))
-        .chain(text.trim_start().starts_with('{').then_some(text.as_ref()))
-        .filter_map(|data| serde_json::from_str::<Value>(data.trim()).ok());
-      if let Some(reply) = messages.into_iter().find(|message| message.get("id") == Some(&wanted)) {
-        return Some(reply);
-      }
-      assert!(chunked, "no JSON-RPC reply in {text}");
-    }
-    panic!("stream ended without a reply to {wanted}");
-  }
-
-  fn initialize(&mut self) {
-    self.request(
-      "initialize",
-      json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "lurq-test", "version": "0"}}),
-    );
-    self.post(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-  }
-
-  fn request(&mut self, method: &str, params: Value) -> Value {
-    self.next_id += 1;
-    let reply = self
-      .post(&json!({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}))
-      .expect("requests get replies");
-    reply
-      .get("result")
-      .cloned()
-      .unwrap_or_else(|| panic!("{method} failed: {reply}"))
-  }
-
-  /// Call a tool and return its text content.
-  fn tool(&mut self, name: &str, arguments: Value) -> String {
-    let result = self.request("tools/call", json!({"name": name, "arguments": arguments}));
-    assert_ne!(result["isError"], true, "{name} failed: {result}");
-    result["content"][0]["text"].as_str().unwrap_or_default().to_owned()
-  }
-}
-
 fn ref_on_line(text: &str, marker: &str) -> String {
   let line = text
     .lines()
@@ -220,12 +115,7 @@ fn an_agent_reads_and_hovers_canvas_bars_through_the_mcp_server() {
   assert_ne!(port, 0, "the MCP server is listening");
 
   let agent = std::thread::spawn(move || {
-    let mut client = Client {
-      port,
-      token,
-      session: None,
-      next_id: 0,
-    };
+    let mut client = Client::new(port, token);
     client.initialize();
     let tree_text = client.tool("lurq_read_tree", json!({}));
     let tue = ref_on_line(&tree_text, "item:tue");
