@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.0 — 2026-10-08
 
 - Add hosted MCP: an app with an MCP server of its own (its own port, token, discovery and settings) can serve lurq's tools from it instead of starting lurq's server.
   - `McpConfig::hosted()` makes `Tree::enable_mcp` start no listener and write no discovery file; `McpHandle::port()` is `0`.
