@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add hosted MCP: an app with an MCP server of its own (its own port, token, discovery and settings) can serve lurq's tools from it instead of starting lurq's server.
+  - `McpConfig::hosted()` makes `Tree::enable_mcp` start no listener and write no discovery file; `McpHandle::port()` is `0`.
+  - `McpHandle::service()` returns an `McpService`, lurq's rmcp `ServerHandler` for one client session (formerly the private `LurqMcpServer`). The host mounts it as the session handler of rmcp's streamable-HTTP service, or delegates `list_tools`, `call_tool` and `get_info` to it from its own handler.
+  - `lurq::mcp::rmcp` re-exports rmcp, so the host builds on the same version.
+  - Scopes, tool denies, `set_enabled`, event-loop execution through `Tree::drain_mcp_requests` and held input work as with lurq's own server.
+- A server started without `hosted()` is unchanged.
+
 ## 0.41.3 — 2026-10-07
 
 - Add input held across `lurq_interact` calls, so an MCP client can drive a gesture whose samples arrive one frame apart: dragging a node or a resize handle, a marquee, a slider or scrollbar thumb, a middle-button or space-drag pan (#37). `drag` delivers its move, press, six moves and release inside one call, and `key` its press and release, so the whole gesture landed between two frames and no frame ran while the button was down.

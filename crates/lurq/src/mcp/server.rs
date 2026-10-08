@@ -47,8 +47,19 @@ fn tool_timeout(tool: &RegisteredTool, args: &serde_json::Value) -> Duration {
   }
 }
 
+/// lurq's tools for one MCP client session: the rmcp [`ServerHandler`] of lurq's
+/// own server, and what a host app's server mounts or delegates to when the
+/// tools are [hosted](super::McpConfig::hosted). Get one per session from
+/// [`McpHandle::service`](super::McpHandle::service).
+///
+/// Calls that reach the event loop are executed by
+/// [`Tree::drain_mcp_requests`](crate::app::Tree::drain_mcp_requests), which the
+/// winit shell runs every loop turn. A call counts as part of a session, so it
+/// may hold input, when its request carries `Mcp-Session-Id` in the
+/// `hyper::http::request::Parts` that rmcp's streamable-HTTP service puts in
+/// the request context.
 #[derive(Clone)]
-struct LurqMcpServer {
+pub struct McpService {
   shared: Arc<McpShared>,
   registry: Arc<ToolRegistry>,
   sender: std_mpsc::Sender<McpRequest>,
@@ -56,8 +67,8 @@ struct LurqMcpServer {
   session: Arc<SessionLease>,
 }
 
-impl LurqMcpServer {
-  fn new(shared: Arc<McpShared>, registry: Arc<ToolRegistry>, sender: std_mpsc::Sender<McpRequest>) -> Self {
+impl McpService {
+  pub(crate) fn new(shared: Arc<McpShared>, registry: Arc<ToolRegistry>, sender: std_mpsc::Sender<McpRequest>) -> Self {
     Self {
       session: Arc::new(SessionLease::new(shared.clone())),
       shared,
@@ -166,7 +177,7 @@ impl LurqMcpServer {
   }
 }
 
-impl ServerHandler for LurqMcpServer {
+impl ServerHandler for McpService {
   fn get_info(&self) -> ServerInfo {
     let mut instructions = format!(
       "Embedded MCP server for the lurq app {:?}. Drive and inspect the running UI.\n\
@@ -279,7 +290,7 @@ fn in_session(context: &RequestContext<rmcp::RoleServer>) -> bool {
 
 fn result_to_response(result: Result<McpToolOutput, String>) -> CallToolResponse {
   match result {
-    Ok(output) => LurqMcpServer::output_to_result(output).into(),
+    Ok(output) => McpService::output_to_result(output).into(),
     Err(message) => CallToolResult::error(vec![ContentBlock::text(message)]).into(),
   }
 }
@@ -344,7 +355,7 @@ pub(crate) fn spawn(
         };
         let _ = port_tx.send(Ok(bound_port));
 
-        let handler = LurqMcpServer::new(shared.clone(), registry, sender);
+        let handler = McpService::new(shared.clone(), registry, sender);
         let http_config = StreamableHttpServerConfig::default().with_cancellation_token(cancel_for_thread.clone());
         let service = StreamableHttpService::new(
           move || Ok(handler.for_new_session()),

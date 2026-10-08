@@ -19,6 +19,10 @@
 //! (`%LOCALAPPDATA%\lurq\mcp\<pid>.json` on Windows; XDG dirs on Linux).
 //! Connect with `claude mcp add --transport http http://127.0.0.1:<port>/mcp`
 //! and the token from the discovery file.
+//!
+//! An app with an MCP server of its own serves lurq's tools from it instead:
+//! [`McpConfig::hosted`] starts no listener and writes no discovery file, and
+//! [`McpHandle::service`] hands the host one [`McpService`] per client session.
 
 use std::{
   borrow::Cow,
@@ -44,10 +48,14 @@ pub use file_dialogs::{
 };
 pub use logs::{McpLogLayer, log_layer};
 use registry::{ToolKind, ToolRegistry};
+/// rmcp, re-exported so a host server that mounts [`McpService`] builds on the
+/// same version.
+pub use rmcp;
 /// rmcp's schemars, re-exported so typed custom-tool inputs derive against
 /// the same version: `#[derive(schemars::JsonSchema)]` with
 /// `#[schemars(crate = "lurq::mcp::schemars")]`.
 pub use rmcp::schemars;
+pub use server::McpService;
 use shared::McpShared;
 pub use shared::{McpToolOutput, McpToolResult};
 
@@ -194,6 +202,7 @@ pub struct McpConfig {
   instructions: Option<String>,
   tools: Vec<McpTool>,
   file_dialogs: Option<FileDialogBroker>,
+  hosted: bool,
   #[cfg(feature = "router")]
   navigator: Option<crate::router::Navigator>,
 }
@@ -217,9 +226,20 @@ impl McpConfig {
       instructions: None,
       tools: Vec::new(),
       file_dialogs: None,
+      hosted: false,
       #[cfg(feature = "router")]
       navigator: None,
     }
+  }
+
+  /// Serve the tools from the app's own MCP server instead of lurq's: no
+  /// listener starts and no discovery file is written, so the host owns the
+  /// port, the token, the discovery and its settings. The host mounts
+  /// [`McpHandle::service`]; scopes, denies and [`McpHandle::set_enabled`] still
+  /// decide which tools it lists and accepts. [`McpHandle::port`] is `0`.
+  pub fn hosted(mut self) -> Self {
+    self.hosted = true;
+    self
   }
 
   /// Replace the granted scope set.
@@ -295,13 +315,26 @@ impl McpConfig {
 #[derive(Clone)]
 pub struct McpHandle {
   shared: Arc<McpShared>,
+  registry: Arc<ToolRegistry>,
+  sender: std_mpsc::Sender<shared::McpRequest>,
   port: u16,
 }
 
 impl McpHandle {
-  /// The bound port; the endpoint is `http://127.0.0.1:<port>/mcp`.
+  /// The bound port; the endpoint is `http://127.0.0.1:<port>/mcp`. `0` when
+  /// the server is [hosted](McpConfig::hosted) or failed to start.
   pub fn port(&self) -> u16 {
     self.port
+  }
+
+  /// lurq's tools for one client session of a host app's MCP server
+  /// ([`McpConfig::hosted`]), as an rmcp [`ServerHandler`](rmcp::ServerHandler).
+  /// Build one per host session, e.g. in the session factory of rmcp's
+  /// `StreamableHttpService`, or delegate `list_tools`, `call_tool` and
+  /// `get_info` to it from the host's own handler. Input a client holds across
+  /// calls is released when the service of its session is dropped.
+  pub fn service(&self) -> McpService {
+    McpService::new(self.shared.clone(), self.registry.clone(), self.sender.clone())
   }
 
   /// The bearer token clients must present (also in the discovery file).
@@ -451,7 +484,25 @@ impl Tree {
     }
 
     let (sender, receiver) = std_mpsc::channel();
-    let server = match server::spawn(shared.clone(), registry.clone(), sender, config.port) {
+    if config.hosted {
+      tracing::info!("lurq MCP tools are served by the app's own MCP server");
+      self.mcp = Some(Box::new(McpState {
+        shared: shared.clone(),
+        registry: registry.clone(),
+        receiver,
+        include_devtools: config.include_devtools,
+        held: Default::default(),
+        server: None,
+        discovery_path: None,
+      }));
+      return McpHandle {
+        shared,
+        registry,
+        sender,
+        port: 0,
+      };
+    }
+    let server = match server::spawn(shared.clone(), registry.clone(), sender.clone(), config.port) {
       Ok(server) => server,
       Err(message) => {
         shared.set_enabled(false);
@@ -463,14 +514,19 @@ impl Tree {
         tracing::error!("failed to start MCP server: {message}");
         self.mcp = Some(Box::new(McpState {
           shared: shared.clone(),
-          registry,
+          registry: registry.clone(),
           receiver,
           include_devtools: config.include_devtools,
           held: Default::default(),
           server: None,
           discovery_path: None,
         }));
-        return McpHandle { shared, port: 0 };
+        return McpHandle {
+          shared,
+          registry,
+          sender,
+          port: 0,
+        };
       }
     };
 
@@ -486,14 +542,19 @@ impl Tree {
 
     self.mcp = Some(Box::new(McpState {
       shared: shared.clone(),
-      registry,
+      registry: registry.clone(),
       receiver,
       include_devtools: config.include_devtools,
       held: Default::default(),
       server: Some(server),
       discovery_path,
     }));
-    McpHandle { shared, port }
+    McpHandle {
+      shared,
+      registry,
+      sender,
+      port,
+    }
   }
 
   /// Registered by the shell so request enqueues wake the idle event loop.
