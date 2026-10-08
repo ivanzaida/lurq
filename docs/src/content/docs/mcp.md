@@ -304,6 +304,27 @@ Two handler flavors, distinct at the type level so a blocking tool can't freeze 
 
 Custom tool names must not start with `lurq_` and must be unique; violations panic at `enable_mcp` so they surface in development, not in an agent session. Custom scopes (`Scope::custom("project")`) participate in listing, denial, and runtime toggling like the built-in ones.
 
+## Hosting the Tools in Your Own Server
+
+An app that runs an MCP server of its own — with its own port, token, discovery and settings — serves lurq's tools from it instead of starting lurq's. `McpConfig::hosted()` starts no listener and writes no discovery file (`McpHandle::port()` is `0`); `McpHandle::service()` returns an `McpService`, lurq's rmcp `ServerHandler` for one client session.
+
+```rust
+use lurq::mcp::{McpConfig, Scope, rmcp};
+
+let mcp = tree.enable_mcp(McpConfig::new().scopes([Scope::Observe]).hosted());
+
+// Mount it as the session handler of rmcp's streamable-HTTP service…
+let service = rmcp::transport::streamable_http_server::StreamableHttpService::new(
+  move || Ok(mcp.service()),
+  Default::default(),
+  Default::default(),
+);
+// …or keep one `McpService` per session inside your own handler and delegate
+// `list_tools`, `call_tool` and `get_info` to it for `lurq_*` tools.
+```
+
+`lurq::mcp::rmcp` re-exports the rmcp lurq is built with, so the host's handler and lurq's agree on its types. Nothing else changes: scopes, `deny_tool` and `set_enabled` on the `McpHandle` decide what the service lists and accepts, calls that need the event loop are executed by `Tree::drain_mcp_requests` (the winit shell runs it every turn), and input a client holds is released when the service of its session is dropped. A call belongs to a session when its request carries `Mcp-Session-Id` in the `hyper::http::request::Parts` that rmcp's streamable-HTTP service puts in the request context. Authenticate requests in the host: the service does not check a token.
+
 ## Profiling sessions
 
 `lurq_profile_start` starts an independent bounded CPU capture; `lurq_profile_end` finalizes only the ID it receives. Overlapping sessions keep collecting when another ends. `lurq_profile_read` reads a session snapshot, or feature/build availability when called without an ID. All three use Observe scope and the existing bearer authentication, and run on the server thread without waking/waiting for the UI. Reports distinguish completed samples from unfinished current phases, make truncation/age/feature availability explicit, and report GPU timestamps as unavailable. See [Profiling sessions](../profiling/) for bounds, nested timing semantics, lifecycle and the shared in-process API. No DevTools window is required.
