@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.43.0 — 2026-10-10
+
+Behaviour changes:
+
+- `ctx.future`, `ctx.stream` and `ctx.future_action` called in `create` now run and live until the component unmounts. Before, the first render replaced or dropped them, so such an action never ran and such a future or stream was cancelled at once.
+- `Ctx::focus` and `ElementHandle::focus` (and `TextInputHandle::focus`) scroll the focused element into view, as Tab already did; scrolling focus into view moves a container only along the axes it scrolls.
+- The focus styles of the checkbox box, slider thumb and select trigger, and the form buttons', form checkbox's and form slider's focus borders, show only for keyboard focus (focus-visible). Text inputs keep their focus border for any focus.
+- A queued MCP call whose caller stopped waiting is dropped instead of running late.
 
 - Fix a `ctx.future_action` created in `create` never running. Future slots were positional and reset by every render: the first `ctx.future`, `ctx.stream` or `ctx.future_action` call of the first render took the slot of an action created in `create` (and a render that made no such call dropped it), which cancelled it for good, so `run` silently did nothing. `ctx.future`, `ctx.stream` and `ctx.future_action` called outside render (in `create`) now get slots of their own, which no render replaces or drops: an action lives until its component unmounts and can be kept in the component struct; a future or stream starts once with the `deps` given there. Calls made in `render` stay positional, as before.
   - `FutureAction::run` on an action that a render dropped while its component stayed mounted (the render no longer made the call at its position, or made a different one) still starts nothing, but now logs a `tracing` error naming the component. Running an action of an unmounted component stays silent.
