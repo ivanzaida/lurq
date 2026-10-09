@@ -339,9 +339,11 @@ pub(crate) trait NodeUpdate {
   fn hovered_style(&mut self, style: Style);
   fn active_style(&mut self, style: Style);
   fn focused_style(&mut self, style: Style);
+  fn focus_visible_style(&mut self, style: Style);
   fn hovered(&mut self, f: impl FnOnce(Style) -> Style);
   fn active(&mut self, f: impl FnOnce(Style) -> Style);
   fn focused(&mut self, f: impl FnOnce(Style) -> Style);
+  fn focus_visible(&mut self, f: impl FnOnce(Style) -> Style);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
@@ -1073,6 +1075,10 @@ impl NodeUpdate for Node {
     self.state_styles.focused = Some(style);
   }
 
+  fn focus_visible_style(&mut self, style: Style) {
+    self.state_styles.focus_visible = Some(style);
+  }
+
   fn hovered(&mut self, f: impl FnOnce(Style) -> Style) {
     NodeUpdate::hovered_style(self, f(Style::new()));
   }
@@ -1083,6 +1089,10 @@ impl NodeUpdate for Node {
 
   fn focused(&mut self, f: impl FnOnce(Style) -> Style) {
     NodeUpdate::focused_style(self, f(Style::new()));
+  }
+
+  fn focus_visible(&mut self, f: impl FnOnce(Style) -> Style) {
+    NodeUpdate::focus_visible_style(self, f(Style::new()));
   }
 
   fn on_click(&mut self, f: impl IntoMouseEventHandler) {
@@ -2353,8 +2363,18 @@ impl Node {
     self
   }
 
+  /// Merged over the node's style while it has focus, however the focus got
+  /// there (pointer, keyboard or a request).
   pub fn focused_style(mut self, style: Style) -> Self {
     self.state_styles.focused = Some(style);
+    self
+  }
+
+  /// Merged over the node's style (and over [`Node::focused_style`]) while it
+  /// has keyboard focus, like CSS `:focus-visible`: for a focus ring that a
+  /// pointer press does not show. See [`InteractionState::is_focus_visible`].
+  pub fn focus_visible_style(mut self, style: Style) -> Self {
+    self.state_styles.focus_visible = Some(style);
     self
   }
 
@@ -2368,6 +2388,11 @@ impl Node {
 
   pub fn focused(self, f: impl FnOnce(Style) -> Style) -> Self {
     self.focused_style(f(Style::new()))
+  }
+
+  /// Builder form of [`Node::focus_visible_style`].
+  pub fn focus_visible(self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.focus_visible_style(f(Style::new()))
   }
 
   // --- Event handlers ---
@@ -3372,7 +3397,7 @@ impl Node {
   }
 
   /// The box shadow in effect: the innermost matching state style (active,
-  /// then hovered, then focused) over the node's own.
+  /// then hovered, then focus-visible, then focused) over the node's own.
   pub(crate) fn effective_box_shadow(&self) -> Option<&BoxShadowValue> {
     fn state_shadow(applies: bool, style: &Option<Style>) -> Option<&BoxShadowValue> {
       style.as_ref().filter(|_| applies)?.box_shadow.as_deref()
@@ -3380,6 +3405,7 @@ impl Node {
     let states = &*self.state_styles;
     state_shadow(self.style_state.is_active(), &states.active)
       .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
+      .or_else(|| state_shadow(self.style_state.is_focus_visible(), &states.focus_visible))
       .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
       .or(self.box_shadow.as_deref())
   }
@@ -3549,6 +3575,10 @@ impl Node {
     self.style_state.is_focused()
   }
 
+  pub(crate) fn is_style_focus_visible(&self) -> bool {
+    self.style_state.is_focus_visible()
+  }
+
   pub(crate) fn set_style_hovered(&self, hovered: bool) -> bool {
     let changed = self.style_state.is_hovered() != hovered;
     if changed {
@@ -3577,6 +3607,18 @@ impl Node {
     let changed = self.style_state.is_focused() != focused;
     if changed {
       self.style_state.set_focused(focused);
+    }
+    let layout_dirty = changed && self.state_styles_affect_layout();
+    if layout_dirty {
+      self.style_state.mark_layout_dirty();
+    }
+    layout_dirty
+  }
+
+  pub(crate) fn set_style_focus_visible(&self, visible: bool) -> bool {
+    let changed = self.style_state.is_focus_visible() != visible;
+    if changed {
+      self.style_state.set_focus_visible(visible);
     }
     let layout_dirty = changed && self.state_styles_affect_layout();
     if layout_dirty {
@@ -4309,6 +4351,11 @@ impl Node {
       if let Some(focused) = &self.state_styles.focused {
         style.merge_from(focused);
       }
+    }
+    if self.style_state.is_focus_visible()
+      && let Some(focus_visible) = &self.state_styles.focus_visible
+    {
+      style.merge_from(focus_visible);
     }
     if self.style_state.is_hovered() {
       if let Some(hovered) = &self.state_styles.hovered {

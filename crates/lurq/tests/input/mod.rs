@@ -71,6 +71,7 @@ mod pointer {
 
 mod control_fill;
 mod focus_on_press;
+mod focus_visible;
 mod focused_style;
 mod scroll_into_view;
 mod tab_order;

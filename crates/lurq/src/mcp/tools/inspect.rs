@@ -84,6 +84,9 @@ pub(super) fn semantic_state(node: &Node) -> serde_json::Value {
   if node.style_state.is_focused() {
     state.insert("focused".into(), serde_json::json!(true));
   }
+  if node.style_state.is_focus_visible() {
+    state.insert("focus_visible".into(), serde_json::json!(true));
+  }
   match node.node_kind() {
     NodeKind::TextInput { state: input, .. } if input.is_masked() => {
       state.insert("value".into(), serde_json::json!(input.caret_source_text()));

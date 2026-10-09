@@ -41,6 +41,8 @@ struct ElementRefInner {
   active: bool,
   focused: bool,
   focus_signal: Option<crate::core::Signal<bool>>,
+  focus_visible: bool,
+  focus_visible_signal: Option<crate::core::Signal<bool>>,
   override_rect: Option<ElementRect>,
   override_cleared: bool,
   layout_dirty: bool,
@@ -151,6 +153,24 @@ impl ElementRef {
       .clone()
   }
 
+  /// Focused and showing a focus ring, like CSS `:focus-visible`: the focus
+  /// came from the keyboard (or a key was pressed since), or the element is a
+  /// text input. Reading it during render subscribes, like [`Self::focused`].
+  pub fn focus_visible(&self) -> bool {
+    self.focus_visible_signal().get()
+  }
+
+  /// Reactive focus-visible state. Reading `focus_visible()` during render
+  /// subscribes too.
+  pub fn focus_visible_signal(&self) -> crate::core::Signal<bool> {
+    let mut inner = self.inner.write().unwrap();
+    let visible = inner.focus_visible;
+    inner
+      .focus_visible_signal
+      .get_or_insert_with(|| crate::core::Signal::new(visible))
+      .clone()
+  }
+
   pub(crate) fn update(&self, x: f32, y: f32, relative_x: f32, relative_y: f32, width: f32, height: f32) {
     let observer = {
       let mut inner = self.inner.write().unwrap();
@@ -229,7 +249,11 @@ impl ElementRef {
     self.inner.write().unwrap().active = active;
   }
 
+  /// Losing focus also loses focus-visible.
   pub(crate) fn set_focused(&self, focused: bool) {
+    if !focused {
+      self.set_focus_visible(false);
+    }
     let signal = {
       let mut inner = self.inner.write().unwrap();
       if inner.focused == focused {
@@ -240,6 +264,20 @@ impl ElementRef {
     };
     if let Some(signal) = signal {
       signal.set(focused);
+    }
+  }
+
+  pub(crate) fn set_focus_visible(&self, visible: bool) {
+    let signal = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.focus_visible == visible {
+        return;
+      }
+      inner.focus_visible = visible;
+      inner.focus_visible_signal.clone()
+    };
+    if let Some(signal) = signal {
+      signal.set(visible);
     }
   }
 }
@@ -344,6 +382,16 @@ impl ElementRefMut {
 
   pub fn focus_signal(&self) -> crate::core::Signal<bool> {
     self.as_ref().focus_signal()
+  }
+
+  /// See [`ElementRef::focus_visible`].
+  pub fn focus_visible(&self) -> bool {
+    self.as_ref().focus_visible()
+  }
+
+  /// See [`ElementRef::focus_visible_signal`].
+  pub fn focus_visible_signal(&self) -> crate::core::Signal<bool> {
+    self.as_ref().focus_visible_signal()
   }
 }
 

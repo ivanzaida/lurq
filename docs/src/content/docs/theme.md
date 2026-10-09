@@ -588,7 +588,7 @@ Both button roles own layout values (`width`, `height`, `padding`) and semantic 
 | `primary` | `Accent` | `Accent` | `Button` + `TextInverse` |
 | `secondary` | `SurfaceInput` | `BorderStrong` | `Button` + `TextPrimary` |
 
-Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`. Both roles draw a `border_focus` border (`BorderFocus`) while the button has focus, by click or by Tab.
+Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`. Both roles draw a `border_focus` border (`BorderFocus`) while the button is [focus-visible](../focus-navigation/#focus-visible): after Tab or a key press, not after a click.
 
 ### Checkbox And Slider Roles
 

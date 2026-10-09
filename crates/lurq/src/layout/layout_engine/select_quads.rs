@@ -35,8 +35,8 @@ impl LayoutEngine {
   ) {
     let style = state.style();
     let hovered = node.style_state.is_hovered();
-    let focused = node.style_state.is_focused();
-    let trigger = style.resolved_trigger(hovered, focused, state.is_open());
+    let focus_visible = node.style_state.is_focus_visible();
+    let trigger = style.resolved_trigger(hovered, focus_visible, state.is_open());
 
     let background = {
       let palette = self.palette.borrow();

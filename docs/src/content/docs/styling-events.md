@@ -183,7 +183,7 @@ Both native backends evaluate the blurred rounded rect analytically in the quad 
 
 ## Hover, Active, And Focus Styles
 
-State styles merge into the base style while the node is hovered, active, or focused.
+State styles merge into the base style while the node is hovered, active, focused, or focus-visible.
 
 ```rust
 use lurq::{components::Text, node::CursorIcon};
@@ -196,10 +196,10 @@ Text::new("Save")
   .cursor(CursorIcon::Pointer)
   .hovered(|style| style.background("#3b82f6"))
   .active(|style| style.background("#1d4ed8"))
-  .focused(|style| style.border_inside(1.0, "#93c5fd".into()))
+  .focus_visible(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
 
-The focused style shows whenever the node has focus, whether a click, Tab, or a focus request put it there; there is no separate keyboard-only focus state. Checkboxes and sliders also have part-level focused styles, see [Focused Styles](../focus-navigation/#focused-styles).
+The focused style (`.focused(...)`) shows whenever the node has focus, whether a click, Tab, or a focus request put it there. The focus-visible style (`.focus_visible(...)`) shows only for keyboard focus, like CSS `:focus-visible`: Tab or a key press shows it, a click does not, and a text input shows it for any focus. Use it for focus rings. Checkboxes, sliders and selects also have part-level focus styles, which follow focus-visible; see [Focus-Visible](../focus-navigation/#focus-visible) and [Focused Styles](../focus-navigation/#focused-styles).
 
 State styles can affect layout if they change frame, padding, or flex. That is supported, but it can force relayout when interaction state changes.
 
@@ -263,7 +263,7 @@ The hook listens for left clicks outside the referenced element's measured bound
 
 Keyboard events go to the focused node. A press where nothing can take focus blurs it; a press on a `focusable(false)` element keeps it. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).
 
-Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field, and the field is then scrolled into view. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation.
+Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field, and the field is then scrolled into view. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation. `field_ref.focus_visible()` and `field_ref.focus_visible_signal()` do the same for [focus-visible](../focus-navigation/#focus-visible), the keyboard-only part of focus.
 
 Retained input and select value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
 
@@ -466,7 +466,7 @@ TextInput::new(command.clone())
 
 ### Checkbox Styling
 
-Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has focus, checked or not; it changes paint only.
+Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click), checked or not; it changes paint only.
 
 A checkbox the app has not styled takes its fill from the theme: the box is `SurfaceInput` and the checked box `Accent`. A part the app styles without a fill paints none, like a button or text input without a background: `.box_part(...)` without `background` leaves the unchecked box unfilled, and `.checked_box(...)` without one the checked box (its border and indicator still paint). A checked box whose `checked_box` part the app did not set keeps the unchecked part's fill, or the theme's `Accent`. Generic `.background()` still fills the unchecked box.
 
@@ -609,7 +609,7 @@ let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
-The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has focus and changes paint only.
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
 
 ```rust
 use lurq::{components::Slider, core::Signal, node::color::Color};

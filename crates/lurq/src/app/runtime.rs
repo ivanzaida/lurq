@@ -69,6 +69,7 @@ use crate::{
 mod capture_redaction_tests;
 #[cfg(test)]
 mod caret_blink_tests;
+mod focus_visible;
 mod ime;
 mod outside_press;
 mod scroll_into_view;
@@ -650,6 +651,8 @@ pub struct Tree {
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
   focused_event_path: Option<Vec<usize>>,
+  /// The modality of the last focus-moving input; see [`focus_visible`].
+  input_modality: focus_visible::InputModality,
   text_input_caret_blink_started_at: Instant,
   text_input_caret_visible: bool,
   cursor: CursorIcon,
@@ -1000,6 +1003,7 @@ impl Tree {
       focused_event_node: None,
       focused_path: None,
       focused_event_path: None,
+      input_modality: focus_visible::InputModality::default(),
       text_input_caret_blink_started_at: Instant::now(),
       text_input_caret_visible: true,
       cursor: CursorIcon::Default,
@@ -3212,6 +3216,7 @@ impl Tree {
   pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
+    self.set_input_modality(focus_visible::InputModality::Pointer);
     let modifiers = MouseModifiers { shift, ctrl, alt };
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
@@ -3416,6 +3421,7 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Keyboard);
     self.rebuild_if_dirty();
+    self.note_key_press_modality(&key, ctrl, alt, meta);
     // Keys never reach a node that was dropped since it took focus.
     self.blur_focus_in_dropped_child();
     // The input method takes the keys it reports as `Process` (on Windows,
@@ -3559,6 +3565,7 @@ impl Tree {
   /// Tab / Shift+Tab: moves focus to the next stop in the current Tab scope
   /// (see [`tab_navigation`]) and scrolls it into view.
   fn focus_tab(&mut self, reverse: bool) -> bool {
+    self.set_input_modality(focus_visible::InputModality::Keyboard);
     let Some(root) = &self.root else {
       return false;
     };
@@ -6549,8 +6556,11 @@ impl Tree {
     self.focused_path = Some(input_path.clone());
     self.focused_event_path = Some(event_path.clone());
 
-    if let Some(node) = find_node_by_path(root, &input_path) {
+    let input = find_node_by_path(root, &input_path);
+    let visible = input.is_some_and(|node| focus_visible::shows_focus_ring(self.input_modality, node));
+    if let Some(node) = input {
       set_node_focused(node, true);
+      focus_visible::set_node_focus_visible(node, visible);
       self.cached_render_list = None;
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(true);
@@ -6558,6 +6568,7 @@ impl Tree {
     }
     if let Some(node) = find_node_by_path(root, &event_path) {
       set_node_focused(node, true);
+      focus_visible::set_node_focus_visible(node, visible);
       self.cached_render_list = None;
     }
   }
@@ -7858,6 +7869,7 @@ impl<'t> ElementHandle<'t> {
     let focusable = node.is_focusable();
     let button_kind = node.button_kind_value();
     let handlers = node.events.on_click.clone();
+    self.tree.set_input_modality(focus_visible::InputModality::Pointer);
     if focusable {
       self.tree.focus_node(FocusTarget {
         input_id: self.node_id,

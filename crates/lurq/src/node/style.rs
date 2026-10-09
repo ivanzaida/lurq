@@ -30,6 +30,7 @@ pub(crate) struct StateStyles {
   pub(crate) hovered: Option<Style>,
   pub(crate) active: Option<Style>,
   pub(crate) focused: Option<Style>,
+  pub(crate) focus_visible: Option<Style>,
 }
 
 impl Style {
@@ -306,5 +307,6 @@ impl StateStyles {
     self.hovered.as_ref().is_some_and(Style::affects_layout)
       || self.active.as_ref().is_some_and(Style::affects_layout)
       || self.focused.as_ref().is_some_and(Style::affects_layout)
+      || self.focus_visible.as_ref().is_some_and(Style::affects_layout)
   }
 }

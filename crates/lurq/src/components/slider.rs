@@ -86,8 +86,10 @@ impl Slider {
     self
   }
 
-  /// Thumb style while the slider has focus, layered under the hovered
-  /// style. Size is ignored: focus changes paint, never layout.
+  /// Thumb style while the slider has keyboard focus (focus-visible, like a
+  /// browser's range input ring: a click or drag does not show it), layered
+  /// under the hovered style. Size is ignored: focus changes paint, never
+  /// layout. For a style on any focus, use the element's `focused_style`.
   pub fn thumb_focused_style(mut self, style: SliderPartStyle) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::slider_thumb_focused_style(node, style));
     self
