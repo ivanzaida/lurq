@@ -15,7 +15,7 @@ use lurq::{
   node::{Element, color::Color},
 };
 
-use crate::support::{pointer_click, render_pass, run_pass};
+use crate::support::{pointer_click, render_pass, render_pass_with_app, run_pass};
 
 struct CompoundFieldHost {
   form: FormHandle,
@@ -362,6 +362,36 @@ fn builtin_form_buttons_show_theme_focus_border_when_tabbed_to() {
   assert_eq!(focus_border_count(&mut tree), 1, "primary button shows border_focus");
   tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
   assert_eq!(focus_border_count(&mut tree), 1, "secondary button shows border_focus");
+}
+
+#[test]
+fn builtin_form_button_shows_no_focus_border_when_clicked() {
+  // One app throughout: the click re-renders the host, under the app's theme.
+  let mut app = focus_app();
+  let mut tree = Tree::new();
+  tree.mount_root::<BuiltinButtonsHost>(&mut app, ());
+  let mut focus_borders = |tree: &mut Tree| {
+    let focus = Color::from_hex(FOCUS_BORDER);
+    render_pass_with_app(tree, &mut app)
+      .rects
+      .iter()
+      .filter(|rect| rect.stroke_color == focus && rect.stroke.iter().any(|width| *width > 0.0))
+      .count()
+  };
+  assert_eq!(focus_borders(&mut tree), 0);
+  let cancel = tree
+    .find_element(|element| element.text_content() == Some("Cancel"))
+    .expect("cancel label should render")
+    .bounds();
+
+  pointer_click(&mut tree, cancel.center().0, cancel.center().1, MouseButton::Left);
+  // The hovered border would paint over a focus ring.
+  tree.mouse_leave_window();
+  assert!(tree.focused_element().is_some(), "the click focuses the button");
+  assert_eq!(focus_borders(&mut tree), 0, "a click shows no focus ring");
+
+  tree.key_down("ArrowDown".to_owned(), "ArrowDown".to_owned(), false, false, false);
+  assert_eq!(focus_borders(&mut tree), 1, "a key press shows the ring");
 }
 
 #[test]

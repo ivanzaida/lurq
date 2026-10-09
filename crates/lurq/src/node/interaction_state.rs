@@ -10,6 +10,7 @@ struct InteractionStateInner {
   hovered: bool,
   active: bool,
   focused: bool,
+  focus_visible: bool,
   layout_dirty: bool,
 }
 
@@ -30,6 +31,13 @@ impl InteractionState {
     self.inner.lock().unwrap().focused
   }
 
+  /// Focused and showing a focus ring, like CSS `:focus-visible`: the focus
+  /// came from the keyboard (or a key was pressed since), or the node is a
+  /// text input. See the focus-navigation guide for the full rules.
+  pub fn is_focus_visible(&self) -> bool {
+    self.inner.lock().unwrap().focus_visible
+  }
+
   pub(crate) fn set_hovered(&self, val: bool) {
     self.inner.lock().unwrap().hovered = val;
   }
@@ -38,8 +46,17 @@ impl InteractionState {
     self.inner.lock().unwrap().active = val;
   }
 
+  /// Losing focus also loses focus-visible.
   pub(crate) fn set_focused(&self, val: bool) {
-    self.inner.lock().unwrap().focused = val;
+    let mut inner = self.inner.lock().unwrap();
+    inner.focused = val;
+    inner.focus_visible &= val;
+  }
+
+  /// Only a focused state can be focus-visible.
+  pub(crate) fn set_focus_visible(&self, val: bool) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.focus_visible = val && inner.focused;
   }
 
   pub(crate) fn mark_layout_dirty(&self) {

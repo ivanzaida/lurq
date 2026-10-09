@@ -492,8 +492,18 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Merged over the element's style while it has focus, however the
+      /// focus got there (pointer, keyboard or a request).
       pub fn focused_style(mut self, style: $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::focused_style(node, style));
+        self
+      }
+
+      /// Merged over the element's style (and over `focused_style`) while it
+      /// has keyboard focus, like CSS `:focus-visible`: a focus ring that a
+      /// pointer press does not show. Text inputs show it for any focus.
+      pub fn focus_visible_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_visible_style(node, style));
         self
       }
 
@@ -509,6 +519,12 @@ macro_rules! impl_into_node {
 
       pub fn focused(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::focused(node, f));
+        self
+      }
+
+      /// Builder form of `focus_visible_style`.
+      pub fn focus_visible(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_visible(node, f));
         self
       }
 

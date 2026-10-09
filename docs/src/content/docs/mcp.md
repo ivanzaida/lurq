@@ -195,6 +195,25 @@ mcp.set_navigator(router.navigator());
 
 Scope checks run again at call time, so revoking a scope takes effect immediately even for a client that listed tools earlier.
 
+A call the event loop has not started when its reply deadline passes (15 s, 30 s for `lurq_screenshot`, the requested timeout plus 5 s for `lurq_wait`) is answered with a time-out error and dropped: it never runs later.
+
+### Controls only a person may use
+
+MCP input reaches the same entry points as OS input, so scopes and tool denies are the way to keep an agent away from the window as a whole. To keep it away from one control, such as a switch that widens an agent's own permissions, check where the input came from in the control's handler. While lurq delivers the input of an MCP call (`lurq_interact`, `lurq_act`, `lurq_set_value`, and every other tool that reaches the event loop) or a `SyntheticInput`, `lurq::app::events::input_source()` returns `InputSource::Synthetic` and `is_synthetic_input()` is `true`:
+
+```rust
+use lurq::app::events::{MouseEvent, is_synthetic_input};
+
+Button::new("Allow file writes").on_click(move |_: MouseEvent| {
+  if is_synthetic_input() {
+    return; // an agent may not grant itself permissions
+  }
+  allow_writes.set(true);
+})
+```
+
+The source is set only while lurq delivers the input: a handler and the callbacks it reaches see it, work deferred past the delivery (a spawned task, a timer, a later render) does not. `InputSource::Os` is not proof that a person acted, since another program can post OS input. An automation layer that drives a `Tree` through its input methods itself can mark that input with `with_synthetic_input(|| ...)`.
+
 ## Multiple Windows
 
 Every window-touching tool takes a `window` argument defaulting to `"main"`. Secondary windows are addressed by a stable id (`w1`, `w2`, … — never reused, so a closed window errors as gone instead of resolving to a different one) or by an app-assigned name:

@@ -69,8 +69,10 @@ use crate::{
 mod capture_redaction_tests;
 #[cfg(test)]
 mod caret_blink_tests;
+mod focus_visible;
 mod ime;
 mod outside_press;
+mod scroll_into_view;
 mod select_menu;
 mod tab_navigation;
 
@@ -631,6 +633,9 @@ pub struct Tree {
   /// (`ShrinkLimit::Drop`). Kept while the layout is invalidated, so focus
   /// requested before the next layout cannot land inside them either.
   dropped_nodes: Vec<NodeId>,
+  /// Nodes to scroll into view after the next layout (focus requests and
+  /// `ElementHandle::scroll_into_view`); see [`scroll_into_view`].
+  pending_scroll_into_view: Vec<NodeId>,
   layout_constraints_override: Option<Constraints>,
   viewport_physical: Size,
   scale_factor: f32,
@@ -646,6 +651,8 @@ pub struct Tree {
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
   focused_event_path: Option<Vec<usize>>,
+  /// The modality of the last focus-moving input; see [`focus_visible`].
+  input_modality: focus_visible::InputModality,
   text_input_caret_blink_started_at: Instant,
   text_input_caret_visible: bool,
   cursor: CursorIcon,
@@ -980,6 +987,7 @@ impl Tree {
       root_ctx: None,
       last_layout: None,
       dropped_nodes: Vec::new(),
+      pending_scroll_into_view: Vec::new(),
       layout_constraints_override: None,
       viewport_physical: Size::new(800.0, 600.0),
       scale_factor: 1.0,
@@ -995,6 +1003,7 @@ impl Tree {
       focused_event_node: None,
       focused_path: None,
       focused_event_path: None,
+      input_modality: focus_visible::InputModality::default(),
       text_input_caret_blink_started_at: Instant::now(),
       text_input_caret_visible: true,
       cursor: CursorIcon::Default,
@@ -1874,6 +1883,7 @@ impl Tree {
     }
     ctx.set_app_ref(app);
     ctx.set_root_props(props);
+    ctx.set_component_name(std::any::type_name::<C>());
     let component = C::create(&mut ctx);
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();
@@ -2243,7 +2253,12 @@ impl Tree {
     let _layout_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _layout_phase = self.profiling.context.phase(crate::app::profiler::Phase::LayoutUpdate);
-    let layout_updated = self.update_layout(app);
+    let mut layout_updated = self.update_layout(app);
+    // A scroll-into-view request moved a container: lay out again so this
+    // frame already shows the element where it was revealed.
+    if self.resolve_pending_scroll_into_view() {
+      layout_updated |= self.update_layout(app);
+    }
     self.update_text_input_caret_blink(now, caret_mode);
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
@@ -3201,6 +3216,7 @@ impl Tree {
   pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
+    self.set_input_modality(focus_visible::InputModality::Pointer);
     let modifiers = MouseModifiers { shift, ctrl, alt };
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
@@ -3405,6 +3421,7 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Keyboard);
     self.rebuild_if_dirty();
+    self.note_key_press_modality(&key, ctrl, alt, meta);
     // Keys never reach a node that was dropped since it took focus.
     self.blur_focus_in_dropped_child();
     // The input method takes the keys it reports as `Process` (on Windows,
@@ -3548,6 +3565,7 @@ impl Tree {
   /// Tab / Shift+Tab: moves focus to the next stop in the current Tab scope
   /// (see [`tab_navigation`]) and scrolls it into view.
   fn focus_tab(&mut self, reverse: bool) -> bool {
+    self.set_input_modality(focus_visible::InputModality::Keyboard);
     let Some(root) = &self.root else {
       return false;
     };
@@ -3579,7 +3597,7 @@ impl Tree {
     let (Some(root), Some(layout), Some(focused)) = (&self.root, &self.last_layout, self.focused_node) else {
       return;
     };
-    if tab_navigation::scroll_into_view(root, layout, focused) {
+    if scroll_into_view::scroll_into_view(root, layout, focused) {
       self.needs_redraw = true;
     }
   }
@@ -3682,12 +3700,13 @@ impl Tree {
 
   pub fn needs_redraw(&self) -> bool {
     self.needs_redraw
+      || !self.pending_scroll_into_view.is_empty()
       || self.has_dirty_canvas()
       || self.click_tracker.has_pending()
       || self
         .root_ctx
         .as_ref()
-        .is_some_and(|ctx| ctx.any_dirty() || ctx.has_focus_request())
+        .is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request())
       || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
@@ -3707,7 +3726,7 @@ impl Tree {
       input_interaction: self.has_active_input_interaction(),
       text_input_caret: self.has_focused_blinking_text_input(caret_mode),
       theme_changed: self.last_theme_version != theme_version,
-      component_dirty: root_ctx.is_some_and(|ctx| ctx.any_dirty() || ctx.has_focus_request()),
+      component_dirty: root_ctx.is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request()),
       element_ref_dirty: root.is_some_and(has_dirty_element_ref_recursive),
       layout_dirty: root.is_some_and(has_pending_layout_dirty_recursive),
       ..PassReasons::default()
@@ -4957,6 +4976,9 @@ impl Tree {
     }
     if let Some(target) = target {
       self.focus_node(target);
+      if self.focused_node == Some(target.input_id) {
+        self.request_scroll_into_view(target.input_id);
+      }
     }
   }
 
@@ -5381,7 +5403,7 @@ impl Tree {
     display: DisplayHandle<'_>,
     reasons: PassReasons,
   ) -> Option<bool> {
-    if self.root_ctx.as_ref().is_some_and(Ctx::has_focus_request) {
+    if self.root_ctx.as_ref().is_some_and(Ctx::has_element_request) || !self.pending_scroll_into_view.is_empty() {
       return None;
     }
     if !self.can_reuse_cached_render_list(reasons) {
@@ -6534,8 +6556,11 @@ impl Tree {
     self.focused_path = Some(input_path.clone());
     self.focused_event_path = Some(event_path.clone());
 
-    if let Some(node) = find_node_by_path(root, &input_path) {
+    let input = find_node_by_path(root, &input_path);
+    let visible = input.is_some_and(|node| focus_visible::shows_focus_ring(self.input_modality, node));
+    if let Some(node) = input {
       set_node_focused(node, true);
+      focus_visible::set_node_focus_visible(node, visible);
       self.cached_render_list = None;
       if let NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_focused(true);
@@ -6543,6 +6568,7 @@ impl Tree {
     }
     if let Some(node) = find_node_by_path(root, &event_path) {
       set_node_focused(node, true);
+      focus_visible::set_node_focus_visible(node, visible);
       self.cached_render_list = None;
     }
   }
@@ -7843,6 +7869,7 @@ impl<'t> ElementHandle<'t> {
     let focusable = node.is_focusable();
     let button_kind = node.button_kind_value();
     let handlers = node.events.on_click.clone();
+    self.tree.set_input_modality(focus_visible::InputModality::Pointer);
     if focusable {
       self.tree.focus_node(FocusTarget {
         input_id: self.node_id,
@@ -7873,12 +7900,26 @@ impl<'t> ElementHandle<'t> {
   }
 
   /// Focuses this node through the tree's focus machinery (fires `on_focus`
-  /// / `on_blur` handlers declared on the node itself).
+  /// / `on_blur` handlers declared on the node itself), then scrolls it into
+  /// view in the next pass like [`ElementHandle::scroll_into_view`].
   pub fn focus(&mut self) {
     self.tree.focus_node(FocusTarget {
       input_id: self.node_id,
       event_id: self.node_id,
     });
+    if self.tree.focused_node == Some(self.node_id) {
+      self.tree.request_scroll_into_view(self.node_id);
+    }
+    self.invalidate_render();
+  }
+
+  /// Scrolls this node into view in the next pass: every scroll container
+  /// around it scrolls by the smallest amount that shows it, innermost
+  /// first, on each axis the container scrolls (the web's
+  /// `scrollIntoView({ block: "nearest", inline: "nearest" })`). The app-side
+  /// counterpart is [`Ctx::scroll_into_view`].
+  pub fn scroll_into_view(&mut self) {
+    self.tree.request_scroll_into_view(self.node_id);
     self.invalidate_render();
   }
 

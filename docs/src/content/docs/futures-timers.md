@@ -65,10 +65,25 @@ The dependency must implement `Clone + PartialEq + Send + Sync + 'static`. Use a
 | Field | Type | Description |
 | --- | --- | --- |
 | `status` | `FutureStatus` | `Idle`, `Pending`, `Fulfilled`, or `Rejected`. |
-| `data` | `Option<T>` | Present on `Fulfilled`; preserved during re-fetch. |
-| `error` | `Option<E>` | Present on `Rejected`. |
+| `data` | `Option<T>` | The last value that succeeded. Kept while a new run is `Pending` and after it is `Rejected`. |
+| `error` | `Option<E>` | The error of the latest run while `Rejected`. |
 
-Convenience methods: `is_idle()`, `is_pending()`, `is_fulfilled()`, `is_rejected()`.
+Convenience methods: `is_idle()`, `is_pending()`, `is_fulfilled()`, `is_rejected()`, and:
+
+| Method | Returns |
+| --- | --- |
+| `outcome()` | `Option<Result<&T, &E>>`: how the latest run ended. `Some(Ok(value))` when fulfilled, `Some(Err(error))` when rejected, `None` while idle or pending. |
+| `fulfilled_data()` | `Option<&T>`: the value of the latest run if it was fulfilled. |
+
+`data` is not the result of the latest run. A run that fails after an earlier one succeeded is `Rejected` with `error` set, and `data` still holds the earlier value, so a view can keep showing it next to the error. Code that decides whether the latest run succeeded, such as a `ctx.watch` that closes a dialog after a save, must not test "has `data` and is not pending": that is true after a failed save too. Use `outcome()`, `fulfilled_data()`, `is_fulfilled()`, or match on `status`:
+
+```rust
+ctx.watch(&save.state(), move |state| match state.outcome() {
+  Some(Ok(_)) => close.set(true),
+  Some(Err(error)) => show_error(error),
+  None => {}
+});
+```
 
 ### FutureHandle
 
@@ -187,7 +202,43 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 }
 ```
 
-`FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)`.
+`FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)` and `.run_if_idle(args)`.
+
+`.run(args)` always starts a run: a run still in flight is cancelled and its result is never applied. A double click on a button wired to `.run` therefore aborts the first request and keeps only the second. When a run in flight must finish, start with `.run_if_idle(args)`: it starts nothing while a run is in flight (`.is_active()`), and returns whether it started.
+
+```rust
+Button::new("Save").on_click({
+  let save = save.clone();
+  move |_| {
+    save.run_if_idle(draft.get_untracked());
+  }
+})
+```
+
+An action does not have to be created in `render`. Created in `create`, it gets a slot of its own that lives until the component unmounts, so it can be kept in the component struct and run from any render or handler:
+
+```rust
+struct SearchBox {
+  search: FutureAction<String, Vec<Hit>, String>,
+}
+
+impl Component for SearchBox {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      search: ctx.future_action(|query: String| async move { search(query).await }),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let search = self.search.clone();
+    Button::new("Search").on_click(move |_| search.run("lurq".to_owned()))
+  }
+}
+```
+
+`ctx.future` and `ctx.stream` called in `create` work the same way: they start once, with the `deps` given there, and run until they finish, are cancelled, or the component unmounts.
 
 A `ctx.watch` on `action.state()` may call `.run(args)` again, for example to retry when the state becomes `Rejected`. The new run sets the state to `Pending` after the current notification. See [writes from callbacks](../reactivity/#writes-from-callbacks).
 
@@ -195,14 +246,14 @@ When using the `form` feature, `FormProps::submit_action(action)` wires a `Futur
 
 ## Task Lifetime
 
-Futures, streams, and future actions belong to the component that renders them. A task is cancelled when:
+Futures, streams, and future actions belong to the component that creates them. Calls made in `render` are positional, like hooks: each render must make the same `ctx.future`, `ctx.stream`, and `ctx.future_action` calls in the same order, and a call is matched with the slot of the same position in the previous render. Calls made in `create` get slots of their own, which no render replaces or drops. A task is cancelled when:
 
 - its dependency changes (the new task replaces it),
 - `.cancel()` is called,
 - a render no longer reaches its call: the component makes fewer `ctx.future`, `ctx.stream`, and `ctx.future_action` calls than before, or a different one at that position,
 - its component unmounts, which includes mounting another root and dropping the `Tree`.
 
-A cancelled task's result is never applied. With a Tokio handle, cancelling aborts the Tokio task: it stops the next time it yields to the runtime, at an `.await` whose future is not ready yet, and the runtime drops its future, so a stream does not have to reach its next `emit` to stop. Code between such points keeps running until it yields: CPU-bound work, or a loop whose `.await`s are always ready, is not interrupted. `.run(args)` on a `FutureAction` whose component has unmounted does nothing.
+A cancelled task's result is never applied. With a Tokio handle, cancelling aborts the Tokio task: it stops the next time it yields to the runtime, at an `.await` whose future is not ready yet, and the runtime drops its future, so a stream does not have to reach its next `emit` to stop. Code between such points keeps running until it yields: CPU-bound work, or a loop whose `.await`s are always ready, is not interrupted. `.run(args)` on a `FutureAction` whose component has unmounted does nothing. `.run(args)` on an action that a render dropped (its component is still mounted, but a render no longer made the call at its position) does nothing either, and logs an error through `tracing` that names the component: that is a bug in the component, fixed by creating the action in `create` or by making the calls unconditionally.
 
 An offstage component (`ctx.mount_offstage`, `Router::mount_offstage`) is still mounted, so its tasks are not cancelled, but its futures are not polled until it is active again. A future or stream polled cooperatively (without a Tokio handle) waits. A task already running on Tokio keeps running, and what it produced while offstage is applied, in order, once the component is active again. Removing an offstage component unmounts it and cancels its tasks.
 

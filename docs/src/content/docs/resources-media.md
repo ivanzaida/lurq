@@ -189,3 +189,23 @@ Markdown::mount(
 ```
 
 Use `MarkdownProps::style(...)` for the base text style, `.theme(...)` for block styling, and `.width(...)` for a width constraint. Link callbacks decide how the application opens or routes destinations. The demo's `/markdown` route exercises the component.
+
+By default the document fills its container's width, and so does every block in it. `.fit_content(true)` sizes it to its content instead, like CSS `width: fit-content; max-width: 100%`, so a chat bubble hugs its message:
+
+```rust
+Column::new()
+  .align_items(Alignment::End) // own messages on the right
+  .child(
+    Column::new()
+      .padding(8.0)
+      .background(bubble_color)
+      .child(Markdown::mount(ctx, MarkdownProps::new(message).fit_content(true))),
+  )
+```
+
+- The document is as wide as its widest block (a short message as its longest line) and never wider than its container's width, where its text wraps. Paragraphs, headings, lists, quotes and footnotes all size to their content; a long list item wraps beside its marker.
+- Every block is then stretched to the document's width, as CSS blocks are: a code block's box and a rule span the widest block.
+- A code block does not wrap: it is as wide as its longest line up to the container's width, and a longer line overflows its box, as when filling.
+- A table still takes the container's full width: its columns share that width so that they line up across its rows.
+- An explicit `.width(...)` still sets the document's width.
+- In a `Column`, the container's width is the column's. A `Row` gives its children unbounded width, so a bubble in a row needs `.max_width(Dimension::Pct(100.0))` (or a `flex_shrink` factor) for its text to wrap at the row's width.

@@ -133,6 +133,9 @@ pub(super) fn snapshot_node(
   if node.style_state.is_focused() {
     states.push("focused");
   }
+  if node.style_state.is_focus_visible() {
+    states.push("focus-visible");
+  }
   if layout.is_some_and(LayoutResult::is_dropped) {
     states.push("dropped");
   }

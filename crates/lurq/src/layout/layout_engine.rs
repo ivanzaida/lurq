@@ -1517,7 +1517,7 @@ impl LayoutEngine {
       NodeKind::Checkbox { state } => {
         let checked = state.is_checked();
         let hovered = node.is_style_hovered();
-        let style = state.style(checked, hovered, node.is_style_focused());
+        let style = state.style(checked, hovered, node.is_style_focus_visible());
         let width = style.width.unwrap_or(result.size.width).min(result.size.width).max(0.0);
         let height = style
           .height
@@ -1564,7 +1564,7 @@ impl LayoutEngine {
         let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
         let fill_style = state.fill_style(hovered);
-        let thumb_style = state.thumb_style(hovered, node.is_style_focused());
+        let thumb_style = state.thumb_style(hovered, node.is_style_focus_visible());
         let (track_rect, thumb_rect) = state.part_rects(
           abs_x,
           abs_y,
@@ -3876,6 +3876,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.state_styles.hovered.is_none()
     && node.state_styles.active.is_none()
     && node.state_styles.focused.is_none()
+    && node.state_styles.focus_visible.is_none()
     && node.opacity == DEFAULT_QUAD_OPACITY
     && node.animation_overrides.is_empty()
     && node.effective_transform().is_identity()

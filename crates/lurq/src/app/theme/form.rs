@@ -34,6 +34,8 @@ pub struct FormInputTheme {
   pub radius: RadiusSize,
   pub background: PaletteColor,
   pub border: PaletteColor,
+  /// Border while the input has focus, by click, Tab or a request: a text
+  /// input shows its focus for any focus, like a browser's text field.
   pub border_focus: PaletteColor,
   pub background_error: PaletteColor,
   pub border_error: PaletteColor,
@@ -50,7 +52,8 @@ pub struct FormCheckboxStyle {
   pub checked_background: PaletteColor,
   pub checked_border: PaletteColor,
   pub checked_background_hover: PaletteColor,
-  /// Box border while the checkbox has focus, checked or not.
+  /// Box border while the checkbox has keyboard focus (focus-visible: Tab or a
+  /// key press, not a click), checked or not.
   pub border_focus: PaletteColor,
   pub radius: RadiusSize,
 }
@@ -61,7 +64,8 @@ pub struct FormSliderStyle {
   pub track_hover: PaletteColor,
   pub thumb: PaletteColor,
   pub thumb_hover: PaletteColor,
-  /// Thumb border while the slider has focus.
+  /// Thumb border while the slider has keyboard focus (focus-visible: Tab or a
+  /// key press, not a click or drag).
   pub thumb_border_focus: PaletteColor,
 }
 
@@ -83,7 +87,8 @@ pub struct FormButtonRole {
   pub border_hover: PaletteColor,
   pub background_active: PaletteColor,
   pub border_active: PaletteColor,
-  /// Border while the button has focus, by click or Tab.
+  /// Border while the button has keyboard focus (focus-visible: Tab or a key
+  /// press, not a click).
   pub border_focus: PaletteColor,
   pub text: FormTextRole,
 }

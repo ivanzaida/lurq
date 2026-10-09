@@ -1,4 +1,4 @@
-//! Tab / Shift+Tab traversal and scrolling the focused node into view.
+//! Tab / Shift+Tab traversal. Revealing the newly focused node is [`super::scroll_into_view`].
 //!
 //! The Tab scope is the topmost open modal, or the whole window when no modal is open, and Tab wraps around at its
 //! ends. Only nodes with an explicit `tab_index >= 0` are stops, except inside forms, where controls are stops without
@@ -11,7 +11,7 @@
 use super::{FocusTarget, find_node_by_path};
 use crate::{
   core::NodeId,
-  layout::{layout_kind::LayoutKind, layout_result::LayoutResult},
+  layout::layout_result::LayoutResult,
   node::{Node, SyntheticNodeRole},
 };
 
@@ -195,95 +195,4 @@ fn is_form(node: &Node) -> bool {
 #[cfg(not(feature = "form"))]
 fn is_form(_: &Node) -> bool {
   false
-}
-
-/// Scrolls every scroll container around `node_id` just enough to show the
-/// node, innermost first. Returns whether any container moved.
-pub(super) fn scroll_into_view(root: &Node, layout: &LayoutResult, node_id: NodeId) -> bool {
-  let mut containers = Vec::new();
-  let Some(mut target) = find_rect(root, layout, (0.0, 0.0), node_id, &mut containers) else {
-    return false;
-  };
-  let mut scrolled = false;
-  for container in containers.iter().rev() {
-    let dx = axis_delta(target.x, target.width, container.viewport.x, container.viewport.width);
-    let dy = axis_delta(target.y, target.height, container.viewport.y, container.viewport.height);
-    if dx == 0.0 && dy == 0.0 {
-      continue;
-    }
-    let state = container.state;
-    let (old_x, old_y) = (state.scroll_x(), state.scroll_y());
-    state.set_scroll(old_x + dx, old_y + dy);
-    let (moved_x, moved_y) = (state.scroll_x() - old_x, state.scroll_y() - old_y);
-    if moved_x != 0.0 || moved_y != 0.0 {
-      scrolled = true;
-      target.x -= moved_x;
-      target.y -= moved_y;
-    }
-  }
-  scrolled
-}
-
-#[derive(Clone, Copy)]
-struct Rect {
-  x: f32,
-  y: f32,
-  width: f32,
-  height: f32,
-}
-
-struct ScrollContainer<'n> {
-  state: &'n crate::layout::layout_kind::ScrollState,
-  viewport: Rect,
-}
-
-fn find_rect<'n>(
-  node: &'n Node,
-  layout: &LayoutResult,
-  origin: (f32, f32),
-  node_id: NodeId,
-  containers: &mut Vec<ScrollContainer<'n>>,
-) -> Option<Rect> {
-  // A dropped subtree is not drawn: there is nothing to scroll to.
-  if layout.dropped {
-    return None;
-  }
-  let rect = Rect {
-    x: origin.0,
-    y: origin.1,
-    width: layout.size.width,
-    height: layout.size.height,
-  };
-  if node.node_id() == node_id {
-    return Some(rect);
-  }
-  let scroll = match node.layout_kind() {
-    LayoutKind::ScrollModifier { state, .. } => {
-      containers.push(ScrollContainer { state, viewport: rect });
-      true
-    }
-    _ => false,
-  };
-  for (child, child_layout) in node.children().iter().zip(&layout.children) {
-    let child_origin = (origin.0 + child_layout.offset.x, origin.1 + child_layout.offset.y);
-    if let Some(found) = find_rect(child, &child_layout.result, child_origin, node_id, containers) {
-      return Some(found);
-    }
-  }
-  if scroll {
-    containers.pop();
-  }
-  None
-}
-
-/// Smallest scroll along one axis that brings `[start, start + size]` into
-/// `[view, view + view_size]`; aligns the start when the node is larger.
-fn axis_delta(start: f32, size: f32, view: f32, view_size: f32) -> f32 {
-  if start < view || size > view_size {
-    start - view
-  } else if start + size > view + view_size {
-    start + size - (view + view_size)
-  } else {
-    0.0
-  }
 }

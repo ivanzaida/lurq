@@ -69,13 +69,42 @@ struct VirtualizedListOptions {
   /// Scroll horizontally too (rows wider than the viewport pan; virtualization
   /// still works off the vertical axis only).
   horizontal: bool,
-  /// A row key to scroll into view (`scrollIntoView` with `nearest` block
-  /// behaviour): revealed once when this value changes, and only when the row
-  /// is off-screen — an already-visible row does not move. Used to restore a
-  /// selection after navigation without persisting scroll offsets.
+  /// A row key to scroll into view: revealed once when this value changes
+  /// (and on the first render), and only when the row is not fully visible —
+  /// an already-visible row does not move. Used to restore a selection after
+  /// navigation without persisting scroll offsets.
   reveal_key: Option<String>,
 }
 
+/// A vertically scrolling list that mounts only the rows in and near its
+/// viewport (`overscan_px` beyond each edge), so lists of any length cost
+/// about as much as one screen of rows. Each row is a component mounted with
+/// [`mount_keyed`](Self::mount_keyed): `key_fn` gives the row's stable key,
+/// `props_fn` its props. Row heights are measured as rows are laid out;
+/// rows never measured count as the average measured height.
+///
+/// # Row state
+///
+/// A row that leaves the rendered window is unmounted, and created again
+/// from its props when it comes back: whatever the row component holds
+/// itself — fields set in `create`, signals from `ctx.signal`, element refs,
+/// a text input's value signal created by the row, focus — starts over.
+/// Keep state that must survive scrolling above the list, keyed by row key:
+/// in the items themselves when it is data, or in a signal or store the
+/// screen owns (for example `Signal<HashMap<Key, RowState>>`, or a
+/// `HashMap<Key, Signal<String>>` of text-input values) and hands to rows
+/// with `ctx.provide` / `ctx.use_context` or through their props. Remove
+/// entries whose keys left the items when the items change.
+///
+/// ```ignore
+/// // In the screen's `create`: one map for every row, keyed like the rows.
+/// let expanded: Signal<HashMap<TaskId, bool>> = ctx.signal(HashMap::new());
+/// ctx.provide(expanded);
+///
+/// // In the row: read its entry (subscribes) and write it on toggle.
+/// let expanded = ctx.use_context::<Signal<HashMap<TaskId, bool>>>().expect("provided by the screen");
+/// let open = expanded.with(|rows| rows.get(&task.id).copied().unwrap_or(false));
+/// ```
 pub struct VirtualizedList<'a, T> {
   ctx: &'a mut Ctx,
   items: Arc<Vec<T>>,
@@ -118,11 +147,18 @@ impl<'a, T> VirtualizedList<'a, T> {
     self
   }
 
-  /// Scroll the row with this key into view (`scrollIntoView`, `nearest`): the
-  /// reveal fires once each time the key changes, and only if the row is
-  /// off-screen, so an already-visible target does not jump. Pass the current
-  /// selection's row key to restore it after navigation without persisting the
-  /// scroll offset.
+  /// Scroll the row with this key into view: the reveal fires once each time
+  /// the key changes (including the first render, so a list mounted with a
+  /// key opens on that row), and only if the row is not fully visible — an
+  /// already-visible row does not move; an off-screen row is scrolled to the
+  /// top of the viewport. Pass the current selection's row key to restore it
+  /// after navigation without persisting the scroll offset. A key that is not
+  /// among the items is dropped, except while the list is still empty: then
+  /// the reveal waits for the items to arrive.
+  ///
+  /// This is the way to reveal a row that is not mounted (outside the
+  /// viewport and overscan); an element inside a mounted row can also be
+  /// revealed with [`Ctx::scroll_into_view`].
   pub fn reveal_key(mut self, key: Option<String>) -> Self {
     self.options.reveal_key = key;
     self
@@ -626,32 +662,7 @@ where
         }
       }
 
-      // Reveal the requested row: when it is not already fully visible, scroll
-      // it to the top of the viewport (`scrollIntoView`, `block: start`); an
-      // already-visible row does not move, so clicking a visible row never
-      // jumps. The target's offset comes from the same estimate prefix; the
-      // reveal stays pending until the row itself has a real measurement, so
-      // the position converges as the revealed window's heights land.
-      if let Some(key) = runtime.pending_reveal.clone() {
-        match runtime.order.iter().position(|k| k == &key) {
-          Some(index) => {
-            let row_top = runtime.prefix.get(index).copied().unwrap_or(0.0);
-            let row_bottom = runtime.prefix.get(index + 1).copied().unwrap_or(row_top);
-            let view_top = scroll_state.scroll_y();
-            let view_bottom = view_top + scroll_state.viewport_height();
-            let fully_visible = row_top >= view_top && row_bottom <= view_bottom;
-            if fully_visible {
-              if runtime.heights.contains_key(&key) {
-                runtime.pending_reveal = None;
-              }
-            } else {
-              scroll_state.set_scroll(0.0, row_top.max(0.0));
-              changed = true;
-            }
-          }
-          None => runtime.pending_reveal = None,
-        }
-      }
+      changed |= runtime.apply_pending_reveal(&scroll_state);
     }
 
     if changed {
@@ -855,41 +866,7 @@ where
       runtime.pending_reveal = options.reveal_key.clone();
     }
 
-    // Cumulative heights (`prefix[i]` = top of row `i`), rebuilt only when
-    // items or measured heights changed. Rows that were never measured count
-    // as the average measured height — off-screen rows are never mounted just
-    // to size them; the extent refines as real heights come in. Row offsets
-    // and the visible range then cost O(1)/O(log n) per scroll tick.
-    if runtime.prefix_dirty {
-      let mut measured_sum = 0.0f64;
-      let mut measured_count = 0usize;
-      let row_heights: Vec<Option<f32>> = runtime
-        .order
-        .iter()
-        .map(|key| {
-          let height = runtime.heights.get(key).copied();
-          if let Some(height) = height {
-            measured_sum += f64::from(height);
-            measured_count += 1;
-          }
-          height
-        })
-        .collect();
-      let estimate = if measured_count > 0 {
-        (measured_sum / measured_count as f64) as f32
-      } else {
-        0.0
-      };
-      let mut prefix = Vec::with_capacity(row_heights.len() + 1);
-      let mut sum = 0.0f32;
-      prefix.push(0.0);
-      for height in row_heights {
-        sum += height.unwrap_or(estimate);
-        prefix.push(sum);
-      }
-      runtime.prefix = prefix;
-      runtime.prefix_dirty = false;
-    }
+    runtime.rebuild_prefix_if_dirty();
 
     let count = runtime.order.len();
     let has_measurements = !runtime.heights.is_empty();
@@ -990,6 +967,83 @@ where
     }
 
     column
+  }
+}
+
+impl<T> VirtualizedRuntime<T> {
+  /// Cumulative heights (`prefix[i]` = top of row `i`), rebuilt only when
+  /// items or measured heights changed. Rows that were never measured count
+  /// as the average measured height — off-screen rows are never mounted just
+  /// to size them; the extent refines as real heights come in. Row offsets
+  /// and the visible range then cost O(1)/O(log n) per scroll tick.
+  fn rebuild_prefix_if_dirty(&mut self) {
+    if !self.prefix_dirty {
+      return;
+    }
+    let mut measured_sum = 0.0f64;
+    let mut measured_count = 0usize;
+    let row_heights: Vec<Option<f32>> = self
+      .order
+      .iter()
+      .map(|key| {
+        let height = self.heights.get(key).copied();
+        if let Some(height) = height {
+          measured_sum += f64::from(height);
+          measured_count += 1;
+        }
+        height
+      })
+      .collect();
+    let estimate = if measured_count > 0 {
+      (measured_sum / measured_count as f64) as f32
+    } else {
+      0.0
+    };
+    let mut prefix = Vec::with_capacity(row_heights.len() + 1);
+    let mut sum = 0.0f32;
+    prefix.push(0.0);
+    for height in row_heights {
+      sum += height.unwrap_or(estimate);
+      prefix.push(sum);
+    }
+    self.prefix = prefix;
+    self.prefix_dirty = false;
+  }
+
+  /// Reveal the requested row: when it is not already fully visible, scroll
+  /// it to the top of the viewport (`scrollIntoView`, `block: start`); an
+  /// already-visible row does not move, so clicking a visible row never
+  /// jumps. Visibility and the target offset come from the estimate prefix,
+  /// rebuilt first from the heights this layout just measured: the prefix of
+  /// the previous render is all zeros before the first measurement, which
+  /// made a row below the viewport look visible and dropped the reveal of a
+  /// list mounted with its key already set. The reveal stays pending until
+  /// the row itself has a real measurement, so the position converges as the
+  /// revealed window's heights land, and while the list has no items yet
+  /// (items that load after the list mounted). Returns whether it scrolled.
+  fn apply_pending_reveal(&mut self, scroll_state: &ScrollState) -> bool {
+    let Some(key) = self.pending_reveal.clone() else {
+      return false;
+    };
+    let Some(index) = self.order.iter().position(|k| k == &key) else {
+      if !self.order.is_empty() {
+        self.pending_reveal = None;
+      }
+      return false;
+    };
+    self.rebuild_prefix_if_dirty();
+    let row_top = self.prefix.get(index).copied().unwrap_or(0.0);
+    let row_bottom = self.prefix.get(index + 1).copied().unwrap_or(row_top);
+    let view_top = scroll_state.scroll_y();
+    let view_bottom = view_top + scroll_state.viewport_height();
+    if row_top >= view_top && row_bottom <= view_bottom {
+      if self.heights.contains_key(&key) {
+        self.pending_reveal = None;
+      }
+      return false;
+    }
+    scroll_state.set_scroll(0.0, row_top.max(0.0));
+    true
   }
 }
 

@@ -16,10 +16,13 @@ mod element_ref_interaction;
 #[cfg(feature = "form")]
 mod focus_reconciliation;
 mod futures {
+  mod created_in_create;
   mod future_action_restarts_from_state_watch;
   mod future_action_runs_on_run;
   mod future_resolves;
   mod future_restarts_on_deps_change;
+  mod outcome;
+  mod run_if_idle;
   #[cfg(feature = "tokio")]
   mod tokio_future_action_uses_runtime;
   #[cfg(feature = "tokio")]
@@ -28,6 +31,7 @@ mod futures {
   mod tokio_tasks;
 }
 mod headless_pass;
+mod input_source;
 mod modal_resize;
 mod mouse_leave;
 mod outside_press;

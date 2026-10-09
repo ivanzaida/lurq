@@ -1,19 +1,15 @@
 #[cfg(feature = "devtools")]
 use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "tokio")]
-use std::sync::mpsc::{self, TryRecvError};
 #[cfg(feature = "devtools")]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
   any::Any,
   collections::HashSet,
-  future::Future,
-  pin::Pin,
   sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
-  task::{Context as TaskContext, Poll, Wake, Waker},
+  task::Context as TaskContext,
   time::{Duration, Instant},
 };
 
@@ -35,6 +31,11 @@ use crate::{
   },
   node::{Element, HitTestBehavior, Node},
 };
+
+mod futures;
+
+use futures::{FutureSlot, RuntimeFutureHandle, noop_waker};
+pub use futures::{FutureAction, FutureHandle, FutureState, FutureStatus, StreamEmitter, StreamHandle};
 
 static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -591,539 +592,13 @@ impl Timer {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
-pub enum FutureStatus {
-  Idle,
-  Pending,
-  Fulfilled,
-  Rejected,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct FutureState<T, E> {
-  pub status: FutureStatus,
-  pub data: Option<T>,
-  pub error: Option<E>,
-}
-
-impl<T, E> crate::app::component::DevtoolsInspectable for FutureState<T, E>
-where
-  T: crate::app::component::DevtoolsInspectable,
-  E: crate::app::component::DevtoolsInspectable,
-{
-  fn write_info(&self, buffer: &mut Vec<crate::app::component::ComponentInfo>) {
-    let mut children = Vec::new();
-    crate::app::component::DevtoolsInspectable::write_info(&self.status, &mut children);
-    crate::app::component::DevtoolsInspectable::write_info(&self.data, &mut children);
-    crate::app::component::DevtoolsInspectable::write_info(&self.error, &mut children);
-    buffer.push(crate::app::component::ComponentInfo::with_children(
-      "FutureState",
-      std::any::type_name::<Self>(),
-      children,
-    ));
-  }
-}
-
-impl<T, E> FutureState<T, E> {
-  pub fn idle() -> Self {
-    Self {
-      status: FutureStatus::Idle,
-      data: None,
-      error: None,
-    }
-  }
-
-  pub fn pending(data: Option<T>) -> Self {
-    Self {
-      status: FutureStatus::Pending,
-      data,
-      error: None,
-    }
-  }
-
-  pub fn fulfilled(data: T) -> Self {
-    Self {
-      status: FutureStatus::Fulfilled,
-      data: Some(data),
-      error: None,
-    }
-  }
-
-  pub fn rejected(error: E, data: Option<T>) -> Self {
-    Self {
-      status: FutureStatus::Rejected,
-      data,
-      error: Some(error),
-    }
-  }
-
-  pub fn is_idle(&self) -> bool {
-    self.status == FutureStatus::Idle
-  }
-
-  pub fn is_pending(&self) -> bool {
-    self.status == FutureStatus::Pending
-  }
-
-  pub fn is_fulfilled(&self) -> bool {
-    self.status == FutureStatus::Fulfilled
-  }
-
-  pub fn is_rejected(&self) -> bool {
-    self.status == FutureStatus::Rejected
-  }
-}
-
-pub struct FutureHandle<T: SignalValue, E: SignalValue> {
-  state: Signal<FutureState<T, E>>,
-  task: AsyncTask,
-}
-
-pub struct StreamHandle<T: SignalValue, E: SignalValue> {
-  state: Signal<FutureState<T, E>>,
-  task: AsyncTask,
-}
-
-#[derive(Clone)]
-pub struct StreamEmitter<T: SignalValue, E: SignalValue> {
-  state: Signal<FutureState<T, E>>,
-  #[cfg(feature = "tokio")]
-  sender: Option<mpsc::Sender<FutureCompletion>>,
-}
-
-pub struct FutureAction<A, T: SignalValue, E: SignalValue> {
-  state: Signal<FutureState<T, E>>,
-  task: AsyncTask,
-  runner: Arc<Mutex<ActionRunner<A, T, E>>>,
-  runtime_handle: RuntimeFutureHandle,
-}
-
-type BoxFutureResult<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
-type ActionRunner<A, T, E> = Arc<dyn Fn(A) -> BoxFutureResult<T, E> + Send + Sync>;
-#[cfg(feature = "tokio")]
-type FutureCompletion = Box<dyn FnOnce() + Send>;
-#[cfg(feature = "tokio")]
-type RuntimeFutureHandle = Option<tokio::runtime::Handle>;
-#[cfg(not(feature = "tokio"))]
-type RuntimeFutureHandle = ();
-
-#[derive(Clone)]
-struct AsyncTask {
-  inner: Arc<Mutex<AsyncTaskInner>>,
-}
-
+/// What components asked the runtime to do with an element of the tree,
+/// shared by every `Ctx` of a window and applied once the render that
+/// attaches the element is reconciled (focus) or laid out (scroll).
 #[derive(Default)]
-struct AsyncTaskInner {
-  work: AsyncWork,
-  /// Set when the slot that owns the task is dropped: the task never starts
-  /// work again, even through a handle that outlived its component.
-  closed: bool,
-}
-
-/// The work a task is running. Dropping it cancels the work.
-#[derive(Default)]
-struct AsyncWork {
-  future: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
-  #[cfg(feature = "tokio")]
-  tokio_task: Option<TokioAsyncTask>,
-}
-
-/// A `ctx.future`, `ctx.stream` or `ctx.future_action` slot of a component.
-/// Its task lives as long as the slot: dropping the slot (its component
-/// unmounts, or a render no longer reaches it) cancels the task.
-struct FutureSlot {
-  deps: Option<Box<dyn Any + Send + Sync>>,
-  handle: Box<dyn Any + Send + Sync>,
-  task: AsyncTask,
-}
-
-impl Drop for FutureSlot {
-  fn drop(&mut self) {
-    self.task.close();
-  }
-}
-
-#[cfg(feature = "tokio")]
-struct TokioAsyncTask {
-  join: tokio::task::JoinHandle<()>,
-  receiver: mpsc::Receiver<FutureCompletion>,
-  finish_on_message: bool,
-}
-
-/// Dropping a `JoinHandle` only detaches its task, so the task is aborted
-/// explicitly. `abort` only marks the task cancelled and schedules it: the
-/// runtime drops the future on its own threads, and on a runtime that is
-/// shutting down or gone the call does nothing (shutdown drops the future).
-#[cfg(feature = "tokio")]
-impl Drop for TokioAsyncTask {
-  fn drop(&mut self) {
-    self.join.abort();
-  }
-}
-
-struct NoopWake;
-
-impl Wake for NoopWake {
-  fn wake(self: Arc<Self>) {}
-}
-
-impl<T: SignalValue, E: SignalValue> Clone for FutureHandle<T, E> {
-  fn clone(&self) -> Self {
-    Self {
-      state: self.state.clone(),
-      task: self.task.clone(),
-    }
-  }
-}
-
-impl<T: SignalValue, E: SignalValue> Clone for StreamHandle<T, E> {
-  fn clone(&self) -> Self {
-    Self {
-      state: self.state.clone(),
-      task: self.task.clone(),
-    }
-  }
-}
-
-impl<A, T: SignalValue, E: SignalValue> Clone for FutureAction<A, T, E> {
-  fn clone(&self) -> Self {
-    Self {
-      state: self.state.clone(),
-      task: self.task.clone(),
-      runner: self.runner.clone(),
-      runtime_handle: self.runtime_handle.clone(),
-    }
-  }
-}
-
-impl<T, E> StreamEmitter<T, E>
-where
-  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-{
-  pub fn emit(&self, data: T) -> bool {
-    #[cfg(feature = "tokio")]
-    if let Some(sender) = &self.sender {
-      let state = self.state.clone();
-      return sender
-        .send(Box::new(move || state.set(FutureState::fulfilled(data))))
-        .is_ok();
-    }
-
-    self.state.set(FutureState::fulfilled(data));
-    true
-  }
-
-  pub fn reject(&self, error: E) -> bool {
-    #[cfg(feature = "tokio")]
-    if let Some(sender) = &self.sender {
-      let state = self.state.clone();
-      return sender
-        .send(Box::new(move || {
-          let previous_data = state.get_untracked().data;
-          state.set(FutureState::rejected(error, previous_data));
-        }))
-        .is_ok();
-    }
-
-    let previous_data = self.state.get_untracked().data;
-    self.state.set(FutureState::rejected(error, previous_data));
-    true
-  }
-}
-
-impl<T: SignalValue, E: SignalValue> FutureHandle<T, E> {
-  pub fn state(&self) -> Signal<FutureState<T, E>> {
-    self.state.clone()
-  }
-
-  pub fn cancel(&self) {
-    self.task.cancel();
-  }
-
-  pub fn is_active(&self) -> bool {
-    self.task.is_active()
-  }
-}
-
-impl<T: SignalValue, E: SignalValue> StreamHandle<T, E> {
-  pub fn state(&self) -> Signal<FutureState<T, E>> {
-    self.state.clone()
-  }
-
-  pub fn cancel(&self) {
-    self.task.cancel();
-  }
-
-  pub fn is_active(&self) -> bool {
-    self.task.is_active()
-  }
-}
-
-impl<A: Send + Sync + 'static, T, E> FutureAction<A, T, E>
-where
-  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-{
-  pub fn state(&self) -> Signal<FutureState<T, E>> {
-    self.state.clone()
-  }
-
-  /// Starts the action with `args`, replacing a run still in flight. Does
-  /// nothing once the component that created the action has unmounted.
-  pub fn run(&self, args: A) {
-    if self.task.is_closed() {
-      return;
-    }
-    let runner = self.runner.lock().clone();
-    let future = runner(args);
-    start_future_task(
-      self.state.clone(),
-      self.task.clone(),
-      self.runtime_handle.clone(),
-      future,
-    );
-  }
-
-  pub fn cancel(&self) {
-    self.task.cancel();
-  }
-
-  pub fn is_active(&self) -> bool {
-    self.task.is_active()
-  }
-}
-
-impl AsyncTask {
-  fn new() -> Self {
-    Self {
-      inner: Arc::new(Mutex::new(AsyncTaskInner::default())),
-    }
-  }
-
-  /// Replaces the running work with a future polled by `tick_futures`.
-  fn set(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-    let work = AsyncWork {
-      future: Some(future),
-      #[cfg(feature = "tokio")]
-      tokio_task: None,
-    };
-    self.replace_work(work);
-  }
-
-  /// Replaces the running work with `future` spawned on `runtime`.
-  ///
-  /// The task is spawned before the lock is taken: on a runtime that is gone,
-  /// `spawn` drops the future on this thread, and its destructors may use a
-  /// handle of this task. A `close` that lands between the spawn and the lock
-  /// is seen by `replace_work`, which then aborts the new task.
-  #[cfg(feature = "tokio")]
-  fn spawn(
-    &self,
-    runtime: &tokio::runtime::Handle,
-    future: impl Future<Output = ()> + Send + 'static,
-    receiver: mpsc::Receiver<FutureCompletion>,
-    finish_on_message: bool,
-  ) {
-    if self.is_closed() {
-      return;
-    }
-    let spawned = TokioAsyncTask {
-      join: runtime.spawn(future),
-      receiver,
-      finish_on_message,
-    };
-    self.replace_work(AsyncWork {
-      future: None,
-      tokio_task: Some(spawned),
-    });
-  }
-
-  /// Makes `work` the running work, unless the task is closed. Whichever work
-  /// ends up unused (the replaced one, or `work` itself on a closed task) is
-  /// dropped once the lock is released: dropping it runs user destructors,
-  /// which may use a handle of this task.
-  fn replace_work(&self, work: AsyncWork) {
-    let unused = {
-      let mut inner = self.inner.lock();
-      if inner.closed {
-        work
-      } else {
-        std::mem::replace(&mut inner.work, work)
-      }
-    };
-    drop(unused);
-  }
-
-  fn cancel(&self) {
-    // Dropped once the lock is released: dropping a future runs its destructors.
-    let cancelled = std::mem::take(&mut self.inner.lock().work);
-    drop(cancelled);
-  }
-
-  /// Cancels the running work and keeps the task from starting again.
-  fn close(&self) {
-    let cancelled = {
-      let mut inner = self.inner.lock();
-      inner.closed = true;
-      std::mem::take(&mut inner.work)
-    };
-    drop(cancelled);
-  }
-
-  fn is_closed(&self) -> bool {
-    self.inner.lock().closed
-  }
-
-  fn is_active(&self) -> bool {
-    let inner = self.inner.lock();
-    inner.work.future.is_some() || {
-      #[cfg(feature = "tokio")]
-      {
-        inner.work.tokio_task.is_some()
-      }
-      #[cfg(not(feature = "tokio"))]
-      {
-        false
-      }
-    }
-  }
-
-  fn poll(&self, cx: &mut TaskContext<'_>) -> bool {
-    // Release the task lock before polling: a completing future sets its state
-    // signal, and an observer of that signal may start this task again.
-    let future = self.inner.lock().work.future.take();
-    if let Some(mut future) = future {
-      match future.as_mut().poll(cx) {
-        Poll::Ready(()) => return true,
-        Poll::Pending => {
-          let mut inner = self.inner.lock();
-          if !inner.closed && inner.work.future.is_none() {
-            inner.work.future = Some(future);
-          }
-          return false;
-        }
-      }
-    }
-
-    #[cfg(feature = "tokio")]
-    {
-      let mut completion = None;
-      let mut disconnected = false;
-      let mut finished = None;
-      {
-        let mut inner = self.inner.lock();
-        if let Some(task) = inner.work.tokio_task.as_mut() {
-          match task.receiver.try_recv() {
-            Ok(received) => {
-              if task.finish_on_message {
-                disconnected = true;
-              }
-              completion = Some(received);
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => disconnected = true,
-          }
-        }
-        if disconnected {
-          finished = inner.work.tokio_task.take();
-        }
-      }
-      drop(finished);
-
-      if let Some(completion) = completion {
-        completion();
-        return true;
-      }
-    }
-
-    false
-  }
-}
-
-fn noop_waker() -> Waker {
-  Waker::from(Arc::new(NoopWake))
-}
-
-fn start_future_task<T, E>(
-  state: Signal<FutureState<T, E>>,
-  task: AsyncTask,
-  runtime_handle: RuntimeFutureHandle,
-  future: BoxFutureResult<T, E>,
-) where
-  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-{
-  let previous_data = state.get_untracked().data;
-  state.set(FutureState::pending(previous_data));
-
-  #[cfg(feature = "tokio")]
-  if let Some(handle) = runtime_handle {
-    let completion_state = state.clone();
-    let (sender, receiver) = mpsc::channel::<FutureCompletion>();
-    let completion_task = async move {
-      let result = future.await;
-      let completion: FutureCompletion = Box::new(move || match result {
-        Ok(data) => completion_state.set(FutureState::fulfilled(data)),
-        Err(error) => {
-          let previous_data = completion_state.get_untracked().data;
-          completion_state.set(FutureState::rejected(error, previous_data));
-        }
-      });
-      let _ = sender.send(completion);
-    };
-    task.spawn(&handle, completion_task, receiver, true);
-    return;
-  }
-
-  #[cfg(not(feature = "tokio"))]
-  let _ = runtime_handle;
-
-  let completion_state = state.clone();
-  task.set(Box::pin(async move {
-    match future.await {
-      Ok(data) => completion_state.set(FutureState::fulfilled(data)),
-      Err(error) => {
-        let previous_data = completion_state.get_untracked().data;
-        completion_state.set(FutureState::rejected(error, previous_data));
-      }
-    }
-  }));
-}
-
-fn start_stream_task<T, E, Fut>(
-  state: Signal<FutureState<T, E>>,
-  task: AsyncTask,
-  runtime_handle: RuntimeFutureHandle,
-  factory: impl FnOnce(StreamEmitter<T, E>) -> Fut,
-) where
-  T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-  E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-  Fut: Future<Output = ()> + Send + 'static,
-{
-  let previous_data = state.get_untracked().data;
-  state.set(FutureState::pending(previous_data));
-
-  #[cfg(feature = "tokio")]
-  if let Some(handle) = runtime_handle {
-    let (sender, receiver) = mpsc::channel::<FutureCompletion>();
-    let emitter = StreamEmitter {
-      state,
-      sender: Some(sender),
-    };
-    task.spawn(&handle, factory(emitter), receiver, false);
-    return;
-  }
-
-  #[cfg(not(feature = "tokio"))]
-  let _ = runtime_handle;
-
-  let emitter = StreamEmitter {
-    state,
-    #[cfg(feature = "tokio")]
-    sender: None,
-  };
-  task.set(Box::pin(factory(emitter)));
+struct ElementRequests {
+  focus: Option<ElementRef>,
+  scroll_into_view: Option<ElementRef>,
 }
 
 pub struct Ctx {
@@ -1149,7 +624,7 @@ pub struct Ctx {
   #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<App>,
-  focus_request: Arc<Mutex<Option<ElementRef>>>,
+  element_requests: Arc<Mutex<ElementRequests>>,
   #[cfg(feature = "tokio")]
   runtime_future_handle: RuntimeFutureHandle,
   context_map: ContextMap,
@@ -1171,7 +646,14 @@ pub struct Ctx {
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
   timers: Vec<Timer>,
+  /// Slots of the `ctx.future`, `ctx.stream` and `ctx.future_action` calls of
+  /// a render, by call position.
   future_slots: Vec<FutureSlot>,
+  /// Slots of those calls made outside render (in `create`): one each, kept
+  /// until the component unmounts.
+  stable_future_slots: Vec<FutureSlot>,
+  /// The component this context belongs to, for diagnostics.
+  component_name: &'static str,
   #[cfg(feature = "query")]
   query_registry: crate::query::QueryRegistry,
   #[cfg(feature = "query")]
@@ -1565,7 +1047,7 @@ impl Ctx {
       #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
-      focus_request: Arc::new(Mutex::new(None)),
+      element_requests: Arc::default(),
       #[cfg(feature = "tokio")]
       runtime_future_handle: None,
       context_map: ContextMap::default(),
@@ -1583,6 +1065,8 @@ impl Ctx {
       effects: Vec::new(),
       timers: Vec::new(),
       future_slots: Vec::new(),
+      stable_future_slots: Vec::new(),
+      component_name: "root",
       #[cfg(feature = "query")]
       query_registry: crate::query::QueryRegistry::default(),
       #[cfg(feature = "query")]
@@ -1729,6 +1213,10 @@ impl Ctx {
   #[cfg(not(feature = "devtools"))]
   fn set_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
     self.props = Some(Box::new(props));
+  }
+
+  pub(crate) fn set_component_name(&mut self, name: &'static str) {
+    self.component_name = name;
   }
 
   #[cfg(feature = "devtools")]
@@ -2009,63 +1497,6 @@ impl Ctx {
     nav.state::<T>()
   }
 
-  /// Runs a finite async operation and restarts it when `deps` changes between renders.
-  ///
-  /// Use this for requests, loads, and other one-shot work that has a single result.
-  /// Do not use `future` to model a continuous subscription by manually changing a
-  /// dependency after each completion; that creates a render-dependent re-arm gap.
-  /// Use [`Ctx::stream`] for receiver/watch/event sources that can produce multiple
-  /// values over time.
-  pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
-  where
-    D: Clone + PartialEq + Send + Sync + 'static,
-    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-    E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-    F: Fn(D) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<T, E>> + Send + 'static,
-  {
-    let cursor = self.future_cursor;
-    self.future_cursor += 1;
-    let runtime_handle = self.runtime_future_handle();
-
-    if cursor < self.future_slots.len() {
-      let slot = &mut self.future_slots[cursor];
-      if let Some(handle) = slot.handle.downcast_ref::<FutureHandle<T, E>>() {
-        let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
-        let handle = handle.clone();
-        if deps_changed {
-          slot.deps = Some(Box::new(deps.clone()));
-          start_future_task(
-            handle.state.clone(),
-            handle.task.clone(),
-            runtime_handle.clone(),
-            Box::pin(factory(deps)),
-          );
-        }
-        return handle;
-      }
-    }
-
-    let state = self.signal(FutureState::idle());
-    let task = AsyncTask::new();
-    let handle = FutureHandle {
-      state: state.clone(),
-      task: task.clone(),
-    };
-    let slot = FutureSlot {
-      deps: Some(Box::new(deps.clone())),
-      handle: Box::new(handle.clone()),
-      task: task.clone(),
-    };
-    if cursor < self.future_slots.len() {
-      self.future_slots[cursor] = slot;
-    } else {
-      self.future_slots.push(slot);
-    }
-    start_future_task(state, task, runtime_handle, Box::pin(factory(deps)));
-    handle
-  }
-
   /// Returns the client provided by a stable ancestor or this root context.
   #[cfg(feature = "query")]
   pub fn query_client(&mut self) -> crate::query::QueryClient {
@@ -2104,109 +1535,6 @@ impl Ctx {
       self.query_slots.push(observer);
     }
     handle
-  }
-
-  /// Runs a continuous async producer and updates the handle state for every emitted item.
-  ///
-  /// The stream task starts on first render, restarts when `deps` changes between
-  /// renders, and is cancelled when the component unmounts or stops calling
-  /// `stream` at this cursor position. Call [`StreamEmitter::emit`] from the task
-  /// for each item and [`StreamEmitter::reject`] to publish an error while keeping
-  /// the stream alive.
-  ///
-  /// Use this for `watch::Receiver`, websocket/event subscriptions, file watchers,
-  /// and other sources that can yield more than one value.
-  pub fn stream<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> StreamHandle<T, E>
-  where
-    D: Clone + PartialEq + Send + Sync + 'static,
-    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-    E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-    F: Fn(D, StreamEmitter<T, E>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + 'static,
-  {
-    let cursor = self.future_cursor;
-    self.future_cursor += 1;
-    let runtime_handle = self.runtime_future_handle();
-
-    if cursor < self.future_slots.len() {
-      let slot = &mut self.future_slots[cursor];
-      if let Some(handle) = slot.handle.downcast_ref::<StreamHandle<T, E>>() {
-        let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
-        let handle = handle.clone();
-        if deps_changed {
-          slot.deps = Some(Box::new(deps.clone()));
-          start_stream_task(
-            handle.state.clone(),
-            handle.task.clone(),
-            runtime_handle.clone(),
-            move |emitter| factory(deps, emitter),
-          );
-        }
-        return handle;
-      }
-    }
-
-    let state = self.signal(FutureState::idle());
-    let task = AsyncTask::new();
-    let handle = StreamHandle {
-      state: state.clone(),
-      task: task.clone(),
-    };
-    let slot = FutureSlot {
-      deps: Some(Box::new(deps.clone())),
-      handle: Box::new(handle.clone()),
-      task: task.clone(),
-    };
-    if cursor < self.future_slots.len() {
-      self.future_slots[cursor] = slot;
-    } else {
-      self.future_slots.push(slot);
-    }
-    start_stream_task(state, task, runtime_handle, move |emitter| factory(deps, emitter));
-    handle
-  }
-
-  pub fn future_action<A, T, E, F, Fut>(&mut self, factory: F) -> FutureAction<A, T, E>
-  where
-    A: Send + Sync + 'static,
-    T: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-    E: SignalValue + Clone + PartialEq + Send + Sync + 'static,
-    F: Fn(A) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<T, E>> + Send + 'static,
-  {
-    let cursor = self.future_cursor;
-    self.future_cursor += 1;
-    let runtime_handle = self.runtime_future_handle();
-    let runner: ActionRunner<A, T, E> = Arc::new(move |args| Box::pin(factory(args)));
-
-    if cursor < self.future_slots.len() {
-      let slot = &mut self.future_slots[cursor];
-      if let Some(action) = slot.handle.downcast_mut::<FutureAction<A, T, E>>() {
-        *action.runner.lock() = runner;
-        action.runtime_handle = runtime_handle;
-        return action.clone();
-      }
-    }
-
-    let state = self.signal(FutureState::idle());
-    let task = AsyncTask::new();
-    let action = FutureAction {
-      state,
-      task: task.clone(),
-      runner: Arc::new(Mutex::new(runner)),
-      runtime_handle,
-    };
-    let slot = FutureSlot {
-      deps: None,
-      handle: Box::new(action.clone()),
-      task,
-    };
-    if cursor < self.future_slots.len() {
-      self.future_slots[cursor] = slot;
-    } else {
-      self.future_slots.push(slot);
-    }
-    action
   }
 
   pub fn watch<T: SignalValue + Send + Sync + 'static>(
@@ -2481,23 +1809,56 @@ impl Ctx {
   /// Requests focus after the current render is reconciled. The ref may be
   /// attached by the render that follows this call (for example after navigation).
   /// Requests for refs absent from that tree are ignored. The last request wins.
+  ///
+  /// The focused element is then scrolled into view like
+  /// [`Ctx::scroll_into_view`], as a browser's `element.focus()` does.
   pub fn focus(&self, element: &ElementRef) {
-    *self.focus_request.lock() = Some(element.clone());
+    self.element_requests.lock().focus = Some(element.clone());
+    self.wake_window();
+  }
+
+  /// Scrolls the element into view after the current render is laid out:
+  /// every scroll container around it scrolls by the smallest amount that
+  /// shows it, innermost first, on each axis the container scrolls — the
+  /// web's `scrollIntoView({ block: "nearest", inline: "nearest" })`. An
+  /// element already in view does not move anything; one larger than a
+  /// viewport is aligned to the viewport start. The frame that follows is
+  /// drawn at the new position.
+  ///
+  /// The ref may be attached by the render that follows this call. Requests
+  /// for refs absent from that tree are ignored. The last request wins.
+  ///
+  /// Inside a [`VirtualizedList`](crate::components::VirtualizedList) this
+  /// reaches elements of mounted rows only; reveal a row that may be outside
+  /// the rendered window with
+  /// [`VirtualizedList::reveal_key`](crate::components::VirtualizedList::reveal_key).
+  pub fn scroll_into_view(&self, element: &ElementRef) {
+    self.element_requests.lock().scroll_into_view = Some(element.clone());
+    self.wake_window();
+  }
+
+  fn wake_window(&self) {
     if let Some(window) = &self.window {
       window.wake();
     }
   }
 
-  pub(crate) fn has_focus_request(&self) -> bool {
-    self.focus_request.lock().is_some()
+  /// Whether a focus or scroll-into-view request is waiting for the runtime.
+  pub(crate) fn has_element_request(&self) -> bool {
+    let requests = self.element_requests.lock();
+    requests.focus.is_some() || requests.scroll_into_view.is_some()
   }
 
   pub(crate) fn focus_request(&self) -> Option<ElementRef> {
-    self.focus_request.lock().clone()
+    self.element_requests.lock().focus.clone()
   }
 
   pub(crate) fn take_focus_request(&self) -> Option<ElementRef> {
-    self.focus_request.lock().take()
+    self.element_requests.lock().focus.take()
+  }
+
+  pub(crate) fn take_scroll_into_view_request(&self) -> Option<ElementRef> {
+    self.element_requests.lock().scroll_into_view.take()
   }
 
   pub fn element_ref_mut(&mut self) -> ElementRefMut {
@@ -2693,7 +2054,7 @@ impl Ctx {
     child_ctx.window = self.window.clone();
     child_ctx.breakpoint = self.breakpoint.clone();
     child_ctx.app = self.app.clone();
-    child_ctx.focus_request = self.focus_request.clone();
+    child_ctx.element_requests = self.element_requests.clone();
     #[cfg(feature = "tokio")]
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -2711,6 +2072,7 @@ impl Ctx {
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
     child_ctx.scope_id = slot_id;
+    child_ctx.component_name = type_name;
     let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
     let mut element = Element::new();
@@ -2782,7 +2144,7 @@ impl Ctx {
       group_ctx.window = self.window.clone();
       group_ctx.breakpoint = self.breakpoint.clone();
       group_ctx.app = self.app.clone();
-      group_ctx.focus_request = self.focus_request.clone();
+      group_ctx.element_requests = self.element_requests.clone();
       #[cfg(feature = "tokio")]
       {
         group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -2875,7 +2237,7 @@ impl Ctx {
     child_ctx.window = self.window.clone();
     child_ctx.breakpoint = self.breakpoint.clone();
     child_ctx.app = self.app.clone();
-    child_ctx.focus_request = self.focus_request.clone();
+    child_ctx.element_requests = self.element_requests.clone();
     #[cfg(feature = "tokio")]
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -3010,7 +2372,7 @@ impl Ctx {
 
     self.element_refs.truncate(self.element_ref_cursor);
     // Dropping a slot cancels its task.
-    self.future_slots.truncate(self.future_cursor);
+    self.drop_unreached_future_slots();
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
     self.rendering = false;
@@ -3060,7 +2422,7 @@ impl Ctx {
     if self.query_registry.ready() {
       return true;
     }
-    self.future_slots.iter().any(|slot| slot.task.is_active())
+    self.future_slots().any(|slot| slot.task.is_active())
       || self
         .children
         .iter()
@@ -3107,7 +2469,7 @@ impl Ctx {
 
   fn poll_futures(&mut self, cx: &mut TaskContext<'_>) -> bool {
     let mut completed = false;
-    for slot in &self.future_slots {
+    for slot in self.future_slots() {
       completed |= slot.task.poll(cx);
     }
     for slot in self.children.iter_mut().filter(|slot| !slot.offstage) {
@@ -3199,7 +2561,7 @@ impl Ctx {
       }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.timers.capacity() * std::mem::size_of::<Timer>()
-      + self.future_slots.capacity() * std::mem::size_of::<FutureSlot>()
+      + (self.future_slots.capacity() + self.stable_future_slots.capacity()) * std::mem::size_of::<FutureSlot>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self.click_outside_active_cursors.capacity() * std::mem::size_of::<usize>()
       + self

@@ -509,7 +509,9 @@ let focused = element_ref.focused();
 Use element refs when code outside normal layout traversal needs an element's measured rect or current interaction
 flags.
 
-Request focus with `ctx.focus(&element_ref)` after retaining the ref in `create` or obtaining its render slot. The request runs after reconciliation, including for newly mounted fields; the last request wins, and absent targets are ignored. `element_ref.focused()` tracks focus reactively during render; `focus_signal()` exposes the same state as a signal.
+Request focus with `ctx.focus(&element_ref)` after retaining the ref in `create` or obtaining its render slot. The request runs after reconciliation, including for newly mounted fields; the last request wins, and absent targets are ignored. The focused element is then scrolled into view. `element_ref.focused()` tracks focus reactively during render; `focus_signal()` exposes the same state as a signal. `element_ref.focus_visible()` and `focus_visible_signal()` track [focus-visible](../focus-navigation/#focus-visible), the keyboard-only part of focus, the same way.
+
+`ctx.scroll_into_view(&element_ref)` scrolls every scroll container around the element by the smallest amount that shows it, without focusing it. It is applied once the render that holds the ref is laid out, and the frame drawn next shows the element; the last request wins, and absent targets are ignored. See [Scroll](../layout/#scroll).
 
 Refs created during render are retained by call position. Refs created in `create` must be stored on the component. Attach each ref to one live node.
 

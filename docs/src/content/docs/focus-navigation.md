@@ -1,11 +1,11 @@
 ---
 title: Focus And Keyboard Navigation
-description: Which elements take focus, how Tab moves between them, modal focus traps, focused styles, and testing focus.
+description: Which elements take focus, how Tab moves between them, modal focus traps, focused and focus-visible styles, and testing focus.
 ---
 
 # Focus And Keyboard Navigation
 
-One element has focus at a time. It receives keyboard events, shows its focused style, and is where Tab and Shift+Tab start. There is one focused state, whatever moved focus there: a click, Tab, `ctx.focus(&element_ref)`, or `ElementHandle::focus()`. lurq has no separate keyboard-only (`:focus-visible`) state.
+One element has focus at a time. It receives keyboard events, shows its focused style, and is where Tab and Shift+Tab start. It is focused whatever moved focus there: a click, Tab, `ctx.focus(&element_ref)`, or `ElementHandle::focus()`. Whether it also shows a focus ring for keyboard users is a second state, [focus-visible](#focus-visible), like CSS `:focus-visible`.
 
 ## Focusable Elements
 
@@ -76,11 +76,26 @@ Pointer input is not trapped; a click on the page behind a `Parent`- or element-
 
 ## Scrolling Focus Into View
 
-When Tab or Shift+Tab moves focus to an element inside a scroll container, every scroll container around it scrolls by the smallest amount that shows the element, innermost first. An element taller or wider than the viewport is aligned to the viewport start. Focus moved by click or by request does not scroll.
+When Tab or Shift+Tab, `ctx.focus(&element_ref)` or `ElementHandle::focus()` moves focus to an element inside a scroll container, every scroll container around it scrolls by the smallest amount that shows the element, innermost first, on each axis the container scrolls, like a browser's `element.focus()`. An element already in view does not move anything; one taller or wider than the viewport is aligned to the viewport start. A focus request scrolls in the pass that applies it, so the frame drawn next already shows the element. Focus moved by a click does not scroll: what was clicked is already on screen, and moving it under the pointer would be a jump.
+
+To scroll an element into view without focusing it, use `ctx.scroll_into_view(&element_ref)` in a component, or `ElementHandle::scroll_into_view()` on a handle from `Tree::get_element_by_id_mut` (see [Scroll](../layout/#scroll)).
+
+## Focus-Visible
+
+Focus-visible is the keyboard-only part of focus, like CSS `:focus-visible`: a button focused by Tab shows a focus ring, the same button focused by a click does not. The focused element is focus-visible when the last input that could move focus was the keyboard:
+
+- **Keyboard**: Tab and Shift+Tab, and any key press other than a bare modifier (Shift, Control, Alt, Super/Command) made without Control, Alt or Super/Command held. Arrow keys, Space, Enter, Escape and letters count, so pressing a key on a clicked button shows its ring, as in a browser; a shortcut such as Ctrl+C or Cmd+C does not.
+- **Pointer**: any mouse button press in the window, including one that only closes a popup, and `ElementHandle::click()`. It hides the ring of the element that keeps focus.
+- **Focus requests** (`ctx.focus(&element_ref)`, `ElementHandle::focus()`) inherit the last input's modality: a request made from a key handler shows the ring, one made from a click handler does not. Before any input the modality is pointer, so an app that focuses an element at startup shows no ring until the user touches the keyboard.
+- **Text inputs** are focus-visible whenever they have focus, clicked or not, as browsers treat text fields: the caret alone does not show which field takes the keys.
+
+Synthetic input (`lurq::app::synthetic_input`, the MCP `lurq_interact` tool) goes through the same mouse and key entry points and follows the same rules. The rules are the same on Windows and macOS.
+
+Read the state with `InteractionState::is_focus_visible()` (on a node given `.interactive(state)`), `core::ElementRef::focus_visible()` and its reactive `focus_visible_signal()`, or `Tree::focus_visible()` for the focused element. The focused state (`is_focused()`, `focused()`, `focus_signal()`) is unchanged and stays true for any focus.
 
 ## Focused Styles
 
-Every element accepts a focused state style, merged over the base style while it has focus, under the hovered and active styles:
+Every element accepts a focused state style, merged over the base style while it has focus, and a focus-visible style, merged over the focused style while it is focus-visible. Both sit under the hovered and active styles, so a hovered border paints over a focus ring:
 
 ```rust
 use lurq::{
@@ -88,26 +103,31 @@ use lurq::{
   components::Button,
 };
 
+// A ring for keyboard focus only; a click focuses the button without it.
 Button::new("Save")
   .tab_index(0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
-  .focused(|style| style.border_inside(BorderSize::Sm, PaletteColor::BorderFocus));
+  .focus_visible(|style| style.border_inside(BorderSize::Sm, PaletteColor::BorderFocus));
 ```
 
-Controls whose visuals are drawn from part styles have part-level focused styles, layered like their hovered styles. They change paint only; a width or height in them is ignored so focus never moves layout:
+Use `.focused(...)` / `.focused_style(...)` for a style on any focus, and `.focus_visible(...)` / `.focus_visible_style(...)` for a focus ring.
 
-| Control | Focused style |
+Controls whose visuals are drawn from part styles have part-level focus styles, layered like their hovered styles. They show while the control is focus-visible, like the native focus ring of a browser's checkbox, range input and select: a click or a drag does not show them, Tab or a key press does. They change paint only; a width or height in them is ignored so focus never moves layout:
+
+| Control | Focus ring (focus-visible) |
 | --- | --- |
-| Button, text input, any element | `.focused(...)` / `.focused_style(...)` |
+| Button, text input, any element | `.focus_visible(...)` / `.focus_visible_style(...)` |
 | `Checkbox` | `.box_focused(...)` / `.box_focused_style(...)` |
 | `Slider` | `.thumb_focused(...)` / `.thumb_focused_style(...)` |
 | `Select` | `SelectStyle::trigger_focused(...)` |
 
-The compound form controls take their focused border from the form theme: `form.input.border_focus`, `form.checkbox.border_focus`, `form.slider.thumb_border_focus`, and `border_focus` on both `form.button` roles, all `PaletteColor::BorderFocus` by default. See [Form Theme](../theme/#form-theme).
+For a checkbox, slider or select that should mark every focus, put a `.focused(...)` style on the control itself.
+
+The compound form controls take their focus border from the form theme: `form.input.border_focus`, `form.checkbox.border_focus`, `form.slider.thumb_border_focus`, and `border_focus` on both `form.button` roles, all `PaletteColor::BorderFocus` by default. The buttons, the checkbox and the slider draw it while focus-visible; the text input draws it for any focus. See [Form Theme](../theme/#form-theme).
 
 ## Testing Focus
 
-`Tree::focused_element()` returns the element that has focus, like `document.activeElement`: the control itself, not the wrapper that owns its `on_focus` handler.
+`Tree::focused_element()` returns the element that has focus, like `document.activeElement`: the control itself, not the wrapper that owns its `on_focus` handler. `Tree::focus_visible()` tells whether it is [focus-visible](#focus-visible). The MCP `lurq_read_tree` tool lists a focus-visible node's states as `focused,focus-visible`, and `lurq_inspect` reports `"focus_visible": true`.
 
 `Tree::pass_headless(&mut app)` runs a pass without a window: it rebuilds components and lays out the tree, overlays and modals included, so hit testing, focus, and Tab work, but it draws nothing and never calls the render engine. It needs no window handle and no `unsafe`:
 

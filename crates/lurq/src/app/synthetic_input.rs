@@ -188,12 +188,17 @@ impl SyntheticInput {
 }
 
 /// Deliver one synthetic event into the tree through the same entry points the
-/// winit shell uses for real events.
+/// winit shell uses for real events. Handlers see
+/// [`InputSource::Synthetic`](crate::app::events::InputSource::Synthetic) while it is delivered.
 ///
 /// Kept beside the event type rather than in the shell so both shells share one
 /// implementation and the ordering rules are stated once. Public because a
 /// headless harness drives a [`Tree`] directly, with no window to queue through.
 pub fn apply(tree: &mut Tree, input: &SyntheticInput) {
+  crate::app::events::with_synthetic_input(|| deliver(tree, input));
+}
+
+fn deliver(tree: &mut Tree, input: &SyntheticInput) {
   let m = input.modifiers();
   match input.kind() {
     SyntheticInputKind::MouseMove { x, y } => {

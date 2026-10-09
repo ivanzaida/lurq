@@ -47,9 +47,11 @@ impl Checkbox {
     self
   }
 
-  /// Box style while the checkbox has focus, layered over the checked or
-  /// unchecked box and under the hovered styles. Size is ignored: focus
-  /// changes paint, never layout.
+  /// Box style while the checkbox has keyboard focus (focus-visible, like a
+  /// browser's checkbox ring: a click does not show it), layered over the
+  /// checked or unchecked box and under the hovered styles. Size is ignored:
+  /// focus changes paint, never layout. For a style on any focus, use the
+  /// element's `focused_style`.
   pub fn box_focused_style(mut self, style: CheckboxStyle) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::checkbox_box_focused_style(node, style));
     self

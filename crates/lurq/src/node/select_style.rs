@@ -314,6 +314,9 @@ impl SelectStyle {
     self
   }
 
+  /// Merged over the trigger while the select has keyboard focus
+  /// (focus-visible, like a browser's select ring: a click does not show it),
+  /// after the hovered part.
   pub fn trigger_focused(mut self, style: SelectPartStyle) -> Self {
     self.trigger_focused = Some(style);
     self
@@ -482,12 +485,12 @@ impl SelectStyle {
   }
 
   /// The trigger part resolved for the current interaction/open state.
-  pub(crate) fn resolved_trigger(&self, hovered: bool, focused: bool, open: bool) -> SelectPartStyle {
+  pub(crate) fn resolved_trigger(&self, hovered: bool, focus_visible: bool, open: bool) -> SelectPartStyle {
     let mut style = self.trigger.clone();
     if hovered && let Some(part) = &self.trigger_hovered {
       style.merge_from(part);
     }
-    if focused && let Some(part) = &self.trigger_focused {
+    if focus_visible && let Some(part) = &self.trigger_focused {
       style.merge_from(part);
     }
     if open && let Some(part) = &self.trigger_open {
