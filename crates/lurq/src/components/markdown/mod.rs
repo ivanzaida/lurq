@@ -20,7 +20,9 @@ use crate::{
   node::{CursorIcon, Element, Node, color::Color, dimension::Dimension},
 };
 
-const FILL_WIDTH: Dimension = Dimension::Pct(100.0);
+mod sizing;
+
+use sizing::{BlockWidth, FILL_WIDTH};
 
 type MarkdownLinkCallback = Arc<dyn Fn(&MarkdownLink) + Send + Sync>;
 
@@ -52,6 +54,7 @@ pub struct MarkdownProps {
   theme: Option<ThemeMarkdown>,
   selectable: bool,
   width: Option<Dimension>,
+  fit_content: bool,
   on_link_click: Option<MarkdownLinkCallback>,
 }
 
@@ -62,6 +65,7 @@ impl PartialEq for MarkdownProps {
       && self.theme == other.theme
       && self.selectable == other.selectable
       && self.width == other.width
+      && self.fit_content == other.fit_content
       && same_link_callback(&self.on_link_click, &other.on_link_click)
   }
 }
@@ -74,6 +78,7 @@ impl MarkdownProps {
       theme: None,
       selectable: false,
       width: None,
+      fit_content: false,
       on_link_click: None,
     }
   }
@@ -99,6 +104,30 @@ impl MarkdownProps {
 
   pub fn width(mut self, width: impl Into<Dimension>) -> Self {
     self.width = Some(width.into());
+    self
+  }
+
+  /// Sizes the document to its content instead of filling its container,
+  /// like CSS `width: fit-content; max-width: 100%`: the document is as wide
+  /// as its widest block, and never wider than its container, where its
+  /// text wraps. Off by default: the document and every block in it fill the
+  /// container's width.
+  ///
+  /// A short message is as wide as its longest line, so a chat bubble around
+  /// it hugs its text. Every block is then stretched to the document's
+  /// width, as CSS blocks are: a code block's box and a rule span the widest
+  /// block. A code block does not wrap, so it is as wide as its longest line
+  /// up to the container's width, and a longer line overflows its box as it
+  /// does when filling. A table still fills the container's width, since its
+  /// columns share that width and line up across its rows. An explicit
+  /// [`width`](Self::width) sets the document's width as before.
+  ///
+  /// The container's width is the most a `Column` gives its children. A `Row`
+  /// gives its children unbounded width, so a bubble in a row needs a
+  /// `max_width` of `Dimension::Pct(100.0)` (or a `flex_shrink` factor) for
+  /// its text to wrap at the row's width.
+  pub fn fit_content(mut self, fit_content: bool) -> Self {
+    self.fit_content = fit_content;
     self
   }
 
@@ -134,6 +163,7 @@ pub struct Markdown {
 
 #[derive(Clone)]
 struct MarkdownRenderContext {
+  width: BlockWidth,
   on_link_click: Option<MarkdownLinkCallback>,
   #[cfg(feature = "router")]
   navigator: Option<crate::router::Navigator>,
@@ -163,6 +193,7 @@ impl Component for Markdown {
     let theme = props.theme.clone().unwrap_or_else(|| ctx.theme().markdown().clone());
     let document = self.document.get();
     let render_ctx = MarkdownRenderContext {
+      width: BlockWidth::new(props.fit_content),
       on_link_click: props.on_link_click.clone(),
       #[cfg(feature = "router")]
       navigator: ctx.use_context::<crate::router::Navigator>(),
@@ -185,7 +216,7 @@ fn render_document(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
-  let mut root = Column::new().spacing(theme.document_spacing).width(FILL_WIDTH);
+  let mut root = render_ctx.width.blocks(Column::new().spacing(theme.document_spacing));
   for block in &document.blocks {
     root = root.child(render_block(block, base_style, theme, render_ctx));
   }
@@ -208,17 +239,18 @@ fn render_block(
       render_list(*ordered, *start, items, base_style, theme, render_ctx)
     }
     MarkdownBlock::Table { alignments, rows } => render_table(alignments, rows, base_style, theme, render_ctx),
-    MarkdownBlock::CodeBlock { kind, text } => render_code_block(kind, text, base_style, theme),
-    MarkdownBlock::Math { text } => render_math_block(text, base_style, theme),
+    MarkdownBlock::CodeBlock { kind, text } => render_code_block(kind, text, base_style, theme, render_ctx.width),
+    MarkdownBlock::Math { text } => render_math_block(text, base_style, theme, render_ctx.width),
     MarkdownBlock::FootnoteDefinition { label, blocks } => {
       render_footnote_definition(label, blocks, base_style, theme, render_ctx)
     }
-    MarkdownBlock::Html(text) => Text::styled(&markdown_html_text(text.trim_end_matches('\n')), base_style.clone())
-      .width(FILL_WIDTH)
-      .into(),
-    MarkdownBlock::ThematicBreak => Rect::new(FILL_WIDTH, 1.0)
-      .background(theme.table_marker.apply(base_style).color)
-      .into(),
+    MarkdownBlock::Html(text) => render_ctx.width.leaf(Text::styled(
+      &markdown_html_text(text.trim_end_matches('\n')),
+      base_style.clone(),
+    )),
+    MarkdownBlock::ThematicBreak => render_ctx
+      .width
+      .leaf(Rect::new(Dimension::Auto, 1.0).background(theme.table_marker.apply(base_style).color)),
   }
 }
 
@@ -233,14 +265,18 @@ fn render_inline_block(
   }
 
   if let [MarkdownInline::Text(text)] = inlines {
-    return Text::styled(text, style).width(FILL_WIDTH).into();
+    return render_ctx.width.leaf(Text::styled(text, style));
   }
 
   if inline_requires_flow(inlines) {
     return render_inline_flow(inlines, style, theme, render_ctx);
   }
 
-  Element::from_node(Node::rich_text(markdown_inline_rich_text(inlines, &style, theme)).width(FILL_WIDTH))
+  render_ctx
+    .width
+    .leaf(Element::from_node(Node::rich_text(markdown_inline_rich_text(
+      inlines, &style, theme,
+    ))))
 }
 
 fn render_inline_flow(
@@ -259,7 +295,7 @@ fn render_inline_flow(
     return render_inline_flow_row(first_segment, style, theme, render_ctx);
   }
 
-  let mut column = Column::new().spacing(0.0).min_width(0.0).width(FILL_WIDTH);
+  let mut column = render_ctx.width.blocks(Column::new().spacing(0.0).min_width(0.0));
   column = column.child(render_inline_flow_row(first_segment, style.clone(), theme, render_ctx));
   for segment in remaining_segments {
     column = column.child(render_inline_flow_row(segment, style.clone(), theme, render_ctx));
@@ -273,12 +309,13 @@ fn render_inline_flow_row(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
-  let mut row = Row::new()
-    .wrap()
-    .spacing(0.0)
-    .align_items(Alignment::Center)
-    .min_width(0.0)
-    .width(FILL_WIDTH);
+  let mut row = render_ctx.width.row(
+    Row::new()
+      .wrap()
+      .spacing(0.0)
+      .align_items(Alignment::Center)
+      .min_width(0.0),
+  );
   let mut spans = Vec::new();
   push_inline_flow_children(&mut row, &mut spans, inlines, &style, theme, render_ctx);
   flush_inline_spans(&mut row, &mut spans);
@@ -465,10 +502,9 @@ fn render_blockquote(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
-  let mut body = Column::new()
-    .spacing(theme.nested_block_spacing)
-    .min_width(0.0)
-    .flex(1.0);
+  let mut body = render_ctx
+    .width
+    .row_body(Column::new().spacing(theme.nested_block_spacing).min_width(0.0));
   for block in blocks {
     body = body.child(render_block(block, base_style, theme, render_ctx));
   }
@@ -479,12 +515,13 @@ fn render_blockquote(
     .unwrap_or_else(|| theme.blockquote_marker.apply(base_style).color);
   let bar_width = theme.blockquote_box.border_width.unwrap_or(3.0);
 
-  let mut row = Row::new()
-    .spacing(theme.blockquote_gap)
-    .align_items(Alignment::Stretch)
-    .child(Rect::new(bar_width, FILL_WIDTH).background(bar_color))
-    .child(body)
-    .width(FILL_WIDTH);
+  let mut row = render_ctx.width.row(
+    Row::new()
+      .spacing(theme.blockquote_gap)
+      .align_items(Alignment::Stretch)
+      .child(Rect::new(bar_width, FILL_WIDTH).background(bar_color))
+      .child(body),
+  );
   row = apply_row_box(row, &theme.blockquote_box, false);
   row.into()
 }
@@ -497,7 +534,7 @@ fn render_list(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
-  let mut list = Column::new().spacing(theme.list_item_spacing).width(FILL_WIDTH);
+  let mut list = render_ctx.width.blocks(Column::new().spacing(theme.list_item_spacing));
   let start = start.unwrap_or(1);
   for (index, item) in items.iter().enumerate() {
     let marker = if ordered {
@@ -511,20 +548,20 @@ fn render_list(
     } else {
       theme.unordered_list_marker_width
     };
-    let mut body = Column::new()
-      .spacing(theme.nested_block_spacing)
-      .min_width(0.0)
-      .flex(1.0);
+    let mut body = render_ctx
+      .width
+      .row_body(Column::new().spacing(theme.nested_block_spacing).min_width(0.0));
     for block in &item.blocks {
       body = body.child(render_block(block, base_style, theme, render_ctx));
     }
     list = list.child(
-      Row::new()
-        .spacing(theme.list_marker_gap)
-        .align_items(Alignment::Start)
-        .child(Text::styled(&marker, marker_style).width(marker_width))
-        .child(body)
-        .width(FILL_WIDTH),
+      render_ctx.width.row(
+        Row::new()
+          .spacing(theme.list_marker_gap)
+          .align_items(Alignment::Start)
+          .child(Text::styled(&marker, marker_style).width(marker_width))
+          .child(body),
+      ),
     );
   }
   list.into()
@@ -535,13 +572,14 @@ fn render_code_block(
   text: &str,
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
+  width: BlockWidth,
 ) -> Element {
   let mut code_style = theme.code_block.apply(base_style);
   if theme.code_block.text.color.is_none() {
     code_style.color = Color::from_hex("#e2e8f0");
   }
 
-  let mut column = Column::new().spacing(theme.code_block_spacing).width(FILL_WIDTH);
+  let mut column = width.blocks(Column::new().spacing(theme.code_block_spacing));
   if let MarkdownCodeBlockKind::Fenced {
     language: Some(language),
   } = kind
@@ -550,22 +588,20 @@ fn render_code_block(
     if theme.code_block_label.text.color.is_none() {
       label_style.color = Color::from_hex("#94a3b8");
     }
-    column = column.child(Text::styled(language, label_style).width(FILL_WIDTH));
+    column = column.child(width.leaf(Text::styled(language, label_style)));
   }
-  column = column.child(Element::from_node(
-    Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style))
-      .text_wrap(false)
-      .width(FILL_WIDTH),
-  ));
+  column = column.child(width.leaf(Element::from_node(
+    Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style)).text_wrap(false),
+  )));
   column = apply_column_box(column, &theme.code_block_box, true);
   column.into()
 }
 
-fn render_math_block(text: &str, base_style: &TextStyle, theme: &ThemeMarkdown) -> Element {
+fn render_math_block(text: &str, base_style: &TextStyle, theme: &ThemeMarkdown, width: BlockWidth) -> Element {
   let kind = MarkdownCodeBlockKind::Fenced {
     language: Some("math".to_owned()),
   };
-  render_code_block(&kind, text, base_style, theme)
+  render_code_block(&kind, text, base_style, theme, width)
 }
 
 fn render_footnote_definition(
@@ -576,17 +612,22 @@ fn render_footnote_definition(
   render_ctx: &MarkdownRenderContext,
 ) -> Element {
   let marker_style = theme.link.apply(base_style);
-  let mut body = Column::new().spacing(theme.nested_block_spacing).flex(1.0);
+  let mut body = render_ctx
+    .width
+    .row_body(Column::new().spacing(theme.nested_block_spacing));
   for block in blocks {
     body = body.child(render_block(block, base_style, theme, render_ctx));
   }
 
-  Row::new()
-    .spacing(theme.list_marker_gap)
-    .align_items(Alignment::Start)
-    .child(Text::styled(&format!("[^{label}]"), marker_style).width(theme.ordered_list_marker_width))
-    .child(body)
-    .width(FILL_WIDTH)
+  render_ctx
+    .width
+    .row(
+      Row::new()
+        .spacing(theme.list_marker_gap)
+        .align_items(Alignment::Start)
+        .child(Text::styled(&format!("[^{label}]"), marker_style).width(theme.ordered_list_marker_width))
+        .child(body),
+    )
     .into()
 }
 
