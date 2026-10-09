@@ -569,8 +569,10 @@ impl Tree {
   /// shell calls this every loop turn; headless harnesses call it between
   /// [`Tree::pass`] calls. It also releases input a client held across calls
   /// but can no longer release itself (its session ended, the window lost
-  /// focus or closed, the tool became unavailable). Returns whether any
-  /// request was handled or held input released.
+  /// focus or closed, the tool became unavailable). A queued call whose
+  /// caller stopped waiting (its reply deadline passed, or the client went
+  /// away) is dropped without running. Returns whether any request was
+  /// handled or held input released.
   pub fn drain_mcp_requests(&mut self, app: &mut App) -> bool {
     self.reconcile_file_dialogs();
     let Some(state) = self.mcp.take() else {
@@ -578,6 +580,13 @@ impl Tree {
     };
     let mut did_work = false;
     while let Ok(request) = state.receiver.try_recv() {
+      // The caller stopped waiting (its reply deadline passed, or it went
+      // away) and was already answered with an error: running the call now
+      // would act after the client was told it failed.
+      if request.reply.is_closed() {
+        tracing::debug!(tool = %request.tool, "dropped an MCP call whose caller stopped waiting");
+        continue;
+      }
       did_work = true;
       tools::execute(self, app, &state, request);
     }

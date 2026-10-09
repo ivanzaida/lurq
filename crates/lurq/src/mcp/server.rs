@@ -32,7 +32,9 @@ mod profiling_tests;
 
 /// Per-tool reply deadline: how long the HTTP side waits for the event loop
 /// to execute and resolve a call before reporting a stall. Frame-deferred
-/// tools get more headroom.
+/// tools get more headroom. A call still queued when its deadline passes is
+/// dropped by [`Tree::drain_mcp_requests`](crate::app::Tree::drain_mcp_requests)
+/// instead of running after its caller was told it failed.
 fn tool_timeout(tool: &RegisteredTool, args: &serde_json::Value) -> Duration {
   match tool.kind {
     ToolKind::Builtin(BuiltinTool::Wait) => {
@@ -271,7 +273,9 @@ impl ServerHandler for McpService {
              from going idle — wait for `frames` instead, or raise timeout_ms."
           )
         } else {
-          format!("{name} timed out waiting for the app; the event loop may be blocked")
+          format!(
+            "{name} timed out waiting for the app; the event loop may be blocked. A call the app had not              started is dropped and does not run later."
+          )
         };
         Ok(result_to_response(Err(message)))
       }

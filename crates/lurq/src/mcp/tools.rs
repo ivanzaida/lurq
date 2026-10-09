@@ -3,6 +3,8 @@
 //! full `&mut Tree` / `&mut App` access — the same powers and the same
 //! no-blocking constraint as event handlers.
 
+#[cfg(test)]
+mod abandoned_tests;
 mod canvas_items;
 pub(crate) mod file_dialogs;
 mod held;
