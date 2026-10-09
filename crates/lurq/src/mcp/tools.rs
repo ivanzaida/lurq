@@ -11,6 +11,8 @@ mod held;
 #[cfg(test)]
 mod held_tests;
 mod inspect;
+#[cfg(test)]
+mod input_source_tests;
 mod interact;
 mod lookup;
 mod navigate;

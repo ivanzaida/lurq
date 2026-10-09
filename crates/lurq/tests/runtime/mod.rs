@@ -31,6 +31,7 @@ mod futures {
   mod tokio_tasks;
 }
 mod headless_pass;
+mod input_source;
 mod modal_resize;
 mod mouse_leave;
 mod outside_press;

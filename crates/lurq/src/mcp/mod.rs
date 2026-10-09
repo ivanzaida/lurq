@@ -572,8 +572,13 @@ impl Tree {
   /// focus or closed, the tool became unavailable). A queued call whose
   /// caller stopped waiting (its reply deadline passed, or the client went
   /// away) is dropped without running. Returns whether any request was
-  /// handled or held input released.
+  /// handled or held input released. Handlers that the calls reach see
+  /// [`InputSource::Synthetic`](crate::app::events::InputSource::Synthetic).
   pub fn drain_mcp_requests(&mut self, app: &mut App) -> bool {
+    crate::app::events::with_synthetic_input(|| self.drain_mcp_requests_synthetic(app))
+  }
+
+  fn drain_mcp_requests_synthetic(&mut self, app: &mut App) -> bool {
     self.reconcile_file_dialogs();
     let Some(state) = self.mcp.take() else {
       return false;
@@ -647,7 +652,7 @@ impl Tree {
     let Some(mut state) = self.mcp.take() else {
       return;
     };
-    tools::release_all_holds(self, &state);
+    crate::app::events::with_synthetic_input(|| tools::release_all_holds(self, &state));
     let broker = state.shared.file_dialogs.lock().unwrap().clone();
     if let Some(broker) = broker {
       broker.shutdown();
