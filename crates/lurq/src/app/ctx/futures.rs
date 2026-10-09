@@ -24,10 +24,20 @@ pub enum FutureStatus {
   Rejected,
 }
 
+/// The state of a future, stream or future action.
+///
+/// `data` is the last value that succeeded, not the result of the latest run:
+/// it is kept while a new run is `Pending` and after that run is `Rejected`, so
+/// a view can keep showing it. "Has data and is not pending" therefore does not
+/// mean the latest run succeeded. Ask [`outcome`](Self::outcome) or
+/// [`fulfilled_data`](Self::fulfilled_data) for that, or match on `status`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FutureState<T, E> {
   pub status: FutureStatus,
+  /// The last value that succeeded: set when a run is `Fulfilled` (or a stream
+  /// emits), kept while a later run is `Pending` and after it is `Rejected`.
   pub data: Option<T>,
+  /// The error of the latest run while `status` is `Rejected`; `None` otherwise.
   pub error: Option<E>,
 }
 
@@ -74,6 +84,7 @@ impl<T, E> FutureState<T, E> {
     }
   }
 
+  /// A rejected state; `data` is the last value that succeeded, which it keeps.
   pub fn rejected(error: E, data: Option<T>) -> Self {
     Self {
       status: FutureStatus::Rejected,
@@ -96,6 +107,25 @@ impl<T, E> FutureState<T, E> {
 
   pub fn is_rejected(&self) -> bool {
     self.status == FutureStatus::Rejected
+  }
+
+  /// How the latest run ended: `Ok` with its value when it was fulfilled,
+  /// `Err` with its error when it was rejected, and `None` while nothing has
+  /// run (`Idle`) or a run is `Pending`. Unlike `data`, a rejection after an
+  /// earlier success is an `Err`.
+  pub fn outcome(&self) -> Option<Result<&T, &E>> {
+    match self.status {
+      FutureStatus::Fulfilled => self.data.as_ref().map(Ok),
+      FutureStatus::Rejected => self.error.as_ref().map(Err),
+      FutureStatus::Idle | FutureStatus::Pending => None,
+    }
+  }
+
+  /// The value of the latest run if it was fulfilled; `None` while idle or
+  /// pending and after a rejection, even when `data` still holds an earlier
+  /// value.
+  pub fn fulfilled_data(&self) -> Option<&T> {
+    self.outcome().and_then(Result::ok)
   }
 }
 

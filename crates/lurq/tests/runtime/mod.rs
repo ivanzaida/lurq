@@ -21,6 +21,7 @@ mod futures {
   mod future_action_runs_on_run;
   mod future_resolves;
   mod future_restarts_on_deps_change;
+  mod outcome;
   #[cfg(feature = "tokio")]
   mod tokio_future_action_uses_runtime;
   #[cfg(feature = "tokio")]

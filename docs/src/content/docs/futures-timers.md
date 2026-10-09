@@ -65,10 +65,25 @@ The dependency must implement `Clone + PartialEq + Send + Sync + 'static`. Use a
 | Field | Type | Description |
 | --- | --- | --- |
 | `status` | `FutureStatus` | `Idle`, `Pending`, `Fulfilled`, or `Rejected`. |
-| `data` | `Option<T>` | Present on `Fulfilled`; preserved during re-fetch. |
-| `error` | `Option<E>` | Present on `Rejected`. |
+| `data` | `Option<T>` | The last value that succeeded. Kept while a new run is `Pending` and after it is `Rejected`. |
+| `error` | `Option<E>` | The error of the latest run while `Rejected`. |
 
-Convenience methods: `is_idle()`, `is_pending()`, `is_fulfilled()`, `is_rejected()`.
+Convenience methods: `is_idle()`, `is_pending()`, `is_fulfilled()`, `is_rejected()`, and:
+
+| Method | Returns |
+| --- | --- |
+| `outcome()` | `Option<Result<&T, &E>>`: how the latest run ended. `Some(Ok(value))` when fulfilled, `Some(Err(error))` when rejected, `None` while idle or pending. |
+| `fulfilled_data()` | `Option<&T>`: the value of the latest run if it was fulfilled. |
+
+`data` is not the result of the latest run. A run that fails after an earlier one succeeded is `Rejected` with `error` set, and `data` still holds the earlier value, so a view can keep showing it next to the error. Code that decides whether the latest run succeeded, such as a `ctx.watch` that closes a dialog after a save, must not test "has `data` and is not pending": that is true after a failed save too. Use `outcome()`, `fulfilled_data()`, `is_fulfilled()`, or match on `status`:
+
+```rust
+ctx.watch(&save.state(), move |state| match state.outcome() {
+  Some(Ok(_)) => close.set(true),
+  Some(Err(error)) => show_error(error),
+  None => {}
+});
+```
 
 ### FutureHandle
 
