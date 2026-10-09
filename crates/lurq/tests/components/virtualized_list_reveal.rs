@@ -1,6 +1,7 @@
 //! `VirtualizedList::reveal_key`: a list mounted with a reveal key scrolls
 //! that row into view on its own, a later key change reveals again, and an
-//! already-visible row never moves.
+//! already-visible row never moves. An element of a mounted row can also be
+//! revealed like any other element.
 
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx},
@@ -26,7 +27,9 @@ impl Component for RevealRow {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let index = *ctx.props::<Self::Props>();
-    Rect::new(100.0, ROW_HEIGHT).background(Color::new((index % 256) as u8, 64, 128, 255))
+    Rect::new(100.0, ROW_HEIGHT)
+      .id(format!("row-{index}"))
+      .background(Color::new((index % 256) as u8, 64, 128, 255))
   }
 }
 
@@ -136,4 +139,22 @@ fn reveal_key_waits_for_items_that_arrive_after_mount() {
   tree.update_root_props::<RevealRoot>((ROWS, Some("row-150".to_owned())));
   settle(&mut tree);
   assert_row_visible(&tree, 150);
+}
+
+#[test]
+fn scroll_into_view_reveals_an_element_of_a_mounted_row() {
+  // Row 15 ([450..480]) is below the 300 px viewport but inside the overscan,
+  // so it is mounted and its element can be revealed directly.
+  let mut tree = mount(None);
+  settle(&mut tree);
+  tree
+    .get_element_by_id_mut("row-15")
+    .expect("row 15 is mounted in the overscan")
+    .scroll_into_view();
+  settle(&mut tree);
+  assert_eq!(offset(&tree), 15.0 * ROW_HEIGHT + ROW_HEIGHT - VIEWPORT_HEIGHT);
+  assert_row_visible(&tree, 15);
+  // A row outside viewport and overscan is not mounted: `reveal_key` is the
+  // way to reach it.
+  assert!(tree.get_element_by_id_mut("row-150").is_none());
 }

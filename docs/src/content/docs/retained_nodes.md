@@ -215,8 +215,11 @@ let mut save = tree.get_element_by_id_mut("save").unwrap();
 // center without hit-testing (works when occluded), focuses focusable
 // nodes, and submits for submit buttons.
 save.click();
+// Focuses and, in the next pass, scrolls the node into view.
 save.focus();
 save.blur();
+// Scrolls the node into view in the next pass without focusing it.
+save.scroll_into_view();
 ```
 
 For pointer-fidelity interaction (hit testing, hover, capture) keep using `tree.mouse_down` / `tree.mouse_up`, composing coordinates from `bounds().center()`.

@@ -76,7 +76,9 @@ Pointer input is not trapped; a click on the page behind a `Parent`- or element-
 
 ## Scrolling Focus Into View
 
-When Tab or Shift+Tab moves focus to an element inside a scroll container, every scroll container around it scrolls by the smallest amount that shows the element, innermost first. An element taller or wider than the viewport is aligned to the viewport start. Focus moved by click or by request does not scroll.
+When Tab or Shift+Tab, `ctx.focus(&element_ref)` or `ElementHandle::focus()` moves focus to an element inside a scroll container, every scroll container around it scrolls by the smallest amount that shows the element, innermost first, on each axis the container scrolls, like a browser's `element.focus()`. An element already in view does not move anything; one taller or wider than the viewport is aligned to the viewport start. A focus request scrolls in the pass that applies it, so the frame drawn next already shows the element. Focus moved by a click does not scroll: what was clicked is already on screen, and moving it under the pointer would be a jump.
+
+To scroll an element into view without focusing it, use `ctx.scroll_into_view(&element_ref)` in a component, or `ElementHandle::scroll_into_view()` on a handle from `Tree::get_element_by_id_mut` (see [Scroll](../layout/#scroll)).
 
 ## Focused Styles
 

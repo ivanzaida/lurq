@@ -376,6 +376,19 @@ Scroll containers give their child unbounded constraints on the scroll axis and 
 layout/rendering. Without a fixed size on the scroll axis, a scroll container takes its content's size within its
 constraints, so `.max_height(...)` makes it grow with its content up to the cap and scroll beyond it.
 
+To bring an element into view, request it from a component with `ctx.scroll_into_view(&element_ref)` (the ref attached
+with `.ref_element(...)`), or call `scroll_into_view()` on the `ElementHandle` from `tree.get_element_by_id_mut(id)`.
+Every scroll container around the element, nearest first, scrolls by the smallest amount that shows it, on each axis it
+scrolls, like the web's `scrollIntoView({ block: "nearest", inline: "nearest" })`: an element already in view does not
+move anything, and one larger than a viewport is aligned to the viewport start. The request is resolved after the next
+layout, and the frame drawn after it already shows the element. Focusing an element by request or with Tab scrolls it
+into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/#scrolling-focus-into-view)).
+
+```rust
+// `details` is a ref retained by the component and attached with `.ref_element(details.clone())`.
+ctx.scroll_into_view(&details);
+```
+
 `VirtualizedList` sizes the same way: `.height(...)` or `.flex(...)` gives it a fixed viewport, while `.max_height(...)`
 alone lets a short list take its content height and a long one stop at the cap.
 
@@ -392,6 +405,10 @@ is scrolled to the top of the viewport. The row does not need to be mounted: the
 estimated row heights and settles on the exact offset over the next few frames as the rows around it are measured. A
 key that is not among the items is dropped, except while the list has no items yet, so a list mounted before its data
 loads still opens on the row.
+
+Use `reveal_key` for rows of a `VirtualizedList`: only the rows in and near the viewport are mounted, so an element of
+any other row does not exist to be scrolled to. `ctx.scroll_into_view` does reach an element inside a mounted row, for
+example a field in the row being edited.
 
 ```rust
 VirtualizedList::new(ctx, tasks)

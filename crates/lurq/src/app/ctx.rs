@@ -592,6 +592,15 @@ impl Timer {
   }
 }
 
+/// What components asked the runtime to do with an element of the tree,
+/// shared by every `Ctx` of a window and applied once the render that
+/// attaches the element is reconciled (focus) or laid out (scroll).
+#[derive(Default)]
+struct ElementRequests {
+  focus: Option<ElementRef>,
+  scroll_into_view: Option<ElementRef>,
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   subtree_dirty: Arc<AtomicBool>,
@@ -615,7 +624,7 @@ pub struct Ctx {
   #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<App>,
-  focus_request: Arc<Mutex<Option<ElementRef>>>,
+  element_requests: Arc<Mutex<ElementRequests>>,
   #[cfg(feature = "tokio")]
   runtime_future_handle: RuntimeFutureHandle,
   context_map: ContextMap,
@@ -1038,7 +1047,7 @@ impl Ctx {
       #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
-      focus_request: Arc::new(Mutex::new(None)),
+      element_requests: Arc::default(),
       #[cfg(feature = "tokio")]
       runtime_future_handle: None,
       context_map: ContextMap::default(),
@@ -1800,23 +1809,56 @@ impl Ctx {
   /// Requests focus after the current render is reconciled. The ref may be
   /// attached by the render that follows this call (for example after navigation).
   /// Requests for refs absent from that tree are ignored. The last request wins.
+  ///
+  /// The focused element is then scrolled into view like
+  /// [`Ctx::scroll_into_view`], as a browser's `element.focus()` does.
   pub fn focus(&self, element: &ElementRef) {
-    *self.focus_request.lock() = Some(element.clone());
+    self.element_requests.lock().focus = Some(element.clone());
+    self.wake_window();
+  }
+
+  /// Scrolls the element into view after the current render is laid out:
+  /// every scroll container around it scrolls by the smallest amount that
+  /// shows it, innermost first, on each axis the container scrolls — the
+  /// web's `scrollIntoView({ block: "nearest", inline: "nearest" })`. An
+  /// element already in view does not move anything; one larger than a
+  /// viewport is aligned to the viewport start. The frame that follows is
+  /// drawn at the new position.
+  ///
+  /// The ref may be attached by the render that follows this call. Requests
+  /// for refs absent from that tree are ignored. The last request wins.
+  ///
+  /// Inside a [`VirtualizedList`](crate::components::VirtualizedList) this
+  /// reaches elements of mounted rows only; reveal a row that may be outside
+  /// the rendered window with
+  /// [`VirtualizedList::reveal_key`](crate::components::VirtualizedList::reveal_key).
+  pub fn scroll_into_view(&self, element: &ElementRef) {
+    self.element_requests.lock().scroll_into_view = Some(element.clone());
+    self.wake_window();
+  }
+
+  fn wake_window(&self) {
     if let Some(window) = &self.window {
       window.wake();
     }
   }
 
-  pub(crate) fn has_focus_request(&self) -> bool {
-    self.focus_request.lock().is_some()
+  /// Whether a focus or scroll-into-view request is waiting for the runtime.
+  pub(crate) fn has_element_request(&self) -> bool {
+    let requests = self.element_requests.lock();
+    requests.focus.is_some() || requests.scroll_into_view.is_some()
   }
 
   pub(crate) fn focus_request(&self) -> Option<ElementRef> {
-    self.focus_request.lock().clone()
+    self.element_requests.lock().focus.clone()
   }
 
   pub(crate) fn take_focus_request(&self) -> Option<ElementRef> {
-    self.focus_request.lock().take()
+    self.element_requests.lock().focus.take()
+  }
+
+  pub(crate) fn take_scroll_into_view_request(&self) -> Option<ElementRef> {
+    self.element_requests.lock().scroll_into_view.take()
   }
 
   pub fn element_ref_mut(&mut self) -> ElementRefMut {
@@ -2012,7 +2054,7 @@ impl Ctx {
     child_ctx.window = self.window.clone();
     child_ctx.breakpoint = self.breakpoint.clone();
     child_ctx.app = self.app.clone();
-    child_ctx.focus_request = self.focus_request.clone();
+    child_ctx.element_requests = self.element_requests.clone();
     #[cfg(feature = "tokio")]
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -2102,7 +2144,7 @@ impl Ctx {
       group_ctx.window = self.window.clone();
       group_ctx.breakpoint = self.breakpoint.clone();
       group_ctx.app = self.app.clone();
-      group_ctx.focus_request = self.focus_request.clone();
+      group_ctx.element_requests = self.element_requests.clone();
       #[cfg(feature = "tokio")]
       {
         group_ctx.runtime_future_handle = self.runtime_future_handle.clone();
@@ -2195,7 +2237,7 @@ impl Ctx {
     child_ctx.window = self.window.clone();
     child_ctx.breakpoint = self.breakpoint.clone();
     child_ctx.app = self.app.clone();
-    child_ctx.focus_request = self.focus_request.clone();
+    child_ctx.element_requests = self.element_requests.clone();
     #[cfg(feature = "tokio")]
     {
       child_ctx.runtime_future_handle = self.runtime_future_handle.clone();

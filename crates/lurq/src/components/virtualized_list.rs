@@ -126,6 +126,10 @@ impl<'a, T> VirtualizedList<'a, T> {
   /// after navigation without persisting the scroll offset. A key that is not
   /// among the items is dropped, except while the list is still empty: then
   /// the reveal waits for the items to arrive.
+  ///
+  /// This is the way to reveal a row that is not mounted (outside the
+  /// viewport and overscan); an element inside a mounted row can also be
+  /// revealed with [`Ctx::scroll_into_view`].
   pub fn reveal_key(mut self, key: Option<String>) -> Self {
     self.options.reveal_key = key;
     self
