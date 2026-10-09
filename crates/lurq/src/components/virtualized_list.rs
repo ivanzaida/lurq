@@ -76,6 +76,35 @@ struct VirtualizedListOptions {
   reveal_key: Option<String>,
 }
 
+/// A vertically scrolling list that mounts only the rows in and near its
+/// viewport (`overscan_px` beyond each edge), so lists of any length cost
+/// about as much as one screen of rows. Each row is a component mounted with
+/// [`mount_keyed`](Self::mount_keyed): `key_fn` gives the row's stable key,
+/// `props_fn` its props. Row heights are measured as rows are laid out;
+/// rows never measured count as the average measured height.
+///
+/// # Row state
+///
+/// A row that leaves the rendered window is unmounted, and created again
+/// from its props when it comes back: whatever the row component holds
+/// itself — fields set in `create`, signals from `ctx.signal`, element refs,
+/// a text input's value signal created by the row, focus — starts over.
+/// Keep state that must survive scrolling above the list, keyed by row key:
+/// in the items themselves when it is data, or in a signal or store the
+/// screen owns (for example `Signal<HashMap<Key, RowState>>`, or a
+/// `HashMap<Key, Signal<String>>` of text-input values) and hands to rows
+/// with `ctx.provide` / `ctx.use_context` or through their props. Remove
+/// entries whose keys left the items when the items change.
+///
+/// ```ignore
+/// // In the screen's `create`: one map for every row, keyed like the rows.
+/// let expanded: Signal<HashMap<TaskId, bool>> = ctx.signal(HashMap::new());
+/// ctx.provide(expanded);
+///
+/// // In the row: read its entry (subscribes) and write it on toggle.
+/// let expanded = ctx.use_context::<Signal<HashMap<TaskId, bool>>>().expect("provided by the screen");
+/// let open = expanded.with(|rows| rows.get(&task.id).copied().unwrap_or(false));
+/// ```
 pub struct VirtualizedList<'a, T> {
   ctx: &'a mut Ctx,
   items: Arc<Vec<T>>,
