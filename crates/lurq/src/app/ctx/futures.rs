@@ -342,13 +342,33 @@ where
     self.state.clone()
   }
 
-  /// Starts the action with `args`, replacing a run still in flight. Does
-  /// nothing once the component that created the action has unmounted, and
-  /// logs an error when a render dropped the action (see [`Ctx::future_action`]).
+  /// Starts the action with `args`. A run still in flight is cancelled and
+  /// replaced: its result is never applied, so a second click on a button that
+  /// runs a save aborts the first save. Use [`run_if_idle`](Self::run_if_idle)
+  /// to ignore a run while one is in flight.
+  ///
+  /// Does nothing once the component that created the action has unmounted,
+  /// and logs an error when a render dropped the action (see
+  /// [`Ctx::future_action`]).
   pub fn run(&self, args: A) {
-    if !self.startable() {
-      return;
+    if self.startable() {
+      self.start(args);
     }
+  }
+
+  /// Starts the action with `args` unless a run is in flight, and returns
+  /// whether it started. The run in flight is left alone, so a double click
+  /// starts one run. Returns `false`, and starts nothing, after the action's
+  /// component has unmounted or a render dropped the action, as [`run`](Self::run).
+  pub fn run_if_idle(&self, args: A) -> bool {
+    if self.task.is_active() || !self.startable() {
+      return false;
+    }
+    self.start(args);
+    true
+  }
+
+  fn start(&self, args: A) {
     let runner = self.runner.lock().clone();
     let future = runner(args);
     start_future_task(
@@ -363,6 +383,7 @@ where
     self.task.cancel();
   }
 
+  /// Whether a run is in flight: started, and its result not applied yet.
   pub fn is_active(&self) -> bool {
     self.task.is_active()
   }
@@ -737,7 +758,9 @@ impl Ctx {
     handle
   }
 
-  /// Creates an async action that runs only when [`FutureAction::run`] is called.
+  /// Creates an async action that runs only when [`FutureAction::run`] or
+  /// [`FutureAction::run_if_idle`] is called. `run` replaces a run in flight;
+  /// `run_if_idle` leaves it and starts nothing.
   ///
   /// Where it is created decides how long it lives:
   /// - In `create`, the action gets a slot of its own and lives until the

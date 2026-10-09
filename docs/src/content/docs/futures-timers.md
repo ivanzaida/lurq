@@ -202,7 +202,18 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 }
 ```
 
-`FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)`.
+`FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)` and `.run_if_idle(args)`.
+
+`.run(args)` always starts a run: a run still in flight is cancelled and its result is never applied. A double click on a button wired to `.run` therefore aborts the first request and keeps only the second. When a run in flight must finish, start with `.run_if_idle(args)`: it starts nothing while a run is in flight (`.is_active()`), and returns whether it started.
+
+```rust
+Button::new("Save").on_click({
+  let save = save.clone();
+  move |_| {
+    save.run_if_idle(draft.get_untracked());
+  }
+})
+```
 
 An action does not have to be created in `render`. Created in `create`, it gets a slot of its own that lives until the component unmounts, so it can be kept in the component struct and run from any render or handler:
 
