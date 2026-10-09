@@ -637,7 +637,14 @@ pub struct Ctx {
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
   timers: Vec<Timer>,
+  /// Slots of the `ctx.future`, `ctx.stream` and `ctx.future_action` calls of
+  /// a render, by call position.
   future_slots: Vec<FutureSlot>,
+  /// Slots of those calls made outside render (in `create`): one each, kept
+  /// until the component unmounts.
+  stable_future_slots: Vec<FutureSlot>,
+  /// The component this context belongs to, for diagnostics.
+  component_name: &'static str,
   #[cfg(feature = "query")]
   query_registry: crate::query::QueryRegistry,
   #[cfg(feature = "query")]
@@ -1049,6 +1056,8 @@ impl Ctx {
       effects: Vec::new(),
       timers: Vec::new(),
       future_slots: Vec::new(),
+      stable_future_slots: Vec::new(),
+      component_name: "root",
       #[cfg(feature = "query")]
       query_registry: crate::query::QueryRegistry::default(),
       #[cfg(feature = "query")]
@@ -1195,6 +1204,10 @@ impl Ctx {
   #[cfg(not(feature = "devtools"))]
   fn set_props<T: Send + PartialEq + 'static>(&mut self, props: T) {
     self.props = Some(Box::new(props));
+  }
+
+  pub(crate) fn set_component_name(&mut self, name: &'static str) {
+    self.component_name = name;
   }
 
   #[cfg(feature = "devtools")]
@@ -2017,6 +2030,7 @@ impl Ctx {
     child_ctx.slot_children = slot_children;
     child_ctx.set_props(props);
     child_ctx.scope_id = slot_id;
+    child_ctx.component_name = type_name;
     let component = C::create(&mut child_ctx);
     let wrapper = ComponentWrapper { component };
     let mut element = Element::new();
@@ -2316,7 +2330,7 @@ impl Ctx {
 
     self.element_refs.truncate(self.element_ref_cursor);
     // Dropping a slot cancels its task.
-    self.future_slots.truncate(self.future_cursor);
+    self.drop_unreached_future_slots();
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
     self.rendering = false;
@@ -2366,7 +2380,7 @@ impl Ctx {
     if self.query_registry.ready() {
       return true;
     }
-    self.future_slots.iter().any(|slot| slot.task.is_active())
+    self.future_slots().any(|slot| slot.task.is_active())
       || self
         .children
         .iter()
@@ -2413,7 +2427,7 @@ impl Ctx {
 
   fn poll_futures(&mut self, cx: &mut TaskContext<'_>) -> bool {
     let mut completed = false;
-    for slot in &self.future_slots {
+    for slot in self.future_slots() {
       completed |= slot.task.poll(cx);
     }
     for slot in self.children.iter_mut().filter(|slot| !slot.offstage) {
@@ -2505,7 +2519,7 @@ impl Ctx {
       }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.timers.capacity() * std::mem::size_of::<Timer>()
-      + self.future_slots.capacity() * std::mem::size_of::<FutureSlot>()
+      + (self.future_slots.capacity() + self.stable_future_slots.capacity()) * std::mem::size_of::<FutureSlot>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self.click_outside_active_cursors.capacity() * std::mem::size_of::<usize>()
       + self

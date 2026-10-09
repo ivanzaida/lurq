@@ -142,7 +142,17 @@ struct AsyncTaskInner {
   work: AsyncWork,
   /// Set when the slot that owns the task is dropped: the task never starts
   /// work again, even through a handle that outlived its component.
-  closed: bool,
+  closed: Option<TaskClosed>,
+}
+
+/// Why a task's slot was dropped.
+#[derive(Clone, Copy, Debug)]
+enum TaskClosed {
+  /// Its component unmounted.
+  Unmounted,
+  /// A render of `component` no longer reached the slot's position, or made a
+  /// different call there, while the component stayed mounted.
+  DroppedByRender { component: &'static str },
 }
 
 /// The work a task is running. Dropping it cancels the work.
@@ -162,9 +172,17 @@ pub(super) struct FutureSlot {
   pub(super) task: AsyncTask,
 }
 
+impl FutureSlot {
+  /// Drops a positional slot that a render of the still mounted `component` no longer reached.
+  fn drop_while_mounted(self, component: &'static str) {
+    self.task.close(TaskClosed::DroppedByRender { component });
+  }
+}
+
 impl Drop for FutureSlot {
   fn drop(&mut self) {
-    self.task.close();
+    // A slot dropped in any other way goes with its component.
+    self.task.close(TaskClosed::Unmounted);
   }
 }
 
@@ -295,9 +313,10 @@ where
   }
 
   /// Starts the action with `args`, replacing a run still in flight. Does
-  /// nothing once the component that created the action has unmounted.
+  /// nothing once the component that created the action has unmounted, and
+  /// logs an error when a render dropped the action (see [`Ctx::future_action`]).
   pub fn run(&self, args: A) {
-    if self.task.is_closed() {
+    if !self.startable() {
       return;
     }
     let runner = self.runner.lock().clone();
@@ -316,6 +335,22 @@ where
 
   pub fn is_active(&self) -> bool {
     self.task.is_active()
+  }
+
+  /// Whether a run may start. An action dropped by a render of its still
+  /// mounted component is a bug in that component, so running it is logged.
+  fn startable(&self) -> bool {
+    match self.task.closed() {
+      None => true,
+      Some(TaskClosed::Unmounted) => false,
+      Some(TaskClosed::DroppedByRender { component }) => {
+        tracing::error!(
+          component,
+          "FutureAction::run on an action that a render of {component} dropped: the render no longer made the            same ctx.future/ctx.stream/ctx.future_action call at its position. The run does nothing. Create the            action in `create`, or make these calls unconditionally and in the same order in every render."
+        );
+        false
+      }
+    }
   }
 }
 
@@ -371,7 +406,7 @@ impl AsyncTask {
   fn replace_work(&self, work: AsyncWork) {
     let unused = {
       let mut inner = self.inner.lock();
-      if inner.closed {
+      if inner.closed.is_some() {
         work
       } else {
         std::mem::replace(&mut inner.work, work)
@@ -386,18 +421,23 @@ impl AsyncTask {
     drop(cancelled);
   }
 
-  /// Cancels the running work and keeps the task from starting again.
-  fn close(&self) {
+  /// Cancels the running work and keeps the task from starting again. The
+  /// first reason given is kept.
+  fn close(&self, reason: TaskClosed) {
     let cancelled = {
       let mut inner = self.inner.lock();
-      inner.closed = true;
+      inner.closed.get_or_insert(reason);
       std::mem::take(&mut inner.work)
     };
     drop(cancelled);
   }
 
-  fn is_closed(&self) -> bool {
+  fn closed(&self) -> Option<TaskClosed> {
     self.inner.lock().closed
+  }
+
+  fn is_closed(&self) -> bool {
+    self.closed().is_some()
   }
 
   pub(super) fn is_active(&self) -> bool {
@@ -423,7 +463,7 @@ impl AsyncTask {
         Poll::Ready(()) => return true,
         Poll::Pending => {
           let mut inner = self.inner.lock();
-          if !inner.closed && inner.work.future.is_none() {
+          if inner.closed.is_none() && inner.work.future.is_none() {
             inner.work.future = Some(future);
           }
           return false;
@@ -559,6 +599,11 @@ impl Ctx {
   /// dependency after each completion; that creates a render-dependent re-arm gap.
   /// Use [`Ctx::stream`] for receiver/watch/event sources that can produce multiple
   /// values over time.
+  ///
+  /// Called in `render`, the future belongs to its call position (see
+  /// [`Ctx::future_action`]). Called in `create`, it gets a slot of its own: it
+  /// starts once and runs until it completes, is cancelled, or the component
+  /// unmounts; its `deps` never change.
   pub fn future<D, T, E, F, Fut>(&mut self, deps: D, factory: F) -> FutureHandle<T, E>
   where
     D: Clone + PartialEq + Send + Sync + 'static,
@@ -567,26 +612,24 @@ impl Ctx {
     F: Fn(D) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<T, E>> + Send + 'static,
   {
-    let cursor = self.future_cursor;
-    self.future_cursor += 1;
+    let cursor = self.next_future_cursor();
     let runtime_handle = self.runtime_future_handle();
 
-    if cursor < self.future_slots.len() {
-      let slot = &mut self.future_slots[cursor];
-      if let Some(handle) = slot.handle.downcast_ref::<FutureHandle<T, E>>() {
-        let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
-        let handle = handle.clone();
-        if deps_changed {
-          slot.deps = Some(Box::new(deps.clone()));
-          start_future_task(
-            handle.state.clone(),
-            handle.task.clone(),
-            runtime_handle.clone(),
-            Box::pin(factory(deps)),
-          );
-        }
-        return handle;
+    if let Some(slot) = self.positional_future_slot(cursor)
+      && let Some(handle) = slot.handle.downcast_ref::<FutureHandle<T, E>>()
+    {
+      let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
+      let handle = handle.clone();
+      if deps_changed {
+        slot.deps = Some(Box::new(deps.clone()));
+        start_future_task(
+          handle.state.clone(),
+          handle.task.clone(),
+          runtime_handle,
+          Box::pin(factory(deps)),
+        );
       }
+      return handle;
     }
 
     let state = self.signal(FutureState::idle());
@@ -595,16 +638,14 @@ impl Ctx {
       state: state.clone(),
       task: task.clone(),
     };
-    let slot = FutureSlot {
-      deps: Some(Box::new(deps.clone())),
-      handle: Box::new(handle.clone()),
-      task: task.clone(),
-    };
-    if cursor < self.future_slots.len() {
-      self.future_slots[cursor] = slot;
-    } else {
-      self.future_slots.push(slot);
-    }
+    self.store_future_slot(
+      cursor,
+      FutureSlot {
+        deps: Some(Box::new(deps.clone())),
+        handle: Box::new(handle.clone()),
+        task: task.clone(),
+      },
+    );
     start_future_task(state, task, runtime_handle, Box::pin(factory(deps)));
     handle
   }
@@ -615,7 +656,8 @@ impl Ctx {
   /// renders, and is cancelled when the component unmounts or stops calling
   /// `stream` at this cursor position. Call [`StreamEmitter::emit`] from the task
   /// for each item and [`StreamEmitter::reject`] to publish an error while keeping
-  /// the stream alive.
+  /// the stream alive. Called in `create`, the stream gets a slot of its own and
+  /// runs until it ends, is cancelled, or the component unmounts.
   ///
   /// Use this for `watch::Receiver`, websocket/event subscriptions, file watchers,
   /// and other sources that can yield more than one value.
@@ -627,26 +669,24 @@ impl Ctx {
     F: Fn(D, StreamEmitter<T, E>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
   {
-    let cursor = self.future_cursor;
-    self.future_cursor += 1;
+    let cursor = self.next_future_cursor();
     let runtime_handle = self.runtime_future_handle();
 
-    if cursor < self.future_slots.len() {
-      let slot = &mut self.future_slots[cursor];
-      if let Some(handle) = slot.handle.downcast_ref::<StreamHandle<T, E>>() {
-        let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
-        let handle = handle.clone();
-        if deps_changed {
-          slot.deps = Some(Box::new(deps.clone()));
-          start_stream_task(
-            handle.state.clone(),
-            handle.task.clone(),
-            runtime_handle.clone(),
-            move |emitter| factory(deps, emitter),
-          );
-        }
-        return handle;
+    if let Some(slot) = self.positional_future_slot(cursor)
+      && let Some(handle) = slot.handle.downcast_ref::<StreamHandle<T, E>>()
+    {
+      let deps_changed = slot.deps.as_ref().and_then(|old| old.downcast_ref::<D>()) != Some(&deps);
+      let handle = handle.clone();
+      if deps_changed {
+        slot.deps = Some(Box::new(deps.clone()));
+        start_stream_task(
+          handle.state.clone(),
+          handle.task.clone(),
+          runtime_handle,
+          move |emitter| factory(deps, emitter),
+        );
       }
+      return handle;
     }
 
     let state = self.signal(FutureState::idle());
@@ -655,20 +695,30 @@ impl Ctx {
       state: state.clone(),
       task: task.clone(),
     };
-    let slot = FutureSlot {
-      deps: Some(Box::new(deps.clone())),
-      handle: Box::new(handle.clone()),
-      task: task.clone(),
-    };
-    if cursor < self.future_slots.len() {
-      self.future_slots[cursor] = slot;
-    } else {
-      self.future_slots.push(slot);
-    }
+    self.store_future_slot(
+      cursor,
+      FutureSlot {
+        deps: Some(Box::new(deps.clone())),
+        handle: Box::new(handle.clone()),
+        task: task.clone(),
+      },
+    );
     start_stream_task(state, task, runtime_handle, move |emitter| factory(deps, emitter));
     handle
   }
 
+  /// Creates an async action that runs only when [`FutureAction::run`] is called.
+  ///
+  /// Where it is created decides how long it lives:
+  /// - In `create`, the action gets a slot of its own and lives until the
+  ///   component unmounts. Keep it in the component struct and run it from any
+  ///   render or handler. This is the simplest place for an action.
+  /// - In `render`, the action belongs to its call position, like a hook: each
+  ///   render must make the same `ctx.future`, `ctx.stream` and
+  ///   `ctx.future_action` calls in the same order. A render that skips the call,
+  ///   or makes a different one at its position, drops the action: its run is
+  ///   cancelled and running a clone of it afterwards does nothing but log an
+  ///   error that names the component.
   pub fn future_action<A, T, E, F, Fut>(&mut self, factory: F) -> FutureAction<A, T, E>
   where
     A: Send + Sync + 'static,
@@ -677,18 +727,16 @@ impl Ctx {
     F: Fn(A) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<T, E>> + Send + 'static,
   {
-    let cursor = self.future_cursor;
-    self.future_cursor += 1;
+    let cursor = self.next_future_cursor();
     let runtime_handle = self.runtime_future_handle();
     let runner: ActionRunner<A, T, E> = Arc::new(move |args| Box::pin(factory(args)));
 
-    if cursor < self.future_slots.len() {
-      let slot = &mut self.future_slots[cursor];
-      if let Some(action) = slot.handle.downcast_mut::<FutureAction<A, T, E>>() {
-        *action.runner.lock() = runner;
-        action.runtime_handle = runtime_handle;
-        return action.clone();
-      }
+    if let Some(slot) = self.positional_future_slot(cursor)
+      && let Some(action) = slot.handle.downcast_mut::<FutureAction<A, T, E>>()
+    {
+      *action.runner.lock() = runner;
+      action.runtime_handle = runtime_handle;
+      return action.clone();
     }
 
     let state = self.signal(FutureState::idle());
@@ -699,16 +747,56 @@ impl Ctx {
       runner: Arc::new(Mutex::new(runner)),
       runtime_handle,
     };
-    let slot = FutureSlot {
-      deps: None,
-      handle: Box::new(action.clone()),
-      task,
-    };
-    if cursor < self.future_slots.len() {
-      self.future_slots[cursor] = slot;
-    } else {
-      self.future_slots.push(slot);
-    }
+    self.store_future_slot(
+      cursor,
+      FutureSlot {
+        deps: None,
+        handle: Box::new(action.clone()),
+        task,
+      },
+    );
     action
+  }
+
+  /// The position of the next future call of this render, or `None` outside
+  /// render (in `create`), where each call gets a stable slot of its own.
+  fn next_future_cursor(&mut self) -> Option<usize> {
+    if !self.rendering {
+      return None;
+    }
+    let cursor = self.future_cursor;
+    self.future_cursor += 1;
+    Some(cursor)
+  }
+
+  fn positional_future_slot(&mut self, cursor: Option<usize>) -> Option<&mut FutureSlot> {
+    self.future_slots.get_mut(cursor?)
+  }
+
+  /// Stores a new slot at `cursor`, or among the stable slots for `None`. A
+  /// positional slot it replaces is dropped: its task is cancelled for good.
+  fn store_future_slot(&mut self, cursor: Option<usize>, slot: FutureSlot) {
+    let Some(cursor) = cursor else {
+      self.stable_future_slots.push(slot);
+      return;
+    };
+    let component = self.component_name;
+    match self.future_slots.get_mut(cursor) {
+      Some(current) => std::mem::replace(current, slot).drop_while_mounted(component),
+      None => self.future_slots.push(slot),
+    }
+  }
+
+  /// Drops the positional slots this render did not reach.
+  pub(super) fn drop_unreached_future_slots(&mut self) {
+    let component = self.component_name;
+    for slot in self.future_slots.drain(self.future_cursor..) {
+      slot.drop_while_mounted(component);
+    }
+  }
+
+  /// Every future slot of this component: positional and stable.
+  pub(super) fn future_slots(&self) -> impl Iterator<Item = &FutureSlot> {
+    self.future_slots.iter().chain(&self.stable_future_slots)
   }
 }

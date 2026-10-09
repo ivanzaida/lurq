@@ -189,20 +189,45 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 
 `FutureAction` has the same `.state()`, `.cancel()`, and `.is_active()` methods as `FutureHandle`, plus `.run(args)`.
 
+An action does not have to be created in `render`. Created in `create`, it gets a slot of its own that lives until the component unmounts, so it can be kept in the component struct and run from any render or handler:
+
+```rust
+struct SearchBox {
+  search: FutureAction<String, Vec<Hit>, String>,
+}
+
+impl Component for SearchBox {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      search: ctx.future_action(|query: String| async move { search(query).await }),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let search = self.search.clone();
+    Button::new("Search").on_click(move |_| search.run("lurq".to_owned()))
+  }
+}
+```
+
+`ctx.future` and `ctx.stream` called in `create` work the same way: they start once, with the `deps` given there, and run until they finish, are cancelled, or the component unmounts.
+
 A `ctx.watch` on `action.state()` may call `.run(args)` again, for example to retry when the state becomes `Rejected`. The new run sets the state to `Pending` after the current notification. See [writes from callbacks](../reactivity/#writes-from-callbacks).
 
 When using the `form` feature, `FormProps::submit_action(action)` wires a `FutureAction<FormValues, _, FormErrors>` into a mounted form. It validates before running the action, exposes `form.submitting()`, blocks duplicate submits while pending, and maps rejected `FormErrors` back into field errors.
 
 ## Task Lifetime
 
-Futures, streams, and future actions belong to the component that renders them. A task is cancelled when:
+Futures, streams, and future actions belong to the component that creates them. Calls made in `render` are positional, like hooks: each render must make the same `ctx.future`, `ctx.stream`, and `ctx.future_action` calls in the same order, and a call is matched with the slot of the same position in the previous render. Calls made in `create` get slots of their own, which no render replaces or drops. A task is cancelled when:
 
 - its dependency changes (the new task replaces it),
 - `.cancel()` is called,
 - a render no longer reaches its call: the component makes fewer `ctx.future`, `ctx.stream`, and `ctx.future_action` calls than before, or a different one at that position,
 - its component unmounts, which includes mounting another root and dropping the `Tree`.
 
-A cancelled task's result is never applied. With a Tokio handle, cancelling aborts the Tokio task: it stops the next time it yields to the runtime, at an `.await` whose future is not ready yet, and the runtime drops its future, so a stream does not have to reach its next `emit` to stop. Code between such points keeps running until it yields: CPU-bound work, or a loop whose `.await`s are always ready, is not interrupted. `.run(args)` on a `FutureAction` whose component has unmounted does nothing.
+A cancelled task's result is never applied. With a Tokio handle, cancelling aborts the Tokio task: it stops the next time it yields to the runtime, at an `.await` whose future is not ready yet, and the runtime drops its future, so a stream does not have to reach its next `emit` to stop. Code between such points keeps running until it yields: CPU-bound work, or a loop whose `.await`s are always ready, is not interrupted. `.run(args)` on a `FutureAction` whose component has unmounted does nothing. `.run(args)` on an action that a render dropped (its component is still mounted, but a render no longer made the call at its position) does nothing either, and logs an error through `tracing` that names the component: that is a bug in the component, fixed by creating the action in `create` or by making the calls unconditionally.
 
 An offstage component (`ctx.mount_offstage`, `Router::mount_offstage`) is still mounted, so its tasks are not cancelled, but its futures are not polled until it is active again. A future or stream polled cooperatively (without a Tokio handle) waits. A task already running on Tokio keeps running, and what it produced while offstage is applied, in order, once the component is active again. Removing an offstage component unmounts it and cancels its tasks.
 

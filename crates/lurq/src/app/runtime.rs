@@ -1874,6 +1874,7 @@ impl Tree {
     }
     ctx.set_app_ref(app);
     ctx.set_root_props(props);
+    ctx.set_component_name(std::any::type_name::<C>());
     let component = C::create(&mut ctx);
     let wrapper = RootComponentWrapper { component };
     ctx.begin_render();

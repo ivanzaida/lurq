@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fix a `ctx.future_action` created in `create` never running. Future slots were positional and reset by every render: the first `ctx.future`, `ctx.stream` or `ctx.future_action` call of the first render took the slot of an action created in `create` (and a render that made no such call dropped it), which cancelled it for good, so `run` silently did nothing. `ctx.future`, `ctx.stream` and `ctx.future_action` called outside render (in `create`) now get slots of their own, which no render replaces or drops: an action lives until its component unmounts and can be kept in the component struct; a future or stream starts once with the `deps` given there. Calls made in `render` stay positional, as before.
+  - `FutureAction::run` on an action that a render dropped while its component stayed mounted (the render no longer made the call at its position, or made a different one) still starts nothing, but now logs a `tracing` error naming the component. Running an action of an unmounted component stays silent.
+
 ## 0.42.0 — 2026-10-08
 
 - Add hosted MCP: an app with an MCP server of its own (its own port, token, discovery and settings) can serve lurq's tools from it instead of starting lurq's server.

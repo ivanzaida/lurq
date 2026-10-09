@@ -16,6 +16,7 @@ mod element_ref_interaction;
 #[cfg(feature = "form")]
 mod focus_reconciliation;
 mod futures {
+  mod created_in_create;
   mod future_action_restarts_from_state_watch;
   mod future_action_runs_on_run;
   mod future_resolves;
