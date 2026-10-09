@@ -385,6 +385,21 @@ VirtualizedList::new(ctx, items)
   .mount_keyed::<ItemRow, _, _, _>(|item| item.id, |item| item.clone())
 ```
 
+`.reveal_key(Some(key))` scrolls the row with that key into view, for example to show the selection again after
+navigating back to a list. The reveal fires on the first render and again each time the key changes, never on other
+re-renders, so it does not fight the user's scrolling. A row that is already fully visible does not move; any other row
+is scrolled to the top of the viewport. The row does not need to be mounted: the list places it from its measured and
+estimated row heights and settles on the exact offset over the next few frames as the rows around it are measured. A
+key that is not among the items is dropped, except while the list has no items yet, so a list mounted before its data
+loads still opens on the row.
+
+```rust
+VirtualizedList::new(ctx, tasks)
+  .flex(1.0)
+  .reveal_key(selected.get().map(|id| id.to_string()))
+  .mount_keyed::<TaskRow, _, _, _>(|task| task.id, |task| task.clone())
+```
+
 ## Text
 
 Text is measured by the glyph engine and wraps within its width constraint.
