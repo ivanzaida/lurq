@@ -248,3 +248,32 @@ fn input_tokens_rtl_both_bidi_boundary_sides_retain_the_clicked_caret() {
     assert!((state.caret_x() - point.x).abs() < 0.01);
   }
 }
+
+#[test]
+fn input_tokens_scroll_raw_crlf_cut_paste_and_undo_payload_is_not_flattened() {
+  let raw = "before\r\n{{task.title}}\nafter";
+  let source = Signal::new(raw.to_owned());
+  let state = TextInputState::new(source.clone());
+  state.set_tokens(
+    InputTokens::new(
+      raw,
+      vec![InputToken::new(
+        8..22,
+        InputTokenStyle::new(Color::new(1, 2, 3, 255), Color::new(4, 5, 6, 255)),
+      )],
+    )
+    .unwrap(),
+  );
+  assert_eq!(state.rendered_text_for_layout(), "before  {{task.title}} after");
+  assert!(state.controller_select(6, 8));
+  assert_eq!(state.selected_text().as_deref(), Some("\r\n"));
+  let event = KeyboardEvent::new("x", "KeyX", false, true, false, false, crate::core::NodeId::UNASSIGNED);
+  assert_eq!(state.cut_selection(&event).as_deref(), Some("\r\n"));
+  assert_eq!(source.get(), "before{{task.title}}\nafter");
+  assert!(state.insert("\r\n", &event));
+  assert_eq!(source.get(), raw);
+  assert!(state.undo(&event));
+  assert_eq!(source.get(), "before{{task.title}}\nafter");
+  assert!(state.undo(&event));
+  assert_eq!(source.get(), raw);
+}

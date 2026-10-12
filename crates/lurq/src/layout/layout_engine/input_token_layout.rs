@@ -16,16 +16,17 @@ impl LayoutEngine {
     &self,
     glyphs: &mut GlyphEngine,
     state: &TextInputState,
-    _text: &str,
     base: &TextStyle,
     constraints: Constraints,
     tokens: InputTokens,
   ) -> crate::layout::layout_result::LayoutResult {
-    let width = if constraints.max_width.is_nan() {
-      0.0
+    let wrap = state.overflow() == TextInputOverflow::Multiline;
+    let max_width = if wrap {
+      constraints.max_width
     } else {
-      constraints.max_width.max(0.0)
+      constraints.constrain(Size::new(DEFAULT_TEXT_INPUT_WIDTH, 0.0)).width
     };
+    let width = if max_width.is_nan() { 0.0 } else { max_width.max(0.0) };
     let styles = tokens
       .tokens
       .iter()
@@ -56,7 +57,6 @@ impl LayoutEngine {
         }
       })
       .collect();
-    let wrap = state.overflow() == TextInputOverflow::Multiline;
     let layout = glyphs.decorated_input(InputConfig {
       source: tokens.source,
       base: base.clone(),
@@ -66,7 +66,11 @@ impl LayoutEngine {
       wrap,
     });
     let preferred = Size::new(
-      layout.size.width.max(DEFAULT_TEXT_INPUT_WIDTH),
+      if wrap {
+        layout.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
+      } else {
+        DEFAULT_TEXT_INPUT_WIDTH
+      },
       if wrap {
         multiline_preferred_height(state, layout.size.height, layout.line_height)
       } else {

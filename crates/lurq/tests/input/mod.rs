@@ -29,6 +29,7 @@ mod text_input {
   mod overflow_anchor;
   mod preserves_editing_state_across_render;
   mod renders_caret;
+  mod scroll_tokens;
   mod soft_wrap_selection;
   mod style;
   mod tokens;

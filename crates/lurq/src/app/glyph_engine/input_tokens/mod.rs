@@ -1,5 +1,5 @@
 //! Whole-paragraph input shaping; cached geometry is also the paint payload.
-use std::{collections::VecDeque, ops::Range, sync::Arc};
+use std::{borrow::Cow, collections::VecDeque, ops::Range, sync::Arc};
 
 use cosmic_text::{LayoutGlyph, Metrics, Shaping};
 
@@ -20,6 +20,9 @@ mod geometry;
 mod justification;
 mod paint;
 mod rows;
+#[cfg(test)]
+#[path = "../../../../tests/input/text_input/scroll_geometry.rs"]
+mod scroll_tests;
 #[cfg(test)]
 #[path = "../../../../tests/input/text_input/rtl_geometry.rs"]
 mod tests;
@@ -172,7 +175,14 @@ impl GlyphEngine {
 
   fn shape_input(&mut self, output: &mut DecoratedInputLayout) {
     let config = &output.config;
-    let spans = input_spans(config);
+    // CR and LF each become one ASCII space in Scroll, preserving every raw
+    // UTF-8 byte offset. Only presentation is flattened; config.source stays raw.
+    let presentation = if config.wrap {
+      Cow::Borrowed(config.source.as_ref())
+    } else {
+      Cow::Owned(config.source.replace(['\r', '\n'], " "))
+    };
+    let spans = input_spans(config, &presentation);
     let families: Vec<_> = spans.iter().map(|(_, style, _)| self.resolve_family(style)).collect();
     let attrs: Vec<_> = spans
       .iter()
@@ -203,7 +213,8 @@ impl GlyphEngine {
     rows::finish(output, prepared);
     // set_rich_text does not retain a final empty paragraph. The editor must
     // still expose the raw boundary after its hard line ending.
-    if output.config.source.ends_with(['\r', '\n'])
+    if output.config.wrap
+      && output.config.source.ends_with(['\r', '\n'])
       && output
         .carets
         .last()
@@ -218,18 +229,18 @@ impl GlyphEngine {
   }
 }
 
-fn input_spans(config: &InputConfig) -> Vec<(&str, &TextStyle, usize)> {
+fn input_spans<'a>(config: &'a InputConfig, presentation: &'a str) -> Vec<(&'a str, &'a TextStyle, usize)> {
   let mut spans = Vec::new();
   let mut start = 0;
   for (index, token) in config.styles.iter().enumerate() {
     if start < token.range.start {
-      spans.push((&config.source[start..token.range.start], &config.base, 0));
+      spans.push((&presentation[start..token.range.start], &config.base, 0));
     }
-    spans.push((&config.source[token.range.clone()], &token.text, index + 1));
+    spans.push((&presentation[token.range.clone()], &token.text, index + 1));
     start = token.range.end;
   }
   if start < config.source.len() {
-    spans.push((&config.source[start..], &config.base, 0));
+    spans.push((&presentation[start..], &config.base, 0));
   }
   if spans.is_empty() {
     spans.push(("", &config.base, 0));

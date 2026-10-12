@@ -11,7 +11,7 @@ impl LayoutEngine {
     constraints: Constraints,
   ) -> LayoutResult {
     if let Some(tokens) = state.tokens().filter(|tokens| !tokens.tokens.is_empty()) {
-      return self.layout_input_tokens(glyph_engine, state, text, style, constraints, tokens);
+      return self.layout_input_tokens(glyph_engine, state, style, constraints, tokens);
     }
     let display_style = text_input_display_style(state, style, placeholder_style);
     let overflow = state.overflow();

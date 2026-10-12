@@ -16,13 +16,19 @@ impl DecoratedInputLayout {
         };
         let extra = (width - row.width).max(0.0);
         // These are cosmic's public alignment semantics, including directional End.
-        let left = match (self.config.base.text_align, row.rtl) {
-          (TextAlign::Left, false) | (TextAlign::Justified, false) => 0.0,
-          (TextAlign::Left, true) | (TextAlign::End, true) => width - row.width - extra,
-          (TextAlign::Right, false) | (TextAlign::End, false) => extra,
-          (TextAlign::Right, true) | (TextAlign::Justified, true) => width - row.width,
-          (TextAlign::Center, false) => extra * 0.5,
-          (TextAlign::Center, true) => width - row.width - extra * 0.5,
+        let left = if !self.config.wrap && row.width > width {
+          // Scroll offsets are nonnegative. Canonicalize an overflowing row
+          // to a nonnegative content domain; viewport/anchors reveal either edge.
+          0.0
+        } else {
+          match (self.config.base.text_align, row.rtl) {
+            (TextAlign::Left, false) | (TextAlign::Justified, false) => 0.0,
+            (TextAlign::Left, true) | (TextAlign::End, true) => width - row.width - extra,
+            (TextAlign::Right, false) | (TextAlign::End, false) => extra,
+            (TextAlign::Right, true) | (TextAlign::Justified, true) => width - row.width,
+            (TextAlign::Center, false) => extra * 0.5,
+            (TextAlign::Center, true) => width - row.width - extra * 0.5,
+          }
         };
         left - row.left
       })

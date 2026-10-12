@@ -101,6 +101,13 @@ CRLF. Tokens are editable ranges, not atomic words: a click can place the caret 
 and typing/deletion can make it a partial or invalid expression. Existing ranges stop decorating immediately
 when the source changes. Reparse on the next render; omitted/invalid expressions remain ordinary text.
 
+The default single-line Scroll mode presents each CR or LF as one space, preserving every raw UTF-8
+byte offset, token range and source-backed edit. CRLF presents two spaces; clipboard/history still
+contain the original CRLF. Multiline retains hard breaks. Scroll uses the ordinary input's default
+field width. Fitting rows keep their requested alignment; overflowing decorated rows share a
+nonnegative content origin so focused caret scrolling can reveal either raw end. Unfocused Start/End
+keep the existing visual left/right edge convention, including RTL; they do not alter raw text order.
+
 Copy, cut, paste, keyboard navigation, undo/redo and persistence continue to use the raw source bytes.
 No replacement label enters clipboard or storage. Decorations are disabled during IME preedit and for
 masked inputs. Debug output of `InputTokens` omits source and ranges. The controller never returns

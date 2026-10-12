@@ -278,8 +278,11 @@ fn fill_row(scratch: &mut ShapeLine, paragraph: &Paragraph, first: usize, end: u
       .range((span_index, 0, 0)..=(span_index, usize::MAX, usize::MAX))
       .map(|location| location.1)
       .collect();
-    let first_word = *words.first().expect("selected span contains a selected word");
-    let last_word = *words.last().expect("selected span contains a selected word");
+    let (Some(&first_word), Some(&last_word)) = (words.first(), words.last()) else {
+      // An intermediate directional span can contain no selected glyphs.
+      scratch.spans.push(span);
+      continue;
+    };
     for word_index in first_word..=last_word {
       let word = &original.words[word_index];
       let glyphs = locations
