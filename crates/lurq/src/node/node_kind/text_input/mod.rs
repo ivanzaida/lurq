@@ -239,8 +239,14 @@ impl TextInputState {
   /// Text the caret positions are laid out over: the displayed text while an
   /// input method composes (indices then point into it, see
   /// `text_input_composition`), else [`TextInputState::caret_source_text`].
+  /// Unmasked Scroll breaks use one space per byte, matching paint without changing source offsets.
   pub(crate) fn caret_layout_text(&self) -> String {
-    self.composed_text().unwrap_or_else(|| self.caret_source_text())
+    let text = self.composed_text().unwrap_or_else(|| self.caret_source_text());
+    if self.overflow() == TextInputOverflow::Scroll && !self.is_masked() {
+      text.replace(['\r', '\n'], " ")
+    } else {
+      text
+    }
   }
 
   /// Caret positions are computed over the masked string, so their `index` is a

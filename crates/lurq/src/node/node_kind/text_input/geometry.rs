@@ -17,9 +17,6 @@ impl TextInputState {
     let old_caret_positions = old_inner.caret_positions.clone();
     let old_scroll_x = old_inner.scroll_x;
     let old_scroll_y = old_inner.scroll_y;
-    let old_overflow = old_inner.overflow;
-    let old_min_rows = old_inner.min_rows;
-    let old_max_rows = old_inner.max_rows;
     let old_focused = old_inner.focused;
     let old_composition = old_inner.composition.clone();
     let old_undo_stack = old_inner.undo_stack.clone();
@@ -42,9 +39,6 @@ impl TextInputState {
     inner.caret_positions = old_caret_positions;
     inner.scroll_x = old_scroll_x;
     inner.scroll_y = old_scroll_y;
-    inner.overflow = old_overflow;
-    inner.min_rows = old_min_rows;
-    inner.max_rows = old_max_rows;
     inner.focused = old_focused;
     inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;
@@ -69,14 +63,23 @@ impl TextInputState {
       None => (value, inner.caret),
     };
     let caret = clamp_to_char_boundary(&text, caret);
-    if caret == text.len() && text[..caret].ends_with('\n') && inner.token_layout.is_none() {
+    if inner.overflow == TextInputOverflow::Multiline
+      && caret == text.len()
+      && text[..caret].ends_with('\n')
+      && inner.token_layout.is_none()
+    {
       inner.caret_x = 0.0;
       inner.caret_y = text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
       return;
     }
     inner.caret_x = caret_x_for_index(&inner.caret_positions, caret);
-    inner.caret_y = caret_y_for_index(&inner.caret_positions, caret)
-      .unwrap_or_else(|| text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height);
+    inner.caret_y = caret_y_for_index(&inner.caret_positions, caret).unwrap_or_else(|| {
+      if inner.overflow == TextInputOverflow::Multiline {
+        text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height
+      } else {
+        0.0
+      }
+    });
   }
 
   pub(crate) fn caret_x(&self) -> f32 {

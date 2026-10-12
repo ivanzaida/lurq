@@ -26,9 +26,11 @@ mod text_input {
   mod letter_spacing;
   mod line_metrics;
   mod masked_editing;
+  mod mode_rerender;
   mod overflow_anchor;
   mod preserves_editing_state_across_render;
   mod renders_caret;
+  mod scroll_presentation;
   mod scroll_tokens;
   mod soft_wrap_selection;
   mod style;
