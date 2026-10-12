@@ -43,6 +43,7 @@ impl TextInputState {
     }
     let mut inner = self.inner.lock();
     inner.caret = caret;
+    inner.token_affinity = None;
     inner.selection_anchor = (anchor != caret).then_some(anchor);
     drop(inner);
     self.mark_layout_dirty();

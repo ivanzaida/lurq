@@ -136,12 +136,13 @@ impl TextInputOutput {
   /// Keeps the caret's line of a multiline input in view.
   fn vertical_scroll(&self, state: &TextInputState) -> f32 {
     let caret_y = state.caret_y() + state.scroll_y();
+    let line_height = state.caret_height();
     let max_scroll = (self.text_height - self.size.height).max(0.0);
     let scroll_y = state.scroll_y().min(max_scroll);
     if caret_y < scroll_y {
       caret_y
-    } else if caret_y + self.line_height > scroll_y + self.size.height {
-      (caret_y + self.line_height - self.size.height).min(max_scroll)
+    } else if caret_y + line_height > scroll_y + self.size.height {
+      (caret_y + line_height - self.size.height).min(max_scroll)
     } else {
       scroll_y
     }

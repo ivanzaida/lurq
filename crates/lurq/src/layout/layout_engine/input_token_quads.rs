@@ -1,4 +1,4 @@
-//! Paint exactly the token runs and caret geometry measured by input_token_layout.
+//! Input-only paint dispatch and geometry offsets.
 use super::{LayoutEngine, intersect_clip, text_input_vertical_offset, transformed_quad_frame};
 use crate::{
   layout::{
@@ -22,18 +22,10 @@ impl LayoutEngine {
     style: &TextStyle,
     placeholder: Option<&TextStyle>,
   ) -> QuadContent {
-    let display = super::text_input_display_style(state, style, placeholder).clone();
-    // Keep the input's normal background/selection paint path. Decorated glyphs
-    // are emitted below from their measured runs instead of this empty text leaf.
-    if state.token_layout().is_some() {
-      return QuadContent::Text {
-        text: String::new(),
-        style: display,
-        wrap: false,
-        vertical_align: VerticalAlign::LineBox,
-        transform_mode: TextTransformMode::Bitmap,
-      };
+    if let Some(layout) = state.token_layout() {
+      return QuadContent::DecoratedInput { layout };
     }
+    let display = super::text_input_display_style(state, style, placeholder).clone();
     let vertical_align = if state.overflow() == TextInputOverflow::Multiline {
       VerticalAlign::LineBox
     } else {
@@ -57,7 +49,6 @@ impl LayoutEngine {
     transform: Transform2D,
     clip: ClipRect,
     opacity: f32,
-    backgrounds: bool,
     quads: &mut Vec<Quad>,
   ) {
     let Some(layout) = state.token_layout() else {
@@ -82,51 +73,24 @@ impl LayoutEngine {
       origin.0 + padding.left - state.scroll_x(),
       origin.1 + padding.top + text_input_vertical_offset(state, height) - state.scroll_y(),
     );
-    for piece in &layout.pieces {
-      if backgrounds {
-        let Some((color, radius)) = piece.background else {
-          continue;
-        };
-        let radius = if radius.is_finite() { radius.max(0.0) } else { 0.0 };
-        for (x, y, row_width) in &piece.backgrounds {
-          let (x, y, xf, center) =
-            transformed_quad_frame(start.0 + piece.x + x - piece.padding, start.1 + piece.y + y, transform);
-          quads.push(Quad {
-            x,
-            y,
-            width: *row_width,
-            height: state.caret_height(),
-            opacity,
-            transform: xf,
-            transform_origin: center,
-            content: QuadContent::Rect { color, gradient: None },
-            border_radius: Some(BorderRadius::all(radius).clamped_to_rect(*row_width, state.caret_height())),
-            border: None,
-            clip,
-          });
-        }
-      } else {
-        let (x, y, xf, center) = transformed_quad_frame(start.0 + piece.x, start.1 + piece.y, transform);
-        quads.push(Quad {
-          x,
-          y,
-          width: piece.width,
-          height: piece.height,
-          opacity,
-          transform: xf,
-          transform_origin: center,
-          content: QuadContent::Text {
-            text: piece.text.clone(),
-            style: piece.style.clone(),
-            wrap: state.overflow() == TextInputOverflow::Multiline,
-            vertical_align: VerticalAlign::LineBox,
-            transform_mode: TextTransformMode::Bitmap,
-          },
-          border_radius: None,
-          border: None,
-          clip,
-        });
-      }
+    for part in &layout.fragments {
+      let (x, y, xf, center) = transformed_quad_frame(start.0 + part.x, start.1 + part.y, transform);
+      quads.push(Quad {
+        x,
+        y,
+        width: part.width,
+        height: part.height,
+        opacity,
+        transform: xf,
+        transform_origin: center,
+        content: QuadContent::Rect {
+          color: part.color,
+          gradient: None,
+        },
+        border_radius: Some(BorderRadius::all(part.radius).clamped_to_rect(part.width, part.height)),
+        border: None,
+        clip,
+      });
     }
   }
 }

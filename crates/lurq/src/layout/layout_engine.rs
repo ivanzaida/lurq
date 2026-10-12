@@ -1131,8 +1131,10 @@ impl LayoutEngine {
     match &content {
       QuadContent::None => {}
       _ => {
-        if (matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. })
-          || (canvas_content && !matches!(content, QuadContent::Rect { .. })))
+        if (matches!(
+          content,
+          QuadContent::Text { .. } | QuadContent::RichText { .. } | QuadContent::DecoratedInput { .. }
+        ) || (canvas_content && !matches!(content, QuadContent::Rect { .. })))
           && has_visual
         {
           let (visual_x, visual_y, visual_transform, visual_transform_origin) =
@@ -1155,18 +1157,12 @@ impl LayoutEngine {
           });
         }
 
+        if has_inset_shadow && matches!(content, QuadContent::DecoratedInput { .. }) {
+          self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
+        }
+
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
-          self.push_input_tokens(
-            node,
-            state,
-            result,
-            (abs_x, abs_y),
-            transform,
-            clip,
-            opacity,
-            true,
-            quads,
-          );
+          self.push_input_tokens(node, state, result, (abs_x, abs_y), transform, clip, opacity, quads);
         }
 
         if let NodeKind::Text { state, style, .. } = node.node_kind()
@@ -1257,7 +1253,6 @@ impl LayoutEngine {
           // Selections cover the glyphs' band in each line box (the font's
           // ascent and descent), not the leading around it.
           let (band_top, band_height) = state.text_band();
-          let selection_height = band_height.min(content_height).max(1.0);
           let vertical_offset = padding.top + text_input_vertical_offset(state, content_height) + band_top;
           let selection_clip = intersect_clip(
             clip,
@@ -1272,8 +1267,10 @@ impl LayoutEngine {
             .transformed(transform),
           );
           for selection in state.selection_ranges() {
+            let (row_top, row_height) = state.selection_band_for_row(selection.y, (band_top, band_height));
+            let selection_height = row_height.min(content_height).max(1.0);
             let selection_x = abs_x + padding.left + selection.x;
-            let selection_y = abs_y + vertical_offset + selection.y;
+            let selection_y = abs_y + vertical_offset + selection.y + row_top - band_top;
             let (selection_x, selection_y, selection_transform, selection_transform_origin) =
               transformed_quad_frame(selection_x, selection_y, transform);
             quads.push(Quad {
@@ -1322,7 +1319,12 @@ impl LayoutEngine {
             ) {
               (
                 abs_x + padding.left - scroll_x,
-                abs_y + padding.top - scroll_y,
+                abs_y + padding.top - scroll_y
+                  + if state.token_layout().is_some() {
+                    text_input_vertical_offset(state, content_height)
+                  } else {
+                    0.0
+                  },
                 content_width + scroll_x,
                 content_height + scroll_y,
                 intersect_clip(
@@ -1368,13 +1370,14 @@ impl LayoutEngine {
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
 
-        let content_uses_separate_visual_rect =
-          (matches!(content, QuadContent::Text { .. } | QuadContent::RichText { .. })
-            || (canvas_content && !matches!(content, QuadContent::Rect { .. })))
-            && has_visual;
+        let content_uses_separate_visual_rect = (matches!(
+          content,
+          QuadContent::Text { .. } | QuadContent::RichText { .. } | QuadContent::DecoratedInput { .. }
+        ) || (canvas_content && !matches!(content, QuadContent::Rect { .. })))
+          && has_visual;
         let (content_x, content_y, content_transform, content_transform_origin) =
           transformed_quad_frame(content_x, content_y, transform);
-        if has_inset_shadow && !content_is_background {
+        if has_inset_shadow && !content_is_background && !matches!(content, QuadContent::DecoratedInput { .. }) {
           self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
         }
         #[cfg(feature = "screenshot")]
@@ -1441,20 +1444,6 @@ impl LayoutEngine {
       self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
     }
 
-    if let NodeKind::TextInput { state, .. } = node.node_kind() {
-      self.push_input_tokens(
-        node,
-        state,
-        result,
-        (abs_x, abs_y),
-        transform,
-        clip,
-        opacity,
-        false,
-        quads,
-      );
-    }
-
     if let NodeKind::TextInput { state, style, .. } = node.node_kind()
       && state.is_focused()
     {
@@ -1470,7 +1459,11 @@ impl LayoutEngine {
         // Line height controls row pitch, but the insertion caret should track
         // the glyph/em height. Otherwise readable multiline leading produces
         // a visually oversized caret.
-        let caret_height = style.font_size.min(caret_line_height).min(content_height).max(1.0);
+        let caret_height = state
+          .caret_font_size(style.font_size)
+          .min(caret_line_height)
+          .min(content_height)
+          .max(1.0);
         let caret_leading = ((caret_line_height - caret_height) * 0.5).max(0.0);
         let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
         // The caret starts at its insertion point, after the glyph before it.

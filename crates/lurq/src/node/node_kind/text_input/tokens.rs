@@ -9,6 +9,7 @@ impl TextInputState {
     }
     inner.tokens = Some(tokens);
     inner.token_layout = None;
+    inner.token_affinity = None;
     drop(inner);
     self.mark_layout_dirty();
   }
@@ -25,7 +26,15 @@ impl TextInputState {
   }
 
   pub(crate) fn set_token_layout(&self, layout: Option<Arc<TokenLayout>>) {
-    self.inner.lock().token_layout = layout;
+    let mut inner = self.inner.lock();
+    if inner
+      .token_affinity
+      .as_ref()
+      .is_some_and(|affinity| !affinity.matches(layout.as_ref()))
+    {
+      inner.token_affinity = None;
+    }
+    inner.token_layout = layout;
   }
 
   pub(crate) fn token_layout(&self) -> Option<Arc<TokenLayout>> {
@@ -34,6 +43,6 @@ impl TextInputState {
     inner
       .token_layout
       .clone()
-      .filter(|layout| layout.source == tokens.source)
+      .filter(|layout| layout.config.source == tokens.source)
   }
 }

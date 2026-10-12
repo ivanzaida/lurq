@@ -36,6 +36,7 @@ impl TextInputState {
     // A controller command must not be mistaken for an external whole-value
     // write when its new caret happens to equal the previous source length.
     inner.last_value = value;
+    inner.token_affinity = None;
     inner.caret = caret;
     inner.selection_anchor = None;
     drop(inner);
@@ -164,6 +165,9 @@ impl TextInputState {
   }
 
   pub(crate) fn move_up(&self, selecting: bool) {
+    if self.move_token_vertical(false, selecting) {
+      return;
+    }
     let value = self.value();
     let mut inner = self.inner.lock();
     let caret = clamp_to_char_boundary(&value, inner.caret);
@@ -185,6 +189,9 @@ impl TextInputState {
   }
 
   pub(crate) fn move_down(&self, selecting: bool) {
+    if self.move_token_vertical(true, selecting) {
+      return;
+    }
     let value = self.value();
     let mut inner = self.inner.lock();
     let caret = clamp_to_char_boundary(&value, inner.caret);

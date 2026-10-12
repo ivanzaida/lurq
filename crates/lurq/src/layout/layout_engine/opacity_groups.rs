@@ -55,6 +55,7 @@ fn paints_one_primitive(quad: &Quad) -> bool {
   match &quad.content {
     QuadContent::Rect { .. } => quad.border.is_none(),
     QuadContent::Text { style, .. } => style.shadow.is_none(),
+    QuadContent::DecoratedInput { layout } => layout.glyphs.iter().all(|glyph| glyph.shadow.is_none()),
     QuadContent::RichText { spans, .. } => spans.first().is_none_or(|span| span.style.shadow.is_none()),
     #[cfg(feature = "raster")]
     QuadContent::Image { .. } | QuadContent::Video { .. } => true,

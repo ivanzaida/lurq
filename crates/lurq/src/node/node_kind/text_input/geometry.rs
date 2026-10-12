@@ -7,6 +7,7 @@ impl TextInputState {
     }
     let old_inner = old.inner.lock();
     let old_caret = old_inner.caret;
+    let old_affinity = old_inner.token_affinity.clone();
     let old_last_value = old_inner.last_value.clone();
     let old_selection_anchor = old_inner.selection_anchor;
     let old_caret_x = old_inner.caret_x;
@@ -32,6 +33,7 @@ impl TextInputState {
     let mut inner = self.inner.lock();
     inner.last_value = old_last_value;
     inner.caret = old_caret.min(len);
+    inner.token_affinity = old_affinity;
     inner.selection_anchor = old_selection_anchor.map(|anchor| anchor.min(len));
     inner.caret_x = old_caret_x;
     inner.caret_y = old_caret_y;
@@ -51,6 +53,9 @@ impl TextInputState {
   }
 
   pub(crate) fn sync_caret_metrics_to_position(&self, line_height: f32) {
+    if self.sync_token_caret() {
+      return;
+    }
     let value = self.value();
     let composed = self.composed_text();
     let mut inner = self.inner.lock();
@@ -229,6 +234,7 @@ impl TextInputState {
 
   pub(crate) fn selection_ranges(&self) -> Vec<TextSelectionRange> {
     let value = self.value();
+    let decorated = self.token_layout();
     let inner = self.inner.lock();
     // A composition is shown in place of the selection.
     if inner.composition.is_some() {
@@ -237,6 +243,9 @@ impl TextInputState {
     let Some((start, end)) = selection_range_indices(&value, inner.selection_anchor, inner.caret) else {
       return Vec::new();
     };
+    if let Some(layout) = decorated {
+      return layout.selection(start..end, (inner.scroll_x, inner.scroll_y));
+    }
     selection_ranges_for_positions(&inner.caret_positions, start, end, inner.scroll_x, inner.scroll_y)
   }
 

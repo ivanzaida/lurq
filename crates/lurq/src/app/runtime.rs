@@ -71,6 +71,7 @@ mod capture_redaction_tests;
 mod caret_blink_tests;
 mod focus_visible;
 mod ime;
+mod input_token_paint;
 mod outside_press;
 mod scroll_into_view;
 mod select_menu;
@@ -2442,7 +2443,10 @@ impl Tree {
       let scaled_y = quad.y * scale;
       let scaled_width = quad.width * scale;
       let scaled_height = quad.height * scale;
-      let cull_clip = if matches!(&quad.content, QuadContent::Text { .. } | QuadContent::RichText { .. }) {
+      let cull_clip = if matches!(
+        &quad.content,
+        QuadContent::Text { .. } | QuadContent::RichText { .. } | QuadContent::DecoratedInput { .. }
+      ) {
         expand_text_clip_for_culling(scaled_clip)
       } else {
         scaled_clip
@@ -2656,6 +2660,23 @@ impl Tree {
           if sensitive_quads.binary_search(&order).is_ok() {
             capture_redactions.extend(crate::app::capture_redaction::RedactedArea::of_glyph_run(
               &glyphs[glyph_start..],
+            ));
+          }
+        }
+        QuadContent::DecoratedInput { layout } => {
+          let _range = input_token_paint::resolve_input_quad(
+            &mut glyph_engine,
+            layout,
+            quad,
+            scale,
+            order,
+            expand_text_clip_for_rasterization(scaled_clip),
+            &mut glyphs,
+          );
+          #[cfg(feature = "screenshot")]
+          if sensitive_quads.binary_search(&order).is_ok() {
+            capture_redactions.extend(crate::app::capture_redaction::RedactedArea::of_glyph_run(
+              &glyphs[_range],
             ));
           }
         }

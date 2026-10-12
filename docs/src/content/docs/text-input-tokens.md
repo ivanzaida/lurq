@@ -106,7 +106,31 @@ No replacement label enters clipboard or storage. Decorations are disabled durin
 masked inputs. Debug output of `InputTokens` omits source and ranges. The controller never returns
 secret source content, and styling a masked field cannot reveal its token glyphs.
 
-This is a decorated plain input, not a rich-text document model. Run shaping uses the existing glyph
-engine; token boundaries are explicit shaping boundaries. Paragraph-wide mixed-direction reordering
-across token boundaries has not been validated. Platform-native IME and visual parity need separate
-native verification; headless editing/layout tests do not establish that result.
+The glyph engine shapes the entire raw paragraph with its resolved span attributes. Inline pills,
+paint, byte hit positions and selection use that same immutable glyph output; the renderer does not
+reshape a shortened label or independently wrap a token. Hebrew/Arabic and mixed directional runs
+retain the engine's paragraph ordering. Pill padding reserves measured advance space on each visual
+fragment. Each pill uses its own style's metric band within the actual mixed-font row.
+
+Clicking an ambiguous BiDi boundary or wrap endpoint retains that spatial side through relayout and
+keyed reuse. Programmatic byte selection uses the first visual row containing the boundary and its
+nearest cluster edge. A byte inside a shaped combining/ligature cluster stays a raw character-byte
+edit position; a selection intersecting that cluster highlights its whole advance interval. Logical
+selection can therefore draw several disjoint visual intervals. Source, width, style/font, undo,
+mask/composition and detached-state changes reset stale spatial affinity.
+
+Justified soft rows expand actual blank-word advances after padding, with hard paragraph final rows
+unexpanded. Overwide clusters or rows keep their advances and clip rather than contract source space.
+The public cosmic engine's exceptional multiple-glyph blank-word behavior can exceed the viewport;
+its word denominator is preserved, rather than silently changed to a glyph denominator. Zero-padding
+rows use the public whole-paragraph layout directly. Padding-bearing rows use bounded whole-cluster
+coverage: shape once, preserve the original shaped span/word/glyph order, measure each accepted row
+without substring shaping, then produce final paint/caret/selection geometry. Negative tracking can
+make this conservative coverage wrap earlier; it never triggers an unbounded fit/retry search.
+
+Cached geometry is keyed by raw source/ranges, resolved style/font/metrics/padding, wrap/viewport
+bounds and font generation. Retained memory is bounded by both entry count and charged allocation
+bytes, with shared style allocations charged conservatively. Debug output of the opaque glyph payload
+does not expose its raw source. This remains a source-backed plain input; platform-native IME,
+clipboard and visual parity require separate native verification. Headless tests do not establish that
+result.

@@ -99,7 +99,14 @@ pub struct Quad {
   pub clip: ClipRect,
 }
 
+#[doc(hidden)]
+pub use crate::app::glyph_engine::input_tokens::DecoratedInputLayout;
+
 pub enum QuadContent {
+  #[doc(hidden)]
+  DecoratedInput {
+    layout: std::sync::Arc<DecoratedInputLayout>,
+  },
   Rect {
     color: Color,
     gradient: Option<RenderGradient>,

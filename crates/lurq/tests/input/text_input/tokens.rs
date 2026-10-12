@@ -305,3 +305,76 @@ fn input_tokens_combining_utf8_source_is_editable_and_theme_changes_remeasure() 
   assert!(controller.replace_selection("X").unwrap());
   assert_eq!(source.get(), "前 {{X}} 後");
 }
+
+#[test]
+fn input_tokens_rtl_field_background_border_inset_clip_and_subtree_opacity_survive() {
+  use lurq::node::box_shadow::BoxShadow;
+  let source = Signal::new("שלום {{task.title}} עולם".to_owned());
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let background = Color::new(30, 40, 50, 255);
+  let border = Color::new(60, 70, 80, 255);
+  tree.set_scale_factor(2.0);
+  tree.set_root(
+    TextInput::new(source.clone())
+      .tokens(tokens(&source.get()))
+      .width(150.0)
+      .padding(6.0)
+      .background(background)
+      .border_inside(2.0, border)
+      .rounded(8.0)
+      .box_shadow(BoxShadow::new(1.0, 1.0, 2.0, Color::new(90, 90, 90, 255)).inset())
+      .opacity(0.5),
+  );
+  let snapshot = render_pass_with_app(&mut tree, &mut app);
+  let field = snapshot.rects.iter().find(|rect| rect.color == background).unwrap();
+  let pill = snapshot.rects.iter().find(|rect| rect.color == FILL).unwrap();
+  let inset = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.shadow.is_some_and(|shadow| shadow.inset))
+    .unwrap();
+  assert!(field.order < inset.order && inset.order < pill.order);
+  assert!(snapshot.rects.iter().any(|rect| rect.stroke_color == border));
+  assert!(snapshot.layers.iter().any(|layer| layer.opacity == 0.5));
+  let glyphs: Vec<_> = snapshot
+    .glyphs
+    .iter()
+    .filter(|glyph| glyph.color[..3] == INK.to_linear_f32_array()[..3])
+    .collect();
+  assert!(!glyphs.is_empty());
+  assert!(glyphs.iter().all(|glyph| glyph.clip.active
+    && glyph.clip.width <= field.width
+    && glyph.order > pill.order
+    && glyph.color[3] == 1.0));
+  assert_eq!(source.get(), "שלום {{task.title}} עולם");
+}
+
+#[test]
+fn input_tokens_rtl_center_right_auto_size_uses_actual_field_width_for_clicks() {
+  use lurq::layout::text_style::TextAlign;
+  for align in [TextAlign::Center, TextAlign::Right] {
+    let source = Signal::new("שלום {{task.title}} עולם".to_owned());
+    let controller = TextInputController::new();
+    let mut tree = Tree::new();
+    let mut app = App::new();
+    tree.set_root(
+      TextInput::new(source.clone())
+        .tokens(tokens(&source.get()))
+        .controller(controller.clone())
+        .id("editor")
+        .text_align(align),
+    );
+    let snapshot = render_pass_with_app(&mut tree, &mut app);
+    let bounds = tree.find_element(|_| true).unwrap().bounds();
+    let pill = snapshot.rects.iter().find(|rect| rect.color == FILL).unwrap();
+    assert!(pill.x >= bounds.x && pill.x + pill.width <= bounds.x + bounds.width + 0.02);
+    pointer_click(&mut tree, pill.x + pill.width * 0.5, pill.y + 4.0, MouseButton::Left);
+    let byte = controller.selection().unwrap().caret;
+    assert!(byte > source.get().find(TOKEN).unwrap() && byte < source.get().find(TOKEN).unwrap() + TOKEN.len());
+    controller.replace_selection("!").unwrap();
+    let mut expected = "שלום {{task.title}} עולם".to_owned();
+    expected.insert(byte, '!');
+    assert_eq!(source.get(), expected);
+  }
+}

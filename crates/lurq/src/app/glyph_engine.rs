@@ -19,6 +19,7 @@ use swash::{
 
 mod cap_height;
 mod face_weight;
+pub(crate) mod input_tokens;
 mod letter_spacing;
 mod reflow;
 mod scaler;
@@ -421,6 +422,7 @@ impl std::ops::Deref for CachedPlainBuffer {
 }
 
 pub(crate) struct GlyphEngine {
+  input_cache: input_tokens::InputCache,
   #[cfg(feature = "canvas")]
   canvas_text: Option<std::sync::Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>>,
   /// A GPU renderer ended frames of a canvas text engine that a cleared cache
@@ -472,6 +474,7 @@ impl GlyphEngine {
       swash_context: ScaleContext::new(),
       transformed_scale_context: ScaleContext::new(),
       font_aliases: HashMap::new(),
+      input_cache: input_tokens::InputCache::default(),
       face_weights: FaceWeights::default(),
       measure_cache: HashMap::new(),
       vertical_extents_cache: HashMap::new(),
@@ -582,6 +585,7 @@ impl GlyphEngine {
       self.canvas_text_framed |= engine.lock().is_framed();
     }
     self.face_weights.clear();
+    self.input_cache.clear();
     self.plain_buffers.clear();
     self.plain_buffer_bytes = 0;
     self.measure_cache.clear();
@@ -2822,6 +2826,7 @@ impl GlyphEngine {
 
     std::mem::size_of::<Self>()
       + self.plain_buffer_bytes
+      + self.input_cache.estimated_memory_bytes()
       + optical_cache_bytes
       + self.font_aliases.capacity() * std::mem::size_of::<(String, String)>()
       + alias_heap

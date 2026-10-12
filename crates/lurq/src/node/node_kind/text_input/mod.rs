@@ -11,8 +11,10 @@ pub(crate) use controller_access::WeakTextInputState;
 #[cfg(test)]
 #[path = "../../../../tests/input/text_input/source.rs"]
 mod source_tests;
+mod token_affinity;
 mod tokens;
 use composition::Composition;
+use token_affinity::TokenAffinity;
 
 const MAX_TEXT_INPUT_HISTORY: usize = 128;
 type TextInputCallback = EventHandler<TextInputEvent>;
@@ -28,6 +30,7 @@ pub(crate) struct TextInputState {
 struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
   token_layout: Option<Arc<crate::layout::layout_engine::input_token_layout::TokenLayout>>,
+  token_affinity: Option<TokenAffinity>,
   placeholder: Option<String>,
   last_value: String,
   caret: usize,
@@ -89,6 +92,7 @@ impl TextInputState {
       inner: Arc::new(Mutex::new(TextInputInner {
         tokens: None,
         token_layout: None,
+        token_affinity: None,
         placeholder: None,
         last_value: initial_value,
         caret,
@@ -173,6 +177,7 @@ impl TextInputState {
         .map(|anchor| clamp_to_char_boundary(&value, anchor.min(value.len())));
     }
     inner.last_value = value;
+    inner.token_affinity = None;
     drop(inner);
     self.mark_layout_dirty();
     true
@@ -264,6 +269,7 @@ impl TextInputState {
       return;
     }
     inner.mask = mask;
+    inner.token_affinity = None;
     drop(inner);
     self.mark_layout_dirty();
   }
@@ -280,6 +286,9 @@ impl TextInputState {
 
 impl TextInputState {
   fn closest_caret_to_point(&self, x: f32, y: f32) -> usize {
+    if let Some(byte) = self.token_hit(x, y) {
+      return byte;
+    }
     let value = self.value();
     let inner = self.inner.lock();
     let content_x = x + inner.scroll_x;
@@ -412,6 +421,7 @@ impl TextInputState {
     self.value.set(value.clone());
     let mut inner = self.inner.lock();
     inner.last_value = value;
+    inner.token_affinity = None;
     inner.caret = caret;
     inner.selection_anchor = selection_anchor;
   }

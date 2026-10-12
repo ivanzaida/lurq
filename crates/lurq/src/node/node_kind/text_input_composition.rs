@@ -66,6 +66,7 @@ impl TextInputState {
       return false;
     }
     inner.composition = Some(composition);
+    inner.token_affinity = None;
     drop(inner);
     self.mark_layout_dirty();
     true
