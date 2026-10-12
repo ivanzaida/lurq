@@ -52,7 +52,13 @@ impl TextLayoutOutput {
             .as_ref()
             .map_or(0, CaretPositions::estimated_shared_memory_bytes)
       }
-      Self::TextInput(output) => output.caret_positions.estimated_shared_memory_bytes(),
+      Self::TextInput(output) => {
+        output.caret_positions.estimated_shared_memory_bytes()
+          + output
+            .token_layout
+            .as_ref()
+            .map_or(0, super::input_token_layout::TokenLayout::estimated_shared_memory_bytes)
+      }
     };
     // Reference counts of the `Arc` holding the output.
     2 * std::mem::size_of::<usize>() + std::mem::size_of::<Self>() + heap
@@ -74,6 +80,7 @@ impl TextOutput {
 /// layouts, so they are derived from these measurements each time the output
 /// is applied instead of being stored.
 pub(crate) struct TextInputOutput {
+  pub(super) token_layout: Option<Arc<super::input_token_layout::TokenLayout>>,
   pub(super) caret_positions: CaretPositions,
   /// The input's box.
   pub(super) size: Size,
@@ -87,6 +94,7 @@ pub(crate) struct TextInputOutput {
 
 impl TextInputOutput {
   fn apply(&self, state: &TextInputState) {
+    state.set_token_layout(self.token_layout.clone());
     state.set_caret_positions(self.caret_positions.clone());
     state.set_caret_height(self.line_height);
     state.set_text_band(self.text_band);

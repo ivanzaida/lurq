@@ -33,6 +33,8 @@ mod stack;
 mod svg;
 mod text;
 mod text_input;
+mod text_input_controller;
+mod text_input_tokens;
 #[cfg(feature = "raster")]
 mod video;
 mod virtualized_list;
@@ -82,6 +84,8 @@ pub use stack::Stack;
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};
 pub use text_input::{TextInput, TextInputOverflow, TextInputOverflowAnchor};
+pub use text_input_controller::{InputEditError, InputSelection, TextInputController};
+pub use text_input_tokens::{InputToken, InputTokenError, InputTokenStyle, InputTokens};
 #[cfg(feature = "raster")]
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;

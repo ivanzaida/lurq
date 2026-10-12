@@ -238,6 +238,8 @@ Use `prevent_default()` for runtime defaults such as text editing, focus, form s
 
 `TextInput::on_input` is the text-edit hook. It runs before the built-in edit, passes the bound `Signal<String>` as `event.value`, and can cancel the built-in edit with `prevent_default()`:
 
+For retained picker insertion and editable source-backed variable pills, see [Source-backed input tokens](../text-input-tokens/).
+
 ```rust
 use lurq::app::events::TextInputEvent;
 

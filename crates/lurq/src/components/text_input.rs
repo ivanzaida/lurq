@@ -9,6 +9,27 @@ use crate::{
 impl_into_node!(TextInput);
 
 impl TextInput {
+  /// Draw source-backed inline pills. Invalidated ranges and masked/IME text render normally.
+  /// Use validated ranges for the exact current value; no display label replaces stored bytes.
+  pub fn tokens(mut self, tokens: super::InputTokens) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_tokens(tokens);
+      }
+    });
+    self
+  }
+
+  /// Retained selection/edit control for this input; use one controller per keyed value.
+  pub fn controller(mut self, controller: super::TextInputController) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        controller.bind(state);
+      }
+    });
+    self.ref_element(controller.reference())
+  }
+
   pub fn new(value: Signal<String>) -> Self {
     Self::from_node(crate::node::Node::text_input(value))
   }

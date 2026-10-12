@@ -61,7 +61,7 @@ impl TextInputState {
       (start, clamp_to_char_boundary(&text, end).max(start))
     });
     let composition = Composition { text, cursor };
-    let mut inner = self.inner.lock().unwrap();
+    let mut inner = self.inner.lock();
     if inner.composition.as_ref() == Some(&composition) {
       return false;
     }
@@ -74,7 +74,7 @@ impl TextInputState {
   /// Ends the composition without inserting it. Returns whether one was
   /// shown.
   pub(crate) fn clear_composition(&self) -> bool {
-    let cleared = self.inner.lock().unwrap().composition.take().is_some();
+    let cleared = self.inner.lock().composition.take().is_some();
     if cleared {
       self.mark_layout_dirty();
     }
@@ -82,11 +82,11 @@ impl TextInputState {
   }
 
   pub(crate) fn is_composing(&self) -> bool {
-    self.inner.lock().unwrap().composition.is_some()
+    self.inner.lock().composition.is_some()
   }
 
   pub(crate) fn composition_text(&self) -> Option<String> {
-    let inner = self.inner.lock().unwrap();
+    let inner = self.inner.lock();
     inner.composition.as_ref().map(|composition| composition.text.clone())
   }
 
@@ -94,7 +94,7 @@ impl TextInputState {
   /// selection, or at the caret.
   pub(crate) fn composed_text(&self) -> Option<String> {
     let value = self.value();
-    let inner = self.inner.lock().unwrap();
+    let inner = self.inner.lock();
     let span = inner.composition_span(&value)?;
     let composition = inner.composition.as_ref()?;
     let mut text = String::with_capacity(value.len() + span.len);
@@ -132,7 +132,7 @@ impl TextInputState {
   /// coordinates like [`TextInputState::selection_ranges`].
   pub(crate) fn composition_ranges(&self) -> Vec<TextSelectionRange> {
     let value = self.value();
-    let inner = self.inner.lock().unwrap();
+    let inner = self.inner.lock();
     let Some(span) = inner.composition_span(&value) else {
       return Vec::new();
     };

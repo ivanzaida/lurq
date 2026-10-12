@@ -17,19 +17,22 @@ mod select {
 mod text_input {
   mod basic_layout;
   mod clipped_paint;
+  mod controller;
+  mod controller_focus;
   mod editing;
   mod empty_value;
   mod focus;
   mod ime;
   mod letter_spacing;
+  mod line_metrics;
   mod masked_editing;
   mod overflow_anchor;
   mod preserves_editing_state_across_render;
   mod renders_caret;
   mod soft_wrap_selection;
   mod style;
+  mod tokens;
   mod typing_updates_value;
-  mod line_metrics;
 }
 
 mod checkbox {

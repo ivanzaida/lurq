@@ -27,7 +27,7 @@ use crate::{
     text_style::TextStyle,
   },
   node::{
-    CheckboxStyle, TextTransformMode,
+    CheckboxStyle,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     color::Color,
     dimension::Dimension,
@@ -42,6 +42,9 @@ use crate::{
 mod box_shadow_quads;
 mod control_fill;
 mod flex_shrink;
+mod input_layout;
+pub(crate) mod input_token_layout;
+mod input_token_quads;
 mod opacity_groups;
 mod select_quads;
 #[cfg(feature = "screenshot")]
@@ -1046,27 +1049,7 @@ impl LayoutEngine {
         state,
         style,
         placeholder_style,
-      } => {
-        let display_style = text_input_display_style(state, style, placeholder_style.as_ref()).clone();
-        // Single-line inputs center in the box using the font's metrics (the
-        // optical cap-height box, same as static text) so the baseline stays
-        // put while the value's ink changes — ink centering made the text jump
-        // when typing added the first ascender/descender. Multi-line inputs
-        // flow from the top in the line boxes their carets and selections
-        // use; aligning the ink top made them jump the same way.
-        let vertical_align = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
-          crate::layout::text_style::VerticalAlign::LineBox
-        } else {
-          display_style.vertical_align
-        };
-        QuadContent::Text {
-          text: state.rendered_text_for_layout(),
-          style: display_style,
-          wrap: state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline,
-          vertical_align,
-          transform_mode: TextTransformMode::Bitmap,
-        }
-      }
+      } => self.input_content(state, style, placeholder_style.as_ref()),
       NodeKind::Checkbox { .. } => QuadContent::None,
       #[cfg(feature = "canvas")]
       NodeKind::Canvas { canvas } => canvas.image_data().map_or_else(
@@ -1170,6 +1153,20 @@ impl LayoutEngine {
             border: if defer_border_to_overlay { None } else { resolved_border },
             clip,
           });
+        }
+
+        if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          self.push_input_tokens(
+            node,
+            state,
+            result,
+            (abs_x, abs_y),
+            transform,
+            clip,
+            opacity,
+            true,
+            quads,
+          );
         }
 
         if let NodeKind::Text { state, style, .. } = node.node_kind()
@@ -1442,6 +1439,20 @@ impl LayoutEngine {
 
     if has_inset_shadow && content_is_background {
       self.push_box_shadow_quads(node, result, abs_x, abs_y, true, opacity, transform, clip, quads);
+    }
+
+    if let NodeKind::TextInput { state, .. } = node.node_kind() {
+      self.push_input_tokens(
+        node,
+        state,
+        result,
+        (abs_x, abs_y),
+        transform,
+        clip,
+        opacity,
+        false,
+        quads,
+      );
     }
 
     if let NodeKind::TextInput { state, style, .. } = node.node_kind()
@@ -2067,11 +2078,7 @@ impl LayoutEngine {
       Self::restore_text_layout_output(node, result);
     }
     for (child_node, child_layout) in node.children().iter().zip(result.children.iter_mut()) {
-      self.prepare_layout_result_tree(
-        child_node,
-        Arc::make_mut(&mut child_layout.result),
-        restore_text_layout,
-      );
+      self.prepare_layout_result_tree(child_node, Arc::make_mut(&mut child_layout.result), restore_text_layout);
     }
 
     if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
@@ -2569,67 +2576,6 @@ impl LayoutEngine {
     }
 
     Some(format!("{}{}", &text[..boundaries[low]], ELLIPSIS))
-  }
-
-  fn layout_text_input(
-    &self,
-    glyph_engine: &mut GlyphEngine,
-    state: &crate::node::node_kind::TextInputState,
-    text: &str,
-    style: &TextStyle,
-    placeholder_style: Option<&TextStyle>,
-    constraints: Constraints,
-  ) -> LayoutResult {
-    let display_style = text_input_display_style(state, style, placeholder_style);
-    let overflow = state.overflow();
-    let text_constraints = Constraints {
-      min_width: 0.0,
-      min_height: 0.0,
-      ..constraints
-    };
-    let text_result = self.layout_text(
-      glyph_engine,
-      text,
-      display_style,
-      text_constraints,
-      overflow == crate::node::node_kind::TextInputOverflow::Multiline,
-    );
-    let line_height = (style.font_size * style.line_height).max(1.0);
-    let text_height = text_result
-      .size
-      .height
-      .max(explicit_multiline_height(text, line_height));
-    let preferred = match overflow {
-      crate::node::node_kind::TextInputOverflow::Multiline => {
-        let preferred_height = multiline_preferred_height(state, text_height, line_height);
-        Size::new(text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH), preferred_height)
-      }
-      crate::node::node_kind::TextInputOverflow::Scroll => Size::new(DEFAULT_TEXT_INPUT_WIDTH, line_height),
-    };
-    let size = constraints.constrain(preferred);
-    // Caret positions must wrap exactly like the rendered text, otherwise
-    // soft-wrapped rows collapse onto the first row's y and pointer hit-testing
-    // can never reach them. Single-line (Scroll) inputs never wrap, but aligned
-    // text still needs the finite content width so caret/selection geometry
-    // follows centered or right-aligned glyphs.
-    let wraps = overflow == crate::node::node_kind::TextInputOverflow::Multiline;
-    let caret_width = if wraps || display_style.text_align != crate::layout::text_style::TextAlign::Left {
-      size.width
-    } else {
-      f32::MAX
-    };
-    let caret_source = state.caret_layout_text();
-    let mut caret_positions = glyph_engine.caret_positions(&caret_source, style, caret_width, wraps);
-    state.remap_caret_positions(&mut caret_positions);
-    let output = TextInputOutput {
-      caret_positions,
-      size,
-      text_width: text_result.size.width,
-      text_height,
-      line_height,
-      text_band: glyph_engine.line_content_band(style),
-    };
-    Self::text_input_result(state, output)
   }
 
   fn layout_flex(
