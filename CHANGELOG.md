@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.44.0 — Unreleased
+
+- Add retained `TextInputController` raw-byte selection, replacement and focus APIs. Replacement uses the input's existing callback, prevent-default and undo history; masked, composing and detached inputs return typed refusals. Keep one controller per keyed input.
+- Add themed `InputTokens` decorations over an exact editable String. Paint, caret, hit and selection share whole-paragraph glyph geometry, including directional text, wrapping and padding. Tokens are source ranges, not atomic replacement labels; reparse after source edits.
+- Preserve canonical multiline CRLF/LFCR paragraph endings and both editable raw bytes. Single-line Scroll retains its ordinary one-space-per-CR/LF presentation. Keyed overflow and row-limit changes use current declarative props while retaining editing history.
+- Breaking: public exhaustive `QuadContent` gains `DecoratedInput`. External exhaustive matches must handle the new payload; a silent omitted drawing branch does not render the decorated input. Its opaque layout is consumed by the supported render pipeline.
+
 ## 0.43.0 — 2026-10-10
 
 Behaviour changes:
