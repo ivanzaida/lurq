@@ -33,6 +33,7 @@ impl DecoratedInputLayout {
     }
     self.rows.push(InputRow {
       range: start..end,
+      ending: None,
       y: self.size.height,
       height,
       band_top: 0.0,
@@ -99,6 +100,7 @@ impl DecoratedInputLayout {
     }
     self.rows.push(InputRow {
       range: offset + coverage.start..offset + coverage.end,
+      ending: None,
       y: top,
       height,
       band_top,
@@ -189,6 +191,28 @@ impl DecoratedInputLayout {
     }
   }
 
+  pub(super) fn append_ending(&mut self, ending: Range<usize>) {
+    let row = self.rows.len() - 1;
+    let edge = self
+      .carets
+      .iter()
+      .find(|caret| caret.row == row && caret.byte == ending.start)
+      .copied()
+      .expect("every completed row has its raw content-end caret");
+    // Ending interiors have no independent ink. They retain their raw byte
+    // endpoint at the last shaped row's logical edge, even after soft wraps.
+    for byte in ending.start + 1..ending.end {
+      self.carets.push(InputCaret { byte, ..edge });
+    }
+    self.intervals.push(ClusterInterval {
+      range: ending.clone(),
+      x: edge.x,
+      right: edge.x,
+      y: edge.y,
+    });
+    self.rows[row].ending = Some(ending);
+  }
+
   fn push_fragment(&mut self, (token, left, right, ascent, descent): (usize, f32, f32, f32, f32), baseline: f32) {
     if let Some((color, radius)) = self.config.styles[token].fill {
       let style = &self.config.styles[token].text;
@@ -276,7 +300,13 @@ impl DecoratedInputLayout {
     let row = self
       .rows
       .iter()
-      .position(|row| byte >= row.range.start && byte <= row.range.end)
+      .position(|row| row.ending.as_ref().is_some_and(|ending| ending.contains(&byte)))
+      .or_else(|| {
+        self
+          .rows
+          .iter()
+          .position(|row| byte >= row.range.start && byte <= row.range.end)
+      })
       .unwrap_or(self.rows.len() - 1);
     self
       .carets

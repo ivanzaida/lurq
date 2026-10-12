@@ -1,9 +1,11 @@
 //! Whole-paragraph input shaping; cached geometry is also the paint payload.
 use std::{borrow::Cow, collections::VecDeque, ops::Range, sync::Arc};
 
-use cosmic_text::{LayoutGlyph, Metrics, Shaping};
+use cosmic_text::LayoutGlyph;
 
-use super::{GlyphEngine, attrs_for_style};
+use super::GlyphEngine;
+#[cfg(test)]
+use super::attrs_for_style;
 use crate::{
   layout::{
     Size,
@@ -16,9 +18,13 @@ use crate::{
 };
 
 mod alignment;
+#[cfg(test)]
+#[path = "../../../../tests/input/text_input/crlf_geometry.rs"]
+mod crlf_tests;
 mod geometry;
 mod justification;
 mod paint;
+mod paragraphs;
 mod rows;
 #[cfg(test)]
 #[path = "../../../../tests/input/text_input/scroll_geometry.rs"]
@@ -97,6 +103,7 @@ pub struct DecoratedInputLayout {
 
 struct InputRow {
   range: Range<usize>,
+  ending: Option<Range<usize>>,
   y: f32,
   height: f32,
   band_top: f32,
@@ -182,68 +189,20 @@ impl GlyphEngine {
     } else {
       Cow::Owned(config.source.replace(['\r', '\n'], " "))
     };
-    let spans = input_spans(config, &presentation);
-    let families: Vec<_> = spans.iter().map(|(_, style, _)| self.resolve_family(style)).collect();
-    let attrs: Vec<_> = spans
-      .iter()
-      .zip(&families)
-      .map(|((text, style, metadata), family)| {
-        let weight = self.face_weight(family, style);
-        // Unlike generic rich spans, these attrs carry explicit metric overrides;
-        // tracking must therefore use each glyph's effective em size.
-        let attrs = attrs_for_style(style, family, weight, style.font_size)
-          .metrics(Metrics::new(style.font_size, style.font_size * style.line_height))
-          .metadata(*metadata);
-        (*text, attrs)
-      })
-      .collect();
-    let family = self.resolve_family(&config.base);
-    let weight = self.face_weight(&family, &config.base);
-    let default_attrs = attrs_for_style(&config.base, &family, weight, config.base.font_size);
-    let mut buffer = self.acquire_buffer(&config.base, f32::MAX, false);
-    buffer.set_rich_text(attrs, &default_attrs, Shaping::Advanced, None);
+    let mut buffer = self.input_paragraphs(config, &presentation);
     let mut offset = 0;
     let mut prepared = Vec::new();
     for line in &mut buffer.lines {
       let bytes = line.text().len();
       let shape = line.shape(&mut self.font_system, 8);
       rows::paragraph(&mut prepared, shape, offset, bytes, &output.config);
-      offset += line.text().len() + line.ending().as_str().len();
+      let ending = offset + bytes..offset + bytes + line.ending().as_str().len();
+      rows::set_ending(&mut prepared, ending.clone());
+      offset = ending.end;
     }
     rows::finish(output, prepared);
-    // set_rich_text does not retain a final empty paragraph. The editor must
-    // still expose the raw boundary after its hard line ending.
-    if output.config.wrap
-      && output.config.source.ends_with(['\r', '\n'])
-      && output
-        .carets
-        .last()
-        .is_none_or(|caret| caret.byte < output.config.source.len())
-    {
-      let end = output.config.source.len();
-      output.append_empty_row(end, end);
-    }
     self.buffer_pool.push(buffer);
     output.finish_carets();
     output.align_viewport();
   }
-}
-
-fn input_spans<'a>(config: &'a InputConfig, presentation: &'a str) -> Vec<(&'a str, &'a TextStyle, usize)> {
-  let mut spans = Vec::new();
-  let mut start = 0;
-  for (index, token) in config.styles.iter().enumerate() {
-    if start < token.range.start {
-      spans.push((&presentation[start..token.range.start], &config.base, 0));
-    }
-    spans.push((&presentation[token.range.clone()], &token.text, index + 1));
-    start = token.range.end;
-  }
-  if start < config.source.len() {
-    spans.push((&presentation[start..], &config.base, 0));
-  }
-  if spans.is_empty() {
-    spans.push(("", &config.base, 0));
-  }
-  spans
 }

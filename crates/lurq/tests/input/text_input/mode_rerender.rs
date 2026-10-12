@@ -21,6 +21,7 @@ struct State {
   multiline: Signal<bool>,
   limits: Signal<Option<(usize, usize)>>,
   unrelated: Signal<u64>,
+  width: Signal<f32>,
 }
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
@@ -64,7 +65,7 @@ fn field(state: &State, index: usize) -> TextInput {
   .id(IDS[index])
   .key(IDS[index])
   .controller(state.controllers[index].clone())
-  .width(90.0)
+  .width(state.width.get())
   .padding(6.0)
   .caret_color(CARET);
   if state.multiline.get() {
@@ -99,6 +100,7 @@ impl Editor {
       multiline: Signal::new(false),
       limits: Signal::new(None),
       unrelated: Signal::new(0),
+      width: Signal::new(90.0),
     });
     let mut app = App::new();
     let mut tree = Tree::new();
@@ -194,6 +196,76 @@ impl Editor {
     assert!(top.is_finite() && bottom.is_finite());
     bottom - top
   }
+}
+
+#[test]
+fn input_mode_crlf_same_key_original_p2_has_exactly_five_rows_and_raw_ending_edits() {
+  let mut editor = Editor::new(RAW);
+  editor.state.width.set(400.0);
+  editor.render();
+  let pitch = editor.height(0) - 12.0;
+  editor.update(true, Some((1, 12)));
+  for index in 0..2 {
+    assert!((editor.height(index) - (5.0 * pitch + 12.0)).abs() < 0.01);
+    editor.focus(index);
+    editor.state.controllers[index].select(0, 0).unwrap();
+    let first_y = editor.visible_caret();
+    editor.state.controllers[index].select(RAW.len(), RAW.len()).unwrap();
+    assert!((editor.visible_caret() - first_y - 4.0 * pitch).abs() < 0.01);
+    assert_eq!(editor.state.sources[index].get(), RAW);
+  }
+  editor.focus(0);
+  for byte in [2, 3, 4] {
+    editor.state.controllers[0].select(byte, byte).unwrap();
+    editor.visible_caret();
+    assert!(editor.state.controllers[0].replace_selection("!").unwrap());
+    let mut expected = RAW.to_owned();
+    expected.insert(byte, '!');
+    assert_eq!(editor.state.sources[0].get(), expected);
+    editor.focus(0);
+    editor.key("z", true);
+    assert_eq!(editor.state.sources[0].get(), RAW);
+    assert_eq!(editor.state.controllers[0].selection().unwrap().caret, byte);
+  }
+  editor.state.controllers[0].select(2, 4).unwrap();
+  assert!(editor.state.controllers[0].replace_selection("X").unwrap());
+  editor.key("z", true);
+  assert_eq!(editor.state.sources[0].get(), RAW);
+  assert_eq!(editor.state.controllers[0].selection().unwrap().range(), 2..4);
+  editor.key("y", true);
+  assert_eq!(editor.state.sources[0].get(), RAW.replacen("\r\n", "X", 1));
+  editor.key("z", true);
+  assert_eq!(editor.state.sources[0].get(), RAW);
+}
+
+#[test]
+fn input_mode_crlf_ascii_token_raw_start_pointer_insertion_and_undo() {
+  use lurq::app::events::MouseButton;
+
+  use crate::support::pointer_click;
+  let raw = "a\r\n{{task.title}}";
+  let mut editor = Editor::new(raw);
+  editor.state.width.set(400.0);
+  editor.update(true, None);
+  editor.focus(0);
+  editor.state.controllers[0].select(3, 3).unwrap();
+  let snapshot = editor.render();
+  let caret = snapshot.rects.iter().find(|rect| rect.color == CARET).unwrap();
+  let pill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::new(12, 44, 88, 255))
+    .unwrap();
+  assert!((caret.x - pill.x - 3.0).abs() < 0.01);
+  let point = (caret.x, caret.y + caret.height * 0.5);
+  editor.state.controllers[0].select(0, 0).unwrap();
+  editor.render();
+  pointer_click(&mut editor.tree, point.0, point.1, MouseButton::Left);
+  assert_eq!(editor.state.controllers[0].selection().unwrap().caret, 3);
+  editor.key("X", false);
+  assert_eq!(editor.state.sources[0].get(), "a\r\nX{{task.title}}");
+  editor.key("z", true);
+  assert_eq!(editor.state.sources[0].get(), raw);
 }
 
 #[test]

@@ -25,6 +25,7 @@ pub(super) struct PreparedRow {
   padding: padding::Padding,
   offset: usize,
   coverage: Range<usize>,
+  ending: Option<Range<usize>>,
   rtl: bool,
   final_row: bool,
   blank_count: usize,
@@ -57,6 +58,7 @@ pub(super) fn paragraph(
       padding: padding::Padding { edges: BTreeMap::new() },
       offset,
       coverage: 0..bytes,
+      ending: None,
       rtl: original.rtl,
       final_row: true,
       blank_count: 0,
@@ -91,6 +93,7 @@ pub(super) fn paragraph(
       padding: padded,
       offset,
       coverage: coverage..last_byte,
+      ending: None,
       rtl: original.rtl,
       final_row: end == paragraph.clusters.len(),
       blank_count,
@@ -139,6 +142,7 @@ fn public_rows(
       padding: padding::Padding { edges: BTreeMap::new() },
       offset,
       coverage: coverage..end,
+      ending: None,
       rtl: paragraph.shape.rtl,
       final_row: index + 1 == count,
       blank_count,
@@ -153,6 +157,7 @@ fn public_rows(
       padding: padding::Padding { edges: BTreeMap::new() },
       offset,
       coverage: 0..bytes,
+      ending: None,
       rtl: paragraph.shape.rtl,
       final_row: true,
       blank_count: 0,
@@ -228,6 +233,18 @@ pub(super) fn finish(output: &mut DecoratedInputLayout, mut rows: Vec<PreparedRo
     } else {
       output.append_empty_row(row.offset + row.coverage.start, row.offset + row.coverage.end);
     }
+    if let Some(ending) = row.ending {
+      output.append_ending(ending);
+    }
+  }
+}
+
+pub(super) fn set_ending(rows: &mut [PreparedRow], ending: Range<usize>) {
+  if !ending.is_empty() {
+    rows
+      .last_mut()
+      .expect("each canonical paragraph produces at least one visual row")
+      .ending = Some(ending);
   }
 }
 

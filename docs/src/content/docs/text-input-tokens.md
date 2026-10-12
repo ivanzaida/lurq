@@ -103,7 +103,13 @@ when the source changes. Reparse on the next render; omitted/invalid expressions
 
 The default single-line Scroll mode presents each CR or LF as one space, preserving every raw UTF-8
 byte offset, token range and source-backed edit. CRLF presents two spaces; clipboard/history still
-contain the original CRLF. Multiline retains hard breaks. Scroll uses the ordinary input's default
+contain the original CRLF. Multiline uses the ordinary input's canonical hard paragraphs: CRLF and
+LFCR each produce one visual break while retaining their two raw bytes; CR and LF produce one break.
+Exactly one final empty paragraph follows a trailing ending. A raw boundary inside a two-byte ending
+shares the preceding paragraph's actual last visual-row edge, including after soft wrapping. The raw
+boundary after the full ending belongs to the next paragraph. Coincident ending edges need not have
+distinct pointer positions; programmatic selection/editing still accepts each raw byte boundary.
+Scroll uses the ordinary input's default
 field width. Fitting rows keep their requested alignment; overflowing decorated rows share a
 nonnegative content origin so focused caret scrolling can reveal either raw end. Unfocused Start/End
 keep the existing visual left/right edge convention, including RTL; they do not alter raw text order.
