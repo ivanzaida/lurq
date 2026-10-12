@@ -24,6 +24,9 @@ mod crlf_tests;
 mod geometry;
 mod justification;
 mod paint;
+#[cfg(test)]
+#[path = "../../../../tests/input/text_input/paint_oracle.rs"]
+pub(crate) mod paint_oracle;
 mod paragraphs;
 mod rows;
 #[cfg(test)]
