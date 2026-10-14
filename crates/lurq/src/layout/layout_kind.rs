@@ -59,6 +59,14 @@ enum PendingScroll {
   },
 }
 
+impl PendingScroll {
+  /// A scroll to a place someone asked for (an offset, an edge, a reveal),
+  /// unlike a prepend anchor, which only keeps the current place.
+  fn is_request(self) -> bool {
+    !matches!(self, Self::PreservePrependAnchor { .. })
+  }
+}
+
 /// Scroll position and range when the current layout pass first measured
 /// this scroll container.
 #[derive(Clone, Copy)]
@@ -101,6 +109,11 @@ struct ScrollStateInner {
   scrollbar_style: ScrollBarStyle,
   scroll_dirty: bool,
   equal_overflow_scroll_probe_enabled: bool,
+  /// Vertical scroll requests that took effect: `set_scroll` calls and
+  /// pending requests (see [`PendingScroll::is_request`]) resolved by a
+  /// layout pass. Lets a scroll anchor captured earlier tell that it stands
+  /// for a position someone has since scrolled away from.
+  scroll_y_requests: u64,
 }
 
 impl ScrollState {
@@ -132,6 +145,7 @@ impl ScrollState {
         scrollbar_style: ScrollBarStyle::default(),
         scroll_dirty: false,
         equal_overflow_scroll_probe_enabled: false,
+        scroll_y_requests: 0,
       })),
     }
   }
@@ -149,6 +163,7 @@ impl ScrollState {
     inner.scroll_x = x.clamp(0.0, inner.max_scroll_x);
     inner.scroll_y = y.clamp(0.0, inner.max_scroll_y);
     inner.scroll_dirty = true;
+    inner.scroll_y_requests = inner.scroll_y_requests.wrapping_add(1);
   }
 
   /// Queue an absolute scroll offset to resolve after the next layout measurement.
@@ -179,6 +194,46 @@ impl ScrollState {
     let mut inner = self.inner.lock().unwrap();
     inner.pending_scroll_y = Some(PendingScroll::End);
     inner.scroll_dirty = true;
+  }
+
+  /// Whether a vertical scroll request (an offset, an edge or a reveal, not a
+  /// prepend anchor) waits for the next layout measurement.
+  pub(crate) fn has_pending_scroll_y_request(&self) -> bool {
+    self
+      .inner
+      .lock()
+      .unwrap()
+      .pending_scroll_y
+      .is_some_and(PendingScroll::is_request)
+  }
+
+  /// The vertical offset the next layout measurement settles on when it
+  /// measures `content_height` of content in the current viewport, as
+  /// [`Self::update_layout_with_container`] resolves it: a pending scroll
+  /// lands, an offset at the bottom stays at the bottom, any other keeps its
+  /// place within the new range.
+  pub(crate) fn next_layout_scroll_y(&self, content_height: f32) -> f32 {
+    let inner = self.inner.lock().unwrap();
+    let max_scroll = (content_height - inner.viewport_height).max(0.0);
+    let was_at_bottom = inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON;
+    let target = match inner.pending_scroll_y {
+      Some(pending) => resolve_pending_scroll(
+        pending,
+        content_height,
+        max_scroll,
+        inner.scroll_y,
+        inner.viewport_height,
+      ),
+      None if was_at_bottom => max_scroll,
+      None => inner.scroll_y,
+    };
+    target.clamp(0.0, max_scroll)
+  }
+
+  /// Count of vertical scroll requests that took effect; see
+  /// `ScrollStateInner::scroll_y_requests`.
+  pub(crate) fn scroll_y_requests(&self) -> u64 {
+    self.inner.lock().unwrap().scroll_y_requests
   }
 
   pub(crate) fn equal_overflow_scroll_probe_enabled(&self) -> bool {
@@ -609,7 +664,9 @@ impl ScrollState {
     let mut inner = self.inner.lock().unwrap();
     if inner.pass_start.take().is_some() {
       inner.pending_scroll_x = None;
-      inner.pending_scroll_y = None;
+      if inner.pending_scroll_y.take().is_some_and(PendingScroll::is_request) {
+        inner.scroll_y_requests = inner.scroll_y_requests.wrapping_add(1);
+      }
     }
   }
 

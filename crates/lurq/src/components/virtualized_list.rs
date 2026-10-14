@@ -348,6 +348,10 @@ struct VirtualizedRuntime<T> {
 struct ScrollAnchor {
   key: String,
   offset: f32,
+  /// `ScrollState::scroll_y_requests` at capture. A scroll request that took
+  /// effect since (an app's `set_scroll` or resolved `scroll_to_bottom_pending`,
+  /// a reveal) moved the view on purpose; restoring the anchor would undo it.
+  scroll_y_requests: u64,
 }
 
 impl<T> Default for VirtualizedRuntime<T> {
@@ -649,8 +653,12 @@ where
       // is dropped immediately instead: chasing it forced the march across
       // every row of the new list (seconds of first-render jank on
       // multi-thousand-row tables) for a position that no longer means
-      // anything there.
-      if let Some(anchor) = runtime.pending_anchor.take() {
+      // anything there. An anchor is dropped as well once a scroll request
+      // took effect after it was captured (see `ScrollAnchor`), including
+      // one that lands while the march is still running.
+      if let Some(anchor) = runtime.pending_anchor.take()
+        && anchor.scroll_y_requests == scroll_state.scroll_y_requests()
+      {
         if runtime.heights.len() >= runtime.order.len() {
           if let Some(anchor_index) = runtime.order.iter().position(|key| key == &anchor.key) {
             let new_top = prefix_height(&runtime.order[..anchor_index], &runtime.heights);
@@ -793,6 +801,15 @@ where
   ) -> Column {
     let mut runtime = self.runtime.lock();
 
+    // A scroll the app queued for this pass (`scroll_to_bottom_pending`,
+    // `set_scroll_pending`, ...) wins over keeping the current rows in place:
+    // no anchor is captured for the position being scrolled away from, and
+    // one still marching is dropped instead of measuring rows for it.
+    let scroll_requested = scroll_state.has_pending_scroll_y_request();
+    if scroll_requested {
+      runtime.pending_anchor = None;
+    }
+
     // Steady-state scroll ticks must be free of O(n) work: the shared item
     // list is compared by pointer, and contents only when the pointer changed
     // (a parent re-render building an identical list).
@@ -829,7 +846,7 @@ where
         runtime.pending_anchor = None;
         scroll_state.set_scroll(0.0, 0.0);
       } else {
-        if runtime.order != keys && runtime.pending_anchor.is_none() && !runtime.order.is_empty() {
+        if runtime.order != keys && runtime.pending_anchor.is_none() && !scroll_requested && !runtime.order.is_empty() {
           // Anchor the first (partially) visible row using the pre-change
           // prefix, so the viewport is restored once the new heights settle.
           let scroll_y = scroll_state.scroll_y();
@@ -839,6 +856,7 @@ where
           runtime.pending_anchor = Some(ScrollAnchor {
             key: runtime.order[index].clone(),
             offset: scroll_y - runtime.prefix[index],
+            scroll_y_requests: scroll_state.scroll_y_requests(),
           });
         }
 
@@ -870,11 +888,21 @@ where
 
     let count = runtime.order.len();
     let has_measurements = !runtime.heights.is_empty();
+    // The layout that follows this render may move the offset without a
+    // scroll event: a pending scroll resolves, and an offset at the bottom
+    // follows the new end as estimates refine. The window is built where the
+    // offset will land, so that layout draws rows there instead of a viewport
+    // hole (healed only a frame later).
+    let window_y = if has_measurements {
+      scroll_state.next_layout_scroll_y(runtime.prefix[count])
+    } else {
+      scroll_state.scroll_y()
+    };
 
     let visible_range = if has_measurements {
       visible_range_from_prefix(
         &runtime.prefix,
-        scroll_state.scroll_y(),
+        window_y,
         scroll_state.viewport_height(),
         options.overscan_px,
       )
@@ -913,13 +941,13 @@ where
         )
       })
       .collect();
-    runtime.last_render_scroll_y = scroll_state.scroll_y();
+    runtime.last_render_scroll_y = window_y;
     runtime.rebuild_threshold = (options.overscan_px * 0.5).max(1.0);
     runtime.last_window = visible_range;
     let window_prefix_start = runtime.prefix.get(visible_range.0).copied().unwrap_or(0.0);
     runtime.last_window_prefix_start = window_prefix_start;
     runtime.recent_builds.push_back((
-      scroll_state.scroll_y(),
+      window_y,
       visible_range.0,
       visible_range.1,
       window_prefix_start,
