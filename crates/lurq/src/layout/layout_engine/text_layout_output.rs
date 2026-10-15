@@ -90,6 +90,9 @@ pub(crate) struct TextInputOutput {
   pub(super) text_height: f32,
   pub(super) line_height: f32,
   pub(super) text_band: Option<(f32, f32)>,
+  /// The lane right of the box that a reserved scrollbar runs in
+  /// ([`LayoutEngine::text_input_scrollbar_lane`]).
+  pub(super) scrollbar_lane: f32,
 }
 
 impl TextInputOutput {
@@ -99,14 +102,16 @@ impl TextInputOutput {
     state.set_caret_height(self.line_height);
     state.set_text_band(self.text_band);
     state.sync_caret_metrics_to_position(self.line_height);
+    let (width, height) = (self.size.width, self.size.height);
     match state.overflow() {
       TextInputOverflow::Scroll => {
         state.set_scroll_x(self.horizontal_scroll(state));
-        state.set_scroll_y(0.0);
+        state.set_vertical_scroll(width, height, height, 0.0, 0.0);
       }
       TextInputOverflow::Multiline => {
         state.set_scroll_x(0.0);
-        state.set_scroll_y(self.vertical_scroll(state));
+        let scroll_y = self.vertical_scroll(state);
+        state.set_vertical_scroll(width, height, self.text_height, scroll_y, self.scrollbar_lane);
       }
     }
   }
@@ -133,13 +138,16 @@ impl TextInputOutput {
     }
   }
 
-  /// Keeps the caret's line of a multiline input in view.
+  /// Keeps a multiline input's offset within its text and, unless the input
+  /// was scrolled since its last edit or caret move, its caret's line in view.
   fn vertical_scroll(&self, state: &TextInputState) -> f32 {
     let caret_y = state.caret_y() + state.scroll_y();
     let line_height = state.caret_height();
     let max_scroll = (self.text_height - self.size.height).max(0.0);
     let scroll_y = state.scroll_y().min(max_scroll);
-    if caret_y < scroll_y {
+    if !state.follows_caret() {
+      scroll_y
+    } else if caret_y < scroll_y {
       caret_y
     } else if caret_y + line_height > scroll_y + self.size.height {
       (caret_y + line_height - self.size.height).min(max_scroll)

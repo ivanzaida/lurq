@@ -142,7 +142,7 @@ impl TextInputState {
       span.start,
       span.start + span.len,
       inner.scroll_x,
-      inner.scroll_y,
+      inner.scroll_y(),
     )
   }
 }

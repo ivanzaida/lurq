@@ -19,7 +19,13 @@ use parking_lot::Mutex;
 use super::component::{ComponentInfo, DevtoolsInspectable};
 #[cfg(feature = "i18n")]
 use super::i18n::I18n;
-use super::{app_state::App, component::Component, events::MouseEvent, theme::Theme};
+use super::{
+  app_state::App,
+  component::Component,
+  events::MouseEvent,
+  theme::Theme,
+  window::{Window, WindowWaker},
+};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
@@ -34,7 +40,7 @@ use crate::{
 
 mod futures;
 
-use futures::{FutureSlot, RuntimeFutureHandle, noop_waker};
+use futures::{FutureSlot, RuntimeFutureHandle};
 pub use futures::{FutureAction, FutureHandle, FutureState, FutureStatus, StreamEmitter, StreamHandle};
 
 static NEXT_COMPONENT_SLOT_ID: AtomicU64 = AtomicU64::new(1);
@@ -496,6 +502,9 @@ struct TimerInner {
   repeat: bool,
   next_fire: Option<Instant>,
   callback: Arc<dyn Fn() + Send + Sync>,
+  /// Wakes the event loop when the timer gets a new fire time, so a shell that waits for the earliest timer learns
+  /// about it; `None` outside a window.
+  wake: Option<WindowWaker>,
 }
 
 impl Timeout {
@@ -535,23 +544,34 @@ impl Interval {
 }
 
 impl Timer {
-  fn new(duration: Duration, repeat: bool, callback: impl Fn() + Send + Sync + 'static) -> Self {
+  fn new(
+    duration: Duration,
+    repeat: bool,
+    callback: impl Fn() + Send + Sync + 'static,
+    wake: Option<WindowWaker>,
+  ) -> Self {
     Self {
       inner: Arc::new(Mutex::new(TimerInner {
         duration,
         repeat,
         next_fire: None,
         callback: Arc::new(callback),
+        wake,
       })),
     }
   }
 
   fn start(&self) {
     let now = Instant::now();
-    let mut inner = self.inner.lock();
-    if inner.next_fire.is_none() {
+    let wake = {
+      let mut inner = self.inner.lock();
+      if inner.next_fire.is_some() {
+        return;
+      }
       inner.next_fire = Some(now + inner.duration);
-    }
+      inner.wake.clone()
+    };
+    Self::wake(wake);
   }
 
   fn restart(&self) {
@@ -559,8 +579,23 @@ impl Timer {
   }
 
   fn restart_at(&self, now: Instant) {
-    let mut inner = self.inner.lock();
-    inner.next_fire = Some(now + inner.duration);
+    let wake = {
+      let mut inner = self.inner.lock();
+      inner.next_fire = Some(now + inner.duration);
+      inner.wake.clone()
+    };
+    Self::wake(wake);
+  }
+
+  /// Called outside the timer's lock: the waker may re-enter window state.
+  fn wake(wake: Option<WindowWaker>) {
+    if let Some(wake) = wake {
+      wake();
+    }
+  }
+
+  fn next_fire(&self) -> Option<Instant> {
+    self.inner.lock().next_fire
   }
 
   fn stop(&self) {
@@ -910,6 +945,9 @@ fn format_debug_info(info: &ComponentInfo) -> String {
 #[derive(Default)]
 struct BatchState {
   inner: Mutex<BatchStateInner>,
+  /// Wakes the window's event loop when a write off its thread marks components dirty
+  /// ([`Window::off_loop_waker`]); `None` without a window.
+  off_loop_wake: Option<WindowWaker>,
 }
 
 #[derive(Default)]
@@ -923,6 +961,13 @@ struct BatchGuard<'a> {
 }
 
 impl BatchState {
+  fn waking(off_loop_wake: WindowWaker) -> Self {
+    Self {
+      inner: Mutex::default(),
+      off_loop_wake: Some(off_loop_wake),
+    }
+  }
+
   fn batch<R>(&self, f: impl FnOnce() -> R) -> R {
     self.inner.lock().depth += 1;
     let guard = BatchGuard { state: self };
@@ -931,15 +976,17 @@ impl BatchState {
     result
   }
 
-  fn mark_dirty(&self, dirty: &Arc<AtomicBool>) {
+  /// Marks `dirty`, or holds the mark back until the batch ends. Returns whether the flag went from clean to
+  /// dirty now: a flag already dirty has its pass coming, so marking it again needs no wake.
+  fn mark_dirty(&self, dirty: &Arc<AtomicBool>) -> bool {
     let mut inner = self.inner.lock();
     if inner.depth == 0 {
       drop(inner);
-      dirty.store(true, Ordering::Relaxed);
-      return;
+      return !dirty.swap(true, Ordering::Relaxed);
     }
 
     inner.pending_dirty.push(dirty.clone());
+    false
   }
 
   fn end_batch(&self) {
@@ -953,11 +1000,24 @@ impl BatchState {
       std::mem::take(&mut inner.pending_dirty)
     };
     let mut seen = HashSet::new();
+    let mut newly_dirty = false;
     for dirty in pending {
       let ptr = Arc::as_ptr(&dirty) as usize;
       if seen.insert(ptr) {
-        dirty.store(true, Ordering::Relaxed);
+        newly_dirty |= !dirty.swap(true, Ordering::Relaxed);
       }
+    }
+    if newly_dirty {
+      self.wake_loop();
+    }
+  }
+
+  /// Wakes the event loop for a write off its thread that made a component dirty. Only a flag that goes from
+  /// clean to dirty wakes it, so a thread writing thousands of times before the loop renders wakes it once
+  /// instead of posting a message per write.
+  fn wake_loop(&self) {
+    if let Some(wake) = &self.off_loop_wake {
+      wake();
     }
   }
 }
@@ -1087,6 +1147,7 @@ impl Ctx {
   }
 
   pub(crate) fn with_window(mut self, window: crate::app::window::Window) -> Self {
+    self.batch = Arc::new(BatchState::waking(window.off_loop_waker()));
     self.window = Some(window);
     self
   }
@@ -1143,11 +1204,16 @@ impl Ctx {
     subtree_dirty: &Arc<AtomicBool>,
     ancestor_dirty_slots: &[DirtyAncestor],
   ) {
-    batch.mark_dirty(dirty);
-    batch.mark_dirty(subtree_dirty);
+    // Every flag is marked; any that was clean wakes the loop once the marks are stored. Inside a batch, its
+    // end stores and wakes.
+    let mut newly_dirty = batch.mark_dirty(dirty);
+    newly_dirty |= batch.mark_dirty(subtree_dirty);
     for ancestor in ancestor_dirty_slots {
-      batch.mark_dirty(&ancestor.subtree_dirty);
+      newly_dirty |= batch.mark_dirty(&ancestor.subtree_dirty);
       Self::mark_dirty_child_slot(&ancestor.dirty_child_slots, ancestor.child_slot_id);
+    }
+    if newly_dirty {
+      batch.wake_loop();
     }
   }
 
@@ -1363,13 +1429,13 @@ impl Ctx {
   }
 
   pub fn create_timeout(&mut self, duration: Duration, f: impl Fn() + Send + Sync + 'static) -> Timeout {
-    let timer = Timer::new(duration, false, f);
+    let timer = Timer::new(duration, false, f, self.window.as_ref().map(Window::loop_waker));
     self.timers.push(timer.clone());
     Timeout { timer }
   }
 
   pub fn create_interval(&mut self, duration: Duration, f: impl Fn() + Send + Sync + 'static) -> Interval {
-    let timer = Timer::new(duration, true, f);
+    let timer = Timer::new(duration, true, f, self.window.as_ref().map(Window::loop_waker));
     self.timers.push(timer.clone());
     Interval { timer }
   }
@@ -1505,7 +1571,7 @@ impl Ctx {
       .expect("QueryClient is missing: call ctx.provide(QueryClient::new()) in the root component's create method");
     self.query_registry.attach(
       &client,
-      self.window.as_ref().map(|window| window.query_waker()),
+      self.window.as_ref().map(|window| window.loop_waker()),
       #[cfg(feature = "tokio")]
       self.runtime_future_handle.clone(),
     );
@@ -2416,6 +2482,31 @@ impl Ctx {
         .any(|slot| !slot.offstage && slot.ctx.has_active_timers())
   }
 
+  /// When the earliest running timer of this component or a mounted descendant fires.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn next_timer_fire(&self) -> Option<Instant> {
+    let own = self.timers.iter().filter_map(Timer::next_fire).min();
+    let children = self
+      .children
+      .iter()
+      .filter(|slot| !slot.offstage)
+      .filter_map(|slot| slot.ctx.next_timer_fire())
+      .min();
+    own.into_iter().chain(children).min()
+  }
+
+  /// Whether a query of this component or a mounted descendant has work the next `tick_futures` must start or
+  /// finish. Other futures wake the event loop themselves.
+  #[cfg(feature = "query")]
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn has_ready_queries(&self) -> bool {
+    self.query_registry.ready()
+      || self
+        .children
+        .iter()
+        .any(|slot| !slot.offstage && slot.ctx.has_ready_queries())
+  }
+
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_futures(&self) -> bool {
     #[cfg(feature = "query")]
@@ -2441,7 +2532,7 @@ impl Ctx {
   }
 
   pub(crate) fn tick_futures(&mut self) -> bool {
-    let waker = noop_waker();
+    let waker = self.loop_waker();
     let mut cx = TaskContext::from_waker(&waker);
     #[cfg(feature = "query")]
     let query_changed = self.query_registry.tick(Instant::now(), &mut cx) | self.publish_query_updates();

@@ -11,6 +11,9 @@ use crate::{
 const DEFAULT_FLEX_GROW: f32 = 1.0;
 const DEFAULT_FLEX_SHRINK: f32 = 0.0;
 const SCROLL_END_EPSILON: f32 = 2.0;
+/// Text taller than its box by less than this fits: rows of a fractional
+/// line height add up to a hair more than the box sized from them.
+const TEXT_OVERFLOW_EPSILON: f32 = 0.5;
 
 #[derive(Clone)]
 pub enum LayoutKind {
@@ -668,6 +671,37 @@ impl ScrollState {
         inner.scroll_y_requests = inner.scroll_y_requests.wrapping_add(1);
       }
     }
+  }
+
+  /// Record the layout of a multiline text input, which scrolls its own text:
+  /// a box `viewport_width` by `viewport_height` showing `content_height` of
+  /// text from `scroll_y`, clamped to the text, with a `scrollbar_lane` wide
+  /// lane right of the box that the bar runs in (0 when the bar overlays the
+  /// text). Unlike [`Self::update_layout_with_container`], no pending scroll
+  /// or stick-to-end applies: the input decides its offset itself.
+  pub(crate) fn set_text_layout(
+    &self,
+    viewport_width: f32,
+    viewport_height: f32,
+    content_height: f32,
+    scroll_y: f32,
+    scrollbar_lane: f32,
+  ) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.viewport_width = viewport_width.max(0.0);
+    inner.viewport_height = viewport_height.max(0.0);
+    inner.container_width = inner.viewport_width + scrollbar_lane;
+    inner.container_height = inner.viewport_height;
+    inner.content_width = inner.viewport_width;
+    inner.content_height = if content_height - inner.viewport_height < TEXT_OVERFLOW_EPSILON {
+      content_height.min(inner.viewport_height)
+    } else {
+      content_height
+    };
+    inner.max_scroll_x = 0.0;
+    inner.max_scroll_y = (inner.content_height - inner.viewport_height).max(0.0);
+    inner.scroll_x = 0.0;
+    inner.scroll_y = scroll_y.clamp(0.0, inner.max_scroll_y);
   }
 
   pub(crate) fn set_layout_viewport_y(&self, y: f32) {

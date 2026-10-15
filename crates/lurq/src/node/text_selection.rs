@@ -516,6 +516,31 @@ pub(crate) fn caret_y_for_index(positions: &CaretPositions, index: usize) -> Opt
     .map(|position| position.y)
 }
 
+/// The length of the line break `text` ends with: `\r\n` and `\n\r` are one
+/// break of two bytes with no caret between them, as text layout reads them;
+/// `\n` and `\r` are one byte. 0 when `text` ends with no line break.
+pub(crate) fn trailing_break_len(text: &str) -> usize {
+  if text.ends_with("\r\n") || text.ends_with("\n\r") {
+    2
+  } else if text.ends_with('\n') || text.ends_with('\r') {
+    1
+  } else {
+    0
+  }
+}
+
+/// The top of the empty row that follows `text` when it ends with a line
+/// break: one `line_height` below the row the break ends, which already
+/// counts the rows its paragraph wrapped into. Falls back to one row per line
+/// break when the layout has no caret before the break.
+pub(crate) fn trailing_break_row_y(positions: &CaretPositions, text: &str, line_height: f32) -> f32 {
+  let break_index = text.len().saturating_sub(trailing_break_len(text));
+  caret_y_for_index(positions, break_index).map_or_else(
+    || text.matches('\n').count() as f32 * line_height,
+    |row| row + line_height,
+  )
+}
+
 pub(crate) fn selection_ranges_for_positions(
   positions: &CaretPositions,
   start: usize,
@@ -637,19 +662,42 @@ pub(crate) fn word_selection_bounds(value: &str, index: usize) -> (usize, usize)
   (start, end)
 }
 
-pub(crate) fn closest_caret_in_range(positions: &CaretPositions, start: usize, end: usize, x: f32) -> usize {
-  positions
-    .matching_positions(start, end)
+/// How far apart two caret positions' `y` may be and still sit on one row.
+const ROW_EPSILON: f32 = 0.5;
+
+/// The caret on the laid-out row next to the one at `y`, above it or below
+/// (`down`), nearest to `x`. Rows are visual: a soft-wrapped paragraph has
+/// one per wrapped line. `None` when no row lies that way.
+pub(crate) fn closest_caret_on_adjacent_row(positions: &CaretPositions, y: f32, x: f32, down: bool) -> Option<usize> {
+  let row = positions
     .iter()
-    .filter(|position| position.index >= start && position.index <= end)
-    .min_by(|a, b| {
-      (a.x - x)
-        .abs()
-        .partial_cmp(&(b.x - x).abs())
-        .unwrap_or(std::cmp::Ordering::Equal)
+    .map(|position| position.y)
+    .filter(|&row| {
+      if down {
+        row > y + ROW_EPSILON
+      } else {
+        row < y - ROW_EPSILON
+      }
     })
-    .map(|position| position.index)
-    .unwrap_or(start)
+    .reduce(if down { f32::min } else { f32::max })?;
+  let on_row = |position: &CaretPosition| (position.y - row).abs() <= ROW_EPSILON;
+  // Where a paragraph wraps, one index ends a row and starts the next, and
+  // the caret shows it at the end of the first. Only that row may take it,
+  // so a move down from the start of a row does not land back on it.
+  let shown_on_row = |position: &CaretPosition| {
+    caret_y_for_index(positions, position.index).is_some_and(|shown| (shown - row).abs() <= ROW_EPSILON)
+  };
+  let nearest = |candidates: &mut dyn Iterator<Item = CaretPosition>| {
+    candidates
+      .min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()))
+      .map(|position| position.index)
+  };
+  nearest(
+    &mut positions
+      .iter()
+      .filter(|position| on_row(position) && shown_on_row(position)),
+  )
+  .or_else(|| nearest(&mut positions.iter().filter(on_row)))
 }
 
 pub(crate) fn closest_caret_to_point(positions: &CaretPositions, x: f32, y: f32) -> usize {

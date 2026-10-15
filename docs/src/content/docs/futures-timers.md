@@ -262,7 +262,7 @@ An offstage component (`ctx.mount_offstage`, `Router::mount_offstage`) is still 
 Enable `tokio` and configure a live runtime handle to spawn futures and streams on Tokio. Add a direct Tokio dependency when application code uses its APIs:
 
 ```toml
-lurq = { version = "0.44.0", features = ["tokio"] }
+lurq = { version = "0.45.0", features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 ```
 
@@ -276,6 +276,15 @@ let app = App::new().with_tokio_handle(tokio_rt.handle().clone());
 With a tokio handle, futures and streams spawn onto the tokio runtime and complete independently. Results are delivered back to the UI thread on the next `tree.tick_futures()` call.
 
 Keep `tokio_rt` alive for as long as the UI uses its tasks. Without a configured Tokio handle, futures and streams are polled cooperatively during `tree.tick_futures()`, even if the Cargo feature is enabled. Tokio I/O and timers require an appropriately configured runtime.
+
+## Waking the Event Loop
+
+An idle window does not poll: its event loop sleeps until the next timer or scheduled frame, an input event, or a wake (since lurq 0.45.0). Work that finishes off the loop wakes it:
+
+- A result or stream item handed over from Tokio wakes the loop when it arrives.
+- A future that lurq polls itself (one not running on Tokio) gets a waker that wakes the loop. Such a future must honour the `Future` contract: when it returns `Pending`, it must arrange for that waker to be called once it can make progress (an async channel, timer or I/O future does this for you). A future that returns `Pending` without arranging a wake is not polled again until something else wakes the loop.
+- Starting or restarting a timer, or running a future action, from another thread wakes the loop.
+- A `Signal` written off the loop's thread wakes the loop when the write marks a component for render: a `.set` inside a Tokio `ctx.future`, from a `std::thread`, or a `StreamEmitter::emit` called from a thread. The component renders the new value on the loop's next turn. Writes wake the loop once until it renders them, so a thread that writes thousands of times between two turns wakes it once and the render shows the latest value. A write on the loop's own thread needs no wake: the turn it happens in picks it up.
 
 ## Timers
 

@@ -38,12 +38,6 @@ fn assert_matches_linear(positions: &CaretPositions) {
           &reference, start, end, 7.25, 19.5
         ))
       );
-      for x in [-10.0, 40.0, 500.0] {
-        assert_eq!(
-          closest_caret_in_range(positions, start, end, x),
-          linear::closest_caret_in_range(&reference, start, end, x)
-        );
-      }
     }
   }
   for p in positions.iter().step_by(stride) {
@@ -249,20 +243,6 @@ mod linear {
       line_start = line_end;
     }
     ranges
-  }
-
-  pub(crate) fn closest_caret_in_range(positions: &[CaretPosition], start: usize, end: usize, x: f32) -> usize {
-    positions
-      .iter()
-      .filter(|position| position.index >= start && position.index <= end)
-      .min_by(|a, b| {
-        (a.x - x)
-          .abs()
-          .partial_cmp(&(b.x - x).abs())
-          .unwrap_or(std::cmp::Ordering::Equal)
-      })
-      .map(|position| position.index)
-      .unwrap_or(start)
   }
 
   pub(crate) fn closest_caret_to_point(positions: &[CaretPosition], x: f32, y: f32) -> usize {

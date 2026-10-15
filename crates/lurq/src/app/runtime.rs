@@ -1341,9 +1341,10 @@ impl Tree {
     }
   }
 
-  /// Whether something advances with time rather than input, so the shell keeps ticking and passes are required.
-  /// A held drag is not such a source: its state changes only on input events, which request their own redraw, so
-  /// a pointer held still lets the loop wait.
+  /// Whether something advances with time rather than input, so passes are required. A held drag is not such a
+  /// source: its state changes only on input events, which request their own redraw, so a pointer held still
+  /// lets the loop wait. The shell waits for these sources' deadlines and wakes ([`Tree::needs_polling`],
+  /// [`Tree::next_scheduled_redraw`], [`Tree::next_timer_at`]) instead of polling while one is active.
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_tick_sources(&self) -> bool {
     self.perf_overlay_enabled
@@ -1355,6 +1356,25 @@ impl Tree {
         .root_ctx
         .as_ref()
         .is_some_and(|ctx| ctx.has_active_timers() || ctx.has_active_futures())
+  }
+
+  /// Whether the shell must poll its event loop: there is work for its next turn that nothing wakes the loop for.
+  /// Timers, futures, streams and scheduled redraws do not count: they wake the loop or give it a deadline
+  /// ([`Tree::next_scheduled_redraw`], [`Tree::next_timer_at`]).
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn needs_polling(&self) -> bool {
+    #[cfg(feature = "query")]
+    if self.root_ctx.as_ref().is_some_and(Ctx::has_ready_queries) {
+      return true;
+    }
+    self.click_tracker.has_pending()
+  }
+
+  /// When the earliest running timer fires: the shell wakes then without an event, as it does for
+  /// [`Tree::next_scheduled_redraw`].
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn next_timer_at(&self) -> Option<Instant> {
+    self.root_ctx.as_ref().and_then(Ctx::next_timer_fire)
   }
 
   /// Whether any animation or transition is currently running. While true the
@@ -4436,7 +4456,7 @@ impl Tree {
     let mut scrollbar_press = None;
     if !evt.default_prevented() {
       for (node, _) in &hits {
-        let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() else {
+        let Some((state, _)) = node.scroll_container() else {
           continue;
         };
         let hit = scrollbar_hit_at(node, lx, ly);
@@ -4577,10 +4597,7 @@ impl Tree {
     }
 
     self.hover_path = current_ids;
-    self.cursor = hits
-      .iter()
-      .find_map(|(node, _)| node.cursor_icon())
-      .unwrap_or(CursorIcon::Default);
+    self.cursor = hovered_cursor(hits.iter().map(|(node, _)| *node));
     if matches!(evt.kind, MouseEventKind::Down) {
       self.active_path = self.hover_path.clone();
     }
@@ -5123,13 +5140,13 @@ impl Tree {
     let mut remaining_dy = -evt.delta_y;
     let mut pending_scroll_reach = Vec::new();
     for (node, _) in &hits {
-      if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
-        let dx = if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
+      if let Some((state, direction)) = node.scroll_container() {
+        let dx = if scroll_direction_has_axis(direction, ScrollAxis::Horizontal) {
           remaining_dx
         } else {
           0.0
         };
-        let dy = if scroll_direction_has_axis(*direction, ScrollAxis::Vertical) {
+        let dy = if scroll_direction_has_axis(direction, ScrollAxis::Vertical) {
           remaining_dy
         } else {
           0.0
@@ -5159,10 +5176,10 @@ impl Tree {
           previous_scroll_y,
           previous_max_scroll_y,
         ));
-        if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal) {
+        if scroll_direction_has_axis(direction, ScrollAxis::Horizontal) {
           remaining_dx = overflow_dx;
         }
-        if scroll_direction_has_axis(*direction, ScrollAxis::Vertical) {
+        if scroll_direction_has_axis(direction, ScrollAxis::Vertical) {
           remaining_dy = overflow_dy;
         }
         if remaining_dx == 0.0 && remaining_dy == 0.0 {
@@ -5254,7 +5271,7 @@ impl Tree {
     let Some(node) = find_node_by_id(root, target_id) else {
       return;
     };
-    let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() else {
+    let Some((state, _)) = node.scroll_container() else {
       return;
     };
 
@@ -6513,12 +6530,12 @@ impl Tree {
     }
     self.active_path = active_path;
 
-    self.cursor = self
-      .hover_path
-      .iter()
-      .filter_map(|node_id| find_node_by_id(root, *node_id))
-      .find_map(Node::cursor_icon)
-      .unwrap_or(CursorIcon::Default);
+    self.cursor = hovered_cursor(
+      self
+        .hover_path
+        .iter()
+        .filter_map(|node_id| find_node_by_id(root, *node_id)),
+    );
     self.refresh_focus_ids();
   }
 
@@ -7162,18 +7179,18 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
   }
 
   for (node, _) in hits {
-    let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() else {
+    let Some((state, direction)) = node.scroll_container() else {
       continue;
     };
 
-    if scroll_direction_has_axis(*direction, ScrollAxis::Horizontal)
-      && scroll_axis_delta_can_be_consumed(state, ScrollAxis::Horizontal, remaining_dx)
+    if scroll_direction_has_axis(direction, ScrollAxis::Horizontal)
+      && scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, remaining_dx)
     {
       return true;
     }
 
-    if scroll_direction_has_axis(*direction, ScrollAxis::Vertical)
-      && scroll_axis_delta_can_be_consumed(state, ScrollAxis::Vertical, remaining_dy)
+    if scroll_direction_has_axis(direction, ScrollAxis::Vertical)
+      && scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, remaining_dy)
     {
       return true;
     }
@@ -7184,11 +7201,11 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
 
 fn scroll_delta_targets_scroll_container(hits: &[(&Node, HitRect)], delta_x: f32, delta_y: f32) -> bool {
   hits.iter().any(|(node, _)| {
-    let LayoutKind::ScrollModifier { direction, .. } = node.layout_kind() else {
+    let Some((_, direction)) = node.scroll_container() else {
       return false;
     };
-    (delta_x != 0.0 && scroll_direction_has_axis(*direction, ScrollAxis::Horizontal))
-      || (delta_y != 0.0 && scroll_direction_has_axis(*direction, ScrollAxis::Vertical))
+    (delta_x != 0.0 && scroll_direction_has_axis(direction, ScrollAxis::Horizontal))
+      || (delta_y != 0.0 && scroll_direction_has_axis(direction, ScrollAxis::Vertical))
   })
 }
 
@@ -8225,7 +8242,7 @@ fn verify_scroll_offsets(node: &Node, result: &crate::layout::layout_result::Lay
 /// Find the scroll node sharing `state`'s underlying scroll state — the
 /// stable identity of a scroll container across retained-tree rebuilds.
 fn find_scroll_node_id_by_state(node: &Node, state: &ScrollState) -> Option<NodeId> {
-  if let LayoutKind::ScrollModifier { state: node_state, .. } = node.layout_kind() {
+  if let Some((node_state, _)) = node.scroll_container() {
     if node_state.ptr_eq(state) {
       return Some(node.node_id());
     }
@@ -9374,7 +9391,7 @@ fn set_node_hovered(node: &Node, hovered: bool) {
   node.set_style_hovered(hovered);
   // Mouse dispatch hovers a scrollbar under the pointer; leaving the
   // container (or the window) leaves its scrollbar too.
-  if !hovered && let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
+  if !hovered && let Some((state, _)) = node.scroll_container() {
     state.set_thumb_hovered(false);
   }
   if let Some(state) = node.slider_state() {
@@ -9386,6 +9403,24 @@ fn set_node_hovered(node: &Node, hovered: bool) {
   if let Some(ref element_ref) = node.element_ref {
     element_ref.set_hovered(hovered);
   }
+}
+
+/// The cursor of the innermost of the hovered `nodes` that sets one. A
+/// scrollbar under the pointer shows the default cursor, whatever cursor its
+/// node sets (a text input's text cursor, say).
+fn hovered_cursor<'a>(mut nodes: impl Iterator<Item = &'a Node>) -> CursorIcon {
+  nodes
+    .find_map(|node| {
+      if node
+        .scroll_container()
+        .is_some_and(|(state, _)| state.is_thumb_hovered())
+      {
+        Some(CursorIcon::Default)
+      } else {
+        node.cursor_icon()
+      }
+    })
+    .unwrap_or(CursorIcon::Default)
 }
 
 /// Drops the hits above the scroll container whose scrollbar takes the
@@ -9415,12 +9450,10 @@ fn trim_hits_to_scrollbar(hits: &mut Vec<(&Node, crate::app::hit_test::HitRect)>
 /// resolve their overlap by paint order: the horizontal bar is painted over the
 /// vertical one, so it wins in the corner.
 fn scrollbar_hit_at(node: &Node, x: f32, y: f32) -> Option<(ScrollAxis, ScrollBarPart)> {
-  let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() else {
-    return None;
-  };
+  let (state, direction) = node.scroll_container()?;
 
   let style = state.style();
-  scroll_axes(*direction)
+  scroll_axes(direction)
     .iter()
     .rev()
     .find_map(|&axis| Some((axis, state.scrollbar_part_at(axis, &style, x, y)?)))
@@ -9534,7 +9567,9 @@ fn has_pending_layout_dirty_recursive(node: &Node) -> bool {
   let local = text_input_dirty
     || node.layout_cache.is_dirty()
     || node.has_style_layout_dirty()
-    || matches!(node.layout_kind(), LayoutKind::ScrollModifier { state, .. } if state.has_scroll_dirty());
+    || node
+      .scroll_container()
+      .is_some_and(|(state, _)| state.has_scroll_dirty());
   local || node.children().iter().any(has_pending_layout_dirty_recursive)
 }
 

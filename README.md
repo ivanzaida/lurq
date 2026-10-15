@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.44.0"
+lurq = "0.45.0"
 ```
 
 There are no default features. Enable the window shell and renderer to run the example below:
 
 ```toml
 [dependencies]
-lurq = { version = "0.44.0", features = ["winit", "wgpu"] }
+lurq = { version = "0.45.0", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:

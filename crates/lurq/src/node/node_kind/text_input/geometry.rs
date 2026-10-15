@@ -16,7 +16,9 @@ impl TextInputState {
     let old_text_band = old_inner.text_band;
     let old_caret_positions = old_inner.caret_positions.clone();
     let old_scroll_x = old_inner.scroll_x;
-    let old_scroll_y = old_inner.scroll_y;
+    let old_scroll = old_inner.scroll.clone();
+    let old_follow_caret = old_inner.follow_caret;
+    let old_vertical_goal = old_inner.vertical_goal;
     let old_focused = old_inner.focused;
     let old_composition = old_inner.composition.clone();
     let old_undo_stack = old_inner.undo_stack.clone();
@@ -38,7 +40,9 @@ impl TextInputState {
     inner.text_band = old_text_band;
     inner.caret_positions = old_caret_positions;
     inner.scroll_x = old_scroll_x;
-    inner.scroll_y = old_scroll_y;
+    inner.scroll = old_scroll;
+    inner.follow_caret = old_follow_caret;
+    inner.vertical_goal = old_vertical_goal;
     inner.focused = old_focused;
     inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;
@@ -65,11 +69,11 @@ impl TextInputState {
     let caret = clamp_to_char_boundary(&text, caret);
     if inner.overflow == TextInputOverflow::Multiline
       && caret == text.len()
-      && text[..caret].ends_with('\n')
+      && trailing_break_len(&text[..caret]) > 0
       && inner.token_layout.is_none()
     {
       inner.caret_x = 0.0;
-      inner.caret_y = text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
+      inner.caret_y = trailing_break_row_y(&inner.caret_positions, &text, line_height);
       return;
     }
     inner.caret_x = caret_x_for_index(&inner.caret_positions, caret);
@@ -95,7 +99,7 @@ impl TextInputState {
 
   pub(crate) fn caret_y(&self) -> f32 {
     let inner = self.inner.lock();
-    inner.caret_y - inner.scroll_y
+    inner.caret_y - inner.scroll_y()
   }
 
   pub(crate) fn set_caret_height(&self, caret_height: f32) {
@@ -130,12 +134,52 @@ impl TextInputState {
     self.inner.lock().scroll_x
   }
 
-  pub(crate) fn set_scroll_y(&self, scroll_y: f32) {
-    self.inner.lock().scroll_y = scroll_y.max(0.0);
+  /// Records where layout put the text: a `viewport_width` by
+  /// `viewport_height` box showing `content_height` of text from `scroll_y`,
+  /// with a `scrollbar_lane` wide lane for the bar right of the box.
+  pub(crate) fn set_vertical_scroll(
+    &self,
+    viewport_width: f32,
+    viewport_height: f32,
+    content_height: f32,
+    scroll_y: f32,
+    scrollbar_lane: f32,
+  ) {
+    self.inner.lock().scroll.set_text_layout(
+      viewport_width,
+      viewport_height,
+      content_height,
+      scroll_y,
+      scrollbar_lane,
+    );
   }
 
   pub(crate) fn scroll_y(&self) -> f32 {
-    self.inner.lock().scroll_y
+    self.inner.lock().scroll_y()
+  }
+
+  /// The scroll a multiline input shows its text with, for the wheel and the
+  /// scrollbar; a single-line input scrolls only with its caret.
+  pub(crate) fn scroll_state(&self) -> Option<ScrollState> {
+    let inner = self.inner.lock();
+    (inner.overflow == TextInputOverflow::Multiline).then(|| inner.scroll.clone())
+  }
+
+  /// Takes a scroll by wheel or scrollbar since the last layout: from then
+  /// on, layout leaves the text where it was scrolled instead of bringing
+  /// the caret back, until the next edit or caret move. Returns whether the
+  /// input was scrolled.
+  pub(crate) fn take_user_scroll(&self) -> bool {
+    let mut inner = self.inner.lock();
+    let scrolled = inner.scroll.take_scroll_dirty();
+    if scrolled {
+      inner.follow_caret = false;
+    }
+    scrolled
+  }
+
+  pub(crate) fn follows_caret(&self) -> bool {
+    self.inner.lock().follow_caret
   }
 
   pub(crate) fn set_unfocused_overflow_anchor(&self, anchor: TextInputOverflowAnchor) {
@@ -145,7 +189,7 @@ impl TextInputState {
     }
     inner.unfocused_overflow_anchor = anchor;
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn unfocused_overflow_anchor(&self) -> TextInputOverflowAnchor {
@@ -159,7 +203,7 @@ impl TextInputState {
     }
     inner.overflow = overflow;
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn overflow(&self) -> TextInputOverflow {
@@ -180,7 +224,7 @@ impl TextInputState {
     inner.min_rows = Some(min_rows);
     inner.max_rows = Some(max_rows);
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn set_min_rows(&self, min_rows: usize) {
@@ -197,7 +241,7 @@ impl TextInputState {
     inner.min_rows = Some(min_rows);
     inner.max_rows = next_max_rows;
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn set_max_rows(&self, max_rows: usize) {
@@ -214,7 +258,7 @@ impl TextInputState {
     inner.max_rows = Some(max_rows);
     inner.min_rows = next_min_rows;
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn set_rows_exact(&self, rows: usize) {
@@ -227,7 +271,7 @@ impl TextInputState {
     inner.min_rows = Some(rows);
     inner.max_rows = Some(rows);
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn row_limits(&self) -> (Option<usize>, Option<usize>) {
@@ -247,9 +291,9 @@ impl TextInputState {
       return Vec::new();
     };
     if let Some(layout) = decorated {
-      return layout.selection(start..end, (inner.scroll_x, inner.scroll_y));
+      return layout.selection(start..end, (inner.scroll_x, inner.scroll_y()));
     }
-    selection_ranges_for_positions(&inner.caret_positions, start, end, inner.scroll_x, inner.scroll_y)
+    selection_ranges_for_positions(&inner.caret_positions, start, end, inner.scroll_x, inner.scroll_y())
   }
 
   pub(crate) fn set_focused(&self, focused: bool) {
@@ -263,7 +307,12 @@ impl TextInputState {
       inner.composition = None;
     }
     drop(inner);
-    self.mark_layout_dirty();
+    // Taking the focus shows the caret; losing it leaves the text where it is.
+    if focused {
+      self.mark_layout_dirty();
+    } else {
+      self.mark_layout_dirty_keeping_scroll();
+    }
   }
 
   pub(crate) fn is_focused(&self) -> bool {

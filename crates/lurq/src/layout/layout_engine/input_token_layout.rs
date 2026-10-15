@@ -19,6 +19,7 @@ impl LayoutEngine {
     base: &TextStyle,
     constraints: Constraints,
     tokens: InputTokens,
+    scrollbar_lane: f32,
   ) -> crate::layout::layout_result::LayoutResult {
     let wrap = state.overflow() == TextInputOverflow::Multiline;
     let max_width = if wrap {
@@ -85,6 +86,7 @@ impl LayoutEngine {
       line_height: layout.line_height,
       text_band: Some(layout.selection_band(0.0)),
       token_layout: Some(layout),
+      scrollbar_lane,
     };
     Self::text_input_result(state, output)
   }

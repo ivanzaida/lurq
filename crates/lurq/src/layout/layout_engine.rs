@@ -711,7 +711,9 @@ impl LayoutEngine {
     // patched in via a component slot replacement). It must be laid out, and its
     // ancestors must recompute to reposition it, so propagate dirtiness upward.
     let text_input_dirty = match node.node_kind() {
-      NodeKind::TextInput { state, .. } => state.take_layout_dirty(),
+      // A multiline input scrolled by wheel or scrollbar lays out again to
+      // keep its offset in its text, and stops following its caret.
+      NodeKind::TextInput { state, .. } => state.take_layout_dirty() | state.take_user_scroll(),
       NodeKind::Select { state } => state.take_layout_dirty(),
       _ => false,
     };
@@ -1752,8 +1754,16 @@ impl LayoutEngine {
       });
     }
 
-    if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
-      state.set_viewport_position(abs_x, abs_y);
+    if let Some((state, direction)) = node.scroll_container() {
+      let (viewport_x, viewport_y) = match node.node_kind() {
+        // A multiline text input scrolls the text inside its padding.
+        NodeKind::TextInput { .. } => {
+          let padding = self.resolved_padding_for_size(node, result.size);
+          (abs_x + padding.left, abs_y + padding.top)
+        }
+        _ => (abs_x, abs_y),
+      };
+      state.set_viewport_position(viewport_x, viewport_y);
       let sb_style = node.scrollbar_style(self.scrollbar.borrow().clone());
       state.set_style(sb_style.clone());
       let thumb_color = sb_style.thumb_color;
@@ -2160,7 +2170,7 @@ impl LayoutEngine {
     let frame = node.effective_frame(FrameConstraints::default());
     let padding = node.effective_padding(&Padding::default());
     let frame_is_flat = frame != FrameConstraints::default();
-    let padding_is_flat = padding != Padding::default();
+    let padding_is_flat = padding != Padding::default() || self.text_input_scrollbar_lane(node) > 0.0;
 
     if frame_is_flat || padding_is_flat {
       return self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides);
@@ -2279,6 +2289,7 @@ impl LayoutEngine {
           style,
           placeholder_style.as_ref(),
           constraints,
+          self.text_input_scrollbar_lane(node),
         );
       }
       NodeKind::Checkbox { .. } => {
@@ -3216,9 +3227,14 @@ impl LayoutEngine {
       .unwrap_or(offset)
   }
 
+  /// The node's padding at `size`, with a multiline text input's scrollbar
+  /// lane ([`Self::text_input_scrollbar_lane`]) counted in its right side as
+  /// layout counts it: inside it is the box the content is laid out and
+  /// painted in.
   pub(crate) fn resolved_padding_for_size(&self, node: &Node, size: Size) -> ResolvedPadding {
     let padding = node.effective_padding(&Padding::default());
-    if padding == Padding::default() {
+    let scrollbar_lane = self.text_input_scrollbar_lane(node);
+    if padding == Padding::default() && scrollbar_lane == 0.0 {
       return ResolvedPadding::default();
     }
 
@@ -3226,7 +3242,7 @@ impl LayoutEngine {
     ResolvedPadding {
       left: padding.get_left().resolve(&spacing, size.width),
       top: padding.get_top().resolve(&spacing, size.height),
-      right: padding.get_right().resolve(&spacing, size.width),
+      right: padding.get_right().resolve(&spacing, size.width) + scrollbar_lane,
       bottom: padding.get_bottom().resolve(&spacing, size.height),
     }
   }
@@ -3245,7 +3261,7 @@ impl LayoutEngine {
     let parent_h = outer_constraints.max_height;
     let spacing = self.spacing.borrow();
     let left = padding.get_left().resolve(&spacing, parent_w);
-    let right = padding.get_right().resolve(&spacing, parent_w);
+    let right = padding.get_right().resolve(&spacing, parent_w) + self.text_input_scrollbar_lane(node);
     let top = padding.get_top().resolve(&spacing, parent_h);
     let bottom = padding.get_bottom().resolve(&spacing, parent_h);
     let h_pad = left + right;

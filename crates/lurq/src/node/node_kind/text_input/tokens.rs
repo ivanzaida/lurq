@@ -11,7 +11,7 @@ impl TextInputState {
     inner.token_layout = None;
     inner.token_affinity = None;
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn tokens(&self) -> Option<InputTokens> {

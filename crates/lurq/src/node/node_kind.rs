@@ -10,14 +10,17 @@ use crate::{
     theme::{ThemePalette, ThemeTypography, TypographyStyle},
   },
   core::Signal,
-  layout::text_style::{TextAlign, TextStyle},
+  layout::{
+    layout_kind::ScrollState,
+    text_style::{TextAlign, TextStyle},
+  },
   node::{
     CheckboxStyle, EventHandler, IntoTextInputEventHandler, SliderPartStyle, TextColor, TextTransformMode,
     text_selection::{
       CaretPosition, CaretPositions, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
-      closest_caret_in_range, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
+      closest_caret_on_adjacent_row, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
       previous_char_boundary, previous_word_boundary, selection_range_indices, selection_ranges_for_positions,
-      word_selection_bounds,
+      trailing_break_len, trailing_break_row_y, word_selection_bounds,
     },
   },
 };
