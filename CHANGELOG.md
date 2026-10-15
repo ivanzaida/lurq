@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Behaviour changes:
+
+- `ArrowUp` and `ArrowDown` in a multiline `TextInput` move by laid-out row, not by paragraph.
+
+- Fix `ArrowUp`/`ArrowDown` (and with `Shift`) in a multiline `TextInput` moving by paragraph: in a soft-wrapped paragraph, `ArrowUp` jumped to the start of the value and `ArrowDown` to its end, so `Shift+ArrowUp` and `Backspace` deleted the whole paragraph. The caret now moves one laid-out row, as near its x as that row allows; above the first row it goes to the start and below the last to the end, as before. Decorated inputs (`InputTokens`) already moved by row and are unchanged.
+
 ## 0.44.1 — 2026-10-14
 
 - Fix `VirtualizedList` undoing a scroll the app asked for when the row keys changed in the same update. A change of the key order (a row added, removed or moved) anchors the first visible row so that the view stays put, and the list restored that anchor with `set_scroll` once every row height was known, after the layout that had resolved a queued `ScrollState::scroll_to_bottom_pending`, `scroll_to_top_pending` or `set_scroll_pending`: the view went back to the old position, on the next frame when every row was measured, or frames later when the list first measured its rows (which also undid a `reveal_key` made meanwhile). A requested vertical scroll now wins: no anchor is captured while one is pending, and an anchor still waiting for heights is dropped once a scroll request takes effect after it (a resolved pending scroll, `ScrollState::set_scroll`, a `reveal_key` or a scroll into view). A content change with no scroll request stays anchored as before.

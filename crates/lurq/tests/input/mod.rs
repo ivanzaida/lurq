@@ -36,6 +36,7 @@ mod text_input {
   mod style;
   mod tokens;
   mod typing_updates_value;
+  mod vertical_rows;
 }
 
 mod checkbox {

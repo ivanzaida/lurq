@@ -165,48 +165,26 @@ impl TextInputState {
   }
 
   pub(crate) fn move_up(&self, selecting: bool) {
-    if self.move_token_vertical(false, selecting) {
-      return;
-    }
-    let value = self.value();
-    let mut inner = self.inner.lock();
-    let caret = clamp_to_char_boundary(&value, inner.caret);
-    let (line_start, _) = line_bounds(&value, caret);
-    if line_start == 0 {
-      move_inner_to(&mut inner, 0, selecting);
-      drop(inner);
-      self.mark_layout_dirty();
-      return;
-    }
-
-    let target_x = caret_x_for_index(&inner.caret_positions, caret);
-    let previous_line_end = line_start - 1;
-    let (previous_line_start, previous_line_end) = line_bounds(&value, previous_line_end);
-    let target = closest_caret_in_range(&inner.caret_positions, previous_line_start, previous_line_end, target_x);
-    move_inner_to(&mut inner, target, selecting);
-    drop(inner);
-    self.mark_layout_dirty();
+    self.move_vertical(false, selecting);
   }
 
   pub(crate) fn move_down(&self, selecting: bool) {
-    if self.move_token_vertical(true, selecting) {
+    self.move_vertical(true, selecting);
+  }
+
+  /// Moves the caret one laid-out row up or down, as near its x as that row
+  /// allows: a soft-wrapped paragraph moves a wrapped line at a time. Past
+  /// the first row the caret goes to the start, past the last to the end.
+  fn move_vertical(&self, down: bool, selecting: bool) {
+    if self.move_token_vertical(down, selecting) {
       return;
     }
     let value = self.value();
     let mut inner = self.inner.lock();
     let caret = clamp_to_char_boundary(&value, inner.caret);
-    let (_, line_end) = line_bounds(&value, caret);
-    if line_end >= value.len() {
-      move_inner_to(&mut inner, value.len(), selecting);
-      drop(inner);
-      self.mark_layout_dirty();
-      return;
-    }
-
-    let target_x = caret_x_for_index(&inner.caret_positions, caret);
-    let next_line_start = line_end + 1;
-    let (_, next_line_end) = line_bounds(&value, next_line_start);
-    let target = closest_caret_in_range(&inner.caret_positions, next_line_start, next_line_end, target_x);
+    let (x, y) = shown_caret_point(&inner, &value, caret);
+    let target =
+      closest_caret_on_adjacent_row(&inner.caret_positions, y, x, down).unwrap_or(if down { value.len() } else { 0 });
     move_inner_to(&mut inner, target, selecting);
     drop(inner);
     self.mark_layout_dirty();
@@ -358,4 +336,17 @@ impl TextInputState {
     drop(inner);
     self.mark_layout_dirty();
   }
+}
+
+/// Where the caret at `caret` shows in the laid-out text, as
+/// `sync_caret_metrics_to_position` puts it: the end of a multiline value
+/// that ends with a line break is on the empty row after it.
+fn shown_caret_point(inner: &TextInputInner, value: &str, caret: usize) -> (f32, f32) {
+  if inner.overflow == TextInputOverflow::Multiline && caret == value.len() && value.ends_with('\n') {
+    let rows = value.matches('\n').count() as f32;
+    return (0.0, rows * inner.caret_height);
+  }
+  let x = caret_x_for_index(&inner.caret_positions, caret);
+  let y = caret_y_for_index(&inner.caret_positions, caret).unwrap_or(inner.caret_y);
+  (x, y)
 }
