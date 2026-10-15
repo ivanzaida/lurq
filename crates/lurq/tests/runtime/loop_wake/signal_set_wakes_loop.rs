@@ -109,6 +109,42 @@ fn a_signal_set_off_the_loop_thread_wakes_the_event_loop() {
   assert_eq!(tree.root().unwrap().text_content(), Some("50%"));
 }
 
+#[test]
+fn many_signal_sets_off_the_loop_thread_between_two_turns_wake_the_loop_once() {
+  // Each wake is a message posted to the loop (`PostMessage` on Windows, whose queue holds 10,000), so a
+  // chatty thread must not post one per write.
+  let mut app = App::new();
+  let (mut tree, wakes) = counting_tree();
+  let shared = Shared::default();
+  tree.mount_root::<ShowsProgress>(&mut app, shared.clone());
+  tree.pass_headless(&mut app);
+  let progress = shared.get();
+
+  let before = wakes.load(Ordering::SeqCst);
+  let writer = progress.clone();
+  std::thread::spawn(move || {
+    for value in 0..10_000 {
+      writer.set(value);
+    }
+  })
+  .join()
+  .unwrap();
+  let woken = wakes.load(Ordering::SeqCst) - before;
+  assert!(
+    (1..=3).contains(&woken),
+    "10,000 writes before the loop turns wake it once, not per write: {woken} wakes"
+  );
+  tree.pass_headless(&mut app);
+  assert_eq!(tree.root().unwrap().text_content(), Some("9999%"));
+
+  let before = wakes.load(Ordering::SeqCst);
+  std::thread::spawn(move || progress.set(1)).join().unwrap();
+  assert!(
+    wakes.load(Ordering::SeqCst) > before,
+    "once the loop has rendered the writes, the next one wakes it again"
+  );
+}
+
 struct FollowsStream;
 
 impl Component for FollowsStream {

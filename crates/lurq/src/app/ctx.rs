@@ -976,15 +976,17 @@ impl BatchState {
     result
   }
 
-  fn mark_dirty(&self, dirty: &Arc<AtomicBool>) {
+  /// Marks `dirty`, or holds the mark back until the batch ends. Returns whether the flag went from clean to
+  /// dirty now: a flag already dirty has its pass coming, so marking it again needs no wake.
+  fn mark_dirty(&self, dirty: &Arc<AtomicBool>) -> bool {
     let mut inner = self.inner.lock();
     if inner.depth == 0 {
       drop(inner);
-      dirty.store(true, Ordering::Relaxed);
-      return;
+      return !dirty.swap(true, Ordering::Relaxed);
     }
 
     inner.pending_dirty.push(dirty.clone());
+    false
   }
 
   fn end_batch(&self) {
@@ -998,24 +1000,21 @@ impl BatchState {
       std::mem::take(&mut inner.pending_dirty)
     };
     let mut seen = HashSet::new();
+    let mut newly_dirty = false;
     for dirty in pending {
       let ptr = Arc::as_ptr(&dirty) as usize;
       if seen.insert(ptr) {
-        dirty.store(true, Ordering::Relaxed);
+        newly_dirty |= !dirty.swap(true, Ordering::Relaxed);
       }
     }
-    if !seen.is_empty() {
+    if newly_dirty {
       self.wake_loop();
     }
   }
 
-  /// Wakes the event loop for dirty marks already stored, unless a batch holds them back: its end wakes it.
-  fn wake_unless_batching(&self) {
-    if self.inner.lock().depth == 0 {
-      self.wake_loop();
-    }
-  }
-
+  /// Wakes the event loop for a write off its thread that made a component dirty. Only a flag that goes from
+  /// clean to dirty wakes it, so a thread writing thousands of times before the loop renders wakes it once
+  /// instead of posting a message per write.
   fn wake_loop(&self) {
     if let Some(wake) = &self.off_loop_wake {
       wake();
@@ -1205,13 +1204,17 @@ impl Ctx {
     subtree_dirty: &Arc<AtomicBool>,
     ancestor_dirty_slots: &[DirtyAncestor],
   ) {
-    batch.mark_dirty(dirty);
-    batch.mark_dirty(subtree_dirty);
+    // Every flag is marked; any that was clean wakes the loop once the marks are stored. Inside a batch, its
+    // end stores and wakes.
+    let mut newly_dirty = batch.mark_dirty(dirty);
+    newly_dirty |= batch.mark_dirty(subtree_dirty);
     for ancestor in ancestor_dirty_slots {
-      batch.mark_dirty(&ancestor.subtree_dirty);
+      newly_dirty |= batch.mark_dirty(&ancestor.subtree_dirty);
       Self::mark_dirty_child_slot(&ancestor.dirty_child_slots, ancestor.child_slot_id);
     }
-    batch.wake_unless_batching();
+    if newly_dirty {
+      batch.wake_loop();
+    }
   }
 
   fn mark_self_dirty(&self) {
