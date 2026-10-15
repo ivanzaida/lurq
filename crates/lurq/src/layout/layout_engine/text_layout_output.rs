@@ -27,6 +27,9 @@ pub(crate) enum TextLayoutOutput {
   Text(TextOutput),
   /// A `TextInput` leaf.
   TextInput(TextInputOutput),
+  /// A link of a rich-text paragraph, placed by the paragraph.
+  #[cfg(feature = "markdown")]
+  InlineLink(super::inline_links::InlineLinkOutput),
 }
 
 /// Output of laying out a `Text` or `RichText` leaf.
@@ -38,6 +41,9 @@ pub(crate) struct TextOutput {
   /// Only selectable text measures caret geometry; other text leaves the
   /// state's positions as they are.
   pub(super) caret_positions: Option<CaretPositions>,
+  /// Rich text that paints underlines or links: where its text lies.
+  #[cfg(feature = "markdown")]
+  pub(super) inline: Option<Arc<super::inline_links::InlineTextLayout>>,
 }
 
 impl TextLayoutOutput {
@@ -51,7 +57,10 @@ impl TextLayoutOutput {
             .caret_positions
             .as_ref()
             .map_or(0, CaretPositions::estimated_shared_memory_bytes)
+          + output.inline_memory_bytes()
       }
+      #[cfg(feature = "markdown")]
+      Self::InlineLink(output) => output.estimated_memory_bytes(),
       Self::TextInput(output) => {
         output.caret_positions.estimated_shared_memory_bytes()
           + output
@@ -66,6 +75,28 @@ impl TextLayoutOutput {
 }
 
 impl TextOutput {
+  /// This output, painting underlines or links as `inline` lays them out.
+  #[cfg(feature = "markdown")]
+  pub(super) fn with_inline(&self, inline: Arc<super::inline_links::InlineTextLayout>) -> Self {
+    Self {
+      display_text: self.display_text.clone(),
+      render_wrap: self.render_wrap,
+      caret_positions: self.caret_positions.clone(),
+      inline: Some(inline),
+    }
+  }
+
+  fn inline_memory_bytes(&self) -> usize {
+    #[cfg(feature = "markdown")]
+    {
+      self.inline.as_ref().map_or(0, |inline| inline.estimated_memory_bytes())
+    }
+    #[cfg(not(feature = "markdown"))]
+    {
+      0
+    }
+  }
+
   fn apply(&self, state: &TextState) {
     state.set_layout_output(
       self.display_text.as_ref(),

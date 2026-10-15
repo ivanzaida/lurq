@@ -10,6 +10,8 @@ pub(crate) mod dsl;
 pub mod element;
 mod font_features;
 pub mod gradient;
+#[cfg(feature = "markdown")]
+pub(crate) mod inline_link;
 pub mod interaction_state;
 pub(crate) mod layout_cache;
 pub(crate) mod lazy_box;

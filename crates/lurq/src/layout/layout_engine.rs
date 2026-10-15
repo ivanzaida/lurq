@@ -42,6 +42,8 @@ use crate::{
 mod box_shadow_quads;
 mod control_fill;
 mod flex_shrink;
+#[cfg(feature = "markdown")]
+pub(crate) mod inline_links;
 mod input_layout;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
@@ -225,6 +227,10 @@ pub(crate) struct LayoutEngine {
   /// The lines being laid out collapsed by their parent's shrink step
   /// (`flex_shrink::is_collapsed`).
   collapsed_lines: RefCell<Vec<usize>>,
+  /// Device pixels per logical pixel of the paint, for geometry that must
+  /// match painted glyphs (rich-text links and underlines).
+  #[cfg(feature = "markdown")]
+  paint_scale: Cell<f32>,
 }
 
 #[cfg(feature = "raster")]
@@ -494,7 +500,16 @@ impl LayoutEngine {
       #[cfg(feature = "screenshot")]
       sensitive_quads: RefCell::new(Vec::new()),
       collapsed_lines: RefCell::new(Vec::new()),
+      #[cfg(feature = "markdown")]
+      paint_scale: Cell::new(1.0),
     }
+  }
+
+  /// Device pixels per logical pixel the paint draws at. Laid-out link and
+  /// underline geometry depends on it; changing it needs a full relayout.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn set_paint_scale(&self, scale: f32) {
+    self.paint_scale.set(scale);
   }
 
   pub(crate) fn compute(
@@ -1042,16 +1057,26 @@ impl LayoutEngine {
       NodeKind::RichText {
         spans, transform_mode, ..
       } => QuadContent::RichText {
-        spans: spans.clone(),
+        spans: if node.children().is_empty() {
+          spans.clone()
+        } else {
+          Self::painted_rich_text_spans(node, spans)
+        },
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
-        vertical_align: crate::layout::text_style::VerticalAlign::Center,
+        // Text that paints underlines or links is drawn from the top of its
+        // laid-out lines, which `inline_text_frame` centers in its box.
+        vertical_align: if Self::inline_text_frame(result).is_some() {
+          crate::layout::text_style::VerticalAlign::LineBox
+        } else {
+          crate::layout::text_style::VerticalAlign::Center
+        },
         transform_mode: *transform_mode,
       },
       NodeKind::TextInput {
         state,
         style,
         placeholder_style,
-      } => self.input_content(state, style, placeholder_style.as_ref()),
+      } => self.input_content(state, style, placeholder_style.as_deref()),
       NodeKind::Checkbox { .. } => QuadContent::None,
       #[cfg(feature = "canvas")]
       NodeKind::Canvas { canvas } => canvas.image_data().map_or_else(
@@ -1167,6 +1192,17 @@ impl LayoutEngine {
           self.push_input_tokens(node, state, result, (abs_x, abs_y), transform, clip, opacity, quads);
         }
 
+        #[cfg(feature = "markdown")]
+        let inline_paint = inline_links::InlinePaint {
+          x: abs_x,
+          y: abs_y,
+          transform,
+          clip,
+          opacity,
+        };
+        #[cfg(feature = "markdown")]
+        self.push_inline_link_fills(node, result, inline_paint, quads);
+
         if let NodeKind::Text { state, style, .. } = node.node_kind()
           && state.selectable()
         {
@@ -1217,15 +1253,26 @@ impl LayoutEngine {
             .min(result.size.height)
             .max(1.0);
           let selection_clip = clip;
-          for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
-            let selection_x = abs_x + selection.x;
-            let selection_y = abs_y + selection.y;
+          let text_top = Self::inline_text_frame(result).map_or(0.0, |(top, _)| top);
+          let generated = Self::generated_span_rects(node, result);
+          let pieces = state
+            .selection_ranges(&node.rich_text_value().unwrap_or_default())
+            .into_iter()
+            .flat_map(|selection| {
+              let y = text_top + selection.y;
+              inline_links::without_rects(selection.x, y, selection.width, selection_height, &generated)
+                .into_iter()
+                .map(move |(x, width)| (x, y, width))
+            });
+          for (x, y, width) in pieces {
+            let selection_x = abs_x + x;
+            let selection_y = abs_y + y;
             let (selection_x, selection_y, selection_transform, selection_transform_origin) =
               transformed_quad_frame(selection_x, selection_y, transform);
             quads.push(Quad {
               x: selection_x,
               y: selection_y,
-              width: selection.width,
+              width,
               height: selection_height,
               opacity,
               transform: selection_transform,
@@ -1369,6 +1416,11 @@ impl LayoutEngine {
               clip,
             )
           }
+          #[cfg(feature = "markdown")]
+          NodeKind::RichText { .. } => match Self::inline_text_frame(result) {
+            Some((top, text_height)) => (abs_x, abs_y + top, result.size.width, text_height, clip),
+            None => (abs_x, abs_y, result.size.width, result.size.height, clip),
+          },
           _ => (abs_x, abs_y, result.size.width, result.size.height, clip),
         };
 
@@ -1384,6 +1436,11 @@ impl LayoutEngine {
         }
         #[cfg(feature = "screenshot")]
         self.record_sensitive_quad(node, quads.len());
+        #[cfg(feature = "markdown")]
+        let underlines = match &content {
+          QuadContent::RichText { spans, .. } => Self::inline_underlines(result, spans, inline_paint),
+          _ => Vec::new(),
+        };
         quads.push(Quad {
           x: content_x,
           y: content_y,
@@ -1407,6 +1464,11 @@ impl LayoutEngine {
           },
           clip: content_clip,
         });
+        #[cfg(feature = "markdown")]
+        {
+          quads.extend(underlines);
+          self.push_inline_link_rings(node, result, inline_paint, quads);
+        }
       }
     }
 
@@ -1882,6 +1944,12 @@ impl LayoutEngine {
     if node.layout_cache.is_local_dirty() || !node.layout_cache.is_descendant_dirty() {
       return None;
     }
+    // A paragraph places its links itself: a link laid out on its own has no
+    // box, so a changed link lays its paragraph out again.
+    #[cfg(feature = "markdown")]
+    if matches!(node.node_kind(), NodeKind::RichText { .. }) {
+      return None;
+    }
 
     // `align-items: stretch` gives an intrinsically sized child a second,
     // cross-axis-tight layout pass while preserving its measured main-axis
@@ -2172,11 +2240,15 @@ impl LayoutEngine {
     let frame_is_flat = frame != FrameConstraints::default();
     let padding_is_flat = padding != Padding::default() || self.text_input_scrollbar_lane(node) > 0.0;
 
-    if frame_is_flat || padding_is_flat {
-      return self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides);
-    }
-
-    self.layout_node_content(glyph_engine, node, constraints, child_overrides)
+    #[cfg_attr(not(feature = "markdown"), allow(unused_mut))]
+    let mut result = if frame_is_flat || padding_is_flat {
+      self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides)
+    } else {
+      self.layout_node_content(glyph_engine, node, constraints, child_overrides)
+    };
+    #[cfg(feature = "markdown")]
+    self.lay_out_inline_text(glyph_engine, node, &mut result);
+    result
   }
 
   fn layout_node_content(
@@ -2287,7 +2359,7 @@ impl LayoutEngine {
           state,
           &content,
           style,
-          placeholder_style.as_ref(),
+          placeholder_style.as_deref(),
           constraints,
           self.text_input_scrollbar_lane(node),
         );
@@ -2416,6 +2488,9 @@ impl LayoutEngine {
           dropped: false,
         };
       }
+      // Its paragraph places it (`inline_links`); on its own it has no box.
+      #[cfg(feature = "markdown")]
+      NodeKind::InlineLink { .. } => {}
       NodeKind::Empty => {}
     }
 
@@ -2492,6 +2567,8 @@ impl LayoutEngine {
       display_text,
       render_wrap,
       caret_positions,
+      #[cfg(feature = "markdown")]
+      inline: None,
     };
     Self::text_result(state, size, output)
   }
@@ -2531,6 +2608,8 @@ impl LayoutEngine {
       display_text,
       render_wrap,
       caret_positions,
+      #[cfg(feature = "markdown")]
+      inline: None,
     };
     Self::text_result(state, size, output)
   }
