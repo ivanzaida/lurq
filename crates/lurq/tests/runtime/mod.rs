@@ -36,6 +36,7 @@ mod input_source;
 #[cfg(feature = "canvas")]
 mod loop_wake {
   mod local_future_wakes_loop;
+  mod signal_set_wakes_loop;
   mod timer_start_wakes_loop;
   #[cfg(feature = "tokio")]
   mod tokio_work_wakes_loop;

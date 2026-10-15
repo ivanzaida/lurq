@@ -232,6 +232,8 @@ struct WindowInner {
   /// cross-thread `push_command` sat unprocessed while the loop idled in
   /// `ControlFlow::Wait`.
   waker: Option<WindowWaker>,
+  /// The thread that registered `waker`, which runs the event loop.
+  loop_thread: Option<std::thread::ThreadId>,
   /// Set once a platform shell applies this window's commands; a headless tree has none.
   shell_attached: bool,
   resize_reports: resize::ResizeReports,
@@ -287,6 +289,7 @@ impl Window {
         version: 0,
         commands: Vec::new(),
         waker: None,
+        loop_thread: None,
         shell_attached: false,
         resize_reports: resize::ResizeReports::default(),
         close_handler: None,
@@ -404,7 +407,9 @@ impl Window {
   /// invokes it so commands queued from other threads are drained promptly.
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn set_waker(&self, waker: WindowWaker) {
-    self.inner.write().unwrap().waker = Some(waker);
+    let mut inner = self.inner.write().unwrap();
+    inner.waker = Some(waker);
+    inner.loop_thread = Some(std::thread::current().id());
   }
 
   /// Registers the platform shell that applies this window's commands, with its event-loop waker.
@@ -429,6 +434,27 @@ impl Window {
     let window = Arc::downgrade(&self.inner);
     Arc::new(move || {
       let wake = window.upgrade().and_then(|window| window.read().unwrap().waker.clone());
+      if let Some(wake) = wake {
+        wake();
+      }
+    })
+  }
+
+  /// A waker for writes made off the event loop's thread, such as a `Signal` set from a Tokio task or a
+  /// `std::thread`: called from any other thread it wakes the attached shell, so the loop picks the write up at
+  /// once instead of at its next event. On the loop's own thread, whose turn picks the write up already, and
+  /// once the window is gone, it does nothing.
+  pub(crate) fn off_loop_waker(&self) -> WindowWaker {
+    let window = Arc::downgrade(&self.inner);
+    Arc::new(move || {
+      let wake = window.upgrade().and_then(|window| {
+        let window = window.read().unwrap();
+        if window.loop_thread == Some(std::thread::current().id()) {
+          None
+        } else {
+          window.waker.clone()
+        }
+      });
       if let Some(wake) = wake {
         wake();
       }
