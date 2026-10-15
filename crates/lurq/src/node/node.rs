@@ -3349,14 +3349,31 @@ impl Node {
 
   pub fn scrollbar_style(&self, default_style: ScrollBarStyle) -> ScrollBarStyle {
     let mut style = (*self.scrollbar_style).clone().unwrap_or(default_style);
-    if let LayoutKind::ScrollModifier { state, .. } = &self.layout_kind {
-      if state.is_thumb_hovered() {
-        if let Some(ref hovered) = self.scrollbar_hovered_style {
-          style = hovered(style);
-        }
-      }
+    if let Some((state, _)) = self.scroll_container()
+      && state.is_thumb_hovered()
+      && let Some(ref hovered) = self.scrollbar_hovered_style
+    {
+      style = hovered(style);
     }
     style
+  }
+
+  /// The scroll of a node that scrolls what it shows, and along which axes:
+  /// a scroll container, or a multiline text input, which scrolls its own
+  /// text vertically. The wheel, the scrollbar and its drags move both alike.
+  pub(crate) fn scroll_container(
+    &self,
+  ) -> Option<(
+    crate::layout::layout_kind::ScrollState,
+    crate::layout::layout_kind::ScrollDirection,
+  )> {
+    match (&self.layout_kind, &self.node_kind) {
+      (LayoutKind::ScrollModifier { state, direction, .. }, _) => Some((state.clone(), *direction)),
+      (_, NodeKind::TextInput { state, .. }) => state
+        .scroll_state()
+        .map(|scroll| (scroll, crate::layout::layout_kind::ScrollDirection::Vertical)),
+      _ => None,
+    }
   }
 
   pub fn color(&self) -> Option<Color> {

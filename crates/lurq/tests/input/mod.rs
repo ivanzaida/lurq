@@ -32,6 +32,7 @@ mod text_input {
   mod renders_caret;
   mod scroll_presentation;
   mod scroll_tokens;
+  mod scroll_wheel;
   mod soft_wrap_selection;
   mod style;
   mod tokens;

@@ -18,7 +18,7 @@ impl TextInputState {
   pub(super) fn token_hit(&self, x: f32, y: f32) -> Option<usize> {
     let layout = self.token_layout()?;
     let mut inner = self.inner.lock();
-    let candidate = layout.hit(x + inner.scroll_x, y + inner.scroll_y);
+    let candidate = layout.hit(x + inner.scroll_x, y + inner.scroll_y());
     let byte = layout.carets[candidate].byte;
     inner.token_affinity = Some(TokenAffinity { layout, candidate });
     Some(byte)

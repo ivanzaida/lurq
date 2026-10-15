@@ -711,7 +711,9 @@ impl LayoutEngine {
     // patched in via a component slot replacement). It must be laid out, and its
     // ancestors must recompute to reposition it, so propagate dirtiness upward.
     let text_input_dirty = match node.node_kind() {
-      NodeKind::TextInput { state, .. } => state.take_layout_dirty(),
+      // A multiline input scrolled by wheel or scrollbar lays out again to
+      // keep its offset in its text, and stops following its caret.
+      NodeKind::TextInput { state, .. } => state.take_layout_dirty() | state.take_user_scroll(),
       NodeKind::Select { state } => state.take_layout_dirty(),
       _ => false,
     };
@@ -1752,8 +1754,16 @@ impl LayoutEngine {
       });
     }
 
-    if let LayoutKind::ScrollModifier { state, direction, .. } = node.layout_kind() {
-      state.set_viewport_position(abs_x, abs_y);
+    if let Some((state, direction)) = node.scroll_container() {
+      let (viewport_x, viewport_y) = match node.node_kind() {
+        // A multiline text input scrolls the text inside its padding.
+        NodeKind::TextInput { .. } => {
+          let padding = self.resolved_padding_for_size(node, result.size);
+          (abs_x + padding.left, abs_y + padding.top)
+        }
+        _ => (abs_x, abs_y),
+      };
+      state.set_viewport_position(viewport_x, viewport_y);
       let sb_style = node.scrollbar_style(self.scrollbar.borrow().clone());
       state.set_style(sb_style.clone());
       let thumb_color = sb_style.thumb_color;

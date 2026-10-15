@@ -43,7 +43,13 @@ struct TextInputInner {
   text_band: Option<(f32, f32)>,
   caret_positions: CaretPositions,
   scroll_x: f32,
-  scroll_y: f32,
+  /// The vertical scroll of a multiline input: the offset it shows its text
+  /// from and the scrollbar, wheel and scrollbar drags move.
+  scroll: ScrollState,
+  /// Whether layout keeps the caret's line in view. An edit or a caret move
+  /// sets it; scrolling by wheel or scrollbar clears it, so the text stays
+  /// where the person scrolled it until the next edit.
+  follow_caret: bool,
   unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
   min_rows: Option<usize>,
@@ -108,7 +114,8 @@ impl TextInputState {
         }]
         .into(),
         scroll_x: 0.0,
-        scroll_y: 0.0,
+        scroll: ScrollState::new(),
+        follow_caret: true,
         unfocused_overflow_anchor: TextInputOverflowAnchor::default(),
         overflow: TextInputOverflow::default(),
         min_rows: None,
@@ -191,7 +198,7 @@ impl TextInputState {
     }
     inner.placeholder = Some(placeholder);
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   pub(crate) fn placeholder(&self) -> Option<String> {
@@ -277,7 +284,7 @@ impl TextInputState {
     inner.mask = mask;
     inner.token_affinity = None;
     drop(inner);
-    self.mark_layout_dirty();
+    self.mark_layout_dirty_keeping_scroll();
   }
 
   /// The configured display mask, if this is a masked input.
@@ -298,7 +305,7 @@ impl TextInputState {
     let value = self.value();
     let inner = self.inner.lock();
     let content_x = x + inner.scroll_x;
-    let content_y = y + inner.scroll_y;
+    let content_y = y + inner.scroll_y();
     let index = closest_caret_to_point(&inner.caret_positions, content_x, content_y);
     Self::composed_to_value_index(&inner, &value, index)
   }
@@ -346,7 +353,16 @@ impl TextInputState {
     self.layout_dirty.load(Ordering::Relaxed)
   }
 
+  /// Marks an edit or a caret move: lay the input out again and bring the
+  /// caret's line into view.
   fn mark_layout_dirty(&self) {
+    self.inner.lock().follow_caret = true;
+    self.layout_dirty.store(true, Ordering::Relaxed);
+  }
+
+  /// Marks a change of how the input looks (its placeholder, mode, rows or
+  /// focus) that leaves the scroll where it is.
+  fn mark_layout_dirty_keeping_scroll(&self) {
     self.layout_dirty.store(true, Ordering::Relaxed);
   }
 
@@ -430,6 +446,12 @@ impl TextInputState {
     inner.token_affinity = None;
     inner.caret = caret;
     inner.selection_anchor = selection_anchor;
+  }
+}
+
+impl TextInputInner {
+  fn scroll_y(&self) -> f32 {
+    self.scroll.scroll_y()
   }
 }
 

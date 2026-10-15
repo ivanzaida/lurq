@@ -4,8 +4,10 @@
 
 Behaviour changes:
 
+- A multiline `TextInput` whose text overflows its rows takes the wheel: it scrolls its text instead of the scroll container around it, until its text reaches the end the wheel moves to.
 - `ArrowUp` and `ArrowDown` in a multiline `TextInput` move by laid-out row, not by paragraph.
 
+- Fix a multiline `TextInput` that has grown to its `rows(min, max)` limit being scrollable only by moving the caret. The input already scrolled its text to keep the caret's line in view, but it ignored the wheel and showed no scrollbar, so once the first lines were scrolled out the person could not see them without moving the caret back. An overflowing multiline input now scrolls with the wheel and a trackpad, clamped to its text, and shows a vertical scrollbar along the right edge of its content box while its text overflows (by half a pixel or more, so rows of a fractional line height that add up to a hair over their box still fit), styled and driven like a scroll container's: the theme's `ScrollBarStyle` or the input's `.scrollbar(...)` and `.scrollbar_hovered(...)`, hover state, thumb drag and paging on a track press. A wheel or scrollbar scroll stays put through later layouts; the next edit or caret move (or taking the focus) brings the caret's line back into view, as before. No public API change.
 - Fix `ArrowUp`/`ArrowDown` (and with `Shift`) in a multiline `TextInput` moving by paragraph: in a soft-wrapped paragraph, `ArrowUp` jumped to the start of the value and `ArrowDown` to its end, so `Shift+ArrowUp` and `Backspace` deleted the whole paragraph. The caret now moves one laid-out row, as near its x as that row allows; above the first row it goes to the start and below the last to the end, as before. Decorated inputs (`InputTokens`) already moved by row and are unchanged.
 
 ## 0.44.1 — 2026-10-14
