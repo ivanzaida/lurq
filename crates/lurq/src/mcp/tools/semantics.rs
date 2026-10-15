@@ -39,6 +39,8 @@ pub(super) fn semantic_role(node: &Node) -> String {
     NodeKind::Text { .. } => "text".into(),
     #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "text".into(),
+    #[cfg(feature = "markdown")]
+    NodeKind::InlineLink { .. } => "link".into(),
     // A clickable canvas is a drawing surface, not a button; its items carry the semantics.
     #[cfg(feature = "canvas")]
     NodeKind::Canvas { .. } => "canvas".into(),
@@ -79,6 +81,10 @@ pub(super) fn semantic_name(node: &Node) -> Option<String> {
     return state.placeholder().map(|placeholder| placeholder.to_string());
   }
   if is_text_node(node) {
+    return node.inspection_text().filter(|text| !text.trim().is_empty());
+  }
+  #[cfg(feature = "markdown")]
+  if let NodeKind::InlineLink { .. } = node.node_kind() {
     return node.inspection_text().filter(|text| !text.trim().is_empty());
   }
   if semantic_role(node) == "button" {

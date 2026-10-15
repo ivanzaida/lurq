@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.46.0 — unreleased
+
+Breaking:
+
+- A Markdown paragraph, heading or table cell with links in it is one rich-text node, links included, so it wraps and selects as one text. A link is no longer a text node with its own box: it is a child node of its paragraph with no text style of its own, placed on its words, whose bounds (`ElementRef`, `find_element(...).bounds()`, MCP refs) are its first laid-out line. Code that found a link by its own text node, measured its box, or expected its words to wrap separately from the paragraph must change. Images other than a lone one still break a paragraph into a row of texts and images.
+- Every Markdown link is a Tab stop in document order, and keyboard focus draws `ThemeMarkdown::link_focus_ring` (2 px `#2563eb` by default) around it. A host's Tab order now runs through the links of its Markdown documents: Shift+Tab from a field below a chat reply reaches the reply's last link first. Set `link_focus_ring: None` for no ring; links stay focusable.
+- MCP tools report a Markdown link with the role `link` (it was `text`), named by its words, with the tag `Link`. A paragraph's text (`ElementRef::text_content`, MCP and DevTools text, copied text) is its content only: without the isolate marks and without what a link presentation adds after the words.
+- In a Markdown paragraph with a link, explicit directional controls (U+202A–U+202E, U+2066–U+2069) in the source are dropped, before and after the link too; a paragraph without links keeps them.
+- The containers Markdown builds itself (the document, lists, quotes, footnotes, rows of texts and images) no longer clip what their blocks draw past them, so a link's focus ring shows in full. Code blocks and tables still clip to their boxes; the app's own containers clip as before.
+- `TextStyle`, `MarkdownTextStyle` and `ThemeMarkdown` gain public fields: struct literals that list every field need the new ones (or `..Default::default()`).
+- An email autolink (`<team@example.com>`) is parsed as a link to `mailto:team@example.com` (it was `team@example.com`), as HTML renders it.
+
+Added:
+
+- Text underlines: `TextStyle::underline: Option<TextUnderline>` and `MarkdownTextStyle::underline`. `TextUnderline` has a `color` (default: the text's), a `thickness` and an `offset` below the baseline (default: the font's underline metrics). Rich text draws it under every laid-out line its span covers, wrapped lines included; it changes neither measurement nor wrapping. A plain `Text` does not draw it yet.
+- `MarkdownProps::link_presentation(f)`, a hook that decides how each link is shown. It gets the link (`MarkdownLink`: destination, title, its words as drawn and, new, its `index()` among the document's links) and returns a `MarkdownLinkPresentation`:
+  - `link()` shows a link, in the theme's link looks unless `style(...)` (the words' style over the text around them), `hovered(...)`, `focused(...)` (`MarkdownLinkState`: words color, underline color, a fill behind the words, trailing runs' color), `focus_ring(...)` (`MarkdownFocusRing`: width, offset, color, radius) or `radius(...)` (the fills' corners) say otherwise;
+  - `text()` shows the words as the text around them: nothing to press or focus;
+  - `trailing(...)` adds `MarkdownRun`s after the words in the same paragraph (a host and an icon glyph after a web link, an address after a link the app does not follow). After a link, the pointer takes them as part of it. They are presentation, like CSS `::after`: copying a selection and inspection tools leave them out, and a selection highlight skips them;
+  - `tooltip(...)` shows a tooltip under the link after the pointer rests on it for `ThemeMarkdown::link_tooltip_delay` (500 ms by default), and at once while it has keyboard focus. A tooltip stays with its link (its destination and how many links to it come before) when links are added before it.
+  The hook runs once per link and render on the exact `MarkdownLink` that `on_link_click` gets, so what a link shows always comes from the destination it opens.
+- A link's words and each trailing run are drawn in their own bidi isolate (U+2068 … U+2069), and a paragraph with a link drops every explicit directional control (U+202A–U+202E, U+2066–U+2069) from its text, before the link too, so lurq's isolate marks are the only ones left. A right-to-left override in the words or anywhere in the paragraph, however deeply nested (Unicode bidi ignores an isolate past its 125 levels, which 63 overrides reach), cannot draw a host or an address after a link backwards. The isolate marks are invisible and are not copied. `lurq::markdown::isolate_bidi`, `strip_bidi_controls` and `is_bidi_control` do the same for text an app builds from a destination (a tooltip).
+- Links show a pointer cursor and paint their hovered and focused looks (`ThemeMarkdown::link_hovered`, `link_focused`), per laid-out line of their words. The focus ring is drawn outside the words on all sides, over the text, and is not clipped by the paragraph. This geometry is laid out at the paint's device-pixel scale, so it stays on the glyphs at fractional scales (1.25, 1.5).
+- `MarkdownProps::on_link_click` now runs for Enter on a focused link too (Space does not follow a link). It runs inside the input's dispatch, so `lurq::app::events::is_synthetic_input()` tells a person's press from synthetic input (an MCP client's), and `MarkdownLink::index()` says which link it was.
+- `MarkdownProps::list_view(f)`: the app may draw a list block itself. Called with a `MarkdownList` (`ordered`, `start`, `items`, `style`, `theme`), it returns the element to draw or `None` for the usual list; `MarkdownList::inlines` and `blocks` draw content as the document does, links included. Links a declining view drew to decide are forgotten, so they do not shift the numbering.
+- `ThemeMarkdown::link_hovered`, `link_focused`, `link_focus_ring`, `link_radius`, `link_tooltip`, `link_tooltip_box` and `link_tooltip_delay`, and the theme types `MarkdownLinkState` and `MarkdownFocusRing`.
+- A Markdown document still parses once per change of its source; laying out many links and reference definitions is linear (tested with 3000 definitions and 3000 linked blocks).
+
 ## 0.45.0 — 2026-10-15
 
 Behaviour changes:

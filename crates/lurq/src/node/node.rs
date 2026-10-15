@@ -1795,17 +1795,42 @@ impl Node {
 
   #[cfg(feature = "markdown")]
   pub(crate) fn rich_text(spans: Vec<crate::layout::quad::RichTextSpan>) -> Self {
-    let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    Self::rich_text_with_links(spans, vec![], vec![])
+  }
+
+  /// Rich text with the links in it: [`Self::inline_link`] nodes, which the
+  /// paragraph places on their spans. `generated` are the spans drawn as
+  /// presentation (see `NodeKind::RichText::generated`).
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_with_links(
+    spans: Vec<crate::layout::quad::RichTextSpan>,
+    links: Vec<Node>,
+    generated: Vec<std::ops::Range<usize>>,
+  ) -> Self {
+    // The node's text is its content: without the spans it draws as
+    // presentation. Selection and copying work on all its spans
+    // (`rich_text_value`).
+    let full = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    let text = crate::node::inline_link::content_without_generated(&spans, &generated, &full, 0..full.len());
     Self::from_parts(
       LayoutKind::Leaf,
       NodeKind::RichText {
         state: TextState::new(),
         spans,
         transform_mode: TextTransformMode::default(),
+        generated: generated.into(),
       },
-      vec![],
+      links,
     )
     .with_text_content(&text)
+  }
+
+  /// A link of the `RichText` paragraph it is a child of, named `label`.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn inline_link(link: crate::node::inline_link::InlineLink, label: &str) -> Self {
+    Self::from_parts(LayoutKind::Leaf, NodeKind::InlineLink { link }, vec![])
+      .with_tag_name("Link")
+      .with_text_content(label)
   }
 
   pub fn text_input(value: Signal<String>) -> Self {
@@ -2794,6 +2819,28 @@ impl Node {
     }
   }
 
+  /// All of a rich text's spans, the presentation ones included: the text its
+  /// caret positions and selection index. Its [`Self::text_content`] leaves
+  /// the presentation out.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_value(&self) -> Option<String> {
+    let NodeKind::RichText { spans, .. } = self.node_kind() else {
+      return None;
+    };
+    Some(spans.iter().map(|span| span.text.as_str()).collect())
+  }
+
+  /// The bytes `range` of a rich text's `text`, without the spans it draws
+  /// as presentation (a link's isolate marks and trailing runs); `text`
+  /// itself for any other node.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_content(&self, text: &str, range: std::ops::Range<usize>) -> String {
+    let NodeKind::RichText { spans, generated, .. } = self.node_kind() else {
+      return text.get(range).unwrap_or_default().to_owned();
+    };
+    crate::node::inline_link::content_without_generated(spans, generated, text, range)
+  }
+
   #[cfg(any(feature = "mcp", feature = "devtools"))]
   pub(crate) fn is_masked_input(&self) -> bool {
     matches!(self.node_kind(), NodeKind::TextInput { state, .. } if state.is_masked())
@@ -2965,10 +3012,10 @@ impl Node {
     } = &mut self.node_kind
     {
       text_style.text_align = style.text_align;
-      if placeholder_style.as_ref() == Some(&text_style) {
+      if placeholder_style.as_deref() == Some(&text_style) {
         return;
       }
-      *placeholder_style = Some(text_style);
+      *placeholder_style = Some(Box::new(text_style));
       self.layout_cache.invalidate();
     }
   }
@@ -2986,7 +3033,11 @@ impl Node {
     } = &mut self.node_kind
     {
       let align = align.into();
-      if style.text_align == align && placeholder_style.as_ref().is_none_or(|style| style.text_align == align) {
+      if style.text_align == align
+        && placeholder_style
+          .as_deref()
+          .is_none_or(|style| style.text_align == align)
+      {
         return;
       }
       style.text_align = align;
@@ -3798,7 +3849,7 @@ impl Node {
       (NodeKind::RichText { state, .. }, NodeKind::RichText { state: old_state, .. }) => {
         state.copy_runtime_state_from(
           old_state,
-          self.text_content().unwrap_or_default(),
+          &self.rich_text_value().unwrap_or_default(),
           own_layout_signature_matches,
         );
       }
@@ -4001,13 +4052,24 @@ impl Node {
           state,
           spans,
           transform_mode,
+          generated,
         },
         NodeKind::RichText {
           state: old_state,
           spans: old_spans,
           transform_mode: old_transform_mode,
+          generated: old_generated,
         },
-      ) => spans == old_spans && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
+      ) => {
+        spans == old_spans
+          && state.selectable() == old_state.selectable()
+          && transform_mode == old_transform_mode
+          && generated == old_generated
+      }
+      #[cfg(feature = "markdown")]
+      (NodeKind::InlineLink { link }, NodeKind::InlineLink { link: old_link }) => {
+        link.label == old_link.label && link.target == old_link.target
+      }
       (
         NodeKind::TextInput {
           state,

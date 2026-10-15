@@ -209,3 +209,59 @@ Column::new()
 - A table still takes the container's full width: its columns share that width so that they line up across its rows.
 - An explicit `.width(...)` still sets the document's width.
 - In a `Column`, the container's width is the column's. A `Row` gives its children unbounded width, so a bubble in a row needs `.max_width(Dimension::Pct(100.0))` (or a `flex_shrink` factor) for its text to wrap at the row's width.
+
+### Links
+
+A paragraph is one text, links included: it wraps and selects as one. Each link in it is a Tab stop in document order; a click and Enter follow it (Space does not), the pointer shows a pointer cursor, and an MCP client sees it as a `link` named by its words. `on_link_click` runs inside the input's dispatch, so `lurq::app::events::is_synthetic_input()` tells a person's press from an MCP client's, and `MarkdownLink::index()` says which link it was.
+
+`.link_presentation(...)` decides how each link is shown. It is called once per link and render with the same `MarkdownLink` that `on_link_click` gets, so what a link shows always comes from the destination it opens:
+
+```rust
+use lurq::{
+  app::theme::{MarkdownFocusRing, MarkdownInlineStyle, MarkdownLinkState, MarkdownTextStyle},
+  components::{MarkdownLinkPresentation, MarkdownProps, MarkdownRun},
+  layout::text_style::TextUnderline,
+  markdown::isolate_bidi,
+};
+
+let words = MarkdownInlineStyle {
+  text: MarkdownTextStyle {
+    color: Some(accent),
+    underline: Some(TextUnderline::new().color(muted).thickness(1.0)),
+    ..Default::default()
+  },
+};
+MarkdownProps::new(reply)
+  .link_presentation(move |link| match kind_of(link.destination()) {
+    // In the app: the link look, a tooltip naming the place.
+    Kind::App(place) => MarkdownLinkPresentation::link()
+      .style(words.clone())
+      .hovered(MarkdownLinkState::new().color(accent_hover).background(hover_fill).underline_color(accent_hover))
+      .focus_ring(Some(MarkdownFocusRing::new(2.0, focus).radius(3.0)))
+      .tooltip(format!("{place} · opens in this tab")),
+    // On the web: the host and an icon glyph after the words.
+    Kind::Web(host) => MarkdownLinkPresentation::link()
+      .style(words.clone())
+      .trailing([MarkdownRun::new(format!("\u{a0}{host}\u{a0}\u{e04d}"), host_style.clone())])
+      .hovered(MarkdownLinkState::new().trailing_color(secondary))
+      // A destination is text the reply's author wrote: isolate it so its
+      // directional controls cannot reorder the sentence around it.
+      .tooltip(format!("Opens {} in your browser", isolate_bidi(link.destination()))),
+    // Anything else is not followed: the words as text, then the address.
+    Kind::Other => MarkdownLinkPresentation::text()
+      // A run is stripped of directional controls and isolated by lurq.
+      .trailing([MarkdownRun::new(format!(" ({})", link.destination()), address_style.clone())]),
+  })
+  .on_link_click(move |link| open(link.destination(), lurq::app::events::is_synthetic_input()))
+```
+
+- `link()` draws the words in the theme's `link` style, or the presentation's `style(...)` over the text around them. `text()` draws them as the surrounding text: nothing to press or focus.
+- `trailing(...)` runs follow the words in the same paragraph, so they wrap with it; each run's style applies over the text around the link. After a link, the pointer takes them as part of the link. Like CSS `::after` content they are presentation: copying a selection, and inspection tools (MCP, DevTools), leave them out, and a selection highlight skips them.
+- The words and each trailing run are drawn in their own bidi isolate, and a paragraph with a link drops every directional control (U+202A–U+202E, U+2066–U+2069) from its text, so lurq's isolate marks are the only ones left: a right-to-left override in the words or anywhere in the paragraph cannot draw a host after them backwards, not even past Unicode bidi's nesting limit. The isolate marks are invisible, are not copied and are not part of the paragraph's `text_content`. Text you build yourself from a destination outside a run (a tooltip, say) needs the same care: `lurq::markdown::isolate_bidi` strips the controls and wraps the text in an isolate; `strip_bidi_controls` only strips.
+- A link's name (`MarkdownLink::text()`, and its MCP name) is its words as drawn: inline HTML as its text, an image as its alt text, without directional controls. An email autolink (`<team@example.com>`) reaches the app as `mailto:team@example.com`.
+- `hovered(...)` and `focused(...)` (`MarkdownLinkState`) recolor the words, their underline and the trailing runs, and can fill behind the words, one rectangle per line with the link's `radius(...)`. Keyboard focus (focus-visible) also draws the `focus_ring(...)` around each line of the words, outside them on all sides and over the text. The document's own containers do not clip it; a code block, a table or the app's containers do.
+- `tooltip(...)` shows under the link after the pointer rests on it for `ThemeMarkdown::link_tooltip_delay`, and at once while it has keyboard focus. It lets the pointer through.
+- Unset looks are the theme's: `ThemeMarkdown::link`, `link_hovered`, `link_focused`, `link_focus_ring`, `link_radius`, `link_tooltip` and `link_tooltip_box`.
+- Underlines (`TextStyle::underline`, `MarkdownTextStyle::underline`: color, thickness and offset, each defaulting to the text color and the font's metrics) are drawn under every line a span covers. Rich text draws them; a plain `Text` does not yet.
+
+`.list_view(...)` lets the app draw a list block itself. It is called for every list with a `MarkdownList` and returns the element to draw, or `None` to draw the list as usual. `MarkdownList::inlines` and `blocks` draw content as the document does, links included; decide from `items()` before drawing with them, since drawing numbers the links.

@@ -22,7 +22,7 @@ impl Node {
     } = &mut self.node_kind
     {
       let unchanged = |style: &TextStyle| style.font_features == font_features;
-      if unchanged(style) && placeholder_style.as_ref().is_none_or(unchanged) {
+      if unchanged(style) && placeholder_style.as_deref().is_none_or(unchanged) {
         return;
       }
       style.font_features = font_features.clone();

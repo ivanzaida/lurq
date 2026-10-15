@@ -95,7 +95,7 @@ fn hit_test_tree_with_transform<'a>(
     transform,
     ..rect
   };
-  let inside = rect.contains(local_x, local_y);
+  let inside = contains_point(result, &rect, local_x, local_y);
   let can_have_visible_children = inside || node.overflow == Overflow::Visible;
 
   if can_have_visible_children {
@@ -137,6 +137,18 @@ fn hit_test_tree_with_transform<'a>(
   if inside && behavior == HitTestBehavior::Auto {
     hits.push((node, rect));
   }
+}
+
+/// Whether the node laid out as `result` at `rect` is under `(x, y)`. A link
+/// inside a paragraph is under the point only on its words and what follows
+/// them, line by line, not on its box.
+#[cfg_attr(not(feature = "markdown"), allow(unused_variables))]
+fn contains_point(result: &LayoutResult, rect: &HitRect, x: f32, y: f32) -> bool {
+  #[cfg(feature = "markdown")]
+  if let Some(crate::layout::layout_engine::TextLayoutOutput::InlineLink(link)) = result.text_layout.as_deref() {
+    return link.hits(x - rect.x, y - rect.y);
+  }
+  rect.contains(x, y)
 }
 
 fn inverse_transform_point(px: f32, py: f32, transform: Transform2D) -> (f32, f32) {

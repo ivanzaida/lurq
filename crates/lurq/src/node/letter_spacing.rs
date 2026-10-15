@@ -21,7 +21,7 @@ impl Node {
     } = &mut self.node_kind
     {
       let unchanged = |style: &crate::layout::text_style::TextStyle| style.letter_spacing == letter_spacing;
-      if unchanged(style) && placeholder_style.as_ref().is_none_or(unchanged) {
+      if unchanged(style) && placeholder_style.as_deref().is_none_or(unchanged) {
         return;
       }
       style.letter_spacing = letter_spacing;

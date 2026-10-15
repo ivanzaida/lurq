@@ -32,7 +32,9 @@ pub use form::{
   FormTheme,
 };
 #[cfg(feature = "markdown")]
-pub use markdown::{MarkdownBlockStyle, MarkdownInlineStyle, MarkdownTextStyle, ThemeMarkdown};
+pub use markdown::{
+  MarkdownBlockStyle, MarkdownFocusRing, MarkdownInlineStyle, MarkdownLinkState, MarkdownTextStyle, ThemeMarkdown,
+};
 pub use palette::{PaletteColor, ThemePalette};
 pub use radius::{RadiusSize, ThemeRadii};
 pub use role_name::RoleName;
