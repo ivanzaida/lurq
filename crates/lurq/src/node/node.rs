@@ -1799,17 +1799,19 @@ impl Node {
   }
 
   /// Rich text with the links in it: [`Self::inline_link`] nodes, which the
-  /// paragraph places on their spans.
-  #[cfg(feature = "markdown")]
-  /// `generated` are the spans drawn as presentation (see
-  /// `NodeKind::RichText::generated`).
+  /// paragraph places on their spans. `generated` are the spans drawn as
+  /// presentation (see `NodeKind::RichText::generated`).
   #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_with_links(
     spans: Vec<crate::layout::quad::RichTextSpan>,
     links: Vec<Node>,
     generated: Vec<std::ops::Range<usize>>,
   ) -> Self {
-    let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    // The node's text is its content: without the spans it draws as
+    // presentation. Selection and copying work on all its spans
+    // (`rich_text_value`).
+    let full = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    let text = crate::node::inline_link::content_without_generated(&spans, &generated, &full, 0..full.len());
     Self::from_parts(
       LayoutKind::Leaf,
       NodeKind::RichText {
@@ -2813,12 +2815,19 @@ impl Node {
       NodeKind::Text { state, .. } if state.is_sensitive() => {
         self.text_content().map(|_| crate::core::REDACTED.to_owned())
       }
-      #[cfg(feature = "markdown")]
-      NodeKind::RichText { .. } => self
-        .text_content()
-        .map(|text| self.rich_text_content(text, 0..text.len())),
       _ => self.text_content().map(str::to_owned),
     }
+  }
+
+  /// All of a rich text's spans, the presentation ones included: the text its
+  /// caret positions and selection index. Its [`Self::text_content`] leaves
+  /// the presentation out.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_value(&self) -> Option<String> {
+    let NodeKind::RichText { spans, .. } = self.node_kind() else {
+      return None;
+    };
+    Some(spans.iter().map(|span| span.text.as_str()).collect())
   }
 
   /// The bytes `range` of a rich text's `text`, without the spans it draws
@@ -3840,7 +3849,7 @@ impl Node {
       (NodeKind::RichText { state, .. }, NodeKind::RichText { state: old_state, .. }) => {
         state.copy_runtime_state_from(
           old_state,
-          self.text_content().unwrap_or_default(),
+          &self.rich_text_value().unwrap_or_default(),
           own_layout_signature_matches,
         );
       }

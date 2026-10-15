@@ -411,3 +411,22 @@ fn markdown_link_types_debug_without_their_styles() {
     "{listed}"
   );
 }
+
+#[test]
+fn markdown_paragraph_text_content_leaves_out_isolate_marks_and_trailing_runs() {
+  let (_app, mut tree) = mount(
+    MarkdownProps::new("Open [PR 42](https://github.com/acme/pull/42) now.")
+      .link_presentation(present_by_kind)
+      .width(600.0),
+  );
+  assert!(
+    has_element_with_text(&mut tree, "Open PR 42 now."),
+    "the paragraph's text content is its text"
+  );
+  let marked = tree.find_element(|element| {
+    element
+      .text_content()
+      .is_some_and(|text| text.contains(['\u{2068}', '\u{2069}']) || text.contains("github.com"))
+  });
+  assert!(marked.is_none(), "no element's text holds the marks or the host");
+}

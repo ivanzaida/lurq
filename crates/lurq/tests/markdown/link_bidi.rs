@@ -93,6 +93,80 @@ fn markdown_link_host_reads_forward_after_an_override_in_the_words() {
   }
 }
 
+/// `count` copies of `control` before a link: past 62 overrides or
+/// embeddings Unicode bidi runs out of its 125 levels and ignores the
+/// link's own isolate, unless the paragraph drops them.
+fn deep_source(control: &str, count: usize) -> String {
+  format!(
+    "Merged {}see [PR 42](https://github.com/acme/pull/42) today.",
+    control.repeat(count)
+  )
+}
+
+#[test]
+fn markdown_link_host_reads_forward_after_overrides_deeper_than_bidi_nesting() {
+  let expected = reading_widths(HOST);
+  for count in [63, 200] {
+    let drawn = drawn_host_widths(&deep_source("\u{202E}", count));
+    assert!(
+      reads_forward(&drawn, &expected),
+      "{count} overrides: {drawn:?} vs {expected:?}"
+    );
+  }
+}
+
+#[test]
+fn markdown_link_host_reads_forward_after_embeddings_deeper_than_bidi_nesting() {
+  let expected = reading_widths(HOST);
+  for count in [63, 200] {
+    let drawn = drawn_host_widths(&deep_source("\u{202B}", count));
+    assert!(
+      reads_forward(&drawn, &expected),
+      "{count} embeddings: {drawn:?} vs {expected:?}"
+    );
+  }
+}
+
+#[test]
+fn markdown_link_host_reads_forward_after_deep_override_entities() {
+  let expected = reading_widths(HOST);
+  for count in [63, 200] {
+    let drawn = drawn_host_widths(&deep_source("&#x202E;", count));
+    assert!(
+      reads_forward(&drawn, &expected),
+      "{count} entities: {drawn:?} vs {expected:?}"
+    );
+  }
+}
+
+#[test]
+fn markdown_paragraph_with_a_link_keeps_only_its_own_isolate_marks() {
+  let (_app, tree) = mount(
+    MarkdownProps::new(format!(
+      "{} [mail](mailto:a@b.c) \u{2067}tail",
+      deep_source("\u{202D}", 70)
+    ))
+    .link_presentation(|link| {
+      if link.destination().starts_with("mailto:") {
+        MarkdownLinkPresentation::text().trailing([MarkdownRun::plain(format!(" ({})", link.destination()))])
+      } else {
+        MarkdownLinkPresentation::link().trailing([MarkdownRun::plain(" github.com")])
+      }
+    })
+    .width(800.0),
+  );
+  let quads = quads(&tree);
+  let spans = rich_text_quads(&quads)[0];
+  for span in spans {
+    let marks_only = matches!(span.text.as_str(), "\u{2068}" | "\u{2069}");
+    assert!(
+      marks_only || !span.text.chars().any(is_bidi_control),
+      "only lurq's own isolate marks are directional controls: {:?}",
+      span.text
+    );
+  }
+}
+
 #[test]
 fn markdown_link_words_runs_and_address_drop_directional_controls() {
   let (_app, mut tree) = mount(

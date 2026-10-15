@@ -10219,9 +10219,7 @@ fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
       Some((state.clone(), node.text_content().unwrap_or_default().to_owned()))
     }
     #[cfg(feature = "markdown")]
-    NodeKind::RichText { state, .. } if state.selectable() => {
-      Some((state.clone(), node.text_content().unwrap_or_default().to_owned()))
-    }
+    NodeKind::RichText { state, .. } if state.selectable() => Some((state.clone(), node.rich_text_value()?)),
     _ => None,
   }
 }

@@ -6,9 +6,13 @@
 //! with a pointer cursor, hover and focus looks and an optional tooltip.
 //!
 //! A link's words and each trailing run are drawn between invisible isolate
-//! marks, stripped of directional controls ([`crate::markdown::isolate_bidi`]).
-//! The marks and the trailing runs are presentation: the paragraph's copied
-//! and inspected text leaves them out.
+//! marks ([`crate::markdown::isolate_bidi`]). A paragraph with a link drops
+//! every directional control of its own text, before the link too: Unicode
+//! bidi nests at most 125 levels deep, and past that it ignores an isolate,
+//! so 63 overrides before a link would reverse the host after it again. The
+//! link's isolate marks are then the only directional controls in the
+//! paragraph. The marks and the trailing runs are presentation: the
+//! paragraph's copied and inspected text leaves them out.
 
 use std::{
   cell::{Cell, RefCell},
@@ -183,20 +187,22 @@ pub(super) struct Paragraph<'a> {
   /// Spans that are presentation, not the paragraph's text: isolate marks
   /// and trailing runs.
   generated: Vec<Range<usize>>,
-  /// Inside a link's words: directional controls are dropped.
-  in_words: bool,
+  /// The paragraph has a link: directional controls are dropped from all of
+  /// its text.
+  strip_controls: bool,
   links: Vec<Node>,
   theme: &'a ThemeMarkdown,
   session: &'a LinkSession,
 }
 
 impl<'a> Paragraph<'a> {
-  pub(super) fn new(theme: &'a ThemeMarkdown, session: &'a LinkSession) -> Self {
+  /// A paragraph of `inlines`.
+  pub(super) fn new(inlines: &[MarkdownInline], theme: &'a ThemeMarkdown, session: &'a LinkSession) -> Self {
     Self {
       spans: Vec::new(),
       sealed: 0,
       generated: Vec::new(),
-      in_words: false,
+      strip_controls: has_link(inlines),
       links: Vec::new(),
       theme,
       session,
@@ -272,9 +278,7 @@ impl<'a> Paragraph<'a> {
     let label = self.push_isolated(&words_style, |paragraph| {
       // The words of a link have no links in them (CommonMark), and an image
       // in them is its alt text, as in any link.
-      paragraph.in_words = true;
       paragraph.push_inlines(children, &words_style, &mut None);
-      paragraph.in_words = false;
     });
     for run in &presentation.trailing {
       let run_style = run.style.apply(style);
@@ -327,7 +331,7 @@ impl<'a> Paragraph<'a> {
   }
 
   fn push_span(&mut self, mut span: RichTextSpan) {
-    if self.in_words {
+    if self.strip_controls {
       span.text = strip_bidi_controls(&span.text).into_owned();
     }
     if span.text.is_empty() {
@@ -348,6 +352,17 @@ impl<'a> Paragraph<'a> {
     self.sealed = self.spans.len();
     self.sealed
   }
+}
+
+/// Whether a link is among `inlines`, at any depth.
+fn has_link(inlines: &[MarkdownInline]) -> bool {
+  inlines.iter().any(|inline| match inline {
+    MarkdownInline::Link { .. } => true,
+    MarkdownInline::Emphasis(children) | MarkdownInline::Strong(children) | MarkdownInline::Strikethrough(children) => {
+      has_link(children)
+    }
+    _ => false,
+  })
 }
 
 /// A link's words as the paragraph draws them, as plain text: inline HTML as

@@ -122,9 +122,10 @@ impl LayoutEngine {
 
   /// The spans laid out as the paint lays them out: in device pixels at the
   /// paint's scale and at the width the paint wraps at (see the runtime's
-  /// rich-text paint), in logical pixels again. Shaping is not linear in the
-  /// font size, so boxes from a logical layout drift from the glyphs at
-  /// fractional scales (1.25, 1.5).
+  /// rich-text paint), in logical pixels again. The paint wraps at the box's
+  /// width rounded up in device pixels, `ceil(width * scale)`, which at a
+  /// fractional scale (1.25, 1.5) is not `ceil(width)` logical pixels: a word
+  /// ending between the two wraps in the paint and not in a logical layout.
   fn painted_span_boxes(
     &self,
     glyph_engine: &mut GlyphEngine,

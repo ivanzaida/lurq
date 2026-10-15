@@ -1256,7 +1256,7 @@ impl LayoutEngine {
           let text_top = Self::inline_text_frame(result).map_or(0.0, |(top, _)| top);
           let generated = Self::generated_span_rects(node, result);
           let pieces = state
-            .selection_ranges(node.text_content().unwrap_or_default())
+            .selection_ranges(&node.rich_text_value().unwrap_or_default())
             .into_iter()
             .flat_map(|selection| {
               let y = text_top + selection.y;
