@@ -42,3 +42,28 @@ pub(crate) struct InlineLinkLook {
   pub(crate) focus_ring: Option<MarkdownFocusRing>,
   pub(crate) radius: BorderRadius,
 }
+
+/// The bytes `range` of `text` (the concatenated `spans`) without the bytes
+/// of the `generated` spans.
+pub(crate) fn content_without_generated(
+  spans: &[crate::layout::quad::RichTextSpan],
+  generated: &[Range<usize>],
+  text: &str,
+  range: Range<usize>,
+) -> String {
+  let mut content = String::with_capacity(range.len());
+  let mut offset = 0;
+  for (index, span) in spans.iter().enumerate() {
+    let span_bytes = offset..offset + span.text.len();
+    offset = span_bytes.end;
+    if generated.iter().any(|generated| generated.contains(&index)) {
+      continue;
+    }
+    let start = span_bytes.start.max(range.start);
+    let end = span_bytes.end.min(range.end);
+    if let Some(part) = text.get(start..end).filter(|_| start < end) {
+      content.push_str(part);
+    }
+  }
+  content
+}

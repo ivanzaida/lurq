@@ -97,22 +97,13 @@ impl LayoutEngine {
   /// Places a rich-text paragraph's links and lays out the geometry its
   /// underlines and links paint with, once `result` holds its box.
   pub(super) fn lay_out_inline_text(&self, glyph_engine: &mut GlyphEngine, node: &Node, result: &mut LayoutResult) {
-    let NodeKind::RichText { spans, .. } = node.node_kind() else {
+    let NodeKind::RichText { spans, generated, .. } = node.node_kind() else {
       return;
     };
-    if node.children().is_empty() && !spans.iter().any(|span| span.style.underline.is_some()) {
+    if node.children().is_empty() && generated.is_empty() && !spans.iter().any(|span| span.style.underline.is_some()) {
       return;
     }
-    let wrap = node.text_wrap && node.text_overflow == TextOverflow::Clip;
-    let align = spans.first().map_or(TextAlign::Left, |span| span.style.text_align);
-    // The width the paint lays the spans out at (see the runtime's rich-text
-    // paint), so the boxes fall where the glyphs are drawn.
-    let max_width = if (wrap || align != TextAlign::Left) && result.size.width > 0.0 {
-      result.size.width.ceil()
-    } else {
-      f32::MAX
-    };
-    let (text_size, span_boxes) = glyph_engine.rich_text_span_boxes(spans, max_width, wrap);
+    let (text_size, span_boxes) = self.painted_span_boxes(glyph_engine, node, spans, result.size.width);
     let top = (result.size.height - text_size.height) * 0.5;
     result.children = node
       .children()
@@ -127,6 +118,71 @@ impl LayoutEngine {
     if let Some(TextLayoutOutput::Text(output)) = result.text_layout.as_deref() {
       result.text_layout = Some(Arc::new(TextLayoutOutput::Text(output.with_inline(inline))));
     }
+  }
+
+  /// The spans laid out as the paint lays them out: in device pixels at the
+  /// paint's scale and at the width the paint wraps at (see the runtime's
+  /// rich-text paint), in logical pixels again. Shaping is not linear in the
+  /// font size, so boxes from a logical layout drift from the glyphs at
+  /// fractional scales (1.25, 1.5).
+  fn painted_span_boxes(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    spans: &[RichTextSpan],
+    width: f32,
+  ) -> (Size, Arc<[SpanBox]>) {
+    let scale = self.paint_scale.get();
+    let wrap = node.text_wrap && node.text_overflow == TextOverflow::Clip;
+    let align = spans.first().map_or(TextAlign::Left, |span| span.style.text_align);
+    let max_width = if (wrap || align != TextAlign::Left) && width > 0.0 {
+      (width * scale).ceil()
+    } else {
+      f32::MAX
+    };
+    if scale == 1.0 {
+      return glyph_engine.rich_text_span_boxes(spans, max_width, wrap);
+    }
+    let mut scaled = spans.to_vec();
+    for span in &mut scaled {
+      span.style.scale_pixels(scale);
+    }
+    let (size, boxes) = glyph_engine.rich_text_span_boxes(&scaled, max_width, wrap);
+    let logical = boxes
+      .iter()
+      .map(|span_box| SpanBox {
+        span: span_box.span,
+        x: span_box.x / scale,
+        width: span_box.width / scale,
+        top: span_box.top / scale,
+        height: span_box.height / scale,
+        baseline: span_box.baseline / scale,
+        underline_offset: span_box.underline_offset / scale,
+        underline_thickness: span_box.underline_thickness / scale,
+      })
+      .collect();
+    (Size::new(size.width / scale, size.height / scale), logical)
+  }
+
+  /// Where the spans a rich text draws as presentation (isolate marks,
+  /// trailing runs) lie, in its box: a selection highlight leaves them out.
+  pub(super) fn generated_span_rects(node: &Node, result: &LayoutResult) -> Vec<InlineRect> {
+    let (NodeKind::RichText { generated, .. }, Some(inline)) = (node.node_kind(), inline_layout(result)) else {
+      return Vec::new();
+    };
+    inline
+      .span_boxes
+      .iter()
+      .filter(|span_box| {
+        usize::try_from(span_box.span).is_ok_and(|span| generated.iter().any(|range| range.contains(&span)))
+      })
+      .map(|span_box| InlineRect {
+        x: span_box.x,
+        y: inline.top + span_box.top,
+        width: span_box.width,
+        height: span_box.height,
+      })
+      .collect()
   }
 
   /// The text's offset from the top of its box and its height, for a
@@ -194,6 +250,9 @@ impl LayoutEngine {
           .offset
           .filter(|offset| offset.is_finite())
           .unwrap_or(span_box.underline_offset - thickness * 0.5);
+        if span_box.width <= 0.0 {
+          return None;
+        }
         let rect = InlineRect {
           x: span_box.x,
           y: (inline.top + span_box.baseline + offset).round(),
@@ -273,6 +332,27 @@ impl InlinePaint {
       clip: self.clip,
     }
   }
+}
+
+/// The parts of the band `x..x + width` (at `y`, `height` tall) that none
+/// of `rects` on the same line covers, as `(x, width)`.
+pub(super) fn without_rects(x: f32, y: f32, width: f32, height: f32, rects: &[InlineRect]) -> Vec<(f32, f32)> {
+  let mut pieces = vec![(x, x + width)];
+  for rect in rects
+    .iter()
+    .filter(|rect| rect.width > 0.0 && rect.y < y + height && y < rect.y + rect.height)
+  {
+    let (cut_start, cut_end) = (rect.x, rect.x + rect.width);
+    pieces = pieces
+      .into_iter()
+      .flat_map(|(start, end)| {
+        [(start, end.min(cut_start)), (start.max(cut_end), end)]
+          .into_iter()
+          .filter(|(start, end)| end > start)
+      })
+      .collect();
+  }
+  pieces.into_iter().map(|(start, end)| (start, end - start)).collect()
 }
 
 fn inline_layout(result: &LayoutResult) -> Option<&InlineTextLayout> {

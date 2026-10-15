@@ -227,6 +227,10 @@ pub(crate) struct LayoutEngine {
   /// The lines being laid out collapsed by their parent's shrink step
   /// (`flex_shrink::is_collapsed`).
   collapsed_lines: RefCell<Vec<usize>>,
+  /// Device pixels per logical pixel of the paint, for geometry that must
+  /// match painted glyphs (rich-text links and underlines).
+  #[cfg(feature = "markdown")]
+  paint_scale: Cell<f32>,
 }
 
 #[cfg(feature = "raster")]
@@ -496,7 +500,16 @@ impl LayoutEngine {
       #[cfg(feature = "screenshot")]
       sensitive_quads: RefCell::new(Vec::new()),
       collapsed_lines: RefCell::new(Vec::new()),
+      #[cfg(feature = "markdown")]
+      paint_scale: Cell::new(1.0),
     }
+  }
+
+  /// Device pixels per logical pixel the paint draws at. Laid-out link and
+  /// underline geometry depends on it; changing it needs a full relayout.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn set_paint_scale(&self, scale: f32) {
+    self.paint_scale.set(scale);
   }
 
   pub(crate) fn compute(
@@ -1241,15 +1254,25 @@ impl LayoutEngine {
             .max(1.0);
           let selection_clip = clip;
           let text_top = Self::inline_text_frame(result).map_or(0.0, |(top, _)| top);
-          for selection in state.selection_ranges(node.text_content().unwrap_or_default()) {
-            let selection_x = abs_x + selection.x;
-            let selection_y = abs_y + text_top + selection.y;
+          let generated = Self::generated_span_rects(node, result);
+          let pieces = state
+            .selection_ranges(node.text_content().unwrap_or_default())
+            .into_iter()
+            .flat_map(|selection| {
+              let y = text_top + selection.y;
+              inline_links::without_rects(selection.x, y, selection.width, selection_height, &generated)
+                .into_iter()
+                .map(move |(x, width)| (x, y, width))
+            });
+          for (x, y, width) in pieces {
+            let selection_x = abs_x + x;
+            let selection_y = abs_y + y;
             let (selection_x, selection_y, selection_transform, selection_transform_origin) =
               transformed_quad_frame(selection_x, selection_y, transform);
             quads.push(Quad {
               x: selection_x,
               y: selection_y,
-              width: selection.width,
+              width,
               height: selection_height,
               opacity,
               transform: selection_transform,

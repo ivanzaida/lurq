@@ -1795,13 +1795,20 @@ impl Node {
 
   #[cfg(feature = "markdown")]
   pub(crate) fn rich_text(spans: Vec<crate::layout::quad::RichTextSpan>) -> Self {
-    Self::rich_text_with_links(spans, vec![])
+    Self::rich_text_with_links(spans, vec![], vec![])
   }
 
   /// Rich text with the links in it: [`Self::inline_link`] nodes, which the
   /// paragraph places on their spans.
   #[cfg(feature = "markdown")]
-  pub(crate) fn rich_text_with_links(spans: Vec<crate::layout::quad::RichTextSpan>, links: Vec<Node>) -> Self {
+  /// `generated` are the spans drawn as presentation (see
+  /// `NodeKind::RichText::generated`).
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_with_links(
+    spans: Vec<crate::layout::quad::RichTextSpan>,
+    links: Vec<Node>,
+    generated: Vec<std::ops::Range<usize>>,
+  ) -> Self {
     let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
     Self::from_parts(
       LayoutKind::Leaf,
@@ -1809,6 +1816,7 @@ impl Node {
         state: TextState::new(),
         spans,
         transform_mode: TextTransformMode::default(),
+        generated: generated.into(),
       },
       links,
     )
@@ -1818,7 +1826,9 @@ impl Node {
   /// A link of the `RichText` paragraph it is a child of, named `label`.
   #[cfg(feature = "markdown")]
   pub(crate) fn inline_link(link: crate::node::inline_link::InlineLink, label: &str) -> Self {
-    Self::from_parts(LayoutKind::Leaf, NodeKind::InlineLink { link }, vec![]).with_text_content(label)
+    Self::from_parts(LayoutKind::Leaf, NodeKind::InlineLink { link }, vec![])
+      .with_tag_name("Link")
+      .with_text_content(label)
   }
 
   pub fn text_input(value: Signal<String>) -> Self {
@@ -2803,8 +2813,23 @@ impl Node {
       NodeKind::Text { state, .. } if state.is_sensitive() => {
         self.text_content().map(|_| crate::core::REDACTED.to_owned())
       }
+      #[cfg(feature = "markdown")]
+      NodeKind::RichText { .. } => self
+        .text_content()
+        .map(|text| self.rich_text_content(text, 0..text.len())),
       _ => self.text_content().map(str::to_owned),
     }
+  }
+
+  /// The bytes `range` of a rich text's `text`, without the spans it draws
+  /// as presentation (a link's isolate marks and trailing runs); `text`
+  /// itself for any other node.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_content(&self, text: &str, range: std::ops::Range<usize>) -> String {
+    let NodeKind::RichText { spans, generated, .. } = self.node_kind() else {
+      return text.get(range).unwrap_or_default().to_owned();
+    };
+    crate::node::inline_link::content_without_generated(spans, generated, text, range)
   }
 
   #[cfg(any(feature = "mcp", feature = "devtools"))]
@@ -4018,13 +4043,20 @@ impl Node {
           state,
           spans,
           transform_mode,
+          generated,
         },
         NodeKind::RichText {
           state: old_state,
           spans: old_spans,
           transform_mode: old_transform_mode,
+          generated: old_generated,
         },
-      ) => spans == old_spans && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
+      ) => {
+        spans == old_spans
+          && state.selectable() == old_state.selectable()
+          && transform_mode == old_transform_mode
+          && generated == old_generated
+      }
       #[cfg(feature = "markdown")]
       (NodeKind::InlineLink { link }, NodeKind::InlineLink { link: old_link }) => {
         link.label == old_link.label && link.target == old_link.target

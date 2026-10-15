@@ -1,4 +1,6 @@
-use pulldown_cmark::{Alignment as CmarkAlignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+  Alignment as CmarkAlignment, CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd,
+};
 
 use super::{
   MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
@@ -159,8 +161,18 @@ impl MarkdownParser {
       Tag::Emphasis => self.frames.push(Frame::Emphasis { inlines: Vec::new() }),
       Tag::Strong => self.frames.push(Frame::Strong { inlines: Vec::new() }),
       Tag::Strikethrough => self.frames.push(Frame::Strikethrough { inlines: Vec::new() }),
-      Tag::Link { dest_url, title, .. } => self.frames.push(Frame::Link {
-        destination: dest_url.to_string(),
+      Tag::Link {
+        link_type,
+        dest_url,
+        title,
+        ..
+      } => self.frames.push(Frame::Link {
+        // An email autolink (`<a@b.c>`) is a `mailto:` link, as in HTML.
+        destination: if link_type == LinkType::Email && !dest_url.starts_with("mailto:") {
+          format!("mailto:{dest_url}")
+        } else {
+          dest_url.to_string()
+        },
         title: title.to_string(),
         inlines: Vec::new(),
       }),

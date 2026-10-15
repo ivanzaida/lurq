@@ -22,13 +22,14 @@ use crate::{
 
 mod links;
 mod list_view;
+mod paragraph;
 mod sizing;
 mod tooltip;
 
-use links::{FlowItem, LinkSession, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph};
 pub use links::{MarkdownLink, MarkdownLinkPresentation, MarkdownRun};
 pub use list_view::MarkdownList;
 use list_view::MarkdownListView;
+use paragraph::{FlowItem, LinkSession, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph};
 use sizing::{BlockWidth, FILL_WIDTH};
 use tooltip::{LinkTooltips, LinkTooltipsProps, TooltipHover};
 
@@ -503,9 +504,13 @@ fn render_list(
       theme,
       render_ctx,
     };
+    // A view that declines draws nothing that stays: forget the links it
+    // drew to decide, so the list's own links are numbered as if it had not.
+    let checkpoint = render_ctx.links.checkpoint();
     if let Some(element) = list_view(&list) {
       return element;
     }
+    render_ctx.links.restore(checkpoint);
   }
   let mut list = render_ctx
     .width

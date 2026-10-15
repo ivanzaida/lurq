@@ -302,3 +302,82 @@ fn markdown_wrapped_link_is_hit_on_its_lines_only() {
   );
   assert_eq!(followed.lock().unwrap().len(), 1);
 }
+
+fn selection_rects(quads: &[Quad]) -> usize {
+  quads
+    .iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Rect { color, .. } if color == Color::from_hex("#bfdbfe")))
+    .count()
+}
+
+#[test]
+fn markdown_press_on_a_link_in_selectable_text_follows_it_and_a_drag_from_it_selects() {
+  let (followed, record) = recorder();
+  let (mut app, mut tree) = mount(
+    MarkdownProps::new("Read [the docs](/docs) and then the rest of this paragraph.")
+      .selectable(true)
+      .theme(theme(Duration::ZERO))
+      .on_link_click(record)
+      .width(600.0),
+  );
+  let link = bounds_of(&mut tree, "the docs");
+  let y = link.y + link.height * 0.5;
+
+  pointer_click(&mut tree, link.x + 3.0, y, MouseButton::Left);
+  pass(&mut app, &mut tree);
+  assert_eq!(
+    followed.lock().unwrap().len(),
+    1,
+    "a press and release on the link follows it"
+  );
+  assert_eq!(selection_rects(&quads(&tree)), 0, "and selects nothing");
+
+  tree.mouse_down(link.x + 3.0, y, MouseButton::Left);
+  tree.mouse_move(link.x + 250.0, y);
+  tree.mouse_up(link.x + 250.0, y, MouseButton::Left);
+  pass(&mut app, &mut tree);
+  assert_eq!(
+    followed.lock().unwrap().len(),
+    1,
+    "a drag from the link does not follow it"
+  );
+  assert!(selection_rects(&quads(&tree)) > 0, "it selects the text it crossed");
+}
+
+#[test]
+fn markdown_link_tooltip_stays_with_its_link_when_a_link_is_added_before_it() {
+  let present = |link: &lurq::components::MarkdownLink| {
+    MarkdownLinkPresentation::link().tooltip(format!("Opens {}", link.destination()))
+  };
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<super::links::MarkdownRoot>(
+    &mut app,
+    MarkdownProps::new("See [KON-1](/tasks/1).")
+      .theme(theme(Duration::ZERO))
+      .link_presentation(present)
+      .width(500.0),
+  );
+  pass(&mut app, &mut tree);
+  let link = bounds_of(&mut tree, "KON-1");
+  tree.mouse_move(link.x + 2.0, link.y + 2.0);
+  pass(&mut app, &mut tree);
+  pass(&mut app, &mut tree);
+  assert!(tooltip_shown(&quads(&tree), "Opens /tasks/1"));
+
+  // A streamed reply grows a link before the hovered one.
+  tree.update_root_props::<super::links::MarkdownRoot>(
+    MarkdownProps::new("See [KON-2](/tasks/2) and [KON-1](/tasks/1).")
+      .theme(theme(Duration::ZERO))
+      .link_presentation(present)
+      .width(500.0),
+  );
+  pass(&mut app, &mut tree);
+  pass(&mut app, &mut tree);
+  let after = quads(&tree);
+  assert!(
+    !tooltip_shown(&after, "Opens /tasks/2"),
+    "the new link did not take the tooltip"
+  );
+  assert!(tooltip_shown(&after, "Opens /tasks/1"), "the hovered link keeps it");
+}

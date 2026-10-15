@@ -176,3 +176,41 @@ fn markdown_many_reference_definitions_and_links_lay_out_in_linear_time() {
   assert!(first_pass < Duration::from_secs(5), "first pass took {first_pass:?}");
   assert!(second_pass < first_pass, "{second_pass:?} vs {first_pass:?}");
 }
+
+#[test]
+fn markdown_list_view_that_declines_does_not_skip_link_numbers() {
+  let clicked = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (_app, mut tree) = mount(
+    MarkdownProps::new("[a](/a)\n\n- [b](/b)\n\n[c](/c)")
+      .list_view(|list| {
+        // Draws the items to decide, then declines.
+        for item in list.items() {
+          let _drawn = list.blocks(&item.blocks);
+        }
+        None
+      })
+      .on_link_click({
+        let clicked = clicked.clone();
+        move |link| {
+          clicked
+            .lock()
+            .unwrap()
+            .push((link.index(), link.destination().to_owned()))
+        }
+      })
+      .width(400.0),
+  );
+  for text in ["a", "b", "c"] {
+    let bounds = bounds_of(&mut tree, text);
+    crate::support::pointer_click(
+      &mut tree,
+      bounds.x + 1.0,
+      bounds.y + bounds.height * 0.5,
+      MouseButton::Left,
+    );
+  }
+  assert_eq!(
+    *clicked.lock().unwrap(),
+    vec![(0, "/a".to_owned()), (1, "/b".to_owned()), (2, "/c".to_owned())]
+  );
+}

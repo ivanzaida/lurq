@@ -27,6 +27,16 @@ pub struct MarkdownList<'a> {
   pub(super) render_ctx: &'a MarkdownRenderContext<'a>,
 }
 
+impl std::fmt::Debug for MarkdownList<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("MarkdownList")
+      .field("ordered", &self.ordered)
+      .field("start", &self.start)
+      .field("items", &self.items)
+      .finish_non_exhaustive()
+  }
+}
+
 impl MarkdownList<'_> {
   pub fn ordered(&self) -> bool {
     self.ordered

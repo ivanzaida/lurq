@@ -71,6 +71,10 @@ pub(crate) enum NodeKind {
     state: TextState,
     spans: Vec<crate::layout::quad::RichTextSpan>,
     transform_mode: TextTransformMode,
+    /// Spans drawn as presentation, not part of the text (a link's isolate
+    /// marks and trailing runs): left out of copied and inspected text and
+    /// of selection highlights. Sorted span index ranges.
+    generated: std::sync::Arc<[std::ops::Range<usize>]>,
   },
   /// A link inside its parent `RichText` paragraph; see
   /// [`crate::node::inline_link`].
@@ -319,9 +323,14 @@ impl TextState {
   }
 
   pub(crate) fn selected_text(&self, value: &str) -> Option<String> {
+    self.selected_range(value).map(|range| value[range].to_owned())
+  }
+
+  /// The selected bytes of `value`.
+  pub(crate) fn selected_range(&self, value: &str) -> Option<std::ops::Range<usize>> {
     let inner = self.inner.lock().unwrap();
     let (start, end) = selection_range_indices(value, inner.selection_anchor, inner.caret)?;
-    Some(value[start..end].to_owned())
+    Some(start..end)
   }
 
   pub(crate) fn selection_ranges(&self, value: &str) -> Vec<TextSelectionRange> {

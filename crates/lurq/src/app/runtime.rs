@@ -71,6 +71,8 @@ mod capture_redaction_tests;
 mod caret_blink_tests;
 mod focus_visible;
 mod ime;
+#[cfg(all(test, feature = "markdown"))]
+mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
 mod inline_link_keys;
 mod input_token_paint;
@@ -1090,6 +1092,15 @@ impl Tree {
     self.scale_factor = scale;
     self.window.set_scale_factor(scale);
     self.invalidate_viewport_layout();
+    // Rich-text link and underline geometry is laid out at the paint's scale,
+    // inside caches below the root.
+    #[cfg(feature = "markdown")]
+    {
+      self.layout_engine.set_paint_scale(scale);
+      if let Some(root) = self.root.as_ref() {
+        invalidate_layout_cache_recursive(root);
+      }
+    }
   }
 
   fn invalidate_viewport_layout(&mut self) {
@@ -9978,7 +9989,7 @@ fn collect_selected_selectable_text(
   fragments: &mut Vec<SelectedTextFragment>,
 ) {
   if let Some((state, value)) = selectable_text_state_and_value(node) {
-    if let Some(text) = state.selected_text(&value) {
+    if let Some(text) = selected_content(node, &state, &value) {
       let ranges = state.selection_ranges(&value);
       let x = ranges
         .iter()
@@ -10213,6 +10224,19 @@ fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
     }
     _ => None,
   }
+}
+
+/// The selected text of a selectable text node, without what a rich text
+/// draws as presentation (a link's isolate marks and trailing runs).
+fn selected_content(node: &Node, state: &TextState, value: &str) -> Option<String> {
+  #[cfg(feature = "markdown")]
+  if let NodeKind::RichText { .. } = node.node_kind() {
+    let range = state.selected_range(value)?;
+    return Some(node.rich_text_content(value, range)).filter(|text| !text.is_empty());
+  }
+  #[cfg(not(feature = "markdown"))]
+  let _ = node;
+  state.selected_text(value)
 }
 
 fn is_selectable_text_node(node: &Node) -> bool {

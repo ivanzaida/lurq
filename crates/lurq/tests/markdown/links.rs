@@ -69,8 +69,14 @@ pub(super) fn span<'a>(spans: &'a [RichTextSpan], text: &str) -> &'a RichTextSpa
     .unwrap_or_else(|| panic!("no span {text:?} in {:?}", texts(spans)))
 }
 
+/// The spans' texts, without the invisible isolate marks around a link's
+/// words and trailing runs.
 pub(super) fn texts(spans: &[RichTextSpan]) -> Vec<&str> {
-  spans.iter().map(|span| span.text.as_str()).collect()
+  spans
+    .iter()
+    .map(|span| span.text.as_str())
+    .filter(|text| !matches!(*text, "\u{2068}" | "\u{2069}"))
+    .collect()
 }
 
 pub(super) fn rects_of(quads: &[Quad], color: Color) -> Vec<&Quad> {
@@ -143,7 +149,8 @@ fn markdown_link_presentation_styles_each_link_by_its_destination() {
       ", ",
       "PR 42",
       "\u{a0}github.com",
-      " and mail",
+      " and ",
+      "mail",
       " (mailto:a@b.c)",
       "."
     ]
@@ -160,7 +167,7 @@ fn markdown_link_presentation_styles_each_link_by_its_destination() {
   assert_eq!(span(spans, "PR 42").style.underline, None);
   assert_eq!(span(spans, "\u{a0}github.com").style.color, Color::from_hex("#777777"));
   assert_eq!(
-    span(spans, " and mail").style.color,
+    span(spans, "mail").style.color,
     span(spans, "See ").style.color,
     "a link shown as text is the text around it"
   );
@@ -376,5 +383,31 @@ fn markdown_hover_state_recolors_words_trailing_runs_and_fills() {
   assert_eq!(
     span(rich_text_quads(&after)[0], "PR 42").style.color,
     Color::from_hex("#00aa00")
+  );
+}
+
+#[test]
+fn markdown_link_types_debug_without_their_styles() {
+  let presentation = MarkdownLinkPresentation::link()
+    .trailing([MarkdownRun::plain(" host")])
+    .tooltip("Opens it");
+  let debug = format!("{presentation:?}");
+  assert!(debug.contains("MarkdownLinkPresentation") && debug.contains(" host") && debug.contains("Opens it"));
+  let listed = Arc::new(Mutex::new(String::new()));
+  let _ = mount(
+    MarkdownProps::new("1. one\n2. two")
+      .list_view({
+        let listed = listed.clone();
+        move |list| {
+          *listed.lock().unwrap() = format!("{list:?}");
+          None
+        }
+      })
+      .width(300.0),
+  );
+  let listed = listed.lock().unwrap().clone();
+  assert!(
+    listed.starts_with("MarkdownList") && listed.contains("ordered: true"),
+    "{listed}"
   );
 }
