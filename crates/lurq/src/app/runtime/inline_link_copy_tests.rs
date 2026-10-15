@@ -55,3 +55,40 @@ fn copied_markdown_text_leaves_out_isolate_marks_and_trailing_runs() {
     Some("Open PR 42 now, or mail.")
   );
 }
+
+fn reply(source: &str) -> MarkdownProps {
+  MarkdownProps::new(source.to_owned())
+    .selectable(true)
+    .link_presentation(|_| MarkdownLinkPresentation::link().trailing([MarkdownRun::plain(" github.com")]))
+    .width(900.0)
+}
+
+fn selected(tree: &Tree) -> Option<String> {
+  selected_selectable_text(tree.root.as_ref()?, tree.last_layout.as_ref()?)
+}
+
+#[test]
+fn a_selection_across_a_link_keeps_its_place_when_a_streamed_reply_grows() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<Root>(&mut app, reply("Open [PR 42](https://github.com/acme/pull/42) now"));
+  tree.pass_headless(&mut app);
+  let size = tree.last_layout().expect("laid out").size;
+  let y = 8.0;
+  tree.mouse_down(1.0, y, MouseButton::Left);
+  tree.mouse_move(size.width - 1.0, y);
+  tree.mouse_up(size.width - 1.0, y, MouseButton::Left);
+  tree.pass_headless(&mut app);
+  assert_eq!(selected(&tree).as_deref(), Some("Open PR 42 now"));
+
+  // The reply streams on: the paragraph renders again with more text.
+  tree.update_root_props::<Root>(reply(
+    "Open [PR 42](https://github.com/acme/pull/42) now, and more is coming.",
+  ));
+  tree.pass_headless(&mut app);
+  assert_eq!(
+    selected(&tree).as_deref(),
+    Some("Open PR 42 now"),
+    "the selection covers the same text after the paragraph renders again"
+  );
+}

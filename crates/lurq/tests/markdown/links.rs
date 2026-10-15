@@ -430,3 +430,25 @@ fn markdown_paragraph_text_content_leaves_out_isolate_marks_and_trailing_runs() 
   });
   assert!(marked.is_none(), "no element's text holds the marks or the host");
 }
+
+#[test]
+fn markdown_paragraph_with_a_thousand_links_has_its_text_as_content() {
+  const LINKS: usize = 1000;
+  let source = (0..LINKS)
+    .map(|index| format!("[l{index}](https://github.com/acme/pull/{index})"))
+    .collect::<Vec<_>>()
+    .join(" ");
+  let expected = (0..LINKS)
+    .map(|index| format!("l{index}"))
+    .collect::<Vec<_>>()
+    .join(" ");
+  let (_app, mut tree) = mount(
+    MarkdownProps::new(source)
+      .link_presentation(present_by_kind)
+      .width(600.0),
+  );
+  assert!(
+    has_element_with_text(&mut tree, &expected),
+    "the paragraph's content is its words, without 1000 hosts and 4000 isolate marks"
+  );
+}

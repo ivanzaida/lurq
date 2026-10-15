@@ -44,7 +44,9 @@ pub(crate) struct InlineLinkLook {
 }
 
 /// The bytes `range` of `text` (the concatenated `spans`) without the bytes
-/// of the `generated` spans.
+/// of the `generated` spans. `generated` is sorted, as a paragraph records
+/// it, so spans and ranges are walked together once: linear in both, for a
+/// paragraph with many links that renders on every streamed update.
 pub(crate) fn content_without_generated(
   spans: &[crate::layout::quad::RichTextSpan],
   generated: &[Range<usize>],
@@ -53,10 +55,12 @@ pub(crate) fn content_without_generated(
 ) -> String {
   let mut content = String::with_capacity(range.len());
   let mut offset = 0;
+  let mut ranges = generated.iter().peekable();
   for (index, span) in spans.iter().enumerate() {
     let span_bytes = offset..offset + span.text.len();
     offset = span_bytes.end;
-    if generated.iter().any(|generated| generated.contains(&index)) {
+    while ranges.next_if(|generated| generated.end <= index).is_some() {}
+    if ranges.peek().is_some_and(|generated| generated.contains(&index)) {
       continue;
     }
     let start = span_bytes.start.max(range.start);
@@ -67,3 +71,7 @@ pub(crate) fn content_without_generated(
   }
   content
 }
+
+#[cfg(test)]
+#[path = "inline_link_tests.rs"]
+mod tests;

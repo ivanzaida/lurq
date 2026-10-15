@@ -216,10 +216,14 @@ impl<'a> Paragraph<'a> {
   /// The paragraph so far as one rich-text node; the builder starts over.
   pub(super) fn take_node(&mut self) -> Node {
     self.sealed = 0;
+    // A run's range is recorded after its closing mark's: the node takes
+    // them sorted, which its content walk relies on.
+    let mut generated = std::mem::take(&mut self.generated);
+    generated.sort_unstable_by_key(|range| range.start);
     Node::rich_text_with_links(
       std::mem::take(&mut self.spans),
       std::mem::take(&mut self.links),
-      std::mem::take(&mut self.generated),
+      generated,
     )
   }
 
