@@ -51,8 +51,9 @@ struct TextInputInner {
   /// where the person scrolled it until the next edit.
   follow_caret: bool,
   /// The column ArrowUp and ArrowDown keep: the x the first of a run of
-  /// vertical moves started from, and the caret that run left. A caret
-  /// anywhere else (moved, clicked or edited) starts a new run.
+  /// vertical moves started from, and the caret that run left. Any other
+  /// caret move or edit ends the run, and so does a caret found anywhere
+  /// else.
   vertical_goal: Option<(usize, f32)>,
   unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
@@ -359,9 +360,12 @@ impl TextInputState {
   }
 
   /// Marks an edit or a caret move: lay the input out again and bring the
-  /// caret's line into view.
+  /// caret's line into view. It ends a run of vertical moves.
   fn mark_layout_dirty(&self) {
-    self.inner.lock().follow_caret = true;
+    let mut inner = self.inner.lock();
+    inner.follow_caret = true;
+    inner.vertical_goal = None;
+    drop(inner);
     self.layout_dirty.store(true, Ordering::Relaxed);
   }
 
