@@ -23,11 +23,13 @@ pub(crate) mod input_tokens;
 mod letter_spacing;
 mod reflow;
 mod scaler;
+mod span_boxes;
 use cap_height::GlyphFace;
 pub(crate) use face_weight::FaceWeights;
 use letter_spacing::letter_spacing_bits;
 pub(crate) use letter_spacing::with_letter_spacing;
 use reflow::ReflowRange;
+pub(crate) use span_boxes::SpanBox;
 
 use crate::{
   app::profile_types::GlyphEngineProfile,
@@ -439,6 +441,7 @@ pub(crate) struct GlyphEngine {
   optical_extents_cache: HashMap<u64, Vec<(CacheKey, Option<(f32, f32)>)>>,
   caret_cache: HashMap<u64, Vec<(CacheKey, CaretPositions)>>,
   rich_shaped_layout_cache: HashMap<u64, Vec<(RichTextShapeKey, CachedRichShapedLayout)>>,
+  underline_metrics: span_boxes::UnderlineMetrics,
   glyph_layout_cache: HashMap<CacheKey, Vec<CachedGlyph>>,
   clipped_glyph_layout_cache: HashMap<ClippedCacheKey, Vec<CachedGlyph>>,
   rich_glyph_layout_cache: HashMap<u64, Vec<(RichTextCacheKey, Vec<CachedRichGlyph>)>>,
@@ -481,6 +484,7 @@ impl GlyphEngine {
       optical_extents_cache: HashMap::new(),
       caret_cache: HashMap::new(),
       rich_shaped_layout_cache: HashMap::new(),
+      underline_metrics: span_boxes::UnderlineMetrics::default(),
       glyph_layout_cache: HashMap::new(),
       clipped_glyph_layout_cache: HashMap::new(),
       rich_glyph_layout_cache: HashMap::new(),
@@ -593,6 +597,7 @@ impl GlyphEngine {
     self.optical_extents_cache.clear();
     self.caret_cache.clear();
     self.rich_shaped_layout_cache.clear();
+    self.underline_metrics = span_boxes::UnderlineMetrics::default();
     self.glyph_layout_cache.clear();
     self.clipped_glyph_layout_cache.clear();
     self.rich_glyph_layout_cache.clear();
@@ -935,6 +940,38 @@ impl GlyphEngine {
       .or_default()
       .push((RichTextShapeKey::new(spans, max_width, wrap), layout));
     size
+  }
+
+  /// The size of `spans` laid out at `max_width` (wrapping when `wrap` is
+  /// set and the width is bounded, as painting does) and where each span lies
+  /// in it: one box per span and laid-out line. Shares the shaped layout
+  /// cache with measuring and painting.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_span_boxes(
+    &mut self,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+  ) -> (Size, std::sync::Arc<[SpanBox]>) {
+    if spans.is_empty() {
+      return (Size::default(), Vec::<SpanBox>::new().into());
+    }
+    let wrap = effective_text_wrap(max_width, wrap);
+    let fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
+    if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, max_width, wrap) {
+      return (cached.size, cached.span_boxes);
+    }
+    let layout = self.shape_rich_text_layout(spans, max_width, wrap);
+    let found = (layout.size, layout.span_boxes.clone());
+    if self.rich_shaped_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
+      self.rich_shaped_layout_cache.clear();
+    }
+    self
+      .rich_shaped_layout_cache
+      .entry(fingerprint)
+      .or_default()
+      .push((RichTextShapeKey::new(spans, max_width, wrap), layout));
+    found
   }
 
   pub(crate) fn caret_positions(
@@ -2434,6 +2471,7 @@ impl GlyphEngine {
       return CachedRichShapedLayout {
         size: Size::default(),
         glyphs: Vec::<CachedRichShapedGlyph>::new().into(),
+        span_boxes: Vec::<SpanBox>::new().into(),
       };
     };
     #[cfg(feature = "perf_profile")]
@@ -2493,6 +2531,7 @@ impl GlyphEngine {
       self.profile.rich_extract += phase_start.elapsed();
     }
 
+    let span_boxes = span_boxes::span_boxes(&buffer, &mut self.font_system, &mut self.underline_metrics);
     self.buffer_pool.push(buffer);
     #[cfg(feature = "perf_profile")]
     {
@@ -2501,6 +2540,7 @@ impl GlyphEngine {
     CachedRichShapedLayout {
       size,
       glyphs: glyphs.into(),
+      span_boxes,
     }
   }
 
@@ -2627,7 +2667,8 @@ impl GlyphEngine {
       let phase_start = Instant::now();
       let rich_spans: Vec<_> = spans
         .iter()
-        .map(|span| {
+        .enumerate()
+        .map(|(index, span)| {
           (
             span.text.as_str(),
             attrs_for_style(
@@ -2635,7 +2676,8 @@ impl GlyphEngine {
               span.style.font_family.as_ref(),
               self.face_weight(span.style.font_family.as_ref(), &span.style),
               first.style.font_size,
-            ),
+            )
+            .metadata(index),
           )
         })
         .collect();
@@ -2665,7 +2707,8 @@ impl GlyphEngine {
       let rich_spans: Vec<_> = spans
         .iter()
         .zip(families.iter())
-        .map(|(span, family)| {
+        .enumerate()
+        .map(|(index, (span, family))| {
           (
             span.text.as_str(),
             attrs_for_style(
@@ -2673,7 +2716,8 @@ impl GlyphEngine {
               family,
               self.face_weight(family, &span.style),
               first.style.font_size,
-            ),
+            )
+            .metadata(index),
           )
         })
         .collect();
@@ -2779,7 +2823,10 @@ impl GlyphEngine {
       .rich_shaped_layout_cache
       .values()
       .flat_map(|bucket| bucket.iter().map(|(_, layout)| layout))
-      .map(|layout| layout.glyphs.len() * std::mem::size_of::<CachedRichShapedGlyph>())
+      .map(|layout| {
+        layout.glyphs.len() * std::mem::size_of::<CachedRichShapedGlyph>()
+          + layout.span_boxes.len() * std::mem::size_of::<SpanBox>()
+      })
       .sum::<usize>();
     let glyph_layout_cache_bytes = self
       .glyph_layout_cache
@@ -2842,6 +2889,7 @@ impl GlyphEngine {
         .sum::<usize>()
       + rich_shaped_key_heap
       + rich_shaped_layout_cache_bytes
+      + self.underline_metrics.estimated_memory_bytes()
       + self.glyph_layout_cache.capacity() * std::mem::size_of::<(CacheKey, Vec<CachedGlyph>)>()
       + glyph_layout_cache_bytes
       + self.clipped_glyph_layout_cache.capacity() * std::mem::size_of::<(ClippedCacheKey, Vec<CachedGlyph>)>()
@@ -2945,6 +2993,7 @@ struct CachedGlyph {
 struct CachedRichShapedLayout {
   size: Size,
   glyphs: std::sync::Arc<[CachedRichShapedGlyph]>,
+  span_boxes: std::sync::Arc<[SpanBox]>,
 }
 
 #[derive(Clone, Copy)]

@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
-  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle},
-  node::color::Color,
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, TextUnderline},
+  node::{border::BorderRadius, color::Color},
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -18,6 +18,8 @@ pub struct MarkdownTextStyle {
   pub weight: Option<FontWeight>,
   pub style: Option<FontStyle>,
   pub color: Option<Color>,
+  /// Underlines the text; replaces the base style's underline.
+  pub underline: Option<TextUnderline>,
 }
 
 impl MarkdownTextStyle {
@@ -54,6 +56,9 @@ impl MarkdownTextStyle {
     if let Some(color) = self.color {
       style.color = color;
     }
+    if let Some(underline) = self.underline {
+      style.underline = Some(underline);
+    }
     style
   }
 }
@@ -88,6 +93,87 @@ impl MarkdownBlockStyle {
   }
 }
 
+/// How a Markdown link looks while the pointer is on it or while it has
+/// keyboard focus. Every unset value keeps the link's look at rest. These
+/// change only colors and fills, never the text's metrics, so a link does not
+/// move or rewrap when its state changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MarkdownLinkState {
+  /// The color of the link's words.
+  pub color: Option<Color>,
+  /// The color of the words' underline, where they have one.
+  pub underline_color: Option<Color>,
+  /// A fill behind the link's words, one rectangle per laid-out line, with
+  /// the link's corner radius.
+  pub background: Option<Color>,
+  /// The color of what the link presentation puts after the words (its
+  /// trailing runs).
+  pub trailing_color: Option<Color>,
+}
+
+impl MarkdownLinkState {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn color(mut self, color: Color) -> Self {
+    self.color = Some(color);
+    self
+  }
+
+  pub fn underline_color(mut self, color: Color) -> Self {
+    self.underline_color = Some(color);
+    self
+  }
+
+  pub fn background(mut self, color: Color) -> Self {
+    self.background = Some(color);
+    self
+  }
+
+  pub fn trailing_color(mut self, color: Color) -> Self {
+    self.trailing_color = Some(color);
+    self
+  }
+}
+
+/// The ring a Markdown link shows while it has keyboard focus (CSS
+/// `:focus-visible`), drawn around each laid-out line of its words, outside
+/// them on all four sides. It is drawn over the text, not clipped by the
+/// paragraph, so it shows in full even where it reaches past the paragraph's
+/// box.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MarkdownFocusRing {
+  /// The ring's line width.
+  pub width: f32,
+  /// The gap between the words' box and the ring's inner edge.
+  pub offset: f32,
+  pub color: Color,
+  /// Corner radius of the ring's outer edge.
+  pub radius: f32,
+}
+
+impl MarkdownFocusRing {
+  pub fn new(width: f32, color: Color) -> Self {
+    Self {
+      width,
+      offset: 0.0,
+      color,
+      radius: 0.0,
+    }
+  }
+
+  pub fn offset(mut self, offset: f32) -> Self {
+    self.offset = offset;
+    self
+  }
+
+  pub fn radius(mut self, radius: f32) -> Self {
+    self.radius = radius;
+    self
+  }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct ThemeMarkdown {
   pub document_spacing: f32,
@@ -114,6 +200,21 @@ pub struct ThemeMarkdown {
   pub code_block: MarkdownInlineStyle,
   pub code_block_label: MarkdownInlineStyle,
   pub link: MarkdownInlineStyle,
+  /// A link's look while the pointer is on it.
+  pub link_hovered: MarkdownLinkState,
+  /// A link's look while it has keyboard focus (focus-visible).
+  pub link_focused: MarkdownLinkState,
+  /// The ring around a link with keyboard focus; `None` draws none.
+  pub link_focus_ring: Option<MarkdownFocusRing>,
+  /// Corner radii of a link's hover and focus fills.
+  pub link_radius: BorderRadius,
+  /// The text of a link's tooltip.
+  pub link_tooltip: MarkdownInlineStyle,
+  /// The box of a link's tooltip.
+  pub link_tooltip_box: MarkdownBlockStyle,
+  /// How long the pointer rests on a link before its tooltip shows. Keyboard
+  /// focus shows it at once.
+  pub link_tooltip_delay: Duration,
   pub strikethrough: MarkdownInlineStyle,
   pub list_marker: MarkdownInlineStyle,
   pub blockquote_marker: MarkdownInlineStyle,
@@ -166,6 +267,22 @@ impl Default for ThemeMarkdown {
 
     let mut link = MarkdownInlineStyle::default();
     link.text.color = Some(Color::from_hex("#2563eb"));
+
+    let link_focus_ring = MarkdownFocusRing::new(2.0, Color::from_hex("#2563eb"))
+      .offset(1.0)
+      .radius(3.0);
+
+    let mut link_tooltip = MarkdownInlineStyle::default();
+    link_tooltip.text.font_size_scale = Some(0.85);
+    link_tooltip.text.color = Some(Color::from_hex("#f8fafc"));
+
+    let link_tooltip_box = MarkdownBlockStyle {
+      background: Some(Color::from_hex("#0f172a")),
+      border_color: None,
+      border_width: None,
+      radius: Some(4.0),
+      padding: Some(6.0),
+    };
 
     let mut list_marker = MarkdownInlineStyle::default();
     list_marker.text.weight = Some(FontWeight::Medium);
@@ -248,6 +365,13 @@ impl Default for ThemeMarkdown {
       code_block,
       code_block_label,
       link,
+      link_hovered: MarkdownLinkState::default(),
+      link_focused: MarkdownLinkState::default(),
+      link_focus_ring: Some(link_focus_ring),
+      link_radius: BorderRadius::all(2.0),
+      link_tooltip,
+      link_tooltip_box,
+      link_tooltip_delay: Duration::from_millis(500),
       strikethrough: MarkdownInlineStyle::default(),
       list_marker,
       blockquote_marker,

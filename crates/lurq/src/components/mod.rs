@@ -66,7 +66,7 @@ pub use image::Image;
 #[cfg(feature = "router")]
 pub use link::Link;
 #[cfg(feature = "markdown")]
-pub use markdown::{Markdown, MarkdownLink, MarkdownProps};
+pub use markdown::{Markdown, MarkdownLink, MarkdownLinkPresentation, MarkdownList, MarkdownProps, MarkdownRun};
 #[cfg(feature = "router")]
 pub use outlet::Outlet;
 pub use popup::{Popover, Popup};

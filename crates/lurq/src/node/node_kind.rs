@@ -72,10 +72,18 @@ pub(crate) enum NodeKind {
     spans: Vec<crate::layout::quad::RichTextSpan>,
     transform_mode: TextTransformMode,
   },
+  /// A link inside its parent `RichText` paragraph; see
+  /// [`crate::node::inline_link`].
+  #[cfg(feature = "markdown")]
+  InlineLink {
+    link: crate::node::inline_link::InlineLink,
+  },
   TextInput {
     state: TextInputState,
     style: TextStyle,
-    placeholder_style: Option<TextStyle>,
+    /// Boxed: most inputs have none, and every node is as large as its
+    /// largest kind (see `size_budget`).
+    placeholder_style: Option<Box<TextStyle>>,
   },
   Checkbox {
     state: CheckboxState,

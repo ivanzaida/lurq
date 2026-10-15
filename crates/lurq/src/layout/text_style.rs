@@ -55,6 +55,11 @@ pub struct TextStyle {
   pub color: Color,
   pub caret_color: Option<TextColor>,
   pub shadow: Option<TextShadow>,
+  /// A line under the text, like CSS `text-decoration-line: underline`.
+  /// `None` by default. Rich text (Markdown) draws it under every laid-out
+  /// line its run covers, wrapped lines included; it changes neither
+  /// measurement nor wrapping. A plain `Text` does not draw it yet.
+  pub underline: Option<TextUnderline>,
 }
 
 impl Default for TextStyle {
@@ -73,6 +78,7 @@ impl Default for TextStyle {
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
       shadow: None,
+      underline: None,
     }
   }
 }
@@ -83,6 +89,45 @@ impl TextStyle {
   pub(crate) fn scale_pixels(&mut self, factor: f32) {
     self.font_size *= factor;
     self.letter_spacing *= factor;
+  }
+}
+
+/// An underline, like CSS `text-decoration: underline` with
+/// `text-decoration-color`, `text-decoration-thickness` and
+/// `text-underline-offset`. Each unset value follows the text: the text's
+/// color, and the thickness and position the font gives its underline.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextUnderline {
+  /// The line's color; `None` is the text's color.
+  pub color: Option<Color>,
+  /// The line's thickness in logical pixels; `None` is the font's underline
+  /// thickness. Non-finite or negative values count as unset.
+  pub thickness: Option<f32>,
+  /// How far below the baseline the line's top edge sits, in logical pixels;
+  /// `None` is the font's underline position. Non-finite values count as
+  /// unset.
+  pub offset: Option<f32>,
+}
+
+impl TextUnderline {
+  /// An underline in the text's color, at the font's thickness and position.
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn color(mut self, color: Color) -> Self {
+    self.color = Some(color);
+    self
+  }
+
+  pub fn thickness(mut self, thickness: f32) -> Self {
+    self.thickness = Some(thickness);
+    self
+  }
+
+  pub fn offset(mut self, offset: f32) -> Self {
+    self.offset = Some(offset);
+    self
   }
 }
 

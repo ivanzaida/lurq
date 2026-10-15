@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+Behaviour changes:
+
+- A Markdown paragraph, heading or table cell with links in it is one rich-text node, links included, so it wraps and selects as one text. Before, each link was a node of its own in a wrapping row, so a selection stopped at a link and a link's words could not wrap with the text around them. Images other than a lone one still break a paragraph into a row of texts and images.
+- Every Markdown link is a Tab stop, in document order, and Enter follows it (Space does not). Keyboard focus draws `ThemeMarkdown::link_focus_ring` (2 px `#2563eb` by default) around it. MCP tools list a link with the role `link`, named by its words.
+- The document's own containers in Markdown (the document, lists, quotes, footnotes, rows of texts and images) no longer clip what their blocks draw past them, so a link's focus ring shows in full. Code blocks and tables still clip to their boxes.
+
+- Add text underlines: `TextStyle::underline: Option<TextUnderline>` and `MarkdownTextStyle::underline`. `TextUnderline` has a `color` (default: the text's), a `thickness` and an `offset` below the baseline (default: the font's underline metrics). Rich text draws it under every laid-out line its span covers, wrapped lines included; it changes neither measurement nor wrapping. A plain `Text` does not draw it yet.
+- Add `MarkdownProps::link_presentation(f)`, a hook that decides how each link is shown. It gets the link (`MarkdownLink`: destination, title, the plain text of its words and, new, its `index()` among the document's links) and returns a `MarkdownLinkPresentation`:
+  - `link()` shows a link, in the theme's link looks unless `style(...)` (the words' style over the text around them), `hovered(...)`, `focused(...)` (`MarkdownLinkState`: words color, underline color, a fill behind the words, trailing runs' color), `focus_ring(...)` (`MarkdownFocusRing`: width, offset, color, radius) or `radius(...)` (the fills' corners) say otherwise;
+  - `text()` shows the words as the text around them: nothing to press or focus;
+  - `trailing(...)` adds `MarkdownRun`s after the words in the same paragraph (a host and an icon glyph after a web link, an address after a link the app does not follow); after a link, the pointer takes them as part of it;
+  - `tooltip(...)` shows a tooltip under the link after the pointer rests on it for `ThemeMarkdown::link_tooltip_delay` (500 ms by default), and at once while it has keyboard focus.
+  The hook runs once per link and render on the exact `MarkdownLink` that `on_link_click` gets, so what a link shows always comes from the destination it opens.
+- Links show a pointer cursor and paint their hovered and focused looks (`ThemeMarkdown::link_hovered`, `link_focused`), per laid-out line of their words. The focus ring is drawn outside the words on all sides, over the text, and is not clipped by the paragraph.
+- `MarkdownProps::on_link_click` now runs for Enter on a focused link too. It runs inside the input's dispatch, so `lurq::app::events::is_synthetic_input()` tells a person's press from synthetic input (an MCP client's), and `MarkdownLink::index()` says which link it was.
+- Add `MarkdownProps::list_view(f)`: the app may draw a list block itself. Called with a `MarkdownList` (`ordered`, `start`, `items`, `style`, `theme`), it returns the element to draw or `None` for the usual list; `MarkdownList::inlines` and `blocks` draw content as the document does, links included.
+- Add `ThemeMarkdown::link_hovered`, `link_focused`, `link_focus_ring`, `link_radius`, `link_tooltip`, `link_tooltip_box` and `link_tooltip_delay`, and the theme types `MarkdownLinkState` and `MarkdownFocusRing`.
+- Breaking: `TextStyle`, `MarkdownTextStyle` and `ThemeMarkdown` gain public fields; struct literals that list every field need the new ones (or `..Default::default()`).
+- A Markdown document still parses once per change of its source; laying out many links and reference definitions is linear (tested with 3000 definitions and 3000 linked blocks).
+
 ## 0.45.0 — 2026-10-15
 
 Behaviour changes:

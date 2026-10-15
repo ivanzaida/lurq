@@ -71,6 +71,8 @@ mod capture_redaction_tests;
 mod caret_blink_tests;
 mod focus_visible;
 mod ime;
+#[cfg(feature = "markdown")]
+mod inline_link_keys;
 mod input_token_paint;
 mod outside_press;
 mod scroll_into_view;
@@ -3509,7 +3511,8 @@ impl Tree {
       } else if matches!(
         (key.as_str(), code.as_str()),
         ("Enter" | " ", _) | (_, "Enter" | "Space")
-      ) && self.activate_focused_button()
+      ) && (self.activate_focused_button()
+        || matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && self.follows_focused_link())
       {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
@@ -3661,6 +3664,18 @@ impl Tree {
       matches!(node.map(Node::node_kind), Some(NodeKind::TextInput { state, .. }) if state.overflow() != TextInputOverflow::Multiline)
     };
     is_single_line && self.submit_nearest_form_for_node_id(focused)
+  }
+
+  /// Enter on a focused paragraph link follows it.
+  fn follows_focused_link(&mut self) -> bool {
+    #[cfg(feature = "markdown")]
+    {
+      self.activate_focused_link()
+    }
+    #[cfg(not(feature = "markdown"))]
+    {
+      false
+    }
   }
 
   fn activate_focused_button(&mut self) -> bool {

@@ -1795,6 +1795,13 @@ impl Node {
 
   #[cfg(feature = "markdown")]
   pub(crate) fn rich_text(spans: Vec<crate::layout::quad::RichTextSpan>) -> Self {
+    Self::rich_text_with_links(spans, vec![])
+  }
+
+  /// Rich text with the links in it: [`Self::inline_link`] nodes, which the
+  /// paragraph places on their spans.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_with_links(spans: Vec<crate::layout::quad::RichTextSpan>, links: Vec<Node>) -> Self {
     let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
     Self::from_parts(
       LayoutKind::Leaf,
@@ -1803,9 +1810,15 @@ impl Node {
         spans,
         transform_mode: TextTransformMode::default(),
       },
-      vec![],
+      links,
     )
     .with_text_content(&text)
+  }
+
+  /// A link of the `RichText` paragraph it is a child of, named `label`.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn inline_link(link: crate::node::inline_link::InlineLink, label: &str) -> Self {
+    Self::from_parts(LayoutKind::Leaf, NodeKind::InlineLink { link }, vec![]).with_text_content(label)
   }
 
   pub fn text_input(value: Signal<String>) -> Self {
@@ -2965,10 +2978,10 @@ impl Node {
     } = &mut self.node_kind
     {
       text_style.text_align = style.text_align;
-      if placeholder_style.as_ref() == Some(&text_style) {
+      if placeholder_style.as_deref() == Some(&text_style) {
         return;
       }
-      *placeholder_style = Some(text_style);
+      *placeholder_style = Some(Box::new(text_style));
       self.layout_cache.invalidate();
     }
   }
@@ -2986,7 +2999,11 @@ impl Node {
     } = &mut self.node_kind
     {
       let align = align.into();
-      if style.text_align == align && placeholder_style.as_ref().is_none_or(|style| style.text_align == align) {
+      if style.text_align == align
+        && placeholder_style
+          .as_deref()
+          .is_none_or(|style| style.text_align == align)
+      {
         return;
       }
       style.text_align = align;
@@ -4008,6 +4025,10 @@ impl Node {
           transform_mode: old_transform_mode,
         },
       ) => spans == old_spans && state.selectable() == old_state.selectable() && transform_mode == old_transform_mode,
+      #[cfg(feature = "markdown")]
+      (NodeKind::InlineLink { link }, NodeKind::InlineLink { link: old_link }) => {
+        link.label == old_link.label && link.target == old_link.target
+      }
       (
         NodeKind::TextInput {
           state,

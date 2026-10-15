@@ -723,6 +723,8 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     NodeKind::Text { .. } => "Text",
     #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "RichText",
+    #[cfg(feature = "markdown")]
+    NodeKind::InlineLink { .. } => "InlineLink",
     NodeKind::TextInput { .. } => "TextInput",
     NodeKind::Checkbox { .. } => "Checkbox",
     NodeKind::Slider { .. } => "Slider",

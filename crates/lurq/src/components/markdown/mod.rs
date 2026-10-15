@@ -17,35 +17,20 @@ use crate::{
     MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
     MarkdownTableAlignment, MarkdownTableRow, markdown_html_text, markdown_inline_rich_text, parse_markdown,
   },
-  node::{CursorIcon, Element, Node, color::Color, dimension::Dimension},
+  node::{Element, Node, color::Color, dimension::Dimension},
 };
 
+mod links;
+mod list_view;
 mod sizing;
+mod tooltip;
 
+use links::{FlowItem, LinkSession, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph};
+pub use links::{MarkdownLink, MarkdownLinkPresentation, MarkdownRun};
+pub use list_view::MarkdownList;
+use list_view::MarkdownListView;
 use sizing::{BlockWidth, FILL_WIDTH};
-
-type MarkdownLinkCallback = Arc<dyn Fn(&MarkdownLink) + Send + Sync>;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MarkdownLink {
-  destination: Arc<str>,
-  title: Arc<str>,
-  text: Arc<str>,
-}
-
-impl MarkdownLink {
-  pub fn destination(&self) -> &str {
-    &self.destination
-  }
-
-  pub fn title(&self) -> &str {
-    &self.title
-  }
-
-  pub fn text(&self) -> &str {
-    &self.text
-  }
-}
+use tooltip::{LinkTooltips, LinkTooltipsProps, TooltipHover};
 
 #[derive(Clone)]
 pub struct MarkdownProps {
@@ -56,6 +41,8 @@ pub struct MarkdownProps {
   width: Option<Dimension>,
   fit_content: bool,
   on_link_click: Option<MarkdownLinkCallback>,
+  link_presentation: Option<MarkdownLinkPresenter>,
+  list_view: Option<MarkdownListView>,
 }
 
 impl PartialEq for MarkdownProps {
@@ -66,7 +53,9 @@ impl PartialEq for MarkdownProps {
       && self.selectable == other.selectable
       && self.width == other.width
       && self.fit_content == other.fit_content
-      && same_link_callback(&self.on_link_click, &other.on_link_click)
+      && same_callback(&self.on_link_click, &other.on_link_click)
+      && same_callback(&self.link_presentation, &other.link_presentation)
+      && same_callback(&self.list_view, &other.list_view)
   }
 }
 
@@ -80,6 +69,8 @@ impl MarkdownProps {
       width: None,
       fit_content: false,
       on_link_click: None,
+      link_presentation: None,
+      list_view: None,
     }
   }
 
@@ -131,13 +122,52 @@ impl MarkdownProps {
     self
   }
 
+  /// Called when a link is followed: pressed with the pointer, or Enter
+  /// while it has keyboard focus. It runs inside the input's dispatch, so
+  /// [`is_synthetic_input`](crate::app::events::is_synthetic_input) tells a
+  /// person's press from synthetic input (an MCP client's). It is given the
+  /// same [`MarkdownLink`] the presentation hook saw, with its
+  /// [`index`](MarkdownLink::index). Without it, a link to an in-app path
+  /// (`/`, `#` or `?`) navigates the router, when there is one.
   pub fn on_link_click(mut self, f: impl Fn(&MarkdownLink) + Send + Sync + 'static) -> Self {
     self.on_link_click = Some(Arc::new(f));
     self
   }
+
+  /// Decides how each link is shown: as a link with its own looks, trailing
+  /// runs and tooltip, or as text ([`MarkdownLinkPresentation`]). It is
+  /// called once per link and render with the exact link the document
+  /// follows, so what a link shows always comes from the destination it
+  /// opens. Without it, every link is a link in the theme's looks.
+  ///
+  /// A link stays inside its paragraph's text, which wraps and selects as
+  /// one. A link is a Tab stop (in document order), Enter and a click follow
+  /// it, and the pointer over it shows a pointer cursor. Its hovered and
+  /// focused looks recolor its words, underline and trailing runs and can
+  /// fill behind its words; keyboard focus also draws a ring around them.
+  ///
+  /// Keep the props (or the closure's `Arc`) across renders where you can:
+  /// props with a new closure compare unequal and render the document again.
+  pub fn link_presentation(
+    mut self,
+    f: impl Fn(&MarkdownLink) -> MarkdownLinkPresentation + Send + Sync + 'static,
+  ) -> Self {
+    self.link_presentation = Some(Arc::new(f));
+    self
+  }
+
+  /// Lets the app draw a list block itself: called for every list of the
+  /// document, it returns the element to draw instead, or `None` to draw the
+  /// list as usual. Decide from [`MarkdownList::items`] before drawing
+  /// anything with the list's `inlines` or `blocks`, since drawing numbers
+  /// the links it draws.
+  pub fn list_view(mut self, f: impl Fn(&MarkdownList<'_>) -> Option<Element> + Send + Sync + 'static) -> Self {
+    self.list_view = Some(Arc::new(f));
+    self
+  }
 }
 
-fn same_link_callback(left: &Option<MarkdownLinkCallback>, right: &Option<MarkdownLinkCallback>) -> bool {
+fn same_callback<T: ?Sized>(left: &Option<Arc<T>>, right: &Option<Arc<T>>) -> bool {
   match (left, right) {
     (None, None) => true,
     (Some(left), Some(right)) => Arc::ptr_eq(left, right),
@@ -159,14 +189,13 @@ impl crate::app::component::DevtoolsInspectable for MarkdownProps {
 pub struct Markdown {
   source: Signal<Arc<str>>,
   document: Memo<MarkdownDocument>,
+  hover: TooltipHover,
 }
 
-#[derive(Clone)]
-struct MarkdownRenderContext {
+struct MarkdownRenderContext<'a> {
   width: BlockWidth,
-  on_link_click: Option<MarkdownLinkCallback>,
-  #[cfg(feature = "router")]
-  navigator: Option<crate::router::Navigator>,
+  links: &'a LinkSession,
+  list_view: Option<&'a MarkdownListView>,
 }
 
 impl Markdown {
@@ -182,7 +211,12 @@ impl Component for Markdown {
     let source = ctx.signal(ctx.props::<Self::Props>().source.clone());
     let memo_source = source.clone();
     let document = ctx.memo(move || parse_markdown(&memo_source.get()));
-    Self { source, document }
+    let hover = TooltipHover::new(|fire| ctx.create_timeout(std::time::Duration::ZERO, fire));
+    Self {
+      source,
+      document,
+      hover,
+    }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -191,14 +225,32 @@ impl Component for Markdown {
       self.source.set(props.source.clone());
     }
     let theme = props.theme.clone().unwrap_or_else(|| ctx.theme().markdown().clone());
+    self.hover.set_delay(theme.link_tooltip_delay);
     let document = self.document.get();
+    let links = LinkSession::new(
+      props.link_presentation.clone(),
+      props.on_link_click.clone(),
+      #[cfg(feature = "router")]
+      ctx.use_context::<crate::router::Navigator>(),
+      self.hover.clone(),
+    );
     let render_ctx = MarkdownRenderContext {
       width: BlockWidth::new(props.fit_content),
-      on_link_click: props.on_link_click.clone(),
-      #[cfg(feature = "router")]
-      navigator: ctx.use_context::<crate::router::Navigator>(),
+      links: &links,
+      list_view: props.list_view.as_ref(),
     };
-    let mut element = render_document(&document, &props.style, &theme, &render_ctx);
+    let mut root = render_document(&document, &props.style, &theme, &render_ctx);
+    let tooltips = links.take_tooltips();
+    if !tooltips.is_empty() {
+      root = root.child(ctx.mount::<LinkTooltips>(LinkTooltipsProps {
+        tooltips: tooltips.into(),
+        shown: self.hover.shown(),
+        style: props.style.clone(),
+        text: theme.link_tooltip.clone(),
+        panel: theme.link_tooltip_box.clone(),
+      }));
+    }
+    let mut element: Element = root.into();
 
     if let Some(width) = props.width {
       element = element.map_node(|node| node.width(width));
@@ -210,24 +262,30 @@ impl Component for Markdown {
   }
 }
 
+/// The document's own containers (the document, flows, lists, quotes,
+/// footnotes) let what their blocks draw past them show, as CSS blocks do: a
+/// link's focus ring reaches outside its words. Code blocks and tables keep
+/// clipping to their boxes.
 fn render_document(
   document: &MarkdownDocument,
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
-) -> Element {
-  let mut root = render_ctx.width.blocks(Column::new().spacing(theme.document_spacing));
+  render_ctx: &MarkdownRenderContext<'_>,
+) -> Column {
+  let mut root = render_ctx
+    .width
+    .blocks(Column::new().overflow_visible().spacing(theme.document_spacing));
   for block in &document.blocks {
     root = root.child(render_block(block, base_style, theme, render_ctx));
   }
-  root.into()
+  root
 }
 
 fn render_block(
   block: &MarkdownBlock,
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   match block {
     MarkdownBlock::Paragraph(inlines) => render_inline_block(inlines, base_style.clone(), theme, render_ctx),
@@ -254,11 +312,14 @@ fn render_block(
   }
 }
 
+/// A paragraph, a heading or a table cell: one rich-text node, links in it.
+/// Images other than a lone one break it into a wrapping row of texts and
+/// images.
 fn render_inline_block(
   inlines: &[MarkdownInline],
   style: TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   if let Some(image) = single_image(inlines) {
     return render_markdown_image(image, &style, theme);
@@ -268,160 +329,78 @@ fn render_inline_block(
     return render_ctx.width.leaf(Text::styled(text, style));
   }
 
-  if inline_requires_flow(inlines) {
+  if has_image(inlines) {
     return render_inline_flow(inlines, style, theme, render_ctx);
   }
 
-  render_ctx
-    .width
-    .leaf(Element::from_node(Node::rich_text(markdown_inline_rich_text(
-      inlines, &style, theme,
-    ))))
+  let mut paragraph = Paragraph::new(theme, render_ctx.links);
+  paragraph.push_inlines(inlines, &style, &mut None);
+  render_ctx.width.leaf(Element::from_node(paragraph.take_node()))
 }
 
 fn render_inline_flow(
   inlines: &[MarkdownInline],
   style: TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   let mut hard_break_segments = inlines.split(|inline| matches!(inline, MarkdownInline::HardBreak));
   let Some(first_segment) = hard_break_segments.next() else {
-    return render_inline_flow_row(inlines, style, theme, render_ctx);
+    return render_inline_flow_row(inlines, &style, theme, render_ctx);
   };
 
   let remaining_segments = hard_break_segments.collect::<Vec<_>>();
   if remaining_segments.is_empty() {
-    return render_inline_flow_row(first_segment, style, theme, render_ctx);
+    return render_inline_flow_row(first_segment, &style, theme, render_ctx);
   }
 
-  let mut column = render_ctx.width.blocks(Column::new().spacing(0.0).min_width(0.0));
-  column = column.child(render_inline_flow_row(first_segment, style.clone(), theme, render_ctx));
+  let mut column = render_ctx
+    .width
+    .blocks(Column::new().overflow_visible().spacing(0.0).min_width(0.0));
+  column = column.child(render_inline_flow_row(first_segment, &style, theme, render_ctx));
   for segment in remaining_segments {
-    column = column.child(render_inline_flow_row(segment, style.clone(), theme, render_ctx));
+    column = column.child(render_inline_flow_row(segment, &style, theme, render_ctx));
   }
   column.into()
 }
 
+/// A wrapping row of the texts between images, and the images.
 fn render_inline_flow_row(
   inlines: &[MarkdownInline],
-  style: TextStyle,
+  style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
+  let mut flow = Vec::new();
+  let mut paragraph = Paragraph::new(theme, render_ctx.links);
+  paragraph.push_inlines(inlines, style, &mut Some(&mut flow));
+  if !paragraph.is_empty() {
+    flow.push(FlowItem::Text(Box::new(paragraph.take_node())));
+  }
   let mut row = render_ctx.width.row(
     Row::new()
+      .overflow_visible()
       .wrap()
       .spacing(0.0)
       .align_items(Alignment::Center)
       .min_width(0.0),
   );
-  let mut spans = Vec::new();
-  push_inline_flow_children(&mut row, &mut spans, inlines, &style, theme, render_ctx);
-  flush_inline_spans(&mut row, &mut spans);
+  for item in flow {
+    row = row.child(match item {
+      FlowItem::Text(node) => Element::from_node((*node).max_width(FILL_WIDTH).min_width(0.0)),
+      FlowItem::Image(image, style) => render_markdown_image(image, &style, theme),
+    });
+  }
   row.into()
 }
 
-fn push_inline_flow_children(
-  row: &mut Row,
-  spans: &mut Vec<RichTextSpan>,
-  inlines: &[MarkdownInline],
-  style: &TextStyle,
-  theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
-) {
-  for inline in inlines {
-    match inline {
-      MarkdownInline::Link {
-        destination,
-        title,
-        children,
-      } => {
-        flush_inline_spans(row, spans);
-        let link_style = theme.link.apply(style);
-        let text = plain_inline_text(children);
-        let link = MarkdownLink {
-          destination: Arc::from(destination.as_str()),
-          title: Arc::from(title.as_str()),
-          text: Arc::from(text),
-        };
-        let node = Node::rich_text(markdown_inline_rich_text(children, &link_style, theme))
-          .max_width(FILL_WIDTH)
-          .min_width(0.0)
-          .cursor(CursorIcon::Pointer)
-          .on_click(link_click_handler(link, render_ctx));
-        *row = take_row(row).child(Element::from_node(node));
-      }
-      MarkdownInline::Image { .. } => {
-        flush_inline_spans(row, spans);
-        *row = take_row(row).child(render_markdown_image(inline, style, theme));
-      }
-      MarkdownInline::Emphasis(children) => {
-        let child_style = theme.emphasis.apply(style);
-        push_inline_flow_children(row, spans, children, &child_style, theme, render_ctx);
-      }
-      MarkdownInline::Strong(children) => {
-        let child_style = theme.strong.apply(style);
-        push_inline_flow_children(row, spans, children, &child_style, theme, render_ctx);
-      }
-      MarkdownInline::Strikethrough(children) => {
-        let child_style = theme.strikethrough.apply(style);
-        push_inline_flow_children(row, spans, children, &child_style, theme, render_ctx);
-      }
-      MarkdownInline::HardBreak => {
-        flush_inline_spans(row, spans);
-        *row = take_row(row).child(Text::new("").width(FILL_WIDTH));
-      }
-      _ => spans.extend(markdown_inline_rich_text(std::slice::from_ref(inline), style, theme)),
-    }
-  }
-}
-
-fn flush_inline_spans(row: &mut Row, spans: &mut Vec<RichTextSpan>) {
-  if spans.is_empty() {
-    return;
-  }
-  let node = Node::rich_text(std::mem::take(spans))
-    .max_width(FILL_WIDTH)
-    .min_width(0.0);
-  *row = take_row(row).child(Element::from_node(node));
-}
-
-fn take_row(row: &mut Row) -> Row {
-  std::mem::take(row)
-}
-
-fn link_click_handler(
-  link: MarkdownLink,
-  render_ctx: &MarkdownRenderContext,
-) -> impl Fn(crate::app::events::MouseEvent) + Send + Sync + 'static {
-  let on_link_click = render_ctx.on_link_click.clone();
-  #[cfg(feature = "router")]
-  let navigator = render_ctx.navigator.clone();
-  move |_| {
-    if let Some(on_link_click) = &on_link_click {
-      on_link_click(&link);
-      return;
-    }
-    #[cfg(feature = "router")]
-    if let Some(navigator) = &navigator
-      && is_router_link(link.destination())
-    {
-      navigator.push(link.destination().to_owned());
-    }
-  }
-}
-
-#[cfg(feature = "router")]
-fn is_router_link(destination: &str) -> bool {
-  destination.starts_with('/') || destination.starts_with('#') || destination.starts_with('?')
-}
-
-fn inline_requires_flow(inlines: &[MarkdownInline]) -> bool {
+/// Whether an image outside any link is among `inlines`: an image in a link
+/// is part of the link's words (its alt text).
+fn has_image(inlines: &[MarkdownInline]) -> bool {
   inlines.iter().any(|inline| match inline {
-    MarkdownInline::Link { .. } | MarkdownInline::Image { .. } => true,
+    MarkdownInline::Image { .. } => true,
     MarkdownInline::Emphasis(children) | MarkdownInline::Strong(children) | MarkdownInline::Strikethrough(children) => {
-      inline_requires_flow(children)
+      has_image(children)
     }
     _ => false,
   })
@@ -473,38 +452,18 @@ fn render_markdown_image(inline: &MarkdownInline, base_style: &TextStyle, theme:
   }
 }
 
-fn plain_inline_text(inlines: &[MarkdownInline]) -> String {
-  let mut text = String::new();
-  for inline in inlines {
-    match inline {
-      MarkdownInline::Text(value)
-      | MarkdownInline::Code(value)
-      | MarkdownInline::Math(value)
-      | MarkdownInline::Html(value)
-      | MarkdownInline::FootnoteReference(value) => text.push_str(value),
-      MarkdownInline::Emphasis(children)
-      | MarkdownInline::Strong(children)
-      | MarkdownInline::Strikethrough(children) => {
-        text.push_str(&plain_inline_text(children));
-      }
-      MarkdownInline::Link { children, .. } => text.push_str(&plain_inline_text(children)),
-      MarkdownInline::Image { alt, .. } => text.push_str(&plain_inline_text(alt)),
-      MarkdownInline::SoftBreak | MarkdownInline::HardBreak => text.push(' '),
-      MarkdownInline::TaskListMarker(checked) => text.push_str(if *checked { "[x] " } else { "[ ] " }),
-    }
-  }
-  text
-}
-
 fn render_blockquote(
   blocks: &[MarkdownBlock],
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
-  let mut body = render_ctx
-    .width
-    .row_body(Column::new().spacing(theme.nested_block_spacing).min_width(0.0));
+  let mut body = render_ctx.width.row_body(
+    Column::new()
+      .overflow_visible()
+      .spacing(theme.nested_block_spacing)
+      .min_width(0.0),
+  );
   for block in blocks {
     body = body.child(render_block(block, base_style, theme, render_ctx));
   }
@@ -517,6 +476,7 @@ fn render_blockquote(
 
   let mut row = render_ctx.width.row(
     Row::new()
+      .overflow_visible()
       .spacing(theme.blockquote_gap)
       .align_items(Alignment::Stretch)
       .child(Rect::new(bar_width, FILL_WIDTH).background(bar_color))
@@ -532,9 +492,24 @@ fn render_list(
   items: &[MarkdownListItem],
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
-  let mut list = render_ctx.width.blocks(Column::new().spacing(theme.list_item_spacing));
+  if let Some(list_view) = render_ctx.list_view {
+    let list = MarkdownList {
+      ordered,
+      start,
+      items,
+      style: base_style,
+      theme,
+      render_ctx,
+    };
+    if let Some(element) = list_view(&list) {
+      return element;
+    }
+  }
+  let mut list = render_ctx
+    .width
+    .blocks(Column::new().overflow_visible().spacing(theme.list_item_spacing));
   let start = start.unwrap_or(1);
   for (index, item) in items.iter().enumerate() {
     let marker = if ordered {
@@ -548,15 +523,19 @@ fn render_list(
     } else {
       theme.unordered_list_marker_width
     };
-    let mut body = render_ctx
-      .width
-      .row_body(Column::new().spacing(theme.nested_block_spacing).min_width(0.0));
+    let mut body = render_ctx.width.row_body(
+      Column::new()
+        .overflow_visible()
+        .spacing(theme.nested_block_spacing)
+        .min_width(0.0),
+    );
     for block in &item.blocks {
       body = body.child(render_block(block, base_style, theme, render_ctx));
     }
     list = list.child(
       render_ctx.width.row(
         Row::new()
+          .overflow_visible()
           .spacing(theme.list_marker_gap)
           .align_items(Alignment::Start)
           .child(Text::styled(&marker, marker_style).width(marker_width))
@@ -609,12 +588,12 @@ fn render_footnote_definition(
   blocks: &[MarkdownBlock],
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   let marker_style = theme.link.apply(base_style);
   let mut body = render_ctx
     .width
-    .row_body(Column::new().spacing(theme.nested_block_spacing));
+    .row_body(Column::new().overflow_visible().spacing(theme.nested_block_spacing));
   for block in blocks {
     body = body.child(render_block(block, base_style, theme, render_ctx));
   }
@@ -623,6 +602,7 @@ fn render_footnote_definition(
     .width
     .row(
       Row::new()
+        .overflow_visible()
         .spacing(theme.list_marker_gap)
         .align_items(Alignment::Start)
         .child(Text::styled(&format!("[^{label}]"), marker_style).width(theme.ordered_list_marker_width))
@@ -789,7 +769,7 @@ fn render_table(
   rows: &[MarkdownTableRow],
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   let mut table = Column::new().width(FILL_WIDTH);
   let line_color = table_line_color(theme);
@@ -829,7 +809,7 @@ fn render_table_cell(
   alignment: MarkdownTableAlignment,
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   let mut style = if header {
     theme.table_header.apply(base_style)
