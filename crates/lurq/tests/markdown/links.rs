@@ -176,8 +176,10 @@ fn markdown_link_presentation_styles_each_link_by_its_destination() {
 
 #[test]
 fn markdown_without_presentation_draws_links_in_the_theme_link_style() {
-  let mut theme = ThemeMarkdown::default();
-  theme.link = underlined("#123456", "#654321");
+  let theme = ThemeMarkdown {
+    link: underlined("#123456", "#654321"),
+    ..ThemeMarkdown::default()
+  };
   let (_app, tree) = mount(
     MarkdownProps::new("Read [the docs](/docs) now.")
       .theme(theme)

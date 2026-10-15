@@ -82,18 +82,20 @@ fn tooltip_shown(quads: &[Quad], words: &str) -> bool {
 }
 
 fn theme(delay: Duration) -> ThemeMarkdown {
-  let mut theme = ThemeMarkdown::default();
-  theme.link_focus_ring = Some(MarkdownFocusRing::new(2.0, Color::from_hex(RING)).offset(1.0));
-  theme.link_tooltip_delay = delay;
-  theme
+  ThemeMarkdown {
+    link_focus_ring: Some(MarkdownFocusRing::new(2.0, Color::from_hex(RING)).offset(1.0)),
+    link_tooltip_delay: delay,
+    ..ThemeMarkdown::default()
+  }
 }
+
+/// Each followed link: its index, its destination, and whether synthetic
+/// input followed it.
+type Followed = Arc<Mutex<Vec<(usize, String, bool)>>>;
 
 /// Records each followed link's index and destination, and whether the input
 /// that followed it was synthetic.
-fn recorder() -> (
-  Arc<Mutex<Vec<(usize, String, bool)>>>,
-  impl Fn(&lurq::components::MarkdownLink) + Send + Sync,
-) {
+fn recorder() -> (Followed, impl Fn(&lurq::components::MarkdownLink) + Send + Sync) {
   let followed = Arc::new(Mutex::new(Vec::new()));
   let record = {
     let followed = followed.clone();
