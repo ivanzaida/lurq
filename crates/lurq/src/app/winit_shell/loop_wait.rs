@@ -11,7 +11,7 @@ use winit::event_loop::ControlFlow;
 pub(super) struct LoopNeeds {
   /// A video is presented directly from the loop, every turn.
   pub(super) continuous_video: bool,
-  /// A redraw was requested and its event is on its way.
+  /// A redraw was requested and its event is on its way (unless the window is minimized or occluded).
   pub(super) redraw_pending: bool,
   /// Something has work for the next turn that nothing wakes the loop for: an `on_tick` callback, a pending click
   /// waiting for a double click, a query ready to be ticked.
@@ -29,12 +29,19 @@ pub(super) enum LoopWait {
 }
 
 impl LoopWait {
-  pub(super) fn of(needs: LoopNeeds) -> Self {
+  /// `now` is when the turn began: with a redraw pending, only a deadline after it wakes the loop.
+  pub(super) fn of(needs: LoopNeeds, now: Instant) -> Self {
     if needs.continuous_video {
       return Self::Poll;
     }
     if needs.redraw_pending {
-      return Self::Wait;
+      // The redraw's event brings the next turn, but a window that is minimized or occluded may not get it for
+      // a long time, so a timer still wakes the loop at its time. A deadline already due is what the pending
+      // redraw serves (a scheduled frame); waking for it would spin while the redraw does not come.
+      return match needs.next_deadline.filter(|deadline| *deadline > now) {
+        Some(deadline) => Self::WaitUntil(deadline),
+        None => Self::Wait,
+      };
     }
     if needs.polling {
       return Self::Poll;

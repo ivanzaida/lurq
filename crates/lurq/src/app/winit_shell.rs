@@ -1799,12 +1799,15 @@ impl ApplicationHandler for WinitHandler {
       .chain(self.main.tree.next_wake_at())
       .min();
 
-    let wait = LoopWait::of(LoopNeeds {
-      continuous_video: has_continuous_video,
-      redraw_pending,
-      polling: self.main.needs_polling() || secondary_needs_polling,
-      next_deadline,
-    });
+    let wait = LoopWait::of(
+      LoopNeeds {
+        continuous_video: has_continuous_video,
+        redraw_pending,
+        polling: self.main.needs_polling() || secondary_needs_polling,
+        next_deadline,
+      },
+      now,
+    );
     event_loop.set_control_flow(wait.control_flow());
     let control_flow = wait.name();
     self.loop_cadence.record(
