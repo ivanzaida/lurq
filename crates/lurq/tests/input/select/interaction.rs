@@ -214,7 +214,7 @@ fn menu_open(tree: &mut Tree, prefix: &str) -> bool {
 }
 
 #[test]
-fn pressing_another_select_closes_the_open_menu_first() {
+fn pressing_another_select_switches_menus_in_one_press() {
   let first_ref = ElementRef::new();
   let second_ref = ElementRef::new();
   let mut tree = Tree::new();
@@ -231,14 +231,9 @@ fn pressing_another_select_closes_the_open_menu_first() {
   pointer_click(&mut tree, x, y, MouseButton::Left);
   run_pass(&mut tree);
   assert!(!menu_open(&mut tree, "First"), "the press closes the first menu");
-  assert!(!menu_open(&mut tree, "Second"), "and does not reach the second select");
-  assert!(first_ref.focused());
-
-  pointer_click(&mut tree, x, y, MouseButton::Left);
-  run_pass(&mut tree);
+  assert!(menu_open(&mut tree, "Second"), "and opens the second one");
   assert!(second_ref.focused());
   assert!(!first_ref.focused());
-  assert!(menu_open(&mut tree, "Second"), "the next press opens the second menu");
 }
 
 #[test]

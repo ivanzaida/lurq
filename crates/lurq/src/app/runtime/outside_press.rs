@@ -9,6 +9,11 @@
 //! [`OutsidePress::PassThrough`], the press is dispatched as usual and the
 //! popups close afterwards, unless a handler prevents the default.
 //!
+//! A press on another dropdown's trigger is dispatched whatever the popups
+//! say, like a menu bar: one press closes the open dropdown and opens the
+//! pressed one. A trigger is a `Select`, or the anchor of a signal-driven
+//! overlay that dismisses on outside presses, declared open or closed.
+//!
 //! A press is outside an overlay when it lands neither on the overlay's
 //! content, nor on its anchor, nor on a layer stacked above it (a select menu
 //! or a popup opened from inside it, which the overlay host places after it).
@@ -16,7 +21,7 @@
 use super::{OverlayDismissEntry, Tree, close_open_selects_except, point_in_element_rect};
 use crate::{
   app::{ctx::OutsidePress, hit_test::hit_test_tree},
-  core::{NodeId, Signal},
+  core::{ElementRef, Signal},
   layout::layout_result::LayoutResult,
   node::{Node, SyntheticNodeRole, node_kind::NodeKind},
 };
@@ -34,26 +39,27 @@ impl Tree {
     if !root.has_synthetic_role(SyntheticNodeRole::OverlayHost) {
       return false;
     }
+    let target = PressTarget::at(root, result, x, y);
+    if target.on_dropdown_trigger {
+      return false;
+    }
     let layer = pressed_layer(root, result, x, y);
     let overlays: Vec<&OverlayDismissEntry> = self
       .overlay_dismiss_entries
       .iter()
       .filter(|entry| is_outside(entry, x, y, layer) && entry.open.get_untracked())
       .collect();
-    let selects = selects_closed_by_press(root, result, x, y);
     let consumed = overlays
       .iter()
       .any(|entry| entry.outside_press == OutsidePress::Consume)
-      || selects
-        .as_ref()
-        .is_some_and(|selects| any_open_select_consumes(root, selects.pressed));
+      || (!target.on_select_menu && any_open_select_consumes(root));
     if !consumed {
       return false;
     }
 
     let close: Vec<Signal<bool>> = overlays.iter().map(|entry| entry.open.clone()).collect();
-    if let Some(selects) = selects {
-      close_open_selects_except(root, selects.pressed);
+    if !target.on_select_menu {
+      close_open_selects_except(root, None);
     }
     for open in close {
       open.set(false);
@@ -107,39 +113,51 @@ fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32) -> usize {
     .map_or(0, |(index, _)| index)
 }
 
-/// The selects a left press closes, as the press dispatch does: every open
-/// select except the pressed one (its own click toggles it). `None` when the
-/// press lands on a select menu, which closes nothing.
-struct ClosedSelects {
-  pressed: Option<NodeId>,
+/// What the topmost element under a left press belongs to.
+struct PressTarget {
+  /// A select menu: the press closes no select.
+  on_select_menu: bool,
+  /// A `Select` or a dropdown anchor: the press opens that dropdown, so it
+  /// goes on to the trigger.
+  on_dropdown_trigger: bool,
 }
 
-fn selects_closed_by_press(root: &Node, result: &LayoutResult, x: f32, y: f32) -> Option<ClosedSelects> {
-  let mut hits = Vec::new();
-  hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
-  if hits
-    .iter()
-    .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu))
-  {
-    return None;
+impl PressTarget {
+  fn at(root: &Node, result: &LayoutResult, x: f32, y: f32) -> Self {
+    let mut hits = Vec::new();
+    hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
+    let on_select_menu = hits
+      .iter()
+      .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu));
+    let mut anchors = Vec::new();
+    collect_dropdown_anchors(root, &mut anchors);
+    let on_dropdown_trigger = hits.iter().any(|(node, _)| {
+      matches!(node.node_kind(), NodeKind::Select { .. })
+        || node
+          .element_ref
+          .as_ref()
+          .is_some_and(|element_ref| anchors.iter().any(|anchor| anchor.same_handle(element_ref)))
+    });
+    Self {
+      on_select_menu,
+      on_dropdown_trigger,
+    }
   }
-  let pressed = hits
-    .iter()
-    .find(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }))
-    .map(|(node, _)| node.node_id());
-  Some(ClosedSelects { pressed })
 }
 
-fn any_open_select_consumes(node: &Node, except: Option<NodeId>) -> bool {
+fn collect_dropdown_anchors<'a>(node: &'a Node, anchors: &mut Vec<&'a ElementRef>) {
+  anchors.extend(node.dropdown_anchor());
+  for child in node.children() {
+    collect_dropdown_anchors(child, anchors);
+  }
+}
+
+fn any_open_select_consumes(node: &Node) -> bool {
   if let NodeKind::Select { state } = node.node_kind()
-    && Some(node.node_id()) != except
     && state.is_open()
     && state.outside_press() == OutsidePress::Consume
   {
     return true;
   }
-  node
-    .children()
-    .iter()
-    .any(|child| any_open_select_consumes(child, except))
+  node.children().iter().any(any_open_select_consumes)
 }

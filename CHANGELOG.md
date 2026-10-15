@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Behaviour changes:
+
+- A left press on another dropdown's trigger while a popup or select menu is open now switches dropdowns in one press, like a menu bar. It closes the open one and is delivered to the trigger, which opens its dropdown and takes focus. It used to be consumed by `OutsidePress::Consume` (the default), so the person had to press the second trigger twice. A trigger is a `Select`, or the anchor of a `Popup`/`Popover`/`Overlay` with `dismiss_on_outside_click(true)` and a signal-backed open state, whether that popup is open or closed. A press on empty space or ordinary content still only closes the open dropdown, and a press on the open dropdown's own trigger still reaches that trigger alone, so a toggle closes it. A popup that the app adds to the tree only while it is open has no anchor lurq can see while it is closed. Declare it always and drive it with `.open(signal)` so that its trigger switches in one press.
+- No public API change.
+
 ## 0.45.0 — 2026-10-15
 
 Behaviour changes:

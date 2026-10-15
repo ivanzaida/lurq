@@ -169,11 +169,18 @@ impl Default for CollisionStrategy {
 /// A press is outside a popup when it lands neither on the popup, nor on its
 /// anchor (a select's trigger), nor on a layer opened above it, such as a
 /// select menu or a popup opened from inside it.
+///
+/// A press on another dropdown's trigger is always delivered, so one press
+/// switches dropdowns, like a menu bar. A trigger is a `Select`, or the anchor
+/// of a signal-driven overlay with `dismiss_on_outside_click(true)`, open or
+/// closed. An overlay that is only declared while open has no trigger while it
+/// is closed: declare it always and drive it with its open signal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OutsidePress {
   /// The press only closes the popup, like a native menu: the element under
   /// the pointer receives no press, release or click, and focus does not move.
-  /// Pressing again reaches it.
+  /// Pressing again reaches it. A press on another dropdown's trigger is
+  /// delivered all the same.
   #[default]
   Consume,
   /// The press closes the popup and is also delivered to the element under
@@ -475,6 +482,12 @@ impl From<Overlay> for Element {
   fn from(overlay: Overlay) -> Self {
     let mut node = Node::logical();
     node.set_layout_neutral(true);
+    if overlay.dismiss_on_outside_click
+      && matches!(overlay.open, OpenState::Signal(_))
+      && let Some(anchor) = &overlay.anchor
+    {
+      node.set_dropdown_anchor(anchor.clone());
+    }
     if let Some(spec) = overlay.into_spec() {
       node.set_overlay_declaration(spec);
     }

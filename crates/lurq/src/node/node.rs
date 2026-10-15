@@ -582,6 +582,10 @@ pub(crate) struct Node {
   /// Author-supplied HTML-like class list. Used for lookup, not retained identity.
   pub(crate) classes: Vec<Arc<str>>,
   pub(crate) overlay_declaration: Option<Box<crate::app::ctx::OverlaySpec>>,
+  /// The anchor of a signal-driven overlay declared here that closes on an
+  /// outside press, open or closed: pressing it opens a dropdown, so another
+  /// popup's closing press on it is delivered.
+  pub(crate) dropdown_anchor: Option<CoreElementRef>,
   pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
   pub(crate) layout_neutral: bool,
   pub(crate) synthetic_role: Option<SyntheticNodeRole>,
@@ -1650,6 +1654,7 @@ impl Node {
       element_id: None,
       classes: Vec::new(),
       overlay_declaration: None,
+      dropdown_anchor: None,
       modal_declaration: None,
       layout_neutral: false,
       synthetic_role: None,
@@ -3205,6 +3210,14 @@ impl Node {
     self.overlay_declaration = Some(Box::new(spec));
   }
 
+  pub(crate) fn set_dropdown_anchor(&mut self, anchor: CoreElementRef) {
+    self.dropdown_anchor = Some(anchor);
+  }
+
+  pub(crate) fn dropdown_anchor(&self) -> Option<&CoreElementRef> {
+    self.dropdown_anchor.as_ref()
+  }
+
   pub(crate) fn set_modal_declaration(&mut self, spec: crate::app::ctx::ModalSpec) {
     self.modal_declaration = Some(Box::new(spec));
   }
@@ -4150,6 +4163,7 @@ impl Node {
         .overlay_declaration
         .as_ref()
         .map(|spec| Box::new(spec.clone_for_reuse())),
+      dropdown_anchor: self.dropdown_anchor.clone(),
       modal_declaration: self
         .modal_declaration
         .as_ref()

@@ -179,7 +179,9 @@ where
 
   /// Whether the press outside the open menu that closes it also reaches the
   /// element under the pointer. Defaults to [`OutsidePress::Consume`]: the
-  /// press only closes the menu, and the select keeps focus.
+  /// press only closes the menu, and the select keeps focus. A press on
+  /// another dropdown's trigger, such as another select, is delivered either
+  /// way and opens that dropdown.
   pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
     self.outside_press = outside_press;
     self
