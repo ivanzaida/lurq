@@ -284,7 +284,7 @@ An idle window does not poll: its event loop sleeps until the next timer or sche
 - A result or stream item handed over from Tokio wakes the loop when it arrives.
 - A future that lurq polls itself (one not running on Tokio) gets a waker that wakes the loop. Such a future must honour the `Future` contract: when it returns `Pending`, it must arrange for that waker to be called once it can make progress (an async channel, timer or I/O future does this for you). A future that returns `Pending` without arranging a wake is not polled again until something else wakes the loop.
 - Starting or restarting a timer, or running a future action, from another thread wakes the loop.
-- A `Signal` written off the loop's thread wakes the loop when the write marks a component for render: a `.set` inside a Tokio `ctx.future`, from a `std::thread`, or a `StreamEmitter::emit` called from a thread. The component renders the new value on the loop's next turn. A write on the loop's own thread needs no wake: the turn it happens in picks it up.
+- A `Signal` written off the loop's thread wakes the loop when the write marks a component for render: a `.set` inside a Tokio `ctx.future`, from a `std::thread`, or a `StreamEmitter::emit` called from a thread. The component renders the new value on the loop's next turn. Writes wake the loop once until it renders them, so a thread that writes thousands of times between two turns wakes it once and the render shows the latest value. A write on the loop's own thread needs no wake: the turn it happens in picks it up.
 
 ## Timers
 
