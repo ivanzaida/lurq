@@ -11,7 +11,7 @@ use winit::{
   application::ApplicationHandler,
   dpi::{PhysicalPosition, Position},
   event::{ElementState, MouseScrollDelta, TouchPhase, WindowEvent},
-  event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+  event_loop::{ActiveEventLoop, EventLoop},
   keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
   window::{
     CursorIcon as WinitCursorIcon, Fullscreen, Icon as WinitIcon, ResizeDirection as WinitResizeDirection, Window,
@@ -33,7 +33,12 @@ use crate::{
 };
 
 mod ime;
+mod loop_wait;
+#[cfg(test)]
+mod loop_wait_tests;
 mod native_resize;
+
+use loop_wait::{LoopNeeds, LoopWait};
 
 const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
@@ -328,8 +333,9 @@ impl ManagedWindow {
     self.window.as_ref().map(Window::id)
   }
 
-  fn has_tick(&self) -> bool {
-    self.on_tick.is_some() || self.tree.has_active_tick_sources()
+  /// Whether the loop must poll for this window: `on_tick` runs every turn.
+  fn needs_polling(&self) -> bool {
+    self.on_tick.is_some() || self.tree.needs_polling()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop, app: &mut App) {
@@ -904,10 +910,6 @@ impl ManagedSecondaryWindow {
 
   fn close_requested(&self) -> bool {
     self.close_requested
-  }
-
-  fn has_tick(&self, tree: Option<&Tree>) -> bool {
-    tree.is_some_and(Tree::has_active_tick_sources)
   }
 
   fn create_window(
@@ -1760,12 +1762,12 @@ impl ApplicationHandler for WinitHandler {
     let sync_secondary = stage_started_at.elapsed();
 
     let stage_started_at = Instant::now();
-    let secondary_has_tick = self.secondaries.iter().any(|secondary_window| {
+    let secondary_needs_polling = self.secondaries.iter().any(|secondary_window| {
       self
         .main
         .tree
         .secondary_window(secondary_window.index())
-        .is_some_and(|secondary| secondary_window.has_tick(Some(secondary.tree())))
+        .is_some_and(|secondary| secondary.tree().needs_polling())
     });
     let secondary_has_continuous_video = self.secondaries.iter().any(|secondary_window| {
       self
@@ -1784,7 +1786,7 @@ impl ApplicationHandler for WinitHandler {
           .secondary_window(secondary_window.index())
           .is_some_and(|secondary| secondary.tree().needs_redraw())
       });
-    let next_scheduled_redraw = self
+    let next_deadline = self
       .secondaries
       .iter()
       .filter_map(|secondary_window| {
@@ -1792,25 +1794,19 @@ impl ApplicationHandler for WinitHandler {
           .main
           .tree
           .secondary_window(secondary_window.index())
-          .and_then(|secondary| secondary.tree().next_scheduled_redraw())
+          .and_then(|secondary| secondary.tree().next_wake_at())
       })
-      .chain(self.main.tree.next_scheduled_redraw())
+      .chain(self.main.tree.next_wake_at())
       .min();
 
-    let control_flow;
-    if has_continuous_video {
-      control_flow = "poll";
-      event_loop.set_control_flow(ControlFlow::Poll);
-    } else if let Some(next_redraw) = next_scheduled_redraw.filter(|_| !redraw_pending) {
-      control_flow = "wait_until";
-      event_loop.set_control_flow(ControlFlow::WaitUntil(next_redraw));
-    } else if (self.main.has_tick() || secondary_has_tick) && !redraw_pending {
-      control_flow = "poll";
-      event_loop.set_control_flow(ControlFlow::Poll);
-    } else {
-      control_flow = "wait";
-      event_loop.set_control_flow(ControlFlow::Wait);
-    }
+    let wait = LoopWait::of(LoopNeeds {
+      continuous_video: has_continuous_video,
+      redraw_pending,
+      polling: self.main.needs_polling() || secondary_needs_polling,
+      next_deadline,
+    });
+    event_loop.set_control_flow(wait.control_flow());
+    let control_flow = wait.name();
     self.loop_cadence.record(
       now,
       has_continuous_video,

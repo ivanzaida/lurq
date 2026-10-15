@@ -160,6 +160,10 @@ name = "canvas_capture_check"
 required-features = ["canvas", "screenshot"]
 
 [[example]]
+name = "idle_wait"
+required-features = ["winit", "wgpu", "tokio"]
+
+[[example]]
 name = "text_interaction_probe"
 required-features = ["winit", "dx12", "perf_profile"]
 

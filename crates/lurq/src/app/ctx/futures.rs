@@ -14,7 +14,10 @@ use std::{
 use parking_lot::Mutex;
 
 use super::Ctx;
-use crate::core::signal::{Signal, SignalValue};
+use crate::{
+  app::window::WindowWaker,
+  core::signal::{Signal, SignalValue},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
 pub enum FutureStatus {
@@ -143,7 +146,7 @@ pub struct StreamHandle<T: SignalValue, E: SignalValue> {
 pub struct StreamEmitter<T: SignalValue, E: SignalValue> {
   state: Signal<FutureState<T, E>>,
   #[cfg(feature = "tokio")]
-  sender: Option<mpsc::Sender<FutureCompletion>>,
+  sender: Option<CompletionSender>,
 }
 
 pub struct FutureAction<A, T: SignalValue, E: SignalValue> {
@@ -157,6 +160,27 @@ type BoxFutureResult<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 type ActionRunner<A, T, E> = Arc<dyn Fn(A) -> BoxFutureResult<T, E> + Send + Sync>;
 #[cfg(feature = "tokio")]
 type FutureCompletion = Box<dyn FnOnce() + Send>;
+
+/// Hands completions of work on a Tokio runtime to the event loop, and wakes the loop for each, so that it can
+/// wait instead of polling the channel.
+#[cfg(feature = "tokio")]
+#[derive(Clone)]
+struct CompletionSender {
+  sender: mpsc::Sender<FutureCompletion>,
+  waker: Waker,
+}
+
+#[cfg(feature = "tokio")]
+impl CompletionSender {
+  /// Whether the completion was handed over: `false` once the task's receiving end is gone.
+  fn send(&self, completion: FutureCompletion) -> bool {
+    let sent = self.sender.send(completion).is_ok();
+    if sent {
+      self.waker.wake_by_ref();
+    }
+    sent
+  }
+}
 #[cfg(feature = "tokio")]
 pub(super) type RuntimeFutureHandle = Option<tokio::runtime::Handle>;
 #[cfg(not(feature = "tokio"))]
@@ -165,6 +189,9 @@ pub(super) type RuntimeFutureHandle = ();
 #[derive(Clone)]
 pub(super) struct AsyncTask {
   inner: Arc<Mutex<AsyncTaskInner>>,
+  /// Wakes the event loop when the task gets work to poll, and when work on a Tokio runtime hands over a
+  /// result. A future polled by `tick_futures` gets the loop's waker from there.
+  waker: Waker,
 }
 
 #[derive(Default)]
@@ -240,6 +267,19 @@ impl Wake for NoopWake {
   fn wake(self: Arc<Self>) {}
 }
 
+/// Wakes the event loop of a window.
+struct LoopWake(WindowWaker);
+
+impl Wake for LoopWake {
+  fn wake(self: Arc<Self>) {
+    (self.0)();
+  }
+
+  fn wake_by_ref(self: &Arc<Self>) {
+    (self.0)();
+  }
+}
+
 impl<T: SignalValue, E: SignalValue> Clone for FutureHandle<T, E> {
   fn clone(&self) -> Self {
     Self {
@@ -278,9 +318,7 @@ where
     #[cfg(feature = "tokio")]
     if let Some(sender) = &self.sender {
       let state = self.state.clone();
-      return sender
-        .send(Box::new(move || state.set(FutureState::fulfilled(data))))
-        .is_ok();
+      return sender.send(Box::new(move || state.set(FutureState::fulfilled(data))));
     }
 
     self.state.set(FutureState::fulfilled(data));
@@ -291,12 +329,10 @@ where
     #[cfg(feature = "tokio")]
     if let Some(sender) = &self.sender {
       let state = self.state.clone();
-      return sender
-        .send(Box::new(move || {
-          let previous_data = state.get_untracked().data;
-          state.set(FutureState::rejected(error, previous_data));
-        }))
-        .is_ok();
+      return sender.send(Box::new(move || {
+        let previous_data = state.get_untracked().data;
+        state.set(FutureState::rejected(error, previous_data));
+      }));
     }
 
     let previous_data = self.state.get_untracked().data;
@@ -406,13 +442,26 @@ where
 }
 
 impl AsyncTask {
-  fn new() -> Self {
+  fn new(waker: Waker) -> Self {
     Self {
       inner: Arc::new(Mutex::new(AsyncTaskInner::default())),
+      waker,
     }
   }
 
-  /// Replaces the running work with a future polled by `tick_futures`.
+  /// A channel for completions of work on a Tokio runtime that wakes the event loop for each.
+  #[cfg(feature = "tokio")]
+  fn completion_channel(&self) -> (CompletionSender, mpsc::Receiver<FutureCompletion>) {
+    let (sender, receiver) = mpsc::channel();
+    let sender = CompletionSender {
+      sender,
+      waker: self.waker.clone(),
+    };
+    (sender, receiver)
+  }
+
+  /// Replaces the running work with a future polled by `tick_futures`, and wakes the event loop to poll it: the
+  /// work may be started from another thread, while the loop waits.
   fn set(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
     let work = AsyncWork {
       future: Some(future),
@@ -420,6 +469,7 @@ impl AsyncTask {
       tokio_task: None,
     };
     self.replace_work(work);
+    self.waker.wake_by_ref();
   }
 
   /// Replaces the running work with `future` spawned on `runtime`.
@@ -549,6 +599,9 @@ impl AsyncTask {
 
       if let Some(completion) = completion {
         completion();
+        // One completion per turn, and the wakes of several handed over before a turn make one turn: wake the
+        // loop again so that a completion still queued gets a turn of its own.
+        self.waker.wake_by_ref();
         return true;
       }
     }
@@ -557,8 +610,14 @@ impl AsyncTask {
   }
 }
 
-pub(super) fn noop_waker() -> Waker {
-  Waker::from(Arc::new(NoopWake))
+impl Ctx {
+  /// Wakes this component's window's event loop; does nothing outside a window.
+  pub(super) fn loop_waker(&self) -> Waker {
+    match &self.window {
+      Some(window) => Waker::from(Arc::new(LoopWake(window.loop_waker()))),
+      None => Waker::from(Arc::new(NoopWake)),
+    }
+  }
 }
 
 fn start_future_task<T, E>(
@@ -576,7 +635,7 @@ fn start_future_task<T, E>(
   #[cfg(feature = "tokio")]
   if let Some(handle) = runtime_handle {
     let completion_state = state.clone();
-    let (sender, receiver) = mpsc::channel::<FutureCompletion>();
+    let (sender, receiver) = task.completion_channel();
     let completion_task = async move {
       let result = future.await;
       let completion: FutureCompletion = Box::new(move || match result {
@@ -586,7 +645,8 @@ fn start_future_task<T, E>(
           completion_state.set(FutureState::rejected(error, previous_data));
         }
       });
-      let _ = sender.send(completion);
+      // `false` when the task was cancelled or replaced: its result is no longer wanted.
+      sender.send(completion);
     };
     task.spawn(&handle, completion_task, receiver, true);
     return;
@@ -622,7 +682,7 @@ fn start_stream_task<T, E, Fut>(
 
   #[cfg(feature = "tokio")]
   if let Some(handle) = runtime_handle {
-    let (sender, receiver) = mpsc::channel::<FutureCompletion>();
+    let (sender, receiver) = task.completion_channel();
     let emitter = StreamEmitter {
       state,
       sender: Some(sender),
@@ -684,7 +744,7 @@ impl Ctx {
     }
 
     let state = self.signal(FutureState::idle());
-    let task = AsyncTask::new();
+    let task = AsyncTask::new(self.loop_waker());
     let handle = FutureHandle {
       state: state.clone(),
       task: task.clone(),
@@ -741,7 +801,7 @@ impl Ctx {
     }
 
     let state = self.signal(FutureState::idle());
-    let task = AsyncTask::new();
+    let task = AsyncTask::new(self.loop_waker());
     let handle = StreamHandle {
       state: state.clone(),
       task: task.clone(),
@@ -793,7 +853,7 @@ impl Ctx {
     }
 
     let state = self.signal(FutureState::idle());
-    let task = AsyncTask::new();
+    let task = AsyncTask::new(self.loop_waker());
     let action = FutureAction {
       state,
       task: task.clone(),

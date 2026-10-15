@@ -422,8 +422,10 @@ impl Window {
     }
   }
 
-  #[cfg(feature = "query")]
-  pub(crate) fn query_waker(&self) -> WindowWaker {
+  /// A waker for work that finishes outside the event loop (timers started, futures and queries that can make
+  /// progress): it wakes the shell attached to the window when it is called, and does nothing once the window is
+  /// gone.
+  pub(crate) fn loop_waker(&self) -> WindowWaker {
     let window = Arc::downgrade(&self.inner);
     Arc::new(move || {
       let wake = window.upgrade().and_then(|window| window.read().unwrap().waker.clone());

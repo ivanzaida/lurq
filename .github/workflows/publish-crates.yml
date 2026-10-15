@@ -30,6 +30,7 @@ jobs:
           cargo test -p lurq --features query,tokio --lib query::tests
           cargo test -p lurq --features query,tokio --test query_tests --test runtime_tests --test reactivity_tests
           cargo test -p lurq --features canvas --test canvas_tests
+          cargo test -p lurq --features canvas,tokio --test runtime_tests loop_wake
           cargo test -p lurq --features canvas,perf_profile --lib
           cargo check -p lurq --features canvas,winit,wgpu,query,tokio
           cargo test -p lurq --test input_tests checkbox

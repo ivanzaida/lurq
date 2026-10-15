@@ -32,6 +32,14 @@ mod futures {
 }
 mod headless_pass;
 mod input_source;
+// `Tree::set_canvas_waker` stands in for the shell's event-loop waker.
+#[cfg(feature = "canvas")]
+mod loop_wake {
+  mod local_future_wakes_loop;
+  mod timer_start_wakes_loop;
+  #[cfg(feature = "tokio")]
+  mod tokio_work_wakes_loop;
+}
 mod modal_resize;
 mod mouse_leave;
 mod outside_press;
