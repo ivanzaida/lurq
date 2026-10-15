@@ -316,3 +316,38 @@ fn text_input_arrow_up_on_the_first_row_goes_to_the_start() {
   editor.type_marker();
   assert_eq!(editor.value.get(), format!("#{text}"));
 }
+
+#[test]
+fn text_input_arrow_up_and_down_keep_the_column_across_a_short_row() {
+  let text = "abcdefghij\nab\nabcdefghij";
+  let mut editor = Editor::new(text);
+  editor.key("ArrowUp", false);
+  editor.key("ArrowUp", false);
+  editor.type_marker();
+  assert_eq!(
+    editor.value.get(),
+    "abcdefghij#\nab\nabcdefghij",
+    "the short row in between does not move the column the caret goes back to"
+  );
+
+  editor.key("Backspace", false);
+  editor.key("ArrowDown", false);
+  editor.key("ArrowDown", false);
+  editor.type_marker();
+  assert_eq!(editor.value.get(), "abcdefghij\nab\nabcdefghij#");
+}
+
+#[test]
+fn text_input_a_horizontal_move_resets_the_column_arrows_keep() {
+  let text = "abcdefghij\nab\nabcdefghij";
+  let mut editor = Editor::new(text);
+  editor.key("ArrowUp", false);
+  editor.key("ArrowLeft", false);
+  editor.key("ArrowUp", false);
+  editor.type_marker();
+  assert_eq!(
+    editor.value.get(),
+    "a#bcdefghij\nab\nabcdefghij",
+    "after ArrowLeft the caret moves up from its new place"
+  );
+}

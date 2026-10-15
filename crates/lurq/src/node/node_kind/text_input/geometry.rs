@@ -18,6 +18,7 @@ impl TextInputState {
     let old_scroll_x = old_inner.scroll_x;
     let old_scroll = old_inner.scroll.clone();
     let old_follow_caret = old_inner.follow_caret;
+    let old_vertical_goal = old_inner.vertical_goal;
     let old_focused = old_inner.focused;
     let old_composition = old_inner.composition.clone();
     let old_undo_stack = old_inner.undo_stack.clone();
@@ -41,6 +42,7 @@ impl TextInputState {
     inner.scroll_x = old_scroll_x;
     inner.scroll = old_scroll;
     inner.follow_caret = old_follow_caret;
+    inner.vertical_goal = old_vertical_goal;
     inner.focused = old_focused;
     inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;

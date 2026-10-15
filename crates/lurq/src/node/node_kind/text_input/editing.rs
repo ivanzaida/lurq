@@ -175,6 +175,8 @@ impl TextInputState {
   /// Moves the caret one laid-out row up or down, as near its x as that row
   /// allows: a soft-wrapped paragraph moves a wrapped line at a time. Past
   /// the first row the caret goes to the start, past the last to the end.
+  /// A run of vertical moves keeps the x it started from, so a short row on
+  /// the way does not pull the caret to its end for the rows after it.
   fn move_vertical(&self, down: bool, selecting: bool) {
     if self.move_token_vertical(down, selecting) {
       return;
@@ -182,10 +184,15 @@ impl TextInputState {
     let value = self.value();
     let mut inner = self.inner.lock();
     let caret = clamp_to_char_boundary(&value, inner.caret);
-    let (x, y) = shown_caret_point(&inner, &value, caret);
+    let (shown_x, y) = shown_caret_point(&inner, &value, caret);
+    let x = match inner.vertical_goal {
+      Some((goal_caret, goal_x)) if goal_caret == caret => goal_x,
+      _ => shown_x,
+    };
     let target =
       closest_caret_on_adjacent_row(&inner.caret_positions, y, x, down).unwrap_or(if down { value.len() } else { 0 });
     move_inner_to(&mut inner, target, selecting);
+    inner.vertical_goal = Some((inner.caret, x));
     drop(inner);
     self.mark_layout_dirty();
   }
