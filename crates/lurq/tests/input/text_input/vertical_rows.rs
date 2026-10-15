@@ -422,3 +422,36 @@ fn text_input_moving_left_and_back_starts_a_new_column() {
     "a horizontal move, even back to the same place, ends the run of vertical moves"
   );
 }
+
+#[test]
+fn text_input_grows_to_show_the_empty_row_after_a_wrapped_paragraph_and_a_trailing_break() {
+  for line_break in BREAKS {
+    let text = paragraph();
+    let mut editor = Editor::new(&text);
+    let wrapped = editor.tree.get_element_by_id_mut(ID).unwrap().bounds().unwrap();
+    let rows = editor.rows();
+
+    let mut editor = Editor::new(&format!("{text}{line_break}"));
+    let bounds = editor.tree.get_element_by_id_mut(ID).unwrap().bounds().unwrap();
+    let row_pitch = wrapped.height / rows as f32;
+    assert!(
+      (bounds.height - wrapped.height - row_pitch).abs() < 0.5,
+      "after {line_break:?} the input grows by one row, to {} rows, for the caret's empty row: {} -> {}",
+      rows + 1,
+      wrapped.height,
+      bounds.height
+    );
+    let caret = editor
+      .tree
+      .ime_cursor_area()
+      .expect("the focused input places its caret");
+    assert!(
+      caret.y + caret.height <= bounds.y + bounds.height + 0.01,
+      "after {line_break:?} the caret ({}..{}) shows inside the input ({}..{})",
+      caret.y,
+      caret.y + caret.height,
+      bounds.y,
+      bounds.y + bounds.height
+    );
+  }
+}
