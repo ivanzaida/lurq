@@ -516,6 +516,18 @@ pub(crate) fn caret_y_for_index(positions: &CaretPositions, index: usize) -> Opt
     .map(|position| position.y)
 }
 
+/// The top of the empty row that follows `text` when it ends with a line
+/// break: one `line_height` below the row the break ends, which already
+/// counts the rows its paragraph wrapped into. Falls back to one row per line
+/// break when the layout has no caret before the break.
+pub(crate) fn trailing_break_row_y(positions: &CaretPositions, text: &str, line_height: f32) -> f32 {
+  let break_index = text.len().saturating_sub(1);
+  caret_y_for_index(positions, break_index).map_or_else(
+    || text.matches('\n').count() as f32 * line_height,
+    |row| row + line_height,
+  )
+}
+
 pub(crate) fn selection_ranges_for_positions(
   positions: &CaretPositions,
   start: usize,

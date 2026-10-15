@@ -343,8 +343,10 @@ impl TextInputState {
 /// that ends with a line break is on the empty row after it.
 fn shown_caret_point(inner: &TextInputInner, value: &str, caret: usize) -> (f32, f32) {
   if inner.overflow == TextInputOverflow::Multiline && caret == value.len() && value.ends_with('\n') {
-    let rows = value.matches('\n').count() as f32;
-    return (0.0, rows * inner.caret_height);
+    return (
+      0.0,
+      trailing_break_row_y(&inner.caret_positions, value, inner.caret_height),
+    );
   }
   let x = caret_x_for_index(&inner.caret_positions, caret);
   let y = caret_y_for_index(&inner.caret_positions, caret).unwrap_or(inner.caret_y);

@@ -71,7 +71,7 @@ impl TextInputState {
       && inner.token_layout.is_none()
     {
       inner.caret_x = 0.0;
-      inner.caret_y = text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
+      inner.caret_y = trailing_break_row_y(&inner.caret_positions, &text, line_height);
       return;
     }
     inner.caret_x = caret_x_for_index(&inner.caret_positions, caret);
