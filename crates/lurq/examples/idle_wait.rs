@@ -32,7 +32,10 @@ struct IdleWait {
   _clock: Interval,
   _poll: Interval,
   _close: Timeout,
-  last_item: Mutex<Option<Instant>>,
+  /// Stream items carry the microseconds since this instant at which they were sent: a plain number, which any
+  /// feature set (`devtools` included) can keep in a stream's state.
+  epoch: Instant,
+  last_item: Mutex<Option<u64>>,
 }
 
 impl Component for IdleWait {
@@ -63,18 +66,20 @@ impl Component for IdleWait {
       _clock: clock,
       _poll: poll,
       _close: close,
+      epoch: Instant::now(),
       last_item: Mutex::new(None),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let epoch = self.epoch;
     let item = ctx
-      .stream((), |_, emitter: StreamEmitter<Instant, ()>| async move {
+      .stream((), move |_, emitter: StreamEmitter<u64, ()>| async move {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         std::thread::spawn(move || {
           loop {
             std::thread::sleep(STREAM_EVERY);
-            if sender.send(Instant::now()).is_err() {
+            if sender.send(micros_since(epoch)).is_err() {
               return;
             }
           }
@@ -93,7 +98,7 @@ impl Component for IdleWait {
         *last = Some(sent_at);
         println!(
           "stream: item rendered {:.1} ms after it was sent",
-          sent_at.elapsed().as_secs_f64() * 1000.0
+          micros_since(epoch).saturating_sub(sent_at) as f64 / 1000.0
         );
       }
     }
@@ -101,6 +106,10 @@ impl Component for IdleWait {
       .child(Text::new("Idle: the event loop waits for the next timer or wake"))
       .child(Text::new(&format!("polls: {}", self.ticks.get())))
   }
+}
+
+fn micros_since(epoch: Instant) -> u64 {
+  u64::try_from(epoch.elapsed().as_micros()).expect("the example runs for less than 584,000 years")
 }
 
 fn main() {
