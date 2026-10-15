@@ -16,8 +16,10 @@ pub(super) struct LoopNeeds {
   /// Something has work for the next turn that nothing wakes the loop for: an `on_tick` callback, a pending click
   /// waiting for a double click, a query ready to be ticked.
   pub(super) polling: bool,
-  /// The earliest scheduled redraw (animation frame, caret blink, query expiry) or timer.
-  pub(super) next_deadline: Option<Instant>,
+  /// The earliest scheduled redraw: an animation frame, the caret's blink, a query's expiry.
+  pub(super) next_redraw: Option<Instant>,
+  /// When the earliest running timer fires.
+  pub(super) next_timer: Option<Instant>,
 }
 
 /// How the loop waits for its next turn.
@@ -29,27 +31,28 @@ pub(super) enum LoopWait {
 }
 
 impl LoopWait {
-  /// `now` is when the turn began: with a redraw pending, only a deadline after it wakes the loop.
+  /// `now` is when the turn decided how to wait.
   pub(super) fn of(needs: LoopNeeds, now: Instant) -> Self {
     if needs.continuous_video {
       return Self::Poll;
     }
     if needs.redraw_pending {
       // The redraw's event brings the next turn, but a window that is minimized or occluded may not get it for
-      // a long time, so a timer still wakes the loop at its time. A deadline already due is what the pending
-      // redraw serves (a scheduled frame); waking for it would spin while the redraw does not come.
-      return match needs.next_deadline.filter(|deadline| *deadline > now) {
-        Some(deadline) => Self::WaitUntil(deadline),
-        None => Self::Wait,
-      };
+      // a long time, so timers still wake the loop: at their time, or at once when one is already due (the next
+      // turn fires it, so even a 1 ms interval keeps firing). A scheduled frame already due is what the pending
+      // redraw serves: it is left out, or waking for it would spin while the redraw does not come, and it must
+      // not hide a later deadline.
+      let next_redraw = needs.next_redraw.filter(|redraw| *redraw > now);
+      return Self::until(next_redraw.into_iter().chain(needs.next_timer).min());
     }
     if needs.polling {
       return Self::Poll;
     }
-    match needs.next_deadline {
-      Some(deadline) => Self::WaitUntil(deadline),
-      None => Self::Wait,
-    }
+    Self::until(needs.next_redraw.into_iter().chain(needs.next_timer).min())
+  }
+
+  fn until(deadline: Option<Instant>) -> Self {
+    deadline.map_or(Self::Wait, Self::WaitUntil)
   }
 
   pub(super) fn control_flow(self) -> ControlFlow {

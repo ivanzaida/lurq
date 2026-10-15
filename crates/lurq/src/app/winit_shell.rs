@@ -1786,25 +1786,24 @@ impl ApplicationHandler for WinitHandler {
           .secondary_window(secondary_window.index())
           .is_some_and(|secondary| secondary.tree().needs_redraw())
       });
-    let next_deadline = self
-      .secondaries
-      .iter()
-      .filter_map(|secondary_window| {
-        self
-          .main
-          .tree
-          .secondary_window(secondary_window.index())
-          .and_then(|secondary| secondary.tree().next_wake_at())
-      })
-      .chain(self.main.tree.next_wake_at())
-      .min();
+    let trees = || {
+      self
+        .secondaries
+        .iter()
+        .filter_map(|secondary_window| self.main.tree.secondary_window(secondary_window.index()))
+        .map(|secondary| secondary.tree())
+        .chain(std::iter::once(&self.main.tree))
+    };
+    let next_redraw = trees().filter_map(Tree::next_scheduled_redraw).min();
+    let next_timer = trees().filter_map(Tree::next_timer_at).min();
 
     let wait = LoopWait::of(
       LoopNeeds {
         continuous_video: has_continuous_video,
         redraw_pending,
         polling: self.main.needs_polling() || secondary_needs_polling,
-        next_deadline,
+        next_redraw,
+        next_timer,
       },
       now,
     );
