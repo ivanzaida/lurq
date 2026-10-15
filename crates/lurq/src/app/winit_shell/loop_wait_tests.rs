@@ -40,7 +40,8 @@ impl Component for Clock {
 fn needs(tree: &Tree) -> LoopNeeds {
   LoopNeeds {
     polling: tree.needs_polling(),
-    next_deadline: tree.next_wake_at(),
+    next_redraw: tree.next_scheduled_redraw(),
+    next_timer: tree.next_timer_at(),
     ..LoopNeeds::default()
   }
 }
@@ -97,7 +98,7 @@ fn video_polls_and_a_pending_redraw_waits_for_its_event() {
   let video = LoopNeeds {
     continuous_video: true,
     redraw_pending: true,
-    next_deadline: Some(Instant::now() + MINUTE),
+    next_timer: Some(Instant::now() + MINUTE),
     ..LoopNeeds::default()
   };
   assert_eq!(LoopWait::of(video, Instant::now()), LoopWait::Poll);
@@ -114,29 +115,59 @@ fn video_polls_and_a_pending_redraw_waits_for_its_event() {
 fn a_pending_redraw_still_wakes_the_loop_for_the_next_timer() {
   // A redraw a minimized or occluded window never gets must not stall its timers.
   let now = Instant::now();
-  let deadline = now + MINUTE;
+  let timer = now + MINUTE;
   let pending = LoopNeeds {
     redraw_pending: true,
     polling: true,
-    next_deadline: Some(deadline),
+    next_timer: Some(timer),
     ..LoopNeeds::default()
   };
-  assert_eq!(LoopWait::of(pending, now), LoopWait::WaitUntil(deadline));
+  assert_eq!(LoopWait::of(pending, now), LoopWait::WaitUntil(timer));
 
-  // A deadline already due (a scheduled redraw that the pending redraw serves) would wake the loop at once,
-  // turn after turn, while the redraw does not come.
-  let overdue = LoopNeeds {
-    next_deadline: Some(now),
+  // A scheduled frame already due is what the pending redraw serves: waking for it would spin while the redraw
+  // does not come, and it must not hide the timer after it.
+  let overdue_frame = LoopNeeds {
+    next_redraw: Some(now - Duration::from_millis(1)),
     ..pending
   };
-  assert_eq!(LoopWait::of(overdue, now), LoopWait::Wait);
+  assert_eq!(LoopWait::of(overdue_frame, now), LoopWait::WaitUntil(timer));
+  let overdue_frame_only = LoopNeeds {
+    next_timer: None,
+    ..overdue_frame
+  };
+  assert_eq!(LoopWait::of(overdue_frame_only, now), LoopWait::Wait);
+
+  // A later frame still counts.
+  let later_frame = LoopNeeds {
+    next_redraw: Some(now + Duration::from_millis(16)),
+    ..pending
+  };
+  assert_eq!(
+    LoopWait::of(later_frame, now),
+    LoopWait::WaitUntil(now + Duration::from_millis(16))
+  );
+}
+
+#[test]
+fn a_timer_already_due_wakes_the_loop_at_once_even_with_a_redraw_pending() {
+  // A 1 ms interval in a minimized window: by the time the turn decides how to wait, its next fire may be due.
+  // The next turn fires it, so it keeps firing.
+  let now = Instant::now();
+  let due = now - Duration::from_micros(200);
+  let pending = LoopNeeds {
+    redraw_pending: true,
+    next_redraw: Some(now - Duration::from_millis(1)),
+    next_timer: Some(due),
+    ..LoopNeeds::default()
+  };
+  assert_eq!(LoopWait::of(pending, now), LoopWait::WaitUntil(due));
 }
 
 #[test]
 fn polling_work_wins_over_a_deadline() {
   let needs = LoopNeeds {
     polling: true,
-    next_deadline: Some(Instant::now() + MINUTE),
+    next_timer: Some(Instant::now() + MINUTE),
     ..LoopNeeds::default()
   };
   assert_eq!(LoopWait::of(needs, Instant::now()), LoopWait::Poll);

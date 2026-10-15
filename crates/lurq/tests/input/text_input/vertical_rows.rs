@@ -406,3 +406,19 @@ fn text_input_arrow_up_from_any_trailing_break_moves_one_row() {
     );
   }
 }
+
+#[test]
+fn text_input_moving_left_and_back_starts_a_new_column() {
+  let text = "abcdefghij\nab\nabcdefghij";
+  let mut editor = Editor::new(text);
+  editor.key("ArrowUp", false);
+  editor.key("ArrowLeft", false);
+  editor.key("ArrowRight", false);
+  editor.key("ArrowUp", false);
+  editor.type_marker();
+  assert_eq!(
+    editor.value.get(),
+    "ab#cdefghij\nab\nabcdefghij",
+    "a horizontal move, even back to the same place, ends the run of vertical moves"
+  );
+}

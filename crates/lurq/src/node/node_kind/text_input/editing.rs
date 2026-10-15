@@ -192,9 +192,11 @@ impl TextInputState {
     let target =
       closest_caret_on_adjacent_row(&inner.caret_positions, y, x, down).unwrap_or(if down { value.len() } else { 0 });
     move_inner_to(&mut inner, target, selecting);
-    inner.vertical_goal = Some((inner.caret, x));
+    let goal = Some((inner.caret, x));
     drop(inner);
+    // Every other caret move or edit marks the layout dirty and so ends the run; this one continues it.
     self.mark_layout_dirty();
+    self.inner.lock().vertical_goal = goal;
   }
 
   pub(crate) fn move_word_left(&self, selecting: bool) {

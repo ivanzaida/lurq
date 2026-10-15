@@ -1346,7 +1346,7 @@ impl Tree {
   /// Whether something advances with time rather than input, so passes are required. A held drag is not such a
   /// source: its state changes only on input events, which request their own redraw, so a pointer held still
   /// lets the loop wait. The shell waits for these sources' deadlines and wakes ([`Tree::needs_polling`],
-  /// [`Tree::next_wake_at`]) instead of polling while one is active.
+  /// [`Tree::next_scheduled_redraw`], [`Tree::next_timer_at`]) instead of polling while one is active.
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn has_active_tick_sources(&self) -> bool {
     self.perf_overlay_enabled
@@ -1362,7 +1362,7 @@ impl Tree {
 
   /// Whether the shell must poll its event loop: there is work for its next turn that nothing wakes the loop for.
   /// Timers, futures, streams and scheduled redraws do not count: they wake the loop or give it a deadline
-  /// ([`Tree::next_wake_at`]).
+  /// ([`Tree::next_scheduled_redraw`], [`Tree::next_timer_at`]).
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn needs_polling(&self) -> bool {
     #[cfg(feature = "query")]
@@ -1372,12 +1372,11 @@ impl Tree {
     self.click_tracker.has_pending()
   }
 
-  /// When the shell must wake without an event: the earliest scheduled redraw (an animation frame, the caret's
-  /// blink, a query's expiry) or timer.
+  /// When the earliest running timer fires: the shell wakes then without an event, as it does for
+  /// [`Tree::next_scheduled_redraw`].
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
-  pub(crate) fn next_wake_at(&self) -> Option<Instant> {
-    let next_timer = self.root_ctx.as_ref().and_then(Ctx::next_timer_fire);
-    self.next_scheduled_redraw().into_iter().chain(next_timer).min()
+  pub(crate) fn next_timer_at(&self) -> Option<Instant> {
+    self.root_ctx.as_ref().and_then(Ctx::next_timer_fire)
   }
 
   /// Whether any animation or transition is currently running. While true the
