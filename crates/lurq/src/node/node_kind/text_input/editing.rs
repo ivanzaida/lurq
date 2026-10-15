@@ -349,7 +349,7 @@ impl TextInputState {
 /// `sync_caret_metrics_to_position` puts it: the end of a multiline value
 /// that ends with a line break is on the empty row after it.
 fn shown_caret_point(inner: &TextInputInner, value: &str, caret: usize) -> (f32, f32) {
-  if inner.overflow == TextInputOverflow::Multiline && caret == value.len() && value.ends_with('\n') {
+  if inner.overflow == TextInputOverflow::Multiline && caret == value.len() && trailing_break_len(value) > 0 {
     return (
       0.0,
       trailing_break_row_y(&inner.caret_positions, value, inner.caret_height),
