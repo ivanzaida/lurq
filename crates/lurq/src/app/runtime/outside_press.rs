@@ -11,25 +11,38 @@
 //!
 //! A press on another dropdown's trigger is dispatched whatever the popups
 //! say, like a menu bar: one press closes the open dropdown and opens the
-//! pressed one. A trigger is a `Select`, or the anchor of a signal-driven
-//! overlay that dismisses on outside presses, declared open or closed.
+//! pressed one. The first interactive element under the pointer (focusable,
+//! focus-disabled, a button or a select, as the press dispatch decides) is a
+//! trigger when it is a `Select`, or the anchor itself of a signal-driven
+//! overlay that dismisses on outside presses and switches on an anchor press,
+//! declared open or closed. The press closes the consuming popups and the
+//! open selects but the pressed one before it is dispatched, so a trigger that
+//! prevents the press's default still switches.
 //!
 //! A press is outside an overlay when it lands neither on the overlay's
 //! content, nor on its anchor, nor on a layer stacked above it (a select menu
 //! or a popup opened from inside it, which the overlay host places after it).
 
-use super::{OverlayDismissEntry, Tree, close_open_selects_except, point_in_element_rect};
+use super::{
+  OverlayDismissEntry, Tree, close_open_selects_except, point_in_element_rect, scrollbar_hit_at, trim_hits_to_scrollbar,
+};
 use crate::{
-  app::{ctx::OutsidePress, hit_test::hit_test_tree},
-  core::{ElementRef, Signal},
+  app::{
+    ctx::OutsidePress,
+    hit_test::{HitRect, hit_test_tree},
+  },
+  core::{ElementRef, NodeId, Signal},
   layout::layout_result::LayoutResult,
   node::{Node, SyntheticNodeRole, node_kind::NodeKind},
 };
 
 impl Tree {
-  /// Closes the popups a left press at logical `(x, y)` is outside of when at
-  /// least one of them consumes the press, and returns whether it did. The
-  /// caller then drops the press and its release.
+  /// Handles a left press at logical `(x, y)` that is outside open popups,
+  /// at least one of which consumes it, and returns whether the press is
+  /// consumed. A consumed press closes the popups it is outside of, and the
+  /// caller drops it and its release. A press on another dropdown's trigger
+  /// closes the consuming popups and the open selects but the pressed one,
+  /// and is not consumed.
   pub(super) fn consume_outside_press(&mut self, x: f32, y: f32) -> bool {
     self.rebuild_if_dirty();
     let (Some(root), Some(result)) = (&self.root, &self.last_layout) else {
@@ -39,10 +52,12 @@ impl Tree {
     if !root.has_synthetic_role(SyntheticNodeRole::OverlayHost) {
       return false;
     }
-    let target = PressTarget::at(root, result, x, y);
-    if target.on_dropdown_trigger {
-      return false;
-    }
+    let mut hits = Vec::new();
+    hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
+    trim_hits_to_scrollbar(&mut hits, x, y);
+    let on_select_menu = hits
+      .iter()
+      .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu));
     let layer = pressed_layer(root, result, x, y);
     let overlays: Vec<&OverlayDismissEntry> = self
       .overlay_dismiss_entries
@@ -52,20 +67,31 @@ impl Tree {
     let consumed = overlays
       .iter()
       .any(|entry| entry.outside_press == OutsidePress::Consume)
-      || (!target.on_select_menu && any_open_select_consumes(root));
+      || (!on_select_menu && any_open_select_consumes(root));
     if !consumed {
       return false;
     }
 
-    let close: Vec<Signal<bool>> = overlays.iter().map(|entry| entry.open.clone()).collect();
-    if !target.on_select_menu {
-      close_open_selects_except(root, None);
+    let trigger = trigger_under(&hits, x, y, &self.dropdown_anchors);
+    // A trigger's press is dispatched, which closes the pass-through popups
+    // unless a handler prevents its default.
+    let close: Vec<Signal<bool>> = overlays
+      .iter()
+      .filter(|entry| trigger.is_none() || entry.outside_press == OutsidePress::Consume)
+      .map(|entry| entry.open.clone())
+      .collect();
+    if !on_select_menu {
+      let pressed_select = match trigger {
+        Some(Trigger::Select(id)) => Some(id),
+        _ => None,
+      };
+      close_open_selects_except(root, pressed_select);
     }
     for open in close {
       open.set(false);
     }
     self.needs_redraw = true;
-    true
+    trigger.is_none()
   }
 
   /// The open states of the overlays a left press at logical `(x, y)` is
@@ -113,43 +139,42 @@ fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32) -> usize {
     .map_or(0, |(index, _)| index)
 }
 
-/// What the topmost element under a left press belongs to.
-struct PressTarget {
-  /// A select menu: the press closes no select.
-  on_select_menu: bool,
-  /// A `Select` or a dropdown anchor: the press opens that dropdown, so it
-  /// goes on to the trigger.
-  on_dropdown_trigger: bool,
+/// The dropdown trigger a press lands on.
+#[derive(Clone, Copy)]
+enum Trigger {
+  /// A select, whose own press toggles its menu.
+  Select(NodeId),
+  /// The anchor of a dropdown, whose handlers open it.
+  Anchor,
 }
 
-impl PressTarget {
-  fn at(root: &Node, result: &LayoutResult, x: f32, y: f32) -> Self {
-    let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
-    let on_select_menu = hits
-      .iter()
-      .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu));
-    let mut anchors = Vec::new();
-    collect_dropdown_anchors(root, &mut anchors);
-    let on_dropdown_trigger = hits.iter().any(|(node, _)| {
-      matches!(node.node_kind(), NodeKind::Select { .. })
-        || node
-          .element_ref
-          .as_ref()
-          .is_some_and(|element_ref| anchors.iter().any(|anchor| anchor.same_handle(element_ref)))
-    });
-    Self {
-      on_select_menu,
-      on_dropdown_trigger,
-    }
+/// The trigger the first interactive element under a press at `(x, y)` is,
+/// if any. `hits` runs from the innermost node outward, trimmed to a
+/// scrollbar that takes the press.
+fn trigger_under(hits: &[(&Node, HitRect)], x: f32, y: f32, anchors: &[ElementRef]) -> Option<Trigger> {
+  let (node, _) = hits.first()?;
+  if scrollbar_hit_at(node, x, y).is_some() {
+    return None;
   }
+  let (node, _) = hits.iter().find(|(node, _)| is_interactive(node))?;
+  if matches!(node.node_kind(), NodeKind::Select { .. }) {
+    return Some(Trigger::Select(node.node_id()));
+  }
+  let element_ref = node.element_ref.as_ref()?;
+  anchors
+    .iter()
+    .any(|anchor| anchor.same_handle(element_ref))
+    .then_some(Trigger::Anchor)
 }
 
-fn collect_dropdown_anchors<'a>(node: &'a Node, anchors: &mut Vec<&'a ElementRef>) {
-  anchors.extend(node.dropdown_anchor());
-  for child in node.children() {
-    collect_dropdown_anchors(child, anchors);
-  }
+/// Whether a press on `node` belongs to it, as the press dispatch decides
+/// focus and built-in behaviour: it takes focus (or would, when enabled), is a
+/// button or is a select.
+fn is_interactive(node: &Node) -> bool {
+  node.is_focusable()
+    || node.is_focus_disabled()
+    || node.button_kind_value().is_some()
+    || matches!(node.node_kind(), NodeKind::Select { .. })
 }
 
 fn any_open_select_consumes(node: &Node) -> bool {

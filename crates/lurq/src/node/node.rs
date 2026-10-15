@@ -583,8 +583,8 @@ pub(crate) struct Node {
   pub(crate) classes: Vec<Arc<str>>,
   pub(crate) overlay_declaration: Option<Box<crate::app::ctx::OverlaySpec>>,
   /// The anchor of a signal-driven overlay declared here that closes on an
-  /// outside press, open or closed: pressing it opens a dropdown, so another
-  /// popup's closing press on it is delivered.
+  /// outside press and switches on an anchor press, open or closed: pressing
+  /// it opens a dropdown, so another popup's closing press on it is delivered.
   pub(crate) dropdown_anchor: Option<CoreElementRef>,
   pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
   pub(crate) layout_neutral: bool,

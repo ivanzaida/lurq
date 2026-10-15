@@ -10,7 +10,7 @@
 //! (`scripts/stack-depth-probe.py`).
 //!
 //! Measured on x86_64 with every feature enabled: role enums 8, `Element` 8,
-//! `Node` 1552, `WindowChrome` 872, `ChromeTitleBar` 760.
+//! `Node` 1624, `WindowChrome` 872, `ChromeTitleBar` 760.
 
 use std::mem::size_of;
 
