@@ -1,4 +1,5 @@
 use super::*;
+use crate::node::text_selection::{trailing_break_len, trailing_break_row_y};
 
 impl LayoutEngine {
   pub(super) fn layout_text_input(
@@ -29,32 +30,45 @@ impl LayoutEngine {
       overflow == crate::node::node_kind::TextInputOverflow::Multiline,
     );
     let line_height = (style.font_size * style.line_height).max(1.0);
-    let text_height = text_result
-      .size
-      .height
-      .max(explicit_multiline_height(text, line_height));
-    let preferred = match overflow {
-      crate::node::node_kind::TextInputOverflow::Multiline => {
-        let preferred_height = multiline_preferred_height(state, text_height, line_height);
-        Size::new(text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH), preferred_height)
-      }
-      crate::node::node_kind::TextInputOverflow::Scroll => Size::new(DEFAULT_TEXT_INPUT_WIDTH, line_height),
+    let wraps = overflow == crate::node::node_kind::TextInputOverflow::Multiline;
+    let preferred_width = if wraps {
+      text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
+    } else {
+      DEFAULT_TEXT_INPUT_WIDTH
     };
-    let size = constraints.constrain(preferred);
+    let width = constraints.constrain(Size::new(preferred_width, 0.0)).width;
     // Caret positions must wrap exactly like the rendered text, otherwise
     // soft-wrapped rows collapse onto the first row's y and pointer hit-testing
     // can never reach them. Single-line (Scroll) inputs never wrap, but aligned
     // text still needs the finite content width so caret/selection geometry
     // follows centered or right-aligned glyphs.
-    let wraps = overflow == crate::node::node_kind::TextInputOverflow::Multiline;
     let caret_width = if wraps || display_style.text_align != crate::layout::text_style::TextAlign::Left {
-      size.width
+      width
     } else {
       f32::MAX
     };
     let caret_source = state.caret_layout_text();
     let mut caret_positions = glyph_engine.caret_positions(&caret_source, style, caret_width, wraps);
     state.remap_caret_positions(&mut caret_positions);
+    let mut text_height = text_result
+      .size
+      .height
+      .max(explicit_multiline_height(text, line_height));
+    // Text layout ends at the row a final line break ends; the caret after it sits on the empty row below, which
+    // the input must hold too. Counting line breaks alone misses the rows a paragraph wrapped into.
+    if wraps && trailing_break_len(&caret_source) > 0 {
+      let empty_row = trailing_break_row_y(&caret_positions, &caret_source, line_height);
+      text_height = text_height.max(empty_row + line_height);
+    }
+    let preferred = if wraps {
+      Size::new(
+        preferred_width,
+        multiline_preferred_height(state, text_height, line_height),
+      )
+    } else {
+      Size::new(preferred_width, line_height)
+    };
+    let size = constraints.constrain(preferred);
     let output = TextInputOutput {
       token_layout: None,
       caret_positions,
