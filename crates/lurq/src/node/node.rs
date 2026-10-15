@@ -3348,14 +3348,19 @@ impl Node {
   }
 
   pub fn scrollbar_style(&self, default_style: ScrollBarStyle) -> ScrollBarStyle {
-    let mut style = (*self.scrollbar_style).clone().unwrap_or(default_style);
-    if let Some((state, _)) = self.scroll_container()
-      && state.is_thumb_hovered()
-      && let Some(ref hovered) = self.scrollbar_hovered_style
-    {
-      style = hovered(style);
+    let hovered = self
+      .scroll_container()
+      .is_some_and(|(state, _)| state.is_thumb_hovered());
+    self.scrollbar_style_when(default_style, hovered)
+  }
+
+  /// The node's scrollbar style at rest or hovered, wherever the pointer is.
+  pub(crate) fn scrollbar_style_when(&self, default_style: ScrollBarStyle, hovered: bool) -> ScrollBarStyle {
+    let style = (*self.scrollbar_style).clone().unwrap_or(default_style);
+    match &self.scrollbar_hovered_style {
+      Some(hovered_style) if hovered => hovered_style(style),
+      _ => style,
     }
-    style
   }
 
   /// The scroll of a node that scrolls what it shows, and along which axes:

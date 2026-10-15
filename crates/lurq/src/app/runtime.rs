@@ -4598,10 +4598,7 @@ impl Tree {
     }
 
     self.hover_path = current_ids;
-    self.cursor = hits
-      .iter()
-      .find_map(|(node, _)| node.cursor_icon())
-      .unwrap_or(CursorIcon::Default);
+    self.cursor = hovered_cursor(hits.iter().map(|(node, _)| *node));
     if matches!(evt.kind, MouseEventKind::Down) {
       self.active_path = self.hover_path.clone();
     }
@@ -6534,12 +6531,12 @@ impl Tree {
     }
     self.active_path = active_path;
 
-    self.cursor = self
-      .hover_path
-      .iter()
-      .filter_map(|node_id| find_node_by_id(root, *node_id))
-      .find_map(Node::cursor_icon)
-      .unwrap_or(CursorIcon::Default);
+    self.cursor = hovered_cursor(
+      self
+        .hover_path
+        .iter()
+        .filter_map(|node_id| find_node_by_id(root, *node_id)),
+    );
     self.refresh_focus_ids();
   }
 
@@ -9407,6 +9404,24 @@ fn set_node_hovered(node: &Node, hovered: bool) {
   if let Some(ref element_ref) = node.element_ref {
     element_ref.set_hovered(hovered);
   }
+}
+
+/// The cursor of the innermost of the hovered `nodes` that sets one. A
+/// scrollbar under the pointer shows the default cursor, whatever cursor its
+/// node sets (a text input's text cursor, say).
+fn hovered_cursor<'a>(mut nodes: impl Iterator<Item = &'a Node>) -> CursorIcon {
+  nodes
+    .find_map(|node| {
+      if node
+        .scroll_container()
+        .is_some_and(|(state, _)| state.is_thumb_hovered())
+      {
+        Some(CursorIcon::Default)
+      } else {
+        node.cursor_icon()
+      }
+    })
+    .unwrap_or(CursorIcon::Default)
 }
 
 /// Drops the hits above the scroll container whose scrollbar takes the

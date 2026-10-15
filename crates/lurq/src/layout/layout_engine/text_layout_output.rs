@@ -90,6 +90,9 @@ pub(crate) struct TextInputOutput {
   pub(super) text_height: f32,
   pub(super) line_height: f32,
   pub(super) text_band: Option<(f32, f32)>,
+  /// The lane right of the box that a reserved scrollbar runs in
+  /// ([`LayoutEngine::text_input_scrollbar_lane`]).
+  pub(super) scrollbar_lane: f32,
 }
 
 impl TextInputOutput {
@@ -103,11 +106,12 @@ impl TextInputOutput {
     match state.overflow() {
       TextInputOverflow::Scroll => {
         state.set_scroll_x(self.horizontal_scroll(state));
-        state.set_vertical_scroll(width, height, height, 0.0);
+        state.set_vertical_scroll(width, height, height, 0.0, 0.0);
       }
       TextInputOverflow::Multiline => {
         state.set_scroll_x(0.0);
-        state.set_vertical_scroll(width, height, self.text_height, self.vertical_scroll(state));
+        let scroll_y = self.vertical_scroll(state);
+        state.set_vertical_scroll(width, height, self.text_height, scroll_y, self.scrollbar_lane);
       }
     }
   }

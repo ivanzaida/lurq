@@ -675,14 +675,22 @@ impl ScrollState {
 
   /// Record the layout of a multiline text input, which scrolls its own text:
   /// a box `viewport_width` by `viewport_height` showing `content_height` of
-  /// text from `scroll_y`, clamped to the text. Unlike
-  /// [`Self::update_layout_with_container`], no pending scroll or
-  /// stick-to-end applies: the input decides its offset itself.
-  pub(crate) fn set_text_layout(&self, viewport_width: f32, viewport_height: f32, content_height: f32, scroll_y: f32) {
+  /// text from `scroll_y`, clamped to the text, with a `scrollbar_lane` wide
+  /// lane right of the box that the bar runs in (0 when the bar overlays the
+  /// text). Unlike [`Self::update_layout_with_container`], no pending scroll
+  /// or stick-to-end applies: the input decides its offset itself.
+  pub(crate) fn set_text_layout(
+    &self,
+    viewport_width: f32,
+    viewport_height: f32,
+    content_height: f32,
+    scroll_y: f32,
+    scrollbar_lane: f32,
+  ) {
     let mut inner = self.inner.lock().unwrap();
     inner.viewport_width = viewport_width.max(0.0);
     inner.viewport_height = viewport_height.max(0.0);
-    inner.container_width = inner.viewport_width;
+    inner.container_width = inner.viewport_width + scrollbar_lane;
     inner.container_height = inner.viewport_height;
     inner.content_width = inner.viewport_width;
     inner.content_height = if content_height - inner.viewport_height < TEXT_OVERFLOW_EPSILON {

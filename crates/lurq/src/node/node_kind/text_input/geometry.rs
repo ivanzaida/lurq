@@ -133,19 +133,23 @@ impl TextInputState {
   }
 
   /// Records where layout put the text: a `viewport_width` by
-  /// `viewport_height` box showing `content_height` of text from `scroll_y`.
+  /// `viewport_height` box showing `content_height` of text from `scroll_y`,
+  /// with a `scrollbar_lane` wide lane for the bar right of the box.
   pub(crate) fn set_vertical_scroll(
     &self,
     viewport_width: f32,
     viewport_height: f32,
     content_height: f32,
     scroll_y: f32,
+    scrollbar_lane: f32,
   ) {
-    self
-      .inner
-      .lock()
-      .scroll
-      .set_text_layout(viewport_width, viewport_height, content_height, scroll_y);
+    self.inner.lock().scroll.set_text_layout(
+      viewport_width,
+      viewport_height,
+      content_height,
+      scroll_y,
+      scrollbar_lane,
+    );
   }
 
   pub(crate) fn scroll_y(&self) -> f32 {

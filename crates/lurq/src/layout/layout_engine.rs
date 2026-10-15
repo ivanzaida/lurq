@@ -2170,7 +2170,7 @@ impl LayoutEngine {
     let frame = node.effective_frame(FrameConstraints::default());
     let padding = node.effective_padding(&Padding::default());
     let frame_is_flat = frame != FrameConstraints::default();
-    let padding_is_flat = padding != Padding::default();
+    let padding_is_flat = padding != Padding::default() || self.text_input_scrollbar_lane(node) > 0.0;
 
     if frame_is_flat || padding_is_flat {
       return self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides);
@@ -2289,6 +2289,7 @@ impl LayoutEngine {
           style,
           placeholder_style.as_ref(),
           constraints,
+          self.text_input_scrollbar_lane(node),
         );
       }
       NodeKind::Checkbox { .. } => {
@@ -3226,9 +3227,14 @@ impl LayoutEngine {
       .unwrap_or(offset)
   }
 
+  /// The node's padding at `size`, with a multiline text input's scrollbar
+  /// lane ([`Self::text_input_scrollbar_lane`]) counted in its right side as
+  /// layout counts it: inside it is the box the content is laid out and
+  /// painted in.
   pub(crate) fn resolved_padding_for_size(&self, node: &Node, size: Size) -> ResolvedPadding {
     let padding = node.effective_padding(&Padding::default());
-    if padding == Padding::default() {
+    let scrollbar_lane = self.text_input_scrollbar_lane(node);
+    if padding == Padding::default() && scrollbar_lane == 0.0 {
       return ResolvedPadding::default();
     }
 
@@ -3236,7 +3242,7 @@ impl LayoutEngine {
     ResolvedPadding {
       left: padding.get_left().resolve(&spacing, size.width),
       top: padding.get_top().resolve(&spacing, size.height),
-      right: padding.get_right().resolve(&spacing, size.width),
+      right: padding.get_right().resolve(&spacing, size.width) + scrollbar_lane,
       bottom: padding.get_bottom().resolve(&spacing, size.height),
     }
   }
@@ -3255,7 +3261,7 @@ impl LayoutEngine {
     let parent_h = outer_constraints.max_height;
     let spacing = self.spacing.borrow();
     let left = padding.get_left().resolve(&spacing, parent_w);
-    let right = padding.get_right().resolve(&spacing, parent_w);
+    let right = padding.get_right().resolve(&spacing, parent_w) + self.text_input_scrollbar_lane(node);
     let top = padding.get_top().resolve(&spacing, parent_h);
     let bottom = padding.get_bottom().resolve(&spacing, parent_h);
     let h_pad = left + right;
