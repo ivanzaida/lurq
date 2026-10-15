@@ -952,6 +952,9 @@ fn format_debug_info(info: &ComponentInfo) -> String {
 #[derive(Default)]
 struct BatchState {
   inner: Mutex<BatchStateInner>,
+  /// Wakes the window's event loop when a write off its thread marks components dirty
+  /// ([`Window::off_loop_waker`]); `None` without a window.
+  off_loop_wake: Option<WindowWaker>,
 }
 
 #[derive(Default)]
@@ -965,6 +968,13 @@ struct BatchGuard<'a> {
 }
 
 impl BatchState {
+  fn waking(off_loop_wake: WindowWaker) -> Self {
+    Self {
+      inner: Mutex::default(),
+      off_loop_wake: Some(off_loop_wake),
+    }
+  }
+
   fn batch<R>(&self, f: impl FnOnce() -> R) -> R {
     self.inner.lock().depth += 1;
     let guard = BatchGuard { state: self };
@@ -1000,6 +1010,22 @@ impl BatchState {
       if seen.insert(ptr) {
         dirty.store(true, Ordering::Relaxed);
       }
+    }
+    if !seen.is_empty() {
+      self.wake_loop();
+    }
+  }
+
+  /// Wakes the event loop for dirty marks already stored, unless a batch holds them back: its end wakes it.
+  fn wake_unless_batching(&self) {
+    if self.inner.lock().depth == 0 {
+      self.wake_loop();
+    }
+  }
+
+  fn wake_loop(&self) {
+    if let Some(wake) = &self.off_loop_wake {
+      wake();
     }
   }
 }
@@ -1129,6 +1155,7 @@ impl Ctx {
   }
 
   pub(crate) fn with_window(mut self, window: crate::app::window::Window) -> Self {
+    self.batch = Arc::new(BatchState::waking(window.off_loop_waker()));
     self.window = Some(window);
     self
   }
@@ -1191,6 +1218,7 @@ impl Ctx {
       batch.mark_dirty(&ancestor.subtree_dirty);
       Self::mark_dirty_child_slot(&ancestor.dirty_child_slots, ancestor.child_slot_id);
     }
+    batch.wake_unless_batching();
   }
 
   fn mark_self_dirty(&self) {

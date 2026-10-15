@@ -516,6 +516,31 @@ pub(crate) fn caret_y_for_index(positions: &CaretPositions, index: usize) -> Opt
     .map(|position| position.y)
 }
 
+/// The length of the line break `text` ends with: `\r\n` and `\n\r` are one
+/// break of two bytes with no caret between them, as text layout reads them;
+/// `\n` and `\r` are one byte. 0 when `text` ends with no line break.
+pub(crate) fn trailing_break_len(text: &str) -> usize {
+  if text.ends_with("\r\n") || text.ends_with("\n\r") {
+    2
+  } else if text.ends_with('\n') || text.ends_with('\r') {
+    1
+  } else {
+    0
+  }
+}
+
+/// The top of the empty row that follows `text` when it ends with a line
+/// break: one `line_height` below the row the break ends, which already
+/// counts the rows its paragraph wrapped into. Falls back to one row per line
+/// break when the layout has no caret before the break.
+pub(crate) fn trailing_break_row_y(positions: &CaretPositions, text: &str, line_height: f32) -> f32 {
+  let break_index = text.len().saturating_sub(trailing_break_len(text));
+  caret_y_for_index(positions, break_index).map_or_else(
+    || text.matches('\n').count() as f32 * line_height,
+    |row| row + line_height,
+  )
+}
+
 pub(crate) fn selection_ranges_for_positions(
   positions: &CaretPositions,
   start: usize,

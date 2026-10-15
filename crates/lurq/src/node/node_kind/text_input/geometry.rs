@@ -18,6 +18,7 @@ impl TextInputState {
     let old_scroll_x = old_inner.scroll_x;
     let old_scroll = old_inner.scroll.clone();
     let old_follow_caret = old_inner.follow_caret;
+    let old_vertical_goal = old_inner.vertical_goal;
     let old_focused = old_inner.focused;
     let old_composition = old_inner.composition.clone();
     let old_undo_stack = old_inner.undo_stack.clone();
@@ -41,6 +42,7 @@ impl TextInputState {
     inner.scroll_x = old_scroll_x;
     inner.scroll = old_scroll;
     inner.follow_caret = old_follow_caret;
+    inner.vertical_goal = old_vertical_goal;
     inner.focused = old_focused;
     inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;
@@ -67,11 +69,11 @@ impl TextInputState {
     let caret = clamp_to_char_boundary(&text, caret);
     if inner.overflow == TextInputOverflow::Multiline
       && caret == text.len()
-      && text[..caret].ends_with('\n')
+      && trailing_break_len(&text[..caret]) > 0
       && inner.token_layout.is_none()
     {
       inner.caret_x = 0.0;
-      inner.caret_y = text[..caret].chars().filter(|ch| *ch == '\n').count() as f32 * line_height;
+      inner.caret_y = trailing_break_row_y(&inner.caret_positions, &text, line_height);
       return;
     }
     inner.caret_x = caret_x_for_index(&inner.caret_positions, caret);

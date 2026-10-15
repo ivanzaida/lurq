@@ -59,8 +59,11 @@ fn an_idle_window_with_a_minute_interval_and_a_waiting_stream_sleeps_until_the_i
     "the interval and the stream are running"
   );
 
-  let LoopWait::WaitUntil(deadline) = LoopWait::of(needs(&tree)) else {
-    panic!("an idle loop must not poll: {:?}", LoopWait::of(needs(&tree)));
+  let LoopWait::WaitUntil(deadline) = LoopWait::of(needs(&tree), Instant::now()) else {
+    panic!(
+      "an idle loop must not poll: {:?}",
+      LoopWait::of(needs(&tree), Instant::now())
+    );
   };
   assert!(
     deadline >= mounted_at + MINUTE && deadline <= started_by + MINUTE,
@@ -75,7 +78,7 @@ fn a_tree_with_nothing_scheduled_waits_for_an_event() {
   tree.set_root(Element::new());
   tree.pass_headless(&mut app);
 
-  assert_eq!(LoopWait::of(needs(&tree)), LoopWait::Wait);
+  assert_eq!(LoopWait::of(needs(&tree), Instant::now()), LoopWait::Wait);
 }
 
 #[test]
@@ -86,27 +89,47 @@ fn the_earliest_of_a_scheduled_redraw_and_a_timer_wakes_the_loop() {
   let soon = Instant::now() + Duration::from_millis(16);
   tree.request_redraw_at(soon);
 
-  assert_eq!(LoopWait::of(needs(&tree)), LoopWait::WaitUntil(soon));
+  assert_eq!(LoopWait::of(needs(&tree), Instant::now()), LoopWait::WaitUntil(soon));
 }
 
 #[test]
 fn video_polls_and_a_pending_redraw_waits_for_its_event() {
-  let deadline = Some(Instant::now() + MINUTE);
   let video = LoopNeeds {
     continuous_video: true,
     redraw_pending: true,
-    next_deadline: deadline,
+    next_deadline: Some(Instant::now() + MINUTE),
     ..LoopNeeds::default()
   };
-  assert_eq!(LoopWait::of(video), LoopWait::Poll);
+  assert_eq!(LoopWait::of(video, Instant::now()), LoopWait::Poll);
 
   let pending = LoopNeeds {
     redraw_pending: true,
     polling: true,
-    next_deadline: deadline,
     ..LoopNeeds::default()
   };
-  assert_eq!(LoopWait::of(pending), LoopWait::Wait);
+  assert_eq!(LoopWait::of(pending, Instant::now()), LoopWait::Wait);
+}
+
+#[test]
+fn a_pending_redraw_still_wakes_the_loop_for_the_next_timer() {
+  // A redraw a minimized or occluded window never gets must not stall its timers.
+  let now = Instant::now();
+  let deadline = now + MINUTE;
+  let pending = LoopNeeds {
+    redraw_pending: true,
+    polling: true,
+    next_deadline: Some(deadline),
+    ..LoopNeeds::default()
+  };
+  assert_eq!(LoopWait::of(pending, now), LoopWait::WaitUntil(deadline));
+
+  // A deadline already due (a scheduled redraw that the pending redraw serves) would wake the loop at once,
+  // turn after turn, while the redraw does not come.
+  let overdue = LoopNeeds {
+    next_deadline: Some(now),
+    ..pending
+  };
+  assert_eq!(LoopWait::of(overdue, now), LoopWait::Wait);
 }
 
 #[test]
@@ -116,5 +139,5 @@ fn polling_work_wins_over_a_deadline() {
     next_deadline: Some(Instant::now() + MINUTE),
     ..LoopNeeds::default()
   };
-  assert_eq!(LoopWait::of(needs), LoopWait::Poll);
+  assert_eq!(LoopWait::of(needs, Instant::now()), LoopWait::Poll);
 }

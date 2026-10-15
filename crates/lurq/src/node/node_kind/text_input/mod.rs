@@ -50,6 +50,10 @@ struct TextInputInner {
   /// sets it; scrolling by wheel or scrollbar clears it, so the text stays
   /// where the person scrolled it until the next edit.
   follow_caret: bool,
+  /// The column ArrowUp and ArrowDown keep: the x the first of a run of
+  /// vertical moves started from, and the caret that run left. A caret
+  /// anywhere else (moved, clicked or edited) starts a new run.
+  vertical_goal: Option<(usize, f32)>,
   unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
   min_rows: Option<usize>,
@@ -116,6 +120,7 @@ impl TextInputState {
         scroll_x: 0.0,
         scroll: ScrollState::new(),
         follow_caret: true,
+        vertical_goal: None,
         unfocused_overflow_anchor: TextInputOverflowAnchor::default(),
         overflow: TextInputOverflow::default(),
         min_rows: None,
