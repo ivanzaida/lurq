@@ -20,7 +20,7 @@ use crate::{
       CaretPosition, CaretPositions, TextSelectionRange, caret_x_for_index, caret_y_for_index, clamp_to_char_boundary,
       closest_caret_on_adjacent_row, closest_caret_to_point, line_bounds, next_char_boundary, next_word_boundary,
       previous_char_boundary, previous_word_boundary, selection_range_indices, selection_ranges_for_positions,
-      trailing_break_row_y, word_selection_bounds,
+      trailing_break_len, trailing_break_row_y, word_selection_bounds,
     },
   },
 };

@@ -351,3 +351,58 @@ fn text_input_a_horizontal_move_resets_the_column_arrows_keep() {
     "after ArrowLeft the caret moves up from its new place"
   );
 }
+
+/// The line breaks a value can end with: a Windows paste brings `\r\n`.
+const BREAKS: [&str; 4] = ["\n", "\r\n", "\n\r", "\r"];
+
+#[test]
+fn text_input_arrow_down_stays_at_the_end_after_any_trailing_break() {
+  for line_break in BREAKS {
+    let text = format!("{}{line_break}", paragraph());
+    let mut editor = Editor::new(&text);
+    for _ in 0..3 {
+      editor.key("ArrowDown", false);
+    }
+    editor.type_marker();
+    assert_eq!(editor.value.get(), format!("{text}#"), "after {line_break:?}");
+  }
+}
+
+#[test]
+fn text_input_caret_after_any_trailing_break_shows_below_the_wrapped_paragraph() {
+  for line_break in BREAKS {
+    let mut editor = Editor::new(&format!("{}{line_break}", paragraph()));
+    let last_glyph_row = editor.last_glyph_row();
+    let caret = editor
+      .tree
+      .ime_cursor_area()
+      .expect("the focused input places its caret");
+    assert!(
+      caret.y > last_glyph_row + 4.0,
+      "after {line_break:?} the caret ({}) sits below the paragraph's last row ({last_glyph_row})",
+      caret.y
+    );
+  }
+}
+
+#[test]
+fn text_input_arrow_up_from_any_trailing_break_moves_one_row() {
+  for line_break in BREAKS {
+    let paragraph = paragraph();
+    let text = format!("{paragraph}{line_break}");
+    let mut editor = Editor::new(&text);
+    let rows = editor.rows();
+    editor.key("ArrowUp", true);
+    editor.key("Backspace", false);
+    let left = editor.value.get();
+    assert!(
+      paragraph.starts_with(&left) && !left.is_empty(),
+      "after {line_break:?} only the end is deleted: {left:?}"
+    );
+    assert_eq!(
+      editor.rows(),
+      rows - 1,
+      "after {line_break:?} one row up is the paragraph's last row"
+    );
+  }
+}

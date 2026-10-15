@@ -69,7 +69,7 @@ impl TextInputState {
     let caret = clamp_to_char_boundary(&text, caret);
     if inner.overflow == TextInputOverflow::Multiline
       && caret == text.len()
-      && text[..caret].ends_with('\n')
+      && trailing_break_len(&text[..caret]) > 0
       && inner.token_layout.is_none()
     {
       inner.caret_x = 0.0;
