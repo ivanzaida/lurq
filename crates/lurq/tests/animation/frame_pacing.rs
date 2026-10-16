@@ -81,7 +81,7 @@ fn until_conclusive(check: impl Fn() -> Option<()>) {
   let conclusive = (0..ATTEMPTS).any(|_| check().is_some());
   assert!(
     conclusive,
-    "inconclusive: the thread woke too late for a step boundary {ATTEMPTS} times in a row, so no pass ran between a      step and the next; the machine did not keep up"
+    "inconclusive: the thread woke too late for a step boundary {ATTEMPTS} times in a row, so no pass ran between a step and the next; the machine did not keep up"
   );
 }
 

@@ -138,13 +138,9 @@ fn drags_over_the_drawn_rows_of_a_scrolled_virtualized_list_copy_and_highlight_t
   assert!(checked > 10, "{checked} rows are drawn whole in the view");
   assert!(
     failures.is_empty(),
-    "{} of {checked} rows:
-{}",
+    "{} of {checked} rows:\n{}",
     failures.len(),
-    failures.join(
-      "
-"
-    )
+    failures.join("\n")
   );
 }
 

@@ -207,13 +207,9 @@ fn every_row_of_a_padded_text_copies_itself_and_is_highlighted_at_fractional_wid
   }
   assert!(
     failures.is_empty(),
-    "{} rows over {pages} pages copied or highlighted other glyphs than they draw:
-{}",
+    "{} rows over {pages} pages copied or highlighted other glyphs than they draw:\n{}",
     failures.len(),
-    failures.join(
-      "
-"
-    )
+    failures.join("\n")
   );
 }
 
