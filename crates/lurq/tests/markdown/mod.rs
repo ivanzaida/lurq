@@ -3,6 +3,8 @@ mod link_bidi;
 mod link_blocks;
 mod link_geometry;
 mod link_input;
+mod link_tooltip;
 mod links;
 mod parse;
+mod table_cells;
 mod text;

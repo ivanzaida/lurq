@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
   layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, TextUnderline},
-  node::{border::BorderRadius, color::Color},
+  node::{border::BorderRadius, color::Color, padding::Padding},
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -84,7 +84,9 @@ pub struct MarkdownBlockStyle {
   pub border_color: Option<Color>,
   pub border_width: Option<f32>,
   pub radius: Option<f32>,
-  pub padding: Option<f32>,
+  /// The room between the box's edges and its content: [`Padding::all`] for
+  /// every side, [`Padding::symmetric`] for horizontal and vertical.
+  pub padding: Option<Padding>,
 }
 
 impl MarkdownBlockStyle {
@@ -281,7 +283,7 @@ impl Default for ThemeMarkdown {
       border_color: None,
       border_width: None,
       radius: Some(4.0),
-      padding: Some(6.0),
+      padding: Some(Padding::all(6.0)),
     };
 
     let mut list_marker = MarkdownInlineStyle::default();
@@ -305,7 +307,7 @@ impl Default for ThemeMarkdown {
       border_color: Some(Color::from_hex("#334155")),
       border_width: Some(1.0),
       radius: Some(6.0),
-      padding: Some(14.0),
+      padding: Some(Padding::all(14.0)),
     };
 
     let blockquote_box = MarkdownBlockStyle {
@@ -313,7 +315,7 @@ impl Default for ThemeMarkdown {
       border_color: Some(Color::from_hex("#94a3b8")),
       border_width: Some(3.0),
       radius: Some(0.0),
-      padding: Some(12.0),
+      padding: Some(Padding::all(12.0)),
     };
 
     let table_box = MarkdownBlockStyle {
@@ -329,7 +331,7 @@ impl Default for ThemeMarkdown {
       border_color: None,
       border_width: None,
       radius: None,
-      padding: Some(10.0),
+      padding: Some(Padding::all(10.0)),
     };
 
     let table_cell_box = MarkdownBlockStyle {
@@ -337,7 +339,7 @@ impl Default for ThemeMarkdown {
       border_color: None,
       border_width: None,
       radius: None,
-      padding: Some(10.0),
+      padding: Some(Padding::all(10.0)),
     };
 
     Self {

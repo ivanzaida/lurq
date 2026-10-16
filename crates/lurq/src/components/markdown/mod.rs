@@ -10,6 +10,7 @@ use crate::{
   core::{Memo, Signal},
   layout::{
     Alignment,
+    layout_kind::Justify,
     quad::RichTextSpan,
     text_style::{FontWeight, TextAlign, TextStyle},
   },
@@ -834,11 +835,17 @@ fn render_table_cell(
   if box_style.background.is_some() && style.color == base_style.color {
     style.color = Color::from_hex("#0f172a");
   }
-  render_inline_block(cell, style, theme, render_ctx).map_node(|node| {
-    apply_node_box(node, box_style)
-      .min_width(theme.table_cell_min_width)
-      .flex(1.0)
-  })
+  // The words are the cell's content, not the cell (see `apply_column_box`),
+  // centered in its height as a stretched text leaf centers its words.
+  let content = Column::new()
+    .overflow_visible()
+    .align_items(table_cell_alignment(alignment))
+    .justify(Justify::Center)
+    .child(render_inline_block(cell, style, theme, render_ctx));
+  apply_column_box(content, box_style, true)
+    .min_width(theme.table_cell_min_width)
+    .flex(1.0)
+    .into()
 }
 
 fn table_text_align(alignment: MarkdownTableAlignment) -> TextAlign {
@@ -849,6 +856,20 @@ fn table_text_align(alignment: MarkdownTableAlignment) -> TextAlign {
   }
 }
 
+/// Where a cell puts content narrower than the cell (an image, a fitting
+/// text).
+fn table_cell_alignment(alignment: MarkdownTableAlignment) -> Alignment {
+  match alignment {
+    MarkdownTableAlignment::None | MarkdownTableAlignment::Left => Alignment::Start,
+    MarkdownTableAlignment::Center => Alignment::Center,
+    MarkdownTableAlignment::Right => Alignment::End,
+  }
+}
+
+/// Gives `column` the box `style`. A Markdown box is always a container
+/// around its content, never the content itself: a `Text` or `RichText` leaf
+/// with padding grows by it, but lurq paints the leaf's words over its whole
+/// rect, padding included, so the words would start at the box's edge.
 fn apply_column_box(mut column: Column, style: &MarkdownBlockStyle, include_border: bool) -> Column {
   if let Some(padding) = style.padding {
     column = column.padding(padding);
@@ -865,6 +886,7 @@ fn apply_column_box(mut column: Column, style: &MarkdownBlockStyle, include_bord
   column
 }
 
+/// Gives `row` the box `style`; like [`apply_column_box`], never a text leaf.
 fn apply_row_box(mut row: Row, style: &MarkdownBlockStyle, include_border: bool) -> Row {
   if let Some(padding) = style.padding {
     row = row.padding(padding);
@@ -879,22 +901,6 @@ fn apply_row_box(mut row: Row, style: &MarkdownBlockStyle, include_border: bool)
     row = row.rounded(radius);
   }
   row
-}
-
-fn apply_node_box(mut node: Node, style: &MarkdownBlockStyle) -> Node {
-  if let Some(padding) = style.padding {
-    node = node.padding(padding);
-  }
-  if let Some(background) = style.background {
-    node = node.background(background);
-  }
-  if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
-    node = node.border_inside(width, color);
-  }
-  if let Some(radius) = style.radius {
-    node = node.rounded(radius);
-  }
-  node
 }
 
 fn heading_style(theme: &ThemeMarkdown, level: MarkdownHeadingLevel, base_style: &TextStyle) -> TextStyle {

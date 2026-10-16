@@ -15,6 +15,13 @@ Breaking:
 - The containers Markdown builds itself (the document, lists, quotes, footnotes, rows of texts and images) no longer clip what their blocks draw past them, so a link's focus ring shows in full. Code blocks and tables still clip to their boxes; the app's own containers clip as before.
 - `TextStyle`, `MarkdownTextStyle` and `ThemeMarkdown` gain public fields: struct literals that list every field need the new ones (or `..Default::default()`).
 - An email autolink (`<team@example.com>`) is parsed as a link to `mailto:team@example.com` (it was `team@example.com`), as HTML renders it.
+- `MarkdownBlockStyle::padding` is an `Option<Padding>` (`lurq::node::padding::Padding`; it was `Option<f32>`), so a box can have other padding at its sides than at its top and bottom: `Some(Padding::symmetric(8.0, 4.0))`. Where it was `Some(x)`, write `Some(Padding::all(x))`, or `Some(x.into())`: `Padding` converts from an `f32`.
+
+Fixes:
+
+- A Markdown table cell draws its words inside `ThemeMarkdown::table_cell_box`'s and `table_header_box`'s padding. A cell of plain text or with a link was its words, so they were drawn from the cell's edges. The cell's content now sits inside its padding: in its column's alignment (left, center or right) and centered in the row's height, as before.
+- An image alone in a Markdown table cell keeps its own size and is placed by its column's alignment, inside the cell's padding. It used to be the cell itself, as wide as its column.
+- Copying a selection joins texts drawn side by side into one line, in x order, when their boxes share some height: the cells of a table row copy as one line however tall each cell is. Texts stacked beside a taller one, and blocks stacked in a column, copy one line each, as before.
 
 Added:
 
@@ -23,7 +30,7 @@ Added:
   - `link()` shows a link, in the theme's link looks unless `style(...)` (the words' style over the text around them), `hovered(...)`, `focused(...)` (`MarkdownLinkState`: words color, underline color, a fill behind the words, trailing runs' color), `focus_ring(...)` (`MarkdownFocusRing`: width, offset, color, radius) or `radius(...)` (the fills' corners) say otherwise;
   - `text()` shows the words as the text around them: nothing to press or focus;
   - `trailing(...)` adds `MarkdownRun`s after the words in the same paragraph (a host and an icon glyph after a web link, an address after a link the app does not follow). After a link, the pointer takes them as part of it. They are presentation, like CSS `::after`: copying a selection and inspection tools leave them out, and a selection highlight skips them;
-  - `tooltip(...)` shows a tooltip under the link after the pointer rests on it for `ThemeMarkdown::link_tooltip_delay` (500 ms by default), and at once while it has keyboard focus. A tooltip stays with its link (its destination and how many links to it come before) when links are added before it.
+  - `tooltip(...)` shows a tooltip under the link after the pointer rests on it for `ThemeMarkdown::link_tooltip_delay` (500 ms by default), and at once while it has keyboard focus. A tooltip stays with its link (its destination and how many links to it come before) when links are added before it. Its words sit inside `ThemeMarkdown::link_tooltip_box`'s padding, centered, and wrap at the window's width.
   The hook runs once per link and render on the exact `MarkdownLink` that `on_link_click` gets, so what a link shows always comes from the destination it opens.
 - A link's words and each trailing run are drawn in their own bidi isolate (U+2068 … U+2069), and a paragraph with a link drops every explicit directional control (U+202A–U+202E, U+2066–U+2069) from its text, before the link too, so lurq's isolate marks are the only ones left. A right-to-left override in the words or anywhere in the paragraph, however deeply nested (Unicode bidi ignores an isolate past its 125 levels, which 63 overrides reach), cannot draw a host or an address after a link backwards. The isolate marks are invisible and are not copied. `lurq::markdown::isolate_bidi`, `strip_bidi_controls` and `is_bidi_control` do the same for text an app builds from a destination (a tooltip).
 - Links show a pointer cursor and paint their hovered and focused looks (`ThemeMarkdown::link_hovered`, `link_focused`), per laid-out line of their words. The focus ring is drawn outside the words on all sides, over the text, and is not clipped by the paragraph. This geometry is laid out at the paint's device-pixel scale, so it stays on the glyphs at fractional scales (1.25, 1.5).
