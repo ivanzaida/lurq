@@ -18,7 +18,7 @@ use lurq::{
   components::Text,
 };
 
-use crate::support::render_pass_with_app;
+use super::super::render_pass_with_app;
 
 /// Characters of a text drawn together, and how many glyphs draw them.
 #[derive(Clone, Debug)]
