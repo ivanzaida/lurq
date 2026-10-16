@@ -1258,16 +1258,14 @@ impl LayoutEngine {
             .min(result.size.height)
             .max(1.0);
           let selection_clip = clip;
-          let text_top = Self::inline_text_frame(result).map_or(0.0, |(top, _)| top);
           let generated = Self::generated_span_rects(node, result);
           let pieces = state
             .selection_ranges(&node.rich_text_value().unwrap_or_default())
             .into_iter()
             .flat_map(|selection| {
-              let y = text_top + selection.y;
-              inline_links::without_rects(selection.x, y, selection.width, selection_height, &generated)
+              inline_links::without_rects(selection.x, selection.y, selection.width, selection_height, &generated)
                 .into_iter()
-                .map(move |(x, width)| (x, y, width))
+                .map(move |(x, width)| (x, selection.y, width))
             });
           for (x, y, width) in pieces {
             let selection_x = abs_x + x;
@@ -2568,10 +2566,23 @@ impl LayoutEngine {
         .layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
         .size
     };
+    let text_top = if caret_positions.is_some() {
+      glyph_engine.text_vertical_align_offset(
+        layout_text,
+        style,
+        max_width,
+        effective_wrap,
+        style.vertical_align,
+        size.height,
+      )
+    } else {
+      0.0
+    };
     let output = TextOutput {
       display_text,
       render_wrap,
       caret_positions,
+      text_top,
       #[cfg(feature = "markdown")]
       inline: None,
     };
@@ -2593,10 +2604,8 @@ impl LayoutEngine {
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
     let (display_text, caret_positions) = if state.selectable() {
       let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
-      let caret_positions = spans
-        .first()
-        .map(|first| glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
-      (Some(Arc::from(display_text)), caret_positions)
+      let caret_positions = glyph_engine.rich_text_caret_positions(spans, max_width, effective_wrap);
+      (Some(Arc::from(display_text)), Some(caret_positions))
     } else {
       (None, None)
     };
@@ -2609,10 +2618,24 @@ impl LayoutEngine {
         measured.height.max(constraints.min_height),
       )
     };
+    // Rich text is centered in its box as painting centers it; a paragraph
+    // that paints links or underlines writes its own frame's top later.
+    let text_top = if caret_positions.is_some() {
+      glyph_engine.rich_text_vertical_align_offset(
+        spans,
+        max_width,
+        effective_wrap,
+        crate::layout::text_style::VerticalAlign::Center,
+        size.height,
+      )
+    } else {
+      0.0
+    };
     let output = TextOutput {
       display_text,
       render_wrap,
       caret_positions,
+      text_top,
       #[cfg(feature = "markdown")]
       inline: None,
     };

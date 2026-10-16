@@ -41,6 +41,10 @@ pub(crate) struct TextOutput {
   /// Only selectable text measures caret geometry; other text leaves the
   /// state's positions as they are.
   pub(super) caret_positions: Option<CaretPositions>,
+  /// Where the text's first line sits below the top of its box, as the
+  /// paint places it (`VerticalAlign`); measured for selectable text, so its
+  /// selection meets the glyphs.
+  pub(super) text_top: f32,
   /// Rich text that paints underlines or links: where its text lies.
   #[cfg(feature = "markdown")]
   pub(super) inline: Option<Arc<super::inline_links::InlineTextLayout>>,
@@ -82,6 +86,7 @@ impl TextOutput {
       display_text: self.display_text.clone(),
       render_wrap: self.render_wrap,
       caret_positions: self.caret_positions.clone(),
+      text_top: inline.top,
       inline: Some(inline),
     }
   }
@@ -102,6 +107,7 @@ impl TextOutput {
       self.display_text.as_ref(),
       self.render_wrap,
       self.caret_positions.as_ref(),
+      self.text_top,
     );
   }
 }

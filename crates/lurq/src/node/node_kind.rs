@@ -222,6 +222,8 @@ struct TextInner {
   caret: usize,
   selection_anchor: Option<usize>,
   caret_positions: CaretPositions,
+  /// Where the first line sits below the top of the box, as painted.
+  text_top: f32,
   display_text: Option<Arc<str>>,
   render_wrap: bool,
 }
@@ -240,6 +242,7 @@ impl TextState {
           y: 0.0,
         }]
         .into(),
+        text_top: 0.0,
         display_text: None,
         render_wrap: false,
       })),
@@ -322,6 +325,11 @@ impl TextState {
     selection_range_indices(value, inner.selection_anchor, inner.caret).is_some()
   }
 
+  /// Where the selection started, if one is in progress or made.
+  pub(crate) fn selection_anchor(&self) -> Option<usize> {
+    self.inner.lock().unwrap().selection_anchor
+  }
+
   pub(crate) fn selected_text(&self, value: &str) -> Option<String> {
     self.selected_range(value).map(|range| value[range].to_owned())
   }
@@ -341,18 +349,19 @@ impl TextState {
     let Some((start, end)) = selection_range_indices(value, inner.selection_anchor, inner.caret) else {
       return Vec::new();
     };
-    selection_ranges_for_positions(&inner.caret_positions, start, end, 0.0, 0.0)
+    selection_ranges_for_positions(&inner.caret_positions, value, start, end, 0.0, -inner.text_top)
   }
 
   /// Writes what laying the text out under one set of constraints produced:
   /// the string to draw instead of the content, whether the renderer wraps,
   /// and, for selectable text, the caret geometry (`None` keeps the current
-  /// positions).
+  /// positions) and where its first line sits below the top of the box.
   pub(crate) fn set_layout_output(
     &self,
     display_text: Option<&Arc<str>>,
     render_wrap: bool,
     caret_positions: Option<&CaretPositions>,
+    text_top: f32,
   ) {
     let mut inner = self.inner.lock().unwrap();
     // Serving a cached layout usually writes back what the state already
@@ -361,6 +370,7 @@ impl TextState {
       inner.display_text = display_text.cloned();
     }
     inner.render_wrap = render_wrap;
+    inner.text_top = text_top;
     if let Some(caret_positions) = caret_positions {
       inner.caret_positions = caret_positions.clone();
     }
@@ -389,6 +399,7 @@ impl TextState {
       None
     };
     inner.render_wrap = old_inner.render_wrap;
+    inner.text_top = old_inner.text_top;
     if selectable {
       inner.caret = old_inner.caret.min(len);
       inner.selection_anchor = old_inner.selection_anchor.map(|anchor| anchor.min(len));
@@ -399,8 +410,12 @@ impl TextState {
     }
   }
 
+  /// The caret nearest to `(x, y)` in the text's box.
   pub(crate) fn caret_index_at_point(&self, value: &str, x: f32, y: f32) -> usize {
     let inner = self.inner.lock().unwrap();
-    clamp_to_char_boundary(value, closest_caret_to_point(&inner.caret_positions, x, y))
+    clamp_to_char_boundary(
+      value,
+      closest_caret_to_point(&inner.caret_positions, x, y - inner.text_top),
+    )
   }
 }
