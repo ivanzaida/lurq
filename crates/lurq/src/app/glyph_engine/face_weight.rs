@@ -15,7 +15,7 @@ use cosmic_text::{
   fontdb::{Database, Query, Stretch},
 };
 
-use crate::layout::text_style::{FontStyle, FontWeight};
+use crate::layout::text_style::{FontStyle, FontWeight, cosmic_family};
 
 /// Weight of the face CSS font matching selects for `family`. A family with no
 /// loaded faces is matched against the generic sans-serif family instead, since
@@ -23,12 +23,7 @@ use crate::layout::text_style::{FontStyle, FontWeight};
 /// returned unchanged.
 pub(crate) fn match_face_weight(db: &Database, family: &str, weight: FontWeight, style: FontStyle) -> Weight {
   let requested = weight.to_cosmic();
-  let family = if family.is_empty() {
-    Family::SansSerif
-  } else {
-    Family::Name(family)
-  };
-  [family, Family::SansSerif]
+  [cosmic_family(family), Family::SansSerif]
     .iter()
     .find_map(|family| {
       let id = db.query(&Query {

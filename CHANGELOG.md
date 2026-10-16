@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.48.1 — unreleased
+
+Fixes:
+
+- Inline code and code blocks in Markdown are drawn in a monospaced font. The default Markdown theme, `ThemeFonts::mono` and the devtools ask for the family `"monospace"`, and a family name was always looked up as a font of that name: there is none, so that text was drawn in the fallback font, proportional (Segoe UI on Windows, DejaVu Sans or Lato on Linux). A `font_family` that is a CSS generic family (`"serif"`, `"sans-serif"`, `"monospace"`, `"cursive"`, `"fantasy"`, in any ASCII case) now asks for the platform's font for it, in plain text, rich text and Markdown spans, text inputs and canvas text, for measuring, painting, carets and selection alike. `monospace` is the first installed of Consolas, Cascadia Mono and Courier New on Windows, of Menlo, Monaco and Courier New on macOS, and of DejaVu Sans Mono, Noto Sans Mono and Liberation Mono elsewhere (with none of them, the first monospaced font installed); `serif` is Times New Roman on Windows, Times or Times New Roman on macOS, and DejaVu Serif, Noto Serif or Liberation Serif elsewhere. `sans-serif` draws as the empty family does; `cursive` and `fantasy` ask for the fonts fontdb names (Comic Sans MS; Impact, Papyrus on macOS; fontconfig's choice on Linux) and draw with the fallback fonts where those are not installed. An alias registered for the name (`app.register_font("monospace", "JetBrains Mono")`) is still resolved first, and any other name is still a font's. Code text is wider than before, so Markdown with code wraps and measures differently.
+
+Added:
+
+- `lurq::layout::text_style::GenericFamily` and `GenericFamily::from_name`: the generic family a font family name names, if any.
+
 ## 0.48.0 — 2026-10-16
 
 Fixes:
