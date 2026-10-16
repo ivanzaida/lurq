@@ -1,5 +1,6 @@
 use std::{
   collections::{HashMap, HashSet},
+  sync::OnceLock,
   time::{Duration, Instant},
 };
 
@@ -184,15 +185,37 @@ impl AnimationRun {
   }
 }
 
-/// When a run that first ticks at `now` starts: then, or, in phase, at the last whole number of its
-/// `duration`s since `origin`.
-fn start_time(in_phase: bool, origin: Instant, duration: Duration, now: Instant) -> Instant {
+static CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
+
+/// The origin of the process's animation clock, which every in-phase run plays on (see
+/// [`AnimationEngine::register_keyframes_in_phase`]): such a run starts a whole number of its periods after this
+/// moment. It is the same for every tree, and so for every window, of the process; the first call fixes it.
+pub fn clock_origin() -> Instant {
+  *CLOCK_ORIGIN.get_or_init(Instant::now)
+}
+
+/// How long an in-phase run takes to come back to the same pose: its duration, or two durations for a direction
+/// that alternates, so that every run started on that period's grid plays the same iterations forward.
+fn phase_period(direction: AnimationDirection, duration: Duration) -> u128 {
+  match direction {
+    AnimationDirection::Normal | AnimationDirection::Reverse => duration.as_nanos(),
+    AnimationDirection::Alternate | AnimationDirection::AlternateReverse => 2 * duration.as_nanos(),
+  }
+}
+
+/// When a run that first ticks at `now` starts: then, or, in phase, at the last whole number of its periods
+/// since the [`clock_origin`].
+fn start_time(in_phase: bool, direction: AnimationDirection, duration: Duration, now: Instant) -> Instant {
   if !in_phase || duration.is_zero() {
     return now;
   }
-  let late = now.saturating_duration_since(origin).as_nanos() % duration.as_nanos();
-  // The remainder is below `duration`, a `Duration`, so it fits in u64 nanoseconds.
-  now - Duration::from_nanos(u64::try_from(late).expect("a remainder below a Duration's nanoseconds"))
+  let since_origin = now.saturating_duration_since(clock_origin());
+  let late = since_origin.as_nanos() % phase_period(direction, duration);
+  // `late <= now - origin`: the remainder is at most the time since the clock's origin, which a process does not
+  // run long enough to take past u64 nanoseconds (584 years). The same bound keeps `now - late` at or after the
+  // origin, an `Instant` that exists.
+  let late = u64::try_from(late).expect("the time since the animation clock's origin fits in u64 nanoseconds");
+  now - Duration::from_nanos(late)
 }
 
 pub struct AnimationEngine {
@@ -200,10 +223,8 @@ pub struct AnimationEngine {
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
   seen: HashSet<NodeId>,
   next_change: Option<Instant>,
-  /// Keyframes whose runs play on the engine's clock: see [`Self::register_keyframes_in_phase`].
+  /// Keyframes whose runs play on the process's animation clock: see [`Self::register_keyframes_in_phase`].
   in_phase: HashSet<KeyframesId>,
-  /// The engine's clock: an in-phase run starts on a whole number of its durations after this.
-  origin: Instant,
   pub has_active: bool,
 }
 
@@ -215,7 +236,6 @@ impl AnimationEngine {
       seen: HashSet::new(),
       next_change: None,
       in_phase: HashSet::new(),
-      origin: Instant::now(),
       has_active: false,
     }
   }
@@ -225,12 +245,23 @@ impl AnimationEngine {
     self.keyframe_store.insert(keyframes.id, keyframes.frames);
   }
 
-  /// Registers keyframes whose runs all play in phase: a run starts at the last whole number of its
-  /// durations since the engine's origin, not when its node first ticks. Nodes that mount at different
-  /// moments then show the same pose and change it at the same moments, so a `Steps` spinner shown many
-  /// times still draws one frame per step. A run that mounts late starts part-way through an iteration,
-  /// as a CSS animation with a negative delay does; a finite iteration count therefore ends on the
-  /// engine's clock, not a whole count after the node mounted.
+  /// Registers keyframes whose runs all play in phase on the process's animation clock: a run starts at the last
+  /// whole number of its periods since [`clock_origin`], not when its node first ticks. The period is the
+  /// animation's duration, or twice it for [`AnimationDirection::Alternate`] and
+  /// [`AnimationDirection::AlternateReverse`], so that every run plays the same iterations forward and the same
+  /// ones backward. Nodes that mount at different moments, in one window or several, then show the same pose and
+  /// change it at the same moments, so a `Steps` spinner shown many times still draws one frame per step.
+  ///
+  /// A run that mounts late starts part-way through an iteration, as a CSS animation with a negative delay does;
+  /// a finite iteration count therefore ends on the clock, not a whole count after the node mounted, and a run
+  /// that mounts after that end in its period does not play. The `delay` is counted from the run's start on the
+  /// clock, not from the mount: every run plays from a whole number of periods after the origin plus the delay,
+  /// so a node that mounts within the delay of its period waits only for the rest of it (showing nothing, or the
+  /// first pose with a backwards fill) while nodes that mounted earlier already play, and one that mounts later
+  /// plays at once. Runs of the same animation show the same pose whenever they all play.
+  ///
+  /// Registering the same keyframes with [`Self::register_keyframes`] turns this off for runs that start
+  /// afterwards.
   pub fn register_keyframes_in_phase(&mut self, keyframes: Keyframes) {
     self.in_phase.insert(keyframes.id);
     self.keyframe_store.insert(keyframes.id, keyframes.frames);
@@ -313,7 +344,7 @@ impl AnimationEngine {
       AnimationIterationCount::Infinite => f64::INFINITY,
     };
 
-    let (in_phase, origin) = (&self.in_phase, self.origin);
+    let in_phase = self.in_phase.contains(&spec.keyframes);
     let run = self.active.entry(key).or_insert_with(|| AnimationRun {
       keyframes: spec.keyframes,
       duration: spec.duration,
@@ -322,7 +353,7 @@ impl AnimationEngine {
       direction: spec.direction,
       fill_mode: spec.fill_mode,
       iteration_count,
-      start_time: start_time(in_phase.contains(&spec.keyframes), origin, spec.duration, now),
+      start_time: start_time(in_phase, spec.direction, spec.duration, now),
       finished: false,
     });
 
