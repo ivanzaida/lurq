@@ -1419,8 +1419,11 @@ impl Tree {
   /// iteration or the end. A span that changes continuously returns the time of the last pass: its next frame is
   /// due at once, at the display's pace. `None` when nothing runs or nothing will change.
   ///
-  /// Animations do not set [`Tree::needs_redraw`]: a shell that drives the tree itself asks for its next frame at
-  /// this time, no sooner than a display refresh after the last one.
+  /// Animations do not set [`Tree::needs_redraw`]: a shell that drives the tree itself paces its next frame from
+  /// this time as the winit shell does, at `max(changes_at, presented + T/2, started + 3T/4)` for a display that
+  /// refreshes every `T`, where `started` and `presented` are when the last frame's pass started and when its
+  /// present returned. With a FIFO swapchain the acquire then puts each frame on its own vblank; a pace of a whole
+  /// refresh from the present drifts past vblanks.
   pub fn next_timeline_change(&self) -> Option<Instant> {
     if !self.has_active_timeline() {
       return None;

@@ -112,7 +112,7 @@ Each pass that ticks the timelines also works out when they next draw something 
 - a delay draws nothing new until it ends;
 - a span that changes continuously (`Easing::Linear`, the cubic Bézier easings) gets a frame every display refresh.
 
-Between frames the event loop sleeps until the next one is due, so input, timers, MCP calls and wakes from other threads are handled as they arrive.
+Between frames the event loop sleeps until the next one is due. For a continuous animation the shell wakes half a refresh after the last present and the pass then waits in the swapchain for the next vblank, which keeps one frame per vblank; input, timers, MCP calls and wakes from other threads that arrive during that wait are handled after it, up to about half a refresh later. A `Steps` animation draws long before its frame could wait, so during it they are handled as they arrive.
 
 Each frame lays out and draws the whole window, so a continuous animation costs a full frame at the display's rate (60, 120 or 144 times a second) for as long as it runs. For an indicator that turns or pulses for a long time, such as a loading spinner, give it steps: 12 to 15 steps a turn look smooth for a small icon and cost a fifth of the frames at 60 Hz, and less on faster displays.
 

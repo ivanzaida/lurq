@@ -339,7 +339,7 @@ impl AnimationEngine {
 }
 
 fn plays_forward(direction: AnimationDirection, iteration: f64) -> bool {
-  let even = iteration as u64 % 2 == 0;
+  let even = (iteration as u64).is_multiple_of(2);
   match direction {
     AnimationDirection::Normal => true,
     AnimationDirection::Reverse => false,

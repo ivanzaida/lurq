@@ -614,6 +614,25 @@ fn on_a_virtual_clock_continuous_frames_take_every_vblank() {
 }
 
 #[test]
+fn on_a_virtual_clock_continuous_frames_take_every_vblank_at_144_hz() {
+  let refresh = Duration::from_nanos(6_944_444);
+  for cost_us in [2000, 2250, 2500] {
+    let cost = Duration::from_micros(cost_us);
+    let epoch = Instant::now();
+    let presents = virtual_presents(epoch, refresh, cost / 2, 1200, |sampled| sampled);
+    let vblanks: Vec<u128> = presents
+      .iter()
+      .map(|present| vblank_index(epoch, refresh, *present))
+      .collect();
+    assert_eq!(
+      skipped_vblanks(&vblanks[1..]),
+      0,
+      "at 144 Hz and {cost:?} of work per frame, every vblank shows a new frame"
+    );
+  }
+}
+
+#[test]
 fn on_a_virtual_clock_twelve_steps_draw_twelve_frames_a_second() {
   let step = Duration::from_secs(1) / 12;
   let epoch = Instant::now();
