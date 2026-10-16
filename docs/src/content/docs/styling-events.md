@@ -302,9 +302,11 @@ lurq::components::Text::new("Drag, double-click, or triple-click this text")
   .selectable(true)
 ```
 
-Selectable text supports pointer drag ranges, double-click word selection, and triple-click line selection. Multiline and wrapped text render one selection highlight per selected row. Selection is visual-coordinate aware, so text inside transformed parents can still be selected from the painted position.
+Selectable text supports pointer drag ranges, double-click word selection, and triple-click line selection. A Shift press extends the selection from where it started (the pressed point of the last plain press, or the start of a double- or triple-click's word or line) to the pressed point, across texts too, and a drag with Shift held goes on from there; a Ctrl press starts another selection and keeps the ones in other texts. Escape clears every selection. Selection is visual-coordinate aware, so text inside transformed parents can still be selected from the painted position.
 
-With the `clipboard` feature enabled, `Ctrl+C` and `Ctrl+Insert` copy the current selectable text selection to the system clipboard.
+The selection follows the glyphs on screen: hit-testing, the highlight and the copied text index the layout the text is drawn with, span by span for Markdown, and the text's place in a box taller than it. Multiline and wrapped text render one selection highlight per selected row, covering the advances of the selected glyphs from the caret before the first to the caret after the last. On a row that the text wrapped, the whitespace and invisible marks at its end hang past it and draw nothing, so they are not highlighted; a row that ends with a line break or with the text keeps its trailing spaces highlighted. There is no marker for a line break.
+
+`Tree::selected_text()` returns the selection as copying gives it: the texts drawn side by side on one line (the cells of a table row) in x order, texts stacked below each other one line each, and what a Markdown paragraph draws as presentation (a link's isolate marks and trailing runs) left out. With the `clipboard` feature enabled, `Ctrl+C` and `Ctrl+Insert` copy that text to the system clipboard.
 
 ## Sensitive Text
 

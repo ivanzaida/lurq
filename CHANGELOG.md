@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.48.0 — unreleased
+
+Fixes:
+
+- Selecting text in a Markdown paragraph with spans in other fonts or sizes (inline code, a heading's code, emphasis in another face) now follows the glyphs on screen. A selectable rich text's caret positions came from the paragraph's text shaped in its first span's style alone, while the paragraph was drawn span by span, so wherever a span was wider or narrower than the first style made it, and wherever the lines wrapped elsewhere, the caret under the pointer, the highlight and the copied text indexed another layout than the one drawn: a drag over a chat reply from "The design marks" to "planned" copied from "ttachments" to the end of the paragraph, the highlight of a line ran past its last glyph to the paragraph's edge, and a press below the last line that the shaped-once layout had mapped every point to the end of the text, so no selection could be started or extended there. Caret positions now come from the shaped layout that measuring and painting share (`GlyphEngine::rich_text_caret_positions`), so hit-testing, the highlight and the copied text index one layout: the drawn one.
+- A selectable `Text` or Markdown paragraph in a box taller than its text (a `Text` filling a window or a fixed-height box, `VerticalAlign::Center` is the default) hit-tested and highlighted from the top of its box while its glyphs were drawn centered in it: a press on the drawn first line could select from the last. Layout now writes where the text's first line sits (`TextOutput::text_top`) into the text's state, which hit-testing and the highlight read; the paint computes the same offset (`GlyphEngine::text_vertical_align_offset`, `rich_text_vertical_align_offset`).
+- A right-to-left glyph's carets were mirrored: the caret before its cluster was put at its left edge and the caret after it at its right, so a drag over Hebrew or Arabic text from the right edge of its first letter lost that letter and a drag to the left edge of its last letter lost that one (`glyph_caret_edges`). This holds for plain text, rich text and text inputs alike.
+- A selection highlight no longer covers the whitespace and invisible marks at the end of a wrapped row (a space before a link that moved to the next line, with the isolate mark lurq puts before the link): the text layout lets them hang past the row and draws nothing there. A row that ends with a line break or with the text keeps its trailing spaces highlighted. A highlight covers the advances of the selected glyphs, from the caret before the first to the caret after the last, and there is no marker for a line break (`selection_ranges_for_positions`).
+
+Behaviour changes:
+
+- A Shift press on a selectable text extends the selection from where it started (the pressed point of the last plain press, or the start of a double- or triple-click's word or line) to the pressed point, across texts too, as in a browser; a drag with Shift held goes on from there. Shift used to start a new selection in the pressed text while keeping the other texts' selections; that is what Ctrl still does. Without a selection to extend, a Shift press starts one at the pressed point. Escape and a press on nothing selectable forget where the selection started.
+
+Added:
+
+- `Tree::selected_text()`: the text selected in the selectable texts as Ctrl+C copies it (one line per visual line, presentation such as a link's isolate marks and trailing runs left out), or `None`. An app copies or shows the selection without the `clipboard` feature, and a test checks what a drag selects.
+- `TextInputHandle::selected_text()`: the selected part of a text input's value.
+
 ## 0.47.0 — 2026-10-16
 
 Behaviour changes:
