@@ -112,6 +112,10 @@ impl Animation {
   }
 }
 
+/// A frame due at a step boundary is drawn this long after it, so that it samples the new step even where
+/// floating-point time lands a hair before the boundary.
+pub(super) const STEP_MARGIN: Duration = Duration::from_micros(100);
+
 struct AnimationRun {
   keyframes: KeyframesId,
   duration: Duration,
@@ -124,10 +128,55 @@ struct AnimationRun {
   finished: bool,
 }
 
+/// Where a run is on its timeline at some time.
+enum Phase {
+  Delay,
+  Active { iteration: f64, progress: f64 },
+  Done,
+}
+
+impl AnimationRun {
+  fn phase(&self, now: Instant) -> Phase {
+    let elapsed = now.duration_since(self.start_time);
+    if elapsed < self.delay {
+      return Phase::Delay;
+    }
+    let duration = self.duration.as_secs_f64();
+    let active = (elapsed - self.delay).as_secs_f64();
+    if duration <= 0.0 || active >= duration * self.iteration_count {
+      return Phase::Done;
+    }
+    let iteration = (active / duration).floor();
+    Phase::Active {
+      iteration,
+      progress: active / duration - iteration,
+    }
+  }
+
+  /// When the run next draws something other than what it draws at `now`: the end of its delay, the next step of a
+  /// step-eased span, or the end of the iteration or of the run. A span that changes continuously changes at once,
+  /// so it returns `now`. `None` once the run is done.
+  fn next_change(&self, frames: &[KeyframeEntry], now: Instant) -> Option<Instant> {
+    let (iteration, progress) = match self.phase(now) {
+      Phase::Delay => return Some(self.start_time + self.delay),
+      Phase::Done => return None,
+      Phase::Active { iteration, progress } => (iteration, progress),
+    };
+    let forward = plays_forward(self.direction, iteration);
+    let directed = if forward { progress } else { 1.0 - progress };
+    // A step never lies past the end of its span, so the end of the iteration bounds it too.
+    let Some(until) = distance_to_next_step(frames, directed, forward, &self.easing) else {
+      return Some(now);
+    };
+    Some(now + self.duration.mul_f64(until) + STEP_MARGIN)
+  }
+}
+
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
   seen: HashSet<NodeId>,
+  next_change: Option<Instant>,
   pub has_active: bool,
 }
 
@@ -137,6 +186,7 @@ impl AnimationEngine {
       active: HashMap::new(),
       keyframe_store: HashMap::new(),
       seen: HashSet::new(),
+      next_change: None,
       has_active: false,
     }
   }
@@ -148,6 +198,7 @@ impl AnimationEngine {
   pub(crate) fn clear_state(&mut self) {
     self.active.clear();
     self.seen.clear();
+    self.next_change = None;
     self.has_active = false;
   }
 
@@ -157,6 +208,7 @@ impl AnimationEngine {
   /// are done — see [`Self::finish_frame`].
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
+    self.next_change = None;
   }
 
   /// Ends a frame after every tick walk ran: drops runs whose node was not
@@ -168,6 +220,11 @@ impl AnimationEngine {
     let seen = &self.seen;
     self.active.retain(|(node_id, _), _| seen.contains(node_id));
     self.has_active = self.active.values().any(|run| !run.finished);
+  }
+
+  /// The earliest time a run ticked this frame draws something else; see [`AnimationRun::next_change`].
+  pub(crate) fn next_change(&self) -> Option<Instant> {
+    self.next_change
   }
 
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
@@ -236,62 +293,79 @@ impl AnimationEngine {
       None => return false,
     };
 
-    let elapsed = now.duration_since(run.start_time);
-
-    if elapsed < run.delay {
-      if matches!(run.fill_mode, AnimationFillMode::Backwards | AnimationFillMode::Both) {
-        let progress = directed_progress(0.0, run.direction, 0.0);
-        return apply_keyframe_at(node, frames, progress as f32, &run.easing);
+    let layout_affected = match run.phase(now) {
+      Phase::Delay => {
+        matches!(run.fill_mode, AnimationFillMode::Backwards | AnimationFillMode::Both)
+          && apply_keyframe_at(
+            node,
+            frames,
+            directed_progress(0.0, run.direction, 0.0) as f32,
+            &run.easing,
+          )
       }
-      return false;
-    }
-
-    let active_elapsed = (elapsed - run.delay).as_secs_f64();
-    let dur = run.duration.as_secs_f64();
-
-    if dur <= 0.0 {
-      run.finished = true;
-      self.active.get_mut(&(node_id, spec.keyframes)).unwrap().finished = true;
-      return false;
-    }
-
-    let total = dur * run.iteration_count;
-    if active_elapsed >= total {
-      run.finished = true;
-      if matches!(run.fill_mode, AnimationFillMode::Forwards | AnimationFillMode::Both) {
-        let final_iter = (run.iteration_count - 1.0).max(0.0);
-        let progress = directed_progress(1.0, run.direction, final_iter);
-        return apply_keyframe_at(node, frames, progress as f32, &run.easing);
+      Phase::Done => {
+        run.finished = true;
+        let fills = matches!(run.fill_mode, AnimationFillMode::Forwards | AnimationFillMode::Both);
+        if fills && !run.duration.is_zero() {
+          let final_iter = (run.iteration_count - 1.0).max(0.0);
+          let progress = directed_progress(1.0, run.direction, final_iter);
+          apply_keyframe_at(node, frames, progress as f32, &run.easing)
+        } else {
+          false
+        }
       }
-      return false;
+      Phase::Active { iteration, progress } => {
+        let progress = directed_progress(progress, run.direction, iteration);
+        apply_keyframe_at(node, frames, progress as f32, &run.easing)
+      }
+    };
+    if let Some(at) = run.next_change(frames, now) {
+      self.next_change = Some(self.next_change.map_or(at, |next| next.min(at)));
     }
+    layout_affected
+  }
+}
 
-    let iteration = (active_elapsed / dur).floor();
-    let raw_progress = (active_elapsed / dur) - iteration;
-    let progress = directed_progress(raw_progress, run.direction, iteration);
-    apply_keyframe_at(node, frames, progress as f32, &run.easing)
+fn plays_forward(direction: AnimationDirection, iteration: f64) -> bool {
+  let even = iteration as u64 % 2 == 0;
+  match direction {
+    AnimationDirection::Normal => true,
+    AnimationDirection::Reverse => false,
+    AnimationDirection::Alternate => even,
+    AnimationDirection::AlternateReverse => !even,
   }
 }
 
 fn directed_progress(progress: f64, direction: AnimationDirection, iteration: f64) -> f64 {
-  match direction {
-    AnimationDirection::Normal => progress,
-    AnimationDirection::Reverse => 1.0 - progress,
-    AnimationDirection::Alternate => {
-      if iteration as u64 % 2 == 0 {
-        progress
-      } else {
-        1.0 - progress
-      }
-    }
-    AnimationDirection::AlternateReverse => {
-      if iteration as u64 % 2 == 0 {
-        1.0 - progress
-      } else {
-        progress
-      }
-    }
+  if plays_forward(direction, iteration) {
+    progress
+  } else {
+    1.0 - progress
   }
+}
+
+/// How far keyframe progress moves, in the direction it plays, before the frames draw something else: to the next
+/// step of the span at `progress` when that span is step-eased. `None` when the span changes continuously.
+fn distance_to_next_step(
+  frames: &[KeyframeEntry],
+  progress: f64,
+  forward: bool,
+  overall_easing: &Easing,
+) -> Option<f64> {
+  let (lo, hi) = find_surrounding_frames(frames, progress as f32);
+  if lo == hi {
+    return None;
+  }
+  let (lo_frame, hi_frame) = (&frames[lo], &frames[hi]);
+  let span = f64::from(hi_frame.offset - lo_frame.offset);
+  if span <= 0.0 {
+    return None;
+  }
+  let local = (progress - f64::from(lo_frame.offset)) / span;
+  let easing = lo_frame.easing.as_ref().unwrap_or(overall_easing);
+  easing
+    .distance_to_next_step(local, forward)
+    .map(|distance| distance * span)
 }
 
 fn apply_keyframe_at(

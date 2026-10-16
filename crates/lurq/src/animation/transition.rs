@@ -4,6 +4,7 @@ use std::{
 };
 
 use super::{
+  animation::STEP_MARGIN,
   easing::Easing,
   interpolate::{
     AnimatableProperty, AnimatableValue, clear_overrides, property_accessors, read_target, write_property,
@@ -122,10 +123,22 @@ struct TransitionRun {
   easing: Easing,
 }
 
+impl TransitionRun {
+  /// When the run next draws something other than what it draws at `now`, which is `raw` of the way through it:
+  /// the next step of a step easing or the end. A continuous easing changes at once, so it returns `now`.
+  fn next_change(&self, now: Instant, raw: f64) -> Instant {
+    match self.easing.distance_to_next_step(raw, true) {
+      Some(until) => now + self.duration.mul_f64(until) + STEP_MARGIN,
+      None => now,
+    }
+  }
+}
+
 pub struct TransitionEngine {
   active: HashMap<(NodeId, AnimatableProperty), TransitionRun>,
   prev_values: HashMap<(NodeId, AnimatableProperty), AnimatableValue>,
   seen: HashSet<NodeId>,
+  next_change: Option<Instant>,
   pub has_active: bool,
 }
 
@@ -135,6 +148,7 @@ impl TransitionEngine {
       active: HashMap::new(),
       prev_values: HashMap::new(),
       seen: HashSet::new(),
+      next_change: None,
       has_active: false,
     }
   }
@@ -143,6 +157,7 @@ impl TransitionEngine {
     self.active.clear();
     self.prev_values.clear();
     self.seen.clear();
+    self.next_change = None;
     self.has_active = false;
   }
 
@@ -152,6 +167,7 @@ impl TransitionEngine {
   /// detectable after all walks in [`Self::finish_frame`].
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
+    self.next_change = None;
   }
 
   /// Ends a frame after every tick walk ran: drops runs and prev-value
@@ -164,6 +180,11 @@ impl TransitionEngine {
     self.active.retain(|(node_id, _), _| seen.contains(node_id));
     self.prev_values.retain(|(node_id, _), _| seen.contains(node_id));
     self.has_active = !self.active.is_empty();
+  }
+
+  /// The earliest time a run ticked this frame draws something else; see [`TransitionRun::next_change`].
+  pub(crate) fn next_change(&self) -> Option<Instant> {
+    self.next_change
   }
 
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
@@ -266,6 +287,8 @@ impl TransitionEngine {
       let elapsed = now.duration_since(run.start_time);
       if elapsed < run.delay {
         layout_affected |= write_property(node, prop, &run.from);
+        let at = run.start_time + run.delay;
+        self.next_change = Some(self.next_change.map_or(at, |next| next.min(at)));
         continue;
       }
       let raw = (elapsed - run.delay).as_secs_f64() / run.duration.as_secs_f64();
@@ -276,6 +299,8 @@ impl TransitionEngine {
         let t = run.easing.evaluate(raw) as f32;
         let interpolated = run.from.lerp(&run.to, t);
         layout_affected |= write_property(node, prop, &interpolated);
+        let at = run.next_change(now, raw);
+        self.next_change = Some(self.next_change.map_or(at, |next| next.min(at)));
       }
     }
 

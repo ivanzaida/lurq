@@ -70,14 +70,17 @@ fn infinite_iteration_keeps_animating() {
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
   run_pass(&mut rt);
 
-  assert!(rt.needs_redraw(), "infinite animation should request redraw");
+  assert!(
+    rt.next_timeline_change().is_some(),
+    "infinite animation should ask for a frame"
+  );
 
   std::thread::sleep(std::time::Duration::from_millis(50));
   run_pass(&mut rt);
 
   assert!(
-    rt.needs_redraw(),
-    "infinite animation should still request redraw after many iterations"
+    rt.next_timeline_change().is_some(),
+    "infinite animation should still ask for a frame after many iterations"
   );
 }
 
