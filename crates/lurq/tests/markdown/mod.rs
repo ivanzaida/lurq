@@ -6,4 +6,5 @@ mod link_input;
 mod link_tooltip;
 mod links;
 mod parse;
+mod table_cells;
 mod text;

@@ -188,8 +188,7 @@ impl Component for LinkTooltips {
     let Some(tooltip) = hovered.or(focused) else {
       return Element::from(Overlay::new(Element::from_node(crate::node::Node::new())).open_when(false));
     };
-    // The words are the box's child, not the box: a text leaf paints its
-    // words over its whole rect, padding included.
+    // The words are the box's content, not the box: see `apply_column_box`.
     let words = Text::styled(&tooltip.text, props.text.apply(&props.style));
     let panel = apply_column_box(
       Column::new().align_items(Alignment::Center).child(words),

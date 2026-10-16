@@ -16,6 +16,7 @@ Breaking:
 Fixes:
 
 - A Markdown link's tooltip draws its words inside `ThemeMarkdown::link_tooltip_box`'s padding. The words were the box themselves, so the padding grew the box but the words were drawn from its left edge: with 4 px of padding, 0 px at the left and 8 px at the right. They are now the box's content, centered in it.
+- A Markdown table cell draws its words inside `ThemeMarkdown::table_cell_box`'s and `table_header_box`'s padding. A cell of plain text or with a link was its words, so they were drawn from the cell's edges. The cell's content now sits inside its padding: in its column's alignment (left, center or right) and centered in the row's height, as before.
 
 Added:
 
