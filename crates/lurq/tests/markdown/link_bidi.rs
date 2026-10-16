@@ -1,6 +1,7 @@
 //! A link's words, trailing runs and shown address cannot be reordered by
-//! directional controls (U+202A–U+202E, U+2066–U+2069) in or before them, and
-//! the isolate marks that protect them are not drawn.
+//! directional controls (U+202A–U+202E, U+2066–U+2069) or marks (U+200E,
+//! U+200F, U+061C) in or before them, and the isolate marks that protect them
+//! are not drawn.
 
 use std::sync::{Arc, Mutex};
 
@@ -143,7 +144,7 @@ fn markdown_link_host_reads_forward_after_deep_override_entities() {
 fn markdown_paragraph_with_a_link_keeps_only_its_own_isolate_marks() {
   let (_app, tree) = mount(
     MarkdownProps::new(format!(
-      "{} [mail](mailto:a@b.c) \u{2067}tail",
+      "{} [mail](mailto:a@b.c) \u{2067}tail \u{200F}\u{200E}\u{061C}marks",
       deep_source("\u{202D}", 70)
     ))
     .link_presentation(|link| {
@@ -158,10 +159,13 @@ fn markdown_paragraph_with_a_link_keeps_only_its_own_isolate_marks() {
   let quads = quads(&tree);
   let spans = rich_text_quads(&quads)[0];
   for span in spans {
-    let marks_only = matches!(span.text.as_str(), "\u{2068}" | "\u{2069}");
+    let own_mark = matches!(
+      span.text.as_str(),
+      "\u{200E}" | "\u{200F}" | "\u{2066}" | "\u{2067}" | "\u{2068}" | "\u{2069}"
+    );
     assert!(
-      marks_only || !span.text.chars().any(is_bidi_control),
-      "only lurq's own isolate marks are directional controls: {:?}",
+      own_mark || !span.text.chars().any(is_bidi_control),
+      "only lurq's own marks are directional controls: {:?}",
       span.text
     );
   }
@@ -197,11 +201,18 @@ fn markdown_link_words_runs_and_address_drop_directional_controls() {
     ]
   );
   assert!(shown.iter().all(|text| !text.chars().any(is_bidi_control)), "{shown:?}");
-  // Each piece sits between its own isolate marks.
-  let all = spans.iter().map(|span| span.text.as_str()).collect::<Vec<_>>();
-  for piece in ["words", " github.com", "mail", " (mailto:ab@c.d)"] {
-    let at = all.iter().position(|text| *text == piece).unwrap();
-    assert_eq!((all[at - 1], all[at + 1]), ("\u{2068}", "\u{2069}"), "{piece}");
+  // Each link, its words and its runs, sits in its own left-to-right
+  // isolate between left-to-right marks.
+  let all = spans
+    .iter()
+    .map(|span| span.text.as_str())
+    .collect::<String>()
+    .replace('\u{2060}', "");
+  for link in ["words github.com", "mail (mailto:ab@c.d)"] {
+    assert!(
+      all.contains(&format!("\u{200E}\u{2066}{link}\u{2069}\u{200E}")),
+      "{all:?}"
+    );
   }
   assert!(
     has_element_with_text(&mut tree, "words"),
@@ -250,5 +261,8 @@ fn markdown_link_name_is_the_drawn_words_and_email_autolinks_are_mailto() {
 
 #[test]
 fn markdown_isolate_bidi_strips_and_wraps() {
-  assert_eq!(isolate_bidi("a\u{202E}b\u{2069}c"), "\u{2068}abc\u{2069}");
+  assert_eq!(
+    isolate_bidi("\u{200F}a\u{202E}b\u{2069}c\u{061C}\u{200E}"),
+    "\u{2068}abc\u{2069}"
+  );
 }

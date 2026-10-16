@@ -21,7 +21,7 @@ image = ["raster", "dep:image"]
 raster = ["dep:core-video-sys"]
 canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
 i18n = []
-markdown = ["dep:pulldown-cmark"]
+markdown = ["dep:pulldown-cmark", "dep:unicode-bidi", "dep:unicode-linebreak"]
 persistent_storage = ["dep:redb"]
 query = []
 serde = ["dep:serde_json"]
@@ -65,6 +65,9 @@ parking_lot.workspace = true
 paste = "1"
 pollster = { version = "0.4", optional = true }
 pulldown-cmark = { version = "0.13.4", default-features = false, optional = true }
+# The bidi classes and line breaks cosmic-text already uses, for Markdown links.
+unicode-bidi = { version = "0.3.18", optional = true }
+unicode-linebreak = { version = "0.1.5", optional = true }
 raw-window-handle = "0.6"
 redb = { version = "4.1.0", optional = true }
 rfd = { version = "0.15", optional = true }

@@ -103,7 +103,7 @@ fn an_agent_sees_a_markdown_link_by_role_and_name_and_follows_it() {
     .unwrap_or_else(|| panic!("the paragraph's text without its trailing run: {tree_text}"));
   assert!(!paragraph.contains("github.com"), "{paragraph}");
   assert!(
-    !tree_text.contains('\u{2068}') && !tree_text.contains('\u{2069}'),
+    !tree_text.contains(['\u{2066}', '\u{2068}', '\u{2069}']),
     "no isolate marks"
   );
   assert_eq!(

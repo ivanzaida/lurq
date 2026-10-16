@@ -54,9 +54,10 @@ impl MarkdownLink {
 ///
 /// Trailing runs are presentation, like CSS `::after` content: they are not
 /// part of the paragraph's text when it is copied or read by inspection
-/// tools, and a selection does not highlight them. Each run is drawn in its
-/// own bidi isolate, without directional controls, so neither the words
-/// before it nor its own text can reorder it.
+/// tools, and a selection does not highlight them. A run is drawn without
+/// directional controls or line breaks, in its own bidi isolate where its
+/// text could reorder, so neither the words before it nor its own text can
+/// reorder it.
 #[derive(Clone, Default, PartialEq)]
 pub struct MarkdownRun {
   pub(super) text: Arc<str>,
@@ -99,10 +100,16 @@ impl MarkdownRun {
 /// after a link the app does not follow. After a link, the pointer takes them
 /// as part of the link, and its hovered and focused looks can recolor them.
 ///
-/// The words and each trailing run are drawn in bidi isolates, stripped of
-/// directional controls (see [`crate::markdown::isolate_bidi`]): a
-/// right-to-left override in the words or before them cannot reverse a host
-/// or an address drawn after them.
+/// The words and trailing runs are stripped of directional controls and
+/// marks (see [`crate::markdown::isolate_bidi`]) and laid out between
+/// invisible bidi marks: a right-to-left override in the words or before
+/// them cannot reverse a host or an address drawn after them, and on every
+/// laid-out line, in a right-to-left paragraph too, the runs follow the
+/// words, left to right, and nothing else does. A link stays on one line
+/// where it fits. A link whose words draw nothing (none, or only spaces,
+/// invisible characters such as U+200B and combining marks with no letter)
+/// is not presented: lurq draws its words as text, without runs, and it is
+/// nothing to press.
 #[derive(Clone, Default, PartialEq)]
 pub struct MarkdownLinkPresentation {
   pub(super) as_text: bool,

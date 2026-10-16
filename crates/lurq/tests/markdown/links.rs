@@ -62,21 +62,42 @@ pub(super) fn rich_text_quads(quads: &[Quad]) -> Vec<&Vec<RichTextSpan>> {
     .collect()
 }
 
-pub(super) fn span<'a>(spans: &'a [RichTextSpan], text: &str) -> &'a RichTextSpan {
-  spans
-    .iter()
+pub(super) fn span(spans: &[RichTextSpan], text: &str) -> RichTextSpan {
+  shown(spans)
+    .into_iter()
     .find(|span| span.text == text)
     .unwrap_or_else(|| panic!("no span {text:?} in {:?}", texts(spans)))
 }
 
-/// The spans' texts, without the invisible isolate marks around a link's
-/// words and trailing runs.
-pub(super) fn texts(spans: &[RichTextSpan]) -> Vec<&str> {
-  spans
-    .iter()
-    .map(|span| span.text.as_str())
-    .filter(|text| !matches!(*text, "\u{2068}" | "\u{2069}"))
-    .collect()
+/// The spans' texts as `shown` gives them.
+pub(super) fn texts(spans: &[RichTextSpan]) -> Vec<String> {
+  shown(spans).into_iter().map(|span| span.text).collect()
+}
+
+/// The spans without the invisible marks lurq puts around a link, its words
+/// and its trailing runs, and with the pieces of a span that a word joiner
+/// split joined again.
+fn shown(spans: &[RichTextSpan]) -> Vec<RichTextSpan> {
+  let is_mark = |span: &RichTextSpan| {
+    span
+      .text
+      .chars()
+      .all(|ch| matches!(ch, '\u{200E}' | '\u{200F}' | '\u{2060}' | '\u{2066}'..='\u{2069}'))
+  };
+  let mut shown: Vec<RichTextSpan> = Vec::new();
+  let mut joined = false;
+  for span in spans {
+    if is_mark(span) {
+      joined = span.text == "\u{2060}";
+      continue;
+    }
+    match shown.last_mut() {
+      Some(last) if joined && last.style == span.style => last.text.push_str(&span.text),
+      _ => shown.push(span.clone()),
+    }
+    joined = false;
+  }
+  shown
 }
 
 pub(super) fn rects_of(quads: &[Quad], color: Color) -> Vec<&Quad> {
@@ -338,7 +359,7 @@ fn markdown_presentation_sees_the_destination_the_click_follows() {
   );
   let quads = quads(&tree);
   let spans = rich_text_quads(&quads)[0];
-  assert!(texts(spans).contains(&" <https://docs.example/guide>"));
+  assert!(texts(spans).iter().any(|text| text == " <https://docs.example/guide>"));
 }
 
 #[test]
@@ -426,7 +447,7 @@ fn markdown_paragraph_text_content_leaves_out_isolate_marks_and_trailing_runs() 
   let marked = tree.find_element(|element| {
     element
       .text_content()
-      .is_some_and(|text| text.contains(['\u{2068}', '\u{2069}']) || text.contains("github.com"))
+      .is_some_and(|text| text.contains(['\u{2066}', '\u{2068}', '\u{2069}']) || text.contains("github.com"))
   });
   assert!(marked.is_none(), "no element's text holds the marks or the host");
 }

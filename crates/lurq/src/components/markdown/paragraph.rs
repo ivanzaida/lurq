@@ -5,14 +5,23 @@
 //! ([`crate::node::inline_link`]): a Tab stop that Enter and a click follow,
 //! with a pointer cursor, hover and focus looks and an optional tooltip.
 //!
-//! A link's words and each trailing run are drawn between invisible isolate
-//! marks ([`crate::markdown::isolate_bidi`]). A paragraph with a link drops
-//! every directional control of its own text, before the link too: Unicode
-//! bidi nests at most 125 levels deep, and past that it ignores an isolate,
-//! so 63 overrides before a link would reverse the host after it again. The
-//! link's isolate marks are then the only directional controls in the
-//! paragraph. The marks and the trailing runs are presentation: the
-//! paragraph's copied and inspected text leaves them out.
+//! A link's words and trailing runs are laid out between invisible marks for
+//! the direction of the bidi paragraph it is in ([`super::link_block`],
+//! [`super::bidi_paragraphs`]), so its runs follow its words, left to right,
+//! on every laid-out line at any width, and the paragraph's own text still
+//! runs its way around the link. A paragraph with a link drops every
+//! directional control and mark of its own text, before the link too:
+//! Unicode bidi nests at most 125 levels deep, and past that it ignores an
+//! isolate, so 63 overrides before a link would reverse the host after it
+//! again; and a mark would set which way the paragraph and the links in it
+//! run. Its other line and paragraph separators are line feeds, and a link's
+//! words are one line of text: breaks in them are spaces. The link's marks
+//! are then the only directional controls in the paragraph, three isolates
+//! deep at most. A link whose words draw nothing (none, or only spaces,
+//! invisible characters and combining marks with no letter) is its words as
+//! text: no runs, nothing to press.
+//! The marks, joiners and trailing runs are presentation: the paragraph's
+//! copied and inspected text leaves them out.
 
 use std::{
   cell::{Cell, RefCell},
@@ -22,6 +31,8 @@ use std::{
 };
 
 use super::{
+  bidi_paragraphs::link_directions,
+  link_block::LinkBlock,
   links::{MarkdownLink, MarkdownLinkPresentation},
   tooltip::{LinkTooltip, TooltipHover, TooltipKey},
 };
@@ -29,7 +40,8 @@ use crate::{
   app::theme::ThemeMarkdown,
   layout::{quad::RichTextSpan, text_style::TextStyle},
   markdown::{
-    FIRST_STRONG_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, markdown_inline_rich_text, strip_bidi_controls,
+    Direction, FIRST_STRONG_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, is_invisible, markdown_inline_rich_text,
+    paragraph_breaks_as_line_feeds, paragraph_breaks_as_spaces, strip_bidi_controls,
   },
   node::{CursorIcon, Node, inline_link::InlineLink},
 };
@@ -184,25 +196,40 @@ pub(super) struct Paragraph<'a> {
   /// Spans before this index are closed: nothing merges into them, so a
   /// link's spans stay its own.
   sealed: usize,
-  /// Spans that are presentation, not the paragraph's text: isolate marks
-  /// and trailing runs.
+  /// Spans that are presentation, not the paragraph's text: marks, joiners
+  /// and trailing runs, in span order.
   generated: Vec<Range<usize>>,
-  /// The paragraph has a link: directional controls are dropped from all of
-  /// its text.
+  /// The paragraph has a link: directional controls and marks are dropped
+  /// from all of its text, and its separators are line feeds.
   strip_controls: bool,
+  /// The direction of each next link's bidi paragraph.
+  directions: std::vec::IntoIter<Direction>,
   links: Vec<Node>,
   theme: &'a ThemeMarkdown,
   session: &'a LinkSession,
 }
 
 impl<'a> Paragraph<'a> {
-  /// A paragraph of `inlines`.
-  pub(super) fn new(inlines: &[MarkdownInline], theme: &'a ThemeMarkdown, session: &'a LinkSession) -> Self {
+  /// A paragraph of `inlines`; with `flow`, an image outside a link ends the
+  /// text before it ([`Self::push_inlines`]).
+  pub(super) fn new(
+    inlines: &[MarkdownInline],
+    flow: bool,
+    theme: &'a ThemeMarkdown,
+    session: &'a LinkSession,
+  ) -> Self {
+    let strip_controls = has_link(inlines);
+    let directions = if strip_controls {
+      link_directions(inlines, flow, theme)
+    } else {
+      Vec::new()
+    };
     Self {
       spans: Vec::new(),
       sealed: 0,
       generated: Vec::new(),
-      strip_controls: has_link(inlines),
+      strip_controls,
+      directions: directions.into_iter(),
       links: Vec::new(),
       theme,
       session,
@@ -216,14 +243,10 @@ impl<'a> Paragraph<'a> {
   /// The paragraph so far as one rich-text node; the builder starts over.
   pub(super) fn take_node(&mut self) -> Node {
     self.sealed = 0;
-    // A run's range is recorded after its closing mark's: the node takes
-    // them sorted, which its content walk relies on.
-    let mut generated = std::mem::take(&mut self.generated);
-    generated.sort_unstable_by_key(|range| range.start);
     Node::rich_text_with_links(
       std::mem::take(&mut self.spans),
       std::mem::take(&mut self.links),
-      generated,
+      std::mem::take(&mut self.generated),
     )
   }
 
@@ -270,37 +293,40 @@ impl<'a> Paragraph<'a> {
   }
 
   fn push_link(&mut self, destination: &str, title: &str, children: &[MarkdownInline], style: &TextStyle) {
+    let direction = self.directions.next().unwrap_or(Direction::LeftToRight);
     let (link, key) = self
       .session
       .next_link(destination, title, link_words(children, self.theme));
+    if is_invisible(link.text()) {
+      // Words that draw nothing would leave the runs where nothing marks
+      // them as this link's: right after another link's words. Such a link
+      // is its words, as text, and nothing to press.
+      self.push_invisible_words(children, style);
+      return;
+    }
     let presentation = self.session.present(&link);
     let words_style = if presentation.as_text {
       style.clone()
     } else {
       presentation.style.as_ref().unwrap_or(&self.theme.link).apply(style)
     };
-    let label = self.push_isolated(&words_style, |paragraph| {
-      // The words of a link have no links in them (CommonMark), and an image
-      // in them is its alt text, as in any link.
-      paragraph.push_inlines(children, &words_style, &mut None);
-    });
-    for run in &presentation.trailing {
-      let run_style = run.style.apply(style);
-      let run_span = self.push_isolated(&run_style, |paragraph| {
-        paragraph.push_span(RichTextSpan {
-          text: strip_bidi_controls(&run.text).into_owned(),
-          style: run_style.clone(),
-        });
-      });
-      self.generated.push(run_span);
-    }
-    let target_end = self.seal();
-    if presentation.as_text || label.is_empty() {
+    let words = self.words(children, &words_style);
+    let runs = presentation
+      .trailing
+      .iter()
+      .map(|run| RichTextSpan {
+        text: paragraph_breaks_as_spaces(&strip_bidi_controls(&run.text)).into_owned(),
+        style: run.style.apply(style),
+      })
+      .collect();
+    let block = self.push_block(LinkBlock::new(direction, words, runs, style));
+    if presentation.as_text || block.label.is_empty() {
       return;
     }
     let inline_link = InlineLink {
-      label: label.clone(),
-      target: label.start..target_end,
+      label: block.label,
+      trailing: block.trailing,
+      target: block.target,
       look: presentation.look(self.theme),
     };
     let node = Node::inline_link(inline_link, link.text())
@@ -312,15 +338,45 @@ impl<'a> Paragraph<'a> {
       .push(self.session.with_tooltip(node, key, presentation.tooltip));
   }
 
-  /// Draws what `push` adds between isolate marks in `style`; returns the
-  /// spans `push` added, sealed.
-  fn push_isolated(&mut self, style: &TextStyle, push: impl FnOnce(&mut Self)) -> Range<usize> {
+  /// A link's words in `style`, taken out of the paragraph to go into the
+  /// link's block, on one line: breaks in them are spaces.
+  fn words(&mut self, children: &[MarkdownInline], style: &TextStyle) -> Vec<RichTextSpan> {
+    let start = self.seal();
+    // The words of a link have no links in them (CommonMark), and an image
+    // in them is its alt text, as in any link.
+    self.push_inlines(children, style, &mut None);
+    let mut words = self.spans.split_off(start);
+    self.seal();
+    for span in &mut words {
+      span.text = paragraph_breaks_as_spaces(&span.text).into_owned();
+    }
+    words
+  }
+
+  /// The words of a link that draws nothing, in their own isolate: as with
+  /// any link, bidi does not take the paragraph's direction from them.
+  fn push_invisible_words(&mut self, children: &[MarkdownInline], style: &TextStyle) {
+    let words = self.words(children, style);
     self.push_mark(FIRST_STRONG_ISOLATE, style);
-    let start = self.spans.len();
-    push(self);
-    let end = self.seal();
+    for span in words {
+      self.push_span(span);
+    }
     self.push_mark(POP_DIRECTIONAL_ISOLATE, style);
-    start..end
+  }
+
+  /// Adds a link's spans, sealed; returns where its words, runs and target
+  /// are among the paragraph's spans.
+  fn push_block(&mut self, block: LinkBlock) -> PlacedLink {
+    let offset = self.seal();
+    let shift = |range: Range<usize>| range.start + offset..range.end + offset;
+    self.spans.extend(block.spans);
+    self.generated.extend(block.generated.into_iter().map(shift));
+    self.seal();
+    PlacedLink {
+      label: shift(block.label),
+      trailing: shift(block.trailing),
+      target: shift(block.target),
+    }
   }
 
   /// An isolate mark: a span of its own, never merged, never copied.
@@ -336,7 +392,7 @@ impl<'a> Paragraph<'a> {
 
   fn push_span(&mut self, mut span: RichTextSpan) {
     if self.strip_controls {
-      span.text = strip_bidi_controls(&span.text).into_owned();
+      span.text = paragraph_breaks_as_line_feeds(&strip_bidi_controls(&span.text)).into_owned();
     }
     if span.text.is_empty() {
       return;
@@ -369,14 +425,20 @@ fn has_link(inlines: &[MarkdownInline]) -> bool {
   })
 }
 
+/// Where a link's words, runs and target landed among its paragraph's spans.
+struct PlacedLink {
+  label: Range<usize>,
+  trailing: Range<usize>,
+  target: Range<usize>,
+}
+
 /// A link's words as the paragraph draws them, as plain text: inline HTML as
-/// its text, an image as its alt text, breaks as spaces, without directional
-/// controls.
+/// its text, an image as its alt text, breaks and separators as spaces,
+/// without directional controls.
 fn link_words(children: &[MarkdownInline], theme: &ThemeMarkdown) -> String {
   let words = markdown_inline_rich_text(children, &TextStyle::default(), theme)
     .into_iter()
     .map(|span| span.text)
-    .collect::<String>()
-    .replace('\n', " ");
-  strip_bidi_controls(&words).into_owned()
+    .collect::<String>();
+  paragraph_breaks_as_spaces(&strip_bidi_controls(&words)).into_owned()
 }

@@ -206,7 +206,7 @@ impl LayoutEngine {
         }
       }
       if let Some(color) = state.trailing_color {
-        for span in painted.get_mut(link.trailing()).unwrap_or_default() {
+        for span in painted.get_mut(link.trailing.clone()).unwrap_or_default() {
           span.style.color = color;
         }
       }
@@ -233,35 +233,52 @@ impl LayoutEngine {
   }
 
   /// The underlines of underlined spans, drawn in `spans`' painted colors.
+  /// Underlines of neighbouring spans that meet on a line are one: a link's
+  /// words are several spans (emphasis, the joiners that keep it on one
+  /// line) under one line.
   pub(super) fn inline_underlines(result: &LayoutResult, spans: &[RichTextSpan], paint: InlinePaint) -> Vec<Quad> {
     let Some(inline) = inline_layout(result) else {
       return Vec::new();
     };
-    inline
-      .span_boxes
-      .iter()
-      .filter_map(|span_box| {
-        let style = &spans.get(usize::try_from(span_box.span).ok()?)?.style;
-        let underline = style.underline?;
-        let thickness = underline
-          .thickness
-          .filter(|thickness| thickness.is_finite() && *thickness >= 0.0)
-          .unwrap_or(span_box.underline_thickness.max(1.0));
-        let offset = underline
-          .offset
-          .filter(|offset| offset.is_finite())
-          .unwrap_or(span_box.underline_offset - thickness * 0.5);
-        if span_box.width <= 0.0 {
-          return None;
+    let mut underlines: Vec<(InlineRect, Color)> = Vec::new();
+    let pieces = inline.span_boxes.iter().filter_map(|span_box| {
+      let style = &spans.get(usize::try_from(span_box.span).ok()?)?.style;
+      let underline = style.underline?;
+      let thickness = underline
+        .thickness
+        .filter(|thickness| thickness.is_finite() && *thickness >= 0.0)
+        .unwrap_or(span_box.underline_thickness.max(1.0));
+      let offset = underline
+        .offset
+        .filter(|offset| offset.is_finite())
+        .unwrap_or(span_box.underline_offset - thickness * 0.5);
+      if span_box.width <= 0.0 {
+        return None;
+      }
+      let rect = InlineRect {
+        x: span_box.x,
+        y: (inline.top + span_box.baseline + offset).round(),
+        width: span_box.width,
+        height: thickness,
+      };
+      Some((rect, underline.color.unwrap_or(style.color)))
+    });
+    for (rect, color) in pieces {
+      match underlines.last_mut() {
+        Some((last, last_color))
+          if *last_color == color
+            && last.y == rect.y
+            && last.height == rect.height
+            && (last.x + last.width - rect.x).abs() < 0.5 =>
+        {
+          last.width = rect.x + rect.width - last.x;
         }
-        let rect = InlineRect {
-          x: span_box.x,
-          y: (inline.top + span_box.baseline + offset).round(),
-          width: span_box.width,
-          height: thickness,
-        };
-        Some(paint.rect(rect, underline.color.unwrap_or(style.color), None, None))
-      })
+        _ => underlines.push((rect, color)),
+      }
+    }
+    underlines
+      .into_iter()
+      .map(|(rect, color)| paint.rect(rect, color, None, None))
       .collect()
   }
 
