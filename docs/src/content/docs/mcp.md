@@ -212,7 +212,7 @@ Button::new("Allow file writes").on_click(move |_: MouseEvent| {
 })
 ```
 
-The source is set only while lurq delivers the input: a handler and the callbacks it reaches see it, work deferred past the delivery (a spawned task, a timer, a later render) does not. `InputSource::Os` is not proof that a person acted, since another program can post OS input. An automation layer that drives a `Tree` through its input methods itself can mark that input with `with_synthetic_input(|| ...)`.
+The source is set only while lurq delivers the input: a handler and the callbacks it reaches see it, work deferred past the delivery (a spawned task, a timer, a later render) does not. A left click that lurq holds back to see whether a double click follows (under an `on_dblclick` handler) keeps its source: an MCP click is still synthetic input when a later pass or click delivers it. `InputSource::Os` is not proof that a person acted, since another program can post OS input. An automation layer that drives a `Tree` through its input methods itself can mark that input with `with_synthetic_input(|| ...)`.
 
 ## Multiple Windows
 

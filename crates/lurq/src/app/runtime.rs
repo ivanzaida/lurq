@@ -32,8 +32,8 @@ use crate::{
       component_tag_name,
     },
     events::{
-      DragEvent, DropEvent, DropResult, EventControl, KeyboardEvent, MouseButton, MouseEvent, MouseEventKind,
-      ScrollEvent, ScrollPhase,
+      DragEvent, DropEvent, DropResult, EventControl, InputSource, KeyboardEvent, MouseButton, MouseEvent,
+      MouseEventKind, ScrollEvent, ScrollPhase, input_source, with_input_source,
     },
     hit_test::{HitRect, hit_test_tree, hit_test_tree_all},
     profile_support::{PerfMeterStats, profile_elapsed, profile_if, profile_scope, profile_value},
@@ -3887,15 +3887,20 @@ impl Tree {
       return;
     };
 
-    self.dispatch_mouse_with_click_target(
-      click.position.0,
-      click.position.1,
-      click.button,
-      MouseEventKind::Click,
-      click.modifiers,
-      Some(click.target_id),
-    );
-    self.apply_reactive_updates_after_event();
+    // A pass or the next click runs it, outside the delivery of its input:
+    // its handlers see the source of that input, so an MCP click stays
+    // synthetic input.
+    with_input_source(click.source, || {
+      self.dispatch_mouse_with_click_target(
+        click.position.0,
+        click.position.1,
+        click.button,
+        MouseEventKind::Click,
+        click.modifiers,
+        Some(click.target_id),
+      );
+      self.apply_reactive_updates_after_event();
+    });
   }
 
   fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
@@ -7566,6 +7571,7 @@ impl ClickTracker {
       .is_some_and(|pending| now.duration_since(pending.time) > DOUBLE_CLICK_INTERVAL)
   }
 
+  /// Holds back a click of the input being delivered now, with its source.
   fn set_pending(
     &mut self,
     now: Instant,
@@ -7580,6 +7586,7 @@ impl ClickTracker {
       button,
       modifiers,
       target_id,
+      source: input_source(),
     });
   }
 
@@ -7595,6 +7602,8 @@ struct PendingClick {
   button: MouseButton,
   modifiers: MouseModifiers,
   target_id: NodeId,
+  /// Where the input that made the click came from.
+  source: InputSource,
 }
 
 struct ClickPress {

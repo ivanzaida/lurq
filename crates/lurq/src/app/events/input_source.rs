@@ -35,7 +35,9 @@ thread_local! {
 /// Read it in an event handler, an `on_input` or `on_change` callback, or a
 /// focus handler, which lurq calls while it delivers the event. Work deferred
 /// past the delivery (a spawned task, an effect of a later render, a timer)
-/// sees `Os`.
+/// sees `Os`. A left click that lurq holds back to see whether a double click
+/// follows (under an `on_dblclick` handler) keeps the source of its input
+/// when it is delivered later.
 ///
 /// ```
 /// use lurq::app::events::{MouseEvent, is_synthetic_input};
@@ -61,7 +63,13 @@ pub fn is_synthetic_input() -> bool {
 /// that drives a [`Tree`](crate::app::Tree) through its input methods
 /// directly. lurq's own synthetic input does this already.
 pub fn with_synthetic_input<R>(deliver: impl FnOnce() -> R) -> R {
-  let _restore = SourceGuard(SOURCE.with(|source| source.replace(InputSource::Synthetic)));
+  with_input_source(InputSource::Synthetic, deliver)
+}
+
+/// Runs `deliver` with its input marked as coming from `source`, for input
+/// lurq delivers after the call that received it.
+pub(crate) fn with_input_source<R>(source: InputSource, deliver: impl FnOnce() -> R) -> R {
+  let _restore = SourceGuard(SOURCE.with(|current| current.replace(source)));
   deliver()
 }
 

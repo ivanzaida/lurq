@@ -13,6 +13,10 @@ Added:
 - `MouseEvent::meta`, on every mouse event (move, down, up, click, double-click): Cmd on macOS, the Windows key on Windows, Super elsewhere. The winit shell fills it from `ModifiersState::super_key`, and synthetic input from `SyntheticModifiers::meta` (MCP `"modifiers": ["meta"]`), which pointer events used to drop. A shell that drives a `Tree` itself passes it with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`; `mouse_*_with_modifiers` report it released.
 - `MouseEvent::from_keyboard`: a key made this click, not the pointer (Enter on a focused link, Enter or Space on a focused button). Its `button` is `Left` and `x`, `y` are 0, as for a browser's keyboard click.
 
+Fixes:
+
+- A left click that lurq holds back because a node under it has an `on_dblclick` handler keeps the source of its input. A pass or the next click delivers it later, outside that input's delivery, so its handlers (`on_click`, and a Markdown link's `on_link_activate` and `on_link_click`) saw `is_synthetic_input()` as `false` for an MCP client's click or an applied `SyntheticInput`: an app that refuses synthetic input on a link or control acted on it as on a person's click. A person's click held back this way and delivered by an MCP client's next click was marked synthetic; it is OS input now.
+
 ## 0.47.0 — 2026-10-16
 
 Behaviour changes:

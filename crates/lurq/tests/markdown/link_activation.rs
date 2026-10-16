@@ -1,7 +1,10 @@
 //! Link activation with the input that made it: a left or middle click with
 //! its modifiers, or Enter (`MarkdownProps::on_link_activate`).
 
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -349,6 +352,83 @@ fn markdown_synthetic_middle_click_activates_a_link_as_synthetic_input() {
       },
     ]
   );
+}
+
+/// The document inside a column that takes double clicks, so a left click on
+/// a link waits to see whether a second one follows.
+struct DoubleClickRoot;
+
+impl Component for DoubleClickRoot {
+  type Props = MarkdownProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    Column::new()
+      .on_dblclick(|_: MouseEvent| {})
+      .child(Markdown::mount(ctx, ctx.props::<Self::Props>().clone()))
+  }
+}
+
+/// Longer than lurq's double-click interval, after which a pass runs the
+/// click it held back.
+const DOUBLE_CLICK_SETTLE: Duration = Duration::from_millis(550);
+
+#[test]
+fn markdown_link_click_held_back_for_a_double_click_keeps_its_input_source() {
+  let (activations, record) = recorder();
+  let clicks = Arc::new(Mutex::new(Vec::new()));
+  let on_click = {
+    let clicks = clicks.clone();
+    move |_: &MarkdownLink| clicks.lock().unwrap().push(is_synthetic_input())
+  };
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<DoubleClickRoot>(
+    &mut app,
+    MarkdownProps::new(TWO_LINKS)
+      .on_link_activate(record)
+      .on_link_click(on_click)
+      .width(500.0),
+  );
+  pass(&mut app, &mut tree);
+  let first = bounds_of(&mut tree, "first");
+  let second = bounds_of(&mut tree, "second");
+  let synthetic = |destination| Activation {
+    synthetic: true,
+    ..Activation::pointer(destination, MouseButton::Left)
+  };
+
+  // Run by the pass after the double-click interval.
+  apply(&mut tree, &SyntheticInput::click(first.x + 3.0, first.y + 3.0));
+  assert!(taken(&activations).is_empty(), "the click waits for a second one");
+  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  pass(&mut app, &mut tree);
+  assert_eq!(taken(&activations), [synthetic("/first")]);
+
+  pointer_click(&mut tree, first.x + 3.0, first.y + 3.0, MouseButton::Left);
+  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  pass(&mut app, &mut tree);
+  assert_eq!(taken(&activations), [Activation::pointer("/first", MouseButton::Left)]);
+
+  // Run by the next click, elsewhere: each keeps its own source.
+  apply(&mut tree, &SyntheticInput::click(first.x + 3.0, first.y + 3.0));
+  pointer_click(&mut tree, second.x + 3.0, second.y + 3.0, MouseButton::Left);
+  apply(&mut tree, &SyntheticInput::click(first.x + 3.0, first.y + 3.0));
+  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  pass(&mut app, &mut tree);
+  assert_eq!(
+    taken(&activations),
+    [
+      synthetic("/first"),
+      Activation::pointer("/second", MouseButton::Left),
+      synthetic("/first"),
+    ]
+  );
+  assert_eq!(*clicks.lock().unwrap(), [true, false, true, false, true]);
+  assert!(!is_synthetic_input(), "the mark ends with the delivery");
 }
 
 #[test]
