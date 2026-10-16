@@ -21,6 +21,9 @@ use crate::{
 
 const DEFAULT_OVERSCAN_PX: f32 = 256.0;
 const HEIGHT_EPSILON: f32 = 0.01;
+/// How far a revealed row's top may sit from the viewport's top and still
+/// count as shown there.
+const REVEAL_EPSILON: f32 = 0.5;
 
 /// `LURQ_VLIST_DEBUG=1` paints diagnostics over every virtualized list: row
 /// wrappers are tinted by the window-build generation (a stale reused subtree
@@ -1041,7 +1044,10 @@ impl<T> VirtualizedRuntime<T> {
   /// Reveal the requested row: when it is not already fully visible, scroll
   /// it to the top of the viewport (`scrollIntoView`, `block: start`); an
   /// already-visible row does not move, so clicking a visible row never
-  /// jumps. Visibility and the target offset come from the estimate prefix,
+  /// jumps. A row taller than the viewport is never fully visible: it is
+  /// revealed once its top is at the viewport's top, or the reveal stayed
+  /// pending and scrolled it back there after every layout, whatever the user
+  /// scrolled since. Visibility and the target offset come from the estimate prefix,
   /// rebuilt first from the heights this layout just measured: the prefix of
   /// the previous render is all zeros before the first measurement, which
   /// made a row below the viewport look visible and dropped the reveal of a
@@ -1064,7 +1070,9 @@ impl<T> VirtualizedRuntime<T> {
     let row_bottom = self.prefix.get(index + 1).copied().unwrap_or(row_top);
     let view_top = scroll_state.scroll_y();
     let view_bottom = view_top + scroll_state.viewport_height();
-    if row_top >= view_top && row_bottom <= view_bottom {
+    let fully_visible = row_top >= view_top && row_bottom <= view_bottom;
+    let top_shown = row_bottom - row_top > view_bottom - view_top && (row_top - view_top).abs() <= REVEAL_EPSILON;
+    if fully_visible || top_shown {
       if self.heights.contains_key(&key) {
         self.pending_reveal = None;
       }
