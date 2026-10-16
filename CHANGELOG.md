@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.47.0 — unreleased
+## 0.47.0 — 2026-10-16
 
 Behaviour changes:
 
