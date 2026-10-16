@@ -1,53 +1,56 @@
-//! A paragraph wrapped onto several lines at a fractional display scale:
-//! the pointer and the glyphs are in physical pixels, the layout in logical
-//! ones, and every drag still copies the glyphs it covers.
+//! A paragraph wrapped at fractional widths and display scales: the paint
+//! wraps at the box's width rounded up in device pixels, `ceil(width *
+//! scale)`, which is not the logical width at a fractional width or scale.
+//! Every row must copy exactly the glyphs drawn on it, so a selection takes
+//! its carets from the painted layout.
 
 use lurq::components::MarkdownProps;
 
 use super::{paragraph::REPORTED, scaled};
-use crate::support::selection::{assert_drags_copy_their_glyphs, pairs};
+use crate::support::selection::rows_copying_other_text;
 
-#[test]
-fn every_drag_over_a_paragraph_wrapped_at_a_fractional_scale_copies_the_glyphs_it_covers() {
-  let mut page = scaled(MarkdownProps::new(REPORTED), 420.0, 1.5);
-  let rows = page.inks.iter().map(|ink| ink.row).max().unwrap_or(0) + 1;
-  assert!(rows >= 4, "the paragraph wraps onto at least four lines, not {rows}");
-  let count = page.inks.len();
-  assert_drags_copy_their_glyphs(&mut page, pairs(count, 9));
+/// The widths swept at every scale: fractional, 6.37 px apart, from 300 to
+/// 460 logical pixels.
+fn fractional_widths() -> impl Iterator<Item = f32> {
+  (0..26).map(|step| 300.17 + step as f32 * 6.37)
 }
 
 #[test]
-fn the_highlight_of_a_paragraph_wrapped_at_a_fractional_scale_stays_on_its_glyphs() {
-  let mut page = scaled(MarkdownProps::new(REPORTED), 420.0, 1.5);
-  let count = page.inks.len();
-  for (from, to) in pairs(count, 29).chain([(0, count - 1)]) {
-    page.drag_inks(from, to);
-    page.assert_highlight_covers(from, to);
+fn every_row_of_the_reported_paragraph_copies_itself_at_fractional_widths_and_scales() {
+  let mut failures = Vec::new();
+  let mut pages = 0;
+  for scale in [1.0_f32, 1.25, 1.5] {
+    for width in fractional_widths() {
+      let mut page = scaled(MarkdownProps::new(REPORTED), width, scale);
+      assert!(
+        page.inks.iter().map(|ink| ink.row).max().unwrap_or(0) >= 3,
+        "the paragraph wraps onto several lines at {width} ({scale}x)"
+      );
+      pages += 1;
+      failures.extend(rows_copying_other_text(
+        &mut page,
+        &format!("width {width} scale {scale}"),
+      ));
+    }
   }
+  assert!(
+    failures.is_empty(),
+    "{} rows over {pages} pages copied other text:\n{}",
+    failures.len(),
+    failures.join("\n")
+  );
 }
 
 #[test]
-fn a_selection_can_be_started_again_on_every_line_at_a_fractional_scale() {
-  let mut page = scaled(MarkdownProps::new(REPORTED), 420.0, 1.5);
-  let rows = page.inks.iter().map(|ink| ink.row).max().unwrap_or(0) + 1;
-  let count = page.inks.len();
-  page.drag_inks(0, count - 1);
-  for row in 0..rows {
-    let first = page
-      .inks
-      .iter()
-      .position(|ink| ink.row == row)
-      .expect("a glyph on the row");
-    let last = page
-      .inks
-      .iter()
-      .rposition(|ink| ink.row == row)
-      .expect("a glyph on the row");
-    page.drag_inks(first, last);
-    assert_eq!(
-      page.selected().as_deref(),
-      Some(&*page.text_between(first, last)),
-      "row {row}"
-    );
+fn the_highlight_stays_on_the_glyphs_at_fractional_widths_and_scales() {
+  for scale in [1.0_f32, 1.25, 1.5] {
+    for width in fractional_widths().step_by(5) {
+      let mut page = scaled(MarkdownProps::new(REPORTED), width, scale);
+      let count = page.inks.len();
+      for (from, to) in [(0, count - 1), (count / 3, 2 * count / 3), (count / 2, count / 2)] {
+        page.drag_inks(from, to);
+        page.assert_highlight_covers(from, to);
+      }
+    }
   }
 }

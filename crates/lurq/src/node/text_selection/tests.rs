@@ -33,7 +33,7 @@ fn assert_matches_linear(positions: &CaretPositions) {
     for &j in &indices {
       let (start, end) = (i.min(j), i.max(j));
       assert_eq!(
-        signature(selection_ranges_for_positions(positions, "", start, end, 7.25, 19.5)),
+        signature(selection_ranges_for_positions(positions, None, start, end, 7.25, 19.5)),
         signature(linear::selection_ranges_for_positions(
           &reference, start, end, 7.25, 19.5
         ))

@@ -124,6 +124,24 @@ impl CaretPositions {
     data.positions.get_mut().unwrap()
   }
 
+  /// These positions with every coordinate multiplied by `factor`: a layout
+  /// in device pixels brought back to logical pixels. A factor of 1 shares
+  /// the positions.
+  pub(crate) fn scaled(&self, factor: f32) -> Self {
+    if factor == 1.0 {
+      return self.clone();
+    }
+    self
+      .iter()
+      .map(|position| CaretPosition {
+        index: position.index,
+        x: position.x * factor,
+        y: position.y * factor,
+      })
+      .collect::<Vec<_>>()
+      .into()
+  }
+
   fn index(&self) -> Option<&CaretIndex> {
     if self.len() < CARET_INDEX_MIN_POSITIONS && self.0.segments.is_empty() {
       return None;
@@ -553,18 +571,19 @@ pub(crate) fn trailing_break_row_y(positions: &CaretPositions, text: &str, line_
   )
 }
 
-/// The highlight of the bytes `start..end` of `text`, one range per laid-out
-/// row the selection touches, in the text's coordinates less the scroll. A
-/// row's range covers the advances of its selected glyphs, from the caret
-/// before the first to the caret after the last. On a row that the text
-/// wrapped (one that ends neither with a line break nor with the text), the
-/// whitespace and invisible marks at its end hang past it and draw nothing,
-/// so the range stops at the last glyph that draws; a row that ends with a
-/// line break or the text's end keeps its trailing spaces. There is no
-/// marker for a line break.
+/// The highlight of the bytes `start..end`, one range per laid-out row the
+/// selection touches, in the text's coordinates less the scroll. A row's
+/// range covers the advances of its selected glyphs, from the caret before
+/// the first to the caret after the last. With `text`, the text the
+/// positions index, a row that the text wrapped (one that ends neither with
+/// a line break nor with the text) stops at its last glyph that draws: the
+/// whitespace and invisible marks at its end hang past it and draw nothing;
+/// a row that ends with a line break or the text's end keeps its trailing
+/// spaces. Without `text` (a text input, whose selected whitespace stays
+/// visible) every row keeps its end. There is no marker for a line break.
 pub(crate) fn selection_ranges_for_positions(
   positions: &CaretPositions,
-  text: &str,
+  text: Option<&str>,
   start: usize,
   end: usize,
   scroll_x: f32,
@@ -609,7 +628,7 @@ pub(crate) fn selection_ranges_for_positions(
 fn append_selection_range(
   ranges: &mut Vec<TextSelectionRange>,
   positions: CaretSlice<'_>,
-  text: &str,
+  text: Option<&str>,
   start: usize,
   end: usize,
   scroll_x: f32,
@@ -622,7 +641,8 @@ fn append_selection_range(
     return;
   }
   let selection_start = start.clamp(row_start, row_end);
-  let selection_end = end.clamp(row_start, drawn_row_end(text, row_start, row_end));
+  let drawn_end = text.map_or(row_end, |text| drawn_row_end(text, row_start, row_end));
+  let selection_end = end.clamp(row_start, drawn_end);
   if selection_start >= selection_end {
     return;
   }

@@ -295,7 +295,7 @@ impl TextInputState {
     }
     selection_ranges_for_positions(
       &inner.caret_positions,
-      &value,
+      None,
       start,
       end,
       inner.scroll_x,

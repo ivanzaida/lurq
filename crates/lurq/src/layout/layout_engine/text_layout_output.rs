@@ -38,12 +38,14 @@ pub(crate) struct TextOutput {
   /// concatenated spans of selectable rich text).
   pub(super) display_text: Option<Arc<str>>,
   pub(super) render_wrap: bool,
-  /// Only selectable text measures caret geometry; other text leaves the
-  /// state's positions as they are.
+  /// Only selectable text measures caret geometry, from the layout the
+  /// paint draws ([`LayoutEngine::lay_out_text_selection`]); other text
+  /// leaves the state's positions as they are.
   pub(super) caret_positions: Option<CaretPositions>,
-  /// Where the text's first line sits below the top of its box, as the
-  /// paint places it (`VerticalAlign`); measured for selectable text, so its
-  /// selection meets the glyphs.
+  /// Where the text's first line sits in its box, as the paint places it
+  /// (padding, `VerticalAlign`); measured with the carets, so a selection
+  /// meets the glyphs.
+  pub(super) text_left: f32,
   pub(super) text_top: f32,
   /// Rich text that paints underlines or links: where its text lies.
   #[cfg(feature = "markdown")]
@@ -86,8 +88,23 @@ impl TextOutput {
       display_text: self.display_text.clone(),
       render_wrap: self.render_wrap,
       caret_positions: self.caret_positions.clone(),
+      text_left: self.text_left,
       text_top: inline.top,
       inline: Some(inline),
+    }
+  }
+
+  /// This output with the caret geometry of the painted layout and where
+  /// the text's first line sits in its box.
+  pub(super) fn with_selection(&self, caret_positions: CaretPositions, text_left: f32, text_top: f32) -> Self {
+    Self {
+      display_text: self.display_text.clone(),
+      render_wrap: self.render_wrap,
+      caret_positions: Some(caret_positions),
+      text_left,
+      text_top,
+      #[cfg(feature = "markdown")]
+      inline: self.inline.clone(),
     }
   }
 
@@ -107,6 +124,7 @@ impl TextOutput {
       self.display_text.as_ref(),
       self.render_wrap,
       self.caret_positions.as_ref(),
+      self.text_left,
       self.text_top,
     );
   }

@@ -139,7 +139,7 @@ impl TextInputState {
     };
     selection_ranges_for_positions(
       &inner.caret_positions,
-      &value,
+      None,
       span.start,
       span.start + span.len,
       inner.scroll_x,

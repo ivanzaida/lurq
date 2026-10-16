@@ -222,7 +222,9 @@ struct TextInner {
   caret: usize,
   selection_anchor: Option<usize>,
   caret_positions: CaretPositions,
-  /// Where the first line sits below the top of the box, as painted.
+  /// Where the text's first line sits in the box, as painted: right of its
+  /// left edge and below its top.
+  text_left: f32,
   text_top: f32,
   display_text: Option<Arc<str>>,
   render_wrap: bool,
@@ -242,6 +244,7 @@ impl TextState {
           y: 0.0,
         }]
         .into(),
+        text_left: 0.0,
         text_top: 0.0,
         display_text: None,
         render_wrap: false,
@@ -349,18 +352,26 @@ impl TextState {
     let Some((start, end)) = selection_range_indices(value, inner.selection_anchor, inner.caret) else {
       return Vec::new();
     };
-    selection_ranges_for_positions(&inner.caret_positions, value, start, end, 0.0, -inner.text_top)
+    selection_ranges_for_positions(
+      &inner.caret_positions,
+      Some(value),
+      start,
+      end,
+      -inner.text_left,
+      -inner.text_top,
+    )
   }
 
   /// Writes what laying the text out under one set of constraints produced:
   /// the string to draw instead of the content, whether the renderer wraps,
   /// and, for selectable text, the caret geometry (`None` keeps the current
-  /// positions) and where its first line sits below the top of the box.
+  /// positions) and where its first line sits in the box.
   pub(crate) fn set_layout_output(
     &self,
     display_text: Option<&Arc<str>>,
     render_wrap: bool,
     caret_positions: Option<&CaretPositions>,
+    text_left: f32,
     text_top: f32,
   ) {
     let mut inner = self.inner.lock().unwrap();
@@ -370,6 +381,7 @@ impl TextState {
       inner.display_text = display_text.cloned();
     }
     inner.render_wrap = render_wrap;
+    inner.text_left = text_left;
     inner.text_top = text_top;
     if let Some(caret_positions) = caret_positions {
       inner.caret_positions = caret_positions.clone();
@@ -399,6 +411,7 @@ impl TextState {
       None
     };
     inner.render_wrap = old_inner.render_wrap;
+    inner.text_left = old_inner.text_left;
     inner.text_top = old_inner.text_top;
     if selectable {
       inner.caret = old_inner.caret.min(len);
@@ -415,7 +428,7 @@ impl TextState {
     let inner = self.inner.lock().unwrap();
     clamp_to_char_boundary(
       value,
-      closest_caret_to_point(&inner.caret_positions, x, y - inner.text_top),
+      closest_caret_to_point(&inner.caret_positions, x - inner.text_left, y - inner.text_top),
     )
   }
 }

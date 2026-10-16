@@ -1105,14 +1105,11 @@ impl Tree {
     self.scale_factor = scale;
     self.window.set_scale_factor(scale);
     self.invalidate_viewport_layout();
-    // Rich-text link and underline geometry is laid out at the paint's scale,
-    // inside caches below the root.
-    #[cfg(feature = "markdown")]
-    {
-      self.layout_engine.set_paint_scale(scale);
-      if let Some(root) = self.root.as_ref() {
-        invalidate_layout_cache_recursive(root);
-      }
+    // Selection carets and rich-text link and underline geometry are laid
+    // out at the paint's scale, inside caches below the root.
+    self.layout_engine.set_paint_scale(scale);
+    if let Some(root) = self.root.as_ref() {
+      invalidate_layout_cache_recursive(root);
     }
   }
 
@@ -4340,6 +4337,7 @@ impl Tree {
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
             if !evt.shift && !evt.ctrl {
+              self.selectable_text_anchor = None;
               clear_selectable_text_selections(root);
             }
             let padding = self

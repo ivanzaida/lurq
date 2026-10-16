@@ -21,7 +21,7 @@ const HIGHLIGHT: Color = Color::new(191, 219, 254, 255);
 const INK_SLACK: f32 = 3.0;
 /// The transparent border around every glyph bitmap, in physical pixels
 /// (the glyph atlas pads each glyph so sampling never bleeds).
-const GLYPH_PADDING: f32 = 2.0;
+pub const GLYPH_PADDING: f32 = 2.0;
 /// Two texts closer than this, in logical pixels, are joined without a
 /// space when copied (`selected_text_lines::EPSILON`).
 const JOIN_GAP: f32 = 1.0;
@@ -90,6 +90,20 @@ impl Page {
     };
     page.read_glyphs();
     page
+  }
+
+  /// A page whose glyphs are not read: for a text that draws only part of
+  /// itself (a scrolled input), whose rows a test reads itself.
+  pub fn without_inks(app: App, tree: Tree, scale: f32) -> Self {
+    Self {
+      app,
+      tree,
+      scale,
+      text: String::new(),
+      inks: Vec::new(),
+      nodes: Vec::new(),
+      ignored: Vec::new(),
+    }
   }
 
   /// Leaves the glyphs drawn in `color` out of the inks: presentation, not
@@ -315,33 +329,34 @@ impl Page {
 
 /// A row of drawn glyphs: its index in its text and the middle of its glyphs.
 #[derive(Clone, Copy)]
-struct Row {
-  index: usize,
-  center: f32,
+pub struct Row {
+  pub index: usize,
+  pub center: f32,
 }
 
 /// The glyphs of one text by row and, in a row, from left to right. Glyphs
-/// are on one row when their middles lie closer than most of a glyph's
-/// height: a row's glyphs differ by their ascenders and descenders, the next
-/// row is a whole line further down.
-fn rows_of(mut glyphs: Vec<GlyphSnapshot>) -> Vec<(Row, GlyphSnapshot)> {
-  let center = |glyph: &GlyphSnapshot| glyph.y + glyph.height / 2.0;
-  glyphs.sort_by(|a, b| center(a).total_cmp(&center(b)));
-  let mut rows: Vec<Vec<GlyphSnapshot>> = Vec::new();
+/// are on one row when their ink overlaps vertically: a row's glyphs share
+/// its baseline, so a comma's or a descender's ink overlaps an x-height
+/// letter's, while the next row's tallest letter starts below the lowest
+/// descender of this one.
+pub fn rows_of(mut glyphs: Vec<GlyphSnapshot>) -> Vec<(Row, GlyphSnapshot)> {
+  let top = |glyph: &GlyphSnapshot| glyph.y + GLYPH_PADDING;
+  let bottom = |glyph: &GlyphSnapshot| glyph.y + glyph.height - GLYPH_PADDING;
+  glyphs.sort_by(|a, b| top(a).total_cmp(&top(b)));
+  let mut rows: Vec<(f32, Vec<GlyphSnapshot>)> = Vec::new();
   for glyph in glyphs {
     match rows.last_mut() {
-      Some(row)
-        if center(&glyph) - center(&row[0]) <= 0.6 * row.iter().map(|g| g.height).fold(glyph.height, f32::max) =>
-      {
+      Some((row_bottom, row)) if top(&glyph) < *row_bottom => {
+        *row_bottom = row_bottom.max(bottom(&glyph));
         row.push(glyph);
       }
-      _ => rows.push(vec![glyph]),
+      _ => rows.push((bottom(&glyph), vec![glyph])),
     }
   }
   let mut ordered = Vec::new();
-  for (index, mut row) in rows.into_iter().enumerate() {
+  for (index, (_, mut row)) in rows.into_iter().enumerate() {
     row.sort_by(|a, b| a.x.total_cmp(&b.x));
-    let middle = row.iter().map(center).sum::<f32>() / row.len() as f32;
+    let middle = row.iter().map(|glyph| (top(glyph) + bottom(glyph)) / 2.0).sum::<f32>() / row.len() as f32;
     ordered.extend(row.into_iter().map(move |glyph| (Row { index, center: middle }, glyph)));
   }
   ordered
@@ -386,6 +401,33 @@ pub fn pairs(count: usize, step: usize) -> impl Iterator<Item = (usize, usize)> 
   (0..count)
     .step_by(step)
     .flat_map(move |from| (from..count).step_by(step).map(move |to| (from, to)))
+}
+
+/// The rows of `page` that copy other text than they draw, as messages
+/// naming `page_name`: every row is dragged from its first glyph to its
+/// last.
+pub fn rows_copying_other_text(page: &mut Page, page_name: &str) -> Vec<String> {
+  let rows = page.inks.iter().map(|ink| ink.row).max().unwrap_or(0) + 1;
+  let mut failures = Vec::new();
+  for row in 0..rows {
+    let first = page
+      .inks
+      .iter()
+      .position(|ink| ink.row == row)
+      .expect("a glyph on the row");
+    let last = page
+      .inks
+      .iter()
+      .rposition(|ink| ink.row == row)
+      .expect("a glyph on the row");
+    page.drag_inks(first, last);
+    let expected = page.text_between(first, last);
+    let copied = page.selected().unwrap_or_default();
+    if copied != expected {
+      failures.push(format!("{page_name} row {row}: copied {copied:?}, drawn {expected:?}"));
+    }
+  }
+  failures
 }
 
 /// Checks that every drag over the glyphs `(from, to)` of `pairs` copies

@@ -7,6 +7,7 @@
 mod blocks;
 mod extend;
 mod inline;
+mod list;
 mod paragraph;
 mod scripts;
 mod streaming;

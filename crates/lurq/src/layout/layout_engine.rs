@@ -49,6 +49,7 @@ pub(crate) mod input_token_layout;
 mod input_token_quads;
 mod opacity_groups;
 mod select_quads;
+mod selection_layout;
 #[cfg(feature = "screenshot")]
 mod sensitive_quads;
 mod shrink_distribution;
@@ -232,7 +233,6 @@ pub(crate) struct LayoutEngine {
   collapsed_lines: RefCell<Vec<usize>>,
   /// Device pixels per logical pixel of the paint, for geometry that must
   /// match painted glyphs (rich-text links and underlines).
-  #[cfg(feature = "markdown")]
   paint_scale: Cell<f32>,
 }
 
@@ -503,14 +503,12 @@ impl LayoutEngine {
       #[cfg(feature = "screenshot")]
       sensitive_quads: RefCell::new(Vec::new()),
       collapsed_lines: RefCell::new(Vec::new()),
-      #[cfg(feature = "markdown")]
       paint_scale: Cell::new(1.0),
     }
   }
 
   /// Device pixels per logical pixel the paint draws at. Laid-out link and
   /// underline geometry depends on it; changing it needs a full relayout.
-  #[cfg(feature = "markdown")]
   pub(crate) fn set_paint_scale(&self, scale: f32) {
     self.paint_scale.set(scale);
   }
@@ -2243,12 +2241,12 @@ impl LayoutEngine {
     let frame_is_flat = frame != FrameConstraints::default();
     let padding_is_flat = padding != Padding::default() || self.text_input_scrollbar_lane(node) > 0.0;
 
-    #[cfg_attr(not(feature = "markdown"), allow(unused_mut))]
     let mut result = if frame_is_flat || padding_is_flat {
       self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides)
     } else {
       self.layout_node_content(glyph_engine, node, constraints, child_overrides)
     };
+    self.lay_out_text_selection(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
     self.lay_out_inline_text(glyph_engine, node, &mut result);
     result
@@ -2555,34 +2553,21 @@ impl LayoutEngine {
     let layout_text = overflow_display_text.as_deref().unwrap_or(text);
     let display_text = (force_display_text || overflow_display_text.is_some()).then(|| Arc::from(layout_text));
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
-    let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    let caret_positions = state
-      .selectable()
-      .then(|| glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
-    let size = if caret_positions.is_none() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
+    let size = if !state.selectable() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
       Size::new(constraints.max_width, constraints.max_height)
     } else {
       self
         .layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
         .size
     };
-    let text_top = if caret_positions.is_some() {
-      glyph_engine.text_vertical_align_offset(
-        layout_text,
-        style,
-        max_width,
-        effective_wrap,
-        style.vertical_align,
-        size.height,
-      )
-    } else {
-      0.0
-    };
+    // Selectable text gets its carets from the painted layout once its box
+    // is known (`lay_out_text_selection`).
     let output = TextOutput {
       display_text,
       render_wrap,
-      caret_positions,
-      text_top,
+      caret_positions: None,
+      text_left: 0.0,
+      text_top: 0.0,
       #[cfg(feature = "markdown")]
       inline: None,
     };
@@ -2602,13 +2587,9 @@ impl LayoutEngine {
     let effective_wrap = wrap && overflow == TextOverflow::Clip;
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    let (display_text, caret_positions) = if state.selectable() {
-      let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
-      let caret_positions = glyph_engine.rich_text_caret_positions(spans, max_width, effective_wrap);
-      (Some(Arc::from(display_text)), Some(caret_positions))
-    } else {
-      (None, None)
-    };
+    let display_text = state
+      .selectable()
+      .then(|| Arc::from(spans.iter().map(|span| span.text.as_str()).collect::<String>()));
     let measured = glyph_engine.measure_rich_text(spans, max_width);
     let size = if effective_wrap {
       constraints.constrain(measured)
@@ -2618,24 +2599,14 @@ impl LayoutEngine {
         measured.height.max(constraints.min_height),
       )
     };
-    // Rich text is centered in its box as painting centers it; a paragraph
-    // that paints links or underlines writes its own frame's top later.
-    let text_top = if caret_positions.is_some() {
-      glyph_engine.rich_text_vertical_align_offset(
-        spans,
-        max_width,
-        effective_wrap,
-        crate::layout::text_style::VerticalAlign::Center,
-        size.height,
-      )
-    } else {
-      0.0
-    };
+    // Selectable text gets its carets from the painted layout once its box
+    // is known (`lay_out_text_selection`).
     let output = TextOutput {
       display_text,
       render_wrap,
-      caret_positions,
-      text_top,
+      caret_positions: None,
+      text_left: 0.0,
+      text_top: 0.0,
       #[cfg(feature = "markdown")]
       inline: None,
     };
