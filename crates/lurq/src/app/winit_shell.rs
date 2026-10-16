@@ -727,12 +727,13 @@ impl ManagedWindow {
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
-        self.tree.mouse_move_with_modifiers(
+        self.tree.mouse_move_with_meta(
           position.x as f32,
           position.y as f32,
           self.modifiers.shift_key(),
           self.modifiers.control_key(),
           self.modifiers.alt_key(),
+          self.modifiers.super_key(),
         );
         self.apply_cursor();
         self.check_redraw();
@@ -761,21 +762,23 @@ impl ManagedWindow {
         let btn = to_lurq_mouse_button(button);
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
-          ElementState::Pressed => self.tree.mouse_down_with_modifiers(
+          ElementState::Pressed => self.tree.mouse_down_with_meta(
             x,
             y,
             btn,
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
-          ElementState::Released => self.tree.mouse_up_with_modifiers(
+          ElementState::Released => self.tree.mouse_up_with_meta(
             x,
             y,
             btn,
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
         }
         self.apply_window_commands(event_loop);
@@ -1167,12 +1170,13 @@ impl ManagedSecondaryWindow {
       }
       WindowEvent::CursorMoved { position, .. } => {
         self.cursor_pos = (position.x, position.y);
-        tree.mouse_move_with_modifiers(
+        tree.mouse_move_with_meta(
           position.x as f32,
           position.y as f32,
           self.modifiers.shift_key(),
           self.modifiers.control_key(),
           self.modifiers.alt_key(),
+          self.modifiers.super_key(),
         );
         self.apply_cursor(tree);
         self.check_redraw(tree);
@@ -1186,21 +1190,23 @@ impl ManagedSecondaryWindow {
         let btn = to_lurq_mouse_button(button);
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         match state {
-          ElementState::Pressed => tree.mouse_down_with_modifiers(
+          ElementState::Pressed => tree.mouse_down_with_meta(
             x,
             y,
             btn,
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
-          ElementState::Released => tree.mouse_up_with_modifiers(
+          ElementState::Released => tree.mouse_up_with_meta(
             x,
             y,
             btn,
             self.modifiers.shift_key(),
             self.modifiers.control_key(),
             self.modifiers.alt_key(),
+            self.modifiers.super_key(),
           ),
         }
         self.apply_window_commands(tree);

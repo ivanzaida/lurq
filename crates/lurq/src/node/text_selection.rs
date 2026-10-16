@@ -175,14 +175,15 @@ impl ParagraphCarets {
         });
       }
       for glyph in &line.glyphs {
+        let (start_x, end_x) = glyph_caret_edges(glyph);
         positions.push(CaretPosition {
           index: glyph.start,
-          x: glyph.x,
+          x: start_x,
           y: 0.0,
         });
         positions.push(CaretPosition {
           index: glyph.end,
-          x: glyph.x + glyph.w,
+          x: end_x,
           y: 0.0,
         });
       }
@@ -476,6 +477,17 @@ impl CaretIndex {
   }
 }
 
+/// The x of the caret before `glyph`'s cluster and of the one after it. A
+/// left-to-right glyph starts at its left edge; a right-to-left glyph at its
+/// right edge, so the caret after its cluster is at its left.
+pub(crate) fn glyph_caret_edges(glyph: &cosmic_text::LayoutGlyph) -> (f32, f32) {
+  if glyph.level.is_rtl() {
+    (glyph.x + glyph.w, glyph.x)
+  } else {
+    (glyph.x, glyph.x + glyph.w)
+  }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct CaretPosition {
   pub(crate) index: usize,
@@ -541,8 +553,19 @@ pub(crate) fn trailing_break_row_y(positions: &CaretPositions, text: &str, line_
   )
 }
 
+/// The highlight of the bytes `start..end`, one range per laid-out row the
+/// selection touches, in the text's coordinates less the scroll. A row's
+/// range covers the advances of its selected glyphs, from the caret before
+/// the first to the caret after the last. With `text`, the text the
+/// positions index, a row that the text wrapped (one that ends neither with
+/// a line break nor with the text) stops at its last glyph that draws: the
+/// whitespace and invisible marks at its end hang past it and draw nothing;
+/// a row that ends with a line break or the text's end keeps its trailing
+/// spaces. Without `text` (a text input, whose selected whitespace stays
+/// visible) every row keeps its end. There is no marker for a line break.
 pub(crate) fn selection_ranges_for_positions(
   positions: &CaretPositions,
+  text: Option<&str>,
   start: usize,
   end: usize,
   scroll_x: f32,
@@ -554,6 +577,7 @@ pub(crate) fn selection_ranges_for_positions(
       append_selection_range(
         &mut ranges,
         positions.slice(line.start..line.end),
+        text,
         start,
         end,
         scroll_x,
@@ -571,6 +595,7 @@ pub(crate) fn selection_ranges_for_positions(
       append_selection_range(
         &mut ranges,
         positions.slice(line_start..line_end),
+        text,
         start,
         end,
         scroll_x,
@@ -585,33 +610,81 @@ pub(crate) fn selection_ranges_for_positions(
 fn append_selection_range(
   ranges: &mut Vec<TextSelectionRange>,
   positions: CaretSlice<'_>,
+  text: Option<&str>,
   start: usize,
   end: usize,
   scroll_x: f32,
   scroll_y: f32,
 ) {
-  let first = positions.first().unwrap();
-  let last = positions.last().unwrap();
-  if start <= last.index && end >= first.index {
-    let selection_start = start.max(first.index).min(last.index);
-    let selection_end = end.min(last.index).max(first.index);
-    if selection_start != selection_end {
-      let x_for_index = |index| {
-        positions
-          .iter()
-          .find(|position| position.index == index)
-          .map(|position| position.x)
-          .unwrap_or(last.x)
-      };
-      let start_x = x_for_index(selection_start);
-      let end_x = x_for_index(selection_end);
-      ranges.push(TextSelectionRange {
-        x: start_x.min(end_x) - scroll_x,
-        y: first.y - scroll_y,
-        width: (start_x - end_x).abs().max(1.0),
-      });
-    }
+  let Some((row_start, row_end)) = row_index_bounds(positions.iter()) else {
+    return;
+  };
+  if start > row_end || end < row_start {
+    return;
   }
+  let selection_start = start.clamp(row_start, row_end);
+  let drawn_end = text.map_or(row_end, |text| drawn_row_end(text, row_start, row_end));
+  let selection_end = end.clamp(row_start, drawn_end);
+  if selection_start >= selection_end {
+    return;
+  }
+  let last_x = positions.last().map_or(0.0, |position| position.x);
+  let x_for_index = |index| {
+    positions
+      .iter()
+      .find(|position| position.index == index)
+      .map(|position| position.x)
+      .unwrap_or(last_x)
+  };
+  let start_x = x_for_index(selection_start);
+  let end_x = x_for_index(selection_end);
+  ranges.push(TextSelectionRange {
+    x: start_x.min(end_x) - scroll_x,
+    y: positions.first().map_or(0.0, |position| position.y) - scroll_y,
+    width: (start_x - end_x).abs().max(1.0),
+  });
+}
+
+/// The least and greatest byte index among a row's carets, which bidi may
+/// have put in any visual order.
+pub(crate) fn row_index_bounds(positions: impl Iterator<Item = CaretPosition>) -> Option<(usize, usize)> {
+  positions.fold(None, |bounds, position| {
+    let (min, max) = bounds.unwrap_or((position.index, position.index));
+    Some((min.min(position.index), max.max(position.index)))
+  })
+}
+
+/// Where the highlight of the row `row_start..row_end` of `text` ends: at
+/// `row_end` when the row ends with a line break or the text, else past the
+/// last character that draws something.
+pub(crate) fn drawn_row_end(text: &str, row_start: usize, row_end: usize) -> usize {
+  let Some(after) = text.get(row_end..) else {
+    return row_end;
+  };
+  if after.is_empty() || after.starts_with(['\n', '\r']) {
+    return row_end;
+  }
+  let mut end = row_end;
+  while end > row_start {
+    let Some(ch) = text.get(..end).and_then(|before| before.chars().next_back()) else {
+      break;
+    };
+    if !hangs_past_a_wrap(ch) {
+      break;
+    }
+    end -= ch.len_utf8();
+  }
+  end.max(row_start)
+}
+
+/// Whether `ch` draws nothing where a wrapped row ends: whitespace, which
+/// the layout lets hang past the row, or an invisible mark or joiner.
+fn hangs_past_a_wrap(ch: char) -> bool {
+  ch.is_whitespace()
+    || matches!(
+      ch,
+      '\u{200B}'..='\u{200F}' | '\u{2060}' | '\u{2066}'..='\u{2069}' | '\u{202A}'..='\u{202E}' | '\u{061C}' | '\u{FEFF}'
+    )
 }
 
 pub(crate) fn line_bounds(value: &str, index: usize) -> (usize, usize) {

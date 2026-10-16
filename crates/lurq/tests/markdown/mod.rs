@@ -1,4 +1,5 @@
 mod fit_content;
+mod link_activation;
 mod link_bidi;
 mod link_blocks;
 mod link_direction;
@@ -7,5 +8,6 @@ mod link_input;
 mod link_tooltip;
 mod links;
 mod parse;
+mod selection;
 mod table_cells;
 mod text;

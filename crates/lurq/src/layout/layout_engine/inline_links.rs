@@ -117,6 +117,7 @@ impl LayoutEngine {
     });
     if let Some(TextLayoutOutput::Text(output)) = result.text_layout.as_deref() {
       result.text_layout = Some(Arc::new(TextLayoutOutput::Text(output.with_inline(inline))));
+      Self::restore_text_layout_output(node, result);
     }
   }
 

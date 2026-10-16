@@ -14,10 +14,10 @@ use std::sync::Arc;
 
 use super::LayoutEngine;
 use crate::{
-  layout::{Size, layout_result::LayoutResult},
+  layout::{layout_result::LayoutResult, Size},
   node::{
     node::Node,
-    node_kind::{NodeKind, TextInputOverflow, TextInputOverflowAnchor, TextInputState, TextState},
+    node_kind::{NodeKind, PaintedCarets, TextInputOverflow, TextInputOverflowAnchor, TextInputState, TextState},
     text_selection::CaretPositions,
   },
 };
@@ -38,9 +38,14 @@ pub(crate) struct TextOutput {
   /// concatenated spans of selectable rich text).
   pub(super) display_text: Option<Arc<str>>,
   pub(super) render_wrap: bool,
-  /// Only selectable text measures caret geometry; other text leaves the
-  /// state's positions as they are.
-  pub(super) caret_positions: Option<CaretPositions>,
+  /// Only selectable text measures caret geometry, from the layout the
+  /// paint draws ([`LayoutEngine::lay_out_text_selection`]); other text
+  /// leaves the state's carets as they are.
+  pub(super) carets: Option<PaintedCarets>,
+  /// Where the text's first line sits below the top of its box, as the
+  /// paint places it (`VerticalAlign`); measured with the carets, so a
+  /// selection meets the glyphs.
+  pub(super) text_top: f32,
   /// Rich text that paints underlines or links: where its text lies.
   #[cfg(feature = "markdown")]
   pub(super) inline: Option<Arc<super::inline_links::InlineTextLayout>>,
@@ -54,9 +59,9 @@ impl TextLayoutOutput {
       Self::Text(output) => {
         output.display_text.as_ref().map_or(0, |text| text.len())
           + output
-            .caret_positions
+            .carets
             .as_ref()
-            .map_or(0, CaretPositions::estimated_shared_memory_bytes)
+            .map_or(0, |carets| carets.positions.estimated_shared_memory_bytes())
           + output.inline_memory_bytes()
       }
       #[cfg(feature = "markdown")]
@@ -81,8 +86,22 @@ impl TextOutput {
     Self {
       display_text: self.display_text.clone(),
       render_wrap: self.render_wrap,
-      caret_positions: self.caret_positions.clone(),
+      carets: self.carets.clone(),
+      text_top: inline.top,
       inline: Some(inline),
+    }
+  }
+
+  /// This output with the carets of the painted layout and where the
+  /// text's first line sits in its box.
+  pub(super) fn with_selection(&self, carets: PaintedCarets, text_top: f32) -> Self {
+    Self {
+      display_text: self.display_text.clone(),
+      render_wrap: self.render_wrap,
+      carets: Some(carets),
+      text_top,
+      #[cfg(feature = "markdown")]
+      inline: self.inline.clone(),
     }
   }
 
@@ -101,7 +120,8 @@ impl TextOutput {
     state.set_layout_output(
       self.display_text.as_ref(),
       self.render_wrap,
-      self.caret_positions.as_ref(),
+      self.carets.as_ref(),
+      self.text_top,
     );
   }
 }

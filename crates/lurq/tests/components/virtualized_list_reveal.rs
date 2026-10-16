@@ -1,10 +1,11 @@
 //! `VirtualizedList::reveal_key`: a list mounted with a reveal key scrolls
 //! that row into view on its own, a later key change reveals again, and an
 //! already-visible row never moves. An element of a mounted row can also be
-//! revealed like any other element.
+//! revealed like any other element. A row taller than the viewport is revealed
+//! at its top, once.
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx},
+  app::{App, Tree, component::Component, ctx::Ctx, events::ScrollPhase},
   components::{Rect, VirtualizedList},
   layout::layout_result::LayoutResult,
   node::{Element, color::Color},
@@ -157,4 +158,80 @@ fn scroll_into_view_reveals_an_element_of_a_mounted_row() {
   // A row outside viewport and overscan is not mounted: `reveal_key` is the
   // way to reach it.
   assert!(tree.get_element_by_id_mut("row-150").is_none());
+}
+
+/// The row of [`TallRoot`] three viewports tall.
+const TALL: usize = 100;
+
+struct TallRow;
+
+impl Component for TallRow {
+  type Props = usize;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let index = *ctx.props::<Self::Props>();
+    let height = if index == TALL {
+      VIEWPORT_HEIGHT * 3.0
+    } else {
+      ROW_HEIGHT
+    };
+    Rect::new(100.0, height)
+      .id(format!("row-{index}"))
+      .background(Color::new((index % 256) as u8, 64, 128, 255))
+  }
+}
+
+/// [`ROWS`] rows, row [`TALL`] taller than the viewport, revealing that row.
+struct TallRoot;
+
+impl Component for TallRoot {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    VirtualizedList::new(ctx, 0..ROWS)
+      .size(100.0, VIEWPORT_HEIGHT)
+      .reveal_key(Some(format!("row-{TALL}")))
+      .mount_keyed::<TallRow, _, _, _>(|index| format!("row-{index}"), |index| *index)
+  }
+}
+
+/// Turns the wheel over the list (a positive `delta` scrolls toward the start) and lays it out once.
+fn wheel(tree: &mut Tree, delta: f32) -> f32 {
+  tree.scroll(10.0, 10.0, 0.0, delta, ScrollPhase::Scroll);
+  run_pass(tree);
+  offset(tree)
+}
+
+#[test]
+fn reveal_key_of_a_row_taller_than_the_viewport_ends_once_its_top_is_shown() {
+  let mut tree = Tree::new();
+  tree.mount_root::<TallRoot>(&mut App::new(), ());
+  settle(&mut tree);
+  // The rows above it are placed from estimates, so its top is where the
+  // list laid it out, not `TALL * ROW_HEIGHT`.
+  let top = tree
+    .get_element_by_id_mut(&format!("row-{TALL}"))
+    .and_then(|row| row.bounds())
+    .expect("the tall row is laid out")
+    .y;
+  assert!(top.abs() <= 0.5, "the tall row's top is at the viewport's top: {top}");
+  let revealed = offset(&tree);
+  // The user scrolls up, then down into the tall row: later layouts leave the
+  // list where they put it.
+  let up = wheel(&mut tree, 120.0);
+  assert!(up < revealed, "the wheel scrolled up: {up}");
+  settle(&mut tree);
+  assert_eq!(offset(&tree), up, "the reveal does not take the list back");
+  let down = wheel(&mut tree, -480.0);
+  assert!(down > revealed, "the wheel scrolled into the tall row: {down}");
+  settle(&mut tree);
+  assert_eq!(offset(&tree), down, "the reveal does not take the list back");
 }

@@ -36,6 +36,7 @@ jobs:
           cargo test -p lurq --test input_tests checkbox
           cargo test -p lurq --test input_tests mask
           cargo test -p lurq --test input_tests text
+          cargo test -p lurq --features markdown --test markdown_tests selection
           cargo test -p lurq --test layout_tests text_centering
           cargo test -p lurq --test runtime_tests text
           cargo test -p lurq --features resources --test resources_tests

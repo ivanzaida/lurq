@@ -1,4 +1,5 @@
 mod text {
+  mod copy;
   mod scrollbar_lane;
   mod selectable;
 }
@@ -19,6 +20,7 @@ mod text_input {
   mod clipped_paint;
   mod controller;
   mod controller_focus;
+  mod copy_selection;
   mod editing;
   mod empty_value;
   mod focus;
@@ -75,6 +77,7 @@ mod slider {
 }
 
 mod pointer {
+  mod modifiers;
   mod native_window_gesture;
 }
 

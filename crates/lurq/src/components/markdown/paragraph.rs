@@ -2,8 +2,9 @@
 //!
 //! A paragraph is one rich-text node, links included, so it wraps and selects
 //! as one text. Each link is a child node of the paragraph placed on its words
-//! ([`crate::node::inline_link`]): a Tab stop that Enter and a click follow,
-//! with a pointer cursor, hover and focus looks and an optional tooltip.
+//! ([`crate::node::inline_link`]): a Tab stop that Enter and a click follow
+//! (a middle click too, for an app that takes link activations), with a
+//! pointer cursor, hover and focus looks and an optional tooltip.
 //!
 //! A link's words and trailing runs are laid out between invisible marks for
 //! the direction of the bidi paragraph it is in ([`super::link_block`],
@@ -37,16 +38,20 @@ use super::{
   tooltip::{LinkTooltip, TooltipHover, TooltipKey},
 };
 use crate::{
-  app::theme::ThemeMarkdown,
+  app::{
+    events::{MouseButton, MouseEvent},
+    theme::ThemeMarkdown,
+  },
   layout::{quad::RichTextSpan, text_style::TextStyle},
   markdown::{
     Direction, FIRST_STRONG_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, is_invisible, markdown_inline_rich_text,
     paragraph_breaks_as_line_feeds, paragraph_breaks_as_spaces, strip_bidi_controls,
   },
-  node::{CursorIcon, Node, inline_link::InlineLink},
+  node::{CursorIcon, EventHandler, Node, inline_link::InlineLink},
 };
 
 pub(super) type MarkdownLinkCallback = Arc<dyn Fn(&MarkdownLink) + Send + Sync>;
+pub(super) type MarkdownLinkActivator = Arc<dyn Fn(&MarkdownLink, &MouseEvent) + Send + Sync>;
 pub(super) type MarkdownLinkPresenter = Arc<dyn Fn(&MarkdownLink) -> MarkdownLinkPresentation + Send + Sync>;
 
 /// What the links of one render of a document share: their numbering, the
@@ -57,6 +62,7 @@ pub(super) struct LinkSession {
   occurrences: RefCell<HashMap<Arc<str>, usize>>,
   presenter: Option<MarkdownLinkPresenter>,
   on_link_click: Option<MarkdownLinkCallback>,
+  on_link_activate: Option<MarkdownLinkActivator>,
   #[cfg(feature = "router")]
   navigator: Option<crate::router::Navigator>,
   hover: TooltipHover,
@@ -74,6 +80,7 @@ impl LinkSession {
   pub(super) fn new(
     presenter: Option<MarkdownLinkPresenter>,
     on_link_click: Option<MarkdownLinkCallback>,
+    on_link_activate: Option<MarkdownLinkActivator>,
     #[cfg(feature = "router")] navigator: Option<crate::router::Navigator>,
     hover: TooltipHover,
   ) -> Self {
@@ -82,6 +89,7 @@ impl LinkSession {
       occurrences: RefCell::new(HashMap::new()),
       presenter,
       on_link_click,
+      on_link_activate,
       #[cfg(feature = "router")]
       navigator,
       hover,
@@ -138,24 +146,46 @@ impl LinkSession {
       .map_or_else(MarkdownLinkPresentation::link, |present| present(link))
   }
 
-  /// What a press or Enter on `link` does: the app's callback, or else a
-  /// router navigation to an in-app path.
-  fn click_handler(&self, link: MarkdownLink) -> impl Fn(crate::app::events::MouseEvent) + Send + Sync + 'static {
+  /// What a click, a middle click or Enter on `link` does: the app's
+  /// callbacks, or else, for a left click or Enter, a router navigation to
+  /// an in-app path.
+  fn activation_handler(&self, link: MarkdownLink) -> EventHandler<MouseEvent> {
+    let on_link_activate = self.on_link_activate.clone();
     let on_link_click = self.on_link_click.clone();
     #[cfg(feature = "router")]
     let navigator = self.navigator.clone();
-    move |_| {
+    EventHandler::new(move |event: &MouseEvent| {
+      if let Some(on_link_activate) = &on_link_activate {
+        on_link_activate(&link, event);
+      }
+      if event.button != MouseButton::Left {
+        return;
+      }
       if let Some(on_link_click) = &on_link_click {
         on_link_click(&link);
         return;
       }
       #[cfg(feature = "router")]
-      if let Some(navigator) = &navigator
+      if on_link_activate.is_none()
+        && let Some(navigator) = &navigator
         && is_router_link(link.destination())
       {
         navigator.push(link.destination().to_owned());
       }
+    })
+  }
+
+  /// `node`, followed as `link` on a left click and Enter, and on a middle
+  /// click too when the app takes link activations.
+  fn follows(&self, node: Node, link: MarkdownLink) -> Node {
+    let activate = self.activation_handler(link);
+    let node = node.on_click(activate.clone());
+    if self.on_link_activate.is_none() {
+      return node;
     }
+    node
+      .on_mouse_down(hold_middle_press)
+      .on_mouse_click(MouseButton::Middle, activate)
   }
 
   /// `node` with the tooltip `text`: it registers an anchor that the
@@ -175,6 +205,14 @@ impl LinkSession {
       .ref_element(anchor)
       .on_mouse_enter(move || enter.enter(&enter_key))
       .on_mouse_leave(move || leave.leave(&key))
+  }
+}
+
+/// A middle press on a link starts its middle click, not a drag of what the
+/// link is in. (A middle press starts no text selection or scrollbar drag.)
+fn hold_middle_press(event: MouseEvent) {
+  if event.button == MouseButton::Middle {
+    event.prevent_default();
   }
 }
 
@@ -331,8 +369,8 @@ impl<'a> Paragraph<'a> {
     };
     let node = Node::inline_link(inline_link, link.text())
       .tab_index(0)
-      .cursor(CursorIcon::Pointer)
-      .on_click(self.session.click_handler(link));
+      .cursor(CursorIcon::Pointer);
+    let node = self.session.follows(node, link);
     self
       .links
       .push(self.session.with_tooltip(node, key, presentation.tooltip));
