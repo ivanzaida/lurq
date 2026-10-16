@@ -17,8 +17,9 @@
 //! run. Its other line and paragraph separators are line feeds, and a link's
 //! words are one line of text: breaks in them are spaces. The link's marks
 //! are then the only directional controls in the paragraph, three isolates
-//! deep at most. A link whose words draw nothing (none, or only spaces and
-//! invisible characters) is its words as text: no runs, nothing to press.
+//! deep at most. A link whose words draw nothing (none, or only spaces,
+//! invisible characters and combining marks with no letter) is its words as
+//! text: no runs, nothing to press.
 //! The marks, joiners and trailing runs are presentation: the paragraph's
 //! copied and inspected text leaves them out.
 

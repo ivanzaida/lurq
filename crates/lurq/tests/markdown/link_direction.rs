@@ -291,6 +291,10 @@ fn markdown_link_runs_follow_words_at_every_width_after_a_forged_host() {
       "joiner words",
       &format!("{SOF_PASUQ} [\u{2060}\u{FEFF}\u{AD}]({REAL})[PR 412]({EVIL})"),
     ),
+    (
+      "combining mark words",
+      &format!("{SOF_PASUQ} [\u{0301}\u{20DD}]({REAL})[PR 412]({EVIL})"),
+    ),
     ("plain host", &format!("{SOF_PASUQ} github.com [PR 412]({EVIL})")),
     ("dot words", &format!("{SHALOM} [.]({REAL})[PR 412]({EVIL})")),
   ]);
@@ -300,14 +304,14 @@ fn markdown_link_runs_follow_words_at_every_width_after_a_forged_host() {
 fn markdown_link_runs_follow_words_at_every_width_with_breaks_in_the_words() {
   let empty = format!("[]({REAL})");
   assert_runs_follow_words_at_every_width(&[
-    ("backslash break", &format!("{SOF_PASUQ} {empty}[PR 412\\nx]({EVIL})")),
+    ("backslash break", &format!("{SOF_PASUQ} {empty}[PR 412\\\nx]({EVIL})")),
     ("two-space break", &format!("{SOF_PASUQ} {empty}[PR 412  \nx]({EVIL})")),
     ("U+2029", &format!("{SOF_PASUQ} {empty}[PR 412\u{2029}x]({EVIL})")),
     ("U+0085", &format!("{SOF_PASUQ} {empty}[PR 412\u{85}x]({EVIL})")),
     ("U+2028", &format!("{SOF_PASUQ} {empty}[PR 412\u{2028}x]({EVIL})")),
     ("U+001E", &format!("{SOF_PASUQ} {empty}[PR 412\u{1E}x]({EVIL})")),
     ("html break", &format!("{SOF_PASUQ} {empty}[PR 412<br>x]({EVIL})")),
-    ("break before", &format!("{SHALOM}\\n{empty}[PR 412]({EVIL}) {OLAM}")),
+    ("break before", &format!("{SHALOM}\\\n{empty}[PR 412]({EVIL}) {OLAM}")),
   ]);
 }
 
@@ -316,13 +320,13 @@ fn markdown_link_runs_follow_words_at_every_width_in_blocks() {
   let empty = format!("[]({REAL})");
   assert_runs_follow_words_at_every_width(&[
     ("heading", &format!("# {SOF_PASUQ} {empty}[PR 412\u{2029}x]({EVIL})")),
-    ("list item", &format!("- {SOF_PASUQ} {empty}[PR 412\\nx]({EVIL})")),
-    ("quote", &format!("> {SOF_PASUQ} {empty}[PR 412\\nx]({EVIL})")),
+    ("list item", &format!("- {SOF_PASUQ} {empty}[PR 412\\\nx]({EVIL})")),
+    ("quote", &format!("> {SOF_PASUQ} {empty}[PR 412\\\nx]({EVIL})")),
     (
       "table cell",
       &format!("| a |\n|---|\n| {SOF_PASUQ} {empty}[PR 412<br>x]({EVIL}) |"),
     ),
-    ("emphasis", &format!("{SOF_PASUQ} *{empty}*[**PR 412\\nx**]({EVIL})")),
+    ("emphasis", &format!("{SOF_PASUQ} *{empty}*[**PR 412\\\nx**]({EVIL})")),
   ]);
 }
 
@@ -416,5 +420,48 @@ fn markdown_link_whose_words_draw_nothing_is_not_presented_or_pressable() {
       .find_element(|element| element.text_content() == Some("\u{200B}\u{2060}"))
       .is_none(),
     "a link that draws nothing is no link node"
+  );
+}
+
+#[test]
+fn markdown_link_whose_words_are_only_combining_marks_is_not_presented_or_pressable() {
+  let presented = Arc::new(Mutex::new(Vec::new()));
+  let (mut app, mut tree) = mount(
+    MarkdownProps::new(format!(
+      "See [\u{0301}\u{0308}]({REAL}) [\u{20DD}]({REAL}) [ \u{0336}\u{200B}]({REAL}) [e\u{0301}]({EVIL})."
+    ))
+    .link_presentation({
+      let presented = presented.clone();
+      move |link| {
+        presented.lock().unwrap().push((link.index(), link.text().to_owned()));
+        MarkdownLinkPresentation::link().trailing([MarkdownRun::new(" github.com", colored("#00ff00"))])
+      }
+    })
+    .width(800.0),
+  );
+  assert_eq!(
+    *presented.lock().unwrap(),
+    vec![(3, "e\u{0301}".to_owned())],
+    "nonspacing (Mn) and enclosing (Me) marks with no letter are not presented; a letter with a mark is"
+  );
+  let glyphs = render_pass_with_app(&mut tree, &mut app).glyphs;
+  let hosts = glyphs
+    .iter()
+    .filter(|glyph| glyph.color[1] > 0.9 && glyph.color[0] < 0.1)
+    .count();
+  assert_eq!(hosts, "github.com".len(), "one host, the visible link's");
+  for marks in ["\u{0301}\u{0308}", "\u{20DD}"] {
+    assert!(
+      tree
+        .find_element(|element| element.text_content() == Some(marks))
+        .is_none(),
+      "a link of marks {marks:?} is no link node"
+    );
+  }
+  assert!(
+    tree
+      .find_element(|element| element.text_content() == Some("e\u{0301}"))
+      .is_some(),
+    "the link with a letter is a link node"
   );
 }

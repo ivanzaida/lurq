@@ -106,9 +106,10 @@ impl MarkdownRun {
 /// them cannot reverse a host or an address drawn after them, and on every
 /// laid-out line, in a right-to-left paragraph too, the runs follow the
 /// words, left to right, and nothing else does. A link stays on one line
-/// where it fits. A link whose words draw nothing (none, or only spaces and
-/// invisible characters such as U+200B) is not presented: lurq draws its
-/// words as text, without runs, and it is nothing to press.
+/// where it fits. A link whose words draw nothing (none, or only spaces,
+/// invisible characters such as U+200B and combining marks with no letter)
+/// is not presented: lurq draws its words as text, without runs, and it is
+/// nothing to press.
 #[derive(Clone, Default, PartialEq)]
 pub struct MarkdownLinkPresentation {
   pub(super) as_text: bool,

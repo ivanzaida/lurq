@@ -99,14 +99,20 @@ fn replace_chars(text: &str, replaced: impl Fn(char) -> bool, with: char) -> Cow
   }
 }
 
-/// Whether `text` draws nothing: it is empty, or only whitespace, controls,
-/// default-ignorable code points (U+200B ZERO WIDTH SPACE, U+2060 WORD
-/// JOINER, U+FEFF, U+00AD SOFT HYPHEN, fillers, variation selectors, tags…)
-/// or U+2800 BRAILLE PATTERN BLANK.
+/// Whether `text` shows nothing a reader can tell a link by: it is empty, or
+/// only whitespace, controls, default-ignorable code points (U+200B ZERO
+/// WIDTH SPACE, U+2060 WORD JOINER, U+FEFF, U+00AD SOFT HYPHEN, fillers,
+/// variation selectors, tags…), U+2800 BRAILLE PATTERN BLANK, and combining
+/// marks (General_Category Mn and Me, bidi class NSM) with no letter to sit
+/// on.
 pub(crate) fn is_invisible(text: &str) -> bool {
-  text
-    .chars()
-    .all(|ch| ch.is_whitespace() || ch.is_control() || is_default_ignorable(ch) || ch == '\u{2800}')
+  text.chars().all(|ch| {
+    ch.is_whitespace()
+      || ch.is_control()
+      || is_default_ignorable(ch)
+      || ch == '\u{2800}'
+      || bidi_class(ch) == BidiClass::NSM
+  })
 }
 
 /// Unicode's `Default_Ignorable_Code_Point`: characters a font draws as
