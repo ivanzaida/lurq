@@ -214,6 +214,27 @@ Column::new()
 
 A paragraph is one text, links included: it wraps and selects as one. Each link in it is a Tab stop in document order; a click and Enter follow it (Space does not), the pointer shows a pointer cursor, and an MCP client sees it as a `link` named by its words. `on_link_click` runs inside the input's dispatch, so `lurq::app::events::is_synthetic_input()` tells a person's press from an MCP client's, and `MarkdownLink::index()` says which link it was.
 
+`on_link_click` gets left clicks and Enter. To tell how a link was activated, use `.on_link_activate(...)`: it gets the link and the `MouseEvent` that activated it, for a left click, a middle click, or Enter on the focused link. The event's `button` is `Left` or `Middle` (`Left` for Enter), `from_keyboard` is set for Enter, and `shift`, `ctrl`, `alt` and `meta` are the modifiers held (`meta` is Cmd on macOS and the Windows key on Windows). Browser rules for a chat's links, for example:
+
+```rust
+use lurq::app::events::MouseButton;
+
+MarkdownProps::new(reply).on_link_activate(move |link, event| {
+  let shortcut = if cfg!(target_os = "macos") { event.meta } else { event.ctrl };
+  if event.button == MouseButton::Middle || (shortcut && !event.shift) {
+    tabs.open_in_background(link.destination());
+  } else if shortcut && event.shift {
+    tabs.open_and_switch(link.destination());
+  } else {
+    tabs.open_here(link.destination());
+  }
+})
+```
+
+- A middle click is a press and a release of the middle button on the same link, like a left click: a press released off the link activates nothing, and neither does a press on one link released on another more than a few pixels away. Closer than that, the link under the release activates, as with a left click. The press starts no text selection and no drag of what the link is in, and lurq has no middle-click autoscroll or paste for it to start.
+- `on_link_activate` runs before `on_link_click`, which still gets the left clicks and Enter when both are set. With `on_link_activate` set, an in-app link no longer navigates the router by itself. Without it, a middle click on a link does nothing.
+- It runs inside the input's dispatch, like `on_link_click`: an MCP client's `lurq_interact` click with `"button": "middle"` or `"modifiers": ["ctrl", "meta"]` reaches it with those, and `is_synthetic_input()` is `true`.
+
 `.link_presentation(...)` decides how each link is shown. It is called once per link and render with the same `MarkdownLink` that `on_link_click` gets, so what a link shows always comes from the destination it opens:
 
 ```rust

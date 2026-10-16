@@ -152,7 +152,7 @@ lurq_inspect { query: "Open modal", role: "button" }
 | `release` | `button`; optionally `ref` or `x`/`y` | Releases the button where the pointer is, moving to the target first if one is given. A left press released in place is a click. |
 | `key_down` / `key_up` | `key`, `modifiers` | Holds and releases a key, with the key names of `key` (`" "` is the space bar). |
 
-Held modifier keys apply to every action in their window, as real keys that are down do, together with the action's own `modifiers`. A held `Shift`, `Control` or `Alt` sets `shift`, `ctrl` or `alt` on every later pointer event (moves, presses, releases, clicks) and key event (`key`, `type`, `key_down`, `key_up`). A held `Meta` or `Super` sets `meta` on key events only: pointer events have no `meta`. Scroll events carry no modifiers, so `wheel` passes them only to its pointer move.
+Held modifier keys apply to every action in their window, as real keys that are down do, together with the action's own `modifiers`. A held `Shift`, `Control` or `Alt` sets `shift`, `ctrl` or `alt`, and a held `Meta` or `Super` sets `meta`, on every later pointer event (moves, presses, releases, clicks) and key event (`key`, `type`, `key_down`, `key_up`). Scroll events carry no modifiers, so `wheel` passes them only to its pointer move.
 
 A call that delivers held input makes the shell present right after the call, before any redraw is requested, as a real mouse-move stream presents from inside its events: one `move` per call is exactly one frame per move. Between calls a held button costs nothing: a held drag changes only on input, so the event loop waits (for a real drag as well).
 
@@ -212,7 +212,7 @@ Button::new("Allow file writes").on_click(move |_: MouseEvent| {
 })
 ```
 
-The source is set only while lurq delivers the input: a handler and the callbacks it reaches see it, work deferred past the delivery (a spawned task, a timer, a later render) does not. `InputSource::Os` is not proof that a person acted, since another program can post OS input. An automation layer that drives a `Tree` through its input methods itself can mark that input with `with_synthetic_input(|| ...)`.
+The source is set only while lurq delivers the input: a handler and the callbacks it reaches see it, work deferred past the delivery (a spawned task, a timer, a later render) does not. A left click that lurq holds back to see whether a double click follows (under an `on_dblclick` handler) keeps its source: an MCP click is still synthetic input when a later pass or click delivers it. `InputSource::Os` is not proof that a person acted, since another program can post OS input. An automation layer that drives a `Tree` through its input methods itself can mark that input with `with_synthetic_input(|| ...)`.
 
 ## Multiple Windows
 

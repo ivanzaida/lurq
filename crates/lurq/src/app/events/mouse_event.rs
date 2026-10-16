@@ -65,6 +65,12 @@ pub struct MouseEvent {
   pub shift: bool,
   pub ctrl: bool,
   pub alt: bool,
+  /// Cmd on macOS, the Windows key on Windows, Super elsewhere.
+  pub meta: bool,
+  /// A key made this click, not the pointer: Enter on a focused link, Enter
+  /// or Space on a focused button. `button` is `Left` and `x`, `y` are 0, as
+  /// for a browser's keyboard click; the modifiers are the key's.
+  pub from_keyboard: bool,
   pub target_id: NodeId,
   pub(crate) control: EventControl,
 }

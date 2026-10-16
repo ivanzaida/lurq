@@ -1,7 +1,7 @@
 #![cfg(all(feature = "mcp", feature = "markdown"))]
 //! An MCP client sees a Markdown link as a `link` named by its words, reads
 //! the paragraph's text without the link's trailing runs, and follows the
-//! link as synthetic input.
+//! link as synthetic input, with the button and modifiers it asks for.
 
 mod mcp_client;
 
@@ -11,7 +11,12 @@ use std::{
 };
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx, events::is_synthetic_input},
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::Ctx,
+    events::{MouseButton, is_synthetic_input},
+  },
   components::{Markdown, MarkdownLinkPresentation, MarkdownProps, MarkdownRun},
   mcp::McpConfig,
   node::Element,
@@ -20,13 +25,18 @@ use mcp_client::Client;
 use serde_json::json;
 
 type Followed = Arc<Mutex<Vec<(String, bool)>>>;
+/// Each activation's button, Ctrl, Meta and whether it was synthetic.
+type Activated = Arc<Mutex<Vec<(MouseButton, bool, bool, bool)>>>;
 
-#[derive(Clone)]
-struct Props(Followed);
+#[derive(Clone, Default)]
+struct Props {
+  followed: Followed,
+  activated: Activated,
+}
 
 impl PartialEq for Props {
   fn eq(&self, other: &Self) -> bool {
-    Arc::ptr_eq(&self.0, &other.0)
+    Arc::ptr_eq(&self.followed, &other.followed) && Arc::ptr_eq(&self.activated, &other.activated)
   }
 }
 
@@ -43,7 +53,7 @@ impl Component for Reply {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let followed = ctx.props::<Props>().0.clone();
+    let Props { followed, activated } = ctx.props::<Props>().clone();
     Markdown::mount(
       ctx,
       MarkdownProps::new("Open [PR 42](https://github.com/acme/pull/42) to review.")
@@ -54,18 +64,24 @@ impl Component for Reply {
             .unwrap()
             .push((link.destination().to_owned(), is_synthetic_input()))
         })
+        .on_link_activate(move |_, event| {
+          activated
+            .lock()
+            .unwrap()
+            .push((event.button, event.ctrl, event.meta, is_synthetic_input()))
+        })
         .width(500.0),
     )
   }
 }
 
-#[test]
-fn an_agent_sees_a_markdown_link_by_role_and_name_and_follows_it() {
-  let followed = Followed::default();
+/// Runs `agent` against a window showing [`Reply`], serving its MCP calls
+/// until it finishes.
+fn serve<T: Send + 'static>(props: Props, agent: impl FnOnce(Client) -> T + Send + 'static) -> T {
   let mut app = App::new();
   let mut tree = Tree::new();
   tree.resize(600, 300);
-  tree.mount_root::<Reply>(&mut app, Props(followed.clone()));
+  tree.mount_root::<Reply>(&mut app, props);
   tree.pass_headless(&mut app);
   let mcp = tree.enable_mcp(McpConfig::new().app_name("lurq-markdown-test"));
   let (port, token) = (mcp.port(), mcp.token().to_owned());
@@ -73,14 +89,7 @@ fn an_agent_sees_a_markdown_link_by_role_and_name_and_follows_it() {
   let agent = std::thread::spawn(move || {
     let mut client = Client::new(port, token);
     client.initialize();
-    let tree_text = client.tool("lurq_read_tree", json!({}));
-    let found = client.tool_json("lurq_inspect", json!({"role": "link", "query": "PR 42"}));
-    // Refs come from the latest read: the inspection's own.
-    client.tool(
-      "lurq_interact",
-      json!({"action": "click", "ref": found["matches"][0]["ref"]}),
-    );
-    (tree_text, found)
+    agent(client)
   });
 
   let deadline = Instant::now() + Duration::from_secs(60);
@@ -91,7 +100,23 @@ fn an_agent_sees_a_markdown_link_by_role_and_name_and_follows_it() {
     }
     std::thread::sleep(Duration::from_millis(2));
   }
-  let (tree_text, found) = agent.join().expect("the agent");
+  agent.join().expect("the agent")
+}
+
+#[test]
+fn an_agent_sees_a_markdown_link_by_role_and_name_and_follows_it() {
+  let props = Props::default();
+  let followed = props.followed.clone();
+  let (tree_text, found) = serve(props, |mut client| {
+    let tree_text = client.tool("lurq_read_tree", json!({}));
+    let found = client.tool_json("lurq_inspect", json!({"role": "link", "query": "PR 42"}));
+    // Refs come from the latest read: the inspection's own.
+    client.tool(
+      "lurq_interact",
+      json!({"action": "click", "ref": found["matches"][0]["ref"]}),
+    );
+    (tree_text, found)
+  });
 
   let matches = found["matches"].as_array().expect("matches");
   assert_eq!(matches.len(), 1, "one link named by its words: {found}");
@@ -110,5 +135,33 @@ fn an_agent_sees_a_markdown_link_by_role_and_name_and_follows_it() {
     *followed.lock().unwrap(),
     vec![("https://github.com/acme/pull/42".to_owned(), true)],
     "the click reached the app as synthetic input"
+  );
+}
+
+#[test]
+fn an_agent_middle_clicks_a_markdown_link_with_modifiers() {
+  let props = Props::default();
+  let (followed, activated) = (props.followed.clone(), props.activated.clone());
+  serve(props, |mut client| {
+    let found = client.tool_json("lurq_inspect", json!({"role": "link", "query": "PR 42"}));
+    client.tool(
+      "lurq_interact",
+      json!({
+        "action": "click",
+        "ref": found["matches"][0]["ref"],
+        "button": "middle",
+        "modifiers": ["ctrl", "meta"],
+      }),
+    );
+  });
+
+  assert_eq!(
+    *activated.lock().unwrap(),
+    vec![(MouseButton::Middle, true, true, true)],
+    "the middle click reached the app with its modifiers, as synthetic input"
+  );
+  assert!(
+    followed.lock().unwrap().is_empty(),
+    "on_link_click takes left clicks only"
   );
 }

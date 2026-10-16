@@ -77,6 +77,7 @@ mod slider {
 }
 
 mod pointer {
+  mod modifiers;
   mod native_window_gesture;
 }
 

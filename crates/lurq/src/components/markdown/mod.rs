@@ -32,7 +32,7 @@ mod tooltip;
 pub use links::{MarkdownLink, MarkdownLinkPresentation, MarkdownRun};
 pub use list_view::MarkdownList;
 use list_view::MarkdownListView;
-use paragraph::{FlowItem, LinkSession, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph};
+use paragraph::{FlowItem, LinkSession, MarkdownLinkActivator, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph};
 use sizing::{BlockWidth, FILL_WIDTH};
 use tooltip::{LinkTooltips, LinkTooltipsProps, TooltipHover};
 
@@ -45,6 +45,7 @@ pub struct MarkdownProps {
   width: Option<Dimension>,
   fit_content: bool,
   on_link_click: Option<MarkdownLinkCallback>,
+  on_link_activate: Option<MarkdownLinkActivator>,
   link_presentation: Option<MarkdownLinkPresenter>,
   list_view: Option<MarkdownListView>,
 }
@@ -58,6 +59,7 @@ impl PartialEq for MarkdownProps {
       && self.width == other.width
       && self.fit_content == other.fit_content
       && same_callback(&self.on_link_click, &other.on_link_click)
+      && same_callback(&self.on_link_activate, &other.on_link_activate)
       && same_callback(&self.link_presentation, &other.link_presentation)
       && same_callback(&self.list_view, &other.list_view)
   }
@@ -73,6 +75,7 @@ impl MarkdownProps {
       width: None,
       fit_content: false,
       on_link_click: None,
+      on_link_activate: None,
       link_presentation: None,
       list_view: None,
     }
@@ -126,15 +129,46 @@ impl MarkdownProps {
     self
   }
 
-  /// Called when a link is followed: pressed with the pointer, or Enter
+  /// Called when a link is followed: clicked with the left button, or Enter
   /// while it has keyboard focus. It runs inside the input's dispatch, so
   /// [`is_synthetic_input`](crate::app::events::is_synthetic_input) tells a
   /// person's press from synthetic input (an MCP client's). It is given the
   /// same [`MarkdownLink`] the presentation hook saw, with its
-  /// [`index`](MarkdownLink::index). Without it, a link to an in-app path
+  /// [`index`](MarkdownLink::index). Without it and without
+  /// [`on_link_activate`](Self::on_link_activate), a link to an in-app path
   /// (`/`, `#` or `?`) navigates the router, when there is one.
   pub fn on_link_click(mut self, f: impl Fn(&MarkdownLink) + Send + Sync + 'static) -> Self {
     self.on_link_click = Some(Arc::new(f));
+    self
+  }
+
+  /// Called when a link is activated, with the input that did it: a left
+  /// click, a middle click, or Enter while the link has keyboard focus. The
+  /// [`MouseEvent`](crate::app::events::MouseEvent) says which: its `button`
+  /// (`Left` or `Middle`; `Left` for Enter), its modifiers (`shift`, `ctrl`,
+  /// `alt`, and `meta`: Cmd on macOS, the Windows key on Windows) and
+  /// `from_keyboard` for Enter. An app follows browser rules with it: a
+  /// middle click or Ctrl+click (Cmd+click on macOS) opens the link in the
+  /// background, Ctrl+Shift+click opens it in front.
+  ///
+  /// A middle click is a press and a release of the middle button on the
+  /// same link, like a left click. Its press starts no text selection or
+  /// drag. A press released off the link activates nothing, and neither
+  /// does a press on one link released on another more than a few pixels
+  /// away; closer, the link under the release activates, as with a left
+  /// click.
+  /// The callback runs inside the input's dispatch, so
+  /// [`is_synthetic_input`](crate::app::events::is_synthetic_input) tells a
+  /// person from an MCP client here too.
+  ///
+  /// It runs before [`on_link_click`](Self::on_link_click), which still
+  /// gets left clicks and Enter when both are set. With it, a link to an
+  /// in-app path no longer navigates the router by itself.
+  pub fn on_link_activate(
+    mut self,
+    f: impl Fn(&MarkdownLink, &crate::app::events::MouseEvent) + Send + Sync + 'static,
+  ) -> Self {
+    self.on_link_activate = Some(Arc::new(f));
     self
   }
 
@@ -234,6 +268,7 @@ impl Component for Markdown {
     let links = LinkSession::new(
       props.link_presentation.clone(),
       props.on_link_click.clone(),
+      props.on_link_activate.clone(),
       #[cfg(feature = "router")]
       ctx.use_context::<crate::router::Navigator>(),
       self.hover.clone(),

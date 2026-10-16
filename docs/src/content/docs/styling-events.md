@@ -227,7 +227,7 @@ Rect::new(100.0, 40.0)
   .on_mouse_leave(|| println!("leave"))
 ```
 
-`MouseEvent` includes `x`, `y`, `button`, `kind`, and `target_id`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
+`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
 
 Each `on_*` modifier appends a handler for that rendered node, so a node can have multiple handlers for the same event. Inline closures are render output: when the node is rendered again, the rendered handler list should replace the previous list.
 
