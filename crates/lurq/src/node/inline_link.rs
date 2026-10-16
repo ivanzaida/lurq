@@ -23,16 +23,14 @@ use crate::{
 pub(crate) struct InlineLink {
   /// The spans of the link's words: filled, recolored and ringed.
   pub(crate) label: Range<usize>,
-  /// The spans the pointer takes: the words and the runs that follow them.
+  /// The spans of the link's trailing runs. They are drawn after the words,
+  /// but may come before them in the paragraph's spans (in a right-to-left
+  /// paragraph).
+  pub(crate) trailing: Range<usize>,
+  /// The spans the pointer takes: the words, the trailing runs and the
+  /// invisible marks between them.
   pub(crate) target: Range<usize>,
   pub(crate) look: Arc<InlineLinkLook>,
-}
-
-impl InlineLink {
-  /// The spans after the words that belong to the link.
-  pub(crate) fn trailing(&self) -> Range<usize> {
-    self.label.end..self.target.end
-  }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

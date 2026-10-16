@@ -20,6 +20,8 @@ use crate::{
   node::{Element, Node, color::Color, dimension::Dimension},
 };
 
+mod bidi_paragraphs;
+mod link_block;
 mod links;
 mod list_view;
 mod paragraph;
@@ -334,7 +336,7 @@ fn render_inline_block(
     return render_inline_flow(inlines, style, theme, render_ctx);
   }
 
-  let mut paragraph = Paragraph::new(inlines, theme, render_ctx.links);
+  let mut paragraph = Paragraph::new(inlines, false, theme, render_ctx.links);
   paragraph.push_inlines(inlines, &style, &mut None);
   render_ctx.width.leaf(Element::from_node(paragraph.take_node()))
 }
@@ -373,7 +375,7 @@ fn render_inline_flow_row(
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   let mut flow = Vec::new();
-  let mut paragraph = Paragraph::new(inlines, theme, render_ctx.links);
+  let mut paragraph = Paragraph::new(inlines, true, theme, render_ctx.links);
   paragraph.push_inlines(inlines, style, &mut Some(&mut flow));
   if !paragraph.is_empty() {
     flow.push(FlowItem::Text(Box::new(paragraph.take_node())));
