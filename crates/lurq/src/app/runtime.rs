@@ -710,6 +710,8 @@ pub struct Tree {
   last_memory_profile_sample: Option<Instant>,
   transition_engine: TransitionEngine,
   animation_engine: AnimationEngine,
+  /// The time animations and transitions tick at instead of each pass's: see [`Tree::set_animation_clock`].
+  animation_clock: Option<Instant>,
   last_theme_version: u64,
   quad_scratch: Vec<Quad>,
   render_rects: Vec<RectCmd>,
@@ -1061,6 +1063,7 @@ impl Tree {
       last_memory_profile_sample: None,
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
+      animation_clock: None,
       last_theme_version: u64::MAX,
       quad_scratch: Vec::new(),
       render_rects: Vec::new(),
@@ -5944,6 +5947,22 @@ impl Tree {
     self.needs_redraw = true;
   }
 
+  /// Registers keyframes whose runs all play in phase, on the process's animation clock
+  /// ([`crate::animation::clock_origin`]): every node playing them, in this window or another, shows the same
+  /// pose however late it mounted, and a `Steps` animation shown many times draws one frame per step. See
+  /// [`AnimationEngine::register_keyframes_in_phase`] for how direction and `delay` play in phase.
+  pub fn register_keyframes_in_phase(&mut self, keyframes: Keyframes) {
+    self.animation_engine.register_keyframes_in_phase(keyframes);
+    self.needs_redraw = true;
+  }
+
+  /// Ticks animations and transitions at `now` in every pass instead of at the moment the pass runs, until set
+  /// back to `None`. For tests that drive animation time explicitly; a shell paces its frames on the wall clock.
+  #[doc(hidden)]
+  pub fn set_animation_clock(&mut self, now: Option<Instant>) {
+    self.animation_clock = now;
+  }
+
   fn update_layout(&mut self, app: &mut App) -> bool {
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();
@@ -5961,7 +5980,7 @@ impl Tree {
     #[cfg(not(all(feature = "svg", feature = "resources")))]
     let svg_resources_changed = false;
 
-    let now = Instant::now();
+    let now = self.animation_clock.unwrap_or_else(Instant::now);
     let had_overlay_host = self
       .root
       .as_ref()
