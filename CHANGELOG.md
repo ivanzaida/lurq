@@ -11,6 +11,11 @@ Breaking:
 - The containers Markdown builds itself (the document, lists, quotes, footnotes, rows of texts and images) no longer clip what their blocks draw past them, so a link's focus ring shows in full. Code blocks and tables still clip to their boxes; the app's own containers clip as before.
 - `TextStyle`, `MarkdownTextStyle` and `ThemeMarkdown` gain public fields: struct literals that list every field need the new ones (or `..Default::default()`).
 - An email autolink (`<team@example.com>`) is parsed as a link to `mailto:team@example.com` (it was `team@example.com`), as HTML renders it.
+- `MarkdownBlockStyle::padding` is an `Option<Padding>` (it was `Option<f32>`), so a box can have other padding at its sides than at its top and bottom: `Some(Padding::symmetric(8.0, 4.0))`. Write `Some(Padding::all(x))` or `Some(x.into())` where it was `Some(x)`.
+
+Fixes:
+
+- A Markdown link's tooltip draws its words inside `ThemeMarkdown::link_tooltip_box`'s padding. The words were the box themselves, so the padding grew the box but the words were drawn from its left edge: with 4 px of padding, 0 px at the left and 8 px at the right. They are now the box's content, centered in it.
 
 Added:
 

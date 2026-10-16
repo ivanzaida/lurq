@@ -9,16 +9,16 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use parking_lot::Mutex;
 
-use super::{BlockWidth, apply_node_box};
+use super::apply_column_box;
 use crate::{
   app::{
     component::Component,
     ctx::{CollisionStrategy, Ctx, Overlay, Placement, Timeout},
     theme::{MarkdownBlockStyle, MarkdownInlineStyle},
   },
-  components::Text,
+  components::{Column, Text},
   core::{ElementRef, Signal},
-  layout::text_style::TextStyle,
+  layout::{Alignment, text_style::TextStyle},
   node::{Element, HitTestBehavior},
 };
 
@@ -188,10 +188,14 @@ impl Component for LinkTooltips {
     let Some(tooltip) = hovered.or(focused) else {
       return Element::from(Overlay::new(Element::from_node(crate::node::Node::new())).open_when(false));
     };
+    // The words are the box's child, not the box: a text leaf paints its
+    // words over its whole rect, padding included.
     let words = Text::styled(&tooltip.text, props.text.apply(&props.style));
-    let panel = BlockWidth::Fit
-      .leaf(words)
-      .map_node(|node| apply_node_box(node, &props.panel));
+    let panel = apply_column_box(
+      Column::new().align_items(Alignment::Center).child(words),
+      &props.panel,
+      true,
+    );
     Element::from(
       Overlay::new(panel)
         .anchor(tooltip.anchor.clone())
