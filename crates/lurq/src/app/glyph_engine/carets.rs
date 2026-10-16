@@ -1,12 +1,13 @@
 //! The caret positions of a shaped buffer: one before and one after every
-//! laid-out glyph, in visual order, with the top of its row. Plain text and
-//! rich text both read them from the buffer they are drawn from, so a
-//! selection's hit-testing, highlight and copied text index the glyphs on
-//! screen, whatever fonts the spans use and wherever they wrap.
+//! laid-out glyph and one between the graphemes of a ligature, in visual
+//! order, with the top of its row. Plain text and rich text both read them
+//! from the buffer they are drawn from, so a selection's hit-testing,
+//! highlight and copied text index the glyphs on screen, whatever fonts the
+//! spans use and wherever they wrap.
 
 use cosmic_text::Buffer;
 
-use crate::node::text_selection::{CaretIndex, CaretPosition, CaretPositions, glyph_caret_edges};
+use crate::node::text_selection::{CaretIndex, CaretPosition, CaretPositions, glyph_carets};
 
 /// The caret positions of `buffer`, whose lines hold `text_len` bytes of
 /// text with their line endings. A row without glyphs gets one caret at its
@@ -37,17 +38,11 @@ pub(super) fn buffer_caret_positions(buffer: &Buffer, text_len: usize) -> CaretP
     }
 
     for glyph in run.glyphs {
-      let (start_x, end_x) = glyph_caret_edges(glyph);
-      positions.push(CaretPosition {
-        index: line_offset + glyph.start,
-        x: start_x,
+      positions.extend(glyph_carets(glyph, run.text).map(|(index, x)| CaretPosition {
+        index: line_offset + index,
+        x,
         y,
-      });
-      positions.push(CaretPosition {
-        index: line_offset + glyph.end,
-        x: end_x,
-        y,
-      });
+      }));
     }
     index.push_line(
       start,

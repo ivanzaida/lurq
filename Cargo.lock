@@ -1951,6 +1951,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-bidi",
  "unicode-linebreak",
+ "unicode-segmentation",
  "ureq",
  "usvg",
  "uuid",

@@ -68,6 +68,8 @@ pulldown-cmark = { version = "0.13.4", default-features = false, optional = true
 # The bidi classes and line breaks cosmic-text already uses, for Markdown links.
 unicode-bidi = { version = "0.3.18", optional = true }
 unicode-linebreak = { version = "0.1.5", optional = true }
+# Grapheme boundaries inside a ligature, as cosmic-text splits them.
+unicode-segmentation = "1.12"
 raw-window-handle = "0.6"
 redb = { version = "4.1.0", optional = true }
 rfd = { version = "0.15", optional = true }

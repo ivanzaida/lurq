@@ -161,7 +161,9 @@ pub(crate) struct ParagraphCarets {
 }
 
 impl ParagraphCarets {
-  pub(crate) fn new(layouts: &[cosmic_text::LayoutLine]) -> Self {
+  /// The carets of a paragraph's laid-out rows; `text` is the paragraph's
+  /// text, which its glyphs index.
+  pub(crate) fn new(text: &str, layouts: &[cosmic_text::LayoutLine]) -> Self {
     let count = layouts.iter().map(|line| (line.glyphs.len() * 2).max(1)).sum();
     let mut positions = Vec::with_capacity(count);
     let mut runs = Vec::with_capacity(layouts.len());
@@ -175,17 +177,7 @@ impl ParagraphCarets {
         });
       }
       for glyph in &line.glyphs {
-        let (start_x, end_x) = glyph_caret_edges(glyph);
-        positions.push(CaretPosition {
-          index: glyph.start,
-          x: start_x,
-          y: 0.0,
-        });
-        positions.push(CaretPosition {
-          index: glyph.end,
-          x: end_x,
-          y: 0.0,
-        });
+        positions.extend(glyph_carets(glyph, text).map(|(index, x)| CaretPosition { index, x, y: 0.0 }));
       }
       runs.push(start..positions.len());
     }
@@ -480,12 +472,43 @@ impl CaretIndex {
 /// The x of the caret before `glyph`'s cluster and of the one after it. A
 /// left-to-right glyph starts at its left edge; a right-to-left glyph at its
 /// right edge, so the caret after its cluster is at its left.
-pub(crate) fn glyph_caret_edges(glyph: &cosmic_text::LayoutGlyph) -> (f32, f32) {
+fn glyph_caret_edges(glyph: &cosmic_text::LayoutGlyph) -> (f32, f32) {
   if glyph.level.is_rtl() {
     (glyph.x + glyph.w, glyph.x)
   } else {
     (glyph.x, glyph.x + glyph.w)
   }
+}
+
+/// The carets of `glyph`, as `(byte index, x)` in the text its line holds,
+/// `line_text`: one before its cluster, one after it, and one between every
+/// two graphemes of the cluster. A ligature draws several characters as one
+/// glyph (DejaVu Sans' "fi", a programming font's "--"); its advance is
+/// split evenly among its graphemes, as cosmic-text's own hit-testing and
+/// highlight split it, so a caret or a selection that ends inside it is
+/// drawn there.
+pub(crate) fn glyph_carets<'a>(
+  glyph: &'a cosmic_text::LayoutGlyph,
+  line_text: &'a str,
+) -> impl Iterator<Item = (usize, f32)> + 'a {
+  use unicode_segmentation::UnicodeSegmentation;
+
+  let (start_x, end_x) = glyph_caret_edges(glyph);
+  let cluster = line_text.get(glyph.start..glyph.end).unwrap_or_default();
+  // Most clusters are one character: no grapheme walk for them.
+  let several = cluster.chars().nth(1).is_some();
+  let graphemes = if several { cluster.graphemes(true).count() } else { 1 } as f32;
+  let inner = several
+    .then(|| cluster.grapheme_indices(true).skip(1).enumerate())
+    .into_iter()
+    .flatten()
+    .map(move |(before, (offset, _))| {
+      let share = (before + 1) as f32 / graphemes;
+      (glyph.start + offset, start_x + (end_x - start_x) * share)
+    });
+  std::iter::once((glyph.start, start_x))
+    .chain(inner)
+    .chain(std::iter::once((glyph.end, end_x)))
 }
 
 #[derive(Clone, Copy)]

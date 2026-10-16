@@ -1155,7 +1155,7 @@ impl GlyphEngine {
       if let Some(layouts) = line.layout_opt() {
         runs += layouts.len();
         if metadata.carets.is_none() {
-          let carets = ParagraphCarets::new(layouts);
+          let carets = ParagraphCarets::new(line.text(), layouts);
           #[cfg(feature = "perf_profile")]
           {
             self.profile.caret_built_paragraphs += 1;
@@ -4485,9 +4485,9 @@ mod tests {
         expected.push((offset, 0.0_f32.to_bits(), y));
       }
       for glyph in run.glyphs {
-        let (start_x, end_x) = crate::node::text_selection::glyph_caret_edges(glyph);
-        expected.push((offset + glyph.start, start_x.to_bits(), y));
-        expected.push((offset + glyph.end, end_x.to_bits(), y));
+        for (index, x) in crate::node::text_selection::glyph_carets(glyph, run.text) {
+          expected.push((offset + index, x.to_bits(), y));
+        }
       }
     }
     if expected.is_empty() {
