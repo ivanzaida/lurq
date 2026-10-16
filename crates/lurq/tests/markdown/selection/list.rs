@@ -114,10 +114,14 @@ fn drags_over_the_drawn_rows_of_a_scrolled_virtualized_list_copy_and_highlight_t
     let (left, right) = (first.x + GLYPH_PADDING, last.x + last.width - GLYPH_PADDING);
     page.drag((left, row.center), (right, row.center));
     let words = page.selected().unwrap_or_default();
-    let chars = words.chars().filter(|c| !c.is_whitespace()).count();
-    if chars != on_row.len() || !corpus.contains(words.trim()) {
+    let drawn = if corpus.contains(words.trim()) {
+      page.glyphs_drawn_for(&words)
+    } else {
+      0
+    };
+    if drawn != on_row.len() {
       failures.push(format!(
-        "row {index}: copied {words:?}, {chars} characters for {} glyphs",
+        "row {index}: copied {words:?}, drawn as {drawn} glyphs, for {} glyphs",
         on_row.len()
       ));
     }
