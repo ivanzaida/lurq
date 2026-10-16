@@ -32,15 +32,18 @@ use crate::{
   node::{CursorIcon, color::Color},
 };
 
+mod frame_pacing;
+#[cfg(test)]
+mod frame_pacing_tests;
 mod ime;
 mod loop_wait;
 #[cfg(test)]
 mod loop_wait_tests;
 mod native_resize;
 
+use frame_pacing::{FramePacing, PresentedFrame, refresh_interval};
 use loop_wait::{LoopNeeds, LoopWait};
 
-const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_millis(1);
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
 const WINIT_SLOW_SCOPE_THRESHOLD: Duration = Duration::from_millis(45);
 const WINIT_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
@@ -286,6 +289,7 @@ struct ManagedWindow {
   close_exits: bool,
   last_tick: Instant,
   last_paint: Instant,
+  pacing: FramePacing,
   continuous_redraw_until: Option<Instant>,
   /// Last direct present from inside the mouse-move stream (interactive
   /// drags paint here — see the CursorMoved arm).
@@ -323,6 +327,7 @@ impl ManagedWindow {
       close_exits,
       last_tick: Instant::now(),
       last_paint: Instant::now(),
+      pacing: FramePacing::default(),
       continuous_redraw_until: None,
       last_interaction_present: Instant::now(),
       ime: ime::ImeSync::default(),
@@ -566,6 +571,10 @@ impl ManagedWindow {
       let mut paint_duration = Duration::ZERO;
       if presented {
         let now = Instant::now();
+        self.pacing.presented(PresentedFrame {
+          started: pass_started_at,
+          presented: now,
+        });
         let delta = now.duration_since(self.last_paint);
         self.last_paint = now;
         if let Some(paint) = &mut self.on_paint {
@@ -636,42 +645,22 @@ impl ManagedWindow {
     }
     self.tree.tick_timers();
     self.tree.tick_futures();
-    self.tree.tick_perf_overlay();
-    self.tree.tick_scheduled_redraw(now);
     let has_continuous_video = self.has_continuous_redraw_video_recently(now);
     if has_continuous_video {
       // Video streams are presented directly from about_to_wait. Requesting
       // winit redraw events for the same stream adds a second, irregular presentation
       // path that can reset last_paint and create visible cadence gaps.
-    } else if self.tree.has_active_timeline()
-      || self.tree.perf_overlay_enabled()
-      || self.tree.has_continuous_redraw_image()
-    {
-      self.request_redraw_for_next_refresh(now);
+    } else {
+      // Before the scheduled redraws are ticked: a hidden window drops them.
+      let window = self.window.as_ref();
+      self
+        .pacing
+        .request_frame(&mut self.tree, || refresh_interval(window), now);
     }
+    self.tree.tick_scheduled_redraw(now);
     if !has_continuous_video {
       self.check_redraw();
     }
-  }
-
-  fn request_redraw_for_next_refresh(&mut self, now: Instant) {
-    let next_frame_at = self.last_paint + self.refresh_interval();
-    if now >= next_frame_at {
-      self.tree.request_redraw();
-    } else {
-      self.tree.request_redraw_at(next_frame_at);
-    }
-  }
-
-  fn refresh_interval(&self) -> Duration {
-    self
-      .window
-      .as_ref()
-      .and_then(Window::current_monitor)
-      .and_then(|monitor| monitor.refresh_rate_millihertz())
-      .filter(|rate| *rate > 0)
-      .map(|rate| Duration::from_nanos((1_000_000_000_000u64 / rate as u64).max(1)))
-      .unwrap_or(FALLBACK_REFRESH_INTERVAL)
   }
 
   fn notify_position_changed(&mut self, x: i32, y: i32) {
@@ -699,6 +688,7 @@ impl ManagedWindow {
 
   fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
     self.tree.set_app_ref(app);
+    self.pacing.handle_event(&event);
     match event {
       WindowEvent::CloseRequested => {
         self.tree.window().dispatch_close_request(CloseRequestSource::Os);
@@ -870,7 +860,7 @@ struct ManagedSecondaryWindow {
   attrs: Option<WindowAttributes>,
   redraw_pending: bool,
   close_requested: bool,
-  last_paint: Instant,
+  pacing: FramePacing,
   ime: ime::ImeSync,
 }
 
@@ -890,7 +880,7 @@ impl ManagedSecondaryWindow {
       ),
       redraw_pending: false,
       close_requested: false,
-      last_paint: Instant::now(),
+      pacing: FramePacing::default(),
       ime: ime::ImeSync::default(),
     }
   }
@@ -1101,9 +1091,13 @@ impl ManagedSecondaryWindow {
       tree.set_scale_factor(w.scale_factor() as f32);
       tree.resize(size.width, size.height);
       self.redraw_pending = false;
+      let started = Instant::now();
       let presented = tree.pass(app, w).rendered;
       if presented {
-        self.last_paint = Instant::now();
+        self.pacing.presented(PresentedFrame {
+          started,
+          presented: Instant::now(),
+        });
       }
       self.check_redraw(tree);
       return presented;
@@ -1127,32 +1121,10 @@ impl ManagedSecondaryWindow {
     let now = Instant::now();
     tree.tick_timers();
     tree.tick_futures();
-    tree.tick_perf_overlay();
+    let window = self.window.as_ref();
+    self.pacing.request_frame(tree, || refresh_interval(window), now);
     tree.tick_scheduled_redraw(now);
-    if tree.has_active_timeline() || tree.perf_overlay_enabled() || tree.has_continuous_redraw_image() {
-      self.request_redraw_for_next_refresh(tree, now);
-    }
     self.check_redraw(tree);
-  }
-
-  fn request_redraw_for_next_refresh(&mut self, tree: &mut Tree, now: Instant) {
-    let next_frame_at = self.last_paint + self.refresh_interval();
-    if now >= next_frame_at {
-      tree.request_redraw();
-    } else {
-      tree.request_redraw_at(next_frame_at);
-    }
-  }
-
-  fn refresh_interval(&self) -> Duration {
-    self
-      .window
-      .as_ref()
-      .and_then(Window::current_monitor)
-      .and_then(|monitor| monitor.refresh_rate_millihertz())
-      .filter(|rate| *rate > 0)
-      .map(|rate| Duration::from_nanos((1_000_000_000_000u64 / rate as u64).max(1)))
-      .unwrap_or(FALLBACK_REFRESH_INTERVAL)
   }
 
   fn handle_event(
@@ -1163,6 +1135,7 @@ impl ManagedSecondaryWindow {
     tree: &mut Tree,
   ) -> bool {
     tree.set_app_ref(app);
+    self.pacing.handle_event(&event);
     match event {
       WindowEvent::CloseRequested => {
         tree.window().dispatch_close_request(CloseRequestSource::Os);

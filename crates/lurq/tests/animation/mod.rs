@@ -1,4 +1,5 @@
 mod easing;
+mod frame_pacing;
 mod interpolation;
 mod keyframes;
 mod opacity;

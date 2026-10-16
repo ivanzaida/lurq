@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.46.0"
+version = "0.47.0"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -165,6 +165,10 @@ required-features = ["canvas", "screenshot"]
 [[example]]
 name = "idle_wait"
 required-features = ["winit", "wgpu", "tokio"]
+
+[[example]]
+name = "spinner_pacing"
+required-features = ["winit", "wgpu"]
 
 [[example]]
 name = "text_interaction_probe"

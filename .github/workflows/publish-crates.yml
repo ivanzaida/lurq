@@ -41,6 +41,8 @@ jobs:
           cargo test -p lurq --features resources --test resources_tests
           cargo test -p lurq --features svg --test svg_tests
           cargo test -p lurq --features svg --lib rasterize
+          cargo test -p lurq --features winit --lib frame_pacing
+          cargo test -p lurq --test animation_tests
 
       - name: Publish changed versions
         env:

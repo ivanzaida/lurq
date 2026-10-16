@@ -1282,6 +1282,12 @@ impl Tree {
     self.scheduled_redraw_at = Some(self.scheduled_redraw_at.map_or(at, |current| current.min(at)));
   }
 
+  /// Forgets the redraws scheduled with [`Tree::request_redraw_at`]; the next pass schedules what it still needs.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn drop_scheduled_redraws(&mut self) {
+    self.scheduled_redraw_at = None;
+  }
+
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn next_scheduled_redraw(&self) -> Option<Instant> {
     #[cfg(feature = "query")]
@@ -1400,11 +1406,31 @@ impl Tree {
   }
 
   /// Whether any animation or transition is currently running. While true the
-  /// runtime schedules continuous redraws and layout recomputes every frame,
-  /// so this staying `true` on an idle screen is a bug (stale runs for
-  /// unmounted nodes are pruned at the end of each full pass).
+  /// shell asks for a frame at each [`Tree::next_timeline_change`] and the
+  /// runtime recomputes layout on each of them, so this staying `true` on an
+  /// idle screen is a bug (stale runs for unmounted nodes are pruned at the end
+  /// of each full pass).
   pub fn has_active_timeline(&self) -> bool {
     self.transition_engine.has_active || self.animation_engine.has_active
+  }
+
+  /// When the running animations and transitions next draw something else, as of the last pass: the end of a
+  /// delay, the next step of a span eased by [`Easing::Steps`](crate::animation::Easing::Steps), the next
+  /// iteration or the end. A span that changes continuously returns the time of the last pass: its next frame is
+  /// due at once, at the display's pace. `None` when nothing runs or nothing will change.
+  ///
+  /// Animations do not set [`Tree::needs_redraw`]: a shell that drives the tree itself paces its next frame from
+  /// this time as the winit shell does, at `max(changes_at, presented + T/2, started + 3T/4)` for a display that
+  /// refreshes every `T`, where `started` and `presented` are when the last frame's pass started and when its
+  /// present returned. With a FIFO swapchain the acquire then puts each frame on its own vblank; a pace of a whole
+  /// refresh from the present drifts past vblanks.
+  pub fn next_timeline_change(&self) -> Option<Instant> {
+    if !self.has_active_timeline() {
+      return None;
+    }
+    let transition = self.transition_engine.next_change();
+    let animation = self.animation_engine.next_change();
+    transition.into_iter().chain(animation).min()
   }
 
   pub(crate) fn has_continuous_redraw_image(&self) -> bool {
@@ -5839,6 +5865,8 @@ impl Tree {
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
     self.animation_engine.register_keyframes(keyframes);
+    // A node may already play them: its run waits for its frames and asks for no frame of its own.
+    self.needs_redraw = true;
   }
 
   fn update_layout(&mut self, app: &mut App) -> bool {
@@ -5878,9 +5906,6 @@ impl Tree {
     } else if !had_overlay_host && let Some(root) = self.root.as_mut() {
       animation_layout_changed |= self.transition_engine.tick(root, now);
       animation_layout_changed |= self.animation_engine.tick(root, now);
-    }
-    if self.has_active_timeline() {
-      self.needs_redraw = true;
     }
 
     if let Some(root) = self.root.as_ref() {
@@ -5958,9 +5983,6 @@ impl Tree {
     if had_overlay_host && let Some(root) = self.root.as_mut() {
       self.transition_engine.tick(root, now);
       self.animation_engine.tick(root, now);
-      if self.has_active_timeline() {
-        self.needs_redraw = true;
-      }
     }
 
     if let Some(root) = self.root.as_ref() {
@@ -6161,9 +6183,6 @@ impl Tree {
     for child in root.children.iter_mut().skip(1) {
       self.transition_engine.tick_preserving_active_state(child, now);
       self.animation_engine.tick_preserving_active_state(child, now);
-    }
-    if self.has_active_timeline() {
-      self.needs_redraw = true;
     }
   }
 

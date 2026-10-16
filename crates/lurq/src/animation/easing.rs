@@ -55,6 +55,34 @@ impl Easing {
       Self::Steps { count, position } => evaluate_steps(t, *count, *position),
     }
   }
+
+  /// How far `t` (in `0..=1`) moves, forward or backward, before a step easing's value changes: to the next of
+  /// its `count` equal steps. `None` for an easing whose value changes continuously, and for a `t` that is not a
+  /// number.
+  pub(super) fn distance_to_next_step(&self, t: f64, forward: bool) -> Option<f64> {
+    let Self::Steps { count, position } = self else {
+      return None;
+    };
+    if t.is_nan() {
+      return None;
+    }
+    let count = f64::from((*count).max(1));
+    let t = t.clamp(0.0, 1.0);
+    // The value is 0 at `t <= 0` and 1 at `t >= 1` whatever the position; a position that jumps at that end leaves
+    // the value there at once.
+    let jumps_at_start = matches!(position, StepPosition::JumpStart | StepPosition::JumpBoth);
+    let jumps_at_end = matches!(position, StepPosition::JumpEnd | StepPosition::JumpBoth);
+    if (forward && t <= 0.0 && jumps_at_start) || (!forward && t >= 1.0 && jumps_at_end) {
+      return Some(0.0);
+    }
+    let step = (t * count).floor();
+    let boundary = if forward {
+      ((step + 1.0) / count).min(1.0)
+    } else {
+      step.min(count - 1.0) / count
+    };
+    Some((boundary - t).abs())
+  }
 }
 
 impl Default for Easing {

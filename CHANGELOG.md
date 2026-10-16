@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.47.0 — 2026-10-16
+
+Behaviour changes:
+
+- Animation and transition frames are paced by when the animated value next changes. A pass that ticked a running animation used to leave `Tree::needs_redraw` set, and nothing cleared it, so the winit shell asked for the next frame at once and drew as fast as the swapchain let it, past its own refresh pacing: a turning 16 px loader laid out and drew the whole window 60 times a second (120 or 144 on faster displays), 10–16 % of a core in release in an app with a large tree. A pass now records when the running animations and transitions next draw something else (`Tree::next_timeline_change`), and the shell asks for the frame at that time (`request_redraw_at`), at most one frame per display refresh:
+  - a span eased by `Easing::Steps { count, .. }` gets one frame per step: a 1 s turn in 12 steps presents 12 frames a second;
+  - a delay draws nothing new until it ends;
+  - a span that changes continuously (linear, cubic Bézier) still gets a frame every display refresh, now through the paced path: the loop sleeps until half a refresh after the last present, then the swapchain's acquire puts the frame on the next vblank, so every vblank shows a new frame as long as a frame's work stays under about half a refresh (8 ms at 60 Hz, 3.5 ms at 144 Hz). The price: input, MCP calls, timers and wakes from other threads that arrive while the pass waits in its acquire are handled after it, up to about half a refresh minus the frame's work. A span eased by `Easing::Steps` never waits in the acquire, so during it they are handled when they arrive; a click or a timer during any animation used to wait for the frame being presented, up to a whole refresh. With a present mode that does not wait for the display (`Mailbox`, `Immediate`), frames come at most every three quarters of a refresh;
+  - a finished animation asks for no frame, and the loop waits as in 0.45.0 (`ControlFlow::WaitUntil` for the next timer or scheduled redraw, `ControlFlow::Wait` without one);
+  - a fractional iteration count (`AnimationIterationCount::Count(1.5)`) gets its last frame when the run ends, and a span or transition eased by `StepPosition::JumpStart` or `JumpBoth` draws its first step as soon as it starts.
+- A minimized window, or one that macOS reports occluded (`WindowEvent::Occluded`), draws no animation, transition or continuous image frames, its perf overlay takes no samples, and it drops the frames it had scheduled (an animation's next step, a caret's blink, an animated image's next frame). It used to draw them all at the display's rate. Its animations keep their clock: when the window shows again it draws a frame at once, with each animation where its time puts it, and paces the next ones as before. Its timers, futures, streams and input run as before. Windows reports a minimized window, but not one covered by other windows.
+- `Tree::register_keyframes` requests a redraw, so a node that already plays the keyframes starts once they are registered.
+- The paced frames of a window whose display reports no refresh rate come at 60 Hz; they came every 1 ms. The winit shell reads a display's refresh rate at most once a second, because the query reaches the display driver, and again when the window moves or its scale factor changes.
+
+Breaking:
+
+- After a pass that only animated, `Tree::needs_redraw()` is `false`. A shell that drives `Tree::pass` itself, and kept animations going by redrawing while `needs_redraw()` was true, asks for its next frame at `Tree::next_timeline_change()` instead, paced as the winit shell does: at `max(changes_at, presented + T/2, started + 3T/4)` for a display that refreshes every `T`, where `started` and `presented` are when the last frame's pass started and when its present returned. A pace of a whole refresh from the present adds each frame's work and wake latency to the period, so continuous animations drift past vblanks and judder.
+
+Added:
+
+- `Tree::next_timeline_change()`: when the running animations and transitions next draw something else, as of the last pass. A span that changes continuously returns the time of that pass; `None` when nothing runs.
+- The `spinner_pacing` example (`--features winit,wgpu`): a page of text with one spinner that turns in 12 steps or smoothly, optionally minimized. It prints its pid and how many frames it presented, to measure what an animation costs.
+
 ## 0.46.0 — 2026-10-16
 
 Behaviour changes:

@@ -10,7 +10,7 @@ description: Transitions, keyframe animations, easing, animatable properties, an
 - transitions, which animate a property when its target value changes,
 - keyframe animations, which play a registered sequence on a node.
 
-Both systems are owned by `Tree` and tick during the normal runtime pass. While either engine has active timelines, the runtime keeps requesting redraws.
+Both systems are owned by `Tree` and tick during the normal runtime pass. While either engine has active timelines, the shell asks for a frame each time they next draw something else (see [Frame Pacing](#frame-pacing)).
 
 ## Transitions
 
@@ -103,6 +103,33 @@ Keyframe offsets are normalized from `0.0` to `1.0`. The engine finds the surrou
 | `direction(...)` / `alternate()` | Normal, reverse, alternate, or alternate-reverse playback |
 | `fill_mode(...)` | None, forwards, backwards, or both |
 | `iteration_count(...)` / `infinite()` | Finite or infinite playback |
+
+## Frame Pacing
+
+Each pass that ticks the timelines also works out when they next draw something else, and the winit shell asks for the next frame then, at most one frame per display refresh:
+
+- a span eased by `Easing::Steps { count, .. }` holds its value between steps, so it gets one frame per step;
+- a delay draws nothing new until it ends;
+- a span that changes continuously (`Easing::Linear`, the cubic Bézier easings) gets a frame every display refresh.
+
+Between frames the event loop sleeps until the next one is due. For a continuous animation the shell wakes half a refresh after the last present and the pass then waits in the swapchain for the next vblank, which keeps one frame per vblank; input, timers, MCP calls and wakes from other threads that arrive during that wait are handled after it, up to about half a refresh later. A `Steps` animation draws long before its frame could wait, so during it they are handled as they arrive.
+
+Each frame lays out and draws the whole window, so a continuous animation costs a full frame at the display's rate (60, 120 or 144 times a second) for as long as it runs. For an indicator that turns or pulses for a long time, such as a loading spinner, give it steps: 12 to 15 steps a turn look smooth for a small icon and cost a fifth of the frames at 60 Hz, and less on faster displays.
+
+```rust
+use lurq::animation::{Animation, Easing, StepPosition};
+
+Animation::new(SPIN)
+  .duration_ms(1000)
+  .easing(Easing::Steps { count: 12, position: StepPosition::JumpEnd })
+  .infinite()
+```
+
+There is no frame-rate cap per animation: steps are the cap, and they put every frame on an even pose.
+
+A minimized window, or one that macOS reports occluded, draws no animation frames. Animations keep their clock while it is hidden: when the window shows again it draws one frame at once, with each animation where its time puts it, and paces the frames after it as before. Windows reports a minimized window but not one covered by other windows.
+
+A shell that drives `Tree::pass` itself does the same with `Tree::next_timeline_change()`: after a pass that only animated, `Tree::needs_redraw()` is false, and the next frame is due at that time.
 
 ## Animatable Properties
 
