@@ -184,11 +184,26 @@ impl AnimationRun {
   }
 }
 
+/// When a run that first ticks at `now` starts: then, or, in phase, at the last whole number of its
+/// `duration`s since `origin`.
+fn start_time(in_phase: bool, origin: Instant, duration: Duration, now: Instant) -> Instant {
+  if !in_phase || duration.is_zero() {
+    return now;
+  }
+  let late = now.saturating_duration_since(origin).as_nanos() % duration.as_nanos();
+  // The remainder is below `duration`, a `Duration`, so it fits in u64 nanoseconds.
+  now - Duration::from_nanos(u64::try_from(late).expect("a remainder below a Duration's nanoseconds"))
+}
+
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
   seen: HashSet<NodeId>,
   next_change: Option<Instant>,
+  /// Keyframes whose runs play on the engine's clock: see [`Self::register_keyframes_in_phase`].
+  in_phase: HashSet<KeyframesId>,
+  /// The engine's clock: an in-phase run starts on a whole number of its durations after this.
+  origin: Instant,
   pub has_active: bool,
 }
 
@@ -199,11 +214,25 @@ impl AnimationEngine {
       keyframe_store: HashMap::new(),
       seen: HashSet::new(),
       next_change: None,
+      in_phase: HashSet::new(),
+      origin: Instant::now(),
       has_active: false,
     }
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
+    self.in_phase.remove(&keyframes.id);
+    self.keyframe_store.insert(keyframes.id, keyframes.frames);
+  }
+
+  /// Registers keyframes whose runs all play in phase: a run starts at the last whole number of its
+  /// durations since the engine's origin, not when its node first ticks. Nodes that mount at different
+  /// moments then show the same pose and change it at the same moments, so a `Steps` spinner shown many
+  /// times still draws one frame per step. A run that mounts late starts part-way through an iteration,
+  /// as a CSS animation with a negative delay does; a finite iteration count therefore ends on the
+  /// engine's clock, not a whole count after the node mounted.
+  pub fn register_keyframes_in_phase(&mut self, keyframes: Keyframes) {
+    self.in_phase.insert(keyframes.id);
     self.keyframe_store.insert(keyframes.id, keyframes.frames);
   }
 
@@ -284,6 +313,7 @@ impl AnimationEngine {
       AnimationIterationCount::Infinite => f64::INFINITY,
     };
 
+    let (in_phase, origin) = (&self.in_phase, self.origin);
     let run = self.active.entry(key).or_insert_with(|| AnimationRun {
       keyframes: spec.keyframes,
       duration: spec.duration,
@@ -292,7 +322,7 @@ impl AnimationEngine {
       direction: spec.direction,
       fill_mode: spec.fill_mode,
       iteration_count,
-      start_time: now,
+      start_time: start_time(in_phase.contains(&spec.keyframes), origin, spec.duration, now),
       finished: false,
     });
 

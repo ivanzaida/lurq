@@ -5869,6 +5869,14 @@ impl Tree {
     self.needs_redraw = true;
   }
 
+  /// Registers keyframes whose runs all play in phase, on this tree's animation clock: every node playing
+  /// them shows the same pose however late it mounted, and a `Steps` animation shown many times draws one
+  /// frame per step. See [`AnimationEngine::register_keyframes_in_phase`].
+  pub fn register_keyframes_in_phase(&mut self, keyframes: Keyframes) {
+    self.animation_engine.register_keyframes_in_phase(keyframes);
+    self.needs_redraw = true;
+  }
+
   fn update_layout(&mut self, app: &mut App) -> bool {
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();

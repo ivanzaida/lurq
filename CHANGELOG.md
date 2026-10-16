@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- `Tree::register_keyframes_in_phase` (and `AnimationEngine::register_keyframes_in_phase`): every run of these keyframes plays on the tree's animation clock, starting at the last whole number of its durations since the clock's origin instead of when its node first ticks. Spinners that mount at different moments then show the same pose and step together, so a `Steps` spinner shown many times draws one frame per step instead of one per step for each distinct start time. A run that mounts late starts part-way through an iteration, as a CSS animation with a negative delay does. The start is computed once, when the run is created. Registering the same keyframes again with `register_keyframes` turns this off.
+
 ## 0.47.0 — 2026-10-16
 
 Behaviour changes:

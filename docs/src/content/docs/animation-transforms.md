@@ -127,6 +127,12 @@ Animation::new(SPIN)
 
 There is no frame-rate cap per animation: steps are the cap, and they put every frame on an even pose.
 
+Each node's run starts when the node first ticks, so spinners that mount at different moments step at different moments, and every distinct phase adds its own frames: four runs' spinners mounted one after another draw four times as many frames as one. Register the keyframes with `Tree::register_keyframes_in_phase` instead of `Tree::register_keyframes` to play every run on the tree's animation clock: a run starts at the last whole number of its durations since the clock's origin, so a spinner that mounts late shows the same pose as the others and they all step together, one frame per step however many are shown. A late run starts part-way through an iteration, as a CSS animation with a negative delay does, so a finite iteration count ends on that clock rather than a whole count after the node mounted.
+
+```rust
+tree.register_keyframes_in_phase(spin_keyframes());
+```
+
 A minimized window, or one that macOS reports occluded, draws no animation frames. Animations keep their clock while it is hidden: when the window shows again it draws one frame at once, with each animation where its time puts it, and paces the frames after it as before. Windows reports a minimized window but not one covered by other windows.
 
 A shell that drives `Tree::pass` itself does the same with `Tree::next_timeline_change()`: after a pass that only animated, `Tree::needs_redraw()` is false, and the next frame is due at that time.
