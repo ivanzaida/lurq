@@ -838,6 +838,7 @@ fn render_table_cell(
   // The words are the cell's content, not the cell (see `apply_column_box`),
   // centered in its height as a stretched text leaf centers its words.
   let content = Column::new()
+    .overflow_visible()
     .align_items(table_cell_alignment(alignment))
     .justify(Justify::Center)
     .child(render_inline_block(cell, style, theme, render_ctx));

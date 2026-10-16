@@ -79,7 +79,12 @@ mod input_token_paint;
 mod outside_press;
 mod scroll_into_view;
 mod select_menu;
+mod selected_text_lines;
 mod tab_navigation;
+#[cfg(all(test, feature = "markdown"))]
+mod table_copy_tests;
+
+use selected_text_lines::{SelectedTextFragment, join_selected_text};
 
 /// Surface of [`Tree::pass_headless`]: it has no window, so passes stop
 /// after layout.
@@ -9918,51 +9923,13 @@ fn dispatch_builtin_pointer(
   None
 }
 
-const SELECTED_TEXT_LINE_EPSILON: f32 = 1.0;
-
-struct SelectedTextFragment {
-  x: f32,
-  end_x: f32,
-  y: f32,
-  text: String,
-}
-
 fn selected_selectable_text(node: &Node, layout: &LayoutResult) -> Option<String> {
   let mut fragments = Vec::new();
   collect_selected_selectable_text(node, layout, 0.0, 0.0, &mut fragments);
   if fragments.is_empty() {
     return None;
   }
-
-  fragments.sort_by(|a, b| {
-    if (a.y - b.y).abs() <= SELECTED_TEXT_LINE_EPSILON {
-      a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
-    } else {
-      a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)
-    }
-  });
-
-  let mut selected = String::new();
-  let mut previous_y: Option<f32> = None;
-  let mut previous_end_x: Option<f32> = None;
-  for fragment in fragments {
-    if let Some(y) = previous_y
-      && (fragment.y - y).abs() > SELECTED_TEXT_LINE_EPSILON
-    {
-      selected.push('\n');
-    } else if let Some(end_x) = previous_end_x
-      && fragment.x - end_x > SELECTED_TEXT_LINE_EPSILON
-      && !selected.chars().last().is_some_and(char::is_whitespace)
-      && !fragment.text.chars().next().is_some_and(char::is_whitespace)
-    {
-      selected.push(' ');
-    }
-    selected.push_str(&fragment.text);
-    previous_y = Some(fragment.y);
-    previous_end_x = Some(fragment.end_x);
-  }
-
-  Some(selected)
+  Some(join_selected_text(fragments))
 }
 
 fn has_selected_selectable_text(node: &Node) -> bool {
@@ -9988,22 +9955,27 @@ fn collect_selected_selectable_text(
   abs_y: f32,
   fragments: &mut Vec<SelectedTextFragment>,
 ) {
-  if let Some((state, value)) = selectable_text_state_and_value(node) {
-    if let Some(text) = selected_content(node, &state, &value) {
-      let ranges = state.selection_ranges(&value);
-      let x = ranges
-        .iter()
-        .map(|range| abs_x + range.x)
-        .reduce(f32::min)
-        .unwrap_or(abs_x);
-      let y = ranges.first().map(|range| abs_y + range.y).unwrap_or(abs_y);
-      let end_x = ranges
-        .iter()
-        .map(|range| abs_x + range.x + range.width)
-        .reduce(f32::max)
-        .unwrap_or(abs_x + layout.size.width);
-      fragments.push(SelectedTextFragment { x, end_x, y, text });
-    }
+  if let Some((state, value)) = selectable_text_state_and_value(node)
+    && let Some(text) = selected_content(node, &state, &value)
+  {
+    let ranges = state.selection_ranges(&value);
+    let x = ranges
+      .iter()
+      .map(|range| abs_x + range.x)
+      .reduce(f32::min)
+      .unwrap_or(abs_x);
+    let end_x = ranges
+      .iter()
+      .map(|range| abs_x + range.x + range.width)
+      .reduce(f32::max)
+      .unwrap_or(abs_x + layout.size.width);
+    fragments.push(SelectedTextFragment {
+      x,
+      end_x,
+      top: abs_y,
+      bottom: abs_y + layout.size.height,
+      text,
+    });
   }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children()) {

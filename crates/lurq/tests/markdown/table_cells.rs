@@ -2,7 +2,7 @@
 //! whatever the column's alignment.
 
 use lurq::{
-  app::theme::{MarkdownBlockStyle, ThemeMarkdown},
+  app::theme::{MarkdownBlockStyle, MarkdownFocusRing, ThemeMarkdown},
   components::MarkdownProps,
   layout::{
     quad::{Quad, QuadContent},
@@ -11,7 +11,7 @@ use lurq::{
   node::{color::Color, padding::Padding},
 };
 
-use super::links::{mount, quads, rects_of};
+use super::links::{mount, pass, quads, rects_of};
 
 const CELL: &str = "#123456";
 
@@ -28,21 +28,36 @@ struct Words {
   align: TextAlign,
 }
 
+/// The cells of a table's header row, or of its body.
+#[derive(Clone, Copy)]
+enum Part {
+  Header,
+  Body,
+}
+
 /// The edges of the body cells and of their words, for a table whose body
 /// cells have the background `CELL` and the padding `[4, 8]`.
 fn body_cells(source: &str) -> (Vec<Edges>, Vec<Words>) {
-  body_cells_of(MarkdownProps::new(source))
+  cells_of(MarkdownProps::new(source), Part::Body)
 }
 
 fn body_cells_of(props: MarkdownProps) -> (Vec<Edges>, Vec<Words>) {
-  let theme = ThemeMarkdown {
-    table_cell_box: MarkdownBlockStyle {
-      background: Some(Color::from_hex(CELL)),
-      padding: Some(Padding::symmetric(8.0, 4.0)),
-      ..MarkdownBlockStyle::new()
-    },
-    ..ThemeMarkdown::default()
+  cells_of(props, Part::Body)
+}
+
+/// The edges of `part`'s cells and of their words: its cells, and only they,
+/// have the background `CELL` and the padding `[4, 8]`.
+fn cells_of(props: MarkdownProps, part: Part) -> (Vec<Edges>, Vec<Words>) {
+  let marked = MarkdownBlockStyle {
+    background: Some(Color::from_hex(CELL)),
+    padding: Some(Padding::symmetric(8.0, 4.0)),
+    ..MarkdownBlockStyle::new()
   };
+  let mut theme = ThemeMarkdown::default();
+  match part {
+    Part::Header => theme.table_header_box = marked,
+    Part::Body => theme.table_cell_box = marked,
+  }
   let (_app, tree) = mount(props.theme(theme).width(600.0));
   let quads = quads(&tree);
   let cells = rects_of(&quads, Color::from_hex(CELL))
@@ -152,5 +167,79 @@ fn markdown_fitting_table_cell_places_its_words_inside_the_padding_by_column_ali
   assert!(
     right.1.edges[0] - right.0[0] > 8.0,
     "right column: the room is at the left"
+  );
+}
+
+#[test]
+fn markdown_table_header_cell_words_sit_inside_the_header_padding() {
+  let (cells, words) = cells_of(
+    MarkdownProps::new("| left | middle | right |\n|:--|:-:|--:|\n| a | b | c |"),
+    Part::Header,
+  );
+  assert_eq!(
+    (cells.len(), words.len()),
+    (3, 3),
+    "every header cell, each with its words"
+  );
+  for ((cell, words), align) in cells
+    .iter()
+    .zip(&words)
+    .zip([TextAlign::Left, TextAlign::Center, TextAlign::Right])
+  {
+    assert_insets(*cell, words.edges, [8.0, 4.0, 8.0, 4.0]);
+    assert!(words.align == align, "the column keeps its alignment");
+  }
+}
+
+#[test]
+fn markdown_short_table_cell_centers_its_words_in_a_taller_row() {
+  const WRAPPING: &str = "two two two two two two two two two two two two two two two two two two two two";
+  let (cells, words) = body_cells(&format!("| a | b |\n|---|---|\n| one | {WRAPPING} |"));
+  let (short, words) = (cells[0], words[0].edges);
+  let (above, below) = (words[1] - short[1], short[3] - words[3]);
+  assert!(above > 4.0 + 5.0, "the words sit lower than the 4 px padding: {above}");
+  assert!((above - below).abs() < 0.01, "centered: {above} above, {below} below");
+}
+
+const RING: &str = "#ff00ff";
+
+/// A link at the very start of a cell with no padding, focused from the
+/// keyboard: its ring, 3 px outside the words, reaches past the cell.
+#[test]
+fn markdown_table_cell_does_not_clip_a_link_focus_ring() {
+  let theme = ThemeMarkdown {
+    link_focus_ring: Some(MarkdownFocusRing::new(2.0, Color::from_hex(RING)).offset(1.0)),
+    table_cell_box: MarkdownBlockStyle {
+      padding: None,
+      ..MarkdownBlockStyle::new()
+    },
+    ..ThemeMarkdown::default()
+  };
+  let (mut app, mut tree) = mount(
+    MarkdownProps::new("| a | b |\n|---|---|\n| x | [Docs](/docs) |")
+      .theme(theme)
+      .width(400.0),
+  );
+  tree.key_down("Tab".into(), "Tab".into(), false, false, false);
+  tree.key_up("Tab".into(), "Tab".into(), false, false, false);
+  pass(&mut app, &mut tree);
+  let quads = quads(&tree);
+  let ring = quads
+    .iter()
+    .find(|quad| {
+      quad
+        .border
+        .and_then(|border| border.top)
+        .is_some_and(|top| top.color == Color::from_hex(RING))
+    })
+    .expect("the focused link's ring");
+  let clip = ring.clip;
+  assert!(
+    !clip.active || (clip.x <= ring.x && clip.x + clip.width >= ring.x + ring.width),
+    "the ring [{}, {}] is not clipped at its sides: clip [{}, {}]",
+    ring.x,
+    ring.x + ring.width,
+    clip.x,
+    clip.x + clip.width
   );
 }
