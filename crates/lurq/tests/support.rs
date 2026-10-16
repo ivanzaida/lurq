@@ -1,5 +1,10 @@
 #![allow(dead_code)]
 
+// Cargo also builds this file as a test target of its own, where a plain
+// `mod` would look for `tests/selection.rs`.
+#[path = "support/selection.rs"]
+pub mod selection;
+
 use std::{
   num::NonZeroIsize,
   sync::{Arc, Mutex},

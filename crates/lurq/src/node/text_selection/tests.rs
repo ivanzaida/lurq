@@ -33,7 +33,7 @@ fn assert_matches_linear(positions: &CaretPositions) {
     for &j in &indices {
       let (start, end) = (i.min(j), i.max(j));
       assert_eq!(
-        signature(selection_ranges_for_positions(positions, start, end, 7.25, 19.5)),
+        signature(selection_ranges_for_positions(positions, None, start, end, 7.25, 19.5)),
         signature(linear::selection_ranges_for_positions(
           &reference, start, end, 7.25, 19.5
         ))
@@ -123,6 +123,34 @@ fn segmented_edits_and_remapping_keep_queries_lazy_and_correct() {
     assert_matches_linear(&remapped);
     assert!(positions.0.positions.get().is_none());
   }
+}
+
+#[test]
+fn a_wrapped_row_is_drawn_to_its_last_glyph_and_a_broken_one_to_its_break() {
+  // "ab \u{200E}" wraps before "cd": the space and the mark hang.
+  let text = "ab \u{200E}cd\nef \n";
+  assert_eq!(
+    drawn_row_end(text, 0, 6),
+    2,
+    "a wrapped row stops before its hanging space and mark"
+  );
+  assert_eq!(
+    drawn_row_end(text, 6, 8),
+    8,
+    "the row before a line break keeps its end"
+  );
+  assert_eq!(
+    drawn_row_end(text, 9, 12),
+    12,
+    "a row that ends with a line break keeps its trailing space"
+  );
+  assert_eq!(drawn_row_end(text, 13, 13), 13, "the empty row at the end");
+  assert_eq!(
+    drawn_row_end("  cd", 0, 2),
+    0,
+    "a row of only hanging characters draws nothing"
+  );
+  assert_eq!(drawn_row_end("ab", 0, 5), 5, "an index past the text is kept as it is");
 }
 
 #[test]
@@ -224,12 +252,12 @@ mod linear {
       }
 
       let line_positions = &positions[line_start..line_end];
-      let first = line_positions.first().unwrap();
-      let last = line_positions.last().unwrap();
-      if start <= last.index && end >= first.index {
-        let selection_start = start.max(first.index).min(last.index);
-        let selection_end = end.min(last.index).max(first.index);
-        if selection_start != selection_end {
+      let row_start = line_positions.iter().map(|p| p.index).min().unwrap();
+      let row_end = line_positions.iter().map(|p| p.index).max().unwrap();
+      if start <= row_end && end >= row_start {
+        let selection_start = start.clamp(row_start, row_end);
+        let selection_end = end.clamp(row_start, row_end);
+        if selection_start < selection_end {
           let start_x = caret_x_for_index(line_positions, selection_start);
           let end_x = caret_x_for_index(line_positions, selection_end);
           ranges.push(TextSelectionRange {

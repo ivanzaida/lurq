@@ -1,8 +1,7 @@
-#[cfg(test)]
-use std::borrow::Cow;
 #[cfg(feature = "perf_profile")]
 use std::time::Instant;
 use std::{
+  borrow::Cow,
   collections::{HashMap, hash_map::DefaultHasher},
   hash::{Hash, Hasher},
   path::Path,
@@ -18,12 +17,14 @@ use swash::{
 };
 
 mod cap_height;
+mod carets;
 mod face_weight;
 pub(crate) mod input_tokens;
 mod letter_spacing;
 mod reflow;
 mod scaler;
 mod span_boxes;
+mod vertical_align;
 use cap_height::GlyphFace;
 pub(crate) use face_weight::FaceWeights;
 use letter_spacing::letter_spacing_bits;
@@ -41,7 +42,7 @@ use crate::{
   },
   node::{
     color::Color,
-    text_selection::{CaretIndex, CaretPosition, CaretPositions, CaretPositionsBuilder, ParagraphCarets},
+    text_selection::{CaretPositions, CaretPositionsBuilder, ParagraphCarets},
     transform::Transform2D,
   },
 };
@@ -225,7 +226,7 @@ impl RichTextCacheKey {
     self.max_width_bits == max_width.to_bits()
       && self.wrap == wrap
       && self.raster_mode == if snap_to_pixel { 0 } else { 1 }
-      && spans_match(&self.spans, spans)
+      && spans_match(&self.spans, spans, 1.0)
   }
 }
 
@@ -245,8 +246,10 @@ impl RichTextShapeKey {
     }
   }
 
-  fn matches(&self, spans: &[RichTextSpan], max_width: f32, wrap: bool) -> bool {
-    self.max_width_bits == max_width.to_bits() && self.wrap == wrap && spans_match(&self.spans, spans)
+  /// Whether this key is `spans` with their pixel sizes scaled by `scale`
+  /// (see [`spans_match`]).
+  fn matches(&self, spans: &[RichTextSpan], scale: f32, max_width: f32, wrap: bool) -> bool {
+    self.max_width_bits == max_width.to_bits() && self.wrap == wrap && spans_match(&self.spans, spans, scale)
   }
 }
 
@@ -281,13 +284,13 @@ impl RichTextSpanCacheKey {
     }
   }
 
-  fn matches(&self, span: &RichTextSpan) -> bool {
+  fn matches(&self, span: &RichTextSpan, scale: f32) -> bool {
     let style = &span.style;
     self.text == span.text
       && self.font_family == style.font_family
-      && self.font_size_bits == style.font_size.to_bits()
+      && self.font_size_bits == (style.font_size * scale).to_bits()
       && self.line_height_bits == style.line_height.to_bits()
-      && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing)
+      && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing * scale)
       && self.font_features == style.font_features
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
@@ -296,15 +299,36 @@ impl RichTextSpanCacheKey {
   }
 }
 
-fn spans_match(cached: &[RichTextSpanCacheKey], spans: &[RichTextSpan]) -> bool {
-  cached.len() == spans.len() && cached.iter().zip(spans).all(|(cached, span)| cached.matches(span))
+/// Whether `cached` keys `spans` with their pixel sizes scaled by `scale`:
+/// the key of the spans `TextStyle::scale_pixels(scale)` makes of them,
+/// without making them. Layout looks a painted layout up with the logical
+/// spans and the paint's scale; the paint, with the scaled spans and 1.
+fn spans_match(cached: &[RichTextSpanCacheKey], spans: &[RichTextSpan], scale: f32) -> bool {
+  cached.len() == spans.len()
+    && cached
+      .iter()
+      .zip(spans)
+      .all(|(cached, span)| cached.matches(span, scale))
 }
 
-fn rich_text_shape_fingerprint(spans: &[RichTextSpan], max_width: f32, wrap: bool) -> u64 {
+/// The spans with their pixel sizes scaled by `scale`; the spans themselves
+/// at 1, so a lookup at the paint's own scale copies nothing.
+fn scaled_spans(spans: &[RichTextSpan], scale: f32) -> Cow<'_, [RichTextSpan]> {
+  if scale == 1.0 {
+    return Cow::Borrowed(spans);
+  }
+  let mut scaled = spans.to_vec();
+  for span in &mut scaled {
+    span.style.scale_pixels(scale);
+  }
+  Cow::Owned(scaled)
+}
+
+fn rich_text_shape_fingerprint(spans: &[RichTextSpan], scale: f32, max_width: f32, wrap: bool) -> u64 {
   let mut hasher = DefaultHasher::new();
   max_width.to_bits().hash(&mut hasher);
   wrap.hash(&mut hasher);
-  hash_rich_text_spans(spans, &mut hasher);
+  hash_rich_text_spans(spans, scale, &mut hasher);
   hasher.finish()
 }
 
@@ -313,19 +337,21 @@ fn rich_text_raster_fingerprint(spans: &[RichTextSpan], max_width: f32, wrap: bo
   max_width.to_bits().hash(&mut hasher);
   wrap.hash(&mut hasher);
   (if snap_to_pixel { 0u8 } else { 1u8 }).hash(&mut hasher);
-  hash_rich_text_spans(spans, &mut hasher);
+  hash_rich_text_spans(spans, 1.0, &mut hasher);
   hasher.finish()
 }
 
-fn hash_rich_text_spans(spans: &[RichTextSpan], hasher: &mut DefaultHasher) {
+/// Hashes `spans` with their pixel sizes scaled by `scale`, as
+/// [`spans_match`] compares them.
+fn hash_rich_text_spans(spans: &[RichTextSpan], scale: f32, hasher: &mut DefaultHasher) {
   spans.len().hash(hasher);
   for span in spans {
     let style = &span.style;
     span.text.hash(hasher);
     style.font_family.hash(hasher);
-    style.font_size.to_bits().hash(hasher);
+    (style.font_size * scale).to_bits().hash(hasher);
     style.line_height.to_bits().hash(hasher);
-    letter_spacing_bits(style.letter_spacing).hash(hasher);
+    letter_spacing_bits(style.letter_spacing * scale).hash(hasher);
     style.font_features.hash(hasher);
     style.weight.value().hash(hasher);
     style_to_u8(style.style).hash(hasher);
@@ -913,24 +939,88 @@ impl GlyphEngine {
     cap_height::cap_height_px(self.font_system.db(), &font, glyph.weight, glyph.font_size)
   }
 
+  /// The size of `spans` with their pixel sizes scaled by `scale`, laid out
+  /// at `max_width`.
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
-  pub(crate) fn measure_rich_text(&mut self, spans: &[RichTextSpan], max_width: f32) -> Size {
+  pub(crate) fn measure_rich_text(&mut self, spans: &[RichTextSpan], scale: f32, max_width: f32) -> Size {
     if spans.is_empty() {
       return Size::default();
     }
     if let [span] = spans {
-      return self.measure_text(&span.text, &span.style, max_width);
+      let mut style = span.style.clone();
+      style.scale_pixels(scale);
+      return self.measure_text(&span.text, &style, max_width);
     }
     let wrap = is_bounded_text_width(max_width);
-    let fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
-    if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, max_width, wrap) {
+    let fingerprint = rich_text_shape_fingerprint(spans, scale, max_width, wrap);
+    if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, scale, max_width, wrap) {
       self.measure_hits += 1;
       return cached.size;
     }
-
     self.measure_misses += 1;
-    let layout = self.shape_rich_text_layout(spans, max_width, wrap);
-    let size = layout.size;
+    self.rich_shaped_layout(spans, scale, max_width, wrap, false).size
+  }
+
+  /// The caret positions of `spans` with their pixel sizes scaled by
+  /// `scale`, laid out at `max_width` (wrapping when `wrap` is set and the
+  /// width is bounded, as painting does): one before and one after every
+  /// glyph painting draws, in the layout's pixels, kept with the shaped
+  /// layout that measuring and painting share, so a selection indexes the
+  /// glyphs on screen in every span's own font. Built in the shaping that
+  /// makes the layout; a layout shaped without them is shaped once more the
+  /// first time they are asked for.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn rich_text_caret_positions(
+    &mut self,
+    spans: &[RichTextSpan],
+    scale: f32,
+    max_width: f32,
+    wrap: bool,
+  ) -> CaretPositions {
+    match spans {
+      [] => carets::buffer_caret_positions(&Buffer::new_empty(Metrics::new(1.0, 1.0)), 0),
+      [span] => {
+        let mut style = span.style.clone();
+        style.scale_pixels(scale);
+        self.caret_positions(&span.text, &style, max_width, wrap)
+      }
+      _ => {
+        let layout = self.rich_shaped_layout(spans, scale, max_width, wrap, true);
+        layout
+          .carets
+          .get()
+          .cloned()
+          .unwrap_or_else(|| carets::buffer_caret_positions(&Buffer::new_empty(Metrics::new(1.0, 1.0)), 0))
+      }
+    }
+  }
+
+  /// The shaped layout of `spans` with their pixel sizes scaled by `scale`,
+  /// from the cache that measuring and painting share, shaped and cached
+  /// when it is not there yet; with its carets when `with_carets` asks for
+  /// them.
+  fn rich_shaped_layout(
+    &mut self,
+    spans: &[RichTextSpan],
+    scale: f32,
+    max_width: f32,
+    wrap: bool,
+    with_carets: bool,
+  ) -> CachedRichShapedLayout {
+    let wrap = effective_text_wrap(max_width, wrap);
+    let fingerprint = rich_text_shape_fingerprint(spans, scale, max_width, wrap);
+    if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, scale, max_width, wrap) {
+      if with_carets && cached.carets.get().is_none() {
+        let shaped = self.shape_rich_text_layout(&scaled_spans(spans, scale), max_width, wrap, true);
+        if let Some(carets) = shaped.carets.get() {
+          // The cache entry shares the cell: it has the carets from now on.
+          cached.carets.get_or_init(|| carets.clone());
+        }
+      }
+      return cached;
+    }
+    let scaled = scaled_spans(spans, scale);
+    let layout = self.shape_rich_text_layout(&scaled, max_width, wrap, with_carets);
     if self.rich_shaped_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
       self.rich_shaped_layout_cache.clear();
     }
@@ -938,8 +1028,8 @@ impl GlyphEngine {
       .rich_shaped_layout_cache
       .entry(fingerprint)
       .or_default()
-      .push((RichTextShapeKey::new(spans, max_width, wrap), layout));
-    size
+      .push((RichTextShapeKey::new(&scaled, max_width, wrap), layout.clone()));
+    layout
   }
 
   /// The size of `spans` laid out at `max_width` (wrapping when `wrap` is
@@ -956,22 +1046,8 @@ impl GlyphEngine {
     if spans.is_empty() {
       return (Size::default(), Vec::<SpanBox>::new().into());
     }
-    let wrap = effective_text_wrap(max_width, wrap);
-    let fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
-    if let Some(cached) = self.find_rich_shaped_layout(fingerprint, spans, max_width, wrap) {
-      return (cached.size, cached.span_boxes);
-    }
-    let layout = self.shape_rich_text_layout(spans, max_width, wrap);
-    let found = (layout.size, layout.span_boxes.clone());
-    if self.rich_shaped_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
-      self.rich_shaped_layout_cache.clear();
-    }
-    self
-      .rich_shaped_layout_cache
-      .entry(fingerprint)
-      .or_default()
-      .push((RichTextShapeKey::new(spans, max_width, wrap), layout));
-    found
+    let layout = self.rich_shaped_layout(spans, 1.0, max_width, wrap, false);
+    (layout.size, layout.span_boxes)
   }
 
   pub(crate) fn caret_positions(
@@ -1055,74 +1131,12 @@ impl GlyphEngine {
       self.retain_plain_buffer(buffer);
       return positions;
     }
-    let mut line_offsets = Vec::with_capacity(buffer.lines.len());
-    let mut offset = 0usize;
-    for line in &buffer.lines {
-      line_offsets.push(offset);
-      offset += line.text().len() + line.ending().as_str().len();
-    }
-
-    let mut positions = Vec::with_capacity(text.chars().count() + buffer.lines.len().max(1));
-    let mut index = CaretIndex::default();
-    for run in buffer.layout_runs() {
-      let line_offset = line_offsets.get(run.line_i).copied().unwrap_or(0);
-      let y = run.line_top.max(0.0);
-      let start = positions.len();
-      if run.glyphs.is_empty() {
-        positions.push(CaretPosition {
-          index: line_offset,
-          x: 0.0,
-          y,
-        });
-        index.push_line(start, positions.len(), line_offset, line_offset, y);
-        continue;
-      }
-
-      for glyph in run.glyphs {
-        positions.push(CaretPosition {
-          index: line_offset + glyph.start,
-          x: glyph.x,
-          y,
-        });
-        positions.push(CaretPosition {
-          index: line_offset + glyph.end,
-          x: glyph.x + glyph.w,
-          y,
-        });
-      }
-      index.push_line(
-        start,
-        positions.len(),
-        line_offset,
-        line_offset + buffer.lines[run.line_i].text().len(),
-        y,
-      );
-    }
-
-    if positions.is_empty() {
-      positions.push(CaretPosition {
-        index: 0,
-        x: 0.0,
-        y: 0.0,
-      });
-      index.push_line(0, 1, 0, 0, 0.0);
-    }
-    if !positions.iter().any(|position| position.index == text.len()) {
-      let last_y = positions.last().map(|position| position.y).unwrap_or(0.0);
-      positions.push(CaretPosition {
-        index: text.len(),
-        x: positions.last().map(|position| position.x).unwrap_or(0.0),
-        y: last_y,
-      });
-      index.push_line(positions.len() - 1, positions.len(), text.len(), text.len(), last_y);
-    }
-
+    let positions = carets::buffer_caret_positions(&buffer, text.len());
     #[cfg(feature = "perf_profile")]
     {
       self.profile.caret_built_paragraphs += buffer.lines.len();
       self.profile.caret_built_positions += positions.len();
     }
-    let positions = CaretPositions::with_index(positions, index);
     #[cfg(feature = "perf_profile")]
     {
       self.profile.caret_extract += extract_start.elapsed();
@@ -1781,8 +1795,8 @@ impl GlyphEngine {
     }
 
     if snap_to_pixel {
-      let shape_fingerprint = rich_text_shape_fingerprint(spans, max_width, wrap);
-      if let Some(shaped) = self.find_rich_shaped_layout(shape_fingerprint, spans, max_width, wrap) {
+      let shape_fingerprint = rich_text_shape_fingerprint(spans, 1.0, max_width, wrap);
+      if let Some(shaped) = self.find_rich_shaped_layout(shape_fingerprint, spans, 1.0, max_width, wrap) {
         let cached = self.pack_rich_shaped_layout(&shaped);
         if self.rich_glyph_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
           self.rich_glyph_layout_cache.clear();
@@ -1803,7 +1817,7 @@ impl GlyphEngine {
         return;
       }
 
-      let shaped = self.shape_rich_text_layout(spans, max_width, wrap);
+      let shaped = self.shape_rich_text_layout(spans, max_width, wrap, false);
       let cached = self.pack_rich_shaped_layout(&shaped);
       if self.rich_shaped_layout_cache.len() >= GLYPH_LAYOUT_CACHE_LIMIT {
         self.rich_shaped_layout_cache.clear();
@@ -2466,12 +2480,21 @@ impl GlyphEngine {
     buffer
   }
 
-  fn shape_rich_text_layout(&mut self, spans: &[RichTextSpan], max_width: f32, wrap: bool) -> CachedRichShapedLayout {
+  /// Shapes `spans` at `max_width`: their size, glyphs and span boxes, and
+  /// their carets when `with_carets` asks for them, all from one shaping.
+  fn shape_rich_text_layout(
+    &mut self,
+    spans: &[RichTextSpan],
+    max_width: f32,
+    wrap: bool,
+    with_carets: bool,
+  ) -> CachedRichShapedLayout {
     let Some(first) = spans.first() else {
       return CachedRichShapedLayout {
         size: Size::default(),
         glyphs: Vec::<CachedRichShapedGlyph>::new().into(),
         span_boxes: Vec::<SpanBox>::new().into(),
+        carets: std::sync::Arc::default(),
       };
     };
     #[cfg(feature = "perf_profile")]
@@ -2532,6 +2555,11 @@ impl GlyphEngine {
     }
 
     let span_boxes = span_boxes::span_boxes(&buffer, &mut self.font_system, &mut self.underline_metrics);
+    let carets = std::sync::OnceLock::new();
+    if with_carets {
+      let text_len = spans.iter().map(|span| span.text.len()).sum();
+      carets.get_or_init(|| carets::buffer_caret_positions(&buffer, text_len));
+    }
     self.buffer_pool.push(buffer);
     #[cfg(feature = "perf_profile")]
     {
@@ -2541,6 +2569,7 @@ impl GlyphEngine {
       size,
       glyphs: glyphs.into(),
       span_boxes,
+      carets: std::sync::Arc::new(carets),
     }
   }
 
@@ -2572,10 +2601,12 @@ impl GlyphEngine {
     cached
   }
 
+  /// The cached layout of `spans` with their pixel sizes scaled by `scale`.
   fn find_rich_shaped_layout(
     &self,
     fingerprint: u64,
     spans: &[RichTextSpan],
+    scale: f32,
     max_width: f32,
     wrap: bool,
   ) -> Option<CachedRichShapedLayout> {
@@ -2583,7 +2614,7 @@ impl GlyphEngine {
       .rich_shaped_layout_cache
       .get(&fingerprint)?
       .iter()
-      .find(|(key, _)| key.matches(spans, max_width, wrap))
+      .find(|(key, _)| key.matches(spans, scale, max_width, wrap))
       .map(|(_, layout)| layout.clone())
   }
 
@@ -2994,6 +3025,10 @@ struct CachedRichShapedLayout {
   size: Size,
   glyphs: std::sync::Arc<[CachedRichShapedGlyph]>,
   span_boxes: std::sync::Arc<[SpanBox]>,
+  /// The carets of the drawn glyphs, what a selection of the text indexes;
+  /// built when a selection first needs them, since most rich text is never
+  /// selected.
+  carets: std::sync::Arc<std::sync::OnceLock<CaretPositions>>,
 }
 
 #[derive(Clone, Copy)]
@@ -4450,8 +4485,9 @@ mod tests {
         expected.push((offset, 0.0_f32.to_bits(), y));
       }
       for glyph in run.glyphs {
-        expected.push((offset + glyph.start, glyph.x.to_bits(), y));
-        expected.push((offset + glyph.end, (glyph.x + glyph.w).to_bits(), y));
+        let (start_x, end_x) = crate::node::text_selection::glyph_caret_edges(glyph);
+        expected.push((offset + glyph.start, start_x.to_bits(), y));
+        expected.push((offset + glyph.end, end_x.to_bits(), y));
       }
     }
     if expected.is_empty() {
@@ -5291,7 +5327,7 @@ mod tests {
       },
     ];
 
-    let measured = engine.measure_rich_text(&spans, 260.0);
+    let measured = engine.measure_rich_text(&spans, 1.0, 260.0);
     assert!(measured.width > 0.0);
     assert_eq!(engine.rich_shaped_layout_cache.len(), 1);
 
