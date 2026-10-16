@@ -115,7 +115,7 @@ Runtime window commands requested through `ctx.window()` are applied by the wini
 
 The shell observes `needs_redraw`, requests a redraw, then calls `Tree::pass(app, window)`.
 
-Animations and transitions do not set `needs_redraw`. A pass that ticks them records when they next draw something else, `Tree::next_timeline_change()`: the next step of an `Easing::Steps` span, the end of a delay, or at once for a span that changes continuously. The shell schedules the next frame for then, but no sooner than one display refresh after the last paint, and sleeps until it is due. A minimized or occluded window gets no such frames until it shows again (see [Frame Pacing](../animation-transforms/#frame-pacing)).
+Animations and transitions do not set `needs_redraw`. A pass that ticks them records when they next draw something else, `Tree::next_timeline_change()`: the next step of an `Easing::Steps` span, the end of a delay, or at once for a span that changes continuously. The shell schedules the next frame for then, at most one per display refresh, and sleeps until it is due: for a continuous animation it wakes half a refresh after the last present, and the swapchain puts the frame on the next vblank. A minimized or occluded window gets no such frames until it shows again (see [Frame Pacing](../animation-transforms/#frame-pacing)).
 
 `Tree::pass(...)` returns a `PassReport` describing whether the pass was required, whether it rendered, whether it reused a cached render list, whether layout updated or recalculated, and which runtime reasons contributed to the pass. `WinitWindow::on_paint` receives the same report after a presented frame:
 

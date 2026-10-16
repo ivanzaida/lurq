@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{
-  animation::STEP_MARGIN,
+  animation::step_time,
   easing::Easing,
   interpolate::{
     AnimatableProperty, AnimatableValue, clear_overrides, property_accessors, read_target, write_property,
@@ -124,12 +124,21 @@ struct TransitionRun {
 }
 
 impl TransitionRun {
+  /// How far the run is `elapsed` after its delay, from 0 at its start to 1 at its end. A run of no duration is at
+  /// its end at once.
+  fn progress(&self, elapsed: Duration) -> f64 {
+    if self.duration.is_zero() {
+      return 1.0;
+    }
+    elapsed.as_secs_f64() / self.duration.as_secs_f64()
+  }
+
   /// When the run next draws something other than what it draws at `now`, which is `raw` of the way through it:
   /// the next step of a step easing or the end. A continuous easing changes at once, so it returns `now`.
-  fn next_change(&self, now: Instant, raw: f64) -> Instant {
+  fn next_change(&self, now: Instant, raw: f64) -> Option<Instant> {
     match self.easing.distance_to_next_step(raw, true) {
-      Some(until) => now + self.duration.mul_f64(until) + STEP_MARGIN,
-      None => now,
+      Some(until) => step_time(now, self.duration, until),
+      None => Some(now),
     }
   }
 }
@@ -252,7 +261,7 @@ impl TransitionEngine {
           let from = if let Some(running) = self.active.get(&key) {
             let elapsed = now.duration_since(running.start_time);
             if elapsed >= running.delay {
-              let raw = (elapsed - running.delay).as_secs_f64() / running.duration.as_secs_f64();
+              let raw = running.progress(elapsed - running.delay);
               let t = running.easing.evaluate(raw.clamp(0.0, 1.0)) as f32;
               running.from.lerp(&running.to, t)
             } else {
@@ -291,7 +300,7 @@ impl TransitionEngine {
         self.next_change = Some(self.next_change.map_or(at, |next| next.min(at)));
         continue;
       }
-      let raw = (elapsed - run.delay).as_secs_f64() / run.duration.as_secs_f64();
+      let raw = run.progress(elapsed - run.delay);
       if raw >= 1.0 {
         layout_affected |= write_property(node, prop, &run.to);
         completed.push((nid, prop));
@@ -299,8 +308,9 @@ impl TransitionEngine {
         let t = run.easing.evaluate(raw) as f32;
         let interpolated = run.from.lerp(&run.to, t);
         layout_affected |= write_property(node, prop, &interpolated);
-        let at = run.next_change(now, raw);
-        self.next_change = Some(self.next_change.map_or(at, |next| next.min(at)));
+        if let Some(at) = run.next_change(now, raw) {
+          self.next_change = Some(self.next_change.map_or(at, |next| next.min(at)));
+        }
       }
     }
 

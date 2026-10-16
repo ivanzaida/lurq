@@ -106,7 +106,7 @@ Keyframe offsets are normalized from `0.0` to `1.0`. The engine finds the surrou
 
 ## Frame Pacing
 
-Each pass that ticks the timelines also works out when they next draw something else, and the winit shell asks for the next frame then, never sooner than one display refresh after the last one:
+Each pass that ticks the timelines also works out when they next draw something else, and the winit shell asks for the next frame then, at most one frame per display refresh:
 
 - a span eased by `Easing::Steps { count, .. }` holds its value between steps, so it gets one frame per step;
 - a delay draws nothing new until it ends;

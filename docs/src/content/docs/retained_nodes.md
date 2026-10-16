@@ -242,20 +242,18 @@ The tree resolves target nodes from the latest layout and updates hover, active,
 
 `Tree::needs_redraw()` reports whether the shell should request a frame. `WinitWindow` handles this automatically.
 
-Manual shells should follow this pattern:
+Animations and transitions do not set `needs_redraw`: after a pass, `Tree::next_timeline_change()` says when they next draw something else. Manual shells request a frame for both, at most one per display refresh:
 
 ```rust
 if tree.needs_redraw() {
   window.request_redraw();
+} else if let Some(changes_at) = tree.next_timeline_change() {
+  // A continuous animation returns the time of the last pass: its next frame is due at the next refresh.
+  schedule_redraw_at(changes_at.max(last_frame_at + refresh_interval));
 }
 ```
 
-During redraw:
-
-```rust
-tree.clear_needs_redraw();
-tree.pass(&mut app, &surface);
-```
+During redraw, `tree.pass(&mut app, &surface)` draws the frame; the pass clears `needs_redraw` itself.
 
 ## Last Layout And Profiles
 

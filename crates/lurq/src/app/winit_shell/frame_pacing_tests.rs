@@ -1,7 +1,9 @@
 //! Paced animation frames, run through a model of the winit loop: each turn ticks timers, futures and scheduled
 //! redraws, asks [`FramePacing`] for the window's next frame, renders when the tree needs a redraw and otherwise
 //! sleeps as [`LoopWait`] says. The render engine models a 60 Hz FIFO swapchain with a frame latency of one: a
-//! frame waits for the vblank after the previous present, as `get_current_texture` does.
+//! frame waits for the vblank after the previous present, as `get_current_texture` does, then takes its render
+//! cost. These tests run on the wall clock, so their bounds leave room for a busy machine; the cadence rule itself
+//! is also checked on a virtual clock, which no scheduling noise reaches.
 
 use std::{
   collections::VecDeque,
@@ -14,9 +16,10 @@ use std::{
 use raw_window_handle::{
   DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
 };
+use winit::{dpi::PhysicalPosition, event::WindowEvent};
 
 use super::{
-  frame_pacing::FramePacing,
+  frame_pacing::{FramePacing, PresentedFrame, frame_due},
   loop_wait::{LoopNeeds, LoopWait},
 };
 use crate::{
@@ -66,14 +69,32 @@ struct Display {
   epoch: Instant,
   last_present: Option<Instant>,
   pass_at: Instant,
+  /// The CPU time a frame takes once the swapchain hands it a buffer.
+  render_cost: Duration,
   frames: Vec<Frame>,
+  /// The vblank that shows each presented frame.
+  vblanks: Vec<u128>,
 }
 
 impl Display {
+  fn vblank_index(&self, at: Instant) -> u128 {
+    vblank_index(self.epoch, REFRESH, at)
+  }
+
   fn vblank_after(&self, at: Instant) -> Instant {
-    let refreshes = (at - self.epoch).as_nanos().div_ceil(REFRESH.as_nanos());
+    let refreshes = self.vblank_index(at);
     self.epoch + REFRESH * u32::try_from(refreshes).expect("a test runs for less than two years")
   }
+}
+
+/// Which vblank shows a frame presented at `at`: the first after it, counted from the vblank at `epoch`.
+fn vblank_index(epoch: Instant, refresh: Duration, at: Instant) -> u128 {
+  (at - epoch).as_nanos() / refresh.as_nanos() + 1
+}
+
+/// How many vblanks between the first and the last present showed no new frame.
+fn skipped_vblanks(vblanks: &[u128]) -> u128 {
+  vblanks.windows(2).map(|pair| pair[1] - pair[0] - 1).sum()
 }
 
 struct VsyncEngine(Arc<Mutex<Display>>);
@@ -86,7 +107,11 @@ impl RenderEngine for VsyncEngine {
     if let Some(previous) = display.last_present {
       sleep_until(display.vblank_after(previous));
     }
-    display.last_present = Some(Instant::now());
+    std::thread::sleep(display.render_cost);
+    let presented = Instant::now();
+    display.last_present = Some(presented);
+    let vblank = display.vblank_index(presented);
+    display.vblanks.push(vblank);
     let [a, b, _, _] = list.rects.first().map_or([1.0, 0.0, 0.0, 1.0], |rect| rect.transform);
     let frame = Frame {
       pass_at: display.pass_at,
@@ -109,7 +134,6 @@ struct Shell {
   app: App,
   tree: Tree,
   pacing: FramePacing,
-  last_paint: Instant,
   display: Arc<Mutex<Display>>,
   /// Clicks on the spinner the "OS" delivers at these times.
   clicks: VecDeque<Instant>,
@@ -125,13 +149,14 @@ impl Shell {
       epoch: Instant::now(),
       last_present: None,
       pass_at: Instant::now(),
+      render_cost: Duration::ZERO,
       frames: Vec::new(),
+      vblanks: Vec::new(),
     }));
     let mut shell = Self {
       app: App::new(),
       tree,
       pacing: FramePacing::default(),
-      last_paint: Instant::now(),
       display: display.clone(),
       clicks: VecDeque::new(),
       timer_lateness: Vec::new(),
@@ -168,14 +193,16 @@ impl Shell {
       self.timer_lateness.push(Instant::now() - due);
     }
     self.tree.tick_futures();
-    self
-      .pacing
-      .request_frame(&mut self.tree, self.last_paint, || REFRESH, now);
+    self.pacing.request_frame(&mut self.tree, || REFRESH, now);
     self.tree.tick_scheduled_redraw(now);
     if self.tree.needs_redraw() {
-      self.display.lock().expect("one thread").pass_at = Instant::now();
+      let started = Instant::now();
+      self.display.lock().expect("one thread").pass_at = started;
       if self.tree.pass(&mut self.app, &TestSurface).rendered {
-        self.last_paint = Instant::now();
+        self.pacing.presented(PresentedFrame {
+          started,
+          presented: Instant::now(),
+        });
       }
       return;
     }
@@ -197,6 +224,14 @@ impl Shell {
 
   fn frames(&self) -> Vec<Frame> {
     self.display.lock().expect("one thread").frames.clone()
+  }
+
+  fn set_render_cost(&mut self, cost: Duration) {
+    self.display.lock().expect("one thread").render_cost = cost;
+  }
+
+  fn vblanks(&self) -> Vec<u128> {
+    self.display.lock().expect("one thread").vblanks.clone()
   }
 }
 
@@ -424,8 +459,175 @@ fn input_and_timers_are_handled_at_once_while_a_spinner_turns() {
   let on_time = Duration::from_millis(3);
   assert!(
     median(&click_latency) < on_time && median(&timer_lateness) < on_time,
-    "clicks are handled and timers fire when they are due, not after the next frame:
-  click latency {click_latency:?}
-  timer lateness {timer_lateness:?}"
+    "clicks are handled and timers fire when they are due, not after the next frame:\n  click latency {click_latency:?}\n  timer lateness {timer_lateness:?}"
+  );
+}
+
+#[test]
+fn a_continuous_spinner_presents_at_every_vblank_whatever_its_render_cost() {
+  for cost_ms in 0..=3 {
+    let mut shell = Shell::new(spinner(Easing::Linear));
+    shell.set_render_cost(Duration::from_millis(cost_ms));
+    shell.run_for(Duration::from_millis(600));
+
+    // The first frame comes when the run starts, off the vblank grid; the cadence counts from the second.
+    let vblanks = shell.vblanks();
+    let skipped = skipped_vblanks(&vblanks[1..]);
+    assert_eq!(
+      skipped,
+      0,
+      "with {cost_ms} ms of render work, every vblank shows a new frame: {} presents, {skipped} vblanks without one",
+      vblanks.len()
+    );
+    assert!(
+      (34..=39).contains(&vblanks.len()),
+      "60 presents a second: {} in 0.6 s with {cost_ms} ms of work",
+      vblanks.len()
+    );
+  }
+}
+
+#[test]
+fn a_twelve_step_spinner_draws_only_its_steps_whatever_its_render_cost() {
+  let mut shell = Shell::new(spinner(steps(12)));
+  shell.set_render_cost(Duration::from_millis(3));
+  shell.run_for(Duration::from_secs(1));
+
+  let frames = shell.frames().len();
+  assert!(
+    (11..=14).contains(&frames),
+    "12 steps a second draw 12 frames a second: {frames} in 1 s"
+  );
+}
+
+#[test]
+fn a_minimized_window_draws_no_perf_overlay_frames() {
+  let mut tree = Tree::new();
+  tree.set_root(Row::new().child(Rect::new(40.0, 40.0).background("#2563eb")));
+  tree.draw_perf_overlay();
+  let mut shell = Shell::new(tree);
+  shell.run_for(Duration::from_millis(100));
+
+  shell.tree.window().set_minimized(true);
+  let frames_before = shell.frames().len();
+  // Wake the loop every 50 ms, as events reach a minimized window (an MCP call, a wake from another thread),
+  // across the overlay's 1 s sample.
+  for _ in 0..24 {
+    shell.run_for(Duration::from_millis(50));
+  }
+  assert_eq!(
+    shell.frames().len(),
+    frames_before,
+    "the overlay's samples draw nothing while the window is minimized"
+  );
+}
+
+#[test]
+fn moving_the_window_reads_its_refresh_rate_again() {
+  let mut app = App::new();
+  let mut tree = spinner(Easing::Linear);
+  tree.pass_headless(&mut app);
+  let mut pacing = FramePacing::default();
+  let mut reads = 0;
+  let mut request = |pacing: &mut FramePacing, tree: &mut Tree| {
+    pacing.request_frame(
+      tree,
+      || {
+        reads += 1;
+        REFRESH
+      },
+      Instant::now(),
+    );
+  };
+
+  request(&mut pacing, &mut tree);
+  request(&mut pacing, &mut tree);
+  // Another display may refresh at another rate.
+  pacing.handle_event(&WindowEvent::Moved(PhysicalPosition::new(1920, 0)));
+  request(&mut pacing, &mut tree);
+  assert_eq!(reads, 2, "the rate is read once, then again when the window moves");
+}
+
+/// A FIFO swapchain of frame latency one on a virtual clock that starts at `epoch` on a vblank: when each of
+/// `count` frames is presented, for a pass that works `cost` before it asks the swapchain for a buffer and as long
+/// again after, and a loop that wakes up to 1 ms late. `changes` gives the timeline's next change after a pass that
+/// sampled it at a time.
+fn virtual_presents(
+  epoch: Instant,
+  refresh: Duration,
+  cost: Duration,
+  count: usize,
+  changes: impl Fn(Instant) -> Instant,
+) -> Vec<Instant> {
+  let vblank_after = |at: Instant| {
+    let refreshes = vblank_index(epoch, refresh, at);
+    epoch + refresh * u32::try_from(refreshes).expect("a short simulation")
+  };
+  let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+  let mut wake_latency = || {
+    seed = seed
+      .wrapping_mul(6_364_136_223_846_793_005)
+      .wrapping_add(1_442_695_040_888_963_407);
+    Duration::from_micros((seed >> 33) % 1000)
+  };
+  let mut now = epoch;
+  let mut last: Option<PresentedFrame> = None;
+  let mut presents: Vec<Instant> = Vec::with_capacity(count);
+  while presents.len() < count {
+    if let Some(frame) = last {
+      now = now.max(frame_due(changes(frame.started), last, refresh)) + wake_latency();
+    }
+    let started = now;
+    now += cost;
+    if let Some(previous) = presents.last() {
+      now = now.max(vblank_after(*previous));
+    }
+    now += cost;
+    presents.push(now);
+    last = Some(PresentedFrame {
+      started,
+      presented: now,
+    });
+  }
+  presents
+}
+
+#[test]
+fn on_a_virtual_clock_continuous_frames_take_every_vblank() {
+  let cases = [(REFRESH, [0, 1000, 2000, 3000]), (REFRESH / 2, [0, 500, 1000, 1500])];
+  for (refresh, costs_us) in cases {
+    for cost in costs_us.map(Duration::from_micros) {
+      // A continuous animation changes at once: its next change is the time its last pass sampled it.
+      let epoch = Instant::now();
+      let presents = virtual_presents(epoch, refresh, cost / 2, 600, |sampled| sampled);
+      let vblanks: Vec<u128> = presents
+        .iter()
+        .map(|present| vblank_index(epoch, refresh, *present))
+        .collect();
+      assert_eq!(
+        skipped_vblanks(&vblanks[1..]),
+        0,
+        "at {refresh:?} a refresh and {cost:?} of work per frame, every vblank shows a new frame"
+      );
+    }
+  }
+}
+
+#[test]
+fn on_a_virtual_clock_twelve_steps_draw_twelve_frames_a_second() {
+  let step = Duration::from_secs(1) / 12;
+  let epoch = Instant::now();
+  let next_step = |sampled: Instant| {
+    let steps = (sampled - epoch).as_nanos() / step.as_nanos() + 1;
+    epoch + step * u32::try_from(steps).expect("a short simulation") + Duration::from_micros(100)
+  };
+  let presents = virtual_presents(epoch, REFRESH, Duration::from_millis(1), 40, next_step);
+  let in_first_second = presents
+    .iter()
+    .filter(|present| **present - epoch < Duration::from_secs(1))
+    .count();
+  assert!(
+    (12..=13).contains(&in_first_second),
+    "a frame per step: {in_first_second} frames in the first second"
   );
 }

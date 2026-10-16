@@ -5,11 +5,13 @@ use std::time::{Duration, Instant};
 
 use lurq::{
   animation::{
-    AnimatableProperty, AnimatableValue, Animation, AnimationDirection, Easing, Keyframes, KeyframesId, StepPosition,
-    Transition,
+    AnimatableProperty, AnimatableValue, Animation, AnimationDirection, AnimationIterationCount, Easing, Keyframes,
+    KeyframesId, StepPosition, Transition,
   },
   app::{App, Tree},
   components::{Rect, Row},
+  layout::quad::QuadContent,
+  node::color::Color,
 };
 
 const FADE: u16 = 52;
@@ -176,4 +178,117 @@ fn a_step_transition_changes_at_its_next_step() {
     "the first of two steps ends halfway: {:?} after the pass",
     next - before_pass
   );
+}
+
+fn hover_transition(transition: Transition) -> Tree {
+  let mut tree = Tree::new();
+  tree.set_root(
+    Row::new().child(
+      Rect::new(40.0, 40.0)
+        .background("#ff0000")
+        .transition(transition)
+        .hovered(|style| style.background("#0000ff")),
+    ),
+  );
+  tree.resize(200, 100);
+  tree
+}
+
+fn first_rect_color(tree: &Tree) -> Color {
+  let quads = tree.resolve_quads(tree.last_layout().expect("a pass laid the tree out"));
+  quads
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Rect { color, .. } => Some(*color),
+      _ => None,
+    })
+    .expect("the rect is drawn")
+}
+
+#[test]
+fn a_zero_duration_step_transition_completes_at_once() {
+  let mut app = App::new();
+  let mut tree = hover_transition(Transition::background_color().duration_ms(0).easing(steps(2)));
+  tree.pass_headless(&mut app);
+  tree.mouse_move(20.0, 20.0);
+  tree.pass_headless(&mut app);
+
+  assert_eq!(
+    first_rect_color(&tree),
+    Color::from_hex("#0000ff"),
+    "the hover color shows at once"
+  );
+  assert!(
+    !tree.has_active_timeline(),
+    "a transition of no duration is over when it starts"
+  );
+  assert_eq!(tree.next_timeline_change(), None);
+}
+
+#[test]
+fn a_fractional_iteration_count_changes_when_the_run_ends() {
+  let mut app = App::new();
+  // 200 ms iterations of one step each: the value jumps at each iteration's end, and 1.5 iterations end at 300 ms,
+  // where the run drops its value.
+  let mut tree = fading(
+    fade()
+      .duration_ms(200)
+      .easing(steps(1))
+      .iteration_count(AnimationIterationCount::Count(1.5)),
+  );
+  let before_pass = Instant::now();
+  tree.pass_headless(&mut app);
+  let next = tree.next_timeline_change().expect("the fade runs");
+  std::thread::sleep(next.saturating_duration_since(Instant::now()));
+  tree.pass_headless(&mut app);
+
+  let next = tree.next_timeline_change().expect("the second iteration runs");
+  let end = Duration::from_millis(300);
+  assert!(
+    next >= before_pass + end && next <= Instant::now() + Duration::from_millis(100) + MARGIN,
+    "the half iteration ends the run 300 ms after it starts, before its step at 400 ms: {:?} after the start",
+    next - before_pass
+  );
+}
+
+#[test]
+fn a_jump_start_animation_draws_its_first_step_at_once() {
+  let mut app = App::new();
+  let jump_start = Easing::Steps {
+    count: 4,
+    position: StepPosition::JumpStart,
+  };
+  let mut tree = fading(fade().easing(jump_start).infinite());
+  tree.pass_headless(&mut app);
+
+  // At its start the run draws its start value; right after it, the first of its four steps.
+  let next = tree.next_timeline_change().expect("the fade runs");
+  assert!(next <= Instant::now() + MARGIN, "the first step comes at once");
+
+  std::thread::sleep(next.saturating_duration_since(Instant::now()));
+  let second_pass = Instant::now();
+  tree.pass_headless(&mut app);
+  let next = tree.next_timeline_change().expect("the fade runs");
+  let step = Duration::from_millis(250);
+  assert!(
+    next > second_pass + step - Duration::from_millis(5) && next <= second_pass + step + MARGIN,
+    "then each step lasts 250 ms: {:?} after the pass",
+    next - second_pass
+  );
+}
+
+#[test]
+fn a_jump_both_transition_draws_its_first_step_at_once() {
+  let mut app = App::new();
+  let jump_both = Easing::Steps {
+    count: 2,
+    position: StepPosition::JumpBoth,
+  };
+  let mut tree = hover_transition(Transition::background_color().duration_ms(400).easing(jump_both));
+  tree.pass_headless(&mut app);
+  tree.mouse_move(20.0, 20.0);
+  tree.pass_headless(&mut app);
+
+  let next = tree.next_timeline_change().expect("the transition runs");
+  assert!(next <= Instant::now() + MARGIN, "the first of the steps comes at once");
 }

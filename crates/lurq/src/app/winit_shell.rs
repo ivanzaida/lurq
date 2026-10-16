@@ -41,7 +41,7 @@ mod loop_wait;
 mod loop_wait_tests;
 mod native_resize;
 
-use frame_pacing::{FramePacing, refresh_interval};
+use frame_pacing::{FramePacing, PresentedFrame, refresh_interval};
 use loop_wait::{LoopNeeds, LoopWait};
 
 const CONTINUOUS_REDRAW_GRACE: Duration = Duration::from_millis(500);
@@ -571,6 +571,10 @@ impl ManagedWindow {
       let mut paint_duration = Duration::ZERO;
       if presented {
         let now = Instant::now();
+        self.pacing.presented(PresentedFrame {
+          started: pass_started_at,
+          presented: now,
+        });
         let delta = now.duration_since(self.last_paint);
         self.last_paint = now;
         if let Some(paint) = &mut self.on_paint {
@@ -641,7 +645,6 @@ impl ManagedWindow {
     }
     self.tree.tick_timers();
     self.tree.tick_futures();
-    self.tree.tick_perf_overlay();
     let has_continuous_video = self.has_continuous_redraw_video_recently(now);
     if has_continuous_video {
       // Video streams are presented directly from about_to_wait. Requesting
@@ -652,7 +655,7 @@ impl ManagedWindow {
       let window = self.window.as_ref();
       self
         .pacing
-        .request_frame(&mut self.tree, self.last_paint, || refresh_interval(window), now);
+        .request_frame(&mut self.tree, || refresh_interval(window), now);
     }
     self.tree.tick_scheduled_redraw(now);
     if !has_continuous_video {
@@ -685,6 +688,7 @@ impl ManagedWindow {
 
   fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
     self.tree.set_app_ref(app);
+    self.pacing.handle_event(&event);
     match event {
       WindowEvent::CloseRequested => {
         self.tree.window().dispatch_close_request(CloseRequestSource::Os);
@@ -717,7 +721,6 @@ impl ManagedWindow {
         self.tree.window().set_focused(focused);
         self.request_redraw();
       }
-      WindowEvent::Occluded(occluded) => self.pacing.set_occluded(occluded),
       WindowEvent::Moved(position) => {
         self.tree.set_window_position(position.x, position.y);
         self.notify_position_changed(position.x, position.y);
@@ -857,7 +860,6 @@ struct ManagedSecondaryWindow {
   attrs: Option<WindowAttributes>,
   redraw_pending: bool,
   close_requested: bool,
-  last_paint: Instant,
   pacing: FramePacing,
   ime: ime::ImeSync,
 }
@@ -878,7 +880,6 @@ impl ManagedSecondaryWindow {
       ),
       redraw_pending: false,
       close_requested: false,
-      last_paint: Instant::now(),
       pacing: FramePacing::default(),
       ime: ime::ImeSync::default(),
     }
@@ -1090,9 +1091,13 @@ impl ManagedSecondaryWindow {
       tree.set_scale_factor(w.scale_factor() as f32);
       tree.resize(size.width, size.height);
       self.redraw_pending = false;
+      let started = Instant::now();
       let presented = tree.pass(app, w).rendered;
       if presented {
-        self.last_paint = Instant::now();
+        self.pacing.presented(PresentedFrame {
+          started,
+          presented: Instant::now(),
+        });
       }
       self.check_redraw(tree);
       return presented;
@@ -1116,11 +1121,8 @@ impl ManagedSecondaryWindow {
     let now = Instant::now();
     tree.tick_timers();
     tree.tick_futures();
-    tree.tick_perf_overlay();
     let window = self.window.as_ref();
-    self
-      .pacing
-      .request_frame(tree, self.last_paint, || refresh_interval(window), now);
+    self.pacing.request_frame(tree, || refresh_interval(window), now);
     tree.tick_scheduled_redraw(now);
     self.check_redraw(tree);
   }
@@ -1133,6 +1135,7 @@ impl ManagedSecondaryWindow {
     tree: &mut Tree,
   ) -> bool {
     tree.set_app_ref(app);
+    self.pacing.handle_event(&event);
     match event {
       WindowEvent::CloseRequested => {
         tree.window().dispatch_close_request(CloseRequestSource::Os);
@@ -1159,7 +1162,6 @@ impl ManagedSecondaryWindow {
         tree.window().set_focused(focused);
         self.request_redraw();
       }
-      WindowEvent::Occluded(occluded) => self.pacing.set_occluded(occluded),
       WindowEvent::Moved(position) => {
         tree.set_window_position(position.x, position.y);
       }

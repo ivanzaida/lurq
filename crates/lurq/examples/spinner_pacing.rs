@@ -1,7 +1,8 @@
 //! A page of text with one turning 16 px spinner, to measure what an animation costs. With `steps` the spinner
 //! turns in 12 steps a second, with `continuous` it turns smoothly. `--minimized` minimizes the window after a
-//! second and restores it 2 s before the end. The example prints its pid, closes itself after the given number of
-//! seconds (default 30) and prints how many frames it presented. Measure its CPU time from outside, for example with
+//! second and restores it 2 s before the end. `--visible` opens the window on the primary display instead of far
+//! off screen. The example prints its pid, closes itself after the given number of seconds (default 30) and prints
+//! how many frames it presented and how far apart they came. Measure its CPU time from outside, for example with
 //! PowerShell's `(Get-Process -Id <pid>).CPU`.
 //!
 //! cargo run -p lurq --release --example spinner_pacing --features winit,wgpu -- steps 30
@@ -9,7 +10,7 @@
 use std::{
   f32::consts::TAU,
   sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
   },
   time::{Duration, Instant},
@@ -106,6 +107,11 @@ fn main() {
     .map(|value| value.parse().expect("the run time in whole seconds"))
     .unwrap_or(30);
   let minimize = args.iter().any(|arg| arg == "--minimized");
+  let position = if args.iter().any(|arg| arg == "--visible") {
+    (120, 120)
+  } else {
+    (-12000, -12000)
+  };
 
   let mut app = App::new();
   let mut tree = Tree::new();
@@ -135,20 +141,25 @@ fn main() {
   let frames_minimized = Arc::new(AtomicU64::new(0));
   let frames_restored = Arc::new(AtomicU64::new(0));
   let first_restored_at = Arc::new(AtomicU64::new(0));
+  let intervals = Arc::new(Mutex::new(Vec::new()));
   let painted = (
     frames.clone(),
     frames_minimized.clone(),
     frames_restored.clone(),
     first_restored_at.clone(),
+    intervals.clone(),
   );
   WinitWindow::new(app, tree)
     .with_size(640, 760)
-    .with_position(-12000, -12000)
+    .with_position(position.0, position.1)
     .with_start_without_focus(true)
     .with_title("lurq spinner pacing")
-    .on_paint(move |_, _, _| {
+    .on_paint(move |_, since_last, _| {
       painted.0.fetch_add(1, Ordering::Relaxed);
       let at = started_at.elapsed();
+      if !minimize && at > Duration::from_secs(1) {
+        painted.4.lock().expect("paints run on one thread").push(since_last);
+      }
       if !minimize || at < MINIMIZE_AFTER + Duration::from_millis(100) {
         return;
       }
@@ -164,6 +175,22 @@ fn main() {
   let elapsed = started_at.elapsed().as_secs_f64();
   let frames = frames.load(Ordering::Relaxed);
   println!("frames {frames} in {elapsed:.1} s: {:.1} fps", frames as f64 / elapsed);
+  let mut intervals = intervals.lock().expect("the window is closed").clone();
+  if !intervals.is_empty() {
+    intervals.sort();
+    let ms = |at: f64| intervals[((intervals.len() - 1) as f64 * at) as usize].as_secs_f64() * 1000.0;
+    let median = intervals[intervals.len() / 2];
+    let long = intervals.iter().filter(|interval| **interval > median * 3 / 2).count();
+    println!(
+      "intervals after the first second: {} frames, median {:.2} ms, p1 {:.2} ms, p99 {:.2} ms, max {:.2} ms; \
+       {long} longer than 1.5 times the median",
+      intervals.len(),
+      ms(0.5),
+      ms(0.01),
+      ms(0.99),
+      ms(1.0)
+    );
+  }
   if minimize {
     let minimized = frames_minimized.load(Ordering::Relaxed);
     let restored = frames_restored.load(Ordering::Relaxed);

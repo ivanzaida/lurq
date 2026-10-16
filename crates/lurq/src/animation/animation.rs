@@ -114,7 +114,17 @@ impl Animation {
 
 /// A frame due at a step boundary is drawn this long after it, so that it samples the new step even where
 /// floating-point time lands a hair before the boundary.
-pub(super) const STEP_MARGIN: Duration = Duration::from_micros(100);
+const STEP_MARGIN: Duration = Duration::from_micros(100);
+
+/// When a step `fraction` of `duration` after `now` is drawn, [`STEP_MARGIN`] after it: `now` for a fraction that
+/// is not a finite, non-negative number, and `None` for one past what an `Instant` holds.
+pub(super) fn step_time(now: Instant, duration: Duration, fraction: f64) -> Option<Instant> {
+  if !(fraction.is_finite() && fraction >= 0.0) {
+    return Some(now);
+  }
+  let offset = Duration::try_from_secs_f64(duration.as_secs_f64() * fraction).ok()?;
+  now.checked_add(offset)?.checked_add(STEP_MARGIN)
+}
 
 struct AnimationRun {
   keyframes: KeyframesId,
@@ -164,11 +174,13 @@ impl AnimationRun {
     };
     let forward = plays_forward(self.direction, iteration);
     let directed = if forward { progress } else { 1.0 - progress };
-    // A step never lies past the end of its span, so the end of the iteration bounds it too.
-    let Some(until) = distance_to_next_step(frames, directed, forward, &self.easing) else {
+    // A step never lies past the end of its span, so the end of the iteration bounds it too; a fractional
+    // iteration count ends the run inside an iteration.
+    let Some(until_step) = distance_to_next_step(frames, directed, forward, &self.easing) else {
       return Some(now);
     };
-    Some(now + self.duration.mul_f64(until) + STEP_MARGIN)
+    let until_end = self.iteration_count - iteration - progress;
+    step_time(now, self.duration, until_step.min(until_end))
   }
 }
 
