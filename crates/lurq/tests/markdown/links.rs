@@ -69,13 +69,13 @@ pub(super) fn span<'a>(spans: &'a [RichTextSpan], text: &str) -> &'a RichTextSpa
     .unwrap_or_else(|| panic!("no span {text:?} in {:?}", texts(spans)))
 }
 
-/// The spans' texts, without the invisible isolate marks around a link's
-/// words and trailing runs.
+/// The spans' texts, without the invisible isolate marks around a link, its
+/// words and its trailing runs.
 pub(super) fn texts(spans: &[RichTextSpan]) -> Vec<&str> {
   spans
     .iter()
     .map(|span| span.text.as_str())
-    .filter(|text| !matches!(*text, "\u{2068}" | "\u{2069}"))
+    .filter(|text| !matches!(*text, "\u{2066}" | "\u{2068}" | "\u{2069}"))
     .collect()
 }
 
@@ -426,7 +426,7 @@ fn markdown_paragraph_text_content_leaves_out_isolate_marks_and_trailing_runs() 
   let marked = tree.find_element(|element| {
     element
       .text_content()
-      .is_some_and(|text| text.contains(['\u{2068}', '\u{2069}']) || text.contains("github.com"))
+      .is_some_and(|text| text.contains(['\u{2066}', '\u{2068}', '\u{2069}']) || text.contains("github.com"))
   });
   assert!(marked.is_none(), "no element's text holds the marks or the host");
 }

@@ -6,13 +6,18 @@
 //! with a pointer cursor, hover and focus looks and an optional tooltip.
 //!
 //! A link's words and each trailing run are drawn between invisible isolate
-//! marks ([`crate::markdown::isolate_bidi`]). A paragraph with a link drops
-//! every directional control of its own text, before the link too: Unicode
-//! bidi nests at most 125 levels deep, and past that it ignores an isolate,
-//! so 63 overrides before a link would reverse the host after it again. The
-//! link's isolate marks are then the only directional controls in the
-//! paragraph. The marks and the trailing runs are presentation: the
-//! paragraph's copied and inspected text leaves them out.
+//! marks ([`crate::markdown::isolate_bidi`]), and the link as a whole, words
+//! and runs together, in a left-to-right isolate: its runs follow its words,
+//! left to right, in a right-to-left paragraph too, and the paragraph's own
+//! text still runs its way around the link. A paragraph with a link drops
+//! every directional control and mark of its own text, before the link too:
+//! Unicode bidi nests at most 125 levels deep, and past that it ignores an
+//! isolate, so 63 overrides before a link would reverse the host after it
+//! again; and a mark would set which way the paragraph and the links in it
+//! run. The link's isolate marks are then the only directional controls in
+//! the paragraph, two levels deep at most. The marks and the trailing runs
+//! are presentation: the paragraph's copied and inspected text leaves them
+//! out.
 
 use std::{
   cell::{Cell, RefCell},
@@ -29,7 +34,8 @@ use crate::{
   app::theme::ThemeMarkdown,
   layout::{quad::RichTextSpan, text_style::TextStyle},
   markdown::{
-    FIRST_STRONG_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, markdown_inline_rich_text, strip_bidi_controls,
+    FIRST_STRONG_ISOLATE, LEFT_TO_RIGHT_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, markdown_inline_rich_text,
+    strip_bidi_controls,
   },
   node::{CursorIcon, Node, inline_link::InlineLink},
 };
@@ -187,8 +193,8 @@ pub(super) struct Paragraph<'a> {
   /// Spans that are presentation, not the paragraph's text: isolate marks
   /// and trailing runs.
   generated: Vec<Range<usize>>,
-  /// The paragraph has a link: directional controls are dropped from all of
-  /// its text.
+  /// The paragraph has a link: directional controls and marks are dropped
+  /// from all of its text.
   strip_controls: bool,
   links: Vec<Node>,
   theme: &'a ThemeMarkdown,
@@ -279,28 +285,30 @@ impl<'a> Paragraph<'a> {
     } else {
       presentation.style.as_ref().unwrap_or(&self.theme.link).apply(style)
     };
-    let label = self.push_isolated(&words_style, |paragraph| {
-      // The words of a link have no links in them (CommonMark), and an image
-      // in them is its alt text, as in any link.
-      paragraph.push_inlines(children, &words_style, &mut None);
-    });
-    for run in &presentation.trailing {
-      let run_style = run.style.apply(style);
-      let run_span = self.push_isolated(&run_style, |paragraph| {
-        paragraph.push_span(RichTextSpan {
-          text: strip_bidi_controls(&run.text).into_owned(),
-          style: run_style.clone(),
-        });
+    let mut label = 0..0;
+    let link_spans = self.push_isolated(LEFT_TO_RIGHT_ISOLATE, style, |paragraph| {
+      label = paragraph.push_isolated(FIRST_STRONG_ISOLATE, &words_style, |paragraph| {
+        // The words of a link have no links in them (CommonMark), and an
+        // image in them is its alt text, as in any link.
+        paragraph.push_inlines(children, &words_style, &mut None);
       });
-      self.generated.push(run_span);
-    }
-    let target_end = self.seal();
+      for run in &presentation.trailing {
+        let run_style = run.style.apply(style);
+        let run_span = paragraph.push_isolated(FIRST_STRONG_ISOLATE, &run_style, |paragraph| {
+          paragraph.push_span(RichTextSpan {
+            text: strip_bidi_controls(&run.text).into_owned(),
+            style: run_style.clone(),
+          });
+        });
+        paragraph.generated.push(run_span);
+      }
+    });
     if presentation.as_text || label.is_empty() {
       return;
     }
     let inline_link = InlineLink {
       label: label.clone(),
-      target: label.start..target_end,
+      target: label.start..link_spans.end,
       look: presentation.look(self.theme),
     };
     let node = Node::inline_link(inline_link, link.text())
@@ -312,10 +320,10 @@ impl<'a> Paragraph<'a> {
       .push(self.session.with_tooltip(node, key, presentation.tooltip));
   }
 
-  /// Draws what `push` adds between isolate marks in `style`; returns the
-  /// spans `push` added, sealed.
-  fn push_isolated(&mut self, style: &TextStyle, push: impl FnOnce(&mut Self)) -> Range<usize> {
-    self.push_mark(FIRST_STRONG_ISOLATE, style);
+  /// Draws what `push` adds between the isolate mark `opening` and its
+  /// closing mark, in `style`; returns the spans `push` added, sealed.
+  fn push_isolated(&mut self, opening: char, style: &TextStyle, push: impl FnOnce(&mut Self)) -> Range<usize> {
+    self.push_mark(opening, style);
     let start = self.spans.len();
     push(self);
     let end = self.seal();

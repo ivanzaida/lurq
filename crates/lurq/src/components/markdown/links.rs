@@ -100,9 +100,11 @@ impl MarkdownRun {
 /// as part of the link, and its hovered and focused looks can recolor them.
 ///
 /// The words and each trailing run are drawn in bidi isolates, stripped of
-/// directional controls (see [`crate::markdown::isolate_bidi`]): a
-/// right-to-left override in the words or before them cannot reverse a host
-/// or an address drawn after them.
+/// directional controls and marks (see [`crate::markdown::isolate_bidi`]),
+/// and the link as a whole in a left-to-right isolate: a right-to-left
+/// override in the words or before them cannot reverse a host or an address
+/// drawn after them, and in a right-to-left paragraph too the runs follow
+/// the words, left to right.
 #[derive(Clone, Default, PartialEq)]
 pub struct MarkdownLinkPresentation {
   pub(super) as_text: bool,
