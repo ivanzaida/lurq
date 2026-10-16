@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.48.0 — unreleased
 
 Added:
 
-- `Tree::register_keyframes_in_phase` (and `AnimationEngine::register_keyframes_in_phase`): every run of these keyframes plays on the tree's animation clock, starting at the last whole number of its durations since the clock's origin instead of when its node first ticks. Spinners that mount at different moments then show the same pose and step together, so a `Steps` spinner shown many times draws one frame per step instead of one per step for each distinct start time. A run that mounts late starts part-way through an iteration, as a CSS animation with a negative delay does. The start is computed once, when the run is created. Registering the same keyframes again with `register_keyframes` turns this off.
+- `Tree::register_keyframes_in_phase` (and `AnimationEngine::register_keyframes_in_phase`): every run of these keyframes plays on the process's animation clock, starting at the last whole number of its periods since the clock's origin (`lurq::animation::clock_origin()`) instead of when its node first ticks. The period is the duration, or twice it for `Alternate` and `AlternateReverse`, so every run shows the same pose in every direction. Spinners that mount at different moments, in one window or several, then show the same pose and step together, so a `Steps` spinner shown many times draws one frame per step instead of one per step for each distinct start time. A run that mounts late starts part-way through an iteration, as a CSS animation with a negative delay does, and a finite iteration count ends on the clock. The delay counts from the run's start on the clock: a node that mounts within the delay of its period waits only for the rest of it. The start is computed once, when the run is created. Registering the same keyframes again with `register_keyframes` turns this off.
 
 ## 0.47.0 — 2026-10-16
 
