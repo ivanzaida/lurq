@@ -75,14 +75,14 @@ fn next_step_after(tree: &mut Tree, app: &mut App, boundary: Instant, step: Dura
 }
 
 /// Runs `check` until it is conclusive, up to `ATTEMPTS` times, each on a
-/// fresh run; skips with a note when the machine never kept up.
+/// fresh run. A machine that never kept up fails the test and says so: a
+/// check that was skipped would otherwise pass unseen in CI.
 fn until_conclusive(check: impl Fn() -> Option<()>) {
-  for _ in 0..ATTEMPTS {
-    if check().is_some() {
-      return;
-    }
-  }
-  eprintln!("skipped: the thread woke too late for a step boundary {ATTEMPTS} times");
+  let conclusive = (0..ATTEMPTS).any(|_| check().is_some());
+  assert!(
+    conclusive,
+    "inconclusive: the thread woke too late for a step boundary {ATTEMPTS} times in a row, so no pass ran between a      step and the next; the machine did not keep up"
+  );
 }
 
 #[test]
