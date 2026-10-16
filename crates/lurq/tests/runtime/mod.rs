@@ -2,6 +2,8 @@ mod app_lifetime;
 mod click;
 mod cursor;
 mod double_click;
+mod dropdown_switch;
+mod dropdown_trigger;
 mod drag;
 mod element_lookup {
   mod by_class;

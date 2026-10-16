@@ -716,6 +716,9 @@ pub struct Tree {
   #[cfg(feature = "canvas")]
   canvas_registry: Vec<crate::canvas::CanvasHandle>,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
+  /// The anchors of the dropdowns in the tree, open or closed, while the
+  /// overlay host is up: a press on one switches dropdowns.
+  dropdown_anchors: Vec<OwnedElementRef>,
   /// Key releases that belong to an input method composition.
   ime_keys: ime::ImeKeys,
   /// Monotonic id source for secondary windows; ids are never reused so a
@@ -1063,6 +1066,7 @@ impl Tree {
       #[cfg(feature = "canvas")]
       canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
+      dropdown_anchors: Vec::new(),
       ime_keys: ime::ImeKeys::default(),
       next_secondary_window_id: 1,
       #[cfg(feature = "mcp")]
@@ -6187,7 +6191,7 @@ impl Tree {
   fn sync_overlay_host_from_layout(
     &mut self,
     mut old_parts: OverlayHostReuse,
-    base_overlay_index: OverlayLayoutIndex,
+    mut base_overlay_index: OverlayLayoutIndex,
     glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
     constraints: Constraints,
     palette: crate::app::theme::ThemePalette,
@@ -6204,6 +6208,7 @@ impl Tree {
       detach_canvases_not_carried(old_parts.unused_canvas_bindings(), None);
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
+      self.dropdown_anchors.clear();
       return;
     };
 
@@ -6234,9 +6239,11 @@ impl Tree {
       old_parts.free_ids(&self.id_gen);
       self.root = Some(base);
       self.overlay_dismiss_entries.clear();
+      self.dropdown_anchors.clear();
       return;
     }
 
+    let mut dropdown_anchors = std::mem::take(&mut base_overlay_index.dropdown_anchors);
     let mut old_overlay_index = 0;
     for overlay in &mut overlays {
       preserve_overlay_reuse(overlay, &mut old_parts, old_overlay_index);
@@ -6273,6 +6280,7 @@ impl Tree {
           Position::Static => (0.0, 0.0),
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
+        dropdown_anchors.append(&mut overlay_layout_index.dropdown_anchors);
         let nested_entries_start = dismiss_entries.len();
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
@@ -6325,6 +6333,7 @@ impl Tree {
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
     self.overlay_dismiss_entries = dismiss_entries;
+    self.dropdown_anchors = dropdown_anchors;
   }
 
   fn sync_dynamic_content(&mut self) {

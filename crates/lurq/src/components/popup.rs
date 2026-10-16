@@ -80,6 +80,16 @@ impl Popup {
     self.overlay = self.overlay.dismiss_on_escape(dismiss);
     self
   }
+
+  /// Whether the anchor is this popup's trigger, which a left press opens.
+  /// While another dropdown is open, a press on a trigger closes it and goes
+  /// on to the trigger, so one press switches dropdowns. Defaults to `true`;
+  /// set `false` when a left press on the anchor does something else, as for
+  /// a context menu or an autocomplete list.
+  pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
+    self.overlay = self.overlay.switch_on_anchor_press(switch);
+    self
+  }
 }
 
 impl From<Popup> for Element {

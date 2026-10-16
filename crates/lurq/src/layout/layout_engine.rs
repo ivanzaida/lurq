@@ -139,6 +139,8 @@ struct ChildLayoutOverride {
 pub(crate) struct OverlayLayoutIndex {
   pub(crate) elements: Vec<ElementLayoutRecord>,
   pub(crate) overlays: Vec<OverlayLayoutRecord>,
+  /// The anchors of the dropdowns declared in the tree, open or closed.
+  pub(crate) dropdown_anchors: Vec<ElementRef>,
 }
 
 #[derive(Clone)]
@@ -169,6 +171,7 @@ impl Clone for OverlayLayoutIndex {
     Self {
       elements: self.elements.clone(),
       overlays: self.overlays.clone(),
+      dropdown_anchors: self.dropdown_anchors.clone(),
     }
   }
 }
@@ -645,12 +648,14 @@ impl LayoutEngine {
     }
   }
 
-  /// Records a node's element ref, open select menu and overlay. Split from
-  /// the recursion in [`Self::collect_overlay_index_recursive`] so that the
-  /// records, which carry whole nodes, are not held in every level's frame
-  /// in an unoptimized build (lurq#25).
+  /// Records a node's element ref, dropdown anchor, open select menu and
+  /// overlay. Split from the recursion in
+  /// [`Self::collect_overlay_index_recursive`] so that the records, which
+  /// carry whole nodes, are not held in every level's frame in an unoptimized
+  /// build (lurq#25).
   #[inline(never)]
   fn index_node_layout(node: &Node, rect: ElementRect, index: &mut OverlayLayoutIndex) {
+    index.dropdown_anchors.extend(node.dropdown_anchor().cloned());
     if let Some(element_ref) = node.element_ref.as_ref() {
       index.elements.push(ElementLayoutRecord {
         element_ref: element_ref.clone(),

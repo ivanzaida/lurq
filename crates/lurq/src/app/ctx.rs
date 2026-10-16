@@ -169,11 +169,22 @@ impl Default for CollisionStrategy {
 /// A press is outside a popup when it lands neither on the popup, nor on its
 /// anchor (a select's trigger), nor on a layer opened above it, such as a
 /// select menu or a popup opened from inside it.
+///
+/// A press on another dropdown's trigger is always delivered, so one press
+/// switches dropdowns, like a menu bar. The first interactive element under
+/// the pointer (a button, a select, anything focusable) is a trigger when it is
+/// a `Select`, or the anchor itself of a signal-driven overlay with
+/// `dismiss_on_outside_click(true)`, open or closed, that has not opted out
+/// with `switch_on_anchor_press(false)`. Other elements inside an anchor, such
+/// as the other half of a split button, are not triggers. An overlay that is
+/// only declared while open has no trigger while it is closed: declare it
+/// always and drive it with its open signal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OutsidePress {
   /// The press only closes the popup, like a native menu: the element under
   /// the pointer receives no press, release or click, and focus does not move.
-  /// Pressing again reaches it.
+  /// Pressing again reaches it. A press on another dropdown's trigger is
+  /// delivered all the same.
   #[default]
   Consume,
   /// The press closes the popup and is also delivered to the element under
@@ -367,6 +378,7 @@ pub struct Overlay {
   dismiss_on_outside_click: bool,
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  switch_on_anchor_press: bool,
 }
 
 impl Overlay {
@@ -384,6 +396,7 @@ impl Overlay {
       dismiss_on_outside_click: false,
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
+      switch_on_anchor_press: true,
     }
   }
 
@@ -447,6 +460,17 @@ impl Overlay {
     self
   }
 
+  /// Whether the anchor is this overlay's trigger, which a left press opens.
+  /// While another dropdown is open, a press on a trigger closes it and goes
+  /// on to the trigger, so one press switches dropdowns. Defaults to `true`;
+  /// set `false` when a left press on the anchor does something else, as for
+  /// a context menu or an autocomplete list. Applies to overlays with
+  /// `dismiss_on_outside_click(true)` and a signal-backed open state.
+  pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
+    self.switch_on_anchor_press = switch;
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -475,6 +499,13 @@ impl From<Overlay> for Element {
   fn from(overlay: Overlay) -> Self {
     let mut node = Node::logical();
     node.set_layout_neutral(true);
+    if overlay.dismiss_on_outside_click
+      && overlay.switch_on_anchor_press
+      && matches!(overlay.open, OpenState::Signal(_))
+      && let Some(anchor) = &overlay.anchor
+    {
+      node.set_dropdown_anchor(anchor.clone());
+    }
     if let Some(spec) = overlay.into_spec() {
       node.set_overlay_declaration(spec);
     }
