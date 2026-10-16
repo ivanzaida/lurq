@@ -3272,10 +3272,16 @@ impl Tree {
   }
 
   pub fn mouse_move(&mut self, x: f32, y: f32) {
-    self.mouse_move_with_modifiers(x, y, false, false, false);
+    self.mouse_move_with_meta(x, y, false, false, false, false);
   }
 
   pub fn mouse_move_with_modifiers(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool) {
+    self.mouse_move_with_meta(x, y, shift, ctrl, alt, false);
+  }
+
+  /// [`mouse_move_with_modifiers`](Self::mouse_move_with_modifiers) with the
+  /// Meta key (Cmd on macOS, the Windows key on Windows) too.
+  pub fn mouse_move_with_meta(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
@@ -3284,7 +3290,7 @@ impl Tree {
       y,
       MouseButton::Left,
       MouseEventKind::Move,
-      MouseModifiers { shift, ctrl, alt },
+      MouseModifiers { shift, ctrl, alt, meta },
     );
     if !active_scrollbar_drag {
       self.apply_reactive_updates_after_event();
@@ -3299,14 +3305,29 @@ impl Tree {
   }
 
   pub fn mouse_down(&mut self, x: f32, y: f32, button: MouseButton) {
-    self.mouse_down_with_modifiers(x, y, button, false, false, false);
+    self.mouse_down_with_meta(x, y, button, false, false, false, false);
   }
 
   pub fn mouse_down_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
+    self.mouse_down_with_meta(x, y, button, shift, ctrl, alt, false);
+  }
+
+  /// [`mouse_down_with_modifiers`](Self::mouse_down_with_modifiers) with the
+  /// Meta key (Cmd on macOS, the Windows key on Windows) too.
+  pub fn mouse_down_with_meta(
+    &mut self,
+    x: f32,
+    y: f32,
+    button: MouseButton,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    meta: bool,
+  ) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
     self.set_input_modality(focus_visible::InputModality::Pointer);
-    let modifiers = MouseModifiers { shift, ctrl, alt };
+    let modifiers = MouseModifiers { shift, ctrl, alt, meta };
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
       self.swallowed_press = None;
@@ -3359,13 +3380,28 @@ impl Tree {
   }
 
   pub fn mouse_up(&mut self, x: f32, y: f32, button: MouseButton) {
-    self.mouse_up_with_modifiers(x, y, button, false, false, false);
+    self.mouse_up_with_meta(x, y, button, false, false, false, false);
   }
 
   pub fn mouse_up_with_modifiers(&mut self, x: f32, y: f32, button: MouseButton, shift: bool, ctrl: bool, alt: bool) {
+    self.mouse_up_with_meta(x, y, button, shift, ctrl, alt, false);
+  }
+
+  /// [`mouse_up_with_modifiers`](Self::mouse_up_with_modifiers) with the
+  /// Meta key (Cmd on macOS, the Windows key on Windows) too.
+  pub fn mouse_up_with_meta(
+    &mut self,
+    x: f32,
+    y: f32,
+    button: MouseButton,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    meta: bool,
+  ) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
-    let modifiers = MouseModifiers { shift, ctrl, alt };
+    let modifiers = MouseModifiers { shift, ctrl, alt, meta };
     if self.swallowed_press == Some(button) {
       self.swallowed_press = None;
       // The pointer now hovers whatever the closed popup exposed.
@@ -3542,6 +3578,7 @@ impl Tree {
     // composition, as the web's `isComposing` Enter does.
     let composing_enter = evt.composing && matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter"));
     if !evt.default_prevented() && !composing_enter {
+      let click_modifiers = MouseModifiers { shift, ctrl, alt, meta };
       let select_key = select_menu::SelectKey {
         key: &key,
         code: &code,
@@ -3556,8 +3593,9 @@ impl Tree {
       } else if matches!(
         (key.as_str(), code.as_str()),
         ("Enter" | " ", _) | (_, "Enter" | "Space")
-      ) && (self.activate_focused_button()
-        || matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && self.follows_focused_link())
+      ) && (self.activate_focused_button(click_modifiers)
+        || matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter"))
+          && self.follows_focused_link(click_modifiers))
       {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Enter", _) | (_, "Enter")) && {
@@ -3712,18 +3750,19 @@ impl Tree {
   }
 
   /// Enter on a focused paragraph link follows it.
-  fn follows_focused_link(&mut self) -> bool {
+  fn follows_focused_link(&mut self, modifiers: MouseModifiers) -> bool {
     #[cfg(feature = "markdown")]
     {
-      self.activate_focused_link()
+      self.activate_focused_link(modifiers)
     }
     #[cfg(not(feature = "markdown"))]
     {
+      let _ = modifiers;
       false
     }
   }
 
-  fn activate_focused_button(&mut self) -> bool {
+  fn activate_focused_button(&mut self, modifiers: MouseModifiers) -> bool {
     let Some(focused) = self.focused_node else {
       return false;
     };
@@ -3745,18 +3784,9 @@ impl Tree {
       (kind, node.events.on_click.clone())
     };
 
+    let event = modifiers.keyboard_click(focused);
     for handler in click {
-      handler.call(&MouseEvent {
-        x: 0.0,
-        y: 0.0,
-        button: MouseButton::Left,
-        kind: MouseEventKind::Click,
-        shift: false,
-        ctrl: false,
-        alt: false,
-        target_id: focused,
-        control: EventControl::new(),
-      });
+      handler.call(&event);
     }
 
     #[cfg(feature = "form")]
@@ -3989,6 +4019,8 @@ impl Tree {
       shift: modifiers.shift,
       ctrl: modifiers.ctrl,
       alt: modifiers.alt,
+      meta: modifiers.meta,
+      from_keyboard: false,
       target_id: NodeId::UNASSIGNED,
       control: EventControl::new(),
     };
@@ -4204,6 +4236,8 @@ impl Tree {
         shift: evt.shift,
         ctrl: evt.ctrl,
         alt: evt.alt,
+        meta: evt.meta,
+        from_keyboard: false,
         target_id: hits
           .first()
           .map(|(node, _)| node.node_id())
@@ -7581,6 +7615,27 @@ struct MouseModifiers {
   shift: bool,
   ctrl: bool,
   alt: bool,
+  meta: bool,
+}
+
+impl MouseModifiers {
+  /// The click a key with these modifiers makes on `target_id`: Enter on a
+  /// focused link, Enter or Space on a focused button.
+  fn keyboard_click(self, target_id: NodeId) -> MouseEvent {
+    MouseEvent {
+      x: 0.0,
+      y: 0.0,
+      button: MouseButton::Left,
+      kind: MouseEventKind::Click,
+      shift: self.shift,
+      ctrl: self.ctrl,
+      alt: self.alt,
+      meta: self.meta,
+      from_keyboard: true,
+      target_id,
+      control: EventControl::new(),
+    }
+  }
 }
 
 #[derive(Default)]
@@ -7981,6 +8036,8 @@ impl<'t> ElementHandle<'t> {
       shift: false,
       ctrl: false,
       alt: false,
+      meta: false,
+      from_keyboard: false,
       target_id: self.node_id,
       control: EventControl::new(),
     };

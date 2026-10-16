@@ -47,6 +47,8 @@ mod offstage {
 
 mod link {
   mod click_navigates;
+  #[cfg(feature = "markdown")]
+  mod markdown_link;
 }
 
 mod rerender {

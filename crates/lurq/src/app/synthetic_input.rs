@@ -202,20 +202,20 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
   let m = input.modifiers();
   match input.kind() {
     SyntheticInputKind::MouseMove { x, y } => {
-      tree.mouse_move_with_modifiers(*x, *y, m.shift, m.ctrl, m.alt);
+      tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
     }
     SyntheticInputKind::MouseDown { x, y, button } => {
-      tree.mouse_down_with_modifiers(*x, *y, *button, m.shift, m.ctrl, m.alt);
+      tree.mouse_down_with_meta(*x, *y, *button, m.shift, m.ctrl, m.alt, m.meta);
     }
     SyntheticInputKind::MouseUp { x, y, button } => {
-      tree.mouse_up_with_modifiers(*x, *y, *button, m.shift, m.ctrl, m.alt);
+      tree.mouse_up_with_meta(*x, *y, *button, m.shift, m.ctrl, m.alt, m.meta);
     }
     SyntheticInputKind::Click { x, y, button } => {
       // Hover first: hit-testing reads the last motion event, so a press with
       // no preceding move lands wherever the pointer was left.
-      tree.mouse_move_with_modifiers(*x, *y, m.shift, m.ctrl, m.alt);
-      tree.mouse_down_with_modifiers(*x, *y, *button, m.shift, m.ctrl, m.alt);
-      tree.mouse_up_with_modifiers(*x, *y, *button, m.shift, m.ctrl, m.alt);
+      tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
+      tree.mouse_down_with_meta(*x, *y, *button, m.shift, m.ctrl, m.alt, m.meta);
+      tree.mouse_up_with_meta(*x, *y, *button, m.shift, m.ctrl, m.alt, m.meta);
     }
     SyntheticInputKind::Wheel {
       x,
@@ -225,7 +225,7 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
     } => {
       // A wheel notch is a complete gesture: scroll containers latch on Start
       // and release on End, so omitting either leaves one latched.
-      tree.mouse_move_with_modifiers(*x, *y, m.shift, m.ctrl, m.alt);
+      tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::Start);
       tree.scroll(*x, *y, *delta_x, *delta_y, ScrollPhase::Scroll);
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::End);

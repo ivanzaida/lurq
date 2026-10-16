@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.48.0 — unreleased
+
+Behaviour changes:
+
+- The click that a key makes on a focused control (Enter on a Markdown link, Enter or Space on a focused button) carries the key's Shift, Ctrl, Alt and Meta, and `MouseEvent::from_keyboard` marks it. Its modifiers were always `false`, so a handler could not tell Ctrl+Enter from Enter.
+
+Added:
+
+- `MarkdownProps::on_link_activate(f)`: called with the link and the `MouseEvent` that activated it (a left click, a middle click, or Enter on the focused link), so an app can follow browser rules: a middle click or Ctrl+click (Cmd+click on macOS) opens the link in a background tab, Ctrl+Shift+click opens it and switches to it. The event's `button` is `Left` or `Middle` (`Left` for Enter), `from_keyboard` is set for Enter, and `shift`, `ctrl`, `alt` and `meta` are the modifiers held. A middle click is a press and a release of the middle button on the same link, like a left click: a press on one link released on another, or off the link, activates nothing, and the press starts no text selection and no drag of what the link is in. `on_link_click` is unchanged (left clicks and Enter) and runs after `on_link_activate` when both are set; with `on_link_activate` set, a link to an in-app path no longer navigates the router by itself. The callback runs inside the input's dispatch, so `is_synthetic_input()` tells an MCP client's `lurq_interact` click (`"button": "middle"`, `"modifiers": [...]`) from a person's.
+- `MouseEvent::meta`, on every mouse event (move, down, up, click, double-click): Cmd on macOS, the Windows key on Windows, Super elsewhere. The winit shell fills it from `ModifiersState::super_key`, and synthetic input from `SyntheticModifiers::meta` (MCP `"modifiers": ["meta"]`), which pointer events used to drop. A shell that drives a `Tree` itself passes it with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`; `mouse_*_with_modifiers` report it released.
+- `MouseEvent::from_keyboard`: a key made this click, not the pointer (Enter on a focused link, Enter or Space on a focused button). Its `button` is `Left` and `x`, `y` are 0, as for a browser's keyboard click.
+
 ## 0.47.0 — 2026-10-16
 
 Behaviour changes:
