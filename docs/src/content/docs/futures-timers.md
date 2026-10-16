@@ -262,7 +262,7 @@ An offstage component (`ctx.mount_offstage`, `Router::mount_offstage`) is still 
 Enable `tokio` and configure a live runtime handle to spawn futures and streams on Tokio. Add a direct Tokio dependency when application code uses its APIs:
 
 ```toml
-lurq = { version = "0.45.0", features = ["tokio"] }
+lurq = { version = "0.46.0", features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 ```
 
@@ -279,7 +279,7 @@ Keep `tokio_rt` alive for as long as the UI uses its tasks. Without a configured
 
 ## Waking the Event Loop
 
-An idle window does not poll: its event loop sleeps until the next timer or scheduled frame, an input event, or a wake (since lurq 0.45.0). Work that finishes off the loop wakes it:
+An idle window does not poll: its event loop sleeps until the next timer or scheduled frame, an input event, or a wake (since lurq 0.46.0). Work that finishes off the loop wakes it:
 
 - A result or stream item handed over from Tokio wakes the loop when it arrives.
 - A future that lurq polls itself (one not running on Tokio) gets a waker that wakes the loop. Such a future must honour the `Future` contract: when it returns `Pending`, it must arrange for that waker to be called once it can make progress (an async channel, timer or I/O future does this for you). A future that returns `Pending` without arranging a wake is not polled again until something else wakes the loop.
