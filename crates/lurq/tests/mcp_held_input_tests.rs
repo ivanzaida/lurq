@@ -1,6 +1,7 @@
 //! End to end over HTTP, the way an agent drives an app: a drag held across
-//! `lurq_interact` calls lands one move per pass, and a press is released for
-//! its client when the client ends its MCP session.
+//! `lurq_interact` calls lands one move per pass, a press is released for its
+//! client when the client ends its MCP session, and a held Meta key reaches
+//! pointer events.
 #![cfg(feature = "mcp")]
 
 mod mcp_client;
@@ -19,6 +20,7 @@ use lurq::{
   },
   components::{Column, Rect},
   mcp::McpConfig,
+  node::Element,
 };
 use mcp_client::Client;
 use serde_json::{Value, json};
@@ -32,20 +34,23 @@ fn push(log: &Log, entry: String) {
 
 /// A 100x100 drag handle at the window's origin, logging what reaches it, served over MCP.
 fn app_with_handle(log: &Log) -> (Tree, App, Client) {
+  let (down, start, moved, end, up) = (log.clone(), log.clone(), log.clone(), log.clone(), log.clone());
+  served(
+    Rect::new(100.0, 100.0)
+      .on_mouse_down(move |_: MouseEvent| push(&down, "down".into()))
+      .on_drag_start(move |_: DragEvent| push(&start, "drag_start".into()))
+      .on_drag_move(move |event: DragEvent| push(&moved, format!("drag_move {}", event.total_delta_x)))
+      .on_drag_end(move |event: DragEvent| push(&end, format!("drag_end {}", event.x)))
+      .on_mouse_up(move |_: MouseEvent| push(&up, "up".into())),
+  )
+}
+
+/// `target` at the origin of a 400x300 window, served over MCP.
+fn served(target: impl Into<Element>) -> (Tree, App, Client) {
   let mut app = App::new();
   let mut tree = Tree::new();
   tree.resize(400, 300);
-  let (down, start, moved, end, up) = (log.clone(), log.clone(), log.clone(), log.clone(), log.clone());
-  tree.set_root(
-    Column::new().width(400.0).height(300.0).child(
-      Rect::new(100.0, 100.0)
-        .on_mouse_down(move |_: MouseEvent| push(&down, "down".into()))
-        .on_drag_start(move |_: DragEvent| push(&start, "drag_start".into()))
-        .on_drag_move(move |event: DragEvent| push(&moved, format!("drag_move {}", event.total_delta_x)))
-        .on_drag_end(move |event: DragEvent| push(&end, format!("drag_end {}", event.x)))
-        .on_mouse_up(move |_: MouseEvent| push(&up, "up".into())),
-    ),
-  );
+  tree.set_root(Column::new().width(400.0).height(300.0).child(target));
   tree.pass_headless(&mut app);
   let mcp = tree.enable_mcp(McpConfig::new().app_name("lurq-held-input-test"));
   assert_ne!(mcp.port(), 0, "the MCP server is listening");
@@ -154,4 +159,51 @@ fn ending_the_session_releases_what_it_held() {
     .collect();
   // The press ends as an abandoned one: the drag ends where the pointer was, then the up event.
   assert_eq!(entries, ["down", "drag_start", "drag_end 50", "up"]);
+}
+
+#[test]
+fn a_held_meta_key_sets_meta_on_pointer_events() {
+  let log = Log::default();
+  let (down, up, click) = (log.clone(), log.clone(), log.clone());
+  let (mut tree, mut app, mut client) = served(
+    Rect::new(100.0, 100.0)
+      .on_mouse_down(move |event: MouseEvent| push(&down, format!("down meta={}", event.meta)))
+      .on_mouse_up(move |event: MouseEvent| push(&up, format!("up meta={}", event.meta)))
+      .on_click(move |event: MouseEvent| push(&click, format!("click meta={}", event.meta))),
+  );
+  let agent = std::thread::spawn(move || {
+    client.initialize();
+    client.tool("lurq_interact", json!({"action": "key_down", "key": "Meta"}));
+    client.tool("lurq_interact", json!({"action": "click", "x": 50, "y": 50}));
+    client.tool("lurq_interact", json!({"action": "press", "x": 60, "y": 60}));
+    client.tool("lurq_interact", json!({"action": "release"}));
+    client.tool("lurq_interact", json!({"action": "key_up", "key": "Meta"}));
+    client.tool("lurq_interact", json!({"action": "click", "x": 50, "y": 50}));
+  });
+  let pointer_events = |log: &[String]| log.iter().filter(|entry| *entry != "pass").count();
+  serve(&mut tree, &mut app, &log, agent, |log| pointer_events(log) == 9);
+
+  let log = log.lock().unwrap();
+  let entries: Vec<&str> = log
+    .iter()
+    .map(String::as_str)
+    .filter(|entry| *entry != "pass")
+    .collect();
+  assert_eq!(
+    entries,
+    [
+      // A click while Meta is held.
+      "down meta=true",
+      "up meta=true",
+      "click meta=true",
+      // A held press and its release while Meta is held.
+      "down meta=true",
+      "up meta=true",
+      "click meta=true",
+      // Released, Meta no longer applies.
+      "down meta=false",
+      "up meta=false",
+      "click meta=false",
+    ]
+  );
 }

@@ -153,7 +153,10 @@ impl MarkdownProps {
   ///
   /// A middle click is a press and a release of the middle button on the
   /// same link, like a left click. Its press starts no text selection or
-  /// drag, and a press on one link released on another activates neither.
+  /// drag. A press released off the link activates nothing, and neither
+  /// does a press on one link released on another more than a few pixels
+  /// away; closer, the link under the release activates, as with a left
+  /// click.
   /// The callback runs inside the input's dispatch, so
   /// [`is_synthetic_input`](crate::app::events::is_synthetic_input) tells a
   /// person from an MCP client here too.

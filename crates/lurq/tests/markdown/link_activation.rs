@@ -9,6 +9,7 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     events::{MouseButton, MouseEvent, is_synthetic_input, with_synthetic_input},
+    synthetic_input::{SyntheticInput, SyntheticModifiers, apply},
   },
   components::{Column, Markdown, MarkdownLink, MarkdownProps},
   layout::quad::QuadContent,
@@ -168,6 +169,25 @@ fn markdown_enter_on_a_link_reports_keyboard_activation_with_its_modifiers() {
 }
 
 #[test]
+fn markdown_synthetic_enter_on_a_focused_link_activates_it_as_synthetic_input() {
+  let (activations, record) = recorder();
+  let (mut app, mut tree) = mount(MarkdownProps::new(TWO_LINKS).on_link_activate(record).width(500.0));
+
+  tree.key_down("Tab".into(), "Tab".into(), false, false, false);
+  pass(&mut app, &mut tree);
+  apply(&mut tree, &SyntheticInput::key_down("Enter"));
+
+  assert_eq!(
+    taken(&activations),
+    [Activation {
+      from_keyboard: true,
+      synthetic: true,
+      ..Activation::pointer("/first", MouseButton::Left)
+    }]
+  );
+}
+
+#[test]
 fn markdown_middle_press_on_one_link_released_elsewhere_activates_nothing() {
   let (activations, record) = recorder();
   let (_app, mut tree) = mount(MarkdownProps::new(TWO_LINKS).on_link_activate(record).width(500.0));
@@ -309,9 +329,9 @@ fn markdown_synthetic_middle_click_activates_a_link_as_synthetic_input() {
   let second = bounds_of(&mut tree, "second");
   let (x, y) = (second.x + 3.0, second.y + 3.0);
 
-  let input = lurq::app::synthetic_input::SyntheticInput::click_button(x, y, MouseButton::Middle)
-    .with_modifiers(lurq::app::synthetic_input::SyntheticModifiers::default().ctrl().meta());
-  lurq::app::synthetic_input::apply(&mut tree, &input);
+  let input =
+    SyntheticInput::click_button(x, y, MouseButton::Middle).with_modifiers(SyntheticModifiers::default().ctrl().meta());
+  apply(&mut tree, &input);
   with_synthetic_input(|| pointer_click(&mut tree, x, y, MouseButton::Left));
 
   assert_eq!(
