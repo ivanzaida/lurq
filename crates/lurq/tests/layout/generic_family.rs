@@ -47,6 +47,7 @@ fn generic_family_names_are_the_css_keywords_in_any_case() {
     ("Sans-Serif", GenericFamily::SansSerif),
   ] {
     assert_eq!(GenericFamily::from_name(name), Some(generic), "{name:?}");
+    assert_eq!(generic.keyword(), name.to_ascii_lowercase());
   }
   for name in [
     "",
@@ -123,4 +124,100 @@ fn generic_family_alias_to_a_keyword_draws_in_the_generic_family() {
   let narrow = width(&mut app, "iiii", "code");
   let wide = width(&mut app, "MMMM", "code");
   assert!((narrow - wide).abs() < 0.01, "\"iiii\" {narrow}, \"MMMM\" {wide}");
+}
+
+#[test]
+fn generic_family_alias_of_a_keyword_matches_the_keyword_in_any_case() {
+  let mut app = App::new();
+  app.install_fonts([PROBE.to_vec()], [("Monospace", PROBE_FAMILY)]);
+  for family in ["monospace", "MONOSPACE", "Monospace"] {
+    assert!((width(&mut app, "aaaa", family) - 40.0).abs() < 0.01, "{family:?}");
+  }
+}
+
+/// The font a generic family is expected to draw with on this platform (the
+/// first of its list), and a file that holds it where the platform ships it.
+struct PlatformFont {
+  family: &'static str,
+  file: &'static str,
+}
+
+#[cfg(target_os = "windows")]
+const MONOSPACE: PlatformFont = PlatformFont {
+  family: "Consolas",
+  file: r"C:\Windows\Fonts\consola.ttf",
+};
+#[cfg(target_os = "windows")]
+const SERIF: PlatformFont = PlatformFont {
+  family: "Times New Roman",
+  file: r"C:\Windows\Fonts\times.ttf",
+};
+#[cfg(target_os = "macos")]
+const MONOSPACE: PlatformFont = PlatformFont {
+  family: "Menlo",
+  file: "/System/Library/Fonts/Menlo.ttc",
+};
+#[cfg(target_os = "macos")]
+const SERIF: PlatformFont = PlatformFont {
+  family: "Times",
+  file: "/System/Library/Fonts/Times.ttc",
+};
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const MONOSPACE: PlatformFont = PlatformFont {
+  family: "DejaVu Sans Mono",
+  file: "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+};
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const SERIF: PlatformFont = PlatformFont {
+  family: "DejaVu Serif",
+  file: "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+};
+
+const SAMPLE: &str = "Hamburgefonstiv 0123 MW il";
+
+/// Whether `font` is installed; says why the test is skipped when it is not.
+fn installed(font: &PlatformFont) -> bool {
+  let installed = std::path::Path::new(font.file).exists();
+  if !installed {
+    eprintln!(
+      "skipped: {} is not installed here ({} is missing), so the generic family falls back to another font",
+      font.family, font.file
+    );
+  }
+  installed
+}
+
+#[test]
+fn generic_family_monospace_is_the_platform_monospace_font() {
+  if !installed(&MONOSPACE) {
+    return;
+  }
+  let mut app = App::new();
+  assert_eq!(
+    width(&mut app, SAMPLE, "monospace"),
+    width(&mut app, SAMPLE, MONOSPACE.family),
+    "monospace draws in {}",
+    MONOSPACE.family
+  );
+}
+
+#[test]
+fn generic_family_serif_is_the_platform_serif_font() {
+  if !installed(&SERIF) {
+    return;
+  }
+  let mut app = App::new();
+  let serif = width(&mut app, SAMPLE, "serif");
+  assert_eq!(
+    serif,
+    width(&mut app, SAMPLE, SERIF.family),
+    "serif draws in {}",
+    SERIF.family
+  );
+  assert_eq!(serif, width(&mut app, SAMPLE, "Serif"));
+  let sans = width(&mut app, SAMPLE, "sans-serif");
+  assert!(
+    (serif - sans).abs() > 1.0,
+    "serif ({serif}) and sans-serif ({sans}) draw in different fonts"
+  );
 }

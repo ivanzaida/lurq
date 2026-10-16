@@ -39,7 +39,7 @@ use crate::{
     Size,
     quad::{ClipRect, RichTextSpan},
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
-    text_style::{FontFeatures, FontStyle, TextAlign, TextStyle, cosmic_family},
+    text_style::{FontFeatures, FontStyle, TextAlign, TextStyle, alias_name, cosmic_family},
   },
   node::{
     color::Color,
@@ -549,6 +549,7 @@ impl GlyphEngine {
   }
 
   pub(crate) fn register_font(&mut self, name: &str, family: &str) {
+    let name = alias_name(name);
     if self.font_aliases.get(name).is_some_and(|current| current == family) {
       return;
     }
@@ -573,7 +574,7 @@ impl GlyphEngine {
       }
     }
     for (name, family) in aliases {
-      let name = name.as_ref();
+      let name = alias_name(name.as_ref());
       let family = family.as_ref();
       if self.font_aliases.get(name).is_some_and(|current| current == family) {
         continue;
@@ -2823,7 +2824,7 @@ impl GlyphEngine {
   fn resolve_family(&self, style: &TextStyle) -> std::sync::Arc<str> {
     self
       .font_aliases
-      .get(&*style.font_family)
+      .get(alias_name(&style.font_family))
       .map(|s| std::sync::Arc::from(s.as_str()))
       .unwrap_or_else(|| style.font_family.clone())
   }

@@ -17,7 +17,7 @@ use shape_cache::ShapeCache;
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
   app::glyph_engine::{FaceWeights, with_letter_spacing},
-  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, cosmic_family},
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, alias_name, cosmic_family},
   node::color::Color,
 };
 
@@ -234,7 +234,7 @@ impl CanvasTextEngine {
     buffer.set_wrap(Wrap::None);
     let family = self
       .aliases
-      .get(font.family.as_ref())
+      .get(alias_name(&font.family))
       .map(String::as_str)
       .unwrap_or(&font.family);
     let weight = self

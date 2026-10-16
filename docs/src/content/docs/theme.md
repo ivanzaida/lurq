@@ -172,7 +172,7 @@ Available roles:
 | `FieldLabel` | `field_label` | `13px`, medium |
 | `Button` | `button` | `13px`, medium |
 | `Link` | `link` | body defaults |
-| `Mono` | `mono` | body defaults with `monospace` family |
+| `Mono` | `mono` | body defaults with the generic `monospace` family |
 
 `TypographyStyle::Extra(name)` names an application-defined style stored in `ThemeTypography::extra`, a `HashMap<Arc<str>, TextStyle>`; see [Extra Roles](#extra-roles).
 
@@ -191,6 +191,19 @@ use lurq::{
 Text::new("Headline").variant(TypographyStyle::Heading);
 Text::new("Caption").variant(TypographyStyle::Caption);
 Text::new("Long endpoint name").text_overflow(TextOverflow::Elipsis);
+```
+
+### Generic Families
+
+`TextStyle::font_family` (and `CanvasFont`'s family) may name a CSS generic family: `"serif"`, `"sans-serif"`, `"monospace"`, `"cursive"` or `"fantasy"`, in any ASCII case. It draws with the platform's font for that family rather than a font of that name, and `sans-serif` draws as the empty family does. [`GenericFamily`](https://docs.rs/lurq/latest/lurq/layout/text_style/enum.GenericFamily.html) lists the fonts of every platform and the fallbacks. The default `Mono` role, Markdown's inline code, code blocks and tables, and the devtools use `monospace`.
+
+The fonts are chosen when the `App` is created. To draw a generic family in a font the app bundles, load the font and register an alias of the keyword; an alias is resolved before the keyword, in any ASCII case:
+
+```rust
+app.install_fonts(
+  [include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf").to_vec()],
+  [("monospace", "JetBrains Mono")],
+);
 ```
 
 ### Font Weight

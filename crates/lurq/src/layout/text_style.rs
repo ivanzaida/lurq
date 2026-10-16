@@ -9,7 +9,7 @@ mod font_features;
 mod generic_family;
 pub use font_features::{FontFeature, FontFeatures};
 pub use generic_family::GenericFamily;
-pub(crate) use generic_family::cosmic_family;
+pub(crate) use generic_family::{alias_name, cosmic_family};
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
@@ -23,19 +23,10 @@ const DEFAULT_FONT_FAMILY_FALLBACK: &str = "";
 pub struct TextStyle {
   /// The font family: a family name, an alias registered with
   /// `App::register_font` (resolved first), or a CSS generic family
-  /// ([`GenericFamily`]: `"serif"`, `"sans-serif"`, `"monospace"`, `"cursive"`,
-  /// `"fantasy"`, in any ASCII case). `monospace` draws with the first
-  /// installed of Consolas, Cascadia Mono and Courier New on Windows, of Menlo,
-  /// Monaco and Courier New on macOS, and of DejaVu Sans Mono, Noto Sans Mono
-  /// and Liberation Mono elsewhere (with none of them, the first monospaced
-  /// font installed); `serif` with Times New Roman on Windows, Times or Times
-  /// New Roman on macOS, and DejaVu Serif, Noto Serif or Liberation Serif
-  /// elsewhere. `sans-serif` draws as the empty name does. `cursive` and
-  /// `fantasy` ask for the fonts fontdb names (Comic Sans MS; Impact, Papyrus
-  /// on macOS; fontconfig's choice on Linux), and draw with the fallback fonts
-  /// where those are not installed. To draw a generic family in a font of the
-  /// app's, register an alias of its name:
-  /// `app.register_font("monospace", "JetBrains Mono")`.
+  /// (`"serif"`, `"sans-serif"`, `"monospace"`, `"cursive"`, `"fantasy"`, in
+  /// any ASCII case), drawn with the platform's font for it. See
+  /// [`GenericFamily`] for the fonts each platform uses and for drawing one in
+  /// a bundled font.
   pub font_family: Arc<str>,
   pub font_size: f32,
   pub line_height: f32,

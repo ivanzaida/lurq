@@ -1,15 +1,15 @@
-//! The fonts the generic `monospace` and `serif` families draw with.
+//! The fonts the generic `monospace` and `serif` families draw with; the
+//! lists are documented on [`GenericFamily`].
 //!
 //! cosmic-text names Noto Sans Mono and DejaVu Serif for them on every
 //! platform, which Windows and macOS do not ship: text in those families fell
 //! through to the fallback fonts (Segoe UI on Windows). Each platform's own
 //! fonts are named here instead, the first one installed, as browsers do.
-//! Without any of them the names stay cosmic-text's: monospace text then
-//! draws with the first monospaced font installed, serif text with the
-//! fallback fonts. `sans-serif` keeps cosmic-text's name, so it draws as the
-//! default family (the empty name) does, and `cursive` and `fantasy` keep
-//! fontdb's (Comic Sans MS; Impact, Papyrus on macOS; fontconfig's choice on
-//! Linux).
+//! Without any of them the names stay cosmic-text's. `sans-serif` keeps
+//! cosmic-text's name, so it draws as the default family (the empty name)
+//! does, and `cursive` and `fantasy` keep fontdb's.
+//!
+//! [`GenericFamily`]: crate::layout::text_style::GenericFamily
 
 use cosmic_text::fontdb::Database;
 
