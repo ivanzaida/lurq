@@ -1,7 +1,12 @@
 //! Selecting text with the pointer, checked against the glyphs the tree
 //! draws: a drag from the left edge of one drawn glyph to the right edge of
 //! another selects exactly the text between them, and highlights nothing but
-//! those glyphs.
+//! those glyphs. A glyph stands for the characters it draws, which a
+//! ligature makes several (`clusters`).
+
+// Loaded through `#[path]`, this file finds its modules beside it.
+#[path = "selection/clusters.rs"]
+mod clusters;
 
 use std::cell::{Cell, RefCell};
 
@@ -11,6 +16,7 @@ use lurq::{
   node::color::Color,
 };
 
+use self::clusters::Probes;
 use super::{render_pass_with_app, GlyphSnapshot, RectSnapshot, TestSurface};
 
 /// The theme's default selection highlight.
@@ -27,7 +33,9 @@ pub const GLYPH_PADDING: f32 = 2.0;
 /// space when copied (`selected_text_lines::EPSILON`).
 const JOIN_GAP: f32 = 1.0;
 
-/// A drawn glyph that stands for one character of the page's text.
+/// A drawn glyph and the characters of the page's text it stands for: one,
+/// or several that a ligature draws as one glyph. A character drawn as
+/// several glyphs has one ink over all of them.
 #[derive(Clone, Copy, Debug)]
 pub struct Ink {
   /// The glyph's row, from the top of its text.
@@ -36,7 +44,7 @@ pub struct Ink {
   pub right: f32,
   /// The middle of the glyph's row, in physical pixels.
   pub y: f32,
-  /// Where the character sits in the text (`Page::text`).
+  /// Where its characters sit in the text (`Page::text`).
   pub start: usize,
   pub end: usize,
 }
@@ -75,6 +83,7 @@ pub struct Page {
   /// Colors of glyphs that are not the text's (a link's trailing runs),
   /// left out of `inks`.
   ignored: Vec<[f32; 4]>,
+  probes: Probes,
 }
 
 impl Page {
@@ -88,6 +97,7 @@ impl Page {
       inks: Vec::new(),
       nodes: Vec::new(),
       ignored: Vec::new(),
+      probes: Probes::default(),
     };
     page.read_glyphs();
     page
@@ -104,6 +114,7 @@ impl Page {
       inks: Vec::new(),
       nodes: Vec::new(),
       ignored: Vec::new(),
+      probes: Probes::default(),
     }
   }
 
@@ -141,31 +152,40 @@ impl Page {
     let mut glyphs = glyphs.into_iter();
     let mut inks = Vec::new();
     for node in &self.nodes {
-      let mut chars = node
-        .text
-        .char_indices()
-        .filter(|(_, ch)| !ch.is_whitespace())
-        .peekable();
-      let count = chars.clone().count();
+      let clusters = self.probes.clusters(&mut self.app, &node.text);
+      let count = clusters.iter().map(|cluster| cluster.glyphs).sum();
       let node_glyphs: Vec<GlyphSnapshot> = glyphs.by_ref().take(count).collect();
-      for (row, glyph) in rows_of(node_glyphs) {
-        let (start, ch) = chars.next().expect("a character for every drawn glyph");
-        inks.push(Ink {
-          row: row.index,
-          left: glyph.x + GLYPH_PADDING,
-          right: glyph.x + glyph.width - GLYPH_PADDING,
-          y: row.center,
-          start: node.offset + start,
-          end: node.offset + start + ch.len_utf8(),
-        });
-      }
-      assert!(
-        chars.peek().is_none(),
-        "every non-whitespace character of {:?} is drawn as a glyph",
+      assert_eq!(
+        node_glyphs.len(),
+        count,
+        "every non-whitespace character of {:?} is drawn",
         node.text
       );
+      let mut drawn = rows_of(node_glyphs).into_iter();
+      for cluster in clusters.into_iter().filter(|cluster| cluster.glyphs > 0) {
+        let cluster_glyphs: Vec<_> = drawn.by_ref().take(cluster.glyphs).collect();
+        let (row, _) = cluster_glyphs[0];
+        inks.push(Ink {
+          row: row.index,
+          left: cluster_glyphs.iter().map(|(_, glyph)| glyph.x).fold(f32::MAX, f32::min) + GLYPH_PADDING,
+          right: cluster_glyphs
+            .iter()
+            .map(|(_, glyph)| glyph.x + glyph.width)
+            .fold(f32::MIN, f32::max)
+            - GLYPH_PADDING,
+          y: row.center,
+          start: node.offset + cluster.bytes.start,
+          end: node.offset + cluster.bytes.end,
+        });
+      }
     }
     self.inks = inks;
+  }
+
+  /// How many glyphs `text` draws on its own in the page's fonts: one per
+  /// non-whitespace character, less where a ligature joins several.
+  pub fn glyphs_drawn_for(&mut self, text: &str) -> usize {
+    self.probes.glyphs(&mut self.app, text)
   }
 
   pub fn pass(&mut self) {

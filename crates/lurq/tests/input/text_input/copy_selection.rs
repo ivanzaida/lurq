@@ -183,8 +183,8 @@ fn drags_over_the_rows_of_a_scrolled_multiline_input_select_the_words_drawn_on_t
     let words = selected(&mut page).unwrap_or_default();
     let start = LONG[after..].find(&words).map(|at| after + at);
     assert!(
-      start.is_some() && words.chars().filter(|ch| !ch.is_whitespace()).count() == on_row.len(),
-      "row {index} selects the {} words drawn on it, after byte {after}: {words:?}",
+      start.is_some() && page.glyphs_drawn_for(&words) == on_row.len(),
+      "row {index} selects the words of the {} glyphs drawn on it, after byte {after}: {words:?}",
       on_row.len()
     );
     if index == 0 {
