@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Fixed:
+
+- `VirtualizedList::reveal_key` of a row taller than the viewport no longer holds the list at that row. Such a row is never fully visible, so its reveal stayed pending and every layout scrolled the row's top back to the viewport's top: the wheel and the scrollbar moved the list for one frame and it jumped back, until the key changed. The reveal now ends once the row's top is at the viewport's top. A chat that reveals its newest message on opening could not be scrolled while that message was taller than the view.
+
 ## 0.47.0 — 2026-10-16
 
 Behaviour changes:
