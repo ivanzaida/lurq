@@ -463,9 +463,10 @@ lurq::components::Text::styled("hello", TextStyle {
 })
 ```
 
-The glyph engine also records caret positions for text selection. `Text::selectable(true)` uses those positions for drag
-ranges, double-click word selection, and triple-click line selection. Wrapped or multiline selections render separate
-highlight rectangles for each selected row.
+The glyph engine also records caret positions for text selection, one before and one after every glyph of the layout
+the text is drawn with (a right-to-left glyph's caret before it is at its right edge). `Text::selectable(true)` uses
+those positions for drag ranges, double-click word selection, and triple-click line selection. Wrapped or multiline
+selections render separate highlight rectangles for each selected row.
 
 Transforms are visual-only for layout size, but render output and hit testing use the transformed coordinates. Text
 selection and text input carets therefore follow transformed text, including text inside a transformed parent.

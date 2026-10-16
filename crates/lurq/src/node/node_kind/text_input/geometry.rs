@@ -293,7 +293,14 @@ impl TextInputState {
     if let Some(layout) = decorated {
       return layout.selection(start..end, (inner.scroll_x, inner.scroll_y()));
     }
-    selection_ranges_for_positions(&inner.caret_positions, start, end, inner.scroll_x, inner.scroll_y())
+    selection_ranges_for_positions(
+      &inner.caret_positions,
+      None,
+      start,
+      end,
+      inner.scroll_x,
+      inner.scroll_y(),
+    )
   }
 
   pub(crate) fn set_focused(&self, focused: bool) {

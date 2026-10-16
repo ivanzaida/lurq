@@ -49,6 +49,7 @@ pub(crate) mod input_token_layout;
 mod input_token_quads;
 mod opacity_groups;
 mod select_quads;
+mod selection_layout;
 #[cfg(feature = "screenshot")]
 mod sensitive_quads;
 mod shrink_distribution;
@@ -232,7 +233,6 @@ pub(crate) struct LayoutEngine {
   collapsed_lines: RefCell<Vec<usize>>,
   /// Device pixels per logical pixel of the paint, for geometry that must
   /// match painted glyphs (rich-text links and underlines).
-  #[cfg(feature = "markdown")]
   paint_scale: Cell<f32>,
 }
 
@@ -503,14 +503,12 @@ impl LayoutEngine {
       #[cfg(feature = "screenshot")]
       sensitive_quads: RefCell::new(Vec::new()),
       collapsed_lines: RefCell::new(Vec::new()),
-      #[cfg(feature = "markdown")]
       paint_scale: Cell::new(1.0),
     }
   }
 
   /// Device pixels per logical pixel the paint draws at. Laid-out link and
   /// underline geometry depends on it; changing it needs a full relayout.
-  #[cfg(feature = "markdown")]
   pub(crate) fn set_paint_scale(&self, scale: f32) {
     self.paint_scale.set(scale);
   }
@@ -1258,16 +1256,14 @@ impl LayoutEngine {
             .min(result.size.height)
             .max(1.0);
           let selection_clip = clip;
-          let text_top = Self::inline_text_frame(result).map_or(0.0, |(top, _)| top);
           let generated = Self::generated_span_rects(node, result);
           let pieces = state
             .selection_ranges(&node.rich_text_value().unwrap_or_default())
             .into_iter()
             .flat_map(|selection| {
-              let y = text_top + selection.y;
-              inline_links::without_rects(selection.x, y, selection.width, selection_height, &generated)
+              inline_links::without_rects(selection.x, selection.y, selection.width, selection_height, &generated)
                 .into_iter()
-                .map(move |(x, width)| (x, y, width))
+                .map(move |(x, width)| (x, selection.y, width))
             });
           for (x, y, width) in pieces {
             let selection_x = abs_x + x;
@@ -2245,12 +2241,12 @@ impl LayoutEngine {
     let frame_is_flat = frame != FrameConstraints::default();
     let padding_is_flat = padding != Padding::default() || self.text_input_scrollbar_lane(node) > 0.0;
 
-    #[cfg_attr(not(feature = "markdown"), allow(unused_mut))]
     let mut result = if frame_is_flat || padding_is_flat {
       self.layout_flat_box(glyph_engine, node, constraints, &frame, &padding, child_overrides)
     } else {
       self.layout_node_content(glyph_engine, node, constraints, child_overrides)
     };
+    self.lay_out_text_selection(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
     self.lay_out_inline_text(glyph_engine, node, &mut result);
     result
@@ -2557,21 +2553,20 @@ impl LayoutEngine {
     let layout_text = overflow_display_text.as_deref().unwrap_or(text);
     let display_text = (force_display_text || overflow_display_text.is_some()).then(|| Arc::from(layout_text));
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
-    let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    let caret_positions = state
-      .selectable()
-      .then(|| glyph_engine.caret_positions(layout_text, style, max_width, effective_wrap));
-    let size = if caret_positions.is_none() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
+    let size = if !state.selectable() && overflow_display_text.is_none() && constraints_are_tight(constraints) {
       Size::new(constraints.max_width, constraints.max_height)
     } else {
       self
         .layout_text(glyph_engine, layout_text, style, constraints, effective_wrap)
         .size
     };
+    // Selectable text gets its carets from the painted layout once its box
+    // is known (`lay_out_text_selection`).
     let output = TextOutput {
       display_text,
       render_wrap,
-      caret_positions,
+      carets: None,
+      text_top: 0.0,
       #[cfg(feature = "markdown")]
       inline: None,
     };
@@ -2591,16 +2586,10 @@ impl LayoutEngine {
     let effective_wrap = wrap && overflow == TextOverflow::Clip;
     let render_wrap = effective_wrap && bounded_text_width(constraints.max_width);
     let max_width = if render_wrap { constraints.max_width } else { f32::MAX };
-    let (display_text, caret_positions) = if state.selectable() {
-      let display_text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
-      let caret_positions = spans
-        .first()
-        .map(|first| glyph_engine.caret_positions(&display_text, &first.style, max_width, effective_wrap));
-      (Some(Arc::from(display_text)), caret_positions)
-    } else {
-      (None, None)
-    };
-    let measured = glyph_engine.measure_rich_text(spans, max_width);
+    let display_text = state
+      .selectable()
+      .then(|| Arc::from(spans.iter().map(|span| span.text.as_str()).collect::<String>()));
+    let measured = glyph_engine.measure_rich_text(spans, 1.0, max_width);
     let size = if effective_wrap {
       constraints.constrain(measured)
     } else {
@@ -2609,10 +2598,13 @@ impl LayoutEngine {
         measured.height.max(constraints.min_height),
       )
     };
+    // Selectable text gets its carets from the painted layout once its box
+    // is known (`lay_out_text_selection`).
     let output = TextOutput {
       display_text,
       render_wrap,
-      caret_positions,
+      carets: None,
+      text_top: 0.0,
       #[cfg(feature = "markdown")]
       inline: None,
     };

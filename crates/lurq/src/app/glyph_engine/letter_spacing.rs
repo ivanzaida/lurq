@@ -48,7 +48,7 @@ mod tests {
   fn rich_spans_space_their_own_glyphs_in_pixels() {
     let mut engine = GlyphEngine::new();
     engine.load_font(REGULAR.to_vec());
-    let width = |engine: &mut GlyphEngine, spans: &[RichTextSpan]| engine.measure_rich_text(spans, f32::MAX).width;
+    let width = |engine: &mut GlyphEngine, spans: &[RichTextSpan]| engine.measure_rich_text(spans, 1.0, f32::MAX).width;
 
     let unspaced = [span("aa", 10.0, 0.0), span("aa", 10.0, 0.0)];
     assert!((width(&mut engine, &unspaced) - 20.0).abs() < 0.01);

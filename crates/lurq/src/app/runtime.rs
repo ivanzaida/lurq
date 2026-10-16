@@ -51,7 +51,7 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
     render_list::{GlyphCmd, RectCmd, RenderGradient, RenderList},
     scrollbar::ScrollBarPart,
-    text_style::{FontWeight, TextStyle, VerticalAlign},
+    text_style::{FontWeight, TextStyle},
   },
   node::{
     Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SyntheticNodeRole, TextTransformMode,
@@ -655,6 +655,9 @@ pub struct Tree {
   dragging_scroll: Option<ScrollDrag>,
   dragging_slider: Option<SliderDrag>,
   dragging_text_selection: Option<TextSelectionDrag>,
+  /// Where the selection in the selectable texts started, which a Shift
+  /// press extends from.
+  selectable_text_anchor: Option<SelectableTextAnchor>,
   active_drag: Option<ActiveDrag>,
   focus_memory: FocusMemory,
   focused_node: Option<NodeId>,
@@ -1010,6 +1013,7 @@ impl Tree {
       dragging_scroll: None,
       dragging_slider: None,
       dragging_text_selection: None,
+      selectable_text_anchor: None,
       active_drag: None,
       focus_memory: FocusMemory::default(),
       focused_node: None,
@@ -1101,14 +1105,11 @@ impl Tree {
     self.scale_factor = scale;
     self.window.set_scale_factor(scale);
     self.invalidate_viewport_layout();
-    // Rich-text link and underline geometry is laid out at the paint's scale,
-    // inside caches below the root.
-    #[cfg(feature = "markdown")]
-    {
-      self.layout_engine.set_paint_scale(scale);
-      if let Some(root) = self.root.as_ref() {
-        invalidate_layout_cache_recursive(root);
-      }
+    // Selection carets and rich-text link and underline geometry are laid
+    // out at the paint's scale, inside caches below the root.
+    self.layout_engine.set_paint_scale(scale);
+    if let Some(root) = self.root.as_ref() {
+      invalidate_layout_cache_recursive(root);
     }
   }
 
@@ -2614,8 +2615,7 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + text_vertical_align_offset(
-              &mut glyph_engine,
+            + glyph_engine.text_vertical_align_offset(
               text,
               &scaled_style,
               max_width,
@@ -2778,9 +2778,9 @@ impl Tree {
             ]);
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           let text_y = scaled_y
-            + rich_text_vertical_align_offset(
-              &mut glyph_engine,
+            + glyph_engine.rich_text_vertical_align_offset(
               &scaled_spans,
+              1.0,
               max_width,
               *wrap,
               *vertical_align,
@@ -3649,6 +3649,7 @@ impl Tree {
     let Some(root) = &self.root else {
       return false;
     };
+    self.selectable_text_anchor = None;
     clear_selectable_text_selections(root)
   }
 
@@ -4337,6 +4338,7 @@ impl Tree {
         {
           if let NodeKind::TextInput { state, .. } = node.node_kind() {
             if !evt.shift && !evt.ctrl {
+              self.selectable_text_anchor = None;
               clear_selectable_text_selections(root);
             }
             let padding = self
@@ -4375,22 +4377,37 @@ impl Tree {
           && let Some((node, rect)) = selectable_text_drag_start_endpoint(root, result, lx, ly)
         {
           if let Some((state, value)) = selectable_text_state_and_value(node) {
-            let preserve_existing = evt.shift || evt.ctrl;
-            if !preserve_existing {
-              clear_selectable_text_selections_except(root, Some(node.node_id()));
-            }
             let text_x = rect.local_x - rect.x;
             let text_y = rect.local_y - rect.y;
-            let anchor = state.caret_index_at_point(&value, text_x, text_y);
-            state.set_selection_indices(&value, anchor, anchor);
+            let caret = state.caret_index_at_point(&value, text_x, text_y);
+            let extended = evt
+              .shift
+              .then_some(self.selectable_text_anchor)
+              .flatten()
+              .and_then(|anchor| anchor.extend_to(root, node.node_id(), caret));
+            let kind = match extended {
+              Some(kind) => kind,
+              None => {
+                let preserve_existing = evt.ctrl;
+                if !preserve_existing {
+                  clear_selectable_text_selections_except(root, Some(node.node_id()));
+                }
+                state.set_selection_indices(&value, caret, caret);
+                self.selectable_text_anchor = Some(SelectableTextAnchor {
+                  node_id: node.node_id(),
+                  index: caret,
+                });
+                TextSelectionDragKind::Text {
+                  start_id: node.node_id(),
+                  anchor: caret,
+                  state,
+                  value,
+                  preserve_existing,
+                }
+              }
+            };
             pending_text_selection_drag = Some(TextSelectionDrag {
-              kind: TextSelectionDragKind::Text {
-                start_id: node.node_id(),
-                anchor,
-                state,
-                value,
-                preserve_existing,
-              },
+              kind,
               x: rect.x,
               y: rect.y,
               transform: rect.transform,
@@ -4403,9 +4420,11 @@ impl Tree {
           && !evt.shift
           && !evt.ctrl
           && !hits.iter().any(|(node, _)| is_selectable_text_node(node))
-          && clear_selectable_text_selections(root)
         {
-          builtin_needs_redraw = true;
+          self.selectable_text_anchor = None;
+          if clear_selectable_text_selections(root) {
+            builtin_needs_redraw = true;
+          }
         }
 
         if pending_text_selection_drag.is_none()
@@ -4480,6 +4499,12 @@ impl Tree {
             1 => state.clear_selection_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y),
             2 => state.select_word_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y),
             _ => state.select_line_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y),
+          }
+          if let Some(index) = state.selection_anchor() {
+            self.selectable_text_anchor = Some(SelectableTextAnchor {
+              node_id: node.node_id(),
+              index,
+            });
           }
           builtin_needs_redraw = true;
         }
@@ -5446,6 +5471,17 @@ impl Tree {
   #[doc(hidden)]
   pub fn last_layout(&self) -> Option<&LayoutResult> {
     self.last_layout.as_ref()
+  }
+
+  /// The text selected in the selectable texts (`Text::selectable`,
+  /// `MarkdownProps::selectable`) as of the last pass, as Ctrl+C copies it:
+  /// the texts drawn side by side on one line, in x order; texts stacked
+  /// below each other one line each; what a Markdown paragraph draws as
+  /// presentation (a link's isolate marks and trailing runs) left out. `None`
+  /// when nothing is selected. A text input keeps its own selection
+  /// (`TextInputHandle::selected_text`); this does not read it.
+  pub fn selected_text(&self) -> Option<String> {
+    selected_selectable_text(self.root.as_ref()?, self.last_layout.as_ref()?)
   }
 
   #[cfg(feature = "mcp")]
@@ -7346,6 +7382,33 @@ struct TextSelectionDrag {
   transform: Transform2D,
 }
 
+/// Where a selection of the selectable texts started: the text pressed and
+/// the caret in it. A Shift press extends the selection from here to the
+/// pressed point, as in a browser, and a drag with Shift held goes on from
+/// there.
+#[derive(Clone, Copy)]
+struct SelectableTextAnchor {
+  node_id: NodeId,
+  index: usize,
+}
+
+impl SelectableTextAnchor {
+  /// The drag that extends the selection from this anchor to `caret` in the
+  /// text `end_id`, selecting that range now; `None` when the anchor's text
+  /// is gone or no longer selectable.
+  fn extend_to(self, root: &Node, end_id: NodeId, caret: usize) -> Option<TextSelectionDragKind> {
+    let (state, value) = selectable_text_state_and_value(find_node_by_id(root, self.node_id)?)?;
+    set_selectable_text_range(root, self.node_id, self.index, end_id, caret);
+    Some(TextSelectionDragKind::Text {
+      start_id: self.node_id,
+      anchor: self.index,
+      state,
+      value,
+      preserve_existing: false,
+    })
+  }
+}
+
 #[derive(Clone)]
 enum TextSelectionDragKind {
   Input {
@@ -8095,6 +8158,12 @@ impl TextInputHandle<'_> {
       state.select_all();
     }
     self.inner.invalidate_render();
+  }
+
+  /// The selected part of the value, as Ctrl+C copies it; `None` when the
+  /// selection is empty.
+  pub fn selected_text(&self) -> Option<String> {
+    self.state().and_then(TextInputState::selected_text)
   }
 
   pub fn placeholder(&self) -> Option<String> {
@@ -10667,86 +10736,6 @@ fn push_raw_text(
     glyph.clip = ClipRect::default();
   }
   glyphs.extend(text_glyphs);
-}
-
-/// Offset (in the render/physical space of `quad_height`) that positions a
-/// glyph run at the requested vertical alignment within its box. `Top`/`Bottom`
-/// use the visible ink; `Center` uses the descender-agnostic optical box (the
-/// font's cap-height box), so text with descenders and adjacent icons stay
-/// aligned instead of being dragged upward by descenders.
-fn vertical_align_offset(
-  align: VerticalAlign,
-  extents: crate::app::glyph_engine::TextVerticalExtents,
-  quad_height: f32,
-) -> f32 {
-  match align {
-    VerticalAlign::Top => -extents.ink_top,
-    VerticalAlign::Center => (quad_height - (extents.optical_bottom - extents.optical_top)) * 0.5 - extents.optical_top,
-    VerticalAlign::Bottom => quad_height - extents.ink_bottom,
-    VerticalAlign::LineBox => 0.0,
-  }
-}
-
-fn text_vertical_align_offset(
-  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
-  text: &str,
-  style: &TextStyle,
-  max_width: f32,
-  wrap: bool,
-  vertical_align: VerticalAlign,
-  quad_height: f32,
-) -> f32 {
-  if quad_height <= 0.0 || vertical_align == VerticalAlign::LineBox {
-    return 0.0;
-  }
-  if vertical_align == VerticalAlign::Center {
-    let Some((top, bottom)) = glyph_engine.text_optical_extents(text, style, max_width, wrap) else {
-      return 0.0;
-    };
-    return (quad_height - (bottom - top)) * 0.5 - top;
-  }
-  let Some(extents) = glyph_engine.text_vertical_extents(text, style, max_width, wrap) else {
-    return 0.0;
-  };
-  vertical_align_offset(vertical_align, extents, quad_height)
-}
-
-fn rich_text_vertical_align_offset(
-  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
-  spans: &[crate::layout::quad::RichTextSpan],
-  max_width: f32,
-  wrap: bool,
-  vertical_align: VerticalAlign,
-  quad_height: f32,
-) -> f32 {
-  if quad_height <= 0.0 {
-    return 0.0;
-  }
-  // Single-span rich text shares the plain-text path; multi-span rich text
-  // (mixed sizes) falls back to metric extent, which is adequate for the
-  // markdown/rich cases that use it.
-  if let [span] = spans {
-    return text_vertical_align_offset(
-      glyph_engine,
-      &span.text,
-      &span.style,
-      max_width,
-      wrap,
-      vertical_align,
-      quad_height,
-    );
-  }
-  let measured = glyph_engine.measure_rich_text(spans, max_width).height;
-  vertical_align_offset(
-    vertical_align,
-    crate::app::glyph_engine::TextVerticalExtents {
-      ink_top: 0.0,
-      ink_bottom: measured,
-      optical_top: 0.0,
-      optical_bottom: measured,
-    },
-    quad_height,
-  )
 }
 
 fn apply_opacity(color: Color, opacity: f32) -> Color {

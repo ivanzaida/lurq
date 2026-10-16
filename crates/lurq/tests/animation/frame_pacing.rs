@@ -47,6 +47,44 @@ fn steps(count: u32) -> Easing {
   }
 }
 
+/// How many times a check that needs the machine to keep up is tried before
+/// it is given up as inconclusive.
+const ATTEMPTS: usize = 5;
+
+/// Checks that a pass run at the step boundary `boundary` of a run stepping
+/// every `step` asks for the boundary after it, `boundary + step`. The pass
+/// is run once the boundary has passed; where the thread wakes late, after
+/// the next boundary too, the check is inconclusive (`None`), so a loaded
+/// machine does not fail it: the caller tries again with a fresh run.
+fn next_step_after(tree: &mut Tree, app: &mut App, boundary: Instant, step: Duration) -> Option<()> {
+  std::thread::sleep(boundary.saturating_duration_since(Instant::now()));
+  let second_pass = Instant::now();
+  tree.pass_headless(app);
+  let expected = boundary + step;
+  if second_pass + Duration::from_millis(10) >= expected {
+    return None;
+  }
+  let next = tree.next_timeline_change().expect("the run goes on");
+  assert!(
+    next + Duration::from_millis(1) >= expected && next <= expected + MARGIN,
+    "a frame at a step asks for the step after it, not for itself again: {:?} after the boundary, {:?} after the pass",
+    next.saturating_duration_since(boundary),
+    next.saturating_duration_since(second_pass)
+  );
+  Some(())
+}
+
+/// Runs `check` until it is conclusive, up to `ATTEMPTS` times, each on a
+/// fresh run. A machine that never kept up fails the test and says so: a
+/// check that was skipped would otherwise pass unseen in CI.
+fn until_conclusive(check: impl Fn() -> Option<()>) {
+  let conclusive = (0..ATTEMPTS).any(|_| check().is_some());
+  assert!(
+    conclusive,
+    "inconclusive: the thread woke too late for a step boundary {ATTEMPTS} times in a row, so no pass ran between a step and the next; the machine did not keep up"
+  );
+}
+
 #[test]
 fn an_animated_pass_with_nothing_else_changing_leaves_no_redraw_requested() {
   let mut app = App::new();
@@ -87,15 +125,13 @@ fn a_step_animation_changes_at_its_next_step() {
     next - before_pass
   );
 
-  std::thread::sleep(next - Instant::now());
-  let second_pass = Instant::now();
-  tree.pass_headless(&mut app);
-  let next = tree.next_timeline_change().expect("the fade runs");
-  assert!(
-    next > second_pass + step - Duration::from_millis(5) && next <= second_pass + step + MARGIN,
-    "a frame at a step asks for the step after it, not for itself again: {:?} after it",
-    next - second_pass
-  );
+  until_conclusive(|| {
+    let mut app = App::new();
+    let mut tree = fading(fade().easing(steps(4)).infinite());
+    tree.pass_headless(&mut app);
+    let boundary = tree.next_timeline_change().expect("the fade runs");
+    next_step_after(&mut tree, &mut app, boundary, step)
+  });
 }
 
 #[test]
@@ -112,16 +148,19 @@ fn a_step_animation_played_backward_changes_at_its_next_step_down() {
   let next = tree.next_timeline_change().expect("the fade runs");
   assert!(next <= Instant::now() + MARGIN, "the end value lasts an instant");
 
-  std::thread::sleep(next.saturating_duration_since(Instant::now()));
-  let second_pass = Instant::now();
-  tree.pass_headless(&mut app);
-  let next = tree.next_timeline_change().expect("the fade runs");
-  let step = Duration::from_millis(250);
-  assert!(
-    next > second_pass + step - Duration::from_millis(5) && next <= second_pass + step + MARGIN,
-    "then each of the four steps lasts 250 ms: {:?} after the pass",
-    next - second_pass
-  );
+  // Then each of the four steps lasts 250 ms.
+  until_conclusive(|| {
+    let mut app = App::new();
+    let mut tree = fading(
+      fade()
+        .easing(steps(4))
+        .direction(AnimationDirection::Reverse)
+        .infinite(),
+    );
+    tree.pass_headless(&mut app);
+    let boundary = tree.next_timeline_change().expect("the fade runs");
+    next_step_after(&mut tree, &mut app, boundary, Duration::from_millis(250))
+  });
 }
 
 #[test]
@@ -265,16 +304,14 @@ fn a_jump_start_animation_draws_its_first_step_at_once() {
   let next = tree.next_timeline_change().expect("the fade runs");
   assert!(next <= Instant::now() + MARGIN, "the first step comes at once");
 
-  std::thread::sleep(next.saturating_duration_since(Instant::now()));
-  let second_pass = Instant::now();
-  tree.pass_headless(&mut app);
-  let next = tree.next_timeline_change().expect("the fade runs");
-  let step = Duration::from_millis(250);
-  assert!(
-    next > second_pass + step - Duration::from_millis(5) && next <= second_pass + step + MARGIN,
-    "then each step lasts 250 ms: {:?} after the pass",
-    next - second_pass
-  );
+  // Then each step lasts 250 ms.
+  until_conclusive(|| {
+    let mut app = App::new();
+    let mut tree = fading(fade().easing(jump_start).infinite());
+    tree.pass_headless(&mut app);
+    let boundary = tree.next_timeline_change().expect("the fade runs");
+    next_step_after(&mut tree, &mut app, boundary, Duration::from_millis(250))
+  });
 }
 
 #[test]
