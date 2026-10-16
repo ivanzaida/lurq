@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 #[cfg(feature = "perf_profile")]
 use crate::app::profiler::canvas_text::{self as profile, Stage, Timer};
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashContent, Wrap};
+use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, SwashContent, Wrap};
 use tiny_skia::{Pixmap, PixmapPaint};
 
 mod glyph_cache;
@@ -17,7 +17,7 @@ use shape_cache::ShapeCache;
 use super::{CanvasError, MAX_PIXELS};
 use crate::{
   app::glyph_engine::{FaceWeights, with_letter_spacing},
-  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle},
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, alias_name, cosmic_family},
   node::color::Color,
 };
 
@@ -234,18 +234,14 @@ impl CanvasTextEngine {
     buffer.set_wrap(Wrap::None);
     let family = self
       .aliases
-      .get(font.family.as_ref())
+      .get(alias_name(&font.family))
       .map(String::as_str)
       .unwrap_or(&font.family);
     let weight = self
       .face_weights
       .resolve(self.fonts.db(), family, font.weight, font.style);
     let mut attrs = Attrs::new()
-      .family(if family.is_empty() {
-        Family::SansSerif
-      } else {
-        Family::Name(family)
-      })
+      .family(cosmic_family(family))
       .weight(weight)
       .style(font.style.to_cosmic());
     if !font.font_features.is_empty() {

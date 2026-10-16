@@ -8,8 +8,8 @@ use std::{
 };
 
 use cosmic_text::{
-  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Family, Font, FontSystem, LayoutGlyph, Metrics,
-  Shaping, SwashContent, SwashImage, Wrap,
+  Attrs, Buffer, CacheKey as GlyphCacheKey, Color as CosmicColor, Font, FontSystem, LayoutGlyph, Metrics, Shaping,
+  SwashContent, SwashImage, Wrap,
 };
 use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
@@ -19,6 +19,7 @@ use swash::{
 mod cap_height;
 mod carets;
 mod face_weight;
+mod generic_families;
 pub(crate) mod input_tokens;
 mod letter_spacing;
 mod reflow;
@@ -38,7 +39,7 @@ use crate::{
     Size,
     quad::{ClipRect, RichTextSpan},
     render_list::{GlyphAtlas, GlyphAtlasDirtyRect, GlyphCmd},
-    text_style::{FontFeatures, FontStyle, TextAlign, TextStyle},
+    text_style::{FontFeatures, FontStyle, TextAlign, TextStyle, alias_name, cosmic_family},
   },
   node::{
     color::Color,
@@ -493,6 +494,7 @@ impl GlyphEngine {
   pub(crate) fn new() -> Self {
     let mut font_system = FontSystem::new();
     load_platform_fonts(&mut font_system);
+    generic_families::set_generic_families(font_system.db_mut());
 
     Self {
       font_system,
@@ -547,6 +549,7 @@ impl GlyphEngine {
   }
 
   pub(crate) fn register_font(&mut self, name: &str, family: &str) {
+    let name = alias_name(name);
     if self.font_aliases.get(name).is_some_and(|current| current == family) {
       return;
     }
@@ -571,7 +574,7 @@ impl GlyphEngine {
       }
     }
     for (name, family) in aliases {
-      let name = name.as_ref();
+      let name = alias_name(name.as_ref());
       let family = family.as_ref();
       if self.font_aliases.get(name).is_some_and(|current| current == family) {
         continue;
@@ -2821,7 +2824,7 @@ impl GlyphEngine {
   fn resolve_family(&self, style: &TextStyle) -> std::sync::Arc<str> {
     self
       .font_aliases
-      .get(&*style.font_family)
+      .get(alias_name(&style.font_family))
       .map(|s| std::sync::Arc::from(s.as_str()))
       .unwrap_or_else(|| style.font_family.clone())
   }
@@ -3173,13 +3176,8 @@ fn attrs_for_style<'a>(
 /// `weight` is the matched face weight from [`FaceWeights`], not the requested
 /// one; `em_px` is the buffer's font size.
 fn plain_attrs<'a>(style: &TextStyle, resolved_family: &'a str, weight: cosmic_text::Weight, em_px: f32) -> Attrs<'a> {
-  let family = if resolved_family.is_empty() {
-    Family::SansSerif
-  } else {
-    Family::Name(resolved_family)
-  };
   let mut attrs = Attrs::new()
-    .family(family)
+    .family(cosmic_family(resolved_family))
     .weight(weight)
     .style(style.style.to_cosmic());
   if !style.font_features.is_empty() {

@@ -33,6 +33,7 @@ mod font_features;
 mod font_weight;
 mod frame;
 mod frame_constraints;
+mod generic_family;
 mod letter_spacing;
 mod nested;
 mod node_ids;

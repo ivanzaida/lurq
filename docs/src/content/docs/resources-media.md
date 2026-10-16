@@ -27,6 +27,8 @@ app.load_fonts_dir(std::path::Path::new("assets/fonts"));
 app.register_font("ui", "Inter");
 ```
 
+A family may also be a CSS generic family (`"serif"`, `"sans-serif"`, `"monospace"`, `"cursive"`, `"fantasy"`), drawn with the platform's font for it; see [Generic Families](../theme/#generic-families) and [`GenericFamily`](https://docs.rs/lurq/latest/lurq/layout/text_style/enum.GenericFamily.html) for the fonts of each platform. A bundled font replaces one by an alias of the keyword: `app.register_font("monospace", "JetBrains Mono")`.
+
 Text uses `TextStyle`.
 
 ```rust
