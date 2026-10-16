@@ -16,7 +16,7 @@ use lurq::{
   node::color::Color,
 };
 
-use self::clusters::Probes;
+use self::clusters::{Painted, Probes};
 use super::{render_pass_with_app, GlyphSnapshot, RectSnapshot, TestSurface};
 
 /// The theme's default selection highlight.
@@ -89,16 +89,15 @@ pub struct Page {
 impl Page {
   /// Reads the glyphs of a tree that has had its first pass.
   pub fn new(app: App, tree: Tree, scale: f32) -> Self {
-    let mut page = Self {
-      app,
-      tree,
-      scale,
-      text: String::new(),
-      inks: Vec::new(),
-      nodes: Vec::new(),
-      ignored: Vec::new(),
-      probes: Probes::default(),
-    };
+    Self::ignoring(app, tree, scale, [])
+  }
+
+  /// Reads the glyphs of a tree that has had its first pass, leaving out
+  /// the glyphs drawn in the `ignored` colors: presentation, not text (a
+  /// link's trailing runs).
+  pub fn ignoring(app: App, tree: Tree, scale: f32, ignored: impl IntoIterator<Item = Color>) -> Self {
+    let mut page = Self::without_inks(app, tree, scale);
+    page.ignored = ignored.into_iter().map(|color| color.to_linear_f32_array()).collect();
     page.read_glyphs();
     page
   }
@@ -114,16 +113,8 @@ impl Page {
       inks: Vec::new(),
       nodes: Vec::new(),
       ignored: Vec::new(),
-      probes: Probes::default(),
+      probes: Probes::new(scale),
     }
-  }
-
-  /// Leaves the glyphs drawn in `color` out of the inks: presentation, not
-  /// text.
-  pub fn ignore_color(mut self, color: Color) -> Self {
-    self.ignored.push(color.to_linear_f32_array());
-    self.read_glyphs();
-    self
   }
 
   /// Draws the tree and reads its texts and their glyphs again, after it
@@ -150,9 +141,11 @@ impl Page {
       .collect();
     glyphs.sort_by(|a, b| a.order.cmp(&b.order));
     let mut glyphs = glyphs.into_iter();
+    let mut painted = Painted::new(&self.tree);
     let mut inks = Vec::new();
     for node in &self.nodes {
-      let clusters = self.probes.clusters(&mut self.app, &node.text);
+      let stretches = painted.stretches(&node.text);
+      let clusters = self.probes.clusters(&mut self.app, &node.text, &stretches);
       let count = clusters.iter().map(|cluster| cluster.glyphs).sum();
       let node_glyphs: Vec<GlyphSnapshot> = glyphs.by_ref().take(count).collect();
       assert_eq!(
@@ -179,13 +172,22 @@ impl Page {
         });
       }
     }
+    let left_over = glyphs.count();
+    assert_eq!(
+      left_over, 0,
+      "{left_over} drawn glyphs belong to no text of {:?}",
+      self.text
+    );
     self.inks = inks;
   }
 
-  /// How many glyphs `text` draws on its own in the page's fonts: one per
-  /// non-whitespace character, less where a ligature joins several.
+  /// How many glyphs `text` draws where the tree paints it, each
+  /// stretch in its own style: one per non-whitespace character, less where
+  /// a ligature joins several.
   pub fn glyphs_drawn_for(&mut self, text: &str) -> usize {
-    self.probes.glyphs(&mut self.app, text)
+    let stretches = Painted::new(&self.tree).find(text);
+    let clusters = self.probes.clusters(&mut self.app, text, &stretches);
+    clusters.iter().map(|cluster| cluster.glyphs).sum()
   }
 
   pub fn pass(&mut self) {

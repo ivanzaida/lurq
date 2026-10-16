@@ -8,7 +8,7 @@ use lurq::{
   node::color::Color,
 };
 
-use super::page;
+use super::{page, page_ignoring};
 use crate::support::selection::{Page, assert_drags_copy_their_glyphs, pairs};
 
 /// The color of a link's trailing runs, which are presentation: the page
@@ -48,7 +48,7 @@ fn with_links(source: &str, width: f32) -> Page {
       MarkdownLinkPresentation::link()
     }
   });
-  page(props, width).ignore_color(Color::from_hex(HOST))
+  page_ignoring(props, width, Color::from_hex(HOST))
 }
 
 fn sweep(mut page: Page, step: usize) -> Page {
