@@ -7,16 +7,18 @@ use lurq::{
   app::{App, Tree},
   components::{Column, Text, TextInput},
   core::Signal,
+  layout::text_style::{TextStyle, VerticalAlign},
 };
 
 use crate::support::{
+  selection::{assert_drags_copy_their_glyphs, pairs, rows_copying_other_text, rows_highlighted_elsewhere, Page},
   TestSurface,
-  selection::{Page, assert_drags_copy_their_glyphs, pairs, rows_copying_other_text},
 };
 
 const WRAPPED: &str = "A plain text with enough words in it to wrap onto a few lines at the width of the test, with \
 accents (déjà vu), digits 2423 and punctuation; nothing else.";
-const PARAGRAPHS: &str = "First line of the text.\nSecond line, a bit longer than the first one.\n\nFourth line after an \
+const PARAGRAPHS: &str =
+  "First line of the text.\nSecond line, a bit longer than the first one.\n\nFourth line after an \
 empty one.";
 
 fn page(root: impl Into<lurq::node::Element>, scale: f32) -> Page {
@@ -163,6 +165,55 @@ fn every_row_of_a_wrapped_text_copies_itself_at_fractional_widths_and_scales() {
     "{} rows over {pages} pages copied other text:\n{}",
     failures.len(),
     failures.join("\n")
+  );
+}
+
+/// A `Text`'s padding grows its box and leaves its glyphs where they are:
+/// the paint draws them in the whole box, wrapped at its width and centered
+/// in its height or at its top. Texts with uneven padding at fractional
+/// widths and scales: every row copies itself and is highlighted over its
+/// own glyphs.
+#[test]
+fn every_row_of_a_padded_text_copies_itself_and_is_highlighted_at_fractional_widths_and_scales() {
+  let top = TextStyle {
+    vertical_align: VerticalAlign::Top,
+    ..TextStyle::default()
+  };
+  let mut failures = Vec::new();
+  let mut pages = 0;
+  for scale in [1.0_f32, 1.25, 1.5] {
+    for step in 0..12 {
+      let width = 200.17 + step as f32 * 13.37;
+      for (name, text) in [
+        ("centered", Text::new(WRAPPED)),
+        ("top", Text::styled(WRAPPED, top.clone())),
+      ] {
+        let text = text
+          .selectable(true)
+          .width(width)
+          .height(260.0)
+          .padding_left(7.3)
+          .padding_top(3.1)
+          .padding_right(12.9)
+          .padding_bottom(5.7);
+        let mut page = page(Column::new().width(width + 20.0).child(text), scale);
+        assert!(page.inks.iter().any(|ink| ink.row > 1), "the text wraps at {width}");
+        pages += 1;
+        let page_name = format!("{name} width {width} scale {scale}");
+        failures.extend(rows_copying_other_text(&mut page, &page_name));
+        failures.extend(rows_highlighted_elsewhere(&mut page, &page_name));
+      }
+    }
+  }
+  assert!(
+    failures.is_empty(),
+    "{} rows over {pages} pages copied or highlighted other glyphs than they draw:
+{}",
+    failures.len(),
+    failures.join(
+      "
+"
+    )
   );
 }
 

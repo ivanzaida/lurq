@@ -3,12 +3,14 @@
 //!
 //! The paint shapes a text in device pixels: its style scaled by the display
 //! scale, wrapped at its box's width rounded up in device pixels,
-//! `ceil(width * scale)`. At a fractional width or scale that is not the
+//! `ceil(width * scale)`, and placed in its whole box (a `Text`'s padding
+//! does not move its glyphs). At a fractional width or scale that is not the
 //! logical layout: a word ending between the two wraps in one and not the
 //! other, and glyph advances differ by rounding. A selection's hit-testing,
-//! highlight and copied text index the carets of the painted layout, in
-//! logical pixels, so they meet the glyphs on screen; the shaped layout is
-//! the one the paint finds in the glyph engine's caches.
+//! highlight and copied text index the carets of the painted layout, kept in
+//! its device pixels with the scale ([`PaintedCarets`]), so they meet the
+//! glyphs on screen; the shaped layout is the one the paint finds in the
+//! glyph engine's caches.
 
 use std::sync::Arc;
 
@@ -16,18 +18,20 @@ use super::{LayoutEngine, TextLayoutOutput};
 use crate::{
   app::glyph_engine::GlyphEngine,
   layout::{
-    Size,
     layout_result::LayoutResult,
     text_style::{TextAlign, TextStyle},
+    Size,
   },
-  node::{Node, node_kind::NodeKind, text_selection::CaretPositions},
+  node::{
+    node_kind::{NodeKind, PaintedCarets},
+    Node,
+  },
 };
 
-/// Where a text's glyphs lie in its box: its carets, in logical pixels, and
-/// its first line's offset from the box's top-left.
+/// Where a text's glyphs lie in its box: its carets, and its first line's
+/// offset from the box's top, in logical pixels.
 struct PaintedText {
-  carets: CaretPositions,
-  left: f32,
+  carets: PaintedCarets,
   top: f32,
 }
 
@@ -53,16 +57,7 @@ impl LayoutEngine {
         let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
         let content = node.text_content().unwrap_or_default();
         let text = output.display_text.as_deref().unwrap_or(content);
-        // The paint draws the text in the box inside the padding.
-        let padding = self.resolved_padding_for_size(node, result.size);
-        let inner = Size::new(
-          (result.size.width - padding.left - padding.right).max(0.0),
-          (result.size.height - padding.top - padding.bottom).max(0.0),
-        );
-        let mut painted = self.painted_text(glyph_engine, text, &style, output.render_wrap, inner);
-        painted.left += padding.left;
-        painted.top += padding.top;
-        painted
+        self.painted_text(glyph_engine, text, &style, output.render_wrap, result.size)
       }
       #[cfg(feature = "markdown")]
       NodeKind::RichText { state, spans, .. } if state.selectable() => {
@@ -71,7 +66,7 @@ impl LayoutEngine {
       }
       _ => return,
     };
-    let output = output.with_selection(painted.carets, painted.left, painted.top);
+    let output = output.with_selection(painted.carets, painted.top);
     result.text_layout = Some(Arc::new(TextLayoutOutput::Text(output)));
     Self::restore_text_layout_output(node, result);
   }
@@ -89,9 +84,7 @@ impl LayoutEngine {
     let mut scaled = style.clone();
     scaled.scale_pixels(scale);
     let max_width = painted_max_width(scale, wrap, style.text_align, size.width);
-    let carets = glyph_engine
-      .caret_positions(text, &scaled, max_width, wrap)
-      .scaled(1.0 / scale);
+    let positions = glyph_engine.caret_positions(text, &scaled, max_width, wrap);
     let top = glyph_engine.text_vertical_align_offset(
       text,
       &scaled,
@@ -100,7 +93,10 @@ impl LayoutEngine {
       style.vertical_align,
       size.height * scale,
     ) / scale;
-    PaintedText { carets, left: 0.0, top }
+    PaintedText {
+      carets: PaintedCarets { positions, scale },
+      top,
+    }
   }
 
   /// `spans` laid out as the paint lays them out in a box of `size`:
@@ -117,20 +113,18 @@ impl LayoutEngine {
     let scale = self.paint_scale.get();
     let align = spans.first().map_or(TextAlign::Left, |span| span.style.text_align);
     let max_width = painted_max_width(scale, wrap, align, size.width);
-    let mut scaled = spans.to_vec();
-    for span in &mut scaled {
-      span.style.scale_pixels(scale);
-    }
-    let carets = glyph_engine
-      .rich_text_caret_positions(&scaled, max_width, wrap)
-      .scaled(1.0 / scale);
+    let positions = glyph_engine.rich_text_caret_positions(spans, scale, max_width, wrap);
     let top = glyph_engine.rich_text_vertical_align_offset(
-      &scaled,
+      spans,
+      scale,
       max_width,
       wrap,
       crate::layout::text_style::VerticalAlign::Center,
       size.height * scale,
     ) / scale;
-    PaintedText { carets, left: 0.0, top }
+    PaintedText {
+      carets: PaintedCarets { positions, scale },
+      top,
+    }
   }
 }

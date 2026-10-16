@@ -124,24 +124,6 @@ impl CaretPositions {
     data.positions.get_mut().unwrap()
   }
 
-  /// These positions with every coordinate multiplied by `factor`: a layout
-  /// in device pixels brought back to logical pixels. A factor of 1 shares
-  /// the positions.
-  pub(crate) fn scaled(&self, factor: f32) -> Self {
-    if factor == 1.0 {
-      return self.clone();
-    }
-    self
-      .iter()
-      .map(|position| CaretPosition {
-        index: position.index,
-        x: position.x * factor,
-        y: position.y * factor,
-      })
-      .collect::<Vec<_>>()
-      .into()
-  }
-
   fn index(&self) -> Option<&CaretIndex> {
     if self.len() < CARET_INDEX_MIN_POSITIONS && self.0.segments.is_empty() {
       return None;

@@ -6,19 +6,20 @@
 use std::cell::{Cell, RefCell};
 
 use lurq::{
-  app::{App, Tree, events::MouseButton},
+  app::{events::MouseButton, App, Tree},
   core::ElementRect,
   node::color::Color,
 };
 
-use super::{GlyphSnapshot, RectSnapshot, TestSurface, render_pass_with_app};
+use super::{render_pass_with_app, GlyphSnapshot, RectSnapshot, TestSurface};
 
 /// The theme's default selection highlight.
 const HIGHLIGHT: Color = Color::new(191, 219, 254, 255);
 /// How far a highlight may reach past the ink of the glyphs it covers, in
 /// logical pixels: a glyph's advance is wider than its ink by its side
 /// bearings.
-const INK_SLACK: f32 = 3.0;
+/// How far past a glyph's ink a highlight may reach on a row, in logical pixels.
+pub const INK_SLACK: f32 = 3.0;
 /// The transparent border around every glyph bitmap, in physical pixels
 /// (the glyph atlas pads each glyph so sampling never bleeds).
 pub const GLYPH_PADDING: f32 = 2.0;
@@ -293,6 +294,14 @@ impl Page {
   /// else: on every row, it reaches no further than their ink, and a row
   /// without a selected glyph has none.
   pub fn assert_highlight_covers(&mut self, from: usize, to: usize) {
+    if let Some(mismatch) = self.highlight_mismatch(from, to) {
+      panic!("{mismatch}");
+    }
+  }
+
+  /// How the highlight fails to cover the glyphs `from..=to` and nothing
+  /// else (see [`Self::assert_highlight_covers`]), or `None` when it does.
+  pub fn highlight_mismatch(&mut self, from: usize, to: usize) -> Option<String> {
     let selected: Vec<Ink> = self.inks[from..=to].to_vec();
     let slack = INK_SLACK * self.scale;
     let highlights = self.highlights();
@@ -301,29 +310,28 @@ impl Page {
         .iter()
         .filter(|ink| rect.y <= ink.y && ink.y <= rect.y + rect.height)
         .collect();
-      assert!(
-        !on_row.is_empty(),
-        "a highlight on a row with no selected glyph: {rect:?}"
-      );
+      if on_row.is_empty() {
+        return Some(format!("a highlight on a row with no selected glyph: {rect:?}"));
+      }
       let left = on_row.iter().map(|ink| ink.left).fold(f32::MAX, f32::min);
       let right = on_row.iter().map(|ink| ink.right).fold(f32::MIN, f32::max);
-      assert!(
-        rect.x >= left - slack && rect.x + rect.width <= right + slack,
-        "the highlight at y {} ({}..{}) reaches past the selected glyphs' ink ({left}..{right})",
-        rect.y,
-        rect.x,
-        rect.x + rect.width
-      );
+      if rect.x < left - slack || rect.x + rect.width > right + slack {
+        return Some(format!(
+          "the highlight at y {} ({}..{}) reaches past the selected glyphs' ink ({left}..{right})",
+          rect.y,
+          rect.x,
+          rect.x + rect.width
+        ));
+      }
     }
-    for ink in &selected {
-      assert!(
-        highlights
+    selected
+      .iter()
+      .find(|ink| {
+        !highlights
           .iter()
-          .any(|rect| rect.y <= ink.y && ink.y <= rect.y + rect.height),
-        "no highlight on the row at y {}, which has selected glyphs",
-        ink.y
-      );
-    }
+          .any(|rect| rect.y <= ink.y && ink.y <= rect.y + rect.height)
+      })
+      .map(|ink| format!("no highlight on the row at y {}, which has selected glyphs", ink.y))
   }
 }
 
@@ -425,6 +433,31 @@ pub fn rows_copying_other_text(page: &mut Page, page_name: &str) -> Vec<String> 
     let copied = page.selected().unwrap_or_default();
     if copied != expected {
       failures.push(format!("{page_name} row {row}: copied {copied:?}, drawn {expected:?}"));
+    }
+  }
+  failures
+}
+
+/// The rows of `page` whose highlight does not cover their glyphs, and
+/// only them (see [`Page::highlight_mismatch`]), as messages naming
+/// `page_name`: every row is dragged from its first glyph to its last.
+pub fn rows_highlighted_elsewhere(page: &mut Page, page_name: &str) -> Vec<String> {
+  let rows = page.inks.iter().map(|ink| ink.row).max().unwrap_or(0) + 1;
+  let mut failures = Vec::new();
+  for row in 0..rows {
+    let first = page
+      .inks
+      .iter()
+      .position(|ink| ink.row == row)
+      .expect("a glyph on the row");
+    let last = page
+      .inks
+      .iter()
+      .rposition(|ink| ink.row == row)
+      .expect("a glyph on the row");
+    page.drag_inks(first, last);
+    if let Some(mismatch) = page.highlight_mismatch(first, last) {
+      failures.push(format!("{page_name} row {row}: {mismatch}"));
     }
   }
   failures

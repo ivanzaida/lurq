@@ -2780,6 +2780,7 @@ impl Tree {
           let text_y = scaled_y
             + glyph_engine.rich_text_vertical_align_offset(
               &scaled_spans,
+              1.0,
               max_width,
               *wrap,
               *vertical_align,

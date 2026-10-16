@@ -50,12 +50,14 @@ impl GlyphEngine {
     offset_for_extents(align, extents, box_height)
   }
 
-  /// The offset of a rich text's first line in a box `box_height` tall.
-  /// One span is placed as plain text; spans of several sizes by their
-  /// measured height, which serves the Markdown that uses them.
+  /// The offset of a rich text's first line in a box `box_height` tall,
+  /// its spans' pixel sizes scaled by `scale`. One span is placed as plain
+  /// text; spans of several sizes by their measured height, which serves
+  /// the Markdown that uses them.
   pub(crate) fn rich_text_vertical_align_offset(
     &mut self,
     spans: &[RichTextSpan],
+    scale: f32,
     max_width: f32,
     wrap: bool,
     align: VerticalAlign,
@@ -65,9 +67,11 @@ impl GlyphEngine {
       return 0.0;
     }
     if let [span] = spans {
-      return self.text_vertical_align_offset(&span.text, &span.style, max_width, wrap, align, box_height);
+      let mut style = span.style.clone();
+      style.scale_pixels(scale);
+      return self.text_vertical_align_offset(&span.text, &style, max_width, wrap, align, box_height);
     }
-    let measured = self.measure_rich_text(spans, max_width).height;
+    let measured = self.measure_rich_text(spans, scale, max_width).height;
     offset_for_extents(
       align,
       TextVerticalExtents {

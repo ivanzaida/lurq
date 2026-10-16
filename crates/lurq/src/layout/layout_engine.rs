@@ -2565,8 +2565,7 @@ impl LayoutEngine {
     let output = TextOutput {
       display_text,
       render_wrap,
-      caret_positions: None,
-      text_left: 0.0,
+      carets: None,
       text_top: 0.0,
       #[cfg(feature = "markdown")]
       inline: None,
@@ -2590,7 +2589,7 @@ impl LayoutEngine {
     let display_text = state
       .selectable()
       .then(|| Arc::from(spans.iter().map(|span| span.text.as_str()).collect::<String>()));
-    let measured = glyph_engine.measure_rich_text(spans, max_width);
+    let measured = glyph_engine.measure_rich_text(spans, 1.0, max_width);
     let size = if effective_wrap {
       constraints.constrain(measured)
     } else {
@@ -2604,8 +2603,7 @@ impl LayoutEngine {
     let output = TextOutput {
       display_text,
       render_wrap,
-      caret_positions: None,
-      text_left: 0.0,
+      carets: None,
       text_top: 0.0,
       #[cfg(feature = "markdown")]
       inline: None,
