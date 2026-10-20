@@ -69,6 +69,7 @@ use crate::{
 mod capture_redaction_tests;
 #[cfg(test)]
 mod caret_blink_tests;
+mod file_drag;
 mod focus_visible;
 mod ime;
 #[cfg(all(test, feature = "markdown"))]
@@ -77,6 +78,7 @@ mod inline_link_copy_tests;
 mod inline_link_keys;
 mod input_token_paint;
 mod outside_press;
+mod paste;
 mod scroll_into_view;
 mod select_menu;
 mod selected_text_lines;
@@ -395,16 +397,6 @@ fn log_render_list_cache_hit_timeline(
 }
 
 #[cfg(feature = "clipboard")]
-fn read_clipboard_text() -> Option<String> {
-  crate::clipboard::read_from_clipboard()
-}
-
-#[cfg(not(feature = "clipboard"))]
-fn read_clipboard_text() -> Option<String> {
-  None
-}
-
-#[cfg(feature = "clipboard")]
 fn write_clipboard_text(text: &str) -> bool {
   crate::clipboard::copy_to_clipboard(text)
 }
@@ -659,6 +651,8 @@ pub struct Tree {
   /// press extends from.
   selectable_text_anchor: Option<SelectableTextAnchor>,
   active_drag: Option<ActiveDrag>,
+  /// Files from the OS dragged over the window; see `file_drag`.
+  file_drag: Option<file_drag::FileDragSession>,
   focus_memory: FocusMemory,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
@@ -1017,6 +1011,7 @@ impl Tree {
       dragging_text_selection: None,
       selectable_text_anchor: None,
       active_drag: None,
+      file_drag: None,
       focus_memory: FocusMemory::default(),
       focused_node: None,
       focused_event_node: None,
@@ -4971,10 +4966,7 @@ impl Tree {
             let _ = state.cut_selection(evt);
           }
           ("v" | "V", _) | (_, "KeyV") if shortcut => {
-            let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
-              return false;
-            };
-            if !state.insert(&text, evt) {
+            if !self.paste_from_clipboard_shortcut(evt) {
               return false;
             }
           }
@@ -4985,10 +4977,7 @@ impl Tree {
             return write_clipboard_text(&selected);
           }
           ("Insert", _) | (_, "Insert") if shift => {
-            let Some(text) = read_clipboard_text().filter(|text| !text.is_empty()) else {
-              return false;
-            };
-            if !state.insert(&text, evt) {
+            if !self.paste_from_clipboard_shortcut(evt) {
               return false;
             }
           }
@@ -6690,6 +6679,7 @@ impl Tree {
         .filter_map(|node_id| find_node_by_id(root, *node_id)),
     );
     self.refresh_focus_ids();
+    self.refresh_file_drag_state();
   }
 
   fn clear_focus(&mut self) {
@@ -9696,6 +9686,7 @@ fn reset_element_ref_flags_recursive(node: &Node) {
   node.set_style_hovered(false);
   node.set_style_active(false);
   node.set_style_focused(false);
+  node.set_style_drag_over(false);
   if let Some(ref element_ref) = node.element_ref {
     element_ref.set_hovered(false);
     element_ref.set_active(false);

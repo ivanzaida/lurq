@@ -49,6 +49,7 @@ pub use gradient::{Gradient, GradientKind, GradientStop};
 pub use node::FormData;
 pub use node::{
   BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoDragEventHandler, IntoDropEventHandler,
+  IntoFileDragEventHandler, IntoFileDropEventHandler, IntoPasteEventHandler,
   IntoEventHandler, IntoKeyboardEventHandler, IntoMouseEventHandler, IntoScrollEventHandler, IntoTextInputEventHandler,
   IntoVoidEventHandler, VoidEventHandler,
 };

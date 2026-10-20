@@ -195,6 +195,10 @@ pub(crate) enum WindowCommand {
   StartResize(WindowResizeDirection),
   StopDrag,
   InjectInput(crate::app::synthetic_input::SyntheticInput),
+  /// Read the OS clipboard and paste it into the focused text input, as
+  /// Ctrl+V does: for an app's own Paste menu item.
+  #[cfg(feature = "clipboard")]
+  PasteFromClipboard,
   #[cfg(feature = "screenshot")]
   Screenshot(std::path::PathBuf, Option<ScreenshotRegion>),
   OpenDevtools,

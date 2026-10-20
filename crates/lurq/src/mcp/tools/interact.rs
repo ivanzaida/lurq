@@ -9,7 +9,7 @@ use super::{
 use crate::{
   app::{
     App, Tree,
-    events::MouseButton,
+    events::{ClipboardContent, DraggedPaths, MouseButton},
     synthetic_input::{self, SyntheticInput, SyntheticModifiers},
   },
   core::NodeId,
@@ -221,6 +221,58 @@ pub(super) fn interact_tool(
         serde_json::json!({ "ok": true, "action": "type", "window": window }),
       ))
     }
+    "paste" => {
+      let text = args.get("text").and_then(|value| value.as_str());
+      let files = path_list(args, "files")?;
+      if text.is_none() && files.is_empty() {
+        return Err("paste needs `text` and/or `files`; the OS clipboard is never read for a synthetic paste".into());
+      }
+      let mut content = ClipboardContent::files(files);
+      if let Some(text) = text {
+        content = content.with_text(text);
+      }
+      let window = requested_window(args);
+      let target = window_tree_mut(tree, &window, state.include_devtools)?;
+      let kinds = content.kinds();
+      apply_all(target, vec![SyntheticInput::paste(content)]);
+      Ok(McpToolOutput::Json(serde_json::json!({
+        "ok": true, "action": "paste", "window": window,
+        "text": kinds.text, "files": kinds.files,
+        "note": "delivered to the focused text input and its ancestors' on_paste handlers; nothing without a focused input"
+      })))
+    }
+    "drag_files" | "drop_files" => {
+      let paths = path_list(args, "paths")?;
+      if paths.is_empty() {
+        return Err(format!("{action} needs `paths`"));
+      }
+      let (window, point) = resolve_point(tree, state, args, "ref", "x", "y")?;
+      let (x, y) = point.ok_or("this action needs a `ref` or `x`/`y` coordinates")?;
+      let target = window_tree_mut(tree, &window, state.include_devtools)?;
+      let paths = DraggedPaths::from_paths(paths);
+      let count = paths.len();
+      let folders = paths.folders().count();
+      let input = if action == "drop_files" {
+        SyntheticInput::file_drop(x, y, paths)
+      } else {
+        SyntheticInput::file_drag_enter(x, y, paths)
+      };
+      apply_all(target, vec![input]);
+      let accepted = target.file_drag_accepted();
+      Ok(McpToolOutput::Json(serde_json::json!({
+        "ok": true, "action": action, "window": window, "x": x, "y": y,
+        "paths": count, "folders": folders, "accepted": accepted
+      })))
+    }
+    "file_drag_leave" => {
+      let window = requested_window(args);
+      let target = window_tree_mut(tree, &window, state.include_devtools)?;
+      let had_drag = target.has_file_drag();
+      apply_all(target, vec![SyntheticInput::file_drag_leave()]);
+      Ok(McpToolOutput::Json(serde_json::json!({
+        "ok": true, "action": "file_drag_leave", "window": window, "had_drag": had_drag
+      })))
+    }
     "scroll_to" => {
       let ref_id = args
         .get("ref")
@@ -241,6 +293,25 @@ pub(super) fn interact_tool(
     }
     other => Err(format!("unknown action {other:?}")),
   }
+}
+
+/// The string array `name` as paths; empty when absent.
+fn path_list(args: &serde_json::Value, name: &str) -> Result<Vec<std::path::PathBuf>, String> {
+  let Some(list) = args.get(name) else {
+    return Ok(Vec::new());
+  };
+  let list = list
+    .as_array()
+    .ok_or_else(|| format!("`{name}` must be an array of path strings"))?;
+  list
+    .iter()
+    .map(|value| {
+      value
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| format!("`{name}` must be an array of path strings"))
+    })
+    .collect()
 }
 
 /// Adjust every scroll container on the path to `node_id` so the node's

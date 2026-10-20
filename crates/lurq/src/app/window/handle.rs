@@ -177,6 +177,15 @@ impl WindowHandle {
     }
   }
 
+  /// Pastes the OS clipboard into the focused text input, as Ctrl+V does:
+  /// the input's `on_paste` handlers see the content first. For an app's own
+  /// Paste menu item or context menu. The clipboard is read inside the
+  /// shell's event loop, as OS input (never for a synthetic request).
+  #[cfg(feature = "clipboard")]
+  pub fn paste_from_clipboard(&self) {
+    self.window.push_command(WindowCommand::PasteFromClipboard);
+  }
+
   /// Captures the next rendered window frame to a PNG file.
   #[cfg(feature = "screenshot")]
   pub fn screenshot(&self, output_path: impl Into<std::path::PathBuf>) {

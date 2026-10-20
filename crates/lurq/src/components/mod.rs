@@ -511,8 +511,22 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Merged over the element's style while files from the OS are
+      /// dragged over it (`on_file_drag_enter` fired, `on_file_drag_leave`
+      /// has not), so a drop target can highlight.
+      pub fn drag_over_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drag_over_style(node, style));
+        self
+      }
+
       pub fn hovered(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::hovered(node, f));
+        self
+      }
+
+      /// Builder form of `drag_over_style`.
+      pub fn drag_over(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drag_over(node, f));
         self
       }
 
@@ -642,6 +656,66 @@ macro_rules! impl_into_node {
 
       pub fn off_drop(mut self, f: impl $crate::node::IntoDropEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_drop(node, f));
+        self
+      }
+
+      /// Files from the OS (Explorer, Finder) dragged into the window reach
+      /// the element under the pointer: this fires once when the drag
+      /// enters the element, `on_file_drag_over` on every move over it,
+      /// `on_file_drag_leave` when it leaves without a drop, and
+      /// `on_file_drop` on the drop. The events bubble to ancestors; the
+      /// paths are given once for the whole drag.
+      pub fn on_file_drag_enter(mut self, f: impl $crate::node::IntoFileDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_file_drag_enter(node, f));
+        self
+      }
+
+      pub fn off_file_drag_enter(mut self, f: impl $crate::node::IntoFileDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_file_drag_enter(node, f));
+        self
+      }
+
+      pub fn on_file_drag_over(mut self, f: impl $crate::node::IntoFileDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_file_drag_over(node, f));
+        self
+      }
+
+      pub fn off_file_drag_over(mut self, f: impl $crate::node::IntoFileDragEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_file_drag_over(node, f));
+        self
+      }
+
+      pub fn on_file_drag_leave(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_file_drag_leave(node, f));
+        self
+      }
+
+      pub fn off_file_drag_leave(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_file_drag_leave(node, f));
+        self
+      }
+
+      pub fn on_file_drop(mut self, f: impl $crate::node::IntoFileDropEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_file_drop(node, f));
+        self
+      }
+
+      pub fn off_file_drop(mut self, f: impl $crate::node::IntoFileDropEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_file_drop(node, f));
+        self
+      }
+
+      /// A paste into the focused text input, before its text is inserted:
+      /// on the input, or on an ancestor it bubbles to. The handler sees
+      /// what the clipboard holds and may `prevent_default()` to take an
+      /// image or files instead of inserting text.
+      pub fn on_paste(mut self, f: impl $crate::node::IntoPasteEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_paste(node, f));
+        self
+      }
+
+      pub fn off_paste(mut self, f: impl $crate::node::IntoPasteEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_paste(node, f));
         self
       }
 

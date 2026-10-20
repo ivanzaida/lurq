@@ -1935,6 +1935,7 @@ dependencies = [
  "objc2-metal 0.3.2",
  "parking_lot",
  "paste",
+ "png",
  "pollster",
  "pulldown-cmark",
  "raw-window-handle",
@@ -2251,6 +2252,7 @@ dependencies = [
  "bitflags 2.11.1",
  "block2 0.6.2",
  "objc2 0.6.4",
+ "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
 ]

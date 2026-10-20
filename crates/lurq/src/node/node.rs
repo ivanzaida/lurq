@@ -11,7 +11,8 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{
-      DragEvent, DropEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent, ScrollEvent, TextInputEvent,
+      DragEvent, DropEvent, FileDragEvent, FileDropEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent,
+      PasteEvent, ScrollEvent, TextInputEvent,
     },
     theme::{CaretMode, TypographyStyle},
   },
@@ -154,6 +155,63 @@ where
   F: Fn(DropEvent) + Send + Sync + 'static,
 {
   fn into_event_handler(self) -> EventHandler<DropEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoFileDragEventHandler {
+  fn into_event_handler(self) -> EventHandler<FileDragEvent>;
+}
+
+impl IntoFileDragEventHandler for EventHandler<FileDragEvent> {
+  fn into_event_handler(self) -> EventHandler<FileDragEvent> {
+    self
+  }
+}
+
+impl<F> IntoFileDragEventHandler for F
+where
+  F: Fn(FileDragEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<FileDragEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoFileDropEventHandler {
+  fn into_event_handler(self) -> EventHandler<FileDropEvent>;
+}
+
+impl IntoFileDropEventHandler for EventHandler<FileDropEvent> {
+  fn into_event_handler(self) -> EventHandler<FileDropEvent> {
+    self
+  }
+}
+
+impl<F> IntoFileDropEventHandler for F
+where
+  F: Fn(FileDropEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<FileDropEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoPasteEventHandler {
+  fn into_event_handler(self) -> EventHandler<PasteEvent>;
+}
+
+impl IntoPasteEventHandler for EventHandler<PasteEvent> {
+  fn into_event_handler(self) -> EventHandler<PasteEvent> {
+    self
+  }
+}
+
+impl<F> IntoPasteEventHandler for F
+where
+  F: Fn(PasteEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<PasteEvent> {
     EventHandler::from_event(self)
   }
 }
@@ -340,10 +398,12 @@ pub(crate) trait NodeUpdate {
   fn active_style(&mut self, style: Style);
   fn focused_style(&mut self, style: Style);
   fn focus_visible_style(&mut self, style: Style);
+  fn drag_over_style(&mut self, style: Style);
   fn hovered(&mut self, f: impl FnOnce(Style) -> Style);
   fn active(&mut self, f: impl FnOnce(Style) -> Style);
   fn focused(&mut self, f: impl FnOnce(Style) -> Style);
   fn focus_visible(&mut self, f: impl FnOnce(Style) -> Style);
+  fn drag_over(&mut self, f: impl FnOnce(Style) -> Style);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
@@ -365,6 +425,16 @@ pub(crate) trait NodeUpdate {
   fn off_drag_end(&mut self, f: impl IntoDragEventHandler);
   fn on_drop(&mut self, f: impl IntoDropEventHandler);
   fn off_drop(&mut self, f: impl IntoDropEventHandler);
+  fn on_file_drag_enter(&mut self, f: impl IntoFileDragEventHandler);
+  fn off_file_drag_enter(&mut self, f: impl IntoFileDragEventHandler);
+  fn on_file_drag_over(&mut self, f: impl IntoFileDragEventHandler);
+  fn off_file_drag_over(&mut self, f: impl IntoFileDragEventHandler);
+  fn on_file_drag_leave(&mut self, f: impl IntoVoidEventHandler);
+  fn off_file_drag_leave(&mut self, f: impl IntoVoidEventHandler);
+  fn on_file_drop(&mut self, f: impl IntoFileDropEventHandler);
+  fn off_file_drop(&mut self, f: impl IntoFileDropEventHandler);
+  fn on_paste(&mut self, f: impl IntoPasteEventHandler);
+  fn off_paste(&mut self, f: impl IntoPasteEventHandler);
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn off_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn on_mouse_leave(&mut self, f: impl IntoVoidEventHandler);
@@ -554,6 +624,11 @@ pub struct EventHandlers {
   pub on_drag_move: Vec<Callback<DragEvent>>,
   pub on_drag_end: Vec<Callback<DragEvent>>,
   pub on_drop: Vec<Callback<DropEvent>>,
+  pub on_file_drag_enter: Vec<Callback<FileDragEvent>>,
+  pub on_file_drag_over: Vec<Callback<FileDragEvent>>,
+  pub on_file_drag_leave: Vec<VoidCallback>,
+  pub on_file_drop: Vec<Callback<FileDropEvent>>,
+  pub on_paste: Vec<Callback<PasteEvent>>,
   pub on_mouse_enter: Vec<VoidCallback>,
   pub on_mouse_leave: Vec<VoidCallback>,
   pub on_key_down: Vec<Callback<KeyboardEvent>>,
@@ -1083,8 +1158,16 @@ impl NodeUpdate for Node {
     self.state_styles.focus_visible = Some(style);
   }
 
+  fn drag_over_style(&mut self, style: Style) {
+    self.state_styles.drag_over = Some(style);
+  }
+
   fn hovered(&mut self, f: impl FnOnce(Style) -> Style) {
     NodeUpdate::hovered_style(self, f(Style::new()));
+  }
+
+  fn drag_over(&mut self, f: impl FnOnce(Style) -> Style) {
+    NodeUpdate::drag_over_style(self, f(Style::new()));
   }
 
   fn active(&mut self, f: impl FnOnce(Style) -> Style) {
@@ -1215,6 +1298,63 @@ impl NodeUpdate for Node {
   fn off_drop(&mut self, f: impl IntoDropEventHandler) {
     let handler = f.into_event_handler();
     self.events.on_drop.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_file_drag_enter(&mut self, f: impl IntoFileDragEventHandler) {
+    self.events.on_file_drag_enter.push(f.into_event_handler());
+  }
+
+  fn off_file_drag_enter(&mut self, f: impl IntoFileDragEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_file_drag_enter
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_file_drag_over(&mut self, f: impl IntoFileDragEventHandler) {
+    self.events.on_file_drag_over.push(f.into_event_handler());
+  }
+
+  fn off_file_drag_over(&mut self, f: impl IntoFileDragEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_file_drag_over
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_file_drag_leave(&mut self, f: impl IntoVoidEventHandler) {
+    self.events.on_file_drag_leave.push(f.into_void_event_handler());
+  }
+
+  fn off_file_drag_leave(&mut self, f: impl IntoVoidEventHandler) {
+    let handler = f.into_void_event_handler();
+    self
+      .events
+      .on_file_drag_leave
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_file_drop(&mut self, f: impl IntoFileDropEventHandler) {
+    self.events.on_file_drop.push(f.into_event_handler());
+  }
+
+  fn off_file_drop(&mut self, f: impl IntoFileDropEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_file_drop
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_paste(&mut self, f: impl IntoPasteEventHandler) {
+    self.events.on_paste.push(f.into_event_handler());
+  }
+
+  fn off_paste(&mut self, f: impl IntoPasteEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_paste.retain(|existing| !existing.same_handler(&handler));
   }
 
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler) {
@@ -2408,8 +2548,19 @@ impl Node {
     self
   }
 
+  /// Merged over the node's style while files from the OS are dragged over
+  /// it, so a drop target can highlight.
+  pub fn drag_over_style(mut self, style: Style) -> Self {
+    self.state_styles.drag_over = Some(style);
+    self
+  }
+
   pub fn hovered(self, f: impl FnOnce(Style) -> Style) -> Self {
     self.hovered_style(f(Style::new()))
+  }
+
+  pub fn drag_over(self, f: impl FnOnce(Style) -> Style) -> Self {
+    self.drag_over_style(f(Style::new()))
   }
 
   pub fn active(self, f: impl FnOnce(Style) -> Style) -> Self {
@@ -2563,6 +2714,31 @@ impl Node {
   pub fn off_drop(mut self, f: impl IntoDropEventHandler) -> Self {
     let handler = f.into_event_handler();
     self.events.on_drop.retain(|existing| !existing.same_handler(&handler));
+    self
+  }
+
+  pub fn on_file_drag_enter(mut self, f: impl IntoFileDragEventHandler) -> Self {
+    NodeUpdate::on_file_drag_enter(&mut self, f);
+    self
+  }
+
+  pub fn on_file_drag_over(mut self, f: impl IntoFileDragEventHandler) -> Self {
+    NodeUpdate::on_file_drag_over(&mut self, f);
+    self
+  }
+
+  pub fn on_file_drag_leave(mut self, f: impl IntoVoidEventHandler) -> Self {
+    NodeUpdate::on_file_drag_leave(&mut self, f);
+    self
+  }
+
+  pub fn on_file_drop(mut self, f: impl IntoFileDropEventHandler) -> Self {
+    NodeUpdate::on_file_drop(&mut self, f);
+    self
+  }
+
+  pub fn on_paste(mut self, f: impl IntoPasteEventHandler) -> Self {
+    NodeUpdate::on_paste(&mut self, f);
     self
   }
 
@@ -3489,7 +3665,8 @@ impl Node {
       style.as_ref().filter(|_| applies)?.box_shadow.as_deref()
     }
     let states = &*self.state_styles;
-    state_shadow(self.style_state.is_active(), &states.active)
+    state_shadow(self.style_state.is_drag_over(), &states.drag_over)
+      .or_else(|| state_shadow(self.style_state.is_active(), &states.active))
       .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
       .or_else(|| state_shadow(self.style_state.is_focus_visible(), &states.focus_visible))
       .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
@@ -3669,6 +3846,22 @@ impl Node {
     let changed = self.style_state.is_hovered() != hovered;
     if changed {
       self.style_state.set_hovered(hovered);
+    }
+    let layout_dirty = changed && self.state_styles_affect_layout();
+    if layout_dirty {
+      self.style_state.mark_layout_dirty();
+    }
+    layout_dirty
+  }
+
+  pub(crate) fn is_style_drag_over(&self) -> bool {
+    self.style_state.is_drag_over()
+  }
+
+  pub(crate) fn set_style_drag_over(&self, drag_over: bool) -> bool {
+    let changed = self.style_state.is_drag_over() != drag_over;
+    if changed {
+      self.style_state.set_drag_over(drag_over);
     }
     let layout_dirty = changed && self.state_styles_affect_layout();
     if layout_dirty {
@@ -4464,6 +4657,11 @@ impl Node {
       if let Some(active) = &self.state_styles.active {
         style.merge_from(active);
       }
+    }
+    if self.style_state.is_drag_over()
+      && let Some(drag_over) = &self.state_styles.drag_over
+    {
+      style.merge_from(drag_over);
     }
     style
   }

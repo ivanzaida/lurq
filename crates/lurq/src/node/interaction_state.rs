@@ -11,6 +11,7 @@ struct InteractionStateInner {
   active: bool,
   focused: bool,
   focus_visible: bool,
+  drag_over: bool,
   layout_dirty: bool,
 }
 
@@ -36,6 +37,16 @@ impl InteractionState {
   /// text input. See the focus-navigation guide for the full rules.
   pub fn is_focus_visible(&self) -> bool {
     self.inner.lock().unwrap().focus_visible
+  }
+
+  /// Files from the OS are dragged over the node (`on_file_drag_enter` fired
+  /// and `on_file_drag_leave` has not), like a hover during a file drag.
+  pub fn is_drag_over(&self) -> bool {
+    self.inner.lock().unwrap().drag_over
+  }
+
+  pub(crate) fn set_drag_over(&self, val: bool) {
+    self.inner.lock().unwrap().drag_over = val;
   }
 
   pub(crate) fn set_hovered(&self, val: bool) {
