@@ -144,13 +144,14 @@ fn mcp_file_drags_reach_the_element_under_the_point() {
   assert_eq!(leave["had_drag"], true);
   assert!(!tree.has_file_drag());
 
-  interact(
+  let drop = interact(
     &mut tree,
     &mut app,
     &sender,
     json!({"action": "drop_files", "x": 50, "y": 50, "paths": ["C:/shots/a.png", "C:/shots/b.png"]}),
   )
   .unwrap();
+  assert_eq!(drop["handled"], true);
   assert_eq!(*dropped.lock().unwrap(), [(true, 2, false)]);
   assert!(!tree.has_file_drag());
 

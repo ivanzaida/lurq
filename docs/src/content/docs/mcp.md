@@ -192,11 +192,11 @@ lurq_interact {"action":"paste","text":"from an agent","files":["C:/shots/a.png"
 
 `text` and/or `files` are required; an image cannot be pasted this way. The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
 
-Files from the OS are dragged with `drag_files` (enters the window at the point, or moves a drag in progress there, with `paths` of files or folders), ended without a drop with `file_drag_leave`, and dropped with `drop_files` (enters first when no drag is in progress). The reply reports `paths`, `folders` and whether the elements under the point `accepted` the drag:
+Files from the OS are dragged with `drag_files` (enters the window at the point, or moves a drag in progress there, with `paths` of files or folders), ended without a drop with `file_drag_leave`, and dropped with `drop_files` (enters first when no drag is in progress). The reply reports `paths` and `folders`; `drag_files` adds whether the elements under the point `accepted` the drag, `drop_files` whether an element there `handled` the drop:
 
 ```text
 lurq_interact {"action":"drop_files","ref":"ref_12","paths":["C:/shots/a.png","C:/shots/b.png"]}
-→ {"ok":true,"action":"drop_files","window":"main","x":320,"y":540,"paths":2,"folders":0,"accepted":null}
+→ {"ok":true,"action":"drop_files","window":"main","x":320,"y":540,"paths":2,"folders":0,"handled":true}
 ```
 
 ## Runtime Control

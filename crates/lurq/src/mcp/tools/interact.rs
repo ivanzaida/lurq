@@ -252,17 +252,21 @@ pub(super) fn interact_tool(
       let paths = DraggedPaths::from_paths(paths);
       let count = paths.len();
       let folders = paths.folders().count();
-      let input = if action == "drop_files" {
-        SyntheticInput::file_drop(x, y, paths)
-      } else {
-        SyntheticInput::file_drag_enter(x, y, paths)
-      };
-      apply_all(target, vec![input]);
-      let accepted = target.file_drag_accepted();
-      Ok(McpToolOutput::Json(serde_json::json!({
+      let mut reply = serde_json::json!({
         "ok": true, "action": action, "window": window, "x": x, "y": y,
-        "paths": count, "folders": folders, "accepted": accepted
-      })))
+        "paths": count, "folders": folders
+      });
+      if action == "drop_files" {
+        // Applied directly: `apply_all` has no answer, and whether an element
+        // under the point took the drop is the answer.
+        let handled = crate::app::events::with_synthetic_input(|| target.file_drop(paths, x, y));
+        target.request_redraw();
+        reply["handled"] = serde_json::Value::Bool(handled);
+      } else {
+        apply_all(target, vec![SyntheticInput::file_drag_enter(x, y, paths)]);
+        reply["accepted"] = serde_json::json!(target.file_drag_accepted());
+      }
+      Ok(McpToolOutput::Json(reply))
     }
     "file_drag_leave" => {
       let window = requested_window(args);
