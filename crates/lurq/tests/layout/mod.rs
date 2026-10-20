@@ -26,6 +26,7 @@ mod box_shadow_math;
 mod column;
 mod constraints;
 mod edge_cases;
+mod ellipsis_fit;
 mod flex;
 mod flex_constraints;
 mod flex_shrink_relayout;

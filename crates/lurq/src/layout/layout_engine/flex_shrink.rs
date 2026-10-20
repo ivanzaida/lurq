@@ -23,11 +23,58 @@ pub(super) struct FlexShrinkLine<'a> {
   pub(super) params: &'a [FlexParams],
   pub(super) constraints: Constraints,
   pub(super) max_main: f32,
+  /// What the children take beyond `max_main` ([`line_overflow`]).
+  pub(super) overflow: f32,
   pub(super) spacing: f32,
   pub(super) shrink_total: f32,
   pub(super) vertical: bool,
   /// Its parent collapsed this line ([`LayoutEngine::is_collapsed`]).
   pub(super) collapsed: bool,
+}
+
+/// The room a Row/Column grants its growing children.
+#[derive(Clone, Copy)]
+pub(super) struct FreeRoom {
+  /// The main size left after the spacing and the children sized on their
+  /// own; negative when those overflow the line, infinite on an unbounded
+  /// main axis.
+  pub(super) remaining: f32,
+  pub(super) grow_total: f32,
+}
+
+/// What a line's children take beyond its main size, before any of them
+/// shrinks. `grants` holds the main size the line laid each flex child out
+/// at (`None` for a child sized on its own).
+///
+/// The growing children are granted the free room in shares, so together
+/// they take exactly that room: it is not summed back up from their sizes.
+/// In `f32` that sum can come out a few micro-pixels over the line, and the
+/// rounding would pass for an overflow: the line would shrink a text by it
+/// and ellipsize the text, with the room still free beside it. What the room
+/// did not account for still counts: a flex basis, and whatever a child takes
+/// beyond its grant.
+pub(super) fn line_overflow(
+  results: &[LayoutResult],
+  params: &[FlexParams],
+  grants: &[Option<f32>],
+  room: FreeRoom,
+  vertical: bool,
+) -> f32 {
+  if !room.remaining.is_finite() {
+    return 0.0;
+  }
+  let granted = results
+    .iter()
+    .zip(grants)
+    .zip(params)
+    .filter_map(|((result, grant), params)| grant.map(|grant| (main_size(result, vertical), grant, params)));
+  if room.remaining > 0.0 && room.grow_total > 0.0 {
+    granted
+      .map(|(size, grant, params)| size - grant + params.basis.unwrap_or(0.0))
+      .sum()
+  } else {
+    granted.map(|(size, ..)| size).sum::<f32>() - room.remaining
+  }
 }
 
 /// Whether a child takes up space in its flex line: overlay declarations and
@@ -137,19 +184,12 @@ impl LayoutEngine {
     if line.shrink_total <= 0.0 || !line.max_main.is_finite() {
       return Vec::new();
     }
-    let total_children_main: f32 = results
-      .iter()
-      .zip(line.children)
-      .filter(|(_, child)| !child.is_overlay_declaration())
-      .map(|(result, _)| main_size(result, line.vertical))
-      .sum();
     let occupied = line
       .children
       .iter()
       .filter(|child| !child.is_overlay_declaration())
       .count();
-    let total_spacing = line.spacing * (occupied as f32 - 1.0).max(0.0);
-    let overflow = total_children_main + total_spacing - line.max_main;
+    let overflow = line.overflow;
     // A collapsed line drops and collapses its children even when it fits.
     if overflow <= 0.0 && !line.collapsed {
       return Vec::new();

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.48.2 — 2026-10-20
+
+Fixes:
+
+- A single-line text with an ellipsis (`TextOverflow::Elipsis`, `nowrap`) and a shrink factor in a Row or Column beside a growing child (a `Spacer::flex(1.0)`) was cut although its words fit, with the free room still beside it: "Pausing run #4 of KON-10 · dismiss…" in a box 1/16000 px narrower than its words. The line granted the growing child the room left and then summed its children back up to find the overflow to shrink by; in `f32` the sum could come out a few micro-pixels over the line, and the text was laid out again that much narrower and ellipsized, since a text over its box by any amount is cut. Whether it happened depended on the fractions of the line's width and of its texts' widths (a time in a label, a title's words), so most titles of a kind were fine and some were cut at some window widths. The overflow of a line now counts the free room its growing children fill once, as it was granted: the children sized on their own, a flex basis, and what a child takes beyond its grant are what can overflow the line. A row too narrow for its words still ellipsizes them.
+
 ## 0.48.1 — 2026-10-17
 
 Fixes:
