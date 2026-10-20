@@ -96,7 +96,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_menu` | observe | Inspect the native-menu model, command IDs, enabled state, and platform support. |
 | `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
-| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; also `request_close` and `menu_activate`. |
+| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; [pastes and file drags](#pastes-and-file-drags): `paste`, `drag_files`, `drop_files`, `file_drag_leave`; also `request_close` and `menu_activate`. |
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
 | `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
@@ -179,6 +179,24 @@ A button released for its client ends the way the OS ends a press it takes over 
 
 ```text
 the left button is not held in window "main": held input there was released because the window lost focus; press it first
+```
+
+### Pastes and file drags
+
+The person's clipboard is theirs: a `key` action of `Ctrl+V` (or `Cmd+V`, `Shift+Insert`) is refused by the text input instead of reading it, and no paste event fires. A client pastes with its own content:
+
+```text
+lurq_interact {"action":"paste","text":"from an agent","files":["C:/shots/a.png"]}
+→ {"ok":true,"action":"paste","window":"main","text":true,"files":true,"note":"..."}
+```
+
+`text` and/or `files` are required; an image cannot be pasted this way. The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
+
+Files from the OS are dragged with `drag_files` (enters the window at the point, or moves a drag in progress there, with `paths` of files or folders), ended without a drop with `file_drag_leave`, and dropped with `drop_files` (enters first when no drag is in progress). The reply reports `paths`, `folders` and whether the elements under the point `accepted` the drag:
+
+```text
+lurq_interact {"action":"drop_files","ref":"ref_12","paths":["C:/shots/a.png","C:/shots/b.png"]}
+→ {"ok":true,"action":"drop_files","window":"main","x":320,"y":540,"paths":2,"folders":0,"accepted":null}
 ```
 
 ## Runtime Control

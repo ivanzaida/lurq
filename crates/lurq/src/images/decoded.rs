@@ -23,7 +23,7 @@ use std::{
   time::Duration,
 };
 
-pub use cache::DecodedImages;
+pub use cache::{DEFAULT_BUDGET_BYTES, DecodedImages};
 
 use crate::images::ImageData;
 

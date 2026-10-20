@@ -19,7 +19,7 @@ The docs are organized around the questions that come up while building:
 - [Layout](./layout/) covers constraints, row/column/stack, flex, scroll, absolute positioning, and clipping.
 - [Theme](./theme/) covers palette, typography, radius, spacing, border size, shadow, and form theme roles, including application-defined extras.
 - [Animation And Transforms](./animation-transforms/) covers transitions, keyframes, easing, transform composition, transform animation, and transformed text.
-- [Styling And Events](./styling-events/) covers visual modifiers, hover/active/focus styles, cursor state, handlers, text selection, inputs, clipboard behavior, and drag and drop.
+- [Styling And Events](./styling-events/) covers visual modifiers, hover/active/focus styles, cursor state, handlers, text selection, inputs, clipboard behavior and paste events, and drag and drop, in the app and of files from the OS.
 - [Focus And Keyboard Navigation](./focus-navigation/) covers focusable elements, `tab_index`, Tab scopes, modal focus traps, focused styles, and testing focus headlessly.
 - [Forms](./forms/) covers form handles, field binding, submission, `FormValues`, and the `Button` component.
 - [Routing](./routing/) covers declarative routes, nested layouts, links, params, guards, and history navigation.

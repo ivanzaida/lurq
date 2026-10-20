@@ -9,8 +9,8 @@ mod wgpu_external;
 pub use image_data::{Dx12Nv12Image, Dx12Nv12ImageSlot};
 #[cfg(feature = "image")]
 pub use decoded::{
-  DecodedImages, ImageDecodeError, ImageKey, ImageLoadState, ImageSizeCap, ImageSource, decode_image, decoded_images,
-  wait_for_decoded_images,
+  DEFAULT_BUDGET_BYTES, DecodedImages, ImageDecodeError, ImageKey, ImageLoadState, ImageSizeCap, ImageSource,
+  decode_image, decoded_images, wait_for_decoded_images,
 };
 pub use image_data::{ImageData, ImageKind, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage};
 #[cfg(target_os = "macos")]

@@ -123,7 +123,12 @@ fn the_same_key_decodes_once_and_the_second_tree_shows_it_at_once() {
   first.set_root(build());
   render_pass(&mut first);
   assert!(wait_for_decoded_images(WAIT));
-  let completed = decoded_images().completed();
+  let decoded_id = |key, cap| {
+    decoded_images()
+      .state(key, cap)
+      .and_then(|state| state.ready().map(|data| data.id()))
+  };
+  let first_id = decoded_id(key, Some(cap)).expect("decoded once");
 
   let mut second = Tree::new();
   second.set_root(build());
@@ -135,7 +140,11 @@ fn the_same_key_decodes_once_and_the_second_tree_shows_it_at_once() {
     (32, 16),
     "the capped decode"
   );
-  assert_eq!(decoded_images().completed(), completed, "nothing decoded again");
+  assert_eq!(
+    decoded_id(key, Some(cap)),
+    Some(first_id),
+    "the same pixels: nothing decoded again"
+  );
   assert!(
     decoded_images()
       .state(key, Some(cap))
@@ -333,7 +342,14 @@ fn virtualized_rows_built_as_they_scroll_share_one_decode() {
   runtime.mount_root::<ThumbnailList>(&mut app, Shared(builds.clone()));
   render_pass_with_app(&mut runtime, &mut app);
   assert!(wait_for_decoded_images(WAIT));
-  let completed = decoded_images().completed();
+  let key = unique_key(RED_64X32, "virtualized");
+  let cap = Some(ImageSizeCap::new(16, 16));
+  let decoded_id = || {
+    decoded_images()
+      .state(key, cap)
+      .and_then(|state| state.ready().map(|data| data.id()))
+  };
+  let first_id = decoded_id().expect("decoded once");
   let first = render_pass_with_app(&mut runtime, &mut app);
   assert_eq!(
     first.images.len(),
@@ -353,5 +369,5 @@ fn virtualized_rows_built_as_they_scroll_share_one_decode() {
     "the new rows show their thumbnails at once: {:?}",
     scrolled.images
   );
-  assert_eq!(decoded_images().completed(), completed, "without decoding again");
+  assert_eq!(decoded_id(), Some(first_id), "the same pixels: nothing decoded again");
 }

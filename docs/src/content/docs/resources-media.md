@@ -89,6 +89,47 @@ stream.update_rgba(|pixels| {
 Image::new(stream.image_data())
 ```
 
+## Runtime Images
+
+An image decoded at runtime from encoded bytes or a file, for attachments, thumbnails and screenshots that are not resources of the app:
+
+```rust
+use lurq::{components::{Image, Rect, Text}, images::ImageKey, node::BackgroundSize};
+
+Image::from_bytes(attachment.bytes.clone())
+  .cache_key(ImageKey::new(attachment.hash))
+  .downscale_to(256, 256)
+  .fit(BackgroundSize::Cover)
+  .placeholder(Rect::new(96.0, 96.0).background("#374151"))
+  .error_view(|error| Text::new(error.to_string()))
+  .size(96.0, 96.0)
+  .rounded(8.0)
+```
+
+`Image::from_bytes(bytes)` decodes PNG, JPEG, the first frame of a GIF or WebP, BMP and TIFF; `Image::from_file(path)` reads the file first; `Image::from_source(source, key)` takes either with a key. The decode runs on worker threads, off the UI thread: the node shows its `placeholder` (and its own background) until the pixels are there, then the image, and the `error_view` built from the `ImageDecodeError` for a broken file, instead of a panic. `downscale_to(width, height)` caps the decoded size, keeping the aspect ratio and never upscaling, so a thumbnail of a 4K screenshot does not keep its 30 MB of RGBA. `fit` places the pixels in the node's box: `Stretch` (the default, as `Image::new` always drew), `Contain` fits the whole image centered, `Cover` fills the box and crops the overflow; it works on every image node.
+
+Decoded pixels are kept in the process-wide cache, `lurq::images::decoded_images()`, keyed by content and size cap: `from_bytes` hashes the bytes (`ImageKey::of_bytes`), `from_file` keys the path with the file's size and modification time (`ImageKey::of_path`), and an app that stores a hash of its own passes it with `cache_key(ImageKey::new(hash))` and skips the hashing. A chat laid out again, or a `VirtualizedList` row built again as it scrolls back in, finds its image ready in the first pass and decodes nothing. The cache keeps at most `DecodedImages::budget()` bytes of RGBA (128 MiB by default, `set_budget`), dropping the least recently used ready images; a node that still shows one keeps it. `decoded_images().state(key, cap)` reads an entry without decoding, `insert` puts pixels the app decoded itself, and `decode_image(&source, cap)` decodes on the calling thread. A test waits with `lurq::images::wait_for_decoded_images(timeout)`; see [Testing](../testing/#pastes-file-drags-and-runtime-images).
+
+## Clipboard
+
+With `clipboard`, `lurq::clipboard` reads and writes the OS clipboard. Besides the text functions (`copy_to_clipboard`, `read_from_clipboard`, `clear_clipboard`), `read_clipboard()` reads everything it holds at once as a `ClipboardContent`: the text, the image a screenshot tool or a browser put there (Windows `CF_DIBV5`/`CF_DIB`, macOS `public.png`/`public.tiff`, as RGBA), and the files copied in Explorer or Finder (`CF_HDROP`, file URLs). A clipboard may hold text and an image at once; `kinds()` tells which.
+
+```rust
+use lurq::clipboard::{copy_image_to_clipboard, read_clipboard};
+
+if let Some(content) = read_clipboard() {
+  if let Some(image) = content.image_content() {
+    let png: Vec<u8> = image.to_png()?; // to store it
+  }
+  for path in content.file_paths() {
+    // a file copied in Explorer or Finder
+  }
+}
+copy_image_to_clipboard(width, height, &rgba);
+```
+
+`ClipboardImage::from_rgba(width, height, rgba)` builds the image a test or an app pastes; `copy_files_to_clipboard(&paths)` puts file paths there. A paste into a text input delivers the same `ClipboardContent` through a `PasteEvent`; see [Paste](../styling-events/#paste).
+
 ## Resource Images
 
 With `image` and `resources`, let the runtime load files relative to the resource root.
