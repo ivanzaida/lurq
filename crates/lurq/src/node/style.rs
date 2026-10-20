@@ -31,6 +31,8 @@ pub(crate) struct StateStyles {
   pub(crate) active: Option<Style>,
   pub(crate) focused: Option<Style>,
   pub(crate) focus_visible: Option<Style>,
+  /// While files from the OS are dragged over the node.
+  pub(crate) drag_over: Option<Style>,
 }
 
 impl Style {
@@ -308,5 +310,6 @@ impl StateStyles {
       || self.active.as_ref().is_some_and(Style::affects_layout)
       || self.focused.as_ref().is_some_and(Style::affects_layout)
       || self.focus_visible.as_ref().is_some_and(Style::affects_layout)
+      || self.drag_over.as_ref().is_some_and(Style::affects_layout)
   }
 }

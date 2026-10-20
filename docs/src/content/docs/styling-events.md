@@ -201,6 +201,8 @@ Text::new("Save")
 
 The focused style (`.focused(...)`) shows whenever the node has focus, whether a click, Tab, or a focus request put it there. The focus-visible style (`.focus_visible(...)`) shows only for keyboard focus, like CSS `:focus-visible`: Tab or a key press shows it, a click does not, and a text input shows it for any focus. Use it for focus rings. Checkboxes, sliders and selects also have part-level focus styles, which follow focus-visible; see [Focus-Visible](../focus-navigation/#focus-visible) and [Focused Styles](../focus-navigation/#focused-styles).
 
+A fifth state style, `.drag_over(...)` (`drag_over_style`), applies while files from the OS are dragged over the node; see [File Drag And Drop](#file-drag-and-drop).
+
 State styles can affect layout if they change frame, padding, or flex. That is supported, but it can force relayout when interaction state changes.
 
 Use `ctx.interaction()` when component code needs to read the current interaction state:
@@ -570,7 +572,33 @@ Mask glyphs use the normal text shaping and font fallback chain. If the selected
 
 Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
 
-With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete`. Without `clipboard`, those shortcuts do not read or write the system clipboard.
+With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard.
+
+#### Paste
+
+A paste into a text input delivers one `PasteEvent` before the text is inserted: `Ctrl+V`, `Shift+Insert`, a `WindowHandle::paste_from_clipboard()` request (for an app's own Paste menu item or context menu) and `Tree::paste(content)` all go through it. The event carries everything the clipboard holds, as [`lurq::clipboard::read_clipboard`](../resources-media/#clipboard) reads it: text, an RGBA image (a screenshot) and file paths (files copied in Explorer or Finder), any of them at once. Handlers run on the input first and bubble to its ancestors (`stop_propagation()` ends that); unless one calls `prevent_default()`, the text is inserted at the caret. An image or files without a handler do nothing.
+
+```rust
+use lurq::{app::events::PasteEvent, components::TextInput};
+
+TextInput::new(draft.clone())
+  .multiline()
+  .on_paste(move |event: PasteEvent| {
+    if let Some(image) = event.image() {
+      attachments.update(|list| list.push(Attachment::png(image.to_png().unwrap())));
+      event.prevent_default(); // no text goes into the input
+    } else if !event.files().is_empty() {
+      attachments.update(|list| list.extend(event.files().iter().cloned().map(Attachment::file)));
+      event.prevent_default();
+    } else if event.text().is_some_and(|text| text.len() > 4_000) {
+      attachments.update(|list| list.push(Attachment::text(event.text().unwrap())));
+      event.prevent_default();
+    }
+    // plain text pastes as always
+  })
+```
+
+`PasteEvent::kinds()` tells which of `text`, `image` and `files` the clipboard holds; `content()` gives the whole `ClipboardContent`. The handler runs inside the input's delivery, so `is_synthetic_input()` tells an MCP client's paste from a person's. A synthetic `Ctrl+V` (`lurq_interact` `key`, an applied `SyntheticInput::key_down`) never reads the OS clipboard: it is refused, and a synthetic paste carries its own content instead (`SyntheticInput::paste(content)`, the MCP `paste` action). See [Testing](../testing/#pastes-file-drags-and-runtime-images).
 
 #### Input Methods
 
@@ -838,3 +866,32 @@ DragContainer::mount(
 `DragContainerProps::new()` bounds descendant draggables to the container surface. Use `DragBounds::None` when the draggable should not be constrained.
 
 Low-level node drag handlers are also available: `.on_drag_start`, `.on_drag_move`, `.on_drag_end`, and `.on_drop`.
+
+## File Drag And Drop
+
+Files dragged into the window from the OS (Explorer, Finder, another program) reach the element under the pointer, with the window's overlays and modals hit-tested as for the mouse, so a drag over a popup reaches the popup:
+
+```rust
+use lurq::{app::events::{FileDragEvent, FileDropEvent}, components::Column};
+
+Column::new()
+  .background("#1f2937")
+  .drag_over(|style| style.background("#1e3a8a").border_inside(1.0, "#60a5fa".into()))
+  .on_file_drag_enter(|event: FileDragEvent| {
+    if event.paths.has_folders() {
+      event.refuse(); // folders are not attachments
+    }
+  })
+  .on_file_drop(move |event: FileDropEvent| {
+    for path in event.paths.files() {
+      attachments.update(|list| list.push(Attachment::file(path.to_path_buf())));
+    }
+  })
+```
+
+- `on_file_drag_enter(FileDragEvent)` fires once when the drag comes over the element, `on_file_drag_over(FileDragEvent)` on every move over it (with `x`, `y` in logical pixels, as on a `MouseEvent`), `on_file_drag_leave()` when it moves off the element or leaves the window without a drop, and `on_file_drop(FileDropEvent)` on the drop. Enter, over and drop bubble from the element under the pointer to the root; `stop_propagation()` ends that.
+- `event.paths` is a `DraggedPaths`, given once for the whole drag however many files it holds: `paths()`, `files()`, `folders()`, `has_folders()` and `items()` (each a `DroppedPath` with `is_folder()`, looked up once with `Path::is_dir` on the shell's thread when the drag enters; a path on a slow network drive makes that look-up slow). Only files and folders arrive: text or an image dragged from a browser is ignored, since winit reports nothing for it.
+- While the drag is over an element, its `.drag_over(...)` style applies, like `hovered` under the pointer, and `InteractionState::is_drag_over()` reports it. `event.refuse()` (or `prevent_default()`) on an enter or over event refuses the drag at the element whose handler called it (not at its ancestors or siblings) for as long as the drag stays over that element: no element shows the style and `Tree::file_drag_accepted()` reports `Some(false)` while it does; the drag leaving the element and entering it again asks again. The OS cursor is not changed by a refusal: winit answers the OS with a copy effect before lurq sees the drag, on Windows and macOS alike. The drop is still delivered to `on_file_drop`, whose handler ignores what it refused (the folders in the example).
+- A drop ends the drag: the `drag_over` style goes without an `on_file_drag_leave`.
+
+The winit shell collects the OS's burst of one event per file into one session on Windows and macOS, and reads the pointer position from the OS while the drag hovers (the OS owns the pointer during a drag, so no `CursorMoved` arrives), every 16 ms, delivering `on_file_drag_over` when it moved. A hover ends as a leave when no mouse button has been pressed for 250 ms of polls (the OS drag ended without winit telling; read from the OS on Windows and macOS — the grace period covers the release, which the OS reports before its drop callback runs, so a drop within it continues the same session without a leave, and it covers drags whose button state is reported differently, a touch or pen drag promoted to a mouse drag, ClickLock, macOS drag lock, which end after the grace period at most and have not been checked), or when it neither moved nor got a drop or a cancel for 60 s, since its source is gone (a program that died mid-drag) and polling would never stop; a drag held still that long is ended too, and a drop that comes later still arrives. On Linux the last pointer position the window saw is used. A shell that drives a `Tree` itself calls `Tree::file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` with physical pixels.

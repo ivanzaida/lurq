@@ -731,6 +731,8 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     NodeKind::Select { .. } => "Select",
     #[cfg(feature = "raster")]
     NodeKind::Image { .. } => "Image",
+    #[cfg(feature = "image")]
+    NodeKind::LoadingImage { .. } => "LoadingImage",
     #[cfg(feature = "raster")]
     NodeKind::Video { .. } => "Video",
     #[cfg(feature = "image")]

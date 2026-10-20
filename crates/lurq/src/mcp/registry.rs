@@ -236,7 +236,11 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     RegisteredTool {
       name: "lurq_interact".into(),
       description: "Drive the app with synthetic input. Actions: click, double_click, move, drag, \
-                    wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id). Target either a `ref` from lurq_inspect/lurq_read_tree or \
+                    wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id), \
+                    paste (`text` and/or `files` into the focused text input; the person's OS clipboard is never \
+                    read: a synthetic Ctrl+V is refused), drag_files / drop_files (`paths` from the OS over or \
+                    onto the point, as an Explorer or Finder drag; drag_files enters or moves the drag, \
+                    file_drag_leave ends it without a drop). Target either a `ref` from lurq_inspect/lurq_read_tree or \
                     `x`/`y` in screenshot pixels (ref carries its window; coordinates use `window`). \
                     Held input: press / release hold a pointer `button` down across calls, key_down / key_up a \
                     key; each move while something is held is a held-button move (drags, capture) presented in \
@@ -252,7 +256,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       input_schema: schema(json!({
         "type": "object",
         "properties": {
-          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate", "press", "release", "key_down", "key_up"] },
+          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate", "press", "release", "key_down", "key_up", "paste", "drag_files", "drop_files", "file_drag_leave"] },
           "id": { "type": "string", "description": "Menu item id for menu_activate" },
           "ref": { "type": "string", "description": "Element handle from lurq_read_tree" },
           "x": { "type": "number", "description": "Screenshot-pixel X (alternative to ref)" },
@@ -264,7 +268,9 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "delta_x": { "type": "number", "description": "Wheel horizontal delta" },
           "delta_y": { "type": "number", "description": "Wheel vertical delta (positive scrolls content up)" },
           "key": { "type": "string", "description": "Key name for key, key_down and key_up, e.g. Enter, Tab, Escape, ArrowDown, a, Shift, \" \" (space)" },
-          "text": { "type": "string", "description": "Text for the type action" },
+          "text": { "type": "string", "description": "Text for the type action, or the text a paste holds" },
+          "files": { "type": "array", "items": { "type": "string" }, "description": "File paths a paste holds (as files copied in Explorer or Finder)" },
+          "paths": { "type": "array", "items": { "type": "string" }, "description": "File or folder paths of drag_files and drop_files" },
           "modifiers": { "type": "array", "items": { "type": "string", "enum": ["shift", "ctrl", "alt", "meta"] } },
           "window": { "type": "string", "description": WINDOW_PROP }
         },

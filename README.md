@@ -6,14 +6,14 @@
 
 ```toml
 [dependencies]
-lurq = "0.48.2"
+lurq = "0.49.0"
 ```
 
 There are no default features. Enable the window shell and renderer to run the example below:
 
 ```toml
 [dependencies]
-lurq = { version = "0.48.2", features = ["winit", "wgpu"] }
+lurq = { version = "0.49.0", features = ["winit", "wgpu"] }
 ```
 
 Useful optional features:
@@ -36,7 +36,7 @@ Useful optional features:
 | `serde` | JSON translation-resource loading with `i18n` |
 | `persistent_storage` | Typed in-memory or file-backed app storage |
 | `tokio` | Run component futures, streams, and queries on a configured Tokio runtime |
-| `clipboard` | Clipboard shortcuts for text inputs |
+| `clipboard` | Clipboard shortcuts for text inputs; reading text, images and files from the clipboard |
 | `devtools` | In-app DevTools window |
 | `mcp` | Embeddable MCP server for AI agents to drive and inspect a running app |
 | `screenshot` | Capture the next fully composed window frame to PNG; enabled automatically by `devtools` |

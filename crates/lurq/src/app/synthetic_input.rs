@@ -12,9 +12,10 @@
 //! loop, so they reach exactly the entry points real winit events reach and
 //! observe the same ordering guarantees.
 
-use crate::app::events::MouseButton;
-use crate::app::runtime::Tree;
-use crate::app::events::ScrollPhase;
+use crate::app::{
+  events::{ClipboardContent, DraggedPaths, MouseButton, ScrollPhase},
+  runtime::Tree,
+};
 
 /// Modifier state to apply to a synthetic event, matching what the shell would
 /// have read from `ModifiersChanged`.
@@ -94,6 +95,32 @@ pub enum SyntheticInputKind {
   },
   /// One printable character, delivered as a press/release pair.
   Char(char),
+  /// A paste of this content into the focused text input, as Ctrl+V pastes
+  /// the OS clipboard. Synthetic input never reads the OS clipboard: a
+  /// synthetic Ctrl+V is refused, and this carries the content instead.
+  Paste(ClipboardContent),
+  /// Files from the OS come over the window at this point, or move there
+  /// (`on_file_drag_enter`, `on_file_drag_over`).
+  FileDragEnter {
+    x: f32,
+    y: f32,
+    paths: DraggedPaths,
+  },
+  /// The drag moves to this point (`on_file_drag_over`, and enter and leave
+  /// of the elements it crosses).
+  FileDragOver {
+    x: f32,
+    y: f32,
+  },
+  /// The drag leaves the window without a drop (`on_file_drag_leave`).
+  FileDragLeave,
+  /// Files are dropped at this point (`on_file_drop`); enters first when no
+  /// drag is in progress.
+  FileDrop {
+    x: f32,
+    y: f32,
+    paths: DraggedPaths,
+  },
 }
 
 /// A queued synthetic event.
@@ -149,12 +176,7 @@ impl SyntheticInput {
   }
 
   pub fn wheel(x: f32, y: f32, delta_x: f32, delta_y: f32) -> Self {
-    Self::new(SyntheticInputKind::Wheel {
-      x,
-      y,
-      delta_x,
-      delta_y,
-    })
+    Self::new(SyntheticInputKind::Wheel { x, y, delta_x, delta_y })
   }
 
   /// A named key such as `Enter`, `Tab`, `Escape`, `ArrowDown`, or a single
@@ -184,6 +206,33 @@ impl SyntheticInput {
   /// Expand a string into one [`SyntheticInputKind::Char`] per character.
   pub fn text(value: &str) -> Vec<Self> {
     value.chars().map(Self::char).collect()
+  }
+
+  /// A paste of `content` into the focused text input; see
+  /// [`SyntheticInputKind::Paste`].
+  pub fn paste(content: ClipboardContent) -> Self {
+    Self::new(SyntheticInputKind::Paste(content))
+  }
+
+  /// Files from the OS come over the window at `(x, y)`, as
+  /// [`Tree::file_drag_enter`](crate::app::Tree::file_drag_enter).
+  pub fn file_drag_enter(paths: DraggedPaths, x: f32, y: f32) -> Self {
+    Self::new(SyntheticInputKind::FileDragEnter { x, y, paths })
+  }
+
+  /// The file drag moves to `(x, y)`.
+  pub fn file_drag_over(x: f32, y: f32) -> Self {
+    Self::new(SyntheticInputKind::FileDragOver { x, y })
+  }
+
+  /// The file drag leaves the window without a drop.
+  pub fn file_drag_leave() -> Self {
+    Self::new(SyntheticInputKind::FileDragLeave)
+  }
+
+  /// Files are dropped at `(x, y)`, as [`Tree::file_drop`](crate::app::Tree::file_drop).
+  pub fn file_drop(paths: DraggedPaths, x: f32, y: f32) -> Self {
+    Self::new(SyntheticInputKind::FileDrop { x, y, paths })
   }
 }
 
@@ -217,12 +266,7 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
       tree.mouse_down_with_meta(*x, *y, *button, m.shift, m.ctrl, m.alt, m.meta);
       tree.mouse_up_with_meta(*x, *y, *button, m.shift, m.ctrl, m.alt, m.meta);
     }
-    SyntheticInputKind::Wheel {
-      x,
-      y,
-      delta_x,
-      delta_y,
-    } => {
+    SyntheticInputKind::Wheel { x, y, delta_x, delta_y } => {
       // A wheel notch is a complete gesture: scroll containers latch on Start
       // and release on End, so omitting either leaves one latched.
       tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
@@ -241,6 +285,21 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
       let code = physical_code_for(&key);
       tree.key_down_with_meta(key.clone(), code.clone(), m.shift, m.ctrl, m.alt, m.meta);
       tree.key_up_with_meta(key, code, m.shift, m.ctrl, m.alt, m.meta);
+    }
+    SyntheticInputKind::Paste(content) => {
+      tree.paste(content.clone());
+    }
+    SyntheticInputKind::FileDragEnter { x, y, paths } => {
+      tree.file_drag_enter(paths.clone(), *x, *y);
+    }
+    SyntheticInputKind::FileDragOver { x, y } => {
+      tree.file_drag_over(*x, *y);
+    }
+    SyntheticInputKind::FileDragLeave => {
+      tree.file_drag_leave();
+    }
+    SyntheticInputKind::FileDrop { x, y, paths } => {
+      tree.file_drop(paths.clone(), *x, *y);
     }
   }
 }
@@ -284,8 +343,7 @@ mod tests {
 
   #[test]
   fn modifiers_are_carried_with_the_event() {
-    let event = SyntheticInput::click(1.0, 2.0)
-      .with_modifiers(SyntheticModifiers::default().shift().ctrl());
+    let event = SyntheticInput::click(1.0, 2.0).with_modifiers(SyntheticModifiers::default().shift().ctrl());
     assert!(event.modifiers().shift);
     assert!(event.modifiers().ctrl);
     assert!(!event.modifiers().alt);

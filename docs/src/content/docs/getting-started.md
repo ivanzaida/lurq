@@ -5,11 +5,11 @@ description: Feature flags, demo commands, and the smallest useful lurq app.
 
 # Getting Started
 
-This guide targets **lurq 0.48.2**. Add the crate with the shell and renderer used by the example below:
+This guide targets **lurq 0.49.0**. Add the crate with the shell and renderer used by the example below:
 
 ```toml
 [dependencies]
-lurq = { version = "0.48.2", features = ["winit", "wgpu"] }
+lurq = { version = "0.49.0", features = ["winit", "wgpu"] }
 ```
 
 Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the demo in `crates/demo`, and macros in `crates/lurq_macros`.
@@ -57,7 +57,7 @@ The demo manifest already enables its UI and renderer features. Its default rend
 | `devtools` | Component metadata, signal values, profiler data, and the DevTools secondary window. |
 | `screenshot` | GPU capture of the next fully composed window frame to PNG. `devtools` enables it automatically. |
 | `mcp` | Embeddable [MCP server](../mcp/) so AI agents can drive and inspect a running app. Off by default; nothing listens unless the app calls `Tree::enable_mcp`. |
-| `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts. |
+| `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts; reading text, images and files from the clipboard. |
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:
 

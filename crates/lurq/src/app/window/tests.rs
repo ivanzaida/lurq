@@ -19,6 +19,55 @@ mod tests {
     WindowIcon::from_rgba(vec![255, 0, 0], 1, 1);
   }
 
+  /// An MCP click on an app's Paste menu item runs its handler inside
+  /// synthetic input; the command remembers that, and the shell refuses to
+  /// read the person's clipboard for it.
+  #[cfg(feature = "clipboard")]
+  #[test]
+  fn a_paste_request_made_under_synthetic_input_is_marked_and_refused() {
+    let window = Window::new();
+    let handle = window.handle();
+
+    handle.paste_from_clipboard();
+    crate::app::events::with_synthetic_input(|| handle.paste_from_clipboard());
+
+    assert_eq!(
+      window.take_commands(),
+      vec![
+        WindowCommand::PasteFromClipboard { synthetic: false },
+        WindowCommand::PasteFromClipboard { synthetic: true },
+      ]
+    );
+
+    // What the shell does with the synthetic one: nothing, not even a read.
+    let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    struct Counting(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+    impl crate::app::ClipboardReader for Counting {
+      fn read_text(&self) -> Option<String> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some("secret".into())
+      }
+
+      fn read(&self) -> Option<crate::app::events::ClipboardContent> {
+        self.read_text().map(crate::app::events::ClipboardContent::text)
+      }
+    }
+    let value = crate::core::Signal::new(String::new());
+    let mut tree = crate::app::Tree::new();
+    tree.set_clipboard_reader(Some(std::sync::Arc::new(Counting(reads.clone()))));
+    tree.set_root(crate::components::TextInput::new(value.clone()).id("input"));
+    tree.pass_headless(&mut crate::app::App::new());
+    tree.get_element_by_id_mut("input").unwrap().focus();
+
+    assert!(!tree.paste_from_os_clipboard(true));
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(value.get(), "");
+
+    assert!(tree.paste_from_os_clipboard(false));
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(value.get(), "secret");
+  }
+
   #[test]
   fn window_handle_queues_title_bar_and_icon_commands() {
     let window = Window::new();

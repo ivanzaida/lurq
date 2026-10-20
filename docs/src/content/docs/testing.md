@@ -126,6 +126,38 @@ Use direct tree input for deterministic hover, active, focus, scroll, text input
 
 Text input tests cover caret placement, Unicode-safe deletion, keyboard selection, multiline movement, undo/redo, and double/triple-click selection. Selectable text tests cover drag ranges, word and line selection, and transformed visual-coordinate hit testing.
 
+## Pastes, File Drags And Runtime Images
+
+A test pastes without the OS clipboard: `tree.paste(content)` delivers the `PasteEvent` and inserts the text, and `synthetic_input::apply(&mut tree, &SyntheticInput::paste(content))` does the same marked as synthetic input, as an MCP client's `paste` action does. The content is built in the test:
+
+```rust
+use lurq::app::{
+  events::{ClipboardContent, ClipboardImage},
+  synthetic_input::{self, SyntheticInput},
+};
+
+let image = ClipboardImage::from_rgba(2, 1, vec![255; 8]).unwrap();
+synthetic_input::apply(
+  &mut tree,
+  &SyntheticInput::paste(ClipboardContent::image(image).with_files([PathBuf::from("C:/shots/a.png")])),
+);
+```
+
+A synthetic `Ctrl+V` (`SyntheticInput::key_down("v")` with `ctrl`) is refused: it never reads the person's clipboard, and no paste event fires. A test of a person's `Ctrl+V` installs a clipboard of its own with `tree.set_clipboard_reader(Some(Arc::new(reader)))`, a `lurq::app::ClipboardReader` with `read_text()` (what a paste no handler looks at reads) and `read()` (everything, for a paste an `on_paste` handler looks at); the OS clipboard is never touched.
+
+Files are dragged with `tree.file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` (physical pixels, as the pointer methods take), or their synthetic forms `SyntheticInput::file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)`. `DraggedPaths::from_paths(paths)` looks each path up once to tell folders from files; `DraggedPaths::new([DroppedPath::with_kind(path, true)])` marks a folder that does not exist. A drop without an enter first enters at the same point.
+
+```rust
+use lurq::app::events::DraggedPaths;
+
+let (x, y) = tree.get_element_by_id_mut("composer").unwrap().bounds().unwrap().center();
+tree.file_drag_enter(DraggedPaths::from_paths([PathBuf::from("C:/shots/a.png")]), x, y);
+assert_eq!(tree.file_drag_accepted(), Some(true));
+assert!(tree.file_drop(DraggedPaths::from_paths([PathBuf::from("C:/shots/a.png")]), x, y));
+```
+
+A runtime image (`Image::from_bytes`) decodes on a worker thread: the first pass shows the placeholder, `lurq::images::wait_for_decoded_images(timeout)` blocks until no decode is pending, and the next pass shows the image. The cache is process-wide, so tests in one binary share it: give each test its own key (`cache_key`) when it asserts on `decoded_images().completed()`, and use `DecodedImages::new()` for a cache of the test's own.
+
 ## Headless Passes And Focus
 
 `tree.pass_headless(&mut app)` lays out the tree, overlays and modals included, without a window handle or render engine, so input, hit testing, focus, and Tab work in tests without the `unsafe` test surface. `tree.focused_element()` returns the focused control:

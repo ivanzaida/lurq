@@ -1,3 +1,5 @@
+#[cfg(feature = "image")]
+mod decoded_image;
 mod dnd;
 mod virtualized_list;
 mod virtualized_list_pending_scroll;

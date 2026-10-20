@@ -32,6 +32,8 @@ use crate::{
   node::{CursorIcon, color::Color},
 };
 
+mod cursor;
+mod file_drag;
 mod frame_pacing;
 #[cfg(test)]
 mod frame_pacing_tests;
@@ -41,6 +43,7 @@ mod loop_wait;
 mod loop_wait_tests;
 mod native_resize;
 
+use file_drag::FileDragShell;
 use frame_pacing::{FramePacing, PresentedFrame, refresh_interval};
 use loop_wait::{LoopNeeds, LoopWait};
 
@@ -295,6 +298,7 @@ struct ManagedWindow {
   /// drags paint here — see the CursorMoved arm).
   last_interaction_present: Instant,
   ime: ime::ImeSync,
+  file_drag: FileDragShell,
 }
 
 impl ManagedWindow {
@@ -331,6 +335,7 @@ impl ManagedWindow {
       continuous_redraw_until: None,
       last_interaction_present: Instant::now(),
       ime: ime::ImeSync::default(),
+      file_drag: FileDragShell::default(),
     }
   }
 
@@ -338,9 +343,15 @@ impl ManagedWindow {
     self.window.as_ref().map(Window::id)
   }
 
-  /// Whether the loop must poll for this window: `on_tick` runs every turn.
+  /// Whether the loop must poll for this window: `on_tick` runs every turn,
+  /// or a file event waits for the turn's end.
   fn needs_polling(&self) -> bool {
-    self.on_tick.is_some() || self.tree.needs_polling()
+    self.on_tick.is_some() || self.tree.needs_polling() || self.file_drag.has_pending()
+  }
+
+  /// When the pointer is next read for a file drag over the window.
+  fn next_file_drag_poll(&self) -> Option<Instant> {
+    self.file_drag.next_poll()
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop, app: &mut App) {
@@ -513,6 +524,10 @@ impl ManagedWindow {
         WindowCommand::InjectInput(input) => {
           crate::app::synthetic_input::apply(&mut self.tree, &input);
         }
+        #[cfg(feature = "clipboard")]
+        WindowCommand::PasteFromClipboard { synthetic } => {
+          self.tree.paste_from_os_clipboard(synthetic);
+        }
         #[cfg(feature = "screenshot")]
         WindowCommand::Screenshot(output_path, region) => {
           self.tree.request_screenshot(output_path, region);
@@ -645,6 +660,9 @@ impl ManagedWindow {
     }
     self.tree.tick_timers();
     self.tree.tick_futures();
+    self
+      .file_drag
+      .flush(&mut self.tree, self.window.as_ref(), self.cursor_pos);
     let has_continuous_video = self.has_continuous_redraw_video_recently(now);
     if has_continuous_video {
       // Video streams are presented directly from about_to_wait. Requesting
@@ -689,6 +707,11 @@ impl ManagedWindow {
   fn handle_event(&mut self, app: &mut App, event_loop: &ActiveEventLoop, event: WindowEvent) -> bool {
     self.tree.set_app_ref(app);
     self.pacing.handle_event(&event);
+    if self.file_drag.on_event(&event) {
+      // Delivered at the turn's end, once the burst of one file per event
+      // is complete; see `file_drag`.
+      return false;
+    }
     match event {
       WindowEvent::CloseRequested => {
         self.tree.window().dispatch_close_request(CloseRequestSource::Os);
@@ -865,6 +888,7 @@ struct ManagedSecondaryWindow {
   close_requested: bool,
   pacing: FramePacing,
   ime: ime::ImeSync,
+  file_drag: FileDragShell,
 }
 
 impl ManagedSecondaryWindow {
@@ -885,11 +909,20 @@ impl ManagedSecondaryWindow {
       close_requested: false,
       pacing: FramePacing::default(),
       ime: ime::ImeSync::default(),
+      file_drag: FileDragShell::default(),
     }
   }
 
   fn index(&self) -> usize {
     self.index
+  }
+
+  fn needs_polling(&self) -> bool {
+    self.file_drag.has_pending()
+  }
+
+  fn next_file_drag_poll(&self) -> Option<Instant> {
+    self.file_drag.next_poll()
   }
 
   fn window_id(&self) -> Option<WindowId> {
@@ -1050,6 +1083,10 @@ impl ManagedSecondaryWindow {
         WindowCommand::InjectInput(input) => {
           crate::app::synthetic_input::apply(tree, &input);
         }
+        #[cfg(feature = "clipboard")]
+        WindowCommand::PasteFromClipboard { synthetic } => {
+          tree.paste_from_os_clipboard(synthetic);
+        }
         #[cfg(feature = "screenshot")]
         WindowCommand::Screenshot(output_path, region) => {
           tree.request_screenshot(output_path, region);
@@ -1124,6 +1161,7 @@ impl ManagedSecondaryWindow {
     let now = Instant::now();
     tree.tick_timers();
     tree.tick_futures();
+    self.file_drag.flush(tree, self.window.as_ref(), self.cursor_pos);
     let window = self.window.as_ref();
     self.pacing.request_frame(tree, || refresh_interval(window), now);
     tree.tick_scheduled_redraw(now);
@@ -1139,6 +1177,9 @@ impl ManagedSecondaryWindow {
   ) -> bool {
     tree.set_app_ref(app);
     self.pacing.handle_event(&event);
+    if self.file_drag.on_event(&event) {
+      return false;
+    }
     match event {
       WindowEvent::CloseRequested => {
         tree.window().dispatch_close_request(CloseRequestSource::Os);
@@ -1747,6 +1788,7 @@ impl ApplicationHandler for WinitHandler {
         .tree
         .secondary_window(secondary_window.index())
         .is_some_and(|secondary| secondary.tree().needs_polling())
+        || secondary_window.needs_polling()
     });
     let secondary_has_continuous_video = self.secondaries.iter().any(|secondary_window| {
       self
@@ -1774,7 +1816,18 @@ impl ApplicationHandler for WinitHandler {
         .chain(std::iter::once(&self.main.tree))
     };
     let next_redraw = trees().filter_map(Tree::next_scheduled_redraw).min();
-    let next_timer = trees().filter_map(Tree::next_timer_at).min();
+    // A file drag hovering over a window reads the pointer at its poll
+    // interval, like a timer.
+    let next_file_drag_poll = self
+      .secondaries
+      .iter()
+      .filter_map(ManagedSecondaryWindow::next_file_drag_poll)
+      .chain(self.main.next_file_drag_poll())
+      .min();
+    let next_timer = trees()
+      .filter_map(Tree::next_timer_at)
+      .chain(next_file_drag_poll)
+      .min();
 
     let wait = LoopWait::of(
       LoopNeeds {

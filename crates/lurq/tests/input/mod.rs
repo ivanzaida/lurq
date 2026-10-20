@@ -5,6 +5,9 @@ mod text {
   mod selectable;
 }
 
+mod clipboard_content;
+mod paste;
+
 mod synthetic {
   mod injection;
 }

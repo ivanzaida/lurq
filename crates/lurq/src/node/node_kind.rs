@@ -54,6 +54,40 @@ pub enum TextOverflow {
   Elipsis,
 }
 
+/// An image a node waits for from the decoded-image cache.
+#[cfg(feature = "image")]
+pub(crate) struct LoadingImage {
+  pub(crate) key: crate::images::ImageKey,
+  pub(crate) cap: Option<crate::images::ImageSizeCap>,
+  pub(crate) source: crate::images::ImageSource,
+  pub(crate) fit: crate::node::BackgroundSize,
+  pub(crate) error_view: Option<crate::node::node_kind::ErrorViewCallback>,
+  /// The error view was built: the decode failed and the children show it.
+  pub(crate) failed: bool,
+}
+
+/// A clone is a new node that waits for the cache (a retained child put
+/// back into a re-rendered parent), so it counts as built for the walk that
+/// resolves loading images.
+#[cfg(feature = "image")]
+impl Clone for LoadingImage {
+  fn clone(&self) -> Self {
+    crate::app::runtime::note_loading_image_built();
+    Self {
+      key: self.key,
+      cap: self.cap,
+      source: self.source.clone(),
+      fit: self.fit,
+      error_view: self.error_view.clone(),
+      failed: self.failed,
+    }
+  }
+}
+
+/// Builds what an image node shows once its decode failed.
+#[cfg(feature = "image")]
+pub(crate) type ErrorViewCallback = Arc<dyn Fn(&crate::images::ImageDecodeError) -> crate::node::Element + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) enum NodeKind {
   Empty,
@@ -101,6 +135,17 @@ pub(crate) enum NodeKind {
   #[cfg(feature = "raster")]
   Image {
     data: crate::images::ImageData,
+    /// How the pixels fill the node's box; `Stretch` fills it as the box
+    /// is sized.
+    fit: crate::node::BackgroundSize,
+  },
+  /// An image decoded at runtime that has not been resolved yet: the
+  /// runtime asks the decoded-image cache each pass and turns the node into
+  /// an `Image` once the pixels are there. Its children are the placeholder
+  /// while loading, or the error view once failed.
+  #[cfg(feature = "image")]
+  LoadingImage {
+    request: Box<LoadingImage>,
   },
   #[cfg(feature = "raster")]
   Video {
