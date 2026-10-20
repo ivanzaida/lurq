@@ -13,6 +13,8 @@
 //! panic.
 
 mod cache;
+#[cfg(test)]
+mod cache_tests;
 mod worker;
 
 use std::{
@@ -28,12 +30,21 @@ pub use cache::{DEFAULT_BUDGET_BYTES, DecodedImages};
 use crate::images::ImageData;
 
 /// Where the encoded image comes from.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ImageSource {
   /// Encoded bytes (PNG, JPEG, GIF, WebP, BMP, TIFF).
   Bytes(Arc<[u8]>),
   /// A file to read and decode.
   File(PathBuf),
+}
+
+impl fmt::Debug for ImageSource {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Bytes(bytes) => f.debug_struct("Bytes").field("len", &bytes.len()).finish(),
+      Self::File(path) => f.debug_tuple("File").field(path).finish(),
+    }
+  }
 }
 
 /// The content key an image is cached by: the same key means the same

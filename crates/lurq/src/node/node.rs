@@ -2227,6 +2227,7 @@ impl Node {
   /// children are the placeholder shown while it loads.
   #[cfg(feature = "image")]
   pub(crate) fn loading_image(request: crate::node::node_kind::LoadingImage) -> Self {
+    crate::app::runtime::note_loading_image_built();
     Self::from_parts(
       LayoutKind::Stack {
         align: StackAlignment::Center,

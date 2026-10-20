@@ -113,7 +113,11 @@ impl ClipboardKinds {
 /// What a clipboard holds: text, an image and files, any of them at once.
 /// Explorer and Finder put copied files on the clipboard; a screenshot tool
 /// may put an image and its text form; a browser puts text and its HTML.
-#[derive(Clone, Debug, Default, PartialEq)]
+///
+/// `Debug` shows the kinds and sizes, never the text or the paths: a
+/// clipboard may hold a password, and the content travels in synthetic
+/// input and window commands that are logged.
+#[derive(Clone, Default, PartialEq)]
 pub struct ClipboardContent {
   text: Option<String>,
   image: Option<ClipboardImage>,
@@ -182,5 +186,15 @@ impl ClipboardContent {
   /// Takes the parts apart: text, image and files.
   pub fn into_parts(self) -> (Option<String>, Option<ClipboardImage>, Vec<PathBuf>) {
     (self.text.filter(|text| !text.is_empty()), self.image, self.files)
+  }
+}
+
+impl fmt::Debug for ClipboardContent {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("ClipboardContent")
+      .field("text_chars", &self.text_content().map(|text| text.chars().count()))
+      .field("image", &self.image)
+      .field("files", &self.files.len())
+      .finish()
   }
 }

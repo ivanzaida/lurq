@@ -79,8 +79,11 @@ mod inline_link_keys;
 mod input_token_paint;
 #[cfg(feature = "image")]
 mod loading_images;
+#[cfg(feature = "image")]
+pub(crate) use loading_images::note_loading_image_built;
 mod outside_press;
 mod paste;
+pub use paste::ClipboardReader;
 mod scroll_into_view;
 mod select_menu;
 mod selected_text_lines;
@@ -658,6 +661,14 @@ pub struct Tree {
   /// Runtime images still decoding after the last pass; see `loading_images`.
   #[cfg(feature = "image")]
   pending_images: Vec<(crate::images::ImageKey, Option<crate::images::ImageSizeCap>)>,
+  /// The waker the decoded-image cache calls for this tree's window, made once.
+  #[cfg(feature = "image")]
+  loading_image_waker: Option<crate::app::window::WindowWaker>,
+  /// The loading-image nodes built when the tree last walked for them.
+  #[cfg(feature = "image")]
+  loading_images_built_seen: u64,
+  /// What paste shortcuts read instead of the OS clipboard; see `paste`.
+  clipboard_reader: Option<Arc<dyn paste::ClipboardReader>>,
   focus_memory: FocusMemory,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
@@ -1019,6 +1030,11 @@ impl Tree {
       file_drag: None,
       #[cfg(feature = "image")]
       pending_images: Vec::new(),
+      #[cfg(feature = "image")]
+      loading_image_waker: None,
+      #[cfg(feature = "image")]
+      loading_images_built_seen: 0,
+      clipboard_reader: None,
       focus_memory: FocusMemory::default(),
       focused_node: None,
       focused_event_node: None,

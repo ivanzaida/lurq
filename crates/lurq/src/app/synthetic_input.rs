@@ -214,8 +214,9 @@ impl SyntheticInput {
     Self::new(SyntheticInputKind::Paste(content))
   }
 
-  /// Files from the OS come over the window at `(x, y)`.
-  pub fn file_drag_enter(x: f32, y: f32, paths: DraggedPaths) -> Self {
+  /// Files from the OS come over the window at `(x, y)`, as
+  /// [`Tree::file_drag_enter`](crate::app::Tree::file_drag_enter).
+  pub fn file_drag_enter(paths: DraggedPaths, x: f32, y: f32) -> Self {
     Self::new(SyntheticInputKind::FileDragEnter { x, y, paths })
   }
 
@@ -229,8 +230,8 @@ impl SyntheticInput {
     Self::new(SyntheticInputKind::FileDragLeave)
   }
 
-  /// Files are dropped at `(x, y)`.
-  pub fn file_drop(x: f32, y: f32, paths: DraggedPaths) -> Self {
+  /// Files are dropped at `(x, y)`, as [`Tree::file_drop`](crate::app::Tree::file_drop).
+  pub fn file_drop(paths: DraggedPaths, x: f32, y: f32) -> Self {
     Self::new(SyntheticInputKind::FileDrop { x, y, paths })
   }
 }

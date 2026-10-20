@@ -26,18 +26,39 @@ type CacheKey = (ImageKey, Option<ImageSizeCap>);
 
 struct Entry {
   state: ImageLoadState,
+  /// The RGBA bytes of a `Ready` state; 0 otherwise. `Inner::used` is their
+  /// sum over the entries.
   bytes: usize,
   last_used: u64,
-  /// Windows to wake when the decode ends.
+  /// Windows to wake when the decode ends, one per window.
   wakers: Vec<WindowWaker>,
 }
 
 struct Inner {
   entries: HashMap<CacheKey, Entry>,
+  /// Decode jobs submitted and not finished: each job calls `finish` once.
   pending: usize,
   budget: usize,
   used: usize,
   clock: u64,
+}
+
+/// A decode that must end its entry even when the decoder panics: the entry
+/// would stay `Loading` forever, with `pending` never counted down.
+struct FinishOnDrop {
+  shared: Arc<Shared>,
+  cache_key: CacheKey,
+  result: Option<Result<ImageData, ImageDecodeError>>,
+}
+
+impl Drop for FinishOnDrop {
+  fn drop(&mut self) {
+    let result = self
+      .result
+      .take()
+      .unwrap_or_else(|| Err(ImageDecodeError::new("the image decoder panicked")));
+    self.shared.finish(self.cache_key, result);
+  }
 }
 
 /// A cache of decoded images with its own decode workers. The runtime uses
@@ -92,13 +113,33 @@ impl DecodedImages {
     source: impl FnOnce() -> ImageSource,
     wake: Option<WindowWaker>,
   ) -> ImageLoadState {
+    self.load_with(key, cap, wake, || {
+      let source = source();
+      move || decode_image(&source, cap)
+    })
+  }
+
+  /// [`load`](Self::load) with the decode given as a job: `decode()` builds
+  /// it on the caller's thread (taking the source), the job runs on a worker.
+  pub(super) fn load_with<J>(
+    &self,
+    key: ImageKey,
+    cap: Option<ImageSizeCap>,
+    wake: Option<WindowWaker>,
+    decode: impl FnOnce() -> J,
+  ) -> ImageLoadState
+  where
+    J: FnOnce() -> Result<ImageData, ImageDecodeError> + Send + 'static,
+  {
     let cache_key = (key, cap);
     let mut inner = self.shared.inner.lock();
     inner.clock += 1;
     let clock = inner.clock;
     if let Some(entry) = inner.entries.get_mut(&cache_key) {
       entry.last_used = clock;
-      if let (ImageLoadState::Loading, Some(wake)) = (&entry.state, wake) {
+      if let (ImageLoadState::Loading, Some(wake)) = (&entry.state, wake)
+        && !entry.wakers.iter().any(|known| Arc::ptr_eq(known, &wake))
+      {
         entry.wakers.push(wake);
       }
       return entry.state.clone();
@@ -114,11 +155,15 @@ impl DecodedImages {
     );
     inner.pending += 1;
     drop(inner);
-    let source = source();
-    let shared = Arc::clone(&self.shared);
+    let job = decode();
+    let mut finish = FinishOnDrop {
+      shared: Arc::clone(&self.shared),
+      cache_key,
+      result: None,
+    };
     let submitted = self.shared.workers.submit(move || {
-      let result = decode_image(&source, cap);
-      shared.finish(cache_key, result);
+      finish.result = Some(job());
+      drop(finish);
     });
     if !submitted {
       self.shared.finish(
@@ -141,28 +186,34 @@ impl DecodedImages {
   }
 
   /// Puts an image the app decoded itself under `key`, so nodes that ask for
-  /// it find it ready.
+  /// it find it ready. A decode of the same key still running finishes
+  /// without replacing it; windows waiting for that decode are woken now.
   pub fn insert(&self, key: ImageKey, cap: Option<ImageSizeCap>, data: ImageData) {
     let bytes = rgba_bytes(&data);
-    let mut inner = self.shared.inner.lock();
-    inner.clock += 1;
-    let last_used = inner.clock;
-    if let Some(old) = inner.entries.insert(
-      (key, cap),
-      Entry {
-        state: ImageLoadState::Ready(data),
-        bytes,
-        last_used,
-        wakers: Vec::new(),
-      },
-    ) {
-      inner.used -= old.bytes;
-      if old.state.is_loading() {
-        inner.pending -= 1;
+    let wakers = {
+      let mut inner = self.shared.inner.lock();
+      inner.clock += 1;
+      let last_used = inner.clock;
+      let mut wakers = Vec::new();
+      if let Some(old) = inner.entries.insert(
+        (key, cap),
+        Entry {
+          state: ImageLoadState::Ready(data),
+          bytes,
+          last_used,
+          wakers: Vec::new(),
+        },
+      ) {
+        inner.used -= old.bytes;
+        wakers = old.wakers;
       }
+      inner.used += bytes;
+      evict(&mut inner);
+      wakers
+    };
+    for wake in wakers {
+      wake();
     }
-    inner.used += bytes;
-    evict(&mut inner);
   }
 
   /// Decodes still running.
@@ -212,33 +263,39 @@ impl DecodedImages {
 }
 
 impl Shared {
+  /// Ends one decode job: its entry takes the result while it still waits
+  /// for it. An entry that `insert` filled meanwhile, or one evicted or
+  /// cleared, keeps what it has and the result is dropped. Counts the job
+  /// down either way, once its windows are woken, so `wait_idle` returns
+  /// after the wakes.
   fn finish(&self, cache_key: CacheKey, result: Result<ImageData, ImageDecodeError>) {
     let wakers = {
       let mut inner = self.inner.lock();
-      let Some(entry) = inner.entries.get_mut(&cache_key) else {
-        // Cleared while decoding: the result is dropped.
-        inner.pending = inner.pending.saturating_sub(1);
-        self.completed.fetch_add(1, Ordering::AcqRel);
-        self.idle.notify_all();
-        return;
-      };
-      let wakers = std::mem::take(&mut entry.wakers);
-      let bytes = result.as_ref().map(rgba_bytes).unwrap_or(0);
-      entry.bytes = bytes;
-      entry.state = match result {
-        Ok(data) => ImageLoadState::Ready(data),
-        Err(error) => ImageLoadState::Failed(Arc::new(error)),
-      };
-      inner.used += bytes;
-      inner.pending = inner.pending.saturating_sub(1);
-      evict(&mut inner);
-      self.completed.fetch_add(1, Ordering::AcqRel);
-      self.idle.notify_all();
-      wakers
+      match inner.entries.get_mut(&cache_key) {
+        Some(entry) if entry.state.is_loading() => {
+          let bytes = result.as_ref().map(rgba_bytes).unwrap_or(0);
+          entry.bytes = bytes;
+          entry.state = match result {
+            Ok(data) => ImageLoadState::Ready(data),
+            Err(error) => ImageLoadState::Failed(Arc::new(error)),
+          };
+          inner.used += bytes;
+          evict(&mut inner);
+          match inner.entries.get_mut(&cache_key) {
+            Some(entry) => std::mem::take(&mut entry.wakers),
+            None => Vec::new(),
+          }
+        }
+        _ => Vec::new(),
+      }
     };
     for wake in wakers {
       wake();
     }
+    let mut inner = self.inner.lock();
+    inner.pending = inner.pending.saturating_sub(1);
+    self.completed.fetch_add(1, Ordering::AcqRel);
+    self.idle.notify_all();
   }
 }
 

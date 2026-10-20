@@ -65,8 +65,10 @@ impl Image {
   }
 
   /// The cache key of a runtime image: the same key means the same pixels.
-  /// An app that stores a hash of the bytes passes it here and skips the
-  /// hashing `from_bytes` does.
+  /// `from_bytes` has already hashed the bytes by the time this runs; an app
+  /// that stores a hash of its own and wants neither that hashing nor a
+  /// copy of the bytes builds the node with
+  /// `Image::from_source(ImageSource::Bytes(arc), ImageKey::new(hash))`.
   #[cfg(feature = "image")]
   pub fn cache_key(mut self, key: crate::images::ImageKey) -> Self {
     self.update_node(|node| node.update_loading_image(|request| request.key = key));

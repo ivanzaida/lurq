@@ -28,7 +28,13 @@ impl Workers {
           loop {
             let job = receiver.lock().recv();
             match job {
-              Ok(job) => job(),
+              // A job that panics (a decoder's bug) must not take the
+              // worker with it: the other images still need one.
+              Ok(job) => {
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+                  tracing::error!(target: "lurq::images", "an image decode job panicked; the worker goes on");
+                }
+              }
               Err(_) => break,
             }
           }

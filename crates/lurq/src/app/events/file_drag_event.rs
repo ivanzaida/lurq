@@ -21,7 +21,9 @@ pub struct DroppedPath {
 }
 
 impl DroppedPath {
-  /// Looks the path up once: a folder is reported as one.
+  /// Looks the path up once (`Path::is_dir`, on the calling thread: the
+  /// shell's, when the drag enters the window) so a folder is reported as
+  /// one. A path on a slow network drive can make that look-up slow.
   pub fn new(path: PathBuf) -> Self {
     let is_folder = path.is_dir();
     Self { path, is_folder }
@@ -134,10 +136,14 @@ impl FileDragEvent {
     }
   }
 
-  /// Refuses the drag here: the element shows no `drag_over` style, and
+  /// Refuses the drag at this element for the rest of the drag session:
+  /// while the drag is over it, no element shows the `drag_over` style and
   /// [`Tree::file_drag_accepted`](crate::app::Tree::file_drag_accepted)
-  /// reports it. The OS cursor is not changed: winit answers the OS before
-  /// lurq sees the drag, so it shows a copy cursor over the whole window.
+  /// reports `Some(false)`; the drag leaving the element and entering it
+  /// again asks again. The OS cursor is not changed: winit answers the OS
+  /// before lurq sees the drag, so it shows a copy cursor over the whole
+  /// window. The drop is still delivered to `on_file_drop`, whose handler
+  /// ignores what it refused.
   pub fn refuse(&self) {
     self.accepted.store(false, std::sync::atomic::Ordering::Relaxed);
     self.control.prevent_default();

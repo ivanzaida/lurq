@@ -19,6 +19,39 @@ use lurq::{
 
 use crate::support::{pointer_click, run_pass};
 
+/// A clipboard of the test's own, counting what a paste reads from it.
+struct TestClipboard {
+  text_reads: Mutex<usize>,
+  full_reads: Mutex<usize>,
+}
+
+impl TestClipboard {
+  fn install(runtime: &mut Tree) -> Arc<Self> {
+    let clipboard = Arc::new(Self {
+      text_reads: Mutex::new(0),
+      full_reads: Mutex::new(0),
+    });
+    runtime.set_clipboard_reader(Some(clipboard.clone()));
+    clipboard
+  }
+
+  fn reads(&self) -> (usize, usize) {
+    (*self.text_reads.lock().unwrap(), *self.full_reads.lock().unwrap())
+  }
+}
+
+impl lurq::app::ClipboardReader for TestClipboard {
+  fn read_text(&self) -> Option<String> {
+    *self.text_reads.lock().unwrap() += 1;
+    Some("secret".to_owned())
+  }
+
+  fn read(&self) -> Option<ClipboardContent> {
+    *self.full_reads.lock().unwrap() += 1;
+    Some(ClipboardContent::text("secret").with_files([PathBuf::from("C:/shots/a.png")]))
+  }
+}
+
 fn focused_input(value: &Signal<String>) -> Tree {
   let mut runtime = Tree::new();
   runtime.set_root(TextInput::new(value.clone()).id("input"));
@@ -223,10 +256,11 @@ fn a_synthetic_paste_carries_its_content_and_is_marked_synthetic() {
 /// The person's clipboard is theirs: a synthetic Ctrl+V (an MCP client's
 /// `key` action) is refused instead of reading it, whatever it holds.
 #[test]
-fn a_synthetic_ctrl_v_does_not_read_the_os_clipboard() {
+fn a_synthetic_ctrl_v_does_not_read_the_clipboard() {
   let value = Signal::new(String::new());
   let seen = Arc::new(Mutex::new(0));
   let mut runtime = Tree::new();
+  let clipboard = TestClipboard::install(&mut runtime);
   let count = seen.clone();
   runtime.set_root(
     TextInput::new(value.clone())
@@ -248,6 +282,45 @@ fn a_synthetic_ctrl_v_does_not_read_the_os_clipboard() {
     synthetic_input::apply(&mut runtime, &input);
   }
 
+  assert_eq!(clipboard.reads(), (0, 0), "the clipboard was never read");
   assert_eq!(*seen.lock().unwrap(), 0, "no paste event without content");
   assert_eq!(value.get(), "");
+}
+
+/// A person's Ctrl+V reads the clipboard: only its text when no handler
+/// looks at the paste, as before paste events, and everything when one does.
+#[test]
+fn a_ctrl_v_from_the_os_reads_as_much_of_the_clipboard_as_the_paste_needs() {
+  let value = Signal::new(String::new());
+  let mut runtime = Tree::new();
+  let clipboard = TestClipboard::install(&mut runtime);
+  runtime.set_root(TextInput::new(value.clone()).id("input"));
+  let mut runtime = focus(runtime);
+  let shortcut = if cfg!(target_os = "macos") {
+    (false, true)
+  } else {
+    (true, false)
+  };
+
+  runtime.key_down_with_meta("v".into(), "KeyV".into(), false, shortcut.0, false, shortcut.1);
+  assert_eq!(value.get(), "secret");
+  assert_eq!(clipboard.reads(), (1, 0), "text only: nothing looks at the paste");
+
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let mut runtime = Tree::new();
+  let clipboard = TestClipboard::install(&mut runtime);
+  let log = seen.clone();
+  runtime.set_root(
+    Column::new()
+      .on_paste(move |event: PasteEvent| log.lock().unwrap().push(event.files().len()))
+      .child(TextInput::new(value.clone()).id("input")),
+  );
+  let mut runtime = focus(runtime);
+  runtime.key_down("Insert".into(), "Insert".into(), true, false, false);
+  assert_eq!(
+    clipboard.reads(),
+    (0, 1),
+    "everything: an ancestor's handler looks at the paste"
+  );
+  assert_eq!(seen.lock().unwrap().as_slice(), &[1]);
 }

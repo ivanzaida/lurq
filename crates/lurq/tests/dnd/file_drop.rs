@@ -275,6 +275,19 @@ fn a_refused_drag_shows_no_drag_over_style() {
 
   assert_eq!(runtime.file_drag_accepted(), Some(false));
   assert_eq!(color(&mut runtime, "zone"), Some(Color::from_hex(REST)));
+
+  // The refusal made on enter holds while the drag moves over the element.
+  runtime.file_drag_over(x + 3.0, y + 2.0);
+  assert_eq!(runtime.file_drag_accepted(), Some(false));
+  assert_eq!(color(&mut runtime, "zone"), Some(Color::from_hex(REST)));
+
+  // Leaving the element forgets it; coming back asks again, with files this
+  // time, which the handler accepts.
+  runtime.file_drag_over(500.0, 500.0);
+  assert_eq!(runtime.file_drag_accepted(), Some(true));
+  runtime.file_drag_enter(two_files(), x, y);
+  assert_eq!(runtime.file_drag_accepted(), Some(true));
+  assert_eq!(color(&mut runtime, "zone"), Some(Color::from_hex(OVER)));
 }
 
 #[test]
@@ -311,11 +324,11 @@ fn synthetic_file_drags_reach_the_handlers_marked_synthetic() {
   run_pass(&mut runtime);
   let (x, y) = center(&mut runtime, "zone");
 
-  synthetic_input::apply(&mut runtime, &SyntheticInput::file_drag_enter(x, y, two_files()));
+  synthetic_input::apply(&mut runtime, &SyntheticInput::file_drag_enter(two_files(), x, y));
   synthetic_input::apply(&mut runtime, &SyntheticInput::file_drag_over(x + 1.0, y));
   synthetic_input::apply(&mut runtime, &SyntheticInput::file_drag_leave());
   assert!(!runtime.has_file_drag());
-  synthetic_input::apply(&mut runtime, &SyntheticInput::file_drop(x, y, two_files()));
+  synthetic_input::apply(&mut runtime, &SyntheticInput::file_drop(two_files(), x, y));
 
   assert_eq!(
     synthetic.lock().unwrap().as_slice(),

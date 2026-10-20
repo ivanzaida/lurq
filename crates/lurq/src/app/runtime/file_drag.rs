@@ -28,7 +28,12 @@ pub(super) struct FileDragSession {
   /// The elements under the pointer, innermost first, that have the drag
   /// over them.
   over_path: Vec<NodeId>,
+  /// The elements that refused the drag when it entered them, until it
+  /// leaves them.
+  refused: Vec<NodeId>,
   accepted: bool,
+  /// Where the drag last was, in physical pixels.
+  position: (f32, f32),
 }
 
 impl Tree {
@@ -60,7 +65,9 @@ impl Tree {
         self.file_drag = Some(FileDragSession {
           paths,
           over_path: Vec::new(),
+          refused: Vec::new(),
           accepted: true,
+          position: (x, y),
         });
       }
     }
@@ -107,7 +114,11 @@ impl Tree {
   /// enters at the same point. `true` when an element under the pointer had
   /// an `on_file_drop` handler.
   pub fn file_drop(&mut self, paths: DraggedPaths, x: f32, y: f32) -> bool {
-    self.file_drag_enter(paths.clone(), x, y);
+    // A drag already at the point gets no second `on_file_drag_over`.
+    match &mut self.file_drag {
+      Some(session) if session.position == (x, y) => session.paths = paths.clone(),
+      _ => self.file_drag_enter(paths.clone(), x, y),
+    }
     let scale = self.scale_factor();
     let (lx, ly) = (x / scale, y / scale);
     let mut handled = false;
@@ -151,6 +162,7 @@ impl Tree {
     let Some(session) = self.file_drag.as_mut() else {
       return;
     };
+    session.position = (x, y);
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return;
     };
@@ -168,18 +180,27 @@ impl Tree {
         }
       }
     }
+    // A refusal lasts while the drag is over the element; leaving forgets it.
+    session.refused.retain(|id| current_ids.contains(id));
 
     let entered: Vec<&Node> = hits
       .iter()
       .map(|(node, _)| *node)
       .filter(|node| !session.over_path.contains(&node.node_id()))
       .collect();
-    let event = FileDragEvent::new(lx, ly, session.paths.clone(), NodeId::UNASSIGNED);
-    dispatch_file_drag(&entered, &event, |node| &node.events.on_file_drag_enter);
+    let enter = FileDragEvent::new(lx, ly, session.paths.clone(), NodeId::UNASSIGNED);
+    dispatch_file_drag(&entered, &enter, |node| &node.events.on_file_drag_enter);
+    if !enter.is_accepted() {
+      remember_refused(&mut session.refused, &entered);
+    }
     let over: Vec<&Node> = hits.iter().map(|(node, _)| *node).collect();
-    dispatch_file_drag(&over, &event, |node| &node.events.on_file_drag_over);
+    let moved = FileDragEvent::new(lx, ly, session.paths.clone(), NodeId::UNASSIGNED);
+    dispatch_file_drag(&over, &moved, |node| &node.events.on_file_drag_over);
+    if !moved.is_accepted() {
+      remember_refused(&mut session.refused, &over);
+    }
 
-    session.accepted = event.is_accepted();
+    session.accepted = session.refused.is_empty();
     for node in &over {
       node.set_style_drag_over(session.accepted);
     }
@@ -208,6 +229,14 @@ impl Tree {
         }
         None => false,
       });
+  }
+}
+
+fn remember_refused(refused: &mut Vec<NodeId>, nodes: &[&Node]) {
+  for node in nodes {
+    if !refused.contains(&node.node_id()) {
+      refused.push(node.node_id());
+    }
   }
 }
 

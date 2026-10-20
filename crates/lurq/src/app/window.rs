@@ -196,9 +196,14 @@ pub(crate) enum WindowCommand {
   StopDrag,
   InjectInput(crate::app::synthetic_input::SyntheticInput),
   /// Read the OS clipboard and paste it into the focused text input, as
-  /// Ctrl+V does: for an app's own Paste menu item.
+  /// Ctrl+V does: for an app's own Paste menu item. `synthetic` is whether
+  /// the request was made while lurq delivered synthetic input (an MCP
+  /// click on that menu item); the shell refuses it then, since the
+  /// person's clipboard is theirs.
   #[cfg(feature = "clipboard")]
-  PasteFromClipboard,
+  PasteFromClipboard {
+    synthetic: bool,
+  },
   #[cfg(feature = "screenshot")]
   Screenshot(std::path::PathBuf, Option<ScreenshotRegion>),
   OpenDevtools,

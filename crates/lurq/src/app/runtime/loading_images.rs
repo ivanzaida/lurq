@@ -1,13 +1,18 @@
-//! Images decoded at runtime, resolved against the decoded-image cache each
-//! pass.
+//! Images decoded at runtime, resolved against the decoded-image cache.
 //!
 //! A node built with [`Image::from_bytes`](crate::components::Image::from_bytes)
 //! or [`Image::from_file`](crate::components::Image::from_file) starts as a
-//! `LoadingImage` showing its placeholder. Every pass asks the cache for its
+//! `LoadingImage` showing its placeholder. A pass asks the cache for its
 //! key: a ready image turns the node into an `Image` node (the component
 //! need not render again), a failed decode puts the error view in its
 //! place, and a loading one is remembered so the decode's end asks for the
 //! next pass. The decode's worker wakes the window's loop when it ends.
+//!
+//! The walk over the tree is skipped when it cannot find anything: no
+//! decode is pending for this tree, and no loading-image node was built
+//! since the last walk (a counter every such node bumps).
+
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::Tree;
 use crate::{
@@ -17,14 +22,32 @@ use crate::{
   node::{node::Node, node_kind::NodeKind},
 };
 
+/// How many loading-image nodes have been built in the process.
+static LOADING_IMAGES_BUILT: AtomicU64 = AtomicU64::new(0);
+
+/// A loading-image node was built: the next pass of every tree walks for it.
+pub(crate) fn note_loading_image_built() {
+  LOADING_IMAGES_BUILT.fetch_add(1, Ordering::AcqRel);
+}
+
 impl Tree {
   /// Resolves the loading images of the tree: `true` when a node changed
   /// and the layout must run again.
   pub(super) fn resolve_loading_images(&mut self) -> bool {
+    let built = LOADING_IMAGES_BUILT.load(Ordering::Acquire);
+    if self.pending_images.is_empty() && self.loading_images_built_seen == built {
+      return false;
+    }
+    self.loading_images_built_seen = built;
     let Some(root) = &mut self.root else {
       return false;
     };
-    let wake = self.window.loop_waker();
+    // One waker for the tree's window: the cache keeps one per entry and
+    // window, and tells them apart by identity.
+    let wake = self
+      .loading_image_waker
+      .get_or_insert_with(|| self.window.loop_waker())
+      .clone();
     let mut pending = Vec::new();
     let changed = resolve_recursive(root, &wake, &mut pending);
     self.pending_images = pending;

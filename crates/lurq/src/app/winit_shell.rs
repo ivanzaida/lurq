@@ -525,10 +525,8 @@ impl ManagedWindow {
           crate::app::synthetic_input::apply(&mut self.tree, &input);
         }
         #[cfg(feature = "clipboard")]
-        WindowCommand::PasteFromClipboard => {
-          if let Some(content) = crate::clipboard::read_clipboard() {
-            self.tree.paste(content);
-          }
+        WindowCommand::PasteFromClipboard { synthetic } => {
+          self.tree.paste_from_os_clipboard(synthetic);
         }
         #[cfg(feature = "screenshot")]
         WindowCommand::Screenshot(output_path, region) => {
@@ -1086,10 +1084,8 @@ impl ManagedSecondaryWindow {
           crate::app::synthetic_input::apply(tree, &input);
         }
         #[cfg(feature = "clipboard")]
-        WindowCommand::PasteFromClipboard => {
-          if let Some(content) = crate::clipboard::read_clipboard() {
-            tree.paste(content);
-          }
+        WindowCommand::PasteFromClipboard { synthetic } => {
+          tree.paste_from_os_clipboard(synthetic);
         }
         #[cfg(feature = "screenshot")]
         WindowCommand::Screenshot(output_path, region) => {

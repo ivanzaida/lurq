@@ -263,7 +263,7 @@ pub(super) fn interact_tool(
         target.request_redraw();
         reply["handled"] = serde_json::Value::Bool(handled);
       } else {
-        apply_all(target, vec![SyntheticInput::file_drag_enter(x, y, paths)]);
+        apply_all(target, vec![SyntheticInput::file_drag_enter(paths, x, y)]);
         reply["accepted"] = serde_json::json!(target.file_drag_accepted());
       }
       Ok(McpToolOutput::Json(reply))

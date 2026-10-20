@@ -143,9 +143,9 @@ synthetic_input::apply(
 );
 ```
 
-A synthetic `Ctrl+V` (`SyntheticInput::key_down("v")` with `ctrl`) is refused: it never reads the person's clipboard, and no paste event fires.
+A synthetic `Ctrl+V` (`SyntheticInput::key_down("v")` with `ctrl`) is refused: it never reads the person's clipboard, and no paste event fires. A test of a person's `Ctrl+V` installs a clipboard of its own with `tree.set_clipboard_reader(Some(Arc::new(reader)))`, a `lurq::app::ClipboardReader` with `read_text()` (what a paste no handler looks at reads) and `read()` (everything, for a paste an `on_paste` handler looks at); the OS clipboard is never touched.
 
-Files are dragged with `tree.file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` (physical pixels, as the pointer methods take), or their synthetic forms `SyntheticInput::file_drag_enter`, `file_drag_over`, `file_drag_leave` and `file_drop`. `DraggedPaths::from_paths(paths)` looks each path up once to tell folders from files; `DraggedPaths::new([DroppedPath::with_kind(path, true)])` marks a folder that does not exist. A drop without an enter first enters at the same point.
+Files are dragged with `tree.file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` (physical pixels, as the pointer methods take), or their synthetic forms `SyntheticInput::file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)`. `DraggedPaths::from_paths(paths)` looks each path up once to tell folders from files; `DraggedPaths::new([DroppedPath::with_kind(path, true)])` marks a folder that does not exist. A drop without an enter first enters at the same point.
 
 ```rust
 use lurq::app::events::DraggedPaths;

@@ -3932,6 +3932,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.state_styles.active.is_none()
     && node.state_styles.focused.is_none()
     && node.state_styles.focus_visible.is_none()
+    && node.state_styles.drag_over.is_none()
     && node.opacity == DEFAULT_QUAD_OPACITY
     && node.animation_overrides.is_empty()
     && node.effective_transform().is_identity()
