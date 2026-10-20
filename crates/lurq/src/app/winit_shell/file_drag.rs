@@ -11,13 +11,22 @@
 //! enter or drop with all its paths, at the pointer position read from the
 //! OS ([`cursor::position_in_window`]); while the drag hovers, the position
 //! is read again every [`POLL_INTERVAL`] and the tree gets `file_drag_over`
-//! when it moved. A hover ends as a leave when no mouse button is pressed
-//! any more (the OS drag ended without winit telling, where the OS reports
-//! its buttons: Windows, macOS), or when it neither moved nor got a drop or
-//! a cancel within [`HOVER_TIMEOUT`]: its source is gone (a program that
-//! died mid-drag, an event winit lost), and polling for it would never stop.
-//! A person's drag held still that long is ended too; a drop that comes
-//! later still arrives.
+//! when it moved. A hover ends as a leave when no mouse button has been
+//! pressed for [`BUTTONS_UP_GRACE`] (the OS drag ended without winit
+//! telling, where the OS reports its buttons: Windows, macOS), or when it
+//! neither moved nor got a drop or a cancel within [`HOVER_TIMEOUT`]: its
+//! source is gone (a program that died mid-drag, an event winit lost), and
+//! polling for it would never stop. A person's drag held still that long is
+//! ended too; a drop that comes later still arrives.
+//!
+//! The grace period covers the release itself: the OS reports the button up
+//! before its `Drop` callback runs, so a poll in that gap must not end the
+//! session the drop belongs to. A drop within the grace period continues
+//! the session with no leave. It also covers drags whose button state the
+//! OS reports differently (a touch or pen drag promoted to a mouse drag,
+//! ClickLock on Windows, drag lock on macOS): such a hover ends after the
+//! grace period at most, not at the next poll; whether those report a
+//! pressed button has not been checked.
 //!
 //! winit answers the OS about the drop effect before lurq sees the drag (a
 //! copy cursor over the whole window), so an element's refusal does not
@@ -38,6 +47,9 @@ pub(super) const POLL_INTERVAL: Duration = Duration::from_millis(16);
 /// A hover without motion, a drop or a cancel for this long is ended; see
 /// the module docs.
 pub(super) const HOVER_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long every poll must find no mouse button pressed, with no file
+/// event in between, before the hover ends; see the module docs.
+pub(super) const BUTTONS_UP_GRACE: Duration = Duration::from_millis(250);
 
 /// What the OS tells about the pointer at a poll.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,6 +86,9 @@ pub(super) struct FileDragShell {
   /// When the last file event arrived or the pointer last moved, for the
   /// hover timeout.
   last_event: Instant,
+  /// Since when every poll found no mouse button pressed, for the grace
+  /// period; `None` while one is pressed or the OS does not tell.
+  buttons_up_since: Option<Instant>,
   last_position: Option<(f32, f32)>,
 }
 
@@ -85,6 +100,7 @@ impl Default for FileDragShell {
       hovering: false,
       last_poll: now,
       last_event: now,
+      buttons_up_since: None,
       last_position: None,
     }
   }
@@ -125,6 +141,7 @@ impl FileDragShell {
     let events = std::mem::take(&mut self.events);
     if !events.is_empty() {
       self.last_event = now;
+      self.buttons_up_since = None;
     }
     let mut events = events.into_iter().peekable();
     while let Some(event) = events.next() {
@@ -165,10 +182,16 @@ impl FileDragShell {
       self.last_poll = now;
       let probed = probe();
       if probed.any_button_pressed == Some(false) {
-        // The drag ended with its button and winit did not say.
-        self.hovering = false;
-        tree.file_drag_leave();
-        return;
+        let since = *self.buttons_up_since.get_or_insert(now);
+        if now.duration_since(since) >= BUTTONS_UP_GRACE {
+          // The drag ended with its button and winit did not say.
+          self.hovering = false;
+          self.buttons_up_since = None;
+          tree.file_drag_leave();
+          return;
+        }
+      } else {
+        self.buttons_up_since = None;
       }
       let moved_from = self.last_position;
       let position = self.position(probed, fallback);
@@ -385,13 +408,8 @@ mod tests {
     assert_eq!(log.lock().unwrap().last().map(String::as_str), Some("drop 1"));
   }
 
-  /// Where the OS reports its mouse buttons, a hover whose buttons are all
-  /// up has no drag behind it any more: it ends as a leave at the next poll.
-  #[test]
-  fn a_hover_ends_when_no_mouse_button_is_pressed_any_more() {
-    let log = Log::default();
-    let mut tree = target(&log);
-    let mut shell = FileDragShell::default();
+  /// A probe at (10, 10) whose button state the test controls.
+  fn button_probe() -> (Arc<Mutex<Option<bool>>>, impl Fn() -> PointerProbe) {
     let pressed = Arc::new(Mutex::new(Some(true)));
     let read = {
       let pressed = pressed.clone();
@@ -400,6 +418,19 @@ mod tests {
         any_button_pressed: *pressed.lock().unwrap(),
       }
     };
+    (pressed, read)
+  }
+
+  /// Where the OS reports its mouse buttons, a hover whose buttons stay up
+  /// for the grace period has no drag behind it any more: it ends as a
+  /// leave. One poll with the buttons up is not enough: the release itself
+  /// shows that way before the drop arrives.
+  #[test]
+  fn a_hover_ends_once_no_mouse_button_has_been_pressed_for_the_grace_period() {
+    let log = Log::default();
+    let mut tree = target(&log);
+    let mut shell = FileDragShell::default();
+    let (pressed, read) = button_probe();
     let start = Instant::now();
     hovered(&mut shell, &["C:/a.png"]);
     shell.flush_at(&mut tree, start, &read, (0.0, 0.0));
@@ -407,9 +438,68 @@ mod tests {
     assert!(shell.next_poll().is_some(), "a pressed button keeps the hover");
 
     *pressed.lock().unwrap() = Some(false);
-    shell.flush_at(&mut tree, start + POLL_INTERVAL * 2, &read, (0.0, 0.0));
+    let released_at = start + POLL_INTERVAL * 2;
+    shell.flush_at(&mut tree, released_at, &read, (0.0, 0.0));
+    shell.flush_at(
+      &mut tree,
+      released_at + BUTTONS_UP_GRACE - POLL_INTERVAL,
+      &read,
+      (0.0, 0.0),
+    );
+    assert_eq!(
+      log.lock().unwrap().as_slice(),
+      ["enter 1", "over 10,10"],
+      "no leave within the grace period"
+    );
+    assert!(shell.next_poll().is_some());
+
+    // A press seen again starts the grace period over.
+    *pressed.lock().unwrap() = Some(true);
+    shell.flush_at(&mut tree, released_at + BUTTONS_UP_GRACE, &read, (0.0, 0.0));
+    *pressed.lock().unwrap() = Some(false);
+    let released_again_at = released_at + BUTTONS_UP_GRACE + POLL_INTERVAL;
+    shell.flush_at(&mut tree, released_again_at, &read, (0.0, 0.0));
+    shell.flush_at(
+      &mut tree,
+      released_again_at + BUTTONS_UP_GRACE - POLL_INTERVAL,
+      &read,
+      (0.0, 0.0),
+    );
+    assert!(
+      shell.next_poll().is_some(),
+      "the grace period counts from the last press"
+    );
+
+    shell.flush_at(&mut tree, released_again_at + BUTTONS_UP_GRACE, &read, (0.0, 0.0));
 
     assert_eq!(log.lock().unwrap().as_slice(), ["enter 1", "over 10,10", "leave"]);
+    assert_eq!(shell.next_poll(), None);
+    assert!(!tree.has_file_drag());
+  }
+
+  /// The release comes before the OS's drop callback: a drop within the
+  /// grace period is the same session's, with no leave in between.
+  #[test]
+  fn a_drop_within_the_grace_period_after_the_release_continues_the_session() {
+    let log = Log::default();
+    let mut tree = target(&log);
+    let mut shell = FileDragShell::default();
+    let (pressed, read) = button_probe();
+    let start = Instant::now();
+    hovered(&mut shell, &["C:/a.png"]);
+    shell.flush_at(&mut tree, start, &read, (0.0, 0.0));
+
+    *pressed.lock().unwrap() = Some(false);
+    shell.flush_at(&mut tree, start + POLL_INTERVAL, &read, (0.0, 0.0));
+    shell.flush_at(&mut tree, start + POLL_INTERVAL * 2, &read, (0.0, 0.0));
+    dropped(&mut shell, &["C:/a.png"]);
+    shell.flush_at(&mut tree, start + POLL_INTERVAL * 3, &read, (0.0, 0.0));
+
+    assert_eq!(
+      log.lock().unwrap().as_slice(),
+      ["enter 1", "over 10,10", "drop 1"],
+      "no leave, no second enter"
+    );
     assert_eq!(shell.next_poll(), None);
     assert!(!tree.has_file_drag());
   }

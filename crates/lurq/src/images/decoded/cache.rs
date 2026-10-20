@@ -206,6 +206,8 @@ impl DecodedImages {
   /// Puts an image the app decoded itself under `key`, so nodes that ask for
   /// it find it ready. A decode of the same key still running finishes
   /// without replacing it; windows waiting for that decode are woken now.
+  /// Like a finished decode, an inserted image larger than the whole budget
+  /// is kept until the next eviction.
   pub fn insert(&self, key: ImageKey, cap: Option<ImageSizeCap>, data: ImageData) {
     let bytes = rgba_bytes(&data);
     let wakers = {
@@ -226,7 +228,7 @@ impl DecodedImages {
         wakers = old.wakers;
       }
       inner.used += bytes;
-      evict(&mut inner, None);
+      evict(&mut inner, Some((key, cap)));
       wakers
     };
     for wake in wakers {

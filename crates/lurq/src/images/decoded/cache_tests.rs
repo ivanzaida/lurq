@@ -141,6 +141,26 @@ fn a_job_no_worker_takes_fails_its_entry_once() {
   assert!(error.contains("no worker took the job"), "{error}");
 }
 
+/// Like a finished decode: an inserted image over the whole budget stays
+/// until the next eviction, instead of going at once.
+#[test]
+fn an_inserted_image_larger_than_the_budget_is_kept_until_the_next_eviction() {
+  let cache = DecodedImages::new();
+  cache.set_budget(1024);
+  let (older, key) = (ImageKey::new(1), ImageKey::new(2));
+  cache.insert(older, None, pixels(8, 8));
+
+  cache.insert(key, None, pixels(64, 32));
+
+  assert!(cache.state(key, None).is_some_and(|state| state.ready().is_some()));
+  assert!(cache.state(older, None).is_none(), "the older image made room first");
+  assert_eq!(cache.used_bytes(), 64 * 32 * 4);
+
+  cache.insert(older, None, pixels(8, 8));
+  assert!(cache.state(key, None).is_none(), "gone at the next eviction");
+  assert_eq!(cache.used_bytes(), 8 * 8 * 4);
+}
+
 #[test]
 fn an_insert_over_a_ready_entry_replaces_its_bytes() {
   let cache = DecodedImages::new();
