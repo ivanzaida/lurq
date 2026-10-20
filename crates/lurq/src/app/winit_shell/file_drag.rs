@@ -11,9 +11,13 @@
 //! enter or drop with all its paths, at the pointer position read from the
 //! OS ([`cursor::position_in_window`]); while the drag hovers, the position
 //! is read again every [`POLL_INTERVAL`] and the tree gets `file_drag_over`
-//! when it moved. A hover that gets neither a drop nor a cancel within
-//! [`HOVER_TIMEOUT`] is ended as a leave: its source is gone (a program that
+//! when it moved. A hover ends as a leave when no mouse button is pressed
+//! any more (the OS drag ended without winit telling, where the OS reports
+//! its buttons: Windows, macOS), or when it neither moved nor got a drop or
+//! a cancel within [`HOVER_TIMEOUT`]: its source is gone (a program that
 //! died mid-drag, an event winit lost), and polling for it would never stop.
+//! A person's drag held still that long is ended too; a drop that comes
+//! later still arrives.
 //!
 //! winit answers the OS about the drop effect before lurq sees the drag (a
 //! copy cursor over the whole window), so an element's refusal does not
@@ -31,9 +35,27 @@ use crate::app::{Tree, events::DraggedPaths};
 
 /// How often the pointer position is read while files hover over the window.
 pub(super) const POLL_INTERVAL: Duration = Duration::from_millis(16);
-/// A hover without a drop or a cancel for this long is ended; see the module
-/// docs.
+/// A hover without motion, a drop or a cancel for this long is ended; see
+/// the module docs.
 pub(super) const HOVER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What the OS tells about the pointer at a poll.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PointerProbe {
+  /// The position in physical pixels of the window, where the OS tells.
+  pub(super) position: Option<(f32, f32)>,
+  /// Whether any mouse button is pressed, where the OS tells.
+  pub(super) any_button_pressed: Option<bool>,
+}
+
+impl PointerProbe {
+  fn read(window: Option<&Window>) -> Self {
+    Self {
+      position: window.and_then(cursor::position_in_window),
+      any_button_pressed: cursor::any_mouse_button_pressed(),
+    }
+  }
+}
 
 /// One file event of winit, kept in arrival order.
 #[derive(Debug, PartialEq, Eq)]
@@ -49,7 +71,8 @@ pub(super) struct FileDragShell {
   /// A drag is over the window: its position is polled.
   hovering: bool,
   last_poll: Instant,
-  /// When the last file event arrived, for the hover timeout.
+  /// When the last file event arrived or the pointer last moved, for the
+  /// hover timeout.
   last_event: Instant,
   last_position: Option<(f32, f32)>,
 }
@@ -94,22 +117,11 @@ impl FileDragShell {
   /// drag hovers. `fallback` is the last pointer position the window saw,
   /// used where the OS position cannot be read.
   pub(super) fn flush(&mut self, tree: &mut Tree, window: Option<&Window>, fallback: (f64, f64)) {
-    self.flush_at(
-      tree,
-      Instant::now(),
-      &|| window.and_then(cursor::position_in_window),
-      fallback,
-    );
+    self.flush_at(tree, Instant::now(), &|| PointerProbe::read(window), fallback);
   }
 
-  /// [`flush`](Self::flush) at `now`, reading the pointer with `read_position`.
-  fn flush_at(
-    &mut self,
-    tree: &mut Tree,
-    now: Instant,
-    read_position: &dyn Fn() -> Option<(f32, f32)>,
-    fallback: (f64, f64),
-  ) {
+  /// [`flush`](Self::flush) at `now`, reading the pointer with `probe`.
+  fn flush_at(&mut self, tree: &mut Tree, now: Instant, probe: &dyn Fn() -> PointerProbe, fallback: (f64, f64)) {
     let events = std::mem::take(&mut self.events);
     if !events.is_empty() {
       self.last_event = now;
@@ -128,7 +140,7 @@ impl FileDragShell {
               paths.push(path);
             }
           }
-          let (x, y) = self.position(read_position, fallback);
+          let (x, y) = self.position(probe(), fallback);
           self.hovering = true;
           self.last_poll = now;
           tree.file_drag_enter(DraggedPaths::from_paths(paths), x, y);
@@ -140,7 +152,7 @@ impl FileDragShell {
               paths.push(path);
             }
           }
-          let (x, y) = self.position(read_position, fallback);
+          let (x, y) = self.position(probe(), fallback);
           self.hovering = false;
           tree.file_drop(DraggedPaths::from_paths(paths), x, y);
         }
@@ -149,23 +161,30 @@ impl FileDragShell {
     if !self.hovering {
       return;
     }
-    if now.duration_since(self.last_event) >= HOVER_TIMEOUT {
-      self.hovering = false;
-      tree.file_drag_leave();
-      return;
-    }
     if now.duration_since(self.last_poll) >= POLL_INTERVAL {
       self.last_poll = now;
+      let probed = probe();
+      if probed.any_button_pressed == Some(false) {
+        // The drag ended with its button and winit did not say.
+        self.hovering = false;
+        tree.file_drag_leave();
+        return;
+      }
       let moved_from = self.last_position;
-      let position = self.position(read_position, fallback);
+      let position = self.position(probed, fallback);
       if moved_from != Some(position) {
+        self.last_event = now;
         tree.file_drag_over(position.0, position.1);
       }
     }
+    if now.duration_since(self.last_event) >= HOVER_TIMEOUT {
+      self.hovering = false;
+      tree.file_drag_leave();
+    }
   }
 
-  fn position(&mut self, read_position: &dyn Fn() -> Option<(f32, f32)>, fallback: (f64, f64)) -> (f32, f32) {
-    let position = read_position().unwrap_or((fallback.0 as f32, fallback.1 as f32));
+  fn position(&mut self, probe: PointerProbe, fallback: (f64, f64)) -> (f32, f32) {
+    let position = probe.position.unwrap_or((fallback.0 as f32, fallback.1 as f32));
     self.last_position = Some(position);
     position
   }
@@ -223,15 +242,26 @@ mod tests {
     }
   }
 
+  /// A probe at `(x, y)` whose OS does not report its buttons.
+  fn at(x: f32, y: f32) -> PointerProbe {
+    PointerProbe {
+      position: Some((x, y)),
+      any_button_pressed: None,
+    }
+  }
+
   #[test]
   fn a_burst_of_hovered_files_enters_once_and_the_pointer_is_polled_while_it_moves() {
     let log = Log::default();
     let mut tree = target(&log);
     let mut shell = FileDragShell::default();
-    let position = Arc::new(Mutex::new(Some((10.0_f32, 10.0_f32))));
+    let position = Arc::new(Mutex::new((10.0_f32, 10.0_f32)));
     let read = {
       let position = position.clone();
-      move || *position.lock().unwrap()
+      move || {
+        let (x, y) = *position.lock().unwrap();
+        at(x, y)
+      }
     };
     let start = Instant::now();
     hovered(&mut shell, &["C:/a.png", "C:/b.png"]);
@@ -247,7 +277,7 @@ mod tests {
     shell.flush_at(&mut tree, start + POLL_INTERVAL, &read, (0.0, 0.0));
     assert_eq!(log.lock().unwrap().len(), 2, "no over without a move");
 
-    *position.lock().unwrap() = Some((20.0, 30.0));
+    *position.lock().unwrap() = (20.0, 30.0);
     shell.flush_at(&mut tree, start + POLL_INTERVAL * 2, &read, (0.0, 0.0));
     assert_eq!(log.lock().unwrap().last().map(String::as_str), Some("over 20,30"));
     assert_eq!(shell.next_poll(), Some(start + POLL_INTERVAL * 3));
@@ -258,7 +288,7 @@ mod tests {
     let log = Log::default();
     let mut tree = target(&log);
     let mut shell = FileDragShell::default();
-    let read = || Some((10.0_f32, 10.0_f32));
+    let read = || at(10.0, 10.0);
     let start = Instant::now();
     hovered(&mut shell, &["C:/a.png"]);
     shell.flush_at(&mut tree, start, &read, (0.0, 0.0));
@@ -277,7 +307,7 @@ mod tests {
     let log = Log::default();
     let mut tree = target(&log);
     let mut shell = FileDragShell::default();
-    let read = || Some((10.0_f32, 10.0_f32));
+    let read = || at(10.0, 10.0);
     let start = Instant::now();
     hovered(&mut shell, &["C:/a.png", "C:/b.png"]);
     shell.flush_at(&mut tree, start, &read, (0.0, 0.0));
@@ -298,7 +328,7 @@ mod tests {
     let log = Log::default();
     let mut tree = target(&log);
     let mut shell = FileDragShell::default();
-    let read = || Some((10.0_f32, 10.0_f32));
+    let read = || at(10.0, 10.0);
     let start = Instant::now();
     hovered(&mut shell, &["C:/a.png"]);
     assert!(shell.on_event(&WindowEvent::HoveredFileCancelled));
@@ -317,18 +347,33 @@ mod tests {
   }
 
   #[test]
-  fn a_hover_without_a_drop_or_a_cancel_times_out_as_a_leave() {
+  fn a_motionless_hover_without_a_drop_or_a_cancel_times_out_as_a_leave() {
     let log = Log::default();
     let mut tree = target(&log);
     let mut shell = FileDragShell::default();
-    let read = || Some((10.0_f32, 10.0_f32));
+    let position = Arc::new(Mutex::new((10.0_f32, 10.0_f32)));
+    let read = {
+      let position = position.clone();
+      move || {
+        let (x, y) = *position.lock().unwrap();
+        at(x, y)
+      }
+    };
     let start = Instant::now();
     hovered(&mut shell, &["C:/a.png"]);
     shell.flush_at(&mut tree, start, &read, (0.0, 0.0));
 
+    // Motion keeps the hover: a person's drag held over the window for
+    // longer than the timeout is not cut while it moves.
+    *position.lock().unwrap() = (12.0, 10.0);
     shell.flush_at(&mut tree, start + HOVER_TIMEOUT - POLL_INTERVAL, &read, (0.0, 0.0));
-    assert!(shell.next_poll().is_some(), "still hovering before the timeout");
-    shell.flush_at(&mut tree, start + HOVER_TIMEOUT, &read, (0.0, 0.0));
+    assert!(shell.next_poll().is_some(), "still hovering: it moved");
+    shell.flush_at(&mut tree, start + HOVER_TIMEOUT + POLL_INTERVAL, &read, (0.0, 0.0));
+    assert!(shell.next_poll().is_some(), "the timeout counts from the last motion");
+    assert_eq!(log.lock().unwrap().last().map(String::as_str), Some("over 12,10"));
+
+    let moved_at = start + HOVER_TIMEOUT - POLL_INTERVAL;
+    shell.flush_at(&mut tree, moved_at + HOVER_TIMEOUT, &read, (0.0, 0.0));
 
     assert_eq!(log.lock().unwrap().last().map(String::as_str), Some("leave"));
     assert_eq!(shell.next_poll(), None);
@@ -336,8 +381,37 @@ mod tests {
 
     // A drop after the timeout still arrives: it enters again at its point.
     dropped(&mut shell, &["C:/a.png"]);
-    shell.flush_at(&mut tree, start + HOVER_TIMEOUT + POLL_INTERVAL, &read, (0.0, 0.0));
+    shell.flush_at(&mut tree, moved_at + HOVER_TIMEOUT + POLL_INTERVAL, &read, (0.0, 0.0));
     assert_eq!(log.lock().unwrap().last().map(String::as_str), Some("drop 1"));
+  }
+
+  /// Where the OS reports its mouse buttons, a hover whose buttons are all
+  /// up has no drag behind it any more: it ends as a leave at the next poll.
+  #[test]
+  fn a_hover_ends_when_no_mouse_button_is_pressed_any_more() {
+    let log = Log::default();
+    let mut tree = target(&log);
+    let mut shell = FileDragShell::default();
+    let pressed = Arc::new(Mutex::new(Some(true)));
+    let read = {
+      let pressed = pressed.clone();
+      move || PointerProbe {
+        position: Some((10.0, 10.0)),
+        any_button_pressed: *pressed.lock().unwrap(),
+      }
+    };
+    let start = Instant::now();
+    hovered(&mut shell, &["C:/a.png"]);
+    shell.flush_at(&mut tree, start, &read, (0.0, 0.0));
+    shell.flush_at(&mut tree, start + POLL_INTERVAL, &read, (0.0, 0.0));
+    assert!(shell.next_poll().is_some(), "a pressed button keeps the hover");
+
+    *pressed.lock().unwrap() = Some(false);
+    shell.flush_at(&mut tree, start + POLL_INTERVAL * 2, &read, (0.0, 0.0));
+
+    assert_eq!(log.lock().unwrap().as_slice(), ["enter 1", "over 10,10", "leave"]);
+    assert_eq!(shell.next_poll(), None);
+    assert!(!tree.has_file_drag());
   }
 
   #[test]
@@ -347,7 +421,15 @@ mod tests {
     let mut shell = FileDragShell::default();
     hovered(&mut shell, &["C:/a.png"]);
 
-    shell.flush_at(&mut tree, Instant::now(), &|| None, (40.0, 50.0));
+    shell.flush_at(
+      &mut tree,
+      Instant::now(),
+      &|| PointerProbe {
+        position: None,
+        any_button_pressed: None,
+      },
+      (40.0, 50.0),
+    );
 
     assert_eq!(log.lock().unwrap().as_slice(), ["enter 1", "over 40,50"]);
   }

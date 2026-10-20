@@ -53,10 +53,13 @@ struct FinishOnDrop {
 
 impl Drop for FinishOnDrop {
   fn drop(&mut self) {
-    let result = self
-      .result
-      .take()
-      .unwrap_or_else(|| Err(ImageDecodeError::new("the image decoder panicked")));
+    // Without a result the job did not run to its end: the decoder
+    // panicked, or no worker took the job (the workers are gone).
+    let result = self.result.take().unwrap_or_else(|| {
+      Err(ImageDecodeError::new(
+        "the image decode did not run: the decoder panicked or no worker took the job",
+      ))
+    });
     self.shared.finish(self.cache_key, result);
   }
 }
@@ -161,17 +164,32 @@ impl DecodedImages {
       cache_key,
       result: None,
     };
-    let submitted = self.shared.workers.submit(move || {
+    // A job the workers do not take is dropped with its guard, which fails
+    // the entry: one finish either way.
+    self.shared.workers.submit(move || {
       finish.result = Some(job());
       drop(finish);
     });
-    if !submitted {
-      self.shared.finish(
-        cache_key,
-        Err(ImageDecodeError::new("no image decode worker is running")),
-      );
-    }
     ImageLoadState::Loading
+  }
+
+  /// A cache whose workers are gone: every decode fails without running.
+  #[cfg(test)]
+  pub(super) fn without_workers() -> Self {
+    Self {
+      shared: Arc::new(Shared {
+        inner: Mutex::new(Inner {
+          entries: HashMap::new(),
+          pending: 0,
+          budget: DEFAULT_BUDGET_BYTES,
+          used: 0,
+          clock: 0,
+        }),
+        idle: Condvar::new(),
+        workers: Workers::closed(),
+        completed: AtomicU64::new(0),
+      }),
+    }
   }
 
   /// The state of the image under `key` and `cap`, without starting a decode.
@@ -208,7 +226,7 @@ impl DecodedImages {
         wakers = old.wakers;
       }
       inner.used += bytes;
-      evict(&mut inner);
+      evict(&mut inner, None);
       wakers
     };
     for wake in wakers {
@@ -246,7 +264,7 @@ impl DecodedImages {
   pub fn set_budget(&self, bytes: usize) {
     let mut inner = self.shared.inner.lock();
     inner.budget = bytes;
-    evict(&mut inner);
+    evict(&mut inner, None);
   }
 
   /// The decoded RGBA the cache holds now.
@@ -267,24 +285,28 @@ impl Shared {
   /// for it. An entry that `insert` filled meanwhile, or one evicted or
   /// cleared, keeps what it has and the result is dropped. Counts the job
   /// down either way, once its windows are woken, so `wait_idle` returns
-  /// after the wakes.
+  /// after the wakes. The finished entry is the most recently used and is
+  /// never the one evicted to make room for itself: an image larger than
+  /// the whole budget is kept and shown, and leaves the cache at the next
+  /// eviction (the node showing it keeps its pixels).
   fn finish(&self, cache_key: CacheKey, result: Result<ImageData, ImageDecodeError>) {
     let wakers = {
       let mut inner = self.inner.lock();
+      inner.clock += 1;
+      let clock = inner.clock;
       match inner.entries.get_mut(&cache_key) {
         Some(entry) if entry.state.is_loading() => {
           let bytes = result.as_ref().map(rgba_bytes).unwrap_or(0);
           entry.bytes = bytes;
+          entry.last_used = clock;
           entry.state = match result {
             Ok(data) => ImageLoadState::Ready(data),
             Err(error) => ImageLoadState::Failed(Arc::new(error)),
           };
+          let wakers = std::mem::take(&mut entry.wakers);
           inner.used += bytes;
-          evict(&mut inner);
-          match inner.entries.get_mut(&cache_key) {
-            Some(entry) => std::mem::take(&mut entry.wakers),
-            None => Vec::new(),
-          }
+          evict(&mut inner, Some(cache_key));
+          wakers
         }
         _ => Vec::new(),
       }
@@ -299,13 +321,14 @@ impl Shared {
   }
 }
 
-/// Drops the least recently used ready images until the budget holds.
-fn evict(inner: &mut Inner) {
+/// Drops the least recently used ready images until the budget holds,
+/// never `keep`.
+fn evict(inner: &mut Inner, keep: Option<CacheKey>) {
   while inner.used > inner.budget {
     let victim = inner
       .entries
       .iter()
-      .filter(|(_, entry)| matches!(entry.state, ImageLoadState::Ready(_)))
+      .filter(|(key, entry)| Some(**key) != keep && matches!(entry.state, ImageLoadState::Ready(_)))
       .min_by_key(|(_, entry)| entry.last_used)
       .map(|(key, _)| *key);
     let Some(victim) = victim else {

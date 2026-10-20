@@ -13,6 +13,7 @@ use std::{
 use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx},
   components::{Column, Image, Rect, Text, VirtualizedList},
+  core::Signal,
   images::{
     DecodedImages, ImageDecodeError, ImageKey, ImageSizeCap, ImageSource, decode_image, decoded_images,
     wait_for_decoded_images,
@@ -278,6 +279,102 @@ fn the_budget_drops_the_least_recently_used_ready_images() {
 #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct RowData {
   id: usize,
+}
+
+/// A child that renders a runtime image and never re-renders by itself.
+struct Thumb;
+
+impl Component for Thumb {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Image::from_bytes(RED_64X32)
+      .cache_key(unique_key(RED_64X32, "retained-child"))
+      .size(64.0, 32.0)
+  }
+}
+
+/// A parent that re-renders on its own signal, keeping the child mounted
+/// with unchanged props: the runtime puts the child's retained nodes back.
+struct Parent;
+
+impl Component for Parent {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let version = ctx.use_context::<Signal<u32>>().expect("provided");
+    let version = version.get();
+    Column::new()
+      .child(Text::new(&format!("version {version}")))
+      .child(ctx.mount::<Thumb>(()))
+  }
+}
+
+/// A parent that re-renders while its child does not puts the child's
+/// retained nodes back, an unresolved `LoadingImage` among them: the image
+/// must resolve again from the cache instead of staying a placeholder.
+#[test]
+fn an_image_in_a_child_that_does_not_re_render_stays_drawn_when_its_parent_does() {
+  let version = Signal::new(0_u32);
+  let mut app = App::new();
+  let mut runtime = Tree::new();
+  let provided = version.clone();
+  runtime.mount_root::<Provider>(&mut app, Shared2(provided));
+  render_pass_with_app(&mut runtime, &mut app);
+  assert!(wait_for_decoded_images(WAIT));
+  let drawn = render_pass_with_app(&mut runtime, &mut app);
+  assert_eq!(drawn.images.len(), 1, "decoded and drawn: {:?}", drawn.images);
+
+  version.set(1);
+  let after = render_pass_with_app(&mut runtime, &mut app);
+  assert_eq!(
+    after.images.len(),
+    1,
+    "still drawn after the parent re-rendered: {:?}",
+    after.images
+  );
+  assert_eq!(after.images[0].width, 64.0);
+
+  version.set(2);
+  let again = render_pass_with_app(&mut runtime, &mut app);
+  assert_eq!(again.images.len(), 1, "and again: {:?}", again.images);
+}
+
+/// Provides the version signal to `Parent` as context.
+struct Provider;
+
+#[derive(Clone)]
+struct Shared2(Signal<u32>);
+
+impl PartialEq for Shared2 {
+  fn eq(&self, _other: &Self) -> bool {
+    true
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for Shared2 {}
+
+impl Component for Provider {
+  type Props = Shared2;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let version = ctx.props::<Self::Props>().0.clone();
+    ctx.provide(version);
+    ctx.mount::<Parent>(())
+  }
 }
 
 /// A counter shared with the rows, equal by identity so props compare.

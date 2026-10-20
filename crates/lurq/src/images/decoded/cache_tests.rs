@@ -85,6 +85,62 @@ fn an_insert_while_the_decode_runs_wins_and_the_late_result_is_dropped() {
   assert_eq!(*wake_calls.lock().unwrap(), 1, "no second wake for the dropped result");
 }
 
+/// An image over the whole budget on its own is kept and its window woken:
+/// evicting it to make room for itself would leave the window waiting for
+/// ever and the node decoding again and again.
+#[test]
+fn a_finished_image_larger_than_the_budget_is_kept_and_wakes_its_window() {
+  let cache = DecodedImages::new();
+  cache.set_budget(1024);
+  let key = ImageKey::new(1);
+  let wake_calls = Arc::new(Mutex::new(0));
+  let wake: WindowWaker = {
+    let calls = wake_calls.clone();
+    Arc::new(move || *calls.lock().unwrap() += 1)
+  };
+  let older = ImageKey::new(2);
+  cache.insert(older, None, pixels(8, 8));
+
+  cache.load_with(key, None, Some(wake), || || Ok(pixels(64, 32)));
+  assert!(cache.wait_idle(WAIT));
+
+  assert_eq!(*wake_calls.lock().unwrap(), 1, "woken once the image is there");
+  assert!(
+    cache.state(key, None).is_some_and(|state| state.ready().is_some()),
+    "the finished image stays although it is over the budget"
+  );
+  assert!(cache.state(older, None).is_none(), "the older image made room first");
+  assert_eq!(cache.used_bytes(), 64 * 32 * 4);
+  assert_eq!(cache.pending(), 0);
+
+  // The next eviction drops it, like any least recently used image.
+  cache.insert(older, None, pixels(8, 8));
+  assert!(cache.state(key, None).is_none());
+  assert_eq!(cache.used_bytes(), 8 * 8 * 4);
+}
+
+/// Workers that are gone fail the job once, with the reason, and count it
+/// down once.
+#[test]
+fn a_job_no_worker_takes_fails_its_entry_once() {
+  let cache = DecodedImages::without_workers();
+  let key = ImageKey::new(1);
+
+  let state = cache.load_with(key, None, None, || || Ok(pixels(1, 1)));
+
+  assert!(state.is_loading(), "the state before the dropped job's guard ran");
+  assert!(cache.wait_idle(WAIT));
+  assert_eq!(cache.pending(), 0);
+  assert_eq!(cache.completed(), 1, "finished once");
+  let error = cache
+    .state(key, None)
+    .expect("entry kept")
+    .error()
+    .expect("failed")
+    .to_string();
+  assert!(error.contains("no worker took the job"), "{error}");
+}
+
 #[test]
 fn an_insert_over_a_ready_entry_replaces_its_bytes() {
   let cache = DecodedImages::new();

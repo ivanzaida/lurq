@@ -126,12 +126,14 @@ impl FileDragEvent {
     }
   }
 
+  /// The event as `target_id`'s handlers see it: the propagation state is
+  /// shared, the acceptance is this node's own, so a refusal is the node's.
   pub(crate) fn at(&self, target_id: NodeId) -> Self {
     Self {
       target_id,
       paths: self.paths.clone(),
       control: self.control.clone(),
-      accepted: Arc::clone(&self.accepted),
+      accepted: Arc::new(std::sync::atomic::AtomicBool::new(true)),
       ..*self
     }
   }

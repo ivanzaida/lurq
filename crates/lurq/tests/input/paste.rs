@@ -287,6 +287,27 @@ fn a_synthetic_ctrl_v_does_not_read_the_clipboard() {
   assert_eq!(value.get(), "");
 }
 
+/// `paste_from_os_clipboard` trusts neither its argument nor its caller: a
+/// request made while synthetic input is delivered is refused either way.
+#[test]
+fn a_paste_request_under_synthetic_input_is_refused_whatever_its_argument_says() {
+  let value = Signal::new(String::new());
+  let mut runtime = Tree::new();
+  let clipboard = TestClipboard::install(&mut runtime);
+  runtime.set_root(TextInput::new(value.clone()).id("input"));
+  let mut runtime = focus(runtime);
+
+  assert!(!runtime.paste_from_os_clipboard(true));
+  assert!(!lurq::app::events::with_synthetic_input(
+    || runtime.paste_from_os_clipboard(false)
+  ));
+  assert_eq!(clipboard.reads(), (0, 0));
+  assert_eq!(value.get(), "");
+
+  assert!(runtime.paste_from_os_clipboard(false));
+  assert_eq!(value.get(), "secret");
+}
+
 /// A person's Ctrl+V reads the clipboard: only its text when no handler
 /// looks at the paste, as before paste events, and everything when one does.
 #[test]

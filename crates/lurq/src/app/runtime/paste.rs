@@ -76,7 +76,7 @@ impl Tree {
   /// while lurq delivered synthetic input and the person's clipboard is
   /// theirs. `false` when refused or nothing was pasted.
   pub fn paste_from_os_clipboard(&mut self, synthetic: bool) -> bool {
-    if synthetic {
+    if synthetic || is_synthetic_input() {
       return false;
     }
     self.rebuild_if_dirty();

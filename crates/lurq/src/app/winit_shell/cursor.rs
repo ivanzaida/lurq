@@ -65,3 +65,29 @@ pub(super) fn position_in_window(window: &Window) -> Option<(f32, f32)> {
 pub(super) fn position_in_window(_window: &Window) -> Option<(f32, f32)> {
   None
 }
+
+/// Whether any mouse button is pressed, read from the OS: a file drag from
+/// the OS ends with its button, so a hover whose buttons are all up has no
+/// drag behind it. `None` where the OS does not tell.
+#[cfg(windows)]
+pub(super) fn any_mouse_button_pressed() -> Option<bool> {
+  use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON};
+
+  // SAFETY: `GetAsyncKeyState` reads the state of a virtual key; it takes
+  // no pointer and has no preconditions.
+  let pressed =
+    |key: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY| unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 };
+  Some(pressed(VK_LBUTTON) || pressed(VK_RBUTTON) || pressed(VK_MBUTTON))
+}
+
+/// See the Windows version: `NSEvent::pressedMouseButtons` is a bit per
+/// button, as `NSEvent::buttonNumber` counts them.
+#[cfg(target_os = "macos")]
+pub(super) fn any_mouse_button_pressed() -> Option<bool> {
+  Some(objc2_app_kit::NSEvent::pressedMouseButtons() != 0)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(super) fn any_mouse_button_pressed() -> Option<bool> {
+  None
+}

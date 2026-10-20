@@ -189,16 +189,12 @@ impl Tree {
       .filter(|node| !session.over_path.contains(&node.node_id()))
       .collect();
     let enter = FileDragEvent::new(lx, ly, session.paths.clone(), NodeId::UNASSIGNED);
-    dispatch_file_drag(&entered, &enter, |node| &node.events.on_file_drag_enter);
-    if !enter.is_accepted() {
-      remember_refused(&mut session.refused, &entered);
-    }
+    let refused = dispatch_file_drag(&entered, &enter, |node| &node.events.on_file_drag_enter);
+    remember_refused(&mut session.refused, refused);
     let over: Vec<&Node> = hits.iter().map(|(node, _)| *node).collect();
     let moved = FileDragEvent::new(lx, ly, session.paths.clone(), NodeId::UNASSIGNED);
-    dispatch_file_drag(&over, &moved, |node| &node.events.on_file_drag_over);
-    if !moved.is_accepted() {
-      remember_refused(&mut session.refused, &over);
-    }
+    let refused = dispatch_file_drag(&over, &moved, |node| &node.events.on_file_drag_over);
+    remember_refused(&mut session.refused, refused);
 
     session.accepted = session.refused.is_empty();
     for node in &over {
@@ -232,31 +228,40 @@ impl Tree {
   }
 }
 
-fn remember_refused(refused: &mut Vec<NodeId>, nodes: &[&Node]) {
-  for node in nodes {
-    if !refused.contains(&node.node_id()) {
-      refused.push(node.node_id());
+fn remember_refused(refused: &mut Vec<NodeId>, nodes: Vec<NodeId>) {
+  for node_id in nodes {
+    if !refused.contains(&node_id) {
+      refused.push(node_id);
     }
   }
 }
 
 /// Runs one kind of file-drag handler on `nodes`, innermost first, until one
-/// stops the propagation.
+/// stops the propagation. Returns the nodes whose own handlers refused the
+/// drag: a refusal is the refusing element's, not its ancestors' or
+/// siblings'.
 fn dispatch_file_drag<'a>(
   nodes: &[&'a Node],
   event: &FileDragEvent,
   handlers: impl Fn(&'a Node) -> &'a [crate::node::EventHandler<FileDragEvent>],
-) {
+) -> Vec<NodeId> {
+  let mut refused = Vec::new();
   for node in nodes {
     let event = event.at(node.node_id());
+    let mut stopped = false;
     for handler in handlers(node) {
       handler.call(&event);
       if event.immediate_propagation_stopped() {
-        return;
+        stopped = true;
+        break;
       }
     }
-    if event.propagation_stopped() {
-      return;
+    if !event.is_accepted() {
+      refused.push(node.node_id());
+    }
+    if stopped || event.propagation_stopped() {
+      break;
     }
   }
+  refused
 }

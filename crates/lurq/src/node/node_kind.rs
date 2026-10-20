@@ -56,7 +56,6 @@ pub enum TextOverflow {
 
 /// An image a node waits for from the decoded-image cache.
 #[cfg(feature = "image")]
-#[derive(Clone)]
 pub(crate) struct LoadingImage {
   pub(crate) key: crate::images::ImageKey,
   pub(crate) cap: Option<crate::images::ImageSizeCap>,
@@ -67,10 +66,27 @@ pub(crate) struct LoadingImage {
   pub(crate) failed: bool,
 }
 
+/// A clone is a new node that waits for the cache (a retained child put
+/// back into a re-rendered parent), so it counts as built for the walk that
+/// resolves loading images.
+#[cfg(feature = "image")]
+impl Clone for LoadingImage {
+  fn clone(&self) -> Self {
+    crate::app::runtime::note_loading_image_built();
+    Self {
+      key: self.key,
+      cap: self.cap,
+      source: self.source.clone(),
+      fit: self.fit,
+      error_view: self.error_view.clone(),
+      failed: self.failed,
+    }
+  }
+}
+
 /// Builds what an image node shows once its decode failed.
 #[cfg(feature = "image")]
-pub(crate) type ErrorViewCallback =
-  Arc<dyn Fn(&crate::images::ImageDecodeError) -> crate::node::Element + Send + Sync>;
+pub(crate) type ErrorViewCallback = Arc<dyn Fn(&crate::images::ImageDecodeError) -> crate::node::Element + Send + Sync>;
 
 #[derive(Clone)]
 pub(crate) enum NodeKind {

@@ -290,6 +290,78 @@ fn a_refused_drag_shows_no_drag_over_style() {
   assert_eq!(color(&mut runtime, "zone"), Some(Color::from_hex(OVER)));
 }
 
+/// A refusal belongs to the element whose handler refused: not to its
+/// ancestors (the root would refuse the whole window), not to its siblings.
+fn refusing_siblings(refuse_on_over: bool) -> Tree {
+  let mut runtime = Tree::new();
+  let refusing = |row: Row| {
+    if refuse_on_over {
+      row.on_file_drag_over(|event: FileDragEvent| event.refuse())
+    } else {
+      row.on_file_drag_enter(|event: FileDragEvent| event.refuse())
+    }
+  };
+  runtime.set_root(
+    Column::new()
+      .child(refusing(
+        Row::new()
+          .id("a")
+          .width(40.0)
+          .height(40.0)
+          .background(REST)
+          .drag_over(|style| style.background(OVER)),
+      ))
+      .child(
+        Row::new()
+          .id("b")
+          .width(40.0)
+          .height(40.0)
+          .background(REST)
+          .drag_over(|style| style.background(OVER)),
+      ),
+  );
+  run_pass(&mut runtime);
+  runtime
+}
+
+#[test]
+fn a_refusal_on_enter_stays_with_the_refusing_element() {
+  let mut runtime = refusing_siblings(false);
+  let a = center(&mut runtime, "a");
+  let b = center(&mut runtime, "b");
+
+  runtime.file_drag_enter(two_files(), a.0, a.1);
+  assert_eq!(runtime.file_drag_accepted(), Some(false));
+  assert_eq!(color(&mut runtime, "a"), Some(Color::from_hex(REST)));
+
+  runtime.file_drag_over(b.0, b.1);
+
+  assert_eq!(runtime.file_drag_accepted(), Some(true), "the sibling did not refuse");
+  assert_eq!(color(&mut runtime, "b"), Some(Color::from_hex(OVER)));
+  assert_eq!(color(&mut runtime, "a"), Some(Color::from_hex(REST)));
+}
+
+#[test]
+fn a_refusal_on_over_stays_with_the_refusing_element() {
+  let mut runtime = refusing_siblings(true);
+  let a = center(&mut runtime, "a");
+  let b = center(&mut runtime, "b");
+
+  runtime.file_drag_enter(two_files(), a.0, a.1);
+  assert_eq!(runtime.file_drag_accepted(), Some(false));
+  runtime.file_drag_over(a.0 + 1.0, a.1);
+  assert_eq!(
+    runtime.file_drag_accepted(),
+    Some(false),
+    "still over the refusing element"
+  );
+
+  runtime.file_drag_over(b.0, b.1);
+
+  assert_eq!(runtime.file_drag_accepted(), Some(true), "the sibling did not refuse");
+  assert_eq!(color(&mut runtime, "b"), Some(Color::from_hex(OVER)));
+}
+
 #[test]
 fn folders_are_reported_as_folders() {
   let paths = DraggedPaths::new([

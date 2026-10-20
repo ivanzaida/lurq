@@ -20,8 +20,8 @@ impl Workers {
     for index in 0..count.max(1) {
       let receiver = std::sync::Arc::clone(&receiver);
       // A thread that cannot be spawned leaves the others to the jobs; with
-      // none spawned, the jobs wait in the channel until the process ends,
-      // and the images stay loading. The spawn error is logged.
+      // none spawned, the receiver is gone, `submit` fails, and each job's
+      // guard fails its image. The spawn error is logged.
       let spawned = thread::Builder::new()
         .name(format!("lurq-image-decode-{index}"))
         .spawn(move || {
@@ -48,8 +48,18 @@ impl Workers {
     }
   }
 
-  /// `false` when no worker will ever take the job (the workers are gone).
+  /// `false` when no worker will ever take the job (the workers are gone);
+  /// the job is dropped then.
   pub(super) fn submit(&self, job: impl FnOnce() + Send + 'static) -> bool {
     self.sender.lock().send(Box::new(job)).is_ok()
+  }
+
+  /// Workers that are gone: no job is ever taken.
+  #[cfg(test)]
+  pub(super) fn closed() -> Self {
+    let (sender, _) = mpsc::channel::<Job>();
+    Self {
+      sender: Mutex::new(sender),
+    }
   }
 }
