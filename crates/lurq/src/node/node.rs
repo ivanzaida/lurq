@@ -2210,9 +2210,52 @@ impl Node {
 
   #[cfg(feature = "raster")]
   pub fn image(data: crate::images::ImageData) -> Self {
-    let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Image { data: data.clone() }, vec![]);
+    let mut node = Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Image {
+        data: data.clone(),
+        fit: BackgroundSize::Stretch,
+      },
+      vec![],
+    );
     node.intrinsic_size = Some(Size::new(data.width() as f32, data.height() as f32));
     node
+  }
+
+  /// An image the runtime decodes through the decoded-image cache; see
+  /// [`Image::from_bytes`](crate::components::Image::from_bytes). Its
+  /// children are the placeholder shown while it loads.
+  #[cfg(feature = "image")]
+  pub(crate) fn loading_image(request: crate::node::node_kind::LoadingImage) -> Self {
+    Self::from_parts(
+      LayoutKind::Stack {
+        align: StackAlignment::Center,
+      },
+      NodeKind::LoadingImage {
+        request: Box::new(request),
+      },
+      vec![],
+    )
+  }
+
+  /// How an image's pixels fill its box: on an `Image` node, or on one that
+  /// still loads.
+  #[cfg(feature = "raster")]
+  pub(crate) fn set_image_fit(&mut self, next_fit: BackgroundSize) {
+    match &mut self.node_kind {
+      NodeKind::Image { fit, .. } => *fit = next_fit,
+      #[cfg(feature = "image")]
+      NodeKind::LoadingImage { request } => request.fit = next_fit,
+      _ => {}
+    }
+  }
+
+  /// Changes a loading image's request: its key, size cap and error view.
+  #[cfg(feature = "image")]
+  pub(crate) fn update_loading_image(&mut self, f: impl FnOnce(&mut crate::node::node_kind::LoadingImage)) {
+    if let NodeKind::LoadingImage { request } = &mut self.node_kind {
+      f(request);
+    }
   }
 
   #[cfg(feature = "raster")]
@@ -4299,7 +4342,13 @@ impl Node {
         state.layout_signature() == old_state.layout_signature()
       }
       #[cfg(feature = "raster")]
-      (NodeKind::Image { data }, NodeKind::Image { data: old_data }) => data.id() == old_data.id(),
+      (NodeKind::Image { data, fit }, NodeKind::Image { data: old_data, fit: old_fit }) => {
+        data.id() == old_data.id() && fit == old_fit
+      }
+      #[cfg(feature = "image")]
+      (NodeKind::LoadingImage { request }, NodeKind::LoadingImage { request: old }) => {
+        request.key == old.key && request.cap == old.cap && request.fit == old.fit
+      }
       #[cfg(feature = "raster")]
       (
         NodeKind::Video { data, fit },

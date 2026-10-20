@@ -5,6 +5,8 @@
 
 #[cfg(test)]
 mod abandoned_tests;
+#[cfg(test)]
+mod attachments_tests;
 mod canvas_items;
 pub(crate) mod file_dialogs;
 mod held;

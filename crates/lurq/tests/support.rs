@@ -59,9 +59,25 @@ pub struct RenderSnapshot {
   pub image_orders: Vec<usize>,
   #[cfg(feature = "image")]
   pub image_opacities: Vec<f32>,
+  #[cfg(feature = "image")]
+  pub images: Vec<ImageSnapshot>,
   #[cfg(feature = "svg")]
   pub svg_orders: Vec<usize>,
   pub layers: Vec<lurq::layout::opacity_layer::LayerCmd>,
+}
+
+/// Where an image is drawn, and which part of its pixels.
+#[cfg(feature = "image")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageSnapshot {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+  pub image_width: u32,
+  pub image_height: u32,
+  pub uv_min: [f32; 2],
+  pub uv_max: [f32; 2],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -144,6 +160,21 @@ impl RenderEngine for CapturingRenderEngine {
       image_orders: list.images.iter().map(|image| image.order).collect(),
       #[cfg(feature = "image")]
       image_opacities: list.images.iter().map(|image| image.opacity).collect(),
+      #[cfg(feature = "image")]
+      images: list
+        .images
+        .iter()
+        .map(|image| ImageSnapshot {
+          x: image.x,
+          y: image.y,
+          width: image.width,
+          height: image.height,
+          image_width: image.image_width,
+          image_height: image.image_height,
+          uv_min: image.uv_min,
+          uv_max: image.uv_max,
+        })
+        .collect(),
       #[cfg(feature = "svg")]
       svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
       layers: list.layers.clone(),
@@ -162,6 +193,8 @@ fn empty_snapshot() -> RenderSnapshot {
     image_orders: vec![],
     #[cfg(feature = "image")]
     image_opacities: vec![],
+    #[cfg(feature = "image")]
+    images: vec![],
     #[cfg(feature = "svg")]
     svg_orders: vec![],
     layers: vec![],

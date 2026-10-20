@@ -1100,11 +1100,20 @@ impl LayoutEngine {
         },
       ),
       #[cfg(feature = "raster")]
-      NodeKind::Image { data } => QuadContent::Image {
-        data: data.clone(),
-        uv_min: [0.0, 0.0],
-        uv_max: [1.0, 1.0],
-      },
+      NodeKind::Image { data, fit } => {
+        let placement = background_image_placement(
+          *fit,
+          result.size.width,
+          result.size.height,
+          data.width() as f32,
+          data.height() as f32,
+        );
+        QuadContent::Image {
+          data: data.clone(),
+          uv_min: placement.uv_min,
+          uv_max: placement.uv_max,
+        }
+      }
       #[cfg(feature = "raster")]
       NodeKind::Video { data, fit } => {
         let placement = background_image_placement(
@@ -1401,7 +1410,7 @@ impl LayoutEngine {
             }
           }
           #[cfg(feature = "raster")]
-          NodeKind::Video { data, fit } => {
+          NodeKind::Image { data, fit } | NodeKind::Video { data, fit } => {
             let placement = background_image_placement(
               *fit,
               result.size.width,
@@ -2430,7 +2439,7 @@ impl LayoutEngine {
         };
       }
       #[cfg(feature = "raster")]
-      NodeKind::Image { data } => {
+      NodeKind::Image { data, .. } => {
         let preferred = node
           .intrinsic_size
           .unwrap_or(Size::new(data.width() as f32, data.height() as f32));
@@ -2492,6 +2501,10 @@ impl LayoutEngine {
       // Its paragraph places it (`inline_links`); on its own it has no box.
       #[cfg(feature = "markdown")]
       NodeKind::InlineLink { .. } => {}
+      // Laid out as a stack of its placeholder until resolved; a leaf only
+      // when the runtime turned it into an `Image`.
+      #[cfg(feature = "image")]
+      NodeKind::LoadingImage { .. } => {}
       NodeKind::Empty => {}
     }
 

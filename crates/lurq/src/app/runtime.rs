@@ -77,6 +77,8 @@ mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
 mod inline_link_keys;
 mod input_token_paint;
+#[cfg(feature = "image")]
+mod loading_images;
 mod outside_press;
 mod paste;
 mod scroll_into_view;
@@ -653,6 +655,9 @@ pub struct Tree {
   active_drag: Option<ActiveDrag>,
   /// Files from the OS dragged over the window; see `file_drag`.
   file_drag: Option<file_drag::FileDragSession>,
+  /// Runtime images still decoding after the last pass; see `loading_images`.
+  #[cfg(feature = "image")]
+  pending_images: Vec<(crate::images::ImageKey, Option<crate::images::ImageSizeCap>)>,
   focus_memory: FocusMemory,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
@@ -1012,6 +1017,8 @@ impl Tree {
       selectable_text_anchor: None,
       active_drag: None,
       file_drag: None,
+      #[cfg(feature = "image")]
+      pending_images: Vec::new(),
       focus_memory: FocusMemory::default(),
       focused_node: None,
       focused_event_node: None,
@@ -1318,6 +1325,8 @@ impl Tree {
   }
 
   pub fn tick_timers_at(&mut self, now: Instant) {
+    #[cfg(feature = "image")]
+    self.notice_decoded_images();
     let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now));
     if fired {
       self.needs_redraw = true;
@@ -5964,6 +5973,8 @@ impl Tree {
     let image_resources_changed = self.resolve_resource_images(app);
     #[cfg(not(all(feature = "image", feature = "resources")))]
     let image_resources_changed = false;
+    #[cfg(feature = "image")]
+    let image_resources_changed = self.resolve_loading_images() || image_resources_changed;
     #[cfg(all(feature = "svg", feature = "resources"))]
     let svg_resources_changed = self.resolve_resource_svgs(app);
     #[cfg(not(all(feature = "svg", feature = "resources")))]
@@ -6478,7 +6489,10 @@ impl Tree {
       let key: std::sync::Arc<str> = path.clone();
       if let Some(img) = Self::resolve_image_resource(&key, loader, image_cache) {
         node.intrinsic_size = Some(Size::new(img.width() as f32, img.height() as f32));
-        node.node_kind = NodeKind::Image { data: img };
+        node.node_kind = NodeKind::Image {
+          data: img,
+          fit: crate::node::BackgroundSize::Stretch,
+        };
         layout_dirty = true;
       }
     }
