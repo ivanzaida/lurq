@@ -58,7 +58,7 @@ mod shrink_sharing;
 mod text_input_quads;
 mod text_layout_output;
 
-use flex_shrink::{FlexShrinkLine, occupies_line};
+use flex_shrink::{FlexShrinkLine, FreeRoom, line_overflow, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
@@ -2766,6 +2766,8 @@ impl LayoutEngine {
     let remaining = max_main - total_spacing - non_flex_main;
 
     let mut results: Vec<LayoutResult> = Vec::with_capacity(children.len());
+    // The main size each flex child is laid out at.
+    let mut grants: Vec<Option<f32>> = vec![None; children.len()];
     for (i, child) in children.iter().enumerate() {
       if let Some(existing) = non_flex_results[i].take() {
         results.push(existing);
@@ -2785,6 +2787,7 @@ impl LayoutEngine {
         } else {
           basis_size
         };
+        grants[i] = Some(flex_size);
         let child_constraints = if vertical {
           Constraints {
             min_width: 0.0,
@@ -2804,6 +2807,13 @@ impl LayoutEngine {
       }
     }
 
+    let overflow = line_overflow(
+      &results,
+      &flex_params_list,
+      &grants,
+      FreeRoom { remaining, grow_total },
+      vertical,
+    );
     let collapsed = self.shrink_flex_line(
       glyph_engine,
       &FlexShrinkLine {
@@ -2811,6 +2821,7 @@ impl LayoutEngine {
         params: &flex_params_list,
         constraints,
         max_main,
+        overflow,
         spacing,
         shrink_total,
         vertical,
