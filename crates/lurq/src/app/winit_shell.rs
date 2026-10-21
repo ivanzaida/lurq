@@ -580,6 +580,9 @@ impl ManagedWindow {
       let pass_started_at = Instant::now();
       let report = self.tree.pass(app, w);
       let pass = pass_started_at.elapsed();
+      // A pass hit-tests the hover again when content moved under a pointer
+      // that held still, which can change the cursor without an input event.
+      set_window_cursor(w, &mut self.cursor, self.tree.cursor());
       // The pass painted the focused input's caret where it now is.
       self.ime.apply(w, &self.tree);
       let presented = report.rendered;
@@ -639,15 +642,10 @@ impl ManagedWindow {
   }
 
   fn apply_cursor(&mut self) {
-    let cursor = self.tree.cursor();
-    if cursor == self.cursor {
-      return;
+    match &self.window {
+      Some(window) => set_window_cursor(window, &mut self.cursor, self.tree.cursor()),
+      None => self.cursor = self.tree.cursor(),
     }
-
-    if let Some(window) = &self.window {
-      window.set_cursor(to_winit_cursor(cursor));
-    }
-    self.cursor = cursor;
   }
 
   fn tick(&mut self) {
@@ -1133,6 +1131,8 @@ impl ManagedSecondaryWindow {
       self.redraw_pending = false;
       let started = Instant::now();
       let presented = tree.pass(app, w).rendered;
+      // See the main window's `present_now`.
+      set_window_cursor(w, &mut self.cursor, tree.cursor());
       if presented {
         self.pacing.presented(PresentedFrame {
           started,
@@ -1146,15 +1146,10 @@ impl ManagedSecondaryWindow {
   }
 
   fn apply_cursor(&mut self, tree: &Tree) {
-    let cursor = tree.cursor();
-    if cursor == self.cursor {
-      return;
+    match &self.window {
+      Some(window) => set_window_cursor(window, &mut self.cursor, tree.cursor()),
+      None => self.cursor = tree.cursor(),
     }
-
-    if let Some(window) = &self.window {
-      window.set_cursor(to_winit_cursor(cursor));
-    }
-    self.cursor = cursor;
   }
 
   fn tick(&mut self, tree: &mut Tree) {
@@ -1987,6 +1982,15 @@ fn physical_key_to_string(key: &PhysicalKey) -> String {
     PhysicalKey::Code(code) => format!("{code:?}"),
     PhysicalKey::Unidentified(_) => String::new(),
   }
+}
+
+/// Shows `cursor` on `window` unless it is the `applied` one already.
+fn set_window_cursor(window: &Window, applied: &mut CursorIcon, cursor: CursorIcon) {
+  if cursor == *applied {
+    return;
+  }
+  window.set_cursor(to_winit_cursor(cursor));
+  *applied = cursor;
 }
 
 fn to_winit_cursor(cursor: CursorIcon) -> WinitCursorIcon {

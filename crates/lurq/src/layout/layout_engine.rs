@@ -148,6 +148,10 @@ pub(crate) struct OverlayLayoutIndex {
 pub(crate) struct ElementLayoutRecord {
   pub(crate) element_ref: ElementRef,
   pub(crate) rect: ElementRect,
+  /// Whether any of the element shows through the clips of its scroll
+  /// containers and `clip()`ped ancestors. An element scrolled out of its
+  /// container's viewport is laid out, but not visible.
+  pub(crate) visible: bool,
 }
 
 pub(crate) enum OverlayLayoutRecord {
@@ -155,6 +159,9 @@ pub(crate) enum OverlayLayoutRecord {
     reuse_key: Option<Arc<str>>,
     state: SelectState,
     bounds: ElementRect,
+    /// Whether the select shows through its ancestors' clips; see
+    /// [`ElementLayoutRecord::visible`].
+    visible: bool,
   },
   Overlay {
     reuse_key: Option<Arc<str>>,
@@ -184,10 +191,12 @@ impl Clone for OverlayLayoutRecord {
         reuse_key,
         state,
         bounds,
+        visible,
       } => Self::SelectMenu {
         reuse_key: reuse_key.clone(),
         state: state.clone(),
         bounds: *bounds,
+        visible: *visible,
       },
       Self::Overlay { reuse_key, spec } => Self::Overlay {
         reuse_key: reuse_key.clone(),
@@ -605,7 +614,7 @@ impl LayoutEngine {
 
   fn collect_overlay_index(node: &Node, layout: &LayoutResult) -> OverlayLayoutIndex {
     let mut index = OverlayLayoutIndex::default();
-    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, &mut index);
+    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), &mut index);
     index
   }
 
@@ -616,6 +625,7 @@ impl LayoutEngine {
     abs_y: f32,
     parent_x: f32,
     parent_y: f32,
+    clip: ClipRect,
     index: &mut OverlayLayoutIndex,
   ) {
     let rect = ElementRect {
@@ -626,8 +636,10 @@ impl LayoutEngine {
       width: layout.size.width,
       height: layout.size.height,
     };
+    let visible = !clip.active || rect_intersects_clip(rect.x, rect.y, rect.width, rect.height, clip);
 
-    Self::index_node_layout(node, rect, index);
+    Self::index_node_layout(node, rect, visible, index);
+    let child_clip = intersect_clip(clip, children_clip(node, rect));
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
       if child.modal_declaration().is_some() {
@@ -641,6 +653,7 @@ impl LayoutEngine {
         abs_y + child_layout.offset.y,
         abs_x,
         abs_y,
+        child_clip,
         index,
       );
     }
@@ -652,12 +665,13 @@ impl LayoutEngine {
   /// carry whole nodes, are not held in every level's frame in an unoptimized
   /// build (lurq#25).
   #[inline(never)]
-  fn index_node_layout(node: &Node, rect: ElementRect, index: &mut OverlayLayoutIndex) {
+  fn index_node_layout(node: &Node, rect: ElementRect, visible: bool, index: &mut OverlayLayoutIndex) {
     index.dropdown_anchors.extend(node.dropdown_anchor().cloned());
     if let Some(element_ref) = node.element_ref.as_ref() {
       index.elements.push(ElementLayoutRecord {
         element_ref: element_ref.clone(),
         rect,
+        visible,
       });
     }
 
@@ -671,6 +685,7 @@ impl LayoutEngine {
           .then(|| Arc::<str>::from(format!("select:{}", node.node_id().value()))),
         state: state.clone(),
         bounds: rect,
+        visible,
       });
     }
 
@@ -3985,6 +4000,26 @@ fn border_can_paint_outside(node: &Node) -> bool {
         crate::node::border::BorderPlacement::Outside | crate::node::border::BorderPlacement::Center
       )
     })
+}
+
+/// The clip `node`, laid out at `rect`, puts on its children for the overlay
+/// index: a scroll container's viewport or a `clip()`ped node's bounds. It
+/// leaves out what the paint clip adds (border insets, transforms), as the
+/// index does.
+fn children_clip(node: &Node, rect: ElementRect) -> ClipRect {
+  let (width, height) = match node.layout_kind() {
+    LayoutKind::ScrollModifier { state, .. } => (state.viewport_width(), state.viewport_height()),
+    _ if node.overflow == Overflow::Hidden => (rect.width, rect.height),
+    _ => return ClipRect::default(),
+  };
+  ClipRect {
+    x: rect.x,
+    y: rect.y,
+    width,
+    height,
+    active: true,
+    border_radius: None,
+  }
 }
 
 fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {
