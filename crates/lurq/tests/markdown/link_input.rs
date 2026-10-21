@@ -345,7 +345,8 @@ fn markdown_press_on_a_link_in_selectable_text_follows_it_and_a_drag_from_it_sel
 }
 
 #[test]
-fn markdown_link_tooltip_stays_with_its_link_when_a_link_is_added_before_it() {
+fn markdown_link_tooltip_leaves_with_its_link_when_a_link_is_added_before_it() {
+  const DELAY: Duration = Duration::from_millis(500);
   let present = |link: &lurq::components::MarkdownLink| {
     MarkdownLinkPresentation::link().tooltip(format!("Opens {}", link.destination()))
   };
@@ -354,21 +355,23 @@ fn markdown_link_tooltip_stays_with_its_link_when_a_link_is_added_before_it() {
   tree.mount_root::<super::links::MarkdownRoot>(
     &mut app,
     MarkdownProps::new("See [KON-1](/tasks/1).")
-      .theme(theme(Duration::ZERO))
+      .theme(theme(DELAY))
       .link_presentation(present)
       .width(500.0),
   );
   pass(&mut app, &mut tree);
   let link = bounds_of(&mut tree, "KON-1");
   tree.mouse_move(link.x + 2.0, link.y + 2.0);
+  tree.tick_timers_at(Instant::now() + DELAY * 2);
   pass(&mut app, &mut tree);
   pass(&mut app, &mut tree);
   assert!(tooltip_shown(&quads(&tree), "Opens /tasks/1"));
 
-  // A streamed reply grows a link before the hovered one.
+  // A streamed reply grows a link before the hovered one, which moves it
+  // from under the pointer and puts the new link there.
   tree.update_root_props::<super::links::MarkdownRoot>(
     MarkdownProps::new("See [KON-2](/tasks/2) and [KON-1](/tasks/1).")
-      .theme(theme(Duration::ZERO))
+      .theme(theme(DELAY))
       .link_presentation(present)
       .width(500.0),
   );
@@ -376,8 +379,23 @@ fn markdown_link_tooltip_stays_with_its_link_when_a_link_is_added_before_it() {
   pass(&mut app, &mut tree);
   let after = quads(&tree);
   assert!(
+    !tooltip_shown(&after, "Opens /tasks/1"),
+    "the link that moved away took its tooltip"
+  );
+  assert!(
     !tooltip_shown(&after, "Opens /tasks/2"),
     "the new link did not take the tooltip"
   );
-  assert!(tooltip_shown(&after, "Opens /tasks/1"), "the hovered link keeps it");
+
+  // The new link under the pointer shows its own once the pointer rested.
+  tree.tick_timers_at(Instant::now() + DELAY * 2);
+  pass(&mut app, &mut tree);
+  pass(&mut app, &mut tree);
+  let new_link = bounds_of(&mut tree, "KON-2");
+  let rested = quads(&tree);
+  let words = rested
+    .iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Opens /tasks/2"))
+    .expect("the new link's tooltip after the delay");
+  assert!(words.y >= new_link.y + new_link.height, "under the new link");
 }

@@ -45,7 +45,7 @@ use crate::{
   },
   layout::{
     Constraints, Size,
-    layout_engine::{LayoutEngine, OverlayLayoutIndex, OverlayLayoutRecord},
+    layout_engine::{ElementLayoutRecord, LayoutEngine, OverlayLayoutIndex, OverlayLayoutRecord},
     layout_kind::{LayoutKind, Position, ScrollAxis, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
@@ -71,6 +71,7 @@ mod capture_redaction_tests;
 mod caret_blink_tests;
 mod file_drag;
 mod focus_visible;
+mod hover;
 mod ime;
 #[cfg(all(test, feature = "markdown"))]
 mod inline_link_copy_tests;
@@ -647,6 +648,9 @@ pub struct Tree {
   viewport_physical: Size,
   scale_factor: f32,
   window: crate::app::window::Window,
+  /// Where the pointer last was, in physical pixels; `None` once it left the
+  /// window. The hover is hit-tested again there after a layout moves content.
+  pointer: Option<(f32, f32)>,
   hover_path: Vec<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
@@ -1020,6 +1024,7 @@ impl Tree {
       viewport_physical: Size::new(800.0, 600.0),
       scale_factor: 1.0,
       window: crate::app::window::Window::new(),
+      pointer: None,
       hover_path: Vec::new(),
       active_path: Vec::new(),
       dragging_scroll: None,
@@ -2352,6 +2357,12 @@ impl Tree {
     if self.resolve_pending_scroll_into_view() {
       layout_updated |= self.update_layout(app);
     }
+    // The layout may have moved content under a pointer that held still: the
+    // hover follows, and what its handlers change (a tooltip that goes) is
+    // laid out again so this frame already shows it.
+    if layout_updated && self.refresh_hover_at_pointer() {
+      self.update_layout(app);
+    }
     self.update_text_input_caret_blink(now, caret_mode);
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
@@ -3323,6 +3334,7 @@ impl Tree {
   pub fn mouse_leave_window(&mut self) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
+    self.pointer = None;
     self.clear_hover_path();
     self.apply_reactive_updates_after_event();
   }
@@ -4040,6 +4052,7 @@ impl Tree {
     modifiers: MouseModifiers,
     click_target: Option<NodeId>,
   ) {
+    self.track_pointer(x, y);
     let mut evt = MouseEvent {
       x,
       y,
@@ -4700,30 +4713,9 @@ impl Tree {
 
     let current_ids: Vec<NodeId> = hits.iter().map(|(n, _)| n.node_id()).collect();
 
-    for old_id in &self.hover_path {
-      if !current_ids.contains(old_id) {
-        let Some(node) = find_node_by_id(root, *old_id) else {
-          continue;
-        };
-        set_node_hovered(node, false);
-        self.cached_render_list = None;
-        self.needs_redraw = true;
-        for handler in &node.events.on_mouse_leave {
-          handler.call();
-        }
-      }
-    }
-
-    for (node, _) in &hits {
-      let id = node.node_id();
-      if !self.hover_path.contains(&id) {
-        set_node_hovered(node, true);
-        self.cached_render_list = None;
-        self.needs_redraw = true;
-        for handler in &node.events.on_mouse_enter {
-          handler.call();
-        }
-      }
+    if hover::move_hover(root, &self.hover_path, &hits) {
+      self.cached_render_list = None;
+      self.needs_redraw = true;
     }
 
     let clear_active_after_dispatch = matches!(evt.kind, MouseEventKind::Up | MouseEventKind::Click);
@@ -5200,6 +5192,7 @@ impl Tree {
   }
 
   fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    self.track_pointer(x, y);
     let mut evt = ScrollEvent {
       x,
       y,
@@ -6980,6 +6973,13 @@ fn build_overlays_from_layout_index(
         let Some(anchor) = find_element_record(index, &spec.anchor) else {
           continue;
         };
+        // An anchor scrolled or clipped out of view takes its overlay with
+        // it: left in place, the overlay would float over whatever now covers
+        // the anchor, such as the header above a scrolled list.
+        if !anchor.visible {
+          continue;
+        }
+        let anchor = anchor.rect;
         if anchor.width <= 0.0 || anchor.height <= 0.0 {
           continue;
         }
@@ -7062,12 +7062,11 @@ fn set_overlay_reuse_key(node: &mut Node, key: Option<&str>) {
   }
 }
 
-fn find_element_record(index: &OverlayLayoutIndex, target: &OwnedElementRef) -> Option<ElementRect> {
+fn find_element_record<'a>(index: &'a OverlayLayoutIndex, target: &OwnedElementRef) -> Option<&'a ElementLayoutRecord> {
   index
     .elements
     .iter()
     .find(|record| record.element_ref.same_handle(target))
-    .map(|record| record.rect)
 }
 
 fn modal_target_rect_from_index(
@@ -7086,7 +7085,7 @@ fn modal_target_rect_from_index(
       width: viewport.width,
       height: viewport.height,
     }),
-    ModalTarget::Element(target) => find_element_record(index, target),
+    ModalTarget::Element(target) => find_element_record(index, target).map(|record| record.rect),
   }
 }
 

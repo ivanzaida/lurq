@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- A tooltip shown on hover stayed on screen when the content scrolled under a pointer that held still, and was drawn over the header above the list, away from its link, which had scrolled under that header (a Markdown link's tooltip in a chat). Hover was hit-tested only on mouse events, so the link never got its `on_mouse_leave`. After every layout that changed (a wheel scroll, a list that grew, a relayout), the hover is now hit-tested again at the pointer's last position, and what the enter and leave handlers change is laid out in the same frame: the node that moved away is unhovered and gets `on_mouse_leave`, the node now under the pointer is hovered and gets `on_mouse_enter`, and the cursor follows. Nothing is hovered while the pointer is outside the window or a drag holds it.
+- An anchored overlay (`Overlay`, `Popup`, a Markdown link's tooltip, shown for keyboard focus too) followed its anchor out of a scroll container's viewport and was drawn over whatever covered the anchor. An overlay whose anchor is wholly clipped out by its scroll containers and `clip()`ped ancestors is now not drawn until the anchor shows again; its open state is unchanged.
+
 ## 0.49.0 — 2026-10-20
 
 Behaviour changes:

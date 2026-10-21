@@ -92,6 +92,8 @@ Popup::new(anchor_ref, hint_content)
   .outside_press(OutsidePress::PassThrough);
 ```
 
+A popup or overlay is placed against its anchor's layout in every frame, so it moves with the anchor when a list scrolls or the page lays out again. While its anchor is scrolled or clipped wholly out of view (above a scroll container's viewport, under the header over a list, outside a `clip()`ped parent) it is not drawn, and it comes back with the anchor: it never floats over whatever covers the anchor. Its open state does not change meanwhile.
+
 A press is outside a popup when it lands neither on the popup, nor on its anchor, nor on a layer opened above it, such as a select menu or a popup opened from inside it. By default (`OutsidePress::Consume`) such a press only closes the popup, like a native menu: the element under the pointer receives no press, release or click, and focus does not move. The next press reaches it. This keeps a press meant to close a menu from also activating whatever lies under it, for example a tab, a list row or a button. `OutsidePress::PassThrough` closes the popup and delivers the press as usual, like a light-dismiss web popover; a handler that prevents the default of that press keeps the popup open.
 
 `Select` menus follow the same rule, set with `Select::outside_press(...)`. `Overlay::outside_press(...)` applies to overlays with `dismiss_on_outside_click(true)`. A popup with `dismiss_on_outside_click(false)` or a static open state never closes on a press and never consumes one. Only left presses close popups; other buttons pass through and leave them open. When one press is outside several popups, it closes all of them, and it is consumed if any of them consumes it.

@@ -33,6 +33,7 @@ mod futures {
   mod tokio_tasks;
 }
 mod headless_pass;
+mod hover_after_scroll;
 mod input_source;
 // `Tree::set_canvas_waker` stands in for the shell's event-loop waker.
 #[cfg(feature = "canvas")]
