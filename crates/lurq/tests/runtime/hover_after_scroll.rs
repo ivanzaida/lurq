@@ -5,18 +5,21 @@
 //! under it; an overlay whose anchor is scrolled under the header above the
 //! list is not drawn over that header.
 
-use std::sync::Arc;
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
     App, Tree,
     component::Component,
     ctx::{CollisionStrategy, Ctx, Overlay, Placement},
-    events::ScrollPhase,
+    events::{InputSource, MouseButton, ScrollPhase, input_source, with_synthetic_input},
   },
   components::{Column, Rect, ScrollVertical},
   core::{ElementRect, ElementRef, Signal},
-  node::{Element, HitTestBehavior, color::Color},
+  node::{CursorIcon, Element, HitTestBehavior, color::Color},
 };
 
 use crate::support::TestSurface;
@@ -32,6 +35,11 @@ const HEADER_HEIGHT: f32 = 40.0;
 /// The row sits 60 px into the list's content, at y 100 in the window.
 const ROW_TOP: f32 = 60.0;
 const GAP: f32 = 4.0;
+/// Longer than the double-click interval, after which a held click is delivered.
+const DOUBLE_CLICK_SETTLE: Duration = Duration::from_millis(550);
+
+/// The source of the input each enter and leave of the row ran with.
+type Sources = Arc<Mutex<Vec<(&'static str, InputSource)>>>;
 
 /// What the test drives: the row's height, whether its tooltip shows only
 /// while the row is hovered (or always, as a tooltip shown for keyboard focus
@@ -42,6 +50,8 @@ struct Props {
   on_hover_only: bool,
   pushed_in: Signal<bool>,
   hovered: Arc<Signal<bool>>,
+  #[devtools_ignore]
+  sources: Sources,
 }
 
 impl PartialEq for Props {
@@ -74,11 +84,22 @@ impl Component for HeaderAndList {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Props>().clone();
     let (enter, leave) = (props.hovered.clone(), props.hovered.clone());
+    let (enter_sources, leave_sources) = (props.sources.clone(), props.sources.clone());
+    // A double-click handler makes a click wait to see whether a second
+    // one follows.
     let row = Rect::new(120.0, props.row_height)
       .background(ROW)
+      .cursor(CursorIcon::Pointer)
       .ref_element(self.anchor.clone())
-      .on_mouse_enter(move || enter.set(true))
-      .on_mouse_leave(move || leave.set(false));
+      .on_dblclick(|_| {})
+      .on_mouse_enter(move || {
+        enter_sources.lock().unwrap().push(("enter", input_source()));
+        enter.set(true);
+      })
+      .on_mouse_leave(move || {
+        leave_sources.lock().unwrap().push(("leave", input_source()));
+        leave.set(false);
+      });
     // Growing the block above the row moves the row without changing which
     // node is which.
     let above = if props.pushed_in.get() {
@@ -111,12 +132,14 @@ struct Fixture {
   tree: Tree,
   hovered: Arc<Signal<bool>>,
   pushed_in: Signal<bool>,
+  sources: Sources,
 }
 
 impl Fixture {
   fn mount(row_height: f32, on_hover_only: bool) -> Self {
     let hovered = Arc::new(Signal::new(false));
     let pushed_in = Signal::new(false);
+    let sources = Sources::default();
     let mut app = App::new();
     let mut tree = Tree::new();
     tree.mount_root::<HeaderAndList>(
@@ -126,6 +149,7 @@ impl Fixture {
         on_hover_only,
         pushed_in: pushed_in.clone(),
         hovered: hovered.clone(),
+        sources: sources.clone(),
       },
     );
     let mut fixture = Self {
@@ -133,6 +157,7 @@ impl Fixture {
       tree,
       hovered,
       pushed_in,
+      sources,
     };
     fixture.pass();
     fixture
@@ -268,4 +293,57 @@ fn pointer_that_left_the_window_hovers_nothing_the_content_moves_under_it() {
   assert!(row.y <= pointer.1 && pointer.1 <= row.y + row.height);
   assert!(!fixture.hovered.get_untracked(), "nothing is hovered");
   assert_eq!(fixture.tooltip(), None);
+}
+
+#[test]
+fn cursor_follows_the_row_that_scrolls_from_under_the_still_pointer() {
+  let mut fixture = Fixture::mount(20.0, true);
+  let pointer = fixture.hover_row();
+  assert_eq!(fixture.tree.cursor(), CursorIcon::Pointer);
+
+  fixture.scroll_by(pointer, 70.0);
+
+  assert_eq!(fixture.tree.cursor(), CursorIcon::Default, "no mouse event needed");
+}
+
+#[test]
+fn hover_moved_by_a_layout_keeps_the_source_of_the_input_that_put_the_pointer_there() {
+  let mut fixture = Fixture::mount(20.0, true);
+  let row = fixture.row();
+  with_synthetic_input(|| fixture.tree.mouse_move(row.x + 10.0, row.y + 10.0));
+  fixture.pass();
+
+  fixture.pushed_in.set(true);
+  fixture.pass();
+
+  assert_eq!(
+    *fixture.sources.lock().unwrap(),
+    [("enter", InputSource::Synthetic), ("leave", InputSource::Synthetic)],
+    "an agent's pointer stays synthetic"
+  );
+}
+
+#[test]
+fn held_click_delivered_after_the_pointer_left_does_not_put_the_pointer_back() {
+  let mut fixture = Fixture::mount(20.0, true);
+  let pointer = fixture.hover_row();
+  fixture.tree.mouse_down(pointer.0, pointer.1, MouseButton::Left);
+  fixture.tree.mouse_up(pointer.0, pointer.1, MouseButton::Left);
+  fixture.tree.mouse_leave_window();
+  fixture.pass();
+  assert!(!fixture.hovered.get_untracked());
+
+  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  fixture.pass();
+  assert!(!fixture.hovered.get_untracked(), "the held click left nothing hovered");
+
+  // The row goes away and comes back under where the pointer was.
+  fixture.pushed_in.set(true);
+  fixture.pass();
+  fixture.pushed_in.set(false);
+  fixture.pass();
+  assert!(
+    !fixture.hovered.get_untracked(),
+    "the pointer is still out of the window"
+  );
 }

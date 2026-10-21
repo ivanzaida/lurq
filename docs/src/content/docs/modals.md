@@ -92,7 +92,13 @@ Popup::new(anchor_ref, hint_content)
   .outside_press(OutsidePress::PassThrough);
 ```
 
-A popup or overlay is placed against its anchor's layout in every frame, so it moves with the anchor when a list scrolls or the page lays out again. While its anchor is scrolled or clipped wholly out of view (above a scroll container's viewport, under the header over a list, outside a `clip()`ped parent) it is not drawn, and it comes back with the anchor: it never floats over whatever covers the anchor. Its open state does not change meanwhile.
+A popup or overlay is placed against its anchor's layout in every frame, so it moves with the anchor when a list scrolls or the page lays out again. While its anchor is scrolled or clipped wholly out of view (above a scroll container's viewport, under the header over a list, outside a `clip()`ped parent) it is not drawn, and it comes back with the anchor: it never floats over whatever covers the anchor. A `Select`'s menu does the same with its select, and a `Modal` targeting an element with that element. The open state does not change meanwhile, and a hidden popup is dismissed like a CSS popover that is out of view:
+
+- A left press anywhere closes it (with `dismiss_on_outside_click`, a `Popup`'s default). The press is never consumed by a hidden popup, whatever its `outside_press`: it also reaches the element it lands on, since nothing on screen was in its way.
+- Escape closes it (with `dismiss_on_escape`).
+- Keyboard focus inside it goes back to its anchor (the trigger) or the first focusable element inside the anchor; if the anchor holds none, to the nearest focusable ancestor of the anchor.
+
+A tooltip without an open signal, such as a Markdown link's, just stays hidden until its anchor is back in view.
 
 A press is outside a popup when it lands neither on the popup, nor on its anchor, nor on a layer opened above it, such as a select menu or a popup opened from inside it. By default (`OutsidePress::Consume`) such a press only closes the popup, like a native menu: the element under the pointer receives no press, release or click, and focus does not move. The next press reaches it. This keeps a press meant to close a menu from also activating whatever lies under it, for example a tab, a list row or a button. `OutsidePress::PassThrough` closes the popup and delivers the press as usual, like a light-dismiss web popover; a handler that prevents the default of that press keeps the popup open.
 

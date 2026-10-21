@@ -2,10 +2,16 @@
 
 ## Unreleased
 
+Behaviour changes:
+
+- Hover follows content that moves under a pointer that holds still. After every layout that changed (a wheel scroll, a list that grew, a stick-to-bottom chat taking a message, any relayout), lurq hit-tests the hover again at the pointer's last position, like a browser: `on_mouse_enter`, `on_mouse_leave`, `hovered` styles and the cursor now change without a mouse event, in the frame that shows the new layout, and the winit shell applies the cursor after each frame. The handlers run with the source of the input that last moved the pointer, so an agent's pointer stays synthetic input. Nothing is hovered while the pointer is outside the window or a drag holds it, and a click held back for a double click no longer re-hovers what was under it after the pointer moved on or left.
+- A hover style that moves its own node away from a still pointer (a `hovered` size, offset or transform, with or without a transition) unhovers the node, which moves it back under the pointer, which hovers it again: like CSS `:hover`, such a node flickers, now also while the pointer holds still. Keep hover styles from moving the node off the pointer.
+- An anchored overlay (`Overlay`, `Popup`, a Markdown link's tooltip), a `Select`'s menu and a `Modal` over an element are not drawn while their anchor (the select, the target element) is scrolled or clipped wholly out of view, and come back with it. Their open state is kept, and such a hidden popup is dismissed like a CSS popover that is out of view: a left press anywhere closes it (with `dismiss_on_outside_click`) and is not consumed, so it also reaches what it lands on; Escape closes it (with `dismiss_on_escape`); and keyboard focus inside it goes back to its anchor, or the first focusable element inside the anchor, or else the nearest focusable ancestor of the anchor. A tooltip with no open signal just stays hidden.
+
 Fixes:
 
-- A tooltip shown on hover stayed on screen when the content scrolled under a pointer that held still, and was drawn over the header above the list, away from its link, which had scrolled under that header (a Markdown link's tooltip in a chat). Hover was hit-tested only on mouse events, so the link never got its `on_mouse_leave`. After every layout that changed (a wheel scroll, a list that grew, a relayout), the hover is now hit-tested again at the pointer's last position, and what the enter and leave handlers change is laid out in the same frame: the node that moved away is unhovered and gets `on_mouse_leave`, the node now under the pointer is hovered and gets `on_mouse_enter`, and the cursor follows. Nothing is hovered while the pointer is outside the window or a drag holds it.
-- An anchored overlay (`Overlay`, `Popup`, a Markdown link's tooltip, shown for keyboard focus too) followed its anchor out of a scroll container's viewport and was drawn over whatever covered the anchor. An overlay whose anchor is wholly clipped out by its scroll containers and `clip()`ped ancestors is now not drawn until the anchor shows again; its open state is unchanged.
+- A tooltip shown on hover stayed on screen when the content scrolled under a pointer that held still, and was drawn over the header above the list, away from its link, which had scrolled under that header (a Markdown link's tooltip in a chat). Hover was hit-tested only on mouse events, so the link never got its `on_mouse_leave`. See the first behaviour change.
+- An anchored overlay (a Markdown link's tooltip shown for keyboard focus, an open `Popup`) and a `Select`'s menu followed their anchor out of a scroll container's viewport and were drawn over whatever covered the anchor, such as the header above a list. See the third behaviour change.
 
 ## 0.49.0 — 2026-10-20
 

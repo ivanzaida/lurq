@@ -83,6 +83,7 @@ mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
 mod outside_press;
+mod overlay_layers;
 mod paste;
 pub use paste::ClipboardReader;
 mod scroll_into_view;
@@ -92,6 +93,7 @@ mod tab_navigation;
 #[cfg(all(test, feature = "markdown"))]
 mod table_copy_tests;
 
+use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
 
 /// Surface of [`Tree::pass_headless`]: it has no window, so passes stop
@@ -648,9 +650,10 @@ pub struct Tree {
   viewport_physical: Size,
   scale_factor: f32,
   window: crate::app::window::Window,
-  /// Where the pointer last was, in physical pixels; `None` once it left the
-  /// window. The hover is hit-tested again there after a layout moves content.
-  pointer: Option<(f32, f32)>,
+  /// Where the pointer last was, and the source of the input that put it
+  /// there; `None` once it left the window. The hover is hit-tested again
+  /// there after a layout moves content.
+  pointer: Option<hover::PointerAt>,
   hover_path: Vec<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
@@ -740,6 +743,9 @@ pub struct Tree {
   #[cfg(feature = "canvas")]
   canvas_registry: Vec<crate::canvas::CanvasHandle>,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
+  /// The anchor of each overlay host layer after the page, in host order;
+  /// `None` for a select menu or a modal over the page.
+  overlay_layer_anchors: Vec<Option<OwnedElementRef>>,
   /// The anchors of the dropdowns in the tree, open or closed, while the
   /// overlay host is up: a press on one switches dropdowns.
   dropdown_anchors: Vec<OwnedElementRef>,
@@ -773,6 +779,9 @@ struct OverlayDismissEntry {
   /// A press on a layer above it, such as a select menu or a popup opened
   /// from inside it, is not outside it.
   layer: usize,
+  /// Whether the overlay is drawn. One hidden with its anchor out of view
+  /// has nothing a press could land on: every press is outside it.
+  shown: bool,
 }
 
 #[cfg_attr(not(feature = "winit"), allow(dead_code))]
@@ -1101,6 +1110,7 @@ impl Tree {
       #[cfg(feature = "canvas")]
       canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
+      overlay_layer_anchors: Vec::new(),
       dropdown_anchors: Vec::new(),
       ime_keys: ime::ImeKeys::default(),
       next_secondary_window_id: 1,
@@ -3318,6 +3328,7 @@ impl Tree {
   pub fn mouse_move_with_meta(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
+    self.track_pointer(x, y);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(
       x,
@@ -3361,6 +3372,7 @@ impl Tree {
   ) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
+    self.track_pointer(x, y);
     self.set_input_modality(focus_visible::InputModality::Pointer);
     let modifiers = MouseModifiers { shift, ctrl, alt, meta };
     if self.swallowed_press == Some(button) {
@@ -3436,6 +3448,7 @@ impl Tree {
   ) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Pointer);
+    self.track_pointer(x, y);
     let modifiers = MouseModifiers { shift, ctrl, alt, meta };
     if self.swallowed_press == Some(button) {
       self.swallowed_press = None;
@@ -3569,6 +3582,7 @@ impl Tree {
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
     #[cfg(feature = "perf_profile")]
     let _input = self.profiling.context.input(crate::app::profiler::InputKind::Scroll);
+    self.track_pointer(x, y);
     self.dispatch_scroll(x, y, delta_x, delta_y, phase);
     self.apply_reactive_updates_after_event();
   }
@@ -3935,6 +3949,13 @@ impl Tree {
         click.modifiers,
         Some(click.target_id),
       );
+      // The click hovered what was under it where it was made; the hover
+      // belongs where the pointer is now, if it is still in the window.
+      if self.pointer.is_some() {
+        self.refresh_hover_at_pointer();
+      } else {
+        self.clear_hover_path();
+      }
       self.apply_reactive_updates_after_event();
     });
   }
@@ -4052,7 +4073,6 @@ impl Tree {
     modifiers: MouseModifiers,
     click_target: Option<NodeId>,
   ) {
-    self.track_pointer(x, y);
     let mut evt = MouseEvent {
       x,
       y,
@@ -5192,7 +5212,6 @@ impl Tree {
   }
 
   fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
-    self.track_pointer(x, y);
     let mut evt = ScrollEvent {
       x,
       y,
@@ -6159,7 +6178,7 @@ impl Tree {
           )
         },
       );
-      self.sync_overlay_host_from_layout(
+      let focus_return = self.sync_overlay_host_from_layout(
         overlay_parts,
         base_overlay_index,
         &mut app.shared.glyph_engine.lock(),
@@ -6182,6 +6201,9 @@ impl Tree {
           .is_some_and(|root| root.has_synthetic_role(SyntheticNodeRole::OverlayHost))
       {
         self.refresh_interaction_state();
+      }
+      if let Some(anchor) = focus_return {
+        self.return_focus_to_anchor(&anchor);
       }
       self.apply_focus_request_inner(true);
       self.tick_overlay_subtrees(now);
@@ -6329,18 +6351,19 @@ impl Tree {
     scrollbar: crate::layout::scrollbar::ScrollBarStyle,
     typography: crate::app::theme::ThemeTypography,
     theme_changed: bool,
-  ) {
+  ) -> Option<OwnedElementRef> {
     let Some(base) = self.root.take() else {
       #[cfg(feature = "canvas")]
       detach_canvases_not_carried(old_parts.unused_canvas_bindings(), None);
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
+      self.overlay_layer_anchors.clear();
       self.dropdown_anchors.clear();
-      return;
+      return None;
     };
 
     let viewport = self.viewport_logical();
-    let mut dismiss_entries = Vec::new();
+    let mut layers = OverlayLayers::default();
     let mut overlays = build_overlays_from_layout_index(
       &base_overlay_index,
       viewport,
@@ -6355,19 +6378,22 @@ impl Tree {
       scrollbar.clone(),
       typography.clone(),
       theme_changed,
-      &mut dismiss_entries,
+      &mut layers,
       #[cfg(feature = "perf_profile")]
       &mut self.profiling,
     );
 
     if overlays.is_empty() {
+      let focus_return = self.focused_overlay_hidden(old_parts.old_host.is_some(), &layers);
       #[cfg(feature = "canvas")]
       detach_canvases_not_carried(old_parts.unused_canvas_bindings(), Some(&base));
       old_parts.free_ids(&self.id_gen);
       self.root = Some(base);
-      self.overlay_dismiss_entries.clear();
+      // Overlays hidden with their anchor are still dismissed.
+      self.overlay_dismiss_entries = layers.dismiss_entries;
+      self.overlay_layer_anchors.clear();
       self.dropdown_anchors.clear();
-      return;
+      return focus_return;
     }
 
     let mut dropdown_anchors = std::mem::take(&mut base_overlay_index.dropdown_anchors);
@@ -6408,7 +6434,7 @@ impl Tree {
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
         dropdown_anchors.append(&mut overlay_layout_index.dropdown_anchors);
-        let nested_entries_start = dismiss_entries.len();
+        let nested_entries_start = layers.dismiss_entries.len();
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
           viewport,
@@ -6423,12 +6449,12 @@ impl Tree {
           scrollbar.clone(),
           typography.clone(),
           theme_changed,
-          &mut dismiss_entries,
+          &mut layers,
           #[cfg(feature = "perf_profile")]
           &mut self.profiling,
         );
         // Nested overlays are appended after the ones built so far.
-        for entry in &mut dismiss_entries[nested_entries_start..] {
+        for entry in &mut layers.dismiss_entries[nested_entries_start..] {
           entry.layer += overlays.len();
         }
         nested
@@ -6442,6 +6468,7 @@ impl Tree {
       overlay_index += 1;
     }
 
+    let old_parts_had_host = old_parts.old_host.is_some();
     let mut children = Vec::with_capacity(1 + overlays.len());
     children.push(base);
     children.extend(overlays);
@@ -6459,8 +6486,11 @@ impl Tree {
     old_parts.free_ids(&self.id_gen);
     host.assign_ids(&self.id_gen);
     self.root = Some(host);
-    self.overlay_dismiss_entries = dismiss_entries;
+    let focus_return = self.focused_overlay_hidden(old_parts_had_host, &layers);
+    self.overlay_dismiss_entries = layers.dismiss_entries;
+    self.overlay_layer_anchors = layers.anchors;
     self.dropdown_anchors = dropdown_anchors;
+    focus_return
   }
 
   fn sync_dynamic_content(&mut self) {
@@ -6928,7 +6958,7 @@ fn build_overlays_from_layout_index(
   scrollbar: crate::layout::scrollbar::ScrollBarStyle,
   typography: crate::app::theme::ThemeTypography,
   theme_changed: bool,
-  dismiss_entries: &mut Vec<OverlayDismissEntry>,
+  layers: &mut OverlayLayers,
   #[cfg(feature = "perf_profile")] profiling: &mut crate::app::profiler::producer::WindowProfiler,
 ) -> Vec<Node> {
   let mut overlays = Vec::new();
@@ -6939,7 +6969,13 @@ fn build_overlays_from_layout_index(
         reuse_key,
         state,
         bounds,
+        visible,
       } => {
+        // A select scrolled out of view does not draw its menu over what
+        // covers it; the menu comes back with the select.
+        if !visible {
+          continue;
+        }
         let mut measure = |menu: &Node| {
           let measure_constraints = Constraints::loose(Size::new(
             constraints.max_width.min(viewport.width).max(0.0),
@@ -6968,6 +7004,7 @@ fn build_overlays_from_layout_index(
         let mut menu = select_menu::build_select_menu(&state, bounds, viewport, &mut measure);
         set_overlay_reuse_key(&mut menu, reuse_key.as_deref());
         overlays.push(menu);
+        layers.anchors.push(None);
       }
       OverlayLayoutRecord::Overlay { reuse_key, spec } => {
         let Some(anchor) = find_element_record(index, &spec.anchor) else {
@@ -6977,6 +7014,12 @@ fn build_overlays_from_layout_index(
         // it: left in place, the overlay would float over whatever now covers
         // the anchor, such as the header above a scrolled list.
         if !anchor.visible {
+          let dismiss = HiddenDismiss {
+            open: spec.open_signal.clone(),
+            on_outside_click: spec.dismiss_on_outside_click,
+            on_escape: spec.dismiss_on_escape,
+          };
+          layers.hide(&spec.anchor, dismiss, overlays.len() + 1);
           continue;
         }
         let anchor = anchor.rect;
@@ -6984,6 +7027,7 @@ fn build_overlays_from_layout_index(
           continue;
         }
         let dismiss_anchor = spec.anchor.clone();
+        let layer_anchor = spec.anchor.clone();
         let dismiss_signal = spec.open_signal.clone();
         let dismiss_on_outside_click = spec.dismiss_on_outside_click;
         let outside_press = spec.outside_press;
@@ -7010,7 +7054,7 @@ fn build_overlays_from_layout_index(
         if let Some(open) = dismiss_signal
           && (dismiss_on_outside_click || dismiss_on_escape)
         {
-          dismiss_entries.push(OverlayDismissEntry {
+          layers.dismiss_entries.push(OverlayDismissEntry {
             anchor: dismiss_anchor,
             bounds,
             open,
@@ -7018,15 +7062,34 @@ fn build_overlays_from_layout_index(
             outside_press,
             dismiss_on_escape,
             layer: overlays.len() + 1,
+            shown: true,
           });
         }
         overlays.push(overlay);
+        layers.anchors.push(Some(layer_anchor));
       }
       OverlayLayoutRecord::Modal {
         reuse_key,
         spec,
         parent,
       } => {
+        // A modal over an element scrolled out of view is hidden like an
+        // overlay whose anchor is.
+        if let ModalTarget::Element(target) = &spec.target
+          && find_element_record(index, target).is_some_and(|record| !record.visible)
+        {
+          let dismiss = HiddenDismiss {
+            open: spec.open_signal.clone(),
+            on_outside_click: false,
+            on_escape: spec.dismiss_on_escape,
+          };
+          layers.hide(target, dismiss, overlays.len() + 1);
+          continue;
+        }
+        let owner = match &spec.target {
+          ModalTarget::Element(target) => Some(target.clone()),
+          _ => None,
+        };
         let target = match modal_target_rect_from_index(&spec, parent, viewport, index) {
           Some(target) if target.width > 0.0 && target.height > 0.0 => target,
           _ => continue,
@@ -7038,7 +7101,7 @@ fn build_overlays_from_layout_index(
         if let Some(open) = dismiss_signal
           && dismiss_on_escape
         {
-          dismiss_entries.push(OverlayDismissEntry {
+          layers.dismiss_entries.push(OverlayDismissEntry {
             anchor: OwnedElementRef::new(),
             bounds: target,
             open,
@@ -7046,9 +7109,11 @@ fn build_overlays_from_layout_index(
             outside_press: OutsidePress::default(),
             dismiss_on_escape,
             layer: overlays.len() + 1,
+            shown: true,
           });
         }
         overlays.push(modal);
+        layers.anchors.push(owner);
       }
     }
   }

@@ -22,6 +22,8 @@
 //! A press is outside an overlay when it lands neither on the overlay's
 //! content, nor on its anchor, nor on a layer stacked above it (a select menu
 //! or a popup opened from inside it, which the overlay host places after it).
+//! Every press is outside an overlay hidden because its anchor is out of
+//! view, and passes through it (see `overlay_layers`).
 
 use super::{
   OverlayDismissEntry, Tree, close_open_selects_except, point_in_element_rect, scrollbar_hit_at, trim_hits_to_scrollbar,
@@ -111,10 +113,15 @@ impl Tree {
 }
 
 fn is_outside(entry: &OverlayDismissEntry, x: f32, y: f32, pressed_layer: usize) -> bool {
-  entry.dismiss_on_outside_click
-    && pressed_layer < entry.layer
-    && !point_in_element_rect(x, y, entry.anchor.bounds())
-    && !point_in_element_rect(x, y, entry.bounds)
+  if !entry.dismiss_on_outside_click {
+    return false;
+  }
+  // An overlay hidden with its anchor out of view has nothing on screen a
+  // press could land on.
+  !entry.shown
+    || (pressed_layer < entry.layer
+      && !point_in_element_rect(x, y, entry.anchor.bounds())
+      && !point_in_element_rect(x, y, entry.bounds))
 }
 
 /// The overlay host child the topmost element at `(x, y)` belongs to: `0`

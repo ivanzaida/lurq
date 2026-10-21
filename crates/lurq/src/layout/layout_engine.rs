@@ -159,6 +159,9 @@ pub(crate) enum OverlayLayoutRecord {
     reuse_key: Option<Arc<str>>,
     state: SelectState,
     bounds: ElementRect,
+    /// Whether the select shows through its ancestors' clips; see
+    /// [`ElementLayoutRecord::visible`].
+    visible: bool,
   },
   Overlay {
     reuse_key: Option<Arc<str>>,
@@ -188,10 +191,12 @@ impl Clone for OverlayLayoutRecord {
         reuse_key,
         state,
         bounds,
+        visible,
       } => Self::SelectMenu {
         reuse_key: reuse_key.clone(),
         state: state.clone(),
         bounds: *bounds,
+        visible: *visible,
       },
       Self::Overlay { reuse_key, spec } => Self::Overlay {
         reuse_key: reuse_key.clone(),
@@ -613,7 +618,6 @@ impl LayoutEngine {
     index
   }
 
-  #[allow(clippy::too_many_arguments)]
   fn collect_overlay_index_recursive(
     node: &Node,
     layout: &LayoutResult,
@@ -681,6 +685,7 @@ impl LayoutEngine {
           .then(|| Arc::<str>::from(format!("select:{}", node.node_id().value()))),
         state: state.clone(),
         bounds: rect,
+        visible,
       });
     }
 
