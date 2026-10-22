@@ -425,6 +425,36 @@ fn a_deep_offset_is_restored_while_the_estimate_grows_to_reach_it() {
   );
 }
 
+/// Items swapped in with all-new keys while the list was still restoring a
+/// deep offset for the rows before open at their top, not at that offset nor
+/// at the end the offset, clamped, would follow.
+#[test]
+fn items_swapped_in_while_an_offset_is_restored_open_at_their_top() {
+  let rendered: Rendered = Arc::default();
+  let scroll = Arc::new(ScrollState::new());
+  scroll.set_scroll_pending(0.0, 30000.0);
+  let mut tree = Tree::new();
+  tree.mount_root::<Root>(
+    &mut App::new(),
+    ListProps {
+      lines: lines_of(ROWS, 0, |index| if index < 16 { 10.0 } else { 200.0 }, &rendered),
+      scroll: SharedScroll(scroll.clone()),
+      reveal: None,
+      bootstrap_rows: None,
+      list_key: "vlist",
+    },
+  );
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  let mut list = List { tree, scroll, rendered };
+
+  let lines = lines(ROWS, 1, 30.0, &list.rendered);
+  list.update(lines, "vlist");
+  list.settle();
+  assert_near(list.scroll_y(), 0.0, "the new rows open at their top");
+  assert!(list.row_in_view(0), "the first row is in view");
+}
+
 /// A scroll of the person's right after the restore was queued stands: the
 /// restore is not queued again over it.
 #[test]

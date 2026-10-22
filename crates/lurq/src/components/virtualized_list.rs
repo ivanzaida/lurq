@@ -896,6 +896,17 @@ where
         // queued scroll asks for) instead of bootstrapped from the top.
         runtime.heights.clear();
         runtime.pending_anchor = None;
+        // An offset the list itself queued again, to open the rows before
+        // at it, is not a place in these rows: it goes with them. An offset
+        // the app queued for them stays.
+        if let Some(BootstrapRestore::Offset {
+          offset,
+          reached: Some(_),
+        }) = runtime.bootstrap_restore
+        {
+          scroll_state.drop_pending_scroll_y_offset(offset);
+        }
+        runtime.bootstrap_restore = None;
         scroll_state.set_scroll(0.0, 0.0);
       } else {
         if runtime.order != keys && runtime.pending_anchor.is_none() && !scroll_requested && !runtime.order.is_empty() {
