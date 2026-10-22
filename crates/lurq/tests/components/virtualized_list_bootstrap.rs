@@ -90,6 +90,8 @@ struct ListProps {
   scroll: SharedScroll,
   reveal: Option<String>,
   bootstrap_rows: Option<usize>,
+  /// Another key mounts another list, which starts without a measured row.
+  list_key: &'static str,
 }
 
 #[cfg(feature = "devtools")]
@@ -108,7 +110,7 @@ impl Component for Root {
     let props = ctx.props::<Self::Props>().clone();
     let mut list = VirtualizedList::new_shared(ctx, props.lines)
       .with_scroll_state((*props.scroll.0).clone())
-      .list_key("vlist")
+      .list_key(props.list_key)
       .size(800.0, VIEW_HEIGHT)
       .reveal_key(props.reveal);
     if let Some(rows) = props.bootstrap_rows {
@@ -154,6 +156,10 @@ impl List {
         (None, Some(rows))
       }
       Open::Revealing(index) => (Some(format!("0-{index}")), None),
+      Open::At(offset) => {
+        scroll.set_scroll_pending(0.0, offset);
+        (None, None)
+      }
     };
     let mut tree = Tree::new();
     tree.mount_root::<Root>(
@@ -163,6 +169,7 @@ impl List {
         scroll: SharedScroll(scroll.clone()),
         reveal,
         bootstrap_rows,
+        list_key: "vlist",
       },
     );
     run_pass(&mut tree);
@@ -200,6 +207,8 @@ enum Open {
   End,
   EndWithBootstrap(usize),
   Revealing(usize),
+  /// A restored offset, queued with `set_scroll_pending`.
+  At(f32),
 }
 
 fn assert_near(actual: f32, expected: f32, label: &str) {
@@ -320,6 +329,7 @@ fn items_swapped_under_a_list_opened_at_its_end_are_windowed_at_the_end() {
     scroll: SharedScroll(list.scroll.clone()),
     reveal: None,
     bootstrap_rows: None,
+    list_key: "vlist",
   });
   run_pass(&mut list.tree);
   let first_pass = list.rendered();
@@ -343,4 +353,73 @@ impl List {
   fn scroll_y(&self) -> f32 {
     self.scroll.scroll_y()
   }
+
+  fn update(&mut self, lines: Arc<Vec<Line>>, list_key: &'static str) {
+    self.tree.update_root_props::<Root>(ListProps {
+      lines,
+      scroll: SharedScroll(self.scroll.clone()),
+      reveal: None,
+      bootstrap_rows: None,
+      list_key,
+    });
+  }
+}
+
+/// A restored offset (a scroll position persisted by the app) is kept past
+/// the bootstrap: the first layout holds the bootstrap rows alone, which
+/// clamps the offset to them and leaves the list at their end, from where it
+/// would follow to the real end as the estimate sizes the rest.
+#[test]
+fn a_list_opened_at_an_offset_lands_there() {
+  let height = 30.0;
+  for offset in [1200.0, 8000.0] {
+    let mut list = List::mount(ROWS, height, Open::At(offset));
+    list.settle();
+    assert_near(list.scroll_y(), offset, "opened at the offset");
+    let first_in_view = (offset / height) as usize;
+    assert!(
+      list.row_in_view(first_in_view + 1),
+      "row {} is in view",
+      first_in_view + 1
+    );
+  }
+}
+
+/// A list mounted under another key, with the scroll state of the list before
+/// (an app that keeps one per screen), opens at the offset that state holds.
+#[test]
+fn a_list_remounted_with_a_shared_scroll_state_keeps_its_offset() {
+  let height = 30.0;
+  let mut list = List::mount(ROWS, height, Open::Top);
+  list.settle();
+  list.scroll.set_scroll_pending(0.0, 1200.0);
+  list.settle();
+  assert_near(list.scroll_y(), 1200.0, "scrolled");
+
+  let lines = lines(ROWS, 1, height, &list.rendered);
+  list.update(lines, "another");
+  list.settle();
+  assert_near(list.scroll_y(), 1200.0, "the remounted list opens at the shared offset");
+  assert!(list.row_in_view(41), "row 41 is in view");
+}
+
+/// Rows measured at no height leave no estimate behind: the next rows, taller,
+/// are bootstrapped instead of windowed to nothing from a zero estimate.
+#[test]
+fn rows_of_no_height_leave_no_estimate_for_the_next_rows() {
+  let mut list = List::mount(50, 0.0, Open::Top);
+  list.settle();
+  list.forget_rendered();
+
+  list.scroll.scroll_to_bottom_pending();
+  let lines = lines(ROWS, 1, ROW_HEIGHT, &list.rendered);
+  list.update(lines, "vlist");
+  list.settle();
+  assert!(list.rendered().contains(&(ROWS - 1)), "{:?}", list.rendered());
+  assert_near(
+    list.scroll_y(),
+    ROWS as f32 * ROW_HEIGHT - VIEW_HEIGHT,
+    "opened at the end",
+  );
+  assert!(list.row_in_view(ROWS - 1), "the last row is in view");
 }

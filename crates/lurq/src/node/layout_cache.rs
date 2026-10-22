@@ -164,6 +164,7 @@ impl LayoutCache {
   /// own (an inline link, placed by its paragraph): the marks that asked for
   /// its layout are consumed by the parent's. A mark left behind would keep
   /// the layout dirty for every pass, since no store of its own clears it.
+  #[cfg(feature = "markdown")]
   pub(crate) fn mark_placed_by_parent(&self) {
     self.clear_dirty();
   }

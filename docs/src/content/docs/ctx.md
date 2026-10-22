@@ -224,10 +224,13 @@ How long a value stays provided depends on where it is provided:
 A component renders again for a context when a value of a type it read (`use_context`, `consume_context`, in `create`,
 a render or a handler) is provided anew, or when its own render provides values, since only a render provides them
 again. Every other component keeps its rendered tree and passes the contexts on, so a reader below one renders in
-place with the pass and sees the new value. `provide` compares nothing: each call is a new providing, and the readers
-of that type render again. A render that provides a value it computes every time passes it with
-`provide_if_changed`, which keeps the earlier providing while the value is equal (`PartialEq`), so nothing renders
-again for it; in `create` or a handler it provides only when the value differs from the one provided there.
+place with the pass and sees the new value. A `for_each` item is rendered by its owner's render alone, so an item
+whose closure read the value, or provides one, has its owner rendered again. `provide` compares nothing: each call is
+a new providing, and the readers of that type render again. A render that provides a value it computes every time
+passes it with `provide_if_changed`, which keeps the earlier providing while the value is equal (`PartialEq`), so
+nothing renders again for it, also when the render was caused by a change of the inherited contexts; in `create` or
+a handler it provides only when the value differs from the one provided there. A read is remembered for the
+component's lifetime: a type read once in a render that no longer reads it still renders the component again.
 
 ```rust
 fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {

@@ -85,10 +85,6 @@ impl ContextMap {
     self.revision = revision;
   }
 
-  pub(crate) fn is_empty(&self) -> bool {
-    self.values.is_empty()
-  }
-
   /// Whether `other` holds the entries this map holds: the same types, each
   /// from the same providing.
   pub(crate) fn has_same_entries(&self, other: &ContextMap) -> bool {

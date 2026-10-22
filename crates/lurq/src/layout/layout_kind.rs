@@ -205,6 +205,14 @@ impl ScrollState {
     matches!(self.inner.lock().unwrap().pending_scroll_y, Some(PendingScroll::End))
   }
 
+  /// The vertical offset a queued `set_scroll_pending` waits to land on.
+  pub(crate) fn pending_scroll_y_offset(&self) -> Option<f32> {
+    match self.inner.lock().unwrap().pending_scroll_y {
+      Some(PendingScroll::Offset(offset)) => Some(offset),
+      _ => None,
+    }
+  }
+
   /// Whether a vertical scroll request (an offset, an edge or a reveal, not a
   /// prepend anchor) waits for the next layout measurement.
   pub(crate) fn has_pending_scroll_y_request(&self) -> bool {

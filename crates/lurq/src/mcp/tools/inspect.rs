@@ -212,7 +212,7 @@ pub(super) fn inspect_node(
 pub(super) fn inspect_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
   let window = requested_window(args);
   let target = window_tree_mut(tree, &window, state.include_devtools)?;
-  target.refresh_dirty_subtrees();
+  target.refresh_dirty_subtrees_settled();
   let root = target
     .root()
     .ok_or_else(|| format!("window {window:?} has no mounted tree"))?;
@@ -284,7 +284,7 @@ pub(super) fn act_tool(tree: &mut Tree, app: &App, state: &McpState, args: &serd
     .ok_or_else(|| format!("unknown or stale ref {ref_id:?}; call lurq_inspect again"))?;
   {
     let target = window_tree_mut(tree, &record.window, state.include_devtools)?;
-    target.refresh_dirty_subtrees();
+    target.refresh_dirty_subtrees_settled();
     let stale = || format!("ref {ref_id:?} no longer resolves to a live element; call lurq_inspect again");
     let node = find_node(target, record.node_id).ok_or_else(stale)?;
     // A canvas item's identity is its registered role and label; it acts

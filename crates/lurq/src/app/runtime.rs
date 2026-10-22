@@ -2147,7 +2147,7 @@ impl Tree {
   /// Duplicate ids resolve to the first match, like the DOM; debug builds log
   /// a warning when more than one node carries the id.
   pub fn get_element_by_id(&mut self, id: &str) -> Option<ElementRef<'_>> {
-    self.refresh_dirty_subtrees();
+    self.refresh_dirty_subtrees_settled();
     let root = self.root.as_ref()?;
     let found = find_by_element_id(root, id)?;
     #[cfg(debug_assertions)]
@@ -2166,7 +2166,7 @@ impl Tree {
   /// All nodes carrying the given class (set via the builder `.class("...")`),
   /// in tree order. Pending component re-renders are flushed first.
   pub fn get_elements_by_class_name(&mut self, class: &str) -> Vec<ElementRef<'_>> {
-    self.refresh_dirty_subtrees();
+    self.refresh_dirty_subtrees_settled();
     let mut found = Vec::new();
     if let Some(root) = self.root.as_ref() {
       collect_by_class(root, class, &mut found);
@@ -2179,7 +2179,7 @@ impl Tree {
   /// lookup — handles are not meant to be stored (re-renders replace nodes
   /// wholesale, and the borrow checker enforces the short lifetime).
   pub fn get_element_by_id_mut(&mut self, id: &str) -> Option<ElementHandle<'_>> {
-    self.refresh_dirty_subtrees();
+    self.refresh_dirty_subtrees_settled();
     let node_id = find_by_element_id(self.root.as_ref()?, id)?.node_id();
     Some(ElementHandle { tree: self, node_id })
   }
@@ -5912,6 +5912,24 @@ impl Tree {
       };
       self.perf_overlay_frames_since_sample = 0;
       self.perf_overlay_last_sample = now;
+    }
+  }
+
+  /// Refreshes dirty subtrees until none is left, as many times as a pass
+  /// would: a refreshed component may mark others (a provider's readers,
+  /// through `propagate_contexts`), which a single refresh leaves for the
+  /// next. A lookup between passes sees the settled tree.
+  pub(crate) fn refresh_dirty_subtrees_settled(&mut self) {
+    const MAX_REFRESH_PASSES: usize = 8;
+    for _ in 0..MAX_REFRESH_PASSES {
+      let pending = self
+        .root_ctx
+        .as_ref()
+        .is_some_and(|ctx| ctx.any_dirty() && !ctx.is_dirty());
+      if !pending {
+        return;
+      }
+      self.refresh_dirty_subtrees();
     }
   }
 
