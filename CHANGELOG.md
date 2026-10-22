@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.50.0 — 2026-10-22
 
 Behaviour changes:
 
@@ -16,7 +16,7 @@ Added:
 - `VirtualizedList::bootstrap_rows(n)`: how many rows the list renders before it has measured one (16 by default).
 - `Ctx::provide_if_changed(value)`: `provide`, unless the value equals the one this component provided before (`PartialEq`), in which case the descendants that read it see the same providing and do not render again. In `render` the value is compared with the previous render's; in `create` or a handler, with the one provided there.
 
-## 0.49.1 — 2026-10-21
+## 0.50.0 — 2026-10-21
 
 Behaviour changes:
 
