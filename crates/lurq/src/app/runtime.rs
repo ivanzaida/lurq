@@ -5915,25 +5915,22 @@ impl Tree {
     }
   }
 
-  /// Refreshes dirty subtrees until none is left, as many times as a pass
-  /// would: a refreshed component may mark others (a provider's readers,
-  /// through `propagate_contexts`), which a single refresh leaves for the
-  /// next. A lookup between passes sees the settled tree.
+  /// Refreshes dirty subtrees while a refresh replaces something, up to as
+  /// many times as a pass flushes: a refreshed component may mark others (a
+  /// provider's readers, through `propagate_contexts`), which a single
+  /// refresh leaves for the next. A lookup between passes sees the settled
+  /// subtrees; a dirty root itself waits for the pass, as it did.
   pub(crate) fn refresh_dirty_subtrees_settled(&mut self) {
     const MAX_REFRESH_PASSES: usize = 8;
     for _ in 0..MAX_REFRESH_PASSES {
-      let pending = self
-        .root_ctx
-        .as_ref()
-        .is_some_and(|ctx| ctx.any_dirty() && !ctx.is_dirty());
-      if !pending {
+      if !self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) || !self.refresh_dirty_subtrees() {
         return;
       }
-      self.refresh_dirty_subtrees();
     }
   }
 
-  pub(crate) fn refresh_dirty_subtrees(&mut self) {
+  /// Returns whether a subtree was replaced.
+  pub(crate) fn refresh_dirty_subtrees(&mut self) -> bool {
     #[cfg(feature = "perf_profile")]
     let mut _profile_update = self
       .profiling
@@ -5945,7 +5942,7 @@ impl Tree {
         let dirty_after_refresh = ctx.any_dirty();
         (replacements, dirty_after_refresh)
       }
-      None => return,
+      None => return false,
     };
 
     if replacements.is_empty() {
@@ -5956,7 +5953,7 @@ impl Tree {
         );
         self.needs_redraw = true;
       }
-      return;
+      return false;
     }
     #[cfg(feature = "perf_profile")]
     _profile_update.commit();
@@ -5983,6 +5980,7 @@ impl Tree {
     self.needs_redraw = true;
     self.refresh_interaction_state();
     self.apply_focus_request();
+    true
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {

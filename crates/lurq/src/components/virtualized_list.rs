@@ -382,7 +382,14 @@ struct VirtualizedRuntime<T> {
 #[derive(Clone, Copy)]
 enum BootstrapRestore {
   End,
-  Offset(f32),
+  /// An offset, and the farthest the content let the list scroll when it was
+  /// last queued (none before): the content is sized from the estimate,
+  /// which the rows measured at that end refine, so the offset is queued
+  /// again while the end moves out, until the list lands on it.
+  Offset {
+    offset: f32,
+    reached: Option<f32>,
+  },
 }
 
 struct ScrollAnchor {
@@ -1108,7 +1115,7 @@ impl<T> VirtualizedRuntime<T> {
     } else if opens_at_end {
       Some(BootstrapRestore::End)
     } else if offset > 0.0 {
-      Some(BootstrapRestore::Offset(offset))
+      Some(BootstrapRestore::Offset { offset, reached: None })
     } else {
       None
     };
@@ -1122,9 +1129,12 @@ impl<T> VirtualizedRuntime<T> {
 
   /// Queues again the scroll the bootstrap rows could not hold, once they
   /// are measured, unless the list was scrolled elsewhere since: the offset
-  /// the first layout settled on is the one that scroll gave within those
-  /// rows, so another offset is someone's scroll, which stands. Returns
-  /// whether a scroll was queued.
+  /// the layout settled on is the one that scroll gave within the content it
+  /// had, so another offset is someone's scroll, which stands. An offset the
+  /// content, sized from the estimate, is still too short for is queued
+  /// again while the content grows with the rows measured at its end; one
+  /// the content stops short of is given up. Returns whether a scroll was
+  /// queued.
   fn restore_bootstrap_scroll(&mut self, scroll_state: &ScrollState) -> bool {
     let Some(restore) = self.bootstrap_restore else {
       return false;
@@ -1132,18 +1142,31 @@ impl<T> VirtualizedRuntime<T> {
     if self.heights.is_empty() {
       return false;
     }
-    self.bootstrap_restore = None;
     let max_scroll = (scroll_state.content_height() - scroll_state.viewport_height()).max(0.0);
-    let expected = match restore {
-      BootstrapRestore::End => max_scroll,
-      BootstrapRestore::Offset(offset) => offset.min(max_scroll),
+    let (target, reached) = match restore {
+      BootstrapRestore::End => (max_scroll, None),
+      BootstrapRestore::Offset { offset, reached } => (offset, reached),
     };
-    if (scroll_state.scroll_y() - expected).abs() > REVEAL_EPSILON {
+    let expected = target.min(max_scroll);
+    let scrolled_elsewhere = (scroll_state.scroll_y() - expected).abs() > REVEAL_EPSILON;
+    let landed = matches!(restore, BootstrapRestore::Offset { .. }) && expected >= target - REVEAL_EPSILON;
+    let stuck = reached.is_some_and(|reached| max_scroll <= reached + REVEAL_EPSILON);
+    if scrolled_elsewhere || landed || stuck {
+      self.bootstrap_restore = None;
       return false;
     }
     match restore {
-      BootstrapRestore::End => scroll_state.scroll_to_bottom_pending(),
-      BootstrapRestore::Offset(offset) => scroll_state.set_scroll_pending(scroll_state.scroll_x(), offset),
+      BootstrapRestore::End => {
+        self.bootstrap_restore = None;
+        scroll_state.scroll_to_bottom_pending();
+      }
+      BootstrapRestore::Offset { offset, .. } => {
+        self.bootstrap_restore = Some(BootstrapRestore::Offset {
+          offset,
+          reached: Some(max_scroll),
+        });
+        scroll_state.set_scroll_pending(scroll_state.scroll_x(), offset);
+      }
     }
     true
   }

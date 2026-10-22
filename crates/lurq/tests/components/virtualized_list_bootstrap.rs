@@ -11,7 +11,7 @@ use std::{
 };
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx},
+  app::{App, Tree, component::Component, ctx::Ctx, events::ScrollPhase},
   components::{Column, VirtualizedList},
   layout::layout_kind::ScrollState,
   node::{Element, dimension::Dimension},
@@ -121,12 +121,16 @@ impl Component for Root {
 }
 
 fn lines(count: usize, generation: u32, height: f32, rendered: &Rendered) -> Arc<Vec<Line>> {
+  lines_of(count, generation, |_| height, rendered)
+}
+
+fn lines_of(count: usize, generation: u32, height: impl Fn(usize) -> f32, rendered: &Rendered) -> Arc<Vec<Line>> {
   Arc::new(
     (0..count)
       .map(|index| Line {
         index,
         generation,
-        height,
+        height: height(index),
         rendered: rendered.clone(),
       })
       .collect(),
@@ -354,6 +358,12 @@ impl List {
     self.scroll.scroll_y()
   }
 
+  /// Turns the wheel over the list: a positive `delta` scrolls toward the end.
+  fn wheel(&mut self, delta: f32) {
+    self.tree.scroll(10.0, 10.0, 0.0, -delta, ScrollPhase::Scroll);
+    run_pass(&mut self.tree);
+  }
+
   fn update(&mut self, lines: Arc<Vec<Line>>, list_key: &'static str) {
     self.tree.update_root_props::<Root>(ListProps {
       lines,
@@ -383,6 +393,50 @@ fn a_list_opened_at_an_offset_lands_there() {
       first_in_view + 1
     );
   }
+}
+
+/// A deep offset in a list whose first rows are short: the content sized from
+/// their estimate stops short of the offset, so the restore is queued again
+/// while the rows measured at the end push the content out, until it lands.
+#[test]
+fn a_deep_offset_is_restored_while_the_estimate_grows_to_reach_it() {
+  let rendered: Rendered = Arc::default();
+  let scroll = Arc::new(ScrollState::new());
+  scroll.set_scroll_pending(0.0, 3000.0);
+  let mut tree = Tree::new();
+  tree.mount_root::<Root>(
+    &mut App::new(),
+    ListProps {
+      lines: lines_of(ROWS, 0, |index| if index < 16 { 10.0 } else { 200.0 }, &rendered),
+      scroll: SharedScroll(scroll.clone()),
+      reveal: None,
+      bootstrap_rows: None,
+      list_key: "vlist",
+    },
+  );
+  run_pass(&mut tree);
+  let mut list = List { tree, scroll, rendered };
+  list.settle();
+  assert_near(list.scroll_y(), 3000.0, "opened at the offset");
+  assert!(
+    list.scroll.content_height() - VIEW_HEIGHT > 3000.0 + 1.0,
+    "and not at the end of a content of {}",
+    list.scroll.content_height()
+  );
+}
+
+/// A scroll of the person's right after the restore was queued stands: the
+/// restore is not queued again over it.
+#[test]
+fn a_scroll_after_the_restore_stands() {
+  // The bootstrap rows hold 1600 px, so the offset is clamped to 1000 and the
+  // restore queued; the wheel then moves the list before it lands.
+  let mut list = List::mount(ROWS, ROW_HEIGHT, Open::At(8000.0));
+  assert_near(list.scroll_y(), 1000.0, "clamped to the bootstrap rows");
+  list.wheel(-300.0);
+  assert_near(list.scroll_y(), 700.0, "the wheel moved the list");
+  list.settle();
+  assert_near(list.scroll_y(), 700.0, "the person's scroll stands");
 }
 
 /// A list mounted under another key, with the scroll state of the list before

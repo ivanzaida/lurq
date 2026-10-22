@@ -103,6 +103,79 @@ impl Component for Owner {
   }
 }
 
+/// Reads no context; its `for_each` items hold a `for_each` each, whose
+/// items read `Shown`.
+struct NestedOwner;
+
+impl Component for NestedOwner {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let outer = ctx.for_each(
+      ["a", "b"],
+      |item| *item,
+      |ctx, outer| {
+        let inner = ctx.for_each(
+          ["x", "y"],
+          |item| *item,
+          move |ctx, inner| {
+            let shown = ctx.use_context::<Shown>().map_or(0, |shown| shown.0);
+            Column::new().id(format!("item-{outer}-{inner}-{shown}")).into()
+          },
+        );
+        let mut column = Column::new();
+        for item in inner {
+          column = column.child(item);
+        }
+        column.into()
+      },
+    );
+    let mut column = Column::new();
+    for item in outer {
+      column = column.child(item);
+    }
+    column
+  }
+}
+
+/// Provides `Shown` in its render above `NestedOwner`.
+struct NestedRoot;
+
+impl Component for NestedRoot {
+  type Props = i32;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    ctx.provide(Shown(*ctx.props::<Self::Props>()));
+    Column::new().child(ctx.mount::<NestedOwner>(()))
+  }
+}
+
+#[test]
+fn for_each_items_nested_in_for_each_items_are_rendered_by_their_owner() {
+  let mut tree = Tree::new();
+  tree.mount_root::<NestedRoot>(&mut App::new(), 1);
+  run_pass(&mut tree);
+  assert!(has(&mut tree, "item-a-x-1") && has(&mut tree, "item-b-y-1"));
+
+  tree.update_root_props::<NestedRoot>(2);
+  for _ in 0..4 {
+    run_pass(&mut tree);
+  }
+  assert!(
+    has(&mut tree, "item-a-x-2") && has(&mut tree, "item-b-y-2"),
+    "the nested items show the new value"
+  );
+  assert!(!has(&mut tree, "item-a-x-1"));
+}
+
 fn mount_items(items_provide: bool) -> Tree {
   let mut tree = Tree::new();
   tree.mount_root::<ShownRoot>(
