@@ -53,9 +53,10 @@ fn debug_build_tint(build_seq: u64) -> crate::node::color::Color {
 /// Upper bound on not-yet-measured rows mounted per frame while a pending
 /// scroll anchor needs exact heights.
 const MEASURE_CHUNK: usize = 256;
-/// Rows rendered on the very first pass, before any height is known; their
-/// measured heights seed the estimate that sizes the rest of the list.
-const BOOTSTRAP_ROWS: usize = 64;
+/// Rows rendered on the very first pass, before any height is known, from
+/// where the list opens; their measured heights seed the estimate that sizes
+/// the rest of the list. See [`VirtualizedList::bootstrap_rows`].
+const DEFAULT_BOOTSTRAP_ROWS: usize = 16;
 
 #[derive(Clone, Default)]
 struct VirtualizedListOptions {
@@ -69,6 +70,9 @@ struct VirtualizedListOptions {
   top_handlers: Vec<EventHandler<ScrollEvent>>,
   bottom_handlers: Vec<EventHandler<ScrollEvent>>,
   list_key: Option<String>,
+  /// Rows rendered before any height is known; see
+  /// [`VirtualizedList::bootstrap_rows`].
+  bootstrap_rows: usize,
   /// Scroll horizontally too (rows wider than the viewport pan; virtualization
   /// still works off the vertical axis only).
   horizontal: bool,
@@ -128,6 +132,7 @@ impl<'a, T> VirtualizedList<'a, T> {
       items,
       options: VirtualizedListOptions {
         overscan_px: DEFAULT_OVERSCAN_PX,
+        bootstrap_rows: DEFAULT_BOOTSTRAP_ROWS,
         ..VirtualizedListOptions::default()
       },
     }
@@ -140,6 +145,19 @@ impl<'a, T> VirtualizedList<'a, T> {
 
   pub fn overscan_px(mut self, overscan_px: f32) -> Self {
     self.options.overscan_px = overscan_px.max(0.0);
+    self
+  }
+
+  /// How many rows the list renders before it has measured one (16 by
+  /// default): the viewport is not laid out yet, so the first pass cannot
+  /// size its window, and these rows' heights seed the estimate the next
+  /// pass sizes it with. They are taken from where the list opens: its end
+  /// when `scroll_to_bottom_pending` was queued on its scroll state, the row
+  /// of its [`reveal_key`](Self::reveal_key), or else its top. A list whose
+  /// rows are tall (a chat of long replies) passes fewer, one whose rows are
+  /// short passes about a viewport's worth so its first frame is full.
+  pub fn bootstrap_rows(mut self, rows: usize) -> Self {
+    self.options.bootstrap_rows = rows.max(1);
     self
   }
 
@@ -309,6 +327,17 @@ where
 
 struct VirtualizedRuntime<T> {
   heights: HashMap<String, f32>,
+  /// The average measured height, kept when the items are swapped for others
+  /// (another conversation under the same list) so the new rows are windowed
+  /// where the list opens instead of bootstrapped from its top again.
+  estimate: Option<f32>,
+  /// Where the list opens, when the bootstrap rows could not be taken from
+  /// there or could not hold it: the content of the first layout is those
+  /// rows alone, so a queued scroll to the end lands on them, and an offset
+  /// (a queued `set_scroll_pending`, the offset a shared scroll state keeps
+  /// from before) is clamped to them. Once they are measured, the scroll is
+  /// queued again, so the window built from the estimate lands there.
+  bootstrap_restore: Option<BootstrapRestore>,
   /// The item list as of the last change, for cheap change detection — the
   /// steady-state scroll path must not rebuild keys or maps per frame.
   /// Compared by pointer first, contents only when the pointer changed.
@@ -348,6 +377,21 @@ struct VirtualizedRuntime<T> {
   last_hole: Option<String>,
 }
 
+/// A scroll the bootstrap rows could not hold; see
+/// `VirtualizedRuntime::bootstrap_restore`.
+#[derive(Clone, Copy)]
+enum BootstrapRestore {
+  End,
+  /// An offset, and the farthest the content let the list scroll when it was
+  /// last queued (none before): the content is sized from the estimate,
+  /// which the rows measured at that end refine, so the offset is queued
+  /// again while the end moves out, until the list lands on it.
+  Offset {
+    offset: f32,
+    reached: Option<f32>,
+  },
+}
+
 struct ScrollAnchor {
   key: String,
   offset: f32,
@@ -361,6 +405,8 @@ impl<T> Default for VirtualizedRuntime<T> {
   fn default() -> Self {
     Self {
       heights: HashMap::new(),
+      estimate: None,
+      bootstrap_restore: None,
       items_snapshot: Arc::new(Vec::new()),
       order: Vec::new(),
       prefix: vec![0.0],
@@ -673,6 +719,7 @@ where
         }
       }
 
+      changed |= runtime.restore_bootstrap_scroll(&scroll_state);
       changed |= runtime.apply_pending_reveal(&scroll_state);
     }
 
@@ -844,9 +891,22 @@ where
         // restore and every retained height is meaningless — chasing an
         // anchor here forced a measure march across the whole new list
         // (seconds of first-render jank on multi-thousand-row tables).
-        // Reset to a fresh bootstrap at the top instead.
+        // The heights go; their average stays as the estimate, so the new
+        // rows are windowed where the list opens (its top, or the end a
+        // queued scroll asks for) instead of bootstrapped from the top.
         runtime.heights.clear();
         runtime.pending_anchor = None;
+        // An offset the list itself queued again, to open the rows before
+        // at it, is not a place in these rows: it goes with them. An offset
+        // the app queued for them stays.
+        if let Some(BootstrapRestore::Offset {
+          offset,
+          reached: Some(_),
+        }) = runtime.bootstrap_restore
+        {
+          scroll_state.drop_pending_scroll_y_offset(offset);
+        }
+        runtime.bootstrap_restore = None;
         scroll_state.set_scroll(0.0, 0.0);
       } else {
         if runtime.order != keys && runtime.pending_anchor.is_none() && !scroll_requested && !runtime.order.is_empty() {
@@ -890,19 +950,19 @@ where
     runtime.rebuild_prefix_if_dirty();
 
     let count = runtime.order.len();
-    let has_measurements = !runtime.heights.is_empty();
+    let has_estimate = runtime.estimate.is_some();
     // The layout that follows this render may move the offset without a
     // scroll event: a pending scroll resolves, and an offset at the bottom
     // follows the new end as estimates refine. The window is built where the
     // offset will land, so that layout draws rows there instead of a viewport
     // hole (healed only a frame later).
-    let window_y = if has_measurements {
+    let window_y = if has_estimate {
       scroll_state.next_layout_scroll_y(runtime.prefix[count])
     } else {
       scroll_state.scroll_y()
     };
 
-    let visible_range = if has_measurements {
+    let visible_range = if has_estimate {
       visible_range_from_prefix(
         &runtime.prefix,
         window_y,
@@ -910,9 +970,7 @@ where
         options.overscan_px,
       )
     } else {
-      // Nothing measured yet: render a small seed batch; its measured heights
-      // become the estimate that sizes everything else.
-      (0, count.min(BOOTSTRAP_ROWS))
+      runtime.bootstrap_range(scroll_state, options.bootstrap_rows)
     };
     let mut rendered_indices: Vec<usize> = (visible_range.0..visible_range.1).collect();
     // A pending anchor (same rows re-shaped in place) restores an exact
@@ -931,7 +989,7 @@ where
       rendered_indices.sort_unstable();
       rendered_indices.dedup();
     }
-    let total_height = has_measurements.then(|| runtime.prefix[count]);
+    let total_height = has_estimate.then(|| runtime.prefix[count]);
     // Only the handful of rendered rows need owned keys/offsets.
     let rendered: Vec<(usize, String, f32, f32)> = rendered_indices
       .into_iter()
@@ -1025,11 +1083,14 @@ impl<T> VirtualizedRuntime<T> {
         height
       })
       .collect();
-    let estimate = if measured_count > 0 {
-      (measured_sum / measured_count as f64) as f32
-    } else {
-      0.0
-    };
+    if measured_count > 0 {
+      // Rows measured at no height (collapsed, not yet laid out) give no
+      // estimate: a window sized from a zero estimate holds no row and so
+      // never measures one.
+      let average = (measured_sum / measured_count as f64) as f32;
+      self.estimate = (average > 0.0).then_some(average);
+    }
+    let estimate = self.estimate.unwrap_or(0.0);
     let mut prefix = Vec::with_capacity(row_heights.len() + 1);
     let mut sum = 0.0f32;
     prefix.push(0.0);
@@ -1039,6 +1100,86 @@ impl<T> VirtualizedRuntime<T> {
     }
     self.prefix = prefix;
     self.prefix_dirty = false;
+  }
+
+  /// The rows rendered before any height is known, no more than `rows` of
+  /// them, from where the list opens: a revealed row (`reveal_key`) comes
+  /// first, then the end for a queued scroll to the bottom, else the top. A
+  /// chat opened at its end builds and lays out its last rows only, however
+  /// long it is; its first rows wait until they are scrolled to. An offset
+  /// to open at (queued, or kept by a shared scroll state) names no row
+  /// while no height is known: the rows come from the top and the offset is
+  /// restored once they are measured.
+  fn bootstrap_range(&mut self, scroll_state: &ScrollState, rows: usize) -> (usize, usize) {
+    let count = self.order.len();
+    let rows = rows.max(1).min(count);
+    let revealed = self
+      .pending_reveal
+      .as_ref()
+      .and_then(|key| self.order.iter().position(|k| k == key));
+    let opens_at_end = revealed.is_none() && scroll_state.opens_at_end();
+    let offset = scroll_state
+      .pending_scroll_y_offset()
+      .unwrap_or_else(|| scroll_state.scroll_y());
+    self.bootstrap_restore = if revealed.is_some() {
+      None
+    } else if opens_at_end {
+      Some(BootstrapRestore::End)
+    } else if offset > 0.0 {
+      Some(BootstrapRestore::Offset { offset, reached: None })
+    } else {
+      None
+    };
+    let start = match revealed {
+      Some(index) => index.min(count - rows),
+      None if opens_at_end => count - rows,
+      None => 0,
+    };
+    (start, start + rows)
+  }
+
+  /// Queues again the scroll the bootstrap rows could not hold, once they
+  /// are measured, unless the list was scrolled elsewhere since: the offset
+  /// the layout settled on is the one that scroll gave within the content it
+  /// had, so another offset is someone's scroll, which stands. An offset the
+  /// content, sized from the estimate, is still too short for is queued
+  /// again while the content grows with the rows measured at its end; one
+  /// the content stops short of is given up. Returns whether a scroll was
+  /// queued.
+  fn restore_bootstrap_scroll(&mut self, scroll_state: &ScrollState) -> bool {
+    let Some(restore) = self.bootstrap_restore else {
+      return false;
+    };
+    if self.heights.is_empty() {
+      return false;
+    }
+    let max_scroll = (scroll_state.content_height() - scroll_state.viewport_height()).max(0.0);
+    let (target, reached) = match restore {
+      BootstrapRestore::End => (max_scroll, None),
+      BootstrapRestore::Offset { offset, reached } => (offset, reached),
+    };
+    let expected = target.min(max_scroll);
+    let scrolled_elsewhere = (scroll_state.scroll_y() - expected).abs() > REVEAL_EPSILON;
+    let landed = matches!(restore, BootstrapRestore::Offset { .. }) && expected >= target - REVEAL_EPSILON;
+    let stuck = reached.is_some_and(|reached| max_scroll <= reached + REVEAL_EPSILON);
+    if scrolled_elsewhere || landed || stuck {
+      self.bootstrap_restore = None;
+      return false;
+    }
+    match restore {
+      BootstrapRestore::End => {
+        self.bootstrap_restore = None;
+        scroll_state.scroll_to_bottom_pending();
+      }
+      BootstrapRestore::Offset { offset, .. } => {
+        self.bootstrap_restore = Some(BootstrapRestore::Offset {
+          offset,
+          reached: Some(max_scroll),
+        });
+        scroll_state.set_scroll_pending(scroll_state.scroll_x(), offset);
+      }
+    }
+    true
   }
 
   /// Reveal the requested row: when it is not already fully visible, scroll

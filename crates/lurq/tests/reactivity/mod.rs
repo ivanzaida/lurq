@@ -17,12 +17,15 @@ mod effect;
 mod measured_rect;
 #[cfg(feature = "i18n")]
 mod i18n;
+mod lookup_refresh;
 mod memo;
 mod modal;
 mod offstage;
 mod offstage_runtime_state;
 mod provided_context;
 mod reentrant_writes;
+mod render_provided_context;
+mod render_provided_context_tree;
 mod signal;
 mod store;
 mod theme;

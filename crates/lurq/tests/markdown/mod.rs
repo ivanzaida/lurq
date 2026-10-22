@@ -6,6 +6,7 @@ mod link_blocks;
 mod link_direction;
 mod link_geometry;
 mod link_input;
+mod link_layout_settles;
 mod link_tooltip;
 mod link_tooltip_scroll;
 mod links;

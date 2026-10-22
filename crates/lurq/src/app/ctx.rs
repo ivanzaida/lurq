@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicUsize;
 #[cfg(feature = "devtools")]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
-  any::Any,
+  any::{Any, TypeId},
   collections::HashSet,
   sync::{
     Arc,
@@ -709,6 +709,17 @@ pub struct Ctx {
   base_contexts: ContextMap,
   /// Revision of the parent's context map the inherited values were taken from.
   inherited_context_revision: u64,
+  /// The types this component read from its contexts (`use_context`,
+  /// `consume_context`), in `create`, a render or a handler: a change of
+  /// an inherited value of one of them renders the component again, a
+  /// change of any other does not.
+  context_reads: Vec<TypeId>,
+  /// Whether the last render provided a value: such a component renders
+  /// again whenever its inherited contexts change, so it provides again.
+  provided_in_render: bool,
+  /// The map the previous render left, while this one renders: a value
+  /// `provide_if_changed` finds unchanged in it keeps its entry.
+  previous_render_contexts: Option<ContextMap>,
   slot_children: Option<Vec<Element>>,
   children: Vec<ChildSlot>,
   child_cursor: usize,
@@ -1152,6 +1163,9 @@ impl Ctx {
       provided_contexts: ContextMap::default(),
       base_contexts: ContextMap::default(),
       inherited_context_revision: 0,
+      context_reads: Vec::new(),
+      provided_in_render: false,
+      previous_render_contexts: None,
       slot_children: None,
       children: Vec::new(),
       child_cursor: 0,
@@ -1676,15 +1690,65 @@ impl Ctx {
   /// belongs to that render: later code in the render and the children it
   /// mounts see it, and the next render starts without it unless it is
   /// provided again.
+  ///
+  /// A provided value counts as new, since nothing compares it: the
+  /// descendants that read its type render again, the others do not. A
+  /// render that provides a value it computes every time passes it with
+  /// [`provide_if_changed`](Self::provide_if_changed) so an equal value
+  /// renders nothing again.
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
     self.store_context(value);
   }
 
+  /// [`provide`](Self::provide), unless the value equals the one this
+  /// component provided before: then the descendants that read it see the
+  /// same providing and do not render again for it. In `render` the value
+  /// is compared with the previous render's, also when this render was
+  /// caused by a change of the inherited contexts; in `create` or a
+  /// handler, with the one provided there.
+  pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + 'static>(&mut self, value: T) {
+    #[cfg(feature = "devtools")]
+    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    let id = TypeId::of::<T>();
+    if self.rendering {
+      let unchanged = self
+        .previous_render_contexts
+        .as_ref()
+        .and_then(|previous| previous.entry(id))
+        .filter(|entry| entry.value::<T>() == Some(&value))
+        .cloned();
+      match unchanged {
+        Some(entry) => {
+          self.context_map.insert(id, entry);
+          // With every entry the previous render left in place, the map is
+          // that render's: the children mounted after this find nothing
+          // to inherit.
+          if let Some(previous) = &self.previous_render_contexts
+            && self.context_map.has_same_entries(previous)
+          {
+            self.context_map.set_revision(previous.revision());
+          }
+        }
+        None => self.context_map.provide(value),
+      }
+      self.provided_in_render = true;
+      return;
+    }
+    let unchanged = self
+      .provided_contexts
+      .entry(id)
+      .is_some_and(|entry| entry.value::<T>() == Some(&value));
+    if !unchanged {
+      self.store_context(value);
+    }
+  }
+
   fn store_context<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     if self.rendering {
       self.context_map.provide(value);
+      self.provided_in_render = true;
       return;
     }
     self.provided_contexts.provide(value.clone());
@@ -1692,9 +1756,16 @@ impl Ctx {
     self.context_map = self.base_contexts.clone();
   }
 
+  fn note_context_read(&mut self, id: TypeId) {
+    if !self.context_reads.contains(&id) {
+      self.context_reads.push(id);
+    }
+  }
+
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
     #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Consumed, std::any::type_name::<T>());
+    self.note_context_read(TypeId::of::<T>());
     self.context_map.get::<T>()
   }
 
@@ -1722,6 +1793,7 @@ impl Ctx {
       ComponentContextKind::Consumed,
       std::any::type_name::<ReactiveContext<T>>(),
     );
+    self.note_context_read(TypeId::of::<ReactiveContext<T>>());
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     let dirty = self.dirty.clone();
     let subtree_dirty = self.subtree_dirty.clone();
@@ -1734,16 +1806,76 @@ impl Ctx {
   }
 
   /// Takes the contexts `parent` passes down, keeping the values this
-  /// component provided on top. Returns whether the inherited contexts changed
-  /// since the last call.
-  fn inherit_contexts(&mut self, parent: &ContextMap) -> bool {
+  /// component provided on top, and tells whether the component renders
+  /// again for them: when a value it read changed, or when its last render
+  /// provided a value, which only a render provides again.
+  fn inherit_contexts(&mut self, parent: &ContextMap) -> Inherited {
     if self.inherited_context_revision == parent.revision() {
-      return false;
+      return Inherited::Same;
     }
     self.inherited_context_revision = parent.revision();
-    self.base_contexts = ContextMap::layered(parent, &self.provided_contexts);
+    let left_by_render = self.context_map.revision() != self.base_contexts.revision();
+    let previous = std::mem::replace(
+      &mut self.base_contexts,
+      ContextMap::layered(parent, &self.provided_contexts),
+    );
+    // The map the last render left is kept for the next render to compare
+    // its values with (`provide_if_changed`), as `begin_render` keeps it.
+    if left_by_render {
+      self.previous_render_contexts = Some(std::mem::take(&mut self.context_map));
+    }
     self.context_map = self.base_contexts.clone();
-    true
+    let read_changed = self
+      .context_reads
+      .iter()
+      .any(|id| previous.entry_revision(*id) != self.base_contexts.entry_revision(*id));
+    if read_changed || self.provided_in_render {
+      Inherited::Changed
+    } else {
+      Inherited::Refreshed
+    }
+  }
+
+  /// Passes refreshed contexts down a component that does not render again:
+  /// a descendant component that read a changed value is marked dirty and
+  /// renders in place with the pass (`refresh_dirty_subtrees`), the others
+  /// pass the contexts on to theirs. A `for_each` item is rendered by its
+  /// owner's render alone (its closure lives there), so an item that read a
+  /// changed value, or provides, needs its owner rendered again: the nearest
+  /// component above it is marked, or, when that is this component, `true`
+  /// is returned so the caller renders it.
+  fn propagate_contexts(&mut self) -> bool {
+    let contexts = std::mem::take(&mut self.context_map);
+    let mut render_again = false;
+    for slot in self.children.iter_mut().filter(|slot| !slot.offstage) {
+      let for_each_item = slot.component.type_name() == ForEachSlot::TYPE_NAME;
+      let changed = match slot.ctx.inherit_contexts(&contexts) {
+        Inherited::Same => false,
+        Inherited::Refreshed => slot.ctx.propagate_contexts(),
+        Inherited::Changed => true,
+      };
+      if !changed {
+        continue;
+      }
+      if for_each_item {
+        render_again = true;
+      } else {
+        slot.ctx.mark_dirty();
+      }
+    }
+    self.context_map = contexts;
+    render_again
+  }
+
+  /// Marks this component dirty, with its ancestors' subtree flags, and
+  /// wakes the loop when it was clean.
+  fn mark_dirty(&self) {
+    Self::mark_dirty_targets(
+      &self.batch,
+      &self.dirty,
+      &self.subtree_dirty,
+      &self.ancestor_dirty_slots,
+    );
   }
 
   #[cfg(feature = "devtools")]
@@ -2102,7 +2234,7 @@ impl Ctx {
       let slot = &mut self.children[cursor];
       let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
       let props_changed = slot.ctx.props_changed(&props);
-      let context_changed = slot.ctx.inherit_contexts(&self.context_map);
+      let inherited = slot.ctx.inherit_contexts(&self.context_map);
       slot.ctx.slot_children = slot_children;
       if props_changed {
         slot.ctx.set_props(props);
@@ -2116,13 +2248,16 @@ impl Ctx {
       }
 
       slot.offstage = false;
-      let needs_render = has_slot_children
+      let mut needs_render = has_slot_children
         || props_changed
-        || context_changed
+        || inherited == Inherited::Changed
         || slot.ctx.any_dirty()
         || slot.rendered.is_none()
         || slot.offstage_dirty;
       slot.offstage_dirty = false;
+      if !needs_render && inherited == Inherited::Refreshed && slot.ctx.propagate_contexts() {
+        needs_render = true;
+      }
       if needs_render {
         // Carry runtime state over from the previous render, as a dirty
         // refresh does, so `rendered` keeps sharing the live scroll states
@@ -2403,10 +2538,13 @@ impl Ctx {
 
   pub fn begin_render(&mut self) {
     // Values provided by the previous render are dropped; `render` provides
-    // them again if it still wants to.
+    // them again if it still wants to. Their map is kept while it renders:
+    // a value provided again unchanged keeps its entry, and a render that
+    // leaves the same entries gives the map its revision back (`end_render`).
     if self.context_map.revision() != self.base_contexts.revision() {
-      self.context_map = self.base_contexts.clone();
+      self.previous_render_contexts = Some(std::mem::replace(&mut self.context_map, self.base_contexts.clone()));
     }
+    self.provided_in_render = false;
     self.clear_dirty();
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
@@ -2480,6 +2618,11 @@ impl Ctx {
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
     self.rendering = false;
+    if let Some(previous) = self.previous_render_contexts.take()
+      && self.context_map.has_same_entries(&previous)
+    {
+      self.context_map.set_revision(previous.revision());
+    }
     let deps = tracking::stop_tracking();
     let dirty = self.dirty.clone();
     let subtree_dirty = self.subtree_dirty.clone();
@@ -2699,6 +2842,19 @@ impl Ctx {
         .map(ChildSlot::estimated_memory_bytes)
         .sum::<usize>()
   }
+}
+
+/// What a component found in the contexts its parent passes down.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Inherited {
+  /// The parent's map is the one inherited last: nothing to take.
+  Same,
+  /// New values were taken, none the component renders again for; its
+  /// descendants still take them (`propagate_contexts`).
+  Refreshed,
+  /// The component renders again: a value it read changed, or its render
+  /// provides values of its own.
+  Changed,
 }
 
 fn element_ref_is_click_outside(element_ref: &ElementRef, x: f32, y: f32) -> bool {

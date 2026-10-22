@@ -2147,7 +2147,7 @@ impl Tree {
   /// Duplicate ids resolve to the first match, like the DOM; debug builds log
   /// a warning when more than one node carries the id.
   pub fn get_element_by_id(&mut self, id: &str) -> Option<ElementRef<'_>> {
-    self.refresh_dirty_subtrees();
+    self.refresh_dirty_subtrees_settled();
     let root = self.root.as_ref()?;
     let found = find_by_element_id(root, id)?;
     #[cfg(debug_assertions)]
@@ -2166,7 +2166,7 @@ impl Tree {
   /// All nodes carrying the given class (set via the builder `.class("...")`),
   /// in tree order. Pending component re-renders are flushed first.
   pub fn get_elements_by_class_name(&mut self, class: &str) -> Vec<ElementRef<'_>> {
-    self.refresh_dirty_subtrees();
+    self.refresh_dirty_subtrees_settled();
     let mut found = Vec::new();
     if let Some(root) = self.root.as_ref() {
       collect_by_class(root, class, &mut found);
@@ -2179,7 +2179,7 @@ impl Tree {
   /// lookup — handles are not meant to be stored (re-renders replace nodes
   /// wholesale, and the borrow checker enforces the short lifetime).
   pub fn get_element_by_id_mut(&mut self, id: &str) -> Option<ElementHandle<'_>> {
-    self.refresh_dirty_subtrees();
+    self.refresh_dirty_subtrees_settled();
     let node_id = find_by_element_id(self.root.as_ref()?, id)?.node_id();
     Some(ElementHandle { tree: self, node_id })
   }
@@ -5915,7 +5915,22 @@ impl Tree {
     }
   }
 
-  pub(crate) fn refresh_dirty_subtrees(&mut self) {
+  /// Refreshes dirty subtrees while a refresh replaces something, up to as
+  /// many times as a pass flushes: a refreshed component may mark others (a
+  /// provider's readers, through `propagate_contexts`), which a single
+  /// refresh leaves for the next. A lookup between passes sees the settled
+  /// subtrees; a dirty root itself waits for the pass, as it did.
+  pub(crate) fn refresh_dirty_subtrees_settled(&mut self) {
+    const MAX_REFRESH_PASSES: usize = 8;
+    for _ in 0..MAX_REFRESH_PASSES {
+      if !self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) || !self.refresh_dirty_subtrees() {
+        return;
+      }
+    }
+  }
+
+  /// Returns whether a subtree was replaced.
+  pub(crate) fn refresh_dirty_subtrees(&mut self) -> bool {
     #[cfg(feature = "perf_profile")]
     let mut _profile_update = self
       .profiling
@@ -5927,7 +5942,7 @@ impl Tree {
         let dirty_after_refresh = ctx.any_dirty();
         (replacements, dirty_after_refresh)
       }
-      None => return,
+      None => return false,
     };
 
     if replacements.is_empty() {
@@ -5938,7 +5953,7 @@ impl Tree {
         );
         self.needs_redraw = true;
       }
-      return;
+      return false;
     }
     #[cfg(feature = "perf_profile")]
     _profile_update.commit();
@@ -5965,6 +5980,7 @@ impl Tree {
     self.needs_redraw = true;
     self.refresh_interaction_state();
     self.apply_focus_request();
+    true
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {

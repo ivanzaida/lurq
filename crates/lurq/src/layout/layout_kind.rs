@@ -199,6 +199,29 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
+  /// Whether a scroll to the bottom (`scroll_to_bottom_pending`, a stick to
+  /// the bottom) waits for the next layout measurement.
+  pub(crate) fn opens_at_end(&self) -> bool {
+    matches!(self.inner.lock().unwrap().pending_scroll_y, Some(PendingScroll::End))
+  }
+
+  /// The vertical offset a queued `set_scroll_pending` waits to land on.
+  pub(crate) fn pending_scroll_y_offset(&self) -> Option<f32> {
+    match self.inner.lock().unwrap().pending_scroll_y {
+      Some(PendingScroll::Offset(offset)) => Some(offset),
+      _ => None,
+    }
+  }
+
+  /// Drops a queued vertical scroll when it is to `offset` (a
+  /// `set_scroll_pending` whose reason is gone); any other request stays.
+  pub(crate) fn drop_pending_scroll_y_offset(&self, offset: f32) {
+    let mut inner = self.inner.lock().unwrap();
+    if matches!(inner.pending_scroll_y, Some(PendingScroll::Offset(pending)) if pending == offset) {
+      inner.pending_scroll_y = None;
+    }
+  }
+
   /// Whether a vertical scroll request (an offset, an edge or a reveal, not a
   /// prepend anchor) waits for the next layout measurement.
   pub(crate) fn has_pending_scroll_y_request(&self) -> bool {

@@ -108,7 +108,10 @@ impl LayoutEngine {
     result.children = node
       .children()
       .iter()
-      .map(|child| link_child_layout(child, &span_boxes, top))
+      .map(|child| {
+        child.layout_cache.mark_placed_by_parent();
+        link_child_layout(child, &span_boxes, top)
+      })
       .collect();
     let inline = Arc::new(InlineTextLayout {
       top,
