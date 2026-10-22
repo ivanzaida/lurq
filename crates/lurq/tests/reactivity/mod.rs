@@ -23,6 +23,7 @@ mod offstage;
 mod offstage_runtime_state;
 mod provided_context;
 mod reentrant_writes;
+mod render_provided_context;
 mod signal;
 mod store;
 mod theme;

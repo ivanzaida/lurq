@@ -160,6 +160,14 @@ impl LayoutCache {
     self.clear_dirty();
   }
 
+  /// The node was placed by its parent's layout and holds no result of its
+  /// own (an inline link, placed by its paragraph): the marks that asked for
+  /// its layout are consumed by the parent's. A mark left behind would keep
+  /// the layout dirty for every pass, since no store of its own clears it.
+  pub(crate) fn mark_placed_by_parent(&self) {
+    self.clear_dirty();
+  }
+
   pub(crate) fn mark_local_dirty(&self) {
     self.local_dirty.set(true);
   }

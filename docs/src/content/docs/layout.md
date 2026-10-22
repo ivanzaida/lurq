@@ -415,6 +415,16 @@ Use `reveal_key` for rows of a `VirtualizedList`: only the rows in and near the 
 any other row does not exist to be scrolled to. `ctx.scroll_into_view` does reach an element inside a mounted row, for
 example a field in the row being edited.
 
+Before the list has measured a row it cannot size its window (the viewport is not laid out yet), so its first pass
+renders a fixed number of bootstrap rows, 16 by default or `.bootstrap_rows(n)`, whose heights seed the estimate the
+next pass sizes the window with. They come from where the list opens: the last rows when `scroll_to_bottom_pending` was
+queued on its `ScrollState` (a chat), the rows from the `reveal_key`'s row, or else the first rows. A chat of 300 long
+replies opened at its end builds and lays out its last 16 only, however long it is; its first rows are built when they
+are scrolled to. A list whose rows are tall passes fewer; one whose rows are short can pass about a viewport's worth so
+its first frame is full. When the items are swapped for others whose keys all differ (another conversation under the
+same list), the measured heights go but their average stays as the estimate, so the new rows are windowed where the
+list opens, about a viewport's worth, instead of bootstrapped again.
+
 ### Row state in a virtualized list
 
 A row that scrolls out of the rendered window (the viewport and `overscan_px` beyond it) is unmounted, and it is created

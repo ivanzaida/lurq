@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+Behaviour changes:
+
+- A `VirtualizedList` bootstraps from where it opens. Before it has measured a row it cannot size its window (the viewport is not laid out yet), so its first pass renders a fixed number of bootstrap rows whose heights seed the estimate the next pass sizes the window with. It rendered its first 64 rows, from the top, whatever the list was asked to open on, so a chat opened at its end (`scroll_to_bottom_pending` on its `ScrollState`) built and laid out its 64 oldest turns before rendering its newest, and did so again whenever another conversation was swapped in under it (no key survives, so the heights were cleared). It now renders 16 rows (`.bootstrap_rows(n)` sets another number), taken from the end when a scroll to the bottom is queued, from the `reveal_key`'s row when there is one, or else from the top. A list opened at its end builds its last 16 rows and none from its top, the same work for 300 rows and for 3,000; its first rows are built when they are scrolled to. When those rows are shorter than the viewport, the queued scroll is kept until the window is sized from their measured heights, so the list still lands at its end. A list opened at its top renders its first rows, as before, 16 instead of 64: a list of short rows fills its viewport one frame later than it did, and passes a larger `bootstrap_rows` if that frame matters. When the items are swapped for others whose keys all differ, the measured heights go but their average stays as the estimate, so the new rows are windowed where the list opens, about a viewport's worth, instead of bootstrapped from the top again.
+- A context provided in `render` renders again only the descendants that read it. A component renders again for a context when a value of a type it read (`use_context`, `consume_context`, in `create`, a render or a handler) is provided anew, or when its own render provides values, since only a render provides them again; every other component keeps its rendered tree and passes the contexts on, so a reader below one renders in place with the pass and sees the new value. A component providing values in its render used to render every descendant again, read or not. `provide` still compares nothing: each call is a new providing, and the readers of that type render again; `Ctx::provide_if_changed` keeps the earlier providing while the value is equal (`PartialEq`), so nothing renders again for it.
+
+Fixes:
+
+- A `Markdown` document with a link in it kept the window's layout dirty: every idle pass found it dirty and laid the window out again, for as long as the document was shown (a chat showing a reply with a link relaid its window on every frame, ~2–3 ms in release). A link's node is placed by its paragraph's layout and holds no layout of its own, so the marks that ask for its layout (its anchor's attachment, a hover or focus style) were never consumed; the paragraph's layout now consumes them. A document without a link settled as before, and one with a link settles with it; a hovered link whose style keeps its metrics is painted, not laid out again.
+
+Added:
+
+- `VirtualizedList::bootstrap_rows(n)`: how many rows the list renders before it has measured one (16 by default).
+- `Ctx::provide_if_changed(value)`: `provide`, unless the value equals the one this component provided before (`PartialEq`), in which case the descendants that read it see the same providing and do not render again. In `render` the value is compared with the previous render's; in `create` or a handler, with the one provided there.
+
 ## 0.49.1 — 2026-10-21
 
 Behaviour changes:

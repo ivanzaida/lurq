@@ -25,8 +25,13 @@ use tracing::{
 use crate::support::run_pass;
 
 const VIEW_H: f32 = 100.0;
-/// Fewer rows than the list's first (bootstrap) window: every height is known
-/// after the first pass, so an anchor restores in the pass that captured it.
+/// The rows the list renders before it has measured one, asked for with
+/// `bootstrap_rows`: more than the short list, so every height of it is known
+/// after the first pass and the positions these tests compute from the rows'
+/// heights are the list's.
+const BOOTSTRAP: usize = 64;
+/// Fewer rows than the bootstrap window: every height is known after the
+/// first pass, so an anchor restores in the pass that captured it.
 const SHORT_LIST: usize = 40;
 /// Far more rows than one measure-march chunk: an anchor waits frames for
 /// every height before it restores.
@@ -85,6 +90,7 @@ impl Component for Root {
     VirtualizedList::new(ctx, items)
       .size(100.0, VIEW_H)
       .overscan_px(0.0)
+      .bootstrap_rows(BOOTSTRAP)
       .with_scroll_state((*scroll.0).clone())
       .reveal_key(reveal)
       .mount_keyed::<Row, _, _, _>(|row| row.id, |row| (*row).clone())

@@ -59,8 +59,11 @@ fn mount(reveal: Option<&str>) -> Tree {
   tree
 }
 
+/// Passes enough for a reveal to settle: the rows above the revealed one are
+/// placed from the average of the measured heights, which the tall row of
+/// `TallRoot` skews until the rows measured around the reveal outweigh it.
 fn settle(tree: &mut Tree) {
-  for _ in 0..6 {
+  for _ in 0..12 {
     run_pass(tree);
   }
 }

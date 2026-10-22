@@ -199,6 +199,12 @@ impl ScrollState {
     inner.scroll_dirty = true;
   }
 
+  /// Whether a scroll to the bottom (`scroll_to_bottom_pending`, a stick to
+  /// the bottom) waits for the next layout measurement.
+  pub(crate) fn opens_at_end(&self) -> bool {
+    matches!(self.inner.lock().unwrap().pending_scroll_y, Some(PendingScroll::End))
+  }
+
   /// Whether a vertical scroll request (an offset, an edge or a reveal, not a
   /// prepend anchor) waits for the next layout measurement.
   pub(crate) fn has_pending_scroll_y_request(&self) -> bool {
