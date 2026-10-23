@@ -9,7 +9,11 @@ use lurq::{
   app::{App, Tree, component::Component, ctx::Ctx, events::ScrollPhase, theme::ThemeMarkdown},
   components::{Column, Markdown, MarkdownProps, Rect, ScrollVertical},
   core::ElementRect,
-  layout::{Alignment, quad::QuadContent},
+  layout::{
+    Alignment,
+    quad::QuadContent,
+    scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
+  },
   node::{Element, color::Color},
 };
 
@@ -36,7 +40,10 @@ fn long_line() -> String {
 }
 
 fn show(props: MarkdownProps) -> (App, Tree) {
-  let mut app = App::new();
+  show_in(App::new(), props)
+}
+
+fn show_in(mut app: App, props: MarkdownProps) -> (App, Tree) {
   let mut tree = Tree::new();
   tree.mount_root::<MarkdownRoot>(&mut app, props.width(COLUMN));
   for _ in 0..3 {
@@ -45,11 +52,24 @@ fn show(props: MarkdownProps) -> (App, Tree) {
   (app, tree)
 }
 
+/// Renders the document again from `source`.
+fn update(app: &mut App, tree: &mut Tree, source: String) {
+  tree.update_root_props::<MarkdownRoot>(MarkdownProps::new(source).width(COLUMN));
+  for _ in 0..3 {
+    pass(app, tree);
+  }
+}
+
 /// Where the code block's text is laid out, scroll included.
 fn code_text(tree: &mut Tree) -> ElementRect {
+  text_with(tree, LINE_END)
+}
+
+/// Where the code text holding `marker` is laid out, scroll included.
+fn text_with(tree: &mut Tree, marker: &str) -> ElementRect {
   tree
-    .find_element(|element| element.text_content().is_some_and(|text| text.contains(LINE_END)))
-    .expect("the code block's text is laid out")
+    .find_element(|element| element.text_content().is_some_and(|text| text.contains(marker)))
+    .unwrap_or_else(|| panic!("the code text with {marker:?} is laid out"))
     .bounds()
 }
 
@@ -462,5 +482,193 @@ short {LINE_END}
 After the code.",
       long_line()
     ),
+  );
+}
+
+/// A trackpad swipe of `times` moves, each `(dx, dy)`, over the block in
+/// the conversation page.
+fn swipe_in_page(app: &mut App, tree: &mut Tree, dx: f32, dy: f32, times: usize) {
+  let text = code_text(tree);
+  let (x, y) = (COLUMN / 2.0, text.y + text.height / 2.0);
+  tree.scroll(x, y, 0.0, 0.0, ScrollPhase::Start);
+  for _ in 0..times {
+    tree.scroll(x, y, dx, dy, ScrollPhase::Scroll);
+  }
+  tree.scroll(x, y, 0.0, 0.0, ScrollPhase::End);
+  pass(app, tree);
+}
+
+fn show_page() -> (App, Tree) {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<Conversation>(&mut app, MarkdownProps::new(source(&long_line())).width(COLUMN));
+  for _ in 0..3 {
+    pass(&mut app, &mut tree);
+  }
+  (app, tree)
+}
+
+#[test]
+fn a_mostly_vertical_swipe_over_the_block_scrolls_only_the_page() {
+  let (mut app, mut tree) = show_page();
+  let text = code_text(&mut tree);
+  swipe_in_page(&mut app, &mut tree, -3.0, -6.0, 5);
+  let after = code_text(&mut tree);
+  assert_eq!(after.y, text.y - 30.0, "the page scrolls by the whole vertical delta");
+  assert_eq!(after.x, text.x, "the slant does not nudge the block");
+}
+
+#[test]
+fn a_mostly_sideways_swipe_over_the_block_scrolls_it() {
+  let (mut app, mut tree) = show_page();
+  let text = code_text(&mut tree);
+  swipe_in_page(&mut app, &mut tree, -6.0, -3.0, 5);
+  let after = code_text(&mut tree);
+  assert_eq!(after.x, text.x - 30.0, "the block takes the sideways delta");
+  assert_eq!(after.y, text.y - 15.0, "the page takes the vertical rest");
+}
+
+const END_A: &str = "END-OF-BLOCK-A";
+const END_B: &str = "END-OF-BLOCK-B";
+const END_C: &str = "END-OF-BLOCK-C";
+
+/// A fenced block with `language` on its fence whose long first line ends
+/// in `marker`: blocks are told apart by their first line.
+fn block(language: &str, marker: &str) -> String {
+  format!("```{language}\n{}{marker}\nshort\n```", long_line())
+}
+
+/// Scrolls the block holding `marker` by `dx`.
+fn scroll_block(app: &mut App, tree: &mut Tree, marker: &str, dx: f32) {
+  let text = text_with(tree, marker);
+  let (x, y) = (COLUMN / 2.0, text.y + text.height / 2.0);
+  tree.scroll(x, y, -dx, 0.0, ScrollPhase::Scroll);
+  pass(app, tree);
+}
+
+/// How far the block holding `marker` is scrolled: its text's distance
+/// from where an unscrolled block's text sits, at the box's padding.
+fn scrolled_by(tree: &mut Tree, marker: &str) -> f32 {
+  14.0 - text_with(tree, marker).x
+}
+
+#[test]
+fn a_scrolled_block_keeps_its_scroll_when_a_block_is_inserted_above_or_removed() {
+  let two = format!("Two blocks:\n\n{}\n\n{}", block("rust", END_A), block("rust", END_B));
+  let (mut app, mut tree) = show(MarkdownProps::new(two));
+  scroll_block(&mut app, &mut tree, END_B, 100.0);
+  assert_eq!(scrolled_by(&mut tree, END_B), 100.0);
+  assert_eq!(scrolled_by(&mut tree, END_A), 0.0);
+
+  let three = format!(
+    "Three blocks:\n\n{}\n\n{}\n\n{}",
+    block("rust", END_C),
+    block("rust", END_A),
+    block("rust", END_B)
+  );
+  update(&mut app, &mut tree, three);
+  assert_eq!(
+    scrolled_by(&mut tree, END_C),
+    0.0,
+    "the new block starts at its beginning"
+  );
+  assert_eq!(scrolled_by(&mut tree, END_A), 0.0, "the block above keeps its place");
+  assert_eq!(
+    scrolled_by(&mut tree, END_B),
+    100.0,
+    "the scrolled block keeps its scroll"
+  );
+
+  let without_a = format!("Two blocks:\n\n{}\n\n{}", block("rust", END_C), block("rust", END_B));
+  update(&mut app, &mut tree, without_a);
+  assert_eq!(scrolled_by(&mut tree, END_C), 0.0);
+  assert_eq!(
+    scrolled_by(&mut tree, END_B),
+    100.0,
+    "removing a block above keeps the scroll"
+  );
+}
+
+#[test]
+fn a_scrolled_block_keeps_its_scroll_as_a_reply_streams_on_and_its_label_appears() {
+  let (mut app, mut tree) = show(MarkdownProps::new(format!("A reply:\n\n{}", block("", END_A))));
+  scroll_block(&mut app, &mut tree, END_A, 100.0);
+
+  // More text after the block, then more lines in the block itself.
+  update(
+    &mut app,
+    &mut tree,
+    format!("A reply:\n\n{}\n\nAnd then some more words.", block("", END_A)),
+  );
+  assert_eq!(scrolled_by(&mut tree, END_A), 100.0, "text appended after the block");
+  let longer = format!("```\n{}{END_A}\nshort\nanother line\n```", long_line());
+  update(
+    &mut app,
+    &mut tree,
+    format!("A reply:\n\n{longer}\n\nAnd then some more words."),
+  );
+  assert_eq!(scrolled_by(&mut tree, END_A), 100.0, "a line appended to the block");
+
+  // A language on the fence puts a label above the lines.
+  update(&mut app, &mut tree, format!("A reply:\n\n{}", block("rust", END_A)));
+  assert_eq!(
+    scrolled_by(&mut tree, END_A),
+    100.0,
+    "a label appearing above the lines"
+  );
+  assert!(
+    tree
+      .find_element(|element| element.text_content() == Some("rust"))
+      .is_some()
+  );
+}
+
+#[test]
+fn an_app_theme_bar_that_reserves_a_gutter_leaves_a_fitting_block_its_size() {
+  let gutter_thumb = Color::from_hex("#8b5cf6");
+  let app = App::new();
+  app.theme().set_scrollbar(ScrollBarStyle {
+    placement: ScrollBarPlacement::Reserved,
+    visible: ScrollBarVisibility::Always,
+    thumb_color: gutter_thumb,
+    width: 12.0,
+    ..ScrollBarStyle::default()
+  });
+  let theme = ThemeMarkdown {
+    code_block_scrollbar: None,
+    ..ThemeMarkdown::default()
+  };
+  let (_, mut short) = show_in(app, MarkdownProps::new(source("short")).theme(theme.clone()));
+  let (_, mut plain) = show(MarkdownProps::new(source("short")));
+  assert_eq!(
+    block_box(&short),
+    block_box(&plain),
+    "the box keeps its size: no gutter"
+  );
+  assert_eq!(code_text(&mut short), code_text(&mut plain));
+  assert_eq!(
+    rects_of(&short, gutter_thumb).len(),
+    1,
+    "a bar shown always is drawn over the padding, not in a gutter"
+  );
+
+  let app = App::new();
+  app.theme().set_scrollbar(ScrollBarStyle {
+    placement: ScrollBarPlacement::Reserved,
+    thumb_color: gutter_thumb,
+    ..ScrollBarStyle::default()
+  });
+  let (_, mut long) = show_in(app, MarkdownProps::new(source(&long_line())).theme(theme));
+  let (_, mut plain) = show(MarkdownProps::new(source(&long_line())));
+  assert_eq!(
+    block_box(&long),
+    block_box(&plain),
+    "an overflowing box keeps its size too"
+  );
+  assert_eq!(code_text(&mut long), code_text(&mut plain));
+  assert_eq!(
+    rects_of(&long, gutter_thumb).len(),
+    1,
+    "the app's bar is drawn over the padding"
   );
 }

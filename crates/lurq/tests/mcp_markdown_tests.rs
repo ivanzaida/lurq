@@ -1,7 +1,8 @@
 #![cfg(all(feature = "mcp", feature = "markdown"))]
 //! An MCP client sees a Markdown link as a `link` named by its words, reads
 //! the paragraph's text without the link's trailing runs, and follows the
-//! link as synthetic input, with the button and modifiers it asks for.
+//! link as synthetic input, with the button and modifiers it asks for; and
+//! `scroll_to` on a code line wider than its block shows the line's start.
 
 mod mcp_client;
 
@@ -28,15 +29,28 @@ type Followed = Arc<Mutex<Vec<(String, bool)>>>;
 /// Each activation's button, Ctrl, Meta and whether it was synthetic.
 type Activated = Arc<Mutex<Vec<(MouseButton, bool, bool, bool)>>>;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct Props {
+  source: Arc<str>,
   followed: Followed,
   activated: Activated,
 }
 
+impl Default for Props {
+  fn default() -> Self {
+    Self {
+      source: "Open [PR 42](https://github.com/acme/pull/42) to review.".into(),
+      followed: Followed::default(),
+      activated: Activated::default(),
+    }
+  }
+}
+
 impl PartialEq for Props {
   fn eq(&self, other: &Self) -> bool {
-    Arc::ptr_eq(&self.followed, &other.followed) && Arc::ptr_eq(&self.activated, &other.activated)
+    self.source == other.source
+      && Arc::ptr_eq(&self.followed, &other.followed)
+      && Arc::ptr_eq(&self.activated, &other.activated)
   }
 }
 
@@ -53,10 +67,14 @@ impl Component for Reply {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let Props { followed, activated } = ctx.props::<Props>().clone();
+    let Props {
+      source,
+      followed,
+      activated,
+    } = ctx.props::<Props>().clone();
     Markdown::mount(
       ctx,
-      MarkdownProps::new("Open [PR 42](https://github.com/acme/pull/42) to review.")
+      MarkdownProps::new(source)
         .link_presentation(|_| MarkdownLinkPresentation::link().trailing([MarkdownRun::plain(" github.com")]))
         .on_link_click(move |link| {
           followed
@@ -163,5 +181,52 @@ fn an_agent_middle_clicks_a_markdown_link_with_modifiers() {
   assert!(
     followed.lock().unwrap().is_empty(),
     "on_link_click takes left clicks only"
+  );
+}
+
+const LINE_END: &str = "END-OF-THE-LAST-LINE";
+
+/// The `x` of a match's bounds.
+fn x_of(found: &serde_json::Value) -> f64 {
+  found["bounds"][0].as_f64().unwrap_or_else(|| panic!("bounds: {found}"))
+}
+
+#[test]
+fn an_agent_scrolling_to_a_code_line_wider_than_its_block_sees_the_line_start() {
+  let long = "- the long line that runs past the column ".repeat(8);
+  let props = Props {
+    source: format!("```\n{long}\nshort {LINE_END}\n```").into(),
+    ..Props::default()
+  };
+  let (at_start, after_scroll_to, wheeled, back) = serve(props, |mut client| {
+    let find = |client: &mut Client| client.tool_json("lurq_inspect", json!({"query": LINE_END}))["matches"][0].clone();
+    let at_start = find(&mut client);
+    client.tool("lurq_interact", json!({"action": "scroll_to", "ref": at_start["ref"]}));
+    let after_scroll_to = find(&mut client);
+    // The line's centre is far outside the window: the wheel is over its start.
+    client.tool(
+      "lurq_interact",
+      json!({"action": "wheel", "x": 100.0, "y": 30.0, "delta_x": -200.0}),
+    );
+    let wheeled = find(&mut client);
+    client.tool("lurq_interact", json!({"action": "scroll_to", "ref": wheeled["ref"]}));
+    let back = find(&mut client);
+    (at_start, after_scroll_to, wheeled, back)
+  });
+  let start = x_of(&at_start);
+  assert_eq!(
+    x_of(&after_scroll_to),
+    start,
+    "a line at its start is left there, not scrolled to its end"
+  );
+  assert_eq!(
+    x_of(&wheeled),
+    start - 200.0,
+    "a sideways wheel scrolls the block: {wheeled}"
+  );
+  assert_eq!(
+    x_of(&back),
+    start - 6.0,
+    "scroll_to brings the start back, 8 px inside the box"
   );
 }
