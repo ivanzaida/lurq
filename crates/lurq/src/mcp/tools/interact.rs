@@ -387,18 +387,8 @@ pub(super) fn scroll_into_view(
   let [mut target_x, mut target_y, target_w, target_h] = target;
   for ancestor in ancestors.iter().rev() {
     let [view_x, view_y, view_w, view_h] = ancestor.viewport;
-    let mut delta_x = 0.0;
-    let mut delta_y = 0.0;
-    if target_y < view_y {
-      delta_y = target_y - view_y - MARGIN;
-    } else if target_y + target_h > view_y + view_h {
-      delta_y = (target_y + target_h) - (view_y + view_h) + MARGIN;
-    }
-    if target_x < view_x {
-      delta_x = target_x - view_x - MARGIN;
-    } else if target_x + target_w > view_x + view_w {
-      delta_x = (target_x + target_w) - (view_x + view_w) + MARGIN;
-    }
+    let delta_y = axis_delta(target_y, target_h, view_y, view_h, MARGIN);
+    let delta_x = axis_delta(target_x, target_w, view_x, view_w, MARGIN);
     if delta_x != 0.0 || delta_y != 0.0 {
       let state = ancestor.state;
       let max_x = (state.content_width() - state.viewport_width()).max(0.0);
@@ -412,4 +402,21 @@ pub(super) fn scroll_into_view(
     }
   }
   Ok(())
+}
+
+/// The scroll along one axis that shows `[start, start + size]` in
+/// `[view, view + view_size]`, `margin` inside its edge. A target larger
+/// than the view shows its start, as `scroll_into_view` shows it (a code
+/// block's line wider than its box shows its beginning, not its end), and
+/// is left where it is while its start is in view.
+fn axis_delta(start: f32, size: f32, view: f32, view_size: f32, margin: f32) -> f32 {
+  let end = start + size;
+  let view_end = view + view_size;
+  if start < view || (size > view_size && start >= view_end) {
+    start - view - margin
+  } else if end > view_end && size <= view_size {
+    end - view_end + margin
+  } else {
+    0.0
+  }
 }

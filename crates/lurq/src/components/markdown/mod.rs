@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+  hash::{DefaultHasher, Hash, Hasher},
+  sync::Arc,
+};
 
 use crate::{
   app::{
@@ -6,12 +9,13 @@ use crate::{
     ctx::Ctx,
     theme::{MarkdownBlockStyle, ThemeMarkdown},
   },
-  components::{Column, Rect, Row, Text},
+  components::{Column, Rect, Row, ScrollHorizontal, Text},
   core::{Memo, Signal},
   layout::{
     Alignment,
     layout_kind::Justify,
     quad::RichTextSpan,
+    scrollbar::{ScrollBarPlacement, ScrollBarStyle},
     text_style::{FontWeight, TextAlign, TextStyle},
   },
   markdown::{
@@ -115,8 +119,8 @@ impl MarkdownProps {
   /// it hugs its text. Every block is then stretched to the document's
   /// width, as CSS blocks are: a code block's box and a rule span the widest
   /// block. A code block does not wrap, so it is as wide as its longest line
-  /// up to the container's width, and a longer line overflows its box as it
-  /// does when filling. A table still fills the container's width, since its
+  /// up to the container's width, and a longer line scrolls sideways inside
+  /// its box, as when filling. A table still fills the container's width, since its
   /// columns share that width and line up across its rows. An explicit
   /// [`width`](Self::width) sets the document's width as before.
   ///
@@ -234,6 +238,10 @@ struct MarkdownRenderContext<'a> {
   width: BlockWidth,
   links: &'a LinkSession,
   list_view: Option<&'a MarkdownListView>,
+  /// The bar of a code block that overflows sideways: the Markdown theme's,
+  /// or else the app theme's, always drawn over the box's padding so a
+  /// fitting block keeps its size whatever the app's bars reserve.
+  code_block_scrollbar: ScrollBarStyle,
 }
 
 impl Markdown {
@@ -273,10 +281,18 @@ impl Component for Markdown {
       ctx.use_context::<crate::router::Navigator>(),
       self.hover.clone(),
     );
+    let code_block_scrollbar = ScrollBarStyle {
+      placement: ScrollBarPlacement::Overlay,
+      ..theme
+        .code_block_scrollbar
+        .clone()
+        .unwrap_or_else(|| ctx.theme().scrollbar().clone())
+    };
     let render_ctx = MarkdownRenderContext {
       width: BlockWidth::new(props.fit_content),
       links: &links,
       list_view: props.list_view.as_ref(),
+      code_block_scrollbar,
     };
     let mut root = render_document(&document, &props.style, &theme, &render_ctx);
     let tooltips = links.take_tooltips();
@@ -336,8 +352,8 @@ fn render_block(
       render_list(*ordered, *start, items, base_style, theme, render_ctx)
     }
     MarkdownBlock::Table { alignments, rows } => render_table(alignments, rows, base_style, theme, render_ctx),
-    MarkdownBlock::CodeBlock { kind, text } => render_code_block(kind, text, base_style, theme, render_ctx.width),
-    MarkdownBlock::Math { text } => render_math_block(text, base_style, theme, render_ctx.width),
+    MarkdownBlock::CodeBlock { kind, text } => render_code_block(kind, text, base_style, theme, render_ctx),
+    MarkdownBlock::Math { text } => render_math_block(text, base_style, theme, render_ctx),
     MarkdownBlock::FootnoteDefinition { label, blocks } => {
       render_footnote_definition(label, blocks, base_style, theme, render_ctx)
     }
@@ -594,14 +610,22 @@ fn render_code_block(
   text: &str,
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
-  width: BlockWidth,
+  render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
+  let width = render_ctx.width;
   let mut code_style = theme.code_block.apply(base_style);
   if theme.code_block.text.color.is_none() {
     code_style.color = Color::from_hex("#e2e8f0");
   }
 
-  let mut column = width.blocks(Column::new().spacing(theme.code_block_spacing));
+  // The box's padding goes inside the lines' scroll container, so a line
+  // wider than the box scrolls under the padding and is clipped at the
+  // box's edge, like a CSS `pre` with `overflow-x: auto`, and the scrollbar
+  // sits in the bottom padding. The label stays above, outside the scroll.
+  let padding = theme.code_block_box.padding.unwrap_or_default();
+  let mut lines_padding = padding;
+  let key = code_block_key(text);
+  let mut column = width.blocks(Column::new().spacing(0.0).key(key.clone()));
   if let MarkdownCodeBlockKind::Fenced {
     language: Some(language),
   } = kind
@@ -610,20 +634,54 @@ fn render_code_block(
     if theme.code_block_label.text.color.is_none() {
       label_style.color = Color::from_hex("#94a3b8");
     }
-    column = column.child(width.leaf(Text::styled(language, label_style)));
+    let label = width.blocks(
+      Column::new()
+        .overflow_visible()
+        .padding(padding.bottom(0.0))
+        .child(width.leaf(Text::styled(language, label_style))),
+    );
+    column = column.child(label);
+    lines_padding = lines_padding.top(theme.code_block_spacing);
   }
-  column = column.child(width.leaf(Element::from_node(
-    Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style)).text_wrap(false),
-  )));
-  column = apply_column_box(column, &theme.code_block_box, true);
+  let lines = Column::new()
+    .overflow_visible()
+    .padding(lines_padding)
+    .child(Element::from_node(
+      Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style)).text_wrap(false),
+    ));
+  let scroll = ScrollHorizontal::new(lines)
+    .key(key)
+    .scrollbar(render_ctx.code_block_scrollbar.clone());
+  column = column.child(width.leaf(scroll));
+  let box_style = MarkdownBlockStyle {
+    padding: None,
+    ..theme.code_block_box.clone()
+  };
+  column = apply_column_box(column, &box_style, true);
   column.into()
 }
 
-fn render_math_block(text: &str, base_style: &TextStyle, theme: &ThemeMarkdown, width: BlockWidth) -> Element {
+/// Keys a code block's box and its scroll node by the first line of its
+/// code: a scrolled block keeps its scroll when the document renders again
+/// with a block inserted above it, a block removed, or a language label
+/// added, since unkeyed nodes are paired by position. Blocks whose first
+/// lines are the same are paired in document order.
+fn code_block_key(text: &str) -> Arc<str> {
+  let mut hasher = DefaultHasher::new();
+  text.lines().next().unwrap_or_default().hash(&mut hasher);
+  format!("markdown-code:{:016x}", hasher.finish()).into()
+}
+
+fn render_math_block(
+  text: &str,
+  base_style: &TextStyle,
+  theme: &ThemeMarkdown,
+  render_ctx: &MarkdownRenderContext<'_>,
+) -> Element {
   let kind = MarkdownCodeBlockKind::Fenced {
     language: Some("math".to_owned()),
   };
-  render_code_block(&kind, text, base_style, theme, width)
+  render_code_block(&kind, text, base_style, theme, render_ctx)
 }
 
 fn render_footnote_definition(

@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.50.0 — 2026-10-22
+## 0.51.0 — 2026-10-23
+
+Behaviour changes:
+
+- A Markdown code block whose lines are wider than its box scrolls sideways inside it. Its lines stay unwrapped, as written; the box, its language label and the document keep their width, so the block never makes the document wider; and a horizontal scrollbar shows over the box's bottom padding while the block overflows, as lurq's other scroll containers show theirs. Shift+wheel and a trackpad's sideways swipe scroll it, from the innermost scroll container outward as any scroll does; a plain vertical wheel over the block scrolls the page or list around it, not the block, so a chat's follow-to-end is not caught by a block that only overflows sideways. A block whose lines fit shows no bar and lays out exactly as before, in a filling and in a fitted (`fit_content`) document, nested in a list or a quote too. Selection and copy cross a scrolled block as any block, the lines out of view included, and the block's scroll is kept when the document renders again (a streaming reply keeps its place). Before, the lines were laid out at the box's inner width and a long line was painted past it and clipped, out of reach. A math block (`$$`) is a code block and scrolls the same way. Each block's box and scroll node are keyed by the first line of its code, so a block keeps its scroll when the document renders again with a block inserted above it, a block removed, a label added or a reply streaming on (unkeyed nodes are paired by position). As with every scroll container, a Shift+wheel over a block that is at its start edge (or its end, for the other direction) is consumed by nothing and no longer reaches `on_scroll` handlers on the containers around it; and an MCP client sees each code block as an interactive scroll node in the tree, between the box and its lines.
+- A scroll container that scrolls sideways only (`ScrollHorizontal`) takes no part of a mostly vertical gesture: when a wheel or trackpad delta has `|dx| < |dy|`, the container leaves the whole delta to the containers around it instead of taking its `dx`, so a chat's slightly slanted swipe scrolls the chat and nudges no code block under the pointer. A mostly sideways swipe and Shift+wheel (a delta on x alone) scroll it as before, and a mostly sideways swipe's `dy` still goes to the container around it. `ScrollVertical` and `ScrollBoth` are unchanged.
+- Breaking for struct literals: `ThemeMarkdown` gains the field `code_block_scrollbar` (`ThemeMarkdown { .., ..ThemeMarkdown::default() }` is unchanged). A code block's box is now a column without padding around a padded label and a padded horizontal scroll container of the lines; the padding, the words' places and the box's size are the same, but an element lookup that counted on the lines being the box's direct child sees the scroll container between them.
+
+Fixes:
+
+- MCP `scroll_to` on an element larger than its scroll container's viewport (a code block's line wider than its box) scrolled the container to the element's end. It now shows the element's start, as `scroll_into_view` does, and leaves an element whose start is already in view where it is.
+
+Added:
+
+- `ThemeMarkdown::code_block_scrollbar: Option<ScrollBarStyle>`: the horizontal scrollbar of a code block that overflows, drawn over the box's bottom padding. The default is a thin light bar (`ScrollBarStyle::thin()` with a `#94a3b8` thumb at half opacity, inset 4 px from the bottom and 6 px from the corners) for the default dark box; `None` draws the app theme's scrollbar, always as an overlay: a `Reserved` placement is not reserved in a code block, so a block whose lines fit keeps its size.
+- `ScrollBarStyle`, `ScrollBarVisibility` and `ScrollBarPlacement` implement `Debug` and `PartialEq`, so a theme holding a bar compares.
+
+## 0.51.0 — 2026-10-22
 
 Behaviour changes:
 
@@ -16,7 +33,7 @@ Added:
 - `VirtualizedList::bootstrap_rows(n)`: how many rows the list renders before it has measured one (16 by default).
 - `Ctx::provide_if_changed(value)`: `provide`, unless the value equals the one this component provided before (`PartialEq`), in which case the descendants that read it see the same providing and do not render again. In `render` the value is compared with the previous render's; in `create` or a handler, with the one provided there.
 
-## 0.50.0 — 2026-10-21
+## 0.51.0 — 2026-10-21
 
 Behaviour changes:
 

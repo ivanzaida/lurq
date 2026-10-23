@@ -5295,17 +5295,7 @@ impl Tree {
     let mut pending_scroll_reach = Vec::new();
     for (node, _) in &hits {
       if let Some((state, direction)) = node.scroll_container() {
-        let dx = if scroll_direction_has_axis(direction, ScrollAxis::Horizontal) {
-          remaining_dx
-        } else {
-          0.0
-        };
-        let dy = if scroll_direction_has_axis(direction, ScrollAxis::Vertical) {
-          remaining_dy
-        } else {
-          0.0
-        };
-
+        let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy);
         if dx == 0.0 && dy == 0.0 {
           continue;
         }
@@ -5330,10 +5320,10 @@ impl Tree {
           previous_scroll_y,
           previous_max_scroll_y,
         ));
-        if scroll_direction_has_axis(direction, ScrollAxis::Horizontal) {
+        if dx != 0.0 {
           remaining_dx = overflow_dx;
         }
-        if scroll_direction_has_axis(direction, ScrollAxis::Vertical) {
+        if dy != 0.0 {
           remaining_dy = overflow_dy;
         }
         if remaining_dx == 0.0 && remaining_dy == 0.0 {
@@ -7414,15 +7404,6 @@ fn scroll_axes(direction: ScrollDirection) -> &'static [ScrollAxis] {
   }
 }
 
-fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bool {
-  matches!(
-    (direction, axis),
-    (ScrollDirection::Horizontal, ScrollAxis::Horizontal)
-      | (ScrollDirection::Vertical, ScrollAxis::Vertical)
-      | (ScrollDirection::Both, _)
-  )
-}
-
 fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32, delta_y: f32) -> bool {
   let remaining_dx = -delta_x;
   let remaining_dy = -delta_y;
@@ -7435,15 +7416,9 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
     let Some((state, direction)) = node.scroll_container() else {
       continue;
     };
-
-    if scroll_direction_has_axis(direction, ScrollAxis::Horizontal)
-      && scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, remaining_dx)
-    {
-      return true;
-    }
-
-    if scroll_direction_has_axis(direction, ScrollAxis::Vertical)
-      && scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, remaining_dy)
+    let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy);
+    if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx)
+      || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy)
     {
       return true;
     }
@@ -7457,9 +7432,28 @@ fn scroll_delta_targets_scroll_container(hits: &[(&Node, HitRect)], delta_x: f32
     let Some((_, direction)) = node.scroll_container() else {
       return false;
     };
-    (delta_x != 0.0 && scroll_direction_has_axis(direction, ScrollAxis::Horizontal))
-      || (delta_y != 0.0 && scroll_direction_has_axis(direction, ScrollAxis::Vertical))
+    scroll_container_deltas(direction, -delta_x, -delta_y) != (0.0, 0.0)
   })
+}
+
+/// The part of a wheel or swipe delta a scroll container takes: the axes it
+/// scrolls. A container that scrolls sideways only takes the x delta of a
+/// mostly vertical gesture (`|dx| < |dy|`) not at all, leaving the whole
+/// delta to the containers around it: a chat's slightly slanted trackpad
+/// swipe scrolls the chat and nudges no code block under the pointer. A
+/// deliberate sideways swipe and Shift+wheel (which the shell delivers with
+/// `dy == 0`) still scroll it.
+fn scroll_container_deltas(direction: ScrollDirection, delta_x: f32, delta_y: f32) -> (f32, f32) {
+  let dx = match direction {
+    ScrollDirection::Horizontal if delta_x.abs() < delta_y.abs() => 0.0,
+    ScrollDirection::Horizontal | ScrollDirection::Both => delta_x,
+    ScrollDirection::Vertical => 0.0,
+  };
+  let dy = match direction {
+    ScrollDirection::Vertical | ScrollDirection::Both => delta_y,
+    ScrollDirection::Horizontal => 0.0,
+  };
+  (dx, dy)
 }
 
 fn scroll_handlers_present_for_phase(hits: &[(&Node, HitRect)], phase: ScrollPhase) -> bool {

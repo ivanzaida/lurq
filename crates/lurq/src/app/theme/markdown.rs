@@ -1,7 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, TextUnderline},
+  layout::{
+    scrollbar::ScrollBarStyle,
+    text_style::{FontFeatures, FontStyle, FontWeight, TextStyle, TextUnderline},
+  },
   node::{border::BorderRadius, color::Color, padding::Padding},
 };
 
@@ -224,6 +227,10 @@ pub struct ThemeMarkdown {
   pub table_cell: MarkdownInlineStyle,
   pub table_marker: MarkdownInlineStyle,
   pub code_block_box: MarkdownBlockStyle,
+  /// The horizontal scrollbar of a code block whose lines are wider than its
+  /// box, drawn over the box's bottom padding while the block overflows.
+  /// `None` draws the app theme's scrollbar.
+  pub code_block_scrollbar: Option<ScrollBarStyle>,
   pub blockquote_box: MarkdownBlockStyle,
   pub table_box: MarkdownBlockStyle,
   pub table_header_box: MarkdownBlockStyle,
@@ -310,6 +317,11 @@ impl Default for ThemeMarkdown {
       padding: Some(Padding::all(14.0)),
     };
 
+    let code_block_scrollbar = ScrollBarStyle {
+      thumb_color: Color::new(148, 163, 184, 128),
+      ..ScrollBarStyle::thin().insets(4.0, 6.0)
+    };
+
     let blockquote_box = MarkdownBlockStyle {
       background: Some(Color::from_hex("#f8fafc")),
       border_color: Some(Color::from_hex("#94a3b8")),
@@ -381,6 +393,7 @@ impl Default for ThemeMarkdown {
       table_cell,
       table_marker,
       code_block_box,
+      code_block_scrollbar: Some(code_block_scrollbar),
       blockquote_box,
       table_box,
       table_header_box,
