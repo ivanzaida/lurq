@@ -20,7 +20,7 @@ const WIDE_SCROLLBAR_THUMB_RADIUS: f32 = 6.0;
 const WIDE_SCROLLBAR_TRACK_RADIUS: f32 = 6.0;
 const WIDE_SCROLLBAR_PADDING: f32 = 2.0;
 
-#[derive(Clone, lurq_macros::Accessors)]
+#[derive(Clone, Debug, PartialEq, lurq_macros::Accessors)]
 pub struct ScrollBarStyle {
   pub width: f32,
   pub min_thumb_length: f32,
@@ -45,7 +45,7 @@ pub struct ScrollBarStyle {
   pub placement: ScrollBarPlacement,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScrollBarVisibility {
   #[default]
   Auto,
@@ -53,7 +53,7 @@ pub enum ScrollBarVisibility {
   Never,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScrollBarPlacement {
   #[default]
   Overlay,

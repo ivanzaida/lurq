@@ -248,10 +248,14 @@ Column::new()
 
 - The document is as wide as its widest block (a short message as its longest line) and never wider than its container's width, where its text wraps. Paragraphs, headings, lists, quotes and footnotes all size to their content; a long list item wraps beside its marker.
 - Every block is then stretched to the document's width, as CSS blocks are: a code block's box and a rule span the widest block.
-- A code block does not wrap: it is as wide as its longest line up to the container's width, and a longer line overflows its box, as when filling.
+- A code block does not wrap: it is as wide as its longest line up to the container's width, and a longer line scrolls inside its box, as when filling.
 - A table still takes the container's full width: its columns share that width so that they line up across its rows.
 - An explicit `.width(...)` still sets the document's width.
 - In a `Column`, the container's width is the column's. A `Row` gives its children unbounded width, so a bubble in a row needs `.max_width(Dimension::Pct(100.0))` (or a `flex_shrink` factor) for its text to wrap at the row's width.
+
+### Code blocks
+
+A code block's lines are never wrapped. A line wider than the block's box scrolls sideways inside it: the box, its language label and the document keep their width, and a horizontal scrollbar shows over the box's bottom padding while the block overflows, in `ThemeMarkdown::code_block_scrollbar` (a thin light bar on the default dark box; `None` draws the app theme's scrollbar). Shift+wheel and a trackpad's sideways swipe scroll the block; a plain vertical wheel over it scrolls the page around it, as it always did, so a chat's follow-to-end is not caught by a block that only overflows sideways. The block's own scroll is kept across renders (a streaming reply keeps its place). A block whose lines fit has no scrollbar and lays out as before. Selection and copy cross a scrolled block like any other block, the lines out of view included.
 
 ### Links
 

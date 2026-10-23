@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Behaviour changes:
+
+- A Markdown code block whose lines are wider than its box scrolls sideways inside it. Its lines stay unwrapped, as written; the box, its language label and the document keep their width, so the block never makes the document wider; and a horizontal scrollbar shows over the box's bottom padding while the block overflows, as lurq's other scroll containers show theirs. Shift+wheel and a trackpad's sideways swipe scroll it, from the innermost scroll container outward as any scroll does; a plain vertical wheel over the block scrolls the page or list around it, not the block, so a chat's follow-to-end is not caught by a block that only overflows sideways. A block whose lines fit shows no bar and lays out exactly as before, in a filling and in a fitted (`fit_content`) document, nested in a list or a quote too. Selection and copy cross a scrolled block as any block, the lines out of view included, and the block's scroll is kept when the document renders again (a streaming reply keeps its place). Before, the lines were laid out at the box's inner width and a long line was painted past it and clipped, out of reach.
+- Breaking for struct literals: `ThemeMarkdown` gains the field `code_block_scrollbar` (`ThemeMarkdown { .., ..ThemeMarkdown::default() }` is unchanged). A code block's box is now a column without padding around a padded label and a padded horizontal scroll container of the lines; the padding, the words' places and the box's size are the same, but an element lookup that counted on the lines being the box's direct child sees the scroll container between them.
+
+Added:
+
+- `ThemeMarkdown::code_block_scrollbar: Option<ScrollBarStyle>`: the horizontal scrollbar of a code block that overflows, drawn over the box's bottom padding. The default is a thin light bar (`ScrollBarStyle::thin()` with a `#94a3b8` thumb at half opacity, inset 4 px from the bottom and 6 px from the corners) for the default dark box; `None` draws the app theme's scrollbar.
+- `ScrollBarStyle`, `ScrollBarVisibility` and `ScrollBarPlacement` implement `Debug` and `PartialEq`, so a theme holding a bar compares.
+
 ## 0.50.0 — 2026-10-22
 
 Behaviour changes:

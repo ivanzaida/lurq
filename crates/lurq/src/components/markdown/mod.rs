@@ -6,7 +6,7 @@ use crate::{
     ctx::Ctx,
     theme::{MarkdownBlockStyle, ThemeMarkdown},
   },
-  components::{Column, Rect, Row, Text},
+  components::{Column, Rect, Row, ScrollHorizontal, Text},
   core::{Memo, Signal},
   layout::{
     Alignment,
@@ -601,7 +601,13 @@ fn render_code_block(
     code_style.color = Color::from_hex("#e2e8f0");
   }
 
-  let mut column = width.blocks(Column::new().spacing(theme.code_block_spacing));
+  // The box's padding goes inside the lines' scroll container, so a line
+  // wider than the box scrolls under the padding and is clipped at the
+  // box's edge, like a CSS `pre` with `overflow-x: auto`, and the scrollbar
+  // sits in the bottom padding. The label stays above, outside the scroll.
+  let padding = theme.code_block_box.padding.unwrap_or_default();
+  let mut lines_padding = padding;
+  let mut column = width.blocks(Column::new().spacing(0.0));
   if let MarkdownCodeBlockKind::Fenced {
     language: Some(language),
   } = kind
@@ -610,12 +616,31 @@ fn render_code_block(
     if theme.code_block_label.text.color.is_none() {
       label_style.color = Color::from_hex("#94a3b8");
     }
-    column = column.child(width.leaf(Text::styled(language, label_style)));
+    let label = width.blocks(
+      Column::new()
+        .overflow_visible()
+        .padding(padding.bottom(0.0))
+        .child(width.leaf(Text::styled(language, label_style))),
+    );
+    column = column.child(label);
+    lines_padding = lines_padding.top(theme.code_block_spacing);
   }
-  column = column.child(width.leaf(Element::from_node(
-    Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style)).text_wrap(false),
-  )));
-  column = apply_column_box(column, &theme.code_block_box, true);
+  let lines = Column::new()
+    .overflow_visible()
+    .padding(lines_padding)
+    .child(Element::from_node(
+      Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style)).text_wrap(false),
+    ));
+  let mut scroll = ScrollHorizontal::new(lines);
+  if let Some(scrollbar) = &theme.code_block_scrollbar {
+    scroll = scroll.scrollbar(scrollbar.clone());
+  }
+  column = column.child(width.leaf(scroll));
+  let box_style = MarkdownBlockStyle {
+    padding: None,
+    ..theme.code_block_box.clone()
+  };
+  column = apply_column_box(column, &box_style, true);
   column.into()
 }
 
