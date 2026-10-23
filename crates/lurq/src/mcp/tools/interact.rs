@@ -408,11 +408,11 @@ pub(super) fn scroll_into_view(
 /// `[view, view + view_size]`, `margin` inside its edge. A target larger
 /// than the view shows its start, as `scroll_into_view` shows it (a code
 /// block's line wider than its box shows its beginning, not its end), and
-/// is left where it is while its start is in view.
+/// is left where it is while its start is at least `margin` inside the view.
 fn axis_delta(start: f32, size: f32, view: f32, view_size: f32, margin: f32) -> f32 {
   let end = start + size;
   let view_end = view + view_size;
-  if start < view || (size > view_size && start >= view_end) {
+  if start < view || (size > view_size && (start < view + margin || start >= view_end)) {
     start - view - margin
   } else if end > view_end && size <= view_size {
     end - view_end + margin

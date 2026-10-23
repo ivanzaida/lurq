@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.51.1 — 2026-10-23
+
+Fixes:
+
+- On Windows, a precision touchpad's slanted swipe still nudged a code block (or any `ScrollHorizontal`) under the pointer sideways while the page scrolled. winit delivers `WM_MOUSEWHEEL` and `WM_MOUSEHWHEEL` as separate events, one with a vertical delta and one with a horizontal, so 0.51.0's rule, which compares the two deltas of one event, never saw a slant. A horizontal-only delta is now weighed against the vertical delta seen within the last 150 ms at the same pointer (within 8 logical pixels): while that vertical delta dominates, a `ScrollHorizontal` takes none of it and the event goes to the containers around it. A mouse's Shift+wheel, with no vertical wheel just before it at that spot, a deliberate sideways swipe, and a horizontal burst after the window has passed scroll the block as before; macOS, which sends both deltas in one event, is unchanged. `Tree::set_animation_clock` (hidden, for tests) now also sets the clock this window is read on.
+- A Markdown code block's box and scroll node were keyed by the hash of the block's first line, so a one-line block that was still streaming changed its key with every token: its scroll reset, a selection in it was dropped, and its node ids and MCP refs churned. They are now keyed by the block's ordinal among the document's code blocks and its language, which hold while the block streams and while paragraphs are added or removed around it. A code block inserted above a scrolled block, or removed from above it, now shifts the ordinals, and the blocks after it take the scroll of the block that had their ordinal (0.51.0 kept each block's scroll in that case, by its first line).
+- MCP `scroll_to` on an element larger than its scroll container's viewport left it where it was when its start was inside the view by less than the 8 px margin. The start is now brought at least the margin inside the view; an element whose start already is stays put. (This and 0.51.0's change, which shows such an element's start instead of its end, are the only behaviour changes to `scroll_to`.)
+- The headings of the 0.50.0 and 0.49.1 entries below, which the 0.51.0 release renamed to 0.51.0 by mistake, read their own versions again.
+
 ## 0.51.0 — 2026-10-23
 
 Behaviour changes:
@@ -17,7 +26,7 @@ Added:
 - `ThemeMarkdown::code_block_scrollbar: Option<ScrollBarStyle>`: the horizontal scrollbar of a code block that overflows, drawn over the box's bottom padding. The default is a thin light bar (`ScrollBarStyle::thin()` with a `#94a3b8` thumb at half opacity, inset 4 px from the bottom and 6 px from the corners) for the default dark box; `None` draws the app theme's scrollbar, always as an overlay: a `Reserved` placement is not reserved in a code block, so a block whose lines fit keeps its size.
 - `ScrollBarStyle`, `ScrollBarVisibility` and `ScrollBarPlacement` implement `Debug` and `PartialEq`, so a theme holding a bar compares.
 
-## 0.51.0 — 2026-10-22
+## 0.50.0 — 2026-10-22
 
 Behaviour changes:
 
@@ -33,7 +42,7 @@ Added:
 - `VirtualizedList::bootstrap_rows(n)`: how many rows the list renders before it has measured one (16 by default).
 - `Ctx::provide_if_changed(value)`: `provide`, unless the value equals the one this component provided before (`PartialEq`), in which case the descendants that read it see the same providing and do not render again. In `render` the value is compared with the previous render's; in `create` or a handler, with the one provided there.
 
-## 0.51.0 — 2026-10-21
+## 0.49.1 — 2026-10-21
 
 Behaviour changes:
 

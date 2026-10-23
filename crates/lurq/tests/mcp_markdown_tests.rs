@@ -198,7 +198,7 @@ fn an_agent_scrolling_to_a_code_line_wider_than_its_block_sees_the_line_start() 
     source: format!("```\n{long}\nshort {LINE_END}\n```").into(),
     ..Props::default()
   };
-  let (at_start, after_scroll_to, wheeled, back) = serve(props, |mut client| {
+  let (at_start, after_scroll_to, wheeled, back, nearly, inside) = serve(props, |mut client| {
     let find = |client: &mut Client| client.tool_json("lurq_inspect", json!({"query": LINE_END}))["matches"][0].clone();
     let at_start = find(&mut client);
     client.tool("lurq_interact", json!({"action": "scroll_to", "ref": at_start["ref"]}));
@@ -211,7 +211,15 @@ fn an_agent_scrolling_to_a_code_line_wider_than_its_block_sees_the_line_start() 
     let wheeled = find(&mut client);
     client.tool("lurq_interact", json!({"action": "scroll_to", "ref": wheeled["ref"]}));
     let back = find(&mut client);
-    (at_start, after_scroll_to, wheeled, back)
+    // 4 px more: the start is 4 px inside the box, less than the margin.
+    client.tool(
+      "lurq_interact",
+      json!({"action": "wheel", "x": 100.0, "y": 30.0, "delta_x": -4.0}),
+    );
+    let nearly = find(&mut client);
+    client.tool("lurq_interact", json!({"action": "scroll_to", "ref": nearly["ref"]}));
+    let inside = find(&mut client);
+    (at_start, after_scroll_to, wheeled, back, nearly, inside)
   });
   let start = x_of(&at_start);
   assert_eq!(
@@ -228,5 +236,11 @@ fn an_agent_scrolling_to_a_code_line_wider_than_its_block_sees_the_line_start() 
     x_of(&back),
     start - 6.0,
     "scroll_to brings the start back, 8 px inside the box"
+  );
+  assert_eq!(x_of(&nearly), start - 10.0, "{nearly}");
+  assert_eq!(
+    x_of(&inside),
+    start - 6.0,
+    "a start less than the margin inside is brought to the margin"
   );
 }

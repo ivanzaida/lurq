@@ -530,7 +530,6 @@ fn a_mostly_sideways_swipe_over_the_block_scrolls_it() {
 
 const END_A: &str = "END-OF-BLOCK-A";
 const END_B: &str = "END-OF-BLOCK-B";
-const END_C: &str = "END-OF-BLOCK-C";
 
 /// A fenced block with `language` on its fence whose long first line ends
 /// in `marker`: blocks are told apart by their first line.
@@ -553,44 +552,31 @@ fn scrolled_by(tree: &mut Tree, marker: &str) -> f32 {
 }
 
 #[test]
-fn a_scrolled_block_keeps_its_scroll_when_a_block_is_inserted_above_or_removed() {
+fn scrolled_blocks_keep_their_scroll_when_paragraphs_come_and_go_around_them() {
   let two = format!("Two blocks:\n\n{}\n\n{}", block("rust", END_A), block("rust", END_B));
   let (mut app, mut tree) = show(MarkdownProps::new(two));
   scroll_block(&mut app, &mut tree, END_B, 100.0);
+  scroll_block(&mut app, &mut tree, END_A, 40.0);
   assert_eq!(scrolled_by(&mut tree, END_B), 100.0);
-  assert_eq!(scrolled_by(&mut tree, END_A), 0.0);
+  assert_eq!(scrolled_by(&mut tree, END_A), 40.0);
 
-  let three = format!(
-    "Three blocks:\n\n{}\n\n{}\n\n{}",
-    block("rust", END_C),
+  let with_paragraphs = format!(
+    "A paragraph inserted above.\n\nTwo blocks:\n\n{}\n\nAnd one between.\n\n{}\n\nAnd one after.",
     block("rust", END_A),
     block("rust", END_B)
   );
-  update(&mut app, &mut tree, three);
-  assert_eq!(
-    scrolled_by(&mut tree, END_C),
-    0.0,
-    "the new block starts at its beginning"
-  );
-  assert_eq!(scrolled_by(&mut tree, END_A), 0.0, "the block above keeps its place");
-  assert_eq!(
-    scrolled_by(&mut tree, END_B),
-    100.0,
-    "the scrolled block keeps its scroll"
-  );
+  update(&mut app, &mut tree, with_paragraphs);
+  assert_eq!(scrolled_by(&mut tree, END_A), 40.0, "a paragraph inserted above");
+  assert_eq!(scrolled_by(&mut tree, END_B), 100.0, "paragraphs around the block");
 
-  let without_a = format!("Two blocks:\n\n{}\n\n{}", block("rust", END_C), block("rust", END_B));
-  update(&mut app, &mut tree, without_a);
-  assert_eq!(scrolled_by(&mut tree, END_C), 0.0);
-  assert_eq!(
-    scrolled_by(&mut tree, END_B),
-    100.0,
-    "removing a block above keeps the scroll"
-  );
+  let fewer = format!("{}\n\n{}", block("rust", END_A), block("rust", END_B));
+  update(&mut app, &mut tree, fewer);
+  assert_eq!(scrolled_by(&mut tree, END_A), 40.0, "the paragraphs removed again");
+  assert_eq!(scrolled_by(&mut tree, END_B), 100.0);
 }
 
 #[test]
-fn a_scrolled_block_keeps_its_scroll_as_a_reply_streams_on_and_its_label_appears() {
+fn a_scrolled_block_keeps_its_scroll_as_a_reply_streams_on() {
   let (mut app, mut tree) = show(MarkdownProps::new(format!("A reply:\n\n{}", block("", END_A))));
   scroll_block(&mut app, &mut tree, END_A, 100.0);
 
@@ -608,18 +594,58 @@ fn a_scrolled_block_keeps_its_scroll_as_a_reply_streams_on_and_its_label_appears
     format!("A reply:\n\n{longer}\n\nAnd then some more words."),
   );
   assert_eq!(scrolled_by(&mut tree, END_A), 100.0, "a line appended to the block");
+}
 
-  // A language on the fence puts a label above the lines.
-  update(&mut app, &mut tree, format!("A reply:\n\n{}", block("rust", END_A)));
+#[test]
+fn a_one_line_block_keeps_its_scroll_and_selection_as_its_line_streams() {
+  let line = format!("{}{LINE_END}", long_line());
+  let streaming = |tail: &str| format!("A reply:\n\n```\n{line}{tail}\n```");
+  let mut page = selectable(streaming(""));
+  let (x, y) = pointer(&mut page.tree);
+  page.tree.scroll(x, y, -150.0, 0.0, ScrollPhase::Scroll);
+  page.pass();
+  assert_eq!(scrolled_by(&mut page.tree, LINE_END), 150.0);
+  let block = block_box(&page.tree);
+  page.drag((block.0 + 20.0, y), (block.0 + block.2 - 20.0, y));
+  let selected = page.selected().expect("a selection in the line");
+  assert!(line.contains(&selected) && selected.len() > 10, "{selected:?}");
+
+  for token in [" one", " one two", " one two three"] {
+    page
+      .tree
+      .update_root_props::<MarkdownRoot>(MarkdownProps::new(streaming(token)).selectable(true).width(COLUMN));
+    page.pass();
+    page.pass();
+    assert_eq!(
+      scrolled_by(&mut page.tree, LINE_END),
+      150.0,
+      "the scroll after {token:?}"
+    );
+    assert_eq!(
+      page.selected().as_deref(),
+      Some(selected.as_str()),
+      "the selection after {token:?}"
+    );
+  }
+}
+
+#[test]
+fn a_slanted_swipe_delivered_as_separate_events_scrolls_only_the_page() {
+  let (mut app, mut tree) = show_page();
+  let text = code_text(&mut tree);
+  let (x, y) = (COLUMN / 2.0, text.y + text.height / 2.0);
+  let start = std::time::Instant::now();
+  for index in 0..5u32 {
+    tree.set_animation_clock(Some(start + std::time::Duration::from_millis(10) * index));
+    tree.scroll(x, y, 0.0, -6.0, ScrollPhase::Scroll);
+    tree.scroll(x, y, -3.0, 0.0, ScrollPhase::Scroll);
+  }
+  pass(&mut app, &mut tree);
+  let after = code_text(&mut tree);
+  assert_eq!(after.y, text.y - 30.0, "the page scrolls by the vertical events");
   assert_eq!(
-    scrolled_by(&mut tree, END_A),
-    100.0,
-    "a label appearing above the lines"
-  );
-  assert!(
-    tree
-      .find_element(|element| element.text_content() == Some("rust"))
-      .is_some()
+    after.x, text.x,
+    "the horizontal events in between do not nudge the block"
   );
 }
 
