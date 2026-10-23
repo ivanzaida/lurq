@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.51.0 — 2026-10-23
 
 Behaviour changes:
 
@@ -17,7 +17,7 @@ Added:
 - `ThemeMarkdown::code_block_scrollbar: Option<ScrollBarStyle>`: the horizontal scrollbar of a code block that overflows, drawn over the box's bottom padding. The default is a thin light bar (`ScrollBarStyle::thin()` with a `#94a3b8` thumb at half opacity, inset 4 px from the bottom and 6 px from the corners) for the default dark box; `None` draws the app theme's scrollbar, always as an overlay: a `Reserved` placement is not reserved in a code block, so a block whose lines fit keeps its size.
 - `ScrollBarStyle`, `ScrollBarVisibility` and `ScrollBarPlacement` implement `Debug` and `PartialEq`, so a theme holding a bar compares.
 
-## 0.50.0 — 2026-10-22
+## 0.51.0 — 2026-10-22
 
 Behaviour changes:
 
@@ -33,7 +33,7 @@ Added:
 - `VirtualizedList::bootstrap_rows(n)`: how many rows the list renders before it has measured one (16 by default).
 - `Ctx::provide_if_changed(value)`: `provide`, unless the value equals the one this component provided before (`PartialEq`), in which case the descendants that read it see the same providing and do not render again. In `render` the value is compared with the previous render's; in `create` or a handler, with the one provided there.
 
-## 0.50.0 — 2026-10-21
+## 0.51.0 — 2026-10-21
 
 Behaviour changes:
 
