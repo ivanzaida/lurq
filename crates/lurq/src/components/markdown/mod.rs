@@ -1,7 +1,4 @@
-use std::{
-  hash::{DefaultHasher, Hash, Hasher},
-  sync::Arc,
-};
+use std::{cell::Cell, sync::Arc};
 
 use crate::{
   app::{
@@ -242,6 +239,8 @@ struct MarkdownRenderContext<'a> {
   /// or else the app theme's, always drawn over the box's padding so a
   /// fitting block keeps its size whatever the app's bars reserve.
   code_block_scrollbar: ScrollBarStyle,
+  /// How many code blocks this render has drawn: the next one's ordinal.
+  code_blocks: Cell<usize>,
 }
 
 impl Markdown {
@@ -293,6 +292,7 @@ impl Component for Markdown {
       links: &links,
       list_view: props.list_view.as_ref(),
       code_block_scrollbar,
+      code_blocks: Cell::new(0),
     };
     let mut root = render_document(&document, &props.style, &theme, &render_ctx);
     let tooltips = links.take_tooltips();
@@ -559,12 +559,15 @@ fn render_list(
       render_ctx,
     };
     // A view that declines draws nothing that stays: forget the links it
-    // drew to decide, so the list's own links are numbered as if it had not.
+    // drew and the code blocks it counted to decide, so the list's own are
+    // numbered as if it had not.
     let checkpoint = render_ctx.links.checkpoint();
+    let code_blocks = render_ctx.code_blocks.get();
     if let Some(element) = list_view(&list) {
       return element;
     }
     render_ctx.links.restore(checkpoint);
+    render_ctx.code_blocks.set(code_blocks);
   }
   let mut list = render_ctx
     .width
@@ -624,7 +627,9 @@ fn render_code_block(
   // sits in the bottom padding. The label stays above, outside the scroll.
   let padding = theme.code_block_box.padding.unwrap_or_default();
   let mut lines_padding = padding;
-  let key = code_block_key(text);
+  let ordinal = render_ctx.code_blocks.get();
+  render_ctx.code_blocks.set(ordinal + 1);
+  let key = code_block_key(ordinal, kind);
   let mut column = width.blocks(Column::new().spacing(0.0).key(key.clone()));
   if let MarkdownCodeBlockKind::Fenced {
     language: Some(language),
@@ -661,15 +666,20 @@ fn render_code_block(
   column.into()
 }
 
-/// Keys a code block's box and its scroll node by the first line of its
-/// code: a scrolled block keeps its scroll when the document renders again
-/// with a block inserted above it, a block removed, or a language label
-/// added, since unkeyed nodes are paired by position. Blocks whose first
-/// lines are the same are paired in document order.
-fn code_block_key(text: &str) -> Arc<str> {
-  let mut hasher = DefaultHasher::new();
-  text.lines().next().unwrap_or_default().hash(&mut hasher);
-  format!("markdown-code:{:016x}", hasher.finish()).into()
+/// Keys a code block's box and its scroll node by the block's ordinal among
+/// the document's code blocks and its language: the key holds while the
+/// block's code streams in, token by token, and while paragraphs are added
+/// or removed around it, so a scrolled block keeps its scroll and a
+/// selection in it, and its node ids and MCP refs stay. A code block
+/// inserted above it or removed from above it shifts the ordinals, and the
+/// blocks after it take the scroll of the block that had their ordinal.
+fn code_block_key(ordinal: usize, kind: &MarkdownCodeBlockKind) -> Arc<str> {
+  match kind {
+    MarkdownCodeBlockKind::Fenced {
+      language: Some(language),
+    } => format!("markdown-code:{ordinal}:{language}").into(),
+    _ => format!("markdown-code:{ordinal}").into(),
+  }
 }
 
 fn render_math_block(

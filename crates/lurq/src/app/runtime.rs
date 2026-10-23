@@ -114,6 +114,21 @@ impl HasDisplayHandle for HeadlessSurface {
 
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+/// How long a vertical wheel delta tells the slant of the horizontal deltas
+/// that follow it at the same pointer (see [`Tree::wheel_gesture_vertical`]).
+const WHEEL_AXIS_LOCK_WINDOW: Duration = Duration::from_millis(150);
+/// How far the pointer may move between them, in logical pixels.
+const WHEEL_AXIS_LOCK_DISTANCE: f32 = 8.0;
+
+/// The last wheel or swipe event with a vertical delta: when, where (logical
+/// pixels) and how much.
+#[derive(Clone, Copy)]
+struct RecentVerticalWheel {
+  at: Instant,
+  x: f32,
+  y: f32,
+  delta: f32,
+}
 const SUPPRESSED_CLICK_INTERVAL: Duration = Duration::from_millis(250);
 const SUPPRESSED_CLICK_DISTANCE: f32 = 4.0;
 const TEXT_INPUT_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(530);
@@ -698,6 +713,7 @@ pub struct Tree {
   pending_pass_reasons: PassReasons,
   scheduled_redraw_at: Option<Instant>,
   scheduled_redraw_due: bool,
+  recent_vertical_wheel: Option<RecentVerticalWheel>,
   perf_overlay_enabled: bool,
   perf_overlay_stats: PerfMeterStats,
   perf_overlay_last_sample: Instant,
@@ -1068,6 +1084,7 @@ impl Tree {
       pending_pass_reasons: PassReasons::default(),
       scheduled_redraw_at: None,
       scheduled_redraw_due: false,
+      recent_vertical_wheel: None,
       perf_overlay_enabled: false,
       perf_overlay_stats: PerfMeterStats::default(),
       perf_overlay_last_sample: Instant::now(),
@@ -5221,6 +5238,17 @@ impl Tree {
       target_id: NodeId::UNASSIGNED,
       control: EventControl::new(),
     };
+    if self.root.is_none() || self.last_layout.is_none() {
+      return;
+    }
+
+    let scale = self.scale_factor();
+    let lx = evt.x / scale;
+    let ly = evt.y / scale;
+    evt.x = lx;
+    evt.y = ly;
+
+    let gesture_dy = self.wheel_gesture_vertical(lx, ly, evt.delta_y);
     let root = match &self.root {
       Some(r) => r,
       None => return,
@@ -5229,21 +5257,15 @@ impl Tree {
       Some(r) => r,
       None => return,
     };
-
-    let scale = self.scale_factor();
-    let lx = evt.x / scale;
-    let ly = evt.y / scale;
-    evt.x = lx;
-    evt.y = ly;
-
     let mut hits = Vec::new();
     hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
-    let scroll_delta_can_be_consumed = scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y);
+    let scroll_delta_can_be_consumed =
+      scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy);
     // When the delta targets a scroll container that cannot move (edge-clamped
     // or non-overflowing), suppress scroll events entirely; handlers on hits
     // without a matching scroll container still receive wheel events.
     if !scroll_delta_can_be_consumed
-      && (scroll_delta_targets_scroll_container(&hits, evt.delta_x, evt.delta_y)
+      && (scroll_delta_targets_scroll_container(&hits, evt.delta_x, evt.delta_y, gesture_dy)
         || !scroll_handlers_present_for_phase(&hits, evt.phase))
     {
       return;
@@ -5295,7 +5317,7 @@ impl Tree {
     let mut pending_scroll_reach = Vec::new();
     for (node, _) in &hits {
       if let Some((state, direction)) = node.scroll_container() {
-        let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy);
+        let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
         if dx == 0.0 && dy == 0.0 {
           continue;
         }
@@ -5988,11 +6010,48 @@ impl Tree {
     self.needs_redraw = true;
   }
 
-  /// Ticks animations and transitions at `now` in every pass instead of at the moment the pass runs, until set
-  /// back to `None`. For tests that drive animation time explicitly; a shell paces its frames on the wall clock.
+  /// Ticks animations and transitions at `now` in every pass instead of at the moment the pass runs, and reads
+  /// the wheel's axis lock ([`WHEEL_AXIS_LOCK_WINDOW`]) at `now` too, until set back to `None`. For tests that
+  /// drive time explicitly; a shell paces its frames on the wall clock.
   #[doc(hidden)]
   pub fn set_animation_clock(&mut self, now: Option<Instant>) {
     self.animation_clock = now;
+  }
+
+  /// The runtime's clock: the one [`Self::set_animation_clock`] set, or the wall clock.
+  fn now(&self) -> Instant {
+    self.animation_clock.unwrap_or_else(Instant::now)
+  }
+
+  /// The vertical delta a wheel or swipe event belongs to, for telling a
+  /// mostly vertical gesture from a sideways one: the event's own, or, for an
+  /// event without one, the vertical delta seen within
+  /// [`WHEEL_AXIS_LOCK_WINDOW`] at the same pointer. Windows delivers a
+  /// precision touchpad's slanted swipe as separate vertical and horizontal
+  /// events (`WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`), so a horizontal event alone
+  /// says nothing about the gesture's slant; a mouse's Shift+wheel, with no
+  /// vertical wheel just before it at that spot, is sideways. An event with a
+  /// vertical delta is remembered until the window passes.
+  fn wheel_gesture_vertical(&mut self, x: f32, y: f32, delta_y: f32) -> f32 {
+    let now = self.now();
+    if delta_y != 0.0 {
+      self.recent_vertical_wheel = Some(RecentVerticalWheel {
+        at: now,
+        x,
+        y,
+        delta: delta_y,
+      });
+      return delta_y;
+    }
+    match self.recent_vertical_wheel {
+      Some(recent)
+        if now.duration_since(recent.at) <= WHEEL_AXIS_LOCK_WINDOW
+          && (recent.x - x).powi(2) + (recent.y - y).powi(2) <= WHEEL_AXIS_LOCK_DISTANCE * WHEEL_AXIS_LOCK_DISTANCE =>
+      {
+        recent.delta
+      }
+      _ => 0.0,
+    }
   }
 
   fn update_layout(&mut self, app: &mut App) -> bool {
@@ -7404,7 +7463,12 @@ fn scroll_axes(direction: ScrollDirection) -> &'static [ScrollAxis] {
   }
 }
 
-fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32, delta_y: f32) -> bool {
+fn scroll_delta_can_be_consumed_by_hits(
+  hits: &[(&Node, HitRect)],
+  delta_x: f32,
+  delta_y: f32,
+  gesture_dy: f32,
+) -> bool {
   let remaining_dx = -delta_x;
   let remaining_dy = -delta_y;
 
@@ -7416,7 +7480,7 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
     let Some((state, direction)) = node.scroll_container() else {
       continue;
     };
-    let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy);
+    let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
     if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx)
       || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy)
     {
@@ -7427,25 +7491,32 @@ fn scroll_delta_can_be_consumed_by_hits(hits: &[(&Node, HitRect)], delta_x: f32,
   false
 }
 
-fn scroll_delta_targets_scroll_container(hits: &[(&Node, HitRect)], delta_x: f32, delta_y: f32) -> bool {
+fn scroll_delta_targets_scroll_container(
+  hits: &[(&Node, HitRect)],
+  delta_x: f32,
+  delta_y: f32,
+  gesture_dy: f32,
+) -> bool {
   hits.iter().any(|(node, _)| {
     let Some((_, direction)) = node.scroll_container() else {
       return false;
     };
-    scroll_container_deltas(direction, -delta_x, -delta_y) != (0.0, 0.0)
+    scroll_container_deltas(direction, -delta_x, -delta_y, gesture_dy) != (0.0, 0.0)
   })
 }
 
 /// The part of a wheel or swipe delta a scroll container takes: the axes it
 /// scrolls. A container that scrolls sideways only takes the x delta of a
-/// mostly vertical gesture (`|dx| < |dy|`) not at all, leaving the whole
-/// delta to the containers around it: a chat's slightly slanted trackpad
-/// swipe scrolls the chat and nudges no code block under the pointer. A
+/// mostly vertical gesture (`|dx| < |gesture_dy|`, the vertical delta of
+/// this event or of the one just before it at the same pointer, see
+/// [`Tree::wheel_gesture_vertical`]) not at all, leaving the whole delta to
+/// the containers around it: a chat's slightly slanted trackpad swipe
+/// scrolls the chat and nudges no code block under the pointer. A
 /// deliberate sideways swipe and Shift+wheel (which the shell delivers with
 /// `dy == 0`) still scroll it.
-fn scroll_container_deltas(direction: ScrollDirection, delta_x: f32, delta_y: f32) -> (f32, f32) {
+fn scroll_container_deltas(direction: ScrollDirection, delta_x: f32, delta_y: f32, gesture_dy: f32) -> (f32, f32) {
   let dx = match direction {
-    ScrollDirection::Horizontal if delta_x.abs() < delta_y.abs() => 0.0,
+    ScrollDirection::Horizontal if delta_x.abs() < gesture_dy.abs() => 0.0,
     ScrollDirection::Horizontal | ScrollDirection::Both => delta_x,
     ScrollDirection::Vertical => 0.0,
   };

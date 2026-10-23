@@ -1,7 +1,11 @@
 //! A scroll container that scrolls sideways only takes no part of a mostly
 //! vertical gesture: a slightly slanted trackpad swipe over it scrolls the
 //! page around it and leaves it where it is, while a mostly sideways swipe
-//! and a wheel with Shift (a delta on x alone) scroll it.
+//! and a wheel with Shift (a delta on x alone) scroll it. Windows delivers
+//! the two axes of a swipe as separate events, so a sideways delta is weighed
+//! against the vertical one seen just before it at the same pointer.
+
+use std::time::{Duration, Instant};
 
 use lurq::{
   app::{Tree, events::ScrollPhase},
@@ -70,4 +74,70 @@ fn a_delta_on_x_alone_scrolls_the_strip() {
   swipe(&mut tree, -5.0, -5.0, 2);
   assert_eq!(strip.scroll_x(), 50.0, "an even slant still counts as sideways");
   assert_eq!(page.scroll_y(), 10.0);
+}
+
+/// A slanted swipe as Windows delivers it: each move as a vertical event
+/// and a horizontal one, `step` apart on the runtime's clock.
+fn slanted_swipe_in_separate_events(tree: &mut Tree, start: Instant, step: Duration, moves: u32) {
+  for index in 0..moves {
+    tree.set_animation_clock(Some(start + step * index));
+    tree.scroll(POINTER.0, POINTER.1, 0.0, -6.0, ScrollPhase::Scroll);
+    tree.scroll(POINTER.0, POINTER.1, -3.0, 0.0, ScrollPhase::Scroll);
+  }
+}
+
+#[test]
+fn a_slanted_swipe_delivered_as_separate_events_scrolls_the_page_and_leaves_the_strip() {
+  let (mut tree, page, strip) = page();
+  slanted_swipe_in_separate_events(&mut tree, Instant::now(), Duration::from_millis(10), 5);
+  assert_eq!(page.scroll_y(), 30.0, "the vertical events scroll the page");
+  assert_eq!(
+    strip.scroll_x(),
+    0.0,
+    "the horizontal events in between are the slant, not a scroll of the strip"
+  );
+}
+
+#[test]
+fn sideways_events_alone_scroll_the_strip() {
+  let (mut tree, page, strip) = page();
+  tree.set_animation_clock(Some(Instant::now()));
+  for _ in 0..5 {
+    tree.scroll(POINTER.0, POINTER.1, -3.0, 0.0, ScrollPhase::Scroll);
+  }
+  assert_eq!(
+    strip.scroll_x(),
+    15.0,
+    "no vertical event before them: a sideways swipe or Shift+wheel"
+  );
+  assert_eq!(page.scroll_y(), 0.0);
+}
+
+#[test]
+fn a_sideways_burst_after_the_window_has_passed_scrolls_the_strip() {
+  let (mut tree, page, strip) = page();
+  let start = Instant::now();
+  slanted_swipe_in_separate_events(&mut tree, start, Duration::from_millis(10), 5);
+  assert_eq!(strip.scroll_x(), 0.0);
+  tree.set_animation_clock(Some(start + Duration::from_millis(400)));
+  for _ in 0..5 {
+    tree.scroll(POINTER.0, POINTER.1, -3.0, 0.0, ScrollPhase::Scroll);
+  }
+  assert_eq!(
+    strip.scroll_x(),
+    15.0,
+    "the vertical delta is forgotten after the window"
+  );
+  assert_eq!(page.scroll_y(), 30.0);
+}
+
+#[test]
+fn a_sideways_event_at_another_spot_is_not_held_by_a_vertical_one() {
+  let (mut tree, page, strip) = page();
+  let start = Instant::now();
+  tree.set_animation_clock(Some(start));
+  tree.scroll(POINTER.0, POINTER.1, 0.0, -6.0, ScrollPhase::Scroll);
+  tree.scroll(POINTER.0 + 40.0, POINTER.1, -3.0, 0.0, ScrollPhase::Scroll);
+  assert_eq!(strip.scroll_x(), 3.0, "a pointer 40 px away is another gesture");
+  assert_eq!(page.scroll_y(), 6.0);
 }
