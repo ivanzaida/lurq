@@ -65,13 +65,16 @@ impl Component for DropZone {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let mut child = explicit_child(ctx, &props);
-
-    if let Some(on_drop) = props.on_drop {
-      child = child.map_node(|node| node.on_drop(move |event| on_drop(&event)));
+    let child = explicit_child(ctx, &props);
+    match props.on_drop {
+      // `decorate_root`: the handler stays on a child component's root when
+      // that component renders again by itself.
+      Some(on_drop) => child.decorate_root(move |node| {
+        let on_drop = on_drop.clone();
+        node.on_drop(move |event| on_drop(&event))
+      }),
+      None => child,
     }
-
-    child
   }
 }
 

@@ -656,6 +656,9 @@ pub(crate) struct Node {
   pub(crate) element_id: Option<Arc<str>>,
   /// Author-supplied HTML-like class list. Used for lookup, not retained identity.
   pub(crate) classes: Vec<Arc<str>>,
+  /// On a component's root: what the code that mounted it put on it, which
+  /// the component's own re-render gets back. Boxed: few nodes have one.
+  pub(crate) outer_decoration: Option<Box<crate::node::outer_decoration::OuterDecoration>>,
   pub(crate) overlay_declaration: Option<Box<crate::app::ctx::OverlaySpec>>,
   /// The anchor of a signal-driven overlay declared here that closes on an
   /// outside press and switches on an anchor press, open or closed: pressing
@@ -1793,6 +1796,7 @@ impl Node {
       component_key: None,
       element_id: None,
       classes: Vec::new(),
+      outer_decoration: None,
       overlay_declaration: None,
       dropdown_anchor: None,
       modal_declaration: None,
@@ -4464,6 +4468,7 @@ impl Node {
       component_key: self.component_key.clone(),
       element_id: self.element_id.clone(),
       classes: self.classes.clone(),
+      outer_decoration: self.outer_decoration.clone(),
       overlay_declaration: self
         .overlay_declaration
         .as_ref()
@@ -4560,10 +4565,12 @@ impl Node {
     Box::new(self.clone_for_reuse())
   }
 
-  /// Moves `replacement` into `self`. Kept out of the recursive
+  /// Moves `replacement` into `self`, keeping what the mounting code put on
+  /// the replaced component root. Kept out of the recursive
   /// [`Self::replace_component_slot_in`] so that its frame holds no `Node`.
   #[inline(never)]
-  fn replace_with(&mut self, replacement: Box<Node>) {
+  fn replace_with(&mut self, mut replacement: Box<Node>) {
+    replacement.adopt_outer_decoration(self);
     *self = *replacement;
   }
 

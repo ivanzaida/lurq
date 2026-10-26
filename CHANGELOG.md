@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- What the code that mounts a component puts on the element `mount` returns was lost when that component rendered again by itself. `ctx.mount::<C>(props).id("x")` (or `Markdown::mount(ctx, props).id("x")`) put the id on the component's root in the parent's rendered tree only; a dirty refresh of just that component (its own signal, or a theme or breakpoint change it reads) swapped its fresh render into the window without it, so `Tree::get_element_by_id` and MCP `lurq_find_by_id` no longer found the component until the parent rendered again. The same happened to a `.key(..)`, `.class(..)` or `.classes(..)` put there, and to what a `Draggable` (drag handlers, element ref, payload) or a `DropZone` (drop handler) puts on a child component's root: dragging such a component, or dropping on it, stopped working after it rendered by itself. A component's root now records what was put on it after `mount` returned, and its fresh root takes that over wherever it replaces the old one: in the window's tree and in the kept trees of the clean components above it. The outer id and key win over the component's own, as when the parent renders; outer classes are added to the component's own. The parent does not render again for this, and a parent that renders again without the decoration drops it. Kept: those four `Element` methods and what `Draggable` and `DropZone` put on their child, which is all that can be put on a mounted component's root from outside lurq. Not covered, as it is not put on the component's root: what a `DragContainer` puts on the draggables nested in its child (it rewraps their drag start to keep them in its bounds) and the `selectable` flag a selectable `Markdown` sets on the nodes of the components it mounts.
+
 ## 0.51.1 — 2026-10-23
 
 Fixes:
