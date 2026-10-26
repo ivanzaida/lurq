@@ -13,6 +13,7 @@ mod dirty_tracking {
   mod parent_passed_signal_marks_child_dirty;
   mod parent_signal_does_not_rerender_clean_child;
 }
+mod component_root_decoration;
 mod effect;
 mod measured_rect;
 #[cfg(feature = "i18n")]

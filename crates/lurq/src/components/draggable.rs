@@ -12,7 +12,7 @@ use crate::{
     events::{DragEvent, DragPayload, DropResult, MouseButtonMask},
   },
   core::{ElementRect, ElementRefMut},
-  node::Element,
+  node::{Element, Node},
 };
 
 type DragCallback = Arc<dyn Fn(&DragEvent) + Send + Sync>;
@@ -197,82 +197,90 @@ impl Component for Draggable {
     // stable when the prop flips between renders.
     let internal_ref = ctx.element_ref_mut();
     let element_ref = props.element_ref.clone().unwrap_or(internal_ref);
-    let followers = Arc::new(props.followers.clone());
-    let movement = props.movement;
-    let start_bounds = Arc::new(Mutex::new(Vec::<(ElementRefMut, ElementRect)>::new()));
-    let mut child = explicit_child(ctx, &props);
+    // `decorate_root`: the handlers stay on a child component's root when
+    // that component renders again by itself.
+    explicit_child(ctx, &props).decorate_root(drag_handlers(&props, element_ref))
+  }
+}
 
-    child = child.map_node(|node| {
-      node
-        .ref_element(element_ref.clone())
-        .start_drag_buttons(props.start_drag_buttons)
-        .on_drag_start({
-          let on_drag_start = props.on_drag_start.clone();
-          let element_ref = element_ref.clone();
-          let followers = followers.clone();
-          let start_bounds = start_bounds.clone();
-          move |event| {
-            let mut starts = start_bounds.lock().unwrap();
-            starts.clear();
-            starts.push((element_ref.clone(), element_ref.bounds()));
+/// Puts the drag handlers, the element ref and the payload on the dragged
+/// node. Callable again, for a child component's fresh root.
+fn drag_handlers(props: &DraggableProps, element_ref: ElementRefMut) -> impl Fn(Node) -> Node + Send + Sync + 'static {
+  let followers = Arc::new(props.followers.clone());
+  let start_bounds = Arc::new(Mutex::new(Vec::<(ElementRefMut, ElementRect)>::new()));
+  let start_drag_buttons = props.start_drag_buttons;
+  let movement = props.movement;
+  let drop_miss_behavior = props.drop_miss_behavior;
+  let override_policy = props.override_policy;
+  let on_drag_start = props.on_drag_start.clone();
+  let on_drag_move = props.on_drag_move.clone();
+  let on_drag_end = props.on_drag_end.clone();
+  let payload = props.payload.clone();
+  move |node| {
+    let node = node
+      .ref_element(element_ref.clone())
+      .start_drag_buttons(start_drag_buttons)
+      .on_drag_start({
+        let on_drag_start = on_drag_start.clone();
+        let element_ref = element_ref.clone();
+        let followers = followers.clone();
+        let start_bounds = start_bounds.clone();
+        move |event| {
+          let mut starts = start_bounds.lock().unwrap();
+          starts.clear();
+          starts.push((element_ref.clone(), element_ref.bounds()));
+          for follower in attached(&followers) {
+            starts.push((follower.clone(), follower.bounds()));
+          }
+          drop(starts);
+          if let Some(on_drag_start) = &on_drag_start {
+            on_drag_start(&event);
+          }
+        }
+      })
+      .on_drag_move({
+        let element_ref = element_ref.clone();
+        let followers = followers.clone();
+        let on_drag_move = on_drag_move.clone();
+        move |event: DragEvent| {
+          if movement == DragMovement::Automatic {
+            move_element(&element_ref, event.delta_x, event.delta_y);
             for follower in attached(&followers) {
-              starts.push((follower.clone(), follower.bounds()));
-            }
-            drop(starts);
-            if let Some(on_drag_start) = &on_drag_start {
-              on_drag_start(&event);
+              move_element(follower, event.delta_x, event.delta_y);
             }
           }
-        })
-        .on_drag_move({
-          let element_ref = element_ref.clone();
-          let followers = followers.clone();
-          let on_drag_move = props.on_drag_move.clone();
-          move |event: DragEvent| {
-            if movement == DragMovement::Automatic {
-              move_element(&element_ref, event.delta_x, event.delta_y);
-              for follower in attached(&followers) {
-                move_element(follower, event.delta_x, event.delta_y);
-              }
-            }
-            if let Some(on_drag_move) = &on_drag_move {
-              on_drag_move(&event);
+          if let Some(on_drag_move) = &on_drag_move {
+            on_drag_move(&event);
+          }
+        }
+      })
+      .on_drag_end({
+        let on_drag_end = on_drag_end.clone();
+        let element_ref = element_ref.clone();
+        let followers = followers.clone();
+        let start_bounds = start_bounds.clone();
+        move |event: DragEvent| {
+          if drop_miss_behavior == DropMissBehavior::RevertToDragStart && event.drop_result == Some(DropResult::Missed)
+          {
+            for (dragged, bounds) in start_bounds.lock().unwrap().drain(..) {
+              dragged.set_bounds(bounds);
             }
           }
-        })
-        .on_drag_end({
-          let on_drag_end = props.on_drag_end.clone();
-          let element_ref = element_ref.clone();
-          let followers = followers.clone();
-          let start_bounds = start_bounds.clone();
-          let drop_miss_behavior = props.drop_miss_behavior;
-          let override_policy = props.override_policy;
-          move |event: DragEvent| {
-            if drop_miss_behavior == DropMissBehavior::RevertToDragStart
-              && event.drop_result == Some(DropResult::Missed)
-            {
-              for (dragged, bounds) in start_bounds.lock().unwrap().drain(..) {
-                dragged.set_bounds(bounds);
-              }
-            }
-            if override_policy == DragOverridePolicy::Clear {
-              element_ref.clear_bounds_override();
-              for follower in followers.iter() {
-                follower.clear_bounds_override();
-              }
-            }
-            if let Some(on_drag_end) = &on_drag_end {
-              on_drag_end(&event);
+          if override_policy == DragOverridePolicy::Clear {
+            element_ref.clear_bounds_override();
+            for follower in followers.iter() {
+              follower.clear_bounds_override();
             }
           }
-        })
-    });
-
-    if let Some(payload) = props.payload.clone() {
-      child = child.map_node(|node| node.drag_payload(payload));
+          if let Some(on_drag_end) = &on_drag_end {
+            on_drag_end(&event);
+          }
+        }
+      });
+    match &payload {
+      Some(payload) => node.drag_payload(payload.clone()),
+      None => node,
     }
-
-    child
   }
 }
 

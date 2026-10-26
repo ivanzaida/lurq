@@ -44,6 +44,17 @@ impl Element {
     Self::from_node(f(self.into_node()))
   }
 
+  /// [`Self::map_node`] with a decoration that can run again: on a
+  /// component's root (an element `Ctx::mount` returned) it is also recorded,
+  /// and put on the component's fresh root when the component renders again
+  /// by itself. For what a wrapper (`Draggable`, `DropZone`) puts on the root
+  /// of the child it is given.
+  pub(crate) fn decorate_root(mut self, decorate: impl Fn(Node) -> Node + Send + Sync + 'static) -> Self {
+    let decorate: crate::node::outer_decoration::NodeDecoration = std::sync::Arc::new(decorate);
+    self.node.record_outer_decoration(&decorate);
+    self.map_node(|node| decorate(node))
+  }
+
   /// Moves the root node out of its box, for storing it among a parent's children.
   pub(crate) fn into_node(self) -> Node {
     *self.node
@@ -57,8 +68,11 @@ impl Element {
     self.node.node_id()
   }
 
+  /// On an element `Ctx::mount` returned, the key, id and classes set here
+  /// stay on the component's root when the component renders again by itself.
   pub fn key(mut self, key: impl Into<std::sync::Arc<str>>) -> Self {
     let key = key.into();
+    self.node.record_outer_key(&key);
     self.node.set_component_key(Some(&key));
     self
   }
@@ -66,21 +80,34 @@ impl Element {
   /// HTML-like `id` attribute for `Tree::get_element_by_id` lookup.
   /// Also participates in retained-node identity across sibling changes.
   /// Keep IDs stable; changing one can reset the node's runtime state.
+  ///
+  /// On an element `Ctx::mount` returned, the id replaces the component's own
+  /// on its root, also when the component renders again by itself.
   pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
+    let id = id.into();
+    self.node.record_outer_id(&id);
     crate::node::NodeUpdate::id(&mut *self.node, id);
     self
   }
 
   /// Appends an HTML-like class for `Tree::get_elements_by_class_name`
   /// lookup. Classes do not affect reconciliation or styling.
+  ///
+  /// On an element `Ctx::mount` returned, the class is appended to the
+  /// component's own on its root, also when the component renders again by
+  /// itself.
   pub fn class(mut self, class: impl Into<std::sync::Arc<str>>) -> Self {
+    let class = class.into();
+    self.node.record_outer_class(&class);
     crate::node::NodeUpdate::class(&mut *self.node, class);
     self
   }
 
   /// Appends several classes at once; see [`Element::class`].
   pub fn classes<C: Into<std::sync::Arc<str>>>(mut self, classes: impl IntoIterator<Item = C>) -> Self {
-    crate::node::NodeUpdate::classes(&mut *self.node, classes);
+    for class in classes {
+      self = self.class(class);
+    }
     self
   }
 }

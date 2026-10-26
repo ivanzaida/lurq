@@ -9880,6 +9880,7 @@ fn replace_live_component_slot_everywhere(
   let mut replaced = false;
   if node.component_slot_id() == Some(slot_id) {
     let mut replacement = replacement.clone_for_reuse();
+    replacement.adopt_outer_decoration(node);
     reset_element_ref_flags_recursive(node);
     replacement.preserve_runtime_state_from(node);
     #[cfg(feature = "canvas")]

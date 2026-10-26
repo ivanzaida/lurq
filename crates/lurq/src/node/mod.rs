@@ -18,6 +18,7 @@ pub(crate) mod lazy_box;
 mod letter_spacing;
 pub(crate) mod node;
 pub(crate) mod node_kind;
+pub(crate) mod outer_decoration;
 pub mod padding;
 pub mod radius_value;
 pub mod select_icon;

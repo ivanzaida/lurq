@@ -25,6 +25,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     component_key: None,
     element_id: None,
     classes: Vec::new(),
+    outer_decoration: None,
     overlay_declaration: None,
     dropdown_anchor: None,
     modal_declaration: None,
