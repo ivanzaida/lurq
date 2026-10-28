@@ -10,6 +10,8 @@ Performance:
 
 - A decorated input (input tokens, styled spans) without padded tokens no longer builds the cluster index padded rows need, about 40% less layout time for a long paragraph.
 - A wrapped decorated input lays out a paragraph at a time and keeps each paragraph's layout, so an edit lays out only the paragraph it changed. Justified text and single-line inputs still lay out whole.
+- A long left-to-right paragraph of a decorated input is shaped in chunks cut after spaces at places its own words choose; each chunk is kept, so an edit shapes only the chunk it changed. The paragraph lays out exactly as when shaped whole. Paragraphs with right-to-left text, bidi controls or tabs are shaped whole.
+- A decorated input keeps its glyph commands between frames: moving the caret, selecting and scrolling no longer place every glyph again. Its rows find their clusters with sorted lists instead of ordered maps.
 
 ## 0.51.2 — 2026-10-26
 

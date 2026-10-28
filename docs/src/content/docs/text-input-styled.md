@@ -116,6 +116,8 @@ weight, an italic style, the `monospace` family at 0.92 over the `SurfaceRaised`
 - A masked input is plain, and a styled input ignores `tokens`.
 - Code fills have no horizontal padding.
 - A multiline input lays out a paragraph at a time and keeps each one, so an edit lays out only the paragraph it
-  changed. Within a paragraph the whole paragraph is shaped again; `benches/styled_input.rs` measures typing, caret
-  moves, selection drags and style toggles on 4,000 characters as one paragraph and as 50.
+  changed. A long left-to-right paragraph is also shaped in chunks of a few hundred bytes, cut after spaces where
+  its own words choose, so an edit shapes only the chunk it changed; its rows are still laid out again. Paragraphs
+  with right-to-left text or tabs are shaped whole. `benches/styled_input.rs` measures typing, caret moves,
+  selection drags and style toggles on 4,000 characters as one paragraph and as 50.
 - Span edits copy the input's span list (linear in its spans, not in its text).

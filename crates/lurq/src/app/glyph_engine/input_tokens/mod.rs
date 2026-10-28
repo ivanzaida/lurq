@@ -18,6 +18,7 @@ use crate::{
 };
 
 mod alignment;
+mod chunks;
 #[cfg(test)]
 #[path = "../../../../tests/input/text_input/crlf_geometry.rs"]
 mod crlf_tests;
@@ -156,6 +157,10 @@ pub(crate) struct InputCache {
   paragraphs: pieces::ParagraphCache,
   /// Glyph commands of the layouts drawn last.
   raster: paint::RasterCache,
+  /// Shaped chunks of long paragraphs, so an edit shapes only its chunk.
+  chunks: chunks::ChunkCache,
+  /// Shapes every paragraph whole, for tests that compare the two.
+  whole_paragraphs: bool,
 }
 
 impl InputCache {
@@ -164,6 +169,7 @@ impl InputCache {
     self.entries.clear();
     self.paragraphs.clear();
     self.raster.clear();
+    self.chunks.clear();
   }
   fn find(&self, key: &InputConfig) -> Option<Arc<DecoratedInputLayout>> {
     self.entries.iter().find(|layout| &layout.config == key).cloned()
@@ -177,6 +183,7 @@ impl InputCache {
         .sum::<usize>()
       + self.paragraphs.estimated_memory_bytes()
       + self.raster.estimated_memory_bytes()
+      + self.chunks.estimated_memory_bytes()
   }
   fn insert(&mut self, layout: Arc<DecoratedInputLayout>) {
     // A fixed entry count alone is not a text-memory bound.
@@ -234,7 +241,11 @@ impl GlyphEngine {
     let mut prepared = Vec::new();
     for line in &mut buffer.lines {
       let bytes = line.text().len();
-      let shape = line.shape(&mut self.font_system, 8);
+      let chunked = self.shape_in_chunks(line.text(), line.attrs_list());
+      let shape = match &chunked {
+        Some(shape) => shape,
+        None => line.shape(&mut self.font_system, 8),
+      };
       rows::paragraph(&mut prepared, shape, offset, bytes, &output.config);
       let ending = offset + bytes..offset + bytes + line.ending().as_str().len();
       rows::set_ending(&mut prepared, ending.clone());
