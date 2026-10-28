@@ -29,6 +29,8 @@ mod slider;
 mod slot;
 mod spacer;
 mod stack;
+#[cfg(feature = "markdown")]
+pub(crate) mod styled_text;
 #[cfg(feature = "svg")]
 mod svg;
 mod text;
@@ -80,6 +82,10 @@ pub use slider::Slider;
 pub use slot::Slot;
 pub use spacer::Spacer;
 pub use stack::Stack;
+#[cfg(feature = "markdown")]
+pub use styled_text::{
+  LinkClick, MarkPresence, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+};
 #[cfg(feature = "svg")]
 pub use svg::Svg;
 pub use text::{Text, TextOverflow};

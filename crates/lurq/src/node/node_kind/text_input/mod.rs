@@ -7,6 +7,11 @@ mod composition;
 mod controller_access;
 mod editing;
 mod geometry;
+#[cfg(feature = "markdown")]
+mod styled;
+#[cfg(not(feature = "markdown"))]
+#[path = "styled_off.rs"]
+mod styled;
 pub(crate) use controller_access::WeakTextInputState;
 #[cfg(test)]
 #[path = "../../../../tests/input/text_input/source.rs"]
@@ -65,13 +70,17 @@ struct TextInputInner {
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
   redo_stack: Vec<TextInputSnapshot>,
+  /// The spans of a styled input and its hooks; empty for a plain one.
+  styled: styled::StyledState,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct TextInputSnapshot {
   value: String,
   caret: usize,
   selection_anchor: Option<usize>,
+  /// A styled input's spans, so undo restores styles with the text.
+  spans: Option<styled::SnapshotSpans>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -83,6 +92,7 @@ pub(crate) struct TextInputLayoutSignature {
   min_rows: Option<usize>,
   max_rows: Option<usize>,
   mask: Option<char>,
+  styled: bool,
 }
 
 impl TextInputState {
@@ -131,6 +141,7 @@ impl TextInputState {
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        styled: Default::default(),
       })),
       on_input: Arc::new(Mutex::new(Vec::new())),
       layout_dirty: Arc::new(AtomicBool::new(false)),
@@ -174,6 +185,7 @@ impl TextInputState {
   }
 
   pub(crate) fn sync_external_value(&self) -> bool {
+    self.sync_external_spans();
     let value = self.value();
     let mut inner = self.inner.lock();
     if inner.last_value == value {
@@ -327,6 +339,7 @@ impl TextInputState {
     }
 
     let (start, end) = selected?;
+    let styled = self.styled_before_edit();
     self.value.update(|value| {
       value.replace_range(start..end, "");
     });
@@ -334,6 +347,7 @@ impl TextInputState {
     inner.caret = start;
     inner.selection_anchor = None;
     drop(inner);
+    self.styled_after_edit(styled, start..end, 0);
     self.mark_layout_dirty();
     Some(start)
   }
@@ -348,6 +362,7 @@ impl TextInputState {
       min_rows: inner.min_rows,
       max_rows: inner.max_rows,
       mask: inner.mask,
+      styled: inner.styled.is_bound(),
     }
   }
 
@@ -417,11 +432,13 @@ impl TextInputState {
 
   fn snapshot(&self) -> TextInputSnapshot {
     let value = self.value();
+    let spans = self.current_spans();
     let inner = self.inner.lock();
     TextInputSnapshot {
       value,
       caret: inner.caret,
       selection_anchor: inner.selection_anchor,
+      spans,
     }
   }
 
@@ -455,6 +472,10 @@ impl TextInputState {
     inner.token_affinity = None;
     inner.caret = caret;
     inner.selection_anchor = selection_anchor;
+    drop(inner);
+    if let Some(spans) = snapshot.spans {
+      self.restore_spans(spans);
+    }
   }
 }
 
@@ -473,9 +494,7 @@ fn mask_text(text: &str, mask: char) -> String {
 }
 
 fn push_limited(stack: &mut Vec<TextInputSnapshot>, snapshot: TextInputSnapshot) {
-  if stack.last().is_some_and(|last| {
-    last.value == snapshot.value && last.caret == snapshot.caret && last.selection_anchor == snapshot.selection_anchor
-  }) {
+  if stack.last() == Some(&snapshot) {
     return;
   }
   stack.push(snapshot);

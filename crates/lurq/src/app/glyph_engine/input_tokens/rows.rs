@@ -39,13 +39,14 @@ pub(super) fn paragraph(
   bytes: usize,
   config: &InputConfig,
 ) {
-  let paragraph = Paragraph::new(original, config);
+  let padded = config.styles.iter().any(|style| style.padding != 0.0);
+  let paragraph = Paragraph::new(original, config, padded);
   let context = Arc::new(RowContext {
     styles: paragraph.styles.clone(),
     metrics: paragraph.metrics.clone(),
     blank_words: paragraph.blank_words.clone(),
   });
-  if config.styles.iter().all(|style| style.padding == 0.0) {
+  if !padded {
     public_rows(rows, &paragraph, context, offset, bytes, config);
     return;
   }

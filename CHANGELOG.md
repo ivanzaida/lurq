@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- Styled text inputs, with the `markdown` feature. `TextInput::spans(Signal<Vec<StyledSpan>>)` makes an input edit bold, italic, inline code, strikethrough and links over its plain `Signal<String>` value, as UTF-8 byte ranges the app owns: the input draws the runs with the new theme roles `ThemeTextMarks` (`Theme::text_marks`, `set_text_marks`), moves them with every edit (typing, deleting, cut, paste, input method composition), keeps them in the same undo history as the text and writes them back. Typed text takes the style of the text before the caret, except that a link does not grow past its end. `TextInputController` gains `toggle_mark`, `set_mark`, `set_link`, `set_pending_style` (the style of the next typed text, for Ctrl+B while typing), `selection_style` (all, some or none per mark, for a toolbar), `styled_text`, `selected_styled_text` and `replace_selection_styled` (a paste handler's parsed spans). `TextInput::on_styled_change` reports every change the input makes as a `StyledChange` (the `StyledEdit`, the spans shared rather than copied, and the text on demand), `copy_format` sets what Ctrl+C copies from the styled selection (such as Markdown), and `on_link_click` reports a link clicked with Ctrl (Cmd on macOS). `TextInputHandle::copied_text` tells what Ctrl+C would copy. See the *Styled text inputs* guide and `examples/styled_editor.rs`. Plain inputs are unchanged.
+
+Performance:
+
+- A decorated input (input tokens, styled spans) without padded tokens no longer builds the cluster index padded rows need, about 40% less layout time for a long paragraph.
+- A wrapped decorated input lays out a paragraph at a time and keeps each paragraph's layout, so an edit lays out only the paragraph it changed. Justified text and single-line inputs still lay out whole.
+
 ## 0.51.2 — 2026-10-26
 
 Fixes:

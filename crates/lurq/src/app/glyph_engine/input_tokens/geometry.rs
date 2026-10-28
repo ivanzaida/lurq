@@ -214,20 +214,47 @@ impl DecoratedInputLayout {
   }
 
   fn push_fragment(&mut self, (token, left, right, ascent, descent): (usize, f32, f32, f32, f32), baseline: f32) {
-    if let Some((color, radius)) = self.config.styles[token].fill {
-      let style = &self.config.styles[token].text;
-      let height = (style.font_size * style.line_height).max(ascent + descent);
+    let width = (right - left).max(0.0);
+    let style = &self.config.styles[token];
+    let (font_size, line_height, color, lines) = (
+      style.text.font_size,
+      style.text.line_height,
+      style.text.color,
+      style.lines,
+    );
+    if let Some((fill, radius)) = style.fill {
+      let height = (font_size * line_height).max(ascent + descent);
       let y = baseline - ascent - (height - ascent - descent) * 0.5;
-      self.fragments.push(InputFragment {
-        x: left,
-        y,
-        width: (right - left).max(0.0),
-        height,
-        color,
-        radius,
-        row: self.rows.len(),
-      });
+      self.push_rect(left, y, width, height, fill, radius);
     }
+    // The font's own line metrics are not at hand here; these are the usual
+    // positions in ems, kept at least a pixel thick.
+    let thickness = (font_size / 14.0).max(1.0);
+    if lines.underline {
+      self.push_rect(left, baseline + font_size * 0.08, width, thickness, color, 0.0);
+    }
+    if lines.strikethrough {
+      self.push_rect(
+        left,
+        baseline - font_size * 0.28 - thickness * 0.5,
+        width,
+        thickness,
+        color,
+        0.0,
+      );
+    }
+  }
+
+  fn push_rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: Color, radius: f32) {
+    self.fragments.push(InputFragment {
+      x,
+      y,
+      width,
+      height,
+      color,
+      radius,
+      row: self.rows.len(),
+    });
   }
 
   fn ensure_row_boundaries(&mut self, offset: usize, coverage: Range<usize>, y: f32, height: f32, shift: f32) {
@@ -330,6 +357,17 @@ impl DecoratedInputLayout {
       .min_by(|a, b| (a.1.x - x).abs().total_cmp(&(b.1.x - x).abs()))
       .map_or(0, |(index, _)| index)
   }
+  /// The source range of the character cluster drawn under a point, if any.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn cluster_at(&self, x: f32, y: f32) -> Option<Range<usize>> {
+    let row = self.rows.iter().find(|row| row.y <= y && y < row.y + row.height)?;
+    self
+      .intervals
+      .iter()
+      .find(|part| part.y == row.y && part.x <= x && x < part.right && !part.range.is_empty())
+      .map(|part| part.range.clone())
+  }
+
   pub(crate) fn vertical(&self, caret: usize, down: bool) -> usize {
     let position = self.carets[caret];
     let row = if down {

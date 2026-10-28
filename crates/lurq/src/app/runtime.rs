@@ -4591,10 +4591,15 @@ impl Tree {
           let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
           let text_x = rect.local_x - rect.x - padding.left;
           let text_y = rect.local_y - rect.y - vertical_offset;
-          match text_click_count {
-            1 => state.set_caret_from_point(text_x, text_y),
-            2 => state.select_word_at_point(text_x, text_y),
-            _ => state.select_line_at_point(text_x, text_y),
+          // A styled input's link clicked with the shortcut modifier goes to the app, however quickly it follows
+          // another click.
+          let link_modifier = Self::platform_shortcut_modifier(evt.ctrl, evt.meta);
+          if !(link_modifier && state.click_link_at_point(text_x, text_y)) {
+            match text_click_count {
+              1 => state.set_caret_from_point(text_x, text_y),
+              2 => state.select_word_at_point(text_x, text_y),
+              _ => state.select_line_at_point(text_x, text_y),
+            }
           }
           reset_text_input_caret_blink = true;
           builtin_needs_redraw = true;
@@ -5005,13 +5010,13 @@ impl Tree {
         match (logical, command) {
           ("a" | "A", _) | (_, "KeyA") if shortcut => state.select_all(),
           ("c" | "C", _) | (_, "KeyC") if shortcut => {
-            let Some(selected) = state.selected_text() else {
+            let Some(selected) = state.clipboard_selection() else {
               return false;
             };
             return write_clipboard_text(&selected);
           }
           ("x" | "X", _) | (_, "KeyX") if shortcut => {
-            let Some(selected) = state.selected_text() else {
+            let Some(selected) = state.clipboard_selection() else {
               return false;
             };
             if !write_clipboard_text(&selected) {
@@ -5025,7 +5030,7 @@ impl Tree {
             }
           }
           ("Insert", _) | (_, "Insert") if ctrl => {
-            let Some(selected) = state.selected_text() else {
+            let Some(selected) = state.clipboard_selection() else {
               return false;
             };
             return write_clipboard_text(&selected);
@@ -5036,7 +5041,7 @@ impl Tree {
             }
           }
           ("Delete", _) | (_, "Delete") if shift => {
-            let Some(selected) = state.selected_text() else {
+            let Some(selected) = state.clipboard_selection() else {
               return false;
             };
             if !write_clipboard_text(&selected) {
@@ -6187,6 +6192,14 @@ impl Tree {
           .as_ref()
           .map(|ctx| ctx.theme().shared_shadows())
           .unwrap_or_else(|| app.theme().shared_shadows()),
+      );
+      #[cfg(feature = "markdown")]
+      self.layout_engine.set_text_marks(
+        self
+          .root_ctx
+          .as_ref()
+          .map(|ctx| ctx.theme().shared_text_marks())
+          .unwrap_or_else(|| app.theme().shared_text_marks()),
       );
       let typography = self
         .root_ctx
@@ -8414,6 +8427,14 @@ impl TextInputHandle<'_> {
   /// selection is empty.
   pub fn selected_text(&self) -> Option<String> {
     self.state().and_then(TextInputState::selected_text)
+  }
+
+  /// What Ctrl+C puts on the clipboard: the selected text, or what a styled
+  /// input's [`copy_format`](crate::components::TextInput::copy_format)
+  /// makes of the styled selection. `None` when the selection is empty.
+  #[cfg(feature = "markdown")]
+  pub fn copied_text(&self) -> Option<String> {
+    self.state().and_then(TextInputState::clipboard_selection)
   }
 
   pub fn placeholder(&self) -> Option<String> {
