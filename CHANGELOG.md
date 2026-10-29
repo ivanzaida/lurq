@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.52.1 — 2026-10-29
+
+Fixes:
+
+- A screenshot of a macOS window nobody could see never completed. While the window is occluded (its application hidden, the window minimized or fully covered) Metal hands out no drawable and wgpu's `get_current_texture` answers `Occluded`, so the frame the capture waited for was skipped, and the next frame without a capture failed it as superseded: `WindowHandle::screenshot` wrote nothing and MCP `lurq_screenshot` answered "superseded before a frame was rendered". When the surface gives no texture and a capture waits, the wgpu renderer now draws that frame into a texture of the surface's size and format, takes the capture from it and presents nothing. Frames without a capture are still skipped while the window cannot be seen.
+
 ## 0.52.0 — 2026-10-28
 
 Added:
