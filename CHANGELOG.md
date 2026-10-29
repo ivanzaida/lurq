@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.53.0 — 2026-10-29
+
+Added:
+
+- Trackpad swipes between pages, as browsers go back and forward. `on_history_swipe` (on `Element` builders and every component) gets a `HistorySwipeEvent` with a `direction` (`HistoryDirection::Back` for fingers to the right, `Forward` to the left) when two fingers that moved across the window sideways lift: far enough (120 logical pixels), mostly sideways (twice as far as up or down), and without a scroll container moving with them or a scroll handler preventing their default, so horizontal scrolling is unchanged and a sideways list at its edge lets the next swipe through. The event goes to the elements under the pointer, innermost first, until one stops its propagation. The momentum after a swipe is never a second one, and a swipe that interrupts that momentum still counts. Mouse wheels (scrolls without phases) and lurq's synthetic input make none. On macOS the swipes follow System Settings › Trackpad › "Swipe between pages" with two fingers (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`, read as each gesture starts); set to three fingers only, AppKit sends a swipe event winit does not report, and no swipe is recognized. Other platforms report no scroll phases and have no swipes yet. lurq's `Router` does not follow swipes by itself: call `RouterHandle::back` / `forward` from `on_history_swipe`. `Tree::set_history_swipes` (hidden) turns the recognizer on in tests.
+
 ## 0.52.1 — 2026-10-29
 
 Fixes:
