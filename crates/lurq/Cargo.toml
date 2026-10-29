@@ -215,5 +215,10 @@ name = "native_macos"
 harness = false
 required-features = ["winit"]
 
+[[test]]
+name = "native_macos_occluded_capture"
+harness = false
+required-features = ["winit", "wgpu", "screenshot"]
+
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphicsContext", "NSWindow"] }
