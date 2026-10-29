@@ -725,6 +725,18 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// A trackpad swipe between pages ended over this element: two fingers moved sideways that nothing under the
+      /// pointer scrolled with. Go back or forward by the event's `direction`, as a browser does.
+      pub fn on_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_history_swipe(node, f));
+        self
+      }
+
+      pub fn off_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_history_swipe(node, f));
+        self
+      }
+
       pub fn on_mouse_enter(mut self, f: impl $crate::node::IntoVoidEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_mouse_enter(node, f));
         self
