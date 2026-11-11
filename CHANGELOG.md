@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.58.6 — 2026-11-11
+
+Fixes:
+
+- The `devtools` feature builds for iOS: `rfd`, which has no iOS backend, is no longer a dependency there.
+
+Dependencies:
+
+- wgpu and wgpu-hal are pinned to 29.0.4 (from 29.0.3).
+- The `mcp` feature needs rmcp 3.9 or newer (from 3.1). rmcp is re-exported as `lurq::mcp::rmcp`: 3.9 deprecates `rmcp::model::ServerInfo` in favour of `ServerConfig`, the same type under a new name, so an app that names `ServerInfo` through the re-export gets a deprecation warning.
+
+Internal:
+
+- lurq's own lib tests build for feature sets without `raster` (for example `mcp,winit,wgpu`).
+
 ## 0.58.5 — 2026-11-10
 
 Added:
