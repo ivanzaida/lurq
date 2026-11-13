@@ -635,3 +635,31 @@ fn a_press_of_the_label_reaches_any_focusable_control() {
   press_text(&mut stage, "Notifications");
   assert_eq!(focused(&stage).as_deref(), Some("pause"));
 }
+
+#[test]
+fn a_tap_of_the_label_focuses_the_input_even_from_another_text_input() {
+  let value = Signal::new(String::new());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(16.0)
+      .child(Input::new(Signal::new(String::new())).id("other"))
+      .child(Field::new("Display name", Input::new(bound.clone()).id("name")))
+      .into()
+  });
+  let tap = |stage: &mut Stage, x: f32, y: f32| {
+    stage.tree.touch_tap(x, y, std::time::Duration::from_millis(100));
+    stage.pass();
+  };
+  // A finger in another text input first: a tap elsewhere leaves it the focus, and the keyboard up, unless what is
+  // tapped takes the focus.
+  let (x, y) = stage.center("other");
+  tap(&mut stage, x, y);
+  assert_eq!(focused(&stage).as_deref(), Some("other"));
+  let label = stage.text_quad("Display name").unwrap();
+  tap(&mut stage, label.x + label.width / 2.0, label.y + label.height / 2.0);
+  assert_eq!(focused(&stage).as_deref(), Some("name"));
+  type_in(&mut stage, "Ivan");
+  assert_eq!(value.get(), "Ivan");
+}

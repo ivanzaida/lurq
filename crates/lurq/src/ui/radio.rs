@@ -403,6 +403,7 @@ struct Item {
 /// first and the last, and a disabled one is passed by.
 pub struct RadioGroup {
   items: Vec<Item>,
+  label: Option<Arc<str>>,
   horizontal: bool,
   invalid: bool,
   disabled: bool,
@@ -428,6 +429,7 @@ impl RadioGroup {
       .collect();
     Self {
       items,
+      label: None,
       horizontal: false,
       invalid: false,
       disabled: false,
@@ -461,6 +463,12 @@ impl RadioGroup {
   /// there is no room, in place of one under the other.
   pub fn horizontal(mut self, horizontal: bool) -> Self {
     self.horizontal = horizontal;
+    self
+  }
+
+  /// What the group is called, to what reads the tree. It draws nothing: a field gives it its own label.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -517,13 +525,16 @@ impl RadioGroup {
     // One choice: Tab stops in it once, and an arrow key moves the focus and the choice with it.
     let keys = FocusGroup::both().activate(true).one_stop(true);
     let root = recipe.part(RadioGroupPart::Root);
-    let (id, key) = (self.id, self.key);
+    let (id, key, label) = (self.id, self.key, self.label);
     macro_rules! group {
       ($holder:expr) => {{
         let mut holder = $holder
           .part(&root)
           .focus_group(keys)
           .describe("a11y_role", "radiogroup");
+        if let Some(label) = label {
+          holder = holder.describe("a11y_name", label);
+        }
         for radio in radios {
           holder = holder.child(radio);
         }
@@ -561,5 +572,31 @@ impl Themed for RadioGroup {
       .base(RadioGroupPart::Root, |s| s.gap(12.0))
       // Side by side they are further apart than one under the other, so that a label is read with its own mark.
       .state(RadioGroupState::Horizontal, RadioGroupPart::Root, |s| s.gap(24.0))
+  }
+}
+
+impl super::FieldControl for Radio {
+  /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
+  /// invalid where the field is, and disabled where the field is.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label_hidden {
+      self.label = field.label.clone();
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}
+
+impl super::FieldControl for RadioGroup {
+  /// Called by the field's label unless it has a name of its own, every radio invalid where the field is, and
+  /// disabled where the field is.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.into()
   }
 }

@@ -442,6 +442,7 @@ struct GroupItem {
 /// the focus is on. A choice's icon is not drawn.
 pub struct CheckboxGroup {
   items: Vec<GroupItem>,
+  label: Option<Arc<str>>,
   horizontal: bool,
   invalid: bool,
   disabled: bool,
@@ -467,6 +468,7 @@ impl CheckboxGroup {
       .collect();
     Self {
       items,
+      label: None,
       horizontal: false,
       invalid: false,
       disabled: false,
@@ -500,6 +502,12 @@ impl CheckboxGroup {
   /// where there is no room, in place of one under the other.
   pub fn horizontal(mut self, horizontal: bool) -> Self {
     self.horizontal = horizontal;
+    self
+  }
+
+  /// What the group is called, to what reads the tree. It draws nothing: a field gives it its own label.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -554,10 +562,13 @@ impl CheckboxGroup {
       })
       .collect();
     let root = recipe.part(CheckboxGroupPart::Root);
-    let (id, key) = (self.id, self.key);
+    let (id, key, label) = (self.id, self.key, self.label);
     macro_rules! group {
       ($holder:expr) => {{
         let mut holder = $holder.part(&root).describe("a11y_role", "group");
+        if let Some(label) = label {
+          holder = holder.describe("a11y_name", label);
+        }
         for checkbox in boxes {
           holder = holder.child(checkbox);
         }
@@ -596,5 +607,31 @@ impl Themed for CheckboxGroup {
       CheckboxGroupPart::Root,
       |s| s.gap(24.0),
     )
+  }
+}
+
+impl super::FieldControl for Checkbox {
+  /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
+  /// invalid where the field is, and disabled where the field is.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label_hidden {
+      self.label = field.label.clone();
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}
+
+impl super::FieldControl for CheckboxGroup {
+  /// Called by the field's label unless it has a name of its own, every box invalid where the field is, and
+  /// disabled where the field is.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.into()
   }
 }

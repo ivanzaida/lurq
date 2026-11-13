@@ -295,3 +295,11 @@ impl Themed for SegmentedControl {
       .state(SegmentedControlState::FullWidth, Root, |s| s.width(Length::Fill))
   }
 }
+
+impl super::FieldControl for SegmentedControl {
+  /// Disabled where the field is. Each segment is called by its own label, and the control has no judgment.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}

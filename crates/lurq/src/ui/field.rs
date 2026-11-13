@@ -3,8 +3,7 @@
 use std::sync::Arc;
 
 use super::{
-  Button, ButtonGroup, Checkbox, Fab, Link, Radio, RadioGroup, SegmentedControl, Slider, Switch, Toggle, ToggleGroup,
-  names,
+  Button, ButtonGroup, Fab, Link, Toggle, names,
   part_style::{Length, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
   text_box::Judgment,
@@ -28,6 +27,9 @@ pub struct InField {
   pub judgment: Option<Judgment>,
   /// Whether the field takes no input.
   pub disabled: bool,
+  /// What is under the control: the field's error while it has one, else its description. The field gives it to
+  /// the control as its description to what reads the tree itself; a control need not.
+  pub description: Option<Arc<str>>,
 }
 
 /// A control a [`Field`] holds, which the field finishes: it gives it its label as its name, its judgment and its
@@ -46,10 +48,14 @@ pub struct InField {
 /// }
 /// ```
 ///
-/// An [`Input`](super::Input) and a [`Textarea`](super::Textarea) take all three, each only where the app did not
-/// say it of the control itself. Any [`Element`] is a control that takes none of them: an element built already
-/// cannot be told anything. The other components of the design system are such controls until they take what a
-/// field tells them.
+/// Each control of the design system that a form holds takes what it has a prop for, only where the app did not say
+/// it of the control itself: an [`Input`](super::Input), a [`Textarea`](super::Textarea) and a
+/// [`Select`](super::Select) the name, the judgment and disabled; a checkbox, a radio and a switch the name where
+/// their own label is hidden, a checkbox's and a radio's judgment where it is invalid, and disabled; a group of
+/// checkboxes or radios its name, invalid and disabled; a slider its name and disabled; a segmented control and a
+/// toggle group disabled. Any [`Element`] takes none of them: an element built already cannot be told anything.
+/// Whatever the control, the field gives its description, or its error, as the control's description to what
+/// reads the tree.
 pub trait FieldControl {
   /// The control as the field holds it.
   fn in_field(self, field: &InField) -> Element;
@@ -61,8 +67,7 @@ impl FieldControl for Element {
   }
 }
 
-/// The controls a field holds as they are: they take nothing of what a field tells them yet. A component that comes
-/// to take it implements [`FieldControl`] itself, and leaves this list.
+/// What a field holds as it is: nothing a field says is anything to it (a button, a link, a row).
 macro_rules! as_they_are {
   ($($control:ty),* $(,)?) => {
     $(
@@ -75,23 +80,40 @@ macro_rules! as_they_are {
   };
 }
 
-as_they_are!(
-  Button,
-  ButtonGroup,
-  Checkbox,
-  Fab,
-  Link,
-  Radio,
-  RadioGroup,
-  SegmentedControl,
-  Slider,
-  Switch,
-  Toggle,
-  ToggleGroup,
-  Row,
-  Column,
-  Stack,
-);
+as_they_are!(Button, ButtonGroup, Fab, Link, Toggle, Row, Column, Stack);
+
+/// `control` with `description` as its description to what reads the tree: on each outermost node in it that says
+/// what it is (`a11y_role`) or takes the focus, so that a group is described and not each radio in it; on the root
+/// where there is none. Kept only where there is tooling to tell, as every `a11y_` attribute is.
+fn described(control: Element, description: Arc<str>) -> Element {
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  {
+    use crate::node::{NodeUpdate, node::Node};
+    fn walk(node: &mut Node, description: &Arc<str>) -> bool {
+      let says = node.debug_attrs().iter().any(|(name, _)| &**name == "a11y_role");
+      if says || node.is_focusable() {
+        NodeUpdate::describe(node, Arc::from("a11y_description"), description.clone());
+        return true;
+      }
+      let mut any = false;
+      for child in &mut node.children {
+        any |= walk(child, description);
+      }
+      any
+    }
+    control.decorate_root(move |mut node| {
+      if !walk(&mut node, &description) {
+        NodeUpdate::describe(&mut node, Arc::from("a11y_description"), description.clone());
+      }
+      node
+    })
+  }
+  #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+  {
+    let _ = description;
+    control
+  }
+}
 
 /// What a field holds until it is built: the control, to be finished with what the field says.
 type Unfinished = Box<dyn FnOnce(&InField) -> Element>;
@@ -335,17 +357,23 @@ impl Field {
     .state(FieldState::FullWidth, self.full_width)
     .state(FieldState::Disabled, self.disabled);
     let judgment = Judgment::of(invalid, warning, valid);
+    let description = self.error.or(self.description);
     let control = (self.control)(&InField {
       label: self.label.clone(),
       judgment,
       disabled: self.disabled,
+      description: description.clone(),
     });
+    let control = match &description {
+      Some(description) => described(control, description.clone()),
+      None => control,
+    };
     let view = FieldView {
       label: self.label,
       control,
       focus: ElementRef::new(),
       disabled: self.disabled,
-      description: self.error.or(self.description),
+      description,
       required: self.required,
       optional: self.optional.filter(|_| !self.required),
       horizontal: self.horizontal,

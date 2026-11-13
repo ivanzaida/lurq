@@ -349,3 +349,15 @@ impl Themed for Switch {
       .state(SwitchState::Disabled, Label, |s| s.cursor(CursorIcon::Default))
   }
 }
+
+impl super::FieldControl for Switch {
+  /// Called by the field's label where its own is hidden, since the label a person reads is then the field's, and
+  /// disabled where the field is. A switch has no judgment.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label_hidden {
+      self.label = field.label.clone();
+    }
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}
