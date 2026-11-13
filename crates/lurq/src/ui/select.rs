@@ -603,12 +603,16 @@ fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
   if let Some(opacity) = opacity(style.opacity, theme) {
     part = part.opacity(opacity);
   }
-  if style.padding_x.is_some() || style.padding_y.is_some() {
+  let [top, end, bottom, start] = style.paddings();
+  if top.is_some() || end.is_some() || bottom.is_some() || start.is_some() {
     let none = SpacingValue::from(0.0);
-    part = part.padding(Padding::symmetric(
-      style.padding_x.unwrap_or(none),
-      style.padding_y.unwrap_or(none),
-    ));
+    part = part.padding(
+      Padding::new()
+        .top(top.unwrap_or(none))
+        .right(end.unwrap_or(none))
+        .bottom(bottom.unwrap_or(none))
+        .left(start.unwrap_or(none)),
+    );
   }
   if let Some(height) = px(style.height, theme) {
     part = part.min_height(height);
@@ -692,10 +696,11 @@ impl Themed for Select {
           .font_size(11.0)
           .foreground(MutedForeground)
       })
-      // The board pads a group's label 6 over and 4 under; a part's padding is the same over and under.
+      // The board pads a group's label 6 over and 4 under.
       .base(Group, |s| {
         s.padding_x(8.0)
-          .padding_y(5.0)
+          .padding_top(6.0)
+          .padding_bottom(4.0)
           .typography(TypographyStyle::Caption)
           .font_size(11.0)
           .weight(FontWeight::SemiBold)

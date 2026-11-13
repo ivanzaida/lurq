@@ -656,7 +656,7 @@ impl Themed for Toast {
       .base(P::List, |s| s.gap(10.0))
       .base(P::BehindNear, |s| behind(s, 336.0, 0.75))
       .base(P::BehindFar, |s| behind(s, 312.0, 0.5))
-      .state(ToastState::Action, P::Content, |s| s.padding_y(14.0))
+      .state(ToastState::Action, P::Content, |s| s.padding_y(14.0).padding_end(12.0))
       .state(ToastState::Action, P::Text, |s| s.gap(2.0))
       .variant(ToastVariant::Success, P::Icon, |s| s.foreground(Success))
       .variant(ToastVariant::Info, P::Icon, |s| s.foreground(Info))

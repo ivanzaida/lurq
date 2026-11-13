@@ -290,6 +290,11 @@ pub struct PartStyle {
   pub opacity: Option<Opacity>,
   pub padding_x: Option<SpacingValue>,
   pub padding_y: Option<SpacingValue>,
+  /// The padding of one side, over what `padding_x` or `padding_y` gives it.
+  pub padding_top: Option<SpacingValue>,
+  pub padding_bottom: Option<SpacingValue>,
+  pub padding_start: Option<SpacingValue>,
+  pub padding_end: Option<SpacingValue>,
   /// The room between the part's children.
   pub gap: Option<SpacingValue>,
   pub width: Option<Length>,
@@ -375,6 +380,42 @@ impl PartStyle {
   pub fn padding_y(mut self, padding: impl Into<SpacingValue>) -> Self {
     self.padding_y = Some(padding.into());
     self
+  }
+
+  /// The padding over the part's content alone, where it is not what is under it: a label that sits a
+  /// pixel low in its row. It is laid over `padding_y`.
+  pub fn padding_top(mut self, padding: impl Into<SpacingValue>) -> Self {
+    self.padding_top = Some(padding.into());
+    self
+  }
+
+  /// The padding under the part's content alone. It is laid over `padding_y`.
+  pub fn padding_bottom(mut self, padding: impl Into<SpacingValue>) -> Self {
+    self.padding_bottom = Some(padding.into());
+    self
+  }
+
+  /// The padding before the part's content alone, at its left. It is laid over `padding_x`.
+  pub fn padding_start(mut self, padding: impl Into<SpacingValue>) -> Self {
+    self.padding_start = Some(padding.into());
+    self
+  }
+
+  /// The padding after the part's content alone, at its right. It is laid over `padding_x`.
+  pub fn padding_end(mut self, padding: impl Into<SpacingValue>) -> Self {
+    self.padding_end = Some(padding.into());
+    self
+  }
+
+  /// The padding of each side as the style gives it: top, end, bottom, start. A side of its own over the
+  /// axis it is on; `None` where neither says.
+  pub fn paddings(&self) -> [Option<SpacingValue>; 4] {
+    [
+      self.padding_top.or(self.padding_y),
+      self.padding_end.or(self.padding_x),
+      self.padding_bottom.or(self.padding_y),
+      self.padding_start.or(self.padding_x),
+    ]
   }
 
   pub fn gap(mut self, gap: impl Into<SpacingValue>) -> Self {
@@ -482,6 +523,10 @@ impl PartStyle {
       && self.opacity.is_none()
       && self.padding_x.is_none()
       && self.padding_y.is_none()
+      && self.padding_top.is_none()
+      && self.padding_bottom.is_none()
+      && self.padding_start.is_none()
+      && self.padding_end.is_none()
       && self.gap.is_none()
       && self.width.is_none()
       && self.height.is_none()
@@ -512,6 +557,10 @@ impl PartStyle {
       opacity,
       padding_x,
       padding_y,
+      padding_top,
+      padding_bottom,
+      padding_start,
+      padding_end,
       gap,
       width,
       height,
@@ -562,6 +611,19 @@ impl PartStyle {
     }
     if let Some(padding) = &self.padding_y {
       NodeUpdate::padding_vertical(node, *padding);
+    }
+    // A side of its own is laid over the axis it is on.
+    if let Some(padding) = &self.padding_top {
+      NodeUpdate::padding_top(node, *padding);
+    }
+    if let Some(padding) = &self.padding_bottom {
+      NodeUpdate::padding_bottom(node, *padding);
+    }
+    if let Some(padding) = &self.padding_start {
+      NodeUpdate::padding_left(node, *padding);
+    }
+    if let Some(padding) = &self.padding_end {
+      NodeUpdate::padding_right(node, *padding);
     }
     if let Some(gap) = &self.gap {
       NodeUpdate::spacing(node, *gap);

@@ -480,9 +480,10 @@ impl Themed for Menu {
       .base(Separator, |s| s.padding_y(4.0))
       .base(SeparatorLine, |s| s.height(1.0).background(PaletteColor::Border))
       .base(Label, |s| {
-        // The board has 6 above the text and 4 under it; a part has one padding for both.
+        // The board has 6 above the text and 4 under it.
         s.padding_x(8.0)
-          .padding_y(5.0)
+          .padding_top(6.0)
+          .padding_bottom(4.0)
           .typography(TypographyStyle::Label)
           .font_size(11.0)
           .weight(FontWeight::SemiBold)
