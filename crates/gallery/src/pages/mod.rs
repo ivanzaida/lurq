@@ -15,6 +15,7 @@ mod icons;
 mod input;
 mod menu;
 mod overview;
+mod pagination;
 mod popover;
 mod radio;
 mod select;
@@ -268,6 +269,14 @@ pub const PAGES: &[Page] = &[
     about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
+  },
+  Page {
+    path: "/pagination",
+    name: "Pagination",
+    icon: None,
+    about: "pagination pages page next previous ellipsis compact rows per page table footer results",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<pagination::PaginationPage>(()),
   },
 ];
 
