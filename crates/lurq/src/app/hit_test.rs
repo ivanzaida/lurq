@@ -1,7 +1,9 @@
 use crate::{
+  app::theme::ThemeRadii,
   layout::{
     layout_kind::{LayoutKind, Overflow},
     layout_result::LayoutResult,
+    quad::ClipRect,
   },
   node::{HitTestBehavior, node::Node, transform::Transform2D},
 };
@@ -29,6 +31,7 @@ pub(crate) fn hit_test_tree<'a>(
   abs_y: f32,
   px: f32,
   py: f32,
+  radii: &ThemeRadii,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
   hit_test_tree_with_transform(
@@ -39,8 +42,11 @@ pub(crate) fn hit_test_tree<'a>(
     px,
     py,
     Transform2D::IDENTITY,
-    true,
-    true,
+    Walk {
+      radii,
+      occlude_stack_siblings: true,
+      fold_disabled: true,
+    },
     hits,
   );
 }
@@ -55,6 +61,7 @@ pub(crate) fn hit_test_tree_inspecting<'a>(
   abs_y: f32,
   px: f32,
   py: f32,
+  radii: &ThemeRadii,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
   hit_test_tree_with_transform(
@@ -65,8 +72,11 @@ pub(crate) fn hit_test_tree_inspecting<'a>(
     px,
     py,
     Transform2D::IDENTITY,
-    true,
-    false,
+    Walk {
+      radii,
+      occlude_stack_siblings: true,
+      fold_disabled: false,
+    },
     hits,
   );
 }
@@ -78,6 +88,7 @@ pub(crate) fn hit_test_tree_all<'a>(
   abs_y: f32,
   px: f32,
   py: f32,
+  radii: &ThemeRadii,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
   hit_test_tree_with_transform(
@@ -88,10 +99,25 @@ pub(crate) fn hit_test_tree_all<'a>(
     px,
     py,
     Transform2D::IDENTITY,
-    false,
-    true,
+    Walk {
+      radii,
+      occlude_stack_siblings: false,
+      fold_disabled: true,
+    },
     hits,
   );
+}
+
+/// How a hit test walks the tree, the same at every node.
+#[derive(Clone, Copy)]
+struct Walk<'r> {
+  /// The theme's corner radii, which a clipping node's rounded corners
+  /// resolve against.
+  radii: &'r ThemeRadii,
+  /// Whether a child of a stack that is hit covers the children before it.
+  occlude_stack_siblings: bool,
+  /// Whether a disabled element stands for everything in it.
+  fold_disabled: bool,
 }
 
 fn hit_test_tree_with_transform<'a>(
@@ -102,10 +128,14 @@ fn hit_test_tree_with_transform<'a>(
   px: f32,
   py: f32,
   inherited_transform: Transform2D,
-  occlude_stack_siblings: bool,
-  fold_disabled: bool,
+  walk: Walk<'_>,
   hits: &mut Vec<(&'a Node, HitRect)>,
 ) {
+  let Walk {
+    radii,
+    occlude_stack_siblings,
+    fold_disabled,
+  } = walk;
   let behavior = node.hit_test_behavior();
   if behavior == HitTestBehavior::None || result.dropped {
     return;
@@ -144,7 +174,11 @@ fn hit_test_tree_with_transform<'a>(
     ..rect
   };
   let inside = contains_point(result, &rect, local_x, local_y);
-  let can_have_visible_children = inside || node.overflow == Overflow::Visible;
+  let can_have_visible_children = if node.overflow == Overflow::Visible {
+    true
+  } else {
+    inside && in_rounded_clip(node, &rect, local_x, local_y, radii)
+  };
 
   if can_have_visible_children {
     // What sticks is painted over its siblings, the last of them on top, so it is hit before them.
@@ -161,8 +195,7 @@ fn hit_test_tree_with_transform<'a>(
         px,
         py,
         transform,
-        occlude_stack_siblings,
-        fold_disabled,
+        walk,
         hits,
       );
       hits.len() > hit_count
@@ -198,6 +231,25 @@ fn hit_test_tree_with_transform<'a>(
   } else if inside && behavior == HitTestBehavior::Auto {
     hits.push((node, rect));
   }
+}
+
+/// Whether `(x, y)`, inside the box of a node that clips, is inside its
+/// rounded corners: its children are cut off past them, so they are not hit
+/// there either, as they are not drawn. Like the rest of hit testing, this
+/// goes by the node's box, not the box inset by its border that the paint
+/// clip is.
+fn in_rounded_clip(node: &Node, rect: &HitRect, x: f32, y: f32, radii: &ThemeRadii) -> bool {
+  let Some(radius) = node.get_border_radius(radii) else {
+    return true;
+  };
+  ClipRect::rounded_rect(
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    Some(radius.clamped_to_rect(rect.width, rect.height)),
+  )
+  .contains(x, y)
 }
 
 /// Whether the node laid out as `result` at `rect` is under `(x, y)`. A link

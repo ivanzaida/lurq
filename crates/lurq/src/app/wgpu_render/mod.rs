@@ -195,7 +195,7 @@ enum ActiveIndexBuffer {
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-struct ClipGlobalsKey([u32; 20]);
+struct ClipGlobalsKey([u32; 28]);
 
 #[cfg(feature = "raster")]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -1190,13 +1190,7 @@ impl WgpuRenderEngine {
     // --- Persistent uniform/storage buffers ---
     let globals_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("lurq_globals"),
-      contents: bytemuck::bytes_of(&Globals {
-        viewport: [config.width as f32, config.height as f32, 0.0, 0.0],
-        clip_rect: [0.0, 0.0, config.width as f32, config.height as f32],
-        clip_radii_h: [0.0; 4],
-        clip_radii_v: [0.0; 4],
-        clip_active: [0.0; 4],
-      }),
+      contents: bytemuck::bytes_of(&Globals::unclipped(config.width as f32, config.height as f32)),
       usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
@@ -1541,13 +1535,7 @@ impl RenderEngine for WgpuRenderEngine {
     let vh = config.height as f32;
     let globals_buffer = self.globals_buffer.as_ref().unwrap();
 
-    let globals = Globals {
-      viewport: [vw, vh, 0.0, 0.0],
-      clip_rect: [0.0, 0.0, vw, vh],
-      clip_radii_h: [0.0; 4],
-      clip_radii_v: [0.0; 4],
-      clip_active: [0.0; 4],
-    };
+    let globals = Globals::unclipped(vw, vh);
     let _globals_start = profile_scope!();
     let globals_bytes = bytemuck::bytes_of(&globals);
     if self.last_globals_bytes.as_slice() != globals_bytes {
@@ -3403,31 +3391,11 @@ fn wgpu_clear_color(color: crate::node::color::Color) -> wgpu::Color {
 
 /// Globals for a draw clipped by `clip`, already in `space`'s pixels.
 fn globals_for_clip(clip: crate::layout::quad::ClipRect, space: &TargetSpace) -> Globals {
-  let radius = clip.border_radius.unwrap_or_default();
-  let radii = radius.to_array();
-  Globals {
-    viewport: space.viewport(),
-    clip_rect: if clip.active {
-      [clip.x, clip.y, clip.width, clip.height]
-    } else {
-      [0.0, 0.0, space.width, space.height]
-    },
-    clip_radii_h: radii,
-    clip_radii_v: radii,
-    clip_active: if rounded_clip_needs_shader(clip) {
-      [1.0, 0.0, 0.0, 0.0]
-    } else {
-      [0.0; 4]
-    },
-  }
+  Globals::for_clip(space.viewport(), clip)
 }
 
 fn rounded_clip_needs_shader(clip: crate::layout::quad::ClipRect) -> bool {
-  let Some(radius) = clip.border_radius else {
-    return false;
-  };
-  clip.active
-    && (radius.top_left > 0.0 || radius.top_right > 0.0 || radius.bottom_right > 0.0 || radius.bottom_left > 0.0)
+  clip.is_rounded()
 }
 
 /// Whether a draw into `space` needs globals of its own: the shared ones
@@ -3493,31 +3461,7 @@ impl ClipGlobalsCache {
 }
 
 fn clip_globals_key(globals: &Globals) -> ClipGlobalsKey {
-  ClipGlobalsKey(
-    [
-      globals.viewport[0],
-      globals.viewport[1],
-      globals.viewport[2],
-      globals.viewport[3],
-      globals.clip_rect[0],
-      globals.clip_rect[1],
-      globals.clip_rect[2],
-      globals.clip_rect[3],
-      globals.clip_radii_h[0],
-      globals.clip_radii_h[1],
-      globals.clip_radii_h[2],
-      globals.clip_radii_h[3],
-      globals.clip_radii_v[0],
-      globals.clip_radii_v[1],
-      globals.clip_radii_v[2],
-      globals.clip_radii_v[3],
-      globals.clip_active[0],
-      globals.clip_active[1],
-      globals.clip_active[2],
-      globals.clip_active[3],
-    ]
-    .map(f32::to_bits),
-  )
+  ClipGlobalsKey(bytemuck::cast(*globals))
 }
 
 /// Scissors to `clip`, already in `space`'s pixels.
@@ -3585,18 +3529,7 @@ mod tests {
   #[test]
   fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {
     assert_eq!(
-      super::scissor_rect(
-        ClipRect {
-          x: 10.6,
-          y: 20.2,
-          width: 30.1,
-          height: 40.6,
-          active: true,
-          border_radius: None,
-        },
-        100.0,
-        100.0,
-      ),
+      super::scissor_rect(ClipRect::rect(10.6, 20.2, 30.1, 40.6), 100.0, 100.0,),
       Some((10, 20, 31, 41))
     );
   }

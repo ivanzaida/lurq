@@ -502,22 +502,32 @@ impl Notes {
       width,
       height,
       active,
-      border_radius,
+      rounded,
     } = clip;
     self.flag(active);
     if !active {
       return;
     }
     self.f32s(&[x, y, width, height]);
-    self.flag(border_radius.is_some());
-    if let Some(radius) = border_radius {
-      let crate::node::border::BorderRadius {
-        top_left,
-        top_right,
-        bottom_right,
-        bottom_left,
-      } = radius;
-      self.f32s(&[top_left, top_right, bottom_right, bottom_left]);
+    for rounded in rounded {
+      self.flag(rounded.is_some());
+      if let Some(crate::layout::quad::RoundedClip {
+        x,
+        y,
+        width,
+        height,
+        radius:
+          crate::node::border::BorderRadius {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+          },
+      }) = rounded
+      {
+        self.f32s(&[x, y, width, height]);
+        self.f32s(&[top_left, top_right, bottom_right, bottom_left]);
+      }
     }
   }
 
@@ -743,22 +753,26 @@ impl Notes {
       y,
       width,
       height,
-      clip,
+      clips,
     }) = blur
     {
       self.f32(sigma);
       self.i32s(&[x, y]);
       self.u32s(&[width, height]);
-      self.rounded(clip.as_ref());
+      for clip in &clips {
+        self.rounded(clip.as_ref());
+      }
     }
   }
 
   /// A backdrop blur as it is run and put back.
   fn region(&mut self, region: &BackdropRegion) {
-    let BackdropRegion { layer, mask, clip } = region;
+    let BackdropRegion { layer, mask, clips } = region;
     self.layer(layer);
     self.rounded(Some(mask));
-    self.rounded(clip.as_ref());
+    for clip in clips {
+      self.rounded(clip.as_ref());
+    }
   }
 }
 

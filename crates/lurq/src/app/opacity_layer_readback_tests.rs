@@ -199,14 +199,7 @@ fn assert_nested(frame: &[u8], backend: &str) {
 /// texel for texel, so the two frames match.
 fn single_primitive_scenes() -> (RenderList, RenderList) {
   let opacity = 0.4;
-  let clip = ClipRect {
-    x: 72.5,
-    y: 8.75,
-    width: 30.0,
-    height: 30.0,
-    active: true,
-    border_radius: Some(BorderRadius::all(9.0)),
-  };
+  let clip = ClipRect::rounded_rect(72.5, 8.75, 30.0, 30.0, Some(BorderRadius::all(9.0)));
   let color = Color::new(40, 110, 220, 255);
   let mut clipped = rect(1, [70.0, 5.0, 40.0, 40.0], color);
   clipped.clip = clip;

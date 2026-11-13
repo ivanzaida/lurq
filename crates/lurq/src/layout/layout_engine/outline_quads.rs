@@ -66,19 +66,16 @@ impl LayoutEngine {
       return clip;
     }
     let corner = |radius: f32| if radius > 0.0 { radius + outset } else { 0.0 };
-    let let_out = ClipRect {
-      x: clip.x - outset,
-      y: clip.y - outset,
-      width: clip.width + outset * 2.0,
-      height: clip.height + outset * 2.0,
-      active: true,
-      border_radius: clip.border_radius.map(|radius| BorderRadius {
+    let mut let_out = clip.outset(outset, outset, outset, outset);
+    for rounded in let_out.rounded.iter_mut().flatten() {
+      let radius = rounded.radius;
+      rounded.radius = BorderRadius {
         top_left: corner(radius.top_left),
         top_right: corner(radius.top_right),
         bottom_right: corner(radius.bottom_right),
         bottom_left: corner(radius.bottom_left),
-      }),
-    };
+      };
+    }
     intersect_clip(self.scroll_clip.get(), let_out)
   }
 

@@ -121,7 +121,7 @@ impl Tree {
       return;
     };
     let mut hits = Vec::new();
-    hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+    hit_test_tree(root, layout, 0.0, 0.0, x, y, &self.layout_engine.radii(), &mut hits);
     super::take_disabled_hit(&mut hits);
     let mut event = HistorySwipeEvent {
       direction,

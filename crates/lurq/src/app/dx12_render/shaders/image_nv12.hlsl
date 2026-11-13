@@ -4,7 +4,9 @@ cbuffer Globals : register(b0)
   float4 clip_rect;
   float4 clip_radii_h;
   float4 clip_radii_v;
-  float4 clip_active;
+  float4 clip_active;      // x: cut by the innermost rounded clip; y: by the one outside it too
+  float4 outer_clip_rect;  // the rounded clip outside the innermost one: x, y, w, h
+  float4 outer_clip_radii; // and its radii: tl, tr, br, bl
 };
 
 Texture2D<float> y_texture : register(t0);
@@ -114,18 +116,28 @@ float4 encode_srgb(float4 color)
   return float4(c <= 0.0031308 ? low : high, color.a);
 }
 
+// How much of the pixel at `frag_pos` (window pixels) the rounded clip at
+// `rect` with these radii covers.
+float rounded_clip_coverage(float2 frag_pos, float4 rect, float4 radii_h, float4 radii_v)
+{
+  float2 clip_half = rect.zw * 0.5;
+  float2 clip_local = frag_pos - (rect.xy + clip_half);
+  float clip_dist = sd_rounded_box(clip_local, clip_half, pick_clip_radius(clip_local, radii_h, radii_v));
+  return saturate(0.5 - clip_dist / max(fwidth(clip_dist), 1.0));
+}
+
 float4 ps_main(VsOut input) : SV_TARGET
 {
   float clip_alpha_value = 1.0;
   if (clip_active.x > 0.5) {
-    float2 clip_half = clip_rect.zw * 0.5;
-    float2 clip_centre = clip_rect.xy + clip_half;
-    float2 clip_local = input.position.xy - clip_centre;
-    float clip_dist = sd_rounded_box(clip_local, clip_half, pick_clip_radius(clip_local, clip_radii_h, clip_radii_v));
-    clip_alpha_value = saturate(0.5 - clip_dist / max(fwidth(clip_dist), 1.0));
-    if (clip_alpha_value <= 0.0) {
-      discard;
-    }
+    clip_alpha_value = rounded_clip_coverage(input.position.xy, clip_rect, clip_radii_h, clip_radii_v);
+  }
+  // Under a second rounded clip, the draw is cut by both.
+  if (clip_active.y > 0.5) {
+    clip_alpha_value *= rounded_clip_coverage(input.position.xy, outer_clip_rect, outer_clip_radii, outer_clip_radii);
+  }
+  if (clip_alpha_value <= 0.0) {
+    discard;
   }
 
   float2 half_size = input.size * 0.5;

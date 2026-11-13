@@ -58,27 +58,18 @@ impl LayoutEngine {
     origin: (f32, f32),
     padding: ResolvedPadding,
   ) -> ClipRect {
-    let content = ClipRect {
-      x: origin.0 + padding.left,
-      y: origin.1 + padding.top,
-      width: (result.size.width - padding.left - padding.right).max(0.0),
-      height: (result.size.height - padding.top - padding.bottom).max(0.0),
-      active: true,
-      border_radius: None,
-    };
+    let content = ClipRect::rect(
+      origin.0 + padding.left,
+      origin.1 + padding.top,
+      (result.size.width - padding.left - padding.right).max(0.0),
+      (result.size.height - padding.top - padding.bottom).max(0.0),
+    );
     if state.overflow() != TextInputOverflow::Multiline {
       return content;
     }
     let border = node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow());
     let inside_border = inset_clip_for_border(
-      ClipRect {
-        x: origin.0,
-        y: origin.1,
-        width: result.size.width,
-        height: result.size.height,
-        active: true,
-        border_radius: None,
-      },
+      ClipRect::rect(origin.0, origin.1, result.size.width, result.size.height),
       border,
     );
     ClipRect {

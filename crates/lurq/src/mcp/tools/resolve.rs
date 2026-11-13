@@ -142,7 +142,7 @@ pub(super) fn hits_node(tree: &Tree, node: &Node, x: f32, y: f32) -> bool {
     return false;
   };
   let mut hits = Vec::new();
-  hit_test_tree(root.node, layout, 0.0, 0.0, x, y, &mut hits);
+  hit_test_tree(root.node, layout, 0.0, 0.0, x, y, &tree.theme_radii(), &mut hits);
   hits.iter().any(|(hit, _)| contains_id(node, hit.node_id()))
 }
 

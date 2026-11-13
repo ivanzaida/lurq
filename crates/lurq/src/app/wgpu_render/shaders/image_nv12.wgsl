@@ -4,6 +4,10 @@ struct Globals {
     clip_radii_h: vec4<f32>,
     clip_radii_v: vec4<f32>,
     clip_active:  vec4<f32>,
+    // The rounded clip outside the innermost one: x, y, w, h, then radii
+    // (tl, tr, br, bl). Cut by when `clip_active.y` is 1.
+    outer_clip_rect:  vec4<f32>,
+    outer_clip_radii: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -105,22 +109,29 @@ fn encode_srgb(color: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(select(high, low, c <= vec3<f32>(0.0031308)), color.a);
 }
 
+// How much of the pixel at `frag_pos` (window pixels) the rounded clip at
+// `rect` with these radii covers.
+fn rounded_clip_alpha(frag_pos: vec2<f32>, rect: vec4<f32>, radii_h: vec4<f32>, radii_v: vec4<f32>) -> f32 {
+    let half = rect.zw * 0.5;
+    let local_clip = frag_pos - (rect.xy + half);
+    let r = pick_radius(local_clip, radii_h, radii_v);
+    let d = sd_rounded_box(local_clip, half, r);
+    let aa = max(fwidth(d), 0.001);
+    return clamp(0.5 - d / aa, 0.0, 1.0);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var clip_alpha = 1.0;
     if (globals.clip_active.x > 0.5) {
-        let frag_pos = in.clip.xy;
-        let cr = globals.clip_rect;
-        let half = vec2<f32>(cr.z, cr.w) * 0.5;
-        let centre = vec2<f32>(cr.x + half.x, cr.y + half.y);
-        let local_clip = frag_pos - centre;
-        let r = pick_radius(local_clip, globals.clip_radii_h, globals.clip_radii_v);
-        let d = sd_rounded_box(local_clip, half, r);
-        let aa = max(fwidth(d), 0.001);
-        clip_alpha = clamp(0.5 - d / aa, 0.0, 1.0);
-        if (clip_alpha <= 0.0) {
-            discard;
-        }
+        clip_alpha = rounded_clip_alpha(in.clip.xy, globals.clip_rect, globals.clip_radii_h, globals.clip_radii_v);
+    }
+    // Under a second rounded clip, the draw is cut by both.
+    if (globals.clip_active.y > 0.5) {
+        clip_alpha *= rounded_clip_alpha(in.clip.xy, globals.outer_clip_rect, globals.outer_clip_radii, globals.outer_clip_radii);
+    }
+    if (clip_alpha <= 0.0) {
+        discard;
     }
 
     let half = in.size * 0.5;

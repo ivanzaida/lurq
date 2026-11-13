@@ -168,8 +168,8 @@ fn a_rounded_clip_cuts_the_blur_with_its_corners() {
   let layer = snapshot.layers[0];
   assert_eq!((layer.bounds.x, layer.bounds.width), (60, 90));
   assert_eq!(
-    layer.blur.unwrap().clip,
-    Some(RoundedBox::rect(60.0, 60.0, 90.0, 45.0, [15.0; 4]))
+    layer.blur.unwrap().clips,
+    [Some(RoundedBox::rect(60.0, 60.0, 90.0, 45.0, [15.0; 4])), None]
   );
 }
 

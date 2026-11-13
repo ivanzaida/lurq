@@ -13,6 +13,7 @@ use crate::{
       EdgePanEvent, GesturePhase, HistoryDirection, HistorySwipeEvent, LongPressEvent, PanEvent, PinchEvent,
       RotateEvent, ScrollPhase, SwipeEvent, TapEvent, TouchEvent, TouchPhase,
     },
+    theme::ThemeRadii,
   },
   components::{Column, Rect, ScrollVertical},
 };
@@ -61,7 +62,7 @@ fn button() -> (Tree, App, Log) {
 fn looks(tree: &Tree) -> (bool, bool) {
   let (root, layout) = (tree.root.as_ref().unwrap(), tree.last_layout.as_ref().unwrap());
   let mut hits = Vec::new();
-  hit_test_tree(root, layout, 0.0, 0.0, 50.0, 50.0, &mut hits);
+  hit_test_tree(root, layout, 0.0, 0.0, 50.0, 50.0, &ThemeRadii::default(), &mut hits);
   let button = hits.first().unwrap().0;
   (button.style_state.is_hovered(), button.style_state.is_active())
 }
@@ -202,7 +203,7 @@ fn what_a_fingers_scroll_brings_to_where_it_pressed_is_not_hovered() {
 
   let (root, layout) = (tree.root.as_ref().unwrap(), tree.last_layout.as_ref().unwrap());
   let mut hits = Vec::new();
-  hit_test_tree(root, layout, 0.0, 0.0, 50.0, 30.0, &mut hits);
+  hit_test_tree(root, layout, 0.0, 0.0, 50.0, 30.0, &ThemeRadii::default(), &mut hits);
   assert!(hits.iter().all(|(node, _)| !node.style_state.is_hovered()));
   assert!(
     logged(&log).is_empty(),

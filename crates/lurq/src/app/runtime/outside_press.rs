@@ -32,6 +32,7 @@ use crate::{
   app::{
     ctx::OutsidePress,
     hit_test::{HitRect, hit_test_tree},
+    theme::ThemeRadii,
   },
   core::{ElementRef, NodeId, Signal},
   layout::layout_result::LayoutResult,
@@ -55,12 +56,12 @@ impl Tree {
       return false;
     }
     let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, x, y, &mut hits);
+    hit_test_tree(root, result, 0.0, 0.0, x, y, &self.layout_engine.radii(), &mut hits);
     trim_hits_to_scrollbar(&mut hits, x, y);
     let on_select_menu = hits
       .iter()
       .any(|(node, _)| node.has_synthetic_role(SyntheticNodeRole::SelectMenu));
-    let layer = pressed_layer(root, result, x, y);
+    let layer = pressed_layer(root, result, x, y, &self.layout_engine.radii());
     let overlays: Vec<&OverlayDismissEntry> = self
       .overlay_dismiss_entries
       .iter()
@@ -100,7 +101,7 @@ impl Tree {
   /// outside of; the press closes them after it has been dispatched.
   pub(super) fn overlay_dismiss_signals_at(&self, x: f32, y: f32) -> Vec<Signal<bool>> {
     let layer = match (&self.root, &self.last_layout) {
-      (Some(root), Some(result)) => pressed_layer(root, result, x, y),
+      (Some(root), Some(result)) => pressed_layer(root, result, x, y, &self.layout_engine.radii()),
       _ => 0,
     };
     self
@@ -126,7 +127,7 @@ fn is_outside(entry: &OverlayDismissEntry, x: f32, y: f32, pressed_layer: usize)
 
 /// The overlay host child the topmost element at `(x, y)` belongs to: `0`
 /// for the page or window chrome (or nothing), `n` for the host's `n`th other overlay layer.
-fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32) -> usize {
+fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32, radii: &ThemeRadii) -> usize {
   if !root.has_synthetic_role(SyntheticNodeRole::OverlayHost) {
     return 0;
   }
@@ -140,7 +141,16 @@ fn pressed_layer(root: &Node, result: &LayoutResult, x: f32, y: f32) -> usize {
     .filter(|(_, (layer, _))| !layer.has_synthetic_role(SyntheticNodeRole::WindowChromeLayer))
     .find(|(_, (layer, layout))| {
       let mut hits = Vec::new();
-      hit_test_tree(layer, &layout.result, layout.offset.x, layout.offset.y, x, y, &mut hits);
+      hit_test_tree(
+        layer,
+        &layout.result,
+        layout.offset.x,
+        layout.offset.y,
+        x,
+        y,
+        radii,
+        &mut hits,
+      );
       !hits.is_empty()
     })
     .map_or(0, |(index, _)| index)

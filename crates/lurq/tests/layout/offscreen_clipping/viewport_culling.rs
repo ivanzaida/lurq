@@ -14,14 +14,7 @@ fn rt() -> Tree {
 }
 
 fn viewport(w: f32, h: f32) -> ClipRect {
-  ClipRect {
-    x: 0.0,
-    y: 0.0,
-    width: w,
-    height: h,
-    active: true,
-    border_radius: None,
-  }
+  ClipRect::rect(0.0, 0.0, w, h)
 }
 
 #[test]

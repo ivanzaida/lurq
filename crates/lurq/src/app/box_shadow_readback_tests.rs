@@ -77,14 +77,7 @@ fn scene() -> Vec<RectCmd> {
   let well = fill(24.0, 96.0, 80.0, 40.0, 12.0, Color::new(255, 255, 255, 255));
   let clipped = fill(150.0, 90.0, 40.0, 40.0, 6.0, Color::new(255, 255, 255, 255));
   let glass = fill(200.0, 20.0, 40.0, 40.0, 10.0, Color::new(255, 255, 255, 64));
-  let clip = ClipRect {
-    x: 140.0,
-    y: 80.0,
-    width: 56.0,
-    height: 60.0,
-    active: true,
-    border_radius: None,
-  };
+  let clip = ClipRect::rect(140.0, 80.0, 56.0, 60.0);
   vec![
     shadow(&card, [4.0, 6.0], 2.0, 6.0, false, Color::new(0, 0, 0, 128), none),
     card,

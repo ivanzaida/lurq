@@ -144,7 +144,7 @@ fn assert_command(command: &GlyphCmd, clip: ClipRect) {
     [clip.x, clip.y, clip.width, clip.height]
   );
   assert_eq!(command.clip.active, clip.active);
-  assert_eq!(command.clip.border_radius, clip.border_radius);
+  assert_eq!(command.clip.rounded, clip.rounded);
   assert_eq!(command.transform, Transform2D::IDENTITY.matrix_2x2());
   assert!(!command.color_glyph);
 }

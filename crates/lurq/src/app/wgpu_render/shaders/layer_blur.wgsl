@@ -31,9 +31,11 @@ struct Pass {
     mask:         vec4<f32>,  // backdrop: the box to fill: centre in target pixels, half size
     mask_inverse: vec4<f32>,  // 2x2 from a target-pixel offset to the box's own axes
     radii:        vec4<f32>,  // the box's radii: tl, tr, br, bl
-    clip:         vec4<f32>,  // last pass: the rounded clip to cut to, in the same form
+    clip:         vec4<f32>,  // last pass: the innermost rounded clip to cut to, in the same form
     clip_inverse: vec4<f32>,
     clip_radii:   vec4<f32>,
+    outer_clip:       vec4<f32>,  // and the one outside it: upright, so without a matrix, at the clip's scale
+    outer_clip_radii: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> blur: Pass;
@@ -139,9 +141,12 @@ fn box_coverage(pixel: vec2<f32>, box: vec4<f32>, inverse: vec4<f32>, radii: vec
 }
 
 // How much of the last pass's result shows at `pixel`: its opacity, cut to
-// the rounded clip.
+// the rounded clips.
 fn shown(pixel: vec2<f32>) -> f32 {
-    return blur.kernel.w * box_coverage(pixel, blur.clip, blur.clip_inverse, blur.clip_radii, blur.mode.z);
+    let upright = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    return blur.kernel.w
+        * box_coverage(pixel, blur.clip, blur.clip_inverse, blur.clip_radii, blur.mode.z)
+        * box_coverage(pixel, blur.outer_clip, upright, blur.outer_clip_radii, blur.mode.z);
 }
 
 // How much of `pixel` the blurred backdrop replaces: the node's rounded box.
