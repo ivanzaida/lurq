@@ -10,11 +10,14 @@ use std::{
 use lurq::{
   app::{
     App,
+    component::Component,
+    ctx::Ctx,
     theme::{PaletteColor, ThemePalette},
   },
   components::{Column, Row},
+  core::Signal,
   layout::quad::{Quad, QuadContent},
-  node::color::Color,
+  node::{Element, color::Color},
   ui::{Button, ButtonVariant, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipView},
 };
 
@@ -33,7 +36,13 @@ fn copy() -> Button {
 
 /// A tooltip with no delay on the button, 100 in from the window's corner.
 fn stage(tooltip: impl Fn() -> Tooltip + Send + Sync + 'static) -> Stage {
-  Stage::new(move |ctx| Column::new().padding(100.0).child(tooltip().mount(ctx, copy())).into())
+  Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(100.0)
+      .child(tooltip().mount(ctx, copy()))
+      .into()
+  })
 }
 
 fn rect_color(quad: &Quad) -> Option<Color> {
@@ -137,6 +146,7 @@ fn a_disabled_element_shows_its_tooltip() {
   let mut stage = stage(|| Tooltip::new("Nothing to copy").delay(Duration::ZERO));
   let mut disabled = Stage::new(|ctx| {
     Column::new()
+      .size(400.0, 300.0)
       .padding(100.0)
       .child(
         Tooltip::new("Nothing to copy")
@@ -157,6 +167,79 @@ fn a_disabled_element_shows_its_tooltip() {
 }
 
 #[test]
+fn a_disabled_element_that_fills_its_row_still_fills_it() {
+  let scene = |disabled: bool| {
+    move |ctx: &mut Ctx| -> Element {
+      Column::new()
+        .size(400.0, 300.0)
+        .padding(100.0)
+        .child(
+          Tooltip::new("Nothing to copy")
+            .delay(Duration::ZERO)
+            .mount(ctx, copy().full_width(true).disabled(disabled)),
+        )
+        .into()
+    }
+  };
+  let (mut enabled, mut disabled) = (Stage::new(scene(false)), Stage::new(scene(true)));
+  assert_eq!(enabled.bounds("copy").2, 200.0);
+  assert_eq!(disabled.bounds("copy").2, 200.0, "as wide disabled as not");
+  disabled.hover("copy");
+  assert!(disabled.paints("Nothing to copy"));
+}
+
+/// A row with the button in it, a component of its own that renders again by itself when `again` changes.
+struct Toolbar;
+
+#[derive(Clone)]
+struct Again(Signal<u32>);
+
+/// The same signal: the toolbar renders again by itself, not because its props changed.
+impl PartialEq for Again {
+  fn eq(&self, _: &Self) -> bool {
+    true
+  }
+}
+
+impl Component for Toolbar {
+  type Props = Again;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let times = ctx.props::<Again>().0.get();
+    Row::new()
+      .spacing(8.0)
+      .child(copy())
+      .child(Button::new(&format!("Rendered {times}")).id("count"))
+  }
+}
+
+#[test]
+fn the_focus_in_a_component_that_renders_again_by_itself_shows_it() {
+  let again = Signal::new(0);
+  let bump = again.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let toolbar = ctx.mount::<Toolbar>(Again(again.clone()));
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(100.0)
+      .child(Tooltip::new(WORDS).mount(ctx, toolbar))
+      .into()
+  });
+  bump.set(1);
+  stage.pass();
+  assert!(stage.paints("Rendered 1"), "the toolbar rendered again");
+  stage.key("Tab");
+  assert!(stage.paints(WORDS), "the button in it has the focus from the keyboard");
+  bump.set(2);
+  stage.pass();
+  assert!(stage.paints(WORDS), "and keeps it when the toolbar renders again");
+}
+
+#[test]
 fn the_focus_of_the_first_thing_in_the_element_that_takes_it_shows_it() {
   let mut stage = Stage::new(|ctx| {
     let field = Row::new()
@@ -164,6 +247,7 @@ fn the_focus_of_the_first_thing_in_the_element_that_takes_it_shows_it() {
       .child(copy())
       .child(Button::new("Paste").id("paste"));
     Column::new()
+      .size(400.0, 300.0)
       .padding(100.0)
       .child(Tooltip::new(WORDS).mount(ctx, field))
       .into()
@@ -178,6 +262,7 @@ fn the_focus_of_the_first_thing_in_the_element_that_takes_it_shows_it() {
 fn the_tooltip_waits_for_its_delay_and_the_next_one_skips_it() {
   let mut stage = Stage::new(|ctx| {
     Row::new()
+      .size(400.0, 300.0)
       .padding(100.0)
       .spacing(40.0)
       .child(Tooltip::new("Cut").mount(ctx, Button::new("A").variant(ButtonVariant::Outline).id("a")))
@@ -233,6 +318,7 @@ fn a_press_of_what_it_describes_puts_it_away_and_still_presses_it() {
       count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     });
     Column::new()
+      .size(400.0, 300.0)
       .padding(100.0)
       .child(Tooltip::new(WORDS).delay(Duration::ZERO).mount(ctx, button))
       .into()
@@ -265,7 +351,13 @@ fn a_tooltip_on_another_side_stands_6_from_that_side() {
 
 /// A tooltip on the button at the window's top left corner.
 fn stage_at(tooltip: impl Fn() -> Tooltip + Send + Sync + 'static) -> Stage {
-  Stage::new(move |ctx| Column::new().padding(4.0).child(tooltip().mount(ctx, copy())).into())
+  Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(4.0)
+      .child(tooltip().mount(ctx, copy()))
+      .into()
+  })
 }
 
 #[test]
@@ -275,6 +367,23 @@ fn where_there_is_no_room_above_it_is_below() {
   let shown = bubble(&stage, WORDS).unwrap();
   let (_, y, _, height) = stage.bounds("copy");
   assert!(shown.y >= y + height, "below the button: {:?}", at(&shown));
+  // The arrow turned with it: between the button and the box, pointing up at the button.
+  stage.pass();
+  let (_, arrow_y) = painted_center(&tip(&stage).expect("an arrow"));
+  assert!(
+    arrow_y > y + height && arrow_y <= shown.y + 0.5,
+    "the arrow over the box, under the button: {arrow_y}, the box at {}",
+    shown.y
+  );
+}
+
+/// The middle of a quad as it is painted. A turned quad is its turned corner, turned about that corner.
+fn painted_center(quad: &Quad) -> (f32, f32) {
+  let (t, half_w, half_h) = (quad.transform, quad.width / 2.0, quad.height / 2.0);
+  (
+    quad.x + t.a * half_w + t.c * half_h,
+    quad.y + t.b * half_w + t.d * half_h,
+  )
 }
 
 /// The arrow: a square of 12 / √2 in the box's color.
@@ -298,11 +407,12 @@ fn where_the_window_pushes_the_box_along_the_arrow_still_points_at_the_element()
   let shown = bubble(&stage, "Copy the link to this page").unwrap();
   let (x, _, width, _) = stage.bounds("copy");
   assert!(shown.x >= -0.01, "kept in the window: {:?}", at(&shown));
-  let arrow = tip(&stage).expect("an arrow");
+  let (arrow_x, _) = painted_center(&tip(&stage).expect("an arrow"));
   assert!(
-    (arrow.x + arrow.width / 2.0 - (x + width / 2.0)).abs() < 1.0,
-    "at the middle of the button, not of the box: {:?}",
-    at(&arrow)
+    (arrow_x - (x + width / 2.0)).abs() < 1.0,
+    "at the middle of the button, {}, not of the box, {}: {arrow_x}",
+    x + width / 2.0,
+    shown.x + shown.width / 2.0
   );
 }
 
@@ -356,6 +466,17 @@ fn a_long_text_wraps_in_a_box_no_wider_than_200() {
     })
     .expect("the long tooltip shows");
   assert!(shown.width <= 200.0 + 0.01, "no wider than 200: {:?}", at(&shown));
+  let start = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if long.starts_with(text.as_str())))
+    .unwrap();
+  assert!(
+    start.x + start.width <= shown.x + shown.width - 10.0 + 0.5,
+    "the text wraps inside the box, 10 from its side: {:?} in {:?}",
+    at(&start),
+    at(&shown)
+  );
   // A text that wraps has 8 above it, as the board draws it.
   stage.pass();
   let start = stage
@@ -398,6 +519,7 @@ fn a_rule_of_the_theme_changes_the_tooltip() {
     .patch_recipe::<Tooltip>(|recipe| recipe.base(TooltipPart::Content, |s| s.background(PaletteColor::Destructive)));
   let mut stage = Stage::in_app(app, |ctx| {
     Column::new()
+      .size(400.0, 300.0)
       .padding(100.0)
       .child(Tooltip::new(WORDS).delay(Duration::ZERO).mount(ctx, copy()))
       .into()
@@ -420,6 +542,7 @@ fn a_theme_gives_the_tooltip_another_anatomy_and_it_still_shows_when_it_should()
   app.theme().set_renderer::<Tooltip>(renderer);
   let mut stage = Stage::in_app(app, |ctx| {
     Column::new()
+      .size(400.0, 300.0)
       .padding(100.0)
       .child(Tooltip::new(WORDS).delay(Duration::ZERO).mount(ctx, copy()))
       .into()

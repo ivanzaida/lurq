@@ -48,6 +48,8 @@ struct ElementRefInner {
   focus_signal: Option<crate::core::Signal<bool>>,
   focus_visible: bool,
   focus_visible_signal: Option<crate::core::Signal<bool>>,
+  focus_visible_within: bool,
+  focus_visible_within_signal: Option<crate::core::Signal<bool>>,
   override_rect: Option<ElementRect>,
   override_clear_generation: u64,
   layout_dirty: bool,
@@ -178,6 +180,38 @@ impl ElementRef {
       .focus_visible_signal
       .get_or_insert_with(|| crate::core::Signal::new(visible))
       .clone()
+  }
+
+  /// Focus-visible on the element or on something in it, like CSS
+  /// `:focus-within` for a focus that shows its ring. Reading it during render
+  /// subscribes, like [`Self::focus_visible`].
+  pub fn focus_visible_within(&self) -> bool {
+    self.focus_visible_within_signal().get()
+  }
+
+  /// Reactive focus-visible-within state. Reading `focus_visible_within()`
+  /// during render subscribes too.
+  pub fn focus_visible_within_signal(&self) -> crate::core::Signal<bool> {
+    let mut inner = self.inner.write().unwrap();
+    let within = inner.focus_visible_within;
+    inner
+      .focus_visible_within_signal
+      .get_or_insert_with(|| crate::core::Signal::new(within))
+      .clone()
+  }
+
+  pub(crate) fn set_focus_visible_within(&self, within: bool) {
+    let signal = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.focus_visible_within == within {
+        return;
+      }
+      inner.focus_visible_within = within;
+      inner.focus_visible_within_signal.clone()
+    };
+    if let Some(signal) = signal {
+      signal.set(within);
+    }
   }
 
   pub(crate) fn update(&self, x: f32, y: f32, relative_x: f32, relative_y: f32, width: f32, height: f32) {

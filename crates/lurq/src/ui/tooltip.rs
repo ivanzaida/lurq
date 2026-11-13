@@ -197,8 +197,8 @@ pub type TooltipRenderer = Arc<dyn Fn(TooltipView) -> Element + Send + Sync>;
 ///
 /// It shows after the pointer has rested on the element for its delay, at
 /// once if another tooltip went a moment before, and at once when the focus
-/// comes to the element, or to the first thing in it that takes the focus,
-/// from the keyboard. It goes when the pointer has left both the element and
+/// comes to the element, or to anything in it (a button in a row), from
+/// the keyboard. It goes when the pointer has left both the element and
 /// the tooltip for a moment (the pointer can be moved onto it to read it),
 /// when the focus leaves, when the element is pressed, and on Escape, which
 /// it takes before anything under it. One tooltip of the pointer shows at a
@@ -318,8 +318,8 @@ impl Tooltip {
   }
 
   /// Puts the tooltip on `element`, the element it describes, and returns
-  /// that element. The pointer is the element's; the focus is its root's where
-  /// the root takes it, else that of the first thing in it that does.
+  /// that element. The pointer and the focus are the element's, or those of
+  /// anything in it.
   pub fn mount(self, ctx: &mut Ctx, element: impl Into<Element>) -> Element {
     ctx.mount::<TooltipHost>(TooltipProps {
       tooltip: Arc::new(self),
@@ -410,7 +410,8 @@ impl TooltipView {
     let mut content = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(TooltipPart::Content));
-    let mut words = label.text(&self.text);
+    // The text gives way to the box's greatest width, and wraps.
+    let mut words = label.text(&self.text).flex_shrink(1.0);
     if let Some(label_ref) = &self.label_ref {
       words = words.ref_element(label_ref.clone());
     }
@@ -618,8 +619,9 @@ struct TooltipHost {
   /// Whether the pointer has rested on the element for the delay, and not left both it and the tooltip since.
   hovered: Signal<bool>,
   /// Whether the tooltip may show: Escape (the runtime closes the top layer that takes it) or a press of the
-  /// element turns it off, and it stays off until the pointer comes again or the focus leaves.
-  allowed: Signal<bool>,
+  /// element turns it off, and it stays off until the pointer comes again, or until nothing asks for the
+  /// tooltip (the pointer and the focus both gone), when a new one takes its place.
+  allowed: Mutex<Signal<bool>>,
   /// Whether the tooltip was put on the other side, where there was no room on its own: its arrow turns with it.
   flipped: Signal<bool>,
   /// How far along the box the arrow is moved toward the element's middle, where the box was pushed along.
@@ -636,8 +638,6 @@ struct TooltipHost {
   grace: Timeout,
   /// The element's anchor where the element has none of its own.
   anchor: ElementRef,
-  /// What the focus is read on where the element's root takes none: the first of its descendants that does.
-  focus: ElementRef,
   /// What shows, and its label.
   shown: ElementRef,
   label: ElementRef,
@@ -736,7 +736,7 @@ impl Component for TooltipHost {
     }
     Self {
       hovered,
-      allowed: ctx.signal(true),
+      allowed: Mutex::new(ctx.signal(true)),
       flipped,
       aim,
       multiline,
@@ -745,7 +745,6 @@ impl Component for TooltipHost {
       delay,
       grace,
       anchor,
-      focus: ElementRef::new(),
       shown,
       label,
       id,
@@ -760,21 +759,25 @@ impl Component for TooltipHost {
     }
     self.delay.set_duration(tooltip.delay);
     // A disabled element is not hovered, the elements it is in are: it is put in a row the pointer reaches.
-    let mut child = if child.node.is_disabled() {
-      Row::new().child(child).into()
+    let child = if child.node.is_disabled() {
+      hoverable(child)
     } else {
       holds_children(child)
     };
     // An element that has an anchor of its own keeps it, and the tooltip is anchored to it.
     let anchor = child.node.element_ref.clone().unwrap_or_else(|| self.anchor.clone());
-    let focus = if child.node.is_focusable() {
-      anchor.clone()
-    } else {
-      focus_target(&mut child.node, &self.focus).unwrap_or_else(|| anchor.clone())
-    };
 
-    // Reading them subscribes: this renders again when the pointer, the focus or Escape changes them.
-    let asked = self.hovered.get() || focus.focus_visible();
+    // Reading them subscribes: this renders again when the pointer, the focus or Escape changes them. The focus
+    // is the element's or that of anything in it, a button in a row.
+    let asked = self.hovered.get() || anchor.focus_visible_within();
+    let allowed = {
+      let mut allowed = self.allowed.lock();
+      if !asked {
+        // Nothing asks for it: whatever put it away is over, and the next time it is asked for it shows.
+        *allowed = Signal::new(true);
+      }
+      allowed.clone()
+    };
     let side = if self.flipped.get() {
       tooltip.side.opposite()
     } else {
@@ -797,7 +800,7 @@ impl Component for TooltipHost {
     }
     let shows = !tooltip.text.is_empty() && tooltip.open.unwrap_or(asked);
     // A tooltip that went from under the pointer is told of no leave: the pointer is on it no longer.
-    if !shows || (tooltip.open.is_none() && !self.allowed.get()) {
+    if !shows || (tooltip.open.is_none() && !allowed.get()) {
       self.pointer.lock().on_tooltip = false;
     }
     let overlay = if shows {
@@ -827,14 +830,16 @@ impl Component for TooltipHost {
         .anchor(anchor.clone())
         .placement(tooltip.side.placement())
         .collision(CollisionStrategy::FlipThenClamp)
-        // The pointer can be moved onto the tooltip; it is beside the element, so it covers nothing of it.
-        .hit_test(HitTestBehavior::ContentOnly);
+        // The pointer can be moved onto the tooltip, its root and the room in it toward the element included (with
+        // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element, so it
+        // covers nothing of it.
+        .hit_test(HitTestBehavior::Auto);
       match tooltip.open {
         // Shown by the app: Escape is not the tooltip's to take.
         Some(_) => overlay,
         // The runtime turns `allowed` off on an Escape while this is the top layer that takes it, so the key
         // closes the tooltip and not the dialog under it.
-        None => overlay.open(self.allowed.clone()).dismiss_on_escape(true),
+        None => overlay.open(allowed.clone()).dismiss_on_escape(true),
       }
     } else {
       Overlay::new(Element::new()).open_when(false)
@@ -845,7 +850,7 @@ impl Component for TooltipHost {
     let enter = {
       let (hovered, allowed, delay, grace, pointer, wait) = (
         self.hovered.clone(),
-        self.allowed.clone(),
+        allowed.clone(),
         self.delay.clone(),
         self.grace.clone(),
         self.pointer.clone(),
@@ -871,7 +876,7 @@ impl Component for TooltipHost {
     let leave = {
       let (hovered, allowed, delay, grace, pointer) = (
         self.hovered.clone(),
-        self.allowed.clone(),
+        allowed.clone(),
         self.delay.clone(),
         self.grace.clone(),
         self.pointer.clone(),
@@ -896,7 +901,7 @@ impl Component for TooltipHost {
     let press = {
       let (hovered, allowed, delay, grace) = (
         self.hovered.clone(),
-        self.allowed.clone(),
+        allowed.clone(),
         self.delay.clone(),
         self.grace.clone(),
       );
@@ -910,14 +915,6 @@ impl Component for TooltipHost {
         put(&allowed, false);
       }
     };
-    let blur = {
-      let allowed = self.allowed.clone();
-      move || put(&allowed, true)
-    };
-    let focus_is_root = focus.same_handle(&anchor);
-    if !focus_is_root {
-      put_on_blur(&mut child.node, &focus, blur.clone());
-    }
 
     let text = tooltip.text.clone();
     let describe = move |node: Node| {
@@ -931,9 +928,6 @@ impl Component for TooltipHost {
         .on_mouse_enter(enter.clone())
         .on_mouse_leave(leave.clone())
         .on_mouse_down(press.clone());
-      if focus_is_root {
-        node = node.on_blur(blur.clone());
-      }
       NodeUpdate::describe(&mut node, Arc::from("a11y_description"), text.clone());
       if !named {
         NodeUpdate::describe(&mut node, Arc::from("a11y_name"), text.clone());
@@ -946,36 +940,17 @@ impl Component for TooltipHost {
   }
 }
 
-/// The first node under `node` that takes the focus, where the focus of the element is read: its own anchor,
-/// or `focus` put on it. `None` where nothing in it takes the focus.
-fn focus_target(node: &mut Node, focus: &ElementRef) -> Option<ElementRef> {
-  for child in &mut node.children {
-    if child.is_focusable() && !child.is_focus_disabled() {
-      if let Some(own) = &child.element_ref {
-        return Some(own.clone());
-      }
-      NodeUpdate::ref_element(child, focus.clone());
-      return Some(focus.clone());
-    }
-    if let Some(found) = focus_target(child, focus) {
-      return Some(found);
-    }
-  }
-  None
-}
-
-/// Gives the node under `node` whose anchor is `focus` the handler `blur`.
-fn put_on_blur(node: &mut Node, focus: &ElementRef, blur: impl Fn() + Send + Sync + Clone + 'static) -> bool {
-  for child in &mut node.children {
-    if child.element_ref.as_ref().is_some_and(|own| own.same_handle(focus)) {
-      NodeUpdate::on_blur(child, blur);
-      return true;
-    }
-    if put_on_blur(child, focus, blur.clone()) {
-      return true;
-    }
-  }
-  false
+/// A disabled `element` in a row of its own, which the pointer hovers: a disabled element is not hovered, the
+/// elements it is in are. The row is as large as the element would be where it was: it takes the element's
+/// width and height where they are shares of the room (`Fill`), and the element's flex.
+fn hoverable(element: Element) -> Element {
+  let (frame, flex) = (element.node.frame, element.node.flex);
+  let share = |length: Option<Dimension>| length.filter(|length| matches!(length, Dimension::Pct(_)));
+  let mut row: Element = Row::new().child(element).into();
+  row.node.frame.width = share(frame.width);
+  row.node.frame.height = share(frame.height);
+  row.node.flex = flex;
+  row
 }
 
 /// `element`, in a row of its own where its root lays out no children (a
