@@ -310,6 +310,19 @@ impl Component for SpinnerPage {
         Row::new().foreground(PaletteColor::Destructive).child(Spinner::new()),
         "the text's color around it",
       ))
+      .child(item(
+        Row::new()
+          .foreground(PaletteColor::Destructive)
+          .spacing(16.0)
+          .align_items(Alignment::Center)
+          .child(Spinner::new().kind(SpinnerKind::Dots))
+          .child(Spinner::new().kind(SpinnerKind::Bars)),
+        "dots and bars too",
+      ))
+      .child(item(
+        Button::new("Loading").leading(Spinner::new().kind(SpinnerKind::Dots).decorative(true)),
+        "in a button: its label's color",
+      ))
       .child(item(Spinner::new().variant(SpinnerVariant::Muted), "muted"))
       .child(item(Spinner::new().variant(SpinnerVariant::Primary), "primary"));
     let inline = items()
@@ -426,14 +439,19 @@ impl Component for SpinnerPage {
         ),
         Section::new(
           "Colors",
-          "The ring is drawn in the color of the text around it, so a spinner in a button is the color of its \
-           label. A variant gives it a color of its own.",
+          "The ring, the dots and the bars are drawn in the color of the text around them, so a spinner in a \
+           button is the color of its label. A variant gives it a color of its own.",
           self.frame.demo(
             2,
             colors,
             ".variant(SpinnerVariant::Muted)",
             &[
               "Row::new().foreground(PaletteColor::Destructive).child(Spinner::new())",
+              "Row::new()",
+              "    .foreground(PaletteColor::Destructive)",
+              "    .child(Spinner::new().kind(SpinnerKind::Dots))",
+              "    .child(Spinner::new().kind(SpinnerKind::Bars))",
+              "Button::new(\"Loading\").leading(Spinner::new().kind(SpinnerKind::Dots).decorative(true))",
               "Spinner::new().variant(SpinnerVariant::Muted)",
               "Spinner::new().variant(SpinnerVariant::Primary)",
             ],

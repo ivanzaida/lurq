@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 use super::{
   icon::Icon,
   icons, names,
-  part_style::{Length, PartAnimation},
+  part_style::{Length, Opacity, PartAnimation},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{FADE_IN, FADE_OUT},
   theme::{Themed, current_theme},
@@ -16,7 +16,7 @@ use crate::{
   app::theme::{IconSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{Column, Grid, Row},
   layout::{Alignment, grid::GridTrack, layout_kind::Justify},
-  node::{Element, dimension::Dimension, transform::Decomposed},
+  node::{BackgroundColor, Element, dimension::Dimension, transform::Decomposed},
 };
 
 /// The keyframes of a dot of [`SpinnerKind::Dots`], which every window has:
@@ -88,8 +88,8 @@ pub enum SpinnerKind {
 /// The color of a spinner.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SpinnerVariant {
-  /// The color of the text around it: the ring is drawn in it, and the dots and the bars, which are fills and
-  /// not text, in the foreground.
+  /// The color of the text around it: the ring, the dots and the bars are drawn in it, so a spinner in a
+  /// button is the color of the button's label.
   #[default]
   Current,
   /// The muted foreground: a spinner that says less than the text beside it.
@@ -176,8 +176,9 @@ const LOADING: &str = "Loading";
 /// ```
 ///
 /// It is a status to tooling that reads the tree, called by its label, or
-/// "Loading" when it has none. The ring is drawn in the color of the text
-/// around it, so a spinner in a button is the color of the button's label.
+/// "Loading" when it has none. It is drawn in the color of the text around
+/// it, the ring, the dots and the bars alike, so a spinner in a button is the
+/// color of the button's label.
 /// Spinners move whether or not motion is reduced: one that stood still would
 /// say nothing.
 #[derive(Clone)]
@@ -452,13 +453,14 @@ impl Themed for Spinner {
   type Renderer = SpinnerRenderer;
 
   /// The design's spinner (`pencil/lurq-design-system.pen`, Spinner,
-  /// Loader/Dots, Loader/Bars, Loader/Inline): a ring of 16, 24 or 32 in the
-  /// color of the text around it; three dots of 8, 6 apart, in a row 16
-  /// high; five bars 3 wide and round, 3 apart, in a row 20 high; and a label
+  /// Loader/Dots, Loader/Bars, Loader/Inline): a ring of 16, 24 or 32;
+  /// three dots of 8, 6 apart, in a row 16 high; five bars 3 wide and round,
+  /// 3 apart, in a row 20 high; all in the color of the text around them,
+  /// the foreground where nothing names one; and a label
   /// 8 beside it, 13 in the muted foreground. The dots and the bars grow with
   /// the ring's sizes, by a half and by twice.
   fn recipe() -> Recipe {
-    use PaletteColor::{Foreground, MutedForeground, Primary};
+    use PaletteColor::{MutedForeground, Primary};
     use SpinnerPart::{Bar, Dot, Indicator, Label, Root};
     let recipe = Recipe::new()
       .base(Root, |s| s.gap(8.0))
@@ -468,8 +470,16 @@ impl Themed for Spinner {
           .font_size(13.0)
           .foreground(MutedForeground)
       })
-      .base(Dot, |s| s.square(8.0).radius(RadiusSize::Full).background(Foreground))
-      .base(Bar, |s| s.width(3.0).radius(RadiusSize::Full).background(Foreground))
+      .base(Dot, |s| {
+        s.square(8.0)
+          .radius(RadiusSize::Full)
+          .background(BackgroundColor::CurrentForeground)
+      })
+      .base(Bar, |s| {
+        s.width(3.0)
+          .radius(RadiusSize::Full)
+          .background(BackgroundColor::CurrentForeground)
+      })
       .size(SpinnerSize::Md, Indicator, |s| s.square(IconSize::Xl))
       .size(SpinnerSize::Lg, Indicator, |s| s.square(32.0))
       .state(SpinnerState::Dots, Indicator, |s| {
@@ -515,9 +525,10 @@ pub enum LoadingOverlayPart {
   Root,
   /// What holds the content: out of input while it loads.
   Content,
-  /// What lies over the content while it loads, the scrim and the spinner: it fades in and out.
+  /// What lies over the content while it loads, with the spinner in its middle: it fades in and out.
   Veil,
-  /// The fill of the veil, through which the content shows faintly.
+  /// The fill of the veil, through which the content shows faintly: its background and how much of it shows
+  /// (its opacity), which the veil is filled with.
   Scrim,
 }
 
@@ -676,41 +687,42 @@ impl LoadingOverlayView {
     self.recipe.theme()
   }
 
-  /// A grid of one cell, as large as the largest of what is in it, which every child is put in and stretched
-  /// to: a box over another that is as large as it, whatever size either is given.
-  fn cell() -> Grid {
-    Grid::new().columns([GridTrack::Fr(1.0)]).rows([GridTrack::Fr(1.0)])
+  /// The fill of the veil: the scrim's color with as much of it showing as the scrim's opacity says. It is a
+  /// color and not an opacity of the veil, which its fade from nothing to whole would undo once it ends.
+  fn scrim(&self) -> Option<BackgroundColor> {
+    let scrim = self.part(LoadingOverlayPart::Scrim).rest();
+    let theme = self.theme();
+    let color = scrim.background?.resolve(&theme.palette())?;
+    let shown = match scrim.opacity {
+      Some(Opacity::Value(value)) => value,
+      Some(Opacity::Level(level)) => theme.opacity_value(level),
+      None => 1.0,
+    };
+    let alpha = (f32::from(color.a()) * shown.clamp(0.0, 1.0)).round() as u8;
+    Some(BackgroundColor::Color(color.with_alpha(alpha)))
   }
 
-  /// The veil, while the content is loading: the scrim, and the spinner in the middle of it. It has a key, so
-  /// that a root that keeps leaving children keeps it while it fades out.
+  /// The veil, while the content is loading: the scrim's fill with the spinner in the middle of it. It has a
+  /// key, so that the root, which keeps leaving children, keeps it while it fades out.
   pub fn veil(&self) -> Option<Element> {
     if !self.loading {
       return None;
     }
     let spinner = self.spinner.clone().unwrap_or_default();
-    Some(
-      Self::cell()
-        .key("veil")
-        .part(&self.part(LoadingOverlayPart::Veil))
-        .grid_column(0)
-        .grid_row(0)
-        .child(
-          Row::new()
-            .part(&self.part(LoadingOverlayPart::Scrim))
-            .grid_column(0)
-            .grid_row(0),
-        )
-        .child(
-          Row::new()
-            .align_items(Alignment::Center)
-            .justify(Justify::Center)
-            .grid_column(0)
-            .grid_row(0)
-            .child(spinner.build(self.theme())),
-        )
-        .into(),
-    )
+    // As large as the spinner where the root measures what is in its cell, so that the veil does not widen
+    // it, and stretched to the cell after.
+    let mut veil = Row::new()
+      .key("veil")
+      .part(&self.part(LoadingOverlayPart::Veil))
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .grid_column(0)
+      .grid_row(0)
+      .child(spinner.build(self.theme()));
+    if let Some(fill) = self.scrim() {
+      veil = veil.background(fill);
+    }
+    Some(veil.into())
   }
 
   /// How the default renderer builds the overlay: the content, out of input while it loads, and the veil
@@ -722,7 +734,12 @@ impl LoadingOverlayView {
       .grid_column(0)
       .grid_row(0)
       .child(self.content.take().unwrap_or_else(|| Row::new().into()));
-    let mut root = Self::cell()
+    // A grid of one cell that the content and the veil are both in, stretched to it. The cell is as large as
+    // the content, whatever room the root is given: the veil covers the content and nothing beside it, and a
+    // content that fills the room makes it as wide as the room.
+    let mut root = Grid::new()
+      .columns([GridTrack::Auto])
+      .rows([GridTrack::Auto])
       .presence()
       .part(&self.part(LoadingOverlayPart::Root))
       .child(content);
