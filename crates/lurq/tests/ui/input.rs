@@ -31,6 +31,22 @@ fn edge(stage: &mut Stage, id: &str) -> (f32, Color) {
   (side.width, side.color)
 }
 
+/// Whether a line of 2 in `color` is drawn inside the box of the element with `id`: the ring of its focus.
+fn ring_inside(stage: &mut Stage, id: &str, color: Color) -> bool {
+  let (x, y, width, height) = stage.bounds(id);
+  stage.quads().into_iter().any(|quad| {
+    quad
+      .border
+      .and_then(|border| border.top)
+      .map(|side| (side.width, side.color))
+      == Some((2.0, color))
+      && quad.x >= x
+      && quad.y >= y
+      && quad.x + quad.width <= x + width
+      && quad.y + quad.height <= y + height
+  })
+}
+
 fn focused(stage: &Stage) -> Option<String> {
   stage
     .tree
@@ -121,7 +137,7 @@ fn what_is_typed_goes_into_the_signal_and_the_focus_thickens_the_edge_in_the_rin
   // Tab reaches it, and what is typed then is the signal's.
   stage.key("Tab");
   assert_eq!(focused(&stage).as_deref(), Some("name"));
-  assert_eq!(edge(&mut stage, "name"), (2.0, light(PaletteColor::Ring)));
+  assert!(ring_inside(&mut stage, "name", light(PaletteColor::Ring)));
   type_in(&mut stage, "Ivan");
   assert_eq!(name.get(), "Ivan");
   assert_eq!(*typed.lock().unwrap(), ["Ivan"]);
@@ -143,7 +159,7 @@ fn a_click_focuses_it_with_the_thick_edge_too() {
   });
   stage.click("name");
   assert_eq!(focused(&stage).as_deref(), Some("name"));
-  assert_eq!(edge(&mut stage, "name"), (2.0, light(PaletteColor::Ring)));
+  assert!(ring_inside(&mut stage, "name", light(PaletteColor::Ring)));
 }
 
 #[test]
@@ -193,8 +209,8 @@ fn a_judgment_colors_the_edge_at_rest_and_in_the_focus() {
   }
   stage.click("invalid");
   assert_eq!(
-    edge(&mut stage, "invalid"),
-    (2.0, light(PaletteColor::Destructive)),
+    ring_inside(&mut stage, "invalid", light(PaletteColor::Destructive)),
+    true,
     "the focus keeps the color"
   );
 }
@@ -212,7 +228,7 @@ fn a_forced_focus_draws_the_thick_edge_with_nothing_focused() {
       .into()
   });
   assert_eq!(focused(&stage), None);
-  assert_eq!(edge(&mut stage, "name"), (2.0, light(PaletteColor::Ring)));
+  assert!(ring_inside(&mut stage, "name", light(PaletteColor::Ring)));
 }
 
 #[test]

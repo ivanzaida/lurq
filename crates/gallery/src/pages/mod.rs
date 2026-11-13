@@ -12,8 +12,6 @@ mod icons;
 mod input;
 mod overview;
 mod radio;
-  },
-  Page {
 mod slider;
 mod switch;
 mod textarea;
@@ -143,6 +141,22 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
   },
   Page {
+    path: "/input",
+    name: "Input",
+    icon: None,
+    about: "input field text entry label description error hint required optional placeholder icon invalid read only form",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<input::InputPage>(()),
+  },
+  Page {
+    path: "/textarea",
+    name: "Textarea",
+    icon: None,
+    about: "textarea multiline text rows placeholder invalid disabled scroll bio note",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<textarea::TextareaPage>(()),
+  },
+  Page {
     path: "/checkbox",
     name: "Checkbox",
     icon: None,
@@ -157,22 +171,6 @@ pub const PAGES: &[Page] = &[
     about: "radio group choice option chosen one of exclusive",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<radio::RadioPage>(()),
-  },
-  Page {
-    path: "/textarea",
-    name: "Textarea",
-    icon: None,
-    about: "textarea multiline text rows placeholder invalid disabled scroll bio note",
-    group: Group::Inputs,
-    mount: |ctx| ctx.mount::<textarea::TextareaPage>(()),
-  },
-  Page {
-    path: "/input",
-    name: "Input",
-    icon: None,
-    about: "input field text entry label description error hint required optional placeholder icon invalid read only form",
-    group: Group::Inputs,
-    mount: |ctx| ctx.mount::<input::InputPage>(()),
   },
   Page {
     path: "/switch",

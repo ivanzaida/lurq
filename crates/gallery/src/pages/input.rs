@@ -259,7 +259,10 @@ impl Component for InputPage {
       ))
       .child(item(showing("not-an-email").invalid(true), "invalid"))
       .child(item(showing("80").warning(true), "warning"))
-      .child(item(showing("ivan@lurq.dev").valid(true).icon(icons::CHECK), "valid"))
+      .child(item(
+        showing("ivan@lurq.dev").valid(true).icon(icons::CHECK_CIRCLE),
+        "valid",
+      ))
       .child(item(showing("8770b598").read_only(true), "read only"))
       .child(item(showing("").placeholder("Read only").disabled(true), "disabled"))
       .child(item(
@@ -480,7 +483,7 @@ impl Component for InputPage {
               "",
               "Input::new(value).invalid(true)",
               "Input::new(value).warning(true)",
-              "Input::new(value).valid(true).icon(icons::CHECK)",
+              "Input::new(value).valid(true).icon(icons::CHECK_CIRCLE)",
               "Input::new(value).read_only(true)",
               "Input::new(value).placeholder(\"Read only\").disabled(true)",
               "Input::new(value).placeholder(\"Search components\").icon(icons::SEARCH)",

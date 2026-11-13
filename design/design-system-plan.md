@@ -467,7 +467,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |
 | Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
 | `Icon`, and the theme's table of icons | built: `ui::Icon`, `ui::icons`, `ThemeIcons`, the font loaded in every app |
-| Step 2: `Button` | built to the board's Buttons section (14.6), with its tests and its page of the docs. `Switch` is built (14.8). `Tabs`, `MessageBox` are not |
+| Step 2: `Button` | built to the board's Buttons section (14.6), with its tests and its page of the docs. `Switch` is built (14.8), and the forms batch: `Input`, `Field`, `Textarea`, `Checkbox`, `Radio`, `RadioGroup`, `Slider` (14.9). `Tabs`, `MessageBox` are not |
 | The button family | built: `Toggle`, `ButtonGroup`, `ToggleGroup`, `SegmentedControl`, `Link`, `Fab`, and a button with a description (14.7) |
 | The gallery | its shell is built, with a title bar of its own, and Overview, Tokens and Icons (15.5) |
 
@@ -565,6 +565,27 @@ The board's Switch: a track of 36 by 20, round, `$input` and `$primary` while it
 
 Not done: the switch has no size but the board's one. A press of the label turns the switch and does not move the focus to its track: a builder has no way to ask for the focus (`Ctx::focus` takes a component's `Ctx`).
 
+### 14.9 Batches, and the forms batch
+
+Said on 2026-11-13: built one at a time the board's components take years. A batch is four to six related components, each built by a session of its own in a worktree of its own from `design/component-playbook.md`, with the board read through Pencil; the sessions compile and run no tests, and leave the text for the docs and the changelog in a handoff file. The batch is then merged here, its ui tests are run once, each page is laid beside the board, and the handoffs are put in place.
+
+The first batch, the board's Inputs and Toggles:
+
+| Component | What it is |
+| --- | --- |
+| `Input` | The engine's single-line `TextInput` as the box itself, with sizes Sm, Md, Lg, an icon at the start, the judgments Invalid, Warning, Valid, read only (an `on_input` that refuses every edit), disabled |
+| `Field` | A label above a control or beside it, a description or an error under it, a required mark; its control is any element |
+| `Textarea` | The engine's multiline `TextInput` as the box itself, with the rows it shows at least and at most |
+| `Checkbox` | A pressable box of its own with the theme's check and dash, as `Switch` is: the engine's `Checkbox` has no indeterminate state, takes an image for its mark and colors that are not roles, and keeps its own value |
+| `Radio`, `RadioGroup` | A round mark with a dot; the group is one choice bound to a `Signal<T>` or held by the app, as `ToggleGroup` is |
+| `Slider` | The engine's `Slider` with its track, fill and thumb in the recipe's style |
+
+- **What the merge found.** Of 105 ui tests five failed on the first run. A disabled slider took a press: with nothing under the pointer the engine looked a slider up by its row alone, disabled or not (fixed in the runtime). `Input` drew its focus as a thicker edge, and the engine lays the style of the pointer over the style of the focus, so a focused input under the pointer lost it: the focus is now an outline of 2 inside the box, as `Textarea` had it, which is one look for both. The other three were the tests' own (a float compared exactly, a text looked up whole in a multiline input).
+- **The engine's slider paints a ring**: `SliderPartStyle::outline`, so that the thumb's focused style is the theme's focus ring. Its tests, the outline tests and the tests of disabled input were run for it.
+- **The focus of a text field is inside its box**; of a checkbox, a radio, a switch and a slider's thumb it is the theme's ring outside. The board draws both.
+
+Not done, from the handoffs: a field's label does not focus its control or name it, and does not hand it its state (a builder has no `Ctx`); `Textarea` has no read only and no sizes; no group of checkboxes; a radio group is a column only and has no arrow keys; no vertical slider (the engine's is horizontal), no range slider; what `Input` and `Textarea` have in common is written twice. `Checkbox Card`, `Radio Card`, `Password Input`, `Search Field`, `Number Input`, `Input Group` are other components of the board, not built.
+
 ## 15. The gallery
 
 Asked for on 2026-11-13: `pencil/lurq-design-system-demo.pen` is the demo app, in place of the one there is. It is built from the moment work on components starts, a page at a time, so that each component can be looked at as it lands.
@@ -625,6 +646,7 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 
 - **The Button page**: the playground (a state forced with nothing pointing at the button, its measured size and its radius, a count of its presses, the Rust that builds it, the log of its events and the parts it is built of, each copied to the clipboard, and a control for every prop with the count of those changed and a reset), then Variants, Sizes, the matrix of every variant in every state at a size, Icons & shapes, and the table of props. The copy button of a demo card's footer copies its call.
 - **The playground is one module** (`playground.rs`): a page says what is on the stage, the Rust that builds it, the parts it is built of and the controls of its panel, and the rest is the same on every page: the switch of forced states, the measured size, the count and the log of what the component did, the tabs, Copy, the count of changed props and Reset. Said on 2026-11-13: a page of a component has a playground; the five pages below were first built without one.
+- **The pages of the forms batch** (group Inputs): Input (with Field), Textarea, Checkbox, Radio, Slider, each with its playground and its sections with their code, built by the session that built the component.
 - **The Switch page** (group Inputs): the playground, the switch bound to a signal, its states, and the track alone in a row of settings. The switches of every playground's panel are `ui::Switch` now; the gallery's own is gone.
 - **The pages of the button family**: Link, Toggle, Toggle Group, Segmented Control and Button Group, each with a playground, what it is bound to a signal of the page, its sizes, its states and the table of what it is given; a split button is a section of Button Group, and a button with a description and a floating action button are a section of Button. The gallery's own segmented control is `SegmentedControl` now: the appearance in the header, the settings, the switches of the playground.
 

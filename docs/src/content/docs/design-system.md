@@ -504,6 +504,237 @@ Switch::new("Sync in background").label_hidden(true).on(sync.get());
 - To what reads the tree (`lurq_snapshot` of the MCP server) the track is a `switch` called by its label, with `a11y_checked` saying whether it is on.
 - A renderer that draws another switch starts from `view.track()`, the behavior with the track's style, and puts in it what it likes; `view.thumb()` is the default thumb.
 
+## Input
+
+One line of text that a person types: a name, an email address, a search.
+
+```rust
+use lurq::ui::{Input, InputSize, icons};
+
+Input::new(name.clone()).placeholder("Display name");
+
+Input::new(query.clone()).placeholder("Search components").icon(icons::SEARCH).size(InputSize::Sm);
+
+// What the app checked: the edge says so.
+Input::new(email.clone()).invalid(!email_ok);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>)` | What the input shows; what is typed is set on it, and what the app sets on it is shown |
+| `placeholder(&str)` | What it says while it is empty |
+| `icon(name)` | A glyph of the theme's set at the start of the box |
+| `size(InputSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15 |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: the edge in the destructive, warning or success color. One is shown, in that order |
+| `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
+| `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `on_input(handler)` | Called before an edit with the `TextInputEvent`; `prevent_default()` refuses it |
+| `name(..)` | The name of its value in a form (feature `form`) |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, the box that is typed in |
+
+- It is the engine's `TextInput`, single line, dressed by the recipe: the control *is* the box, so that the ring of its focus is drawn on it. A text input is focus-visible however it was focused, so a click shows the ring too. Tab reaches it wherever it is (`tab_index(0)`).
+- Parts: `InputPart::Root` (the place it takes: its width, and the room between the icon and the text), `Control` (the box: edge, fill, height, the type of the value), `Placeholder` (laid over the control's type), `Icon`. States: `InputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `WithIcon`. Sizes: `InputSize::Sm`, `Md`, `Lg`.
+- In the design the box is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder in `MutedForeground`. The edge is the only signal of its state: `Ring` under the pointer, a line of 2 in `Ring` inside the box in the focus (an outline, so that the edge under the pointer does not take it away), `Destructive`, `Warning`, `Success` for a judgment (which keeps its color under the pointer and in the focus). Disabled is half opaque on `Muted`; read only is on `Muted` in the `Border` color. The icon is 16 in `MutedForeground` (in `Success` while it is valid), 8 before the text.
+- A text input does not take the foreground of its node, so the renderer names the color of the value and of the placeholder from the parts' foregrounds (`InputView::value_style()`, `placeholder_style()`).
+- To what reads the tree the control is a `textbox`.
+- A renderer that draws another input starts from `view.control()`, the bound text input in the control's style; `view.icon()` is the icon laid over its start, and `view.text_start()` how far the text starts from the edge.
+
+## Field
+
+A control with what it is called above it, and under it what it is for or what is wrong with what it holds.
+
+```rust
+use lurq::ui::{Field, Input, Switch};
+
+Field::new("Display name", Input::new(name.clone()).full_width(true))
+  .description("Shown in the title bar.")
+  .required(true);
+
+Field::new("Email", Input::new(email.clone()).invalid(true).full_width(true))
+  .error("Enter a full email address.");
+
+// Any element is a control; the label beside it, where a form lines its labels up.
+Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true);
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str, impl Into<Element>)` | Its label and its control: any element |
+| `description(&str)` | What the control is for, under it |
+| `error(&str)` | What is wrong, in place of the description; the field is invalid |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | The description in the destructive, warning or success color |
+| `required(bool)` | A `*` after the label |
+| `optional(bool)`, `optional_text(&str)` | "Optional" after the label, or the app's own words. A required field shows none |
+| `horizontal(bool)` | The label in a column of 110 beside the control and its description |
+| `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
+
+- The field does not reach into its control: an input whose content is wrong is told so itself (`Input::invalid`), and the field says why. An input that is to fill the field says so (`Input::full_width`).
+- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`.
+- In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
+
+## Textarea
+
+Text of more than one line, typed into a box: a bio, a note, what happened.
+
+```rust
+use lurq::ui::Textarea;
+
+// bio: Signal<String>
+Textarea::new(bio.clone()).placeholder("A few words about you");
+
+// Two rows while it holds less, four before its text scrolls; not accepted.
+Textarea::new(report.clone()).rows(2, 4).invalid(true);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>)` | What it holds. What is typed is written into the signal, and what the app writes there shows |
+| `placeholder(&str)` | What it shows while it holds nothing |
+| `rows(min, max)` | The rows it shows at least, and at most before its text scrolls inside it. 3 and 8 unless told (`TEXTAREA_MIN_ROWS`, `TEXTAREA_MAX_ROWS`) |
+| `invalid(bool)` | What it holds is not accepted |
+| `on_change(handler)` | Called on every edit with the text it holds once the edit applies |
+| `label(&str)` | What it is called, to what reads the tree. It draws nothing: a field's label is above it |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
+
+- It is the engine's multiline `TextInput`: as high as its text between its rows, its own scroll bar past them, Enter
+  a new line. Tab reaches it wherever it is, as every control of the design system; a disabled one is passed by and
+  takes no click.
+- Parts: `TextareaPart::Root` (the box, which is the text input), `Text` (the type and color of what it holds),
+  `Placeholder`. States: `TextareaState::Invalid`, `Disabled`.
+- In the design the box is as wide as its room, in `Background` with an edge of 1 in `Input`, the medium radius,
+  padded 12 across and 8 down; its text is in the body's type with a line of 1.5, in `Foreground`, and the
+  placeholder in `MutedForeground`. Under the pointer the edge is `Ring`; focused, a ring of 2 is drawn inside the
+  box, over the edge. Invalid, the edge and the ring are `Destructive`. Disabled, it is at the theme's disabled
+  opacity on `Muted`.
+- A text input draws in its own text style and does not take the foreground of what it is in, so the `Text` and
+  `Placeholder` parts' foregrounds are resolved to colors of the theme when the textarea is built
+  (`TextareaView::text_style`).
+- To what reads the tree it is a `textbox`, `a11y_multiline`, with `a11y_invalid` and the name `label` gives it.
+- A renderer that draws another textarea starts from `view.input()`, the behavior in the box's style, and puts what
+  it likes around it: a count of characters, a grip.
+
+## Checkbox
+
+A choice that is made or not, among others a form takes at once: send crash reports, keep me signed in, a row of a list picked.
+
+```rust
+use lurq::ui::Checkbox;
+
+Checkbox::new("Send crash reports")
+  .checked(reports.get())
+  .on_change(move |checked| reports.set(checked));
+
+// The box over a list of which some are picked: a press of it picks them all.
+Checkbox::new("Select all")
+  .checked(picked == files.len())
+  .indeterminate(picked > 0 && picked < files.len());
+
+// The box alone, in a row of a table that has the text already.
+Checkbox::new("Select blur.rs").label_hidden(true).checked(row.get());
+```
+
+| Builder | |
+| --- | --- |
+| `checked(bool)` | Whether it is checked. The checkbox does not keep it: the app says so |
+| `indeterminate(bool)` | Some of what it stands for is checked: a dash, whatever `checked` says |
+| `on_change(handler)` | Called on a press with what the checkbox is to be: checked if it was not, or was indeterminate |
+| `invalid(bool)` | What it holds is wrong: the box is edged in the destructive color |
+| `label_hidden(bool)` | The box alone. The label is still what the checkbox is called |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
+
+- A press of the box or of the label asks for the other state; a press of an indeterminate one asks for checked. Tab reaches the box, Space and Enter press it, and the focus ring is the box's.
+- Parts: `CheckboxPart::Root` (the box and the label, side by side), `Box` (what is pressed), `Indicator` (the check or the dash), `Label`. States: `CheckboxState::Checked` (checked and not indeterminate), `Indeterminate`, `Invalid`, `Disabled`.
+- In the design the box is 16 with the small radius, on the `Background` with an inner edge of 1 in `Input`; checked or indeterminate it is filled and edged in `Primary`, with the theme's `check` or `minus` icon of 12 (`IconSize::Xs`) in `PrimaryForeground`. An invalid box is edged in `Destructive`, checked or not. A disabled checkbox is dimmed with its label, and its box is `Muted` while it is empty. The label is 8 beside the box in the body's type.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `checkbox` called by its label, with `a11y_checked` `true`, `false` or `mixed`.
+- A renderer that draws another checkbox starts from `view.control()`, the behavior with the box's style, and puts in it what it likes; `view.indicator()` is the default mark, `None` while the checkbox is empty.
+- `lurq::components::Checkbox` is the engine's node, which keeps its value in a `Signal` and draws its mark from an image; `lurq::ui::Checkbox` is the design system's and does not use it.
+~~~
+
+## Radio
+
+One of a few choices that exclude each other, all of them in sight: the density of a list, the plan of an
+account. `RadioGroup` is the choice; `Radio` is one radio, for a layout a group does not make.
+
+```rust
+use lurq::ui::{Choice, Radio, RadioGroup};
+
+// The radio whose value the signal has is chosen; a press of another sets it.
+RadioGroup::new(density, [(Density::Comfortable, "Comfortable"), (Density::Compact, "Compact")]);
+
+// A choice that cannot be made, and a group the app holds the choice of: none until one is pressed.
+RadioGroup::new(plan, [Choice::new("free", "Free"), Choice::new("enterprise", "Enterprise").disabled(true)]);
+let set = answer.clone();
+RadioGroup::controlled(answer.get(), [(true, "Yes"), (false, "No")], move |yes| set.set(Some(yes)))
+  .invalid(answer.get().is_none());
+
+// One radio alone.
+Radio::new("Compact").chosen(true).on_choose(|| println!("compact"));
+```
+
+| `RadioGroup` | |
+| --- | --- |
+| `new(signal, choices)` | The radio whose value the signal has is chosen, and a press of another sets the signal |
+| `controlled(Option<T>, choices, handler)` | The app holds the choice: none while it is `None`; the handler is told the value of each radio pressed that was not chosen |
+| `invalid(bool)` | Every radio's edge in the destructive color: the choice was made wrongly, or not at all |
+| `disabled(bool)` | The whole group takes no input. `Choice::disabled` takes one choice out |
+| `style(part, ..)`, `id`, `key` | As a [toggle group](#toggle-group) has them |
+
+| `Radio` | |
+| --- | --- |
+| `chosen(bool)` | Whether it is the choice made. The radio does not keep it: the app says so |
+| `on_choose(handler)` | Called on a press while the radio is not chosen |
+| `label_hidden(bool)` | The mark alone. The label is still what the radio is called |
+| `invalid(bool)` | The edge in the destructive color |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the mark |
+
+- A press of the mark or of the label chooses the radio; a press of the one chosen does nothing, so a choice
+  once made is not taken back. Tab reaches each radio of a group in turn, Space and Enter press it, and the
+  focus ring is the mark's. Arrow keys do not move the choice within a group yet.
+- Parts: `RadioPart::Root` (the mark and the label, side by side), `Mark` (what is pressed), `Dot`, `Label`.
+  States: `RadioState::Chosen`, `Invalid`, `Disabled`. A group's parts: `RadioGroupPart::Root` (the radios
+  one under the other) and `Item`, laid over the theme's recipe for each radio's root.
+- In the design the mark is 16 and round, in `Background` with an edge of 1 inside it in `Input`; chosen, the
+  edge is `Primary` and a dot of 8 in `Primary` is in its middle. The edge of an invalid one is
+  `Destructive`. The label is 8 beside the mark in the body's type, and a group's radios are 12 apart. A
+  disabled radio is dimmed with its label.
+- A choice's icon is not drawn: a radio is its mark and its label.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the mark is a `radio` called by its label, with
+  `a11y_checked` saying whether it is chosen, and a group is a `radiogroup`.
+- A renderer that draws another radio starts from `view.mark()`, the behavior with the mark's style, and puts
+  in it what it likes; `view.dot()` is the default dot.
+
+## Slider
+
+A value picked along a track, between a least and a greatest: volume, the size of a brush, a price no higher than.
+
+```rust
+use lurq::ui::Slider;
+
+// volume: Signal<i32>
+Slider::new(volume.clone()).label("Volume");
+
+// A fraction, in steps of a twentieth.
+Slider::new_f32(opacity.clone()).step(0.05).label("Opacity");
+
+// From 10 to 50 in steps of 5.
+Slider::new(size.clone()).min(10).max(50).step(5);
+```
+
+| Builder | |
+| --- | --- |
+| `Slider::new(Signal<i32>)`, `Slider::new_f32(Signal<f32>)` | The value it is bound to: whole numbers, from 0 to 100 in steps of 1, or fractions, from 0 to 1 in steps of a hundredth |
+| `min(v)`, `max(v)`, `step(v)` | The least value, the greatest and how far apart the values are, from the least. Any number: `min(10)`, `step(0.25)` |
+| `label(&str)` | What the slider is called, to what reads the tree. The slider shows no text: the field it is in does |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the slider's node |
+
+- It is the engine's [`Slider`](../styling-events/#slider-styling) dressed by the recipe: a drag of the thumb, a press on the track and the arrow keys set the signal, snapped to the step and kept in the range. Tab reaches it wherever it is (`tab_index(0)`), and the focus ring is the thumb's.
+- Parts: `SliderPart::Root` (the slider's node: its size, its cursor, its opacity), `Track`, `Range` (the track from its start to the thumb), `Thumb`. State: `SliderState::Disabled`.
+- In the design the slider is 240 by 16; the track is 4 high and round, in `Secondary`; the range is `Primary`; the thumb is 16, round, in `Background` with an edge of 1.5 in `Primary` inside it. A disabled slider is dimmed. `style(SliderPart::Root, |s| s.width(Length::Fill))` makes it as wide as what holds it.
+- The engine paints the track, the range and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted.
+- To what reads the tree (`lurq_snapshot` of the MCP server) it is a `slider` called by its label.
+- A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value with the root's style, and `view.dressed(slider)` gives it the recipe's track, range and thumb. `view.value()` reads the value, for one that shows it.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a segment, a link, the track of a switch, is a stop wherever it is, in the order of the tree; a disabled one is passed by.

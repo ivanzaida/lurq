@@ -21,7 +21,7 @@ use crate::{
   components::{self, Row, Stack},
   core::Signal,
   layout::{Alignment, StackAlignment, text_style::TextStyle},
-  node::{CursorIcon, Element, TextColor, border::Border, dimension::Dimension},
+  node::{CursorIcon, Element, Outline, TextColor, border::Border, dimension::Dimension},
 };
 
 /// The parts of an input a recipe styles.
@@ -499,8 +499,8 @@ impl Themed for Input {
   /// wide and 36 high, the background's fill in an edge of 1 in the color of
   /// an input's, 6 round, its text 12 from its edge in the body's type and
   /// its placeholder in the muted foreground. Its edge is the only signal of
-  /// its state: the ring's color under the pointer and 2 thick while it is
-  /// focused; the destructive, warning and success colors for what it holds.
+  /// its state: the ring's color under the pointer, and a line of 2 inside the
+  /// box while it is focused; the destructive, warning and success colors for what it holds.
   /// A disabled one is half opaque on the muted fill; a read-only one is on
   /// the muted fill in the color of a border. Its icon is 16, 8 before the
   /// text. Small is 32 with text of 13, large 40 with text of 15.
@@ -508,7 +508,9 @@ impl Themed for Input {
     use InputPart::{Control, Icon, Placeholder, Root};
     use PaletteColor::{Background, Destructive, Foreground, Muted, MutedForeground, Ring, Success};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
-    let ring = |color: PaletteColor| Border::inside(BorderSize::Md, color);
+    // The focus is a line of 2 inside the box, over its edge: an outline, so that the edge under the
+    // pointer, which the engine lays over what the focus sets, does not take it away.
+    let ring = |color: PaletteColor| Outline::new(2.0, color).offset(-2.0);
     let recipe = Recipe::new()
       .base(Root, |s| s.width(260.0).gap(8.0))
       .base(Control, |s| {
@@ -528,7 +530,7 @@ impl Themed for Input {
       .base(Placeholder, |s| s.foreground(MutedForeground))
       .base(Icon, |s| s.square(IconSize::Md).foreground(MutedForeground))
       .hovered(Control, |s| s.border(edge(Ring)))
-      .focus_visible(Control, |s| s.border(ring(Ring)))
+      .focus_visible(Control, |s| s.outline(ring(Ring)))
       .size(InputSize::Sm, Control, |s| s.height(ControlSize::Sm).font_size(13.0))
       .size(InputSize::Lg, Control, |s| s.height(ControlSize::Lg).font_size(15.0))
       .state(InputState::FullWidth, Root, |s| s.width(Length::Fill))
@@ -554,7 +556,7 @@ impl Themed for Input {
           s.border(edge(color.clone()))
         })
         .when(Selector::new().state(state).focus_visible(), Control, |s| {
-          s.border(ring(color))
+          s.outline(ring(color))
         })
     })
   }

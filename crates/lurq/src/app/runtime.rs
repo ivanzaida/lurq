@@ -11869,7 +11869,12 @@ fn find_slider_by_y_recursive<'a>(
     height: layout.size.height,
   };
 
-  if matches!(node.node_kind(), NodeKind::Slider { .. }) && y >= rect.y && y <= rect.y + rect.height {
+  // A disabled slider is not under the pointer for a press, and is not found by its row either.
+  if matches!(node.node_kind(), NodeKind::Slider { .. })
+    && !node.is_disabled()
+    && y >= rect.y
+    && y <= rect.y + rect.height
+  {
     return Some((node, rect));
   }
 

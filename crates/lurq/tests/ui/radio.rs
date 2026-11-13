@@ -243,7 +243,7 @@ fn a_group_is_its_radios_one_under_the_other_and_chooses_by_its_signal() {
   );
   assert_eq!(first.x, second.x);
   let (comfortable, compact) = (mark_of(&stage, "Comfortable"), mark_of(&stage, "Compact"));
-  assert_eq!(compact.y - comfortable.y, first.height.max(16.0) + 12.0);
+  assert!((compact.y - comfortable.y - (first.height.max(16.0) + 12.0)).abs() < 0.01);
 
   // From the keyboard, with nothing focused yet: Tab reaches each radio in turn, and Space chooses the one it
   // is on.

@@ -877,7 +877,7 @@ let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
-The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; a part's style can have an `.outline(Outline)`, a ring around the part that changes no size; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
 
 ```rust
 use lurq::{components::Slider, core::Signal, node::color::Color};

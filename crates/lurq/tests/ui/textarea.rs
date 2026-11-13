@@ -96,8 +96,30 @@ fn it_grows_with_its_text_to_the_rows_it_shows_at_most() {
     2.0 * LINE + 2.0 * PADDING_Y,
     "the least it shows"
   );
+  // A multiline input paints its text as it lays it out, not a quad for each line of the value: the first
+  // one that holds the first line says the color and the size.
+  let painted = stage
+    .quads()
+    .into_iter()
+    .find_map(|quad| match &quad.content {
+      lurq::layout::quad::QuadContent::Text { text, style, .. } if text.starts_with("line 1") => {
+        Some((style.color, style.font_size))
+      }
+      _ => None,
+    })
+    .unwrap_or_else(|| {
+      let texts: Vec<String> = stage
+        .quads()
+        .into_iter()
+        .filter_map(|quad| match quad.content {
+          lurq::layout::quad::QuadContent::Text { text, .. } => Some(text.to_string()),
+          _ => None,
+        })
+        .collect();
+      panic!("no text starting with \"line 1\" was painted: {texts:?}")
+    });
   assert_eq!(
-    stage.text("line 1"),
+    painted,
     (light(PaletteColor::Foreground), 14.0),
     "its text in the foreground"
   );
