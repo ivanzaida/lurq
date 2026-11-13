@@ -174,6 +174,9 @@ pub struct TransitionEngine {
   /// The theme the values nodes head to are read against, and the theme and version it was copied from.
   theme: TargetTheme,
   theme_seen: Option<(Theme, u64)>,
+  /// Whether the colors, widths or shadows of the theme are other ones than in the frame before. What a node
+  /// heads to then changed because the theme did, not because the node did: see [`Self::process_node`].
+  theme_changed: bool,
   /// Whether motion is reduced (`Theme::reduced_motion`): what moves or resizes an element then ends at once.
   reduced_motion: bool,
 }
@@ -194,6 +197,7 @@ impl TransitionEngine {
       has_active: false,
       theme: TargetTheme::default(),
       theme_seen: None,
+      theme_changed: false,
       reduced_motion: false,
     }
   }
@@ -210,11 +214,19 @@ impl TransitionEngine {
     {
       return;
     }
-    self.theme = TargetTheme {
+    let taken = TargetTheme {
       palette: theme.palette().clone(),
       border_sizes: theme.border_sizes().clone(),
       shadows: theme.shared_shadows(),
     };
+    // What counts is what a role resolves to: a theme at another version with the same colors, widths
+    // and shadows, or another theme that has them, changes no value a node heads to. The first theme
+    // taken is no change either.
+    self.theme_changed = self.theme_seen.is_some()
+      && (taken.palette != self.theme.palette
+        || taken.border_sizes != self.theme.border_sizes
+        || taken.shadows != self.theme.shadows);
+    self.theme = taken;
     self.theme_seen = Some((theme.clone(), version));
   }
 
@@ -233,6 +245,7 @@ impl TransitionEngine {
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
     self.next_change = None;
+    self.theme_changed = false;
   }
 
   /// Ends a frame after every tick walk ran: drops runs and prev-value
@@ -316,6 +329,15 @@ impl TransitionEngine {
       };
 
       let key = (node_id, *prop);
+
+      // A value that is another one because the theme is, a color of the other appearance, is there at
+      // once, with the rest of the window: only what an element does itself is a transition. A window
+      // that turned dark with its buttons still fading from light showed them as light blocks on it.
+      if self.theme_changed && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
+        self.active.remove(&key);
+        self.prev_values.insert(key, current);
+        continue;
+      }
 
       if let Some(prev) = self.prev_values.get(&key)
         && *prev != current

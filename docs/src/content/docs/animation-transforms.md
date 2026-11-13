@@ -59,8 +59,9 @@ Transition builders include:
 | `Transition::box_shadow()` | Animate the [box shadows](../styling-events/#box-shadows) |
 
 Colors, border widths and shadows given as theme roles (`PaletteColor`, `BorderSize`, `ShadowStyle`) are read against
-the theme, so they animate like concrete values; a role whose value changes, when the theme changes, runs the
-transition too.
+the theme, so they animate like concrete values. A role whose value changes because the theme does, a window that
+turns dark, a palette color the app sets, is at its new value at once, as everything else in the window is: a
+transition is for what the element does itself, a state it enters or a style set on it.
 
 - The foreground, the outline and the box shadow are painted only: a transition of them lays nothing out.
 - An outline that appears grows in from no width and no opacity at its own offset and color, and one that goes away

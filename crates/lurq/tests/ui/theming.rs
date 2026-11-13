@@ -375,3 +375,51 @@ fn a_rule_for_a_density_holds_while_the_theme_is_at_it() {
   stage.pass();
   assert_eq!(stage.bounds("save").3, 48.0);
 }
+
+#[test]
+fn a_change_of_theme_is_there_at_once_and_a_change_of_state_still_fades() {
+  use std::time::Duration;
+
+  use lurq::app::window::Appearance;
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  let theme = app.theme().clone();
+  theme.set_preferred_appearance(Some(Appearance::Light));
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(20.0)
+      .spacing(40.0)
+      .child(Button::new("View source").variant(ButtonVariant::Outline).id("view"))
+      .child(Button::new("Save").id("save"))
+      .into()
+  });
+  assert_eq!(stage.fill_color("view"), Some(light(PaletteColor::Background)));
+
+  // The window turns dark: the buttons are dark in the frame that the rest of it is, not a fade later.
+  theme.set_preferred_appearance(Some(Appearance::Dark));
+  stage.pass_after(Duration::ZERO);
+  for later in [0, 30, 60] {
+    stage.pass_after(Duration::from_millis(later));
+    assert_eq!(
+      stage.fill_color("view"),
+      Some(dark(PaletteColor::Background)),
+      "the fill, {later} ms after the theme changed"
+    );
+    assert_eq!(stage.text("View source").0, dark(PaletteColor::Foreground));
+    assert_eq!(stage.fill_color("save"), Some(dark(PaletteColor::Primary)));
+  }
+
+  // What the button does itself is still a transition: under the pointer its fill is on the way.
+  stage.pass();
+  let (x, y) = stage.center("save");
+  stage.tree.mouse_move(x, y);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  let on_the_way = stage.fill_color("save").unwrap();
+  assert_ne!(on_the_way, dark(PaletteColor::Primary), "it left its fill at rest");
+  assert_ne!(
+    on_the_way,
+    dark(PaletteColor::PrimaryHover),
+    "and is not at its hover fill yet"
+  );
+}
