@@ -7,6 +7,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 mod accordion;
 mod breadcrumb;
 mod button;
+mod card;
 mod checkbox;
 mod dialog;
 mod family;
@@ -19,6 +20,7 @@ mod pagination;
 mod popover;
 mod radio;
 mod select;
+mod separator;
 mod slider;
 mod steps;
 mod switch;
@@ -248,6 +250,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
   },
   Page {
+    path: "/card",
+    name: "Card",
+    icon: None,
+    about: "card surface panel tile header title description action content footer outline elevated filled pressed interactive settings stat",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<card::CardPage>(()),
+  },
+  Page {
     path: "/tabs",
     name: "Tabs",
     icon: None,
@@ -286,6 +296,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/separator",
+    name: "Separator",
+    icon: None,
+    about: "separator divider line rule horizontal vertical label or toolbar section",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<separator::SeparatorPage>(()),
   },
 ];
 

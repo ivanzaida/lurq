@@ -3,6 +3,7 @@
 mod accordion;
 mod breadcrumb;
 mod button;
+mod card;
 mod checkbox;
 mod dialog;
 mod family;
@@ -13,6 +14,7 @@ mod pagination;
 mod popover;
 mod radio;
 mod select;
+mod separator;
 mod slider;
 mod stage;
 mod steps;
