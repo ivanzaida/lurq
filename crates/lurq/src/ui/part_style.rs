@@ -279,6 +279,8 @@ pub struct PartStyle {
   pub border: Option<Border>,
   /// A line along the bottom of the part: what a link has under the pointer.
   pub underline: Option<Border>,
+  /// A line along the start side of the part: what marks the chosen tab of a list that runs down.
+  pub start_line: Option<Border>,
   pub radius: Option<RadiusValue>,
   pub shadow: Option<BoxShadowValue>,
   /// A color laid over the part's background and under its content: the
@@ -337,6 +339,13 @@ impl PartStyle {
   /// side: the underline of a link.
   pub fn underline(mut self, line: Border) -> Self {
     self.underline = Some(line);
+    self
+  }
+
+  /// A line along the start side of the part, in place of a border on every
+  /// side: the mark of the chosen tab of a list that runs down.
+  pub fn start_line(mut self, line: Border) -> Self {
+    self.start_line = Some(line);
     self
   }
 
@@ -515,6 +524,7 @@ impl PartStyle {
       && self.foreground.is_none()
       && self.border.is_none()
       && self.underline.is_none()
+      && self.start_line.is_none()
       && self.radius.is_none()
       && self.shadow.is_none()
       && self.veil.is_none()
@@ -549,6 +559,7 @@ impl PartStyle {
       foreground,
       border,
       underline,
+      start_line,
       radius,
       shadow,
       veil,
@@ -593,6 +604,9 @@ impl PartStyle {
     }
     if let Some(line) = &self.underline {
       NodeUpdate::border_bottom(node, line.clone());
+    }
+    if let Some(line) = &self.start_line {
+      NodeUpdate::border_left(node, line.clone());
     }
     if let Some(radius) = self.radius {
       NodeUpdate::rounded(node, radius);
@@ -706,6 +720,10 @@ impl PartStyle {
     }
     if let Some(line) = &self.underline {
       style = style.border_bottom(line.clone());
+      any = true;
+    }
+    if let Some(line) = &self.start_line {
+      style = style.border_left(line.clone());
       any = true;
     }
     if let Some(radius) = self.radius {

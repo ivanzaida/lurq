@@ -35,6 +35,7 @@ mod select;
 mod shared;
 mod slider;
 mod switch;
+mod tabs;
 mod text_box;
 mod textarea;
 pub(crate) mod theme;
@@ -74,6 +75,9 @@ pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, Se
 pub use shared::{Choice, FADE_IN, FADE_OUT};
 pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use tabs::{
+  Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
+};
 pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,

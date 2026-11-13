@@ -13,6 +13,7 @@ mod popover;
 mod menu;
 mod stage;
 mod switch;
+mod tabs;
 mod textarea;
 mod theming;
 mod tooltip;
