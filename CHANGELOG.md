@@ -16,6 +16,8 @@ Breaking:
 - A disabled element hears the pointer come and go: its `on_mouse_enter` and `on_mouse_leave` run as the pointer comes onto it and leaves it, so a tooltip can say why it is disabled. They did not run. Nothing else of the pointer reaches it: it is not hovered, and no press, click or drop reaches it.
 - A modal over the whole window (`Modal::target(ModalTarget::Root)`) in a window with a `WindowChrome` covers the window under the title bar, where it covered all of it with its top under the bar: a dialog is centred in what is seen, and a veil ends at the bar. What is passed to `WindowChrome::overlay` still has all of the window.
 - An element that is disabled while it has the focus, inside a focus group, passes the focus to the element before it in the group (or the one after it) where the focus was lost.
+- An element that leaves the tree while it has the focus, inside a focus group that stays, passes the focus to the group's stop that took its place (the next or the last) where the focus was lost.
+- `BackgroundColor` has a variant more, `CurrentForeground`: a `match` on it must take it.
 - `AnimatableValue` has a variant more, `Fit { px, content }`: a `match` on it must take it.
 - `FocusAxis` has a variant more, `None`: a `match` on it must take it.
 - A single-select whose checkmark is after the label keeps the checkmark's room on the selected row only: the labels and trailing elements of the other rows run to the row's end. Every row kept an empty slot of the checkmark's width.
@@ -62,6 +64,7 @@ Added:
 - `ui::Steps`: the stages of a process in order with one current, the steps before it done with a check and a line in the primary color up to it; a description, an icon or an error on a step, in a row or in a column, and steps that are done pressed to go back to them, with Tab and the arrow keys.
 - `WindowHandle::title_bar_inset()` and `set_title_bar_inset(..)`: how much of the window's top the app's own title bar is drawn over. A `WindowChrome` sets it to the height of its title bar, and an app that draws a title bar another way sets it itself.
 - `FocusGroup::none()`: a group of no keys, which takes what is in it out of the focus group around it. That group's arrow keys pass it by and do nothing while the focus is in it: the content of an accordion's open item, between two headers.
+- `BackgroundColor::CurrentForeground`: a fill that is the foreground the element inherits, the color a text there with no color of its own is drawn in.
 - A transition of `Height` between a height in pixels and none runs to and from the height of the content (`AnimatableValue::Fit`), where the height changed at once: a panel opens and closes with its content's height.
 - `PartStyle::start_line(border)`: a line along the start side of a part, beside `underline`, and `PartStyle::min_height(length)`.
 - `lurq_inspect` reports `state.selected` for a node described with `a11y_selected`.

@@ -71,6 +71,9 @@ Row::new()
 - A text with a typography variant and no color of its own takes the foreground in place of the variant's color.
 - With no foreground above it a text keeps its typography style's color, and where that is the default text color,
   the theme's foreground: see [The theme's foreground](#the-themes-foreground).
+- A fill can be the foreground too: `.background(BackgroundColor::CurrentForeground)` paints an element in the color
+  a text there would have, its own foreground, the nearest one above it, or the theme's. A mark that is a fill, a dot
+  or a bar, goes with the text around it so. It runs no transition of the background.
 - `.foreground(...)` on a `Text` sets the color of that text.
 - A `TextInput` and Markdown draw in their own styles and do not read it.
 - The content of an overlay (a popup, a modal, a select's menu) is painted outside the element that declares it and
