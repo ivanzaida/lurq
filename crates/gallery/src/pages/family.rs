@@ -4,13 +4,13 @@
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Row},
-  core::Signal,
+  components::{Column, Placement, Row},
+  core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
   ui::{
-    Button, ButtonGroup, ButtonGroupVariant, ButtonSize, Choice, Interaction, Link, SegmentedControl, Toggle,
-    ToggleGroup, icons,
+    Button, ButtonGroup, ButtonGroupVariant, ButtonSize, Choice, Interaction, Link, Menu, MenuItem, SegmentedControl,
+    Toggle, ToggleGroup, icons,
   },
 };
 
@@ -223,10 +223,27 @@ impl Component for TogglePage {
 
 // --- Button group ---------------------------------------------------------
 
+/// A split button of the page: what its action is called, its variant, and the ways its menu offers.
+const SPLITS: [(&str, ButtonGroupVariant, &[&str]); 3] = [
+  (
+    "Merge",
+    ButtonGroupVariant::Primary,
+    &["Create a merge commit", "Squash and merge", "Rebase and merge"],
+  ),
+  ("Export", ButtonGroupVariant::Secondary, &["PNG", "SVG", "PDF"]),
+  (
+    "Delete",
+    ButtonGroupVariant::Destructive,
+    &["Delete the branch", "Delete the branch and its worktree"],
+  ),
+];
+
 pub struct ButtonGroupPage {
   frame: Frame,
   play: ButtonGroupPlay,
   zoom: Signal<u32>,
+  /// For each split button: what its menu hangs from, whether it is open, and the way that is chosen.
+  splits: [(ElementRef, Signal<bool>, Signal<usize>); 3],
 }
 
 impl Component for ButtonGroupPage {
@@ -237,6 +254,7 @@ impl Component for ButtonGroupPage {
       frame: Frame::new(ctx),
       play: ButtonGroupPlay::new(ctx),
       zoom: ctx.signal(100),
+      splits: std::array::from_fn(|_| (ElementRef::new(), ctx.signal(false), ctx.signal(0))),
     }
   }
 
@@ -267,16 +285,37 @@ impl Component for ButtonGroupPage {
           ),
         "live: each button is pressed on its own",
       ));
-    let split = |variant: ButtonGroupVariant, label: &str| {
-      ButtonGroup::new()
-        .variant(variant)
-        .child(Button::new(label))
-        .child(Button::new("How").icon(icons::CHEVRON_DOWN).icon_only(true))
-    };
-    let filled = items()
-      .child(item(split(ButtonGroupVariant::Primary, "Merge"), "primary"))
-      .child(item(split(ButtonGroupVariant::Secondary, "Export"), "secondary"))
-      .child(item(split(ButtonGroupVariant::Destructive, "Delete"), "destructive"));
+    // A split button: the action, and beside it the menu of how to do it, hung from the group's end. The
+    // group is the anchor: a button in a group takes no element ref of its own.
+    let mut filled = items();
+    for ((label, variant, ways), (anchor, open, chosen)) in SPLITS.into_iter().zip(&self.splits) {
+      let way = chosen.get().min(ways.len() - 1);
+      let mut how = Menu::new(anchor.clone(), open.clone()).placement(Placement::BottomEnd);
+      for (index, name) in ways.iter().enumerate() {
+        let pick = chosen.clone();
+        how = how.item(
+          MenuItem::new(name)
+            .checked(index == way)
+            .on_select(move || pick.set(index)),
+        );
+      }
+      let toggle = open.clone();
+      filled = filled.child(item(
+        Column::new()
+          .child(
+            Row::new().ref_element(anchor.clone()).child(
+              ButtonGroup::new().variant(variant).child(Button::new(label)).child(
+                Button::new(&format!("How to {}", label.to_lowercase()))
+                  .icon(icons::CHEVRON_DOWN)
+                  .icon_only(true)
+                  .on_click(move |_| toggle.update(|open| *open = !*open)),
+              ),
+            ),
+          )
+          .child(how),
+        &format!("will: {}", ways[way]),
+      ));
+    }
     let mut sizes = items();
     for (size, caption) in SIZES {
       sizes = sizes.child(item(
@@ -353,22 +392,35 @@ impl Component for ButtonGroupPage {
         ),
         Section::new(
           "Split button",
-          "A filled group of two: the action, and beside it what opens the choice of how to do it. What it opens \
-           is the app's: the design system has no menu yet.",
+          "A filled group of two: the action, and beside it the menu of how to do it, opened under the group from \
+           its end. Each of these opens its menu; what is chosen there is what the action will do.",
           self.frame.demo(
             1,
             filled,
             ".variant(ButtonGroupVariant::Primary)",
             &[
-              "let split = |variant: ButtonGroupVariant, label: &str| {",
+              "// anchor: ElementRef, open: Signal<bool>, way: Signal<usize>",
+              "let toggle = open.clone();",
+              "Row::new().ref_element(anchor.clone()).child(",
               "    ButtonGroup::new()",
-              "        .variant(variant)",
-              "        .child(Button::new(label))",
-              "        .child(Button::new(\"How\").icon(icons::CHEVRON_DOWN).icon_only(true))",
-              "};",
-              "split(ButtonGroupVariant::Primary, \"Merge\")",
-              "split(ButtonGroupVariant::Secondary, \"Export\")",
-              "split(ButtonGroupVariant::Destructive, \"Delete\")",
+              "        .variant(ButtonGroupVariant::Primary)",
+              "        .child(Button::new(\"Merge\"))",
+              "        .child(",
+              "            Button::new(\"How to merge\")",
+              "                .icon(icons::CHEVRON_DOWN)",
+              "                .icon_only(true)",
+              "                .on_click(move |_| toggle.update(|open| *open = !*open)),",
+              "        ),",
+              ")",
+              "",
+              "// The menu hangs from the group, at its end.",
+              "Menu::new(anchor, open)",
+              "    .placement(Placement::BottomEnd)",
+              "    .item(MenuItem::new(\"Create a merge commit\").checked(way.get() == 0).on_select(..))",
+              "    .item(MenuItem::new(\"Squash and merge\").checked(way.get() == 1).on_select(..))",
+              "    .item(MenuItem::new(\"Rebase and merge\").checked(way.get() == 2).on_select(..))",
+              "",
+              "// The same with ButtonGroupVariant::Secondary (Export) and ::Destructive (Delete).",
             ],
           ),
         ),

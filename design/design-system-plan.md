@@ -552,7 +552,7 @@ The board has eleven things that are pressed. Said on 2026-11-13: group them by 
 - **A part style has an underline**: a line along the bottom of a part, which a link has under the pointer. A border was every side.
 - **A container clips what is in it** (the engine's default), so a `Fab`'s shadow needs room in what it is put in.
 
-The arrow keys move within the groups since 14.10. A split button's second half opens nothing by itself until the menu of the overlays batch is merged.
+The arrow keys move within the groups since 14.10, and a split button opens a `ui::Menu` since 14.11.
 
 ### 14.8 Switch
 
